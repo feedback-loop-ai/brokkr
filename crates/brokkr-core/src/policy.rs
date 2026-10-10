@@ -8,8 +8,8 @@
 //!   (`PolicyError`), so a typo'd key can never silently deaden a rule;
 //! - an absent (or null) input never satisfies a condition;
 //! - a present input the vocabulary cannot read parks the evaluation
-//!   (`Outcome::NoRule` with `problem`) — never coerced, never guessed;
-//! - an unmatched (phase, result) pair parks with `problem: None`.
+//!   (`Outcome::Refused` with its `problem`) — never coerced, never guessed;
+//! - an unmatched (phase, result) pair parks as `Outcome::Unmatched`.
 
 use serde_json::{Map, Value};
 use thiserror::Error;
@@ -68,22 +68,6 @@ pub const STRATEGIES: [&str; 5] = ["chore", "feature", "design", "engine", "esca
 /// difference is the whole point of the ruling.
 pub const TABLE_SCHEMA_V1: &str = "forge.phase-machine/v1";
 pub const TABLE_SCHEMA_V2: &str = "forge.phase-machine/v2";
-
-/// The closed rule vocabulary of a `v2` table, as
-/// `contracts/phase-machine.v2.schema.json` declares it. A misspelt rule
-/// key would otherwise drop an artifact gate or a condition in silence.
-/// `v1` stays open: the frozen production table carries annotation keys.
-const RULE_KEYS_V2: [&str; 9] = [
-    "id",
-    "from",
-    "result",
-    "next",
-    "park",
-    "severity",
-    "requires_artifacts",
-    "reason",
-    "when",
-];
 
 /// Condition prefix of the phase-visit predicate (decision 0022):
 /// `visits_<phase>_gte` reads how many times the run has entered
@@ -163,11 +147,19 @@ pub fn is_identifier(value: &str) -> bool {
 pub enum PolicyError {
     /// The table's structure or closed vocabulary does not parse.
     #[error("malformed phase machine table: {0}")]
-    Malformed(String),
+    Malformed(Malformed),
     /// The table parses, and holds a finding decision 0050 refuses at load
     /// (`Machine::refuse_findings`).
     #[error("malformed phase machine table: {0}")]
     Refused(audit::Refusal),
+}
+
+/// By hand, not `#[from]`: `#[from]` makes the fault the error's source,
+/// and a `{:#}` chain would print its text a second time on stderr.
+impl From<Malformed> for PolicyError {
+    fn from(fault: Malformed) -> Self {
+        PolicyError::Malformed(fault)
+    }
 }
 
 fn severity_rank(name: &str) -> Option<usize> {
@@ -208,13 +200,15 @@ pub enum Outcome {
         requires_artifacts: Vec<String>,
     },
     /// A rule ruled a PARK (decision 0022): the run awaits the operator
-    /// with this rule's reason. Distinct from `NoRule` — the machine DID
-    /// rule; the ruling was "this one is yours".
+    /// with this rule's reason. Distinct from the two below — the machine
+    /// DID rule; the ruling was "this one is yours".
     Park { rule_id: String, reason: String },
-    /// No ruling is possible: the engine MUST park (law 0001). `problem`
-    /// None means no rule matched; Some means the machine refused to rule
-    /// (unknown phase, unreadable input).
-    NoRule { problem: Option<String> },
+    /// No rule matched: no ruling is possible, and the engine MUST park
+    /// (law 0001).
+    Unmatched,
+    /// The machine refused to rule (unknown phase, unreadable input), and
+    /// the engine MUST park (law 0001).
+    Refused { problem: Unreadable },
 }
 
 #[derive(Debug, Clone)]
@@ -241,16 +235,14 @@ impl Machine {
     /// recipe's overlay is not a whole table, so its unit tests read it
     /// here.
     fn parse(table: &Value) -> Result<Machine, PolicyError> {
-        let obj = table
-            .as_object()
-            .ok_or_else(|| PolicyError::Malformed("table must be an object".into()))?;
+        let obj = table.as_object().ok_or(Malformed::NotAnObject)?;
         let (phases, initial, terminal) = parse_header(obj)?;
-        let shippable_from = match obj.get("shippable_from") {
-            Some(v) => string_array(v, "shippable_from")?,
+        let shippable_from = match obj.get(TableKey::ShippableFrom.field()) {
+            Some(v) => string_array(v, Place::Table(TableKey::ShippableFrom))?,
             None => Vec::new(),
         };
         let schema = obj.get("schema").and_then(Value::as_str);
-        let rules = parse_rules(&obj["rules"], &phases, &terminal, schema)?;
+        let rules = parse_rules(&obj[TableKey::Rules.field()], &phases, &terminal, schema)?;
         Ok(Machine {
             phases,
             initial,
@@ -264,8 +256,8 @@ impl Machine {
     /// property of table AUTHORING, preserved here by strict ordering).
     pub fn evaluate(&self, phase: &str, result: &str, inputs: &Map<String, Value>) -> Outcome {
         if !self.phases.iter().any(|p| p == phase) {
-            return Outcome::NoRule {
-                problem: Some(format!("unknown phase '{phase}'")),
+            return Outcome::Refused {
+                problem: Unreadable::UnknownPhase(phase.to_string()),
             };
         }
         for rule in &self.rules {
@@ -289,14 +281,10 @@ impl Machine {
                         },
                     }
                 }
-                Err(problem) => {
-                    return Outcome::NoRule {
-                        problem: Some(problem),
-                    }
-                }
+                Err(problem) => return Outcome::Refused { problem },
             }
         }
-        Outcome::NoRule { problem: None }
+        Outcome::Unmatched
     }
 
     /// The phases whose visit counts the rules of `from` read (decision
@@ -333,43 +321,43 @@ impl Machine {
     }
 }
 
-fn string_array(value: &Value, what: &str) -> Result<Vec<String>, PolicyError> {
-    value
-        .as_array()
-        .ok_or_else(|| PolicyError::Malformed(format!("{what} must be an array")))?
+fn string_array(value: &Value, place: Place) -> Result<Vec<String>, Malformed> {
+    let Some(entries) = value.as_array() else {
+        return Err(Malformed::NotAnArray(place));
+    };
+    entries
         .iter()
-        .map(|v| {
-            v.as_str()
-                .map(str::to_string)
-                .ok_or_else(|| PolicyError::Malformed(format!("{what} entries must be strings")))
-        })
-        .collect()
+        .map(|v| v.as_str().map(str::to_string))
+        .collect::<Option<Vec<String>>>()
+        .ok_or(Malformed::NotStrings(place))
 }
 
 /// A table's header: the four keys it must hold, its phases, the initial
 /// phase among them and its terminal phases among them.
-fn parse_header(
-    obj: &Map<String, Value>,
-) -> Result<(Vec<String>, String, Vec<String>), PolicyError> {
-    for key in ["phases", "initial", "terminal", "rules"] {
-        if !obj.contains_key(key) {
-            return Err(PolicyError::Malformed(format!("table missing '{key}'")));
+fn parse_header(obj: &Map<String, Value>) -> Result<(Vec<String>, String, Vec<String>), Malformed> {
+    for key in TableKey::REQUIRED {
+        if !obj.contains_key(key.field()) {
+            return Err(Malformed::MissingKey(key));
         }
     }
-    let phases = string_array(&obj["phases"], "phases")?;
-    let initial = obj["initial"]
+    let phases = string_array(
+        &obj[TableKey::Phases.field()],
+        Place::Table(TableKey::Phases),
+    )?;
+    let initial = obj[TableKey::Initial.field()]
         .as_str()
-        .ok_or_else(|| PolicyError::Malformed("initial must be a string".into()))?
+        .ok_or(Malformed::InitialNotAString)?
         .to_string();
     if !phases.contains(&initial) {
-        return Err(PolicyError::Malformed("initial phase not in phases".into()));
+        return Err(Malformed::InitialUnknown);
     }
-    let terminal = string_array(&obj["terminal"], "terminal")?;
+    let terminal = string_array(
+        &obj[TableKey::Terminal.field()],
+        Place::Table(TableKey::Terminal),
+    )?;
     for t in &terminal {
         if !phases.contains(t) {
-            return Err(PolicyError::Malformed(format!(
-                "terminal phase '{t}' not in phases"
-            )));
+            return Err(Malformed::TerminalUnknown(t.clone()));
         }
     }
     Ok((phases, initial, terminal))
@@ -382,29 +370,26 @@ fn parse_rules(
     phases: &[String],
     terminal: &[String],
     schema: Option<&str>,
-) -> Result<Vec<Rule>, PolicyError> {
+) -> Result<Vec<Rule>, Malformed> {
     let raw_rules = raw_rules
         .as_array()
-        .ok_or_else(|| PolicyError::Malformed("rules must be an array".into()))?;
+        .ok_or(Malformed::NotAnArray(Place::Table(TableKey::Rules)))?;
     let mut rules = Vec::with_capacity(raw_rules.len());
     let mut seen_ids: Vec<String> = Vec::new();
     let mut ruled_unconditionally: Vec<(String, String)> = Vec::new();
     for raw in raw_rules {
         let rule = parse_rule(raw, phases, terminal, schema)?;
         if seen_ids.contains(&rule.id) {
-            return Err(PolicyError::Malformed(format!(
-                "duplicate rule id {}",
-                rule.id
-            )));
+            return Err(Malformed::DuplicateId(rule.id));
         }
         seen_ids.push(rule.id.clone());
         let group = (rule.from.clone(), rule.result.clone());
         if ruled_unconditionally.contains(&group) {
-            return Err(PolicyError::Malformed(format!(
-                "rule {} is unreachable: an unconditional rule for \
-                 ({}, {}) precedes it and first match wins",
-                rule.id, rule.from, rule.result
-            )));
+            return Err(Malformed::Unreachable {
+                rule: rule.id,
+                from: rule.from,
+                result: rule.result,
+            });
         }
         if rule.when.is_empty() {
             ruled_unconditionally.push(group);
@@ -420,109 +405,100 @@ fn parse_rule(
     phases: &[String],
     terminal: &[String],
     schema: Option<&str>,
-) -> Result<Rule, PolicyError> {
-    let obj = raw
-        .as_object()
-        .ok_or_else(|| PolicyError::Malformed("rule must be an object".into()))?;
-    let field = |key: &str| -> Result<String, PolicyError> {
-        obj.get(key)
+) -> Result<Rule, Malformed> {
+    let obj = raw.as_object().ok_or(Malformed::RuleNotAnObject)?;
+    let get = |key: RuleKey| obj.get(key.field());
+    let field = |key: RuleKey| -> Result<String, Malformed> {
+        get(key)
             .and_then(Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| {
-                PolicyError::Malformed(format!(
-                    "rule {} missing '{key}'",
-                    obj.get("id").and_then(Value::as_str).unwrap_or("?")
-                ))
+            .ok_or_else(|| Malformed::MissingField {
+                rule: get(RuleKey::Id).and_then(Value::as_str).map(str::to_string),
+                key,
             })
     };
-    let id = field("id")?;
-    let from = field("from")?;
-    let result = field("result")?;
-    let reason = field("reason")?;
+    let id = field(RuleKey::Id)?;
+    let from = field(RuleKey::From)?;
+    let result = field(RuleKey::Result)?;
+    let reason = field(RuleKey::Reason)?;
     if schema == Some(TABLE_SCHEMA_V2) {
-        if let Some(key) = obj.keys().find(|key| !RULE_KEYS_V2.contains(&key.as_str())) {
-            return Err(PolicyError::Malformed(format!(
-                "rule {id} declares '{key}', which is not {TABLE_SCHEMA_V2} rule \
-                 vocabulary"
-            )));
+        let known = |key: &String| RuleKey::ALL.iter().any(|k| k.field() == key);
+        if let Some(key) = obj.keys().find(|key| !known(key)) {
+            return Err(Malformed::UnknownRuleKey {
+                rule: id,
+                key: key.clone(),
+            });
         }
     }
     // A rule either advances the run or parks it — never both, never
     // neither. `park` is v2 vocabulary and the table must declare it:
     // a park read out of a table calling itself v1 would be a ruling
     // nobody reviewed (decision 0022).
-    let parks = match obj.get("park") {
+    let parks = match get(RuleKey::Park) {
         None => false,
         Some(Value::Bool(true)) => true,
         Some(other) => {
-            return Err(PolicyError::Malformed(format!(
-                "rule {id}: 'park' must be true when present, got {other}; a park \
-                 is a ruling, not a switch to leave off"
-            )))
+            return Err(Malformed::ParkNotTrue {
+                rule: id,
+                written: other.to_string(),
+            })
         }
     };
-    let next = match (parks, obj.get("next")) {
-        (false, _) => Some(field("next")?),
+    let next = match (parks, get(RuleKey::Next)) {
+        (false, _) => Some(field(RuleKey::Next)?),
         (true, None) => None,
-        (true, Some(_)) => {
-            return Err(PolicyError::Malformed(format!(
-                "rule {id} both parks and names a next phase; a parked run takes \
-                 no transition"
-            )))
-        }
+        (true, Some(_)) => return Err(Malformed::ParkAndNext(id)),
     };
     if parks {
         if schema != Some(TABLE_SCHEMA_V2) {
-            return Err(PolicyError::Malformed(format!(
-                "rule {id} parks, which is {TABLE_SCHEMA_V2} vocabulary, but the \
-                 table declares {}",
-                schema.unwrap_or("no schema")
-            )));
+            return Err(Malformed::ParkOutsideV2 {
+                rule: id,
+                schema: schema.map(str::to_string),
+            });
         }
-        for forbidden in ["severity", "requires_artifacts"] {
-            if obj.contains_key(forbidden) {
-                return Err(PolicyError::Malformed(format!(
-                    "rule {id} parks and declares '{forbidden}'; a park takes no \
-                     transition, so it has neither a ruling severity nor an \
-                     artifact gate"
-                )));
+        for forbidden in [RuleKey::Severity, RuleKey::RequiresArtifacts] {
+            if get(forbidden).is_some() {
+                return Err(Malformed::ParkDeclares {
+                    rule: id,
+                    key: forbidden,
+                });
             }
         }
     }
     if !phases.contains(&from) || next.as_ref().is_some_and(|next| !phases.contains(next)) {
-        return Err(PolicyError::Malformed(format!(
-            "rule {id} references unknown phase"
-        )));
+        return Err(Malformed::UnknownPhase(id));
     }
     if terminal.contains(&from) {
-        return Err(PolicyError::Malformed(format!(
-            "rule {id} leaves terminal phase '{from}'"
-        )));
+        return Err(Malformed::LeavesTerminal {
+            rule: id,
+            phase: from,
+        });
     }
-    let severity = match obj.get("severity") {
+    let severity = match get(RuleKey::Severity) {
         None => "normal".to_string(),
         Some(v) => {
-            let s = v.as_str().ok_or_else(|| {
-                PolicyError::Malformed(format!("rule {id} severity must be a string"))
-            })?;
+            let s = v
+                .as_str()
+                .ok_or_else(|| Malformed::SeverityNotAString(id.clone()))?;
             if !RULING_SEVERITIES.contains(&s) {
-                return Err(PolicyError::Malformed(format!(
-                    "rule {id} severity '{s}' not in {RULING_SEVERITIES:?}"
-                )));
+                return Err(Malformed::UnknownSeverity {
+                    rule: id,
+                    severity: s.to_string(),
+                });
             }
             s.to_string()
         }
     };
-    let requires_artifacts = match obj.get("requires_artifacts") {
+    let requires_artifacts = match get(RuleKey::RequiresArtifacts) {
         None => Vec::new(),
-        Some(v) => string_array(v, &format!("rule {id} requires_artifacts"))?,
+        Some(v) => string_array(v, Place::Artifacts { rule: id.clone() })?,
     };
-    let when = match obj.get("when") {
+    let when = match get(RuleKey::When) {
         None => Vec::new(),
         Some(v) => {
-            let map = v.as_object().ok_or_else(|| {
-                PolicyError::Malformed(format!("rule {id} 'when' must be an object"))
-            })?;
+            let map = v
+                .as_object()
+                .ok_or_else(|| Malformed::WhenNotAnObject(id.clone()))?;
             let mut conditions = Vec::with_capacity(map.len());
             for (key, expected) in map {
                 conditions.push(parse_condition(&id, key, expected, phases)?);
@@ -549,19 +525,22 @@ fn severity_threshold(
     key: &str,
     name: &str,
     expected: &Value,
-) -> Result<usize, PolicyError> {
+) -> Result<usize, Malformed> {
     if !SEVERITY_INPUTS.contains(&name) {
-        return Err(PolicyError::Malformed(format!(
-            "rule {rule_id}: unknown severity axis '{name}' in condition '{key}'; \
-             known: {SEVERITY_INPUTS:?}"
-        )));
+        return Err(Malformed::UnknownAxis {
+            rule: rule_id.to_string(),
+            name: name.to_string(),
+            key: key.to_string(),
+        });
     }
-    expected.as_str().and_then(severity_rank).ok_or_else(|| {
-        PolicyError::Malformed(format!(
-            "rule {rule_id}: condition '{key}' threshold {expected} not in \
-                 {SEVERITY_ORDER:?}"
-        ))
-    })
+    expected
+        .as_str()
+        .and_then(severity_rank)
+        .ok_or_else(|| Malformed::Unranked {
+            rule: rule_id.to_string(),
+            key: key.to_string(),
+            written: expected.to_string(),
+        })
 }
 
 /// Load-time half of the closed vocabulary: every condition names a
@@ -571,22 +550,29 @@ fn parse_condition(
     key: &str,
     expected: &Value,
     phases: &[String],
-) -> Result<Condition, PolicyError> {
+) -> Result<Condition, Malformed> {
+    let (rule, key_text) = (rule_id.to_string(), key.to_string());
     if IDENTIFIER_INPUTS.contains(&key)
         || key
             .strip_suffix("_in")
             .is_some_and(|name| IDENTIFIER_INPUTS.contains(&name))
     {
-        return Err(PolicyError::Malformed(format!(
-            "rule {rule_id}: identifier input '{key}' may be declared by a seat but never used as a condition key"
-        )));
+        return Err(Malformed::IdentifierCondition {
+            rule,
+            key: key_text,
+        });
     }
     if key == "strategy_in" || key == "drift_in" {
-        let allowed = string_array(expected, &format!("rule {rule_id} condition '{key}'"))?;
+        let place = Place::Condition {
+            rule: rule.clone(),
+            key: key_text.clone(),
+        };
+        let allowed = string_array(expected, place)?;
         if allowed.is_empty() {
-            return Err(PolicyError::Malformed(format!(
-                "rule {rule_id}: condition '{key}' needs at least one value"
-            )));
+            return Err(Malformed::NoValues {
+                rule,
+                key: key_text,
+            });
         }
         let name = if key == "strategy_in" {
             "strategy"
@@ -596,9 +582,12 @@ fn parse_condition(
         let vocabulary = vocabulary(name);
         for value in &allowed {
             if !vocabulary.contains(&value.as_str()) {
-                return Err(PolicyError::Malformed(format!(
-                    "rule {rule_id}: condition '{key}' value '{value}' not in {vocabulary:?}"
-                )));
+                return Err(Malformed::OutsideVocabulary {
+                    rule,
+                    key: key_text,
+                    value: value.clone(),
+                    vocabulary,
+                });
             }
         }
         return Ok(Condition::EnumIn {
@@ -615,16 +604,17 @@ fn parse_condition(
             .strip_prefix(VISIT_PREFIX)
             .filter(|phase| phases.iter().any(|known| known == phase));
         if !COUNTER_INPUTS.contains(&name) && visit_phase.is_none() {
-            return Err(PolicyError::Malformed(format!(
-                "rule {rule_id}: unknown counter '{name}' in condition '{key}'; \
-                 known: {COUNTER_INPUTS:?} plus '{VISIT_PREFIX}<phase>' over this \
-                 table's phases {phases:?}"
-            )));
+            return Err(Malformed::UnknownCounter {
+                rule,
+                name: name.to_string(),
+                key: key_text,
+                phases: phases.to_vec(),
+            });
         }
-        let threshold = expected.as_f64().ok_or_else(|| {
-            PolicyError::Malformed(format!(
-                "rule {rule_id}: condition '{key}' needs a numeric threshold, got {expected}"
-            ))
+        let threshold = expected.as_f64().ok_or_else(|| Malformed::NotNumeric {
+            rule,
+            key: key_text,
+            written: expected.to_string(),
         })?;
         return Ok(Condition::CounterGte {
             name: name.to_string(),
@@ -646,21 +636,20 @@ fn parse_condition(
         });
     }
     if BOOLEAN_INPUTS.contains(&key) {
-        let expected = expected.as_bool().ok_or_else(|| {
-            PolicyError::Malformed(format!(
-                "rule {rule_id}: condition '{key}' expects true/false, got {expected}"
-            ))
+        let expected = expected.as_bool().ok_or_else(|| Malformed::NotBoolean {
+            rule,
+            key: key_text.clone(),
+            written: expected.to_string(),
         })?;
         return Ok(Condition::Flag {
-            name: key.to_string(),
+            name: key_text,
             expected,
         });
     }
-    Err(PolicyError::Malformed(format!(
-        "rule {rule_id}: unknown condition key '{key}'; known: {BOOLEAN_INPUTS:?} \
-         plus strategy_in over {STRATEGIES:?}, *_gte over {COUNTER_INPUTS:?} and \
-         *_above/*_at_most over {SEVERITY_INPUTS:?}"
-    )))
+    Err(Malformed::UnknownCondition {
+        rule,
+        key: key_text,
+    })
 }
 
 /// Runtime half of the vocabulary. Absent (or null) inputs never satisfy
@@ -668,7 +657,7 @@ fn parse_condition(
 /// parks instead of coercing (law 0001). Presence requirements belong to
 /// the result schemas — the evaluator only guarantees that absence is
 /// never an advantage.
-fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<bool, String> {
+fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<bool, Unreadable> {
     for condition in when {
         match condition {
             Condition::CounterGte { name, threshold } => match inputs.get(name) {
@@ -681,21 +670,19 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
                         return Ok(false);
                     }
                 }
-                Some(other) => return Err(format!("{name} must be a number, got {other}")),
+                Some(other) => {
+                    return Err(Unreadable::NotANumber {
+                        name: name.clone(),
+                        written: other.to_string(),
+                    })
+                }
             },
             Condition::SeverityAbove {
                 name,
                 threshold_rank,
-            } => match inputs.get(name) {
-                None | Some(Value::Null) => return Ok(false),
-                Some(Value::String(s)) => match severity_rank(s) {
-                    Some(rank) if rank > *threshold_rank => {}
-                    Some(_) => return Ok(false),
-                    None => return Err(format!("{name} severity '{s}' not in {SEVERITY_ORDER:?}")),
-                },
-                Some(other) => {
-                    return Err(format!("{name} severity {other} not in {SEVERITY_ORDER:?}"))
-                }
+            } => match severity_of(name, inputs.get(name))? {
+                Some(rank) if rank > *threshold_rank => {}
+                Some(_) | None => return Ok(false),
             },
             // Fail-closed at-most: an ABSENT severity is an unknown
             // severity and never qualifies — the ruling that ships as
@@ -704,16 +691,9 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
             Condition::SeverityAtMost {
                 name,
                 threshold_rank,
-            } => match inputs.get(name) {
-                None | Some(Value::Null) => return Ok(false),
-                Some(Value::String(s)) => match severity_rank(s) {
-                    Some(rank) if rank <= *threshold_rank => {}
-                    Some(_) => return Ok(false),
-                    None => return Err(format!("{name} severity '{s}' not in {SEVERITY_ORDER:?}")),
-                },
-                Some(other) => {
-                    return Err(format!("{name} severity {other} not in {SEVERITY_ORDER:?}"))
-                }
+            } => match severity_of(name, inputs.get(name))? {
+                Some(rank) if rank <= *threshold_rank => {}
+                Some(_) | None => return Ok(false),
             },
             Condition::Flag { name, expected } => match inputs.get(name) {
                 None | Some(Value::Null) => return Ok(false),
@@ -722,23 +702,58 @@ fn conditions_met(when: &[Condition], inputs: &Map<String, Value>) -> Result<boo
                         return Ok(false);
                     }
                 }
-                Some(other) => return Err(format!("{name} must be a boolean, got {other}")),
+                Some(other) => {
+                    return Err(Unreadable::NotABoolean {
+                        name: name.clone(),
+                        written: other.to_string(),
+                    })
+                }
             },
             Condition::EnumIn { name, allowed } => match inputs.get(name) {
                 None | Some(Value::Null) => return Ok(false),
                 Some(Value::String(actual)) if !vocabulary(name).contains(&actual.as_str()) => {
-                    return Err(format!("{name} '{actual}' not in {:?}", vocabulary(name)));
+                    return Err(Unreadable::OutsideVocabulary {
+                        name: name.clone(),
+                        word: actual.clone(),
+                        vocabulary: vocabulary(name),
+                    });
                 }
                 Some(Value::String(actual)) => {
                     if !allowed.contains(actual) {
                         return Ok(false);
                     }
                 }
-                Some(other) => return Err(format!("{name} must be a string, got {other}")),
+                Some(other) => {
+                    return Err(Unreadable::NotAString {
+                        name: name.clone(),
+                        written: other.to_string(),
+                    })
+                }
             },
         }
     }
     Ok(true)
+}
+
+/// A severity input's rank, or `None` when it is absent (or null). A
+/// present word outside [`SEVERITY_ORDER`], or a value that is not a
+/// word, is refused rather than ranked.
+fn severity_of(name: &str, value: Option<&Value>) -> Result<Option<usize>, Unreadable> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(word)) => {
+            severity_rank(word)
+                .map(Some)
+                .ok_or_else(|| Unreadable::UnrankedSeverity {
+                    name: name.to_string(),
+                    word: word.clone(),
+                })
+        }
+        Some(other) => Err(Unreadable::SeverityNotAWord {
+            name: name.to_string(),
+            written: other.to_string(),
+        }),
+    }
 }
 
 /// The closed vocabulary an enumeration input's value is drawn from:
@@ -752,6 +767,9 @@ fn vocabulary(name: &str) -> &'static [&'static str] {
 }
 
 pub mod audit;
+mod errors;
+
+pub use errors::{Malformed, Place, RuleKey, TableKey, Unreadable};
 
 #[cfg(test)]
 mod tests;

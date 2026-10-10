@@ -2623,6 +2623,11 @@ impl Engine {
             }
         }
 
+        // No ruling: the pair matched no rule, or the machine refused one.
+        let unruled = |problem: String| {
+            json!({"from": phase, "result": result, "rule_id": null, "next": null,
+                   "severity": null, "inputs": inputs, "problem": problem})
+        };
         let payload = match self.bundle.machine.evaluate(&phase, &result, &inputs) {
             Outcome::Ruling {
                 rule_id,
@@ -2636,11 +2641,7 @@ impl Engine {
                 // in the workdir, probed exactly once, here, at decide
                 // time. A miss fails closed through the park path — no
                 // seat is asked, no seat attests (decision 0001).
-                let failures = if requires_artifacts.is_empty() {
-                    Vec::new()
-                } else {
-                    artifact_failures(&self.workdir(), &requires_artifacts)
-                };
+                let failures = artifact_failures(&self.workdir(), &requires_artifacts);
                 if failures.is_empty() {
                     json!({
                         "from": phase,
@@ -2655,7 +2656,7 @@ impl Engine {
                     // Severity is a property of a taken transition; none
                     // is taken. rule_id stays: the rule DID match, and
                     // that identity distinguishes a gate block from
-                    // NoRule in the journal.
+                    // an unmatched pair in the journal.
                     json!({
                         "from": phase,
                         "result": result,
@@ -2687,15 +2688,8 @@ impl Engine {
                     &reason
                 },
             }),
-            Outcome::NoRule { problem } => json!({
-                "from": phase,
-                "result": result,
-                "rule_id": null,
-                "next": null,
-                "severity": null,
-                "inputs": inputs,
-                "problem": problem.unwrap_or_else(|| "no rule matched".to_string()),
-            }),
+            Outcome::Unmatched => unruled("no rule matched".to_string()),
+            Outcome::Refused { problem } => unruled(problem.to_string()),
         };
         self.append(EventType::TransitionDecided, payload, None)?;
         Ok(())

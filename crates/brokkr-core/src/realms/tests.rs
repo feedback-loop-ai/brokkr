@@ -7,17 +7,41 @@ const MAP: &str = r#"{
   "journal": ".forge/forge.db"
 }"#;
 
-fn refusal(text: &str) -> String {
+fn refusal(text: &str) -> RealmsError {
     match RealmMap::parse("realms.json", text) {
         Ok(_) => panic!("expected {text} to be refused"),
-        Err(error) => error.to_string(),
+        Err(error) => error,
     }
 }
 
-fn with(mutate: impl Fn(&mut Value)) -> String {
+fn with(mutate: impl Fn(&mut Value)) -> RealmsError {
     let mut map: Value = serde_json::from_str(MAP).unwrap();
     mutate(&mut map);
     refusal(&map.to_string())
+}
+
+impl RealmsError {
+    /// Why `realms.json` is not usable: every map these tests refuse
+    /// this way parses.
+    fn unusable(self) -> Unusable {
+        match self {
+            RealmsError::Invalid { path, problem } if path == "realms.json" => problem,
+            other => panic!("expected realms.json to be unusable, got {other:?}"),
+        }
+    }
+
+    /// Serde's own account of why `realms.json` does not parse.
+    fn unreadable(self) -> String {
+        match self {
+            RealmsError::Malformed { path, detail } if path == "realms.json" => detail,
+            other => panic!("expected realms.json to be unreadable, got {other:?}"),
+        }
+    }
+}
+
+/// A refusal's realm and the crossing it names, as its variant holds them.
+fn crossed_at(realm: &str, crossing: &str) -> (String, String) {
+    (realm.to_string(), crossing.to_string())
 }
 
 /// The whole v1 shape, and nothing beside it: the realms with their
@@ -79,17 +103,17 @@ fn the_content_digest_ignores_formatting_but_not_facts() {
 /// `forge.realms/v2` rather than as drift inside a v1 file.
 #[test]
 fn an_unknown_field_is_refused_at_both_levels() {
-    let map = with(|map| map["driver"] = json!("claude"));
-    assert!(map.contains("not a readable realms map"), "{map}");
-    assert!(map.contains("driver"), "{map}");
+    // Serde names the field it does not know; the words are serde's own.
+    let map = with(|map| map["driver"] = json!("claude")).unreadable();
+    assert!(map.starts_with("unknown field `driver`"), "{map}");
 
-    let realm = with(|map| map["realms"][0]["egress"] = json!(["github.com"]));
-    assert!(realm.contains("egress"), "{realm}");
+    let realm = with(|map| map["realms"][0]["egress"] = json!(["github.com"])).unreadable();
+    assert!(realm.starts_with("unknown field `egress`"), "{realm}");
 }
 
 #[test]
 fn text_that_is_not_json_is_refused_naming_the_file() {
-    let refusal = refusal("realms, but not json");
+    let refusal = refusal("realms, but not json").to_string();
     assert!(
         refusal.starts_with("realms.json is not a readable"),
         "{refusal}"
@@ -98,13 +122,11 @@ fn text_that_is_not_json_is_refused_naming_the_file() {
 
 #[test]
 fn a_map_that_calls_itself_another_version_is_refused_by_name() {
-    let refusal = with(|map| map["schema"] = json!("forge.realms/v9"));
-    assert!(
-        refusal.contains("it calls itself 'forge.realms/v9'"),
-        "{refusal}"
-    );
+    let refusal = with(|map| map["schema"] = json!("forge.realms/v9")).unusable();
+    assert_eq!(refusal, Unusable::UnknownSchema("forge.realms/v9".into()));
+    let text = refusal.to_string();
     for label in SCHEMAS {
-        assert!(refusal.contains(label), "{label}: {refusal}");
+        assert!(text.contains(label), "{label}: {text}");
     }
 }
 
@@ -133,18 +155,13 @@ fn the_boundary_vocabulary_is_closed_and_lives_in_one_type() {
             )
         );
     }
-    let refusal = "chroot".parse::<Boundary>().unwrap_err().to_string();
-    assert!(
-        refusal.starts_with("'chroot' is not a boundary"),
-        "{refusal}"
-    );
-    assert!(
-        refusal.contains("namespace, seatbelt, container, harness and open"),
-        "{refusal}"
-    );
-    assert!(
-        refusal.contains("a new boundary is a new decision (decision 0046 ruling 1)"),
-        "{refusal}"
+    let refusal = "chroot".parse::<Boundary>().unwrap_err();
+    assert_eq!(refusal, BoundaryError("chroot".into()));
+    // The one place this refusal's rendered words are pinned.
+    assert_eq!(
+        refusal.to_string(),
+        "'chroot' is not a boundary; the vocabulary is namespace, seatbelt, container, harness \
+         and open, and a new boundary is a new decision (decision 0046 ruling 1)"
     );
     assert_eq!(Boundary::recorded(None), NOT_APPLICABLE);
     assert_eq!(Boundary::from_recorded(NOT_APPLICABLE), Some(None));
@@ -191,38 +208,41 @@ fn a_v4_map_declares_the_boundary_and_older_labels_refuse_it() {
     assert_eq!(v3.realms[0].boundary(), Boundary::Namespace);
 
     let under_v3 = json!({"schema": SCHEMA_V3, "realms": [realm("app", Some("harness"))], "journal": "forge.db"});
-    let held = refusal(&under_v3.to_string());
-    assert!(
-        held.contains("realm 'app' names its boundary, which is forge.realms/v4 vocabulary"),
-        "{held}"
+    assert_eq!(
+        refusal(&under_v3.to_string()).unusable(),
+        Unusable::Unversioned {
+            realm: "app".into(),
+            word: Word::Boundary,
+            schema: SCHEMA_V3.into(),
+        }
     );
-    assert!(held.contains("calling itself forge.realms/v3"), "{held}");
 
     let unknown = json!({"schema": SCHEMA_V4, "realms": [realm("app", Some("chroot"))], "journal": "forge.db"});
-    let sixth = refusal(&unknown.to_string());
-    assert!(
-        sixth.contains("realm 'app' declares boundary 'chroot' is not a boundary"),
-        "{sixth}"
-    );
-    assert!(
-        sixth.contains("namespace, seatbelt, container, harness and open"),
-        "{sixth}"
+    assert_eq!(
+        refusal(&unknown.to_string()).unusable(),
+        Unusable::Boundary {
+            realm: Some("app".into()),
+            error: BoundaryError("chroot".into()),
+        }
     );
     // A shape other than a string is the malformed-map refusal, as for
     // every other field; the word is judged only where one was written.
     let mut numbered = realm("app", None);
     numbered["boundary"] = json!(7);
     let shaped = json!({"schema": SCHEMA_V4, "realms": [numbered], "journal": "forge.db"});
-    let malformed = refusal(&shaped.to_string());
-    assert!(malformed.contains("not a readable"), "{malformed}");
+    let malformed = refusal(&shaped.to_string()).unreadable();
+    assert!(
+        malformed.starts_with("invalid type: integer `7`"),
+        "{malformed}"
+    );
 }
 
 #[test]
 fn a_map_with_nothing_in_it_is_refused() {
     let empty = with(|map| map["realms"] = json!([]));
-    assert!(empty.contains("names no realms"), "{empty}");
+    assert_eq!(empty.unusable(), Unusable::NoRealms);
     let journal = with(|map| map["journal"] = json!("  "));
-    assert!(journal.contains("journal is empty"), "{journal}");
+    assert_eq!(journal.unusable(), Unusable::EmptyJournal);
 }
 
 /// A realm name is the key its facts are journaled under, so it is held
@@ -232,8 +252,13 @@ fn a_map_with_nothing_in_it_is_refused() {
 fn a_realm_name_that_could_not_be_read_back_is_refused() {
     for bad in ["", "Brokkr-Realm", "brokkr realm", "-lead"] {
         let refusal = with(|map| map["realms"][0]["name"] = json!(bad));
-        assert!(refusal.contains("is named"), "{bad}: {refusal}");
-        assert!(refusal.contains("realm 0"), "{bad}: {refusal}");
+        assert_eq!(
+            refusal.unusable(),
+            Unusable::Name {
+                index: 0,
+                name: bad.into(),
+            }
+        );
     }
     for good in ["brokkr", "9lives", "a.b_c", "lane2"] {
         let mut map: Value = serde_json::from_str(MAP).unwrap();
@@ -246,12 +271,9 @@ fn a_realm_name_that_could_not_be_read_back_is_refused() {
 #[test]
 fn a_realm_missing_a_path_or_a_branch_is_refused() {
     let path = with(|map| map["realms"][0]["path"] = json!(""));
-    assert!(path.contains("realm 'brokkr' has no path"), "{path}");
+    assert_eq!(path.unusable(), Unusable::NoPath("brokkr".into()));
     let branch = with(|map| map["realms"][0]["default_branch"] = json!(" "));
-    assert!(
-        branch.contains("realm 'brokkr' has no default branch"),
-        "{branch}"
-    );
+    assert_eq!(branch.unusable(), Unusable::NoBranch("brokkr".into()));
 }
 
 /// Two realms under one name would make every per-realm fact ambiguous
@@ -264,7 +286,7 @@ fn a_name_used_twice_is_refused() {
             {"name": "brokkr", "path": "b", "default_branch": "main"},
         ]);
     });
-    assert!(refusal.contains("is named twice"), "{refusal}");
+    assert_eq!(refusal.unusable(), Unusable::NamedTwice("brokkr".into()));
 }
 
 // ------------------------------------- many hearths (0026 ruling 1)
@@ -316,9 +338,14 @@ fn a_v1_map_loads_unchanged_and_every_realm_resolves_to_the_worlds_journal() {
 #[test]
 fn a_v1_map_naming_a_per_realm_journal_is_refused_by_version() {
     let refusal = with(|map| map["realms"][0]["journal"] = json!("other.db"));
-    assert!(refusal.contains("names its own journal"), "{refusal}");
-    assert!(refusal.contains(SCHEMA_V2), "{refusal}");
-    assert!(refusal.contains(SCHEMA_V1), "{refusal}");
+    assert_eq!(
+        refusal.unusable(),
+        Unusable::Unversioned {
+            realm: "brokkr".into(),
+            word: Word::Journal,
+            schema: SCHEMA_V1.into(),
+        }
+    );
 }
 
 /// Closed vocabulary, at both levels, in v2 as in v1 — so decision 0021's
@@ -330,14 +357,14 @@ fn a_v2_map_refuses_unknown_fields_at_both_levels() {
         mutate(&mut map);
         match RealmMap::of("realms.json", map) {
             Ok(_) => panic!("expected a refusal"),
-            Err(error) => error.to_string(),
+            Err(error) => error.unreadable(),
         }
     };
+    // Serde names the field it does not know; the words are serde's own.
     let world = mutate(|map| map["driver"] = json!("claude"));
-    assert!(world.contains("not a readable realms map"), "{world}");
-    assert!(world.contains("driver"), "{world}");
+    assert!(world.starts_with("unknown field `driver`"), "{world}");
     let realm = mutate(|map| map["realms"][0]["egress"] = json!(["github.com"]));
-    assert!(realm.contains("egress"), "{realm}");
+    assert!(realm.starts_with("unknown field `egress`"), "{realm}");
 }
 
 /// An empty per-realm journal is the same refusal an empty world journal
@@ -346,10 +373,12 @@ fn a_v2_map_refuses_unknown_fields_at_both_levels() {
 fn a_v2_realm_with_an_empty_journal_is_refused() {
     let mut map: Value = serde_json::from_str(MANY).unwrap();
     map["realms"][0]["journal"] = json!("  ");
-    let refusal = RealmMap::of("realms.json", map).unwrap_err().to_string();
-    assert!(
-        refusal.contains("realm 'alpha' has an empty journal"),
-        "{refusal}"
+    assert_eq!(
+        RealmMap::of("realms.json", map).unwrap_err().unusable(),
+        Unusable::Empty {
+            realm: "alpha".into(),
+            word: Word::Journal,
+        }
     );
 }
 
@@ -374,15 +403,27 @@ fn a_v3_map_loads_both_realm_text_declarations_while_v2_stays_unchanged() {
 
 #[test]
 fn house_and_dialect_are_v3_vocabulary_and_may_not_be_empty() {
-    for field in ["house", "dialect"] {
+    for (field, word) in [("house", Word::House), ("dialect", Word::Dialect)] {
         let refusal = with(|map| map["realms"][0][field] = json!("value"));
-        assert!(refusal.contains(SCHEMA_V3), "{field}: {refusal}");
+        assert_eq!(
+            refusal.unusable(),
+            Unusable::Unversioned {
+                realm: "brokkr".into(),
+                word,
+                schema: SCHEMA_V1.into(),
+            }
+        );
 
         let mut v3: Value = serde_json::from_str(MAP).unwrap();
         v3["schema"] = json!(SCHEMA_V3);
         v3["realms"][0][field] = json!("  ");
-        let refusal = RealmMap::of("realms.json", v3).unwrap_err().to_string();
-        assert!(refusal.contains(&format!("empty {field}")), "{refusal}");
+        assert_eq!(
+            RealmMap::of("realms.json", v3).unwrap_err().unusable(),
+            Unusable::Empty {
+                realm: "brokkr".into(),
+                word,
+            }
+        );
     }
 }
 
@@ -399,17 +440,20 @@ fn realm_text_declarations_cannot_leave_the_repository() {
         "../house.md",
         "docs/../house.md",
     ] {
-        for field in ["house", "dialect"] {
+        for (field, word) in [("house", Word::House), ("dialect", Word::Dialect)] {
             let mut map = json!({
                 "schema": SCHEMA_V3,
                 "realms": [{"name": "app", "path": ".", "default_branch": "main"}],
                 "journal": "forge.db"
             });
             map["realms"][0][field] = json!(value);
-            let refusal = RealmMap::of("realms.json", map).unwrap_err().to_string();
-            assert!(
-                refusal.contains(&format!("non-repository-relative {field}")),
-                "{value:?}: {refusal}"
+            assert_eq!(
+                RealmMap::of("realms.json", map).unwrap_err().unusable(),
+                Unusable::Outside {
+                    realm: "app".into(),
+                    word,
+                },
+                "{value:?}"
             );
         }
     }
@@ -422,13 +466,28 @@ fn v2_holds_every_v1_rule() {
     let mutate = |mutate: fn(&mut Value)| {
         let mut map: Value = serde_json::from_str(MANY).unwrap();
         mutate(&mut map);
-        RealmMap::of("realms.json", map).unwrap_err().to_string()
+        RealmMap::of("realms.json", map).unwrap_err().unusable()
     };
-    assert!(mutate(|map| map["realms"][1]["name"] = json!("alpha")).contains("is named twice"));
-    assert!(mutate(|map| map["realms"][0]["name"] = json!("Alpha")).contains("realm 0 is named"));
-    assert!(mutate(|map| map["realms"][0]["path"] = json!(" ")).contains("has no path"));
-    assert!(mutate(|map| map["journal"] = json!("")).contains("journal is empty"));
-    assert!(mutate(|map| map["realms"] = json!([])).contains("names no realms"));
+    assert_eq!(
+        mutate(|map| map["realms"][1]["name"] = json!("alpha")),
+        Unusable::NamedTwice("alpha".into())
+    );
+    assert_eq!(
+        mutate(|map| map["realms"][0]["name"] = json!("Alpha")),
+        Unusable::Name {
+            index: 0,
+            name: "Alpha".into(),
+        }
+    );
+    assert_eq!(
+        mutate(|map| map["realms"][0]["path"] = json!(" ")),
+        Unusable::NoPath("alpha".into())
+    );
+    assert_eq!(
+        mutate(|map| map["journal"] = json!("")),
+        Unusable::EmptyJournal
+    );
+    assert_eq!(mutate(|map| map["realms"] = json!([])), Unusable::NoRealms);
 }
 
 // ------------------------------------------- crossings (decision 0057)
@@ -455,7 +514,7 @@ fn crossed() -> Value {
     })
 }
 
-fn crossing_refusal(mutate: impl Fn(&mut Value)) -> String {
+fn crossing_refusal(mutate: impl Fn(&mut Value)) -> RealmsError {
     let mut map = crossed();
     mutate(&mut map);
     refusal(&map.to_string())
@@ -561,30 +620,26 @@ fn a_v5_map_without_crossings_reads_exactly_as_a_v4_map() {
 #[test]
 fn the_crossing_lists_are_v5_vocabulary_and_older_labels_refuse_them() {
     for label in [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4] {
-        for field in ["publishes", "consumes"] {
+        for (field, word) in [("publishes", Word::Publishes), ("consumes", Word::Consumes)] {
             let written = |value: Value| {
                 with(|map| {
                     map["schema"] = json!(label);
                     map["realms"][0][field] = value.clone();
                 })
             };
-            let entry = match field {
-                "publishes" => json!([{"name": "orders.api", "path": "orders.json"}]),
+            let entry = match word {
+                Word::Publishes => json!([{"name": "orders.api", "path": "orders.json"}]),
                 _ => json!([{"name": "orders.api", "realm": "alpha", "sha256": pin()}]),
             };
             for value in [entry, json!([]), json!(null)] {
-                let refusal = written(value.clone());
-                assert!(
-                    refusal.contains(&format!("realm 'brokkr' names what it {field}")),
-                    "{label}/{field}={value}: {refusal}"
-                );
-                assert!(
-                    refusal.contains(SCHEMA_V5),
-                    "{label}/{field}={value}: {refusal}"
-                );
-                assert!(
-                    refusal.contains(&format!("calling itself {label}")),
-                    "{label}/{field}={value}: {refusal}"
+                assert_eq!(
+                    written(value.clone()).unusable(),
+                    Unusable::Unversioned {
+                        realm: "brokkr".into(),
+                        word,
+                        schema: label.into(),
+                    },
+                    "{label}/{field}={value}"
                 );
             }
         }
@@ -598,19 +653,14 @@ fn the_crossing_lists_are_v5_vocabulary_and_older_labels_refuse_them() {
 /// validator would.
 #[test]
 fn a_crossing_list_written_as_null_is_refused_rather_than_read_as_absent() {
-    for field in ["publishes", "consumes"] {
+    for (field, word) in [("publishes", Word::Publishes), ("consumes", Word::Consumes)] {
         let refusal = crossing_refusal(|map| map["realms"][1][field] = json!(null));
-        assert!(
-            refusal.contains(&format!("realm 'beta' writes {field} as null")),
-            "{field}: {refusal}"
-        );
-        assert!(
-            refusal.contains("a crossing list is an array"),
-            "{field}: {refusal}"
-        );
-        assert!(
-            refusal.contains("leaves the word out"),
-            "{field}: {refusal}"
+        assert_eq!(
+            refusal.unusable(),
+            Unusable::NullList {
+                realm: "beta".into(),
+                word,
+            }
         );
     }
     // Told apart from absence where it is read, and not by the accessor:
@@ -635,26 +685,27 @@ fn a_crossing_list_written_as_null_is_refused_rather_than_read_as_absent() {
 fn a_published_crossing_is_a_named_file_inside_its_own_realm() {
     let bad_name =
         crossing_refusal(|map| map["realms"][0]["publishes"][0]["name"] = json!("Orders"));
-    assert!(
-        bad_name.contains("realm 'alpha' publishes a crossing named 'Orders'"),
-        "{bad_name}"
+    let (realm, crossing) = crossed_at("alpha", "Orders");
+    assert_eq!(
+        bad_name.unusable(),
+        Unusable::CrossingName { realm, crossing }
     );
-    assert!(bad_name.contains("lowercase letters"), "{bad_name}");
 
     let empty = crossing_refusal(|map| map["realms"][0]["publishes"][0]["path"] = json!("  "));
-    assert!(
-        empty.contains("realm 'alpha' publishes crossing 'orders.api' with no path"),
-        "{empty}"
+    let (realm, crossing) = crossed_at("alpha", "orders.api");
+    assert_eq!(
+        empty.unusable(),
+        Unusable::NoCrossingPath { realm, crossing }
     );
 
     for outside in ["/orders.json", "C:orders.json", "../orders.json"] {
         let escape =
             crossing_refusal(|map| map["realms"][0]["publishes"][0]["path"] = json!(outside));
-        assert!(
-            escape.contains(
-                "realm 'alpha' publishes crossing 'orders.api' from a non-repository-relative path"
-            ),
-            "{outside}: {escape}"
+        let (realm, crossing) = crossed_at("alpha", "orders.api");
+        assert_eq!(
+            escape.unusable(),
+            Unusable::CrossingOutside { realm, crossing },
+            "{outside}"
         );
     }
 }
@@ -666,12 +717,14 @@ fn a_published_crossing_is_a_named_file_inside_its_own_realm() {
 #[test]
 fn a_crossing_consumed_from_a_realm_the_world_does_not_hold_is_refused() {
     let refusal = crossing_refusal(|map| map["realms"][1]["consumes"][0]["realm"] = json!("gamma"));
-    assert!(
-        refusal.contains(
-            "realm 'beta' consumes crossing 'orders.api' from realm 'gamma', \
-             which this world does not hold"
-        ),
-        "{refusal}"
+    let (realm, crossing) = crossed_at("beta", "orders.api");
+    assert_eq!(
+        refusal.unusable(),
+        Unusable::NoPublisher {
+            realm,
+            crossing,
+            publisher: "gamma".into(),
+        }
     );
 }
 
@@ -681,11 +734,14 @@ fn a_crossing_consumed_from_a_realm_the_world_does_not_hold_is_refused() {
 fn a_crossing_its_realm_does_not_publish_is_refused() {
     let unnamed =
         crossing_refusal(|map| map["realms"][1]["consumes"][0]["name"] = json!("invoices.api"));
-    assert!(
-        unnamed.contains(
-            "realm 'beta' consumes crossing 'invoices.api', which realm 'alpha' does not publish"
-        ),
-        "{unnamed}"
+    let (realm, crossing) = crossed_at("beta", "invoices.api");
+    assert_eq!(
+        unnamed.unusable(),
+        Unusable::Unpublished {
+            realm,
+            crossing,
+            publisher: "alpha".into(),
+        }
     );
     let publishes_nothing = crossing_refusal(|map| {
         map["realms"][0]
@@ -693,9 +749,14 @@ fn a_crossing_its_realm_does_not_publish_is_refused() {
             .unwrap()
             .remove("publishes");
     });
-    assert!(
-        publishes_nothing.contains("which realm 'alpha' does not publish"),
-        "{publishes_nothing}"
+    let (realm, crossing) = crossed_at("beta", "orders.api");
+    assert_eq!(
+        publishes_nothing.unusable(),
+        Unusable::Unpublished {
+            realm,
+            crossing,
+            publisher: "alpha".into(),
+        }
     );
 }
 
@@ -711,9 +772,10 @@ fn a_crossing_name_is_used_once_in_each_list() {
             {"name": "orders.api", "path": "contracts/orders.v2.schema.json"},
         ]);
     });
-    assert!(
-        published.contains("realm 'alpha' publishes a crossing named 'orders.api' twice"),
-        "{published}"
+    let (realm, crossing) = crossed_at("alpha", "orders.api");
+    assert_eq!(
+        published.unusable(),
+        Unusable::PublishedTwice { realm, crossing }
     );
     let consumed = crossing_refusal(|map| {
         map["realms"][1]["consumes"] = json!([
@@ -721,9 +783,10 @@ fn a_crossing_name_is_used_once_in_each_list() {
             {"name": "orders.api", "realm": "alpha", "sha256": crate::canonical::ZERO_HASH},
         ]);
     });
-    assert!(
-        consumed.contains("realm 'beta' consumes a crossing named 'orders.api' twice"),
-        "{consumed}"
+    let (realm, crossing) = crossed_at("beta", "orders.api");
+    assert_eq!(
+        consumed.unusable(),
+        Unusable::ConsumedTwice { realm, crossing }
     );
 }
 
@@ -742,13 +805,14 @@ fn a_pin_that_is_not_a_sha256_is_refused() {
     ] {
         let refusal =
             crossing_refusal(|map| map["realms"][1]["consumes"][0]["sha256"] = json!(bad));
-        assert!(
-            refusal.contains("realm 'beta' pins crossing 'orders.api' at"),
-            "{bad}: {refusal}"
-        );
-        assert!(
-            refusal.contains("64 lowercase hex characters over the published file's raw bytes"),
-            "{bad}: {refusal}"
+        let (realm, crossing) = crossed_at("beta", "orders.api");
+        assert_eq!(
+            refusal.unusable(),
+            Unusable::Pin {
+                realm,
+                crossing,
+                pin: bad.into(),
+            }
         );
     }
     assert!(crate::canonical::is_sha256_hex(&pin()));
@@ -764,13 +828,10 @@ fn a_realm_does_not_consume_its_own_crossing() {
         map["realms"][0]["consumes"] =
             json!([{"name": "orders.api", "realm": "alpha", "sha256": pin()}]);
     });
-    assert!(
-        refusal.contains("realm 'alpha' consumes crossing 'orders.api' from itself"),
-        "{refusal}"
-    );
-    assert!(
-        refusal.contains("a crossing is between realms"),
-        "{refusal}"
+    let (realm, crossing) = crossed_at("alpha", "orders.api");
+    assert_eq!(
+        refusal.unusable(),
+        Unusable::ConsumesItself { realm, crossing }
     );
 }
 
@@ -788,8 +849,8 @@ fn a_crossing_entry_refuses_unknown_and_missing_fields() {
         ),
         (json!({"name": "orders.api"}), "path"),
     ] {
-        let refusal = crossing_refusal(|map| map["realms"][0]["publishes"][0] = mutate.clone());
-        assert!(refusal.contains("not a readable realms map"), "{refusal}");
+        let refusal =
+            crossing_refusal(|map| map["realms"][0]["publishes"][0] = mutate.clone()).unreadable();
         assert!(refusal.contains(expected), "{refusal}");
     }
     for (mutate, expected) in [
@@ -799,8 +860,8 @@ fn a_crossing_entry_refuses_unknown_and_missing_fields() {
         ),
         (json!({"name": "orders.api", "realm": "alpha"}), "sha256"),
     ] {
-        let refusal = crossing_refusal(|map| map["realms"][1]["consumes"][0] = mutate.clone());
-        assert!(refusal.contains("not a readable realms map"), "{refusal}");
+        let refusal =
+            crossing_refusal(|map| map["realms"][1]["consumes"][0] = mutate.clone()).unreadable();
         assert!(refusal.contains(expected), "{refusal}");
     }
 }
@@ -816,18 +877,41 @@ fn every_earlier_map_still_loads_and_v5_holds_every_earlier_rule() {
     assert!(older_than(SCHEMA_V1, SCHEMA_V5));
     assert!(!older_than(SCHEMA_V5, SCHEMA_V5));
     assert!(!older_than(SCHEMA_V5, SCHEMA_V1));
-    let mutate = |mutate: fn(&mut Value)| {
+    let mutate_with = |mutate: fn(&mut Value)| {
         let mut map = crossed();
         mutate(&mut map);
-        RealmMap::of("realms.json", map).unwrap_err().to_string()
+        RealmMap::of("realms.json", map).unwrap_err()
     };
-    assert!(mutate(|map| map["realms"][1]["name"] = json!("alpha")).contains("is named twice"));
-    assert!(mutate(|map| map["realms"][0]["name"] = json!("Alpha")).contains("realm 0 is named"));
-    assert!(mutate(|map| map["realms"][0]["path"] = json!(" ")).contains("has no path"));
-    assert!(mutate(|map| map["realms"][1]["default_branch"] = json!("")).contains("no default"));
-    assert!(mutate(|map| map["journal"] = json!("")).contains("journal is empty"));
-    assert!(mutate(|map| map["realms"] = json!([])).contains("names no realms"));
-    assert!(mutate(|map| map["realms"][0]["saga"] = json!("x")).contains("saga"));
+    let unusable = |mutate: fn(&mut Value)| mutate_with(mutate).unusable();
+    assert_eq!(
+        unusable(|map| map["realms"][1]["name"] = json!("alpha")),
+        Unusable::NamedTwice("alpha".into())
+    );
+    assert_eq!(
+        unusable(|map| map["realms"][0]["name"] = json!("Alpha")),
+        Unusable::Name {
+            index: 0,
+            name: "Alpha".into(),
+        }
+    );
+    assert_eq!(
+        unusable(|map| map["realms"][0]["path"] = json!(" ")),
+        Unusable::NoPath("alpha".into())
+    );
+    assert_eq!(
+        unusable(|map| map["realms"][1]["default_branch"] = json!("")),
+        Unusable::NoBranch("beta".into())
+    );
+    assert_eq!(
+        unusable(|map| map["journal"] = json!("")),
+        Unusable::EmptyJournal
+    );
+    assert_eq!(
+        unusable(|map| map["realms"] = json!([])),
+        Unusable::NoRealms
+    );
+    let saga = mutate_with(|map| map["realms"][0]["saga"] = json!("x")).unreadable();
+    assert!(saga.starts_with("unknown field `saga`"), "{saga}");
 }
 
 /// The fold-side law: a journal written before any map recorded one
@@ -974,12 +1058,12 @@ fn capabilities_are_refused_under_every_older_version_even_written_empty() {
             let mut map: Value = serde_json::from_str(&v6(Some(written))).unwrap();
             map["schema"] = json!(label);
             assert_eq!(
-                refusal(&map.to_string()),
-                format!(
-                    "realms.json is not a usable realms map: realm 'private' names its \
-                     capabilities, which is forge.realms/v6 vocabulary in a map calling itself \
-                     {label}"
-                )
+                refusal(&map.to_string()).unusable(),
+                Unusable::Unversioned {
+                    realm: "private".into(),
+                    word: Word::Capabilities,
+                    schema: (*label).into(),
+                }
             );
         }
     }
@@ -1035,7 +1119,10 @@ fn a_malformed_grant_is_refused_naming_the_realm_the_capability_and_the_field() 
              a list of distinct non-empty strings, and leaving it out is how a grant says all",
         ),
     ] {
-        assert_eq!(refusal(&v6(Some(written))), format!("{usable}{problem}"));
+        assert_eq!(
+            refusal(&v6(Some(written))).to_string(),
+            format!("{usable}{problem}")
+        );
     }
 }
 
@@ -1045,7 +1132,7 @@ fn a_malformed_grant_is_refused_naming_the_realm_the_capability_and_the_field() 
 fn a_v6_map_refuses_a_key_written_twice_and_an_older_map_reads_as_it_did() {
     let twice = r#"{"schema":"forge.realms/v6","realms":[{"name":"private","path":"repo","default_branch":"main","capabilities":{"web-search":{"dialect":"a"},"web-search":{"dialect":"b"}}}],"journal":"forge.db"}"#;
     assert_eq!(
-        refusal(twice),
+        refusal(twice).to_string(),
         "realms.json is not a readable realms map: key 'web-search' is written twice at line 1 \
          column 168"
     );
@@ -1087,35 +1174,22 @@ fn a_v7_map_lists_the_provisional_offices_and_an_absent_list_is_none() {
     assert_eq!(unwritten.provisional_offices, [] as [&str; 0]);
 
     let refused = |offices: Value| listed(offices).unwrap_err();
-    let null = refused(Value::Null);
-    assert_eq!(
-        null,
-        invalid(
-            "it writes provisional_offices as null; the list is an array, and a map that lists \
-             no office leaves the word out"
-        )
-    );
-    // The one place this refusal's rendered words are pinned.
-    assert_eq!(
-        null.to_string(),
-        "realms.json is not a usable realms map: it writes provisional_offices as null; the \
-         list is an array, and a map that lists no office leaves the word out"
-    );
+    assert_eq!(refused(Value::Null), invalid(Unusable::ProvisionalNull));
     assert_eq!(
         refused(json!(["researcher", " "])),
-        invalid("provisional office 1 is empty")
+        invalid(Unusable::EmptyOffice(1))
     );
     assert_eq!(
         refused(json!(["researcher", "researcher"])),
-        invalid("provisional office 'researcher' is listed twice")
+        invalid(Unusable::OfficeTwice("researcher".into()))
     );
 }
 
-/// The refusal `realms.json` earns for `problem`, as its variant holds it.
-fn invalid(problem: &str) -> RealmsError {
+/// The refusal `realms.json` earns for `problem`.
+fn invalid(problem: Unusable) -> RealmsError {
     RealmsError::Invalid {
         path: "realms.json".to_string(),
-        problem: problem.to_string(),
+        problem,
     }
 }
 
@@ -1131,10 +1205,7 @@ fn provisional_offices_under_an_older_label_are_refused_by_version() {
             map["provisional_offices"] = written.clone();
             assert_eq!(
                 RealmMap::parse("realms.json", &map.to_string()).unwrap_err(),
-                invalid(&format!(
-                    "it names provisional offices, which is forge.realms/v7 vocabulary in a map \
-                     calling itself {label}"
-                ))
+                invalid(Unusable::ProvisionalUnversioned((*label).into()))
             );
         }
     }
@@ -1142,11 +1213,7 @@ fn provisional_offices_under_an_older_label_are_refused_by_version() {
     map["schema"] = json!("forge.realms/v0");
     assert_eq!(
         RealmMap::parse("realms.json", &map.to_string()).unwrap_err(),
-        invalid(
-            "it calls itself 'forge.realms/v0'; this build reads forge.realms/v1, \
-             forge.realms/v2, forge.realms/v3, forge.realms/v4, forge.realms/v5, forge.realms/v6, \
-             forge.realms/v7 and forge.realms/v8"
-        )
+        invalid(Unusable::UnknownSchema("forge.realms/v0".into()))
     );
 }
 
@@ -1171,11 +1238,325 @@ fn a_v7_map_without_the_list_reads_exactly_as_v6() {
         .replace("/v1", "/v7")
         .replace("\"journal\"", "\"journal\": \"a.db\", \"journal\"");
     assert_eq!(
-        refusal(&journal_twice),
+        refusal(&journal_twice).to_string(),
         "realms.json is not a readable realms map: key 'journal' is written twice at line 5 \
          column 1"
     );
     // The same text under v1 keeps the last-wins reading it always had.
     let (older, _) = RealmMap::parse("realms.json", &journal_twice.replace("/v7", "/v1")).unwrap();
     assert_eq!(older.journal, ".forge/forge.db");
+}
+
+/// One refused map, the variant it earns, and that variant's bytes.
+type Refused = (RealmsError, Unusable, &'static str);
+
+/// The v1 map relabelled `schema`, then `mutate`d, as refused.
+fn labelled(schema: &str, mutate: impl Fn(&mut Value)) -> RealmsError {
+    with(|map| {
+        map["schema"] = json!(schema);
+        mutate(map);
+    })
+}
+
+/// The map's version, the world's fields and each realm's own words.
+fn world_refusals() -> Vec<Refused> {
+    let unversioned = |word: Word, schema: &str| Unusable::Unversioned {
+        realm: "brokkr".into(),
+        word,
+        schema: schema.into(),
+    };
+    let chroot = || BoundaryError("chroot".into());
+    vec![
+        (
+            labelled(SCHEMA_V4, |m| m["realms"][0]["boundary"] = json!("chroot")),
+            Unusable::Boundary {
+                realm: Some("brokkr".into()),
+                error: chroot(),
+            },
+            "realm 'brokkr' declares boundary 'chroot' is not a boundary; the vocabulary is \
+             namespace, seatbelt, container, harness and open, and a new boundary is a new \
+             decision (decision 0046 ruling 1)",
+        ),
+        (
+            labelled(SCHEMA_V4, |m| {
+                m["realms"][0]["boundary"] = json!("chroot");
+                m["realms"][0]["name"] = json!(7);
+            }),
+            Unusable::Boundary {
+                realm: None,
+                error: chroot(),
+            },
+            "realm '?' declares boundary 'chroot' is not a boundary; the vocabulary is \
+             namespace, seatbelt, container, harness and open, and a new boundary is a new \
+             decision (decision 0046 ruling 1)",
+        ),
+        (
+            with(|m| m["schema"] = json!("forge.realms/v9")),
+            Unusable::UnknownSchema("forge.realms/v9".into()),
+            "it calls itself 'forge.realms/v9'; this build reads forge.realms/v1, forge.realms/v2, \
+             forge.realms/v3, forge.realms/v4, forge.realms/v5, forge.realms/v6, forge.realms/v7 \
+             and forge.realms/v8",
+        ),
+        (
+            labelled(SCHEMA_V5, |m| m["realms"][0]["capabilities"] = json!({})),
+            unversioned(Word::Capabilities, SCHEMA_V5),
+            "realm 'brokkr' names its capabilities, which is forge.realms/v6 vocabulary in a map \
+             calling itself forge.realms/v5",
+        ),
+        (with(|m| m["realms"] = json!([])), Unusable::NoRealms, "it names no realms"),
+        (with(|m| m["journal"] = json!(" ")), Unusable::EmptyJournal, "its journal is empty"),
+        (
+            with(|m| m["realms"][0]["name"] = json!("Brokkr")),
+            Unusable::Name {
+                index: 0,
+                name: "Brokkr".into(),
+            },
+            "realm 0 is named 'Brokkr'; a realm name is lowercase letters, digits, '.', '_' and \
+             '-', starting with a letter or digit",
+        ),
+        (
+            with(|m| m["realms"][0]["path"] = json!("")),
+            Unusable::NoPath("brokkr".into()),
+            "realm 'brokkr' has no path",
+        ),
+        (
+            with(|m| m["realms"][0]["default_branch"] = json!("")),
+            Unusable::NoBranch("brokkr".into()),
+            "realm 'brokkr' has no default branch",
+        ),
+        (
+            with(|m| {
+                let realm = m["realms"][0].clone();
+                m["realms"].as_array_mut().unwrap().push(realm);
+            }),
+            Unusable::NamedTwice("brokkr".into()),
+            "realm 'brokkr' is named twice",
+        ),
+        (
+            with(|m| m["realms"][0]["journal"] = json!("x.db")),
+            unversioned(Word::Journal, SCHEMA_V1),
+            "realm 'brokkr' names its own journal, which is forge.realms/v2 vocabulary in a map \
+             calling itself forge.realms/v1",
+        ),
+        (
+            labelled(SCHEMA_V3, |m| m["realms"][0]["boundary"] = json!("open")),
+            unversioned(Word::Boundary, SCHEMA_V3),
+            "realm 'brokkr' names its boundary, which is forge.realms/v4 vocabulary in a map \
+             calling itself forge.realms/v3",
+        ),
+    ]
+}
+
+/// The realm text words, and what a realm says about its crossings.
+fn word_refusals() -> Vec<Refused> {
+    let in_v3 = |field: &str, written: &str| {
+        let written = json!(written);
+        labelled(SCHEMA_V3, move |m| m["realms"][0][field] = written.clone())
+    };
+    let (realm, word) = ("brokkr".to_string(), Word::House);
+    vec![
+        (
+            labelled(SCHEMA_V2, |m| m["realms"][0]["house"] = json!("H.md")),
+            Unusable::Unversioned {
+                realm: realm.clone(),
+                word,
+                schema: SCHEMA_V2.into(),
+            },
+            "realm 'brokkr' names its house, which is forge.realms/v3 vocabulary in a map \
+             calling itself forge.realms/v2",
+        ),
+        (
+            labelled(SCHEMA_V2, |m| m["realms"][0]["journal"] = json!(" ")),
+            Unusable::Empty {
+                realm: realm.clone(),
+                word: Word::Journal,
+            },
+            "realm 'brokkr' has an empty journal",
+        ),
+        (
+            in_v3("dialect", " "),
+            Unusable::Empty {
+                realm: realm.clone(),
+                word: Word::Dialect,
+            },
+            "realm 'brokkr' has an empty dialect",
+        ),
+        (
+            in_v3("house", "/h"),
+            Unusable::Outside {
+                realm: realm.clone(),
+                word,
+            },
+            "realm 'brokkr' has a non-repository-relative house",
+        ),
+        (
+            labelled(SCHEMA_V4, |m| m["realms"][0]["consumes"] = json!([])),
+            Unusable::Unversioned {
+                realm,
+                word: Word::Consumes,
+                schema: SCHEMA_V4.into(),
+            },
+            "realm 'brokkr' names what it consumes, which is forge.realms/v5 vocabulary in a map \
+             calling itself forge.realms/v4",
+        ),
+        (
+            crossing_refusal(|m| m["realms"][0]["publishes"] = json!(null)),
+            Unusable::NullList {
+                realm: "alpha".into(),
+                word: Word::Publishes,
+            },
+            "realm 'alpha' writes publishes as null; a crossing list is an array, and a realm \
+             that draws no crossing leaves the word out",
+        ),
+    ]
+}
+
+/// The crossings each realm publishes, and the world's provisional
+/// offices.
+fn published_refusals() -> Vec<Refused> {
+    let publishes = |field: &str, written: Value| {
+        crossing_refusal(move |m| m["realms"][0]["publishes"][0][field] = written.clone())
+    };
+    let (realm, crossing) = crossed_at("alpha", "orders.api");
+    let labelled_v7 = |written: Value| {
+        labelled(SCHEMA_V7, move |m| {
+            m["provisional_offices"] = written.clone()
+        })
+    };
+    vec![
+        (
+            publishes("name", json!("Orders")),
+            Unusable::CrossingName {
+                realm: realm.clone(),
+                crossing: "Orders".into(),
+            },
+            "realm 'alpha' publishes a crossing named 'Orders'; a crossing name is lowercase \
+             letters, digits, '.', '_' and '-', starting with a letter or digit",
+        ),
+        (
+            publishes("path", json!(" ")),
+            Unusable::NoCrossingPath {
+                realm: realm.clone(),
+                crossing: crossing.clone(),
+            },
+            "realm 'alpha' publishes crossing 'orders.api' with no path",
+        ),
+        (
+            publishes("path", json!("../o")),
+            Unusable::CrossingOutside { realm, crossing },
+            "realm 'alpha' publishes crossing 'orders.api' from a non-repository-relative path",
+        ),
+        (
+            crossing_refusal(|m| {
+                m["realms"][0]["publishes"] =
+                    json!([{"name": "o", "path": "a"}, {"name": "o", "path": "b"}]);
+            }),
+            Unusable::PublishedTwice {
+                realm: "alpha".into(),
+                crossing: "o".into(),
+            },
+            "realm 'alpha' publishes a crossing named 'o' twice",
+        ),
+        (
+            labelled(SCHEMA_V6, |m| m["provisional_offices"] = json!([])),
+            Unusable::ProvisionalUnversioned(SCHEMA_V6.into()),
+            "it names provisional offices, which is forge.realms/v7 vocabulary in a map calling \
+             itself forge.realms/v6",
+        ),
+        (
+            labelled_v7(Value::Null),
+            Unusable::ProvisionalNull,
+            "it writes provisional_offices as null; the list is an array, and a map that lists no \
+             office leaves the word out",
+        ),
+        (
+            labelled_v7(json!(["a", ""])),
+            Unusable::EmptyOffice(1),
+            "provisional office 1 is empty",
+        ),
+        (
+            labelled_v7(json!(["a", "a"])),
+            Unusable::OfficeTwice("a".into()),
+            "provisional office 'a' is listed twice",
+        ),
+    ]
+}
+
+/// The crossings each realm consumes, against itself and the world.
+fn consumed_refusals() -> Vec<Refused> {
+    let consumes = |field: &str, written: &str| {
+        let written = json!(written);
+        crossing_refusal(move |m| m["realms"][1]["consumes"][0][field] = written.clone())
+    };
+    let (realm, crossing) = crossed_at("beta", "orders.api");
+    let entry = json!({"name": "orders.api", "realm": "alpha", "sha256": pin()});
+    vec![
+        (
+            consumes("sha256", "abc"),
+            Unusable::Pin {
+                realm: realm.clone(),
+                crossing: crossing.clone(),
+                pin: "abc".into(),
+            },
+            "realm 'beta' pins crossing 'orders.api' at 'abc', which is not a sha256: a pin is 64 \
+             lowercase hex characters over the published file's raw bytes",
+        ),
+        (
+            consumes("realm", "beta"),
+            Unusable::ConsumesItself {
+                realm: realm.clone(),
+                crossing: crossing.clone(),
+            },
+            "realm 'beta' consumes crossing 'orders.api' from itself; a crossing is between \
+             realms, and a realm reads its own file as a file",
+        ),
+        (
+            crossing_refusal(move |m| m["realms"][1]["consumes"] = json!([entry, entry])),
+            Unusable::ConsumedTwice {
+                realm: realm.clone(),
+                crossing: crossing.clone(),
+            },
+            "realm 'beta' consumes a crossing named 'orders.api' twice",
+        ),
+        (
+            consumes("realm", "gamma"),
+            Unusable::NoPublisher {
+                realm: realm.clone(),
+                crossing,
+                publisher: "gamma".into(),
+            },
+            "realm 'beta' consumes crossing 'orders.api' from realm 'gamma', which this world \
+             does not hold",
+        ),
+        (
+            consumes("name", "other"),
+            Unusable::Unpublished {
+                realm,
+                crossing: "other".into(),
+                publisher: "alpha".into(),
+            },
+            "realm 'beta' consumes crossing 'other', which realm 'alpha' does not publish",
+        ),
+    ]
+}
+
+/// Every way a map that parses is not usable: the map that earns it, the
+/// variant it earns, and the one place that variant's bytes are pinned —
+/// the text the operator has always read (#353). A grant's refusals are
+/// pinned beside the grants they refuse.
+#[test]
+fn every_unusable_map_reads_as_it_always_has() {
+    let refusals = [
+        world_refusals(),
+        word_refusals(),
+        published_refusals(),
+        consumed_refusals(),
+    ];
+    for (refused, expected, text) in refusals.into_iter().flatten() {
+        assert_eq!(
+            refused.to_string(),
+            format!("realms.json is not a usable realms map: {text}")
+        );
+        assert_eq!(refused.unusable(), expected);
+    }
 }

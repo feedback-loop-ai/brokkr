@@ -288,7 +288,7 @@ now hires or the adapter no longer maps.
 |---|---|
 | `claude` | `haiku` |
 | `codex` | `luna`, `terra` |
-| `dsh` | `glm`, `glm-flash`, `glm53`, `muse`, `muse-contributor`, `pro`, `qwen-flash`, `qwen-max`, `qwen-plus`, `qwen36-flash`, `qwen37-max`, `spark-flash`, `studio-flash`, `studio-flash41`, `studio-pro` |
+| `dsh` | `glm`, `glm53`, `muse`, `pro`, `qwen-flash`, `qwen-max`, `qwen-plus`, `qwen36-flash`, `qwen37-max`, `spark-flash`, `studio-flash`, `studio-flash41`, `studio-pro` |
 | `lanetally` | `fable-tallied`, `opus-tallied`, `sonnet-tallied` |
 
 Adding an alias is therefore an edit to its adapter file and, until an

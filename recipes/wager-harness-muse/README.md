@@ -2,11 +2,14 @@
 
 [`wager-harness`](../wager-harness/README.md)'s pattern, copied as it
 asks to be: `fast` with the implement seat's driver swapped, and
-nothing else. The one line of experiment here is
-`{brokkr} driver dsh -- --model meta-contributor/meta/muse-spark-1.3-contributor --effort xhigh`.
-The charter is a byte-identical copy of `recipes/fast/roles/implementer.md`;
-limits, results, class, the phase table, and every gate are `fast`'s,
-inherited.
+nothing else. The one office of experiment here is
+`agents/muse-implementer.json`, an overlay of `implementer` whose chain
+holds Muse alone and resolves to
+`{brokkr} driver dsh -- --model meta-contributor/meta/muse-spark-1.3-contributor --effort xhigh`;
+the recipe declares `forced_crew`, because a wager forces the arm it
+measures (decision 0041's addendum of 2026-10-07). The charter is fast's
+own, the library's `charters/implementer-intakeless.md`; limits,
+results, class, the phase table, and every gate are `fast`'s, inherited.
 
 The lane is Meta Model API's Muse Spark 1.3 under its **contributor**
 id — the terms under which Meta may use prompts and completions to

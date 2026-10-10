@@ -2,6 +2,7 @@
   "name": "night-shift",
   "description": "Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.",
   "cost": "medium-high",
+  "forced_crew": "decision 0044 ruling 5: the dsh lane is the strategy, and dsh expresses no tool list",
   "extends": "triage",
   "override": {
     "bundle": ["description", "cost"],
@@ -16,11 +17,10 @@
     "tasks": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
     "analyze": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
     "implement": {
-      "role": "roles/implementer.md",
       "results": ["complete", "broken", "blocked", "oversized"],
       "class": "work",
       "limits": {"max_attempts": 1, "timeout_seconds": 7200},
-      "driver": {"command": ["{brokkr}", "driver", "dsh", "--", "--model", "spark-glm/GLM-5.3-Flash-EXL3"]}
+      "agent": "night-shift-implementer"
     },
     "verify": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},
     "review": {"limits": {"max_attempts": 1, "timeout_seconds": 3600}},

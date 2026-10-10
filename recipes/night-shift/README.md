@@ -6,7 +6,7 @@ and deterministic verify and ship gates are inherited unchanged.
 
 | Phase | Seat | `max_attempts` | `timeout_seconds` | Class |
 |---|---|---|---|---|
-| `implement` | inline GLM-5.3 Flash (`glm-flash`) via `dsh` | **1** | 7200 | work |
+| `implement` | `night-shift-implementer`: GLM-5.3 Flash (`glm-flash`) via `dsh` | **1** | 7200 | work |
 | `verify` | boxed `verify-seat.sh` | **1** | 3600 | gate |
 | `review` | triage-selected review crew | **1** | 3600 | gate |
 | `ship` | boxed `ship-seat.sh` | **1** | 1800 | gate |
@@ -37,7 +37,9 @@ The two behaviours, side by side:
 
 ## The GLM-flash lane
 
-`implement` is driven by the **dsh** adapter: `{brokkr} driver dsh --
+`implement` hires `agents/night-shift-implementer.json`, an overlay of
+`implementer` with the unattended charter, driven by the **dsh**
+adapter: `{brokkr} driver dsh --
 --model spark-glm/GLM-5.3-Flash-EXL3`, the adapter's `glm-flash` alias,
 on the `spark-glm` route the operator ruled `local` on 2026-09-16 (the
 operator's ruling of 2026-10-04,
@@ -54,7 +56,8 @@ prohibition (untrusted judge, ungranted secret binding) applies.
 What the seat gives up, and the comparison must say: `adapters/dsh.json`
 declares `tool_permissions: "unsupported"`, because the headless dsh
 launcher has no allowed-tools flag. The seat runs with whatever the
-harness permits. The former inline seat's seven `Bash` prefixes were
+harness permits, which the overlay states under `replaces` with that
+reason. The former inline seat's seven `Bash` prefixes were
 pre-approval under `--allowedTools`, not a bound: they removed no
 tool, so neither seat was held to a named list. The difference is the
 one [`recipes/wager-harness`](../wager-harness/README.md) records for
@@ -100,7 +103,7 @@ control flow (decision 0002's linear outer machine). Scheduling lives
 entirely outside Brokkr, in whatever cron or timer the operator runs.
 
 If the window moves, nothing in this directory changes. Grep
-`bundle.json` and every file under `roles/` for a time and you will find
+`bundle.json` and the office's charter for a time and you will find
 none: no seat, no charter and no driver command names an hour. The only
 hours in this recipe are the two ends of the window, written in prose,
 in this README, where they cannot execute.
@@ -127,7 +130,9 @@ this seat will need.
 
 ## How the roster is seated
 
-The dsh implement lane remains inline by the lane exception. Review keeps
+The dsh implement lane is a forced crew: the recipe declares
+`forced_crew` (decision 0044 ruling 5, under decision 0041's addendum of
+2026-10-07), and its office's chain holds `glm-flash` alone. Review keeps
 triage's selected single, panel, or panel-and-chief office; verify and ship are
 boxed exec scripts with no model. This strategy narrows each gate's attempt
 bound to one.

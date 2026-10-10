@@ -515,5 +515,27 @@ merges an overlay into the definition it stands for, and its tests pin
 every refusal's text; `crates/brokkr-runtime/tests/roster.rs` drops
 `fast` from the inline exception and proves `fast`'s and `landing`'s
 chains, and that a `fast` office whose first model is unavailable
-selects its fallback; `crates/brokkr-runtime/tests/library_data.rs`
+selects its fallback, and proves the same of `node`'s and `verify`'s
+offices; `crates/brokkr-runtime/tests/library_data.rs`
 names the two `fast` offices in the roster.
+
+*The operator's ruling of 2026-10-09 (#360 slice 2):* the inline
+exception is no longer a list of recipe names. A recipe that forces its
+crew declares it at its root as
+`"forced_crew": "<the decision that forces it>"`, which
+`crates/brokkr-runtime/src/bundle/compose/forced_crew.rs` admits only as
+a stated reason. `roster.rs` refuses an inline model site in a recipe
+that declares none, and holds every model site a forced recipe's own
+seats hold — a single seat, a panel member, a sequence step, a select
+case or default — to one link. The dsh wager arms, review-first's Muse
+and night-shift's dsh lane hire single-model overlays. `node`'s and
+`verify`'s seats hire overlays that fall back from Fable to Opus at
+`high`, as `fast`'s do; the ruling changes their crews in that case
+alone. The operator accepted the reduced scope: six sites stay inline
+under their declared `forced_crew` until each blocker clears, tracked as
+#608. They are the codex seats (the wager's Codex arm, standby's two,
+review-first's Sol judge), because an office may not carry a sandbox
+class without hands before decision 0065 slice one's lowering does;
+research-dsh's researcher, whose driver carries a `--patch` no office
+writes; and preflight's judge, whose role names repository paths no
+library charter may.

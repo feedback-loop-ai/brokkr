@@ -3,7 +3,8 @@
 `fast` with one seat changed, as
 [`wager-harness`](../wager-harness/README.md) asks a wager to be built:
 the implement seat's driver is swapped and nothing else is. The
-experiment is one line,
+experiment is one office, `agents/wager-glm-flash-implementer.json`, an
+overlay of `implementer` that resolves to
 `{brokkr} driver dsh -- --model spark-glm/GLM-5.3-Flash-EXL3`, the dsh
 adapter's `glm-flash` alias on the `spark-glm` route (the operator's
 ruling of 2026-10-04,
@@ -11,8 +12,10 @@ ruling of 2026-10-04,
 route is effortless: dsh 0.1.5-rc.1 refuses a reasoning effort on it
 (measured 2026-09-16), so the arm pins no `--effort`, and its record
 reads effort `not applicable`, as the adapter's `effortless_routes`
-entry for `spark-glm` says. The charter is a
-byte-identical copy of `recipes/fast/roles/implementer.md`; limits,
+entry for `spark-glm` says. Its chain holds that one model and no
+fallback, and the recipe declares `forced_crew` (decision 0041's addendum
+of 2026-10-07): a wager forces the arm it measures. The charter is
+fast's own, the library's `charters/implementer-intakeless.md`; limits,
 results, class, the phase table, and every gate are `fast`'s, inherited.
 
 ## Parity, judged and recorded (2026-09-02)
