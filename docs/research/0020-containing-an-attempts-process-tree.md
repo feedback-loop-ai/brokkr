@@ -1,7 +1,7 @@
 # 0020 — Containing an attempt's process tree: what Linux and macOS offer, measured
 
 Source: https://github.com/feedback-loop-ai/brokkr/actions/runs/38057456223
-Authors: Brokkr's controller and the #472 design seat (probe branch `probe/472-containment`, script `probe/containment.sh` at 92e85605)
+Authors: Brokkr's controller and the #472 design seat (probe branch `probe/472-containment`, script `probe/containment.sh` at 92e85605, and its outside-scope case at 167085b4, run 38077308914)
 Read: 2026-10-10
 Status: proposed
 Intake: design story #472, run design-story-472-contain-each-at-fc590cbc, on the operator's ruling of 2026-10-10
@@ -28,7 +28,9 @@ the probe and the controller took. The probe ran on the operator's host
 `ubuntu-24.04-arm` and `macos-latest` runners, and in an `ubuntu:24.04`
 Docker container on `ubuntu-latest` (run 38057456223, tabled in
 #472's second comment of 2026-10-10). The controller then measured the
-per-attempt scope from outside on the operator's host. Nothing here was
+per-attempt scope from outside on the operator's host, and the probe's
+commit 167085b4 added that case and ran it on both Linux runners and in
+the container (run 38077308914). Nothing here was
 measured inside a hands box: the box refuses to nest the namespaces a
 probe needs, and the controller runs what the box cannot.
 
@@ -51,6 +53,8 @@ entry argues for.
 | Unprivileged `unshare --user --pid` | refused (`apparmor_restrict_unprivileged_userns=1`) | refused | refused | none offered | — |
 | `bwrap --unshare-pid --die-with-parent`, the escape tree after its init exits | 0 left | 0 left | 0 left | unavailable | — |
 | `sandbox-exec`, `launchctl` | — | — | — | — | present |
+| A per-attempt transient user scope, found from outside (`systemctl --user show -p ControlGroup`) and ended by one outside `cgroup.kill` write | 0 left, settled in 4 ms, then `inactive` | 0 left, settled in 2 ms, then `inactive` | 0 left, settled in 2 ms, then `inactive` | no user manager (`offline`) | no cgroups |
+| `systemctl --user show -p ControlGroup --value` and `is-active` for a unit never made | empty, `inactive` | empty, `inactive` | empty, `inactive` | no user manager | — |
 
 The escape tree is the probe's own: a process writes its pid to the
 attempt cgroup's `cgroup.procs`, then execs `setsid bash -c "(setsid
@@ -65,7 +69,21 @@ stand-in, outside the scope, read the scope's cgroup from `systemctl
 `cgroup.kill`, and read every process gone and `populated 0` within 4 ms;
 the scope then read inactive. Starting the transient scope took 23, 35,
 36, 37 and 73 ms over five runs. A per-attempt scope therefore needs no
-delegated cgroup for the engine itself.
+delegated cgroup for the engine itself. The probe's commit 167085b4
+made the same measurement a case of the probe, and run 38077308914 ran
+it on `ubuntu-latest` and `ubuntu-24.04-arm`: a `setsid` and
+double-fork tree in a per-attempt scope, the scope's cgroup read from
+`systemctl --user show -p ControlGroup`, one outside `cgroup.kill`
+write, 0 processes left, settled in 2 ms on each, and the scope then
+read inactive. In the Docker container `systemctl --user
+is-system-running` read `offline`: there is no user manager to ask.
+
+The same run asked the user manager about a unit that was never made,
+`probe-never-made.scope`. On the operator's host and both runners
+`systemctl --user show -p ControlGroup --value` printed nothing and
+`systemctl --user is-active` printed `inactive`, exactly what a
+finished scope prints. A unit's state therefore cannot tell a scope
+not yet created from one that has emptied, and settles nothing.
 
 `systemd-run --scope` runs its command in its own process: it asks the
 user manager for the scope with its own pid, waits for the job, and then
@@ -76,7 +94,7 @@ engine's child with the pipes the engine gave it.
 
 | Option | Guarantee | Needs | Cost per attempt | Where it works (measured) | Failure modes |
 |---|---|---|---|---|---|
-| (i) A per-attempt transient user scope, through `systemd-run` or the user manager's D-Bus `StartTransientUnit` | Escape-proof by fork, `setsid`, `setpgid` and reparenting: membership is decided at birth. One `cgroup.kill` ends the subtree; `populated 0` in `cgroup.events` proves it settled, counted by the kernel | cgroup v2, a running systemd user manager, `systemd-run` (or a D-Bus client); no privilege | One transient unit start, 23–73 ms measured; one write to end it | Operator host, `ubuntu-latest`, `ubuntu-24.04-arm` | No user manager (containers, a session without one, `ssh` without lingering); the scope outlives the engine; a process that asks the user manager for a unit of its own leaves it |
+| (i) A per-attempt transient user scope, through `systemd-run` or the user manager's D-Bus `StartTransientUnit` | Escape-proof by fork, `setsid`, `setpgid` and reparenting: membership is decided at birth. One `cgroup.kill` ends the subtree; `populated 0` in `cgroup.events` proves it settled, counted by the kernel | cgroup v2, a running systemd user manager, `systemd-run` (or a D-Bus client); no privilege | One transient unit start, 23–73 ms measured; one write to end it | A scope starts, and `cgroup.kill` ends a child cgroup inside it: operator host, `ubuntu-latest`, `ubuntu-24.04-arm` (run 38057456223). The scope itself found from outside and ended by one outside write: operator host (4 ms), `ubuntu-latest` and `ubuntu-24.04-arm` (2 ms each, run 38077308914). Docker container: no user manager (`offline`) | No user manager (containers, a session without one, `ssh` without lingering); the scope outlives the engine; a launcher in flight can create the scope after a cleanup, and a unit not yet made reads as one that has emptied, so neither a unit's state nor a single kill settles it alone; a process that asks the user manager for a unit of its own leaves it |
 | (ii) A child cgroup under a delegated cgroup the engine stands in: the engine re-execs under `systemd-run -p Delegate=yes`, or the operator's own unit declares `Delegate=yes` | As (i), and cheaper: no unit start per attempt | The engine already in a delegated cgroup, and a way to know it is (systemd marks one with the `user.delegate` extended attribute; unmeasured here) | One `mkdir`, one write before exec, one write to end it | Under a `Delegate=yes` user scope on all three Linux hosts; never in the job's own cgroup | Detecting delegation wrongly writes into a cgroup systemd owns; the re-exec variant re-execs a binary path that may have been replaced under a live engine, and needs a loop guard; engine death leaves the children unless the unit is a service whose `KillMode` ends them |
 | (iii) `clone3(CLONE_INTO_CGROUP)` against a pid write to `cgroup.procs` before exec | Both place the driver in the cgroup before it runs any of its own code, so nothing it forks can be born outside | (iii) a raw `clone3` beside `std::process::Command`; the pid write needs only the open and write a `pre_exec` hook may make | Nil either way | The pid write is what the probe did, on every Linux host | `clone3` adds unsafe spawn code for no guarantee the write lacks; a failed write fails the spawn, which is fail-closed |
 | (iv) A PID namespace: bwrap's `--unshare-pid --die-with-parent`, for boxed seats | Every process in the namespace is killed when its init exits, and none can leave it | bwrap, or unprivileged user namespaces (refused by AppArmor on every measured Ubuntu) | One bwrap per attempt | bwrap everywhere but a Docker container | Today it wraps only the hands box's commands, not the harness that runs the seat; the harnesses' own sandboxes (Claude Code's and dsh's use bubblewrap) would nest inside it, unmeasured; no `populated` count to read, so the settle proof is the init's exit; `--die-with-parent` is armed on the spawning thread, not the process |
@@ -95,6 +113,14 @@ engine's child with the pipes the engine gave it.
   records the attempt id before the spawn, and ends exactly those: no
   listing by prefix, no age, no working directory. The user manager's
   own stop (a logout without lingering) stops every scope with it.
+  Neither the lifeline nor a restart can read a scope's absence from the
+  user manager, since a unit not yet made answers as a finished one
+  does, and `systemd-run` may still be creating a scope when either
+  runs. So the launcher must not exec the driver on its own: decision
+  0080 has `systemd-run` exec a gate that, once inside the scope, waits
+  for the lifeline's go-ahead and exits on its EOF, and has the lifeline
+  and a restart open the scope's derived cgroup path instead of asking
+  for the unit.
 - **(ii)** The children live as long as the delegating unit. Under a
   scope that holds the engine, the scope stays populated by the attempts
   and does not stop. Under a service whose main process is the engine,
@@ -121,10 +147,20 @@ cannot reach a cgroup tree or nest the namespaces.
    SIGKILL to the engine alone, then, in a second run, to its process
    group. Read every scope `populated 0` within the settle bound and
    every escape pid gone, on the operator's host and both Linux runners.
-2. **A zombie and `populated`.** Kill an attempt scope whose driver is
-   the engine's child and do not reap it; read `cgroup.events`. If an
-   unreaped zombie keeps `populated 1`, the settle proof reaps the driver
-   first, as #403's already does.
+   Then pause a launcher before its scope exists (a `systemd-run`
+   stand-in blocked on a FIFO), send SIGKILL to the engine alone, let
+   the lifeline exit, and release the launcher; and again with the
+   engine and the lifeline killed and a restart run before the release.
+   Read that no driver ran in either ordering.
+2. **A zombie, an orphan and `populated`.** Kill an attempt scope whose
+   driver is the engine's child and do not reap it; read
+   `cgroup.events`. If an unreaped zombie keeps `populated 1`, the
+   settle proof reaps the driver first, as #403's already does. Orphan
+   a descendant of the driver with no subreaper set, and read which
+   process adopts it, that it is reaped, and that `populated` reaches 0,
+   once with the engine outside the user manager's tree (started from a
+   terminal session) and once inside it (a user service): the user
+   manager is a subreaper only for its own descendants.
 3. **The delegation mark.** `getfattr -n user.delegate` on the cgroup of
    a `systemd-run --user --scope -p Delegate=yes` scope, of a user
    service with `Delegate=yes`, and of a terminal's own scope, on each
@@ -140,8 +176,9 @@ cannot reach a cgroup tree or nest the namespaces.
 6. **Concurrency cost.** Start three scopes at once, as three lanes do,
    and time each start against the 23–73 ms measured one at a time.
 7. **Logout.** With lingering off, end the user's last session while a
-   scope runs; confirm the scope is stopped and its unit unloads, so a
-   restart reads it gone.
+   scope runs; confirm the scope is stopped, its escape tree gone, and
+   its cgroup path removed, so a restart that opens the path finds it
+   absent.
 8. **Containers.** Docker with `--cgroupns=private` and a writable
    cgroup mount, and rootless Podman with `--systemd=always`: does the
    engine's own cgroup qualify for rung (ii)?
@@ -150,6 +187,15 @@ cannot reach a cgroup tree or nest the namespaces.
    job's process coalition keep a `setsid` double-forked descendant, and
    does removing the job end it? `sandbox-exec` confines effects, not a
    process's lifetime, and is not a candidate.
+10. **The derived path.** Start a scope with `systemd-run --user --scope
+    --slice brokkr.slice --unit <name>` and read that its cgroup is the
+    user manager's own, as the manager's `/proc/<pid>/cgroup` reads it,
+    followed by `brokkr.slice` and the scope's name, on each Linux host,
+    so the path can be known before the spawn.
+11. **A user manager that dies.** Kill the user manager with SIGKILL
+    while a scope runs the escape tree; read that the scope's cgroup
+    path stays present and populated, and whether the restarted manager
+    knows the unit.
 
 ## Findings
 
@@ -163,3 +209,4 @@ cannot reach a cgroup tree or nest the namespaces.
 | 6 | Wrapping each harness in a PID namespace, where cgroups cannot be had, is unmeasured against the harnesses' own sandboxes and unavailable in Docker | not-planned | |
 | 7 | Polling the process table cannot close the table-read race or the read-to-fork instant, and stays the fallback where no containment is offered | implemented | decision 0006, `crates/brokkr-protocol/src/process/tree.rs` |
 | 8 | macOS offers no cgroup; whether a launchd job's coalition holds an escape tree is unmeasured | not-planned | |
+| 9 | The user manager answers a unit never made exactly as a finished scope (no control group, `inactive`), so a unit's state cannot settle an attempt; the cgroup path must be read, and a launch must not outlive the cleanup that reads it | planned | #472 |
