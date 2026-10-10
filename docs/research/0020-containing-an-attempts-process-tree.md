@@ -106,13 +106,15 @@ engine's child with the pipes the engine gave it.
   the engine's cgroup. It outlives the engine and runs until it empties
   or is stopped, so a SIGKILL to the engine leaves the seat running
   unless something else ends it. Two things can. A lifeline, a small
-  `brokkr` process in a session of its own, learns however the engine
-  died and writes `cgroup.kill` for every attempt it was told of; its
-  channel to the engine and its protocol are stated once, in decision
-  0080's ruling 4. A restart
-  derives each open attempt's scope name from the journal, which already
-  records the attempt id before the spawn, and ends exactly those: no
-  listing by prefix, no age, no working directory. The user manager's
+  `brokkr` process in a session of its own, reads the engine's death
+  from a pidfd on the engine, not from the end-of-file of its channel,
+  which a forked child that has not yet exec'd still holds open, and
+  writes `cgroup.kill` for every attempt whose path it has received;
+  its channel, its trigger and its protocol are stated once, in
+  decision 0080's ruling 4. A restart reads each attempt's cgroup path
+  from the journal, which records it before the spawn, for every
+  contained attempt, open or settled, as decision 0080's ruling 3
+  states once; nothing is listed by prefix, age or working directory. The user manager's
   own stop (a logout without lingering) stops every scope with it.
   Neither the lifeline nor a restart can read a scope's absence from the
   user manager, since a unit not yet made answers as a finished one
@@ -127,7 +129,8 @@ engine's child with the pipes the engine gave it.
   and does not stop. Under a service whose main process is the engine,
   the service stops when the engine dies and its `KillMode` ends the
   whole cgroup, children included (unmeasured). The lifeline serves
-  here as in (i).
+  here as in (i), and removes each child cgroup it ends, so a launch
+  that has not yet written its pid finds none to enter.
 - **(iii)** Not a mechanism of its own: how a driver enters the cgroup
   in (ii).
 - **(iv)** `--die-with-parent` delivers a parent-death signal to bwrap
@@ -152,7 +155,15 @@ cannot reach a cgroup tree or nest the namespaces.
    stand-in blocked on a FIFO), send SIGKILL to the engine alone, let
    the lifeline exit, and release the launcher; and again with the
    engine and the lifeline killed and a restart run before the release.
-   Read that no driver ran in either ordering.
+   Read that no driver ran in either ordering. Last, with one attempt
+   running its escape tree, pause a second launch before its pid write
+   to `cgroup.procs` (and, in a scope run, before its exec of
+   `systemd-run`) past the settle bound, send SIGKILL to the engine
+   alone, and read that the lifeline, which reads no end-of-file while
+   the paused child holds the engine's end, ends the first attempt by
+   its pidfd on the engine within the settle bound and removes both
+   child cgroups, and that the released launch's write fails with
+   `ENOENT`.
 2. **A zombie, an orphan and `populated`.** Kill an attempt scope whose
    driver is the engine's child and do not reap it; read
    `cgroup.events`. If an unreaped zombie keeps `populated 1`, the
@@ -202,6 +213,12 @@ cannot reach a cgroup tree or nest the namespaces.
     0080's launch gate receives its channel, and have the command it
     execs read and write that descriptor, on each Linux host, so the
     gate's channel is known to survive the launcher's own exec.
+13. **An empty scope's collection.** End a scope started with
+    `--collect` by one `cgroup.kill` write, and time how long its cgroup
+    path stays present after `populated 0`, on each Linux host; then
+    kill the user manager while a scope is empty and read whether the
+    path is ever removed. Settlement does not wait for the collection;
+    this measures how long doctor may list an empty scope cgroup.
 
 ## Findings
 
