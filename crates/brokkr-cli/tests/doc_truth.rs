@@ -129,7 +129,8 @@ impl Fence {
     }
 }
 
-/// A Markdown text's blocks, or why it cannot be read.
+/// A Markdown text's blocks, each line's text inside its blockquote
+/// markers, or why it cannot be read.
 fn blocks(text: &str) -> Result<Vec<Block>, String> {
     let mut blocks: Vec<Block> = Vec::new();
     let (mut fence, mut open) = (None::<Fence>, false);
@@ -160,12 +161,12 @@ fn blocks(text: &str) -> Result<Vec<Block>, String> {
         } else if trimmed.is_empty() {
             open = false;
         } else if open {
-            push_line(blocks.last_mut().expect("an open block"), line);
+            push_line(blocks.last_mut().expect("an open block"), inside);
         } else {
             open = true;
             blocks.push(Block {
                 first: at + 1,
-                text: line.to_string(),
+                text: inside.to_string(),
                 fenced: false,
             });
         }
@@ -260,9 +261,9 @@ fn a_fence_closes_only_on_its_own_marker_inside_its_quote() {
     assert_eq!(
         read("> Quoted:\n>\n> ```sh\n> brokkr 0.1.0\n>   `a/b`\n> ```\n> after\n"),
         Ok(vec![
-            (1, "> Quoted:\n>".to_string(), false),
+            (1, "Quoted:\n".to_string(), false),
             (4, "brokkr 0.1.0\n  `a/b`".to_string(), true),
-            (7, "> after".to_string(), false),
+            (7, "after".to_string(), false),
         ])
     );
     for (text, why) in [
@@ -284,9 +285,11 @@ fn a_fence_closes_only_on_its_own_marker_inside_its_quote() {
 /// The code spans of a block's text, each with the byte it starts at, as
 /// CommonMark reads them: a run of backticks opens a span the next run of
 /// the same length closes, a run nothing closes is literal text, and so is
-/// a backtick a backslash escapes outside a span.
+/// a backtick a backslash escapes outside a span: an odd run of them, since
+/// two escape each other.
 fn code_spans(text: &str) -> Vec<(usize, &str)> {
     let run = |at: usize| text[at..].chars().take_while(|&c| c == '`').count();
+    let escaped = |at: usize| text[..at].chars().rev().take_while(|&c| c == '\\').count() % 2 == 1;
     let mut spans = Vec::new();
     let mut at = 0;
     while let Some(start) = text[at..].find('`').map(|found| at + found) {
@@ -300,7 +303,7 @@ fn code_spans(text: &str) -> Vec<(usize, &str)> {
             }
         };
         match closed {
-            Some(close) if !text[..start].ends_with('\\') => {
+            Some(close) if !escaped(start) => {
                 spans.push((start + ticks, text[start + ticks..close].trim()));
                 at = close + ticks;
             }
@@ -849,6 +852,15 @@ fn a_path_the_tree_does_not_hold_is_refused() {
             "recipes/fast/README.md: allows `recipes/go`, which it no longer names",
         ]
     );
+    let escapes = doc(
+        "docs/guides/b.md",
+        r"Two escape each other: \\`docs/two.md`; three escape it: \\\`docs/three.md`.",
+    )
+    .unwrap();
+    assert_eq!(
+        missing_paths(&[escapes], &tree, &[]),
+        ["docs/guides/b.md:1: `docs/two.md` names a path the tree does not hold"]
+    );
 }
 
 /// The comment that marks the next block's Brokkr versions illustrative: a
@@ -1085,6 +1097,15 @@ fn a_stale_version_is_refused_unless_marked_illustrative() {
             "docs/guides/a.md:26: states Brokkr 0.8.1; the workspace is 0.12.0",
             "docs/guides/a.md:26: states Brokkr 0.8.2; the workspace is 0.12.0",
         ]
+    );
+    let quoted = doc(
+        "docs/guides/q.md",
+        "> Released as Brokkr\n> 0.11.0 last week.\n",
+    )
+    .unwrap();
+    assert_eq!(
+        stale_versions(&[quoted], "0.12.0"),
+        ["docs/guides/q.md:1: states Brokkr 0.11.0; the workspace is 0.12.0"]
     );
     assert_eq!(version("0.1.5-rc.1. More"), Some(("0.1.5-rc.1", ". More")));
     assert_eq!(version("v0.12.0 release"), Some(("0.12.0", " release")));
@@ -1344,7 +1365,12 @@ fn a_decision_called_proposed_is_held_to_the_index() {
              \n\
              (decision 0069, proposed) (decision 0075).\n\
              \n\
-             Decision 0069, proposed (decision 0075 describes the stamp).\n",
+             Decision 0069, proposed (decision 0075 describes the stamp).\n\
+             \n\
+             > A proposed decision\n\
+             > 0069; (decision 0069,\n\
+             > proposed); proposed decisions 0056 and\n\
+             > 0069.\n",
         ),
         (
             "scripts/a.sh",
@@ -1375,6 +1401,9 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "docs/a.md:17: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:19: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:21: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:23: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:23: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:23: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:2: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:4: calls decision 0069 proposed; the index rules it accepted",
             "crates/a/src/open.rs: cannot be read: an unterminated string",
