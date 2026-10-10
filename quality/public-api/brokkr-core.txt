@@ -302,21 +302,119 @@ pub brokkr_core::policy::audit::Audit::valuations: usize
 impl core::fmt::Display for brokkr_core::policy::audit::Audit
 pub fn brokkr_core::policy::audit::Audit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const brokkr_core::policy::audit::SWEEP_BUDGET: usize
+pub enum brokkr_core::policy::Malformed
+pub brokkr_core::policy::Malformed::DuplicateId(alloc::string::String)
+pub brokkr_core::policy::Malformed::IdentifierCondition
+pub brokkr_core::policy::Malformed::IdentifierCondition::key: alloc::string::String
+pub brokkr_core::policy::Malformed::IdentifierCondition::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::InitialNotAString
+pub brokkr_core::policy::Malformed::InitialUnknown
+pub brokkr_core::policy::Malformed::LeavesTerminal
+pub brokkr_core::policy::Malformed::LeavesTerminal::phase: alloc::string::String
+pub brokkr_core::policy::Malformed::LeavesTerminal::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::MissingField
+pub brokkr_core::policy::Malformed::MissingField::key: brokkr_core::policy::RuleKey
+pub brokkr_core::policy::Malformed::MissingField::rule: core::option::Option<alloc::string::String>
+pub brokkr_core::policy::Malformed::MissingKey(brokkr_core::policy::TableKey)
+pub brokkr_core::policy::Malformed::NoValues
+pub brokkr_core::policy::Malformed::NoValues::key: alloc::string::String
+pub brokkr_core::policy::Malformed::NoValues::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::NotAnArray(brokkr_core::policy::Place)
+pub brokkr_core::policy::Malformed::NotAnObject
+pub brokkr_core::policy::Malformed::NotBoolean
+pub brokkr_core::policy::Malformed::NotBoolean::key: alloc::string::String
+pub brokkr_core::policy::Malformed::NotBoolean::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::NotBoolean::written: alloc::string::String
+pub brokkr_core::policy::Malformed::NotNumeric
+pub brokkr_core::policy::Malformed::NotNumeric::key: alloc::string::String
+pub brokkr_core::policy::Malformed::NotNumeric::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::NotNumeric::written: alloc::string::String
+pub brokkr_core::policy::Malformed::NotStrings(brokkr_core::policy::Place)
+pub brokkr_core::policy::Malformed::OutsideVocabulary
+pub brokkr_core::policy::Malformed::OutsideVocabulary::key: alloc::string::String
+pub brokkr_core::policy::Malformed::OutsideVocabulary::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::OutsideVocabulary::value: alloc::string::String
+pub brokkr_core::policy::Malformed::OutsideVocabulary::vocabulary: &'static [&'static str]
+pub brokkr_core::policy::Malformed::ParkAndNext(alloc::string::String)
+pub brokkr_core::policy::Malformed::ParkDeclares
+pub brokkr_core::policy::Malformed::ParkDeclares::key: brokkr_core::policy::RuleKey
+pub brokkr_core::policy::Malformed::ParkDeclares::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::ParkNotTrue
+pub brokkr_core::policy::Malformed::ParkNotTrue::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::ParkNotTrue::written: alloc::string::String
+pub brokkr_core::policy::Malformed::ParkOutsideV2
+pub brokkr_core::policy::Malformed::ParkOutsideV2::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::ParkOutsideV2::schema: core::option::Option<alloc::string::String>
+pub brokkr_core::policy::Malformed::RuleNotAnObject
+pub brokkr_core::policy::Malformed::SeverityNotAString(alloc::string::String)
+pub brokkr_core::policy::Malformed::TerminalUnknown(alloc::string::String)
+pub brokkr_core::policy::Malformed::UnknownAxis
+pub brokkr_core::policy::Malformed::UnknownAxis::key: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownAxis::name: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownAxis::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownCondition
+pub brokkr_core::policy::Malformed::UnknownCondition::key: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownCondition::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownCounter
+pub brokkr_core::policy::Malformed::UnknownCounter::key: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownCounter::name: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownCounter::phases: alloc::vec::Vec<alloc::string::String>
+pub brokkr_core::policy::Malformed::UnknownCounter::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownPhase(alloc::string::String)
+pub brokkr_core::policy::Malformed::UnknownRuleKey
+pub brokkr_core::policy::Malformed::UnknownRuleKey::key: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownRuleKey::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownSeverity
+pub brokkr_core::policy::Malformed::UnknownSeverity::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::UnknownSeverity::severity: alloc::string::String
+pub brokkr_core::policy::Malformed::Unranked
+pub brokkr_core::policy::Malformed::Unranked::key: alloc::string::String
+pub brokkr_core::policy::Malformed::Unranked::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::Unranked::written: alloc::string::String
+pub brokkr_core::policy::Malformed::Unreachable
+pub brokkr_core::policy::Malformed::Unreachable::from: alloc::string::String
+pub brokkr_core::policy::Malformed::Unreachable::result: alloc::string::String
+pub brokkr_core::policy::Malformed::Unreachable::rule: alloc::string::String
+pub brokkr_core::policy::Malformed::WhenNotAnObject(alloc::string::String)
+impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
+pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
 pub enum brokkr_core::policy::Outcome
-pub brokkr_core::policy::Outcome::NoRule
-pub brokkr_core::policy::Outcome::NoRule::problem: core::option::Option<alloc::string::String>
 pub brokkr_core::policy::Outcome::Park
 pub brokkr_core::policy::Outcome::Park::reason: alloc::string::String
 pub brokkr_core::policy::Outcome::Park::rule_id: alloc::string::String
+pub brokkr_core::policy::Outcome::Refused
+pub brokkr_core::policy::Outcome::Refused::problem: brokkr_core::policy::Unreadable
 pub brokkr_core::policy::Outcome::Ruling
 pub brokkr_core::policy::Outcome::Ruling::next_phase: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::reason: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Outcome::Ruling::rule_id: alloc::string::String
 pub brokkr_core::policy::Outcome::Ruling::severity: alloc::string::String
+pub brokkr_core::policy::Outcome::Unmatched
+pub enum brokkr_core::policy::Place
+pub brokkr_core::policy::Place::Artifacts
+pub brokkr_core::policy::Place::Artifacts::rule: alloc::string::String
+pub brokkr_core::policy::Place::Condition
+pub brokkr_core::policy::Place::Condition::key: alloc::string::String
+pub brokkr_core::policy::Place::Condition::rule: alloc::string::String
+pub brokkr_core::policy::Place::Table(brokkr_core::policy::TableKey)
+impl core::fmt::Display for brokkr_core::policy::Place
+pub fn brokkr_core::policy::Place::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::policy::PolicyError
-pub brokkr_core::policy::PolicyError::Malformed(alloc::string::String)
+pub brokkr_core::policy::PolicyError::Malformed(brokkr_core::policy::Malformed)
 pub brokkr_core::policy::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
+impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
+pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
+pub enum brokkr_core::policy::RuleKey
+pub brokkr_core::policy::RuleKey::From
+pub brokkr_core::policy::RuleKey::Id
+pub brokkr_core::policy::RuleKey::Next
+pub brokkr_core::policy::RuleKey::Park
+pub brokkr_core::policy::RuleKey::Reason
+pub brokkr_core::policy::RuleKey::RequiresArtifacts
+pub brokkr_core::policy::RuleKey::Result
+pub brokkr_core::policy::RuleKey::Severity
+pub brokkr_core::policy::RuleKey::When
 pub enum brokkr_core::policy::Severity
 pub brokkr_core::policy::Severity::Critical
 pub brokkr_core::policy::Severity::High
@@ -327,6 +425,33 @@ pub brokkr_core::policy::Severity::None
 impl brokkr_core::policy::Severity
 pub fn brokkr_core::policy::Severity::name(self) -> &'static str
 pub fn brokkr_core::policy::Severity::named(&str) -> core::option::Option<brokkr_core::policy::Severity>
+pub enum brokkr_core::policy::TableKey
+pub brokkr_core::policy::TableKey::Initial
+pub brokkr_core::policy::TableKey::Phases
+pub brokkr_core::policy::TableKey::Rules
+pub brokkr_core::policy::TableKey::ShippableFrom
+pub brokkr_core::policy::TableKey::Terminal
+pub enum brokkr_core::policy::Unreadable
+pub brokkr_core::policy::Unreadable::NotABoolean
+pub brokkr_core::policy::Unreadable::NotABoolean::name: alloc::string::String
+pub brokkr_core::policy::Unreadable::NotABoolean::written: alloc::string::String
+pub brokkr_core::policy::Unreadable::NotANumber
+pub brokkr_core::policy::Unreadable::NotANumber::name: alloc::string::String
+pub brokkr_core::policy::Unreadable::NotANumber::written: alloc::string::String
+pub brokkr_core::policy::Unreadable::NotAString
+pub brokkr_core::policy::Unreadable::NotAString::name: alloc::string::String
+pub brokkr_core::policy::Unreadable::NotAString::written: alloc::string::String
+pub brokkr_core::policy::Unreadable::OutsideVocabulary
+pub brokkr_core::policy::Unreadable::OutsideVocabulary::name: alloc::string::String
+pub brokkr_core::policy::Unreadable::OutsideVocabulary::vocabulary: &'static [&'static str]
+pub brokkr_core::policy::Unreadable::OutsideVocabulary::word: alloc::string::String
+pub brokkr_core::policy::Unreadable::SeverityNotAWord
+pub brokkr_core::policy::Unreadable::SeverityNotAWord::name: alloc::string::String
+pub brokkr_core::policy::Unreadable::SeverityNotAWord::written: alloc::string::String
+pub brokkr_core::policy::Unreadable::UnknownPhase(alloc::string::String)
+pub brokkr_core::policy::Unreadable::UnrankedSeverity
+pub brokkr_core::policy::Unreadable::UnrankedSeverity::name: alloc::string::String
+pub brokkr_core::policy::Unreadable::UnrankedSeverity::word: alloc::string::String
 pub struct brokkr_core::policy::Machine
 pub brokkr_core::policy::Machine::initial: alloc::string::String
 pub brokkr_core::policy::Machine::phases: alloc::vec::Vec<alloc::string::String>
@@ -393,6 +518,30 @@ pub fn brokkr_core::realms::CrossingList<T>::is_null(&self) -> bool
 pub fn brokkr_core::realms::CrossingList<T>::is_written(&self) -> bool
 impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::realms::CrossingList<T>
 pub fn brokkr_core::realms::CrossingList<T>::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub enum brokkr_core::realms::GrantError
+pub brokkr_core::realms::GrantError::Dialect
+pub brokkr_core::realms::GrantError::Dialect::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::Dialect::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::List
+pub brokkr_core::realms::GrantError::List::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::List::list: brokkr_core::realms::GrantList
+pub brokkr_core::realms::GrantError::List::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::Name
+pub brokkr_core::realms::GrantError::Name::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::Name::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::NotAGrant
+pub brokkr_core::realms::GrantError::NotAGrant::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::NotAGrant::grant: alloc::string::String
+pub brokkr_core::realms::GrantError::NotAGrant::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::NotAMap
+pub brokkr_core::realms::GrantError::NotAMap::realm: alloc::string::String
+pub brokkr_core::realms::GrantError::NotAMap::written: alloc::string::String
+pub brokkr_core::realms::GrantError::Retain
+pub brokkr_core::realms::GrantError::Retain::capability: alloc::string::String
+pub brokkr_core::realms::GrantError::Retain::realm: alloc::string::String
+pub enum brokkr_core::realms::GrantList
+pub brokkr_core::realms::GrantList::Offices
+pub brokkr_core::realms::GrantList::Tools
 pub enum brokkr_core::realms::GrantRetention
 pub brokkr_core::realms::GrantRetention::Inherit
 pub brokkr_core::realms::GrantRetention::Unreserved
@@ -400,10 +549,79 @@ pub brokkr_core::realms::GrantRetention::Veto
 pub enum brokkr_core::realms::RealmsError
 pub brokkr_core::realms::RealmsError::Invalid
 pub brokkr_core::realms::RealmsError::Invalid::path: alloc::string::String
-pub brokkr_core::realms::RealmsError::Invalid::problem: alloc::string::String
+pub brokkr_core::realms::RealmsError::Invalid::problem: brokkr_core::realms::Unusable
 pub brokkr_core::realms::RealmsError::Malformed
 pub brokkr_core::realms::RealmsError::Malformed::detail: alloc::string::String
 pub brokkr_core::realms::RealmsError::Malformed::path: alloc::string::String
+pub enum brokkr_core::realms::Unusable
+pub brokkr_core::realms::Unusable::Boundary
+pub brokkr_core::realms::Unusable::Boundary::error: brokkr_core::realms::BoundaryError
+pub brokkr_core::realms::Unusable::Boundary::realm: core::option::Option<alloc::string::String>
+pub brokkr_core::realms::Unusable::ConsumedTwice
+pub brokkr_core::realms::Unusable::ConsumedTwice::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::ConsumedTwice::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::ConsumesItself
+pub brokkr_core::realms::Unusable::ConsumesItself::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::ConsumesItself::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::CrossingName
+pub brokkr_core::realms::Unusable::CrossingName::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::CrossingName::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::CrossingOutside
+pub brokkr_core::realms::Unusable::CrossingOutside::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::CrossingOutside::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::Empty
+pub brokkr_core::realms::Unusable::Empty::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::Empty::word: brokkr_core::realms::Word
+pub brokkr_core::realms::Unusable::EmptyJournal
+pub brokkr_core::realms::Unusable::EmptyOffice(usize)
+pub brokkr_core::realms::Unusable::Grant(brokkr_core::realms::GrantError)
+pub brokkr_core::realms::Unusable::Name
+pub brokkr_core::realms::Unusable::Name::index: usize
+pub brokkr_core::realms::Unusable::Name::name: alloc::string::String
+pub brokkr_core::realms::Unusable::NamedTwice(alloc::string::String)
+pub brokkr_core::realms::Unusable::NoBranch(alloc::string::String)
+pub brokkr_core::realms::Unusable::NoCrossingPath
+pub brokkr_core::realms::Unusable::NoCrossingPath::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::NoCrossingPath::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::NoPath(alloc::string::String)
+pub brokkr_core::realms::Unusable::NoPublisher
+pub brokkr_core::realms::Unusable::NoPublisher::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::NoPublisher::publisher: alloc::string::String
+pub brokkr_core::realms::Unusable::NoPublisher::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::NoRealms
+pub brokkr_core::realms::Unusable::NullList
+pub brokkr_core::realms::Unusable::NullList::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::NullList::word: brokkr_core::realms::Word
+pub brokkr_core::realms::Unusable::OfficeTwice(alloc::string::String)
+pub brokkr_core::realms::Unusable::Outside
+pub brokkr_core::realms::Unusable::Outside::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::Outside::word: brokkr_core::realms::Word
+pub brokkr_core::realms::Unusable::Pin
+pub brokkr_core::realms::Unusable::Pin::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::Pin::pin: alloc::string::String
+pub brokkr_core::realms::Unusable::Pin::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::ProvisionalNull
+pub brokkr_core::realms::Unusable::ProvisionalUnversioned(alloc::string::String)
+pub brokkr_core::realms::Unusable::PublishedTwice
+pub brokkr_core::realms::Unusable::PublishedTwice::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::PublishedTwice::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::UnknownSchema(alloc::string::String)
+pub brokkr_core::realms::Unusable::Unpublished
+pub brokkr_core::realms::Unusable::Unpublished::crossing: alloc::string::String
+pub brokkr_core::realms::Unusable::Unpublished::publisher: alloc::string::String
+pub brokkr_core::realms::Unusable::Unpublished::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::Unversioned
+pub brokkr_core::realms::Unusable::Unversioned::realm: alloc::string::String
+pub brokkr_core::realms::Unusable::Unversioned::schema: alloc::string::String
+pub brokkr_core::realms::Unusable::Unversioned::word: brokkr_core::realms::Word
+pub enum brokkr_core::realms::Word
+pub brokkr_core::realms::Word::Boundary
+pub brokkr_core::realms::Word::Capabilities
+pub brokkr_core::realms::Word::Consumes
+pub brokkr_core::realms::Word::Dialect
+pub brokkr_core::realms::Word::House
+pub brokkr_core::realms::Word::Journal
+pub brokkr_core::realms::Word::Publishes
 pub struct brokkr_core::realms::BoundaryError(pub alloc::string::String)
 pub struct brokkr_core::realms::CapabilityGrant
 pub brokkr_core::realms::CapabilityGrant::dialect: alloc::string::String
@@ -539,20 +757,23 @@ pub brokkr_core::FoldError::UnknownCommand::seq: u64
 impl brokkr_core::fold::FoldError
 pub fn brokkr_core::fold::FoldError::seq(&self) -> u64
 pub enum brokkr_core::Outcome
-pub brokkr_core::Outcome::NoRule
-pub brokkr_core::Outcome::NoRule::problem: core::option::Option<alloc::string::String>
 pub brokkr_core::Outcome::Park
 pub brokkr_core::Outcome::Park::reason: alloc::string::String
 pub brokkr_core::Outcome::Park::rule_id: alloc::string::String
+pub brokkr_core::Outcome::Refused
+pub brokkr_core::Outcome::Refused::problem: brokkr_core::policy::Unreadable
 pub brokkr_core::Outcome::Ruling
 pub brokkr_core::Outcome::Ruling::next_phase: alloc::string::String
 pub brokkr_core::Outcome::Ruling::reason: alloc::string::String
 pub brokkr_core::Outcome::Ruling::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::Outcome::Ruling::rule_id: alloc::string::String
 pub brokkr_core::Outcome::Ruling::severity: alloc::string::String
+pub brokkr_core::Outcome::Unmatched
 pub enum brokkr_core::PolicyError
-pub brokkr_core::PolicyError::Malformed(alloc::string::String)
+pub brokkr_core::PolicyError::Malformed(brokkr_core::policy::Malformed)
 pub brokkr_core::PolicyError::Refused(brokkr_core::policy::audit::Refusal)
+impl core::convert::From<brokkr_core::policy::Malformed> for brokkr_core::policy::PolicyError
+pub fn brokkr_core::policy::PolicyError::from(brokkr_core::policy::Malformed) -> Self
 pub enum brokkr_core::Status
 pub brokkr_core::Status::AwaitingOperator
 pub brokkr_core::Status::Completed

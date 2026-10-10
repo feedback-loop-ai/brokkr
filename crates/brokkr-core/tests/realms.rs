@@ -3,7 +3,7 @@
 //! realm's retention veto, and v6 and v7 keep the same spelling as the
 //! dialect's restriction.
 
-use brokkr_core::realms::{GrantRetention, RealmMap, RealmsError, SCHEMA_V8};
+use brokkr_core::realms::{GrantError, GrantRetention, RealmMap, RealmsError, Unusable, SCHEMA_V8};
 use serde_json::{json, Value};
 
 /// A one-realm map under `schema` granting `capabilities`.
@@ -95,9 +95,10 @@ fn a_v8_retain_other_than_false_is_refused_by_realm_and_capability() {
             refused,
             RealmsError::Invalid {
                 path: "realms.json".into(),
-                problem: "realm 'private' capability 'library-docs': retain must be false when \
-                          present; the realm may veto retention, never require it"
-                    .into(),
+                problem: Unusable::Grant(GrantError::Retain {
+                    realm: "private".into(),
+                    capability: "library-docs".into(),
+                }),
             },
             "{value}"
         );

@@ -58,6 +58,14 @@ hands-bearing review offices already do, the allow-list is not consulted at all
 that puts its hands in the box. On that day this recipe should retire
 into a library crew, and its README should say so rather than this.
 
+Since decision 0041's addendum of 2026-10-07 the recipe says this at its
+root: it declares `forced_crew`, and the roster test admits an inline
+model site only in a recipe that does. Its seats stay inline rather than
+on single-model overlays because an office may not yet carry a codex
+sandbox class without hands: the compile refuses `tools.sandbox` on an
+office that declares none until decision 0065 slice one's lowering
+delivers it.
+
 ## What it does not give you
 
 - **Not a wager.** A wager changes one name and holds everything else

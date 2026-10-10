@@ -2,6 +2,7 @@
   "name": "wager-harness",
   "description": "Driver evaluation that swaps only implementation to Codex for a fair wager.",
   "cost": "medium",
+  "forced_crew": "decision 0041 ruling 7: a wager forces the arm it measures",
   "extends": "fast",
   "override": {
     "bundle": [

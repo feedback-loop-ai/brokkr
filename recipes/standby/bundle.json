@@ -2,6 +2,7 @@
   "name": "standby",
   "description": "Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit.",
   "cost": "medium",
+  "forced_crew": "decision 0041's addendum of 2026-09-06: a hedge forces its crew, as a wager does",
   "extends": "fast",
   "override": {
     "bundle": [

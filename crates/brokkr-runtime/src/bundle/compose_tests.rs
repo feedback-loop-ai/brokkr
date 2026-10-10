@@ -15,7 +15,7 @@ fn error<T>(result: Result<T, CompileError>) -> String {
 
 /// A recipe library: sibling recipe directories under one parent, which
 /// is exactly what `<leaf>/../<name>` resolves against.
-struct Library {
+pub(super) struct Library {
     /// Held only to keep the directory alive for the test's lifetime.
     _dir: tempfile::TempDir,
     /// The canonical spelling, which is what the resolver records: on
@@ -25,7 +25,7 @@ struct Library {
 }
 
 impl Library {
-    fn new() -> Library {
+    pub(super) fn new() -> Library {
         let dir = tempfile::tempdir().unwrap();
         let canon = dir.path().canonicalize().unwrap();
         Library { _dir: dir, canon }
@@ -37,7 +37,7 @@ impl Library {
 
     /// Write `<library>/<name>/` with a `bundle.json`, a role file, and
     /// a `policy.json` when a table is given.
-    fn recipe(&self, name: &str, bundle: &Value, policy: Option<&Value>) -> PathBuf {
+    pub(super) fn recipe(&self, name: &str, bundle: &Value, policy: Option<&Value>) -> PathBuf {
         let dir = self.path().join(name);
         std::fs::create_dir_all(dir.join("roles")).unwrap();
         std::fs::write(dir.join("roles/role.md"), format!("# {name}\n")).unwrap();
@@ -53,7 +53,7 @@ impl Library {
     }
 }
 
-fn base_policy() -> Value {
+pub(super) fn base_policy() -> Value {
     json!({
         "schema": "forge.phase-machine/v1",
         "phases": ["work", "review", "done"],
@@ -74,7 +74,7 @@ fn seat(results: Vec<&str>) -> Value {
     })
 }
 
-fn base_bundle() -> Value {
+pub(super) fn base_bundle() -> Value {
     json!({
         "name": "base",
         "policy": "policy.json",
@@ -84,7 +84,7 @@ fn base_bundle() -> Value {
 
 /// A derived recipe over `base`, with whatever extra members the test
 /// needs merged in.
-fn derived(extra: Value) -> Value {
+pub(super) fn derived(extra: Value) -> Value {
     let mut document = json!({"name": "derived", "extends": "base"});
     for (key, value) in extra.as_object().unwrap() {
         document[key] = value.clone();
@@ -1364,7 +1364,7 @@ fn a_request_key_written_twice_in_a_recipe_layer_is_refused_from_its_bytes() {
 
 /// What a compile said, or the identity it compiled to — so a fence that
 /// is missing fails at the equality that expects its refusal.
-fn said(leaf: &Path) -> String {
+pub(super) fn said(leaf: &Path) -> String {
     match Bundle::compile(leaf) {
         Ok(bundle) => format!("compiled to {}", bundle.manifest_digest()),
         Err(refusal) => refusal.to_string(),
@@ -3957,9 +3957,9 @@ fn a_bundle_root_is_a_closed_vocabulary_at_every_layer() {
     let library = Library::new();
     let refusal = |recipe: &str, key: &str| {
         format!(
-            "bundle: recipe {recipe} declares {key} at the bundle root, which admits only \
-             name, description, cost, policy, protected_phase, egress_minimum, seats, extends, \
-             override and remove. A capability or confinement is written on each seat it \
+            "bundle: recipe {recipe} declares {key} at the bundle root, which admits only name, \
+             description, cost, forced_crew, policy, protected_phase, egress_minimum, seats, \
+             extends, override and remove. A capability or confinement is written on each seat it \
              governs (a sandbox as 'tools.sandbox'), and a boundary is the realm's, declared in \
              realms.json. A key the compiler does not read would compile, deliver nothing and \
              leave every seat at its harness default, so it is refused rather than ignored \

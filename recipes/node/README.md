@@ -32,17 +32,21 @@ and change these, and only these:
 
 | Where | npm (shipped) | pnpm | yarn (berry) |
 |---|---|---|---|
-| `bundle.json` — each model seat's `tools.allow` | `"npm", "npx", "node", …` | `"pnpm", "node", …` | `"yarn", "node", …` |
+| `agents/node-implementer.json` and `agents/node-reviewer.json` — `tools.allow` | `"npm", "npx", "node", …` | `"pnpm", "node", …` | `"yarn", "node", …` |
 | Claude adapter data — `tool_permissions.names` | `npm`, `npx`, `node` mapped | add `"pnpm": "Bash(pnpm:*)"` | add `"yarn": "Bash(yarn:*)"` |
 | House rules and verifier — install | `npm ci` | `pnpm install --frozen-lockfile` | `yarn install --immutable` |
 | House rules and verifier — types | `npx tsc --noEmit` | `pnpm exec tsc --noEmit` | `yarn tsc --noEmit` |
 | House rules and verifier — tests | `npm test` | `pnpm test` | `yarn test` |
 | House rules and verifier — lockfile named | `package-lock.json` | `pnpm-lock.yaml` | `yarn.lock` |
 
-A seat's tool list is typed data, not a flag. The engine lowers each
+Both model seats hire library offices (#360): `node-implementer` and
+`node-reviewer`, overlays of `implementer` and `reviewer` with Node's
+charters, Fable then Opus at `high` as `fast`'s offices hire (the
+operator's ruling of 2026-10-09), and the npm
+tool list, each change of power stated under `replaces` with its reason.
+An office's tool list is typed data, not a flag. The engine lowers each
 name through the adapter's mapping to the `--allowedTools` entry the
-harness reads, and adds the permission mode itself (decision 0065). A
-seat's `driver.command` names only the driver, model and effort. A name
+harness reads, and adds the permission mode itself (decision 0065). A name
 the adapter does not map is refused at compile, for example `seat
 'implement': the provider maps no tool permission named 'pnpm'`. It is
 never dropped or widened.

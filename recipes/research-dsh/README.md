@@ -20,7 +20,12 @@ skill runs the Claude Code lane.
 dsh expresses no tool allow-list (`adapters/dsh.json` declares
 `tool_permissions` unsupported), so the library office's tool
 restriction cannot be compiled onto it. The seat is therefore an
-inline dsh site, as night-shift's implementer is.
+inline dsh site, and the recipe declares `forced_crew` (decision 0041's
+addendum of 2026-10-07), the one way a recipe may pin a model inline.
+Night-shift's dsh implementer moved onto an overlay that names its lost
+allow-list under `replaces` (#360); this seat cannot yet, because its
+driver also carries the `--patch` overlay that turns page fetch on, and
+an office writes no driver argument.
 
 Since decision 0065 the library office asks for `web-search` and
 `web-fetch` by abstract name, and only a realm grants them. This inline

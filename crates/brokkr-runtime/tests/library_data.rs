@@ -45,8 +45,9 @@ use witnesses::Witnesses;
 /// grant, authored here like muninn and triage. #355 retires
 /// `intake-sdd`, which no recipe seated after `recipes/sdd` was retired.
 /// #360 seats `fast` on two overlays of the roster, `fast-implementer` and
-/// `fast-reviewer`.
-const AGENTS: [&str; 36] = [
+/// `fast-reviewer`, and moves six inline sites onto overlays in its second
+/// slice ([`SINGLE_LINK_OFFICES`]).
+const AGENTS: [&str; 42] = [
     "analyst",
     "chief-architect",
     "clarifier",
@@ -72,6 +73,10 @@ const AGENTS: [&str; 36] = [
     "implementer-sdd",
     "intake",
     "muninn",
+    "muse-implementer",
+    "night-shift-implementer",
+    "node-implementer",
+    "node-reviewer",
     "position-robustness",
     "position-simplicity",
     "release-manager",
@@ -83,6 +88,20 @@ const AGENTS: [&str; 36] = [
     "review-spec-compliance",
     "reviewer",
     "triage",
+    "verify-reviewer",
+    "wager-glm-flash-implementer",
+];
+
+/// #360's second slice (decision 0041's addendum of 2026-10-07): the inline
+/// sites that moved onto overlays keep the one link each seat hired inline.
+/// A forced crew's office holds exactly its forced model — the dsh wager
+/// arms, review-first's Muse and night-shift's dsh lane. `node`'s and
+/// `verify`'s offices fall back from Fable to Opus, as `fast`'s do (the
+/// operator's ruling of 2026-10-09), so they are not here.
+const SINGLE_LINK_OFFICES: [&str; 3] = [
+    "muse-implementer",
+    "night-shift-implementer",
+    "wager-glm-flash-implementer",
 ];
 
 /// Decision 0058: the `recipes/gpt-flash` forced crew, seated as scoped
@@ -150,11 +169,13 @@ fn the_library_holds_the_decision_0041_roster() {
     assert_eq!(implementer.charter_digest, engine.charter_digest);
     // 0007 declarations stay at their default: the phases' rule-referenced
     // inputs already name exactly the right set for all of them. The one
-    // exception is fast's reviewer, which carries the two residual inputs
-    // fast's own review seat always declared (#360).
+    // exceptions are the reviewers #360 moved off inline seats, fast's,
+    // node's and verify's, which carry the two residual inputs those review
+    // seats always declared.
     for name in AGENTS {
         let inputs = library.agent(name).unwrap().inputs.clone();
-        let expected = (name == "fast-reviewer").then(|| {
+        let reviewers = ["fast-reviewer", "node-reviewer", "verify-reviewer"];
+        let expected = reviewers.contains(&name).then(|| {
             vec![
                 "has_security_residual".into(),
                 "max_residual_severity".into(),
@@ -291,11 +312,14 @@ fn every_shipped_agent_resolves_at_compile_time() {
                 .map(|candidate| candidate.model.as_str())
                 .collect();
             assert_eq!(chain, ["sol", "astra"], "{name} falls back to astra alone");
-        } else if name == "muninn" || SCOPED_OFFICES.contains(&name) {
+        } else if name == "muninn"
+            || SCOPED_OFFICES.contains(&name)
+            || SINGLE_LINK_OFFICES.contains(&name)
+        {
             assert_eq!(
                 resolution.candidates.len(),
                 1,
-                "{name} must pin exactly one model (decision 0058)"
+                "{name} must pin exactly one model (decisions 0058 and 0041)"
             );
         } else {
             assert!(

@@ -198,15 +198,7 @@ fn drift_report(moved: &[Moved]) -> String {
 /// list. In particular, all of Crucible's review offices are gates now.
 const INLINE_ADAPTERS: [(&str, &[(&str, &str)]); 4] = [
     ("recipes/fast", &[("ship", "exec"), ("verify", "exec")]),
-    (
-        "recipes/node",
-        &[
-            ("implement", "claude"),
-            ("review", "claude"),
-            ("ship", "exec"),
-            ("verify", "exec"),
-        ],
-    ),
+    ("recipes/node", &[("ship", "exec"), ("verify", "exec")]),
     (
         "recipes/preflight",
         &[("review", "claude"), ("verify", "exec")],

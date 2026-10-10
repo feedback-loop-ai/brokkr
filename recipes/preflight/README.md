@@ -58,6 +58,10 @@ would restate the whole table and gain nothing.
 Decision 0021: a judging seat stands on a compile-time gate check. Both
 seats here declare `"class": "gate"`: verify is the bundle's own pinned
 `exec` script with hands, while review names the trusted model driver.
+Preflight stays explicit because a wager must force the crew (decision
+0041 ruling 7), and it says so at its root as `forced_crew`; its judge is
+inline because its role names this repository's frozen paths, which no
+library charter may (#360).
 
 ## What a preflight cannot give you
 

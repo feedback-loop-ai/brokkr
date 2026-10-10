@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use brokkr_runtime::{Adapters, Bundle};
+use brokkr_runtime::{Adapters, Bundle, Library};
 use serde_json::{json, Value};
 
 /// The model-backed seat `recipes/node` declares `class: "gate"`.
@@ -84,38 +84,48 @@ impl Fixture {
         // The recipe extends `fast` (#359), which its library holds beside it.
         copy_tree(&workspace().join("recipes/node"), &root.join("bundle"));
         copy_tree(&workspace().join("recipes/fast"), &root.join("fast"));
-        let path = root.join("bundle/bundle.json");
-        let mut config: Value =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).expect("the recipe is JSON");
-        let mut shipped: Vec<String> = Vec::new();
-        for (seat, body) in config["seats"].as_object_mut().expect("seats") {
-            // `ship` overrides only its limits; its exec dispatch is fast's.
-            if seat == "ship" {
+        let config: Value =
+            serde_json::from_slice(&std::fs::read(root.join("bundle/bundle.json")).unwrap())
+                .expect("the recipe is JSON");
+        let library = Library::load(&workspace().join("agents")).expect("the shipped library");
+        std::fs::create_dir_all(root.join("agents/charters")).unwrap();
+        std::fs::write(root.join("agents/charters/probe.md"), "Probe charter.\n").unwrap();
+        let mut shipped: Vec<Vec<String>> = Vec::new();
+        // Each model seat hires a library office since #360; the fixture's
+        // library holds an office of that name hiring the fixture provider.
+        // `verify` and `ship` are exec gates with no office.
+        for (seat, body) in config["seats"].as_object().expect("seats") {
+            let Some(office) = body["agent"].as_str() else {
                 continue;
-            }
-            let command = body["driver"]["command"]
-                .as_array_mut()
-                .unwrap_or_else(|| panic!("seat '{seat}' drives inline"));
-            let at = command
-                .iter()
-                .position(|token| token == "driver")
-                .expect("the seat dispatches a named driver")
-                + 1;
-            let provider = command[at].as_str().expect("a provider name");
-            if provider == "claude" {
-                shipped.push(provider.to_string());
-                command[at] = json!(provider_for(seat));
-                body.as_object_mut().unwrap().remove("tools");
-            }
+            };
+            shipped.push(
+                library
+                    .agent(office)
+                    .expect("a shipped office")
+                    .models
+                    .clone(),
+            );
+            let provider = provider_for(seat);
+            let definition = json!({
+                "description": "Seats the fixture provider in one of the Node recipe's seats.",
+                "charter": "charters/probe.md",
+                "models": [provider],
+                "efforts": {provider: "high"},
+            });
+            std::fs::write(
+                root.join(format!("agents/{office}.json")),
+                serde_json::to_vec_pretty(&definition).unwrap(),
+            )
+            .unwrap();
         }
-        // Not WHICH provider ships — that is `adapters/` data and a
-        // ruling, not an engine fact — only that the recipe speaks with
-        // one voice, so re-pointing its model sites seat by seat is a fair rewrite.
+        // Not WHICH model ships — that is `agents/` data and a ruling, not
+        // an engine fact — only that the recipe speaks with one voice, so
+        // re-pointing its offices seat by seat is a fair rewrite.
+        assert_eq!(shipped.len(), 2, "node seats two model offices");
         assert!(
             shipped.windows(2).all(|pair| pair[0] == pair[1]),
-            "the recipe seats more than one provider: {shipped:?}"
+            "the recipe seats more than one chain: {shipped:?}"
         );
-        std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
         fixture
     }
 
@@ -182,15 +192,22 @@ fn the_node_recipes_gates_compile_on_a_trusted_driver_and_pin_it() {
         .to_string();
     let witnessed = bundle.manifest["drivers"]
         .as_object()
-        .expect("the gates witness what authorised them");
+        .expect("the exec gates witness what authorised them");
     let seats: Vec<&str> = witnessed.keys().map(String::as_str).collect();
     assert_eq!(
         seats,
-        ["review", "ship", "verify"],
-        "exactly the gate-class seats consulted a declaration"
+        ["ship", "verify"],
+        "exactly the inline gate seats consulted a declaration"
     );
+    // A model gate hires an office (#360), whose resolution pins every
+    // adapter its chain consulted, here the one that authorised it.
+    let consulted = brokkr_core::canonical::sha256_hex(&json!({ "steward": steward }));
     for gate in GATES {
-        assert_eq!(witnessed[gate], json!({ "steward": steward }));
+        let resolved = &bundle.manifest["agents"][gate];
+        assert_eq!(
+            (&resolved["provider"], &resolved["adapter_digest"]),
+            (&json!("steward"), &json!(consulted))
+        );
     }
     let exec = Adapters::load(&fixture.dir.path().join("adapters"))
         .unwrap()

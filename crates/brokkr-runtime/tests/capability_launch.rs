@@ -5675,9 +5675,9 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
     );
 }
 
-/// Rebuild unit 6 (task 6.1): the three inline Claude seats of the shipped
-/// `node` and `preflight` recipes (fast's two hire library offices since
-/// #360) author no capability flag and
+/// Rebuild unit 6 (task 6.1): the three Claude seats of the shipped
+/// `node` and `preflight` recipes (fast's two and node's hire library
+/// offices since #360) author no capability flag and
 /// declare a typed allow instead. Each one, compiled from the shipped
 /// directory in a realm that grants nothing and composed and sealed by the
 /// engine's own functions, holds nothing; the engine emits the adapter's
@@ -5742,37 +5742,41 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
                 "final": try_launch(&bundle, seat, 0),
             }),
         );
-        let limits: Vec<&str> = list.split(',').collect();
-        let pins = ["--model", "claude-fable-5-1", "--effort", "high"];
-        expected.insert(
-            format!("{recipe}/{seat}"),
-            json!({
-                "authored command": ["driver", "claude", "--",
-                                     "--model", "claude-fable-5-1", "--effort", "high"],
-                "held": [0],
-                "spawn": ["driver", "claude", "--", "--model", "claude-fable-5-1",
-                          "--effort", "high", "--permission-mode", "acceptEdits",
-                          "--allowedTools", list],
-                "segments": [
-                    {"origin": "authored", "argv": pins},
-                    {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
-                    {"origin": "local", "argv": ["--allowedTools", list]},
-                ],
-                "local": {"allow": {"kind": "listed", "names": names},
-                          "sandbox": {"kind": "unspecified"},
-                          "application": {"kind": "direct", "limits": limits}},
-                "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
-                "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
-                "final": {"Ok": shipped_claude_final(list)},
-            }),
-        );
+        let office = recipe == "node";
+        let record = shipped_claude_record(names, list, office);
+        expected.insert(format!("{recipe}/{seat}"), record);
     }
     assert_eq!(Value::Object(observed), Value::Object(expected));
 }
 
-/// The whole cold command a shipped Claude recipe seat on Fable launches
-/// with its typed allow lowered to `list`.
-fn shipped_claude_final(list: &str) -> Vec<&str> {
+/// What a shipped Claude seat on Fable records and launches with its
+/// typed allow lowered to `list`. Inline (preflight's judge), the recipe
+/// authors the pins and the engine appends the adapter's template and the
+/// list. As a library office (node's and verify's since #360), the
+/// resolver composes the template, the pins and the list into the authored
+/// command, in that order: the same flags and limits, and an Opus fallback.
+fn shipped_claude_record(names: &[&str], list: &str, office: bool) -> Value {
+    let pins = ["--model", "claude-fable-5-1", "--effort", "high"];
+    let template = ["--permission-mode", "acceptEdits"];
+    let local = ["--allowedTools", list];
+    let (model, effort) = pins.split_at(2);
+    let (authored, spawn, segments) = match office {
+        false => (
+            pins.to_vec(),
+            [&pins[..], &template, &local].concat(),
+            json!([{"origin": "authored", "argv": pins},
+                   {"origin": "template", "argv": template},
+                   {"origin": "local", "argv": local}]),
+        ),
+        true => (
+            [&template[..], &pins, &local].concat(),
+            [&template[..], &pins, &local].concat(),
+            json!([{"origin": "template", "argv": template},
+                   {"origin": "template", "argv": model},
+                   {"origin": "template", "argv": effort},
+                   {"origin": "local", "argv": local}]),
+        ),
+    };
     let head = [
         "claude",
         "-p",
@@ -5780,20 +5784,30 @@ fn shipped_claude_final(list: &str) -> Vec<&str> {
         "stream-json",
         "--verbose",
     ];
-    let pins = ["--model", "claude-fable-5-1", "--effort", "high"];
-    let local = ["--permission-mode", "acceptEdits", "--allowedTools", list];
-    [
-        &head[..],
-        &pins,
-        &local,
-        &["--disallowedTools", "WebFetch,WebSearch"],
-        ISOLATED,
-    ]
-    .concat()
+    let denial = ["--disallowedTools", "WebFetch,WebSearch"];
+    let limits: Vec<&str> = list.split(',').collect();
+    let driver = ["driver", "claude", "--"];
+    let launched = [&head[..], &spawn, &denial, ISOLATED].concat();
+    let (authored, spawn) = (
+        [&driver[..], &authored].concat(),
+        [&driver[..], &spawn].concat(),
+    );
+    json!({
+        "authored command": authored,
+        "held": if office { json!([0, 0]) } else { json!([0]) },
+        "spawn": spawn,
+        "segments": segments,
+        "local": {"allow": {"kind": "listed", "names": names},
+                  "sandbox": {"kind": "unspecified"},
+                  "application": {"kind": "direct", "limits": limits}},
+        "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
+        "template": {"kind": "declared", "argv": template},
+        "final": {"Ok": launched},
+    })
 }
 
 /// Rebuild unit 7 (task 7.1; operator ruling of 2026-09-25, "narrow"):
-/// `recipes/verify`'s inline Claude reviewer and the three inline Codex
+/// `recipes/verify`'s Claude reviewer (a library office since #360) and the three inline Codex
 /// seats of `recipes/standby` and `recipes/review-first` author no
 /// capability flag. Each is compiled from the shipped directory in a realm
 /// that grants nothing, then composed, sealed and launched by the engine's
@@ -5895,7 +5909,6 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
 
     let list = "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(gh pr view:*),\
                 Bash(gh run view:*)";
-    let claude_pins = ["--model", "claude-fable-5-1", "--effort", "high"];
     let codex_pins = ["--model", "gpt-6.1-sol", "--effort", "high"];
     let codex = |segment: &[&str], class: &str, door: &str| {
         let mut last = vec![
@@ -5932,29 +5945,9 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
         "--output-last-message",
         "/w/result.json",
     ];
+    let names = ["cargo", "git", "ls", "rg", "gh-pr-view", "gh-run-view"];
     let expected = json!({
-        "verify/review": {
-            "authored command": ["driver", "claude", "--",
-                                 "--model", "claude-fable-5-1", "--effort", "high"],
-            "held": [0],
-            "spawn": ["driver", "claude", "--", "--model", "claude-fable-5-1",
-                      "--effort", "high", "--permission-mode", "acceptEdits",
-                      "--allowedTools", list],
-            "segments": [
-                {"origin": "authored", "argv": claude_pins},
-                {"origin": "template", "argv": ["--permission-mode", "acceptEdits"]},
-                {"origin": "local", "argv": ["--allowedTools", list]},
-            ],
-            "local": {"allow": {"kind": "listed",
-                                "names": ["cargo", "git", "ls", "rg",
-                                          "gh-pr-view", "gh-run-view"]},
-                      "sandbox": {"kind": "unspecified"},
-                      "application": {"kind": "direct",
-                                      "limits": list.split(',').collect::<Vec<_>>()}},
-            "native": {"kind": "known", "held": [], "denied": ["web-fetch", "web-search"]},
-            "template": {"kind": "declared", "argv": ["--permission-mode", "acceptEdits"]},
-            "final": {"Ok": shipped_claude_final(list)},
-        },
+        "verify/review": shipped_claude_record(&names, list, true),
         "standby/implement": codex(&["--sandbox", "workspace-write"], "workspace-write", "file"),
         "standby/review": codex(&gate, "read-only", "last-message"),
         "review-first/review": codex(&gate, "read-only", "last-message"),
