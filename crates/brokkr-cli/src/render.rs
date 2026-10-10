@@ -323,9 +323,12 @@ pub(crate) fn fleet(view: &FleetView, now: &str, style: &Style) -> String {
 /// A scope that matched nothing, as the operator's tty receives it. The
 /// view names the scope and what the run offers in the journal's own
 /// words; error paths honour the module invariant too, since this text
-/// reaches the terminal through anyhow, so it passes through [`Safe`].
+/// reaches the terminal through anyhow, so every name passes through
+/// [`Safe`] before the view folds the participants.
 pub(crate) fn scope_refusal(error: &ScopeError) -> String {
-    Safe::new(&error.to_string()).as_str().to_string()
+    error
+        .named_with(|name| Safe::new(name).as_str().to_string())
+        .to_string()
 }
 
 /// The seats block alone, as `brokkr seats` prints it (decision 0046

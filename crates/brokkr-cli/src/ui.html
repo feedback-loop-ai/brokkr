@@ -1391,9 +1391,12 @@ function renderDetail(id, view) {
     : [el('th', null, 'seq ←cause'), el('th', null, 'event'),
        el('th', null, 'what happened'), el('th', null, 'model'), el('th', null, 'boundary'),
        el('th', null, 'recorded')]));
+  // The scope's rows as a set, built once per render: the cheap trail
+  // test runs first, and a kept row is one lookup, never a scan.
+  const keptRows = scope ? new Set(scope.rows) : null;
   for (const e of view.journal) {
-    if (scope && !scope.rows.includes(e.seq)) continue;
     if (!rawJournal && !e.in_trail) continue;
+    if (keptRows && !keptRows.has(e.seq)) continue;
     const [model, boundary] = served(e);
     const seqCell = el('td', null, e.seq);
     if (e.causation_seq !== null) {

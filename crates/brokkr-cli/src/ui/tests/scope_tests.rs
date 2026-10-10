@@ -120,3 +120,22 @@ fn the_retired_run_route_answers_not_found() {
     assert_eq!(retired.status, "404 Not Found");
     assert_eq!(retired.body, r#"{"error":"/api/run/r1 not found"}"#);
 }
+
+/// The page paints a scoped trail in one pass: the scope's rows become a
+/// set once per render, and the cheap trail test runs before the lookup.
+/// No JS runtime runs here, so the page's text is what binds.
+#[test]
+fn the_scoped_trail_looks_rows_up_once_per_render() {
+    let built = PAGE
+        .find("const keptRows = scope ? new Set(scope.rows) : null;\n")
+        .unwrap();
+    let guards = PAGE
+        .find(concat!(
+            "  for (const e of view.journal) {\n",
+            "    if (!rawJournal && !e.in_trail) continue;\n",
+            "    if (keptRows && !keptRows.has(e.seq)) continue;\n",
+        ))
+        .unwrap();
+    assert!(built < guards, "the set is built before the loop");
+    assert_eq!(PAGE.matches("rows.includes(").count(), 0);
+}

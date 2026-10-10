@@ -733,6 +733,27 @@ fn scope_miss_errors_are_escape_free() {
 }
 
 #[test]
+fn a_scope_miss_folds_participants_after_sanitizing_them() {
+    // Two adjacent seats a sanitizer makes equal are one name on the
+    // tty: each label is sanitized, then the repeats fold.
+    let seat = |seq: u64, effect: &str, label: &str| {
+        ev(
+            seq,
+            EventType::EffectRequested,
+            json!({"effect_id": effect, "seat": label, "phase": "design"}),
+            T0,
+        )
+    };
+    let events = vec![seat(1, "eff-a", "design"), seat(2, "eff-b", "design\r")];
+    let view = brokkr_view::run_view(&events, None);
+    let scope = Scope::Seat("no\x07body".into());
+    assert_eq!(
+        scope_refusal(&lens_for(&view, Some(&scope)).err().unwrap()),
+        "no seat 'nobody' in this run; participants: design"
+    );
+}
+
+#[test]
 fn an_empty_run_still_renders_a_header() {
     // A journal that does not fold carries no summary — never a guessed
     // one — and there is nothing else to draw.

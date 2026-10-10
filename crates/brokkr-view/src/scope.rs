@@ -58,10 +58,13 @@ impl Lens {
 }
 
 /// A scope that matches nothing in the run, naming what the run offers.
-/// The names are the journal's own: a terminal sanitizes the text it
-/// prints, as it does every journal string. Its `Display` is the
-/// operator's text; this pure crate takes no `thiserror` and names no
-/// `std::error` (decision 0071 ruling 1), so the shell wraps the text.
+/// The names are the journal's own: a terminal passes each through its
+/// sanitizer with [`ScopeError::named_with`] before it prints the text,
+/// as it does every journal string. Its `Display` is the operator's text
+/// (decision 0071 ruling 8). It is written by hand rather than derived
+/// with `thiserror` because brokkr-view's dependencies are a closed set
+/// that does not hold `thiserror` today (`PURE` in brokkr-cli's
+/// `tests/layering/main.rs`); the shell wraps the text.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScopeError {
     UnknownPhase {
@@ -87,6 +90,31 @@ impl fmt::Display for ScopeError {
             ),
         })
     }
+}
+
+impl ScopeError {
+    /// The same refusal with every name passed through `name`, and the
+    /// participants folded again afterwards: two labels a sanitizer makes
+    /// equal are one name on the operator's tty, as they always were.
+    pub fn named_with(&self, name: impl Fn(&str) -> String) -> ScopeError {
+        match self {
+            ScopeError::UnknownPhase { phase, visited } => ScopeError::UnknownPhase {
+                phase: name(phase),
+                visited: visited.iter().map(|each| name(each)).collect(),
+            },
+            ScopeError::Unseated { seat, participants } => ScopeError::Unseated {
+                seat: name(seat),
+                participants: folded(participants.iter().map(|each| name(each))),
+            },
+        }
+    }
+}
+
+/// Participant labels with adjacent repeats folded into one.
+fn folded(labels: impl Iterator<Item = String>) -> Vec<String> {
+    let mut labels: Vec<String> = labels.collect();
+    labels.dedup();
+    labels
 }
 
 /// Every participant a seat scope names. ALL occurrences: a re-entered
@@ -120,15 +148,9 @@ pub fn lens_for(view: &RunView, scope: Option<&Scope>) -> Result<Option<Lens>, S
         Some(Scope::Seat(label)) => {
             let matched = seat_matches(view, label);
             if matched.is_empty() {
-                let mut participants: Vec<String> = view
-                    .participants
-                    .iter()
-                    .map(|part| part.label.clone())
-                    .collect();
-                participants.dedup();
                 Err(ScopeError::Unseated {
                     seat: label.clone(),
-                    participants,
+                    participants: folded(view.participants.iter().map(|part| part.label.clone())),
                 })
             } else {
                 Ok(Some(Lens::seats(&matched)))

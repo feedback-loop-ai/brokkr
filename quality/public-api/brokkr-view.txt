@@ -186,6 +186,8 @@ pub brokkr_view::ScopeError::UnknownPhase::visited: alloc::vec::Vec<alloc::strin
 pub brokkr_view::ScopeError::Unseated
 pub brokkr_view::ScopeError::Unseated::participants: alloc::vec::Vec<alloc::string::String>
 pub brokkr_view::ScopeError::Unseated::seat: alloc::string::String
+impl brokkr_view::ScopeError
+pub fn brokkr_view::ScopeError::named_with(&self, impl core::ops::function::Fn(&str) -> alloc::string::String) -> brokkr_view::ScopeError
 impl core::fmt::Display for brokkr_view::ScopeError
 pub fn brokkr_view::ScopeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_view::Section
