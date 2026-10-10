@@ -640,6 +640,9 @@ fn mask_text(text: &str, bindings: &[BoundSecret]) -> String {
     String::from_utf8_lossy(&mask_bytes(text.as_bytes(), bindings)).into_owned()
 }
 
+pub use handoff::{exec_confined, send_environment};
+
+pub(crate) mod handoff;
 mod store;
 
 #[cfg(test)]

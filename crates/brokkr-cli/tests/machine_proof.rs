@@ -3144,39 +3144,9 @@ fn expose_for_spawn_has_exactly_one_production_call_site() {
     // 0012 prescribes: the plaintext accessor is CALLED exactly once in
     // all production code, secret.rs included — inside the one spawn
     // injector every harness shares. Its definition is not a call.
-    let crates_dir = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let needle: String = ["expose_for", "_spawn("].concat();
-    let mut call_sites: Vec<(PathBuf, String)> = Vec::new();
-    let mut stack = vec![crates_dir.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().and_then(|e| e.to_str()) == Some("rs")
-                // Production code only: each crate's src/ tree, minus tests.
-                && path.components().any(|c| c.as_os_str() == "src")
-                && !path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n == "tests.rs" || n.ends_with("_tests.rs"))
-            {
-                let content = std::fs::read_to_string(&path).unwrap();
-                // A call sits in the nearest function opened before it.
-                let calls = content.match_indices(&needle).map(|(at, _)| &content[..at]);
-                for before in calls.filter(|before| !before.ends_with("fn ")) {
-                    let enclosing = before.rfind("fn ").map_or("", |fn_at| &before[fn_at + 3..]);
-                    let name = enclosing.split('(').next().unwrap_or_default();
-                    call_sites.push((path.clone(), name.to_string()));
-                }
-            }
-        }
-    }
-    let injector = crates_dir
-        .join("brokkr-protocol")
-        .join("src")
-        .join("secret.rs");
-    assert_eq!(call_sites, [(injector, "bind_environment".to_string())]);
+    let injector = PathBuf::from("brokkr-protocol/src/secret.rs");
+    let calls = egress::production_calls(&["expose_for", "_spawn("].concat());
+    assert_eq!(calls, [(injector, "bind_environment".to_string())]);
 }
 
 #[test]
@@ -3477,3 +3447,5 @@ fn brokkr_tui_is_a_listed_read_verb_that_refuses_a_pipe_and_writes_nothing() {
         "and the journal"
     );
 }
+
+mod egress;

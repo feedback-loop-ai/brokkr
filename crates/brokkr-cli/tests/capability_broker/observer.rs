@@ -6,7 +6,7 @@
 //! or a cancelled attempt ends with nothing of admission left running.
 
 use std::ffi::OsStr;
-use std::io::{IoSlice, IoSliceMut, Read};
+use std::io::{IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::MetadataExt;
@@ -284,6 +284,8 @@ fn admission_compares_the_sealed_sources_with_a_fresh_observation() {
     chmod(&fresh, 0o755);
     let file = std::fs::File::options().write(true).open(&fresh).unwrap();
     file.set_modified(was.modified().unwrap()).unwrap();
+    // Closed, so the admitted box can exec it again below.
+    drop(file);
     std::fs::rename(&fresh, &server).unwrap();
     let held = std::fs::File::open(&bin).unwrap();
     held.set_modified(dir.modified().unwrap()).unwrap();
@@ -314,7 +316,7 @@ fn admission_compares_the_sealed_sources_with_a_fresh_observation() {
     let later = (&record["observed"]["refused"], handles.len());
     assert_eq!(later, (&json!("store-in-box"), 0));
     // Sealed afresh by the engine, the replaced file is admitted again,
-    // its store the protected empty one again.
+    // its store the protected one again.
     std::fs::remove_file(sealed.path("store/secrets.env")).unwrap();
     sealed.root.store("store/secrets.env");
     let fresh = sealed.observing(plan);
@@ -632,13 +634,20 @@ pub(super) enum Starter {
 /// The broker serving the plan `sealed` holds at `digest`, started by
 /// `starter`, a shell under `no_new_privs` as a confined harness is, with
 /// the engine's HOME; the whole run traced where `block` holds the
-/// launcher.
+/// launcher. The broker's own stderr goes apart, to [`broker_err`], so no
+/// tracer notice shares a line with it.
 fn serving(sealed: &Sealed, digest: &str, block: &Block, starter: Starter) -> Command {
     let command = match block {
         Block::Mount { .. } => Command::new(setpriv()),
         Block::Launcher { tracer } => traced(tracer, TRACED),
     };
-    started(command, sealed, digest, starter)
+    let apart = sealed.path("broker.err");
+    started_to(command, sealed, digest, (starter, Some(&apart)))
+}
+
+/// What the broker [`serving`] `sealed` wrote to its own stderr.
+fn broker_err(sealed: &Sealed) -> String {
+    std::fs::read_to_string(sealed.path("broker.err")).unwrap()
 }
 
 /// `tracer`, given `args`, running `setpriv`.
@@ -649,18 +658,27 @@ pub(super) fn traced(tracer: &Path, args: impl IntoIterator<Item = impl AsRef<Os
 }
 
 /// `command`, `setpriv` or a tracer running it, made the broker serving
-/// the plan `sealed` holds at `digest`, started by `starter`.
-pub(super) fn started(
+/// the plan `sealed` holds at `digest`, started by `starter`, the broker's
+/// own stderr redirected by its starter to the file `apart` names, where
+/// one does: a tracer running the starter keeps its stderr for its own
+/// notices, which then never share a line with the broker's.
+pub(super) fn started_to(
     mut command: Command,
     sealed: &Sealed,
     digest: &str,
-    starter: Starter,
+    (starter, apart): (Starter, Option<&Path>),
 ) -> Command {
-    let shell = match starter {
-        Starter::Harness => ["/bin/sh", "-c", HARNESS],
-        Starter::Attempt => ["/bin/sh", "-c", "\"$0\" \"$@\" & wait"],
+    let redirect = apart.map_or(String::new(), |path| format!(" 2>'{}'", path.display()));
+    // The harness's own line: its command, then how it ends.
+    let (run, exit) = HARNESS.split_once(';').unwrap();
+    let script = match starter {
+        Starter::Harness => format!("{run}{redirect};{exit}"),
+        Starter::Attempt => format!("{run}{redirect} & wait"),
     };
-    command.arg("--no-new-privs").args(shell).arg(brokkr());
+    command
+        .arg("--no-new-privs")
+        .args(["/bin/sh", "-c", &script])
+        .arg(brokkr());
     // A pipe, which names no path the tracer could resolve and report.
     command
         .args(serve_args(sealed, digest))
@@ -808,10 +826,11 @@ fn the_admitted_launcher_runs_through_its_handle_with_no_environment() {
     };
     let log = sealed.path("launched.log");
     let args = RECORDED.iter().map(OsStr::new).chain([log.as_os_str()]);
-    let mut command = started(traced(&tracer, args), &sealed, &digest, Starter::Harness);
-    let out = command.stderr(Stdio::piped()).output().unwrap();
-    let answer = (out.status.code(), String::from_utf8(out.stderr).unwrap());
-    assert_eq!(answer, admitted());
+    let apart = sealed.path("broker.err");
+    let starter = (Starter::Harness, Some(apart.as_path()));
+    let mut command = started_to(traced(&tracer, args), &sealed, &digest, starter);
+    let ran = command.stderr(Stdio::null()).status().unwrap();
+    assert_eq!((ran.code(), broker_err(&sealed)), admitted());
     // The one run the admission gave its launcher: the kept handle, by the
     // kernel's name for it, asked its version with an empty environment.
     let log = std::fs::read_to_string(&log).unwrap();
@@ -841,7 +860,7 @@ fn an_operation_blocked_to_the_deadline_refuses_with_nothing_left_running() {
         let store = Store::new(sealed.path("store/secrets.env"));
         let started = Instant::now();
         let mut command = adopted(&serving(&sealed, &digest, &block, Starter::Harness));
-        let attempt = command.stderr(Stdio::piped()).spawn().unwrap();
+        let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
         // The broker ends once the full deadline, never extended, has
@@ -849,9 +868,9 @@ fn an_operation_blocked_to_the_deadline_refuses_with_nothing_left_running() {
         // started and its whole group are gone by then.
         let elapsed = awaited(broker) - started;
         let ended = swept(pid);
-        let out = attempt.wait_with_output().unwrap();
+        let code = attempt.wait().unwrap().code();
         let ended_at = Instant::now();
-        let answer = (out.status.code(), String::from_utf8(out.stderr).unwrap());
+        let answer = (code, broker_err(&sealed));
         assert_eq!((kind, answer), (kind, refused(Refusal::Identity)));
         let within = (elapsed >= Duration::from_secs(30)) & (elapsed < Duration::from_secs(32));
         assert!(within, "{kind:?}: {elapsed:?}");
@@ -869,15 +888,13 @@ fn a_cancelled_attempt_ends_a_blocked_observation_with_nothing_left_running() {
         // The shell that started the broker, standing for the attempt's own
         // start, ends while the observer is blocked.
         let mut command = adopted(&serving(&sealed, &digest, &block, Starter::Attempt));
-        let mut attempt = command.stderr(Stdio::piped()).spawn().unwrap();
+        let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
         let taken = cancelled(broker);
         let ended = swept(pid);
         attempt.wait().unwrap();
-        let mut stderr = String::new();
-        let mut pipe = attempt.stderr.take().unwrap();
-        pipe.read_to_string(&mut stderr).unwrap();
+        let stderr = broker_err(&sealed);
         let ended_at = Instant::now();
         // The broker answered with the identity cause soon after and
         // ended, its observer and the observer's group gone.
