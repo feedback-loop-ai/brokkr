@@ -105,15 +105,7 @@ const CANONICAL: [(&str, &str); 3] = [
 
 /// Files that share a canonical's name and are a different office, each
 /// with the reason it is its own.
-const OWN_OFFICES: [(&str, &str); 5] = [
-    (
-        "recipes/night-shift/roles/implementer.md",
-        "the unattended implementer's charter",
-    ),
-    (
-        "recipes/node/roles/implementer.md",
-        "Node's implementer charter",
-    ),
+const OWN_OFFICES: [(&str, &str); 3] = [
     ("recipes/node/roles/verify-seat.sh", "Node's npm verifier"),
     (
         "recipes/preflight/roles/verify-seat.sh",

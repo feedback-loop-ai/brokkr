@@ -1,0 +1,12 @@
+{
+  "extends": "reviewer",
+  "charter": "charters/verify-reviewer.md",
+  "models": ["fable", "opus"],
+  "efforts": {"fable": "high", "opus": "high"},
+  "inputs": ["has_security_residual", "max_residual_severity"],
+  "tools": {"allow": ["cargo", "git", "ls", "rg", "gh-pr-view", "gh-run-view"]},
+  "replaces": {
+    "hands": "the verify bundle's reviewer runs its harness's own tools unboxed, as its seat always has",
+    "tools": "the list the verify bundle's review seat always granted, two gh subcommands included, in place of the box"
+  }
+}

@@ -24,6 +24,8 @@ use serde_json::{Map, Value};
 
 use super::CompileError;
 
+mod forced_crew;
+
 /// The deepest chain the resolver walks, leaf included. A chain that
 /// long is a modelling mistake, not a composition.
 const MAX_LAYERS: usize = 8;
@@ -749,20 +751,18 @@ impl TableRead {
 /// closed inputs; decision 0065 slice one, rebuild unit 5e-fix-b). Each is
 /// read at the root by exactly one owner: `name` and `extends` by
 /// [`read_layers`], `override` and `remove` by [`Markers::read`], `policy`
-/// by [`own_table`], `seats` by [`merge_layer`], and `description`, `cost`,
-/// `protected_phase` and `egress_minimum` by `Bundle::assemble` and
-/// `parse_egress_minimum` in `bundle.rs`. It is the table of
-/// `docs/guides/recipe-authoring.md` ("`bundle.json` anatomy"), in its
-/// order, and the 18 shipped `bundle.json` files use eight of the ten. A
-/// capability is read only at a site, so a capability word at a root, or
-/// any other key, was retained and ignored: it compiled and confined
-/// nothing. The root is closed rather than a list of known capability words
-/// extended, because a list of refused words is only as complete as its
-/// last council.
-const ROOT_KEYS: [&str; 10] = [
+/// by [`own_table`], `seats` by [`merge_layer`], `forced_crew` by
+/// [`forced_crew::admit`], and `description`, `cost`, `protected_phase` and
+/// `egress_minimum` by `Bundle::assemble` and `parse_egress_minimum` in
+/// `bundle.rs`. It is the table of `docs/guides/recipe-authoring.md`
+/// ("`bundle.json` anatomy"), in its order. Any other key at a root, a
+/// capability word included, was once retained and ignored, compiling and
+/// confining nothing, so the root is closed rather than a list of refused words.
+const ROOT_KEYS: [&str; 11] = [
     "name",
     "description",
     "cost",
+    "forced_crew",
     "policy",
     "protected_phase",
     "egress_minimum",
@@ -772,16 +772,16 @@ const ROOT_KEYS: [&str; 10] = [
     "remove",
 ];
 
-/// Refuse any key outside [`ROOT_KEYS`] at the root of one layer. The
-/// reason names the layer and the key, both rendered bounded and safe, and
-/// never the value.
-fn refuse_unknown_root_keys(layer: &Layer) -> Result<(), CompileError> {
+/// Refuse any key outside [`ROOT_KEYS`] at the root of one layer, and a
+/// `forced_crew` that states no reason. The reason names the layer and the
+/// key, both rendered bounded and safe, and never the value.
+fn admit_root(layer: &Layer) -> Result<(), CompileError> {
     let Some(key) = layer
         .document
         .keys()
         .find(|key| !ROOT_KEYS.contains(&key.as_str()))
     else {
-        return Ok(());
+        return forced_crew::admit(&layer.name, &layer.document);
     };
     let (rest, last) = ROOT_KEYS.split_at(ROOT_KEYS.len() - 1);
     Err(invalid(format!(
@@ -806,7 +806,7 @@ fn refuse_unknown_root_keys(layer: &Layer) -> Result<(), CompileError> {
 )]
 fn merge_layer(merged: &mut Merged, layers: &[Layer], index: usize) -> Result<(), CompileError> {
     let layer = &layers[index];
-    refuse_unknown_root_keys(layer)?;
+    admit_root(layer)?;
     let markers = Markers::read(layer)?;
     let table = own_table(layer)?;
 

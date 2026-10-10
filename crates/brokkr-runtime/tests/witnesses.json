@@ -3,21 +3,21 @@
     "recipes/fast": "c28afd2f37a8420f7306c93562512de4ce0c5b140b7f93a2ee9b13b2f4cb85bc",
     "recipes/gpt-flash": "b60e74bf2463c0ed56bbda4a854908c25e8f81afa3e1af29d378f7b87109a0ed",
     "recipes/landing": "1f7e380c0b1d6adeea993bb56f7861a993956a480f2a9795b1dabb856462e92c",
-    "recipes/night-shift": "fda440579944076024b7ed00a0d2f8f292dcbf6da56716c92b7a69d8938eb34c",
-    "recipes/node": "f1f8deb953c578cb46f5fdfb23a216c21a0d2a7b38f106452b9d8d8d14345afb",
+    "recipes/night-shift": "8b5151e3bac0dca25375b11634de01b4accf8f84aeeab4f4762851bede3b7373",
+    "recipes/node": "967cbf35d2071185736731886115fab2166ea12a3912a4b8103baebc01ff10da",
     "recipes/panel-review": "8385c4b9e04cfa2390297ed4eea12b3d7c4d427ec38cdcc9164b9245394d9116",
-    "recipes/preflight": "eaaa2ca6a52dfa08cc1bd0c1f90676ff4c8657f6ae512246ab14b5563c273e9e",
+    "recipes/preflight": "8d6590d6d24ba02439b1e0b3d42241b963356e2cd93baea198742a658aa2b5bf",
     "recipes/release": "e9a32627ace8a753cf510588cc1bb349b876f1379c9ec896b381aa1f3aa53aab",
     "recipes/research": "efecb580c8087056d6d52856a788166f503951302fbab9481243aa6c28384243",
-    "recipes/research-dsh": "74e5f3fed18556e4e56e5d32c6f89f6b4ec5efa3e4e5d0283a97321f79ce92f4",
-    "recipes/review-first": "e23b81083ccd3ebcae78e1f50dbab1c03eef0e0f663667554fdfaf86899cee69",
+    "recipes/research-dsh": "7880eb06f134f72d7c711dc8a8f6b31e30a53e29add5731978cdcdceaa07ccfa",
+    "recipes/review-first": "8476e95099ea3451ed9809b58e07bc083d58f404daf34f1fd4f801e939808bda",
     "recipes/self": "a3723cbe2ecd1342b91bec3caaf3e772e8a35ca6e8d4e611b29fa35a06240f74",
-    "recipes/standby": "2e2c52e0a2d8d761850e6e3f55dbba6871b3478a5c9f919fe30ead171d4a76ec",
+    "recipes/standby": "23c5e050a97b71887e32c1177966fffd1b806138c66d0159a6a91e0e473c66bd",
     "recipes/triage": "87de2e10fa098d064c8fb4069acfe64d0d5c594953cac43908a0f02bd4345033",
-    "recipes/verify": "7fa45bfb6fc56aa5b29e8b8b9d9d71bd93a5b5c37c65c958468c332f9fb0bc13",
-    "recipes/wager-harness": "64842aee791550cc98daf7bab25be183358c52d0fbbef70e8533e7d244bcf6cc",
-    "recipes/wager-harness-dsh": "41c909b56260fff476bcf1c88f60b0bc5207063d9a077ed944f8cbfb4e4e2971",
-    "recipes/wager-harness-muse": "4b39fe604cae28f428b2a4138f07f49b7ba0c413c5835b3a92eb55e71922d729"
+    "recipes/verify": "9bda5be4abcac1a5016ceec1bf7a37b9ca616b2adcb4eae75970d12af2a8904e",
+    "recipes/wager-harness": "8774523aab7878fe994b7cf41d090ee5c0bafc5ab4ab0add7f16f2850106dd69",
+    "recipes/wager-harness-dsh": "ed20d982c8eeea82361fa4b53cb5a0b568a0400ff36e94017d08d65ef7547130",
+    "recipes/wager-harness-muse": "02457fa3959f7fc837ee0823b097850b90f74ee15ff1966a73000abb5e38cf58"
   },
   "tables": {
     "recipes/fast": "b8426670da9cc9b67fce522a19967743a19e3151e069a2e6c287623ccc2ddfb5",
@@ -45,9 +45,12 @@
     "clarifier.md": "5028f0624c92272ce12a4cc50fd771e86591436dd912d31b2127687a3d233fa7",
     "implementer-intakeless.md": "4f3e824362c703ed1f27a7a50f0658e551117101ad318eb23862eff5ac113a1d",
     "implementer-sdd.md": "7df0a3322a937e979795824b537f73b1762b2250f4810deb54d196dfffb9e448",
+    "implementer-unattended.md": "ac65cbe59f3e439ea5b25cf755143ec9739e77688bb355e61210dee480f00364",
     "implementer.md": "00f320f4ee61808db3f121a143e2b4f30515d1a892540302453beec0ac683beb",
     "intake.md": "fbdb7dba8e34fbc0b02e0f7fd7540fd0ab9313e40cdbcb03c27c22d78c138756",
     "muninn.md": "642425f63f73d9184e6998fa4b8f10ec4deb5843c82cd47b1db2b2434d96e12d",
+    "node-implementer.md": "b12e2d8a569136a6b2ece12239f5576738249922854969153b1eb8a770c5410a",
+    "node-reviewer.md": "2d04fb21d07e2b90bf71b7238bb5d46273b161191875127e5ea76fbdbd265f62",
     "position-robustness.md": "6d7926ae2f207ca576f65d949dae79501cfeccca5cd0ae436b2e85ce8969241a",
     "position-simplicity.md": "22a5d52aa78e3b1d9ba28afdcdb938b1f2857d7c5a946dbd10a205fc4d1e880f",
     "release-manager.md": "f2fc2c009138882233f193e4e10034c8e273ea81f6dec9b38d8a9cc26e0b6e7c",
@@ -58,6 +61,7 @@
     "review-security.md": "33d6b92f2a349636e60cb9a4ef6a90fcf6925709742457ef918fbaf80a2f0b89",
     "review-spec-compliance.md": "bcfc9eedf910ddae08807b3720558d665a03ca9ddb2211dbfddc5839da946782",
     "reviewer.md": "311489fc120a0bec72ffd0302bac12e60f184ca0e6d4c9e168f4e88453f6c410",
-    "triage.md": "8a7683bddc61597fb19be19b63cb6a5211d1e201f3a6f251a2c84121d90af3ec"
+    "triage.md": "8a7683bddc61597fb19be19b63cb6a5211d1e201f3a6f251a2c84121d90af3ec",
+    "verify-reviewer.md": "d79b63e498b09350362e856a625eec1ba1668522afa6d0ea88c70abb4bd76124"
   }
 }

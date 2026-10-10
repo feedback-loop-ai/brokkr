@@ -23,3 +23,9 @@ crew are the 0041 ruling 7 exception for the reason a wager forces its
 crew, named and asserted; landing stays the shop-work road. The judge
 seat moved from Astra 6.0 to Sol 6.1 at `high` on the operator's
 2026-09-30 roster ruling (decision 0045's addendum).
+
+The recipe declares that forcing as `forced_crew` (decision 0041's
+addendum of 2026-10-07). Muse remediates through
+`agents/muse-implementer.json`, an overlay of `implementer` whose chain
+holds Muse alone; the Sol judge stays inline because an office may not
+yet carry codex's read-only sandbox without hands.

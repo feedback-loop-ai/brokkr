@@ -69,13 +69,14 @@ fn the_shipped_inline_codex_work_seats_carry_the_preserved_assessment() {
 /// The other three shipped shapes are not enabled by this ruling: an inline
 /// site of each still carries its provider's own assessment, whose shape is
 /// `unmeasured`, so the driver declines as `unsupported-resume`. The
-/// claude shape is read at Node's inline smith since `fast` hires library
-/// offices (#360).
+/// claude shape is read at preflight's inline judge and the dsh shape at
+/// research-dsh's inline researcher since `fast`, `node` and the dsh wager
+/// arm hire library offices (#360).
 #[test]
 fn the_other_shipped_shapes_stay_unmeasured_at_inline_sites() {
     for (relative, seat, shape) in [
-        ("recipes/node", "implement", "boxed-workspace"),
-        ("recipes/wager-harness-dsh", "implement", "headless-work"),
+        ("recipes/preflight", "review", "boxed-workspace"),
+        ("recipes/research-dsh", "research", "headless-work"),
     ] {
         let bundle = compile(relative);
         let assessment = bundle

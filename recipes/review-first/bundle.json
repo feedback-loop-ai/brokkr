@@ -1,6 +1,7 @@
 {
   "name": "review-first",
   "description": "An existing branch judged first: Sol reviews, the suite verifies, Muse remediates findings on return, and the run ships.",
+  "forced_crew": "decision 0060: the firing names its models, Muse implements and Sol judges",
   "extends": "fast",
   "policy": "policy.json",
   "override": {
@@ -42,7 +43,6 @@
       }
     },
     "implement": {
-      "role": "roles/implementer.md",
       "results": [
         "complete",
         "broken",
@@ -54,18 +54,7 @@
         "max_attempts": 2,
         "timeout_seconds": 5400
       },
-      "driver": {
-        "command": [
-          "{brokkr}",
-          "driver",
-          "dsh",
-          "--",
-          "--model",
-          "meta-contributor/meta/muse-spark-1.3-contributor",
-          "--effort",
-          "xhigh"
-        ]
-      }
+      "agent": "muse-implementer"
     }
   }
 }
