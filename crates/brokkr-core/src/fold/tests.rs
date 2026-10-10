@@ -859,3 +859,258 @@ fn a_supersede_annotation_folds_a_stopped_run_to_the_same_state() {
         "an annotation on a terminal run is never held as pending"
     );
 }
+
+/// Every event type, in declaration order.
+const EVENT_TYPES: [EventType; 15] = {
+    use EventType::*;
+    [
+        RunStarted,
+        PhaseEntered,
+        EffectRequested,
+        EffectStarted,
+        EffectCheckpointed,
+        EffectSucceeded,
+        EffectFailed,
+        EffectIndeterminate,
+        TransitionDecided,
+        OperatorCommanded,
+        OperatorAccepted,
+        OperatorRejected,
+        RunParked,
+        RunCompleted,
+        RunStopped,
+    ]
+};
+
+/// Every position, in declaration order.
+const POSITIONS: [Position; 10] = {
+    use Position::*;
+    [
+        Start,
+        EnterPhase,
+        RequestEffect,
+        ExecuteEffect,
+        EffectInFlight,
+        Decide,
+        Park,
+        Stop,
+        Idle,
+        Terminal,
+    ]
+};
+
+/// A run standing at `position`, holding effect `e` and phase `work`,
+/// with an operator stop pending.
+fn standing_at(position: Position) -> RunState {
+    let mut current = state(match position {
+        Position::Start => Cursor::Start,
+        Position::EnterPhase => Cursor::EnterPhase {
+            phase: "work".into(),
+        },
+        Position::RequestEffect => Cursor::RequestEffect,
+        Position::ExecuteEffect => Cursor::ExecuteEffect {
+            effect_id: "e".into(),
+            seat: "work".into(),
+            failed_attempts: 0,
+        },
+        Position::EffectInFlight => Cursor::EffectInFlight {
+            effect_id: "e".into(),
+            attempt_id: "a".into(),
+            seat: "work".into(),
+            failed_attempts: 0,
+        },
+        Position::Decide => Cursor::Decide {
+            effect_id: "e".into(),
+            result: json!({"result": "complete"}),
+        },
+        Position::Park => Cursor::Park {
+            reason: "no ruling".into(),
+        },
+        Position::Stop => Cursor::Stop,
+        Position::Idle | Position::Terminal => Cursor::Idle,
+    });
+    current.status = match position {
+        Position::Idle => Status::AwaitingOperator,
+        Position::Terminal => Status::Completed,
+        _ => Status::Running,
+    };
+    current.pending_command = Some(("c1".into(), "stop".into()));
+    current
+}
+
+/// An event of `event_type` that names what [`standing_at`] holds.
+fn well_formed(event_type: EventType) -> Value {
+    use EventType::*;
+    match event_type {
+        RunStarted | OperatorRejected | RunCompleted | RunStopped => json!({}),
+        PhaseEntered => json!({"phase": "work"}),
+        EffectRequested => json!({"effect_id": "e", "seat": "work"}),
+        EffectStarted => json!({"effect_id": "e", "attempt_id": "a"}),
+        EffectCheckpointed | EffectFailed => json!({"effect_id": "e"}),
+        EffectSucceeded => json!({"effect_id": "e", "result": {}}),
+        EffectIndeterminate => json!({"effect_id": "e", "reason": "engine restarted"}),
+        TransitionDecided => json!({"from": "work", "result": "complete", "next": "done"}),
+        OperatorCommanded => json!({"command_id": "c2", "command": "stop"}),
+        OperatorAccepted => json!({"command_id": "c1"}),
+        RunParked => json!({"reason": "attempts exhausted"}),
+    }
+}
+
+/// Decision 0050 ruling 6: the relation answers every (event type,
+/// position) pair, and the fold answers each pair as the relation says.
+/// The expected answers are stated here as the transitions and where
+/// each is taken; every other running pair is out of place, and a
+/// terminal run admits only the two operator annotations.
+#[test]
+fn the_relation_answers_every_pair_and_the_fold_answers_by_it() {
+    use EventType::*;
+    use Position::{
+        Decide, EffectInFlight, EnterPhase, ExecuteEffect, Park, RequestEffect, Start, Terminal,
+    };
+    let running = &POSITIONS[..9];
+    let moves: [(EventType, Transition, &[Position]); 14] = [
+        (PhaseEntered, Transition::Enter, &[Start, EnterPhase]),
+        (EffectRequested, Transition::Request, &[RequestEffect]),
+        (EffectStarted, Transition::Start, &[ExecuteEffect]),
+        (
+            EffectCheckpointed,
+            Transition::Checkpoint,
+            &[EffectInFlight],
+        ),
+        (EffectSucceeded, Transition::Succeed, &[EffectInFlight]),
+        (EffectFailed, Transition::Fail, &[EffectInFlight]),
+        (
+            EffectIndeterminate,
+            Transition::Close,
+            &[ExecuteEffect, EffectInFlight],
+        ),
+        (TransitionDecided, Transition::Rule, &[Decide]),
+        (OperatorCommanded, Transition::Command, running),
+        (OperatorAccepted, Transition::Accept, running),
+        (OperatorRejected, Transition::Reject, running),
+        (
+            RunParked,
+            Transition::Park,
+            &[Start, EnterPhase, ExecuteEffect, Park],
+        ),
+        (RunCompleted, Transition::Complete, &running[..8]),
+        (RunStopped, Transition::Stop, &running[..8]),
+    ];
+    for (index, event_type) in EVENT_TYPES.into_iter().enumerate() {
+        assert_eq!(event_type as usize, index);
+    }
+    assert_eq!(EVENT_TYPES.len(), RunStopped as usize + 1);
+    for (index, position) in POSITIONS.into_iter().enumerate() {
+        assert_eq!(position as usize, index);
+        assert_eq!(Position::of(&standing_at(position)), position);
+    }
+    assert_eq!(POSITIONS.len(), Terminal as usize + 1);
+
+    let mut tally = BTreeMap::new();
+    for event_type in EVENT_TYPES {
+        for position in POSITIONS {
+            let moved = moves
+                .iter()
+                .find(|(moving, _, at)| *moving == event_type && at.contains(&position));
+            let expected = match (position, moved) {
+                (Terminal, _) if matches!(event_type, OperatorCommanded | OperatorRejected) => {
+                    Arm::Annotates
+                }
+                (Terminal, _) => Arm::AfterTerminal,
+                (_, Some((_, transition, _))) => Arm::Moves(*transition),
+                (_, None) => Arm::OutOfPlace,
+            };
+            let pair = format!("{event_type:?} at {position:?}");
+            assert_eq!(relation::arm(event_type, position), expected, "{pair}");
+
+            let before = standing_at(position);
+            let mut current = before.clone();
+            let answer = apply(&mut current, &event(event_type, well_formed(event_type)));
+            let class = match expected {
+                Arm::Moves(_) => {
+                    assert_eq!(answer, Ok(()), "{pair}");
+                    "moves"
+                }
+                Arm::OutOfPlace => {
+                    let refusal = FoldError::OutOfPlace {
+                        seq: 2,
+                        event: format!("{event_type:?}"),
+                        cursor: before.cursor.to_string(),
+                    };
+                    assert_eq!(answer, Err(refusal), "{pair}");
+                    "out of place"
+                }
+                Arm::Annotates => {
+                    assert_eq!(answer, Ok(()), "{pair}");
+                    assert_eq!(format!("{current:?}"), format!("{before:?}"), "{pair}");
+                    "annotates"
+                }
+                Arm::AfterTerminal => {
+                    assert_eq!(answer, Err(FoldError::AfterTerminal { seq: 2 }), "{pair}");
+                    "after terminal"
+                }
+            };
+            *tally.entry(class).or_insert(0) += 1;
+        }
+    }
+    assert_eq!(
+        tally,
+        BTreeMap::from([
+            ("after terminal", 13),
+            ("annotates", 2),
+            ("moves", 57),
+            ("out of place", 78),
+        ])
+    );
+
+    let mut stopped = standing_at(Terminal);
+    stopped.status = Status::Stopped;
+    assert_eq!(Position::of(&stopped), Terminal);
+}
+
+/// An event that is both malformed and out of place is refused for the
+/// field it names its target by, as the fold's arms always read it first;
+/// an event that names no target first is refused for its place.
+#[test]
+fn a_malformed_event_out_of_place_is_refused_for_its_payload_first() {
+    use EventType::*;
+    let named_first = [
+        (PhaseEntered, Some("phase")),
+        (EffectStarted, Some("effect_id")),
+        (EffectSucceeded, Some("effect_id")),
+        (EffectFailed, Some("effect_id")),
+        (EffectIndeterminate, Some("effect_id")),
+        (RunStarted, None),
+        (EffectRequested, None),
+        (EffectCheckpointed, None),
+        (TransitionDecided, None),
+        (RunParked, None),
+    ];
+    for (event_type, field) in named_first {
+        let mut current = state(Cursor::Stop);
+        let answer = apply(&mut current, &event(event_type, json!({})));
+        let expected = match field {
+            Some(field) => FoldError::BadPayload {
+                seq: 2,
+                field: field.into(),
+            },
+            None => FoldError::OutOfPlace {
+                seq: 2,
+                event: format!("{event_type:?}"),
+                cursor: "Stop".into(),
+            },
+        };
+        assert_eq!(answer, Err(expected), "{event_type:?}");
+    }
+    let mut current = state(Cursor::Stop);
+    assert_eq!(
+        apply(
+            &mut current,
+            &event(EffectStarted, json!({"effect_id": "e"}))
+        ),
+        Err(FoldError::BadPayload {
+            seq: 2,
+            field: "attempt_id".into(),
+        })
+    );
+}
