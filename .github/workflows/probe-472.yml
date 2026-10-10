@@ -1,0 +1,33 @@
+# A one-off measurement for #472, run only on its probe branch. Not for merge.
+name: probe 472 containment
+on:
+  push:
+    branches: [probe/472-containment]
+permissions: {}
+jobs:
+  runner:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: bubblewrap, as the boxed tests install it
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: sudo apt-get install -y -qq bubblewrap
+      - run: PROBE_OWN=1 bash probe/containment.sh
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    container: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - run: apt-get update -qq && apt-get install -y -qq procps util-linux bubblewrap systemd >/dev/null
+      - run: PROBE_OWN=1 bash probe/containment.sh
