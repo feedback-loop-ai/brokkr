@@ -627,8 +627,13 @@ and fail closed on what cannot be read.
   ends it by the same path it already ends a released driver.
   Binding each scope to a unit of the engine's own (`BindsTo=`) would
   close the released-driver case on the `scope` rung, at the price of
-  running the engine in a unit; that is unmeasured, and research entry
-  0020 lists it as owed measurement 14.
+  running the engine in a unit. Research entry 0020's measurement 14
+  (2026-10-10, the operator's host and both Linux runners) found that a
+  SIGKILL to the engine's unit stops every bound scope, escapes and
+  cgroup gone, in 16 to 38 ms, so the dependency could stand in for the
+  lifeline for every attempt whose scope exists; and that a scope
+  started after the engine's unit failed still runs its driver, so the
+  launch gate stays whichever is chosen.
 - **Re-homing.** A process inside the attempt that asks the user manager
   for a unit of its own (`systemd-run --user`, a tmux server built with
   systemd support, a D-Bus activated user service) is started outside

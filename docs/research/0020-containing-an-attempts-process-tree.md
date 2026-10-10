@@ -239,6 +239,17 @@ cannot reach a cgroup tree or nest the namespaces.
     Decision 0080 names it under Asked as the alternative that would
     close its released-driver residual on the scope rung, at the price of
     running the engine in a unit.
+    **Measured 2026-10-10** (probe commit 2ca73c8d on branch
+    `probe/472-containment`, GitHub run 38089932134, and the operator's
+    host). `systemd-run` accepts `BindsTo=` and `After=` on a scope. A
+    SIGKILL to the engine's unit stopped the bound scope with no escape
+    pid left and its cgroup absent, in 38 ms on the operator's host,
+    20 ms on ubuntu-latest and 16 ms on ubuntu-24.04-arm. A scope started
+    with the same dependency after the engine's unit had failed was NOT
+    refused: its driver ran until an outside timeout ended it, on all
+    three hosts. So the dependency ends every attempt whose scope
+    exists when the engine dies, and does not close a launch that
+    creates its scope later; that window still needs the launch gate.
 
 ## Findings
 
