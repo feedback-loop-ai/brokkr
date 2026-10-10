@@ -122,19 +122,20 @@ fn indeterminate(reason: &str) -> AttemptOutcome {
     }
 }
 
-fn frame_exceeded(limit: usize, head: &str) -> AttemptOutcome {
+/// The refusal of a line past `limit`, whose first `limit + 1` bytes
+/// begin with a `first` byte and hash to `sha256`.
+fn frame_exceeded(limit: usize, first: &str, sha256: &str) -> AttemptOutcome {
     indeterminate(&format!(
-        "driver stdout line exceeded the frame limit of {limit} bytes; it began \"{head}\""
+        "driver stdout line exceeded the frame limit of {limit} bytes; its first {} bytes \
+         (first byte: {first}; sha256: {sha256})",
+        limit + 1
     ))
 }
 
-/// The escaped head every fixed-id checkpoint line begins with.
-const CHECKPOINT_HEAD: &str =
-    r#"{\"proto\":\"forge-driver/v1\",\"msg_id\":\"m\",\"type\":\"checkpoint\",\"eff"#;
-
 /// A line of exactly the limit is read; one byte past it ends the
-/// attempt indeterminate, quoting its head and nothing else of it, and
-/// neither journals nor keeps the checkpoint it would have been.
+/// attempt indeterminate, naming the line's first bytes by length, class
+/// and digest and nothing of their content, and neither journals nor
+/// keeps the checkpoint it would have been.
 #[test]
 fn a_line_one_byte_past_the_frame_limit_ends_the_attempt_indeterminate() {
     let frame = checkpoint(300);
@@ -147,7 +148,10 @@ fn a_line_one_byte_past_the_frame_limit_ends_the_attempt_indeterminate() {
     assert_eq!(journaled, report.checkpoints);
 
     let (report, journaled) = driver.attempt(framing(limit - 1), b"");
-    assert_eq!(report.outcome, frame_exceeded(limit - 1, CHECKPOINT_HEAD));
+    assert_eq!(
+        report.outcome,
+        frame_exceeded(limit - 1, "punctuation", "edca62a8cb5d7a94")
+    );
     assert_eq!(report.settled_outcome(), report.outcome);
     assert!(report.accepted);
     assert!(report.checkpoints.is_empty());
@@ -162,7 +166,10 @@ fn an_endless_line_with_no_newline_is_refused_and_its_driver_ended() {
     let started = Instant::now();
     let (report, _) =
         Driver::playing(Vec::new()).attempt_then(framing(512), b"", "; exec cat /dev/zero");
-    assert_eq!(report.outcome, frame_exceeded(512, &"\\x00".repeat(64)));
+    assert_eq!(
+        report.outcome,
+        frame_exceeded(512, "control", "8ae7498b01f40e9d")
+    );
     assert_eq!(report.cleanup, Cleanup::Settled);
     assert!(
         started.elapsed() < Duration::from_secs(10),
@@ -184,7 +191,10 @@ fn invalid_utf8_is_a_failure_within_the_limit_and_refused_past_it() {
     );
 
     let (report, _) = Driver::playing(vec![[0xff; 513].to_vec()]).attempt(framing(512), b"");
-    assert_eq!(report.outcome, frame_exceeded(512, &"\\xff".repeat(64)));
+    assert_eq!(
+        report.outcome,
+        frame_exceeded(512, "non-ASCII", "ea032debaa72c17d")
+    );
 }
 
 /// A result is one line, held by the frame limit: at the limit it is
@@ -204,8 +214,56 @@ fn a_result_past_the_frame_limit_ends_the_attempt_indeterminate() {
     assert_eq!(report.cleanup, Cleanup::Settled);
 
     let (report, _) = driver.attempt(framing(limit - 1), b"");
-    let head = r#"{\"proto\":\"forge-driver/v1\",\"msg_id\":\"m\",\"type\":\"result\",\"effect_"#;
-    assert_eq!(report.outcome, frame_exceeded(limit - 1, head));
+    assert_eq!(
+        report.outcome,
+        frame_exceeded(limit - 1, "punctuation", "d897781e5826b22c")
+    );
+}
+
+/// A synthetic credential a driver printed by accident.
+const TOKEN: &str = "sk-test-NOTASECRET-0000";
+
+/// A refused line is named by its length, its first byte's class and a
+/// digest, never by its content: a credential at the head of a line past
+/// the limit, in a line that is not JSON, in one whose JSON error quotes
+/// it, and in a line both past the limit and not JSON, appears nowhere
+/// in the outcome or in what the attempt journaled.
+#[test]
+fn a_refused_line_discloses_none_of_its_content() {
+    let pad = "x".repeat(600);
+    let proto = r#"{"proto":"forge-driver/v1","msg_id":"#;
+    let quoted = format!(r#"{proto}"m","type":"{TOKEN}"}}"#);
+    let quoting = serde_json::from_str::<Message>(&quoted).unwrap_err();
+    assert!(quoting.to_string().contains(TOKEN), "{quoting}");
+    let unreadable = |error: &str| AttemptOutcome::Failed {
+        error: format!("unreadable driver message: {error}"),
+    };
+    let played = [
+        format!(r#"{proto}"{TOKEN}","pad":"{pad}"}}"#),
+        format!("{TOKEN} is not json"),
+        quoted,
+        format!("{TOKEN} {pad}"),
+    ];
+    let (mut outcomes, mut leaked) = (Vec::new(), Vec::new());
+    for (case, played) in played.iter().enumerate() {
+        let (report, journaled) =
+            Driver::playing(vec![format!("{played}\n").into_bytes()]).attempt(framing(512), b"");
+        let kept = format!("{:?} {journaled:?}", report.outcome);
+        if kept.contains(TOKEN) {
+            leaked.push(case);
+        }
+        outcomes.push(report.outcome);
+    }
+    assert_eq!(leaked, Vec::<usize>::new());
+    assert_eq!(
+        outcomes,
+        [
+            frame_exceeded(512, "punctuation", "dff6e0410bc48663"),
+            unreadable("a JSON syntax error at line 1 column 1 of 36 bytes (first byte: letter; sha256: cb9a3d9c47d85a38)"),
+            unreadable("a JSON data error at line 1 column 73 of 74 bytes (first byte: punctuation; sha256: b6d931a90c06f3d0)"),
+            frame_exceeded(512, "letter", "aecc524cb360a311"),
+        ]
+    );
 }
 
 /// A stderr flood is drained, so the driver finishes, and is kept as its
@@ -256,19 +314,20 @@ fn a_checkpoint_flood_past_either_limit_ends_the_attempt_indeterminate() {
         assert_eq!((report.checkpoints, journaled), (kept(3), kept(3)));
     }
 
+    // Either refusal names its evidence as counts, never as a line.
+    let past = |limit: String| {
+        indeterminate(&format!(
+            "driver checkpoints exceeded the limit of {limit}: 2 checkpoints held {} bytes \
+             when one of {bytes} bytes arrived",
+            2 * bytes
+        ))
+    };
     let (report, journaled) = driver.attempt(counting(2), b"");
-    let reason = "driver checkpoints exceeded the limit of 2 checkpoints";
-    assert_eq!(report.outcome, indeterminate(reason));
+    assert_eq!(report.outcome, past("2 checkpoints".into()));
     assert_eq!((report.checkpoints, journaled), (kept(2), kept(2)));
 
     let (report, journaled) = driver.attempt(weighing(3 * bytes - 1), b"");
-    let reason = format!(
-        "driver checkpoints exceeded the limit of {} bytes: 2 checkpoints held {} bytes \
-         when one of {bytes} bytes arrived",
-        3 * bytes - 1,
-        2 * bytes
-    );
-    assert_eq!(report.outcome, indeterminate(&reason));
+    assert_eq!(report.outcome, past(format!("{} bytes", 3 * bytes - 1)));
     assert_eq!((report.checkpoints, journaled), (kept(2), kept(2)));
 }
 

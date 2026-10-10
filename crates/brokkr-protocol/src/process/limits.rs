@@ -16,7 +16,9 @@
 //! last bytes around a marker that counts what was dropped.
 //!
 //! Every limit is a count, compared without overflow, so no value of one
-//! means unlimited, and zero admits nothing.
+//! means unlimited, and zero admits nothing. A refusal names what it
+//! refused without its content (`evidence`). Decision 0079 (proposed)
+//! records these rules.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, ErrorKind, Read};
@@ -24,6 +26,7 @@ use std::io::{BufRead, ErrorKind, Read};
 use serde_json::Value;
 use thiserror::Error;
 
+use super::evidence::Evidence;
 use crate::AttemptOutcome;
 
 /// The most bytes of one stdout protocol line, its newline excluded:
@@ -40,9 +43,6 @@ pub(super) const CHECKPOINTS: usize = 100_000;
 /// The most bytes of checkpoint lines, newlines included, one attempt
 /// journals and its report keeps: 64 MiB.
 pub(super) const CHECKPOINT_BYTES: usize = 64 * 1024 * 1024;
-
-/// The most bytes of a refused line its refusal quotes.
-const EVIDENCE_BYTES: usize = 64;
 
 /// The limits of one driver's transport. Production takes
 /// [`Limits::DEFAULT`]; the tests inject small ones.
@@ -68,13 +68,22 @@ impl Limits {
 }
 
 /// A limit the driver exceeded, in the operator's words: the limit, its
-/// unit, and evidence bounded by [`EVIDENCE_BYTES`].
+/// unit, and evidence that carries none of the refused content: the
+/// refused line as [`Evidence`], or the counts held.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(super) enum Exceeded {
-    #[error("driver stdout line exceeded the frame limit of {limit} bytes; it began \"{head}\"")]
-    Frame { limit: usize, head: String },
-    #[error("driver checkpoints exceeded the limit of {limit} checkpoints")]
-    Checkpoints { limit: usize },
+    #[error("driver stdout line exceeded the frame limit of {limit} bytes; its first {evidence}")]
+    Frame { limit: usize, evidence: Evidence },
+    #[error(
+        "driver checkpoints exceeded the limit of {limit} checkpoints: {count} checkpoints \
+         held {held} bytes when one of {offered} bytes arrived"
+    )]
+    Checkpoints {
+        limit: usize,
+        count: usize,
+        held: usize,
+        offered: usize,
+    },
     #[error(
         "driver checkpoints exceeded the limit of {limit} bytes: {count} checkpoints \
          held {held} bytes when one of {offered} bytes arrived"
@@ -102,10 +111,9 @@ pub(super) enum Frame {
     /// The line, its newline included when it had one.
     Line(Vec<u8>),
     Eof,
-    /// The line ran past the limit; the evidence of how it began.
-    Over {
-        head: String,
-    },
+    /// The line ran past the limit: its first bytes, one past the limit,
+    /// as content-free evidence.
+    Over(Evidence),
 }
 
 /// The next line of `reader`, holding no more than `limit` bytes of it
@@ -128,12 +136,12 @@ pub(super) fn read_frame(reader: &mut impl BufRead, limit: usize) -> std::io::Re
         }
         let newline = ready.iter().position(|&byte| byte == b'\n');
         let body = newline.unwrap_or(ready.len());
-        // `line` never holds more than `limit`, so this cannot underflow.
-        if body > limit - line.len() {
-            line.extend_from_slice(&ready[..body.min(EVIDENCE_BYTES)]);
-            return Ok(Frame::Over {
-                head: evidence(&line),
-            });
+        // `line` never holds more than `limit`, so this cannot underflow,
+        // and the byte past the limit is within `body`.
+        let room = limit - line.len();
+        if body > room {
+            line.extend_from_slice(&ready[..=room]);
+            return Ok(Frame::Over(Evidence::of(&line)));
         }
         let taken = newline.map_or(body, |at| at + 1);
         line.extend_from_slice(&ready[..taken]);
@@ -142,14 +150,6 @@ pub(super) fn read_frame(reader: &mut impl BufRead, limit: usize) -> std::io::Re
             return Ok(Frame::Line(line));
         }
     }
-}
-
-/// The first [`EVIDENCE_BYTES`] of `bytes`, ASCII-escaped, so neither a
-/// control byte nor invalid UTF-8 reaches the operator raw.
-fn evidence(bytes: &[u8]) -> String {
-    bytes[..bytes.len().min(EVIDENCE_BYTES)]
-        .escape_ascii()
-        .to_string()
 }
 
 /// The driver's stderr drained to EOF, of which no more than `limit`
@@ -210,6 +210,9 @@ impl Retained {
         if count >= limits.checkpoints {
             return Err(Exceeded::Checkpoints {
                 limit: limits.checkpoints,
+                count,
+                held: self.bytes,
+                offered: bytes,
             });
         }
         let held = self.bytes.saturating_add(bytes);

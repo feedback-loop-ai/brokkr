@@ -747,7 +747,6 @@ fn an_abrupt_driver_exit_takes_its_descendants_with_it() {
 /// its last word is not read as protocol.
 #[test]
 fn a_driver_that_lingers_after_its_last_word_is_ended_within_the_grace() {
-    let malformed = serde_json::from_str::<Message>("not json\n").unwrap_err();
     for (case, last_word, expected) in [
         (
             "a result",
@@ -757,9 +756,11 @@ fn a_driver_that_lingers_after_its_last_word_is_ended_within_the_grace() {
         (
             "a malformed message",
             "printf 'not json\\n'".to_string(),
-            Some(format!(
-                "unreadable driver message: {malformed}: not json\n"
-            )),
+            Some(
+                "unreadable driver message: a JSON syntax error at line 1 column 2 of 9 bytes \
+                 (first byte: letter; sha256: 3c48773b404d8500)"
+                    .to_string(),
+            ),
         ),
     ] {
         let seats = Seats::new();

@@ -30,6 +30,7 @@ use thiserror::Error;
 use crate::{AttemptOutcome, AttemptReport, Body, Cleanup, Message, ResultStatus, PROTO};
 
 mod attempts;
+mod evidence;
 mod limits;
 mod own_engine;
 mod table;
@@ -158,10 +159,10 @@ fn forward(mut reader: impl BufRead, frame_bytes: usize, tx: &SyncSender<Stdout>
                 }
             },
             Ok(Frame::Eof) => break Stdout::Eof,
-            Ok(Frame::Over { head }) => {
+            Ok(Frame::Over(evidence)) => {
                 break Stdout::Exceeded(Exceeded::Frame {
                     limit: frame_bytes,
-                    head,
+                    evidence,
                 })
             }
             Err(error) => break Stdout::Failed(error),
@@ -334,7 +335,7 @@ impl DriverProcess {
                 continue;
             }
             let message = serde_json::from_str::<Message>(&line)
-                .map_err(|e| Ended::Failed(format!("unreadable driver message: {e}: {line}")))?;
+                .map_err(|e| Ended::Failed(evidence::unreadable(&e, &line)))?;
             if message.proto != PROTO {
                 return Err(Ended::Failed(format!(
                     "driver spoke '{}', want '{PROTO}'",
