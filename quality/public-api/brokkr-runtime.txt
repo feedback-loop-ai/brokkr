@@ -655,7 +655,6 @@ pub const brokkr_runtime::bundle::DEFAULT_AGENTS_DIR: &str
 pub const brokkr_runtime::bundle::DRIVER_PROTOCOL: u32
 pub const brokkr_runtime::bundle::ENGINE_VERSION: &str
 pub const brokkr_runtime::bundle::ENUM_INPUTS: [&str; 1]
-pub const brokkr_runtime::bundle::EVENT_SCHEMA: u32
 pub const brokkr_runtime::bundle::RESULT_PATH: &str
 pub const brokkr_runtime::bundle::SELECT_STRATEGIES: [&str; 4]
 pub fn brokkr_runtime::bundle::charter_text(&brokkr_runtime::bundle::Bundle, &std::path::Path) -> core::result::Result<alloc::string::String, (alloc::string::String, alloc::string::String)>

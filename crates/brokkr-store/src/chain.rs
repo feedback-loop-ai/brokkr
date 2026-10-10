@@ -2,7 +2,7 @@
 //! the one before it (#464): a writer that held rows behind a peer's lock
 //! takes the lock once to land them all, not once per row.
 
-use brokkr_core::envelope::{EventEnvelope, EventType};
+use brokkr_core::envelope::{EventEnvelope, EventType, EVENT_SCHEMA_VERSION};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
@@ -60,7 +60,7 @@ pub(crate) fn seal_and_insert(
         run_id: run_id.to_string(),
         seq: last_seq + 1,
         event_id: uuid::Uuid::new_v4().to_string(),
-        event_schema_version: 1,
+        event_schema_version: EVENT_SCHEMA_VERSION,
         event_type,
         payload,
         causation_id,

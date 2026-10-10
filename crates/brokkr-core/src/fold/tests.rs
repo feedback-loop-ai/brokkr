@@ -316,6 +316,95 @@ fn an_out_of_place_refusal_names_the_cursor_it_met() {
     );
 }
 
+/// A cursor displays its variant and the ids and count that place it,
+/// the bytes `Debug` showed for those, and never a seat's result or a
+/// park's free text (#345).
+#[test]
+fn a_cursor_displays_its_variant_and_ids_never_a_result() {
+    let in_flight = Cursor::EffectInFlight {
+        effect_id: "e1".into(),
+        attempt_id: "a1".into(),
+        seat: "work".into(),
+        failed_attempts: 2,
+    };
+    let execute = Cursor::ExecuteEffect {
+        effect_id: "e1".into(),
+        seat: "work".into(),
+        failed_attempts: 1,
+    };
+    let enter = Cursor::EnterPhase {
+        phase: "work".into(),
+    };
+    for (cursor, shown) in [
+        (Cursor::Start, "Start"),
+        (enter, r#"EnterPhase { phase: "work" }"#),
+        (Cursor::RequestEffect, "RequestEffect"),
+        (
+            execute,
+            r#"ExecuteEffect { effect_id: "e1", seat: "work", failed_attempts: 1 }"#,
+        ),
+        (
+            in_flight,
+            r#"EffectInFlight { effect_id: "e1", attempt_id: "a1", seat: "work", failed_attempts: 2 }"#,
+        ),
+        (Cursor::Stop, "Stop"),
+        (Cursor::Idle, "Idle"),
+    ] {
+        assert_eq!(cursor.to_string(), shown);
+        assert_eq!(format!("{cursor:?}"), shown);
+    }
+    let decide = Cursor::Decide {
+        effect_id: "e1".into(),
+        result: json!({"result": "complete", "notes": "a seat's words"}),
+    };
+    assert_eq!(decide.to_string(), r#"Decide { effect_id: "e1" }"#);
+    let park = Cursor::Park {
+        reason: "effect e1 indeterminate: a seat's words".into(),
+    };
+    assert_eq!(park.to_string(), "Park");
+}
+
+/// An indeterminate whose reason carries the GATE-MOVED-HEAD marker parks
+/// on the marker alone, whether or not its evidence reads; any other
+/// reason, the marker glued to its evidence included, parks on its
+/// detail (#345).
+#[test]
+fn a_marked_indeterminate_parks_on_the_marker() {
+    let park_reason = |reason: &str| {
+        let mut current = state(Cursor::EffectInFlight {
+            effect_id: "e1".into(),
+            attempt_id: "a1".into(),
+            seat: "work".into(),
+            failed_attempts: 0,
+        });
+        let payload = json!({"effect_id": "e1", "attempt_id": "a1", "reason": reason});
+        apply(
+            &mut current,
+            &event(EventType::EffectIndeterminate, payload),
+        )
+        .unwrap();
+        current.cursor
+    };
+    let marked = gate_moved_head::encode(&gate_moved_head::MovedHead {
+        head_at_end: Some("bbb".into()),
+        head_at_start: Some("aaa".into()),
+    });
+    for reason in [marked.as_str(), "GATE-MOVED-HEAD not json"] {
+        assert_eq!(
+            park_reason(reason),
+            Cursor::Park {
+                reason: "GATE-MOVED-HEAD".into()
+            }
+        );
+    }
+    assert_eq!(
+        park_reason("GATE-MOVED-HEAD{}"),
+        Cursor::Park {
+            reason: "effect e1 indeterminate: GATE-MOVED-HEAD{}".into()
+        }
+    );
+}
+
 /// A `fail` is a failure only where the table scoped a counter to it
 /// (`inputs.consecutive_failures`); any other result under that scope
 /// resets the count (#419).

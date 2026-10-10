@@ -453,7 +453,7 @@ pub fn build_run_manifest_v2(
     let driver_protocol = integer("driver_protocol")?;
     if !nonempty(&engine)
         || !nonempty(&bundle_name)
-        || event_schema != 1
+        || event_schema != crate::envelope::EVENT_SCHEMA_VERSION
         || database_schema != 1
         || driver_protocol != 1
     {
