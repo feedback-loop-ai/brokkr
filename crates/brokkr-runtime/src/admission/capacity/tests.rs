@@ -355,6 +355,16 @@ fn a_host_configuration_that_cannot_be_read_holds_and_is_never_read_as_absent() 
         kind: io::ErrorKind::NotFound,
     });
     assert_eq!(fixture.reasons(&file, PLENTY), vec![vec![unreached]]);
+
+    // A file on the path, where a directory belongs, is no absence either:
+    // the path cannot be reached, so the file cannot be read.
+    std::fs::write(fixture.root.join("plain"), "").unwrap();
+    let file = fixture.root.join("plain/host.json");
+    let through_a_file = Reason::Capacity(Capacity::Unreadable {
+        path: file.clone(),
+        kind: io::ErrorKind::NotADirectory,
+    });
+    assert_eq!(fixture.reasons(&file, PLENTY), vec![vec![through_a_file]]);
 }
 
 #[test]
@@ -450,6 +460,31 @@ fn provider_and_cloud_route_concurrency_waits_at_each_ceiling_and_admits_below_i
         routed.to_string(),
         "cloud route cloud of provider beta is full: 1 running against a ceiling of 1"
     );
+}
+
+#[test]
+fn a_run_that_is_not_running_counts_against_no_ceiling() {
+    let mut fixture = Fixture::new();
+    fixture.seat("one", "cloudy");
+    fixture.queue();
+    let file = fixture.declare(&ceilings(1, 3, json!({"cloud": route(3, "cloud")})));
+    // Parked, completed and stopped, each seated alpha's one lane: none of
+    // them is running now, so none takes alpha's one place.
+    let ends = [
+        ("r1", EventType::RunParked, json!({"reason": "lost"})),
+        ("r2", EventType::RunCompleted, json!({})),
+        ("r3", EventType::RunStopped, json!({})),
+    ];
+    for (name, end, payload) in ends {
+        fixture.seating(name, &[("alpha", "a-1")], false);
+        (fixture.store)
+            .append_next(name, end, payload, None, None)
+            .unwrap();
+    }
+    assert_eq!(fixture.room(&file), None);
+    // The control: one run that is running fills it.
+    fixture.seating("r4", &[("alpha", "a-1")], false);
+    assert_eq!(fixture.room(&file), full("alpha", 1, 1));
 }
 
 #[test]

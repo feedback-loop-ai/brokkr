@@ -6,6 +6,7 @@
 //! same once it has latched the realm drift admission finds. Nothing here
 //! starts a run.
 
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -146,10 +147,21 @@ fn judge(
 /// ruling 3): its host configuration where XDG puts it, and the free space
 /// statvfs reports.
 fn on_this_host<T>(act: impl FnOnce(&Host<'_>) -> Result<T>) -> Result<T> {
-    let file = admission::host_file(
+    on_the_host_at(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
-    )?;
+        act,
+    )
+}
+
+/// [`on_this_host`], with the two directories that place the host
+/// configuration given rather than read from the environment.
+fn on_the_host_at<T>(
+    xdg: Option<OsString>,
+    home: Option<OsString>,
+    act: impl FnOnce(&Host<'_>) -> Result<T>,
+) -> Result<T> {
+    let file = admission::host_file(xdg, home)?;
     act(&Host {
         file: &file,
         free: &admission::free_bytes,
