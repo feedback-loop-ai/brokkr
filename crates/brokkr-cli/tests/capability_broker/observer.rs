@@ -10,6 +10,7 @@ use std::io::{IoSlice, IoSliceMut, Read};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -53,6 +54,20 @@ pub(super) fn received(socket: &OwnedFd) -> (Value, Vec<OwnedFd>) {
     (record, handles)
 }
 
+/// The private tree of the generated identity an admitted observation hands
+/// over with its entry (U6c6b), which the launch removes once its box is
+/// settled; none where the record holds no entry.
+pub(super) fn handed_over(record: &Value) -> Option<PathBuf> {
+    serde_json::from_value(record["observed"]["entry"]["identity"].clone()).ok()
+}
+
+/// Remove the tree `record` hands over, where no broker launches its box.
+pub(super) fn released(record: &Value) {
+    if let Some(tree) = handed_over(record) {
+        std::fs::remove_dir_all(tree).unwrap();
+    }
+}
+
 /// Whether the shell standing for a broker's harness runs under
 /// `no_new_privs`, as the broker it starts does either way.
 #[derive(Debug, Clone, Copy)]
@@ -90,9 +105,10 @@ pub(super) fn relayed(sealed: &Sealed, digest: &str, harness: Harness) -> (Value
         .arg(this)
         .args(["--exact", RELAYING, "--test-threads=1"]);
     let named = format!(
-        "{}\n{}\n{digest}",
+        "{}\n{}\n{digest}\n{}",
         brokkr().display(),
-        sealed.locator.display()
+        sealed.locator.display(),
+        std::process::id()
     );
     command.env(RELAY, named).env("HOME", &sealed.home);
     command
@@ -121,16 +137,38 @@ fn relays_an_observation_its_confined_broker_and_harness_started() {
     let Some((sealed, _, digest)) = sealed_as_observed() else {
         return;
     };
-    let writers = |harness| relayed(&sealed, &digest, harness).0["observed"]["writers"].clone();
+    let writers = |harness| {
+        let (record, _) = relayed(&sealed, &digest, harness);
+        released(&record);
+        record["observed"]["writers"].clone()
+    };
     assert_eq!(writers(Harness::Confined), json!([euid()]));
     assert_eq!(writers(Harness::Unconfined), Value::Null);
 }
 
-/// Observe the plan `named` names with the binary it names, and hand the
-/// record and the handles riding it on over standard input.
+/// The record `record`, the tree it hands over (U6c6b) renamed to name
+/// `owner`, the test process this relay stands in for, as its owner: a relay
+/// ends at once, and a dead owner's tree is any reaper's to remove before
+/// the test reads it.
+fn kept_for(record: Value, owner: &str) -> Value {
+    let Some(tree) = handed_over(&record) else {
+        return record;
+    };
+    let name = tree.file_name().unwrap().to_str().unwrap();
+    let relay = format!("-{}-", std::process::id());
+    let renamed = tree.with_file_name(name.replacen(&relay, &format!("-{owner}-"), 1));
+    std::fs::rename(&tree, &renamed).unwrap();
+    let (from, to) = (tree.to_str().unwrap(), renamed.to_str().unwrap());
+    serde_json::from_str(&record.to_string().replace(from, to)).unwrap()
+}
+
+/// Observe the plan `named` names with the binary it names, in a process
+/// group of its own as a broker starts it, and hand the record and the
+/// handles riding it on over standard input.
 fn relay(named: &str) {
     let mut lines = named.lines();
-    let [Some(binary), Some(locator), Some(digest)] = [lines.next(), lines.next(), lines.next()]
+    let [Some(binary), Some(locator), Some(digest), Some(owner)] =
+        [lines.next(), lines.next(), lines.next(), lines.next()]
     else {
         panic!("relay {named:?}");
     };
@@ -147,11 +185,12 @@ fn relay(named: &str) {
     command
         .stdin(Stdio::null())
         .stdout(theirs)
-        .stderr(Stdio::null());
+        .stderr(Stdio::null())
+        .process_group(0);
     command.status().unwrap();
     drop(command);
     let (record, handles) = received(&ours);
-    let bytes = serde_json::to_vec(&record).unwrap();
+    let bytes = serde_json::to_vec(&kept_for(record, owner)).unwrap();
     let fds: Vec<BorrowedFd<'_>> = handles.iter().map(AsFd::as_fd).collect();
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(64))];
     let mut control = SendAncillaryBuffer::new(&mut space);
@@ -286,8 +325,8 @@ fn admission_compares_the_sealed_sources_with_a_fresh_observation() {
 }
 
 /// The fields of the observer's record of a standing box, in order.
-const OBSERVATION: [&str; 6] = [
-    "digest", "entries", "handles", "mounts", "refused", "writers",
+const OBSERVATION: [&str; 7] = [
+    "digest", "entries", "entry", "handles", "mounts", "refused", "writers",
 ];
 
 #[test]
@@ -316,8 +355,9 @@ fn the_observer_hands_back_the_very_handles_it_checked_in_a_closed_record() {
     // One handle rides the record for each path it names, each the very
     // object its path named when it was checked, and the store's last,
     // a path handle that reads nothing, its path no source of the box's
-    // (U6c5c). The generated identity's files went with the observer's
-    // private scratch; their handles still hold them, under no name.
+    // (U6c5c). The generated identity's files outlive the observer, their
+    // private tree handed over with the entry for the launch to remove
+    // (U6c6b); no broker launches here, so this test removes it.
     let mut handles = handles;
     let store = handles.pop().unwrap();
     let paths: Vec<PathBuf> = serde_json::from_value(observed["handles"].clone()).unwrap();
@@ -334,16 +374,25 @@ fn the_observer_hands_back_the_very_handles_it_checked_in_a_closed_record() {
     };
     let stored = identity(&std::fs::metadata(&path).unwrap());
     assert_eq!(identity(&held(&store)), stored);
-    let mut unnamed = Vec::new();
     for (path, fd) in paths.iter().zip(&handles) {
-        let Ok(named) = std::fs::metadata(path) else {
-            assert_eq!(held(fd).nlink(), 0);
-            unnamed.push(path.file_name().unwrap().to_str().unwrap());
-            continue;
-        };
+        let named = std::fs::metadata(path).unwrap();
         assert_eq!((path, identity(&held(fd))), (path, identity(&named)));
     }
-    assert_eq!(unnamed, ["passwd", "group", "hosts", "nsswitch.conf"]);
+    let scratch = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let generated: Vec<&PathBuf> = paths
+        .iter()
+        .filter(|path| path.starts_with(&scratch))
+        .collect();
+    let names = generated
+        .iter()
+        .map(|path| path.file_name().unwrap().to_str().unwrap());
+    assert_eq!(
+        names.collect::<Vec<_>>(),
+        ["passwd", "group", "hosts", "nsswitch.conf"]
+    );
+    let tree = generated[0].parent().unwrap().parent().unwrap();
+    assert_eq!(handed_over(&record), Some(tree.to_path_buf()));
+    std::fs::remove_dir_all(tree).unwrap();
     for named in [
         sealed.path("opt/docs"),
         bootstrap(),
@@ -377,7 +426,12 @@ fn an_observer_its_broker_did_not_start_hands_nothing_back() {
     let observe = |shell: Option<&str>| {
         let (ours, theirs) = pair();
         let mut command = match shell {
-            None => sealed.root.command(&args),
+            // A process group of its own, as its broker starts it.
+            None => {
+                let mut command = sealed.root.command(&args);
+                command.process_group(0);
+                command
+            }
             // Started by a shell, so the socket's maker is not its parent.
             Some(shell) => {
                 let mut command = Command::new("sh");
@@ -401,6 +455,33 @@ fn an_observer_its_broker_did_not_start_hands_nothing_back() {
     let mut piped = sealed.root.command(&args);
     let out = piped.env("HOME", &sealed.home).output().unwrap();
     assert_eq!((out.status.code(), out.stdout.len()), (Some(1), 0));
+}
+
+#[test]
+fn an_observer_leading_no_process_group_of_its_own_refuses_before_its_tether() {
+    let sealed = Sealed::new();
+    let locator = sealed.locator.to_str().unwrap();
+    let args = ["broker", "observe", "--plan", locator];
+    // Started by this test, its socket's maker and its parent, but in this
+    // test's own process group: the tether's watcher kills its group when
+    // the socket's end goes, so the observer refuses before arming it. The
+    // socket stays open until the observer has exited, so no watcher it
+    // armed could fire: what this test sees is the refusal alone.
+    let (ours, theirs) = pair();
+    let mut command = Command::new(brokkr());
+    command.args(args).args(["--plan-digest", super::DIGEST]);
+    command.env("HOME", &sealed.home).stdin(Stdio::null());
+    let out = command
+        .stdout(theirs)
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    drop(command);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let answer = ((out.status.code(), stderr), received(&ours).0);
+    assert_eq!(answer, (refused(Refusal::Identity), Value::Null));
+    // Its end gone, this test, and every process of its group, live on.
+    drop(ours);
 }
 
 /// A FUSE mount at `point` whose connection is never initialised: any
@@ -496,7 +577,7 @@ const KINDS: [Kind; 2] = [Kind::Mount, Kind::Launcher];
 /// Why a run skips the held-launcher proofs: a boundary proof's skip, which
 /// fails where boundary evidence is required, as CI's bubblewrap setup
 /// installs the tracer.
-const NO_TRACER: &str =
+pub(super) const NO_TRACER: &str =
     "no strace on PATH traces a child here, so no admitted launcher can be held at its exec";
 
 /// The tracer's arguments: every process of the run followed, stopped by
@@ -521,7 +602,7 @@ const TRACED: [&str; 11] = [
 ];
 
 /// The `strace` this process's `PATH` finds, where it traces a child here.
-fn tracer() -> Option<PathBuf> {
+pub(super) fn tracer() -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     let mut found = std::env::split_paths(&path).map(|dir| dir.join("strace"));
     let tracer = found.find(|tracer| tracer.is_file())?;
@@ -543,7 +624,7 @@ fn tracer() -> Option<PathBuf> {
 /// Who starts the broker: a harness that waits on it, or the attempt,
 /// which leaves it in the background and waits.
 #[derive(Debug, Clone, Copy)]
-enum Starter {
+pub(super) enum Starter {
     Harness,
     Attempt,
 }
@@ -561,7 +642,7 @@ fn serving(sealed: &Sealed, digest: &str, block: &Block, starter: Starter) -> Co
 }
 
 /// `tracer`, given `args`, running `setpriv`.
-fn traced(tracer: &Path, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Command {
+pub(super) fn traced(tracer: &Path, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> Command {
     let mut command = Command::new(tracer);
     command.args(args).arg(setpriv());
     command
@@ -569,7 +650,12 @@ fn traced(tracer: &Path, args: impl IntoIterator<Item = impl AsRef<OsStr>>) -> C
 
 /// `command`, `setpriv` or a tracer running it, made the broker serving
 /// the plan `sealed` holds at `digest`, started by `starter`.
-fn started(mut command: Command, sealed: &Sealed, digest: &str, starter: Starter) -> Command {
+pub(super) fn started(
+    mut command: Command,
+    sealed: &Sealed,
+    digest: &str,
+    starter: Starter,
+) -> Command {
     let shell = match starter {
         Starter::Harness => ["/bin/sh", "-c", HARNESS],
         Starter::Attempt => ["/bin/sh", "-c", "\"$0\" \"$@\" & wait"],
@@ -593,7 +679,7 @@ fn kill(pid: i32) {
 
 /// A process's state, parent and process group, from `/proc/<pid>/stat`;
 /// none once it is gone.
-fn status(pid: i32) -> Option<(char, i32, i32)> {
+pub(super) fn status(pid: i32) -> Option<(char, i32, i32)> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let mut fields = stat.rsplit_once(')')?.1.split_whitespace();
     let state = fields.next()?.chars().next()?;
@@ -603,7 +689,7 @@ fn status(pid: i32) -> Option<(char, i32, i32)> {
 }
 
 /// Every process of the host.
-fn processes() -> impl Iterator<Item = i32> {
+pub(super) fn processes() -> impl Iterator<Item = i32> {
     let entries = std::fs::read_dir("/proc").unwrap();
     entries.filter_map(|entry| entry.ok()?.file_name().to_str()?.parse().ok())
 }
@@ -786,10 +872,7 @@ fn a_cancelled_attempt_ends_a_blocked_observation_with_nothing_left_running() {
         let mut attempt = command.stderr(Stdio::piped()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
-        let (_, shell, _) = status(broker).unwrap();
-        kill(shell);
-        let cancelled = Instant::now();
-        let taken = awaited(broker) - cancelled;
+        let taken = cancelled(broker);
         let ended = swept(pid);
         attempt.wait().unwrap();
         let mut stderr = String::new();
@@ -825,8 +908,17 @@ fn a_broker_killed_outright_takes_its_blocked_observer_with_it() {
     });
 }
 
+/// Cancel the attempt that started `broker`, killing the shell that stands
+/// for its start, and how long the broker then took to end.
+pub(super) fn cancelled(broker: i32) -> Duration {
+    let (_, shell, _) = status(broker).unwrap();
+    kill(shell);
+    let cancelled = Instant::now();
+    awaited(broker) - cancelled
+}
+
 /// When `pid` is gone, or only a zombie, waiting no longer than a minute.
-fn awaited(pid: i32) -> Instant {
+pub(super) fn awaited(pid: i32) -> Instant {
     let until = Instant::now() + Duration::from_secs(60);
     let live = || status(pid).is_some_and(|(state, _, _)| state != 'Z');
     while live() & (Instant::now() < until) {
@@ -847,12 +939,12 @@ fn swept(pid: i32) -> bool {
 }
 
 /// Whether `pid` is gone, or only a zombie, within a while.
-fn gone(pid: i32) -> bool {
+pub(super) fn gone(pid: i32) -> bool {
     within(|| status(pid).is_none_or(|(state, _, _)| state == 'Z'))
 }
 
 /// Whether `holds` comes true within five seconds.
-fn within(holds: impl Fn() -> bool) -> bool {
+pub(super) fn within(holds: impl Fn() -> bool) -> bool {
     let until = Instant::now() + Duration::from_secs(5);
     while Instant::now() < until {
         if holds() {

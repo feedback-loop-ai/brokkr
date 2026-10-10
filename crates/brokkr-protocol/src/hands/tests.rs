@@ -5,6 +5,8 @@ use std::os::unix::fs::PermissionsExt;
 #[cfg(target_os = "linux")]
 mod checked;
 #[cfg(target_os = "linux")]
+mod entry;
+#[cfg(target_os = "linux")]
 mod launcher;
 mod server;
 #[cfg(target_os = "linux")]

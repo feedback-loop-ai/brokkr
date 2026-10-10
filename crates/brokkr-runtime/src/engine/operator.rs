@@ -17,8 +17,10 @@ use uuid::Uuid;
 
 use super::{EngineError, OPERATOR_STOP_RULE};
 
+mod conclusion;
 mod receipt;
 mod supersede;
+pub use conclusion::ConcludeRefusal;
 #[cfg(test)]
 pub(super) use supersede::operator_supersede_racing;
 pub use supersede::{operator_supersede, Supersede};
@@ -279,6 +281,22 @@ pub fn operator_command(
     operator_command_racing(store, run_id, command, operator, reason, |_| {})
 }
 
+/// An unfenced command's disposition with its refusal still typed: the
+/// bridge and the CLI read it as [`FencedCommandOutcome`], and `conclude`
+/// keeps the [`Refusal`] ([`ConcludeRefusal::StopRefused`]).
+enum Disposition {
+    Accepted(FencedCommandOutcome),
+    Refused(Refusal, FencedCommandOutcome),
+}
+
+impl Disposition {
+    fn outcome(self) -> FencedCommandOutcome {
+        match self {
+            Disposition::Accepted(outcome) | Disposition::Refused(_, outcome) => outcome,
+        }
+    }
+}
+
 /// Which refusal a command meets against the state the deciding fold
 /// read, if any. The condition [`acceptance_refusal`] names means two
 /// things depending on WHEN it first held: true already when the
@@ -323,8 +341,20 @@ pub(super) fn operator_command_racing(
     command: OperatorCommand,
     operator: &str,
     reason: &str,
-    mut between: impl FnMut(&mut Store),
+    between: impl FnMut(&mut Store),
 ) -> Result<FencedCommandOutcome, EngineError> {
+    disposed(store, run_id, command, operator, reason, between).map(Disposition::outcome)
+}
+
+/// [`operator_command_racing`]'s disposition, its refusal still typed.
+fn disposed(
+    store: &mut Store,
+    run_id: &str,
+    command: OperatorCommand,
+    operator: &str,
+    reason: &str,
+    mut between: impl FnMut(&mut Store),
+) -> Result<Disposition, EngineError> {
     let command_id = Uuid::new_v4().to_string();
     // A journal that does not fold cannot host a legal acceptance at
     // all, so refuse before writing anything rather than adding to it.
@@ -348,16 +378,13 @@ pub(super) fn operator_command_racing(
     // what is actually exercised.
     let refusal_of = |store: &mut Store, why: Refusal| {
         let (command_id, cause) = (&command_id, &commanded.event_id);
-        refuse(
-            store,
-            run_id,
-            Rejection {
-                command_id,
-                operator,
-                refusal: why,
-                cause,
-            },
-        )
+        let rejection = Rejection {
+            command_id,
+            operator,
+            refusal: why,
+            cause,
+        };
+        refuse(store, run_id, rejection).map(|outcome| Disposition::Refused(why, outcome))
     };
     let disposition = loop {
         let (state, head) = folded(store, run_id)?;
@@ -376,7 +403,7 @@ pub(super) fn operator_command_racing(
             payload,
             None,
         ) {
-            Ok(_) => break accepted(store, run_id)?,
+            Ok(_) => break Disposition::Accepted(accepted(store, run_id)?),
             // A peer appended between the fold and the write. The
             // acceptance was never written; decide again against what it
             // wrote, and refuse rather than spin forever.
@@ -451,16 +478,12 @@ pub(super) fn conclude_racing(
     // so a broken chain refuses the whole conclusion here — before any
     // append. No second verification, and the error is never swallowed.
     let state = read_back(store, run_id)?;
-    let status = match state.status {
-        Status::Completed => Some("completed"),
-        Status::Stopped => Some("stopped"),
-        Status::Running | Status::AwaitingOperator => None,
-    };
-    if let Some(status) = status {
-        return Err(EngineError::AlreadyConcluded {
-            run_id: run_id.to_string(),
-            status: status.to_string(),
-        });
+    match state.status {
+        Status::Completed | Status::Stopped => {
+            let status = state.status;
+            return Err(ConcludeRefusal::AlreadyConcluded { status }.of(run_id));
+        }
+        Status::Running | Status::AwaitingOperator => {}
     }
 
     // A stop already in force is not re-commanded: the operator who
@@ -502,15 +525,12 @@ fn command_stop(
     operator: &str,
     reason: &str,
 ) -> Result<(), EngineError> {
-    match operator_command(store, run_id, OperatorCommand::Stop, operator, reason)? {
-        FencedCommandOutcome::Accepted { .. } => Ok(()),
-        FencedCommandOutcome::Rejected {
-            reason: refusal, ..
-        } => Err(EngineError::Other(format!(
-            "conclude: run '{run_id}' refused the stop ({refusal}); the \
-             journal moved beneath the conclusion, so something may still \
-             be driving this run — look with `brokkr runs` before closing"
-        ))),
+    let stop = OperatorCommand::Stop;
+    match disposed(store, run_id, stop, operator, reason, |_| {})? {
+        Disposition::Accepted(_) => Ok(()),
+        Disposition::Refused(refusal, _) => {
+            Err(ConcludeRefusal::StopRefused { refusal }.of(run_id))
+        }
     }
 }
 
@@ -561,11 +581,7 @@ fn concluded_or_alive(
     written: Result<EventEnvelope, StoreError>,
 ) -> Result<EventEnvelope, EngineError> {
     match written {
-        Err(StoreError::HeadMoved { .. }) => Err(EngineError::Other(format!(
-            "conclude: the journal moved beneath the conclusion of run '{run_id}', \
-             so something may still be driving it — a conclusion is for a run \
-             believed dead; look with `brokkr runs` before closing"
-        ))),
+        Err(StoreError::HeadMoved { .. }) => Err(ConcludeRefusal::JournalMoved.of(run_id)),
         other => Ok(other?),
     }
 }
@@ -587,10 +603,14 @@ pub(super) fn riding_attempt(
             attempt_id,
             ..
         } if state.riding_stop => Ok(Some((effect_id.clone(), attempt_id.clone()))),
-        cursor => Err(EngineError::Other(format!(
-            "conclude: run '{run_id}' stands at {cursor:?} with an accepted stop; \
-             a stop reaches Stop or rides an in-flight attempt and nothing else"
-        ))),
+        // The cursor prints by `Debug` until it has a `Display` (#345).
+        cursor => Err(EngineError::Invariant(
+            "stop rides or stands",
+            format!(
+                "conclude: run '{run_id}' stands at {cursor:?} with an accepted stop; \
+                 a stop reaches Stop or rides an in-flight attempt and nothing else"
+            ),
+        )),
     }
 }
 

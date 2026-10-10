@@ -490,6 +490,7 @@ pub fn brokkr_runtime::bundle::CharterOwner::root(&self) -> &std::path::PathBuf
 pub enum brokkr_runtime::bundle::CompileError
 pub brokkr_runtime::bundle::CompileError::Capability(alloc::string::String)
 pub brokkr_runtime::bundle::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
+pub brokkr_runtime::bundle::CompileError::ComposedPolicy(alloc::boxed::Box<brokkr_core::policy::PolicyError>, alloc::string::String)
 pub brokkr_runtime::bundle::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::bundle::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::bundle::CompileError::Json(serde_json::error::Error)
@@ -1004,10 +1005,13 @@ pub brokkr_runtime::engine::CommandWord::Known(brokkr_core::fold::OperatorComman
 pub brokkr_runtime::engine::CommandWord::Unknown(&'a str)
 impl<'a> brokkr_runtime::CommandWord<'a>
 pub fn brokkr_runtime::CommandWord<'a>::parse(&'a str) -> brokkr_runtime::CommandWord<'a>
+pub enum brokkr_runtime::engine::ConcludeRefusal
+pub brokkr_runtime::engine::ConcludeRefusal::AlreadyConcluded
+pub brokkr_runtime::engine::ConcludeRefusal::AlreadyConcluded::status: brokkr_core::fold::Status
+pub brokkr_runtime::engine::ConcludeRefusal::JournalMoved
+pub brokkr_runtime::engine::ConcludeRefusal::StopRefused
+pub brokkr_runtime::engine::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
 pub enum brokkr_runtime::engine::EngineError
-pub brokkr_runtime::engine::EngineError::AlreadyConcluded
-pub brokkr_runtime::engine::EngineError::AlreadyConcluded::run_id: alloc::string::String
-pub brokkr_runtime::engine::EngineError::AlreadyConcluded::status: alloc::string::String
 pub brokkr_runtime::engine::EngineError::BoundaryMismatch
 pub brokkr_runtime::engine::EngineError::BoundaryMismatch::compiled: brokkr_core::realms::Boundary
 pub brokkr_runtime::engine::EngineError::BoundaryMismatch::world: brokkr_core::realms::Boundary
@@ -1022,8 +1026,12 @@ pub brokkr_runtime::engine::EngineError::CapabilityMismatch::world_realm: alloc:
 pub brokkr_runtime::engine::EngineError::CharterMoved
 pub brokkr_runtime::engine::EngineError::CharterMoved::key: alloc::string::String
 pub brokkr_runtime::engine::EngineError::CharterMoved::owner: alloc::string::String
+pub brokkr_runtime::engine::EngineError::ConcludeRefused
+pub brokkr_runtime::engine::EngineError::ConcludeRefused::run_id: alloc::string::String
+pub brokkr_runtime::engine::EngineError::ConcludeRefused::why: brokkr_runtime::ConcludeRefusal
 pub brokkr_runtime::engine::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::engine::EngineError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_runtime::engine::EngineError::Invariant(&'static str, alloc::string::String)
 pub brokkr_runtime::engine::EngineError::JournalMoved
 pub brokkr_runtime::engine::EngineError::JournalMoved::expected_seq: u64
 pub brokkr_runtime::engine::EngineError::JournalMoved::found_seq: u64
@@ -1031,7 +1039,6 @@ pub brokkr_runtime::engine::EngineError::JournalMoved::run_id: alloc::string::St
 pub brokkr_runtime::engine::EngineError::ManifestMismatch
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::engine::EngineError::ManifestMismatch::run_id: alloc::string::String
-pub brokkr_runtime::engine::EngineError::Other(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::engine::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::engine::EngineError::UnbuiltBoundary
@@ -1303,11 +1310,18 @@ pub fn brokkr_runtime::CommandWord<'a>::parse(&'a str) -> brokkr_runtime::Comman
 pub enum brokkr_runtime::CompileError
 pub brokkr_runtime::CompileError::Capability(alloc::string::String)
 pub brokkr_runtime::CompileError::Charter(brokkr_runtime::agents::charter_data::CharterRefusal)
+pub brokkr_runtime::CompileError::ComposedPolicy(alloc::boxed::Box<brokkr_core::policy::PolicyError>, alloc::string::String)
 pub brokkr_runtime::CompileError::Invalid(alloc::string::String)
 pub brokkr_runtime::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::CompileError::Json(serde_json::error::Error)
 pub brokkr_runtime::CompileError::Policy(brokkr_core::policy::PolicyError)
 pub brokkr_runtime::CompileError::Provisional(brokkr_runtime::bundle::ProvisionalRefusal)
+pub enum brokkr_runtime::ConcludeRefusal
+pub brokkr_runtime::ConcludeRefusal::AlreadyConcluded
+pub brokkr_runtime::ConcludeRefusal::AlreadyConcluded::status: brokkr_core::fold::Status
+pub brokkr_runtime::ConcludeRefusal::JournalMoved
+pub brokkr_runtime::ConcludeRefusal::StopRefused
+pub brokkr_runtime::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
 pub enum brokkr_runtime::EgressClass
 pub brokkr_runtime::EgressClass::Contracted
 pub brokkr_runtime::EgressClass::Local
@@ -1317,9 +1331,6 @@ pub const brokkr_runtime::agents::EgressClass::VOCABULARY: &'static str
 pub fn brokkr_runtime::agents::EgressClass::name(&self) -> &'static str
 pub fn brokkr_runtime::agents::EgressClass::parse(&str) -> core::option::Option<brokkr_runtime::agents::EgressClass>
 pub enum brokkr_runtime::EngineError
-pub brokkr_runtime::EngineError::AlreadyConcluded
-pub brokkr_runtime::EngineError::AlreadyConcluded::run_id: alloc::string::String
-pub brokkr_runtime::EngineError::AlreadyConcluded::status: alloc::string::String
 pub brokkr_runtime::EngineError::BoundaryMismatch
 pub brokkr_runtime::EngineError::BoundaryMismatch::compiled: brokkr_core::realms::Boundary
 pub brokkr_runtime::EngineError::BoundaryMismatch::world: brokkr_core::realms::Boundary
@@ -1334,8 +1345,12 @@ pub brokkr_runtime::EngineError::CapabilityMismatch::world_realm: alloc::string:
 pub brokkr_runtime::EngineError::CharterMoved
 pub brokkr_runtime::EngineError::CharterMoved::key: alloc::string::String
 pub brokkr_runtime::EngineError::CharterMoved::owner: alloc::string::String
+pub brokkr_runtime::EngineError::ConcludeRefused
+pub brokkr_runtime::EngineError::ConcludeRefused::run_id: alloc::string::String
+pub brokkr_runtime::EngineError::ConcludeRefused::why: brokkr_runtime::ConcludeRefusal
 pub brokkr_runtime::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::EngineError::Fold(brokkr_core::fold::FoldError)
+pub brokkr_runtime::EngineError::Invariant(&'static str, alloc::string::String)
 pub brokkr_runtime::EngineError::JournalMoved
 pub brokkr_runtime::EngineError::JournalMoved::expected_seq: u64
 pub brokkr_runtime::EngineError::JournalMoved::found_seq: u64
@@ -1343,7 +1358,6 @@ pub brokkr_runtime::EngineError::JournalMoved::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::ManifestMismatch
 pub brokkr_runtime::EngineError::ManifestMismatch::detail: alloc::string::String
 pub brokkr_runtime::EngineError::ManifestMismatch::run_id: alloc::string::String
-pub brokkr_runtime::EngineError::Other(alloc::string::String)
 pub brokkr_runtime::EngineError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::EngineError::SupersedeRefused(alloc::string::String)
 pub brokkr_runtime::EngineError::UnbuiltBoundary

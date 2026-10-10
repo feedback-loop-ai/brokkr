@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use super::{ids, Session, HANDS_BOX_ENV, HOST_TOOLCHAIN_BINDS, SANDBOX_HOME};
 use crate::broker::{Network, Reach, Refusal, Sources, Tree};
 
+pub(super) mod entry;
 #[cfg(target_os = "linux")]
 pub(super) mod sources;
 
@@ -568,40 +569,47 @@ impl Namespace {
 
 /// What a server box is built from beside its program (U6c4): the seat's
 /// reach it must stay clear of, the network the dialect's egress projects
-/// to, the trusted bootstrap it binds as one file, the arguments the
-/// program runs with, and the managed writers' uids the plan sealed, whom
-/// its write-exclusion proof holds against beside those observed (U6c5c).
+/// to, the trusted bootstrap it binds as one file and enters (the box's
+/// entry is the bootstrap's; the program's own arguments are U6c8's exec),
+/// and the managed writers' uids the plan sealed, whom its write-exclusion
+/// proof holds against beside those observed (U6c5c).
 pub struct ServerProfile<'a> {
     pub reach: &'a Reach,
     pub network: &'a Network,
     pub bootstrap: &'a Path,
-    pub arguments: &'a [String],
     pub writers: &'a [u32],
 }
 
-/// One MCP server's box, prepared and never started (U6c4; MB3, MB4): the
-/// isolation every box has but no session of its own, the projected
-/// system set and its canonical aliases, a fresh private tmpfs HOME and
-/// TMPDIR, the program tree where the system set does not already hold
-/// it, the bootstrap, the generated identity and resolver, MB4's fixed
-/// environment, and the executable entered from `/runtime/home`. No
-/// workspace, Git, bundle, overlay, declared hands bind or host HOME is
-/// mounted. Its generated identity lives in a private session tree this
-/// value holds and removes. Every source is mounted from the handle its
-/// observer checked (U6c5a), which the box holds, never plan authority.
+/// One MCP server's box, prepared (U6c4; MB3, MB4): the isolation every
+/// box has but no session of its own, the projected system set and its
+/// canonical aliases, a fresh private tmpfs HOME and TMPDIR, the program
+/// tree where the system set does not already hold it, the bootstrap, the
+/// generated identity and resolver and MB4's fixed environment; its entry,
+/// the waiting bootstrap entered from `/runtime/home`, is the launch's
+/// (U6c6b). No workspace, Git, bundle, overlay, declared hands bind or
+/// host HOME is mounted. Its generated identity lives in a private session
+/// tree this value holds and removes, unless it hands the tree over with
+/// its entry. Every source is mounted from the handle its observer checked
+/// (U6c5a), which the box holds, never plan authority, as it holds the
+/// checked launcher's, by its found path.
 #[derive(Debug)]
 pub struct ServerBox {
     intent: Namespace,
-    _scratch: Session,
+    scratch: Option<Session>,
     handles: Vec<(PathBuf, OwnedFd)>,
     sources: Sources,
     writers: Option<Vec<u32>>,
+    bootstrap: PathBuf,
+    launcher: Option<PathBuf>,
 }
 
 /// What the observer gives a prepared box: each observed source's handle
 /// by the host path that named it, the facts a plan seals of the set, and
 /// the managed writers' uids where their privilege is confined.
 type Observed = (Vec<(PathBuf, OwnedFd)>, Sources, Option<Vec<u32>>);
+
+/// An observation, and the checked launcher's found path where one was.
+type Launchable = (Observed, Option<PathBuf>);
 
 impl ServerBox {
     /// The box `program` runs in under `profile`, or the first of MB3's
@@ -611,10 +619,11 @@ impl ServerBox {
     /// directory the generated identity is written under included. Nothing
     /// is made before reach clears. Then the observer's causes over every
     /// source, in MB3's order with identity setup's own: a bootstrap in a
-    /// private directory, or a scratch that cannot hold the identity,
-    /// leaves identity unprotected, after any linked program or bootstrap
-    /// file. Last, a launcher that cannot mount a descriptor, which off
-    /// Linux none can. The launcher is checked before it runs (U6c5c).
+    /// private directory leaves identity unprotected, after any linked
+    /// program or bootstrap file; then a launcher that cannot mount a
+    /// descriptor, which off Linux none can; last, a scratch that cannot
+    /// hold the identity leaves the box not established. The launcher is
+    /// checked before it runs (U6c5c).
     pub fn prepare(
         program: &ServerProgram,
         profile: &ServerProfile<'_>,
@@ -625,27 +634,35 @@ impl ServerBox {
         ServerBox::prepared(program, profile, |_, _| Err(Refusal::Unavailable))
     }
 
-    /// [`ServerBox::prepare`] with `host` standing for this host's facts.
+    /// [`ServerBox::prepare`] with `host` standing for this host's facts,
+    /// the checked launcher's found path kept beside the observation.
     #[cfg(target_os = "linux")]
     pub(super) fn prepare_with(
         program: &ServerProgram,
         profile: &ServerProfile<'_>,
         host: &sources::Host<'_>,
     ) -> Result<ServerBox, Refusal> {
+        let launcher = std::cell::Cell::new(None);
         let observe = |namespace: &Namespace, made: Option<&Path>| {
-            sources::launcher::launched(host, profile, |host| {
+            let observed = sources::launcher::launched(host, profile, |host| {
+                launcher.set(
+                    host.launcher
+                        .map(|checked| checked.source().path.to_path_buf()),
+                );
                 sources::served(namespace, made, program, profile, host)
-            })
+            });
+            Ok((observed?, launcher.take()))
         };
         ServerBox::prepared(program, profile, observe)
     }
 
     /// The box, `observe` reading the namespace and the directory its
-    /// identity was generated in, where it could be.
+    /// identity was generated in, where it could be, and naming the
+    /// launcher it checked.
     fn prepared(
         program: &ServerProgram,
         profile: &ServerProfile<'_>,
-        observe: impl FnOnce(&Namespace, Option<&Path>) -> Result<Observed, Refusal>,
+        observe: impl FnOnce(&Namespace, Option<&Path>) -> Result<Launchable, Refusal>,
     ) -> Result<ServerBox, Refusal> {
         let (network, resolver) = match profile.network {
             Network::Isolated => (false, Resolver::Files),
@@ -673,23 +690,21 @@ impl ServerBox {
         // made: a cause MB3 puts before identity, a linked program or
         // bootstrap file, still wins.
         let observed = observe(&namespace, made.as_deref());
-        let ((scratch, _), (mut handles, sources, writers)) = match (identity, observed) {
-            (Ok(identity), Ok(observed)) => (identity, observed),
+        let (scratch, (observed, launcher)) = match (identity, observed) {
+            (Ok((scratch, _)), Ok(observed)) => (scratch, observed),
             (Err(made), Err(observed)) => return Err(made.min(observed)),
             (Err(cause), Ok(_)) | (Ok(_), Err(cause)) => return Err(cause),
         };
+        let (mut handles, sources, writers) = observed;
         handles.extend(namespace.backed(&handles)?);
-        let command: Vec<String> = [namespace_path(&program.executable)]
-            .into_iter()
-            .chain(profile.arguments.iter().cloned())
-            .collect();
-        namespace.close(Path::new(SANDBOX_HOME), &command);
         Ok(ServerBox {
             intent: namespace,
-            _scratch: scratch,
+            scratch: Some(scratch),
             handles,
             sources,
             writers,
+            bootstrap: profile.bootstrap.to_path_buf(),
+            launcher,
         })
     }
 
@@ -732,26 +747,19 @@ impl ServerBox {
             Err(Refusal::Unavailable)
         }
     }
-
-    /// The bubblewrap argv that builds the box. Read by tests until the
-    /// launch runs it.
-    #[cfg(all(test, target_os = "linux"))]
-    pub(super) fn argv(&self) -> &[String] {
-        &self.intent.argv
-    }
 }
 
 /// The private session tree a server box's identity is generated in, and
 /// its `/etc`; identity unprotected where the bootstrap lies in a private
-/// directory, which must start empty (MB4), or where no scratch can hold
-/// the identity.
+/// directory, which must start empty (MB4), and the box not established
+/// where no scratch can hold the identity.
 fn identity(bootstrap: &Path, resolver: Resolver) -> Result<(Session, PathBuf), Refusal> {
     (!in_private(bootstrap))
         .then_some(())
         .ok_or(Refusal::Identity)?;
-    let scratch = Session::create("server").map_err(|_| Refusal::Identity)?;
+    let scratch = Session::create("server").or(Err(Refusal::Establishment))?;
     let etc = scratch.path().join("etc");
-    generate(&etc, resolver).ok().ok_or(Refusal::Identity)?;
+    generate(&etc, resolver).or(Err(Refusal::Establishment))?;
     Ok((scratch, etc))
 }
 

@@ -1,10 +1,13 @@
 //! The server box (decision 0065 slice two, U6c4; MB3, MB4): the closed
 //! profile one MCP server runs in, its program resolved from the launch
-//! name alone, prepared against the seat's reach and never started here.
+//! name alone, prepared against the seat's reach, and launched on its entry
+//! (U6c6b) with a shell standing for the bootstrap.
 
 use std::ffi::OsStr;
 #[cfg(target_os = "linux")]
-use std::os::fd::AsRawFd;
+use std::io::Read;
+#[cfg(target_os = "linux")]
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use super::super::*;
@@ -319,21 +322,16 @@ fn fd_of(server: &ServerBox, host: &Path) -> Option<String> {
     nth_fd(server, host, 0)
 }
 
-/// The server box's whole argv for `server`'s handles, its generated
-/// identity in `etc` and the varying pieces: the network flag, whether
-/// the host's resolver is bound, the tree bound and the command. Every
-/// source is mounted from the handle the box holds for it, and an absent
-/// optional one not at all; each system source linked outside the set is
-/// bound at its canonical path too, as this host resolves it; both private
-/// directories are owner-only.
+/// The server box's argv up to its entry for `server`'s handles, its
+/// generated identity in `etc` and the varying pieces: the network flag,
+/// whether the host's resolver is bound and the tree bound. Every source is
+/// mounted from the handle the box holds for it, and an absent optional one
+/// not at all; each system source linked outside the set is bound at its
+/// canonical path too, as this host resolves it; both private directories
+/// are owner-only. The program is no part of it: the box's entry is the
+/// bootstrap's, which the launch closes it on (U6c6b).
 #[cfg(target_os = "linux")]
-fn server_argv(
-    server: &ServerBox,
-    net: &str,
-    dns: bool,
-    tree: Option<&Path>,
-    run: &str,
-) -> Vec<String> {
+fn server_argv(server: &ServerBox, net: &str, dns: bool, tree: Option<&Path>) -> Vec<String> {
     let mut argv: Vec<String> = format!(
         "bwrap --die-with-parent --unshare-pid --unshare-ipc --unshare-uts \
          --unshare-cgroup-try --cap-drop ALL {net} --clearenv --setenv {HANDS_BOX_ENV} 1 \
@@ -378,7 +376,7 @@ fn server_argv(
         format!(
             "--setenv PATH /usr/local/bin:/usr/bin:/bin --setenv HOME {SANDBOX_HOME} \
              --setenv TMPDIR /tmp --setenv USER runner --setenv LOGNAME runner \
-             --setenv LANG C.UTF-8 --setenv LC_ALL C.UTF-8 --chdir {SANDBOX_HOME} -- {run}"
+             --setenv LANG C.UTF-8 --setenv LC_ALL C.UTF-8"
         )
         .split_whitespace()
         .map(String::from),
@@ -433,20 +431,17 @@ fn held_where_present(server: &ServerBox, required: &[&Path]) {
 }
 
 /// The box `program` is prepared in under `reach` and `network`, the test
-/// binary its bootstrap, `arguments` its own; on Linux, its writers
-/// confined.
+/// binary its bootstrap; on Linux, its writers confined.
 fn prepared(
     program: &ServerProgram,
     reach: &Reach,
     network: &Network,
-    arguments: &[String],
 ) -> Result<ServerBox, Refusal> {
     let bootstrap = std::env::current_exe().unwrap();
     let profile = ServerProfile {
         reach,
         network,
         bootstrap: &bootstrap,
-        arguments,
         writers: &[],
     };
     #[cfg(target_os = "linux")]
@@ -474,13 +469,11 @@ fn the_server_box_holds_the_projected_system_set_and_its_own_private_paths() {
     // A dedicated package, isolated: its root bound, files-only names.
     let entry = host.plant("opt/docs/bin/docs-mcp");
     let docs = ServerProgram::resolve(entry.to_str().unwrap(), &host.home).unwrap();
-    let stdio = ["--stdio".to_string()];
-    let server = prepared(&docs, &seat, &Network::Isolated, &stdio).unwrap();
+    let server = prepared(&docs, &seat, &Network::Isolated).unwrap();
     let etc = identity_dir(&server);
     let tree = host.path("opt/docs");
-    let run = format!("{} --stdio", entry.display());
     let isolated_argv = server.argv().to_vec();
-    let expected = server_argv(&server, "--unshare-net", false, Some(&tree), &run);
+    let expected = server_argv(&server, "--unshare-net", false, Some(&tree));
     assert_eq!(isolated_argv, expected);
     let required = [
         tree.as_path(),
@@ -508,12 +501,10 @@ fn the_server_box_holds_the_projected_system_set_and_its_own_private_paths() {
     let sh = ServerProgram::resolve("sh", &host.home).unwrap();
     let (executable, _) = installed();
     let installed = ServerProgram::resolve(executable.to_str().unwrap(), &host.home).unwrap();
-    let arguments = ["-c".to_string(), "true".to_string()];
-    for (program, run) in [(&sh, found("sh")), (&installed, executable)] {
-        let server = prepared(program, &seat, &Network::Shared, &arguments).unwrap();
+    for program in [&sh, &installed] {
+        let server = prepared(program, &seat, &Network::Shared).unwrap();
         let etc = identity_dir(&server);
-        let run = format!("{} -c true", run.display());
-        assert_eq!(server.argv(), server_argv(&server, "", true, None, &run));
+        assert_eq!(server.argv(), server_argv(&server, "", true, None));
         held_where_present(&server, &[&bootstrap]);
         let resolver = std::fs::read_to_string(etc.join("nsswitch.conf")).unwrap();
         assert_eq!(resolver, "hosts: files dns\n");
@@ -553,7 +544,7 @@ fn the_fixed_environment_is_mb4s_eight_entries_and_its_names_are_the_reserved_se
     }
     let host = Host::new();
     let sh = ServerProgram::resolve("sh", &host.home).unwrap();
-    let server = prepared(&sh, &reach(&[], &[]), &Network::Isolated, &[]).unwrap();
+    let server = prepared(&sh, &reach(&[], &[]), &Network::Isolated).unwrap();
     let set: Vec<(&str, &str)> = server
         .argv()
         .windows(3)
@@ -582,7 +573,7 @@ fn the_server_box_stays_clear_of_every_reach_root_either_way() {
     let docs = ServerProgram::resolve(entry.to_str().unwrap(), &host.home).unwrap();
     let bootstrap = std::env::current_exe().unwrap();
     let answer = |program: &ServerProgram, seat: Reach| {
-        prepared(program, &seat, &Network::Shared, &[]).map(|_| ())
+        prepared(program, &seat, &Network::Shared).map(|_| ())
     };
     const LAUNCHED: Result<(), Refusal> = Err(Refusal::LaunchInReach);
     const OVERLAPPING: Result<(), Refusal> = Err(Refusal::BindOverlapsReach);
@@ -766,7 +757,7 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         .map(|(_, alias)| format!("[ -d '{}' ] || exit 19; ", alias.display()))
         .collect();
     let script = format!(
-        "[ \"$(pwd)\" = {SANDBOX_HOME} ] || exit 10; \
+        "exec 2>\"/proc/self/fd/$2\"; [ \"$(pwd)\" = {SANDBOX_HOME} ] || exit 10; \
          [ -z \"$(ls -A {SANDBOX_HOME})\" ] && [ -z \"$(ls -A /tmp)\" ] || exit 11; \
          [ \"$(stat -c %a {SANDBOX_HOME}):$(stat -c %a /tmp)\" = 700:700 ] || exit 20; \
          touch {SANDBOX_HOME}/a /tmp/b && [ ! -e /tmp/a ] || exit 12; \
@@ -775,11 +766,13 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
          [ ! -e /etc/resolv.conf ] || exit 15; \
          [ \"$(cat /etc/nsswitch.conf)\" = 'hosts: files' ] || exit 16; \
          [ \"$PATH:$TMPDIR:$USER:${HANDS_BOX_ENV}\" = /usr/local/bin:/usr/bin:/bin:/tmp:runner:1 ] \
-         || exit 18; {aliased} true",
+         || exit 18; {aliased} \
+         [ \"$(tr '\\0' '\\n' < /proc/$$/environ | cut -d= -f1 | sort | tr '\\n' ' ')\" = \
+         'BROKKR_HANDS_BOX HOME LANG LC_ALL LOGNAME PATH TMPDIR USER ' ] || exit 21; \
+         exec 2>/dev/null; printf ready > \"/proc/self/fd/$2\" && exec sleep 600",
         w = work.display(),
         p = private.display(),
     );
-    let arguments = ["-c".to_string(), script];
     let sh = ServerProgram::resolve("sh", &host.home).unwrap();
     let bootstrap = shell();
     let seat = reach(&[work], &[]);
@@ -787,10 +780,9 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         reach: &seat,
         network: &Network::Isolated,
         bootstrap: &bootstrap,
-        arguments: &arguments,
         writers: &[],
     };
-    let server = ServerBox::prepare_with(&sh, &profile, &super::sources::confined()).unwrap();
+    let mut server = ServerBox::prepare_with(&sh, &profile, &super::sources::confined()).unwrap();
     // The scenario is a private TLS sibling that exists and cannot be
     // read: prepared beside it, the box neither read nor mounted it. A
     // host without one cannot show that, so the proof skips there, which
@@ -802,28 +794,126 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         skip_boundary_proof(required, "/etc/ssl/private is no unreadable directory here");
         return;
     }
-    let mut command = Command::new(require_bwrap().unwrap());
-    command
-        .args(&server.argv()[1..])
-        .current_dir("/")
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin");
-    // bubblewrap mounts the box's sources from the descriptors it holds,
-    // so only the child keeps them across exec.
-    let fds: Vec<i32> = server.handles().map(|(_, fd)| fd.as_raw_fd()).collect();
-    let inherit = move || {
-        for fd in &fds {
-            // SAFETY: fcntl is async-signal-safe, and each descriptor is
-            // one the parent holds open for the child's whole start.
-            if unsafe { libc::fcntl(*fd, libc::F_SETFD, 0) } == -1 {
-                return Err(std::io::Error::last_os_error());
+    // The box launched on its entry (U6c6b), the shell standing for its
+    // bootstrap: it reports on the ready pipe once every check held, then
+    // waits as `sleep`, holding what it was given.
+    let entry = server.entry(std::process::id()).unwrap();
+    let handles: Vec<_> = server.handles().map(|(_, fd)| fd.as_fd()).collect();
+    let given = std::cell::Cell::new((0, 0));
+    let command = |control: i32, ready: i32| {
+        given.set((control, ready));
+        let numbers = [control, ready].map(|fd| fd.to_string());
+        let args = ["-c", &script, "sh", &numbers[0], &numbers[1]];
+        args.map(String::from).to_vec()
+    };
+    let mut launched = ServerBox::launch(&entry, &handles, command, super::entry::soon()).unwrap();
+    let mut info = String::new();
+    launched.info.read_to_string(&mut info).unwrap();
+    let mut ready = [0; 5];
+    if launched.ready.read_exact(&mut ready).is_err() {
+        let mut rest = String::new();
+        launched.ready.read_to_string(&mut rest).ok();
+        panic!(
+            "the box refused: {:?} {ready:?} {rest}",
+            launched.child.wait()
+        );
+    }
+    assert_eq!(&ready, b"ready");
+    // bubblewrap named the box's first process, the launcher's own child,
+    // and the waiting process it started holds its standard streams on
+    // nothing, and its two control pipes at the very numbers it was given,
+    // and no other descriptor: no handle, no info pipe and nothing else of
+    // this process.
+    let first: serde_json::Value = serde_json::from_str(&info).unwrap();
+    let first = first["child-pid"].as_u64().unwrap();
+    assert_eq!(parent_of(first), Some(u64::from(launched.child.id())));
+    let waiting = waiting_child(first);
+    let pipe = |fd: &dyn AsFd| format!("pipe:[{}]", rustix::fs::fstat(fd).unwrap().st_ino);
+    let (control, ready) = given.get();
+    let null = || "/dev/null".to_string();
+    let mut expected = vec![(0, null()), (1, null()), (2, null())];
+    expected.push((control.unsigned_abs(), pipe(&launched.control)));
+    expected.push((ready.unsigned_abs(), pipe(&launched.ready)));
+    expected.sort();
+    assert_eq!(descriptors(waiting), expected);
+    // Settled when dropped, this process living on: the box's waiting
+    // process is gone, and its generated identity with the entry.
+    drop(launched);
+    assert!(ended(waiting));
+    let scratch = scratch_of(&entry);
+    assert!(scratch.is_dir());
+    drop(entry);
+    assert!(!scratch.exists());
+}
+
+/// Whether `pid` is gone, or only a zombie, within five seconds.
+#[cfg(target_os = "linux")]
+fn ended(pid: u64) -> bool {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while std::time::Instant::now() < until {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+        let state = stat.rsplit_once(") ").map(|(_, rest)| &rest[..1]);
+        if matches!(state, None | Some("Z")) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
+/// The parent of `pid`, from `/proc/<pid>/stat`.
+#[cfg(target_os = "linux")]
+fn parent_of(pid: u64) -> Option<u64> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    stat.rsplit_once(')')?
+        .1
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()
+}
+
+/// The one child of `pid` once it waits as `sleep`, within ten seconds.
+#[cfg(target_os = "linux")]
+fn waiting_child(pid: u64) -> u64 {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < until {
+        let children = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"));
+        let children: Vec<u64> = children
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(|child| child.parse().unwrap())
+            .collect();
+        let comm = |child: u64| std::fs::read_to_string(format!("/proc/{child}/comm"));
+        if let [child] = children[..] {
+            if comm(child).is_ok_and(|comm| comm == "sleep\n") {
+                return child;
             }
         }
-        Ok(())
-    };
-    // SAFETY: the hook only clears close-on-exec flags; it allocates
-    // nothing and takes no lock.
-    unsafe { std::os::unix::process::CommandExt::pre_exec(&mut command, inherit) };
-    let status = command.status().unwrap();
-    assert_eq!(status.code(), Some(0));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    panic!("no waiting child of {pid}");
+}
+
+/// Each descriptor `pid` holds, by number, and what `/proc` links it to.
+#[cfg(target_os = "linux")]
+fn descriptors(pid: u64) -> Vec<(u32, String)> {
+    let dir = std::fs::read_dir(format!("/proc/{pid}/fd")).unwrap();
+    let mut held: Vec<(u32, String)> = dir
+        .map(|entry| {
+            let entry = entry.unwrap();
+            let link = std::fs::read_link(entry.path()).unwrap();
+            let number = entry.file_name().to_str().unwrap().parse().unwrap();
+            (number, link.to_str().unwrap().to_string())
+        })
+        .collect();
+    held.sort();
+    held
+}
+
+/// The generated identity's tree `entry` hands over.
+#[cfg(target_os = "linux")]
+pub(super) fn scratch_of(entry: &ServerEntry) -> PathBuf {
+    let entry = serde_json::to_value(entry).unwrap();
+    serde_json::from_value(entry["identity"].clone()).unwrap()
 }

@@ -1,12 +1,13 @@
-//! Decision 0050's table checks as a diagnostic (#429): order, liveness,
-//! presence and a bounded totality sweep over a loaded machine.
+//! Decision 0050's table checks (#429): order, liveness, presence and a
+//! bounded totality sweep over a loaded machine.
 //!
 //! Decision 0050 was accepted on 2026-09-29, and its addendum orders the
 //! refusals' enactment, each in a slice of its own:
-//! `docs/evidence/decision-0050-audit.md` lists them. The first slice
-//! refuses order, liveness and `v2` presence at load
-//! (`Machine::refuse_findings`); totality is still only reported.
-//! `brokkr compile` prints the audit beside its manifest.
+//! `docs/evidence/decision-0050-audit.md` lists them. The load refuses
+//! order, liveness and `v2` presence (`Machine::refuse_findings`); the
+//! compiler refuses an unruled valuation and a table past the sweep's
+//! budget (`Machine::refuse_unruled`). `brokkr compile` prints the audit
+//! beside its manifest.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -38,7 +39,7 @@ pub struct Audit {
     pub findings: Vec<Finding>,
 }
 
-/// One finding, each a refusal decision 0050 proposes. Ruling 2's three
+/// One finding, each a refusal decision 0050 rules. Ruling 2's three
 /// findings are read over the present, well-typed valuations of a group's
 /// inputs, with every counter integral: an absent input satisfies no
 /// condition, so a rule reported dead still fires when a seat omits an
@@ -79,7 +80,7 @@ pub enum Setting {
     Word(&'static str),
 }
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum AuditError {
     #[error(
         "the policy sweep reaches {valuations} valuations at ({phase}, {result}), \
@@ -123,7 +124,8 @@ impl Group<'_> {
 }
 
 impl Machine {
-    /// Decision 0050's four table checks, reported and never refused.
+    /// Decision 0050's four table checks, reported; the load and the
+    /// compiler refuse from them.
     /// `engine_owned` names the inputs the engine always supplies, which
     /// presence (ruling 1) exempts. The sweep's size is measured before
     /// any valuation is evaluated, so a table over `budget` costs nothing.
@@ -161,9 +163,8 @@ impl Machine {
     /// fires on no present valuation (ruling 2), an unreachable phase or a
     /// dead end (ruling 3) and, in a `v2` table only, an advancing rule
     /// that skips a hard seat input (ruling 1). A table past
-    /// `SWEEP_BUDGET` is not swept: its order and totality stay reported by
-    /// `brokkr compile` until the budget refusal lands with totality, and
-    /// the checks that need no sweep still refuse.
+    /// `SWEEP_BUDGET` is not swept here, and the checks that need no sweep
+    /// still refuse; the compiler refuses it (`Machine::refuse_unruled`).
     pub(super) fn refuse_findings(&self, v2: bool) -> Result<(), PolicyError> {
         let findings = match self.audit_with(SWEEP_BUDGET, is_engine_owned) {
             Ok(audit) => audit.findings,
@@ -171,6 +172,25 @@ impl Machine {
         };
         match findings.into_iter().find_map(|finding| finding.refusal(v2)) {
             Some(refusal) => Err(PolicyError::Refused(refusal)),
+            None => Ok(()),
+        }
+    }
+
+    /// Ruling 4 at compile (#429): the first valuation of present,
+    /// well-typed inputs that no rule rules is refused, and so is a table
+    /// whose sweep would pass `SWEEP_BUDGET`, since a table that cannot be
+    /// swept cannot be shown total. `NoRule` stays for what a table cannot
+    /// foresee.
+    pub fn refuse_unruled(&self) -> Result<(), PolicyError> {
+        let audit = self
+            .audit_with(SWEEP_BUDGET, is_engine_owned)
+            .map_err(|error| PolicyError::Refused(Refusal::Unswept(error)))?;
+        match audit
+            .findings
+            .into_iter()
+            .find(|finding| matches!(finding, Finding::Unruled { .. }))
+        {
+            Some(unruled) => Err(PolicyError::Refused(Refusal::Totality(unruled))),
             None => Ok(()),
         }
     }
@@ -416,9 +436,9 @@ impl Condition {
 }
 
 impl Finding {
-    /// The load's refusal of this finding, or `None` where it is only
-    /// reported: an unread input in a `v1` table, and every unruled
-    /// valuation.
+    /// The load's refusal of this finding, or `None` where the load does
+    /// not refuse it: an unread input in a `v1` table is only reported, and
+    /// an unruled valuation is the compiler's (`Machine::refuse_unruled`).
     fn refusal(self, v2: bool) -> Option<Refusal> {
         match self {
             Finding::Shadowed { .. } | Finding::Covered { .. } | Finding::Unsatisfiable { .. } => {
@@ -431,8 +451,9 @@ impl Finding {
     }
 }
 
-/// A finding the load refuses (#429), by the decision 0050 ruling that
-/// refuses it. `Finding::refusal` is its one derivation.
+/// A finding the load or the compiler refuses (#429), by the decision 0050
+/// ruling that refuses it. `Finding::refusal` derives the load's;
+/// `Machine::refuse_unruled` the compiler's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     /// Ruling 1, in a `v2` table only: an unread hard input.
@@ -441,6 +462,10 @@ pub enum Refusal {
     Order(Finding),
     /// Ruling 3: an unreachable phase or a dead end.
     Liveness(Finding),
+    /// Ruling 4, at compile: the first unruled valuation.
+    Totality(Finding),
+    /// Ruling 4, at compile: the sweep would pass its budget.
+    Unswept(AuditError),
 }
 
 impl fmt::Display for Refusal {
@@ -453,6 +478,13 @@ impl fmt::Display for Refusal {
                 format!("{finding}; it fires on no present valuation (decision 0050, ruling 2)")
             }
             Refusal::Liveness(finding) => format!("{finding} (decision 0050, ruling 3)"),
+            Refusal::Totality(finding) => format!(
+                "{finding}; name it with a rule that parks it and says why \
+                 (decision 0050, ruling 4)"
+            ),
+            Refusal::Unswept(error) => {
+                format!("{error}, so it cannot be shown total (decision 0050, ruling 4)")
+            }
         })
     }
 }
@@ -530,8 +562,7 @@ impl fmt::Display for Audit {
             .iter()
             .partition(|finding| matches!(finding, Finding::Unruled { .. }));
         let mut report = format!(
-            "policy sweep (decision 0050, accepted; reported, not yet refused): {} \
-             valuations over {} groups, {} unruled\n",
+            "policy sweep (decision 0050): {} valuations over {} groups, {} unruled\n",
             self.valuations,
             self.groups,
             unruled.len()
