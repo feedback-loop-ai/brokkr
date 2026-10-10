@@ -35,6 +35,44 @@ fn chain_verifies_and_detects_tamper() {
     );
 }
 
+/// `as_str` is the name serde writes and reads, for every type. The
+/// match below has no wildcard, so a new type fails to compile here
+/// until it joins the table.
+#[test]
+fn every_event_type_names_itself_as_serde_does() {
+    use EventType::*;
+    for (event_type, name) in [
+        (RunStarted, "run/started"),
+        (PhaseEntered, "phase/entered"),
+        (EffectRequested, "effect/requested"),
+        (EffectStarted, "effect/started"),
+        (EffectCheckpointed, "effect/checkpointed"),
+        (EffectSucceeded, "effect/succeeded"),
+        (EffectFailed, "effect/failed"),
+        (EffectIndeterminate, "effect/indeterminate"),
+        (TransitionDecided, "transition/decided"),
+        (OperatorCommanded, "operator/commanded"),
+        (OperatorAccepted, "operator/accepted"),
+        (OperatorRejected, "operator/rejected"),
+        (RunParked, "run/parked"),
+        (RunCompleted, "run/completed"),
+        (RunStopped, "run/stopped"),
+    ] {
+        match event_type {
+            RunStarted | PhaseEntered | EffectRequested | EffectStarted | EffectCheckpointed
+            | EffectSucceeded | EffectFailed | EffectIndeterminate | TransitionDecided
+            | OperatorCommanded | OperatorAccepted | OperatorRejected | RunParked
+            | RunCompleted | RunStopped => {}
+        }
+        assert_eq!(event_type.as_str(), name);
+        assert_eq!(serde_json::to_value(event_type).unwrap(), json!(name));
+        assert_eq!(
+            serde_json::from_value::<EventType>(json!(name)).unwrap(),
+            event_type
+        );
+    }
+}
+
 #[test]
 fn chain_refuses_every_identity_and_sequence_defect() {
     assert_eq!(verify_chain(&[]), Ok(()));
@@ -51,9 +89,11 @@ fn chain_refuses_every_identity_and_sequence_defect() {
     gap.seq = 1;
     gap.event_schema_version = 2;
     gap = gap.sealed();
+    let refusal = verify_chain(&[gap]).unwrap_err();
+    assert_eq!(refusal, ChainError::BadSchemaVersion { seq: 1, found: 2 });
     assert_eq!(
-        verify_chain(&[gap]),
-        Err(ChainError::BadSchemaVersion { seq: 1, found: 2 })
+        refusal.to_string(),
+        "event 1: event_schema_version 2 is not supported (want 1)"
     );
 
     let first = envelope(1, ZERO_HASH);

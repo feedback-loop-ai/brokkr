@@ -143,6 +143,8 @@ pub brokkr_core::envelope::EventType::RunParked
 pub brokkr_core::envelope::EventType::RunStarted
 pub brokkr_core::envelope::EventType::RunStopped
 pub brokkr_core::envelope::EventType::TransitionDecided
+impl brokkr_core::envelope::EventType
+pub const fn brokkr_core::envelope::EventType::as_str(self) -> &'static str
 pub struct brokkr_core::envelope::EventEnvelope
 pub brokkr_core::envelope::EventEnvelope::attempt_id: core::option::Option<alloc::string::String>
 pub brokkr_core::envelope::EventEnvelope::causation_id: core::option::Option<alloc::string::String>
@@ -159,6 +161,7 @@ pub brokkr_core::envelope::EventEnvelope::seq: u64
 impl brokkr_core::envelope::EventEnvelope
 pub fn brokkr_core::envelope::EventEnvelope::compute_hash(&self) -> alloc::string::String
 pub fn brokkr_core::envelope::EventEnvelope::sealed(self) -> Self
+pub const brokkr_core::envelope::EVENT_SCHEMA_VERSION: u32
 pub fn brokkr_core::envelope::verify_chain(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_core::envelope::ChainError>
 pub fn brokkr_core::envelope::verify_chain_after(&str, u64, &str, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_core::envelope::ChainError>
 pub mod brokkr_core::fold
@@ -183,6 +186,8 @@ pub brokkr_core::fold::Cursor::Park::reason: alloc::string::String
 pub brokkr_core::fold::Cursor::RequestEffect
 pub brokkr_core::fold::Cursor::Start
 pub brokkr_core::fold::Cursor::Stop
+impl core::fmt::Display for brokkr_core::fold::Cursor
+pub fn brokkr_core::fold::Cursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::fold::FoldError
 pub brokkr_core::fold::FoldError::AfterTerminal
 pub brokkr_core::fold::FoldError::AfterTerminal::seq: u64
@@ -251,6 +256,13 @@ pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokk
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
+pub mod brokkr_core::gate_moved_head
+pub struct brokkr_core::gate_moved_head::MovedHead
+pub brokkr_core::gate_moved_head::MovedHead::head_at_end: core::option::Option<alloc::string::String>
+pub brokkr_core::gate_moved_head::MovedHead::head_at_start: core::option::Option<alloc::string::String>
+pub const brokkr_core::gate_moved_head::PREFIX: &str
+pub fn brokkr_core::gate_moved_head::decode(&str) -> core::option::Option<core::result::Result<brokkr_core::gate_moved_head::MovedHead, serde_json::error::Error>>
+pub fn brokkr_core::gate_moved_head::encode(&brokkr_core::gate_moved_head::MovedHead) -> alloc::string::String
 pub mod brokkr_core::keep_refs
 pub fn brokkr_core::keep_refs::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
 pub mod brokkr_core::policy
@@ -502,6 +514,8 @@ pub brokkr_core::Cursor::Park::reason: alloc::string::String
 pub brokkr_core::Cursor::RequestEffect
 pub brokkr_core::Cursor::Start
 pub brokkr_core::Cursor::Stop
+impl core::fmt::Display for brokkr_core::fold::Cursor
+pub fn brokkr_core::fold::Cursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::EventType
 pub brokkr_core::EventType::EffectCheckpointed
 pub brokkr_core::EventType::EffectFailed
@@ -518,6 +532,8 @@ pub brokkr_core::EventType::RunParked
 pub brokkr_core::EventType::RunStarted
 pub brokkr_core::EventType::RunStopped
 pub brokkr_core::EventType::TransitionDecided
+impl brokkr_core::envelope::EventType
+pub const fn brokkr_core::envelope::EventType::as_str(self) -> &'static str
 pub enum brokkr_core::FoldError
 pub brokkr_core::FoldError::AfterTerminal
 pub brokkr_core::FoldError::AfterTerminal::seq: u64

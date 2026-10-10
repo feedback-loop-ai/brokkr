@@ -45,6 +45,34 @@ pub enum EventType {
     RunStopped,
 }
 
+impl EventType {
+    /// The wire name serde writes for this type, for readers that name an
+    /// event without serializing it.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            EventType::RunStarted => "run/started",
+            EventType::PhaseEntered => "phase/entered",
+            EventType::EffectRequested => "effect/requested",
+            EventType::EffectStarted => "effect/started",
+            EventType::EffectCheckpointed => "effect/checkpointed",
+            EventType::EffectSucceeded => "effect/succeeded",
+            EventType::EffectFailed => "effect/failed",
+            EventType::EffectIndeterminate => "effect/indeterminate",
+            EventType::TransitionDecided => "transition/decided",
+            EventType::OperatorCommanded => "operator/commanded",
+            EventType::OperatorAccepted => "operator/accepted",
+            EventType::OperatorRejected => "operator/rejected",
+            EventType::RunParked => "run/parked",
+            EventType::RunCompleted => "run/completed",
+            EventType::RunStopped => "run/stopped",
+        }
+    }
+}
+
+/// The one `event_schema_version` this envelope is, and the only one a
+/// chain verifies.
+pub const EVENT_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EventEnvelope {
@@ -72,7 +100,9 @@ pub enum ChainError {
     BrokenChain { seq: u64, prev_seq: u64 },
     #[error("event {seq}: event_hash does not match canonical content")]
     BadHash { seq: u64 },
-    #[error("event {seq}: event_schema_version {found} is not supported (want 1)")]
+    #[error(
+        "event {seq}: event_schema_version {found} is not supported (want {EVENT_SCHEMA_VERSION})"
+    )]
     BadSchemaVersion { seq: u64, found: u32 },
     #[error("event {seq}: run_id differs from the journal's run")]
     ForeignRun { seq: u64 },
@@ -130,7 +160,7 @@ pub fn verify_chain_after(
                 expected: expected_seq,
             });
         }
-        if event.event_schema_version != 1 {
+        if event.event_schema_version != EVENT_SCHEMA_VERSION {
             return Err(ChainError::BadSchemaVersion {
                 seq: event.seq,
                 found: event.event_schema_version,
