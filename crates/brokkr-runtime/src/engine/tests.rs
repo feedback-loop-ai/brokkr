@@ -1,3 +1,4 @@
+use super::conclude_tests::invariant;
 use super::*;
 use crate::agents::HarnessHands;
 use crate::bundle::{Limits, Seat};
@@ -1694,11 +1695,10 @@ fn a_composed_run_resumes_and_refuses_when_its_base_moved() {
 #[test]
 fn request_finish_input_and_execute_refusals_are_journaled() {
     let (_dir, mut engine) = engine(single_body(vec!["missing-driver".into()]));
-    assert!(engine
-        .request_or_finish(&state(None, Cursor::RequestEffect))
-        .unwrap_err()
-        .to_string()
-        .contains("no phase"));
+    assert_eq!(
+        invariant(engine.request_or_finish(&state(None, Cursor::RequestEffect))),
+        ("cursor has phase", "RequestEffect with no phase".into())
+    );
 
     let mut stop = state(Some("stop"), Cursor::RequestEffect);
     stop.last_decision = Some(json!({"rule_id":"SECURITY"}));
@@ -1709,22 +1709,20 @@ fn request_finish_input_and_execute_refusals_are_journaled() {
     engine
         .request_or_finish(&state(Some("work"), Cursor::RequestEffect))
         .unwrap();
-    assert!(engine
-        .seat_input(&state(Some("work"), Cursor::Idle), "missing", "effect")
-        .unwrap_err()
-        .to_string()
-        .contains("no seat"));
+    let missing = "no seat for phase 'missing' (compile enforces this)";
+    assert_eq!(
+        invariant(engine.seat_input(&state(Some("work"), Cursor::Idle), "missing", "effect")),
+        ("phase has seat", missing.into())
+    );
 
-    assert!(engine
-        .execute(&[], &state(None, Cursor::Idle), "effect", "work")
-        .unwrap_err()
-        .to_string()
-        .contains("without a phase"));
-    assert!(engine
-        .execute(&[], &state(Some("work"), Cursor::Idle), "effect", "work")
-        .unwrap_err()
-        .to_string()
-        .contains("no requested event"));
+    assert_eq!(
+        invariant(engine.execute(&[], &state(None, Cursor::Idle), "effect", "work")),
+        ("cursor has phase", "effect without a phase".into())
+    );
+    assert_eq!(
+        invariant(engine.execute(&[], &state(Some("work"), Cursor::Idle), "effect", "work")),
+        ("effect requested", "no requested event for effect".into())
+    );
 
     let requested = event(
         EventType::EffectRequested,
@@ -2240,11 +2238,10 @@ fn git_commit(repo: &Path, message: &str) -> String {
 #[test]
 fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
-    assert!(engine
-        .decide(&state(None, Cursor::Idle), json!({"result":"complete"}))
-        .unwrap_err()
-        .to_string()
-        .contains("without a phase"));
+    assert_eq!(
+        invariant(engine.decide(&state(None, Cursor::Idle), json!({"result":"complete"}))),
+        ("cursor has phase", "decide without a phase".into())
+    );
     engine
         .decide(&state(Some("work"), Cursor::Idle), json!(2))
         .unwrap();
@@ -3171,11 +3168,11 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
                no reason recorded"
         )
     );
-    assert!(cursor_shapes
-        .advance_running(&[], state(Some("work"), Cursor::Idle))
-        .unwrap_err()
-        .to_string()
-        .contains("terminal idle cursor"));
+    let idle = "running state reached the terminal idle cursor";
+    assert_eq!(
+        invariant(cursor_shapes.advance_running(&[], state(Some("work"), Cursor::Idle))),
+        ("running not idle", idle.into())
+    );
 
     for events in [
         vec![event(EventType::PhaseEntered, json!({"phase":"work"}))],

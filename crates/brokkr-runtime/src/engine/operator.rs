@@ -31,6 +31,50 @@ pub use supersede::{operator_supersede, Supersede};
 /// `operator/rejected` back in every state there is.
 pub(super) const FENCE_ATTEMPTS: usize = 4;
 
+/// Why `conclude` refused a run: each is the operator's to act on, and
+/// none wrote a conclusion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConcludeRefusal {
+    /// The run already has its conclusion. A second `run/stopped` would
+    /// fail the fold as an event after terminal, so this comes before the
+    /// first append, not after a half-written closure.
+    AlreadyConcluded { status: Status },
+    /// The stop `conclude` commanded was refused, with the fold's reason.
+    StopRefused { refusal: String },
+    /// A fenced write met a head that moved beneath the conclusion.
+    JournalMoved,
+}
+
+impl ConcludeRefusal {
+    /// The words each refusal has always printed, the run named in them.
+    /// The two that were once `engine:` errors keep that prefix.
+    pub(super) fn text(&self, run_id: &str) -> String {
+        match self {
+            ConcludeRefusal::AlreadyConcluded { status } => format!(
+                "run '{run_id}' is already concluded ({}); conclude appends nothing",
+                status.as_str()
+            ),
+            ConcludeRefusal::StopRefused { refusal } => format!(
+                "engine: conclude: run '{run_id}' refused the stop ({refusal}); the journal \
+                 moved beneath the conclusion, so something may still be driving this run — \
+                 look with `brokkr runs` before closing"
+            ),
+            ConcludeRefusal::JournalMoved => format!(
+                "engine: conclude: the journal moved beneath the conclusion of run '{run_id}', \
+                 so something may still be driving it — a conclusion is for a run believed \
+                 dead; look with `brokkr runs` before closing"
+            ),
+        }
+    }
+
+    fn of(self, run_id: &str) -> EngineError {
+        EngineError::ConcludeRefused {
+            run_id: run_id.to_string(),
+            why: self,
+        }
+    }
+}
+
 /// The head a fenced write must still find: the seq and hash the store
 /// compares, and the event id a write that follows it names as its cause.
 struct Head {
@@ -451,16 +495,12 @@ pub(super) fn conclude_racing(
     // so a broken chain refuses the whole conclusion here — before any
     // append. No second verification, and the error is never swallowed.
     let state = read_back(store, run_id)?;
-    let status = match state.status {
-        Status::Completed => Some("completed"),
-        Status::Stopped => Some("stopped"),
-        Status::Running | Status::AwaitingOperator => None,
-    };
-    if let Some(status) = status {
-        return Err(EngineError::AlreadyConcluded {
-            run_id: run_id.to_string(),
-            status: status.to_string(),
-        });
+    match state.status {
+        Status::Completed | Status::Stopped => {
+            let status = state.status;
+            return Err(ConcludeRefusal::AlreadyConcluded { status }.of(run_id));
+        }
+        Status::Running | Status::AwaitingOperator => {}
     }
 
     // A stop already in force is not re-commanded: the operator who
@@ -506,11 +546,7 @@ fn command_stop(
         FencedCommandOutcome::Accepted { .. } => Ok(()),
         FencedCommandOutcome::Rejected {
             reason: refusal, ..
-        } => Err(EngineError::Other(format!(
-            "conclude: run '{run_id}' refused the stop ({refusal}); the \
-             journal moved beneath the conclusion, so something may still \
-             be driving this run — look with `brokkr runs` before closing"
-        ))),
+        } => Err(ConcludeRefusal::StopRefused { refusal }.of(run_id)),
     }
 }
 
@@ -561,11 +597,7 @@ fn concluded_or_alive(
     written: Result<EventEnvelope, StoreError>,
 ) -> Result<EventEnvelope, EngineError> {
     match written {
-        Err(StoreError::HeadMoved { .. }) => Err(EngineError::Other(format!(
-            "conclude: the journal moved beneath the conclusion of run '{run_id}', \
-             so something may still be driving it — a conclusion is for a run \
-             believed dead; look with `brokkr runs` before closing"
-        ))),
+        Err(StoreError::HeadMoved { .. }) => Err(ConcludeRefusal::JournalMoved.of(run_id)),
         other => Ok(other?),
     }
 }
@@ -587,10 +619,14 @@ pub(super) fn riding_attempt(
             attempt_id,
             ..
         } if state.riding_stop => Ok(Some((effect_id.clone(), attempt_id.clone()))),
-        cursor => Err(EngineError::Other(format!(
-            "conclude: run '{run_id}' stands at {cursor:?} with an accepted stop; \
-             a stop reaches Stop or rides an in-flight attempt and nothing else"
-        ))),
+        // The cursor prints by `Debug` until it has a `Display` (#345).
+        cursor => Err(EngineError::Invariant(
+            "stop rides or stands",
+            format!(
+                "conclude: run '{run_id}' stands at {cursor:?} with an accepted stop; \
+                 a stop reaches Stop or rides an in-flight attempt and nothing else"
+            ),
+        )),
     }
 }
 

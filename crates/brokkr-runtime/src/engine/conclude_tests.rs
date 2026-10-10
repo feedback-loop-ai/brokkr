@@ -10,6 +10,7 @@
 use super::*;
 use brokkr_store::test_support::plant_event;
 use brokkr_store::StoreError;
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 
 fn fixtures() -> PathBuf {
@@ -351,14 +352,9 @@ fn an_already_concluded_run_is_refused_and_nothing_is_appended() {
     assert_eq!(fold(&before).unwrap().status, Status::Completed);
 
     let refusal = conclude(&mut store, name, "vyanakiev", "again").unwrap_err();
-    assert!(
-        matches!(&refusal, EngineError::AlreadyConcluded { run_id, status }
-            if run_id == name && status == "completed"),
-        "{refusal}",
-    );
-    assert!(
-        refusal.to_string().contains("already concluded"),
-        "{refusal}"
+    assert_eq!(
+        refusal_of(refusal),
+        (name.to_string(), already(Status::Completed))
     );
     assert_eq!(
         events(&store, name).len(),
@@ -373,9 +369,9 @@ fn an_already_concluded_run_is_refused_and_nothing_is_appended() {
     conclude(&mut store, parked, "vyanakiev", "first").unwrap();
     let concluded = events(&store, parked);
     let refusal = conclude(&mut store, parked, "vyanakiev", "second").unwrap_err();
-    assert!(
-        matches!(&refusal, EngineError::AlreadyConcluded { status, .. } if status == "stopped"),
-        "{refusal}",
+    assert_eq!(
+        refusal_of(refusal),
+        (parked.to_string(), already(Status::Stopped))
     );
     assert_eq!(events(&store, parked).len(), concluded.len());
 }
@@ -447,11 +443,11 @@ fn a_cursor_no_accepted_stop_can_produce_refuses_instead_of_guessing() {
 
     // The same cursor with nothing riding it: an attempt in flight under
     // no accepted stop is not a conclusion to finish.
-    let unridden = riding_attempt("run", &super::tests::state(Some("verify"), in_flight))
-        .unwrap_err()
-        .to_string();
-    assert!(unridden.contains("EffectInFlight"), "{unridden}");
-    assert!(unridden.contains("accepted stop"), "{unridden}");
+    let unridden = riding_attempt(
+        "run",
+        &super::tests::state(Some("verify"), in_flight.clone()),
+    );
+    assert_eq!(invariant(unridden), unexpected(&in_flight));
 
     for cursor in [
         Cursor::Start,
@@ -461,12 +457,81 @@ fn a_cursor_no_accepted_stop_can_produce_refuses_instead_of_guessing() {
             reason: "parked".into(),
         },
     ] {
-        let refusal = riding_attempt("run", &riding(cursor.clone()))
-            .unwrap_err()
-            .to_string();
-        assert!(refusal.contains("run 'run'"), "{refusal}");
-        assert!(refusal.contains(&format!("{cursor:?}")), "{refusal}");
+        let refusal = riding_attempt("run", &riding(cursor.clone()));
+        assert_eq!(invariant(refusal), unexpected(&cursor));
     }
+}
+
+/// The invariant `riding_attempt` breaks at `cursor`, named and worded.
+fn unexpected(cursor: &Cursor) -> (&'static str, String) {
+    let detail = format!(
+        "conclude: run 'run' stands at {cursor:?} with an accepted stop; a stop reaches \
+         Stop or rides an in-flight attempt and nothing else"
+    );
+    ("stop rides or stands", detail)
+}
+
+/// The invariant an engine error names, and its words; any other error
+/// fails the test that expected a breach.
+#[track_caller]
+pub(super) fn invariant<T: Debug>(result: Result<T, EngineError>) -> (&'static str, String) {
+    match result.unwrap_err() {
+        EngineError::Invariant(name, detail) => (name, detail),
+        other => panic!("not an invariant breach: {other}"),
+    }
+}
+
+/// The run a conclusion refused, and why; any other error fails the test.
+#[track_caller]
+fn refusal_of(error: EngineError) -> (String, ConcludeRefusal) {
+    match error {
+        EngineError::ConcludeRefused { run_id, why } => (run_id, why),
+        other => panic!("not a conclusion refusal: {other}"),
+    }
+}
+
+fn already(status: Status) -> ConcludeRefusal {
+    ConcludeRefusal::AlreadyConcluded { status }
+}
+
+/// Every conclusion refusal and invariant breach prints the bytes it
+/// printed while each was an untyped `engine:` error or its own variant:
+/// these reach stderr, so their words are the operator's contract.
+#[test]
+fn every_conclusion_refusal_reads_as_it_always_has() {
+    let pins = [
+        (
+            already(Status::Completed),
+            "run 'r' is already concluded (completed); conclude appends nothing",
+        ),
+        (
+            already(Status::Stopped),
+            "run 'r' is already concluded (stopped); conclude appends nothing",
+        ),
+        (
+            ConcludeRefusal::StopRefused {
+                refusal: "after_terminal".into(),
+            },
+            "engine: conclude: run 'r' refused the stop (after_terminal); the journal moved \
+             beneath the conclusion, so something may still be driving this run — look with \
+             `brokkr runs` before closing",
+        ),
+        (
+            ConcludeRefusal::JournalMoved,
+            "engine: conclude: the journal moved beneath the conclusion of run 'r', so \
+             something may still be driving it — a conclusion is for a run believed dead; \
+             look with `brokkr runs` before closing",
+        ),
+    ];
+    for (why, text) in pins {
+        let run_id = "r".to_string();
+        assert_eq!(
+            EngineError::ConcludeRefused { run_id, why }.to_string(),
+            text
+        );
+    }
+    let breach = EngineError::Invariant("a name", "the words".into());
+    assert_eq!(breach.to_string(), "engine: the words");
 }
 
 /// Past its refusals a conclusion still makes two writes, and the store
@@ -615,12 +680,9 @@ fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
         }
     })
     .unwrap_err();
-    assert_eq!(
-        refused.to_string(),
-        "engine: conclude: run 'conclude-stopped-mid-effect-hand-built' refused the stop \
-         (after_terminal); the journal moved beneath the conclusion, so something may \
-         still be driving this run — look with `brokkr runs` before closing"
-    );
+    let refusal = "after_terminal".to_string();
+    let why = ConcludeRefusal::StopRefused { refusal };
+    assert_eq!(refusal_of(refused), (name.to_string(), why));
     assert!(
         fold(&events(&store, name)).is_ok(),
         "and the journal still folds — nothing was closed over live work"
@@ -656,12 +718,8 @@ fn a_result_landing_inside_the_fence_window_refuses_the_close() {
         }
     })
     .unwrap_err();
-    assert_eq!(
-        refused.to_string(),
-        "engine: conclude: the journal moved beneath the conclusion of run \
-         'conclude-stopped-mid-effect-hand-built', so something may still be driving \
-         it — a conclusion is for a run believed dead; look with `brokkr runs` before closing"
-    );
+    let why = ConcludeRefusal::JournalMoved;
+    assert_eq!(refusal_of(refused), (name.to_string(), why));
     assert!(
         fold(&events(&store, name)).is_ok(),
         "the journal still folds; the driver's result stands and the run lives"
