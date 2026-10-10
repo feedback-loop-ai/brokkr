@@ -287,6 +287,8 @@ pub enum brokkr_core::policy::audit::Refusal
 pub brokkr_core::policy::audit::Refusal::Liveness(brokkr_core::policy::audit::Finding)
 pub brokkr_core::policy::audit::Refusal::Order(brokkr_core::policy::audit::Finding)
 pub brokkr_core::policy::audit::Refusal::Presence(brokkr_core::policy::audit::Finding)
+pub brokkr_core::policy::audit::Refusal::Totality(brokkr_core::policy::audit::Finding)
+pub brokkr_core::policy::audit::Refusal::Unswept(brokkr_core::policy::audit::AuditError)
 impl core::fmt::Display for brokkr_core::policy::audit::Refusal
 pub fn brokkr_core::policy::audit::Refusal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::policy::audit::Setting
@@ -460,6 +462,7 @@ pub brokkr_core::policy::Machine::shippable_from: alloc::vec::Vec<alloc::string:
 pub brokkr_core::policy::Machine::terminal: alloc::vec::Vec<alloc::string::String>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::audit_with(&self, usize, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<brokkr_core::policy::audit::Audit, brokkr_core::policy::audit::AuditError>
+pub fn brokkr_core::policy::Machine::refuse_unruled(&self) -> core::result::Result<(), brokkr_core::policy::PolicyError>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
@@ -805,6 +808,7 @@ pub brokkr_core::Machine::shippable_from: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::Machine::terminal: alloc::vec::Vec<alloc::string::String>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::audit_with(&self, usize, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<brokkr_core::policy::audit::Audit, brokkr_core::policy::audit::AuditError>
+pub fn brokkr_core::policy::Machine::refuse_unruled(&self) -> core::result::Result<(), brokkr_core::policy::PolicyError>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>

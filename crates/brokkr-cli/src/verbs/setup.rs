@@ -110,9 +110,9 @@ fn print_compiled(workspace: &Path, dir: &Path) -> Result<ExitCode> {
     Ok(Exit::Completed.into())
 }
 
-/// The audit of a compiled table, or why it was not swept. It is
-/// reported, and refused only once decision 0050's enactment slices
-/// enable its refusals (#429).
+/// The audit of a compiled table, or why it was not swept. The load and
+/// the compiler refuse what decision 0050 refuses (#429), so what a
+/// compiled table can still show is a `v1` table's presence finding.
 fn sweep_report(machine: &Machine, budget: usize) -> String {
     match machine.audit_with(budget, is_engine_owned) {
         Ok(audit) => audit.to_string(),

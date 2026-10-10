@@ -12,17 +12,22 @@ listed under [The operator's ruling](#the-operators-ruling).
 
 The decision's first enactment slice (#429) followed the ruling. It
 refuses order, liveness and v2 presence in `Machine::from_table`. The
-table below and the gaps under rulings 1 to 3 record that slice; the rest
-of this file is the audit as it was taken.
+second slice (#429) moves `recipes/verify` and `recipes/preflight` to v2,
+names the `residual` verdict at severity `none` with
+`REVIEW-RESIDUAL-NONE` in every table that left it unruled, and refuses
+an unruled valuation, and a table past the sweep's budget, at compile.
+The table below, the gaps under rulings 1, 2 and 4 and the measured
+counts record both slices; the rest of this file is the audit as it was
+taken. What remains is rulings 5, 6 and 7.
 
 ## The seven rulings
 
 | Ruling | Status | Where it is built | Gap |
 |---|---|---|---|
-| 1. Presence | built: refused at load | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Unread`, in a `forge.phase-machine/v2` table | `bundles/verify` and `recipes/preflight` are still v1, so presence is only reported for them |
-| 2. Order | built: refused at load | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Shadowed`, `Finding::Covered` and `Finding::Unsatisfiable` | a table past `SWEEP_BUDGET` is not swept at load; its order stays reported until the budget refusal lands with totality |
+| 1. Presence | built: refused at load | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Unread`, in a `forge.phase-machine/v2` table; every shipped table but the frozen heritage table is v2 | none: the heritage table stays v1 and keeps its shape by design |
+| 2. Order | built: refused at load, and past the budget at compile | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Shadowed`, `Finding::Covered` and `Finding::Unsatisfiable`; a table past `SWEEP_BUDGET` is refused at compile (`Refusal::Unswept`) | none |
 | 3. Liveness | built: refused at load | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Unreachable` and `Finding::DeadEnd` | none |
-| 4. Totality | partial: swept, bounded and reported by `brokkr compile` | `Machine::audit_with`, `Finding::Unruled`, `AuditError::Budget` | no refusal; no shipped table names its closed valuations |
+| 4. Totality | built: refused at compile | `Machine::refuse_unruled`, called by the compiler in `crates/brokkr-runtime/src/bundle.rs`; `Refusal::Totality` and `Refusal::Unswept`; the named park `REVIEW-RESIDUAL-NONE` | none |
 | 5. Stated properties | partial: the three properties hold on every shipped table at the valuations the test evaluates; `clean` is held at the plain verdict only | `crates/brokkr-runtime/tests/table_lints.rs` | the clean property's domain awaits a ruling; the sequence leg waits on ruling 7; no `table_properties.rs` |
 | 6. Fold arms total | unbuilt | none | no transition table and no enumeration test |
 | 7. Sequence endings compiled | unbuilt | none | the ending is still a run-time comparison, and a hard word reported by a non-final step does not end the sequence |
@@ -40,8 +45,10 @@ of this file is the audit as it was taken.
   and five valid counterparts: the rule reads the input, returns to the
   phase, re-enters it directly, stops or parks, or the engine owns the
   input. In `table_lints.rs`,
-  `presence_refuses_exactly_the_three_v1_tables` pins today's three
-  findings, and `the_0022_era_permissive_arms_are_refused` reproduces
+  `presence_refuses_exactly_the_three_v1_tables` pinned the three
+  findings (since the second slice,
+  `presence_is_reported_for_the_heritage_table_alone` pins the one
+  left), and `the_0022_era_permissive_arms_are_refused` reproduces
   seq 335.
 - **Reading taken.** A rule whose next phase is its own phase *returns*.
   The ruling says a returning rule is one whose "every road onward
@@ -60,12 +67,17 @@ of this file is the audit as it was taken.
   covers the refusal and the v1 table that loads;
   `the_0022_era_permissive_arms_are_refused` in `table_lints.rs` refuses
   seq 335's shape.
-- **Gap.** `bundles/verify` and `recipes/preflight` are still
-  `forge.phase-machine/v1`, and their `REVIEW-RESIDUAL-OK` advances to
-  `done` reading neither `has_security_residual` nor
-  `max_residual_severity`. The frozen heritage table carries the same
-  shape in `REVIEW-CLEAN-UNVERIFIED` and `REVIEW-RESIDUAL-OK`, and keeps
-  it by design.
+- **Built: the two v1 tables move to v2 (second slice).**
+  `recipes/verify` and `recipes/preflight` are
+  `forge.phase-machine/v2`, and their `REVIEW-RESIDUAL-OK` reads
+  `has_security_residual: false` and `max_residual_severity_above: none`,
+  so a residual that omits its severity or its flag is ruled by no rule
+  and parks with the notes instead of passing flagged.
+  `presence_is_reported_for_the_heritage_table_alone` in
+  `table_lints.rs` pins the one table that keeps the finding.
+- **Gap.** None. The frozen heritage table carries the shape in
+  `REVIEW-CLEAN-UNVERIFIED` and `REVIEW-RESIDUAL-OK`, is read under v1 as
+  its corpus records, and keeps it by design.
 
 ### Ruling 2: order
 
@@ -113,8 +125,9 @@ of this file is the audit as it was taken.
   `REVIEW-REFORGE-EXHAUSTED-MEDIUM` in `bundles/self`. The audit's loader
   admitted the table, and it parks a high residual at the bound where the
   ordered table stops. The audit names both rules.
-  `the_ordered_self_table_leaves_only_the_severity_none_hole` is the
-  valid counterpart. For composed tables,
+  `the_ordered_self_table_leaves_only_the_severity_none_hole`, since
+  the second slice `the_ordered_self_table_names_its_severity_none_valuation`,
+  is the valid counterpart. For composed tables,
   `an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_the_flat_table`
   in `crates/brokkr-runtime/src/bundle/compose_tests.rs` shows a derived
   rule prepended ahead of the base rule it subsumes.
@@ -132,8 +145,9 @@ of this file is the audit as it was taken.
   refuses the exchanged `bundles/self`, and
   `an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_the_flat_table`
   refuses the composed overlay.
-- **Gap.** A table past `SWEEP_BUDGET` is not swept at load, so its
-  dead rules stay reported until the budget refusal (item 6 below).
+- **Gap.** None. A table past `SWEEP_BUDGET` is not swept at load, and
+  since the second slice the compiler refuses it (item 6 below), so no
+  compiled table goes unswept.
 
 ### Ruling 3: liveness
 
@@ -173,9 +187,44 @@ of this file is the audit as it was taken.
   two arms.
   `the_unruled_valuations_are_pinned_per_table` in `table_lints.rs` pins
   the counts below.
-- **Gap.** Compile refuses nothing for totality, and `NoRule` is still
-  what a run records for the `residual`/`none` valuation. The shipped
-  delivery tables name no parking rule for it.
+- **Built: the named ending (second slice).** `REVIEW-RESIDUAL-NONE`
+  rules `review`/`residual` at `max_residual_severity_at_most: none`. It
+  is written once in `recipes/fast`, as a park, and composition carries
+  it to the 13 recipes that extend fast, directly or through `triage` and
+  `panel-review`. `recipes/verify` carries its own park. `recipes/preflight`
+  rules the same valuation a hard stop under the same id, because a
+  preflight has no operator to park for (`preflight_shape.rs`). The
+  journal records that rule id where it recorded no ruling.
+  `a_residual_rated_none_is_ruled_by_its_named_rule` in `table_lints.rs`
+  checks every table.
+- **Built: refused at compile (second slice).** `Machine::refuse_unruled`
+  in `audit.rs` refuses the first unruled valuation
+  (`Refusal::Totality`) and a table whose sweep would pass
+  `SWEEP_BUDGET` (`Refusal::Unswept`), as `PolicyError::Refused`. The
+  compiler in `crates/brokkr-runtime/src/bundle.rs` calls it after the
+  seat lints, so a table that also breaks one of those is refused by the
+  more specific lint first. It is not refused at load: the load also
+  reads tables no run compiles, and a hole is a compile finding by the
+  ruling. The two texts:
+  - `bundle policy: malformed phase machine table: no rule rules (review,
+    residual) at max_residual_severity=none, visits_implement=0; name it
+    with a rule that parks it and says why (decision 0050, ruling 4)`,
+    for `recipes/self` with the park narrowed to `visits_implement_gte:
+    1` (`brokkr compile` exits 1; a composed recipe appends its chain,
+    `(composed: self -> panel-review -> fast)`);
+  - `malformed phase machine table: the policy sweep reaches 92160
+    valuations at (review, residual), over its budget of 65536; the table
+    was not swept, so it cannot be shown total (decision 0050, ruling 4)`.
+  `NoRule`'s `Unmatched` and `Refused` stay for what a table cannot
+  foresee: an absent or unreadable input, an unknown phase.
+- **Tests.** `the_ordered_self_table_names_its_severity_none_valuation`
+  and `the_sweep_is_measured_before_it_runs_and_refuses_past_its_budget`
+  in `audit/tests.rs`; `recipes_self_without_its_named_park_is_refused`
+  and `the_unruled_valuations_are_pinned_per_table` (every table at zero)
+  in `table_lints.rs`;
+  `an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_the_flat_table`
+  in `compose_tests.rs`, where the compiler refuses the composed hole.
+- **Gap.** None.
 
 ### Ruling 5: stated properties
 
@@ -237,35 +286,41 @@ of this file is the audit as it was taken.
 
 Measured on 2026-09-29 by `brokkr compile --bundle <table>`. The frozen
 heritage table is not a bundle; its count comes from `table_lints.rs`,
-which pins every row below through the same `Machine::audit_with`.
+which pins every row below through the same `Machine::audit_with`. The
+second slice re-measured on 2026-10-10 (`table_lints.rs`, and `brokkr
+compile` on `recipes/self` and `recipes/verify`): every sweep keeps its
+size, because the named park reads the severity axis each table already
+swept, and the Unruled column below is the slice's. Before it, the
+column read 4 for each `fast`-shaped table, 128 for `gpt-flash`,
+`night-shift` and `triage`, and 428 in all.
 
 | Table | Groups | Valuations | Unruled | Other findings |
 |---|---|---|---|---|
 | `policy/phase-machine.json` | — | 57 | 0 | presence: `REVIEW-CLEAN-UNVERIFIED`, `REVIEW-RESIDUAL-OK` |
-| `bundles/self` | 11 | 47 | 4 | — |
-| `bundles/verify` | 5 | 16 | 0 | presence: `REVIEW-RESIDUAL-OK` |
-| `recipes/fast` | 10 | 46 | 4 | — |
-| `recipes/gpt-flash` | 29 | 1,072 | 128 | — |
-| `recipes/landing` | 12 | 48 | 4 | — |
-| `recipes/night-shift` | 29 | 1,072 | 128 | — |
-| `recipes/node` | 10 | 46 | 4 | — |
-| `recipes/panel-review` | 11 | 47 | 4 | — |
-| `recipes/preflight` | 5 | 16 | 0 | presence: `REVIEW-RESIDUAL-OK` |
-| `recipes/release` | 10 | 46 | 4 | — |
+| `recipes/self` | 11 | 47 | 0 | — |
+| `recipes/verify` | 5 | 16 | 0 | — |
+| `recipes/fast` | 10 | 46 | 0 | — |
+| `recipes/gpt-flash` | 29 | 1,072 | 0 | — |
+| `recipes/landing` | 12 | 48 | 0 | — |
+| `recipes/night-shift` | 29 | 1,072 | 0 | — |
+| `recipes/node` | 10 | 46 | 0 | — |
+| `recipes/panel-review` | 11 | 47 | 0 | — |
+| `recipes/preflight` | 5 | 16 | 0 | — |
+| `recipes/release` | 10 | 46 | 0 | — |
 | `recipes/research` | 5 | 5 | 0 | — |
 | `recipes/research-dsh` | 5 | 5 | 0 | — |
-| `recipes/review-first` | 10 | 46 | 4 | — |
-| `recipes/standby` | 10 | 46 | 4 | — |
-| `recipes/triage` | 29 | 1,072 | 128 | — |
-| `recipes/wager-harness` | 10 | 46 | 4 | — |
-| `recipes/wager-harness-dsh` | 10 | 46 | 4 | — |
-| `recipes/wager-harness-muse` | 10 | 46 | 4 | — |
-| **19 tables** | | **3,825** | **428** | |
+| `recipes/review-first` | 10 | 46 | 0 | — |
+| `recipes/standby` | 10 | 46 | 0 | — |
+| `recipes/triage` | 29 | 1,072 | 0 | — |
+| `recipes/wager-harness` | 10 | 46 | 0 | — |
+| `recipes/wager-harness-dsh` | 10 | 46 | 0 | — |
+| `recipes/wager-harness-muse` | 10 | 46 | 0 | — |
+| **19 tables** | | **3,825** | **0** | |
 
-Every unruled valuation has one shape: a `residual` verdict at
-`max_residual_severity` `none`. The largest table sweeps 1,072
-valuations, 1.6% of the budget. No shipped table has an order or
-liveness finding.
+Every unruled valuation the first audit found had one shape: a
+`residual` verdict at `max_residual_severity` `none`. The largest table
+sweeps 1,072 valuations, 1.6% of the budget. No shipped table has an
+order or liveness finding.
 
 ## The operator's ruling
 

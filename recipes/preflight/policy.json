@@ -1,5 +1,5 @@
 {
-  "schema": "forge.phase-machine/v1",
+  "schema": "forge.phase-machine/v2",
   "description": "Preflight: Brokkr's verify and review seats pointed at an UNMERGED branch, before a pull request exists. The table has no intake, no implement and no ship phase and it ends after review — so no phase of a preflight run is there to change or merge the branch. Its seats are charged, not prevented: the review seat runs unboxed under acceptEdits, and the engine parks a gate that moves HEAD but not an edit left uncommitted. The constitutional review invariants hold unchanged: review is unavoidable on the path to done, security-hold is a hard stop, security residuals never pass, and a reviewer that claims it edited the branch is itself the defect.",
   "phases": ["verify", "review", "done", "stop"],
   "initial": "verify",
@@ -50,9 +50,19 @@
       "id": "REVIEW-RESIDUAL-OK",
       "from": "review",
       "result": "residual",
+      "when": { "has_security_residual": false, "max_residual_severity_above": "none" },
       "next": "done",
       "severity": "flagged",
-      "reason": "Non-security residuals at or below medium: the branch may be proposed with the findings named in the pull request. Omitted severity inputs fall here flagged — the contributor reads the notes."
+      "reason": "Non-security residuals at or below medium: the branch may be proposed with the findings named in the pull request. A residual that omits its severity or its security flag is ruled by no rule, and the engine parks it with the notes (decision 0050, ruling 1)."
+    },
+    {
+      "id": "REVIEW-RESIDUAL-NONE",
+      "from": "review",
+      "result": "residual",
+      "when": { "max_residual_severity_at_most": "none" },
+      "next": "stop",
+      "severity": "hard",
+      "reason": "A residual verdict that rates its worst residual none contradicts itself. A preflight has no operator to park for, so the report stops here and the contributor reads the notes (decision 0050, ruling 4)."
     },
     {
       "id": "REVIEW-CLEAN",

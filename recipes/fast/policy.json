@@ -155,6 +155,16 @@
       "reason": "A low or info residual proceeds only as tracked debt named in the notes."
     },
     {
+      "id": "REVIEW-RESIDUAL-NONE",
+      "from": "review",
+      "result": "residual",
+      "when": {
+        "max_residual_severity_at_most": "none"
+      },
+      "park": true,
+      "reason": "A residual verdict that rates its worst residual none names no debt to track and no defect to return; the run parks for the operator with the notes (decision 0050, ruling 4)."
+    },
+    {
       "id": "REVIEW-CLEAN",
       "from": "review",
       "result": "clean",

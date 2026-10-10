@@ -101,7 +101,8 @@ fn every_rule_rules_from_a_seated_phase_into_a_declared_one() {
         );
         // A park would leave a contributor's preflight waiting on an
         // operator they do not have. Every rule here takes a
-        // transition, which is also why the table may declare v1.
+        // transition; even the residual rated `none` that delivery tables
+        // park stops here (decision 0050, ruling 4).
         let next = rule.next.as_deref().unwrap_or_else(|| {
             panic!(
                 "rule {} parks; a preflight has no operator to park for",

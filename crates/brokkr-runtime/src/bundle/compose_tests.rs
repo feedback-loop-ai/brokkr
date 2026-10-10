@@ -802,7 +802,7 @@ fn overriding_a_rule_is_remove_then_prepend() {
 fn an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_the_flat_table() {
     // Decision 0050 reads a composed table as the flat table `compose`
     // produces. Its first enactment (#429) refuses the dead rule at load;
-    // the hole stays reported until totality is enacted.
+    // the audit reports the hole, and the compiler refuses it (ruling 4).
     use brokkr_core::policy::audit::{Finding, Refusal, Setting, SWEEP_BUDGET};
     let findings = |leaf: &Path| {
         let machine = Machine::from_table(&resolve(leaf).unwrap().table).unwrap();
@@ -845,14 +845,15 @@ fn an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_t
              "when": {"skip_verify": false}, "reason":"review"},
         ]})),
     );
-    assert_eq!(
-        findings(&hole),
-        [Finding::Unruled {
-            phase: "review".into(),
-            result: "clean".into(),
-            valuation: vec![("skip_verify".into(), Setting::Flag(true))],
-        }]
-    );
+    let unruled = Finding::Unruled {
+        phase: "review".into(),
+        result: "clean".into(),
+        valuation: vec![("skip_verify".into(), Setting::Flag(true))],
+    };
+    assert_eq!(findings(&hole), std::slice::from_ref(&unruled));
+    let refusal = brokkr_core::PolicyError::Refused(Refusal::Totality(unruled));
+    let composed = format!("bundle: bundle policy: {refusal} (composed: derived -> base)");
+    assert_eq!(error(Bundle::compile(&hole)), composed);
 }
 
 #[test]
