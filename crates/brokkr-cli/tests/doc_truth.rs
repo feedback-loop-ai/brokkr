@@ -1152,10 +1152,22 @@ fn listed(words: &[&str], from: usize) -> (Vec<u16>, Option<usize>) {
     (numbers, last)
 }
 
+/// Whether the citation ends at `words[at]`: the word closes it (`)`, `.`,
+/// `;` or `:` after its letters), or the next word opens another (`(`).
+fn closes(words: &[&str], at: usize) -> bool {
+    let tail = words[at].rsplit(char::is_alphanumeric).next();
+    tail.is_some_and(|tail| tail.contains([')', '.', ';', ':']))
+        || words.get(at + 1).is_some_and(|next| next.starts_with('('))
+}
+
 /// Each decision `proposed` at `words[at]` names after it: `proposed
 /// [decision|decisions] NNNN` or `proposed by|in|for [decision|decisions]
-/// NNNN`, each number of a [`listed`] run.
+/// NNNN`, each number of a [`listed`] run, and none past a word that
+/// [`closes`] the citation.
 fn prefixed_proposed(words: &[&str], at: usize) -> Vec<u16> {
+    if closes(words, at) {
+        return Vec::new();
+    }
     let after = |skip: usize| words.get(at + skip).map(|word| bare(word));
     let mut next = 1;
     if after(next).is_some_and(|word| ["by", "in", "for"].contains(&word.as_str())) {
@@ -1353,7 +1365,13 @@ fn a_decision_called_proposed_is_held_to_the_index() {
              proposed decisions 0056 and 0069; (decisions 0075, 0056, and 0069, proposed).\n\
              \n\
              (decision 0069, proposed decisions 0056 and 0075) (decision 0069, proposed by\n\
-             decision 0056) (decision 0069, proposed in 0075) (decision 0069, proposed by us).\n",
+             decision 0056) (decision 0069, proposed in 0075) (decision 0069, proposed by us).\n\
+             \n\
+             (decision 0069, proposed). Decision 0075 describes the stamp.\n\
+             \n\
+             (decision 0069, proposed) (decision 0075).\n\
+             \n\
+             Decision 0069, proposed (decision 0075 describes the stamp).\n",
         ),
         (
             "scripts/a.sh",
@@ -1381,6 +1399,9 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "docs/a.md:12: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:12: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:14: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:17: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:19: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:21: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:2: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:4: calls decision 0069 proposed; the index rules it accepted",
             "crates/a/src/open.rs: cannot be read: an unterminated string",
