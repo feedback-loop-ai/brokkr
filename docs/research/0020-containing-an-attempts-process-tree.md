@@ -105,10 +105,11 @@ engine's child with the pipes the engine gave it.
 - **(i)** A transient scope is the user manager's unit, not a child of
   the engine's cgroup. It outlives the engine and runs until it empties
   or is stopped, so a SIGKILL to the engine leaves the seat running
-  unless something else ends it. Two things can. A lifeline (a small
-  `brokkr` process in a session of its own, holding the read end of a
-  pipe only the engine writes) reads EOF however the engine died and
-  writes `cgroup.kill` for every attempt it was told of. A restart
+  unless something else ends it. Two things can. A lifeline, a small
+  `brokkr` process in a session of its own, learns however the engine
+  died and writes `cgroup.kill` for every attempt it was told of; its
+  channel to the engine and its protocol are stated once, in decision
+  0080's ruling 4. A restart
   derives each open attempt's scope name from the journal, which already
   records the attempt id before the spawn, and ends exactly those: no
   listing by prefix, no age, no working directory. The user manager's
@@ -196,6 +197,11 @@ cannot reach a cgroup tree or nest the namespaces.
     while a scope runs the escape tree; read that the scope's cgroup
     path stays present and populated, and whether the restarted manager
     knows the unit.
+12. **A descriptor through `systemd-run`.** Spawn `systemd-run --user
+    --scope` with a socket at a fixed descriptor number, as decision
+    0080's launch gate receives its channel, and have the command it
+    execs read and write that descriptor, on each Linux host, so the
+    gate's channel is known to survive the launcher's own exec.
 
 ## Findings
 

@@ -123,7 +123,10 @@ and fail closed on what cannot be read.
    the attempt, the unit name, and the attempt's cgroup path ride a
    numbered extension of that event,
    `contracts/effect-containment.v1.schema.json`, journaled before the
-   spawn as `effect-boundary.v1` is (decision 0046). The path is known
+   spawn as `effect-boundary.v1` is (decision 0046). The same contract
+   carries the closed set of the run's other containment records: the
+   lifeline's `lifeline` and `lifeline-armed` (ruling 4) and a
+   `leftover` (below). The path is known
    before the spawn on both rungs: a delegated child is the engine's own
    `mkdir`, and a scope's is derived, never asked for, as the user
    manager's own cgroup (read once at start, into ruling 2's
@@ -148,12 +151,24 @@ and fail closed on what cannot be read.
    every lifeline the run journaled that still lives (ruling 4), by
    SIGKILL through a pidfd opened on its journaled pid and checked
    against its start stamp, and waits for its exit, so no gate of the
-   dead engine can be released after this point. It then
-   takes every attempt it finds open with a contained record, opens its
-   path, ends and settles a present cgroup, and on the `delegated` rung
-   removes the settled cgroup, retrying the kill while the removal reads
-   busy, so a forked child of the dead engine that has not yet written
-   its pid finds no cgroup and fails before exec. A lifeline whose
+   dead engine can be released after this point. It then opens the
+   recorded path of every attempt the run journaled with a contained
+   record, open or settled. An open attempt's present cgroup it ends and
+   settles, and on the `delegated` rung removes the settled cgroup,
+   retrying the kill while the removal reads busy, within the settle
+   bound, so a forked child of the dead engine that has not yet written
+   its pid finds no cgroup and fails before exec; a removal still busy
+   past the bound leaves the cleanup unresolved, `effect/indeterminate`
+   with the `effect-cleanup.v1` reason naming the busy cgroup. A settled
+   attempt whose cgroup is present again is a leftover, the diagnostic
+   of a breach, since settlement read `populated 0`: `resume` ends and
+   settles it the same way and journals the containment contract's
+   `leftover` record, naming the attempt, the `populated` value it read
+   and the settlement. On a run that has ended, `resume` is admitted for
+   this cleanup alone: it ends lifelines and leftovers, drives no phase,
+   and leaves the run's ending as it was, since the ending is read from
+   the run's terminal event (decision 0064 ruling 2) and a `leftover`
+   record is not one. A lifeline whose
    identity cannot be read, or that outlives the settle bound after its
    kill, leaves the attempt's cleanup unresolved: `effect/indeterminate`,
    never settled. Nothing is listed by prefix and swept, nothing is
@@ -168,8 +183,11 @@ and fail closed on what cannot be read.
    `populated 0` (removal control: settle on the unit's state, watch the
    populated cgroup survive); `a_pid_write_after_resume_fails_the_spawn` on the
    `delegated` rung, asserting the late write's exact `ENOENT` refusal
-   and that no driver ran; and the extension's schema test refusing an
-   unknown rung and unknown fields.
+   and that no driver ran; `a_busy_removal_past_the_settle_bound_parks`,
+   asserting the exact `Unsettled` variant and its text naming the busy
+   cgroup; ruling 8's leftover remedy, bound there; and the extension's
+   schema test refusing an unknown rung, an unknown record and unknown
+   fields.
 
 4. **Engine death is covered by a lifeline, and no launch outlives it.**
    A transient scope is the user manager's unit, and a delegated child
@@ -178,8 +196,9 @@ and fail closed on what cannot be read.
    itself under a hidden verb, as `brokkr dsh-sandbox-runner` is, in a
    session of its own (so a signal to the engine's process group misses
    it) and outside every attempt's cgroup. Its identity, pid and start
-   stamp, is journaled before any attempt is armed with it, so `resume`
-   can end it (ruling 3). The build keeps these rules:
+   stamp, is journaled as the containment contract's `lifeline` record
+   before any attempt is armed with it, so `resume` can end it (ruling
+   3). The build keeps these rules:
    - **The channel.** The lifeline holds one end of a Unix socket pair
      whose other end is the engine's alone, close-on-exec, so no driver
      keeps it past its exec. The lifeline reads EOF when every holder of
@@ -229,7 +248,11 @@ and fail closed on what cannot be read.
      its pidfd and by a hang-up on its own end of the channel, not at its
      next write. When the lifeline dies, the engine spawns nothing until a
      replacement holds every live attempt: it starts a new lifeline,
-     journals its identity, and arms it with each live attempt's path.
+     journals its `lifeline` record, arms it with each live attempt's
+     path, and, once the replacement has acknowledged every one, journals
+     the contract's `lifeline-armed` record naming the attempt ids it
+     holds. That record, not the identity, marks the end of the
+     replacement window; the engine spawns again only after it.
      Gates the dead lifeline had not released read EOF and exit, and
      their attempts end as cancelled launches. A replacement that does
      not acknowledge every live attempt within the startup bound makes
@@ -239,7 +262,7 @@ and fail closed on what cannot be read.
    A SIGKILL that takes the engine and the lifeline together (an
    operator's `pkill -9 brokkr`, an OOM kill of both), or the engine
    alone between a lifeline's death and its replacement's
-   acknowledgement, leaves every released driver running until the next
+   `lifeline-armed` record, leaves every released driver running until the next
    `resume` of that run ends it by ruling 3. A launch in flight never
    runs its driver. That is the residual containment keeps, narrower
    than polling's, and the operator is asked to accept it.
@@ -273,9 +296,18 @@ and fail closed on what cannot be read.
    watches the driver survive.
    `a_dead_lifeline_is_replaced_while_attempts_live` kills the lifeline
    while an attempt runs, waits for the replacement's journaled
-   identity, sends SIGKILL to the engine, and asserts the escape tree
-   gone; its removal control replaces the lifeline only at the engine's
-   next write and watches the seat survive.
+   `lifeline-armed` record naming that attempt, sends SIGKILL to the
+   engine, and asserts the escape tree gone and the cgroup `populated 0`
+   within the settle bound; its removal control replaces the lifeline
+   only at the engine's next write and watches the wait for the record
+   run out at the startup bound. Its second case,
+   `an_engine_killed_before_the_replacement_acknowledges_leaves_it_to_resume`,
+   holds the replacement's acknowledgement with a FIFO, sends SIGKILL
+   to the engine in that window, and asserts the declared residual and
+   its remedy: the escape tree still running and no `lifeline-armed`
+   record journaled, then, after `resume` of the run, the tree gone and
+   `populated 0`; its removal control has `resume` skip the attempts the
+   journal shows unacknowledged and watches the tree survive.
 
 5. **The settle proof is `populated 0`.** On a contained attempt the end
    is the same for every cause: `shutdown` and the grace as today, one
@@ -350,12 +382,20 @@ and fail closed on what cannot be read.
    `populated` value; it never asks the user manager whether a unit is
    loaded (ruling 3). It writes no `cgroup.kill`: ending an attempt is an
    effect, and doctor journals none (decision 0071 ruling 1), so each line
-   names the `brokkr resume` of the run that ends it.
+   names the `brokkr resume` of the run, which ruling 3 admits on a
+   settled attempt and on an ended run, and which ends the leftover under
+   its journaled `leftover` record.
    *Enforcement binding:* doctor's snapshot tests, one per rung and one
    for each requirement on a polling host, pinning each line's text, and
    one that plants a populated cgroup at a settled attempt's path while
    the user-manager stand-in answers `inactive`, pinning the leftover
-   line.
+   line. `resume_ends_the_leftover_doctor_names` plants the same fixture,
+   once in a live run and once in an ended run, runs the `brokkr resume`
+   the doctor line names, and asserts the cgroup `populated 0`, the
+   `leftover` record journaled with the `populated` value it read, the
+   ended run's ending unchanged, and doctor's next run listing nothing;
+   its removal control has `resume` take open attempts only and watches
+   the leftover and its doctor line survive.
 
 9. **macOS keeps polling, and the study is named.** macOS has no cgroups,
    so it stays on #403's polling with its accepted residual, and
@@ -397,18 +437,27 @@ and fail closed on what cannot be read.
   lifeline's cleanup.
 - **Where the field lives (ruling 6),** forge.host/v1 or v2, falls on
   the order in which this decision and #430's third slice land.
+- **Who ends a leftover (rulings 3 and 8).** `resume` is admitted on a
+  settled attempt and on an ended run for that cleanup alone, under a
+  journaled `leftover` record, and doctor stays free of effects. The
+  other shape is doctor writing `cgroup.kill` under a journaled effect
+  of its own, which would make doctor an effecting verb.
 
 ## What still needs measuring
 
-Research entry 0020 lists eleven measurements with their method. The
-build waits on four of them: the lifeline end to end with a paused
+Research entry 0020 lists twelve measurements with their method. The
+build waits on five of them: the lifeline end to end with a paused
 launcher (ruling 4), whether an unreaped zombie keeps `populated 1` and
 who adopts an orphan with the engine outside and inside the user
 manager's tree (ruling 5), whether systemd's delegation mark reads on
 the hosts (ruling 2; where it does not, the `delegated` rung is never
 taken and `scope` serves), and whether a scope started with `--slice
 brokkr.slice` stands at the path ruling 3 derives (where it does not,
-the gate refuses every launch and the `scope` rung is not offered).
+the gate refuses every launch and the `scope` rung is not offered), and
+whether the descriptor the child places at the gate's fixed number
+survives `systemd-run`'s own exec into the gate (where it does not, the
+gate finds no channel, every launch ends as a cancelled launch, and the
+`scope` rung is not offered).
 
 ## Consequences
 
