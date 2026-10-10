@@ -15,8 +15,8 @@
 //!   as the version rule does not);
 //! - every version of Brokkr a doc states is the workspace's, unless its
 //!   block follows the [`ILLUSTRATIVE`] mark;
-//! - every decision a doc or a source comment calls proposed is proposed
-//!   in `docs/decisions/README.md`;
+//! - every decision a doc, a source comment or a JSON string calls
+//!   proposed is proposed in `docs/decisions/README.md`;
 //! - no retired term stands in a block that does not cite what retired it,
 //!   outside the paths [`ALLOWED`] names with a reason.
 //!
@@ -1243,9 +1243,32 @@ fn shell_comment(line: &str) -> Option<&str> {
     (!comment.starts_with('!')).then_some(comment)
 }
 
-/// The prose of a tracked file these rules hold: a doc's blocks, a Rust
-/// source's comments, a script's [`shell_comment`]s, each a run of adjacent
-/// lines with the line it starts on.
+/// Each string a JSON text holds, its keys among them, decoded, with the
+/// line it opens on; a text that is not JSON is refused by its parser.
+fn json_strings(text: &str) -> Result<Vec<(usize, String)>, serde_json::Error> {
+    serde_json::from_str::<serde::de::IgnoredAny>(text)?;
+    let (mut found, mut line, mut open, mut escaped) = (Vec::new(), 1, None, false);
+    for (at, c) in text.char_indices() {
+        match (open, c) {
+            (None, '"') => open = Some(at),
+            (None, '\n') => line += 1,
+            (None, _) => {}
+            (Some(_), _) if escaped => escaped = false,
+            (Some(_), '\\') => escaped = true,
+            (Some(start), '"') => {
+                found.push((line, serde_json::from_str(&text[start..=at])?));
+                open = None;
+            }
+            (Some(_), _) => {}
+        }
+    }
+    Ok(found)
+}
+
+/// The prose of a tracked file these rules hold: a doc's blocks, each
+/// string of a JSON text alone, a Rust source's comments, a script's
+/// [`shell_comment`]s, each a run of adjacent lines with the line it
+/// starts on.
 fn prose(path: &str, text: &str) -> Result<Vec<(usize, String)>, String> {
     let lines: Vec<(usize, String)> = match path.rsplit_once('.').map(|(_, ext)| ext) {
         Some("md") => {
@@ -1254,6 +1277,7 @@ fn prose(path: &str, text: &str) -> Result<Vec<(usize, String)>, String> {
                 .map(|block| (block.first, block.text))
                 .collect());
         }
+        Some("json") => return json_strings(text).map_err(|why| why.to_string()),
         Some("rs") => rust_source::comments(text)?
             .into_iter()
             .map(|(at, comment)| {
@@ -1324,16 +1348,18 @@ fn misnamed_proposals(
 #[test]
 fn every_decision_called_proposed_is_proposed() {
     let root = workspace();
-    let texts: Vec<(String, String)> = tracked_files::tracked(&root, &["*.md", "*.rs", "*.sh"])
-        .into_iter()
-        .filter(|path| is_living(path))
-        .map(|path| {
-            let text = read(&path);
-            (path, text)
-        })
-        .collect();
+    let texts: Vec<(String, String)> =
+        tracked_files::tracked(&root, &["*.md", "*.rs", "*.sh", "*.json"])
+            .into_iter()
+            .filter(|path| is_living(path))
+            .map(|path| {
+                let text = read(&path);
+                (path, text)
+            })
+            .collect();
     for known in [
         "README.md",
+        "adapters/codex.json",
         "crates/brokkr-protocol/src/adapters.rs",
         "scripts/coverage-exact.sh",
     ] {
@@ -1345,7 +1371,7 @@ fn every_decision_called_proposed_is_proposed() {
     assert_eq!(
         misnamed_proposals(&texts, &decisions_index::cited_statuses()),
         Vec::<String>::new(),
-        "a living doc or a source comment calls a decision proposed that the index does not"
+        "a living doc, a source comment or a JSON string calls a decision proposed that the index does not"
     );
 }
 
@@ -1402,6 +1428,13 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "crates/a/src/open.rs",
             "fn f() { let s = \"never closed; }\n",
         ),
+        (
+            "adapters/a.json",
+            "{\"notes\": [\"motivate it (proposed\",\n\
+             \"decision 0069)\", \"a \\\"proposed decision 0069\\\" quote\"],\n\
+             \"proposed decision 0056\": \"a\\\\\", \"b\": \"(decision 0069, proposed)\"}\n",
+        ),
+        ("adapters/open.json", "{\"a\": \"proposed decision 0069\""),
     ];
     let texts: Vec<(String, String)> = planted
         .iter()
@@ -1430,6 +1463,9 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "scripts/a.sh:2: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:4: calls decision 0069 proposed; the index rules it accepted",
             "crates/a/src/open.rs: cannot be read: an unterminated string",
+            "adapters/a.json:2: calls decision 0069 proposed; the index rules it accepted",
+            "adapters/a.json:3: calls decision 0069 proposed; the index rules it accepted",
+            "adapters/open.json: cannot be read: EOF while parsing an object at line 1 column 30",
         ]
     );
 }
