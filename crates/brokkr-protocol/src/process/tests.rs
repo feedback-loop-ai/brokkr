@@ -2,7 +2,7 @@ use super::*;
 use rustix::process::Pid;
 use serde_json::json;
 
-fn command(script: &str) -> Vec<String> {
+pub(super) fn command(script: &str) -> Vec<String> {
     vec!["sh".into(), "-c".into(), script.into()]
 }
 
@@ -528,7 +528,7 @@ fn accepted() -> String {
     })
 }
 
-fn succeeded() -> String {
+pub(super) fn succeeded() -> String {
     wire(Body::Result {
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
@@ -539,7 +539,7 @@ fn succeeded() -> String {
 }
 
 /// The handshake of a driver that accepts the attempt.
-fn accepting() -> String {
+pub(super) fn accepting() -> String {
     format!(
         "printf '%s\\n' '{}'; read -r start; printf '%s\\n' '{}'",
         capabilities(),
@@ -747,7 +747,6 @@ fn an_abrupt_driver_exit_takes_its_descendants_with_it() {
 /// its last word is not read as protocol.
 #[test]
 fn a_driver_that_lingers_after_its_last_word_is_ended_within_the_grace() {
-    let malformed = serde_json::from_str::<Message>("not json\n").unwrap_err();
     for (case, last_word, expected) in [
         (
             "a result",
@@ -757,9 +756,11 @@ fn a_driver_that_lingers_after_its_last_word_is_ended_within_the_grace() {
         (
             "a malformed message",
             "printf 'not json\\n'".to_string(),
-            Some(format!(
-                "unreadable driver message: {malformed}: not json\n"
-            )),
+            Some(
+                "unreadable driver message: a JSON syntax error at line 1 column 2 of 9 bytes \
+                 (first byte: letter; sha256: 3c48773b404d8500)"
+                    .to_string(),
+            ),
         ),
     ] {
         let seats = Seats::new();
@@ -1735,7 +1736,7 @@ fn a_flooding_driver_meets_backpressure() {
         }
     }
     let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let stdout = read_stdout(Flood(Arc::clone(&reads)));
+    let (stdout, _) = read_stdout(Flood(Arc::clone(&reads)), limits::FRAME_BYTES);
     // The count once it stops moving, or after two seconds of moving.
     let still = || {
         let until = Instant::now() + Duration::from_secs(2);

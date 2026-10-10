@@ -20,7 +20,6 @@
  326 crates/brokkr-protocol/src/native_controls.rs:2104 sealed_inputs
  342 crates/brokkr-protocol/src/native_controls.rs:3735 compose_or_exclude
  106 crates/brokkr-protocol/src/native_controls/grammar.rs:690 parse_span
- 110 crates/brokkr-protocol/src/process.rs:398 run_attempt_resuming
  122 crates/brokkr-runtime/src/agents.rs:1102 compose
  195 crates/brokkr-runtime/src/agents/load.rs:770 parse_adapter
  101 crates/brokkr-runtime/src/agents/load.rs:1033 resume_assessment

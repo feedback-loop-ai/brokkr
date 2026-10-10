@@ -6,7 +6,13 @@
 //! is a new attempt); a silent exit degrades to `Indeterminate`; a
 //! deadline expiry kills the driver and degrades to `Failed` — the kill
 //! makes non-completion determinate, so bounded retry stays safe
-//! (decision 0006).
+//! (decision 0006). A driver past the transport's limits (`limits`,
+//! #433) degrades to `Indeterminate`, and a line the stdout reader
+//! refused outranks every ending but the driver's result and a refused
+//! checkpoint: a protocol violation read before it, a write to stdin
+//! that failed, the deadline and the driver's exit (decision 0079
+//! ruling 3). It is read once stdout is closed, so the refusal of
+//! anything the driver wrote before its tree ended is never missed.
 //!
 //! The attempt is the driver's whole process tree (#403, `tree`): no
 //! report is returned until the tree is proven gone, so a retry the
@@ -16,10 +22,10 @@
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStderr, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -29,11 +35,14 @@ use thiserror::Error;
 use crate::{AttemptOutcome, AttemptReport, Body, Cleanup, Message, ResultStatus, PROTO};
 
 mod attempts;
+mod evidence;
+mod limits;
 mod own_engine;
 mod table;
 mod tree;
 
 use attempts::{Attempt, Unspawned};
+use limits::{Exceeded, Frame, Limits, Retained};
 // A test seam, hidden from documentation and outside the supported
 // surface: the probe's tests and the runtime engine's play a test whose
 // launches must see no other test's orphan through this one helper.
@@ -81,7 +90,44 @@ pub enum SpawnEnv {
 enum Stdout {
     Line(String),
     Failed(std::io::Error),
+    /// A line past the frame limit (`limits`), whose refusal the reader
+    /// has already put in its `Refused` slot.
+    Exceeded,
     Eof,
+}
+
+/// The frame limit's refusal, as the stdout reader read it. It is held
+/// beside the channel, not on it, so that an attempt which stopped
+/// reading, a deadline's give-up or a failed write among them, still
+/// ends on it (#433).
+type Refused = Arc<OnceLock<Exceeded>>;
+
+/// The outcome an attempt's end reached, and whether a line the stdout
+/// reader refused outranks it (decision 0079 ruling 3).
+enum Standing {
+    /// The driver's result, or a checkpoint past a limit: what the
+    /// driver sent after either is not protocol.
+    Final(AttemptOutcome),
+    /// Every other end, which a refused line outranks.
+    Yielding(AttemptOutcome),
+}
+
+/// How the attempt loop ended: a protocol violation, which fails the
+/// attempt; the driver gone; the outcome its result reached; or a limit
+/// it exceeded, which leaves the attempt indeterminate (#433).
+enum Ended {
+    Failed(String),
+    Lost,
+    Reached(AttemptOutcome),
+    Exceeded(Exceeded),
+}
+
+/// What the attempt loop has kept of the driver's account.
+#[derive(Default)]
+struct Account {
+    accepted: bool,
+    session_ref: Option<String>,
+    retained: Retained,
 }
 
 pub struct DriverProcess {
@@ -91,6 +137,7 @@ pub struct DriverProcess {
     attempt: Attempt,
     stdin: Box<dyn Write + Send>,
     stdout: mpsc::Receiver<Stdout>,
+    refused: Refused,
     stderr: mpsc::Receiver<String>,
     timed_out: Arc<AtomicBool>,
     /// Dropping the sender disarms the watchdog; `finish` joins the
@@ -99,38 +146,69 @@ pub struct DriverProcess {
     deadline: Option<Duration>,
     started: Instant,
     bounds: Bounds,
+    limits: Limits,
     host: Host,
 }
 
 /// The driver's stdout, read on a thread of its own so that waiting on it
 /// can be bounded: a process that left the group while holding the pipe
 /// would otherwise hold the attempt open. `Eof` is sent only at EOF.
-fn read_stdout(stdout: impl Read + Send + 'static) -> mpsc::Receiver<Stdout> {
+fn read_stdout(
+    stdout: impl Read + Send + 'static,
+    frame_bytes: usize,
+) -> (mpsc::Receiver<Stdout>, Refused) {
     let (tx, rx) = mpsc::sync_channel(STDOUT_LINES);
-    std::thread::spawn(move || forward(BufReader::new(stdout), &tx));
-    rx
+    let refused = Refused::default();
+    let slot = Arc::clone(&refused);
+    std::thread::spawn(move || forward(BufReader::new(stdout), frame_bytes, &tx, &slot));
+    (rx, refused)
 }
 
-/// Hand each read over, waiting while `STDOUT_LINES` are unread, so a
-/// flooding driver meets backpressure. Once the engine has stopped
-/// listening, nothing more is read: the pipe closes on the writer.
-fn forward(mut reader: impl BufRead, tx: &SyncSender<Stdout>) {
-    loop {
-        let mut line = String::new();
-        let next = match reader.read_line(&mut line) {
-            Ok(0) => Stdout::Eof,
-            Ok(_) => Stdout::Line(line),
-            Err(error) => {
-                drop(tx.send(Stdout::Failed(error)));
-                let _ = std::io::copy(&mut reader, &mut std::io::sink());
-                Stdout::Eof
+/// Hand each line over, waiting while `STDOUT_LINES` are unread, so a
+/// flooding driver meets backpressure, and each no longer than
+/// `frame_bytes`. Once the engine has stopped listening, nothing more is
+/// read: the pipe closes on the writer. A read that fails, a line that is
+/// not UTF-8 and a line past the limit are handed over as such, the last
+/// put in `refused` first, and the rest of the pipe is drained unread to
+/// its EOF.
+fn forward(
+    mut reader: impl BufRead,
+    frame_bytes: usize,
+    tx: &SyncSender<Stdout>,
+    refused: &OnceLock<Exceeded>,
+) {
+    let refusal = loop {
+        match limits::read_frame(&mut reader, frame_bytes) {
+            Ok(Frame::Line(line)) => match String::from_utf8(line) {
+                Ok(line) => {
+                    if tx.send(Stdout::Line(line)).is_err() {
+                        return;
+                    }
+                }
+                Err(_) => {
+                    break Stdout::Failed(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "stream did not contain valid UTF-8",
+                    ))
+                }
+            },
+            Ok(Frame::Eof) => break Stdout::Eof,
+            Ok(Frame::Over(evidence)) => {
+                // The reader is the slot's only writer, and writes it once.
+                let _ = refused.set(Exceeded::Frame {
+                    limit: frame_bytes,
+                    evidence,
+                });
+                break Stdout::Exceeded;
             }
-        };
-        let eof = matches!(next, Stdout::Eof);
-        if tx.send(next).is_err() || eof {
-            return;
+            Err(error) => break Stdout::Failed(error),
         }
+    };
+    if !matches!(refusal, Stdout::Eof) {
+        drop(tx.send(refusal));
+        let _ = std::io::copy(&mut reader, &mut std::io::sink());
     }
+    drop(tx.send(Stdout::Eof));
 }
 
 fn write_message(stdin: &mut dyn Write, body: Body) -> std::io::Result<()> {
@@ -140,13 +218,12 @@ fn write_message(stdin: &mut dyn Write, body: Body) -> std::io::Result<()> {
     stdin.flush()
 }
 
-/// The driver's stderr, whole, once its pipe reaches EOF.
-fn read_stderr(mut stderr: ChildStderr) -> mpsc::Receiver<String> {
+/// The driver's stderr once its pipe reaches EOF, no more than
+/// `stderr_bytes` of it kept (`limits::retained_stderr`).
+fn read_stderr(stderr: impl Read + Send + 'static, stderr_bytes: usize) -> mpsc::Receiver<String> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stderr.read_to_end(&mut bytes);
-        drop(tx.send(String::from_utf8(bytes).unwrap_or_default()));
+        drop(tx.send(limits::retained_stderr(stderr, stderr_bytes)));
     });
     rx
 }
@@ -175,6 +252,18 @@ impl DriverProcess {
         env: &SpawnEnv,
         host: Host,
     ) -> Result<Self, SpawnError> {
+        Self::spawn_limited(command, workdir, deadline, env, host, Limits::DEFAULT)
+    }
+
+    /// `spawn_with`, holding what the driver sends to `limits` (#433).
+    fn spawn_limited(
+        command: &[String],
+        workdir: &std::path::Path,
+        deadline: Option<Duration>,
+        env: &SpawnEnv,
+        host: Host,
+        limits: Limits,
+    ) -> Result<Self, SpawnError> {
         let (program, args) = command.split_first().ok_or(SpawnError::EmptyCommand)?;
         let mut builder = Command::new(program);
         builder
@@ -194,8 +283,14 @@ impl DriverProcess {
             }
         })?;
         let stdin = child.stdin.take().expect("piped stdin");
-        let stdout = read_stdout(child.stdout.take().expect("piped stdout"));
-        let stderr = read_stderr(child.stderr.take().expect("piped stderr"));
+        let (stdout, refused) = read_stdout(
+            child.stdout.take().expect("piped stdout"),
+            limits.frame_bytes,
+        );
+        let stderr = read_stderr(
+            child.stderr.take().expect("piped stderr"),
+            limits.stderr_bytes,
+        );
         let timed_out = Arc::new(AtomicBool::new(false));
         let key = attempt.key();
         let watchdog = deadline.map(|deadline| {
@@ -217,12 +312,14 @@ impl DriverProcess {
             attempt,
             stdin: Box::new(stdin),
             stdout,
+            refused,
             stderr,
             timed_out,
             watchdog,
             deadline,
             started: Instant::now(),
             bounds: Bounds::DEFAULT,
+            limits,
             host,
         })
     }
@@ -248,7 +345,8 @@ impl DriverProcess {
     /// The next read of stdout. With a deadline it is waited on until the
     /// deadline plus the drain bound and no longer: by then the watchdog
     /// has killed the tree, and only a process outside it can still hold
-    /// the pipe. Giving up reads as EOF, whatever is still unread.
+    /// the pipe. Giving up reads as EOF, whatever is still unread, except
+    /// a line the reader refused, which `finish` reads from `refused`.
     fn next_stdout(&self) -> Option<Stdout> {
         match self.deadline {
             None => self.stdout.recv().ok(),
@@ -260,27 +358,28 @@ impl DriverProcess {
         }
     }
 
-    fn recv(&self) -> Option<Result<Message, String>> {
+    /// The next message and the bytes of its line, or how reading ended.
+    fn recv(&self) -> Result<(Message, usize), Ended> {
         loop {
-            let line = match self.next_stdout()? {
-                Stdout::Line(line) => line,
-                Stdout::Failed(e) => return Some(Err(format!("driver stdout read failed: {e}"))),
-                Stdout::Eof => return None,
+            let line = match self.next_stdout() {
+                Some(Stdout::Line(line)) => line,
+                Some(Stdout::Failed(e)) => {
+                    return Err(Ended::Failed(format!("driver stdout read failed: {e}")))
+                }
+                Some(Stdout::Exceeded | Stdout::Eof) | None => return Err(Ended::Lost),
             };
             if line.trim().is_empty() {
                 continue;
             }
-            return Some(
-                serde_json::from_str::<Message>(&line)
-                    .map_err(|e| format!("unreadable driver message: {e}: {line}"))
-                    .and_then(|m| {
-                        if m.proto == PROTO {
-                            Ok(m)
-                        } else {
-                            Err(format!("driver spoke '{}', want '{PROTO}'", m.proto))
-                        }
-                    }),
-            );
+            let message = serde_json::from_str::<Message>(&line)
+                .map_err(|e| Ended::Failed(evidence::unreadable(&e, &line)))?;
+            if message.proto != PROTO {
+                return Err(Ended::Failed(format!(
+                    "driver spoke '{}', want '{PROTO}'",
+                    message.proto
+                )));
+            }
+            return Ok((message, line.len()));
         }
     }
 
@@ -294,15 +393,18 @@ impl DriverProcess {
                 .ok_or(Unsettled::Stdout)?;
             match self.stdout.recv_timeout(wait) {
                 Ok(Stdout::Eof) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(Stdout::Line(_) | Stdout::Failed(_)) => {}
+                Ok(Stdout::Line(_) | Stdout::Failed(_) | Stdout::Exceeded) => {}
                 Err(RecvTimeoutError::Timeout) => return Err(Unsettled::Stdout),
             }
         }
     }
 
+    /// End the attempt's tree and report `standing`'s outcome, unless a
+    /// line the reader refused outranks it. The slot is read once stdout
+    /// is closed, when the reader has refused all it ever will.
     fn finish(
         mut self,
-        outcome: AttemptOutcome,
+        standing: Standing,
         session_ref: Option<String>,
         checkpoints: Vec<Value>,
         accepted: bool,
@@ -330,6 +432,10 @@ impl DriverProcess {
         {
             Ok(stderr) => (stderr, ended),
             Err(_) => (String::new(), ended.and(Err(Unsettled::Stderr))),
+        };
+        let outcome = match standing {
+            Standing::Final(outcome) => outcome,
+            Standing::Yielding(outcome) => self.refused.get().map_or(outcome, Exceeded::outcome),
         };
         AttemptReport {
             outcome,
@@ -400,7 +506,6 @@ impl DriverProcess {
     /// client that opened it, so it is never posted to a driver that did
     /// not say it knows what to do with one.
     #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-    #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn run_attempt_resuming(
         mut self,
         engine_version: &str,
@@ -411,24 +516,17 @@ impl DriverProcess {
         offered: Option<String>,
         mut on_checkpoint: impl FnMut(&Value),
     ) -> AttemptReport {
-        let mut session_ref: Option<String> = None;
         // Declared before the first refusal so every terminal path — the
         // handshake failures included — reports whether the driver ever
         // accepted. That single bit is the engine's fail-to-start
         // predicate; leaving it out of a path would let one shape of
         // failure lie about which side of the mid-session boundary it is
         // on.
-        let mut accepted = false;
-        let mut checkpoints: Vec<Value> = Vec::new();
+        let mut account = Account::default();
 
         macro_rules! fail {
             ($($arg:tt)*) => {
-                return self.finish(
-                    AttemptOutcome::Failed { error: format!($($arg)*) },
-                    None,
-                    Vec::new(),
-                    accepted,
-                )
+                return self.end(Ended::Failed(format!($($arg)*)), account)
             };
         }
 
@@ -440,22 +538,20 @@ impl DriverProcess {
             // the same arm instead of racing the driver's exit for
             // which error the operator reads.
             if e.kind() == std::io::ErrorKind::BrokenPipe {
-                let outcome = self.eof_outcome(false);
-                return self.finish(outcome, None, Vec::new(), accepted);
+                return self.end(Ended::Lost, account);
             }
             fail!("could not greet driver: {e}");
         }
         let supports = match self.recv() {
-            Some(Ok(Message {
-                body: Body::Capabilities { supports, .. },
-                ..
-            })) => supports,
-            Some(Ok(other)) => fail!("expected capabilities, got {:?}", other.body),
-            Some(Err(e)) => fail!("{e}"),
-            None => {
-                let outcome = self.eof_outcome(false);
-                return self.finish(outcome, None, Vec::new(), accepted);
-            }
+            Ok((
+                Message {
+                    body: Body::Capabilities { supports, .. },
+                    ..
+                },
+                _,
+            )) => supports,
+            Ok((other, _)) => fail!("expected capabilities, got {:?}", other.body),
+            Err(ended) => return self.end(ended, account),
         };
         if let Some(session_ref) =
             offered.filter(|_| supports.iter().any(|feature| feature == "resume"))
@@ -476,64 +572,105 @@ impl DriverProcess {
         }) {
             fail!("could not send start: {e}");
         }
+        let ended = self.converse(effect_id, &mut account, &mut on_checkpoint);
+        self.end(ended, account)
+    }
 
+    /// Read the driver's account of the attempt to its end. Each
+    /// checkpoint is kept within the limits before `on_checkpoint`
+    /// journals it, so a checkpoint past them is neither.
+    fn converse(
+        &self,
+        effect_id: &str,
+        account: &mut Account,
+        on_checkpoint: &mut impl FnMut(&Value),
+    ) -> Ended {
         loop {
-            match self.recv() {
-                Some(Ok(message)) => match message.body {
-                    Body::Accepted {
-                        effect_id: eid,
-                        session_ref: sref,
-                        ..
-                    } => {
-                        if eid != effect_id {
-                            fail!("driver accepted a different effect '{eid}'");
-                        }
-                        accepted = true;
-                        session_ref = sref;
+            let (message, bytes) = match self.recv() {
+                Ok(received) => received,
+                Err(ended) => return ended,
+            };
+            match message.body {
+                Body::Accepted {
+                    effect_id: eid,
+                    session_ref,
+                    ..
+                } => {
+                    if eid != effect_id {
+                        return Ended::Failed(format!(
+                            "driver accepted a different effect '{eid}'"
+                        ));
                     }
-                    Body::Checkpoint {
-                        data,
-                        effect_id: eid,
-                        ..
-                    } => {
-                        if eid != effect_id {
-                            fail!("checkpoint for foreign effect '{eid}'");
-                        }
-                        on_checkpoint(&data);
-                        checkpoints.push(data);
-                    }
-                    Body::Result {
-                        effect_id: eid,
-                        status,
-                        result,
-                        error,
-                        ..
-                    } => {
-                        if eid != effect_id {
-                            fail!("result for foreign effect '{eid}'");
-                        }
-                        let outcome = match status {
-                            ResultStatus::Succeeded => match result {
-                                Some(result) => AttemptOutcome::Succeeded { result },
-                                None => AttemptOutcome::Failed {
-                                    error: "succeeded result carried no payload".into(),
-                                },
-                            },
-                            ResultStatus::Failed => AttemptOutcome::Failed {
-                                error: error.unwrap_or_else(|| "driver reported failure".into()),
-                            },
-                        };
-                        return self.finish(outcome, session_ref, checkpoints, accepted);
-                    }
-                    other => fail!("unexpected driver message {:?}", other),
-                },
-                Some(Err(e)) => fail!("{e}"),
-                None => {
-                    let outcome = self.eof_outcome(accepted);
-                    return self.finish(outcome, session_ref, checkpoints, accepted);
+                    account.accepted = true;
+                    account.session_ref = session_ref;
                 }
+                Body::Checkpoint {
+                    data,
+                    effect_id: eid,
+                    ..
+                } => {
+                    if eid != effect_id {
+                        return Ended::Failed(format!("checkpoint for foreign effect '{eid}'"));
+                    }
+                    match account.retained.keep(data, bytes, &self.limits) {
+                        Ok(kept) => on_checkpoint(kept),
+                        Err(exceeded) => return Ended::Exceeded(exceeded),
+                    }
+                }
+                Body::Result {
+                    effect_id: eid,
+                    status,
+                    result,
+                    error,
+                    ..
+                } => {
+                    if eid != effect_id {
+                        return Ended::Failed(format!("result for foreign effect '{eid}'"));
+                    }
+                    return Ended::Reached(reached(status, result, error));
+                }
+                other => return Ended::Failed(format!("unexpected driver message {other:?}")),
             }
         }
+    }
+
+    /// End the attempt as it ended. A protocol violation or a failed
+    /// write keeps nothing of the driver's account but whether it
+    /// accepted. Any end short of the driver's result or a refused
+    /// checkpoint yields to the line the reader refused, if it refused
+    /// one: what the driver sent past a limit outranks how the engine
+    /// stopped listening (#433, decision 0079 ruling 3).
+    fn end(self, ended: Ended, account: Account) -> AttemptReport {
+        let Account {
+            accepted,
+            session_ref,
+            retained,
+        } = account;
+        let standing = match ended {
+            Ended::Failed(error) => {
+                let standing = Standing::Yielding(AttemptOutcome::Failed { error });
+                return self.finish(standing, None, Vec::new(), accepted);
+            }
+            Ended::Lost => Standing::Yielding(self.eof_outcome(accepted)),
+            Ended::Reached(outcome) => Standing::Final(outcome),
+            Ended::Exceeded(exceeded) => Standing::Final(exceeded.outcome()),
+        };
+        self.finish(standing, session_ref, retained.checkpoints, accepted)
+    }
+}
+
+/// The outcome a driver's result reached.
+fn reached(status: ResultStatus, result: Option<Value>, error: Option<String>) -> AttemptOutcome {
+    match status {
+        ResultStatus::Succeeded => match result {
+            Some(result) => AttemptOutcome::Succeeded { result },
+            None => AttemptOutcome::Failed {
+                error: "succeeded result carried no payload".into(),
+            },
+        },
+        ResultStatus::Failed => AttemptOutcome::Failed {
+            error: error.unwrap_or_else(|| "driver reported failure".into()),
+        },
     }
 }
 
