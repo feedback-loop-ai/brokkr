@@ -1,9 +1,9 @@
 # 0079 — A driver is held to a bounded transport
 
-Status: proposed (implementer, 2026-10-10)
+Status: accepted — operator ruled 2026-10-10 (#433). The same day the operator ruled that the host configuration configures the limits (ruling 6).
 Date: 2026-10-10
 
-Built: built
+Built: partial (#433) — the host configuration does not carry the limits yet; they are constants
 
 ## Context
 
@@ -48,10 +48,12 @@ could copy a secret there for good (decision 0012).
    its JSON error, whose own text can quote the input and is never used.
    A checkpoint refusal names the counts held: checkpoints, their bytes,
    and the bytes of the one refused.
-6. **Who configures the limits is left open.** Today they are constants,
-   injectable only through the transport's private constructor for
-   tests. Whether a realm, an adapter or a recipe may set them is a later
-   ruling.
+6. **The host configures the limits.** Ruled by the operator on
+   2026-10-10: the host configuration (`forge.host/v1`, the machine-scoped
+   file #430 introduces) declares them, since a transport's memory bound
+   is a fact about the machine, not about a realm, an adapter or a
+   recipe. Until that file carries them they are constants, injectable
+   only through the transport's private constructor for tests.
 
 ## Consequences
 
