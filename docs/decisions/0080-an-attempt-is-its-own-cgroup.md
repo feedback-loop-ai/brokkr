@@ -85,8 +85,15 @@ and fail closed on what cannot be read.
      unit with `Delegate=yes` makes. Each attempt's cgroup is a child of
      that cgroup, created before the spawn, and the driver enters it by
      writing its own pid to `cgroup.procs` between fork and exec. The
-     engine itself moves to a leaf of its own first, so the delegated
-     cgroup holds no process beside its children.
+     engine stays where it stands and makes no leaf of its own, so
+     nothing of an engine is left to remove after it exits: containment
+     enables no controller, since `cgroup.kill` and `cgroup.events` are
+     core files of every cgroup v2, and the kernel's rule that only a
+     cgroup without processes of its own may enable one for its children
+     never binds it. The delegated cgroup therefore holds the engine, the
+     lifeline (ruling 4) and a forked child before its pid write beside
+     the attempts' cgroups, and the engine creates no cgroup there but an
+     attempt's.
    - `scope` — otherwise, where a systemd user manager runs, each driver
      is started through `systemd-run --user --scope -p Delegate=yes
      --collect --slice brokkr.slice --unit <name>`, from the absolute
@@ -114,6 +121,12 @@ and fail closed on what cannot be read.
    function of it alone; a table test in `brokkr-protocol` pins the rung
    and its reason for each valuation, and the readers that fill the
    observation are tested against planted cgroup trees.
+   `an_engine_leaves_no_cgroup_of_its_own` runs an engine on the
+   `delegated` rung through two attempts to its orderly exit and asserts
+   that the delegated cgroup's children, listed after the exit, are
+   exactly none, and that the engine's pid stood in the delegated cgroup
+   itself throughout; its removal control has the engine move to a leaf
+   of its own at start, and watches that leaf stand after the exit.
 
 3. **An attempt's cgroup is named for the attempt, and found again by
    the journal.** A scope is `brokkr-attempt-<attempt id>.scope`, and a
@@ -197,7 +210,8 @@ and fail closed on what cannot be read.
    schema test refusing an unknown rung, an unknown record and unknown
    fields.
 
-4. **Engine death is covered by a lifeline, and no launch outlives it.**
+4. **Engine death is covered by a lifeline, and no launch outlives a
+   living lifeline's cleanup.**
    A transient scope is the user manager's unit, and a delegated child
    lives as long as its unit does; either outlives the engine. With its
    first contained attempt the engine starts one lifeline: `brokkr`
@@ -245,13 +259,24 @@ and fail closed on what cannot be read.
      first reads every message already queued on the channel and only
      then acts, so it holds every path the engine sent before it died.
    - **Arming.** Before each spawn the engine sends the lifeline the
-     attempt's cgroup path and, on the `scope` rung, one end of a fresh
-     socket pair, the gate's channel, and spawns only on the lifeline's
-     acknowledgement. Every such end is close-on-exec in the engine; the
-     spawned child's `pre_exec` duplicates its own end onto the gate's
-     fixed descriptor, so a driver spawned beside it inherits none, and
-     the engine closes its copies when the spawn returns. The engine
-     tells the lifeline each settled attempt after its settlement.
+     attempt's cgroup path, and spawns only on the lifeline's
+     acknowledgement. On the `scope` rung the gate's channel is a fresh
+     socket pair, and no copy of the lifeline's end of it is ever in the
+     engine, before a spawn or during one: drivers are spawned
+     concurrently, each from a thread of its own, and a sibling forked
+     while the engine held that end would inherit it and, paused before
+     its exec, hold off the gate's end-of-file. Closing the engine's copy
+     right after sending it would still leave the instant between making
+     the pair and that close, so the lifeline makes the pair itself,
+     keeps its end, and sends the gate's end back with its
+     acknowledgement, received close-on-exec (`MSG_CMSG_CLOEXEC`). The
+     engine keeps only that gate's end
+     until the spawn returns, and the spawned child's `pre_exec`
+     duplicates it onto the gate's fixed descriptor, so a driver spawned
+     beside it inherits none past its exec. A sibling forked meanwhile
+     that inherits a copy of a gate's end holds nothing of the gate's
+     peer, so it delays no gate's end-of-file. The engine tells the
+     lifeline each settled attempt after its settlement.
    - **The launch gate, on the `scope` rung.** `systemd-run` execs
      `brokkr` under a second hidden verb, the gate. The gate reads its own
      cgroup and refuses unless it stands in the attempt's derived path,
@@ -270,7 +295,8 @@ and fail closed on what cannot be read.
      but only to run a gate that reads EOF and exits, since the lifeline
      closes every unreleased gate channel first, and a dead lifeline's
      channels are closed by its death: each gate's peer is the lifeline's
-     alone.
+     alone, since the lifeline made the pair and no copy of its end was
+     ever in the engine (the arming above).
    - **The `delegated` rung needs no gate, because cleanup removes the
      cgroup.** The engine creates the attempt's cgroup before the fork,
      and the forked child moves itself into it by writing its own pid to
@@ -284,7 +310,11 @@ and fail closed on what cannot be read.
      contained; a launch that needs one takes the gate. The earlier rule,
      that the lifeline read no end-of-file while a forked child stood
      outside its cgroup and so waited on that child, is dropped: removal
-     closes that window without waiting on any process.
+     closes that window without waiting on any process. Removal needs a
+     living guardian, though: where the engine and the lifeline die
+     together, nothing removes the cgroup, and a child that writes its
+     pid afterwards enters it and runs its driver until `resume` ends it.
+     That ordering is part of the residual declared below.
    - **On the engine's death** the lifeline closes every unreleased gate
      channel, then, for each held attempt, opens its path, writes
      `cgroup.kill` where the cgroup is present, waits for `populated 0`
@@ -318,11 +348,20 @@ and fail closed on what cannot be read.
    Since the replacement reads every queued message before it acts, that
    window closes once the engine has sent the path: an attempt whose path
    the replacement has received is ended at the engine's death,
-   acknowledged or not. A cgroup the lifeline cannot settle, or on the
-   `delegated` rung remove, within the settle bound is likewise left to
-   `resume`. A launch in flight never runs its driver. That is the
-   residual containment keeps, narrower than polling's, and the operator
-   is asked to accept it.
+   acknowledged or not. The same orderings leave one launch in flight
+   to `resume` as well: on the `delegated` rung, a child forked before
+   both guardians died, whose pid write comes after, finds the attempt's
+   cgroup present, since no cleanup removed it, enters it and runs its
+   driver until the next `resume` ends it, as it ends a released driver;
+   a `resume` that runs before the write removes the cgroup (ruling 3),
+   and the write fails with `ENOENT`. A cgroup the lifeline cannot
+   settle, or on the `delegated` rung remove, within the settle bound is
+   likewise left to `resume`. Outside that residual a launch in flight
+   never runs its driver: on the `scope` rung a gate reads end-of-file
+   once its lifeline has died, whatever died with it, and on the
+   `delegated` rung a living lifeline, or a `resume`, removes the cgroup
+   before a late pid write. That is the residual containment keeps,
+   narrower than polling's, and the operator is asked to accept it.
    *Enforcement binding:* the issue's host test,
    `sigkill_to_the_engine_leaves_no_seat_process_alive`, runs an engine
    in a child process with an attempt whose driver leaves an escape tree,
@@ -369,6 +408,40 @@ and fail closed on what cannot be read.
    end-of-file alone, and watches the lifeline still running at the
    bound; a second has the lifeline skip the removal, and watches the
    released child's driver run.
+   `a_delegated_launch_outliving_both_guardians_is_left_to_resume` binds
+   the declared residual on the `delegated` rung, in two orderings. A
+   child is paused by a FIFO in `pre_exec` before its pid write, and the
+   test sends SIGKILL to the engine and the lifeline together. In the
+   release ordering it releases the child first: the pid write
+   succeeds, the driver's marker file is written, and the cgroup reads
+   `populated 1`; it then runs `resume` of the run, which reads
+   `populated 1` at the attempt's recorded path, ends it, reads
+   `populated 0`, removes the cgroup and journals the attempt settled.
+   The attempt is open in the journal, since its `effect/started` was
+   journaled before the fork, so `resume` ends it as ruling 3 ends an
+   open attempt, and journals no `leftover` record, which names a
+   settled attempt's cgroup. In the resume ordering it runs `resume`
+   first, which finds the cgroup present and `populated 0`, settles it
+   and removes it, and then releases the child: the pid write fails with
+   exactly `ENOENT`, the spawn fails, and no marker file is written.
+   Its removal controls have `resume` leave an open attempt's present
+   cgroup in place, and watch, in the release ordering, the driver
+   outlive the resume, and in the resume ordering, the released child's
+   driver run.
+   `a_sibling_paused_before_exec_holds_no_gate_open` runs two concurrent
+   pending launches on the `scope` rung. Attempt A's probed `systemd-run`
+   stand-in blocks on a FIFO before it execs the real one, so A's scope
+   does not yet exist; sibling B is forked on another thread after A's
+   arming and before A's spawn returns, and paused by a second FIFO in
+   `pre_exec` before its exec of `systemd-run`. The test sends SIGKILL to
+   the engine alone, waits for the lifeline to exit, and releases A
+   alone. It asserts that A's gate exits with the cancelled-launch
+   status within the settle bound of A's release, that A's driver's
+   marker file is never written, and that B has not progressed: B's
+   child still stands paused in `pre_exec`, and no scope of B exists.
+   Its removal control has the engine make the gate's pair and hold the
+   lifeline's end until A's spawn returns, and watches A's gate still
+   blocked at the bound.
    `a_dead_lifeline_is_replaced_while_attempts_live` kills the lifeline
    while an attempt runs, waits for the replacement's journaled
    `lifeline-armed` record naming that attempt, sends SIGKILL to the
@@ -536,9 +609,26 @@ and fail closed on what cannot be read.
   and its lifeline together, or the engine alone after a lifeline's
   death and before its replacement has received a live attempt's path,
   leaves that attempt's released driver running until the next
-  `resume`; no launch in flight runs its driver. Binding each scope to a unit of the engine's own
-  (`BindsTo=`) would close it, at the price of running the engine in a
-  unit; that is unmeasured, and is listed in research entry 0020.
+  `resume`, and on the `delegated` rung a launch in flight whose child
+  writes its pid after both guardians have died runs its driver until
+  that `resume` too. Outside that residual no launch in flight runs its
+  driver. Two alternatives would narrow it. The forked child could
+  inherit a pidfd on the lifeline and, after its pid write and before
+  its exec, poll it and exit without exec when the lifeline is dead;
+  that folds the delegated launch into the released-driver case, at
+  the price of one more inherited descriptor and a check in `pre_exec`
+  on every delegated spawn. This decision declares the launch instead,
+  because reaching it takes the engine and its lifeline dying together,
+  apart from the child, inside a launch's fork-to-exec window: an
+  operator's `pkill -9 brokkr` takes the child too, since before its
+  exec it still bears the engine's name, so it takes an OOM kill of
+  both or two pids killed by hand in that window, two failures the
+  2026-09-26 threat model does not ask a mechanism for, and `resume`
+  ends it by the same path it already ends a released driver.
+  Binding each scope to a unit of the engine's own (`BindsTo=`) would
+  close the released-driver case on the `scope` rung, at the price of
+  running the engine in a unit; that is unmeasured, and research entry
+  0020 lists it as owed measurement 14.
 - **Re-homing.** A process inside the attempt that asks the user manager
   for a unit of its own (`systemd-run --user`, a tmux server built with
   systemd support, a D-Bus activated user service) is started outside
@@ -560,7 +650,7 @@ and fail closed on what cannot be read.
 
 ## What still needs measuring
 
-Research entry 0020 lists thirteen measurements with their method. The
+Research entry 0020 lists fourteen measurements with their method. The
 build waits on five of them: the lifeline end to end, triggered by its
 pidfd, with a paused launch (ruling 4), whether an unreaped zombie keeps `populated 1` and
 who adopts an orphan with the engine outside and inside the user
@@ -589,6 +679,38 @@ gate finds no channel, every launch ends as a cancelled launch, and the
   while it runs.
 - No unit's state is read as a settlement anywhere: the lifeline,
   `resume` and doctor read the attempt's cgroup path.
+- The design keeps these residuals, each declared:
+  - a released driver left running when the engine and the lifeline die
+    together, or the engine alone before a replacement lifeline has
+    received the attempt's path (ruling 4). It takes two deaths in one
+    window, or a deliberate kill of both, and the next `resume` ends it
+    by the attempt's recorded path; bound by
+    `an_engine_killed_before_the_replacement_receives_a_path_leaves_it_to_resume`
+    and `resume_ends_the_scope_named_for_an_open_attempt`;
+  - on the `delegated` rung, a launch in flight whose child writes its
+    pid after both guardians have died, and runs its driver (ruling 4).
+    It takes the two deaths inside one launch's fork-to-exec window,
+    apart from the child, and the next `resume` ends it as it ends a
+    released driver, or removes the cgroup first so the write fails;
+    bound by `a_delegated_launch_outliving_both_guardians_is_left_to_resume`;
+  - a cgroup the lifeline or the engine cannot settle, or remove, within
+    the settle bound (rulings 3 to 5). It fails closed: the attempt
+    stays open or parks `effect/indeterminate`, never settled;
+  - a process that asks the user manager for a unit of its own, which
+    is started outside the attempt (under Asked). It is a deliberate
+    request, not an accident, and polling misses most of these today;
+    research entry 0020's owed measurement 4 says which a seat can
+    reach;
+  - on macOS and on a Linux host that takes `polling`, decision 0006's
+    addendum's residuals as written (rulings 2 and 9), which the
+    operator accepted on 2026-09-28, held only where no containment is
+    offered, said aloud, and refused by `required`.
+  The first two need more than the realistic accidental misuse the
+  2026-09-26 threat model asks Brokkr to catch, and leave the attempt
+  open in the journal for `resume`; the third ends in a refusal rather
+  than a false settlement; the fourth is a request, not a race; the
+  last is polling's, already accepted, and kept only where nothing
+  better is offered.
 - The polling code stays for macOS and for Linux hosts without
   containment, so the #403 suite keeps running against it.
 - The journal says which rung held each attempt, so a cleanup's proof

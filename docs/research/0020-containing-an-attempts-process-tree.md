@@ -130,7 +130,10 @@ engine's child with the pipes the engine gave it.
   the service stops when the engine dies and its `KillMode` ends the
   whole cgroup, children included (unmeasured). The lifeline serves
   here as in (i), and removes each child cgroup it ends, so a launch
-  that has not yet written its pid finds none to enter.
+  that has not yet written its pid finds none to enter; where the
+  lifeline dies with the engine, nothing removes it, and such a launch
+  runs its driver until a restart ends it, a residual decision 0080's
+  ruling 4 declares.
 - **(iii)** Not a mechanism of its own: how a driver enters the cgroup
   in (ii).
 - **(iv)** `--die-with-parent` delivers a parent-death signal to bwrap
@@ -156,14 +159,19 @@ cannot reach a cgroup tree or nest the namespaces.
    the lifeline exit, and release the launcher; and again with the
    engine and the lifeline killed and a restart run before the release.
    Read that no driver ran in either ordering. Last, with one attempt
-   running its escape tree, pause a second launch before its pid write
-   to `cgroup.procs` (and, in a scope run, before its exec of
-   `systemd-run`) past the settle bound, send SIGKILL to the engine
-   alone, and read that the lifeline, which reads no end-of-file while
-   the paused child holds the engine's end, ends the first attempt by
-   its pidfd on the engine within the settle bound and removes both
-   child cgroups, and that the released launch's write fails with
-   `ENOENT`.
+   running its escape tree, pause a second launch past the settle bound
+   and send SIGKILL to the engine alone; read that the lifeline, which
+   reads no end-of-file while the paused child holds the engine's end,
+   ends the first attempt by its pidfd on the engine within the settle
+   bound, and then release the second launch. On the delegated rung the
+   launch is paused before its pid write to `cgroup.procs`: read that
+   the lifeline removes both child cgroups and that the released write
+   fails with `ENOENT`. On the scope rung it is paused before its exec of
+   `systemd-run`: the lifeline removes nothing, since a scope's cgroup is
+   the user manager's, and the released launch's gate exits with the
+   cancelled-launch status and runs no driver. These are the host cases
+   of decision 0080 ruling 4's
+   `an_engine_killed_with_a_launch_paused_still_ends_the_live_attempt`.
 2. **A zombie, an orphan and `populated`.** Kill an attempt scope whose
    driver is the engine's child and do not reap it; read
    `cgroup.events`. If an unreaped zombie keeps `populated 1`, the
@@ -219,6 +227,18 @@ cannot reach a cgroup tree or nest the namespaces.
     kill the user manager while a scope is empty and read whether the
     path is ever removed. Settlement does not wait for the collection;
     this measures how long doctor may list an empty scope cgroup.
+14. **Scopes bound to the engine's unit.** Run an engine stand-in in a
+    transient unit of its own (`systemd-run --user --unit
+    brokkr-engine-<id>`), start each attempt scope with `systemd-run
+    --user --scope -p BindsTo=brokkr-engine-<id>.service -p
+    After=brokkr-engine-<id>.service`, each running the escape tree,
+    and send SIGKILL to the engine; read every scope stopped, every
+    escape pid gone and each scope's cgroup `populated 0` or absent, and
+    time it, on the operator's host and both Linux runners. Read first
+    whether `systemd-run` accepts the dependency on a scope at all.
+    Decision 0080 names it under Asked as the alternative that would
+    close its released-driver residual on the scope rung, at the price of
+    running the engine in a unit.
 
 ## Findings
 
