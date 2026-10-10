@@ -254,9 +254,9 @@ on Linux and macOS alike. Nothing there and every measured entry waits
 (`no host configuration at <path> declares capacity`); a path that holds
 something unreadable — a link that loops or dangles, a directory — holds
 it, naming the error; a file that is not a valid `forge.host/v1` refuses
-the listing, naming the problem. A provider or route the file does not
-name waits as undeclared, and every ceiling is at least one: there is no
-unlimited.
+the listing, naming the problem, and so does a provider or route written
+twice, naming the key. A provider or route the file does not name waits
+as undeclared, and every ceiling is at least one: there is no unlimited.
 
 A machine with two cloud providers and the shared-local Spark route,
 where verification scripts (`exec`) also count:

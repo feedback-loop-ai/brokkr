@@ -1,5 +1,5 @@
-//! The capability section of `run-manifest/v12` (decision 0065 slice two,
-//! SC3): projections of the sealed authority and of each site's sealed
+//! The capability section of `run-manifest/v13` (decision 0065 slice two,
+//! SC3, and #430's model pins): projections of the sealed authority and of each site's sealed
 //! outcomes, never a second resolution. A held record keeps every v11
 //! field and adds what implements the capability and what it retains (CR1).
 //! An `mcp` implementation is typed here whole — its server, connection,
@@ -9,7 +9,7 @@
 
 use brokkr_core::realms::GrantRetention;
 use brokkr_protocol::adapters::AdapterKind;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
 
 use super::{
@@ -175,8 +175,23 @@ pub(crate) enum ModelPins {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Served {
     pub(crate) id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub(crate) route: Option<String>,
+}
+
+/// A key that, where it is written, holds a value: `null` is refused as
+/// any other value that is not one, where a contract leaves the key out
+/// rather than writing it empty.
+pub(crate) fn present<'de, D, T>(written: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(written).map(Some)
 }
 
 impl Served {

@@ -114,12 +114,21 @@ pub enum Unmeasurable {
     /// A manifest's capability records do not pin what it seats.
     #[error("{0}")]
     Manifest(Shared<serde_json::Error>),
-    /// A site's model pin could not be read as one concrete id.
+    /// A site's model pin could not be read as one concrete id, on the
+    /// flags named; an agent candidate's names none.
     #[error(
-        "site '{site}' pins a model that cannot be read as one concrete id on {}",
-        .flags.join(", ")
+        "site '{site}' pins a model that cannot be read as one concrete id{}",
+        on_flags(.flags)
     )]
     Pin { site: String, flags: Vec<String> },
+}
+
+/// The flags a pin could not be read on, where it names any.
+fn on_flags(flags: &[String]) -> String {
+    match flags.is_empty() {
+        true => String::new(),
+        false => format!(" on {}", flags.join(", ")),
+    }
 }
 
 /// An error a reason carries whole, shared by its clones: equal only to

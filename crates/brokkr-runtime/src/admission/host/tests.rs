@@ -129,4 +129,42 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
     };
     assert_eq!(admitted.each_ref().map(judged), [(true, true); 5]);
     assert_eq!(refused.each_ref().map(judged), [(false, false); 17]);
+
+    // JSON Schema cannot say a key is written once, and its validator reads
+    // the last copy: there the loader is stricter than the contract can be.
+    let twice = written(r#""dsh": {"ceiling": 1}, "dsh": {"ceiling": 2}"#);
+    let last: Value = serde_json::from_str(&twice).unwrap();
+    let loaded = config(twice.as_bytes()).is_ok();
+    assert_eq!((validator.is_valid(&last), loaded), (true, false));
+}
+
+/// A minimal host configuration's text with `providers` written as given.
+fn written(providers: &str) -> String {
+    format!(
+        r#"{{"schema": "forge.host/v1", "providers": {{{providers}}}, "scratch": {{"floor_bytes": 1}}, "boxed_builds": {{"ceiling": 1}}}}"#
+    )
+}
+
+#[test]
+fn a_provider_or_a_route_written_twice_is_refused_naming_the_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("host.json");
+    let refused = |providers: &str| {
+        std::fs::write(&file, written(providers)).unwrap();
+        match read(&file) {
+            Err(HostError::Invalid {
+                path,
+                source: Problem::Repeated(said),
+            }) if path == file => said,
+            other => panic!("not refused as written twice: {other:?}"),
+        }
+    };
+    let routes = r#""routes": {"spark-glm": {"ceiling": 1, "class": "shared-local"}}"#;
+    let provider = format!(r#""dsh": {{"ceiling": 1, {routes}}}, "dsh": {{"ceiling": 9}}"#);
+    let said = "key 'dsh' is written twice at line 1 column 153";
+    assert_eq!(refused(&provider), said);
+    let route = r#""cloud": {"ceiling": 1, "class": "cloud"}"#;
+    let routed = format!(r#""alpha": {{"ceiling": 1, "routes": {{{route}, {route}}}}}"#);
+    let said = "key 'cloud' is written twice at line 1 column 162";
+    assert_eq!(refused(&routed), said);
 }

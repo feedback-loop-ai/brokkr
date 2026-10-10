@@ -71,7 +71,7 @@ pub fn brokkr_runtime::admission::Difference::fmt(&self, &mut core::fmt::Formatt
 pub enum brokkr_runtime::admission::HostError
 pub brokkr_runtime::admission::HostError::Invalid
 pub brokkr_runtime::admission::HostError::Invalid::path: std::path::PathBuf
-pub brokkr_runtime::admission::HostError::Invalid::source: serde_json::error::Error
+pub brokkr_runtime::admission::HostError::Invalid::source: brokkr_runtime::admission::host::Problem
 pub brokkr_runtime::admission::HostError::Unplaced
 pub enum brokkr_runtime::admission::Reason
 pub brokkr_runtime::admission::Reason::Capacity(brokkr_runtime::admission::Capacity)

@@ -11,7 +11,9 @@
 //! (a link that loops or dangles, a directory, a permission refused) is
 //! unreadable, never absent (#430's H5); and a file read but not a valid
 //! `forge.host/v1` refuses, naming the problem. A ceiling of zero, a
-//! negative one and one past `u32` are refused, never read as unlimited.
+//! negative one and one past `u32` are refused, never read as unlimited,
+//! and so is a provider or route written twice: the ceiling the operator
+//! reads first is the one admission obeys, or none is.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -20,8 +22,10 @@ use std::io::{self, ErrorKind};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 use thiserror::Error;
+
+use crate::capabilities::manifest::present;
 
 /// A host configuration, read whole: every key known, every ceiling at
 /// least one.
@@ -91,12 +95,6 @@ pub(crate) struct Scratch {
     pub(crate) path: Option<Absolute>,
 }
 
-/// A key that, where it is written, holds a value: `null` is refused as
-/// any other value that is not one.
-fn present<'de, D: Deserializer<'de>>(written: D) -> Result<Option<Absolute>, D::Error> {
-    Absolute::deserialize(written).map(Some)
-}
-
 /// A ceiling on its own: the boxed builds'.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -148,8 +146,19 @@ pub enum HostError {
     Invalid {
         path: PathBuf,
         #[source]
-        source: serde_json::Error,
+        source: Problem,
     },
+}
+
+/// What makes a read host configuration invalid.
+#[derive(Debug, Error)]
+pub enum Problem {
+    /// Not JSON, or not the contract's shape.
+    #[error(transparent)]
+    Shape(#[from] serde_json::Error),
+    /// A key written twice in one object, in the strict reader's words.
+    #[error("{0}")]
+    Repeated(String),
 }
 
 /// Where the machine's host configuration is: `brokkr/host.json` under
@@ -178,12 +187,24 @@ pub(crate) fn read(file: &Path) -> Result<Hosting, HostError> {
         Ok(bytes) => bytes,
         Err(unread) => return Ok(Hosting::Unreadable(unread.kind())),
     };
-    serde_json::from_slice(&bytes)
+    config(&bytes)
         .map(Hosting::Declared)
         .map_err(|source| HostError::Invalid {
             path: file.to_path_buf(),
             source,
         })
+}
+
+/// A host configuration's bytes, read as the contract's shape and then
+/// through the house's strict reader, which refuses a key written twice
+/// in one object where serde's map keeps the last copy and says nothing.
+/// The shape is judged first, so its refusal keeps the parser's place in
+/// the file; bytes it admits are UTF-8, so the lossy text is the file.
+fn config(bytes: &[u8]) -> Result<HostConfig, Problem> {
+    let config = serde_json::from_slice(bytes)?;
+    brokkr_core::canonical::parse_strict(&String::from_utf8_lossy(bytes))
+        .map_err(Problem::Repeated)?;
+    Ok(config)
 }
 
 /// Why the deepest component of `file`'s path that is there cannot be

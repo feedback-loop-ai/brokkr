@@ -154,11 +154,15 @@ impl Fixture {
     }
 
     /// A running run whose compile pinned each `(provider, model id)`, on
-    /// the id's own route, boxed or not.
+    /// the id's own route, boxed or not, written as the compile writes it.
     fn seating(&mut self, name: &str, seats: &[(&str, &str)], boxed: bool) {
         let candidates: Vec<Value> = (seats.iter())
             .map(|(provider, id)| {
-                let served = json!({"id": id, "route": crate::capabilities::manifest::route(id)});
+                let route = crate::capabilities::manifest::route(id).map(str::to_string);
+                let served = crate::capabilities::manifest::Served {
+                    id: id.to_string(),
+                    route,
+                };
                 json!({"provider": provider, "model_pins": {"read": [served]}})
             })
             .collect();
@@ -682,6 +686,22 @@ fn what_an_entry_or_a_running_run_seats_must_be_measured() {
     let unsaid = "running run 'odd' does not say what it seats: site 'work' pins a model that \
                   cannot be read as one concrete id on -m, --model";
     assert_eq!(beside("odd", manifest(unread), pin), (unsaid.into(), false));
+    // An agent candidate no adapter mapped is unreadable on no flag.
+    let unmapped = json!({"provider": "dsh", "model_pins": {"unreadable": []}});
+    let flagless =
+        |why: &Unmeasurable| matches!(why, Unmeasurable::Pin { flags, .. } if flags.is_empty());
+    let unsaid = "running run 'unmapped' does not say what it seats: site 'work' pins a model \
+                  that cannot be read as one concrete id";
+    let unmapped = beside("unmapped", manifest(unmapped), flagless);
+    assert_eq!(unmapped, (unsaid.into(), false));
+    // A route written `null` is refused, as v13 refuses it, never read as none.
+    let null = json!({"provider": "dsh", "model_pins": {"read": [{"id": "glm", "route": null}]}});
+    let unsaid = "running run 'null' does not say what it seats: invalid type: null, expected a \
+                  string";
+    assert_eq!(
+        beside("null", manifest(null), manifested),
+        (unsaid.into(), false)
+    );
 
     // An entry whose bundle does not compile is held, naming why, before
     // any running run is read.
