@@ -1,6 +1,7 @@
 //! What each compiled site's candidates are served on (`run-manifest/v13`,
-//! #430): the concrete model ids, read where the compile reads them and
-//! pinned beside the candidate's capability record, so admission counts a
+//! #430): the concrete model ids, read where the compile reads them, each
+//! with the route its driver serves it on, and pinned beside the
+//! candidate's capability record, so admission counts a
 //! running run by what its own compile seated and never resolves it again
 //! through another workspace's adapters.
 
@@ -13,8 +14,8 @@ use super::{
     built_in_model_driver, inline_route_pin, route_pin, CapabilityAdapters, ModelPin, SiteFacts,
 };
 use crate::agents::Candidate;
-use crate::capabilities::manifest::ModelPins;
-use crate::capabilities::SiteCapabilities;
+use crate::capabilities::manifest::{ModelPins, Served};
+use crate::capabilities::{harness_of, SiteCapabilities};
 
 impl SiteFacts {
     /// Seal the site's capability outcomes beside its candidates' model
@@ -25,19 +26,26 @@ impl SiteFacts {
     }
 }
 
-/// An agent-backed site's pins: the id each candidate's own adapter maps
-/// its model to. The chain was resolved against these adapters, so each
-/// maps; one that did not would read as unreadable, never as no model.
+/// An agent-backed site's pins, one for each candidate.
 pub(super) fn agents(adapters: CapabilityAdapters<'_>, chain: &[Candidate]) -> Vec<ModelPins> {
-    let unread = ModelPins::Unreadable(Vec::new());
     (chain.iter())
-        .map(|candidate| {
-            let concrete = (adapters.adapters)
-                .and_then(|adapters| adapters.adapter(&candidate.provider))
-                .and_then(|adapter| adapter.models.get(&candidate.model));
-            concrete.map_or(unread.clone(), |id| ModelPins::Read(vec![id.clone()]))
-        })
+        .map(|candidate| agent(adapters, &candidate.provider, &candidate.model))
         .collect()
+}
+
+/// One agent candidate's pins: the id its own adapter maps its model to,
+/// served on the route that adapter's driver serves it on. The chain was
+/// resolved against these adapters, so each maps; one that did not reads
+/// as unreadable, never as no model.
+fn agent(adapters: CapabilityAdapters<'_>, provider: &str, model: &str) -> ModelPins {
+    let adapter = (adapters.adapters).and_then(|adapters| adapters.adapter(provider));
+    let served = adapter.and_then(|adapter| {
+        let id = adapter.models.get(model)?.clone();
+        Some(Served::on(harness_of(&adapter.driver), id))
+    });
+    served.map_or(ModelPins::Unreadable(Vec::new()), |served| {
+        ModelPins::Read(vec![served])
+    })
 }
 
 /// An inline site's one candidate's pins. A built-in model driver's are
@@ -54,7 +62,7 @@ pub(super) fn inline(raw: &Value, adapters: CapabilityAdapters<'_>) -> Vec<Model
     let (mut read, mut flags) = (Vec::new(), Vec::new());
     for pin in [inline_route_pin(raw, own), route_pin(raw, FALLBACK_FLAG)] {
         match pin {
-            ModelPin::Concrete(id) => read.push(id),
+            ModelPin::Concrete(id) => read.push(Served::on(kind, id)),
             ModelPin::Unreadable(on) => flags.extend(on),
             ModelPin::Absent => {}
         }

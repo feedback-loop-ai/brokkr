@@ -41,6 +41,29 @@ fn the_probe_measures_free_bytes_and_says_why_it_cannot() {
     std::fs::write(dir.path().join("file"), "").unwrap();
     let under = free_bytes(&dir.path().join("file/scratch")).unwrap_err();
     assert_eq!(under.kind(), ErrorKind::NotADirectory);
+    // A link that dangles or loops is there, and is never measured on its
+    // parent's filesystem, whether it is the path or a directory on it.
+    let link = |name: &str, to: &str| {
+        let link = dir.path().join(name);
+        std::os::unix::fs::symlink(to, &link).unwrap();
+        link
+    };
+    let (dangling, looping) = (link("dangling", "gone"), link("loop", "loop"));
+    let kind = |path: &Path| free_bytes(path).unwrap_err().kind();
+    let refused = [
+        kind(&dangling),
+        kind(&dangling.join("scratch")),
+        kind(&looping),
+        kind(&looping.join("scratch")),
+    ];
+    let loops = std::fs::metadata(&looping).unwrap_err().kind();
+    assert_eq!(
+        refused,
+        [ErrorKind::NotFound, ErrorKind::NotFound, loops, loops]
+    );
+    // A relative path with nothing at it is measured where it is named.
+    let nowhere = Path::new("brokkr-no-such-dir/scratch");
+    assert_eq!(kind(nowhere), ErrorKind::NotFound);
 }
 
 /// The sample host configuration the operator's guide shows.

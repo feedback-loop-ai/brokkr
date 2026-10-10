@@ -233,12 +233,16 @@ below their ceiling. Nothing is started, and nothing latches: the next
 `list` measures again.
 
 A seat is every candidate its site may seat, fallbacks included: its
-provider (`claude`, `codex`, `dsh`, `exec`, …) and its route, the prefix
-of the concrete model id its compile pinned (`spark-glm` for
-`spark-glm/GLM-5.3-Flash-EXL3`; a model id with no `/` has no route): the
-id the adapter maps an agent's model to, or an inline seat's own
-`--model` and `--fallback-model`. Each run's manifest carries those ids
-(`run-manifest/v13`), so a running run counts once against each provider
+provider (`claude`, `codex`, `dsh`, `exec`, …) and the route its driver
+serves the concrete model id its compile pinned on: the id's prefix
+before its first `/` (`spark-glm` for `spark-glm/GLM-5.3-Flash-EXL3`),
+else the driver's default route, which only dsh has (it serves a bare id
+such as `deepseek-flash` on `deepseek-official`, so a host that runs dsh
+on it declares that route); under any other driver an id with no `/` has
+no route. The id is the one the adapter maps an agent's model to, or an
+inline seat's own `--model` and `--fallback-model`. Each run's manifest
+carries those ids and routes (`run-manifest/v13`), so a running run
+counts once against each provider
 and route its own compile seated, whatever another workspace's adapters
 say now; a running run whose manifest carries none, one started before
 v13 included, makes every entry wait until it ends.

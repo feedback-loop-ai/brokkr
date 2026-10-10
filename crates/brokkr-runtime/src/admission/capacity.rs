@@ -6,9 +6,11 @@
 //! sides: the entry's, compiled as its start would compile it, and each
 //! running run's, as the journal pinned it. A seat is each candidate the
 //! manifest's capability records name, fallbacks included, since any of
-//! them may be seated: its provider, and the route of each concrete model
-//! id its compile pinned for it (`run-manifest/v13`; the prefix before the
-//! first `/`, decision 0036 ruling 2). Nothing is resolved again through
+//! them may be seated: its provider, and the route its compile pinned for
+//! each concrete model id it may be served (`run-manifest/v13`): the one
+//! its driver serves the id on, the id's own prefix before the first `/`
+//! (decision 0036 ruling 2) or the driver's default route, as dsh serves a
+//! bare id on `deepseek-official`. Nothing is resolved again through
 //! anyone's adapters, so a run is counted by what its own compile seated
 //! whichever workspace admits beside it; a manifest that does not pin what
 //! it seats, or pins it unreadably, cannot be measured. A run counts once
@@ -41,7 +43,7 @@ use thiserror::Error;
 
 use super::host::{self, HostConfig, Hosting, Provider, Route, RouteClass};
 use super::{AdmissionError, Judged};
-use crate::capabilities::manifest::{route, ModelPins};
+use crate::capabilities::manifest::ModelPins;
 use crate::launch::{LaunchError, QueuedLaunch};
 
 /// The machine an admission pass measures, its effects injected: where
@@ -391,13 +393,13 @@ impl Seats {
                 model_pins,
             } in candidates
             {
-                let ids = match model_pins {
-                    ModelPins::Read(ids) => ids,
+                let served = match model_pins {
+                    ModelPins::Read(served) => served,
                     ModelPins::Unreadable(flags) => return Err(Unmeasurable::Pin { site, flags }),
                 };
-                let routes: Vec<Option<String>> = match ids.is_empty() {
+                let routes: Vec<Option<String>> = match served.is_empty() {
                     true => vec![None],
-                    false => ids.iter().map(|id| route(id).map(str::to_string)).collect(),
+                    false => served.into_iter().map(|served| served.route).collect(),
                 };
                 lanes.extend(routes.into_iter().map(|route| Lane {
                     provider: provider.clone(),

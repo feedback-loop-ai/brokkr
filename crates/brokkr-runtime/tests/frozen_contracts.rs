@@ -1114,10 +1114,9 @@ fn the_v13_manifest_schema_adds_only_each_candidates_model_pins() {
         .remove("model_pins");
     let required = candidate["required"].as_array_mut().unwrap();
     required.retain(|name| name != "model_pins");
-    carried["definitions"]
-        .as_object_mut()
-        .unwrap()
-        .remove("model_pins");
+    let definitions = carried["definitions"].as_object_mut().unwrap();
+    definitions.remove("model_pins");
+    definitions.remove("served");
     for key in ["$id", "title", "description"] {
         carried[key] = v12[key].clone();
     }
@@ -1133,7 +1132,9 @@ fn the_v13_manifest_schema_adds_only_each_candidates_model_pins() {
     let unpinned = v12_manifest(json!({}));
     assert!(v12.is_valid(&unpinned) && !v13.is_valid(&unpinned));
     for admitted in [
-        json!({"read": ["spark-glm/GLM-5.3-Flash-EXL3", "cloud/x"]}),
+        json!({"read": [{"id": "spark-glm/GLM-5.3-Flash-EXL3", "route": "spark-glm"},
+                        {"id": "deepseek-flash", "route": "deepseek-official"},
+                        {"id": "opus-5"}]}),
         json!({"read": []}),
         json!({"unreadable": ["-m", "--model"]}),
     ] {
@@ -1146,8 +1147,13 @@ fn the_v13_manifest_schema_adds_only_each_candidates_model_pins() {
     for refused in [
         json!(null),
         json!(["spark-glm/x"]),
-        json!({"read": ["a"], "unreadable": ["--model"]}),
-        json!({"read": [""]}),
+        json!({"read": [{"id": "a"}], "unreadable": ["--model"]}),
+        json!({"read": ["spark-glm/x"]}),
+        json!({"read": [{"id": ""}]}),
+        json!({"read": [{"id": "a", "route": ""}]}),
+        json!({"read": [{"id": "a", "route": null}]}),
+        json!({"read": [{"route": "spark-glm"}]}),
+        json!({"read": [{"id": "a", "routes": ["spark-glm"]}]}),
         json!({"route": "spark-glm"}),
     ] {
         assert!(!v13.is_valid(&pinned(refused.clone())), "{refused}");

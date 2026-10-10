@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://feedback-loop.ai/forge/contracts/run-manifest.v13.json",
   "title": "Forge run manifest v13",
-  "description": "v12 plus what each capability candidate is served on (decision 0068 ruling 3, #430): every candidate record carries one REQUIRED model_pins record, the concrete model ids the compile read for it, so admission counts a running run by what its own compile seated and never resolves an abstract model again through another workspace's adapters. An agent candidate's id is the one its adapter maps its model to; an inline built-in model driver's are its --model pin and any --fallback-model, primary first; a driver that takes no model (exec, a custom command) reads none. Where an inline pin cannot be read as one concrete id the record names the flags instead, and admission holds a run that seats it. A route is the prefix of an id before its first /. No other clause moved. As in v12 the capabilities key is BUNDLE identity, so a changed pin moves the bundle digest.",
+  "description": "v12 plus what each capability candidate is served on (decision 0068 ruling 3, #430): every candidate record carries one REQUIRED model_pins record, the concrete model ids the compile read for it, so admission counts a running run by what its own compile seated and never resolves an abstract model again through another workspace's adapters. An agent candidate's id is the one its adapter maps its model to; an inline built-in model driver's are its --model pin and any --fallback-model, primary first; a driver that takes no model (exec, a custom command) reads none. Where an inline pin cannot be read as one concrete id the record names the flags instead, and admission holds a run that seats it. Each id carries the route its driver serves it on: the id's prefix before its first /, else the driver's default route (dsh serves a bare id on deepseek-official). No other clause moved. As in v12 the capabilities key is BUNDLE identity, so a changed pin moves the bundle digest.",
   "type": "object",
   "required": ["engine", "event_schema", "database_schema", "driver_protocol", "bundle_name", "files", "capabilities"],
   "additionalProperties": false,
@@ -190,13 +190,13 @@
       }
     },
     "model_pins": {
-      "description": "the concrete model ids the compile read for one candidate, primary first, each with its route before its first / (read: none for a driver that takes no model), or the flags on which an inline pin could not be read as one concrete id (unreadable)",
+      "description": "the concrete model ids the compile read for one candidate, primary first, each with the route its driver serves it on where it has one (read: none for a driver that takes no model), or the flags on which an inline pin could not be read as one concrete id (unreadable)",
       "oneOf": [
         {
           "type": "object",
           "required": ["read"],
           "additionalProperties": false,
-          "properties": {"read": {"type": "array", "items": {"type": "string", "minLength": 1}}}
+          "properties": {"read": {"type": "array", "items": {"$ref": "#/definitions/served"}}}
         },
         {
           "type": "object",
@@ -205,6 +205,16 @@
           "properties": {"unreadable": {"type": "array", "items": {"type": "string", "minLength": 1}}}
         }
       ]
+    },
+    "served": {
+      "description": "one concrete model id and the route the candidate's driver serves it on: the id's prefix before its first /, else the driver's default route (dsh serves a bare id on deepseek-official); absent where the driver serves the id on none",
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "route": {"type": "string", "minLength": 1}
+      }
     },
     "capability_candidate": {
       "type": "object",

@@ -8,6 +8,7 @@
 //! or call id is a fact of a holding, so none reaches identity.
 
 use brokkr_core::realms::GrantRetention;
+use brokkr_protocol::adapters::AdapterKind;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -162,16 +163,45 @@ impl Outcome {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum ModelPins {
-    /// The ids, primary first, each with its route before the first `/`.
-    Read(Vec<String>),
+    /// The ids, primary first, each with the route its driver serves it on.
+    Read(Vec<Served>),
     /// The flags on which the compile could not read one concrete id.
     Unreadable(Vec<String>),
+}
+
+/// One concrete id and the route the candidate's driver serves it on,
+/// where it has one ([`served_route`]).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Served {
+    pub(crate) id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) route: Option<String>,
+}
+
+impl Served {
+    /// `id` as a driver of `harness` serves it.
+    pub(crate) fn on(harness: &str, id: String) -> Served {
+        let route = served_route(harness, &id).map(str::to_string);
+        Served { id, route }
+    }
 }
 
 /// A concrete model id's route: its prefix before the first `/`, where it
 /// has one (decision 0036 ruling 2).
 pub(crate) fn route(model_id: &str) -> Option<&str> {
-    model_id.split_once('/').map(|(route, _)| route)
+    brokkr_protocol::adapters::split_route(model_id).0
+}
+
+/// The route a driver of `harness` serves `model_id` on: the built-in
+/// driver's own rule, its default route included (a bare dsh id is served
+/// on dsh's default), and an id's own [`route`] under a command no
+/// built-in driver dispatches.
+pub(crate) fn served_route<'a>(harness: &str, model_id: &'a str) -> Option<&'a str> {
+    match AdapterKind::parse(harness) {
+        Some(kind) => kind.served_route(model_id),
+        None => route(model_id),
+    }
 }
 
 impl SiteCapabilities {

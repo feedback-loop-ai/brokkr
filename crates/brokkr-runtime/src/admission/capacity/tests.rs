@@ -153,11 +153,14 @@ impl Fixture {
             .unwrap();
     }
 
-    /// A running run whose compile pinned each `(provider, model id)`,
-    /// boxed or not.
+    /// A running run whose compile pinned each `(provider, model id)`, on
+    /// the id's own route, boxed or not.
     fn seating(&mut self, name: &str, seats: &[(&str, &str)], boxed: bool) {
         let candidates: Vec<Value> = (seats.iter())
-            .map(|(provider, id)| json!({"provider": provider, "model_pins": {"read": [id]}}))
+            .map(|(provider, id)| {
+                let served = json!({"id": id, "route": crate::capabilities::manifest::route(id)});
+                json!({"provider": provider, "model_pins": {"read": [served]}})
+            })
             .collect();
         let mut manifest = json!({"capabilities": {"sites": {"work": {"candidates": candidates}}}});
         if boxed {
@@ -573,6 +576,37 @@ fn the_scratch_floor_measures_the_seat_scratch_or_the_declared_path_and_waits_be
 }
 
 #[test]
+fn a_scratch_path_through_a_dangling_link_is_unmeasured_and_never_measured_on_its_parent() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let link = fixture.root.join("scratch-link");
+    std::os::unix::fs::symlink(fixture.root.join("gone"), &link).unwrap();
+    let measured = |path: PathBuf| {
+        let mut declared = ceilings(1, 1, json!({}));
+        declared["scratch"]["path"] = json!(path);
+        let file = fixture.declare(&declared);
+        let host = Host {
+            file: &file,
+            free: &host::free_bytes,
+        };
+        let mut reasons = verdicts(pass_within(&fixture.store, &host).unwrap()).remove(0);
+        let reason = reasons.pop().unwrap();
+        (reason.to_string(), reason)
+    };
+    for path in [link.clone(), link.join("scratch")] {
+        let unmeasured = Capacity::ScratchUnmeasured {
+            path: path.clone(),
+            kind: io::ErrorKind::NotFound,
+        };
+        let says = format!(
+            "the scratch filesystem at {} cannot be measured: entity not found",
+            path.display()
+        );
+        assert_eq!(measured(path), (says, Reason::Capacity(unmeasured)));
+    }
+}
+
+#[test]
 fn a_boxed_entry_waits_while_the_boxed_builds_running_reach_their_ceiling() {
     let mut fixture = Fixture::new();
     let boxed = json!({"results": ["clean"], "role": "roles/work.md",
@@ -749,6 +783,64 @@ fn an_inline_model_seat_is_judged_by_the_route_its_command_pins() {
         fixture.room(&fixture.declare(&dsh(json!({})))),
         Some(undeclared)
     );
+}
+
+#[test]
+fn a_bare_and_a_qualified_dsh_id_are_both_counted_against_the_route_dsh_serves_them_on() {
+    // dsh serves a bare id on its default route, deepseek-official, so a
+    // running run seating `flash` (`deepseek-flash`) fills that route for
+    // an entry seating it qualified, and for one seating it bare.
+    let mut fixture = Fixture::new();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/dsh.json");
+    let mut dsh: Value = serde_json::from_slice(&std::fs::read(repo).unwrap()).unwrap();
+    dsh["models"]["official"] = json!("deepseek-official/deepseek-v4-pro");
+    fixture.write("adapters/dsh.json", dsh);
+    for (agent, model) in [("bare", "flash"), ("qualified", "official")] {
+        let body = json!({"description": agent, "charter": "charters/work.md",
+                          "models": [model], "efforts": {model: "high"}});
+        fixture.write(&format!("agents/{agent}.json"), body);
+    }
+    fixture.seat("bare", "bare");
+    fixture.started("flash");
+    fixture.seat("qualified", "qualified");
+    fixture.queue();
+    let dsh = |routes: Value| host(json!({"dsh": {"ceiling": 9, "routes": routes}}));
+    let official = |ceiling| dsh(json!({"deepseek-official": route(ceiling, "cloud")}));
+    let full = routed_full("dsh", "deepseek-official", RouteClass::Cloud, 1, 1);
+    assert_eq!(fixture.room(&fixture.declare(&official(1))), full);
+    assert_eq!(
+        full.unwrap().to_string(),
+        "cloud route deepseek-official of provider dsh is full: 1 running against a ceiling of 1"
+    );
+    assert_eq!(fixture.room(&fixture.declare(&official(2))), None);
+    fixture.seat("bare", "bare");
+    assert_eq!(fixture.room(&fixture.declare(&official(2))), None);
+    let full = routed_full("dsh", "deepseek-official", RouteClass::Cloud, 1, 1);
+    assert_eq!(fixture.room(&fixture.declare(&official(1))), full);
+
+    // The route omitted from the host file waits as undeclared.
+    let undeclared = Capacity::RouteUndeclared {
+        provider: "dsh".into(),
+        route: "deepseek-official".into(),
+    };
+    assert_eq!(
+        fixture.room(&fixture.declare(&dsh(json!({})))),
+        Some(undeclared.clone())
+    );
+    assert_eq!(
+        undeclared.to_string(),
+        "the host configuration declares no ceiling for route deepseek-official of provider dsh"
+    );
+}
+
+#[test]
+fn a_running_lane_on_a_provider_the_host_does_not_declare_is_counted_as_cloud() {
+    let config: HostConfig = serde_json::from_value(ceilings(1, 1, json!({}))).unwrap();
+    let lane = Lane {
+        provider: "gamma".into(),
+        route: Some("spark-glm".into()),
+    };
+    assert_eq!(class(&config, &lane), RouteClass::Cloud);
 }
 
 #[test]

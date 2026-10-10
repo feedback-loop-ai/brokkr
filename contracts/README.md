@@ -840,12 +840,17 @@ frozen files:
 
 `run-manifest.v13` is `v12` with each capability candidate closed over one
 more REQUIRED record, `model_pins`, and no other clause moved. It is
-either `{"read": [...]}`, the concrete model ids the compile read for the
-candidate, primary first — an agent candidate's the id its adapter maps
-its model to, an inline built-in model driver's its `--model` pin and any
-`--fallback-model`, and none for a driver that takes no model — or
-`{"unreadable": [...]}`, the flags on which an inline pin could not be read
-as one concrete id. A route is an id's prefix before its first `/`.
+either `{"read": [{"id": ..., "route": ...}]}`, the concrete model ids the
+compile read for the candidate, primary first — an agent candidate's the
+id its adapter maps its model to, an inline built-in model driver's its
+`--model` pin and any `--fallback-model`, and none for a driver that takes
+no model — or `{"unreadable": [...]}`, the flags on which an inline pin
+could not be read as one concrete id. Each id carries the route its
+driver serves it on, from the rule the driver itself reads
+(`brokkr-protocol`'s `adapters/served_route.rs`): the id's prefix before
+its first `/`, else the driver's default route, which only dsh has (a
+bare id is served on `deepseek-official`); `route` is absent where the
+driver serves the id on none.
 Admission counts a running run by these pins and never resolves an
 abstract model again through the adapters of whichever workspace admits
 beside it; a run whose candidates carry no pin, a v12 run included, or an

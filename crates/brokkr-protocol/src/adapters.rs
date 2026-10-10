@@ -23,6 +23,7 @@ mod composite;
 mod dsh_stderr;
 mod mcp;
 mod route_overlay;
+mod served_route;
 mod start;
 // Design D6 (b) seals the producer: the seams, the structured
 // observation, its error and the one entry point. Every parser, hasher,
@@ -33,6 +34,7 @@ pub use composite::{
     DshPrepared, DshSeams, DshSelection, DshUnprepared, DshUnselected,
 };
 pub use mcp::StrictCause;
+pub use served_route::split_route;
 
 use crate::dsh_sandbox;
 use crate::hands::GitFacts;
@@ -5692,15 +5694,10 @@ fn invoke_with_stager(
     }
 }
 
-/// The provider row dsh's headless profile boots its agent on when the
-/// pinned model names none. A patch overlay replaces the targeted row's
-/// WHOLE config (dsh-base's own words), so the overlay that pins a
-/// model must restate the provider or the boot loses it.
-const DSH_PROVIDER: &str = "deepseek-official";
-
 /// One pinned model, as dsh addresses it: a provider route in the
 /// profile tree and a model id that route serves. `<id>` alone is the
-/// official DeepSeek route; `<provider>/<id>` names another route the
+/// official DeepSeek route ([`served_route`]'s one rule, the compile's
+/// pin reading it too); `<provider>/<id>` names another route the
 /// profile declares — `dashscope/qwen3.8-max` for Model Studio. The
 /// split is on the FIRST slash, exactly as decision 0036 ruling 2 reads
 /// a concrete id: the route is the first segment and everything after
@@ -5723,10 +5720,7 @@ fn parse_dsh_model(pinned: &str) -> Result<DshModel<'_>, String> {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':'))
     };
-    let (provider, model) = match pinned.split_once('/') {
-        Some((provider, model)) => (provider, model),
-        None => (DSH_PROVIDER, pinned),
-    };
+    let (provider, model) = (served_route::dsh_route(pinned), split_route(pinned).1);
     if !plain(provider) || !model.split('/').all(plain) {
         return Err(
             "dsh driver: the pinned model is not `<id>` or `<provider>/<id>` of plain \

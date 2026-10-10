@@ -19,7 +19,7 @@
           "ceiling": { "$ref": "#/definitions/ceiling", "description": "The running runs that seat this provider, each counted once, below which another may start. A seat on a shared-local route of the provider is not counted here." },
           "routes": {
             "type": "object",
-            "description": "Route name, the prefix before the first / of a concrete model id the adapter maps (decision 0036 ruling 2), to its ceiling and class. A route a queued run would seat that is not named here holds the run undeclared.",
+            "description": "Route name, the route a seat's driver serves the concrete model id the adapter maps on: the id's prefix before its first / (decision 0036 ruling 2), else the driver's default route (dsh serves a bare id on deepseek-official), to its ceiling and class. A route a queued run would seat that is not named here holds the run undeclared.",
             "additionalProperties": { "$ref": "#/definitions/route" }
           }
         }

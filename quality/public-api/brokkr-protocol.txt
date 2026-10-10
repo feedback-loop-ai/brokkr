@@ -28,6 +28,8 @@ pub brokkr_protocol::adapters::AdapterKind::Exec
 pub brokkr_protocol::adapters::AdapterKind::Lanetally
 impl brokkr_protocol::adapters::AdapterKind
 pub fn brokkr_protocol::adapters::AdapterKind::parse(&str) -> core::option::Option<brokkr_protocol::adapters::AdapterKind>
+impl brokkr_protocol::adapters::AdapterKind
+pub fn brokkr_protocol::adapters::AdapterKind::served_route(self, &str) -> core::option::Option<&str>
 pub enum brokkr_protocol::adapters::CompositeError
 pub brokkr_protocol::adapters::CompositeError::Component(&'static str, alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::Config(alloc::string::String)
@@ -113,6 +115,7 @@ pub fn brokkr_protocol::adapters::dsh_composite_prepared(&brokkr_protocol::adapt
 pub fn brokkr_protocol::adapters::lanetally_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::render_prompt(&serde_json::value::Value, brokkr_protocol::adapters::AdapterKind) -> core::result::Result<alloc::string::String, brokkr_protocol::adapters::StartRefusal>
 pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>) -> core::io::error::Result<()>
+pub fn brokkr_protocol::adapters::split_route(&str) -> (core::option::Option<&str>, &str)
 pub mod brokkr_protocol::broker
 pub enum brokkr_protocol::broker::Network
 pub brokkr_protocol::broker::Network::Isolated
