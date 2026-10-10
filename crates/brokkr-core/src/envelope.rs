@@ -45,27 +45,33 @@ pub enum EventType {
     RunStopped,
 }
 
+/// Every type's wire name, in declaration order, so [`EventType::as_str`]
+/// indexes it by discriminant. Its length is typed by the last variant, so
+/// a missing or extra entry does not compile, and each entry is held to
+/// serde's name by `every_event_type_names_itself_as_serde_does`.
+const WIRE_NAMES: [&str; EventType::RunStopped as usize + 1] = [
+    "run/started",
+    "phase/entered",
+    "effect/requested",
+    "effect/started",
+    "effect/checkpointed",
+    "effect/succeeded",
+    "effect/failed",
+    "effect/indeterminate",
+    "transition/decided",
+    "operator/commanded",
+    "operator/accepted",
+    "operator/rejected",
+    "run/parked",
+    "run/completed",
+    "run/stopped",
+];
+
 impl EventType {
     /// The wire name serde writes for this type, for readers that name an
     /// event without serializing it.
     pub const fn as_str(self) -> &'static str {
-        match self {
-            EventType::RunStarted => "run/started",
-            EventType::PhaseEntered => "phase/entered",
-            EventType::EffectRequested => "effect/requested",
-            EventType::EffectStarted => "effect/started",
-            EventType::EffectCheckpointed => "effect/checkpointed",
-            EventType::EffectSucceeded => "effect/succeeded",
-            EventType::EffectFailed => "effect/failed",
-            EventType::EffectIndeterminate => "effect/indeterminate",
-            EventType::TransitionDecided => "transition/decided",
-            EventType::OperatorCommanded => "operator/commanded",
-            EventType::OperatorAccepted => "operator/accepted",
-            EventType::OperatorRejected => "operator/rejected",
-            EventType::RunParked => "run/parked",
-            EventType::RunCompleted => "run/completed",
-            EventType::RunStopped => "run/stopped",
-        }
+        WIRE_NAMES[self as usize]
     }
 }
 
