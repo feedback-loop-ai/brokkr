@@ -141,25 +141,7 @@ fn js_truthiness_and_the_fixed_tables_are_ported_whole() {
     assert_eq!(Status::Completed.as_str(), "completed");
     assert_eq!(Status::Stopped.as_str(), "stopped");
 
-    for (event_type, name) in [
-        (EventType::RunStarted, "run/started"),
-        (EventType::PhaseEntered, "phase/entered"),
-        (EventType::EffectRequested, "effect/requested"),
-        (EventType::EffectStarted, "effect/started"),
-        (EventType::EffectCheckpointed, "effect/checkpointed"),
-        (EventType::EffectSucceeded, "effect/succeeded"),
-        (EventType::EffectFailed, "effect/failed"),
-        (EventType::EffectIndeterminate, "effect/indeterminate"),
-        (EventType::TransitionDecided, "transition/decided"),
-        (EventType::OperatorCommanded, "operator/commanded"),
-        (EventType::OperatorAccepted, "operator/accepted"),
-        (EventType::OperatorRejected, "operator/rejected"),
-        (EventType::RunParked, "run/parked"),
-        (EventType::RunCompleted, "run/completed"),
-        (EventType::RunStopped, "run/stopped"),
-    ] {
-        assert_eq!(type_str(event_type), name);
-    }
+    // Each type's wire name is `EventType::as_str`'s, pinned in brokkr-core.
     assert_eq!(type_tail("effect/succeeded"), "succeeded");
     assert_eq!(type_tail("bare"), "");
 
