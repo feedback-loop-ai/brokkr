@@ -1,6 +1,7 @@
 //! A reader of the attributes and `cfg!` invocations in Rust source, for
 //! the test files that judge them: `suppressions.rs` counts lint
-//! suppressions and `hosts.rs` refuses a Windows conditional.
+//! suppressions, `hosts.rs` refuses a Windows conditional, and
+//! `doc_truth.rs` reads the comments.
 //! `tests/it.rs` declares this once, so the lexer has one home. The
 //! `--test it` gate does not read source for a module's tests (#543): the
 //! binary's own list is the fact.
@@ -81,6 +82,26 @@ fn skip_comment(s: &[char], at: usize) -> Result<usize, String> {
         }
         _ => Ok(at),
     }
+}
+
+/// Every comment in `source` as written, `//`, `///`, `//!` and `/* */`
+/// alike, each with the line it starts on, counted from 1: what the
+/// source says in prose, for `doc_truth` (#365).
+pub(crate) fn comments(source: &str) -> Result<Vec<(usize, String)>, String> {
+    let s: Vec<char> = source.chars().collect();
+    let (mut out, mut i, mut line) = (Vec::new(), 0, 1);
+    while i < s.len() {
+        let comment = skip_comment(&s, i)?;
+        let next = if comment == i {
+            skip_literal(&s, i)?.max(i + 1)
+        } else {
+            out.push((line, s[i..comment].iter().collect()));
+            comment
+        };
+        line += s[i..next].iter().filter(|&&c| c == '\n').count();
+        i = next;
+    }
+    Ok(out)
 }
 
 /// Advances past whitespace and comments at `at`.

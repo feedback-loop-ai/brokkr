@@ -15,9 +15,9 @@
 
 Brokkr is a deterministic delivery engine for autonomous multi-agent software delivery: you give it a feature and a reviewable recipe, its agents implement, verify, review and ship, and its event-sourced phase machine records every result and ruling in a journal you can replay and audit.
 
-The [v0.10.0 release](docs/releases/v0.10.0.md) adds named execution boundaries,
-explicit finding closure, and release preparation through a configurable
-[release manager](recipes/release/README.md).
+The [v0.12.0 release](docs/releases/v0.12.0.md) makes every capability the
+realm's to grant, opens a terminal console that shows who must act, and adds
+gates that hold the code to its architecture.
 
 ## Install
 

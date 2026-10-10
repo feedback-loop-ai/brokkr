@@ -15,7 +15,7 @@ reads effort `not applicable`, as the adapter's `effortless_routes`
 entry for `spark-glm` says. Its chain holds that one model and no
 fallback, and the recipe declares `forced_crew` (decision 0041's addendum
 of 2026-10-07): a wager forces the arm it measures. The charter is
-fast's own, the library's `charters/implementer-intakeless.md`; limits,
+fast's own, `agents/charters/implementer-intakeless.md`; limits,
 results, class, the phase table, and every gate are `fast`'s, inherited.
 
 ## Parity, judged and recorded (2026-09-02)
