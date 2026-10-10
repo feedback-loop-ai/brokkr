@@ -13,6 +13,7 @@ use brokkr_core::dispatch::{
 };
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{computed_inputs, Cursor, RunState, Status};
+use brokkr_core::gate_moved_head::{self, MovedHead};
 use brokkr_core::policy::Outcome;
 use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
@@ -953,7 +954,7 @@ impl Engine {
             }
             Cursor::Decide { result, .. } => self.decide(&state, result)?,
             Cursor::Park { reason } => {
-                let evidence = if reason == "GATE-MOVED-HEAD" {
+                let evidence = if reason == gate_moved_head::PREFIX {
                     gate_head_evidence(events)
                 } else {
                     json!({})
@@ -1013,7 +1014,10 @@ impl Engine {
         if start == end {
             return Ok(None);
         }
-        let evidence = json!({"head_at_start": start, "head_at_end": end});
+        let moved = MovedHead {
+            head_at_end: end,
+            head_at_start: start,
+        };
         // EffectIndeterminate has only a reason string in the frozen event
         // contract. Keep the evidence packed there and attach its structured
         // copy to run/parked rather than widening that contract in this slice.
@@ -1022,7 +1026,7 @@ impl Engine {
             json!({
                 "effect_id": effect_id,
                 "attempt_id": attempt_id,
-                "reason": format!("GATE-MOVED-HEAD {evidence}"),
+                "reason": gate_moved_head::encode(&moved),
             }),
             attempt_id,
         )
@@ -4783,17 +4787,16 @@ fn arms_effect_gate_head(body: &ExecutableBody<'_>, seat: &Seat, strategy: Optio
 
 /// Recover the raw observations carried by the most recent gate defect. The
 /// indeterminate reason is an existing string field; the structured copy is
-/// attached to `run/parked`, the contract's evidence envelope.
+/// attached to `run/parked`, the contract's evidence envelope. Any JSON the
+/// marker carries is passed through as it reads, as before the codec; typing
+/// it as `MovedHead` would narrow what a journal may hold and awaits a ruling.
 fn gate_head_evidence(events: &[EventEnvelope]) -> Value {
     events
         .iter()
         .rev()
         .filter(|event| event.event_type == EventType::EffectIndeterminate)
         .find_map(|event| {
-            event.payload["reason"]
-                .as_str()?
-                .strip_prefix("GATE-MOVED-HEAD ")
-                .and_then(|raw| serde_json::from_str(raw).ok())
+            gate_moved_head::decode::<Value>(event.payload["reason"].as_str()?).and_then(Result::ok)
         })
         .unwrap_or(json!({}))
 }
@@ -4814,6 +4817,8 @@ mod cleanup_tests;
 mod conclude_tests;
 #[cfg(test)]
 mod contention_tests;
+#[cfg(test)]
+mod gate_head_tests;
 #[cfg(test)]
 mod notice_tests;
 #[cfg(test)]

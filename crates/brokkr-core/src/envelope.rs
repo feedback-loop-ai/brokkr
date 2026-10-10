@@ -45,6 +45,40 @@ pub enum EventType {
     RunStopped,
 }
 
+/// Every type's wire name, in declaration order, so [`EventType::as_str`]
+/// indexes it by discriminant. Its length is typed by the last variant, so
+/// a missing or extra entry does not compile, and each entry is held to
+/// serde's name by `every_event_type_names_itself_as_serde_does`.
+const WIRE_NAMES: [&str; EventType::RunStopped as usize + 1] = [
+    "run/started",
+    "phase/entered",
+    "effect/requested",
+    "effect/started",
+    "effect/checkpointed",
+    "effect/succeeded",
+    "effect/failed",
+    "effect/indeterminate",
+    "transition/decided",
+    "operator/commanded",
+    "operator/accepted",
+    "operator/rejected",
+    "run/parked",
+    "run/completed",
+    "run/stopped",
+];
+
+impl EventType {
+    /// The wire name serde writes for this type, for readers that name an
+    /// event without serializing it.
+    pub const fn as_str(self) -> &'static str {
+        WIRE_NAMES[self as usize]
+    }
+}
+
+/// The one `event_schema_version` this envelope is, and the only one a
+/// chain verifies.
+pub const EVENT_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EventEnvelope {
@@ -72,7 +106,9 @@ pub enum ChainError {
     BrokenChain { seq: u64, prev_seq: u64 },
     #[error("event {seq}: event_hash does not match canonical content")]
     BadHash { seq: u64 },
-    #[error("event {seq}: event_schema_version {found} is not supported (want 1)")]
+    #[error(
+        "event {seq}: event_schema_version {found} is not supported (want {EVENT_SCHEMA_VERSION})"
+    )]
     BadSchemaVersion { seq: u64, found: u32 },
     #[error("event {seq}: run_id differs from the journal's run")]
     ForeignRun { seq: u64 },
@@ -130,7 +166,7 @@ pub fn verify_chain_after(
                 expected: expected_seq,
             });
         }
-        if event.event_schema_version != 1 {
+        if event.event_schema_version != EVENT_SCHEMA_VERSION {
             return Err(ChainError::BadSchemaVersion {
                 seq: event.seq,
                 found: event.event_schema_version,

@@ -34,7 +34,6 @@ use crate::dialect::{Dialect, DIALECT_PHASES};
 use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const EVENT_SCHEMA: u32 = 1;
 pub const DRIVER_PROTOCOL: u32 = 1;
 
 #[derive(Debug, Error)]
@@ -7088,7 +7087,7 @@ fn manifest_for(
     }
     let mut manifest = json!({
         "engine": ENGINE_VERSION,
-        "event_schema": EVENT_SCHEMA,
+        "event_schema": brokkr_core::envelope::EVENT_SCHEMA_VERSION,
         "database_schema": brokkr_store::DATABASE_SCHEMA,
         "driver_protocol": DRIVER_PROTOCOL,
         "bundle_name": bundle_name,
