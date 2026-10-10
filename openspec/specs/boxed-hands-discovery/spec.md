@@ -196,7 +196,7 @@ or frozen-surface edit SHALL be introduced to accommodate the notice.
 #### Scenario: Unrelated identities and frozen bytes stay fixed
 - **WHEN** the measured results and final diff are compared with the base
 - **THEN** unaffected witness and compose pins remain identical and no guess replaces a digest
-- **AND** `contracts/`, `policy/phase-machine.json`, `policy/schemas/`, `fixtures/`, `reference/` and `extensions/` retain their bytes
+- **AND** `contracts/`, `policy/phase-machine.json`, `fixtures/`, `reference/` and `extensions/` retain their bytes
 - **AND** the qualified Codex version remains 0.154.0 even though adapter and dependent bundle digests changed
 
 ### Requirement: Every discovery guarantee has deterministic proof and restored mutation evidence

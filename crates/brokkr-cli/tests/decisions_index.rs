@@ -293,6 +293,7 @@ struct Row {
 struct Gap {
     number: u16,
     line: usize,
+    note: String,
 }
 
 /// Where a finding stands: a file in `docs/decisions`, and the line at
@@ -708,7 +709,11 @@ fn read_gap((line, at): (&str, usize), findings: &mut Vec<Located>) -> Option<Ga
     if cells[1].is_empty() {
         findings.push(place.holds(Finding::UnexplainedGap { number }));
     }
-    Some(Gap { number, line: at })
+    Some(Gap {
+        number,
+        line: at,
+        note: cells[1].to_string(),
+    })
 }
 
 /// Every decision, the index's rows and gaps, and what reading them found.
@@ -1098,6 +1103,28 @@ fn index_rows() -> Vec<(String, String, String)> {
         .into_iter()
         .map(|row| (row.number, row.file, row.status))
         .collect()
+}
+
+/// What a gap's note opens with when a proposed decision on an unmerged
+/// branch holds the number.
+const CLAIMED: &str = "Claimed by the proposed decision ";
+
+/// The status a citation may give each number the index holds (#365): a
+/// decision's row status, which `the_ledger_in_the_tree_breaks_no_rule`
+/// holds to its file, or `proposed` for a gap [`CLAIMED`] by a proposed
+/// decision on an unmerged branch. Another gap holds no decision.
+pub(crate) fn cited_statuses() -> BTreeMap<u16, String> {
+    let ledger = Ledger::read();
+    let rows = ledger.rows.into_iter().map(|row| {
+        let number = decision_number(&row.number).expect("a read row's number");
+        (number, row.status)
+    });
+    let claimed = ledger
+        .gaps
+        .into_iter()
+        .filter(|gap| gap.note.starts_with(CLAIMED))
+        .map(|gap| (gap.number, Status::Proposed.word().to_string()));
+    rows.chain(claimed).collect()
 }
 
 #[test]

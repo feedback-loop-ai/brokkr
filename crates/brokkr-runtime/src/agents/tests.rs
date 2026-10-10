@@ -5791,8 +5791,8 @@ fn the_shipped_codex_declares_the_notice_and_keeps_its_launch_and_qualification(
              fell back to apply_patch.",
             "Same wager: gpt-6-sol and gpt-6-luna never called tool_search, met native-write \
              refusals and stopped without result files. No other arm's outcome is claimed.",
-            "These 2026-09-24 hands-discovery observations motivate hands.notice (proposed \
-             decision 0069) and qualify nothing: 0.156.0 resume stays unqualified, identity \
+            "These 2026-09-24 hands-discovery observations motivate hands.notice (decision \
+             0069) and qualify nothing: 0.156.0 resume stays unqualified, identity \
              stays 0.154.0, and task 11.1 still awaits its operator ruling.",
         ]
     );

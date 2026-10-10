@@ -92,6 +92,8 @@ driver → engine:  capabilities · accepted · checkpoint · result · cancelle
 
 ## The exchange, in order
 
+<!-- illustrative version -->
+
 ```
 engine → { "type": "hello", "engine_version": "0.5.0" }
 driver → { "type": "capabilities", "driver": "my-driver", "version": "1.0.0", "supports": [] }
@@ -153,6 +155,8 @@ attempt opened, so a retry or a phase-machine re-entry continues a warm
 provider session instead of paying for a cold one (decision 0030; the
 measured effect on codex is a cache-read ratio of ~74% cold against ~88%
 on the resumed attempt).
+
+<!-- illustrative version -->
 
 ```
 engine → { "type": "hello", "engine_version": "0.7.0" }

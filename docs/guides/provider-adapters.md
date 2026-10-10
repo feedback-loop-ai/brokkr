@@ -377,7 +377,7 @@ A harness that **defers** MCP tools does not show a boxed seat its only
 writer until the seat searches for it. Codex 0.156.0 does this behind
 `tool_search`, with no switch to turn it off. Such an adapter declares,
 beside its `workspace` fragment, the two tool names a seat needs to find
-its hands (proposed decision
+its hands (decision
 [0069](../decisions/0069-a-boxed-seat-is-told-how-to-find-its-hands.md)):
 
 ```json
