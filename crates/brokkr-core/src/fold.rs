@@ -6,12 +6,19 @@
 //! that violates the protocol is corrupt, not reinterpretable.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde_json::{Map, Value};
 use thiserror::Error;
 
 use crate::envelope::{EventEnvelope, EventType};
+use crate::gate_moved_head;
 use crate::policy::STRATEGIES;
+
+/// The phase whose ruling, when it is one of [`STRATEGIES`], sets the
+/// run's `strategy`. It belongs beside `STRATEGIES` in `policy.rs`; it
+/// lives here, with its one reader, until that file is free to move.
+const STRATEGY_PHASE: &str = "triage";
 
 /// Results that universally count toward the consecutive-failure counter,
 /// matching the production table's retry/hard-stop rules. A strategy-local
@@ -73,6 +80,40 @@ pub enum Cursor {
     Stop,
     /// Parked or terminal: nothing to do without an operator event.
     Idle,
+}
+
+/// The cursor as readouts and refusals name it: the variant and the ids
+/// and count that place it, never a seat's result or a park's free text.
+/// `Debug` stays the whole value, for the replay check.
+impl fmt::Display for Cursor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&match self {
+            Cursor::Start => "Start".to_string(),
+            Cursor::EnterPhase { phase } => format!("EnterPhase {{ phase: {phase:?} }}"),
+            Cursor::RequestEffect => "RequestEffect".to_string(),
+            Cursor::ExecuteEffect {
+                effect_id,
+                seat,
+                failed_attempts,
+            } => format!(
+                "ExecuteEffect {{ effect_id: {effect_id:?}, seat: {seat:?}, \
+                 failed_attempts: {failed_attempts} }}"
+            ),
+            Cursor::EffectInFlight {
+                effect_id,
+                attempt_id,
+                seat,
+                failed_attempts,
+            } => format!(
+                "EffectInFlight {{ effect_id: {effect_id:?}, attempt_id: {attempt_id:?}, \
+                 seat: {seat:?}, failed_attempts: {failed_attempts} }}"
+            ),
+            Cursor::Decide { effect_id, .. } => format!("Decide {{ effect_id: {effect_id:?} }}"),
+            Cursor::Park { .. } => "Park".to_string(),
+            Cursor::Stop => "Stop".to_string(),
+            Cursor::Idle => "Idle".to_string(),
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -279,10 +320,6 @@ fn payload_str(event: &EventEnvelope, field: &str) -> Result<String, FoldError> 
         })
 }
 
-fn cursor_name(cursor: &Cursor) -> String {
-    format!("{cursor:?}")
-}
-
 /// The step taken at an in-flight effect's boundary. An operator stop
 /// accepted mid-flight rides untouched to exactly here: the run then
 /// concludes per the command (`Cursor::Stop`, which the engine turns
@@ -367,7 +404,7 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     let out_of_place = |state: &RunState| FoldError::OutOfPlace {
         seq: event.seq,
         event: format!("{:?}", event.event_type),
-        cursor: cursor_name(&state.cursor),
+        cursor: state.cursor.to_string(),
     };
 
     match event.event_type {
@@ -498,8 +535,8 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                 .and_then(Value::as_str)
                 .unwrap_or("no detail recorded");
             let normal = Cursor::Park {
-                reason: if detail.starts_with("GATE-MOVED-HEAD ") {
-                    "GATE-MOVED-HEAD".to_string()
+                reason: if gate_moved_head::decode::<Value>(detail).is_some() {
+                    gate_moved_head::PREFIX.to_string()
                 } else {
                     format!("effect {effect_id} indeterminate: {detail}")
                 },
@@ -521,7 +558,7 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                     "inputs": event.payload.get("inputs").cloned().unwrap_or_else(|| serde_json::json!({})),
                 }),
             );
-            if from == "triage" && STRATEGIES.contains(&result.as_str()) {
+            if from == STRATEGY_PHASE && STRATEGIES.contains(&result.as_str()) {
                 state.strategy = Some(result.clone());
             }
             let scoped_failure = result == "fail"

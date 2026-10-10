@@ -1444,7 +1444,7 @@ fn doctor_observed(
         format!(
             "engine {}, event_schema {}, database_schema {}, driver_protocol {}",
             brokkr_runtime::ENGINE_VERSION,
-            brokkr_runtime::bundle::EVENT_SCHEMA,
+            brokkr_core::envelope::EVENT_SCHEMA_VERSION,
             brokkr_store::DATABASE_SCHEMA,
             brokkr_runtime::bundle::DRIVER_PROTOCOL,
         ),

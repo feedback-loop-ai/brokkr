@@ -295,9 +295,11 @@ fn a_refusal_and_a_defect_both_pass_through_untouched() {
     );
 
     let defect = engine
-        .lawful_end_under_contention(EngineError::Other("a real defect".into()))
+        .lawful_end_under_contention(EngineError::Invariant("a test", "a real defect".into()))
         .expect_err("a defect is not an ending to park on");
-    assert!(matches!(&defect, EngineError::Other(detail) if detail == "a real defect"));
+    assert!(
+        matches!(&defect, EngineError::Invariant("a test", detail) if detail == "a real defect")
+    );
 
     assert_eq!(
         engine.store.load(&run_id).unwrap().len(),

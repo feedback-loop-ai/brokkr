@@ -34,7 +34,7 @@ use serde_json::{json, Map, Value};
 mod namespace;
 mod overlay;
 mod session;
-pub use namespace::{namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
+#[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
 use namespace::{namespace_path, Mount, Namespace, Profile};
 use overlay::overlay_argv;
 pub use overlay::{overlay_supported_with, OverlayWrites};

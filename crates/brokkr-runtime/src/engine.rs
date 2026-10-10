@@ -13,6 +13,7 @@ use brokkr_core::dispatch::{
 };
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{computed_inputs, Cursor, RunState, Status};
+use brokkr_core::gate_moved_head::{self, MovedHead};
 use brokkr_core::policy::Outcome;
 use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
@@ -65,7 +66,7 @@ use brokkr_core::fold::{
 };
 pub use operator::{
     apply_fenced_operator_command, conclude, operator_command, operator_supersede, CommandWord,
-    FencedCommand, FencedCommandOutcome, Supersede,
+    ConcludeRefusal, FencedCommand, FencedCommandOutcome, Supersede,
 };
 #[cfg(test)]
 use operator::{
@@ -157,12 +158,12 @@ pub enum EngineError {
     Fold(#[from] brokkr_core::FoldError),
     #[error("run '{run_id}' pins a different bundle: {detail}")]
     ManifestMismatch { run_id: String, detail: String },
-    /// `conclude` refuses a run that already has its conclusion. There is
-    /// nothing lawful left to append — a second `run/stopped` would fail
-    /// the fold as an event after terminal — so the refusal comes before
-    /// the first append, not after a half-written closure.
-    #[error("run '{run_id}' is already concluded ({status}); conclude appends nothing")]
-    AlreadyConcluded { run_id: String, status: String },
+    /// `conclude` refused the run, for a reason the operator can act on.
+    #[error("{}", .why.text(.run_id))]
+    ConcludeRefused {
+        run_id: String,
+        why: ConcludeRefusal,
+    },
     /// `supersede` refused a citation, and wrote nothing (decision 0047
     /// ruling 2). Unlike `retry` and `stop`, a refused supersede leaves
     /// no `operator/rejected` behind: there is no pending command to
@@ -183,8 +184,10 @@ pub enum EngineError {
         expected_seq: u64,
         found_seq: u64,
     },
-    #[error("engine: {0}")]
-    Other(String),
+    /// A broken invariant of the engine or the fold, a defect and not a
+    /// refusal: its name, and the words the operator has always read.
+    #[error("engine: {1}")]
+    Invariant(&'static str, String),
     #[error("dispatch: {0}")]
     Dispatch(#[from] brokkr_core::dispatch::DispatchError),
     #[error("realms: {0}")]
@@ -321,6 +324,12 @@ impl EngineError {
             _ => None,
         }
     }
+}
+
+/// The phase a running cursor stands in, or the breach worded as `site`.
+fn phase_of(state: &RunState, site: &'static str) -> Result<String, EngineError> {
+    let missing = || EngineError::Invariant("cursor has phase", site.into());
+    state.phase.clone().ok_or_else(missing)
 }
 
 pub struct Engine {
@@ -801,12 +810,9 @@ impl Engine {
         &mut self,
         error: EngineError,
     ) -> Result<Option<DriveEnd>, EngineError> {
-        let EngineError::Store(store_error) = &error else {
+        let Some(store_error) = error.contention() else {
             return Err(error);
         };
-        if !store_error.is_contention() {
-            return Err(error);
-        }
         let reason = format!("journal contention: {store_error}");
         let held = self.held_outcome.take();
         let mut state = self.replay.caught_up(&self.store, &self.run_id)?;
@@ -953,7 +959,7 @@ impl Engine {
             }
             Cursor::Decide { result, .. } => self.decide(&state, result)?,
             Cursor::Park { reason } => {
-                let evidence = if reason == "GATE-MOVED-HEAD" {
+                let evidence = if reason == gate_moved_head::PREFIX {
                     gate_head_evidence(events)
                 } else {
                     json!({})
@@ -972,7 +978,8 @@ impl Engine {
                 )?;
             }
             Cursor::Idle => {
-                return Err(EngineError::Other(
+                return Err(EngineError::Invariant(
+                    "running not idle",
                     "running state reached the terminal idle cursor".into(),
                 ))
             }
@@ -1013,7 +1020,10 @@ impl Engine {
         if start == end {
             return Ok(None);
         }
-        let evidence = json!({"head_at_start": start, "head_at_end": end});
+        let moved = MovedHead {
+            head_at_end: end,
+            head_at_start: start,
+        };
         // EffectIndeterminate has only a reason string in the frozen event
         // contract. Keep the evidence packed there and attach its structured
         // copy to run/parked rather than widening that contract in this slice.
@@ -1022,7 +1032,7 @@ impl Engine {
             json!({
                 "effect_id": effect_id,
                 "attempt_id": attempt_id,
-                "reason": format!("GATE-MOVED-HEAD {evidence}"),
+                "reason": gate_moved_head::encode(&moved),
             }),
             attempt_id,
         )
@@ -1030,10 +1040,7 @@ impl Engine {
     }
 
     fn request_or_finish(&mut self, state: &RunState) -> Result<(), EngineError> {
-        let phase = state
-            .phase
-            .clone()
-            .ok_or_else(|| EngineError::Other("RequestEffect with no phase".into()))?;
+        let phase = phase_of(state, "RequestEffect with no phase")?;
         if self.bundle.machine.terminal.contains(&phase) {
             if phase == "stop" {
                 let reason = state
@@ -1078,15 +1085,15 @@ impl Engine {
         effect_id: &str,
     ) -> Result<Value, EngineError> {
         let seat = self.bundle.seats.get(phase).ok_or_else(|| {
-            EngineError::Other(format!(
-                "no seat for phase '{phase}' (compile enforces this)"
-            ))
+            let detail = format!("no seat for phase '{phase}' (compile enforces this)");
+            EngineError::Invariant("phase has seat", detail)
         })?;
         let (body, _) = seat
             .body
             .selected(state.strategy.as_deref())
             .ok_or_else(|| {
-                EngineError::Other(format!("seat '{phase}' selector has no resolved body"))
+                let detail = format!("seat '{phase}' selector has no resolved body");
+                EngineError::Invariant("selector has body", detail)
             })?;
         let workdir = self.workdir();
         let mut context = Map::new();
@@ -1292,10 +1299,7 @@ impl Engine {
         effect_id: &str,
         seat_name: &str,
     ) -> Result<(), EngineError> {
-        let phase = state
-            .phase
-            .clone()
-            .ok_or_else(|| EngineError::Other("effect without a phase".into()))?;
+        let phase = phase_of(state, "effect without a phase")?;
         let requested_digest = events
             .iter()
             .rev()
@@ -1305,7 +1309,10 @@ impl Engine {
             })
             .and_then(|e| e.payload.get("input_digest").and_then(Value::as_str))
             .map(str::to_string)
-            .ok_or_else(|| EngineError::Other(format!("no requested event for {effect_id}")))?;
+            .ok_or_else(|| {
+                let detail = format!("no requested event for {effect_id}");
+                EngineError::Invariant("effect requested", detail)
+            })?;
         let input = self.seat_input(state, &phase, effect_id)?;
         if brokkr_core::canonical::sha256_hex(&input) != requested_digest {
             // The world changed between request and execution (bundle edit,
@@ -2457,10 +2464,7 @@ impl Engine {
 
     #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     fn decide(&mut self, state: &RunState, raw_result: Value) -> Result<(), EngineError> {
-        let phase = state
-            .phase
-            .clone()
-            .ok_or_else(|| EngineError::Other("decide without a phase".into()))?;
+        let phase = phase_of(state, "decide without a phase")?;
         let seat = &self.bundle.seats[&phase];
 
         // Result schema (decision 0001): an object with a declared result
@@ -4787,17 +4791,16 @@ fn arms_effect_gate_head(body: &ExecutableBody<'_>, seat: &Seat, strategy: Optio
 
 /// Recover the raw observations carried by the most recent gate defect. The
 /// indeterminate reason is an existing string field; the structured copy is
-/// attached to `run/parked`, the contract's evidence envelope.
+/// attached to `run/parked`, the contract's evidence envelope. Any JSON the
+/// marker carries is passed through as it reads, as before the codec; typing
+/// it as `MovedHead` would narrow what a journal may hold and awaits a ruling.
 fn gate_head_evidence(events: &[EventEnvelope]) -> Value {
     events
         .iter()
         .rev()
         .filter(|event| event.event_type == EventType::EffectIndeterminate)
         .find_map(|event| {
-            event.payload["reason"]
-                .as_str()?
-                .strip_prefix("GATE-MOVED-HEAD ")
-                .and_then(|raw| serde_json::from_str(raw).ok())
+            gate_moved_head::decode::<Value>(event.payload["reason"].as_str()?).and_then(Result::ok)
         })
         .unwrap_or(json!({}))
 }
@@ -4818,6 +4821,8 @@ mod cleanup_tests;
 mod conclude_tests;
 #[cfg(test)]
 mod contention_tests;
+#[cfg(test)]
+mod gate_head_tests;
 #[cfg(test)]
 mod notice_tests;
 #[cfg(test)]

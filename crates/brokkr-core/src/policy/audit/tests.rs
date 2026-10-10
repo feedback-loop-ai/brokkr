@@ -118,35 +118,53 @@ fn the_swapped_self_arms_are_refused_and_the_audit_names_both_rules() {
     ));
     assert_eq!(
         audit(&swapped).to_string(),
-        "policy sweep (decision 0050, accepted; reported, not yet refused): 47 \
-         valuations over 11 groups, 4 unruled\n  \
+        "policy sweep (decision 0050): 47 valuations over 11 groups, 0 unruled\n  \
          REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead behind \
          REVIEW-REFORGE-EXHAUSTED-MEDIUM: its guard holds wherever \
-         REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM's does, and first match wins\n  \
-         no rule rules (review, residual) at max_residual_severity=none, \
-         visits_implement=0\n"
+         REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM's does, and first match wins\n"
     );
 }
 
-/// The ordered table carries one finding shape only: the `residual`
-/// verdict at severity `none` that decision 0050 measured, at every
-/// visit count the sweep reads.
+/// The ordered table is total: the `residual` verdict at severity `none`
+/// that decision 0050 measured as its one hole, at every visit count the
+/// sweep reads, is named by `REVIEW-RESIDUAL-NONE`. Without that park the
+/// four holes return, and the compiler's refusal names the first.
 #[test]
-fn the_ordered_self_table_leaves_only_the_severity_none_hole() {
-    let none = Setting::Word("none");
+fn the_ordered_self_table_names_its_severity_none_valuation() {
+    let machine = Machine::from_table(&self_table()).unwrap();
     assert_eq!(
         audit(&self_table()),
         Audit {
             groups: 11,
             valuations: 47,
-            findings: [0, 2, 3, 4]
-                .into_iter()
-                .map(|visits| unruled(&[
-                    ("max_residual_severity", none),
-                    ("visits_implement", Setting::Count(visits)),
-                ]))
-                .collect(),
+            findings: vec![],
         }
+    );
+    assert_eq!(machine.refuse_unruled(), Ok(()));
+    let rated_none = json!({"max_residual_severity": "none", "visits_implement": 3});
+    assert!(matches!(
+        machine.evaluate("review", "residual", rated_none.as_object().unwrap()),
+        Outcome::Park { rule_id, .. } if rule_id == "REVIEW-RESIDUAL-NONE"
+    ));
+    let mut unnamed = self_table();
+    unnamed["rules"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|rule| rule["id"] != "REVIEW-RESIDUAL-NONE");
+    let none = Setting::Word("none");
+    let holes: Vec<Finding> = [0, 2, 3, 4]
+        .into_iter()
+        .map(|visits| {
+            unruled(&[
+                ("max_residual_severity", none),
+                ("visits_implement", Setting::Count(visits)),
+            ])
+        })
+        .collect();
+    assert_eq!(audit(&unnamed).findings, holes);
+    assert_eq!(
+        Machine::from_table(&unnamed).unwrap().refuse_unruled(),
+        Err(PolicyError::Refused(Refusal::Totality(holes[0].clone())))
     );
 }
 
@@ -525,17 +543,22 @@ fn the_sweep_is_measured_before_it_runs_and_refuses_past_its_budget() {
         when[flag] = json!(true);
     }
     let wide = table(json!([residual("WIDE", when, "done")]));
+    let budget = AuditError::Budget {
+        phase: "review".into(),
+        result: "residual".into(),
+        valuations: 92_160,
+        budget: SWEEP_BUDGET,
+    };
+    let loaded = Machine::from_table(&wide).unwrap();
     assert_eq!(
-        Machine::from_table(&wide)
-            .unwrap()
-            .audit_with(SWEEP_BUDGET, engine_owned)
-            .unwrap_err(),
-        AuditError::Budget {
-            phase: "review".into(),
-            result: "residual".into(),
-            valuations: 92_160,
-            budget: SWEEP_BUDGET,
-        }
+        loaded.audit_with(SWEEP_BUDGET, engine_owned).unwrap_err(),
+        budget
+    );
+    // The compiler refuses it: a table that cannot be swept cannot be
+    // shown total (#429).
+    assert_eq!(
+        loaded.refuse_unruled(),
+        Err(PolicyError::Refused(Refusal::Unswept(budget)))
     );
     // The loader sweeps nothing past the budget, and still refuses what
     // needs no sweep (#429).
@@ -578,5 +601,25 @@ fn a_refusal_reads_as_its_finding_and_its_ruling() {
         })),
         "malformed phase machine table: phase 'loop' reaches no terminal phase and no \
          parking rule (decision 0050, ruling 3)"
+    );
+    assert_eq!(
+        read(Refusal::Totality(unruled(&[(
+            "max_residual_severity",
+            Setting::Word("none")
+        )]))),
+        "malformed phase machine table: no rule rules (review, residual) at \
+         max_residual_severity=none; name it with a rule that parks it and says why \
+         (decision 0050, ruling 4)"
+    );
+    assert_eq!(
+        read(Refusal::Unswept(AuditError::Budget {
+            phase: "verify".into(),
+            result: "pass".into(),
+            valuations: 47,
+            budget: 46,
+        })),
+        "malformed phase machine table: the policy sweep reaches 47 valuations at \
+         (verify, pass), over its budget of 46; the table was not swept, so it cannot \
+         be shown total (decision 0050, ruling 4)"
     );
 }

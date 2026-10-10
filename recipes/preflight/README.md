@@ -94,7 +94,8 @@ until it reads the list too the non-Rust lints are the pull request's
 `crates/brokkr-runtime/tests/preflight_shape.rs` asserts that this
 table's phases are exactly `verify`, `review`, `done`, `stop`; that no
 rule names `intake`, `implement` or `ship`; and that every rule from
-`review` ends in a terminal. Adding a ship phase back here fails a test.
+`review` ends in a terminal, but for `REVIEW-RESIDUAL-NONE`, which parks
+a residual rated `none` with the notes (decision 0050, ruling 4). Adding a ship phase back here fails a test.
 
 See [CONTRIBUTING.md](../../CONTRIBUTING.md) for where this sits in the
 walk from clone to pull request.
