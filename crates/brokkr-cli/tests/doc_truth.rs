@@ -286,13 +286,18 @@ fn a_fence_closes_only_on_its_own_marker_inside_its_quote() {
 /// CommonMark reads them: a run of backticks opens a span the next run of
 /// the same length closes, a run nothing closes is literal text, and so is
 /// a backtick a backslash escapes outside a span: an odd run of them, since
-/// two escape each other.
+/// two escape each other. The escape takes that one backtick, and the rest
+/// of its run still opens a span.
 fn code_spans(text: &str) -> Vec<(usize, &str)> {
     let run = |at: usize| text[at..].chars().take_while(|&c| c == '`').count();
     let escaped = |at: usize| text[..at].chars().rev().take_while(|&c| c == '\\').count() % 2 == 1;
     let mut spans = Vec::new();
     let mut at = 0;
     while let Some(start) = text[at..].find('`').map(|found| at + found) {
+        if escaped(start) {
+            at = start + 1;
+            continue;
+        }
         let ticks = run(start);
         let mut close = start + ticks;
         let closed = loop {
@@ -303,11 +308,11 @@ fn code_spans(text: &str) -> Vec<(usize, &str)> {
             }
         };
         match closed {
-            Some(close) if !escaped(start) => {
+            Some(close) => {
                 spans.push((start + ticks, text[start + ticks..close].trim()));
                 at = close + ticks;
             }
-            _ => at = start + ticks,
+            None => at = start + ticks,
         }
     }
     spans
@@ -857,9 +862,18 @@ fn a_path_the_tree_does_not_hold_is_refused() {
         r"Two escape each other: \\`docs/two.md`; three escape it: \\\`docs/three.md`.",
     )
     .unwrap();
+    let run = doc(
+        "docs/guides/c.md",
+        r"An escape takes one: \``docs/one.md`; of three: \```docs/run.md``.",
+    )
+    .unwrap();
     assert_eq!(
-        missing_paths(&[escapes], &tree, &[]),
-        ["docs/guides/b.md:1: `docs/two.md` names a path the tree does not hold"]
+        missing_paths(&[escapes, run], &tree, &[]),
+        [
+            "docs/guides/b.md:1: `docs/two.md` names a path the tree does not hold",
+            "docs/guides/c.md:1: `docs/one.md` names a path the tree does not hold",
+            "docs/guides/c.md:1: `docs/run.md` names a path the tree does not hold",
+        ]
     );
 }
 
@@ -1129,7 +1143,8 @@ fn number(word: Option<&&str>) -> Option<u16> {
 }
 
 /// The decision numbers a list starting at `words[from]` names (`0015`,
-/// `0015 and 0069`, `0015, 0016, or 0069`), and the word that ends it.
+/// `0015 and 0069`, `0015, 0016, or 0069`, `0015,0069`), and the word that
+/// ends it.
 fn listed(words: &[&str], from: usize) -> (Vec<u16>, Option<usize>) {
     let (mut numbers, mut last, mut at) = (Vec::new(), None, from);
     while let Some(cited) = number(words.get(at)) {
@@ -1193,9 +1208,13 @@ fn trailed_proposed(words: &[&str], at: usize) -> Vec<u16> {
 }
 
 /// Each decision a text calls proposed: a [`prefixed_proposed`] citation
-/// or a [`trailed_proposed`] one, in any case and across line breaks.
+/// or a [`trailed_proposed`] one, in any case and across line breaks. A
+/// comma parts words as a space does, so `0056,0069` lists two.
 fn called_proposed(text: &str) -> Vec<u16> {
-    let words: Vec<&str> = text.split_whitespace().collect();
+    let words: Vec<&str> = text
+        .split_whitespace()
+        .flat_map(|word| word.split_inclusive(','))
+        .collect();
     let mut found = Vec::new();
     for (at, word) in words.iter().enumerate() {
         let word = bare(word);
@@ -1370,7 +1389,9 @@ fn a_decision_called_proposed_is_held_to_the_index() {
              > A proposed decision\n\
              > 0069; (decision 0069,\n\
              > proposed); proposed decisions 0056 and\n\
-             > 0069.\n",
+             > 0069.\n\
+             \n\
+             proposed decisions 0056,0069; (decisions 0075,0069, proposed).\n",
         ),
         (
             "scripts/a.sh",
@@ -1404,6 +1425,8 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "docs/a.md:23: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:23: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:23: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:28: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:28: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:2: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:4: calls decision 0069 proposed; the index rules it accepted",
             "crates/a/src/open.rs: cannot be read: an unterminated string",

@@ -46,7 +46,7 @@ It is two things at once, and both matter:
 `forced_crew`, the decision that forces the arm: decision 0041's
 addendum of 2026-10-07 lets a recipe pin a model only where it declares
 why.) Forty-seven lines
-as the file is actually formatted, against `fast`'s 144, and **one** of
+as the file is actually formatted, against `fast`'s 94, and **one** of
 them is the experiment: the driver name in
 `driver.command`. Everything else — the phase table, the reforging
 ladder, the protected review gate, the verifier, the reviewer, the
