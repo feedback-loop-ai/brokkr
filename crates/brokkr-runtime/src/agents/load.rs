@@ -393,8 +393,8 @@ fn secret_name(name: &str) -> bool {
 /// Returns the route it resolved through, so a refusal and a `doctor`
 /// line can name it.
 pub fn resolve_route<'a>(adapter: &Adapter, model_id: &'a str) -> (Option<&'a str>, EgressClass) {
-    match model_id.split_once('/') {
-        Some((route, _)) => (
+    match crate::capabilities::manifest::route(model_id) {
+        Some(route) => (
             Some(route),
             adapter
                 .routes
