@@ -38,8 +38,8 @@ pub brokkr_runtime::admission::Capacity::RouteUndeclared
 pub brokkr_runtime::admission::Capacity::RouteUndeclared::provider: alloc::string::String
 pub brokkr_runtime::admission::Capacity::RouteUndeclared::route: alloc::string::String
 pub brokkr_runtime::admission::Capacity::RunUnmeasured
-pub brokkr_runtime::admission::Capacity::RunUnmeasured::detail: alloc::string::String
 pub brokkr_runtime::admission::Capacity::RunUnmeasured::run: alloc::string::String
+pub brokkr_runtime::admission::Capacity::RunUnmeasured::why: brokkr_runtime::admission::Unmeasurable
 pub brokkr_runtime::admission::Capacity::ScratchLow
 pub brokkr_runtime::admission::Capacity::ScratchLow::floor: u64
 pub brokkr_runtime::admission::Capacity::ScratchLow::free: u64
@@ -48,7 +48,7 @@ pub brokkr_runtime::admission::Capacity::ScratchUnmeasured
 pub brokkr_runtime::admission::Capacity::ScratchUnmeasured::kind: core::io::error::ErrorKind
 pub brokkr_runtime::admission::Capacity::ScratchUnmeasured::path: std::path::PathBuf
 pub brokkr_runtime::admission::Capacity::Undeclared(std::path::PathBuf)
-pub brokkr_runtime::admission::Capacity::Unmeasured(alloc::string::String)
+pub brokkr_runtime::admission::Capacity::Unmeasured(brokkr_runtime::admission::Unmeasurable)
 pub brokkr_runtime::admission::Capacity::Unreadable
 pub brokkr_runtime::admission::Capacity::Unreadable::kind: core::io::error::ErrorKind
 pub brokkr_runtime::admission::Capacity::Unreadable::path: std::path::PathBuf
@@ -107,10 +107,15 @@ pub brokkr_runtime::admission::Standing::Held
 pub brokkr_runtime::admission::Standing::Waiting
 impl brokkr_runtime::admission::Standing
 pub fn brokkr_runtime::admission::Standing::word(self) -> &'static str
+pub enum brokkr_runtime::admission::Unmeasurable
+pub brokkr_runtime::admission::Unmeasurable::Compile(brokkr_runtime::admission::Shared<brokkr_runtime::launch::LaunchError>)
+pub brokkr_runtime::admission::Unmeasurable::Manifest(brokkr_runtime::admission::Shared<serde_json::error::Error>)
+pub brokkr_runtime::admission::Unmeasurable::Pin
+pub brokkr_runtime::admission::Unmeasurable::Pin::flags: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::admission::Unmeasurable::Pin::site: alloc::string::String
 pub struct brokkr_runtime::admission::Host<'a>
 pub brokkr_runtime::admission::Host::file: &'a std::path::Path
 pub brokkr_runtime::admission::Host::free: &'a dyn core::ops::function::Fn(&std::path::Path) -> core::io::error::Result<u64>
-pub brokkr_runtime::admission::Host::scratch: &'a std::path::Path
 pub struct brokkr_runtime::admission::Judged
 pub brokkr_runtime::admission::Judged::entry: brokkr_store::queue::QueueEntry
 pub brokkr_runtime::admission::Judged::launch: brokkr_runtime::launch::QueuedLaunch
@@ -118,6 +123,14 @@ pub brokkr_runtime::admission::Judged::verdict: core::option::Option<brokkr_runt
 pub struct brokkr_runtime::admission::Released(_)
 impl core::fmt::Display for brokkr_runtime::admission::Released
 pub fn brokkr_runtime::admission::Released::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_runtime::admission::Shared<E>(_)
+impl<E: core::fmt::Display> core::fmt::Display for brokkr_runtime::admission::Shared<E>
+pub fn brokkr_runtime::admission::Shared<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::clone::Clone for brokkr_runtime::admission::Shared<E>
+pub fn brokkr_runtime::admission::Shared<E>::clone(&self) -> brokkr_runtime::admission::Shared<E>
+impl<E> core::cmp::Eq for brokkr_runtime::admission::Shared<E>
+impl<E> core::cmp::PartialEq for brokkr_runtime::admission::Shared<E>
+pub fn brokkr_runtime::admission::Shared<E>::eq(&self, &brokkr_runtime::admission::Shared<E>) -> bool
 pub struct brokkr_runtime::admission::Verdict
 pub brokkr_runtime::admission::Verdict::reasons: alloc::vec::Vec<brokkr_runtime::admission::Reason>
 impl brokkr_runtime::admission::Verdict

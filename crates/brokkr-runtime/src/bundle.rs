@@ -19,6 +19,7 @@ use thiserror::Error;
 mod charters;
 pub mod compose;
 mod mcp;
+mod pins;
 mod tier;
 
 use charters::parse_role;
@@ -407,6 +408,9 @@ pub struct SiteFacts {
     /// candidate, what it holds. `None` only until the capability pass has
     /// run; the engine refuses to launch a model site that still has none.
     pub capabilities: Option<crate::capabilities::SiteCapabilities>,
+    /// #430: the model ids each of those candidates is served on, as the
+    /// compile read them, in candidate order; sealed beside them.
+    pub(crate) pins: Vec<crate::capabilities::manifest::ModelPins>,
     /// Second council H6: the charter this site's AGENT was resolved with,
     /// bound to the pin its library record carries. An agent's charter
     /// stands outside every layer's file map, so nothing at the dispatch
@@ -2169,16 +2173,7 @@ impl Bundle {
 
         refuse_global_aliasing(&seats)?;
 
-        let capability_sites: Map<String, Value> = sites
-            .iter()
-            .map(|(label, facts)| {
-                let site = facts
-                    .capabilities
-                    .as_ref()
-                    .expect("the capability walk gave every compiled site an outcome");
-                (label.clone(), site.manifest())
-            })
-            .collect();
+        let capability_sites = pins::capability_sites(&sites);
         let consulted: Vec<String> = sites
             .values()
             .filter_map(|facts| facts.capabilities.as_ref())
@@ -5982,7 +5977,7 @@ fn record_capabilities(
                 );
             }
         }
-        facts.capabilities = Some(site);
+        facts.seal(site, pins::agents(adapters, &chain));
         return Ok(());
     }
     // A single site, by the same two keys `has_single` reads.
@@ -6015,7 +6010,7 @@ fn record_capabilities(
         // Rebuild unit 5d-fix-b: an inline class the engine lowered is
         // judged with its whole launch, the resolved native plan included.
         admit_inline_launch(what, &parts, facts, &site)?;
-        facts.capabilities = Some(site);
+        facts.seal(site, pins::inline(raw, adapters));
         return Ok(());
     }
     if written.is_some() {
@@ -6044,9 +6039,8 @@ fn record_capabilities(
                 hands: &[],
                 intent: facts.inline_mcp,
             };
-            facts.capabilities = Some(mcp::inline_capabilities(
-                authority, adapters, asks, &serving,
-            )?);
+            let site = mcp::inline_capabilities(authority, adapters, asks, &serving)?;
+            facts.seal(site, pins::exec());
         }
         return Ok(());
     }

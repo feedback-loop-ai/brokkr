@@ -20,7 +20,7 @@ use std::io::{self, ErrorKind};
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 
 /// A host configuration, read whole: every key known, every ceiling at
@@ -81,12 +81,20 @@ impl fmt::Display for RouteClass {
 }
 
 /// The seat scratch filesystem's floor, and the path it is measured at
-/// where that is not the scratch default.
+/// where that is not the scratch default. The path may be left out, and
+/// is never `null`, as the contract says.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Scratch {
     pub(crate) floor_bytes: NonZeroU64,
+    #[serde(default, deserialize_with = "present")]
     pub(crate) path: Option<Absolute>,
+}
+
+/// A key that, where it is written, holds a value: `null` is refused as
+/// any other value that is not one.
+fn present<'de, D: Deserializer<'de>>(written: D) -> Result<Option<Absolute>, D::Error> {
+    Absolute::deserialize(written).map(Some)
 }
 
 /// A ceiling on its own: the boxed builds'.
@@ -157,11 +165,13 @@ pub fn host_file(xdg: Option<OsString>, home: Option<OsString>) -> Result<PathBu
 }
 
 /// Read the host configuration at `file`. Only a path with nothing at it
-/// is absent; whatever is there and cannot be read is unreadable.
+/// is absent; whatever is there and cannot be read is unreadable, and so
+/// is a path that cannot be reached because a directory on it is a link
+/// that loops or dangles.
 pub(crate) fn read(file: &Path) -> Result<Hosting, HostError> {
     if let Err(absent) = std::fs::symlink_metadata(file) {
         if absent.kind() == ErrorKind::NotFound {
-            return Ok(Hosting::Absent);
+            return Ok(unreached(file).map_or(Hosting::Absent, Hosting::Unreadable));
         }
     }
     let bytes = match std::fs::read(file) {
@@ -176,10 +186,24 @@ pub(crate) fn read(file: &Path) -> Result<Hosting, HostError> {
         })
 }
 
+/// Why the deepest component of `file`'s path that is there cannot be
+/// followed, where it is a link that loops or dangles; `None` where it is
+/// a directory below which the rest of the path is simply absent.
+fn unreached(file: &Path) -> Option<ErrorKind> {
+    let there = (file.ancestors().skip(1)).find(|dir| std::fs::symlink_metadata(dir).is_ok());
+    there
+        .and_then(|dir| std::fs::metadata(dir).err())
+        .map(|error| error.kind())
+}
+
 /// The bytes free to an unprivileged writer on the filesystem holding
-/// `path`: the free-space probe production admission measures with.
+/// `path`, or that would hold it once made: that of its deepest component
+/// that is there, since a seat's scratch tree is made when its attempt
+/// starts. The free-space probe production admission measures with.
 pub fn free_bytes(path: &Path) -> io::Result<u64> {
-    let stat = rustix::fs::statvfs(path)?;
+    let absent = |at: &Path| matches!(rustix::fs::statvfs(at), Err(rustix::io::Errno::NOENT));
+    let there = path.ancestors().find(|at| !absent(at)).unwrap_or(path);
+    let stat = rustix::fs::statvfs(there)?;
     Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
 }
 

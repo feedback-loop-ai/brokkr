@@ -6,12 +6,16 @@
 //! sides: the entry's, compiled as its start would compile it, and each
 //! running run's, as the journal pinned it. A seat is each candidate the
 //! manifest's capability records name, fallbacks included, since any of
-//! them may be seated: its provider, and its route, the prefix of the
-//! concrete model id the entry's adapters map its model to (decision 0036
-//! ruling 2). A run counts once against each provider and route it
-//! seats; a seat on a `shared-local` route counts against that route
-//! alone, in place of its provider (ruling 5). A run builds in a box when
-//! any of its hands sites stands behind a boxed boundary.
+//! them may be seated: its provider, and the route of each concrete model
+//! id its compile pinned for it (`run-manifest/v13`; the prefix before the
+//! first `/`, decision 0036 ruling 2). Nothing is resolved again through
+//! anyone's adapters, so a run is counted by what its own compile seated
+//! whichever workspace admits beside it; a manifest that does not pin what
+//! it seats, or pins it unreadably, cannot be measured. A run counts once
+//! against each provider and route it seats; a seat on a `shared-local`
+//! route counts against that route alone, in place of its provider (ruling
+//! 5). A run builds in a box when any of its hands sites stands behind a
+//! boxed boundary.
 //!
 //! The checks run in a fixed order, and the first unmet one is the reason
 //! recorded: the host configuration is declared and readable; the entry's
@@ -26,25 +30,25 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use brokkr_core::fold::{fold, Status};
 use brokkr_core::realms::Boundary;
 use brokkr_store::Store;
 use serde::Deserialize;
 use serde_json::Value;
+use thiserror::Error;
 
 use super::host::{self, HostConfig, Hosting, Provider, Route, RouteClass};
 use super::{AdmissionError, Judged};
-use crate::agents::{resolve_route, Adapters};
-use crate::bundle::DEFAULT_ADAPTERS_DIR;
-use crate::launch::QueuedLaunch;
+use crate::capabilities::manifest::{route, ModelPins};
+use crate::launch::{LaunchError, QueuedLaunch};
 
 /// The machine an admission pass measures, its effects injected: where
-/// its host configuration is, the scratch filesystem's default path, and
-/// how the free bytes under a path are measured.
+/// its host configuration is, and how the free bytes under a path are
+/// measured.
 pub struct Host<'a> {
     pub file: &'a Path,
-    pub scratch: &'a Path,
     pub free: &'a dyn Fn(&Path) -> io::Result<u64>,
 }
 
@@ -59,13 +63,12 @@ pub enum Capacity {
         path: PathBuf,
         kind: ErrorKind,
     },
-    /// The entry's bundle cannot be compiled, or its adapters read, to
-    /// tell what it seats.
-    Unmeasured(String),
+    /// What the entry seats cannot be measured.
+    Unmeasured(Unmeasurable),
     /// A running run whose manifest does not say what it seats.
     RunUnmeasured {
         run: String,
-        detail: String,
+        why: Unmeasurable,
     },
     ProviderUndeclared(String),
     RouteUndeclared {
@@ -98,6 +101,49 @@ pub enum Capacity {
         running: usize,
         ceiling: u32,
     },
+}
+
+/// Why what a run seats cannot be measured.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum Unmeasurable {
+    /// The entry's bundle does not compile as its start would compile it.
+    #[error("{0}")]
+    Compile(Shared<LaunchError>),
+    /// A manifest's capability records do not pin what it seats.
+    #[error("{0}")]
+    Manifest(Shared<serde_json::Error>),
+    /// A site's model pin could not be read as one concrete id.
+    #[error(
+        "site '{site}' pins a model that cannot be read as one concrete id on {}",
+        .flags.join(", ")
+    )]
+    Pin { site: String, flags: Vec<String> },
+}
+
+/// An error a reason carries whole, shared by its clones: equal only to
+/// itself, because an error has no equality of its own and its text is
+/// not one (decision 0071 ruling 8).
+#[derive(Debug)]
+pub struct Shared<E>(Arc<E>);
+
+impl<E> Clone for Shared<E> {
+    fn clone(&self) -> Shared<E> {
+        Shared(Arc::clone(&self.0))
+    }
+}
+
+impl<E> PartialEq for Shared<E> {
+    fn eq(&self, other: &Shared<E>) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl<E> Eq for Shared<E> {}
+
+impl<E: fmt::Display> fmt::Display for Shared<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
 }
 
 impl Capacity {
@@ -142,12 +188,9 @@ impl fmt::Display for Capacity {
                 "the host configuration at {} cannot be read: {kind}",
                 path.display()
             ),
-            Capacity::Unmeasured(detail) => write!(f, "what it seats cannot be measured: {detail}"),
-            Capacity::RunUnmeasured { run, detail } => {
-                write!(
-                    f,
-                    "running run '{run}' does not say what it seats: {detail}"
-                )
+            Capacity::Unmeasured(why) => write!(f, "what it seats cannot be measured: {why}"),
+            Capacity::RunUnmeasured { run, why } => {
+                write!(f, "running run '{run}' does not say what it seats: {why}")
             }
             Capacity::ProviderUndeclared(provider) => write!(
                 f,
@@ -249,7 +292,7 @@ impl<'h> Measure<'h> {
     fn room(&self, launch: &QueuedLaunch) -> Result<(), Capacity> {
         let config = self.declared()?;
         let entry = Entry::measure(launch).map_err(Capacity::Unmeasured)?;
-        let running = Running::count(&self.live, &entry.adapters, config)?;
+        let running = Running::count(&self.live, config)?;
         let bound = bind(config, &entry.lanes)?;
         bound
             .iter()
@@ -259,7 +302,7 @@ impl<'h> Measure<'h> {
             .iter()
             .filter(|bound| bound.class() == RouteClass::SharedLocal)
             .try_for_each(|bound| bound.below(&running, false))?;
-        scratch(config, self.host)?;
+        scratch(config, self.host, &launch.scratch())?;
         match (entry.boxed, config.boxed_builds.ceiling.get()) {
             (true, ceiling) if running.boxed >= ceiling as usize => Err(Capacity::BoxedFull {
                 running: running.boxed,
@@ -280,13 +323,11 @@ impl<'h> Measure<'h> {
     }
 }
 
-/// The free bytes on the scratch filesystem at or above its floor.
-fn scratch(config: &HostConfig, host: &Host<'_>) -> Result<(), Capacity> {
-    let path = config
-        .scratch
-        .path
-        .as_ref()
-        .map_or(host.scratch, |path| path.0.as_path());
+/// The free bytes on the scratch filesystem at or above its floor: the
+/// filesystem of the declared path, else of the entry's own seat scratch,
+/// `default`.
+fn scratch(config: &HostConfig, host: &Host<'_>, default: &Path) -> Result<(), Capacity> {
+    let path = (config.scratch.path.as_ref()).map_or(default, |path| path.0.as_path());
     let floor = config.scratch.floor_bytes.get();
     match (host.free)(path) {
         Err(error) => Err(Capacity::ScratchUnmeasured {
@@ -322,46 +363,52 @@ struct Site {
     candidates: Vec<Seated>,
 }
 
-/// One candidate a site may seat: its provider, and its abstract model
-/// where the library resolved one.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+/// One candidate a site may seat: its provider, and the model ids its
+/// compile pinned for it.
+#[derive(Deserialize)]
 struct Seated {
     provider: String,
-    model: Option<String>,
+    model_pins: ModelPins,
 }
 
-/// Each candidate one run seats, once, and whether it builds in a box.
+/// Each lane one run seats, once, and whether it builds in a box.
 #[derive(Debug)]
 struct Seats {
-    seated: BTreeSet<Seated>,
+    lanes: BTreeSet<Lane>,
     boxed: bool,
 }
 
 impl Seats {
-    fn of(manifest: Value) -> Result<Seats, serde_json::Error> {
-        let pinned: Pinned = serde_json::from_value(manifest)?;
+    /// What `manifest` pins: a lane for each concrete id of each candidate,
+    /// and one with no route for a candidate that takes no model.
+    fn of(manifest: Value) -> Result<Seats, Unmeasurable> {
+        let pinned: Pinned = serde_json::from_value(manifest)
+            .map_err(|error| Unmeasurable::Manifest(Shared(Arc::new(error))))?;
+        let mut lanes = BTreeSet::new();
+        for (site, Site { candidates }) in pinned.capabilities.sites {
+            for Seated {
+                provider,
+                model_pins,
+            } in candidates
+            {
+                let ids = match model_pins {
+                    ModelPins::Read(ids) => ids,
+                    ModelPins::Unreadable(flags) => return Err(Unmeasurable::Pin { site, flags }),
+                };
+                let routes: Vec<Option<String>> = match ids.is_empty() {
+                    true => vec![None],
+                    false => ids.iter().map(|id| route(id).map(str::to_string)).collect(),
+                };
+                lanes.extend(routes.into_iter().map(|route| Lane {
+                    provider: provider.clone(),
+                    route,
+                }));
+            }
+        }
         Ok(Seats {
-            seated: (pinned.capabilities.sites.into_values())
-                .flat_map(|site| site.candidates)
-                .collect(),
+            lanes,
             boxed: pinned.boundary.values().any(|boundary| boundary.is_boxed()),
         })
-    }
-
-    /// Each provider and route these seats name, routes read through
-    /// `adapters`. A model they do not map, or map to an id with no
-    /// prefix, names no route.
-    fn lanes(&self, adapters: &Adapters) -> BTreeSet<Lane> {
-        self.seated
-            .iter()
-            .map(|seated| Lane {
-                provider: seated.provider.clone(),
-                route: (seated.model.as_deref())
-                    .and_then(|model| adapters.serving(model))
-                    .and_then(|(adapter, concrete)| resolve_route(adapter, concrete).0)
-                    .map(str::to_string),
-            })
-            .collect()
     }
 }
 
@@ -375,7 +422,7 @@ struct Lane {
 /// A running run, with what it seats or why its manifest does not say.
 struct Live {
     run: String,
-    seats: Result<Seats, String>,
+    seats: Result<Seats, Unmeasurable>,
 }
 
 /// The runs the journal holds running now.
@@ -389,38 +436,26 @@ fn census(store: &Store) -> Result<Vec<Live>, AdmissionError> {
             })?
             .status;
         if status == Status::Running {
-            let seats = Seats::of(store.manifest(&run)?).map_err(said);
+            let seats = Seats::of(store.manifest(&run)?);
             live.push(Live { run, seats });
         }
     }
     Ok(live)
 }
 
-/// An error as the operator reads it in a reason.
-fn said(error: impl std::error::Error) -> String {
-    error.to_string()
-}
-
 /// The entry as admission measures it: the lanes its compiled bundle
-/// seats, whether it builds in a box, and the adapters its routes, and
-/// the running runs', are read through.
+/// seats, and whether it builds in a box.
 struct Entry {
     lanes: BTreeSet<Lane>,
     boxed: bool,
-    adapters: Adapters,
 }
 
 impl Entry {
-    fn measure(launch: &QueuedLaunch) -> Result<Entry, String> {
-        let bundle = launch.compiled().map_err(said)?;
-        let adapters =
-            Adapters::load(&launch.workspace.join(DEFAULT_ADAPTERS_DIR)).map_err(said)?;
-        let seats = Seats::of(bundle.manifest).map_err(said)?;
-        Ok(Entry {
-            lanes: seats.lanes(&adapters),
-            boxed: seats.boxed,
-            adapters,
-        })
+    fn measure(launch: &QueuedLaunch) -> Result<Entry, Unmeasurable> {
+        let bundle =
+            (launch.compiled()).map_err(|error| Unmeasurable::Compile(Shared(Arc::new(error))))?;
+        let Seats { lanes, boxed } = Seats::of(bundle.manifest)?;
+        Ok(Entry { lanes, boxed })
     }
 }
 
@@ -436,22 +471,21 @@ struct Running {
 impl Running {
     /// Count `live` against `config`, or name the first running run that
     /// does not say what it seats.
-    fn count(live: &[Live], adapters: &Adapters, config: &HostConfig) -> Result<Running, Capacity> {
+    fn count(live: &[Live], config: &HostConfig) -> Result<Running, Capacity> {
         let mut running = Running::default();
         for Live { run, seats } in live {
-            let seats = seats.as_ref().map_err(|detail| Capacity::RunUnmeasured {
+            let seats = seats.as_ref().map_err(|why| Capacity::RunUnmeasured {
                 run: run.clone(),
-                detail: detail.clone(),
+                why: why.clone(),
             })?;
-            let lanes = seats.lanes(adapters);
-            let providers: BTreeSet<&String> = (lanes.iter())
+            let providers: BTreeSet<&String> = (seats.lanes.iter())
                 .filter(|lane| class(config, lane) == RouteClass::Cloud)
                 .map(|lane| &lane.provider)
                 .collect();
             for provider in providers {
                 *running.providers.entry(provider.clone()).or_default() += 1;
             }
-            for lane in &lanes {
+            for lane in &seats.lanes {
                 if let Some(route) = &lane.route {
                     let key = (lane.provider.clone(), route.clone());
                     *running.routes.entry(key).or_default() += 1;

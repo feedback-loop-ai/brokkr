@@ -152,7 +152,8 @@ facts (#432).
 - **Three outcomes, never confused.** A path with nothing at it is capacity
   undeclared: every entry the capacity checks would judge waits, naming the
   path. A path that exists but cannot be resolved or read — a link that
-  loops or dangles, a directory, a permission refused — holds the entry,
-  naming the path and the error kind, and is never read as absent. A file
+  loops or dangles, a directory, a permission refused, or a directory on the
+  path that is itself a dangling link — holds the entry, naming the path and
+  the error kind, and is never read as absent. A file
   read but not a valid `forge.host/v1` refuses, naming the problem. None
   latches: each pass judges again.

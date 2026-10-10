@@ -109,8 +109,8 @@ impl Fixture {
         );
     }
 
-    /// Queue the launch `brokkr queue add --bundle bundle` makes here.
-    fn queue(&mut self) -> EntryId {
+    /// The launch `brokkr queue add --bundle bundle` makes here.
+    fn launch(&self) -> QueuedLaunch {
         let request = LaunchRequest {
             workspace: self.root.clone(),
             bundle: BundleSource::Dir("bundle".into()),
@@ -124,13 +124,24 @@ impl Fixture {
             map: RunMap::Unmapped,
             dispatch: None,
         };
-        let payload = QueuedLaunch::of(&request, &run).unwrap().encode().unwrap();
-        let entry = NewEntry {
-            payload: &payload,
-            priority: 0,
-            waits: &[],
-        };
-        self.store.queue_add(entry, BY).unwrap()
+        QueuedLaunch::of(&request, &run).unwrap()
+    }
+
+    /// Queue that launch in this fixture's journal.
+    fn queue(&mut self) -> EntryId {
+        let launch = self.launch();
+        enqueue(&mut self.store, &launch)
+    }
+
+    /// A run that is running now on the bundle as it compiles here.
+    fn started(&mut self, name: &str) {
+        let pinned = self.launch().compiled().unwrap().manifest;
+        self.running(name, &pinned);
+    }
+
+    /// The seat scratch an entry queued here measures by default.
+    fn scratch(&self) -> PathBuf {
+        self.root.join(".forge/scratch")
     }
 
     /// A run that is running now and whose manifest says `manifest`.
@@ -142,10 +153,11 @@ impl Fixture {
             .unwrap();
     }
 
-    /// A running run seating each `(provider, model)`, boxed or not.
+    /// A running run whose compile pinned each `(provider, model id)`,
+    /// boxed or not.
     fn seating(&mut self, name: &str, seats: &[(&str, &str)], boxed: bool) {
         let candidates: Vec<Value> = (seats.iter())
-            .map(|(provider, model)| json!({"provider": provider, "model": model}))
+            .map(|(provider, id)| json!({"provider": provider, "model_pins": {"read": [id]}}))
             .collect();
         let mut manifest = json!({"capabilities": {"sites": {"work": {"candidates": candidates}}}});
         if boxed {
@@ -165,11 +177,7 @@ impl Fixture {
     /// reporting `free` bytes.
     fn reasons(&self, file: &Path, free: u64) -> Vec<Vec<Reason>> {
         let probe = |_: &Path| Ok(free);
-        let host = Host {
-            file,
-            scratch: Path::new("/scratch"),
-            free: &probe,
-        };
+        let host = Host { file, free: &probe };
         verdicts(pass_within(&self.store, &host).unwrap())
     }
 
@@ -185,6 +193,24 @@ impl Fixture {
 }
 
 const PLENTY: u64 = 1 << 40;
+
+/// Queue `launch` in `store`.
+fn enqueue(store: &mut Store, launch: &QueuedLaunch) -> EntryId {
+    let payload = launch.encode().unwrap();
+    let entry = NewEntry {
+        payload: &payload,
+        priority: 0,
+        waits: &[],
+    };
+    store.queue_add(entry, BY).unwrap()
+}
+
+/// A plenty-free host reading the configuration at `file`, and the
+/// verdict of `pass_within` over `store` on it.
+fn passed(store: &Store, file: &Path) -> Result<Vec<Judged>, AdmissionError> {
+    let probe = |_: &Path| Ok(PLENTY);
+    pass_within(store, &Host { file, free: &probe })
+}
 
 fn verdicts(judged: Vec<Judged>) -> Vec<Vec<Reason>> {
     judged
@@ -219,8 +245,18 @@ fn full(provider: &str, running: usize, ceiling: u32) -> Option<Capacity> {
 }
 
 fn route_full(route: &str, class: RouteClass, running: usize, ceiling: u32) -> Option<Capacity> {
+    routed_full("beta", route, class, running, ceiling)
+}
+
+fn routed_full(
+    provider: &str,
+    route: &str,
+    class: RouteClass,
+    running: usize,
+    ceiling: u32,
+) -> Option<Capacity> {
     Some(Capacity::RouteFull {
-        provider: "beta".into(),
+        provider: provider.into(),
         route: route.into(),
         class,
         running,
@@ -295,19 +331,23 @@ fn a_host_configuration_that_cannot_be_read_holds_and_is_never_read_as_absent() 
     let directory = unreadable(io::ErrorKind::IsADirectory);
     assert_eq!(fixture.reasons(&file, PLENTY), directory);
     let standing = |file: &Path| {
-        let probe = |_: &Path| Ok(PLENTY);
-        let host = Host {
-            file,
-            scratch: Path::new("/scratch"),
-            free: &probe,
-        };
-        pass_within(&fixture.store, &host).unwrap()[0]
+        passed(&fixture.store, file).unwrap()[0]
             .verdict
             .as_ref()
             .unwrap()
             .standing()
     };
     assert_eq!(standing(&file), Standing::Held);
+
+    // A directory on the path that is a dangling link leaves the file
+    // unreachable, not absent.
+    std::os::unix::fs::symlink("unmounted", fixture.root.join("stowed")).unwrap();
+    let file = fixture.root.join("stowed/host.json");
+    let unreached = Reason::Capacity(Capacity::Unreadable {
+        path: file.clone(),
+        kind: io::ErrorKind::NotFound,
+    });
+    assert_eq!(fixture.reasons(&file, PLENTY), vec![vec![unreached]]);
 }
 
 #[test]
@@ -317,13 +357,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
     let valid = ceilings(1, 1, json!({}));
     let refused = |host: Value| {
         let file = fixture.declare(&host);
-        let probe = |_: &Path| Ok(PLENTY);
-        let measured = Host {
-            file: &file,
-            scratch: Path::new("/scratch"),
-            free: &probe,
-        };
-        let error = pass_within(&fixture.store, &measured).unwrap_err();
+        let error = passed(&fixture.store, &file).unwrap_err();
         let says = format!(
             "the host configuration at {} is not a valid forge.host/v1 file",
             file.display()
@@ -353,6 +387,7 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
         (with("/boxed_builds/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 28"),
         (with("/scratch/floor_bytes", json!(0)), "invalid value: integer `0`, expected a nonzero u64 at line 1 column 150"),
         (with("/scratch", json!({"floor_bytes": 1, "path": "tmp"})), "the scratch path tmp is not absolute at line 1 column 164"),
+        (with("/scratch", json!({"floor_bytes": 1, "path": null})), "invalid type: null, expected path string at line 1 column 162"),
         (with("/schema", json!("forge.host/v2")), "unknown variant `forge.host/v2`, expected `forge.host/v1` at line 1 column 123"),
         (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 135"),
     ];
@@ -375,14 +410,14 @@ fn provider_and_cloud_route_concurrency_waits_at_each_ceiling_and_admits_below_i
     // A run counts once against each provider and route it seats: `r1`
     // seats beta on two lanes, and alpha's one lane twice.
     let seats = [
-        ("beta", "b-plain"),
-        ("beta", "b-cloud"),
-        ("alpha", "a1"),
-        ("alpha", "a1"),
+        ("beta", "b-3"),
+        ("beta", "cloud/b-2"),
+        ("alpha", "a-1"),
+        ("alpha", "a-1"),
     ];
     fixture.seating("r1", &seats, false);
     assert_eq!(fixture.room(&file), None);
-    fixture.seating("r2", &[("alpha", "a1"), ("beta", "b-cloud")], false);
+    fixture.seating("r2", &[("alpha", "a-1"), ("beta", "cloud/b-2")], false);
     assert_eq!(fixture.room(&file), full("alpha", 2, 2));
     let file = fixture.declare(&ceilings(3, 3, cloud(2)));
     assert_eq!(
@@ -419,10 +454,10 @@ fn a_shared_local_route_is_judged_by_its_own_ceiling_in_place_of_its_providers()
     let file = fixture.declare(&ceilings(1, 1, routes));
     // Beta's one cloud run fills beta's ceiling, and the shared-local
     // route does not count against it.
-    fixture.seating("cloud", &[("beta", "b-cloud")], false);
-    fixture.seating("local", &[("beta", "b-local")], false);
+    fixture.seating("cloud", &[("beta", "cloud/b-2")], false);
+    fixture.seating("local", &[("beta", "spark-glm/b-1")], false);
     assert_eq!(fixture.room(&file), None);
-    fixture.seating("local-2", &[("beta", "b-local")], false);
+    fixture.seating("local-2", &[("beta", "spark-glm/b-1")], false);
     let shared = route_full("spark-glm", RouteClass::SharedLocal, 2, 2);
     assert_eq!(fixture.room(&file), shared);
     assert_eq!(
@@ -474,7 +509,7 @@ fn a_provider_or_route_the_host_does_not_declare_waits_as_undeclared() {
 }
 
 #[test]
-fn the_scratch_floor_measures_the_declared_path_and_waits_below_it() {
+fn the_scratch_floor_measures_the_seat_scratch_or_the_declared_path_and_waits_below_it() {
     let mut fixture = Fixture::new();
     fixture.queue();
     let declared = ceilings(1, 1, json!({}));
@@ -488,14 +523,14 @@ fn the_scratch_floor_measures_the_declared_path_and_waits_below_it() {
         };
         let host = Host {
             file: &file,
-            scratch: Path::new("/scratch"),
             free: &probe,
         };
         verdicts(pass_within(&fixture.store, &host).unwrap()).remove(0)
     };
     assert_eq!(reasons(&declared, Ok(1024)), vec![]);
+    let scratch = fixture.scratch();
     let low = Capacity::ScratchLow {
-        path: "/scratch".into(),
+        path: scratch.clone(),
         free: 1023,
         floor: 1024,
     };
@@ -516,14 +551,16 @@ fn the_scratch_floor_measures_the_declared_path_and_waits_below_it() {
     );
     assert_eq!(
         asked.into_inner(),
-        ["/scratch", "/scratch", "/var/tmp"].map(PathBuf::from)
+        [scratch.clone(), scratch.clone(), "/var/tmp".into()]
     );
     assert_eq!(
         [low, unmeasured].map(|reason| (reason.to_string(), reason.holds())),
         [
             (
-                "the scratch filesystem at /scratch has 1023 bytes free, below its floor of 1024"
-                    .to_string(),
+                format!(
+                    "the scratch filesystem at {} has 1023 bytes free, below its floor of 1024",
+                    scratch.display()
+                ),
                 false
             ),
             (
@@ -545,10 +582,10 @@ fn a_boxed_entry_waits_while_the_boxed_builds_running_reach_their_ceiling() {
     fixture.queue();
     let declared = host(json!({"alpha": {"ceiling": 9}, "exec": {"ceiling": 9}}));
     let file = fixture.declare(&declared);
-    fixture.seating("boxed", &[("alpha", "a1")], true);
-    fixture.seating("open", &[("alpha", "a1")], false);
+    fixture.seating("boxed", &[("alpha", "a-1")], true);
+    fixture.seating("open", &[("alpha", "a-1")], false);
     assert_eq!(fixture.room(&file), None);
-    fixture.seating("boxed-2", &[("alpha", "a1")], true);
+    fixture.seating("boxed-2", &[("alpha", "a-1")], true);
     let full = Capacity::BoxedFull {
         running: 2,
         ceiling: 2,
@@ -564,36 +601,64 @@ fn a_boxed_entry_waits_while_the_boxed_builds_running_reach_their_ceiling() {
     assert_eq!(fixture.room(&file), None);
 }
 
+/// The one entry's reason under `file`, its word and whether it holds,
+/// where it is that `RunUnmeasured` or `Unmeasured` and its measurement
+/// error is of the kind `of` names.
+fn unmeasured(fixture: &Fixture, file: &Path, of: fn(&Unmeasurable) -> bool) -> (String, bool) {
+    let reason = fixture.room(file).unwrap();
+    let why = match &reason {
+        Capacity::RunUnmeasured { why, .. } | Capacity::Unmeasured(why) => why,
+        other => panic!("not unmeasured: {other}"),
+    };
+    assert!(of(why), "{why:?}");
+    // A reason's error is shared by its clones, and equal to nothing else.
+    assert_eq!(reason.clone(), reason);
+    (reason.to_string(), reason.holds())
+}
+
 #[test]
 fn what_an_entry_or_a_running_run_seats_must_be_measured() {
-    let mut fixture = Fixture::new();
-    fixture.queue();
-    let file = fixture.declare(&ceilings(9, 9, json!({})));
-    fixture.running("v1", &json!({"schema": "run-manifest/v1"}));
-    let unsaid = Capacity::RunUnmeasured {
-        run: "v1".into(),
-        detail: "missing field `capabilities`".into(),
+    let file = |fixture: &Fixture| fixture.declare(&ceilings(9, 9, json!({})));
+    let beside = |run: &str, pinned: Value, of| {
+        let mut fixture = Fixture::new();
+        fixture.queue();
+        fixture.running(run, &pinned);
+        unmeasured(&fixture, &file(&fixture), of)
     };
-    assert_eq!(fixture.room(&file), Some(unsaid.clone()));
+    let manifest = |candidate: Value| json!({"capabilities": {"sites": {"work": {"candidates": [candidate]}}}});
+    let manifested = |why: &Unmeasurable| matches!(why, Unmeasurable::Manifest(_));
+    let unsaid = "running run 'v1' does not say what it seats: missing field `capabilities`";
     assert_eq!(
-        (unsaid.to_string(), unsaid.holds()),
-        (
-            "running run 'v1' does not say what it seats: missing field `capabilities`".into(),
-            false
-        )
+        beside("v1", json!({"schema": "run-manifest/v1"}), manifested),
+        (unsaid.into(), false)
     );
+
+    // A run pinned before v13 names its abstract model and no pin: it is
+    // never resolved again through the admitting workspace's adapters.
+    let unpinned = manifest(json!({"provider": "beta", "model": "b-local"}));
+    let unsaid = "running run 'v12' does not say what it seats: missing field `model_pins`";
+    assert_eq!(beside("v12", unpinned, manifested), (unsaid.into(), false));
+    let unread = json!({"provider": "dsh", "model_pins": {"unreadable": ["-m", "--model"]}});
+    let pin = |why: &Unmeasurable| {
+        *why == Unmeasurable::Pin {
+            site: "work".into(),
+            flags: vec!["-m".into(), "--model".into()],
+        }
+    };
+    let unsaid = "running run 'odd' does not say what it seats: site 'work' pins a model that \
+                  cannot be read as one concrete id on -m, --model";
+    assert_eq!(beside("odd", manifest(unread), pin), (unsaid.into(), false));
 
     // An entry whose bundle does not compile is held, naming why, before
     // any running run is read.
+    let mut fixture = Fixture::new();
     fixture.seat("one", "nobody");
-    let detail = "bundle: seat 'review': agent 'nobody' is not in the library; known agents: \
-                  both, cloudy, local, one";
-    let reason = fixture.room(&file).unwrap();
-    assert_eq!(reason, Capacity::Unmeasured(detail.into()));
-    assert_eq!(
-        (reason.to_string(), reason.holds()),
-        (format!("what it seats cannot be measured: {detail}"), true)
-    );
+    fixture.queue();
+    let file = file(&fixture);
+    let compiled = |why: &Unmeasurable| matches!(why, Unmeasurable::Compile(_));
+    let detail = "what it seats cannot be measured: bundle: seat 'review': agent 'nobody' is not \
+                  in the library; known agents: both, cloudy, local, one";
+    assert_eq!(unmeasured(&fixture, &file, compiled), (detail.into(), true));
 }
 
 #[test]
@@ -603,13 +668,7 @@ fn a_running_run_that_does_not_fold_refuses_the_measure() {
     let file = fixture.declare(&ceilings(9, 9, json!({})));
     let manifest = json!({"schema": "run-manifest/v1"});
     fixture.store.create_run("r0", "f", "b", &manifest).unwrap();
-    let probe = |_: &Path| Ok(PLENTY);
-    let host = Host {
-        file: &file,
-        scratch: Path::new("/scratch"),
-        free: &probe,
-    };
-    let error = pass_within(&fixture.store, &host).unwrap_err();
+    let error = passed(&fixture.store, &file).unwrap_err();
     assert!(matches!(&error, AdmissionError::Fold { run, .. } if run == "r0"));
     assert_eq!(error.to_string(), "folding run 'r0'");
 }
@@ -622,7 +681,6 @@ fn the_writing_pass_judges_the_machine_after_it_latches() {
     let probe = |_: &Path| Ok(PLENTY);
     let host = Host {
         file: &file,
-        scratch: Path::new("/scratch"),
         free: &probe,
     };
     let judged = verdicts(judge_within(&mut fixture.store, &host, BY).unwrap());
@@ -632,19 +690,114 @@ fn the_writing_pass_judges_the_machine_after_it_latches() {
 }
 
 #[test]
+fn a_running_run_counts_against_the_route_its_own_compile_pinned_whichever_workspace_admits() {
+    // Workspace `pinned` holds the journal, and a run of its bundle seats
+    // `b-local`, which its adapters map onto the spark-glm route.
+    let mut pinned = Fixture::new();
+    pinned.seat("local", "local");
+    pinned.started("spark");
+    // Workspace `other` shares the journal, and its adapters map the same
+    // alias onto no route at all and `b-cloud` onto spark-glm.
+    let other = Fixture::new();
+    let remapped = json!({"b-local": "b-1", "b-cloud": "spark-glm/b-2", "b-plain": "b-3"});
+    let adapter = std::fs::read(pinned.root.join("adapters/beta.json")).unwrap();
+    let mut adapter: Value = serde_json::from_slice(&adapter).unwrap();
+    adapter["models"] = remapped;
+    other.write("adapters/beta.json", adapter);
+    other.seat("cloudy", "cloudy");
+    enqueue(&mut pinned.store, &other.launch());
+    let routes = |ceiling| json!({"spark-glm": route(ceiling, "shared-local")});
+    let file = pinned.declare(&ceilings(9, 9, routes(1)));
+    let shared = route_full("spark-glm", RouteClass::SharedLocal, 1, 1);
+    assert_eq!(pinned.room(&file), shared);
+    let file = pinned.declare(&ceilings(9, 9, routes(2)));
+    assert_eq!(pinned.room(&file), None);
+}
+
+#[test]
+fn an_inline_model_seat_is_judged_by_the_route_its_command_pins() {
+    let mut fixture = Fixture::new();
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/dsh.json");
+    std::fs::copy(repo, fixture.root.join("adapters/dsh.json")).unwrap();
+    let command = [
+        "{brokkr}",
+        "driver",
+        "dsh",
+        "--",
+        "--model",
+        "spark-glm/GLM-5.3-Flash-EXL3",
+    ];
+    let mut command = command.to_vec();
+    command.extend(["--effort", "high"]);
+    let inline = json!({"results": ["clean"], "role": "roles/work.md",
+                        "driver": {"command": command}});
+    fixture.bundle(inline, "one");
+    fixture.started("spark");
+    fixture.queue();
+    let dsh = |routes: Value| {
+        host(json!({"alpha": {"ceiling": 9}, "dsh": {"ceiling": 9, "routes": routes}}))
+    };
+    let shared = |ceiling| dsh(json!({"spark-glm": route(ceiling, "shared-local")}));
+    let full = routed_full("dsh", "spark-glm", RouteClass::SharedLocal, 1, 1);
+    assert_eq!(fixture.room(&fixture.declare(&shared(1))), full);
+    assert_eq!(fixture.room(&fixture.declare(&shared(2))), None);
+    let undeclared = Capacity::RouteUndeclared {
+        provider: "dsh".into(),
+        route: "spark-glm".into(),
+    };
+    assert_eq!(
+        fixture.room(&fixture.declare(&dsh(json!({})))),
+        Some(undeclared)
+    );
+}
+
+#[test]
+fn an_entry_that_seats_no_model_is_measured_without_adapters() {
+    let mut fixture = Fixture::new();
+    let exec = |result: &str| {
+        json!({"results": [result], "role": "roles/work.md",
+               "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]}})
+    };
+    let seats = json!({"work": exec("complete"), "review": exec("clean")});
+    let bundle = json!({"name": "fixture", "policy": "policy.json", "seats": seats});
+    fixture.write("bundle/bundle.json", bundle);
+    std::fs::remove_dir_all(fixture.root.join("adapters")).unwrap();
+    fixture.queue();
+    let file = fixture.declare(&host(json!({"exec": {"ceiling": 1}})));
+    assert_eq!(fixture.room(&file), None);
+
+    // A bundle that seats a model does not compile with no adapters, and
+    // is held naming why.
+    fixture.seat("one", "one");
+    let compiled = |why: &Unmeasurable| matches!(why, Unmeasurable::Compile(_));
+    let detail = format!(
+        "what it seats cannot be measured: bundle: adapters {}: No such file or directory (os \
+         error 2); the adapter data is where a driver's model mapping (decision 0016) and its \
+         trust tier and binding grant (decision 0021) are declared, and this bundle names an \
+         agent, seats a gate, declares a secret binding or declares typed tools",
+        fixture.root.join("adapters").display()
+    );
+    assert_eq!(unmeasured(&fixture, &file, compiled), (detail, true));
+}
+
+#[test]
 fn every_capacity_reason_has_its_word() {
     let path = PathBuf::from("/h");
     let kind = io::ErrorKind::NotFound;
+    let pin = Unmeasurable::Pin {
+        site: "s".into(),
+        flags: vec![],
+    };
     let reasons = [
         Capacity::Undeclared(path.clone()),
         Capacity::Unreadable {
             path: path.clone(),
             kind,
         },
-        Capacity::Unmeasured("x".into()),
+        Capacity::Unmeasured(pin.clone()),
         Capacity::RunUnmeasured {
             run: "r".into(),
-            detail: "x".into(),
+            why: pin,
         },
         Capacity::ProviderUndeclared("p".into()),
         Capacity::RouteUndeclared {

@@ -31,7 +31,7 @@
       "additionalProperties": false,
       "properties": {
         "floor_bytes": { "type": "integer", "minimum": 1, "maximum": 18446744073709551615, "description": "The free bytes the seat scratch filesystem must hold for another run to start." },
-        "path": { "type": "string", "pattern": "^/", "description": "The absolute path whose filesystem is measured, where it is not the scratch default, the temporary directory." }
+        "path": { "type": "string", "pattern": "^/", "description": "The absolute path whose filesystem is measured, where it is not the scratch default: the .forge/scratch directory of the repository the queued run operates, where its seats' scratch trees are made. A path not made yet is measured on the filesystem that would hold it." }
       }
     },
     "boxed_builds": {

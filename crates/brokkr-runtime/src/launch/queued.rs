@@ -336,6 +336,13 @@ impl QueuedLaunch {
         )
     }
 
+    /// Where the seats of the run this entry starts make their scratch
+    /// trees: under the repository it operates, as the engine places them.
+    pub(crate) fn scratch(&self) -> PathBuf {
+        self.operated(&self.workspace)
+            .join(crate::engine::SEAT_SCRATCH)
+    }
+
     /// The repository the entry operates, anchored to `workspace`: the
     /// one it names, else the workspace.
     fn operated(&self, workspace: &Path) -> PathBuf {

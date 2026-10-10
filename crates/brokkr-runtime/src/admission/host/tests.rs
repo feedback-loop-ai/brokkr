@@ -35,8 +35,12 @@ fn the_host_file_is_found_under_xdg_config_home_else_under_home() {
 fn the_probe_measures_free_bytes_and_says_why_it_cannot() {
     let dir = tempfile::tempdir().unwrap();
     assert!(free_bytes(dir.path()).unwrap() > 0);
-    let gone = free_bytes(&dir.path().join("gone")).unwrap_err();
-    assert_eq!(gone.kind(), ErrorKind::NotFound);
+    // A scratch tree not made yet is measured on the filesystem that will
+    // hold it, its deepest directory that is there.
+    assert!(free_bytes(&dir.path().join(".forge/scratch")).unwrap() > 0);
+    std::fs::write(dir.path().join("file"), "").unwrap();
+    let under = free_bytes(&dir.path().join("file/scratch")).unwrap_err();
+    assert_eq!(under.kind(), ErrorKind::NotADirectory);
 }
 
 /// The sample host configuration the operator's guide shows.
@@ -91,6 +95,7 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         route(json!({"ceiling": 1, "class": "cloud", "timeout": 60})),
         with("/scratch/floor_bytes", json!(0)),
         with("/scratch/path", json!("var/tmp")),
+        with("/scratch/path", Value::Null),
         with("/boxed_builds/ceiling", json!(0)),
         with("/boxed_builds/cap", json!(1)),
         json!({"schema": "forge.host/v1", "providers": {}, "boxed_builds": {"ceiling": 1}}),
@@ -100,5 +105,5 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         (validator.is_valid(host), loaded)
     };
     assert_eq!(admitted.each_ref().map(judged), [(true, true); 5]);
-    assert_eq!(refused.each_ref().map(judged), [(false, false); 16]);
+    assert_eq!(refused.each_ref().map(judged), [(false, false); 17]);
 }

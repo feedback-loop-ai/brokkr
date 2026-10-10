@@ -234,9 +234,14 @@ below their ceiling. Nothing is started, and nothing latches: the next
 
 A seat is every candidate its site may seat, fallbacks included: its
 provider (`claude`, `codex`, `dsh`, `exec`, …) and its route, the prefix
-of the concrete model id the adapter maps it to (`spark-glm` for
-`spark-glm/GLM-5.3-Flash-EXL3`; a model id with no `/` has no route). A
-running run counts once against each provider and route it seats.
+of the concrete model id its compile pinned (`spark-glm` for
+`spark-glm/GLM-5.3-Flash-EXL3`; a model id with no `/` has no route): the
+id the adapter maps an agent's model to, or an inline seat's own
+`--model` and `--fallback-model`. Each run's manifest carries those ids
+(`run-manifest/v13`), so a running run counts once against each provider
+and route its own compile seated, whatever another workspace's adapters
+say now; a running run whose manifest carries none, one started before
+v13 included, makes every entry wait until it ends.
 
 **The host configuration** belongs to the machine, not to a realm
 (`forge.host/v1`, [the contract](../../contracts/host.v1.schema.json)):
@@ -269,8 +274,10 @@ where verification scripts (`exec`) also count:
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`
 route counts against its own ceiling and its provider's. The scratch
-floor is measured on the temporary directory's filesystem unless
-`scratch.path` names another, absolute.
+floor is measured on the filesystem that holds the entry's own seat
+scratch, `.forge/scratch` in the repository it operates (or would hold
+it, before the first attempt makes it), unless `scratch.path` names
+another, absolute.
 
 ### `brokkr inspect` — one run, explained
 

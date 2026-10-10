@@ -823,8 +823,33 @@ of 2026-10-10, option B) adds one file and changes none of the bytes above:
 and the tracked realms map gains nothing. It declares a concurrency ceiling
 per provider and per route under it, each route `cloud` or `shared-local`;
 the seat scratch filesystem's free-space floor in bytes, with the absolute
-path it measures where that is not the temporary directory; and the
-boxed-build ceiling. Every object is closed, every ceiling is an integer
+path it measures where that is not the queued run's own seat scratch
+(`.forge/scratch` in the repository it operates); and the boxed-build
+ceiling. Every object is closed, every ceiling is an integer
 from 1 to 4294967295 and the floor one from 1: zero, a negative and an
 overflowing value are refused, never read as unlimited. Cool-down bounds
 are not part of v1; they arrive as a later version.
+
+The same slice adds one more file and changes none of the bytes above —
+`run-manifest.v12`'s included, which is now pinned by digest beside the
+frozen files:
+
+| Contract | File | Consumers |
+|---|---|---|
+| Run manifest with what each capability candidate is served on | `run-manifest.v13.schema.json` | brokkr-runtime (`bundle/pins.rs` writes, `admission/capacity.rs` reads), brokkr-store export/resume |
+
+`run-manifest.v13` is `v12` with each capability candidate closed over one
+more REQUIRED record, `model_pins`, and no other clause moved. It is
+either `{"read": [...]}`, the concrete model ids the compile read for the
+candidate, primary first — an agent candidate's the id its adapter maps
+its model to, an inline built-in model driver's its `--model` pin and any
+`--fallback-model`, and none for a driver that takes no model — or
+`{"unreadable": [...]}`, the flags on which an inline pin could not be read
+as one concrete id. A route is an id's prefix before its first `/`.
+Admission counts a running run by these pins and never resolves an
+abstract model again through the adapters of whichever workspace admits
+beside it; a run whose candidates carry no pin, a v12 run included, or an
+unreadable one, cannot be measured, and the entry waits naming it. The key
+stays BUNDLE identity, so every compiled bundle's digest moved once with
+this version, and a run pinned under v12 meets the existing resume
+refusal rather than being rewritten.

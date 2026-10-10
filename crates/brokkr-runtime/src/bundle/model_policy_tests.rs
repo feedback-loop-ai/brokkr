@@ -3518,12 +3518,12 @@ fn two_boxed_sites() -> Value {
 }
 
 /// The v9 `hands`/`boundary` vocabulary, judged through the version a
-/// compiled manifest now claims: run-manifest/v12 is v9's clauses carried
+/// compiled manifest now claims: run-manifest/v13 is v9's clauses carried
 /// forward unchanged plus the required `capabilities` section (decision
 /// 0065), which every compiled bundle writes and v9 cannot admit.
 fn v9() -> jsonschema::Validator {
     let schema: Value = serde_json::from_slice(
-        &std::fs::read(workspace().join("contracts/run-manifest.v12.schema.json")).unwrap(),
+        &std::fs::read(workspace().join("contracts/run-manifest.v13.schema.json")).unwrap(),
     )
     .unwrap();
     jsonschema::draft7::new(&schema).unwrap()

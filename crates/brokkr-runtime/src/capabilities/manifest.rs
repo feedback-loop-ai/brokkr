@@ -8,6 +8,7 @@
 //! or call id is a fact of a holding, so none reaches identity.
 
 use brokkr_core::realms::GrantRetention;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use super::{
@@ -152,9 +153,49 @@ impl Outcome {
     }
 }
 
+/// The concrete model ids one candidate is served on, as the compile read
+/// them (`run-manifest/v13`): what admission counts a run against, read
+/// from the run's own manifest and never resolved again through anyone's
+/// adapters (#430). An agent candidate's is the id its adapter maps its
+/// model to; an inline built-in model driver's, its `--model` pin and any
+/// `--fallback-model`; a driver that takes no model reads none.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum ModelPins {
+    /// The ids, primary first, each with its route before the first `/`.
+    Read(Vec<String>),
+    /// The flags on which the compile could not read one concrete id.
+    Unreadable(Vec<String>),
+}
+
+/// A concrete model id's route: its prefix before the first `/`, where it
+/// has one (decision 0036 ruling 2).
+pub(crate) fn route(model_id: &str) -> Option<&str> {
+    model_id.split_once('/').map(|(route, _)| route)
+}
+
 impl SiteCapabilities {
     /// The per-site record of `run-manifest/v12`.
     pub fn manifest(&self) -> Value {
+        self.record(self.outcomes.iter().map(Outcome::manifest).collect())
+    }
+
+    /// The per-site record of `run-manifest/v13`, the one a compile
+    /// writes: each candidate's v12 record beside the model `pins` the
+    /// compile read for it, in candidate order.
+    pub(crate) fn pinned(&self, pins: &[ModelPins]) -> Value {
+        let candidates: Vec<Value> = (self.outcomes.iter().zip(pins))
+            .map(|(outcome, pins)| {
+                let mut record = outcome.manifest();
+                record["model_pins"] = json!(pins);
+                record
+            })
+            .collect();
+        self.record(candidates)
+    }
+
+    /// The per-site record around its `candidates`' records.
+    fn record(&self, candidates: Vec<Value>) -> Value {
         let asks: Map<String, Value> = self
             .asks
             .asks
@@ -165,7 +206,7 @@ impl SiteCapabilities {
             "office": self.asks.office,
             "asks": asks,
             "subtracted": self.asks.subtracted,
-            "candidates": self.outcomes.iter().map(Outcome::manifest).collect::<Vec<_>>(),
+            "candidates": candidates,
         })
     }
 }

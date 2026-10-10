@@ -62,7 +62,7 @@ mod capacity;
 mod governing;
 mod host;
 
-pub use capacity::{Capacity, Host};
+pub use capacity::{Capacity, Host, Shared, Unmeasurable};
 pub use host::{free_bytes, host_file, HostError, RouteClass};
 
 /// Why an entry may not start now.
