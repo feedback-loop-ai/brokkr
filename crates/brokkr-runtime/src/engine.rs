@@ -4793,16 +4793,18 @@ fn arms_effect_gate_head(body: &ExecutableBody<'_>, seat: &Seat, strategy: Optio
 
 /// Recover the raw observations carried by the most recent gate defect. The
 /// indeterminate reason is an existing string field; the structured copy is
-/// attached to `run/parked`, the contract's evidence envelope.
+/// attached to `run/parked`, the contract's evidence envelope. Any JSON the
+/// marker carries is passed through as it reads, as before the codec; typing
+/// it as `MovedHead` would narrow what a journal may hold and awaits a ruling.
 fn gate_head_evidence(events: &[EventEnvelope]) -> Value {
     events
         .iter()
         .rev()
         .filter(|event| event.event_type == EventType::EffectIndeterminate)
         .find_map(|event| {
-            gate_moved_head::decode(event.payload["reason"].as_str()?).and_then(Result::ok)
+            gate_moved_head::decode::<Value>(event.payload["reason"].as_str()?).and_then(Result::ok)
         })
-        .map_or(json!({}), |moved| json!(moved))
+        .unwrap_or(json!({}))
 }
 
 pub(crate) mod resume;

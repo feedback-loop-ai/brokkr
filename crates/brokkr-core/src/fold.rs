@@ -535,7 +535,7 @@ fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
                 .and_then(Value::as_str)
                 .unwrap_or("no detail recorded");
             let normal = Cursor::Park {
-                reason: if gate_moved_head::decode(detail).is_some() {
+                reason: if gate_moved_head::decode::<Value>(detail).is_some() {
                     gate_moved_head::PREFIX.to_string()
                 } else {
                     format!("effect {effect_id} indeterminate: {detail}")

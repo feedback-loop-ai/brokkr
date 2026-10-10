@@ -25,7 +25,10 @@ fn encode_keeps_the_bytes_the_journal_already_carries() {
 #[test]
 fn decode_reads_back_what_encode_wrote() {
     for value in [moved(Some("aaa"), Some("bbb")), moved(None, Some("bbb"))] {
-        assert_eq!(decode(&encode(&value)).unwrap().unwrap(), value);
+        assert_eq!(
+            decode::<MovedHead>(&encode(&value)).unwrap().unwrap(),
+            value
+        );
     }
 }
 
@@ -41,9 +44,14 @@ fn decode_separates_the_marker_from_its_evidence() {
         r#"GATE-MOVED-HEAD{"head_at_end":"b","head_at_start":"a"}"#,
         r#" GATE-MOVED-HEAD {"head_at_end":"b","head_at_start":"a"}"#,
     ] {
-        assert!(decode(unmarked).is_none(), "{unmarked}");
+        assert!(decode::<MovedHead>(unmarked).is_none(), "{unmarked}");
     }
-    let unreadable = |reason: &str| decode(reason).unwrap().unwrap_err().to_string();
+    let unreadable = |reason: &str| {
+        decode::<MovedHead>(reason)
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+    };
     assert_eq!(
         unreadable("GATE-MOVED-HEAD not json"),
         "expected ident at line 1 column 2"

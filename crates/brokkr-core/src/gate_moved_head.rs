@@ -4,6 +4,7 @@
 //! Every writer and reader goes through this codec, so the bytes the
 //! journal carries are spelled once.
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 /// The marker, and the park reason a marked indeterminate folds to.
@@ -29,9 +30,11 @@ pub fn encode(moved: &MovedHead) -> String {
 }
 
 /// `None` when `reason` does not carry the marker. A marked reason whose
-/// evidence does not read as [`MovedHead`] is still marked: it yields the
-/// parse error, so a reader can tell the marker from its evidence.
-pub fn decode(reason: &str) -> Option<Result<MovedHead, serde_json::Error>> {
+/// evidence does not read as `T` is still marked: it yields the parse
+/// error, so a reader can tell the marker from its evidence. `T` is the
+/// reader's domain: [`MovedHead`] reads only what [`encode`] writes, while
+/// a `serde_json::Value` reader keeps any JSON a journal carries.
+pub fn decode<T: DeserializeOwned>(reason: &str) -> Option<Result<T, serde_json::Error>> {
     reason
         .strip_prefix(PREFIX)?
         .strip_prefix(' ')
