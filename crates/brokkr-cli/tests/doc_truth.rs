@@ -5,7 +5,8 @@
 //! A living doc is a tracked Markdown file that `status_pages::is_record`
 //! does not call a record, outside the [`FROZEN`] surfaces. Each is read as
 //! blocks: a paragraph, list or table between blank lines, or a fenced
-//! block whole. Four rules hold them:
+//! block whole, in a blockquote or not, closed only by a line of its own
+//! fence character at least as long and nothing else. Four rules hold them:
 //!
 //! - every repository path a code span outside a fence names is in the
 //!   tree, a `./` or `../` spelling resolved against the doc's directory,
@@ -19,8 +20,8 @@
 //! - no retired term stands in a block that does not cite what retired it,
 //!   outside the paths [`ALLOWED`] names with a reason.
 //!
-//! What a rule cannot read is refused, never skipped: a fence left open,
-//! a path written with a character no path here carries, a placeholder
+//! What a rule cannot read is refused, never skipped: a fence left open
+//! or ended by its blockquote, a path written with a character no path here carries, a placeholder
 //! nothing closes or climbing above the root, a version spelling followed
 //! by no version, a source whose
 //! comment or literal never closes. A backtick nothing closes is literal
@@ -81,22 +82,76 @@ fn push_line(block: &mut Block, line: &str) {
     block.text.push_str(line);
 }
 
+/// A line's text inside the blockquote markers (`> `) that open it, at
+/// most `most` of them, and how many it carried.
+fn unquoted(line: &str, most: usize) -> (usize, &str) {
+    let (mut depth, mut rest) = (0, line);
+    while depth < most {
+        let Some(inner) = rest.trim_start().strip_prefix('>') else {
+            break;
+        };
+        (depth, rest) = (depth + 1, inner.strip_prefix(' ').unwrap_or(inner));
+    }
+    (depth, rest)
+}
+
+/// An open fence: the character it is written with, how many, and the
+/// blockquote depth it opened at.
+#[derive(Clone, Copy)]
+struct Fence {
+    mark: char,
+    len: usize,
+    depth: usize,
+}
+
+impl Fence {
+    /// The fence a line's unquoted text opens, at `depth`.
+    fn opened_by(text: &str, depth: usize) -> Option<Self> {
+        let text = text.trim_start();
+        let mark = text
+            .chars()
+            .next()
+            .filter(|mark| ['`', '~'].contains(mark))?;
+        let len = text.chars().take_while(|&c| c == mark).count();
+        (len >= 3).then_some(Self { mark, len, depth })
+    }
+
+    /// Whether an unquoted line closes this fence: its own character, at
+    /// least as many, and nothing else.
+    fn closed_by(self, text: &str) -> bool {
+        let text = text.trim();
+        text.len() >= self.len && text.chars().all(|c| c == self.mark)
+    }
+
+    /// The fence as it is written.
+    fn spelled(self) -> String {
+        self.mark.to_string().repeat(self.len)
+    }
+}
+
 /// A Markdown text's blocks, or why it cannot be read.
 fn blocks(text: &str) -> Result<Vec<Block>, String> {
     let mut blocks: Vec<Block> = Vec::new();
-    let (mut fence, mut open) = (None, false);
+    let (mut fence, mut open) = (None::<Fence>, false);
     for (at, line) in text.lines().enumerate() {
         let trimmed = line.trim();
-        let marker = ["```", "~~~"]
-            .into_iter()
-            .find(|marker| trimmed.starts_with(marker));
         if let Some(opened) = fence {
-            match marker == Some(opened) {
-                true => fence = None,
-                false => push_line(blocks.last_mut().expect("the fenced block"), line),
+            let (depth, inside) = unquoted(line, opened.depth);
+            if depth < opened.depth {
+                return Err(format!(
+                    "a block fenced with {} ends with its blockquote, unclosed",
+                    opened.spelled()
+                ));
             }
-        } else if let Some(marker) = marker {
-            (fence, open) = (Some(marker), false);
+            match opened.closed_by(inside) {
+                true => fence = None,
+                false => push_line(blocks.last_mut().expect("the fenced block"), inside),
+            }
+            continue;
+        }
+        let (depth, inside) = unquoted(line, usize::MAX);
+        if let Some(opened) = Fence::opened_by(inside, depth) {
+            (fence, open) = (Some(opened), false);
             blocks.push(Block {
                 first: at + 2,
                 text: String::new(),
@@ -116,7 +171,10 @@ fn blocks(text: &str) -> Result<Vec<Block>, String> {
         }
     }
     match fence {
-        Some(marker) => Err(format!("a block fenced with {marker} never closes")),
+        Some(opened) => Err(format!(
+            "a block fenced with {} never closes",
+            opened.spelled()
+        )),
         None => Ok(blocks),
     }
 }
@@ -180,6 +238,47 @@ fn every_living_doc_is_read() {
         doc("docs/a.md", "text\n\n```sh\nnever closed\n").err(),
         Some("docs/a.md: cannot be read: a block fenced with ``` never closes".to_string())
     );
+}
+
+#[test]
+fn a_fence_closes_only_on_its_own_marker_inside_its_quote() {
+    let read = |text: &str| {
+        blocks(text).map(|blocks| {
+            blocks
+                .into_iter()
+                .map(|block| (block.first, block.text, block.fenced))
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(
+        read("````md\n```\nv0.1.0\n```\n`````\nafter\n"),
+        Ok(vec![
+            (2, "```\nv0.1.0\n```".to_string(), true),
+            (6, "after".to_string(), false),
+        ])
+    );
+    assert_eq!(
+        read("> Quoted:\n>\n> ```sh\n> brokkr 0.1.0\n>   `a/b`\n> ```\n> after\n"),
+        Ok(vec![
+            (1, "> Quoted:\n>".to_string(), false),
+            (4, "brokkr 0.1.0\n  `a/b`".to_string(), true),
+            (7, "> after".to_string(), false),
+        ])
+    );
+    for (text, why) in [
+        ("````\n```\n", "a block fenced with ```` never closes"),
+        ("~~~\n```\n", "a block fenced with ~~~ never closes"),
+        (
+            "```\n``` and more\n",
+            "a block fenced with ``` never closes",
+        ),
+        (
+            "> ```\n> x\n\n```\n",
+            "a block fenced with ``` ends with its blockquote, unclosed",
+        ),
+    ] {
+        assert_eq!(read(text), Err(why.to_string()), "{text}");
+    }
 }
 
 /// The code spans of a block's text, each with the byte it starts at, as
@@ -1035,15 +1134,52 @@ fn number(word: Option<&&str>) -> Option<u16> {
         .then(|| word.parse().expect("four digits"))
 }
 
+/// The decision numbers a list starting at `words[from]` names (`0015`,
+/// `0015 and 0069`, `0015, 0016, or 0069`), and the word that ends it.
+fn listed(words: &[&str], from: usize) -> (Vec<u16>, Option<usize>) {
+    let (mut numbers, mut last, mut at) = (Vec::new(), None, from);
+    while let Some(cited) = number(words.get(at)) {
+        numbers.push(cited);
+        last = Some(at);
+        let joined = words
+            .get(at + 1)
+            .is_some_and(|word| ["and", "or"].contains(&bare(word).as_str()));
+        if !joined && !words[at].ends_with(',') {
+            break;
+        }
+        at += 1 + usize::from(joined);
+    }
+    (numbers, last)
+}
+
+/// Each decision a list after `decision` or `decisions` at `words[at]`
+/// calls proposed by a trailing `, proposed` that proposes nothing else.
+fn trailed_proposed(words: &[&str], at: usize) -> Vec<u16> {
+    let (cited, Some(last)) = listed(words, at + 1) else {
+        return Vec::new();
+    };
+    let after = |skip: usize| words.get(last + skip).map(|word| bare(word));
+    let trailed = words[last].ends_with(',')
+        && after(1).is_some_and(|word| word == "proposed")
+        && number(words.get(last + 2)).is_none()
+        && after(2).is_none_or(|word| word != "decision");
+    if trailed {
+        cited
+    } else {
+        Vec::new()
+    }
+}
+
 /// Each decision a text calls proposed: `proposed [decision] NNNN`,
 /// `proposed by|in|for [decision] NNNN`, or `decision NNNN, proposed`, in
-/// any case and across line breaks.
+/// any case and across line breaks, each number of a [`listed`] run.
 fn called_proposed(text: &str) -> Vec<u16> {
     let words: Vec<&str> = text.split_whitespace().collect();
     let mut found = Vec::new();
     for (at, word) in words.iter().enumerate() {
         let after = |skip: usize| words.get(at + skip).map(|word| bare(word));
-        if bare(word) == "proposed" {
+        let word = bare(word);
+        if word == "proposed" {
             let mut next = 1;
             if after(next).is_some_and(|word| ["by", "in", "for"].contains(&word.as_str())) {
                 next += 1;
@@ -1051,14 +1187,9 @@ fn called_proposed(text: &str) -> Vec<u16> {
             if after(next).is_some_and(|word| word == "decision" || word == "decisions") {
                 next += 1;
             }
-            found.extend(number(words.get(at + next)));
-        } else if bare(word) == "decision"
-            && words.get(at + 1).is_some_and(|word| word.ends_with(','))
-            && after(2).is_some_and(|word| word == "proposed")
-            && number(words.get(at + 3)).is_none()
-            && after(3).is_none_or(|word| word != "decision")
-        {
-            found.extend(number(words.get(at + 1)));
+            found.extend(listed(&words, at + next).0);
+        } else if word == "decision" || word == "decisions" {
+            found.extend(trailed_proposed(&words, at));
         }
     }
     found
@@ -1210,7 +1341,9 @@ fn a_decision_called_proposed_is_held_to_the_index() {
              (decision 0069, proposed)\n\
              ```\n\
              \n\
-             proposed decision [0069](0069-x.md); (decision [0069](x), proposed).\n",
+             proposed decision [0069](0069-x.md); (decision [0069](x), proposed).\n\
+             \n\
+             proposed decisions 0056 and 0069; (decisions 0075, 0056, and 0069, proposed).\n",
         ),
         (
             "scripts/a.sh",
@@ -1235,6 +1368,8 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "docs/a.md:7: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:10: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:10: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:12: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:12: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:2: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:4: calls decision 0069 proposed; the index rules it accepted",
             "crates/a/src/open.rs: cannot be read: an unterminated string",
