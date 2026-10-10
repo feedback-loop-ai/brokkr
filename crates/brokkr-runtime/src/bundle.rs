@@ -19,6 +19,7 @@ use thiserror::Error;
 mod charters;
 pub mod compose;
 mod mcp;
+mod phases;
 mod tier;
 
 use charters::parse_role;
@@ -1940,15 +1941,7 @@ impl Bundle {
             );
         }
 
-        for phase in &machine.phases {
-            if !machine.terminal.contains(phase) && !seats.contains_key(phase) {
-                return Err(CompileError::Invalid(format!(
-                    "non-terminal phase '{phase}' has no seat (no executor can run it)"
-                )));
-            }
-        }
-        // Decision 0050 ruling 4, after the seat lints: every valuation ruled.
-        machine.refuse_unruled()?;
+        phases::seated_and_ruled(&machine, &seats)?;
 
         // Decision 0065 ruling 5, over the COMPOSED seats and before the
         // wrapper moves anything: every executable site — seat, member,
