@@ -60,6 +60,27 @@ if [ "${PROBE_OWN:-0}" = 1 ]; then
 fi
 say contain in a user scope with Delegate=yes
 try systemd-run --user --scope -p Delegate=yes bash "$self" contain-here
+say "a per-attempt transient user scope, found and ended from outside"
+state=$(systemctl --user is-system-running 2>&1)
+if [ "$state" = running ] || [ "$state" = degraded ]; then
+  unit="probe-attempt-$$"
+  systemd-run --user --scope -q --unit "$unit" -- bash -c '(setsid sleep 3014 &); exec sleep 3014' &
+  sleep 1
+  cg="/sys/fs/cgroup$(systemctl --user show -p ControlGroup --value "$unit.scope")"
+  echo "scope cgroup: $cg"
+  echo "processes in the scope: $(wc -l < "$cg/cgroup.procs" 2>&1); live sleeps: $(alive 3014)"
+  t0=$(date +%s%N)
+  echo 1 > "$cg/cgroup.kill"
+  for _ in $(seq 100); do { [ ! -e "$cg/cgroup.events" ] || grep -q '^populated 0' "$cg/cgroup.events"; } && break; sleep 0.02; done
+  t1=$(date +%s%N)
+  echo "RESULT scope: live sleeps after an outside cgroup.kill: $(alive 3014); settled in $(( (t1 - t0) / 1000000 )) ms"
+  wait 2>/dev/null
+  echo "unit after: $(systemctl --user is-active "$unit.scope" 2>&1)"
+  echo "an unknown unit reads: [$(systemctl --user show -p ControlGroup --value probe-never-made.scope 2>&1)] [$(systemctl --user is-active probe-never-made.scope 2>&1)]"
+else
+  echo "no user manager: $state"
+fi
+
 say contain in a system scope with Delegate=yes, through sudo
 if sudo -n true 2>/dev/null; then
   try sudo -n systemd-run --scope -p Delegate=yes --uid="$(id -u)" --gid="$(id -g)" bash "$self" contain-here
