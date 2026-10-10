@@ -137,7 +137,7 @@ pub(crate) struct Tui {
     pub level: Level,
     pub run: Option<String>,
     pub seat: Option<String>,
-    pub scope: Option<render::Scope>,
+    pub scope: Option<brokkr_view::Scope>,
     /// One key per pane slot; cleared when the run changes.
     pub cursor: [Option<String>; 3],
     /// The `Node.key` the graph cursor has walked into, subordinate to
@@ -378,7 +378,7 @@ pub(super) fn asked_run(tui: &Tui, views: &Views) -> Option<String> {
 /// exclusivity rule: one scope at a time is one field, not a policy.
 pub(super) fn scoped_seat(tui: &Tui) -> Option<&str> {
     match &tui.scope {
-        Some(render::Scope::Seat(key)) => Some(key),
+        Some(brokkr_view::Scope::Seat(key)) => Some(key),
         _ => None,
     }
 }
@@ -396,11 +396,12 @@ pub(super) fn participant<'a>(views: &'a Views, key: &str) -> Option<&'a Partici
 /// load-bearing: `lens_for`'s `Err` arm means "this run has no such
 /// phase or seat", which for a TUI *is* the vanished-subject case, so
 /// one mechanism answers both requirements.
-pub(super) fn lens_of(tui: &Tui, views: &Views) -> Option<render::Lens> {
-    views
-        .run
-        .as_ref()
-        .and_then(|view| render::lens_for(view, tui.scope.as_ref()).ok().flatten())
+pub(super) fn lens_of(tui: &Tui, views: &Views) -> Option<brokkr_view::Lens> {
+    views.run.as_ref().and_then(|view| {
+        brokkr_view::lens_for(view, tui.scope.as_ref())
+            .ok()
+            .flatten()
+    })
 }
 
 /// Selection clears itself when its subject disappears — the rule the

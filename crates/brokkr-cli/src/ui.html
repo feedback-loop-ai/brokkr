@@ -1192,8 +1192,9 @@ function renderDetail(id, view) {
   }
   detail.appendChild(line);
 
-  // A drilled participant clears itself if it vanished on refetch.
-  if (activeParticipant && !view.participants.some((p) => p.key === activeParticipant)) {
+  // A drilled participant clears itself if it vanished on refetch: the
+  // view serves a seat scope for every participant key it still has.
+  if (activeParticipant && !Object.hasOwn(view.scopes.seats, activeParticipant)) {
     activeParticipant = null;
   }
   renderLoops(detail, view, id);
@@ -1203,12 +1204,14 @@ function renderDetail(id, view) {
 
   // One scope at a time — a selected phase or a drilled participant —
   // named in a chip whose × clears everything. The consoles below are
-  // scoped to it: seats to the phase's effects (or the one
-  // participant), events to the phase's traffic. Membership is a model
-  // field on both sides, so neither edge knows the rule.
+  // scoped to it by the terminal's rule (#351): a phase keeps its seats
+  // and its traffic, a seat keeps itself and its phases' traffic. The
+  // view serves what each scope keeps, so this page knows no rule.
   const phaseFilter = selectedPhase;
   const scopedPart = activeParticipant
     ? view.participants.find((p) => p.key === activeParticipant) : null;
+  const scope = scopedPart ? view.scopes.seats[scopedPart.key]
+    : phaseFilter ? view.scopes.phases[phaseFilter] : null;
   // Leaving the drill ends the controller's interval: the box it paints
   // into is gone with this render.
   if (!scopedPart) {
@@ -1258,8 +1261,7 @@ function renderDetail(id, view) {
   // drill down into that participant's progress; the selected key lives
   // in activeParticipant so the drill-down survives SSE re-renders.
   const shownParts = view.participants
-    .filter((part) => !phaseFilter || part.phase === phaseFilter)
-    .filter((part) => !activeParticipant || part.key === activeParticipant);
+    .filter((part) => !scope || scope.participants.includes(part.key));
   if (shownParts.length > 0) {
     const seats = el('table');
     seats.appendChild(row([
@@ -1360,7 +1362,8 @@ function renderDetail(id, view) {
     // outcome; the seat itself on the effect's terminal event.
     detail.appendChild(el('p', part.terminal_line.absent ? 'cause' : null,
                           part.terminal_line.text));
-    return;
+    // The seat's trail follows: its phases' rows, as the terminal's
+    // `--seat` keeps them, never the whole run's.
   }
 
   // The events surface defaults to the DECISION TRAIL: why the machine
@@ -1388,9 +1391,12 @@ function renderDetail(id, view) {
     : [el('th', null, 'seq ←cause'), el('th', null, 'event'),
        el('th', null, 'what happened'), el('th', null, 'model'), el('th', null, 'boundary'),
        el('th', null, 'recorded')]));
+  // The scope's rows as a set, built once per render: the cheap trail
+  // test runs first, and a kept row is one lookup, never a scan.
+  const keptRows = scope ? new Set(scope.rows) : null;
   for (const e of view.journal) {
-    if (phaseFilter && !e.phases.includes(phaseFilter)) continue;
     if (!rawJournal && !e.in_trail) continue;
+    if (keptRows && !keptRows.has(e.seq)) continue;
     const [model, boundary] = served(e);
     const seqCell = el('td', null, e.seq);
     if (e.causation_seq !== null) {

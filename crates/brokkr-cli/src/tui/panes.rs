@@ -391,7 +391,7 @@ pub(super) const GRAPH_SHARE_MAX: usize = 45;
 /// degrades the way the thirds did rather than starving the trail.
 pub(super) fn estate(
     view: &RunView,
-    lens: Option<&render::Lens>,
+    lens: Option<&brokkr_view::Lens>,
     height: usize,
 ) -> [Constraint; 3] {
     let graph = (2 + graph_rows(view)).min(height * GRAPH_SHARE_MAX / 100);
@@ -415,10 +415,10 @@ pub(super) fn graph_rows(view: &RunView) -> usize {
 /// The lines the seats pane lists under its header: one per seat the
 /// lens keeps, and one more under each seat that carries a provenance
 /// sentence.
-pub(super) fn seat_lines(view: &RunView, lens: Option<&render::Lens>) -> usize {
+pub(super) fn seat_lines(view: &RunView, lens: Option<&brokkr_view::Lens>) -> usize {
     view.participants
         .iter()
-        .filter(|part| render::keeps_participant(lens, part))
+        .filter(|part| brokkr_view::keeps_participant(lens, part))
         .map(|part| 1 + usize::from(part.provenance.is_some()))
         .sum()
 }
