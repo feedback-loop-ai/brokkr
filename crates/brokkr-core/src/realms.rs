@@ -253,7 +253,7 @@ pub enum RealmsError {
     #[error("{path} is not a readable realms map: {detail}")]
     Malformed { path: String, detail: String },
     #[error("{path} is not a usable realms map: {problem}")]
-    Invalid { path: String, problem: String },
+    Invalid { path: String, problem: Unusable },
 }
 
 /// A crossing this realm publishes (decision 0057 ruling 1): a name, and
@@ -512,7 +512,7 @@ impl RealmMap {
     /// of evidence is held to what it was held to going in.
     #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
     pub fn of(path: &str, content: Value) -> Result<(RealmMap, Value), RealmsError> {
-        let invalid = |problem: String| RealmsError::Invalid {
+        let invalid = |problem: Unusable| RealmsError::Invalid {
             path: path.to_string(),
             problem,
         };
@@ -530,10 +530,13 @@ impl RealmMap {
         {
             if let Some(word) = realm.get("boundary").and_then(Value::as_str) {
                 if let Err(error) = word.parse::<Boundary>() {
-                    return Err(invalid(format!(
-                        "realm '{}' declares boundary {error}",
-                        realm.get("name").and_then(Value::as_str).unwrap_or("?")
-                    )));
+                    return Err(invalid(Unusable::Boundary {
+                        realm: realm
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        error,
+                    }));
                 }
             }
         }
@@ -543,11 +546,7 @@ impl RealmMap {
                 detail: error.to_string(),
             })?;
         if !SCHEMAS.contains(&map.schema.as_str()) {
-            return Err(invalid(format!(
-                "it calls itself '{}'; this build reads {SCHEMA_V1}, {SCHEMA_V2}, {SCHEMA_V3}, \
-                 {SCHEMA_V4}, {SCHEMA_V5}, {SCHEMA_V6}, {SCHEMA_V7} and {SCHEMA_V8}",
-                map.schema
-            )));
+            return Err(invalid(Unusable::UnknownSchema(map.schema)));
         }
         // The v6 word, held to its version BEFORE its shape is read, and
         // held even when written empty (decision 0065 ruling 3): presence
@@ -556,44 +555,42 @@ impl RealmMap {
         // grants are judged here, once, and every reader takes them from
         // [`Realm::grants`].
         let schema = map.schema.clone();
+        let unversioned = |realm: &Realm, word: Word| {
+            invalid(Unusable::Unversioned {
+                realm: realm.name.clone(),
+                word,
+                schema: schema.clone(),
+            })
+        };
         for realm in &mut map.realms {
             let Some(capabilities) = &realm.capabilities else {
                 continue;
             };
-            if older_than(&schema, SCHEMA_V6) {
-                return Err(invalid(format!(
-                    "realm '{}' names its capabilities, which is {SCHEMA_V6} vocabulary in a map \
-                     calling itself {schema}",
-                    realm.name
-                )));
+            if older_than(&schema, Word::Capabilities.introduced()) {
+                return Err(unversioned(realm, Word::Capabilities));
             }
-            realm.grants = grants::parse_grants(path, &realm.name, &schema, capabilities)?;
+            realm.grants = grants::parse_grants(&realm.name, &schema, capabilities)
+                .map_err(|error| invalid(error.into()))?;
         }
         if map.realms.is_empty() {
-            return Err(invalid("it names no realms".to_string()));
+            return Err(invalid(Unusable::NoRealms));
         }
         if map.journal.trim().is_empty() {
-            return Err(invalid("its journal is empty".to_string()));
+            return Err(invalid(Unusable::EmptyJournal));
         }
         for (index, realm) in map.realms.iter().enumerate() {
+            let name = realm.name.clone();
             if !is_name(&realm.name) {
-                return Err(invalid(format!(
-                    "realm {index} is named '{}'; a realm name is lowercase letters, \
-                     digits, '.', '_' and '-', starting with a letter or digit",
-                    realm.name
-                )));
+                return Err(invalid(Unusable::Name { index, name }));
             }
             if realm.path.trim().is_empty() {
-                return Err(invalid(format!("realm '{}' has no path", realm.name)));
+                return Err(invalid(Unusable::NoPath(name)));
             }
             if realm.default_branch.trim().is_empty() {
-                return Err(invalid(format!(
-                    "realm '{}' has no default branch",
-                    realm.name
-                )));
+                return Err(invalid(Unusable::NoBranch(name)));
             }
             if map.realms[..index].iter().any(|e| e.name == realm.name) {
-                return Err(invalid(format!("realm '{}' is named twice", realm.name)));
+                return Err(invalid(Unusable::NamedTwice(name)));
             }
             // The one new word, held to the version that introduced it.
             // `deny_unknown_fields` cannot do this job any more — the
@@ -601,48 +598,32 @@ impl RealmMap {
             // written out, and it names the version that would admit it
             // rather than merely saying no.
             match &realm.journal {
-                Some(_) if older_than(&map.schema, SCHEMA_V2) => {
-                    return Err(invalid(format!(
-                        "realm '{}' names its own journal, which is {SCHEMA_V2} vocabulary \
-                         in a map calling itself {SCHEMA_V1}",
-                        realm.name
-                    )))
+                Some(_) if older_than(&map.schema, Word::Journal.introduced()) => {
+                    return Err(unversioned(realm, Word::Journal))
                 }
                 Some(journal) if journal.trim().is_empty() => {
-                    return Err(invalid(format!(
-                        "realm '{}' has an empty journal",
-                        realm.name
-                    )))
+                    return Err(invalid(Unusable::Empty {
+                        realm: name,
+                        word: Word::Journal,
+                    }))
                 }
                 _ => {}
             }
             // The v4 word, held to its version exactly as the v2 and v3
             // words are held to theirs (decision 0046 ruling 1).
-            if realm.boundary.is_some() && older_than(&map.schema, SCHEMA_V4) {
-                return Err(invalid(format!(
-                    "realm '{}' names its boundary, which is {SCHEMA_V4} vocabulary in a map \
-                     calling itself {}",
-                    realm.name, map.schema
-                )));
+            if realm.boundary.is_some() && older_than(&map.schema, Word::Boundary.introduced()) {
+                return Err(unversioned(realm, Word::Boundary));
             }
-            for (field, value) in [("house", &realm.house), ("dialect", &realm.dialect)] {
+            for (word, value) in [(Word::House, &realm.house), (Word::Dialect, &realm.dialect)] {
                 match value {
-                    Some(_) if older_than(&map.schema, SCHEMA_V3) => {
-                        return Err(invalid(format!(
-                            "realm '{}' names its {field}, which is {SCHEMA_V3} vocabulary in a map calling itself {}",
-                            realm.name, map.schema
-                        )))
+                    Some(_) if older_than(&map.schema, word.introduced()) => {
+                        return Err(unversioned(realm, word))
                     }
                     Some(value) if value.trim().is_empty() => {
-                        return Err(invalid(format!(
-                            "realm '{}' has an empty {field}", realm.name
-                        )))
+                        return Err(invalid(Unusable::Empty { realm: name, word }))
                     }
                     Some(value) if !is_repository_relative(value) => {
-                        return Err(invalid(format!(
-                            "realm '{}' has a non-repository-relative {field}",
-                            realm.name
-                        )))
+                        return Err(invalid(Unusable::Outside { realm: name, word }))
                     }
                     _ => {}
                 }
@@ -656,63 +637,42 @@ impl RealmMap {
             // `null` is refused on its own terms after the version gate
             // has had its say, because under an older label the deeper
             // fault is the word itself.
-            for (field, written, null) in [
+            for (word, written, null) in [
                 (
-                    "publishes",
+                    Word::Publishes,
                     realm.publishes.is_written(),
                     realm.publishes.is_null(),
                 ),
                 (
-                    "consumes",
+                    Word::Consumes,
                     realm.consumes.is_written(),
                     realm.consumes.is_null(),
                 ),
             ] {
-                if written && older_than(&map.schema, SCHEMA_V5) {
-                    return Err(invalid(format!(
-                        "realm '{}' names what it {field}, which is {SCHEMA_V5} vocabulary in a \
-                         map calling itself {}",
-                        realm.name, map.schema
-                    )));
+                if written && older_than(&map.schema, word.introduced()) {
+                    return Err(unversioned(realm, word));
                 }
                 if null {
-                    return Err(invalid(format!(
-                        "realm '{}' writes {field} as null; a crossing list is an array, and a \
-                         realm that draws no crossing leaves the word out",
-                        realm.name
-                    )));
+                    return Err(invalid(Unusable::NullList { realm: name, word }));
                 }
             }
             // What a realm publishes is judged on its own terms: a name
             // that can be read back out of evidence, a file inside the
             // realm that owns it, and no name used twice.
             let published = realm.published();
-            for (index, crossing) in published.iter().enumerate() {
-                if !is_name(&crossing.name) {
-                    return Err(invalid(format!(
-                        "realm '{}' publishes a crossing named '{}'; a crossing name is \
-                         lowercase letters, digits, '.', '_' and '-', starting with a letter \
-                         or digit",
-                        realm.name, crossing.name
-                    )));
+            for (index, entry) in published.iter().enumerate() {
+                let (realm, crossing) = (name.clone(), entry.name.clone());
+                if !is_name(&crossing) {
+                    return Err(invalid(Unusable::CrossingName { realm, crossing }));
                 }
-                if crossing.path.trim().is_empty() {
-                    return Err(invalid(format!(
-                        "realm '{}' publishes crossing '{}' with no path",
-                        realm.name, crossing.name
-                    )));
+                if entry.path.trim().is_empty() {
+                    return Err(invalid(Unusable::NoCrossingPath { realm, crossing }));
                 }
-                if !is_repository_relative(&crossing.path) {
-                    return Err(invalid(format!(
-                        "realm '{}' publishes crossing '{}' from a non-repository-relative path",
-                        realm.name, crossing.name
-                    )));
+                if !is_repository_relative(&entry.path) {
+                    return Err(invalid(Unusable::CrossingOutside { realm, crossing }));
                 }
-                if published[..index].iter().any(|e| e.name == crossing.name) {
-                    return Err(invalid(format!(
-                        "realm '{}' publishes a crossing named '{}' twice",
-                        realm.name, crossing.name
-                    )));
+                if published[..index].iter().any(|e| e.name == crossing) {
+                    return Err(invalid(Unusable::PublishedTwice { realm, crossing }));
                 }
             }
             // What a realm consumes is judged on its own terms here —
@@ -720,26 +680,21 @@ impl RealmMap {
             // one name meaning one file — and against the rest of the
             // world below, once every realm's own shape is known.
             let consumed = realm.consumed();
-            for (index, crossing) in consumed.iter().enumerate() {
-                if !crate::canonical::is_sha256_hex(&crossing.sha256) {
-                    return Err(invalid(format!(
-                        "realm '{}' pins crossing '{}' at '{}', which is not a sha256: a pin is \
-                         64 lowercase hex characters over the published file's raw bytes",
-                        realm.name, crossing.name, crossing.sha256
-                    )));
+            for (index, entry) in consumed.iter().enumerate() {
+                let (realm, crossing) = (name.clone(), entry.name.clone());
+                if !crate::canonical::is_sha256_hex(&entry.sha256) {
+                    let pin = entry.sha256.clone();
+                    return Err(invalid(Unusable::Pin {
+                        realm,
+                        crossing,
+                        pin,
+                    }));
                 }
-                if crossing.realm == realm.name {
-                    return Err(invalid(format!(
-                        "realm '{}' consumes crossing '{}' from itself; a crossing is between \
-                         realms, and a realm reads its own file as a file",
-                        realm.name, crossing.name
-                    )));
+                if entry.realm == realm {
+                    return Err(invalid(Unusable::ConsumesItself { realm, crossing }));
                 }
-                if consumed[..index].iter().any(|e| e.name == crossing.name) {
-                    return Err(invalid(format!(
-                        "realm '{}' consumes a crossing named '{}' twice",
-                        realm.name, crossing.name
-                    )));
+                if consumed[..index].iter().any(|e| e.name == crossing) {
+                    return Err(invalid(Unusable::ConsumedTwice { realm, crossing }));
                 }
             }
         }
@@ -748,26 +703,30 @@ impl RealmMap {
         // resolved only against realms whose own shape already stands.
         for realm in &map.realms {
             for crossing in realm.consumed() {
-                let Some(publisher) = map.realms.iter().find(|e| e.name == crossing.realm) else {
-                    return Err(invalid(format!(
-                        "realm '{}' consumes crossing '{}' from realm '{}', which this world \
-                         does not hold",
-                        realm.name, crossing.name, crossing.realm
-                    )));
+                let (realm, publisher, crossing) = (
+                    realm.name.clone(),
+                    crossing.realm.clone(),
+                    crossing.name.clone(),
+                );
+                let Some(publishing) = map.realms.iter().find(|e| e.name == publisher) else {
+                    return Err(invalid(Unusable::NoPublisher {
+                        realm,
+                        crossing,
+                        publisher,
+                    }));
                 };
-                if !publisher
-                    .published()
-                    .iter()
-                    .any(|e| e.name == crossing.name)
-                {
-                    return Err(invalid(format!(
-                        "realm '{}' consumes crossing '{}', which realm '{}' does not publish",
-                        realm.name, crossing.name, crossing.realm
-                    )));
+                if !publishing.published().iter().any(|e| e.name == crossing) {
+                    return Err(invalid(Unusable::Unpublished {
+                        realm,
+                        crossing,
+                        publisher,
+                    }));
                 }
             }
         }
-        provisional::judge(path, &map, &content).map(|()| (map, content))
+        provisional::judge(&map, &content)
+            .map(|()| (map, content))
+            .map_err(invalid)
     }
 
     /// The journal one realm's runs live in: its own when it names one,
@@ -801,8 +760,10 @@ pub fn recorded_head<'a>(recorded: &'a Value, realm: Option<&str>) -> Option<&'a
 
 mod grants;
 mod provisional;
+mod unusable;
 
-pub use grants::{CapabilityGrant, GrantRetention, GRANT_KEYS};
+pub use grants::{CapabilityGrant, GrantError, GrantList, GrantRetention, GRANT_KEYS};
+pub use unusable::{Unusable, Word};
 
 #[cfg(test)]
 mod tests;

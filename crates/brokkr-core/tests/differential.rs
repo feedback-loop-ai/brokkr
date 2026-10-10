@@ -70,15 +70,11 @@ fn corpus_parity_with_python_oracle() {
                 }
                 other => panic!("expected ruling, got {other:?} for case: {case}"),
             },
-            "no_rule" => match &outcome {
-                Outcome::NoRule { problem } => {
-                    assert_eq!(
-                        problem.is_some(),
-                        !expect["problem"].is_null(),
-                        "park-problem presence mismatch for case: {case} (got {problem:?})"
-                    );
-                }
-                other => panic!("expected no_rule, got {other:?} for case: {case}"),
+            // The oracle's `problem: null` is the unmatched pair; a
+            // problem is the machine's refusal to rule.
+            "no_rule" => match (&outcome, expect["problem"].is_null()) {
+                (Outcome::Unmatched, true) | (Outcome::Refused { .. }, false) => {}
+                (other, _) => panic!("expected no_rule, got {other:?} for case: {case}"),
             },
             kind => panic!("unknown expectation kind {kind}"),
         }

@@ -16,7 +16,7 @@
 //!    every rule in its group that advances (decision 0004's deferred
 //!    lint, the fail-open of the 0022 run's seq 335);
 //! 4. **totality** — every valuation of present, well-typed inputs a
-//!    group reads is ruled, so `NoRule` is left to what a table cannot
+//!    group reads is ruled, so `Unmatched` is left to what a table cannot
 //!    foresee.
 //!
 //! Today's findings are PINNED, not asserted away: the three v1 tables

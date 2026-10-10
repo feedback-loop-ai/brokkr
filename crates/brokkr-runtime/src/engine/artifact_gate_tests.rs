@@ -150,3 +150,41 @@ fn problem_string_is_character_exact() {
         "requires_artifacts unmet for rule R1: missing: spec.md"
     );
 }
+
+/// No rule rules: a pair no rule matches journals the engine's words, and
+/// an input the table cannot read journals the machine's (#353). Neither
+/// names a rule, and the two problems are never the same.
+#[test]
+fn an_unruled_decision_journals_why_no_rule_ruled() {
+    use super::tests::{engine, single_body, state};
+    use serde_json::json;
+    let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine.bundle.machine = brokkr_core::Machine::from_table(&json!({
+        "phases":["work", "done"],
+        "initial":"work",
+        "terminal":["done"],
+        "rules":[{"id":"WORK", "from":"work", "result":"complete", "next":"done",
+                  "when":{"fixes_applied":true}, "reason":"work"}]
+    }))
+    .unwrap();
+    for (written, problem) in [
+        (json!(false), "no rule matched"),
+        (
+            json!("yes"),
+            r#"fixes_applied must be a boolean, got "yes""#,
+        ),
+    ] {
+        engine
+            .decide(
+                &state(Some("work"), super::Cursor::Idle),
+                json!({"result":"complete", "inputs":{"fixes_applied":written}}),
+            )
+            .unwrap();
+        let events = engine.store.load(&engine.run_id).unwrap();
+        assert_eq!(
+            events.last().unwrap().payload,
+            json!({"from":"work", "result":"complete", "rule_id":null, "next":null,
+                   "severity":null, "inputs":{"fixes_applied":written}, "problem":problem})
+        );
+    }
+}
