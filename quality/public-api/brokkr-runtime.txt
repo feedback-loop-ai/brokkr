@@ -1010,7 +1010,7 @@ pub brokkr_runtime::engine::ConcludeRefusal::AlreadyConcluded
 pub brokkr_runtime::engine::ConcludeRefusal::AlreadyConcluded::status: brokkr_core::fold::Status
 pub brokkr_runtime::engine::ConcludeRefusal::JournalMoved
 pub brokkr_runtime::engine::ConcludeRefusal::StopRefused
-pub brokkr_runtime::engine::ConcludeRefusal::StopRefused::refusal: alloc::string::String
+pub brokkr_runtime::engine::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
 pub enum brokkr_runtime::engine::EngineError
 pub brokkr_runtime::engine::EngineError::BoundaryMismatch
 pub brokkr_runtime::engine::EngineError::BoundaryMismatch::compiled: brokkr_core::realms::Boundary
@@ -1320,7 +1320,7 @@ pub brokkr_runtime::ConcludeRefusal::AlreadyConcluded
 pub brokkr_runtime::ConcludeRefusal::AlreadyConcluded::status: brokkr_core::fold::Status
 pub brokkr_runtime::ConcludeRefusal::JournalMoved
 pub brokkr_runtime::ConcludeRefusal::StopRefused
-pub brokkr_runtime::ConcludeRefusal::StopRefused::refusal: alloc::string::String
+pub brokkr_runtime::ConcludeRefusal::StopRefused::refusal: brokkr_core::fold::Refusal
 pub enum brokkr_runtime::EgressClass
 pub brokkr_runtime::EgressClass::Contracted
 pub brokkr_runtime::EgressClass::Local

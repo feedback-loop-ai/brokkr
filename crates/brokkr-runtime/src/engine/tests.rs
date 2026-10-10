@@ -225,8 +225,9 @@ fn selected_case_is_journal_derived_and_phase_entry_records_it_or_parks() {
     assert_eq!(parked.status, Status::AwaitingOperator);
     assert!(parked.park_reason.unwrap().contains("SELECT-NO-DEFAULT"));
 
-    let unresolved = state(None, Cursor::Idle);
-    assert!(runtime.seat_input(&unresolved, "work", "effect").is_err());
+    let unresolved = runtime.seat_input(&state(None, Cursor::Idle), "work", "effect");
+    let detail = "seat 'work' selector has no resolved body".to_string();
+    assert_eq!(invariant(unresolved), ("selector has body", detail));
 
     let (_kept, with_default) = engine(selecting(true));
     let state = state(None, Cursor::Start);

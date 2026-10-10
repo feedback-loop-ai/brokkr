@@ -510,7 +510,7 @@ fn every_conclusion_refusal_reads_as_it_always_has() {
         ),
         (
             ConcludeRefusal::StopRefused {
-                refusal: "after_terminal".into(),
+                refusal: Refusal::AfterTerminal,
             },
             "engine: conclude: run 'r' refused the stop (after_terminal); the journal moved \
              beneath the conclusion, so something may still be driving this run — look with \
@@ -680,8 +680,9 @@ fn a_run_the_driver_finishes_mid_conclusion_refuses_the_stop() {
         }
     })
     .unwrap_err();
-    let refusal = "after_terminal".to_string();
-    let why = ConcludeRefusal::StopRefused { refusal };
+    let why = ConcludeRefusal::StopRefused {
+        refusal: Refusal::AfterTerminal,
+    };
     assert_eq!(refusal_of(refused), (name.to_string(), why));
     assert!(
         fold(&events(&store, name)).is_ok(),
