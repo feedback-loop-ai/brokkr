@@ -134,3 +134,25 @@ eighteen-hour park is run `build-decision-0065-slice-one-th-80bfd784`, parked at
 02:55Z and retried at 20:33Z on 2026-09-22. The chain script and its restarts
 are the controller's, recorded in the session that ran them. The counts will
 drift as the journal grows.
+
+## Addendum — 2026-10-10, the host configuration is the machine's (#430), ruled
+
+Rulings 3 and 5 declare the admission limits "in the realm's host
+configuration", and the realms map carries no such block. The operator ruled
+on 2026-10-10 (option B, recorded on #430): host capacity lives in a
+separate, machine-scoped host configuration with its own contract,
+`forge.host/v1` (`contracts/host.v1.schema.json`), and not in a realms
+version. Capacity belongs to the machine — one scratch disk, one Spark, one
+set of provider accounts — and the tracked realms map carries no machine
+facts (#432).
+
+- **Where it is.** `$XDG_CONFIG_HOME/brokkr/host.json`, else
+  `$HOME/.config/brokkr/host.json`, on Linux and macOS alike. Admission takes
+  the path as an argument, so a later `--host` flag only chooses it.
+- **Three outcomes, never confused.** A path with nothing at it is capacity
+  undeclared: every entry the capacity checks would judge waits, naming the
+  path. A path that exists but cannot be resolved or read — a link that
+  loops or dangles, a directory, a permission refused — holds the entry,
+  naming the path and the error kind, and is never read as absent. A file
+  read but not a valid `forge.host/v1` refuses, naming the problem. None
+  latches: each pass judges again.

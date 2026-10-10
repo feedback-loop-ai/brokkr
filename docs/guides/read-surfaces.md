@@ -217,6 +217,61 @@ beta · 1 run · ./b/.forge/forge.db
 the-other-slice-1a2b3c4d completed done seq 40 9m the other sli…
 ```
 
+### `brokkr queue list` — what waits, and why
+
+The dispatcher's queue (decision 0068), in order: each waiting entry with
+admission's word on it — `admissible`, or every reason it waits or is
+held. An entry nothing else stops (no operator hold, no unmet wait, no
+realm drift) is then measured against this machine, and the first check
+it does not meet is its reason, in this order: the host configuration is
+declared and readable; what the entry seats, and what every running run
+seats, can be read; each provider and route it seats is declared; each
+provider and cloud route is below its ceiling; each shared-local route is
+below its own; the scratch filesystem's free bytes are at or above its
+floor; and an entry that builds in a box finds the boxed builds running
+below their ceiling. Nothing is started, and nothing latches: the next
+`list` measures again.
+
+A seat is every candidate its site may seat, fallbacks included: its
+provider (`claude`, `codex`, `dsh`, `exec`, …) and its route, the prefix
+of the concrete model id the adapter maps it to (`spark-glm` for
+`spark-glm/GLM-5.3-Flash-EXL3`; a model id with no `/` has no route). A
+running run counts once against each provider and route it seats.
+
+**The host configuration** belongs to the machine, not to a realm
+(`forge.host/v1`, [the contract](../../contracts/host.v1.schema.json)):
+`$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
+on Linux and macOS alike. Nothing there and every measured entry waits
+(`no host configuration at <path> declares capacity`); a path that holds
+something unreadable — a link that loops or dangles, a directory — holds
+it, naming the error; a file that is not a valid `forge.host/v1` refuses
+the listing, naming the problem. A provider or route the file does not
+name waits as undeclared, and every ceiling is at least one: there is no
+unlimited.
+
+A machine with two cloud providers and the shared-local Spark route,
+where verification scripts (`exec`) also count:
+
+```json
+{
+  "schema": "forge.host/v1",
+  "providers": {
+    "claude": {"ceiling": 3},
+    "codex": {"ceiling": 2},
+    "dsh": {"ceiling": 1, "routes": {"spark-glm": {"ceiling": 1, "class": "shared-local"}}},
+    "exec": {"ceiling": 4}
+  },
+  "scratch": {"floor_bytes": 21474836480},
+  "boxed_builds": {"ceiling": 2}
+}
+```
+
+A seat on `spark-glm` is judged by that route's ceiling in place of
+`dsh`'s, because the hardware, not the account, is the limit; a `cloud`
+route counts against its own ceiling and its provider's. The scratch
+floor is measured on the temporary directory's filesystem unless
+`scratch.path` names another, absolute.
+
 ### `brokkr inspect` — one run, explained
 
 Header, ruling, seats, decision trail, and the phase graph as a tree.

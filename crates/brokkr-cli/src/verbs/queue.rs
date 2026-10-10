@@ -10,7 +10,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_runtime::admission::{self, Judged, Verdict};
+use brokkr_runtime::admission::{self, Host, Judged, Verdict};
 use brokkr_runtime::launch::{BundleSource, QueuedLaunch};
 use brokkr_store::{Attribution, NewEntry, QueueCommand, Wait};
 use serde::Serialize;
@@ -114,12 +114,13 @@ fn repin(
 }
 
 /// `brokkr queue list`: a look, so the journal is opened read-only. Each
-/// waiting entry carries admission's verdict, judged as the journal and
-/// the maps stand now; a drift no latch records yet is shown, and not
-/// latched.
+/// waiting entry carries admission's verdict, judged as the journal, the
+/// maps and this machine stand now; a drift no latch records yet is
+/// shown, and not latched.
 fn list(workspace: &Path, QueueListArgs { journal, json }: QueueListArgs) -> Result<ExitCode> {
     let store = open_journal(&journal.journal(workspace)?, Access::Read)?;
-    show(&admission::pass(&store)?, json)
+    let entries = on_this_host(|host| Ok(admission::pass_within(&store, host)?))?;
+    show(&entries, json)
 }
 
 /// `brokkr queue judge`: admission's writing pass ([`admission::judge`]),
@@ -133,10 +134,29 @@ fn judge(
     }: QueueJudgeArgs,
 ) -> Result<ExitCode> {
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
-    let entries = attributed(&reason, |by| {
-        admission::judge(&mut store, by).map_err(anyhow::Error::from)
+    let entries = on_this_host(|host| {
+        attributed(&reason, |by| {
+            admission::judge_within(&mut store, host, by).map_err(anyhow::Error::from)
+        })
     })?;
     show(&entries, json)
+}
+
+/// Do `act` on this machine as admission measures it (decision 0068
+/// ruling 3): its host configuration where XDG puts it, the seat scratch
+/// filesystem at the temporary directory, and the free space statvfs
+/// reports.
+fn on_this_host<T>(act: impl FnOnce(&Host<'_>) -> Result<T>) -> Result<T> {
+    let file = admission::host_file(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )?;
+    let scratch = std::env::temp_dir();
+    act(&Host {
+        file: &file,
+        scratch: &scratch,
+        free: &admission::free_bytes,
+    })
 }
 
 /// Print the judged queue, as a table or as `--json`.

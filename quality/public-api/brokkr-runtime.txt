@@ -8,6 +8,7 @@ pub brokkr_runtime::admission::AdmissionError::Entry::source: brokkr_runtime::la
 pub brokkr_runtime::admission::AdmissionError::Fold
 pub brokkr_runtime::admission::AdmissionError::Fold::run: alloc::string::String
 pub brokkr_runtime::admission::AdmissionError::Fold::source: brokkr_core::fold::FoldError
+pub brokkr_runtime::admission::AdmissionError::Host(brokkr_runtime::admission::HostError)
 pub brokkr_runtime::admission::AdmissionError::Latch
 pub brokkr_runtime::admission::AdmissionError::Latch::entry: brokkr_store::queue::EntryId
 pub brokkr_runtime::admission::AdmissionError::Latch::source: serde_json::error::Error
@@ -18,6 +19,41 @@ pub brokkr_runtime::admission::AdmissionError::MapMoved(brokkr_store::queue::Ent
 pub brokkr_runtime::admission::AdmissionError::NothingLatched(brokkr_store::queue::EntryId)
 pub brokkr_runtime::admission::AdmissionError::Store(brokkr_store::StoreError)
 pub brokkr_runtime::admission::AdmissionError::Unmeasured(brokkr_store::queue::EntryId)
+pub enum brokkr_runtime::admission::Capacity
+pub brokkr_runtime::admission::Capacity::BoxedFull
+pub brokkr_runtime::admission::Capacity::BoxedFull::ceiling: u32
+pub brokkr_runtime::admission::Capacity::BoxedFull::running: usize
+pub brokkr_runtime::admission::Capacity::ProviderFull
+pub brokkr_runtime::admission::Capacity::ProviderFull::ceiling: u32
+pub brokkr_runtime::admission::Capacity::ProviderFull::provider: alloc::string::String
+pub brokkr_runtime::admission::Capacity::ProviderFull::running: usize
+pub brokkr_runtime::admission::Capacity::ProviderUndeclared(alloc::string::String)
+pub brokkr_runtime::admission::Capacity::RouteFull
+pub brokkr_runtime::admission::Capacity::RouteFull::ceiling: u32
+pub brokkr_runtime::admission::Capacity::RouteFull::class: brokkr_runtime::admission::RouteClass
+pub brokkr_runtime::admission::Capacity::RouteFull::provider: alloc::string::String
+pub brokkr_runtime::admission::Capacity::RouteFull::route: alloc::string::String
+pub brokkr_runtime::admission::Capacity::RouteFull::running: usize
+pub brokkr_runtime::admission::Capacity::RouteUndeclared
+pub brokkr_runtime::admission::Capacity::RouteUndeclared::provider: alloc::string::String
+pub brokkr_runtime::admission::Capacity::RouteUndeclared::route: alloc::string::String
+pub brokkr_runtime::admission::Capacity::RunUnmeasured
+pub brokkr_runtime::admission::Capacity::RunUnmeasured::detail: alloc::string::String
+pub brokkr_runtime::admission::Capacity::RunUnmeasured::run: alloc::string::String
+pub brokkr_runtime::admission::Capacity::ScratchLow
+pub brokkr_runtime::admission::Capacity::ScratchLow::floor: u64
+pub brokkr_runtime::admission::Capacity::ScratchLow::free: u64
+pub brokkr_runtime::admission::Capacity::ScratchLow::path: std::path::PathBuf
+pub brokkr_runtime::admission::Capacity::ScratchUnmeasured
+pub brokkr_runtime::admission::Capacity::ScratchUnmeasured::kind: core::io::error::ErrorKind
+pub brokkr_runtime::admission::Capacity::ScratchUnmeasured::path: std::path::PathBuf
+pub brokkr_runtime::admission::Capacity::Undeclared(std::path::PathBuf)
+pub brokkr_runtime::admission::Capacity::Unmeasured(alloc::string::String)
+pub brokkr_runtime::admission::Capacity::Unreadable
+pub brokkr_runtime::admission::Capacity::Unreadable::kind: core::io::error::ErrorKind
+pub brokkr_runtime::admission::Capacity::Unreadable::path: std::path::PathBuf
+impl core::fmt::Display for brokkr_runtime::admission::Capacity
+pub fn brokkr_runtime::admission::Capacity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_runtime::admission::Difference
 pub brokkr_runtime::admission::Difference::Boundary
 pub brokkr_runtime::admission::Difference::Boundary::now: brokkr_core::realms::Boundary
@@ -32,7 +68,13 @@ pub brokkr_runtime::admission::Difference::Realm::now: core::option::Option<allo
 pub brokkr_runtime::admission::Difference::Realm::was: core::option::Option<alloc::string::String>
 impl core::fmt::Display for brokkr_runtime::admission::Difference
 pub fn brokkr_runtime::admission::Difference::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_runtime::admission::HostError
+pub brokkr_runtime::admission::HostError::Invalid
+pub brokkr_runtime::admission::HostError::Invalid::path: std::path::PathBuf
+pub brokkr_runtime::admission::HostError::Invalid::source: serde_json::error::Error
+pub brokkr_runtime::admission::HostError::Unplaced
 pub enum brokkr_runtime::admission::Reason
+pub brokkr_runtime::admission::Reason::Capacity(brokkr_runtime::admission::Capacity)
 pub brokkr_runtime::admission::Reason::Dropped(brokkr_store::queue::Wait)
 pub brokkr_runtime::admission::Reason::MapUnreadable(alloc::string::String)
 pub brokkr_runtime::admission::Reason::NotStarted(brokkr_store::queue::Wait)
@@ -54,12 +96,21 @@ impl brokkr_runtime::admission::Reason
 pub fn brokkr_runtime::admission::Reason::kind(&self) -> &'static str
 impl core::fmt::Display for brokkr_runtime::admission::Reason
 pub fn brokkr_runtime::admission::Reason::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_runtime::admission::RouteClass
+pub brokkr_runtime::admission::RouteClass::Cloud
+pub brokkr_runtime::admission::RouteClass::SharedLocal
+impl core::fmt::Display for brokkr_runtime::admission::RouteClass
+pub fn brokkr_runtime::admission::RouteClass::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_runtime::admission::Standing
 pub brokkr_runtime::admission::Standing::Admissible
 pub brokkr_runtime::admission::Standing::Held
 pub brokkr_runtime::admission::Standing::Waiting
 impl brokkr_runtime::admission::Standing
 pub fn brokkr_runtime::admission::Standing::word(self) -> &'static str
+pub struct brokkr_runtime::admission::Host<'a>
+pub brokkr_runtime::admission::Host::file: &'a std::path::Path
+pub brokkr_runtime::admission::Host::free: &'a dyn core::ops::function::Fn(&std::path::Path) -> core::io::error::Result<u64>
+pub brokkr_runtime::admission::Host::scratch: &'a std::path::Path
 pub struct brokkr_runtime::admission::Judged
 pub brokkr_runtime::admission::Judged::entry: brokkr_store::queue::QueueEntry
 pub brokkr_runtime::admission::Judged::launch: brokkr_runtime::launch::QueuedLaunch
@@ -71,8 +122,12 @@ pub struct brokkr_runtime::admission::Verdict
 pub brokkr_runtime::admission::Verdict::reasons: alloc::vec::Vec<brokkr_runtime::admission::Reason>
 impl brokkr_runtime::admission::Verdict
 pub fn brokkr_runtime::admission::Verdict::standing(&self) -> brokkr_runtime::admission::Standing
+pub fn brokkr_runtime::admission::free_bytes(&std::path::Path) -> core::io::error::Result<u64>
+pub fn brokkr_runtime::admission::host_file(core::option::Option<std::ffi::os_str::OsString>, core::option::Option<std::ffi::os_str::OsString>) -> core::result::Result<std::path::PathBuf, brokkr_runtime::admission::HostError>
 pub fn brokkr_runtime::admission::judge(&mut brokkr_store::Store, brokkr_store::queue::Attribution<'_>) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
+pub fn brokkr_runtime::admission::judge_within(&mut brokkr_store::Store, &brokkr_runtime::admission::Host<'_>, brokkr_store::queue::Attribution<'_>) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
 pub fn brokkr_runtime::admission::pass(&brokkr_store::Store) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
+pub fn brokkr_runtime::admission::pass_within(&brokkr_store::Store, &brokkr_runtime::admission::Host<'_>) -> core::result::Result<alloc::vec::Vec<brokkr_runtime::admission::Judged>, brokkr_runtime::admission::AdmissionError>
 pub fn brokkr_runtime::admission::release(&mut brokkr_store::Store, brokkr_store::queue::EntryId, brokkr_store::queue::Attribution<'_>) -> core::result::Result<brokkr_runtime::admission::Released, brokkr_runtime::admission::AdmissionError>
 pub mod brokkr_runtime::agents
 pub use brokkr_runtime::agents::HandsNotice

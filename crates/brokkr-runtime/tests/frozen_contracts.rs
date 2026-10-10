@@ -748,6 +748,30 @@ fn the_v7_realm_schema_adds_only_the_provisional_offices() {
     );
 }
 
+/// Decision 0068's capacity half lands `forge.host/v1` as its own first
+/// contract, beside the realms maps and not inside one (the operator's
+/// ruling of 2026-10-10, option B): no realms version moves.
+#[test]
+fn the_host_contract_lands_as_its_own_first_version() {
+    use serde_json::json;
+    assert_eq!(
+        titled("contracts/host.v1.schema.json"),
+        "Forge host configuration v1"
+    );
+    let validator = contract("contracts/host.v1.schema.json");
+    let host = json!({"schema": "forge.host/v1",
+        "providers": {"dsh": {"ceiling": 1, "routes": {"spark-glm": {"ceiling": 1,
+                                                                      "class": "shared-local"}}}},
+        "scratch": {"floor_bytes": 1}, "boxed_builds": {"ceiling": 1}});
+    assert!(validator.is_valid(&host), "a v1 host configuration");
+    let mut map = host.clone();
+    map["schema"] = json!("forge.realms/v8");
+    assert!(
+        !validator.is_valid(&map),
+        "a realms version under the host schema"
+    );
+}
+
 /// Decision 0065 slice two (SC2, CR1): v8 is v7 plus one reserved grant
 /// key, `retain`, whose only legal value is `false`. v7's bytes are pinned
 /// above; under v7 the same spelling, any value, stays a restriction.

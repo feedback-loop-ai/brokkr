@@ -28,6 +28,7 @@ use super::{
     refuse_realms_with_dispatch, BundleSource, LaunchError, LaunchRequest, NewRun, RunMap,
 };
 use crate::realms::{World, WorldError};
+use crate::Bundle;
 
 /// The encoding's version, the first field of every payload: a payload
 /// in any other is refused, never read as this one.
@@ -317,6 +318,22 @@ impl QueuedLaunch {
             dispatch: self.dispatch.map(at),
         };
         Ok((request, run))
+    }
+
+    /// The bundle this entry would start, compiled from the request and
+    /// map [`QueuedLaunch::rebuild`] makes as a start compiles it: what
+    /// admission measures the providers, routes and boxes it seats by
+    /// (#430's third slice). The crossing fence and the boundary's tool
+    /// are the start's to judge, not this measure's.
+    pub(crate) fn compiled(&self) -> Result<Bundle, LaunchError> {
+        let (request, run) = self.clone().rebuild(PathBuf::new(), OsString::new())?;
+        let dir = request.bundle.resolve()?;
+        super::compile_for(
+            &request.workspace,
+            &dir,
+            run.map.world(),
+            request.operated(),
+        )
     }
 
     /// The repository the entry operates, anchored to `workspace`: the

@@ -810,3 +810,21 @@ under v6 exactly as it did under v5. A pre-release or build of a line is
 that line, and a malformed or missing engine reads as v1, as before. Until
 the engine's attribution consumers land, drivers keep writing legacy rows,
 and those append, export and verify unchanged.
+
+Decision 0068's capacity half (#430's third slice, the operator's ruling
+of 2026-10-10, option B) adds one file and changes none of the bytes above:
+
+| Contract | File | Consumers |
+|---|---|---|
+| The machine's host configuration | `host.v1.schema.json` | brokkr-runtime (`admission/host.rs`, the loader; held to this file by test), `brokkr queue list` and `judge` |
+
+`forge.host/v1` is a machine's, never a realm's: it is read from
+`$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
+and the tracked realms map gains nothing. It declares a concurrency ceiling
+per provider and per route under it, each route `cloud` or `shared-local`;
+the seat scratch filesystem's free-space floor in bytes, with the absolute
+path it measures where that is not the temporary directory; and the
+boxed-build ceiling. Every object is closed, every ceiling is an integer
+from 1 to 4294967295 and the floor one from 1: zero, a negative and an
+overflowing value are refused, never read as unlimited. Cool-down bounds
+are not part of v1; they arrive as a later version.
