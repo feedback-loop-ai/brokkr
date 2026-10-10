@@ -485,7 +485,7 @@ impl Tree {
 /// the doc (or the directory of docs, `""` for any), the path it names (or
 /// the start of it), and why. An allowance that covers nothing fails, so
 /// none outlives its text.
-const ABSENT: [(&str, &str, &str); 44] = [
+const ABSENT: [(&str, &str, &str); 40] = [
     (
         "",
         "credentials.toml",
@@ -681,34 +681,7 @@ const ABSENT: [(&str, &str, &str); 44] = [
         "recipes/fast-codex",
         "names the recipe the wager deleted",
     ),
-    (
-        "openspec/specs/boundary-guides/spec.md",
-        "docs/extension-model.md",
-        BLUEPRINTS_MOVED,
-    ),
-    (
-        "openspec/specs/boundary-guides/spec.md",
-        "docs/target-architecture.md",
-        BLUEPRINTS_MOVED,
-    ),
-    (
-        "openspec/changes/boundary-seatbelt-slice-ii/specs/boundary-guides/spec.md",
-        "docs/extension-model.md",
-        BLUEPRINTS_MOVED,
-    ),
-    (
-        "openspec/changes/boundary-seatbelt-slice-ii/specs/boundary-guides/spec.md",
-        "docs/target-architecture.md",
-        BLUEPRINTS_MOVED,
-    ),
 ];
-
-/// Why the boundary-guides spec and the delta that restates it still name
-/// the two blueprints where they stood before #364 moved them to
-/// `docs/history/`: the passage is a baselined data clone, and the two move
-/// together with a refresh of `quality/jscpd-baseline-data.json`.
-const BLUEPRINTS_MOVED: &str = "a baselined clone of its delta; the path moves with a \
-                                data-baseline refresh";
 
 /// The paths from the root that `path`, named in a doc in the directory
 /// `here` (`None` at the root), may be: a path that climbs with `../` is
