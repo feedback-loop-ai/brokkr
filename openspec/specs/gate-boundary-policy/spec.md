@@ -9,14 +9,9 @@ ruling 4; decision 0043 rulings 2 and 3; decision 0021 rulings 2 and 7).
 The pinned-script rule always checks integrity over the bundle's own bytes;
 its execution guarantee requires a boundary supplying the filesystem and
 `PATH`, and does not hold under `harness` or `open` (decision 0049 ruling 3).
-The hosts are Linux and macOS (decision 0063, 2026-09-21). Where a scenario
-below still names Windows or its script-argument conversion, it is
-historical: it binds no supported host, the conversion and its tests left the
-tree with #356, and a spawned exec argv is compile's exact bytes. So is the
-pinned-script requirement's sentence that decision 0049 names Windows
-best-effort: decision 0063 supersedes that tier, and its SHALL binds Linux
-and macOS only. The text stays until `boundary-seatbelt-slice-ii`, whose
-delta restates the same requirement, folds it.
+The hosts are Linux and macOS (decision 0063, 2026-09-21): every requirement
+below binds those two alone, and a spawned exec argv is compile's exact
+bytes.
 
 ## Requirements
 
@@ -186,8 +181,8 @@ anything earlier on `PATH` can answer to a name. Refusing option tokens
 such as `-c` does not exclude shell-source interpretation by every
 interpreter: `powershell.exe` takes its first positional argument as a
 command string without any option token to refuse (decision 0048's
-corrected security ruling). Decision 0049 names Linux first-class,
-macOS supported and Windows best-effort; where operating-system behaviour
+corrected security ruling). Decision 0049 names Linux first-class and
+macOS supported (decision 0063); where operating-system behaviour
 defeats a stated guarantee, the guarantee SHALL be named as not holding
 there rather than pursued. Decision 0046's addendum still refuses
 `seatbelt` and `container` at start until their slices land.
@@ -293,7 +288,7 @@ addendum, ruling 1).
 - **WHEN** the gate names `./scripts[1]/gate.sh`, before and after the sibling is created or edited
 - **THEN** the bundle SHALL refuse at compile on every host; the real CLI's `compile` and `run` SHALL refuse before a journal or result file exists
 - **AND** compile regressions SHALL cover brace and apostrophe directory spellings and the backtick route reported for `powershell.exe` too, before and after the matching sibling is created or edited, and preserve their exact manifest keys when compiling an ordinary script
-- **AND** the tests' names and comments SHALL describe compile refusal and byte integrity, with no execution guarantee through an unpinned interpreter; their comments SHALL state that they start no interpreter and that Unix execution does not reproduce Windows native command-line encoding, MSYS startup parsing or `powershell.exe` command parsing (0049 ruling 3)
+- **AND** the tests' names and comments SHALL describe compile refusal and byte integrity, with no execution guarantee through an unpinned interpreter; their comments SHALL state that they start no interpreter (0049 ruling 3)
 
 #### Scenario: An option before the script is refused
 - **WHEN** the command is `["{brokkr}","driver","exec","--","bash","-c","./scripts/s.sh"]` under `harness`
@@ -461,16 +456,9 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 - **WHEN** `recipes/self`'s verify seat, compiled in this repository so that `{brokkr}` is `<brokkr>` and `./scripts/verify-seat.sh` is `<repo>/recipes/fast/scripts/verify-seat.sh`, is composed under `harness` on Linux with the probe passing and the engine's ids `<uid>` and `<gid>`
 - **THEN** its argv is exactly, token by token: `unshare`, `--map-root-user`, `--net`, `--`, `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid> --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/fast/scripts/verify-seat.sh`, `{prompt_file}` — no `hands` verb, no `/runtime/bundle` path, and the literal `{prompt_file}` left for the exec driver
 
-#### Scenario: The script argument and the spawn pin have separate spellings
-- **WHEN** an exec script is composed on Windows from a canonical verbatim drive or UNC layer root
-- **THEN** the script-directory pin SHALL retain the original canonical components, while only the script argv becomes an ordinary `C:/...` or `//server/share/...` path below 260 UTF-16 units; a path requiring the verbatim prefix because of length, namespace or filename components SHALL refuse before spawn (proposed decision 0048, Windows script argument repair)
-- **AND** the engine token and subsequent unjudged arguments SHALL stay unchanged; Unix argv SHALL retain its exact bytes, including literal backslashes; plain exec sites without hands SHALL use the same conversion without adding a re-walk
-- **AND** a pure composition test SHALL exercise both platform policies on Linux as well as on native hosts, asserting the complete child argv separately from the canonical directory pin, including an inherited script followed by an argument naming another layer
-- **AND** its comment SHALL state that it starts no interpreter and cannot prove native Windows startup or command parsing on Unix; argv and pin assertions SHALL claim composition only, with no execution guarantee under `harness` or `open` (decision 0049 ruling 3)
-
 #### Scenario: The same seat with the probe failing, and off Linux
-- **WHEN** the same seat is composed under `harness` on Linux with the probe failing, and again on macOS and on Windows
-- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/fast/scripts/verify-seat.sh`, `{prompt_file}`, with the Windows script path spelled for its interpreter as above, spawned in the fixed environment with the network on — and the same holds under `open`
+- **WHEN** the same seat is composed under `harness` on Linux with the probe failing, and again on macOS
+- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/fast/scripts/verify-seat.sh`, `{prompt_file}`, spawned in the fixed environment with the network on — and the same holds under `open`
 
 #### Scenario: The probe is the prefix around true
 - **WHEN** the probe runs
@@ -478,7 +466,7 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 
 #### Scenario: The probe's arms on a planted search path
 - **WHEN** the probe is given a search path with no `unshare`, then one whose `unshare` is a planted executable exiting non-zero, then one exiting zero
-- **THEN** it answers no without spawning anything, no, and yes, in that order; and on macOS and Windows it is never consulted
+- **THEN** it answers no without spawning anything, no, and yes, in that order; and on macOS it is never consulted
 
 #### Scenario: A model site keeps the engine's environment
 - **WHEN** a gate-class agent site with hands on codex is composed under `harness`
@@ -506,9 +494,7 @@ it — exactly when the site's `hands.binds` declare that path, as the box
 sets them, and absent otherwise, a bind's `mask` being declared and not
 enforced outside a namespace; the in-box marker `BROKKR_HANDS_BOX` —
 true of the child exactly when the engine itself already stands inside
-a box. No other inherited name SHALL be carried, the process-startup
-names a Windows host sets included, because the hosts are Linux and
-macOS (decision 0063); fixed as the box
+a box. No other inherited name SHALL be carried; fixed as the box
 sets them, `LANG` and `LC_ALL` as `C.UTF-8`, `CI` as `true`,
 `DISABLE_AUTOUPDATER` and `DISABLE_TELEMETRY` as `1`, and
 `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0` and `GIT_CONFIG_VALUE_0` as the

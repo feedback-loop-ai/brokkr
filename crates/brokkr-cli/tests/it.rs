@@ -49,6 +49,7 @@ mod layering;
 mod machine_proof;
 mod muninn;
 mod mutants_gate;
+mod openspec_retention;
 mod packaging;
 mod private_hosts;
 mod provenance;
