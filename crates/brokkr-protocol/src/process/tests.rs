@@ -2,7 +2,7 @@ use super::*;
 use rustix::process::Pid;
 use serde_json::json;
 
-fn command(script: &str) -> Vec<String> {
+pub(super) fn command(script: &str) -> Vec<String> {
     vec!["sh".into(), "-c".into(), script.into()]
 }
 
@@ -528,7 +528,7 @@ fn accepted() -> String {
     })
 }
 
-fn succeeded() -> String {
+pub(super) fn succeeded() -> String {
     wire(Body::Result {
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
@@ -539,7 +539,7 @@ fn succeeded() -> String {
 }
 
 /// The handshake of a driver that accepts the attempt.
-fn accepting() -> String {
+pub(super) fn accepting() -> String {
     format!(
         "printf '%s\\n' '{}'; read -r start; printf '%s\\n' '{}'",
         capabilities(),
@@ -1735,7 +1735,7 @@ fn a_flooding_driver_meets_backpressure() {
         }
     }
     let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let stdout = read_stdout(Flood(Arc::clone(&reads)));
+    let stdout = read_stdout(Flood(Arc::clone(&reads)), limits::FRAME_BYTES);
     // The count once it stops moving, or after two seconds of moving.
     let still = || {
         let until = Instant::now() + Duration::from_secs(2);
