@@ -7,7 +7,6 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use brokkr_core::policy::audit::SWEEP_BUDGET;
-use brokkr_core::policy::Machine;
 use brokkr_runtime::bundle::is_engine_owned;
 use brokkr_runtime::launch::{self, BundleSource};
 use brokkr_runtime::realms::World;
@@ -106,18 +105,14 @@ fn print_compiled(workspace: &Path, dir: &Path) -> Result<ExitCode> {
         "{}",
         serde_json::to_string_pretty(&compiled_view(&bundle, world.as_ref()))?
     );
-    eprint!("{}", sweep_report(&bundle.machine, SWEEP_BUDGET));
+    // The compiler refused a table past the budget (decision 0050, ruling
+    // 4), so the sweep runs; what it can still show is a v1 table's
+    // presence finding.
+    eprint!(
+        "{}",
+        bundle.machine.audit_with(SWEEP_BUDGET, is_engine_owned)?
+    );
     Ok(Exit::Completed.into())
-}
-
-/// The audit of a compiled table, or why it was not swept. It is
-/// reported, and refused only once decision 0050's enactment slices
-/// enable its refusals (#429).
-fn sweep_report(machine: &Machine, budget: usize) -> String {
-    match machine.audit_with(budget, is_engine_owned) {
-        Ok(audit) => audit.to_string(),
-        Err(error) => format!("{error}\n"),
-    }
 }
 
 /// `brokkr recipes`: list, add or show a recipe.
@@ -243,6 +238,3 @@ pub(crate) fn fake_driver(
     brokkr_protocol::fake::run_fake_driver(&script, &state, model.as_deref(), effort.as_deref())?;
     Ok(Exit::Completed.into())
 }
-
-#[cfg(test)]
-mod tests;

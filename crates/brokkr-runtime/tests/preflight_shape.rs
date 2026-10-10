@@ -99,15 +99,12 @@ fn every_rule_rules_from_a_seated_phase_into_a_declared_one() {
             rule.id,
             rule.from
         );
-        // A park would leave a contributor's preflight waiting on an
-        // operator they do not have. Every rule here takes a
-        // transition, which is also why the table may declare v1.
-        let next = rule.next.as_deref().unwrap_or_else(|| {
-            panic!(
-                "rule {} parks; a preflight has no operator to park for",
-                rule.id
-            )
-        });
+        // Every rule takes a transition but the one decision 0050 (ruling
+        // 4) names: a residual rated `none` parks for the contributor.
+        let Some(next) = rule.next.as_deref() else {
+            assert_eq!(rule.id, "REVIEW-RESIDUAL-NONE", "rule {} parks", rule.id);
+            continue;
+        };
         assert!(
             machine.phases.iter().any(|phase| phase == next),
             "rule {} advances to '{next}', which the table does not declare",
@@ -138,10 +135,13 @@ fn review_is_unavoidable_and_is_the_last_word() {
         );
     }
 
-    // And review itself only ever ends the run: there is nothing after
-    // it to run, which is what "terminal after review" means.
+    // And review itself only ever ends the run, or parks it under its one
+    // named park: there is nothing after it to run, which is what
+    // "terminal after review" means.
     for rule in machine.rules.iter().filter(|rule| rule.from == "review") {
-        let next = rule.next.as_deref().expect("checked above");
+        let Some(next) = rule.next.as_deref() else {
+            continue;
+        };
         assert!(
             machine.terminal.iter().any(|t| t == next),
             "rule {} leaves review for '{next}'; the table must end here",

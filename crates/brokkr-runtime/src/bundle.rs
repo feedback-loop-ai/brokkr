@@ -19,6 +19,7 @@ use thiserror::Error;
 mod charters;
 pub mod compose;
 mod mcp;
+mod phases;
 mod tier;
 
 use charters::parse_role;
@@ -57,6 +58,9 @@ pub enum CompileError {
     Json(#[from] serde_json::Error),
     #[error("bundle policy: {0}")]
     Policy(#[from] brokkr_core::PolicyError),
+    /// A composed bundle's `Policy` refusal and its chain note.
+    #[error("bundle: bundle policy: {0} ({1})")]
+    ComposedPolicy(Box<brokkr_core::PolicyError>, String),
     #[error("bundle: {0}")]
     Provisional(ProvisionalRefusal),
     /// GP2 (decision 0065 slice two, U3c): an inline site's verified
@@ -1435,7 +1439,7 @@ impl Bundle {
         // composition happened (decision 0017).
         let resolved = compose::resolve_unsealed(&dir)?;
         let note = resolved.chain_note();
-        match Bundle::assemble(
+        Bundle::assemble(
             &dir,
             resolved,
             library_root,
@@ -1444,21 +1448,19 @@ impl Bundle {
             dialect,
             law.into(),
             capabilities,
-        ) {
-            Ok(bundle) => Ok(bundle),
-            // Every failure downstream of resolution on a composed
-            // bundle is wrapped ONCE with the chain — one arm, rather
-            // than teaching each lint about layers.
-            // A capability refusal is wrapped in its raw words, as it has
-            // always read, and bounded once, where the whole line renders.
-            Err(error) => Err(match (note, error) {
-                (Some(note), CompileError::Capability(reason)) => {
-                    CompileError::Capability(format!("bundle: {reason} ({note})"))
-                }
-                (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
-                (None, error) => error,
-            }),
-        }
+        )
+        // A composed bundle's failure is wrapped ONCE with the chain: a
+        // capability keeps its raw words, a policy refusal its type.
+        .map_err(|error| match (note, error) {
+            (Some(note), CompileError::Capability(reason)) => {
+                CompileError::Capability(format!("bundle: {reason} ({note})"))
+            }
+            (Some(note), CompileError::Policy(error)) => {
+                CompileError::ComposedPolicy(Box::new(error), note)
+            }
+            (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
+            (None, error) => error,
+        })
     }
 
     /// The agent roots ride through: composition resolves the bundle,
@@ -1938,16 +1940,7 @@ impl Bundle {
             );
         }
 
-        for phase in &machine.phases {
-            if machine.terminal.contains(phase) {
-                continue;
-            }
-            if !seats.contains_key(phase) {
-                return Err(CompileError::Invalid(format!(
-                    "non-terminal phase '{phase}' has no seat (no executor can run it)"
-                )));
-            }
-        }
+        phases::seated_and_ruled(&machine, &seats)?;
 
         // Decision 0065 ruling 5, over the COMPOSED seats and before the
         // wrapper moves anything: every executable site — seat, member,
