@@ -8,8 +8,9 @@
 //! The file is found where [`host_file`] says, and read by [`read`] into
 //! one of three outcomes that are never confused: nothing at the path is
 //! capacity undeclared; a path that holds something that cannot be read
-//! (a link that loops or dangles, a directory, a permission refused) is
-//! unreadable, never absent (#430's H5); and a file read but not a valid
+//! (a link that loops or dangles, a directory, a FIFO or a device, a
+//! permission refused) is unreadable, never absent (#430's H5) and never
+//! waited on; and a file read but not a valid
 //! `forge.host/v1` refuses, naming the problem. A ceiling of zero, a
 //! negative one and one past `u32` are refused, never read as unlimited,
 //! and so is a provider or route written twice: the ceiling the operator
@@ -284,7 +285,7 @@ pub(crate) fn read(file: &Path) -> Result<Hosting, HostError> {
             return Ok(unreached(file).map_or(Hosting::Absent, Hosting::Unreadable));
         }
     }
-    let bytes = match std::fs::read(file) {
+    let bytes = match regular(file) {
         Ok(bytes) => bytes,
         Err(unread) => return Ok(Hosting::Unreadable(unread.kind())),
     };
@@ -294,6 +295,26 @@ pub(crate) fn read(file: &Path) -> Result<Hosting, HostError> {
             path: file.to_path_buf(),
             source,
         })
+}
+
+/// The bytes of the regular file at `file`, opened non-blocking so a FIFO
+/// at the path, or a link to one, is refused by its handle's kind and
+/// never waited on; a directory is refused as one, and a device or socket
+/// as unsupported, so nothing is read without end.
+fn regular(file: &Path) -> io::Result<Vec<u8>> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let mut held = std::fs::File::from(rustix::fs::open(file, flags, Mode::empty())?);
+    let kind = held.metadata()?.file_type();
+    if kind.is_dir() {
+        return Err(ErrorKind::IsADirectory.into());
+    }
+    if !kind.is_file() {
+        return Err(ErrorKind::Unsupported.into());
+    }
+    let mut bytes = Vec::new();
+    io::Read::read_to_end(&mut held, &mut bytes)?;
+    Ok(bytes)
 }
 
 /// A host configuration's bytes, read as the contract's shape and then

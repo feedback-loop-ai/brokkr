@@ -359,6 +359,23 @@ fn a_host_configuration_that_cannot_be_read_holds_and_is_never_read_as_absent() 
     };
     assert_eq!(standing(&file), Standing::Held);
 
+    // A FIFO with no writer, or a link to one, is refused by its kind and
+    // never waited on; so is a device, which a read may never finish.
+    std::fs::remove_dir(&file).unwrap();
+    let made = std::process::Command::new("mkfifo")
+        .arg(&file)
+        .status()
+        .unwrap();
+    assert!(made.success(), "mkfifo {}", file.display());
+    let unsupported = unreadable(io::ErrorKind::Unsupported);
+    assert_eq!(fixture.reasons(&file, PLENTY), unsupported);
+    std::fs::rename(&file, fixture.root.join("pipe")).unwrap();
+    std::os::unix::fs::symlink("pipe", &file).unwrap();
+    assert_eq!(fixture.reasons(&file, PLENTY), unsupported);
+    std::fs::remove_file(&file).unwrap();
+    std::os::unix::fs::symlink("/dev/null", &file).unwrap();
+    assert_eq!(fixture.reasons(&file, PLENTY), unsupported);
+
     // A directory on the path that is a dangling link leaves the file
     // unreachable, not absent.
     std::os::unix::fs::symlink("unmounted", fixture.root.join("stowed")).unwrap();

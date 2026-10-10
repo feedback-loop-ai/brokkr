@@ -252,8 +252,8 @@ v13 included, makes every entry wait until it ends.
 `$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
 on Linux and macOS alike. Nothing there and every measured entry waits
 (`no host configuration at <path> declares capacity`); a path that holds
-something unreadable — a link that loops or dangles, a directory — holds
-it, naming the error; a file that is not a valid `forge.host/v1` refuses
+something unreadable — a link that loops or dangles, a directory, a FIFO
+or a device, never waited on — holds it, naming the error; a file that is not a valid `forge.host/v1` refuses
 the listing, naming the problem, and so does a provider or route written
 twice, naming the key. A provider or route the file does not name waits
 as undeclared, and every ceiling is at least one: there is no unlimited.
