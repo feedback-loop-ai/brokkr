@@ -38,7 +38,7 @@
 //! The machine's room for an entry nothing else stops is judged after
 //! these ([`pass_within`], [`judge_within`]; #430's third slice), from the
 //! machine's own host configuration (the operator's ruling of
-//! 2026-10-10): provider and route concurrency, the scratch-space floor
+//! 2026-10-10): provider and route concurrency, the free-space floors
 //! and the boxed-build ceiling, in the order `admission/capacity.rs`
 //! documents.
 //! Cool-downs are not judged yet.
@@ -62,8 +62,8 @@ mod capacity;
 mod governing;
 mod host;
 
-pub use capacity::{Capacity, Host, Shared, Unmeasurable};
-pub use host::{free_bytes, host_file, HostError, RouteClass};
+pub use capacity::{Capacity, Host, Measured, Shared, Unmeasurable};
+pub use host::{free_bytes, host_file, HostError, Place, RouteClass};
 
 /// Why an entry may not start now.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -24,9 +24,11 @@
 //! seats can be measured, and every running run says what it seats; every
 //! provider and route the entry seats is declared; each provider and
 //! cloud route is below its ceiling; each shared-local route is below its
-//! own; the scratch filesystem's free bytes are at or above its floor;
-//! and, for an entry that builds in a box, the boxed builds running are
-//! below their ceiling. Nothing here latches: each pass measures afresh.
+//! own; each free-space floor, in the file's order, finds the free bytes
+//! of the filesystem it names at or above it, each judged by its own
+//! number though another on the same filesystem holds; and, for an entry
+//! that builds in a box, the boxed builds running are below their
+//! ceiling. Nothing here latches: each pass measures afresh.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -41,16 +43,17 @@ use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
-use super::host::{self, HostConfig, Hosting, Provider, Route, RouteClass};
+use super::host::{self, At, HostConfig, Hosting, Place, Provider, Route, RouteClass};
 use super::{AdmissionError, Judged};
 use crate::capabilities::manifest::ModelPins;
 use crate::launch::{LaunchError, QueuedLaunch};
 
 /// The machine an admission pass measures, its effects injected: where
-/// its host configuration is, and how the free bytes under a path are
-/// measured.
+/// its host configuration is, the temp directory a `temp` floor measures,
+/// and how the free bytes under a path are measured.
 pub struct Host<'a> {
     pub file: &'a Path,
+    pub temp: &'a Path,
     pub free: &'a dyn Fn(&Path) -> io::Result<u64>,
 }
 
@@ -89,13 +92,13 @@ pub enum Capacity {
         running: usize,
         ceiling: u32,
     },
-    /// The scratch filesystem cannot be measured.
-    ScratchUnmeasured {
-        path: PathBuf,
+    /// The filesystem a free-space floor names cannot be measured.
+    FloorUnmeasured {
+        at: Measured,
         kind: ErrorKind,
     },
-    ScratchLow {
-        path: PathBuf,
+    FloorLow {
+        at: Measured,
         free: u64,
         floor: u64,
     },
@@ -176,8 +179,8 @@ impl Capacity {
             Capacity::RouteUndeclared { .. } => "route_undeclared",
             Capacity::ProviderFull { .. } => "provider_full",
             Capacity::RouteFull { .. } => "route_full",
-            Capacity::ScratchUnmeasured { .. } => "scratch_unmeasured",
-            Capacity::ScratchLow { .. } => "scratch_low",
+            Capacity::FloorUnmeasured { .. } => "floor_unmeasured",
+            Capacity::FloorLow { .. } => "floor_low",
             Capacity::BoxedFull { .. } => "boxed_full",
         }
     }
@@ -232,16 +235,12 @@ impl fmt::Display for Capacity {
                 "{class} route {route} of provider {provider} is full: {}",
                 against(running, ceiling)
             ),
-            Capacity::ScratchUnmeasured { path, kind } => write!(
-                f,
-                "the scratch filesystem at {} cannot be measured: {kind}",
-                path.display()
-            ),
-            Capacity::ScratchLow { path, free, floor } => write!(
-                f,
-                "the scratch filesystem at {} has {free} bytes free, below its floor of {floor}",
-                path.display()
-            ),
+            Capacity::FloorUnmeasured { at, kind } => {
+                write!(f, "{at} cannot be measured: {kind}")
+            }
+            Capacity::FloorLow { at, free, floor } => {
+                write!(f, "{at} has {free} bytes free, below its floor of {floor}")
+            }
             Capacity::BoxedFull { running, ceiling } => {
                 write!(f, "boxed builds are full: {}", against(running, ceiling))
             }
@@ -313,7 +312,7 @@ impl<'h> Measure<'h> {
             .iter()
             .filter(|bound| bound.class() == RouteClass::SharedLocal)
             .try_for_each(|bound| bound.below(&running, false))?;
-        scratch(config, self.host, &launch.scratch())?;
+        floors(config, self.host, launch.scratch())?;
         match (entry.boxed, config.boxed_builds.ceiling.get()) {
             (true, ceiling) if running.boxed >= ceiling as usize => Err(Capacity::BoxedFull {
                 running: running.boxed,
@@ -334,24 +333,63 @@ impl<'h> Measure<'h> {
     }
 }
 
-/// The free bytes on the scratch filesystem at or above its floor: the
-/// filesystem of the declared path, else of the entry's own seat scratch,
-/// `default`.
-fn scratch(config: &HostConfig, host: &Host<'_>, default: &Path) -> Result<(), Capacity> {
-    let path = (config.scratch.path.as_ref()).map_or(default, |path| path.0.as_path());
-    let floor = config.scratch.floor_bytes.get();
-    match (host.free)(path) {
-        Err(error) => Err(Capacity::ScratchUnmeasured {
+/// Where a free-space floor was measured: the place the host
+/// configuration names, at the path it resolved to, or the path it names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Measured {
+    Place { place: Place, path: PathBuf },
+    Path(PathBuf),
+}
+
+impl Measured {
+    /// Where `at` is measured for an entry whose seat scratch is
+    /// `scratch`, on a host whose temp directory is `temp`.
+    fn of(at: &At, scratch: &Path, temp: &Path) -> Measured {
+        let place = |place: Place, path: &Path| Measured::Place {
+            place,
             path: path.to_path_buf(),
-            kind: error.kind(),
-        }),
-        Ok(free) if free < floor => Err(Capacity::ScratchLow {
-            path: path.to_path_buf(),
-            free,
-            floor,
-        }),
-        Ok(_) => Ok(()),
+        };
+        match at {
+            At::Place(Place::SeatScratch) => place(Place::SeatScratch, scratch),
+            At::Place(Place::Temp) => place(Place::Temp, temp),
+            At::Path(path) => Measured::Path(path.0.clone()),
+        }
     }
+
+    fn path(&self) -> &Path {
+        match self {
+            Measured::Place { path, .. } | Measured::Path(path) => path,
+        }
+    }
+}
+
+impl fmt::Display for Measured {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Measured::Place { place, path } => {
+                write!(f, "the {place} filesystem at {}", path.display())
+            }
+            Measured::Path(path) => write!(f, "the filesystem at {}", path.display()),
+        }
+    }
+}
+
+/// Each free-space floor, in the file's order, held: the free bytes on
+/// the filesystem it names at or above it. Every floor is measured and
+/// judged by its own number, whichever other floor shares its filesystem.
+fn floors(config: &HostConfig, host: &Host<'_>, scratch: PathBuf) -> Result<(), Capacity> {
+    config.floors.0.iter().try_for_each(|declared| {
+        let at = Measured::of(&declared.at, &scratch, host.temp);
+        let floor = declared.floor_bytes.get();
+        match (host.free)(at.path()) {
+            Err(error) => Err(Capacity::FloorUnmeasured {
+                at,
+                kind: error.kind(),
+            }),
+            Ok(free) if free < floor => Err(Capacity::FloorLow { at, free, floor }),
+            Ok(_) => Ok(()),
+        }
+    })
 }
 
 /// What a run's manifest says it seats: the capability record of every

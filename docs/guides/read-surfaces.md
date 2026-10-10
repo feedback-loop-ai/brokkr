@@ -227,8 +227,8 @@ it does not meet is its reason, in this order: the host configuration is
 declared and readable; what the entry seats, and what every running run
 seats, can be read; each provider and route it seats is declared; each
 provider and cloud route is below its ceiling; each shared-local route is
-below its own; the scratch filesystem's free bytes are at or above its
-floor; and an entry that builds in a box finds the boxed builds running
+below its own; each free-space floor, in the file's order, finds its
+filesystem's free bytes at or above it; and an entry that builds in a box finds the boxed builds running
 below their ceiling. Nothing is started, and nothing latches: the next
 `list` measures again.
 
@@ -270,18 +270,24 @@ where verification scripts (`exec`) also count:
     "dsh": {"ceiling": 1, "routes": {"spark-glm": {"ceiling": 1, "class": "shared-local"}}},
     "exec": {"ceiling": 4}
   },
-  "scratch": {"floor_bytes": 21474836480},
+  "floors": [
+    {"place": "seat-scratch", "floor_bytes": 21474836480},
+    {"place": "temp", "floor_bytes": 4294967296}
+  ],
   "boxed_builds": {"ceiling": 2}
 }
 ```
 
 A seat on `spark-glm` is judged by that route's ceiling in place of
 `dsh`'s, because the hardware, not the account, is the limit; a `cloud`
-route counts against its own ceiling and its provider's. The scratch
-floor is measured on the filesystem that holds the entry's own seat
-scratch, `.forge/scratch` in the repository it operates (or would hold
-it, before the first attempt makes it), unless `scratch.path` names
-another, absolute.
+route counts against its own ceiling and its provider's. Every floor must
+hold, in the order written, and the first that does not is the reason:
+`seat-scratch` is measured on the filesystem that holds the entry's own
+seat scratch, `.forge/scratch` in the repository it operates (or would
+hold it, before the first attempt makes it); `temp` on the host's temp
+directory, where boxed seats' private `/tmp` and `HOME` are made; and a
+floor may name an absolute `path` in place of a `place`. Here the temp
+directory is a separate, RAM-backed tmpfs, so both floors matter.
 
 ### `brokkr inspect` — one run, explained
 

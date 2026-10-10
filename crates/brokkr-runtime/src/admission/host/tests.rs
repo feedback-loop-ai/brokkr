@@ -84,13 +84,16 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
     let schema: Value = serde_json::from_slice(&std::fs::read(contract).unwrap()).unwrap();
     let validator = jsonschema::draft7::new(&schema).unwrap();
     let minimal = json!({"schema": "forge.host/v1", "providers": {},
-                         "scratch": {"floor_bytes": 1}, "boxed_builds": {"ceiling": 1}});
+                         "floors": [{"place": "temp", "floor_bytes": 1}],
+                         "boxed_builds": {"ceiling": 1}});
     let with = |pointer: &str, value: Value| {
         let mut host = minimal.clone();
         let (parent, key) = pointer.rsplit_once('/').unwrap();
         host.pointer_mut(parent).unwrap()[key] = value;
         host
     };
+    let floors = |floors: Value| with("/floors", floors);
+    let floor = |floor: Value| floors(json!([floor]));
     let route = |route: Value| {
         with(
             "/providers/dsh",
@@ -101,8 +104,11 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         minimal.clone(),
         guide_sample(),
         route(json!({"ceiling": 4_294_967_295_u64, "class": "cloud"})),
-        with("/scratch/path", json!("/var/tmp")),
-        with("/scratch/floor_bytes", json!(u64::MAX)),
+        floor(json!({"path": "/var/tmp", "floor_bytes": u64::MAX})),
+        floor(json!({"place": "seat-scratch", "floor_bytes": 1})),
+        floors(json!([{"place": "temp", "floor_bytes": 1},
+                      {"place": "seat-scratch", "floor_bytes": 1},
+                      {"path": "/var/tmp", "floor_bytes": 1}])),
     ];
     let refused = [
         with("/cooldowns", json!({})),
@@ -116,9 +122,18 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         route(json!({"ceiling": 1, "class": "local"})),
         route(json!({"ceiling": 1})),
         route(json!({"ceiling": 1, "class": "cloud", "timeout": 60})),
-        with("/scratch/floor_bytes", json!(0)),
-        with("/scratch/path", json!("var/tmp")),
-        with("/scratch/path", Value::Null),
+        floor(json!({"place": "temp", "floor_bytes": 0})),
+        floor(json!({"path": "var/tmp", "floor_bytes": 1})),
+        floor(json!({"path": null, "floor_bytes": 1})),
+        floor(json!({"place": null, "floor_bytes": 1})),
+        floor(json!({"place": "disk", "floor_bytes": 1})),
+        floor(json!({"path": "/t", "place": "temp", "floor_bytes": 1})),
+        floor(json!({"floor_bytes": 1})),
+        floor(json!({"place": "temp"})),
+        floor(json!({"place": "temp", "floor_bytes": 1, "size": 1})),
+        floors(json!([])),
+        floors(json!({"place": "temp", "floor_bytes": 1})),
+        with("/scratch", json!({"floor_bytes": 1})),
         with("/boxed_builds/ceiling", json!(0)),
         with("/boxed_builds/cap", json!(1)),
         json!({"schema": "forge.host/v1", "providers": {}, "boxed_builds": {"ceiling": 1}}),
@@ -127,21 +142,29 @@ fn the_contract_and_the_loader_admit_and_refuse_the_same_files() {
         let loaded = serde_json::from_value::<HostConfig>(host.clone()).is_ok();
         (validator.is_valid(host), loaded)
     };
-    assert_eq!(admitted.each_ref().map(judged), [(true, true); 5]);
-    assert_eq!(refused.each_ref().map(judged), [(false, false); 17]);
+    assert_eq!(admitted.each_ref().map(judged), [(true, true); 6]);
+    assert_eq!(refused.each_ref().map(judged), [(false, false); 26]);
 
-    // JSON Schema cannot say a key is written once, and its validator reads
-    // the last copy: there the loader is stricter than the contract can be.
+    // JSON Schema cannot say a key is written once, nor that two floors
+    // name one place or path, and its validator reads the last copy of a
+    // key: there the loader is stricter than the contract can be.
     let twice = written(r#""dsh": {"ceiling": 1}, "dsh": {"ceiling": 2}"#);
     let last: Value = serde_json::from_str(&twice).unwrap();
     let loaded = config(twice.as_bytes()).is_ok();
     assert_eq!((validator.is_valid(&last), loaded), (true, false));
+    let repeated = [
+        floors(json!([{"place": "temp", "floor_bytes": 1},
+                      {"place": "temp", "floor_bytes": 2}])),
+        floors(json!([{"path": "/var/tmp", "floor_bytes": 1},
+                      {"path": "/var/tmp", "floor_bytes": 2}])),
+    ];
+    assert_eq!(repeated.each_ref().map(judged), [(true, false); 2]);
 }
 
 /// A minimal host configuration's text with `providers` written as given.
 fn written(providers: &str) -> String {
     format!(
-        r#"{{"schema": "forge.host/v1", "providers": {{{providers}}}, "scratch": {{"floor_bytes": 1}}, "boxed_builds": {{"ceiling": 1}}}}"#
+        r#"{{"schema": "forge.host/v1", "providers": {{{providers}}}, "floors": [{{"place": "temp", "floor_bytes": 1}}], "boxed_builds": {{"ceiling": 1}}}}"#
     )
 }
 

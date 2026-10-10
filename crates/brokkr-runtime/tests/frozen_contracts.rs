@@ -769,7 +769,7 @@ fn the_host_contract_lands_as_its_own_first_version() {
     let host = json!({"schema": "forge.host/v1",
         "providers": {"dsh": {"ceiling": 1, "routes": {"spark-glm": {"ceiling": 1,
                                                                       "class": "shared-local"}}}},
-        "scratch": {"floor_bytes": 1}, "boxed_builds": {"ceiling": 1}});
+        "floors": [{"place": "seat-scratch", "floor_bytes": 1}], "boxed_builds": {"ceiling": 1}});
     assert!(validator.is_valid(&host), "a v1 host configuration");
     let mut map = host.clone();
     map["schema"] = json!("forge.realms/v8");

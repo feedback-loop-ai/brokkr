@@ -180,11 +180,15 @@ impl Fixture {
         file
     }
 
-    /// Each entry's reasons under `pass_within`, the scratch filesystem
+    /// Each entry's reasons under `pass_within`, every filesystem
     /// reporting `free` bytes.
     fn reasons(&self, file: &Path, free: u64) -> Vec<Vec<Reason>> {
         let probe = |_: &Path| Ok(free);
-        let host = Host { file, free: &probe };
+        let host = Host {
+            file,
+            temp: TEMP.as_ref(),
+            free: &probe,
+        };
         verdicts(pass_within(&self.store, &host).unwrap())
     }
 
@@ -201,6 +205,9 @@ impl Fixture {
 
 const PLENTY: u64 = 1 << 40;
 
+/// The temp directory every test host injects; never the test process's.
+const TEMP: &str = "/brokkr-test-temp";
+
 /// Queue `launch` in `store`.
 fn enqueue(store: &mut Store, launch: &QueuedLaunch) -> EntryId {
     let payload = launch.encode().unwrap();
@@ -216,7 +223,12 @@ fn enqueue(store: &mut Store, launch: &QueuedLaunch) -> EntryId {
 /// verdict of `pass_within` over `store` on it.
 fn passed(store: &Store, file: &Path) -> Result<Vec<Judged>, AdmissionError> {
     let probe = |_: &Path| Ok(PLENTY);
-    pass_within(store, &Host { file, free: &probe })
+    let host = Host {
+        file,
+        temp: TEMP.as_ref(),
+        free: &probe,
+    };
+    pass_within(store, &host)
 }
 
 fn verdicts(judged: Vec<Judged>) -> Vec<Vec<Reason>> {
@@ -226,11 +238,12 @@ fn verdicts(judged: Vec<Judged>) -> Vec<Vec<Reason>> {
         .collect()
 }
 
-/// A host configuration declaring `providers`, a scratch floor of a
+/// A host configuration declaring `providers`, a seat-scratch floor of a
 /// kibibyte and two boxed builds.
 fn host(providers: Value) -> Value {
     json!({"schema": "forge.host/v1", "providers": providers,
-           "scratch": {"floor_bytes": 1024}, "boxed_builds": {"ceiling": 2}})
+           "floors": [{"place": "seat-scratch", "floor_bytes": 1024}],
+           "boxed_builds": {"ceiling": 2}})
 }
 
 /// `alpha` and `beta` at `alpha` and `beta` runs, `beta`'s routes as
@@ -395,18 +408,37 @@ fn an_invalid_host_configuration_refuses_the_pass_naming_the_problem() {
     unknown["cooldowns"] = json!({});
     let mut keyed = valid.clone();
     keyed["providers"]["alpha"]["burst"] = json!(2);
+    let mut unfloored = valid.clone();
+    unfloored.as_object_mut().unwrap().remove("floors");
+    // Two floors naming one place or one path, each with its own number.
+    let twice = |at: Value| {
+        let floor = |bytes: u64| {
+            let mut floor = at.clone();
+            floor["floor_bytes"] = json!(bytes);
+            floor
+        };
+        with("/floors", json!([floor(1), floor(2)]))
+    };
     let cases = [
-        (unknown, "unknown field `cooldowns`, expected one of `schema`, `providers`, `scratch`, `boxed_builds` at line 1 column 41"),
-        (keyed, "unknown field `burst`, expected `ceiling` or `routes` at line 1 column 59"),
-        (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 63"),
-        (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 64"),
-        (with("/providers/alpha/ceiling", json!(4_294_967_296_u64)), "invalid value: integer `4294967296`, expected a nonzero u32 at line 1 column 72"),
+        (unknown, "unknown field `cooldowns`, expected one of `schema`, `providers`, `floors`, `boxed_builds` at line 1 column 41"),
+        (keyed, "unknown field `burst`, expected `ceiling` or `routes` at line 1 column 114"),
+        (with("/providers/alpha/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 118"),
+        (with("/providers/alpha/ceiling", json!(-1)), "invalid value: integer `-1`, expected a nonzero u32 at line 1 column 119"),
+        (with("/providers/alpha/ceiling", json!(4_294_967_296_u64)), "invalid value: integer `4294967296`, expected a nonzero u32 at line 1 column 127"),
         (with("/boxed_builds/ceiling", json!(0)), "invalid value: integer `0`, expected a nonzero u32 at line 1 column 28"),
-        (with("/scratch/floor_bytes", json!(0)), "invalid value: integer `0`, expected a nonzero u64 at line 1 column 150"),
-        (with("/scratch", json!({"floor_bytes": 1, "path": "tmp"})), "the scratch path tmp is not absolute at line 1 column 164"),
-        (with("/scratch", json!({"floor_bytes": 1, "path": null})), "invalid type: null, expected path string at line 1 column 162"),
-        (with("/schema", json!("forge.host/v2")), "unknown variant `forge.host/v2`, expected `forge.host/v1` at line 1 column 123"),
-        (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 135"),
+        (unfloored, "missing field `floors` at line 1 column 124"),
+        (with("/floors", json!([])), "no floor is declared at line 1 column 41"),
+        (with("/floors/0/floor_bytes", json!(0)), "invalid value: integer `0`, expected a nonzero u64 at line 1 column 56"),
+        (with("/floors/0", json!({"floor_bytes": 1, "path": "tmp"})), "the floor path tmp is not absolute at line 1 column 70"),
+        (with("/floors/0", json!({"floor_bytes": 1, "path": null})), "invalid type: null, expected path string at line 1 column 68"),
+        (with("/floors/0", json!({"floor_bytes": 1, "path": "/t", "place": "temp"})), "a floor names both a path and a place at line 1 column 85"),
+        (with("/floors/0", json!({"floor_bytes": 1})), "a floor names neither a path nor a place at line 1 column 58"),
+        (with("/floors/0", json!({"floor_bytes": 1, "place": "disk"})), "unknown variant `disk`, expected `seat-scratch` or `temp` at line 1 column 71"),
+        (with("/floors/0", json!({"floor_bytes": 1, "place": "temp", "size": 1})), "unknown field `size`, expected one of `floor_bytes`, `path`, `place` at line 1 column 78"),
+        (twice(json!({"place": "temp"})), "the floor at place 'temp' is written twice at line 1 column 106"),
+        (twice(json!({"path": "/var/tmp"})), "the floor at path '/var/tmp' is written twice at line 1 column 112"),
+        (with("/schema", json!("forge.host/v2")), "unknown variant `forge.host/v2`, expected `forge.host/v1` at line 1 column 178"),
+        (with("/providers/beta/routes", json!({"spark-glm": route(1, "local")})), "unknown variant `local`, expected `cloud` or `shared-local` at line 1 column 190"),
     ];
     let said: Vec<String> = cases
         .iter()
@@ -550,82 +582,163 @@ fn a_provider_or_route_the_host_does_not_declare_waits_as_undeclared() {
     );
 }
 
+/// `declared` with `floors` in place of its own.
+fn floored(declared: &Value, floors: Value) -> Value {
+    let mut declared = declared.clone();
+    declared["floors"] = floors;
+    declared
+}
+
+/// The one entry's reasons under the host configuration `declared`, the
+/// probe answering each path from `free`, and each path it was asked, in
+/// order.
+fn measured(
+    fixture: &Fixture,
+    declared: &Value,
+    free: impl Fn(&Path) -> io::Result<u64>,
+) -> (Vec<Reason>, Vec<PathBuf>) {
+    let file = fixture.declare(declared);
+    let asked = RefCell::new(Vec::new());
+    let probe = |path: &Path| {
+        asked.borrow_mut().push(path.to_path_buf());
+        free(path)
+    };
+    let host = Host {
+        file: &file,
+        temp: TEMP.as_ref(),
+        free: &probe,
+    };
+    let reasons = verdicts(pass_within(&fixture.store, &host).unwrap()).remove(0);
+    (reasons, asked.into_inner())
+}
+
 #[test]
-fn the_scratch_floor_measures_the_seat_scratch_or_the_declared_path_and_waits_below_it() {
+fn each_floor_is_measured_where_it_names_in_the_files_order() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let floors = json!([{"place": "seat-scratch", "floor_bytes": 1},
+                        {"place": "temp", "floor_bytes": 1},
+                        {"path": "/var/brokkr-floor", "floor_bytes": 1}]);
+    let declared = floored(&ceilings(1, 1, json!({})), floors);
+    let (reasons, asked) = measured(&fixture, &declared, |_| Ok(PLENTY));
+    assert_eq!(reasons, vec![]);
+    // The seat scratch is the entry's own operated repository's, the temp
+    // directory the injected one, and a path is measured as written.
+    let paths: [PathBuf; 3] = [fixture.scratch(), TEMP.into(), "/var/brokkr-floor".into()];
+    assert_eq!(asked, paths);
+}
+
+#[test]
+fn a_floor_waits_below_its_free_bytes_naming_it_and_admits_at_or_above() {
     let mut fixture = Fixture::new();
     fixture.queue();
     let declared = ceilings(1, 1, json!({}));
-    let asked = RefCell::new(Vec::new());
-    let reasons = |host: &Value, free: io::Result<u64>| {
-        let file = fixture.declare(host);
-        let free = RefCell::new(Some(free));
-        let probe = |path: &Path| {
-            asked.borrow_mut().push(path.to_path_buf());
-            free.borrow_mut().take().unwrap()
-        };
-        let host = Host {
-            file: &file,
-            free: &probe,
-        };
-        verdicts(pass_within(&fixture.store, &host).unwrap()).remove(0)
+    let low = |at: Measured| {
+        vec![Reason::Capacity(Capacity::FloorLow {
+            at,
+            free: 1023,
+            floor: 1024,
+        })]
     };
-    assert_eq!(reasons(&declared, Ok(1024)), vec![]);
-    let scratch = fixture.scratch();
-    let low = Capacity::ScratchLow {
-        path: scratch.clone(),
-        free: 1023,
-        floor: 1024,
+    let scratch = Measured::Place {
+        place: Place::SeatScratch,
+        path: fixture.scratch(),
     };
+    assert_eq!(measured(&fixture, &declared, |_| Ok(1024)).0, vec![]);
     assert_eq!(
-        reasons(&declared, Ok(1023)),
-        vec![Reason::Capacity(low.clone())]
+        measured(&fixture, &declared, |_| Ok(1023)).0,
+        low(scratch.clone())
     );
-    let mut elsewhere = declared.clone();
-    elsewhere["scratch"]["path"] = json!("/var/tmp");
-    let gone = io::Error::from(io::ErrorKind::NotFound);
-    let unmeasured = Capacity::ScratchUnmeasured {
-        path: "/var/tmp".into(),
-        kind: io::ErrorKind::NotFound,
+    let temp = floored(&declared, json!([{"place": "temp", "floor_bytes": 1024}]));
+    let temped = Measured::Place {
+        place: Place::Temp,
+        path: TEMP.into(),
     };
     assert_eq!(
-        reasons(&elsewhere, Err(gone)),
-        vec![Reason::Capacity(unmeasured.clone())]
+        measured(&fixture, &temp, |_| Ok(1023)).0,
+        low(temped.clone())
     );
-    assert_eq!(
-        asked.into_inner(),
-        [scratch.clone(), scratch.clone(), "/var/tmp".into()]
+    let path = floored(
+        &declared,
+        json!([{"path": "/var/tmp", "floor_bytes": 1024}]),
     );
+    let pathed = Measured::Path("/var/tmp".into());
     assert_eq!(
-        [low, unmeasured].map(|reason| (reason.to_string(), reason.holds())),
+        measured(&fixture, &path, |_| Ok(1023)).0,
+        low(pathed.clone())
+    );
+    let says = |at: Measured| low(at).remove(0).to_string();
+    assert_eq!(
+        [says(scratch), says(temped), says(pathed)],
         [
-            (
-                format!(
-                    "the scratch filesystem at {} has 1023 bytes free, below its floor of 1024",
-                    scratch.display()
-                ),
-                false
+            format!(
+                "the seat-scratch filesystem at {} has 1023 bytes free, below its floor of 1024",
+                fixture.scratch().display()
             ),
-            (
-                "the scratch filesystem at /var/tmp cannot be measured: entity not found"
-                    .to_string(),
-                false
-            ),
+            "the temp filesystem at /brokkr-test-temp has 1023 bytes free, below its floor of \
+             1024"
+                .to_string(),
+            "the filesystem at /var/tmp has 1023 bytes free, below its floor of 1024".to_string(),
         ]
     );
 }
 
 #[test]
-fn a_scratch_path_through_a_dangling_link_is_unmeasured_and_never_measured_on_its_parent() {
+fn of_two_floors_on_one_filesystem_the_second_is_judged_by_its_own_number() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let floors = json!([{"place": "seat-scratch", "floor_bytes": 1024},
+                        {"path": "/var/tmp", "floor_bytes": 2048}]);
+    let declared = floored(&ceilings(1, 1, json!({})), floors);
+    // One filesystem answers both: the first floor holds, the second not.
+    let (reasons, asked) = measured(&fixture, &declared, |_| Ok(1500));
+    let at = Measured::Path("/var/tmp".into());
+    let low = Capacity::FloorLow {
+        at,
+        free: 1500,
+        floor: 2048,
+    };
+    assert_eq!(reasons, vec![Reason::Capacity(low)]);
+    assert_eq!(asked, [fixture.scratch(), "/var/tmp".into()]);
+    assert_eq!(measured(&fixture, &declared, |_| Ok(2048)).0, vec![]);
+}
+
+#[test]
+fn a_floor_whose_filesystem_cannot_be_measured_waits_unmeasured() {
+    let mut fixture = Fixture::new();
+    fixture.queue();
+    let declared = floored(
+        &ceilings(1, 1, json!({})),
+        json!([{"path": "/var/tmp", "floor_bytes": 1}]),
+    );
+    let gone = |_: &Path| Err(io::Error::from(io::ErrorKind::NotFound));
+    let unmeasured = Capacity::FloorUnmeasured {
+        at: Measured::Path("/var/tmp".into()),
+        kind: io::ErrorKind::NotFound,
+    };
+    let (reasons, _) = measured(&fixture, &declared, gone);
+    assert_eq!(reasons, vec![Reason::Capacity(unmeasured.clone())]);
+    assert_eq!(
+        (unmeasured.to_string(), unmeasured.holds()),
+        (
+            "the filesystem at /var/tmp cannot be measured: entity not found".to_string(),
+            false
+        )
+    );
+}
+
+#[test]
+fn a_floor_path_through_a_dangling_link_is_unmeasured_and_never_measured_on_its_parent() {
     let mut fixture = Fixture::new();
     fixture.queue();
     let link = fixture.root.join("scratch-link");
     std::os::unix::fs::symlink(fixture.root.join("gone"), &link).unwrap();
     let measured = |path: PathBuf| {
-        let mut declared = ceilings(1, 1, json!({}));
-        declared["scratch"]["path"] = json!(path);
-        let file = fixture.declare(&declared);
+        let floors = json!([{"path": path, "floor_bytes": 1}]);
+        let file = fixture.declare(&floored(&ceilings(1, 1, json!({})), floors));
         let host = Host {
             file: &file,
+            temp: TEMP.as_ref(),
             free: &host::free_bytes,
         };
         let mut reasons = verdicts(pass_within(&fixture.store, &host).unwrap()).remove(0);
@@ -633,12 +746,12 @@ fn a_scratch_path_through_a_dangling_link_is_unmeasured_and_never_measured_on_it
         (reason.to_string(), reason)
     };
     for path in [link.clone(), link.join("scratch")] {
-        let unmeasured = Capacity::ScratchUnmeasured {
-            path: path.clone(),
+        let unmeasured = Capacity::FloorUnmeasured {
+            at: Measured::Path(path.clone()),
             kind: io::ErrorKind::NotFound,
         };
         let says = format!(
-            "the scratch filesystem at {} cannot be measured: entity not found",
+            "the filesystem at {} cannot be measured: entity not found",
             path.display()
         );
         assert_eq!(measured(path), (says, Reason::Capacity(unmeasured)));
@@ -770,6 +883,7 @@ fn the_writing_pass_judges_the_machine_after_it_latches() {
     let probe = |_: &Path| Ok(PLENTY);
     let host = Host {
         file: &file,
+        temp: TEMP.as_ref(),
         free: &probe,
     };
     let judged = verdicts(judge_within(&mut fixture.store, &host, BY).unwrap());
@@ -953,12 +1067,12 @@ fn every_capacity_reason_has_its_word() {
         },
         full("p", 1, 1).unwrap(),
         route_full("r", RouteClass::Cloud, 1, 1).unwrap(),
-        Capacity::ScratchUnmeasured {
-            path: path.clone(),
+        Capacity::FloorUnmeasured {
+            at: Measured::Path(path.clone()),
             kind,
         },
-        Capacity::ScratchLow {
-            path,
+        Capacity::FloorLow {
+            at: Measured::Path(path),
             free: 0,
             floor: 1,
         },
@@ -982,8 +1096,8 @@ fn every_capacity_reason_has_its_word() {
             ("route_undeclared", false),
             ("provider_full", false),
             ("route_full", false),
-            ("scratch_unmeasured", false),
-            ("scratch_low", false),
+            ("floor_unmeasured", false),
+            ("floor_low", false),
             ("boxed_full", false),
         ]
     );

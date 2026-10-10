@@ -157,3 +157,7 @@ facts (#432).
   the error kind, and is never read as absent. A file
   read but not a valid `forge.host/v1` refuses, naming the problem. None
   latches: each pass judges again.
+- **Free-space floors, ruled (c) on 2026-10-10.** `forge.host/v1` declares a
+  non-empty list of floors in place of one scratch floor, each naming a place
+  (`seat-scratch` or `temp`) or an absolute path; every floor must hold, in
+  the file's order.

@@ -144,26 +144,31 @@ fn judge(
 }
 
 /// Do `act` on this machine as admission measures it (decision 0068
-/// ruling 3): its host configuration where XDG puts it, and the free space
-/// statvfs reports.
+/// ruling 3): its host configuration where XDG puts it, its temp directory
+/// where the standard library finds it, and the free space statvfs
+/// reports.
 fn on_this_host<T>(act: impl FnOnce(&Host<'_>) -> Result<T>) -> Result<T> {
     on_the_host_at(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
+        &std::env::temp_dir(),
         act,
     )
 }
 
 /// [`on_this_host`], with the two directories that place the host
-/// configuration given rather than read from the environment.
+/// configuration, and its temp directory, given rather than read from the
+/// environment.
 fn on_the_host_at<T>(
     xdg: Option<OsString>,
     home: Option<OsString>,
+    temp: &Path,
     act: impl FnOnce(&Host<'_>) -> Result<T>,
 ) -> Result<T> {
     let file = admission::host_file(xdg, home)?;
     act(&Host {
         file: &file,
+        temp,
         free: &admission::free_bytes,
     })
 }

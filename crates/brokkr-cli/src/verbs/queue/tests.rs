@@ -339,7 +339,8 @@ fn each_refusal_leaves_with_its_own_words() {
 
 #[test]
 fn a_host_configuration_no_directory_places_refuses_the_pass() {
-    let error = on_the_host_at(None, Some("relative/home".into()), |_| Ok(())).unwrap_err();
+    let home = Some("relative/home".into());
+    let error = on_the_host_at(None, home, Path::new("/t"), |_| Ok(())).unwrap_err();
     assert_eq!(
         error.to_string(),
         "no host configuration can be found: neither XDG_CONFIG_HOME nor HOME names an absolute \

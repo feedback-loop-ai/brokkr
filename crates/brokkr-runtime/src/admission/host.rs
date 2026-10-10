@@ -13,7 +13,10 @@
 //! `forge.host/v1` refuses, naming the problem. A ceiling of zero, a
 //! negative one and one past `u32` are refused, never read as unlimited,
 //! and so is a provider or route written twice: the ceiling the operator
-//! reads first is the one admission obeys, or none is.
+//! reads first is the one admission obeys, or none is. The free-space
+//! floors are a list of at least one (the operator's ruling of
+//! 2026-10-10, option c), each naming exactly one place or absolute path,
+//! and none named twice.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -36,7 +39,7 @@ pub(crate) struct HostConfig {
     #[serde(rename = "schema")]
     _schema: Schema,
     pub(crate) providers: BTreeMap<String, Provider>,
-    pub(crate) scratch: Scratch,
+    pub(crate) floors: Floors,
     pub(crate) boxed_builds: Ceiling,
 }
 
@@ -84,15 +87,118 @@ impl fmt::Display for RouteClass {
     }
 }
 
-/// The seat scratch filesystem's floor, and the path it is measured at
-/// where that is not the scratch default. The path may be left out, and
-/// is never `null`, as the contract says.
+/// The free-space floors every entry must find held, in the file's order
+/// (the operator's ruling of 2026-10-10, option c): at least one, and no
+/// place or path named twice, since two floors on one would leave the
+/// operator reading one number while admission obeys another.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Scratch {
+#[serde(try_from = "Vec<Floor>")]
+pub(crate) struct Floors(pub(crate) Vec<Floor>);
+
+impl TryFrom<Vec<Floor>> for Floors {
+    type Error = Unfloored;
+
+    fn try_from(floors: Vec<Floor>) -> Result<Floors, Unfloored> {
+        if floors.is_empty() {
+            return Err(Unfloored::Empty);
+        }
+        for (index, floor) in floors.iter().enumerate() {
+            if floors[..index].iter().any(|before| before.at == floor.at) {
+                return Err(Unfloored::Repeated(floor.at.clone()));
+            }
+        }
+        Ok(Floors(floors))
+    }
+}
+
+/// One free-space floor: the bytes the filesystem it names must hold free
+/// for another run to start.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "WrittenFloor")]
+pub(crate) struct Floor {
+    pub(crate) at: At,
     pub(crate) floor_bytes: NonZeroU64,
+}
+
+/// A floor as the file writes it: exactly one of a path and a place, each
+/// left out rather than `null`, as the contract says.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WrittenFloor {
+    floor_bytes: NonZeroU64,
     #[serde(default, deserialize_with = "present")]
-    pub(crate) path: Option<Absolute>,
+    path: Option<Absolute>,
+    #[serde(default, deserialize_with = "present")]
+    place: Option<Place>,
+}
+
+impl TryFrom<WrittenFloor> for Floor {
+    type Error = Unfloored;
+
+    fn try_from(written: WrittenFloor) -> Result<Floor, Unfloored> {
+        let at = match (written.path, written.place) {
+            (Some(path), None) => At::Path(path),
+            (None, Some(place)) => At::Place(place),
+            (Some(_), Some(_)) => return Err(Unfloored::Both),
+            (None, None) => return Err(Unfloored::Neither),
+        };
+        Ok(Floor {
+            at,
+            floor_bytes: written.floor_bytes,
+        })
+    }
+}
+
+/// What a floor measures: a place admission resolves, or an absolute path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum At {
+    Place(Place),
+    Path(Absolute),
+}
+
+impl fmt::Display for At {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            At::Place(place) => write!(f, "place '{place}'"),
+            At::Path(path) => write!(f, "path '{}'", path.0.display()),
+        }
+    }
+}
+
+/// A place a floor names, resolved where admission measures: the seat
+/// scratch of the repository the queued run operates
+/// (`engine::SEAT_SCRATCH`), or the host's temp directory, where
+/// boxed seats' private `/tmp` and `HOME` and the oneshot and probe
+/// scratch are made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Place {
+    SeatScratch,
+    Temp,
+}
+
+impl fmt::Display for Place {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Place::SeatScratch => "seat-scratch",
+            Place::Temp => "temp",
+        })
+    }
+}
+
+/// Why the floors a file declares are not a list admission can obey.
+#[derive(Debug, Error)]
+pub(crate) enum Unfloored {
+    #[error("the floor path {} is not absolute", .0.display())]
+    Relative(PathBuf),
+    #[error("a floor names both a path and a place")]
+    Both,
+    #[error("a floor names neither a path nor a place")]
+    Neither,
+    #[error("no floor is declared")]
+    Empty,
+    #[error("the floor at {0} is written twice")]
+    Repeated(At),
 }
 
 /// A ceiling on its own: the boxed builds'.
@@ -108,18 +214,13 @@ pub(crate) struct Ceiling {
 #[serde(try_from = "PathBuf")]
 pub(crate) struct Absolute(pub(crate) PathBuf);
 
-/// A scratch path that is not absolute.
-#[derive(Debug, Error)]
-#[error("the scratch path {} is not absolute", .0.display())]
-pub(crate) struct Relative(PathBuf);
-
 impl TryFrom<PathBuf> for Absolute {
-    type Error = Relative;
+    type Error = Unfloored;
 
-    fn try_from(path: PathBuf) -> Result<Absolute, Relative> {
+    fn try_from(path: PathBuf) -> Result<Absolute, Unfloored> {
         match path.is_absolute() {
             true => Ok(Absolute(path)),
-            false => Err(Relative(path)),
+            false => Err(Unfloored::Relative(path)),
         }
     }
 }

@@ -822,11 +822,13 @@ of 2026-10-10, option B) adds one file and changes none of the bytes above:
 `$XDG_CONFIG_HOME/brokkr/host.json`, else `$HOME/.config/brokkr/host.json`,
 and the tracked realms map gains nothing. It declares a concurrency ceiling
 per provider and per route under it, each route `cloud` or `shared-local`;
-the seat scratch filesystem's free-space floor in bytes, with the absolute
-path it measures where that is not the queued run's own seat scratch
-(`.forge/scratch` in the repository it operates); and the boxed-build
-ceiling. Every object is closed, every ceiling is an integer
-from 1 to 4294967295 and the floor one from 1: zero, a negative and an
+a non-empty list of free-space floors in bytes, each naming exactly one
+place — `seat-scratch`, the queued run's own `.forge/scratch` in the
+repository it operates, or `temp`, the host's temp directory — or an
+absolute path, no place or path twice (the operator's ruling of
+2026-10-10, option c); and the boxed-build ceiling. Every object is
+closed, every ceiling is an integer from 1 to 4294967295 and every floor
+one from 1: zero, a negative and an
 overflowing value are refused, never read as unlimited. Cool-down bounds
 are not part of v1; they arrive as a later version.
 

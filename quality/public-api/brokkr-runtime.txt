@@ -23,6 +23,13 @@ pub enum brokkr_runtime::admission::Capacity
 pub brokkr_runtime::admission::Capacity::BoxedFull
 pub brokkr_runtime::admission::Capacity::BoxedFull::ceiling: u32
 pub brokkr_runtime::admission::Capacity::BoxedFull::running: usize
+pub brokkr_runtime::admission::Capacity::FloorLow
+pub brokkr_runtime::admission::Capacity::FloorLow::at: brokkr_runtime::admission::Measured
+pub brokkr_runtime::admission::Capacity::FloorLow::floor: u64
+pub brokkr_runtime::admission::Capacity::FloorLow::free: u64
+pub brokkr_runtime::admission::Capacity::FloorUnmeasured
+pub brokkr_runtime::admission::Capacity::FloorUnmeasured::at: brokkr_runtime::admission::Measured
+pub brokkr_runtime::admission::Capacity::FloorUnmeasured::kind: core::io::error::ErrorKind
 pub brokkr_runtime::admission::Capacity::ProviderFull
 pub brokkr_runtime::admission::Capacity::ProviderFull::ceiling: u32
 pub brokkr_runtime::admission::Capacity::ProviderFull::provider: alloc::string::String
@@ -40,13 +47,6 @@ pub brokkr_runtime::admission::Capacity::RouteUndeclared::route: alloc::string::
 pub brokkr_runtime::admission::Capacity::RunUnmeasured
 pub brokkr_runtime::admission::Capacity::RunUnmeasured::run: alloc::string::String
 pub brokkr_runtime::admission::Capacity::RunUnmeasured::why: brokkr_runtime::admission::Unmeasurable
-pub brokkr_runtime::admission::Capacity::ScratchLow
-pub brokkr_runtime::admission::Capacity::ScratchLow::floor: u64
-pub brokkr_runtime::admission::Capacity::ScratchLow::free: u64
-pub brokkr_runtime::admission::Capacity::ScratchLow::path: std::path::PathBuf
-pub brokkr_runtime::admission::Capacity::ScratchUnmeasured
-pub brokkr_runtime::admission::Capacity::ScratchUnmeasured::kind: core::io::error::ErrorKind
-pub brokkr_runtime::admission::Capacity::ScratchUnmeasured::path: std::path::PathBuf
 pub brokkr_runtime::admission::Capacity::Undeclared(std::path::PathBuf)
 pub brokkr_runtime::admission::Capacity::Unmeasured(brokkr_runtime::admission::Unmeasurable)
 pub brokkr_runtime::admission::Capacity::Unreadable
@@ -73,6 +73,18 @@ pub brokkr_runtime::admission::HostError::Invalid
 pub brokkr_runtime::admission::HostError::Invalid::path: std::path::PathBuf
 pub brokkr_runtime::admission::HostError::Invalid::source: brokkr_runtime::admission::host::Problem
 pub brokkr_runtime::admission::HostError::Unplaced
+pub enum brokkr_runtime::admission::Measured
+pub brokkr_runtime::admission::Measured::Path(std::path::PathBuf)
+pub brokkr_runtime::admission::Measured::Place
+pub brokkr_runtime::admission::Measured::Place::path: std::path::PathBuf
+pub brokkr_runtime::admission::Measured::Place::place: brokkr_runtime::admission::Place
+impl core::fmt::Display for brokkr_runtime::admission::Measured
+pub fn brokkr_runtime::admission::Measured::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_runtime::admission::Place
+pub brokkr_runtime::admission::Place::SeatScratch
+pub brokkr_runtime::admission::Place::Temp
+impl core::fmt::Display for brokkr_runtime::admission::Place
+pub fn brokkr_runtime::admission::Place::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_runtime::admission::Reason
 pub brokkr_runtime::admission::Reason::Capacity(brokkr_runtime::admission::Capacity)
 pub brokkr_runtime::admission::Reason::Dropped(brokkr_store::queue::Wait)
@@ -116,6 +128,7 @@ pub brokkr_runtime::admission::Unmeasurable::Pin::site: alloc::string::String
 pub struct brokkr_runtime::admission::Host<'a>
 pub brokkr_runtime::admission::Host::file: &'a std::path::Path
 pub brokkr_runtime::admission::Host::free: &'a dyn core::ops::function::Fn(&std::path::Path) -> core::io::error::Result<u64>
+pub brokkr_runtime::admission::Host::temp: &'a std::path::Path
 pub struct brokkr_runtime::admission::Judged
 pub brokkr_runtime::admission::Judged::entry: brokkr_store::queue::QueueEntry
 pub brokkr_runtime::admission::Judged::launch: brokkr_runtime::launch::QueuedLaunch
