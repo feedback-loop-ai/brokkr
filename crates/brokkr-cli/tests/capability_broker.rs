@@ -17,6 +17,8 @@ use serde_json::{json, Value};
 
 #[cfg(target_os = "linux")]
 mod observer;
+#[cfg(target_os = "linux")]
+mod readiness;
 
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -740,6 +742,8 @@ impl Sealed {
     fn observed(&self, plan: &Value) -> Value {
         let digest = self.seal_bytes(plan.to_string().as_bytes());
         let (record, _) = self.observation(&digest);
+        #[cfg(target_os = "linux")]
+        observer::released(&record);
         match record.get("observed") {
             Some(observed) => {
                 let fact = |name: &str| observed[name].clone();
@@ -1602,13 +1606,14 @@ fn unprovable_or_unobserved_writers_and_sources_and_exposed_control_roots_refuse
     );
     let control = json!([&sealed.attempt, sealed.path("opt/docs/state")]);
     assert_eq!(sealed.with("/box/excluded/control", control), identity);
-    // A box whose private scratch cannot be made generates no identity.
+    // A box whose private scratch cannot be made generates no identity: it
+    // is not established, the observer's cause crossing back whole.
     let file = sealed.root.write("not-a-directory", "");
     let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
     let answer = sealed.serve_in(&sealed.locator, &digest, |command| {
         command.env("HOME", &sealed.home).env("TMPDIR", &file);
     });
-    assert_eq!(answer, refused(Refusal::Identity));
+    assert_eq!(answer, past_prepare(Refusal::Establishment));
 }
 
 #[test]
