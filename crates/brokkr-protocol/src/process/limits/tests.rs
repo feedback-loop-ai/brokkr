@@ -15,7 +15,10 @@ use crate::{AttemptReport, Body, Cleanup, Message, ResultStatus, PROTO};
 const PAST: &str = "; the driver was ended, and what it did is unknown";
 
 /// A driver that accepts the attempt, then plays each of `played` from a
-/// file of its own, in order, and stays as long as the last one does.
+/// file of its own, in order, and stays as long as the last one does. It
+/// plays nothing before the engine's `start` reaches it: `accepting`
+/// reads only the `hello`, and a driver that exited before `start` was
+/// written would fail the attempt on a broken pipe instead.
 struct Driver {
     dir: tempfile::TempDir,
     played: Vec<Vec<u8>>,
@@ -40,12 +43,30 @@ impl Driver {
         stderr: &[u8],
         then: &str,
     ) -> (AttemptReport, Vec<Value>) {
+        let process = self.spawned(limits, stderr, then, None);
+        let mut journaled = Vec::new();
+        let report = process.run_attempt("test", "effect", "attempt", "seat", json!({}), |data| {
+            journaled.push(data.clone());
+        });
+        (report, journaled)
+    }
+
+    /// The driver under `limits` and `deadline`: it writes `stderr`, plays,
+    /// and then runs `then`.
+    fn spawned(
+        &self,
+        limits: Limits,
+        stderr: &[u8],
+        then: &str,
+        deadline: Option<Duration>,
+    ) -> DriverProcess {
         let file = |name: String, bytes: &[u8]| {
             let path = self.dir.path().join(name);
             std::fs::write(&path, bytes).unwrap();
             format!("cat '{}'", path.display())
         };
-        let mut script = format!("{}; {} >&2", accepting(), file("stderr".into(), stderr));
+        let stderr = file("stderr".into(), stderr);
+        let mut script = format!("{}; read -r start; {stderr} >&2", accepting());
         for (at, bytes) in self.played.iter().enumerate() {
             script = format!("{script}; {}", file(format!("{at}"), bytes));
         }
@@ -54,18 +75,14 @@ impl Driver {
         let mut process = DriverProcess::spawn_limited(
             &driver,
             Path::new("."),
-            None,
+            deadline,
             &SpawnEnv::Inherit,
             Host::REAL,
             limits,
         )
         .unwrap();
         process.bounds.grace = Duration::from_millis(200);
-        let mut journaled = Vec::new();
-        let report = process.run_attempt("test", "effect", "attempt", "seat", json!({}), |data| {
-            journaled.push(data.clone());
-        });
-        (report, journaled)
+        process
     }
 }
 
@@ -175,6 +192,94 @@ fn an_endless_line_with_no_newline_is_refused_and_its_driver_ended() {
         started.elapsed() < Duration::from_secs(10),
         "took {:?}",
         started.elapsed()
+    );
+}
+
+/// A refused line outranks the deadline. The engine's journal lags, so
+/// the checkpoint before the line returns only after the deadline and its
+/// drain, when the attempt loop's next read gives up on stdout; the
+/// attempt still ends on the frame limit's refusal, indeterminate, never
+/// as the deadline's failure that a retry may safely repeat.
+#[test]
+fn a_refused_line_outranks_the_deadline_while_a_checkpoint_is_journaled() {
+    let deadline = Duration::from_secs(1);
+    let played = [checkpoint(8), vec![b'x'; 513]].concat();
+    let driver = Driver::playing(vec![played]);
+    let mut process = driver.spawned(framing(512), b"", "; read -r never", Some(deadline));
+    process.bounds.drain = Duration::from_millis(100);
+    let give_up = process.started + deadline + process.bounds.drain;
+    let report = process.run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {
+        std::thread::sleep(
+            give_up.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
+        );
+    });
+    assert_eq!(
+        report.outcome,
+        frame_exceeded(512, "letter", "35ade0090e64e74d")
+    );
+    assert_eq!(report.settled_outcome(), report.outcome);
+    assert!(report.deadline_killed);
+    assert_eq!(report.cleanup, Cleanup::Settled);
+}
+
+/// Zero admits nothing (decision 0079): a zero frame limit refuses the
+/// driver's first line, a zero stderr limit keeps none of its first byte,
+/// and a zero checkpoint count or byte limit refuses its first checkpoint.
+#[test]
+fn a_zero_limit_admits_nothing() {
+    let frame = checkpoint(8);
+    let bytes = frame.len();
+    let driver = Driver::playing(vec![frame, the_result()]);
+    let zero = [
+        (framing(0), b"".as_slice()),
+        (
+            Limits {
+                stderr_bytes: 0,
+                ..Limits::DEFAULT
+            },
+            b"e",
+        ),
+        (
+            Limits {
+                checkpoints: 0,
+                ..Limits::DEFAULT
+            },
+            b"",
+        ),
+        (
+            Limits {
+                checkpoint_bytes: 0,
+                ..Limits::DEFAULT
+            },
+            b"",
+        ),
+    ];
+    let ended = zero.map(|(limits, stderr)| {
+        let (report, journaled) = driver.attempt(limits, stderr);
+        (report.outcome, report.stderr, journaled.len())
+    });
+    let first = |limit: &str| {
+        indeterminate(&format!(
+            "driver checkpoints exceeded the limit of 0 {limit}: 0 checkpoints held 0 bytes \
+             when one of {bytes} bytes arrived"
+        ))
+    };
+    assert_eq!(
+        ended,
+        [
+            (
+                frame_exceeded(0, "punctuation", "021fb596db81e6d0"),
+                String::new(),
+                0
+            ),
+            (
+                complete(),
+                "\n[1 bytes of driver stderr dropped]\n".into(),
+                1
+            ),
+            (first("checkpoints"), String::new(), 0),
+            (first("bytes"), String::new(), 0),
+        ]
     );
 }
 
@@ -352,7 +457,7 @@ fn interrupted_reads_are_retried_and_a_failed_stderr_read_keeps_what_came_before
         read_frame(&mut stdout, 2).unwrap(),
         Frame::Line(b"x\n".to_vec())
     );
-    let stdout = crate::process::read_stdout(Reads(vec![failed(), Ok(b"unread"), Ok(b"")]), 2);
+    let (stdout, _) = crate::process::read_stdout(Reads(vec![failed(), Ok(b"unread"), Ok(b"")]), 2);
     let Ok(crate::process::Stdout::Failed(error)) = stdout.recv() else {
         panic!("the failed read was not handed over")
     };

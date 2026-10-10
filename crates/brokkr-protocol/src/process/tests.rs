@@ -1736,7 +1736,7 @@ fn a_flooding_driver_meets_backpressure() {
         }
     }
     let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let stdout = read_stdout(Flood(Arc::clone(&reads)), limits::FRAME_BYTES);
+    let (stdout, _) = read_stdout(Flood(Arc::clone(&reads)), limits::FRAME_BYTES);
     // The count once it stops moving, or after two seconds of moving.
     let still = || {
         let until = Instant::now() + Duration::from_secs(2);

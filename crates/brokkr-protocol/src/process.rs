@@ -4,7 +4,8 @@
 //! outcome.
 //! Every protocol violation degrades to `Failed` (driver defect, retry
 //! is a new attempt); a silent exit degrades to `Indeterminate`, and so
-//! does a driver past the transport's limits (`limits`, #433); a
+//! does a driver past the transport's limits (`limits`, #433), whose
+//! refusal no deadline can pre-empt once it is read; a
 //! deadline expiry kills the driver and degrades to `Failed` — the kill
 //! makes non-completion determinate, so bounded retry stays safe
 //! (decision 0006).
@@ -20,7 +21,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -85,10 +86,16 @@ pub enum SpawnEnv {
 enum Stdout {
     Line(String),
     Failed(std::io::Error),
-    /// A line past the frame limit (`limits`).
-    Exceeded(Exceeded),
+    /// A line past the frame limit (`limits`), whose refusal the reader
+    /// has already put in its `Refused` slot.
+    Exceeded,
     Eof,
 }
+
+/// The frame limit's refusal, as the stdout reader read it. It is held
+/// beside the channel, not on it, so that an attempt loop which stopped
+/// reading, a deadline's give-up among them, still ends on it (#433).
+type Refused = Arc<OnceLock<Exceeded>>;
 
 /// How the attempt loop ended: a protocol violation, which fails the
 /// attempt; the driver gone; the outcome its result reached; or a limit
@@ -115,6 +122,7 @@ pub struct DriverProcess {
     attempt: Attempt,
     stdin: Box<dyn Write + Send>,
     stdout: mpsc::Receiver<Stdout>,
+    refused: Refused,
     stderr: mpsc::Receiver<String>,
     timed_out: Arc<AtomicBool>,
     /// Dropping the sender disarms the watchdog; `finish` joins the
@@ -130,19 +138,30 @@ pub struct DriverProcess {
 /// The driver's stdout, read on a thread of its own so that waiting on it
 /// can be bounded: a process that left the group while holding the pipe
 /// would otherwise hold the attempt open. `Eof` is sent only at EOF.
-fn read_stdout(stdout: impl Read + Send + 'static, frame_bytes: usize) -> mpsc::Receiver<Stdout> {
+fn read_stdout(
+    stdout: impl Read + Send + 'static,
+    frame_bytes: usize,
+) -> (mpsc::Receiver<Stdout>, Refused) {
     let (tx, rx) = mpsc::sync_channel(STDOUT_LINES);
-    std::thread::spawn(move || forward(BufReader::new(stdout), frame_bytes, &tx));
-    rx
+    let refused = Refused::default();
+    let slot = Arc::clone(&refused);
+    std::thread::spawn(move || forward(BufReader::new(stdout), frame_bytes, &tx, &slot));
+    (rx, refused)
 }
 
 /// Hand each line over, waiting while `STDOUT_LINES` are unread, so a
 /// flooding driver meets backpressure, and each no longer than
 /// `frame_bytes`. Once the engine has stopped listening, nothing more is
 /// read: the pipe closes on the writer. A read that fails, a line that is
-/// not UTF-8 and a line past the limit are handed over as such, and the
-/// rest of the pipe is drained unread to its EOF.
-fn forward(mut reader: impl BufRead, frame_bytes: usize, tx: &SyncSender<Stdout>) {
+/// not UTF-8 and a line past the limit are handed over as such, the last
+/// put in `refused` first, and the rest of the pipe is drained unread to
+/// its EOF.
+fn forward(
+    mut reader: impl BufRead,
+    frame_bytes: usize,
+    tx: &SyncSender<Stdout>,
+    refused: &OnceLock<Exceeded>,
+) {
     let refusal = loop {
         match limits::read_frame(&mut reader, frame_bytes) {
             Ok(Frame::Line(line)) => match String::from_utf8(line) {
@@ -160,10 +179,12 @@ fn forward(mut reader: impl BufRead, frame_bytes: usize, tx: &SyncSender<Stdout>
             },
             Ok(Frame::Eof) => break Stdout::Eof,
             Ok(Frame::Over(evidence)) => {
-                break Stdout::Exceeded(Exceeded::Frame {
+                // The reader is the slot's only writer, and writes it once.
+                let _ = refused.set(Exceeded::Frame {
                     limit: frame_bytes,
                     evidence,
-                })
+                });
+                break Stdout::Exceeded;
             }
             Err(error) => break Stdout::Failed(error),
         }
@@ -247,7 +268,7 @@ impl DriverProcess {
             }
         })?;
         let stdin = child.stdin.take().expect("piped stdin");
-        let stdout = read_stdout(
+        let (stdout, refused) = read_stdout(
             child.stdout.take().expect("piped stdout"),
             limits.frame_bytes,
         );
@@ -276,6 +297,7 @@ impl DriverProcess {
             attempt,
             stdin: Box::new(stdin),
             stdout,
+            refused,
             stderr,
             timed_out,
             watchdog,
@@ -308,7 +330,8 @@ impl DriverProcess {
     /// The next read of stdout. With a deadline it is waited on until the
     /// deadline plus the drain bound and no longer: by then the watchdog
     /// has killed the tree, and only a process outside it can still hold
-    /// the pipe. Giving up reads as EOF, whatever is still unread.
+    /// the pipe. Giving up reads as EOF, whatever is still unread, except
+    /// a line the reader refused, which `end` reads from `refused`.
     fn next_stdout(&self) -> Option<Stdout> {
         match self.deadline {
             None => self.stdout.recv().ok(),
@@ -328,8 +351,7 @@ impl DriverProcess {
                 Some(Stdout::Failed(e)) => {
                     return Err(Ended::Failed(format!("driver stdout read failed: {e}")))
                 }
-                Some(Stdout::Exceeded(exceeded)) => return Err(Ended::Exceeded(exceeded)),
-                Some(Stdout::Eof) | None => return Err(Ended::Lost),
+                Some(Stdout::Exceeded | Stdout::Eof) | None => return Err(Ended::Lost),
             };
             if line.trim().is_empty() {
                 continue;
@@ -356,7 +378,7 @@ impl DriverProcess {
                 .ok_or(Unsettled::Stdout)?;
             match self.stdout.recv_timeout(wait) {
                 Ok(Stdout::Eof) | Err(RecvTimeoutError::Disconnected) => return Ok(()),
-                Ok(Stdout::Line(_) | Stdout::Failed(_) | Stdout::Exceeded(_)) => {}
+                Ok(Stdout::Line(_) | Stdout::Failed(_) | Stdout::Exceeded) => {}
                 Err(RecvTimeoutError::Timeout) => return Err(Unsettled::Stdout),
             }
         }
@@ -591,7 +613,11 @@ impl DriverProcess {
     }
 
     /// End the attempt as the loop ended. A protocol violation keeps
-    /// nothing of the driver's account but whether it accepted.
+    /// nothing of the driver's account but whether it accepted. A loop
+    /// that stopped reading short of a terminal message ends on the line
+    /// the reader refused, if it refused one, before the deadline or the
+    /// driver's exit: what the driver sent past a limit outranks how the
+    /// engine stopped listening (#433, decision 0079).
     fn end(self, ended: Ended, account: Account) -> AttemptReport {
         let Account {
             accepted,
@@ -603,7 +629,10 @@ impl DriverProcess {
                 let outcome = AttemptOutcome::Failed { error };
                 return self.finish(outcome, None, Vec::new(), accepted);
             }
-            Ended::Lost => self.eof_outcome(accepted),
+            Ended::Lost => match self.refused.get() {
+                Some(exceeded) => exceeded.outcome(),
+                None => self.eof_outcome(accepted),
+            },
             Ended::Reached(outcome) => outcome,
             Ended::Exceeded(exceeded) => exceeded.outcome(),
         };

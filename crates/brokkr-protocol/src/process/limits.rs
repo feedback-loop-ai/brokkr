@@ -17,7 +17,7 @@
 //!
 //! Every limit is a count, compared without overflow, so no value of one
 //! means unlimited, and zero admits nothing. A refusal names what it
-//! refused without its content (`evidence`). Decision 0079 (proposed)
+//! refused without its content (`evidence`). Decision 0079 (accepted)
 //! records these rules.
 
 use std::collections::VecDeque;
