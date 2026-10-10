@@ -269,7 +269,6 @@ fn launching(
         reach: seat,
         network: &Network::Isolated,
         bootstrap: &bootstrap,
-        arguments: &[],
         writers: sealed,
     };
     ServerBox::prepare_with(program, &profile, host).map(|_| ())

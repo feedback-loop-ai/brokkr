@@ -1,5 +1,5 @@
 {
-  "schema": "forge.phase-machine/v1",
+  "schema": "forge.phase-machine/v2",
   "description": "Verification bundle: Brokkr's verify and review agents examine an already-delivered change (named in the feature text). No implement, no ship — evidence in, ruling out. The constitutional review invariants hold: review is unavoidable on the path to done, security-hold is a hard stop, security residuals never pass.",
   "phases": ["verify", "review", "done", "stop"],
   "initial": "verify",
@@ -51,9 +51,18 @@
       "id": "REVIEW-RESIDUAL-OK",
       "from": "review",
       "result": "residual",
+      "when": { "has_security_residual": false, "max_residual_severity_above": "none" },
       "next": "done",
       "severity": "flagged",
-      "reason": "Non-security residuals at or below medium: verified with named tracked debt. Omitted severity inputs fall here flagged — the operator reads the notes."
+      "reason": "Non-security residuals at or below medium: verified with named tracked debt. A residual that omits its severity or its security flag matches no rule, and the run parks with the notes (decision 0050, ruling 1)."
+    },
+    {
+      "id": "REVIEW-RESIDUAL-NONE",
+      "from": "review",
+      "result": "residual",
+      "when": { "max_residual_severity_at_most": "none" },
+      "park": true,
+      "reason": "A residual verdict rated none is no verification verdict at all: it names no tracked debt and no defect. The run parks for the operator with the notes (decision 0050, ruling 4)."
     },
     {
       "id": "REVIEW-CLEAN",

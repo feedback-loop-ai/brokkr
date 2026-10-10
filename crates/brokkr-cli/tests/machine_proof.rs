@@ -178,8 +178,7 @@ const TRIAGE_POLICY: &str = r#"{
 }"#;
 
 const SDD_PROOF_POLICY: &str = r#"{
-  "schema":"forge.phase-machine/v2",
-  "phases":["triage","specify","clarify","design","tasks","analyze","implement","verify","review","ship","done","stop"],
+  "schema":"forge.phase-machine/v2", "phases":["triage","specify","clarify","design","tasks","analyze","implement","verify","review","ship","done","stop"],
   "initial":"triage","terminal":["done","stop"],"shippable_from":["review"],
   "rules":[
     {"id":"T","from":"triage","result":"engine","next":"specify","reason":"design route"},
@@ -191,6 +190,7 @@ const SDD_PROOF_POLICY: &str = r#"{
     {"id":"D","from":"design","result":"drafted","next":"tasks","reason":"designed"},
     {"id":"TK","from":"tasks","result":"drafted","next":"analyze","reason":"planned"},
     {"id":"AD","from":"analyze","result":"drift","when":{"drift_in":["design"]},"next":"design","reason":"repair design"},
+    {"id":"AP","from":"analyze","result":"drift","park":true,"reason":"other drift parks"},
     {"id":"AC","from":"analyze","result":"consistent","next":"implement","reason":"zero"},
     {"id":"I","from":"implement","result":"complete","next":"verify","reason":"built"},
     {"id":"V","from":"verify","result":"pass","next":"review","reason":"green"},

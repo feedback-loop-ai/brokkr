@@ -26,6 +26,8 @@ const POLICY: &str = r#"{
     {"id": "REVIEW-RESIDUAL-ABOVE-MEDIUM", "from": "review", "result": "residual",
      "when": {"max_residual_severity_above": "medium"}, "next": "stop",
      "severity": "hard", "reason": "Residual severity above medium; not shippable."},
+    {"id": "REVIEW-RESIDUAL", "from": "review", "result": "residual", "next": "stop",
+     "severity": "hard", "reason": "Any other residual stops too; the fleet ships nothing."},
     {"id": "REVIEW-CLEAN", "from": "review", "result": "clean", "next": "done",
      "reason": "Clean review; done."}
   ]

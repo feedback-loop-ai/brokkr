@@ -539,26 +539,6 @@ fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
-fn type_str(event_type: EventType) -> &'static str {
-    match event_type {
-        EventType::RunStarted => "run/started",
-        EventType::PhaseEntered => "phase/entered",
-        EventType::EffectRequested => "effect/requested",
-        EventType::EffectStarted => "effect/started",
-        EventType::EffectCheckpointed => "effect/checkpointed",
-        EventType::EffectSucceeded => "effect/succeeded",
-        EventType::EffectFailed => "effect/failed",
-        EventType::EffectIndeterminate => "effect/indeterminate",
-        EventType::TransitionDecided => "transition/decided",
-        EventType::OperatorCommanded => "operator/commanded",
-        EventType::OperatorAccepted => "operator/accepted",
-        EventType::OperatorRejected => "operator/rejected",
-        EventType::RunParked => "run/parked",
-        EventType::RunCompleted => "run/completed",
-        EventType::RunStopped => "run/stopped",
-    }
-}
-
 /// The second path segment of an event type, the console's last-resort
 /// trail label. Written as trimming rather than splitting so there is no
 /// unreachable "no slash" arm to leave the coverage gate red.
@@ -1600,7 +1580,7 @@ fn terminal_line(events: &[EventEnvelope], scan: &Scan, part: &Build) -> Cell {
         Some(index) => cell_of(
             Some(format!(
                 "{} · {}",
-                type_str(events[index].event_type),
+                events[index].event_type.as_str(),
                 events[index].recorded_at
             )),
             None,
@@ -2497,7 +2477,7 @@ fn what_of(scan: &Scan, event: &EventEnvelope, marks: &BTreeMap<u64, Superseded>
                 .find_map(|key| field(payload, key).filter(|value| !value.is_empty()));
             let text = match token {
                 Some(token) => token.to_string(),
-                None => type_tail(type_str(other)).to_string(),
+                None => type_tail(other.as_str()).to_string(),
             };
             What {
                 text,
@@ -2614,7 +2594,7 @@ fn journal_rows(
                     .causation_id
                     .as_deref()
                     .and_then(|id| by_id.get(id).copied()),
-                event_type: type_str(event.event_type).to_string(),
+                event_type: event.event_type.as_str().to_string(),
                 recorded_at: event.recorded_at.clone(),
                 in_trail: !TRAIL_SKIP.contains(&event.event_type),
                 phases,
@@ -2641,7 +2621,7 @@ fn journal_rows(
 pub fn summary(state: &RunState) -> Summary {
     Summary {
         consecutive_failures: state.consecutive_failures.clone(),
-        cursor: format!("{:?}", state.cursor),
+        cursor: state.cursor.to_string(),
         feature: state.feature.clone(),
         last_decision: state.last_decision.clone(),
         park_reason: state.park_reason.clone(),

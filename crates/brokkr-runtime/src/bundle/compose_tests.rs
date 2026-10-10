@@ -800,17 +800,10 @@ fn overriding_a_rule_is_remove_then_prepend() {
 
 #[test]
 fn an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_the_flat_table() {
-    // Decision 0050 reads a composed table as the flat table `compose`
-    // produces. Its first enactment (#429) refuses the dead rule at load;
-    // the hole stays reported until totality is enacted.
+    // Decision 0050 reads a composed table as the flat table `compose` makes:
+    // the load refuses a dead rule, the compiler a hole, typed (ruling 4).
     use brokkr_core::policy::audit::{Finding, Refusal, Setting, SWEEP_BUDGET};
-    let findings = |leaf: &Path| {
-        let machine = Machine::from_table(&resolve(leaf).unwrap().table).unwrap();
-        machine
-            .audit_with(SWEEP_BUDGET, is_engine_owned)
-            .unwrap()
-            .findings
-    };
+    use brokkr_core::policy::PolicyError;
     let library = Library::new();
     let mut base = base_policy();
     base["rules"].as_array_mut().unwrap().insert(
@@ -845,14 +838,22 @@ fn an_overlay_that_shadows_is_refused_and_one_that_opens_a_hole_is_reported_on_t
              "when": {"skip_verify": false}, "reason":"review"},
         ]})),
     );
-    assert_eq!(
-        findings(&hole),
-        [Finding::Unruled {
-            phase: "review".into(),
-            result: "clean".into(),
-            valuation: vec![("skip_verify".into(), Setting::Flag(true))],
-        }]
-    );
+    let unruled = Finding::Unruled {
+        phase: "review".into(),
+        result: "clean".into(),
+        valuation: vec![("skip_verify".into(), Setting::Flag(true))],
+    };
+    let machine = Machine::from_table(&resolve(&hole).unwrap().table).unwrap();
+    let audit = machine.audit_with(SWEEP_BUDGET, is_engine_owned).unwrap();
+    assert_eq!(audit.findings, std::slice::from_ref(&unruled));
+    let line = error(Bundle::compile(&hole));
+    let Err(CompileError::ComposedPolicy(refusal, _)) = Bundle::compile(&hole) else {
+        panic!("{line}");
+    };
+    assert_eq!(*refusal, PolicyError::Refused(Refusal::Totality(unruled)));
+    let policy = CompileError::Policy(*refusal);
+    let composed = format!("bundle: {policy} (composed: derived -> base)");
+    assert_eq!(line, composed);
 }
 
 #[test]

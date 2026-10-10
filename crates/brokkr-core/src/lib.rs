@@ -9,6 +9,7 @@ pub mod canonical;
 pub mod dispatch;
 pub mod envelope;
 pub mod fold;
+pub mod gate_moved_head;
 pub mod keep_refs;
 pub mod policy;
 pub mod realms;

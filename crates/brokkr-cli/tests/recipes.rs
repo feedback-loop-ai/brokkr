@@ -508,12 +508,12 @@ fn compile_and_show_print_the_resolved_result_and_its_provenance() {
     assert_eq!(code, Some(0), "stderr: {stderr}");
     let base: Value = serde_json::from_str(&plain).unwrap();
     assert!(base.get("composed_from").is_none(), "{plain}");
-    // Decision 0050's sweep of the table goes to stderr: its finding is
-    // reported and the table is not refused (#429).
+    // Decision 0050's sweep of the table goes to stderr: a v1 table's
+    // presence finding is reported and the table is not refused (#429).
     assert_eq!(
         stderr,
-        "policy sweep (decision 0050, accepted; reported, not yet refused): 32 \
-         valuations over 11 groups, 0 unruled\n  REVIEW-RESIDUAL-OK lets the run \
+        "policy sweep (decision 0050): 32 valuations over 11 groups, 0 \
+         unruled\n  REVIEW-RESIDUAL-OK lets the run \
          go on without reading has_security_residual, max_residual_severity, \
          which a hard rule of its group reads\n"
     );

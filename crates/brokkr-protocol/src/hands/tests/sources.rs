@@ -1466,7 +1466,6 @@ pub(super) fn prepared_on(
         reach: &seat,
         network: &Network::Isolated,
         bootstrap,
-        arguments: &[],
         writers: &[],
     };
     ServerBox::prepare_with(program, &profile, host)

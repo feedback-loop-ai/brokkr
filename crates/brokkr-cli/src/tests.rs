@@ -3760,10 +3760,17 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
         reason: "again".into(),
         journal: at(&db),
     })))
-    .unwrap_err()
-    .to_string();
-    assert!(refusal.contains("already concluded"), "{refusal}");
-    assert!(refusal.contains("stopped"), "{refusal}");
+    .unwrap_err();
+    let status = Status::Stopped;
+    let why = brokkr_runtime::ConcludeRefusal::AlreadyConcluded { status };
+    assert!(
+        matches!(
+            refusal.downcast_ref(),
+            Some(brokkr_runtime::EngineError::ConcludeRefused { run_id, why: refused })
+                if run_id == "stranded" && *refused == why
+        ),
+        "{refusal}"
+    );
 
     // A parked run gets its stop commanded under the invoking operator's
     // name, read from the same `USER` fallback `Cmd::Operator` uses.

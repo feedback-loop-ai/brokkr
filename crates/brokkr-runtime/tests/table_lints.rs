@@ -19,16 +19,16 @@
 //!    group reads is ruled, so `Unmatched` is left to what a table cannot
 //!    foresee.
 //!
-//! Today's findings are PINNED, not asserted away: the three v1 tables
-//! fail presence exactly as decision 0004 recorded, and every v2 delivery
-//! table leaves one valuation shape unruled — a `residual` verdict at
-//! severity `none`. The operator accepted the decision on the #429 audit
+//! The operator accepted the decision on the #429 audit
 //! (`docs/evidence/decision-0050-audit.md`). Its first enactment slice
-//! refuses order, liveness and v2 presence at load, so every table here
-//! loads with none of those findings. The later slices move the v1 tables
-//! to v2, name the closed valuations with a parking rule, and retire
-//! these pins by driving them to zero. Until then a table change that
-//! moves a pin is a reviewed change.
+//! refuses order, liveness and v2 presence at load; its second moves
+//! `recipes/verify` and `recipes/preflight` to v2, names the `residual`
+//! verdict at severity `none` in every table that left it unruled
+//! (`REVIEW-RESIDUAL-NONE`), and refuses an unruled valuation at compile.
+//! So every table here loads and is total, and the one finding left is
+//! the frozen heritage table's presence, which v1 reads as decision 0004
+//! recorded. The sweep's size per table stays pinned: a table change that
+//! moves it is a reviewed change.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -227,67 +227,56 @@ fn every_shipped_table_is_ordered_and_live() {
 
 /// Decision 0004 recorded the shape: "when a deny rule is conditional and
 /// the permissive fallback is unconditional, an absent input still
-/// reaches the fallback — exactly as in production." The three v1 tables
-/// carry it; no v2 table does.
+/// reaches the fallback — exactly as in production." The frozen heritage
+/// table keeps it, read under v1 as its corpus records; every other table
+/// is v2, where presence is refused at load (decision 0050, ruling 1).
 #[test]
-fn presence_refuses_exactly_the_three_v1_tables() {
-    let expected: BTreeMap<&str, Vec<&str>> = BTreeMap::from([
-        (
-            "policy/phase-machine.json",
-            vec![
-                "REVIEW-CLEAN-UNVERIFIED lets the run go on without reading [\"has_security_residual\", \"max_residual_severity\"]",
-                "REVIEW-RESIDUAL-OK lets the run go on without reading [\"has_security_residual\", \"max_residual_severity\"]",
-            ],
-        ),
-        (
-            "recipes/verify",
-            vec!["REVIEW-RESIDUAL-OK lets the run go on without reading [\"has_security_residual\", \"max_residual_severity\"]"],
-        ),
-        (
-            "recipes/preflight",
-            vec!["REVIEW-RESIDUAL-OK lets the run go on without reading [\"has_security_residual\", \"max_residual_severity\"]"],
-        ),
-    ]);
+fn presence_is_reported_for_the_heritage_table_alone() {
     for t in shipped_tables() {
         let findings = sweep(&t);
-        let want: Vec<String> = expected
-            .get(t.label.as_str())
-            .map(|rows| rows.iter().map(|row| row.to_string()).collect())
-            .unwrap_or_default();
-        assert_eq!(findings.presence, want, "{}", t.label);
-        if !want.is_empty() {
-            assert_eq!(t.json["schema"], "forge.phase-machine/v1", "{}", t.label);
+        if t.label != "policy/phase-machine.json" {
+            assert_eq!(findings.presence, Vec::<String>::new(), "{}", t.label);
+            assert_eq!(t.json["schema"], "forge.phase-machine/v2", "{}", t.label);
+            continue;
         }
+        assert_eq!(
+            findings.presence,
+            [
+                "REVIEW-CLEAN-UNVERIFIED lets the run go on without reading [\"has_security_residual\", \"max_residual_severity\"]",
+                "REVIEW-RESIDUAL-OK lets the run go on without reading [\"has_security_residual\", \"max_residual_severity\"]",
+            ]
+        );
+        assert_eq!(t.json["schema"], "forge.phase-machine/v1");
     }
 }
 
-/// The sweep's size and its holes, per table. Every hole today is one
-/// shape: a `residual` verdict whose severity is `none`, which the v2
-/// tables close by requiring a severity above `none` on every permissive
-/// arm — closed, and unnamed. The heritage table has no hole because its
-/// fallback is unconditional, which is the presence finding above.
+/// The sweep's size and its holes, per table: none, since the second
+/// enactment slice (#429) named the one shape every hole had — a
+/// `residual` verdict whose severity is `none` — and the compiler refuses
+/// a hole. The heritage table has no hole because its fallback is
+/// unconditional, which is the presence finding above.
 #[test]
 fn the_unruled_valuations_are_pinned_per_table() {
     let expected: BTreeMap<&str, (usize, usize)> = BTreeMap::from([
         ("policy/phase-machine.json", (57, 0)),
-        ("recipes/self", (47, 4)),
+        ("recipes/self", (47, 0)),
         ("recipes/verify", (16, 0)),
-        ("recipes/fast", (46, 4)),
-        ("recipes/landing", (48, 4)),
-        ("recipes/night-shift", (1072, 128)),
-        ("recipes/node", (46, 4)),
-        ("recipes/panel-review", (47, 4)),
+        ("recipes/fast", (46, 0)),
+        ("recipes/landing", (48, 0)),
+        ("recipes/night-shift", (1072, 0)),
+        ("recipes/node", (46, 0)),
+        ("recipes/panel-review", (47, 0)),
         ("recipes/preflight", (16, 0)),
-        ("recipes/release", (46, 4)),
+        ("recipes/release", (46, 0)),
         ("recipes/research", (5, 0)),
         ("recipes/research-dsh", (5, 0)),
-        ("recipes/review-first", (46, 4)),
-        ("recipes/standby", (46, 4)),
-        ("recipes/gpt-flash", (1072, 128)),
-        ("recipes/triage", (1072, 128)),
-        ("recipes/wager-harness", (46, 4)),
-        ("recipes/wager-harness-dsh", (46, 4)),
-        ("recipes/wager-harness-muse", (46, 4)),
+        ("recipes/review-first", (46, 0)),
+        ("recipes/standby", (46, 0)),
+        ("recipes/gpt-flash", (1072, 0)),
+        ("recipes/triage", (1072, 0)),
+        ("recipes/wager-harness", (46, 0)),
+        ("recipes/wager-harness-dsh", (46, 0)),
+        ("recipes/wager-harness-muse", (46, 0)),
     ]);
     let tables = shipped_tables();
     let labels: BTreeSet<&str> = tables.iter().map(|t| t.label.as_str()).collect();
@@ -300,20 +289,94 @@ fn the_unruled_valuations_are_pinned_per_table() {
             "{}: (valuations, unruled)",
             t.label
         );
-        for (phase, result, inputs) in &findings.unruled {
-            assert_eq!(
-                (phase.as_str(), result.as_str()),
-                ("review", "residual"),
-                "{}",
-                t.label
-            );
-            assert!(
-                inputs.contains(&("max_residual_severity".into(), Setting::Word("none"))),
-                "{}: {inputs:?}",
-                t.label
-            );
-        }
+        assert_eq!(t.machine.refuse_unruled(), Ok(()), "{}", t.label);
     }
+}
+
+/// Ruling 4's named ending: where the journal recorded no ruling for a
+/// `residual` verdict at severity `none`, it now records
+/// `REVIEW-RESIDUAL-NONE` — a park in every delivery table, in
+/// `recipes/verify` and in `recipes/preflight`, each with its own
+/// reason. `recipes/fast` carries it once, and composition
+/// carries it to every recipe that extends fast.
+#[test]
+fn a_residual_rated_none_is_ruled_by_its_named_rule() {
+    let none = json!({
+        "max_residual_severity": "none",
+        "has_security_residual": false,
+        "visits_implement": 1,
+        "fixes_applied": false
+    });
+    let mut ruled: BTreeMap<String, Outcome> = BTreeMap::new();
+    for t in shipped_tables() {
+        if t.label == "policy/phase-machine.json" || !t.machine.phases.iter().any(|p| p == "review")
+        {
+            continue;
+        }
+        let outcome = t
+            .machine
+            .evaluate("review", "residual", none.as_object().unwrap());
+        ruled.insert(t.label, outcome);
+    }
+    let park = |reason: &str| Outcome::Park {
+        rule_id: "REVIEW-RESIDUAL-NONE".into(),
+        reason: reason.into(),
+    };
+    let fast = park(
+        "A residual verdict that rates its worst residual none names no debt to track \
+         and no defect to return; the run parks for the operator with the notes \
+         (decision 0050, ruling 4).",
+    );
+    let verify = park(
+        "A residual verdict rated none is no verification verdict at all: it names no \
+         tracked debt and no defect. The run parks for the operator with the notes \
+         (decision 0050, ruling 4).",
+    );
+    let preflight = park(
+        "A residual verdict that rates its worst residual none names no finding the pull \
+         request could carry. The preflight parks for its contributor with the notes, as a \
+         residual that omits its severity does (decision 0050, ruling 4).",
+    );
+    assert_eq!(ruled.remove("recipes/preflight"), Some(preflight));
+    assert_eq!(ruled.remove("recipes/verify"), Some(verify));
+    let delivery: BTreeSet<&str> = ruled.keys().map(String::as_str).collect();
+    assert_eq!(delivery.len(), 14, "{delivery:?}");
+    for (label, outcome) in ruled {
+        assert_eq!(outcome, fast, "{label}");
+    }
+}
+
+/// The compiler's refusal, on a shipped table: `recipes/self` without its
+/// named park has the hole every delivery table had, loads, and is refused
+/// at its first unruled valuation (decision 0050, ruling 4).
+#[test]
+fn recipes_self_without_its_named_park_is_refused() {
+    let mut json = self_table();
+    json["rules"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|rule| rule["id"] != "REVIEW-RESIDUAL-NONE");
+    let refusal = Machine::from_table(&json)
+        .expect("the hole is no load finding")
+        .refuse_unruled()
+        .unwrap_err();
+    assert_eq!(
+        refusal,
+        PolicyError::Refused(Refusal::Totality(Finding::Unruled {
+            phase: "review".into(),
+            result: "residual".into(),
+            valuation: vec![
+                ("max_residual_severity".into(), Setting::Word("none")),
+                ("visits_implement".into(), Setting::Count(0)),
+            ],
+        }))
+    );
+    assert_eq!(
+        refusal.to_string(),
+        "malformed phase machine table: no rule rules (review, residual) at \
+         max_residual_severity=none, visits_implement=0; name it with a rule that \
+         parks it and says why (decision 0050, ruling 4)"
+    );
 }
 
 /// Decision 0022's arc as a property: the table that ruled a diligent
@@ -448,6 +511,12 @@ fn the_exchanged_self_table_is_refused_behind_its_weaker_arm() {
 #[test]
 fn the_0022_era_permissive_arms_are_refused() {
     let mut json = self_table();
+    // The 0022-era table had no named park: behind an unconditional
+    // `REVIEW-RESIDUAL-OK` it would be dead.
+    json["rules"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|rule| rule["id"] != "REVIEW-RESIDUAL-NONE");
     for rule in json["rules"].as_array_mut().unwrap() {
         if rule["id"] == "REVIEW-REFORGE-EXHAUSTED-DEBT" || rule["id"] == "REVIEW-RESIDUAL-OK" {
             let when = rule["when"].as_object_mut().unwrap();
