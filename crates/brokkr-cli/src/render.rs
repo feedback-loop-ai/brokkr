@@ -28,7 +28,8 @@ use std::io::IsTerminal;
 
 use brokkr_view::transcript::TranscriptRead;
 use brokkr_view::{
-    FleetView, JournalRow, ModelAtBoundary, Participant, Phase, RunRow, RunView, RunsView,
+    keeps_participant, keeps_phase, keeps_row, FleetView, JournalRow, Lens, ModelAtBoundary,
+    Participant, Phase, RunRow, RunView, RunsView, ScopeError,
 };
 
 const RESET: &str = "\x1b[0m";
@@ -319,118 +320,12 @@ pub(crate) fn fleet(view: &FleetView, now: &str, style: &Style) -> String {
 
 // -------------------------------------------------------- brokkr inspect
 
-/// The console's exclusive scoping, as the verbs a terminal has.
-pub(crate) enum Scope {
-    Phase(String),
-    Seat(String),
-}
-
-/// A resolved scope: which phases survive, and — for `--seat` — which
-/// participant keys. Membership itself is a model field on both sides,
-/// so this never re-implements the predicate.
-pub(crate) struct Lens {
-    phases: Vec<String>,
-    keys: Vec<String>,
-    by_key: bool,
-}
-
-/// Resolve a scope against a run, or say what the run actually offers.
-/// A value matching nothing is an error rather than an empty table: an
-/// empty seats table reads as "this phase did nothing", which is a claim
-/// about a run this tool cannot make.
-pub(crate) fn lens_for(view: &RunView, scope: Option<&Scope>) -> Result<Option<Lens>, String> {
-    let Some(scope) = scope else {
-        return Ok(None);
-    };
-    match scope {
-        Scope::Phase(name) => {
-            let known = view.phases.iter().any(|phase| phase.name == *name);
-            if !known {
-                let valid: Vec<String> = view
-                    .phases
-                    .iter()
-                    .map(|phase| Safe::new(&phase.name).as_str().to_string())
-                    .collect();
-                // Error paths honour the module invariant too: these
-                // strings reach the operator's tty through anyhow, so
-                // the scope name and every phase name are sanitized.
-                return Err(format!(
-                    "no phase '{}' in this run; visited phases: {}",
-                    Safe::new(name).as_str(),
-                    valid.join(", ")
-                ));
-            }
-            Ok(Some(Lens {
-                phases: vec![name.clone()],
-                keys: Vec::new(),
-                by_key: false,
-            }))
-        }
-        Scope::Seat(label) => {
-            // ALL occurrences: a re-entered phase really did run that
-            // seat twice, and hiding one is a false statement about the
-            // run. An exact participant key matches too — that is what
-            // the console's clicks select.
-            let matched: Vec<&Participant> = view
-                .participants
-                .iter()
-                .filter(|part| part.label == *label || part.key == *label)
-                .collect();
-            if matched.is_empty() {
-                let mut valid: Vec<String> = view
-                    .participants
-                    .iter()
-                    .map(|part| Safe::new(&part.label).as_str().to_string())
-                    .collect();
-                valid.dedup();
-                return Err(format!(
-                    "no seat '{}' in this run; participants: {}",
-                    Safe::new(label).as_str(),
-                    valid.join(", ")
-                ));
-            }
-            let mut phases = Vec::new();
-            for part in &matched {
-                if let Some(phase) = &part.phase {
-                    if !phases.contains(phase) {
-                        phases.push(phase.clone());
-                    }
-                }
-            }
-            Ok(Some(Lens {
-                phases,
-                keys: matched.iter().map(|part| part.key.clone()).collect(),
-                by_key: true,
-            }))
-        }
-    }
-}
-
-/// The scope predicate for a phase, in one place: `graph_block` and the
-/// TUI ask the same question and must never answer it twice.
-pub(crate) fn keeps_phase(lens: Option<&Lens>, phase: &Phase) -> bool {
-    match lens {
-        None => true,
-        Some(lens) => lens.phases.contains(&phase.name),
-    }
-}
-
-pub(crate) fn keeps_participant(lens: Option<&Lens>, part: &Participant) -> bool {
-    match lens {
-        None => true,
-        Some(lens) if lens.by_key => lens.keys.contains(&part.key),
-        Some(lens) => match &part.phase {
-            Some(phase) => lens.phases.contains(phase),
-            None => false,
-        },
-    }
-}
-
-pub(crate) fn keeps_row(lens: Option<&Lens>, row: &JournalRow) -> bool {
-    match lens {
-        None => true,
-        Some(lens) => row.phases.iter().any(|name| lens.phases.contains(name)),
-    }
+/// A scope that matched nothing, as the operator's tty receives it. The
+/// view names the scope and what the run offers in the journal's own
+/// words; error paths honour the module invariant too, since this text
+/// reaches the terminal through anyhow, so it passes through [`Safe`].
+pub(crate) fn scope_refusal(error: &ScopeError) -> String {
+    Safe::new(&error.to_string()).as_str().to_string()
 }
 
 /// The seats block alone, as `brokkr seats` prints it (decision 0046

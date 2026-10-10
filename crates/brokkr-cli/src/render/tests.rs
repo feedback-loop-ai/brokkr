@@ -2,6 +2,7 @@ use super::*;
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use brokkr_core::fold::{Cursor, RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
+use brokkr_view::{lens_for, Scope};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -702,12 +703,13 @@ graph
         .err()
         .unwrap();
     assert_eq!(
-        missing,
+        missing.to_string(),
         "no phase 'nowhere' in this run; visited phases: intake, design"
     );
     let unseated = lens_for(&view, Some(&Scope::Seat("nobody".into())))
         .err()
-        .unwrap();
+        .unwrap()
+        .to_string();
     assert!(unseated.starts_with("no seat 'nobody' in this run; participants: intake, design"));
 }
 
@@ -723,7 +725,7 @@ fn scope_miss_errors_are_escape_free() {
         Scope::Phase("no\x1b[2Jpe\r".into()),
         Scope::Seat("no\x1b]0;pwned\x07body".into()),
     ] {
-        let message = lens_for(&view, Some(&scope)).err().unwrap();
+        let message = scope_refusal(&lens_for(&view, Some(&scope)).err().unwrap());
         assert!(!message.contains('\x1b'), "escape survived: {message:?}");
         assert!(!message.contains('\r'), "carriage return survived");
         assert!(!message.contains('\x07'), "bell survived");
@@ -949,8 +951,17 @@ fn a_seat_lens_gathers_every_occurrence_and_survives_a_phase_less_one() {
     let lens = lens_for(&view, Some(&Scope::Seat("implement".into())))
         .unwrap()
         .unwrap();
-    assert_eq!(lens.keys.len(), 3, "every occurrence");
-    assert_eq!(lens.phases, vec!["implement".to_string()], "deduped");
+    // The lens's own fields are the view's; its dedup is pinned there.
+    let kept = |part: &&brokkr_view::Participant| keeps_participant(Some(&lens), part);
+    assert_eq!(
+        view.participants.iter().filter(kept).count(),
+        3,
+        "every occurrence"
+    );
+    assert!(view
+        .phases
+        .iter()
+        .all(|phase| keeps_phase(Some(&lens), phase)));
     let out = inspect(&view, Some(&lens), false, &Style::plain(80));
     assert_eq!(
         out.lines()

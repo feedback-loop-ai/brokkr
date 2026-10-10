@@ -122,11 +122,12 @@ pub(crate) fn inspect(
     }
     // clap's ArgGroup already rules the two mutually exclusive.
     let scope = match (phase, seat) {
-        (Some(phase), _) => Some(render::Scope::Phase(phase)),
-        (None, Some(seat)) => Some(render::Scope::Seat(seat)),
+        (Some(phase), _) => Some(brokkr_view::Scope::Phase(phase)),
+        (None, Some(seat)) => Some(brokkr_view::Scope::Seat(seat)),
         (None, None) => None,
     };
-    let lens = render::lens_for(&view, scope.as_ref()).map_err(anyhow::Error::msg)?;
+    let lens = brokkr_view::lens_for(&view, scope.as_ref())
+        .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
     print!(
         "{}",
         render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
