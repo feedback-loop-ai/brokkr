@@ -1152,17 +1152,33 @@ fn listed(words: &[&str], from: usize) -> (Vec<u16>, Option<usize>) {
     (numbers, last)
 }
 
+/// Each decision `proposed` at `words[at]` names after it: `proposed
+/// [decision|decisions] NNNN` or `proposed by|in|for [decision|decisions]
+/// NNNN`, each number of a [`listed`] run.
+fn prefixed_proposed(words: &[&str], at: usize) -> Vec<u16> {
+    let after = |skip: usize| words.get(at + skip).map(|word| bare(word));
+    let mut next = 1;
+    if after(next).is_some_and(|word| ["by", "in", "for"].contains(&word.as_str())) {
+        next += 1;
+    }
+    if after(next).is_some_and(|word| word == "decision" || word == "decisions") {
+        next += 1;
+    }
+    listed(words, at + next).0
+}
+
 /// Each decision a list after `decision` or `decisions` at `words[at]`
-/// calls proposed by a trailing `, proposed` that proposes nothing else.
+/// calls proposed by a trailing `, proposed` that proposes nothing else:
+/// one [`prefixed_proposed`] reads no decision after.
 fn trailed_proposed(words: &[&str], at: usize) -> Vec<u16> {
     let (cited, Some(last)) = listed(words, at + 1) else {
         return Vec::new();
     };
-    let after = |skip: usize| words.get(last + skip).map(|word| bare(word));
     let trailed = words[last].ends_with(',')
-        && after(1).is_some_and(|word| word == "proposed")
-        && number(words.get(last + 2)).is_none()
-        && after(2).is_none_or(|word| word != "decision");
+        && words
+            .get(last + 1)
+            .is_some_and(|word| bare(word) == "proposed")
+        && prefixed_proposed(words, last + 1).is_empty();
     if trailed {
         cited
     } else {
@@ -1170,24 +1186,15 @@ fn trailed_proposed(words: &[&str], at: usize) -> Vec<u16> {
     }
 }
 
-/// Each decision a text calls proposed: `proposed [decision] NNNN`,
-/// `proposed by|in|for [decision] NNNN`, or `decision NNNN, proposed`, in
-/// any case and across line breaks, each number of a [`listed`] run.
+/// Each decision a text calls proposed: a [`prefixed_proposed`] citation
+/// or a [`trailed_proposed`] one, in any case and across line breaks.
 fn called_proposed(text: &str) -> Vec<u16> {
     let words: Vec<&str> = text.split_whitespace().collect();
     let mut found = Vec::new();
     for (at, word) in words.iter().enumerate() {
-        let after = |skip: usize| words.get(at + skip).map(|word| bare(word));
         let word = bare(word);
         if word == "proposed" {
-            let mut next = 1;
-            if after(next).is_some_and(|word| ["by", "in", "for"].contains(&word.as_str())) {
-                next += 1;
-            }
-            if after(next).is_some_and(|word| word == "decision" || word == "decisions") {
-                next += 1;
-            }
-            found.extend(listed(&words, at + next).0);
+            found.extend(prefixed_proposed(&words, at));
         } else if word == "decision" || word == "decisions" {
             found.extend(trailed_proposed(&words, at));
         }
@@ -1343,7 +1350,10 @@ fn a_decision_called_proposed_is_held_to_the_index() {
              \n\
              proposed decision [0069](0069-x.md); (decision [0069](x), proposed).\n\
              \n\
-             proposed decisions 0056 and 0069; (decisions 0075, 0056, and 0069, proposed).\n",
+             proposed decisions 0056 and 0069; (decisions 0075, 0056, and 0069, proposed).\n\
+             \n\
+             (decision 0069, proposed decisions 0056 and 0075) (decision 0069, proposed by\n\
+             decision 0056) (decision 0069, proposed in 0075) (decision 0069, proposed by us).\n",
         ),
         (
             "scripts/a.sh",
@@ -1370,6 +1380,7 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "docs/a.md:10: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:12: calls decision 0069 proposed; the index rules it accepted",
             "docs/a.md:12: calls decision 0069 proposed; the index rules it accepted",
+            "docs/a.md:14: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:2: calls decision 0069 proposed; the index rules it accepted",
             "scripts/a.sh:4: calls decision 0069 proposed; the index rules it accepted",
             "crates/a/src/open.rs: cannot be read: an unterminated string",
