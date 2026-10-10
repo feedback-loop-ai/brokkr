@@ -3,12 +3,16 @@
 //! it can rejoin one, send `start`, and drive the attempt to a terminal
 //! outcome.
 //! Every protocol violation degrades to `Failed` (driver defect, retry
-//! is a new attempt); a silent exit degrades to `Indeterminate`, and so
-//! does a driver past the transport's limits (`limits`, #433), whose
-//! refusal no deadline can pre-empt once it is read; a
+//! is a new attempt); a silent exit degrades to `Indeterminate`; a
 //! deadline expiry kills the driver and degrades to `Failed` — the kill
 //! makes non-completion determinate, so bounded retry stays safe
-//! (decision 0006).
+//! (decision 0006). A driver past the transport's limits (`limits`,
+//! #433) degrades to `Indeterminate`, and a line the stdout reader
+//! refused outranks every ending but the driver's result and a refused
+//! checkpoint: a protocol violation read before it, a write to stdin
+//! that failed, the deadline and the driver's exit (decision 0079
+//! ruling 3). It is read once stdout is closed, so the refusal of
+//! anything the driver wrote before its tree ended is never missed.
 //!
 //! The attempt is the driver's whole process tree (#403, `tree`): no
 //! report is returned until the tree is proven gone, so a retry the
@@ -93,9 +97,20 @@ enum Stdout {
 }
 
 /// The frame limit's refusal, as the stdout reader read it. It is held
-/// beside the channel, not on it, so that an attempt loop which stopped
-/// reading, a deadline's give-up among them, still ends on it (#433).
+/// beside the channel, not on it, so that an attempt which stopped
+/// reading, a deadline's give-up or a failed write among them, still
+/// ends on it (#433).
 type Refused = Arc<OnceLock<Exceeded>>;
+
+/// The outcome an attempt's end reached, and whether a line the stdout
+/// reader refused outranks it (decision 0079 ruling 3).
+enum Standing {
+    /// The driver's result, or a checkpoint past a limit: what the
+    /// driver sent after either is not protocol.
+    Final(AttemptOutcome),
+    /// Every other end, which a refused line outranks.
+    Yielding(AttemptOutcome),
+}
 
 /// How the attempt loop ended: a protocol violation, which fails the
 /// attempt; the driver gone; the outcome its result reached; or a limit
@@ -331,7 +346,7 @@ impl DriverProcess {
     /// deadline plus the drain bound and no longer: by then the watchdog
     /// has killed the tree, and only a process outside it can still hold
     /// the pipe. Giving up reads as EOF, whatever is still unread, except
-    /// a line the reader refused, which `end` reads from `refused`.
+    /// a line the reader refused, which `finish` reads from `refused`.
     fn next_stdout(&self) -> Option<Stdout> {
         match self.deadline {
             None => self.stdout.recv().ok(),
@@ -384,9 +399,12 @@ impl DriverProcess {
         }
     }
 
+    /// End the attempt's tree and report `standing`'s outcome, unless a
+    /// line the reader refused outranks it. The slot is read once stdout
+    /// is closed, when the reader has refused all it ever will.
     fn finish(
         mut self,
-        outcome: AttemptOutcome,
+        standing: Standing,
         session_ref: Option<String>,
         checkpoints: Vec<Value>,
         accepted: bool,
@@ -414,6 +432,10 @@ impl DriverProcess {
         {
             Ok(stderr) => (stderr, ended),
             Err(_) => (String::new(), ended.and(Err(Unsettled::Stderr))),
+        };
+        let outcome = match standing {
+            Standing::Final(outcome) => outcome,
+            Standing::Yielding(outcome) => self.refused.get().map_or(outcome, Exceeded::outcome),
         };
         AttemptReport {
             outcome,
@@ -612,31 +634,28 @@ impl DriverProcess {
         }
     }
 
-    /// End the attempt as the loop ended. A protocol violation keeps
-    /// nothing of the driver's account but whether it accepted. A loop
-    /// that stopped reading short of a terminal message ends on the line
-    /// the reader refused, if it refused one, before the deadline or the
-    /// driver's exit: what the driver sent past a limit outranks how the
-    /// engine stopped listening (#433, decision 0079).
+    /// End the attempt as it ended. A protocol violation or a failed
+    /// write keeps nothing of the driver's account but whether it
+    /// accepted. Any end short of the driver's result or a refused
+    /// checkpoint yields to the line the reader refused, if it refused
+    /// one: what the driver sent past a limit outranks how the engine
+    /// stopped listening (#433, decision 0079 ruling 3).
     fn end(self, ended: Ended, account: Account) -> AttemptReport {
         let Account {
             accepted,
             session_ref,
             retained,
         } = account;
-        let outcome = match ended {
+        let standing = match ended {
             Ended::Failed(error) => {
-                let outcome = AttemptOutcome::Failed { error };
-                return self.finish(outcome, None, Vec::new(), accepted);
+                let standing = Standing::Yielding(AttemptOutcome::Failed { error });
+                return self.finish(standing, None, Vec::new(), accepted);
             }
-            Ended::Lost => match self.refused.get() {
-                Some(exceeded) => exceeded.outcome(),
-                None => self.eof_outcome(accepted),
-            },
-            Ended::Reached(outcome) => outcome,
-            Ended::Exceeded(exceeded) => exceeded.outcome(),
+            Ended::Lost => Standing::Yielding(self.eof_outcome(accepted)),
+            Ended::Reached(outcome) => Standing::Final(outcome),
+            Ended::Exceeded(exceeded) => Standing::Final(exceeded.outcome()),
         };
-        self.finish(outcome, session_ref, retained.checkpoints, accepted)
+        self.finish(standing, session_ref, retained.checkpoints, accepted)
     }
 }
 

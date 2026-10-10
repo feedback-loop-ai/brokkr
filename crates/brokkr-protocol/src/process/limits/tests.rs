@@ -71,19 +71,23 @@ impl Driver {
             script = format!("{script}; {}", file(format!("{at}"), bytes));
         }
         script.push_str(then);
-        let driver = command(&script);
-        let mut process = DriverProcess::spawn_limited(
-            &driver,
-            Path::new("."),
-            deadline,
-            &SpawnEnv::Inherit,
-            Host::REAL,
-            limits,
-        )
-        .unwrap();
-        process.bounds.grace = Duration::from_millis(200);
-        process
+        launch(&script, limits, deadline)
     }
+}
+
+/// `script` as a driver under `limits` and `deadline`.
+fn launch(script: &str, limits: Limits, deadline: Option<Duration>) -> DriverProcess {
+    let mut process = DriverProcess::spawn_limited(
+        &command(script),
+        Path::new("."),
+        deadline,
+        &SpawnEnv::Inherit,
+        Host::REAL,
+        limits,
+    )
+    .unwrap();
+    process.bounds.grace = Duration::from_millis(200);
+    process
 }
 
 /// `body` on the wire with a fixed message id, so its bytes are known.
@@ -220,6 +224,71 @@ fn a_refused_line_outranks_the_deadline_while_a_checkpoint_is_journaled() {
     assert_eq!(report.settled_outcome(), report.outcome);
     assert!(report.deadline_killed);
     assert_eq!(report.cleanup, Cleanup::Settled);
+}
+
+/// A refused line outranks the failed write of a `start` the driver
+/// never read: a driver that floods past the limit and exits leaves the
+/// engine's write, larger than a pipe holds, on a broken pipe, and the
+/// attempt still ends on the refusal, never as a failure to send that a
+/// retry may safely repeat. Within the limit, the same driver is that
+/// failure.
+#[test]
+fn a_refused_line_outranks_a_start_the_driver_never_read() {
+    let script = format!("{}; head -c 4096 /dev/zero", accepting());
+    let input = json!({ "pad": "x".repeat(4 * 1024 * 1024) });
+    let ended = [framing(4096), framing(512)].map(|limits| {
+        let report = launch(&script, limits, None).run_attempt(
+            "test",
+            "effect",
+            "attempt",
+            "seat",
+            input.clone(),
+            |_| {},
+        );
+        (report.outcome, report.deadline_killed, report.cleanup)
+    });
+    let unsent = AttemptOutcome::Failed {
+        error: "could not send start: Broken pipe (os error 32)".into(),
+    };
+    assert_eq!(
+        ended,
+        [
+            (unsent, false, Cleanup::Settled),
+            (
+                frame_exceeded(512, "control", "8ae7498b01f40e9d"),
+                false,
+                Cleanup::Settled
+            ),
+        ]
+    );
+}
+
+/// A refused line outranks a protocol violation read before it: a
+/// driver that accepts a foreign effect and then floods past the limit
+/// ends its attempt on the refusal. Within the limit, the violation is
+/// the driver defect it always was.
+#[test]
+fn a_refused_line_outranks_a_protocol_violation_read_before_it() {
+    let foreign = line(Body::Accepted {
+        effect_id: "other".into(),
+        attempt_id: "attempt".into(),
+        session_ref: None,
+    });
+    let driver = Driver::playing(vec![foreign, vec![b'x'; 513]]);
+
+    let (report, _) = driver.attempt(framing(513), b"");
+    assert_eq!(
+        report.outcome,
+        AttemptOutcome::Failed {
+            error: "driver accepted a different effect 'other'".into()
+        }
+    );
+
+    let (report, _) = driver.attempt(framing(512), b"");
+    assert_eq!(
+        report.outcome,
+        frame_exceeded(512, "letter", "35ade0090e64e74d")
+    );
 }
 
 /// Zero admits nothing (decision 0079): a zero frame limit refuses the
