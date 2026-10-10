@@ -81,6 +81,28 @@ else
   echo "no user manager: $state"
 fi
 
+say "scopes bound to the engine's unit (BindsTo=)"
+if [ "$state" = running ] || [ "$state" = degraded ]; then
+  eng="probe-engine-$$"
+  systemd-run --user -q --unit "$eng" -- sleep 300
+  sleep 0.3
+  systemd-run --user --scope -q --unit "probe-bound-$$" -p BindsTo="$eng.service" -p After="$eng.service" -- bash -c '(setsid sleep 3017 &); exec sleep 3017' &
+  sleep 1
+  bcg="/sys/fs/cgroup$(systemctl --user show -p ControlGroup --value "probe-bound-$$.scope")"
+  echo "bound scope: $(systemctl --user is-active "probe-bound-$$.scope"); live sleeps: $(alive 3017)"
+  t0=$(date +%s%N)
+  systemctl --user kill -s KILL "$eng.service"
+  for _ in $(seq 100); do [ "$(systemctl --user is-active "probe-bound-$$.scope" 2>/dev/null)" != active ] && [ "$(alive 3017)" = 0 ] && break; sleep 0.02; done
+  t1=$(date +%s%N)
+  echo "RESULT bindsto: engine $(systemctl --user is-active "$eng.service"), scope $(systemctl --user is-active "probe-bound-$$.scope"), live sleeps $(alive 3017), cgroup $( [ -e "$bcg" ] && tr '\n' ' ' < "$bcg/cgroup.events" || echo absent ), in $(( (t1 - t0) / 1000000 )) ms"
+  wait 2>/dev/null
+  timeout 3 systemd-run --user --scope -q --unit "probe-late-$$" -p BindsTo="$eng.service" -p After="$eng.service" -- bash -c 'echo LATE-DRIVER-RAN; exec sleep 3018'
+  echo "RESULT bindsto-late: a scope started after the engine died, timeout rc=$?; live sleeps now $(alive 3018)"
+  systemctl --user reset-failed "$eng.service" 2>/dev/null
+else
+  echo "no user manager: $state"
+fi
+
 say contain in a system scope with Delegate=yes, through sudo
 if sudo -n true 2>/dev/null; then
   try sudo -n systemd-run --scope -p Delegate=yes --uid="$(id -u)" --gid="$(id -g)" bash "$self" contain-here
