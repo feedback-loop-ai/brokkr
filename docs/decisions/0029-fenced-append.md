@@ -101,6 +101,16 @@ buys it without a clock or a lease. The residual case is a driver holding
 a long-running effect in silence, which is also the case where a stop
 riding to the attempt boundary is the operator's legitimate right.
 
+The built tail keeps one carve-out, which the operator ruled on
+2026-10-09 (#477): the engine's fence disarms at `effect/started`,
+because the checkpoint sink moves the head mid-attempt, and an armed
+fence would refuse the attempt's own checkpoints. So a quiet live
+holder's own terminal event can still land after a fresh resumer's or
+`conclude`'s fenced settlement, where fold refuses it as out of place.
+That is the residual silent-driver case above, narrowed by every fold
+that is now fenced. Fencing the holder's settlement against the sink's
+last head is #609.
+
 Until this is accepted and implemented, `conclude`'s documentation says
 plainly that it writes without checking for a live driver, and names
 `brokkr runs` as the way to look before closing. A hazard an operator can
