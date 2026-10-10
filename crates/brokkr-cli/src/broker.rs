@@ -9,11 +9,14 @@
 //! field and the box intent in MB3's refusal order, before any secret is
 //! looked up or anything is started; its private `observe` verb is the
 //! observer `serve` runs to prepare the box (U6c5b), and holds nothing
-//! `serve` does not. The serving protections are later
+//! `serve` does not. Its private `bootstrap` verb is the waiting helper the
+//! server box runs (U6c6a): it checks the box it stands in, reports ready
+//! on a private pipe, and runs nothing. The serving protections are later
 //! units' (slice two U6c3–U6f), so an admitted plan is still refused with
 //! SD3's incomplete-serving cause, and decision 0065's compile fence still
 //! refuses every MCP grant.
 
+mod bootstrap;
 mod session;
 
 use std::path::{Component, Path, PathBuf};
@@ -84,7 +87,8 @@ pub(crate) fn plan_digest(text: &str) -> Result<String, BrokerError> {
 
 /// Serve the plan `command` names, or refuse before looking up a secret
 /// or starting anything; or, as `serve`'s private observer, observe it and
-/// hand back what was checked.
+/// hand back what was checked; or, as its waiting bootstrap, report the
+/// box ready and still refuse, having run nothing.
 pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
     match command {
         BrokerCmd::Serve(BrokerServeArgs { plan, plan_digest }) => {
@@ -97,5 +101,6 @@ pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
             session::observe(&plan, &plan_digest)?;
             Ok(ExitCode::SUCCESS)
         }
+        BrokerCmd::Bootstrap(args) => Err(bootstrap::run(&args).into()),
     }
 }
