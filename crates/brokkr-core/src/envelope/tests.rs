@@ -35,9 +35,9 @@ fn chain_verifies_and_detects_tamper() {
     );
 }
 
-/// `as_str` is the name serde writes and reads, for every type. The
-/// match below has no wildcard, so a new type fails to compile here
-/// until it joins the table.
+/// `as_str` is the name serde writes and reads, for every listed type.
+/// The table is listed by hand; the match below has no wildcard, so a
+/// new type stops this test compiling and points its author at the table.
 #[test]
 fn every_event_type_names_itself_as_serde_does() {
     use EventType::*;

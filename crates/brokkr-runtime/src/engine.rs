@@ -4822,6 +4822,8 @@ mod conclude_tests;
 #[cfg(test)]
 mod contention_tests;
 #[cfg(test)]
+mod gate_head_tests;
+#[cfg(test)]
 mod notice_tests;
 #[cfg(test)]
 mod operator_tests;
