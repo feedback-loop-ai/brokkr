@@ -86,7 +86,9 @@ fn field(text: &str, key: &str) -> String {
         .unwrap_or_else(|| panic!("no {key} in:\n{text}"))
 }
 
-fn workspace_version() -> String {
+/// `[workspace.package]`'s version, which `doc_truth` holds the living
+/// docs to (#365).
+pub(crate) fn workspace_version() -> String {
     field(&read("Cargo.toml"), "version")
 }
 
@@ -1068,36 +1070,88 @@ fn the_install_surfaces_carry_the_manager_matrix() {
     );
 }
 
-/// The packaging README is where the operator's steps live: the secrets
-/// to provision, and what this slice deliberately did not do.
+/// Secrets a workflow reads that no packaging step does, each with the
+/// workflow that reads it: the packaging README need not name them. One
+/// no workflow reads any longer fails, so none outlives its workflow.
+const NOT_PACKAGING: [(&str, &str); 4] = [
+    (
+        "DASHSCOPE_API_KEY",
+        "research-weekly.yml: the research sweep's model",
+    ),
+    (
+        "DEEPSEEK_API_KEY",
+        "research-weekly.yml: the research sweep's search",
+    ),
+    (
+        "RENOVATE_APP_ID",
+        "renovate.yml: the dependency bot's GitHub App",
+    ),
+    (
+        "RENOVATE_APP_PRIVATE_KEY",
+        "renovate.yml: the dependency bot's GitHub App",
+    ),
+];
+
+/// The packaging README is where the operator's steps live: every secret
+/// a workflow reads, but the token GitHub issues itself and the ones
+/// [`NOT_PACKAGING`] names, is named there for the operator to provision,
+/// and no key material is. Which channels it calls out of scope is a
+/// reviewer's call since #365: the README is held to the workflows, not to
+/// an inventory of its own words.
 #[test]
-fn the_packaging_readme_names_the_secrets_and_the_out_of_scope_channels() {
+fn the_packaging_readme_names_every_secret_a_workflow_reads() {
     let readme = read("packaging/README.md");
-    for secret in [
-        "BROKKR_APT_SIGNING_KEY",
-        "BROKKR_APT_SIGNING_KEY_PASSPHRASE",
-        "BROKKR_TAP_TOKEN",
-        "BROKKR_BUCKET_TOKEN",
-    ] {
-        assert!(
-            readme.contains(secret),
-            "no {secret} in packaging/README.md"
-        );
-    }
-    for channel in ["AUR", "snap", "flatpak"] {
-        assert!(
-            readme.contains(channel),
-            "no {channel} in packaging/README.md"
-        );
-    }
-    // winget is out of scope because Windows is not a host, not deferred.
+    let workflows = crate::tracked_files::tracked(&workspace(), &[".github/workflows/*.yml"]);
     assert!(
-        readme.contains("- **winget.** Windows is not a host (decision 0063)"),
-        "{readme}"
+        workflows.contains(&".github/workflows/release.yml".to_string()),
+        "the workflows were listed: {workflows:?}"
     );
-    // The accuracy law after v0.9.0 and v0.9.1: rows name the release
-    // that lit them, and the bench label survives only as history.
-    assert!(readme.contains("live from v0.9."), "{readme}");
+    let mut secrets: Vec<String> = workflows
+        .into_iter()
+        .flat_map(|workflow| {
+            let text = read(&workflow);
+            assert!(
+                !text.contains("secrets["),
+                "{workflow} reads a secret by index, which this does not read: write secrets.NAME"
+            );
+            text.split("secrets.")
+                .skip(1)
+                .map(|rest| {
+                    rest.chars()
+                        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|secret| secret != "GITHUB_TOKEN")
+        .collect();
+    secrets.sort();
+    secrets.dedup();
+    for (secret, read_by) in NOT_PACKAGING {
+        assert!(
+            secrets.iter().any(|read| read == secret),
+            "{secret} ({read_by}) is read by no workflow any longer"
+        );
+    }
+    secrets.retain(|secret| !NOT_PACKAGING.iter().any(|(other, _)| other == secret));
+    assert_eq!(
+        secrets,
+        [
+            "BROKKR_APT_SIGNING_KEY",
+            "BROKKR_APT_SIGNING_KEY_PASSPHRASE",
+            "BROKKR_RELEASE_APP_PRIVATE_KEY",
+            "BROKKR_TAP_TOKEN",
+            "CARGO_REGISTRY_TOKEN",
+        ],
+        "the workflows' secrets were read"
+    );
+    for secret in &secrets {
+        assert!(
+            readme.contains(&format!("`{secret}`")),
+            "packaging/README.md does not name {secret}, which a workflow reads"
+        );
+    }
+    // The bench label survives only in the accuracy law's history.
     assert!(
         readme.matches("wired at the bench").count() == 1,
         "the bench label should remain only in the law's history:\n{readme}"

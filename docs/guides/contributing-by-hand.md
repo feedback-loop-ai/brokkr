@@ -203,9 +203,11 @@ hands tests build a real namespace (decision 0043), and a boundary proof
 that cannot open one skips, which a Rust test reports as `ok`.
 `BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1` turns that skip into a failure, as
 CI's Linux leg does (decision 0054 ruling 9); on macOS, where there is no
-namespace to open, leave it unset. On this tree it builds and runs 45 test
-binaries; the last run before this document was written reported
-`test result: ok` for every one of them, 787 tests passing and none
+namespace to open, leave it unset. It builds and runs every crate's unit
+tests and doctests, each crate's integration binary
+(`crates/<crate>/tests/it.rs`), and any test that must run in its own
+process, which its crate's `Cargo.toml` names as a `[[test]]`; a
+clean run reports `test result: ok` for every one of them and none
 failing. Read the whole output rather than the last line: a suite can be
 green overall while a binary you expected to gain a test gained none.
 

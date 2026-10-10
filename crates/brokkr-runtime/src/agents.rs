@@ -763,8 +763,8 @@ pub struct Candidate {
     /// context is built there. Empty for an inline site, which no
     /// adapter answers for.
     pub resume: ResumeAssessment,
-    /// The resolved provider's hands-discovery declaration (proposed
-    /// decision 0069), carried for the same reason: the engine decides
+    /// The resolved provider's hands-discovery declaration (decision
+    /// 0069), carried for the same reason: the engine decides
     /// at spawn, per selected link, whether a boxed seat hears it.
     pub hands_notice: Option<HandsNotice>,
     /// The entry's composition before flattening (design D5.7): who

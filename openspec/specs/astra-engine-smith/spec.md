@@ -52,7 +52,7 @@ roster and existing runtime invariants SHALL remain satisfied.
 
 #### Scenario: A hiring bundle changes its identity for the declared reason
 - **WHEN** all shipped bundles and recipes are compiled after the engine-smith declaration changes
-- **THEN** every changed digest is measured and pinned in `tests/witness_digests.rs` and `bundle/compose_tests.rs` wherever represented
+- **THEN** every changed digest is measured and pinned in `crates/brokkr-runtime/tests/witness_digests.rs` and `bundle/compose_tests.rs` wherever represented
 - **AND** their histories attribute this change to issue #307 rather than replacing old history or guessing a hash
 
 #### Scenario: The independent rosters retain their guarantees

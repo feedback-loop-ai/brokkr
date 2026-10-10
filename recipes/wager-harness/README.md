@@ -46,7 +46,7 @@ It is two things at once, and both matter:
 `forced_crew`, the decision that forces the arm: decision 0041's
 addendum of 2026-10-07 lets a recipe pin a model only where it declares
 why.) Forty-seven lines
-as the file is actually formatted, against `fast`'s 144, and **one** of
+as the file is actually formatted, against `fast`'s 94, and **one** of
 them is the experiment: the driver name in
 `driver.command`. Everything else — the phase table, the reforging
 ladder, the protected review gate, the verifier, the reviewer, the
@@ -154,7 +154,7 @@ before you trust a comparison, not after.**
    pretending the asymmetry away.
 4. **Same charter, byte for byte.** `roles/implementer.md` in this
    directory is a byte-identical copy of
-   `recipes/fast/roles/implementer.md`. Not "equivalent", not "adapted
+   `agents/charters/implementer-intakeless.md`, fast's implementer charter since #360. Not "equivalent", not "adapted
    for the challenger" — identical, and
    `crates/brokkr-runtime/tests/wager_parity.rs` fails if the two files
    ever diverge. A charter rewritten "to suit" the challenger is a
