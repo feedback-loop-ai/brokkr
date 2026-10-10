@@ -174,27 +174,28 @@ taken. What remains is rulings 5, 6 and 7.
   before it runs. A table past `SWEEP_BUDGET` (65,536 valuations) returns
   `AuditError::Budget`, which names the group where the budget was
   crossed, and nothing is evaluated. `brokkr compile` prints the sweep's
-  size, every finding and the first unruled valuation on stderr
-  (`sweep_report` in `crates/brokkr-cli/src/verbs/setup.rs`), and exits
-  as it did before.
+  size and every finding on stderr (`print_compiled` in
+  `crates/brokkr-cli/src/verbs/setup.rs`); since the second slice the
+  compiler has refused a hole and a table past the budget first.
 - **Tests.** `the_sweep_walks_each_axis_at_and_around_its_thresholds`
   pins the domain size of every axis and the exact holes, and has a total
   counterpart.
   `the_sweep_is_measured_before_it_runs_and_refuses_past_its_budget`
   checks that a budget of exactly 47 passes `bundles/self` and 46 does
   not. A group of 92,160 valuations is refused before any is evaluated.
-  `compile_reports_the_sweep_or_why_it_was_not_swept` covers the CLI's
-  two arms.
+  `compile_and_show_print_the_resolved_result_and_its_provenance` in
+  `recipes.rs` pins the sweep `brokkr compile` prints.
   `the_unruled_valuations_are_pinned_per_table` in `table_lints.rs` pins
   the counts below.
 - **Built: the named ending (second slice).** `REVIEW-RESIDUAL-NONE`
   rules `review`/`residual` at `max_residual_severity_at_most: none`. It
   is written once in `recipes/fast`, as a park, and composition carries
   it to the 13 recipes that extend fast, directly or through `triage` and
-  `panel-review`. `recipes/verify` carries its own park. `recipes/preflight`
-  rules the same valuation a hard stop under the same id, because a
-  preflight has no operator to park for (`preflight_shape.rs`). The
-  journal records that rule id where it recorded no ruling.
+  `panel-review`. `recipes/verify` and `recipes/preflight` carry their
+  own parks, each with its own reason; preflight's is the one park
+  `preflight_shape.rs` admits, since a preflight already parks a residual
+  that omits its severity. The journal records that rule id where it
+  recorded no ruling.
   `a_residual_rated_none_is_ruled_by_its_named_rule` in `table_lints.rs`
   checks every table.
 - **Built: refused at compile (second slice).** `Machine::refuse_unruled`
@@ -211,7 +212,8 @@ taken. What remains is rulings 5, 6 and 7.
     with a rule that parks it and says why (decision 0050, ruling 4)`,
     for `recipes/self` with the park narrowed to `visits_implement_gte:
     1` (`brokkr compile` exits 1; a composed recipe appends its chain,
-    `(composed: self -> panel-review -> fast)`);
+    `(composed: self -> panel-review -> fast)`, and the refusal stays
+    typed as `CompileError::ComposedPolicy`);
   - `malformed phase machine table: the policy sweep reaches 92160
     valuations at (review, residual), over its budget of 65536; the table
     was not swept, so it cannot be shown total (decision 0050, ruling 4)`.

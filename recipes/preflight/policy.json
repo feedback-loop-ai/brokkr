@@ -60,9 +60,8 @@
       "from": "review",
       "result": "residual",
       "when": { "max_residual_severity_at_most": "none" },
-      "next": "stop",
-      "severity": "hard",
-      "reason": "A residual verdict that rates its worst residual none contradicts itself. A preflight has no operator to park for, so the report stops here and the contributor reads the notes (decision 0050, ruling 4)."
+      "park": true,
+      "reason": "A residual verdict that rates its worst residual none names no finding the pull request could carry. The preflight parks for its contributor with the notes, as a residual that omits its severity does (decision 0050, ruling 4)."
     },
     {
       "id": "REVIEW-CLEAN",

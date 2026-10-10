@@ -295,9 +295,9 @@ fn the_unruled_valuations_are_pinned_per_table() {
 
 /// Ruling 4's named ending: where the journal recorded no ruling for a
 /// `residual` verdict at severity `none`, it now records
-/// `REVIEW-RESIDUAL-NONE` — a park in every delivery table and in
-/// `recipes/verify`, and a stop in `recipes/preflight`, which has no
-/// operator to park for. `recipes/fast` carries it once, and composition
+/// `REVIEW-RESIDUAL-NONE` — a park in every delivery table, in
+/// `recipes/verify` and in `recipes/preflight`, each with its own
+/// reason. `recipes/fast` carries it once, and composition
 /// carries it to every recipe that extends fast.
 #[test]
 fn a_residual_rated_none_is_ruled_by_its_named_rule() {
@@ -332,19 +332,12 @@ fn a_residual_rated_none_is_ruled_by_its_named_rule() {
          tracked debt and no defect. The run parks for the operator with the notes \
          (decision 0050, ruling 4).",
     );
-    let Some(Outcome::Ruling {
-        rule_id,
-        next_phase,
-        severity,
-        ..
-    }) = ruled.remove("recipes/preflight")
-    else {
-        panic!("recipes/preflight rules a residual rated none");
-    };
-    assert_eq!(
-        (rule_id.as_str(), next_phase.as_str(), severity.as_str()),
-        ("REVIEW-RESIDUAL-NONE", "stop", "hard")
+    let preflight = park(
+        "A residual verdict that rates its worst residual none names no finding the pull \
+         request could carry. The preflight parks for its contributor with the notes, as a \
+         residual that omits its severity does (decision 0050, ruling 4).",
     );
+    assert_eq!(ruled.remove("recipes/preflight"), Some(preflight));
     assert_eq!(ruled.remove("recipes/verify"), Some(verify));
     let delivery: BTreeSet<&str> = ruled.keys().map(String::as_str).collect();
     assert_eq!(delivery.len(), 14, "{delivery:?}");
