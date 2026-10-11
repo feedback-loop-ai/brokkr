@@ -7,8 +7,10 @@
 //! observer's record is, which owns the generated identity's tree it hands
 //! over and removes it once dropped where it is this process's, whatever
 //! the broker answers. The launch runs the checked launcher through its
-//! own handle, and carries in the bootstrap's two control pipes and
-//! bubblewrap's info pipe beside the mounted handles, and nothing else;
+//! own handle, and carries in the bootstrap's control, ready and status
+//! pipes and bubblewrap's info pipe beside the mounted handles, and the
+//! server's standard input and output pipes as its own (U6c8), and nothing
+//! else;
 //! bubblewrap names the box's first process, by its host pid, on the info
 //! pipe (`--info-fd`). The launcher's own start is bounded by the startup's
 //! absolute deadline and cancellation, as every later wait is (MB3). The
@@ -39,6 +41,8 @@ use super::{namespace_path, Namespace};
 use crate::broker::Refusal;
 #[cfg(target_os = "linux")]
 use crate::hands::SANDBOX_HOME;
+#[cfg(target_os = "linux")]
+use crate::secret::handoff::close_on_exec_above_stdio;
 
 /// The flag that mounts a source from a descriptor; the number after it is
 /// the observer's, so the entry names the handle instead.
@@ -145,10 +149,14 @@ impl Drop for Identity {
 }
 
 /// A launched box: the launcher's process; the control pipe's write end,
-/// on which the broker writes the bootstrap's intent and whose close
-/// releases it; the ready pipe's read end; the info pipe's read end, on
-/// which bubblewrap names the box's first process; and each mounted source,
-/// by the place of its handle and where it stands in the box. Dropping it
+/// on which the broker writes the bootstrap's intent and then its binding
+/// frame, until the broker closes it after that frame (U6c8); the ready
+/// pipe's read end; the status pipe's read end, on which the bootstrap
+/// reports a failed handoff or exec, and which its exec closes; the
+/// server's standard input's write end and its standard output's read
+/// end, the box's only stdio; the info pipe's read end, on which
+/// bubblewrap names the box's first process; and each mounted source, by
+/// the place of its handle and where it stands in the box. Dropping it
 /// settles the box: the launcher is killed and reaped, which the box it
 /// started does not outlive, and the pipes are closed. It borrows the
 /// entry it launched, so that entry, and the generated identity tree it
@@ -157,8 +165,11 @@ impl Drop for Identity {
 #[derive(Debug)]
 pub struct Launched<'e> {
     pub child: Child,
-    pub control: PipeWriter,
+    pub control: Option<PipeWriter>,
     pub ready: PipeReader,
+    pub status: PipeReader,
+    pub input: PipeWriter,
+    pub output: PipeReader,
     pub info: PipeReader,
     pub mounts: Vec<(usize, String)>,
     _entry: &'e ServerEntry,
@@ -230,10 +241,11 @@ impl ServerBox {
 
     /// Launch the box `entry` names on its bootstrap, with `handles`, the
     /// box's handles in the observer's order: the checked launcher run
-    /// through its own handle, from `/` under a cleared environment with no
-    /// standard stream, in the broker's process group and session; the
-    /// bootstrap entered from the private HOME with the arguments `command`
-    /// gives for its control and ready descriptors. Each descriptor the box
+    /// through its own handle, from `/` under a cleared environment, its
+    /// standard input and output the server's own pipes and no standard
+    /// error, in the broker's process group and session; the bootstrap
+    /// entered from the private HOME with the arguments `command` gives for
+    /// its control, ready and status descriptors. Each descriptor the box
     /// takes, a mounted handle, a bootstrap pipe's end or the info pipe's,
     /// is left open across the exec in the started process alone
     /// ([`inherit`]), so nothing else this process holds, the store's
@@ -249,21 +261,23 @@ impl ServerBox {
     pub fn launch<'e>(
         entry: &'e ServerEntry,
         handles: &[BorrowedFd<'_>],
-        command: impl FnOnce(RawFd, RawFd) -> Vec<String>,
+        command: impl FnOnce(RawFd, RawFd, RawFd) -> Vec<String>,
         startup: Startup<'_>,
     ) -> Result<Launched<'e>, Refusal> {
         ours(&entry.identity.tree)
             .then_some(())
             .ok_or(Refusal::Identity)?;
-        let (intent, control) = std::io::pipe().or(Err(Refusal::Establishment))?;
-        let (ready, readied) = std::io::pipe().or(Err(Refusal::Establishment))?;
-        let (info, informed) = std::io::pipe().or(Err(Refusal::Establishment))?;
+        let pipe = || std::io::pipe().or(Err(Refusal::Establishment));
+        let ((intent, control), (ready, readied)) = (pipe()?, pipe()?);
+        let ((status, reporting), (info, informed)) = (pipe()?, pipe()?);
+        let ((stdin, input), (output, stdout)) = (pipe()?, pipe()?);
         let carried = [
             intent.as_raw_fd(),
             readied.as_raw_fd(),
+            reporting.as_raw_fd(),
             informed.as_raw_fd(),
         ];
-        let [intent_fd, ready_fd, info_fd] = carried;
+        let [intent_fd, ready_fd, status_fd, info_fd] = carried;
         let mut carried = carried.to_vec();
         let mut argv = Vec::with_capacity(entry.argv.len());
         for word in &entry.argv {
@@ -282,24 +296,27 @@ impl ServerBox {
             .extend(["--info-fd".to_string(), info_fd.to_string()]);
         let bootstrap = [namespace_path(&entry.bootstrap)].into_iter();
         let entered = UNSET_PWD.map(String::from).into_iter().chain(bootstrap);
-        let entered: Vec<String> = entered.chain(command(intent_fd, ready_fd)).collect();
-        namespace.close(Path::new(SANDBOX_HOME), &entered);
+        let entered = entered.chain(command(intent_fd, ready_fd, status_fd));
+        namespace.close(Path::new(SANDBOX_HOME), &entered.collect::<Vec<String>>());
         let launcher = handles.get(entry.launcher).ok_or(Refusal::Identity)?;
         let mut launch = Command::new(format!("/proc/self/fd/{}", launcher.as_raw_fd()));
         launch
             .args(&namespace.argv[1..])
             .env_clear()
             .current_dir("/")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdin(stdin)
+            .stdout(stdout)
             .stderr(Stdio::null());
         let started = started(launch, inheritor(carried), startup);
-        drop((intent, readied, informed));
+        drop((intent, readied, reporting, informed));
         let mounts = entry.mounts().collect();
         Ok(Launched {
             child: started?,
-            control,
+            control: Some(control),
             ready,
+            status,
+            input,
+            output,
             info,
             mounts,
             _entry: entry,
@@ -338,22 +355,14 @@ impl Namespace {
 /// above the standard streams closed by it, one this process inherited
 /// without close-on-exec included: run in a launch's child between its fork
 /// and its exec, so the process it starts, and no other, inherits them, and
-/// nothing else. Async-signal-safe: one `close_range` and one `fcntl` each,
-/// and an error that allocates nothing. A kernel without `close_range`'s
-/// close-on-exec form (before 5.11) fails the start, with whatever
-/// descriptor's flag was cleared meanwhile.
+/// nothing else. Async-signal-safe: one `close_range`, which the
+/// bootstrap's exec shares ([`close_on_exec_above_stdio`]), and one `fcntl` each, and an error that
+/// allocates nothing. A kernel without `close_range`'s close-on-exec form
+/// (before 5.11) fails the start, with whatever descriptor's flag was
+/// cleared meanwhile.
 #[cfg(target_os = "linux")]
 fn inherit(fds: &[RawFd]) -> std::io::Result<()> {
-    // SAFETY: `close_range` sets one flag of every descriptor from 3 up,
-    // whichever are open; it reads and writes no memory.
-    let sealed = unsafe {
-        libc::syscall(
-            libc::SYS_close_range,
-            3,
-            libc::c_uint::MAX,
-            libc::CLOSE_RANGE_CLOEXEC,
-        )
-    };
+    let sealed = close_on_exec_above_stdio();
     // SAFETY: `fcntl` sets one flag of a descriptor by its number, which
     // the launch holds open for the child's whole start; it reads and
     // writes no memory.
@@ -361,7 +370,7 @@ fn inherit(fds: &[RawFd]) -> std::io::Result<()> {
         .iter()
         .all(|fd| unsafe { libc::fcntl(*fd, libc::F_SETFD, 0) } != -1);
     match (sealed, carried) {
-        (0, true) => Ok(()),
+        (true, true) => Ok(()),
         _ => Err(std::io::Error::last_os_error()),
     }
 }

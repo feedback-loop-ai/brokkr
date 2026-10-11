@@ -9,10 +9,14 @@
 //! duplicate, truncated or excess message is no readiness. The message must
 //! echo the plan and source-set digests, and name, by its pid in the box, a
 //! child of that first process, whose launcher is the broker's own child,
-//! in exactly the namespaces the host shows it in. The startup's absolute
-//! deadline and the attempt's cancellation bound every wait. The box is
-//! settled either way, and readiness admits nothing yet: serving still
-//! refuses before any secret is looked up or a dialect server is started.
+//! in exactly the namespaces the host shows it in. Only then are the
+//! declared bindings looked up in the admitted store's handle and sent as
+//! one binding frame on the control pipe, which the broker then closes, and
+//! the bootstrap's status pipe read to its end: a tag is the handoff's or
+//! the exec's cause, and its end permits only the server's initialization
+//! (U6c8). The startup's absolute deadline and the attempt's cancellation
+//! bound every wait. The box is settled either way, its server with it:
+//! serving still refuses before any MCP message.
 
 use std::collections::BTreeSet;
 use std::os::fd::OwnedFd;
@@ -32,12 +36,13 @@ mod tests;
 
 /// What admission hands serving: each checked source's handle, by the host
 /// path that named it, held until the launch mounts it; the store's
-/// admitted handle, held for its reader and never mounted (MB4); and the
+/// admitted handle, which the binding sender reads and the box never
+/// holds (MB4); and the
 /// box's entry, which names those handles by their places and removes the
 /// generated identity's tree when this is dropped (MB5).
 pub(in crate::broker) struct Admitted {
     handles: Vec<(PathBuf, OwnedFd)>,
-    _store: OwnedFd,
+    store: OwnedFd,
     entry: ServerEntry,
 }
 
@@ -86,7 +91,7 @@ pub(super) fn compared(
     let store = store.ok_or(Refusal::Identity)?;
     Ok(Admitted {
         handles: observation.handles.into_iter().zip(handles).collect(),
-        _store: store,
+        store,
         entry: observation.entry.ok_or(Refusal::Identity)?,
     })
 }
@@ -95,10 +100,10 @@ pub(super) fn compared(
 #[cfg(not(target_os = "linux"))]
 pub(super) fn ready(
     admitted: &Admitted,
-    _: (&BoxIntent, &str),
+    _: (&brokkr_protocol::broker::Plan, &str),
     _: Startup<'_>,
 ) -> Result<(), Refusal> {
-    let _ = (&admitted.handles, &admitted.entry);
+    let _ = (&admitted.handles, &admitted.store, &admitted.entry);
     Err(Refusal::Unavailable)
 }
 
@@ -110,18 +115,21 @@ mod linux {
     use std::os::fd::{AsFd, BorrowedFd};
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::io::RawFd;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use brokkr_protocol::broker::{BoxIntent, Network, Refusal};
+    use brokkr_protocol::broker::{Plan, Refusal};
     use brokkr_protocol::hands::ServerBox;
-    use serde::{Deserialize, Serialize};
+    use brokkr_protocol::secret;
+    use serde::Deserialize;
 
     use super::{Admitted, Startup};
+    use crate::broker::bootstrap::handshake::Status;
+    pub(super) use crate::broker::bootstrap::handshake::{
+        Intent, Ready, Source, Spaces, FRAME_MAX,
+    };
     use crate::broker::session::ensure;
-
-    /// The most bytes the ready message holds, as the intent frame's body
-    /// does (MB3).
-    pub(super) const FRAME_MAX: usize = 4096;
 
     /// The most bytes bubblewrap's info holds.
     const INFO_MAX: usize = 4096;
@@ -129,59 +137,6 @@ mod linux {
     /// The longest one wait on a pipe lasts before the deadline and the
     /// cancellation are read again.
     const SLICE: Duration = Duration::from_millis(10);
-
-    /// The sealed intent the broker writes on the control pipe: the plan
-    /// and source-set digests readiness binds, the network the dialect's
-    /// egress projects to, the broker's own namespaces, and every mount the
-    /// box binds, by its device and inode. The bootstrap reads it closed.
-    #[derive(Serialize)]
-    pub(super) struct Intent<'a> {
-        pub(super) plan: &'a str,
-        pub(super) sources: &'a str,
-        pub(super) network: Egress,
-        pub(super) host: Spaces,
-        pub(super) mounts: Vec<Source>,
-    }
-
-    /// The network as the bootstrap's intent names it.
-    #[derive(Serialize)]
-    #[serde(rename_all = "lowercase")]
-    pub(super) enum Egress {
-        Isolated,
-        Shared,
-    }
-
-    /// One mount of the box: where it stands in the box, and the device
-    /// (`major:minor`) and inode of the checked handle it mounts.
-    #[derive(Serialize)]
-    pub(super) struct Source {
-        pub(super) path: String,
-        pub(super) device: (u32, u32),
-        pub(super) inode: u64,
-    }
-
-    /// A process's namespaces, by the inode `/proc` gives each.
-    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub(super) struct Spaces {
-        pub(super) mnt: u64,
-        pub(super) pid: u64,
-        pub(super) net: u64,
-        pub(super) ipc: u64,
-        pub(super) uts: u64,
-    }
-
-    /// The one ready message (MB3): the digests the intent sealed, the
-    /// bootstrap by its pid in the box, and the namespaces it observed
-    /// itself in.
-    #[derive(Debug, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub(super) struct Ready {
-        pub(super) plan: String,
-        pub(super) sources: String,
-        pub(super) pid: u32,
-        pub(super) namespaces: Spaces,
-    }
 
     /// What bubblewrap's info names: the box's first process, by its host
     /// pid. Its other keys, which vary by version, are no authority here.
@@ -200,34 +155,136 @@ mod linux {
         pub(super) bootstrap: Option<Spaces>,
     }
 
-    /// Launch `admitted`'s box on its waiting bootstrap and receive its
-    /// readiness for `sealed` (the intent and the plan's digest) within
-    /// `startup`, the launcher's own start included: the box unavailable
-    /// where its launcher cannot start, and not established where its start
-    /// overruns, the started launcher names no first process,
-    /// the intent cannot be sent or the readiness is not the owned
-    /// bootstrap's, whole, for this plan and these sources. The box is
-    /// settled once this returns, either way.
+    /// Launch `admitted`'s box on its waiting bootstrap, receive its
+    /// readiness for the plan sealed at `digest` within `startup`, the
+    /// launcher's own start included, then hand it the server's bindings
+    /// and see the server start ([`delivered`]): the box unavailable where
+    /// its launcher cannot start, and not established where its start
+    /// overruns, the started launcher names no first process, the intent
+    /// cannot be sent or the readiness is not the owned bootstrap's, whole,
+    /// for this plan and these sources. The box is settled once this
+    /// returns, either way, its server with it.
     pub(in crate::broker) fn ready(
         admitted: &Admitted,
-        (intent, plan): (&BoxIntent, &str),
+        (plan, digest): (&Plan, &str),
         startup: Startup<'_>,
     ) -> Result<(), Refusal> {
         let handles = admitted.handles.iter().map(|(_, fd)| fd.as_fd());
         let handles: Vec<BorrowedFd<'_>> = handles.collect();
         let mut launched = ServerBox::launch(&admitted.entry, &handles, bootstrap, startup)?;
         let first = first(&read(&mut launched.info, INFO_MAX, startup)?)?;
+        let sealed = &plan.intent;
         let intent = Intent {
-            plan,
-            sources: &intent.sources.digest,
-            network: egress(&intent.network),
+            plan: digest.to_string(),
+            sources: sealed.sources.digest.clone(),
+            network: sealed.network,
             host: spaces("self").ok_or(Refusal::Establishment)?,
             mounts: mounts(&launched.mounts, &handles)?,
+            executable: sealed.executable.clone(),
+            argv: plan.connection.argv.clone(),
+            secrets: plan.secrets.clone(),
         };
-        sent(&mut launched.control, &framed(&intent)?, startup)?;
+        let control = launched.control.as_mut().ok_or(Refusal::Establishment)?;
+        sent(control, &framed(&intent)?, startup)?;
         let ready = message(&read(&mut launched.ready, FRAME_MAX, startup)?)?;
         let seen = seen(first, ready.pid);
-        decided(&ready, (plan, intent.sources), launched.child.id(), &seen)
+        let launcher = launched.child.id();
+        let pipes = (&mut launched.control, &mut launched.status);
+        let child = &mut launched.child;
+        let end = || {
+            child.kill().ok();
+        };
+        decided(&ready, (digest, &intent.sources), launcher, &seen)
+            .and_then(|()| delivered(pipes, (admitted, plan), startup, end))
+    }
+
+    /// Hand the ready bootstrap its server's bindings on the box's
+    /// `control` pipe and see the server start on its `status` pipe (MB4,
+    /// MB3): the plan's declared names looked up in the admitted store's
+    /// own handle and sent as one binding frame
+    /// ([`secret::send_environment`]), the control pipe then closed, and the
+    /// status pipe read to its end ([`exec_status`]). The lookup and the
+    /// send run on a thread of their own, on its own duplicates of the
+    /// store's handle and the control pipe, which it closes after its one
+    /// frame; this one supervises it by the same `startup` as every other
+    /// wait ([`handed`]).
+    pub(super) fn delivered(
+        (control, status): (&mut Option<PipeWriter>, &mut PipeReader),
+        (admitted, plan): (&Admitted, &Plan),
+        startup: Startup<'_>,
+        end: impl FnOnce(),
+    ) -> Result<(), Refusal> {
+        let open = control.as_ref().ok_or(Refusal::Handoff)?;
+        let mut open = open.try_clone().or(Err(Refusal::Handoff))?;
+        let store = admitted.store.try_clone().or(Err(Refusal::Handoff))?;
+        let (path, names) = (plan.intent.excluded.store.clone(), plan.secrets.clone());
+        let deadline = startup.0;
+        handed(std::thread::Builder::new(), startup, end, move |given_up| {
+            let given_up = || given_up.load(Ordering::SeqCst);
+            let sending: Startup<'_> = (deadline, &given_up);
+            let send = |frame: &[u8]| sent(&mut open, frame, sending).or(Err(Refusal::Handoff));
+            secret::send_environment(store.as_fd(), &path, &names, send)
+        })?;
+        drop(control.take());
+        exec_status(status, startup)
+    }
+
+    /// `sender`'s answer, run on a detached thread of its own, made by
+    /// `thread`, while this one waits within `startup`'s absolute deadline
+    /// unless the attempt is cancelled ([`polled`]). A thread that cannot
+    /// be made is the handoff cause, with nothing sent. A sender that has
+    /// not answered by then, a store read held or a frame not taken, is the
+    /// handoff cause at once:
+    /// `end` ends the box, the sender is told it was given up on, and it is
+    /// not waited for, so neither a held read nor a full pipe holds the
+    /// refusal. It owns all it holds, so nothing the box's settling
+    /// releases is borrowed, and it ends with `serve`'s own exit on that
+    /// refusal (operator ruling 2026-10-11).
+    pub(super) fn handed(
+        thread: std::thread::Builder,
+        startup: Startup<'_>,
+        end: impl FnOnce(),
+        sender: impl FnOnce(&AtomicBool) -> Result<(), Refusal> + Send + 'static,
+    ) -> Result<(), Refusal> {
+        let given_up = Arc::new(AtomicBool::new(false));
+        let giving = Arc::clone(&given_up);
+        let sending = thread.spawn(move || sender(&giving));
+        let sending = sending.or(Err(Refusal::Handoff))?;
+        let answered = polled(startup, || match sending.is_finished() {
+            true => Ok(true),
+            false => Err(ErrorKind::WouldBlock.into()),
+        });
+        if !answered {
+            given_up.store(true, Ordering::SeqCst);
+            end();
+            return Err(Refusal::Handoff);
+        }
+        sending.join().unwrap_or(Err(Refusal::Handoff))
+    }
+
+    /// What the bootstrap's status pipe holds once each of its writers has
+    /// closed it, within `startup`: nothing where the server's exec closed
+    /// it, which permits only the server's initialization; one tag's cause
+    /// where the bootstrap reported one; the boxed-exec cause for any other
+    /// bytes, the sender having completed. A pipe still open at the
+    /// deadline, or on cancellation, is the handoff cause.
+    pub(super) fn exec_status(
+        status: &mut PipeReader,
+        startup: Startup<'_>,
+    ) -> Result<(), Refusal> {
+        rustix::io::ioctl_fionbio(&*status, true).or(Err(Refusal::Handoff))?;
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 2];
+        let ended = polled(startup, || {
+            let read = status.read(&mut chunk)?;
+            bytes.extend_from_slice(&chunk[..read]);
+            Ok((read == 0) | (bytes.len() > 1))
+        });
+        ensure(ended, Refusal::Handoff)?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        Err(Status::read(&bytes).map_or(Refusal::Exec, Status::refusal))
     }
 
     /// The box's first process bubblewrap's `info` names, by its host pid:
@@ -245,28 +302,23 @@ mod linux {
         serde_json::from_slice(bytes).or(Err(Refusal::Establishment))
     }
 
-    /// The bootstrap's arguments for its control and ready descriptors.
-    fn bootstrap(control: RawFd, ready: RawFd) -> Vec<String> {
-        let numbers = [control, ready].map(|fd| fd.to_string());
-        let [control, ready] = numbers;
-        [
-            "broker",
-            "bootstrap",
+    /// The bootstrap's arguments for its control, ready and status
+    /// descriptors.
+    fn bootstrap(control: RawFd, ready: RawFd, status: RawFd) -> Vec<String> {
+        let [control, ready, status] = [control, ready, status].map(|fd| fd.to_string());
+        let flags = [
             "--control",
             &control,
             "--ready",
             &ready,
-        ]
-        .map(String::from)
-        .to_vec()
-    }
-
-    /// The network the bootstrap's intent names.
-    pub(super) fn egress(network: &Network) -> Egress {
-        match network {
-            Network::Isolated => Egress::Isolated,
-            Network::Shared => Egress::Shared,
-        }
+            "--status",
+            &status,
+        ];
+        ["broker", "bootstrap"]
+            .into_iter()
+            .chain(flags)
+            .map(String::from)
+            .collect()
     }
 
     /// Each mount of the box, by the device and inode of the handle at its
@@ -283,7 +335,7 @@ mod linux {
                 rustix::fs::minor(held.st_dev),
             );
             Ok(Source {
-                path: path.clone(),
+                path: path.into(),
                 device,
                 inode: held.st_ino,
             })
@@ -293,7 +345,7 @@ mod linux {
 
     /// The intent as one control frame: a four-byte big-endian length, then
     /// that many bytes, at most [`FRAME_MAX`], as the bootstrap reads it.
-    pub(super) fn framed(intent: &Intent<'_>) -> Result<Vec<u8>, Refusal> {
+    pub(super) fn framed(intent: &Intent) -> Result<Vec<u8>, Refusal> {
         let body = serde_json::to_vec(intent).or(Err(Refusal::Establishment))?;
         ensure(body.len() <= FRAME_MAX, Refusal::Establishment)?;
         let length = u32::try_from(body.len()).or(Err(Refusal::Establishment))?;
@@ -311,14 +363,15 @@ mod linux {
         rustix::io::ioctl_fionbio(&*pipe, true).or(Err(Refusal::Establishment))?;
         let mut bytes = Vec::new();
         let mut chunk = [0; 1024];
-        polled(startup, || {
+        let whole = polled(startup, || {
             let read = pipe.read(&mut chunk)?;
             bytes.extend_from_slice(&chunk[..read]);
             match bytes.len() <= most {
                 true => Ok(read == 0),
                 false => Err(ErrorKind::FileTooLarge.into()),
             }
-        })?;
+        });
+        ensure(whole, Refusal::Establishment)?;
         Ok(bytes)
     }
 
@@ -332,32 +385,30 @@ mod linux {
     ) -> Result<(), Refusal> {
         rustix::io::ioctl_fionbio(&*pipe, true).or(Err(Refusal::Establishment))?;
         let mut left = frame;
-        polled(startup, || {
+        let whole = polled(startup, || {
             left = &left[pipe.write(left)?..];
             Ok(left.is_empty())
-        })
+        });
+        ensure(whole, Refusal::Establishment)
     }
 
-    /// `step` taken until it is done, within `startup`'s absolute deadline
-    /// unless the attempt is cancelled, waiting at most [`SLICE`] wherever
-    /// it would block; any other error, the deadline or the cancellation
-    /// leaves the box not established.
+    /// Whether `step` was taken until it was done, within `startup`'s
+    /// absolute deadline unless the attempt is cancelled, waiting at most
+    /// [`SLICE`] wherever it would block; not where any other error, the
+    /// deadline or the cancellation came first.
     fn polled(
         (deadline, cancelled): Startup<'_>,
         mut step: impl FnMut() -> std::io::Result<bool>,
-    ) -> Result<(), Refusal> {
+    ) -> bool {
         while (Instant::now() < deadline) & !cancelled() {
             match step() {
-                Ok(true) => return Ok(()),
+                Ok(true) => return true,
                 Ok(false) => {}
-                Err(error) => {
-                    let blocked = error.kind() == ErrorKind::WouldBlock;
-                    ensure(blocked, Refusal::Establishment)?;
-                    std::thread::sleep(SLICE);
-                }
+                Err(error) if error.kind() == ErrorKind::WouldBlock => std::thread::sleep(SLICE),
+                Err(_) => return false,
             }
         }
-        Err(Refusal::Establishment)
+        false
     }
 
     /// The namespaces `/proc` shows the process `pid` in, by inode, in

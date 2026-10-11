@@ -8,13 +8,13 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::broker::{BoxIntent, Refusal};
+use brokkr_protocol::broker::{BoxIntent, Network, Plan, Refusal};
 use serde_json::json;
 
 use super::super::helper::{handed, received};
 use super::linux::{
-    decided, egress, first, framed, message, read, sent, Egress, Intent, Ready, Seen, Source,
-    Spaces, FRAME_MAX,
+    decided, delivered, exec_status, first, framed, handed as supervised, message, read, sent,
+    Intent, Ready, Seen, Source, Spaces, FRAME_MAX,
 };
 use super::{compared, ready, Admitted, Record, Startup};
 
@@ -230,7 +230,7 @@ fn admitted(launcher: OwnedFd) -> Admitted {
     let store = std::fs::File::open("/dev/null").unwrap();
     Admitted {
         handles: vec![(PathBuf::from("/launcher"), launcher)],
-        _store: store.into(),
+        store: store.into(),
         entry: serde_json::from_value(entry(&handed_tree())).unwrap(),
     }
 }
@@ -338,28 +338,47 @@ fn a_record_the_observer_cannot_hand_back_removes_the_identity_tree_it_carried()
 
 /// The box intent sealed for [`SOURCES`], its one writer confined.
 fn intent_sealed() -> BoxIntent {
-    serde_json::from_value(json!({
+    serde_json::from_value(box_sealed()).unwrap()
+}
+
+/// [`intent_sealed`], as it travels.
+fn box_sealed() -> serde_json::Value {
+    json!({
         "reach": {"writable": [], "readable": []}, "executable": "/bin/true",
         "tree": {"kind": "system"},
         "sources": {"entries": 1, "mounts": 1, "digest": SOURCES},
         "writers": {"uids": [1000], "privilege": "confined"}, "network": "isolated",
         "environment": [], "bootstrap": {"path": "/", "digest": PLAN},
         "excluded": {"store": "/store", "control": []}
+    })
+}
+
+/// A plan of [`intent_sealed`]'s box declaring the binding `names`.
+fn plan_sealed(names: &[&str]) -> Plan {
+    let digest = |byte: &str| byte.repeat(64);
+    serde_json::from_value(json!({
+        "owner": {"repo": digest("a"), "run": "r", "effect": "e", "attempt": "a", "site": "s",
+                  "instance": "s#0"},
+        "server": "cap-c", "capability": "c",
+        "dialect": {"name": "d", "digest": digest("b"), "definition": digest("c"), "version": "1"},
+        "connection": {"argv": ["/bin/true"]}, "tools": ["t"], "restrictions": {},
+        "retained": false, "secrets": names,
+        "clearance": {"dialect": digest("b"), "policy": digest("d")}, "box": box_sealed(),
     }))
     .unwrap()
 }
 
 #[test]
 fn a_launcher_that_cannot_start_is_unavailable_and_one_that_stands_no_box_is_not_established() {
-    let intent = intent_sealed();
+    let plan = plan_sealed(&[]);
     // A launcher that cannot start at all: its handle a directory's.
     let directory = admitted(std::fs::File::open("/").unwrap().into());
-    let answer = ready(&directory, (&intent, PLAN), startup(&live));
+    let answer = ready(&directory, (&plan, PLAN), startup(&live));
     assert_eq!(answer, Err(Refusal::Unavailable));
     // One that starts and fails naming no first process, as bubblewrap
     // denied its namespaces does.
     let failing = admitted(std::fs::File::open("/bin/false").unwrap().into());
-    let answer = ready(&failing, (&intent, PLAN), startup(&live));
+    let answer = ready(&failing, (&plan, PLAN), startup(&live));
     assert_eq!(answer, Err(Refusal::Establishment));
 }
 
@@ -424,18 +443,22 @@ fn gone() -> bool {
     true
 }
 
-/// An intent for the sealed digests whose one mount stands at `path`.
-fn intent(path: &str) -> Intent<'static> {
+/// An intent for the sealed digests whose one mount stands at `path`, its
+/// server `/bin/true` declaring `DOCS_TOKEN`.
+fn intent(path: &str) -> Intent {
     Intent {
-        plan: PLAN,
-        sources: SOURCES,
-        network: Egress::Isolated,
+        plan: PLAN.to_string(),
+        sources: SOURCES.to_string(),
+        network: Network::Isolated,
         host: spaces(),
         mounts: vec![Source {
-            path: path.to_string(),
+            path: path.into(),
             device: (8, 1),
             inode: 77,
         }],
+        executable: "/bin/true".into(),
+        argv: vec!["true".to_string(), "--stdio".to_string()],
+        secrets: vec!["DOCS_TOKEN".to_string()],
     }
 }
 
@@ -446,6 +469,7 @@ fn the_intent_is_one_frame_of_at_most_four_kibibytes() {
         "plan": PLAN, "sources": SOURCES, "network": "isolated",
         "host": {"mnt": 11, "pid": 12, "net": 13, "ipc": 14, "uts": 15},
         "mounts": [{"path": "/usr/bin", "device": [8, 1], "inode": 77}],
+        "executable": "/bin/true", "argv": ["true", "--stdio"], "secrets": ["DOCS_TOKEN"],
     });
     let length = u32::from_be_bytes(frame[..4].try_into().unwrap());
     let parsed: serde_json::Value = serde_json::from_slice(&frame[4..]).unwrap();
@@ -458,10 +482,314 @@ fn the_intent_is_one_frame_of_at_most_four_kibibytes() {
     assert_eq!(over, Err(Refusal::Establishment));
 }
 
+/// A status pipe `bytes` were written to, its writer then closed.
+fn status_of(bytes: &[u8]) -> Result<(), Refusal> {
+    exec_status(&mut written(bytes), startup(&live))
+}
+
 #[test]
-fn each_network_the_intent_names_reaches_the_bootstrap_by_its_own_word() {
-    use brokkr_protocol::broker::Network;
-    let words = [Network::Isolated, Network::Shared]
-        .map(|network| serde_json::to_value(egress(&network)).unwrap());
-    assert_eq!(words, [json!("isolated"), json!("shared")]);
+fn the_status_pipe_permits_initialization_only_at_its_end_and_reports_each_tag() {
+    // Its end alone, as the server's exec closes it, permits the server's
+    // initialization; each tag its own cause; anything else, the sender
+    // having completed, the boxed-exec cause.
+    let cases: [(&[u8], Result<(), Refusal>); 6] = [
+        (b"", Ok(())),
+        (b"H", Err(Refusal::Handoff)),
+        (b"E", Err(Refusal::Exec)),
+        (b"x", Err(Refusal::Exec)),
+        (b"HH", Err(Refusal::Exec)),
+        (b"EEEE", Err(Refusal::Exec)),
+    ];
+    for (bytes, cause) in cases {
+        assert_eq!((bytes, status_of(bytes)), (bytes, cause));
+    }
+    // A status pipe still open at the deadline, or on cancellation, is the
+    // handoff cause: the bootstrap never reached its exec.
+    let (mut open, _writer) = std::io::pipe().unwrap();
+    let soon = (Instant::now() + Duration::from_millis(100), &live as _);
+    assert_eq!(exec_status(&mut open, soon), Err(Refusal::Handoff));
+    assert_eq!(
+        exec_status(&mut open, startup(&gone)),
+        Err(Refusal::Handoff)
+    );
+}
+
+/// An admission whose store, in `dir`, holds `store`, owner-only.
+fn admitted_store(dir: &Path, store: &str) -> Admitted {
+    let path = dir.join("store");
+    std::fs::write(&path, store).unwrap();
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+    let mut admitted = admitted(std::fs::File::open("/bin/true").unwrap().into());
+    admitted.store = std::fs::File::open(&path).unwrap().into();
+    admitted
+}
+
+/// What [`delivered`] answers for a plan declaring `names`, its store
+/// holding `store`, on a control pipe whose reader is `kept` or gone and a
+/// status pipe that holds `status`: its answer, whether it closed the
+/// control pipe, and every byte that pipe carried, where its reader was
+/// kept.
+fn delivering(
+    names: &[&str],
+    store: &str,
+    kept: bool,
+    status: &[u8],
+) -> (Result<(), Refusal>, bool, Vec<u8>) {
+    let dir = tempfile::tempdir().unwrap();
+    let admitted = admitted_store(dir.path(), store);
+    let (reader, writer) = std::io::pipe().unwrap();
+    let mut reader = kept.then_some(reader);
+    let mut control = Some(writer);
+    let answer = delivered(
+        (&mut control, &mut written(status)),
+        (&admitted, &plan_sealed(names)),
+        startup(&live),
+        || panic!("a sender that answered in time ended its box"),
+    );
+    let closed = control.is_none();
+    drop(control);
+    let mut carried = Vec::new();
+    if let Some(reader) = reader.as_mut() {
+        reader.read_to_end(&mut carried).unwrap();
+    }
+    (answer, closed, carried)
+}
+
+#[test]
+fn the_bindings_are_looked_up_after_readiness_sent_once_and_their_pipe_closed() {
+    // The declared value, sent as the one frame, and the control pipe
+    // closed after it: the reader meets its end.
+    let stored = "DOCS_TOKEN=value\n";
+    let body = br#"{"DOCS_TOKEN":"value"}"#;
+    let length = u32::try_from(body.len()).unwrap().to_be_bytes();
+    let frame = [&length[..], body].concat();
+    let answer = delivering(&["DOCS_TOKEN"], stored, true, b"");
+    assert_eq!(answer, (Ok(()), true, frame.clone()));
+    // No name, no lookup: an empty frame, whatever the store holds.
+    let answer = delivering(&[], "not an assignment", true, b"");
+    assert_eq!(answer, (Ok(()), true, [0, 0, 0, 2, b'{', b'}'].to_vec()));
+    // A name the store lacks is decision 0012's own cause, and nothing is
+    // sent; a bootstrap gone before the frame, the handoff's.
+    let missing = Refusal::Name(
+        "secret 'DOCS_TOKEN' is not in the store at /store (brokkr secrets set DOCS_TOKEN)"
+            .to_string(),
+    );
+    let answer = delivering(&["DOCS_TOKEN"], "", true, b"");
+    assert_eq!(answer, (Err(missing), false, Vec::new()));
+    let answer = delivering(&["DOCS_TOKEN"], stored, false, b"");
+    assert_eq!(answer, (Err(Refusal::Handoff), false, Vec::new()));
+    // The bootstrap's report after the whole frame keeps its own cause.
+    let answer = delivering(&["DOCS_TOKEN"], stored, true, b"H");
+    assert_eq!(answer, (Err(Refusal::Handoff), true, frame));
+}
+
+#[test]
+fn a_control_pipe_already_closed_carries_no_frame() {
+    let mut admitted = admitted(std::fs::File::open("/bin/true").unwrap().into());
+    admitted.store = std::fs::File::open("/dev/null").unwrap().into();
+    let answer = delivered(
+        (&mut None, &mut written(b"")),
+        (&admitted, &plan_sealed(&[])),
+        startup(&live),
+        || panic!("no sender ran"),
+    );
+    assert_eq!(answer, Err(Refusal::Handoff));
+}
+
+/// A store a peer holds: a FIFO whose one writer, which the test keeps,
+/// writes nothing, so that a read of it that waited would wait until
+/// [`HeldStore::watched`] closes that writer.
+struct HeldStore {
+    path: PathBuf,
+    writer: std::sync::Mutex<Option<OwnedFd>>,
+}
+
+impl HeldStore {
+    fn new(dir: &Path) -> HeldStore {
+        let path = dir.canonicalize().unwrap().join("store");
+        let fifo = rustix::fs::FileType::Fifo;
+        let mode = rustix::fs::Mode::from_raw_mode(0o600);
+        rustix::fs::mknodat(rustix::fs::CWD, &path, fifo, mode, 0).unwrap();
+        // Opened to read and write, a FIFO's open waits for no peer.
+        let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::CLOEXEC;
+        let writer = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).unwrap();
+        HeldStore {
+            path,
+            writer: std::sync::Mutex::new(Some(writer)),
+        }
+    }
+
+    /// The admitted path handle on the store, as admission holds one.
+    fn handle(&self) -> OwnedFd {
+        let flags = rustix::fs::OFlags::PATH | rustix::fs::OFlags::CLOEXEC;
+        rustix::fs::open(&self.path, flags, rustix::fs::Mode::empty()).unwrap()
+    }
+
+    /// Let a reader still waiting go after five seconds, so that a sender
+    /// that waits on the peer fails here rather than hangs: its writer
+    /// closed, the reader meets the store's end.
+    fn watched(&self, answered: &std::sync::atomic::AtomicBool) {
+        let until = Instant::now() + Duration::from_secs(5);
+        while !answered.load(std::sync::atomic::Ordering::SeqCst) & (Instant::now() < until) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        self.writer.lock().unwrap().take();
+    }
+}
+
+#[test]
+fn a_store_its_peer_holds_answers_at_once_with_its_read_cause() {
+    // The store a FIFO whose writer is open and silent: a read that waited
+    // would wait on that peer, so it answers at once, long before the
+    // deadline, with the store's read cause; the box is not ended by the
+    // sender's supervisor and no frame is sent.
+    let dir = tempfile::tempdir().unwrap();
+    let store = HeldStore::new(dir.path());
+    let mut admitted = admitted(std::fs::File::open("/bin/true").unwrap().into());
+    admitted.store = store.handle();
+    let (mut reader, writer) = std::io::pipe().unwrap();
+    let mut control = Some(writer);
+    let answered = std::sync::atomic::AtomicBool::new(false);
+    let begun = Instant::now();
+    let answer = std::thread::scope(|scope| {
+        scope.spawn(|| store.watched(&answered));
+        let pipes = (&mut control, &mut written(b""));
+        let plan = plan_sealed(&["DOCS_TOKEN"]);
+        let far = (begun + Duration::from_secs(30), &live as _);
+        let end = || panic!("a sender that answered in time ended its box");
+        let answer = delivered(pipes, (&admitted, &plan), far, end);
+        answered.store(true, std::sync::atomic::Ordering::SeqCst);
+        answer
+    });
+    let taken = begun.elapsed();
+    drop(control);
+    let mut carried = Vec::new();
+    reader.read_to_end(&mut carried).unwrap();
+    let cause = "cannot read secrets store /store: Resource temporarily unavailable (os error 11)";
+    let refused = Err(Refusal::Name(cause.to_string()));
+    assert_eq!((answer, carried), (refused, Vec::new()));
+    assert!(taken < Duration::from_secs(2), "{taken:?}");
+}
+
+/// What [`delivered`] answers within `startup` for a plan declaring
+/// `DOCS_TOKEN` from a store that holds it, on a control pipe that is full
+/// and that no one reads, and when its box was ended.
+fn untaken_delivery(startup: Startup<'_>) -> (Result<(), Refusal>, Option<Instant>) {
+    let dir = tempfile::tempdir().unwrap();
+    let admitted = admitted_store(dir.path(), "DOCS_TOKEN=value\n");
+    let (_reader, writer) = full();
+    let ended = std::cell::Cell::new(None);
+    let pipes = (&mut Some(writer), &mut written(b""));
+    let plan = plan_sealed(&["DOCS_TOKEN"]);
+    let end = || ended.set(Some(Instant::now()));
+    let answer = delivered(pipes, (&admitted, &plan), startup, end);
+    (answer, ended.get())
+}
+
+#[test]
+fn a_frame_not_taken_by_the_deadline_ends_the_box_at_the_deadline() {
+    // The sender's frame is not taken: at the absolute deadline, and no
+    // more than a slice after, the box is ended and the handoff refused.
+    let deadline = Instant::now() + Duration::from_millis(300);
+    let (answer, ended) = untaken_delivery((deadline, &live));
+    assert_eq!(answer, Err(Refusal::Handoff));
+    let after = ended.and_then(|at| at.checked_duration_since(deadline));
+    let bounded = after.is_some_and(|after| after < Duration::from_secs(2));
+    assert!(bounded, "{after:?}");
+}
+
+#[test]
+fn a_frame_not_taken_when_the_attempt_is_cancelled_ends_the_box_at_once() {
+    let begun = Instant::now();
+    let (answer, ended) = untaken_delivery((begun + Duration::from_secs(30), &gone));
+    assert_eq!(answer, Err(Refusal::Handoff));
+    let taken = ended.map(|at| at - begun);
+    let bounded = taken.is_some_and(|taken| taken < Duration::from_secs(2));
+    assert!(bounded, "{taken:?}");
+}
+
+/// What the supervisor answers within `startup` for a sender held, as a
+/// store read the kernel holds is, until it is let go or two seconds pass:
+/// its answer; how long after `from` it returned and ended the box; whether
+/// the sender was still held when it returned; and whether the sender,
+/// once let go, saw itself given up on.
+fn held_sender(startup: Startup<'_>, from: Instant) -> HeldSender {
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (report, reported) = std::sync::mpsc::channel();
+    let ended = std::cell::Cell::new(None);
+    let answer = supervised(
+        std::thread::Builder::new(),
+        startup,
+        || ended.set(Some(from.elapsed())),
+        move |given_up| {
+            held.recv_timeout(Duration::from_secs(2)).ok();
+            report
+                .send(given_up.load(std::sync::atomic::Ordering::SeqCst))
+                .ok();
+            Ok(())
+        },
+    );
+    let returned = from.elapsed();
+    let still_held = reported.try_recv().is_err();
+    drop(release);
+    let given_up = reported.recv_timeout(Duration::from_secs(5)).ok();
+    (answer, (returned, ended.get()), still_held, given_up)
+}
+
+/// [`held_sender`]'s answer.
+type HeldSender = (
+    Result<(), Refusal>,
+    (Duration, Option<Duration>),
+    bool,
+    Option<bool>,
+);
+
+#[test]
+fn a_sender_held_past_the_deadline_is_refused_at_the_deadline_and_not_waited_for() {
+    // At a 40 ms deadline, and no more than a few slices after, the box is
+    // ended and the handoff refused, the sender still held and told it was
+    // given up on (operator ruling 2026-10-11).
+    let begun = Instant::now();
+    let deadline = begun + Duration::from_millis(40);
+    let (answer, (returned, ended), still_held, given_up) = held_sender((deadline, &live), begun);
+    assert_eq!(
+        (answer, still_held, given_up),
+        (Err(Refusal::Handoff), true, Some(true))
+    );
+    let bounded =
+        |at: Duration| (at >= Duration::from_millis(40)) & (at < Duration::from_millis(200));
+    assert!(
+        ended.is_some_and(bounded) & bounded(returned),
+        "{ended:?} {returned:?}"
+    );
+}
+
+#[test]
+fn a_sender_held_when_the_attempt_is_cancelled_is_refused_at_once_and_not_waited_for() {
+    let begun = Instant::now();
+    let far = (begun + Duration::from_secs(30), &gone as _);
+    let (answer, (returned, ended), still_held, given_up) = held_sender(far, begun);
+    assert_eq!(
+        (answer, still_held, given_up),
+        (Err(Refusal::Handoff), true, Some(true))
+    );
+    let bounded = |at: Duration| at < Duration::from_millis(200);
+    assert!(
+        ended.is_some_and(bounded) & bounded(returned),
+        "{ended:?} {returned:?}"
+    );
+}
+
+#[test]
+fn a_sender_thread_that_cannot_be_made_is_the_handoff_cause() {
+    // No stack this large can be mapped, so no thread is made: the handoff
+    // cause, with no sender run and no box ended by the supervisor.
+    let unmade = std::thread::Builder::new().stack_size(usize::MAX);
+    let answer = supervised(
+        unmade,
+        startup(&live),
+        || panic!("a sender never made ended its box"),
+        |_| panic!("a sender never made ran"),
+    );
+    assert_eq!(answer, Err(Refusal::Handoff));
 }
