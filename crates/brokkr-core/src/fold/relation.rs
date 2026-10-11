@@ -85,45 +85,46 @@ pub(super) enum Arm {
 /// One column per [`Position`], in declaration order.
 const COLUMNS: usize = Position::Terminal as usize + 1;
 
-/// The relation's row for an event type. The match names every type and
-/// each row names every position, so a new event type or position does
-/// not compile until its row and column are written. The columns are
-/// `Start`, `EnterPhase`, `RequestEffect`, `ExecuteEffect`,
-/// `EffectInFlight`, `Decide`, `Park`, `Stop`, `Idle` and `Terminal`. `m`
-/// is the row's transition, `O` out of place, `A` an annotation and `T`
-/// after terminal.
+/// The relation: one row per event type, in [`EventType`]'s declaration
+/// order, and one column per [`Position`]. Its length is typed by the last
+/// event type and each row's by the last position, so a missing row or
+/// column does not compile; `the_relation_answers_every_pair_and_the_fold_answers_by_it`
+/// states every pair's answer apart from this table, so a row out of order,
+/// or a new event type, fails it. The columns are `Start`, `EnterPhase`,
+/// `RequestEffect`, `ExecuteEffect`, `EffectInFlight`, `Decide`, `Park`,
+/// `Stop`, `Idle` and `Terminal`. `m` is the row's transition, `O` out of
+/// place, `A` an annotation and `T` after terminal.
 #[rustfmt::skip]
-const fn row(event: EventType) -> [Arm; COLUMNS] {
+const ROWS: [[Arm; COLUMNS]; EventType::RunStopped as usize + 1] = {
     use Arm::{AfterTerminal as T, Annotates as A, Moves, OutOfPlace as O};
-    use EventType::*;
-    match event {
-        //                                                               St EP RE EE IF De Pk Sp Id Te
-        RunStarted          =>                                          [O, O, O, O, O, O, O, O, O, T],
-        PhaseEntered        => { let m = Moves(Transition::Enter);      [m, m, O, O, O, O, O, O, O, T] }
-        EffectRequested     => { let m = Moves(Transition::Request);    [O, O, m, O, O, O, O, O, O, T] }
-        EffectStarted       => { let m = Moves(Transition::Start);      [O, O, O, m, O, O, O, O, O, T] }
-        EffectCheckpointed  => { let m = Moves(Transition::Checkpoint); [O, O, O, O, m, O, O, O, O, T] }
-        EffectSucceeded     => { let m = Moves(Transition::Succeed);    [O, O, O, O, m, O, O, O, O, T] }
-        EffectFailed        => { let m = Moves(Transition::Fail);       [O, O, O, O, m, O, O, O, O, T] }
+    [
+        //                                                            St EP RE EE IF De Pk Sp Id Te
+        /* RunStarted */                                             [O, O, O, O, O, O, O, O, O, T],
+        /* PhaseEntered */        { let m = Moves(Transition::Enter);      [m, m, O, O, O, O, O, O, O, T] },
+        /* EffectRequested */     { let m = Moves(Transition::Request);    [O, O, m, O, O, O, O, O, O, T] },
+        /* EffectStarted */       { let m = Moves(Transition::Start);      [O, O, O, m, O, O, O, O, O, T] },
+        /* EffectCheckpointed */  { let m = Moves(Transition::Checkpoint); [O, O, O, O, m, O, O, O, O, T] },
+        /* EffectSucceeded */     { let m = Moves(Transition::Succeed);    [O, O, O, O, m, O, O, O, O, T] },
+        /* EffectFailed */        { let m = Moves(Transition::Fail);       [O, O, O, O, m, O, O, O, O, T] },
         // A requested effect never started is closed indeterminate in
         // crash recovery.
-        EffectIndeterminate => { let m = Moves(Transition::Close);      [O, O, O, m, m, O, O, O, O, T] }
-        TransitionDecided   => { let m = Moves(Transition::Rule);       [O, O, O, O, O, m, O, O, O, T] }
-        OperatorCommanded   => { let m = Moves(Transition::Command);    [m, m, m, m, m, m, m, m, m, A] }
-        OperatorAccepted    => { let m = Moves(Transition::Accept);     [m, m, m, m, m, m, m, m, m, T] }
-        OperatorRejected    => { let m = Moves(Transition::Reject);     [m, m, m, m, m, m, m, m, m, A] }
+        /* EffectIndeterminate */ { let m = Moves(Transition::Close);      [O, O, O, m, m, O, O, O, O, T] },
+        /* TransitionDecided */   { let m = Moves(Transition::Rule);       [O, O, O, O, O, m, O, O, O, T] },
+        /* OperatorCommanded */   { let m = Moves(Transition::Command);    [m, m, m, m, m, m, m, m, m, A] },
+        /* OperatorAccepted */    { let m = Moves(Transition::Accept);     [m, m, m, m, m, m, m, m, m, T] },
+        /* OperatorRejected */    { let m = Moves(Transition::Reject);     [m, m, m, m, m, m, m, m, m, A] },
         // At ExecuteEffect when the seat's attempts are exhausted
         // (decision 0006); at Start and EnterPhase when a selector has
         // no strategy and no default.
-        RunParked           => { let m = Moves(Transition::Park);       [m, m, O, m, O, O, m, O, O, T] }
-        RunCompleted        => { let m = Moves(Transition::Complete);   [m, m, m, m, m, m, m, m, O, T] }
-        RunStopped          => { let m = Moves(Transition::Stop);       [m, m, m, m, m, m, m, m, O, T] }
-    }
-}
+        /* RunParked */           { let m = Moves(Transition::Park);       [m, m, O, m, O, O, m, O, O, T] },
+        /* RunCompleted */        { let m = Moves(Transition::Complete);   [m, m, m, m, m, m, m, m, O, T] },
+        /* RunStopped */          { let m = Moves(Transition::Stop);       [m, m, m, m, m, m, m, m, O, T] },
+    ]
+};
 
 /// The answer for `event` at `position`.
 pub(super) const fn arm(event: EventType, position: Position) -> Arm {
-    row(event)[position as usize]
+    ROWS[event as usize][position as usize]
 }
 
 /// The fields an event names its target by. The fold reads them before it
