@@ -83,7 +83,7 @@ and Brokkr's own `realms.json:2` is v3. Neither is wrong under today's
 rules, since every older realms label keeps loading. Each becomes a
 question once a realms reader can retire. Row 10 is an alternative. The v1
 table is pinned by its bytes and by the evaluator corpus's differential
-test, and decision 0082's ruling 4 records why that stands in for a
+test, and decision 0082's ruling 5 records why that stands in for a
 schema.
 
 ## The families, counted
@@ -233,7 +233,7 @@ not on main at this base, and it rules no contract version.
 | `phase-entered-head.v1` | 0039, **proposed** | engine (`engine.rs:4636-4652`) | the docs-tier check (`engine.rs:4676-4684`) | no test compiles the schema; `is_commit_id` names it (`engine.rs:4701`) | no |
 | `phase-entered-case.v1` | 0041 ruling 7, accepted | engine (`engine.rs:4646`) | none: resume recomputes selection (`contracts/README.md:214-215`) | no test | no |
 | `operator-supersede.v1` | 0047 ruling 1, accepted | the verb (`crates/brokkr-runtime/src/engine/operator/supersede.rs:30-35`) | view (`brokkr-view/src/lib.rs:738`) | `engine/tests.rs:6465` | no |
-| `phase-machine.v2` | 0022, accepted | the nine shipped recipe tables | `Machine::from_table` (`crates/brokkr-core/src/policy.rs:229`) | no test compiles the schema; `crates/brokkr-core/src/policy/errors.rs:43-46` names it | no |
+| `phase-machine.v2` | 0022, accepted | the nine shipped recipe tables | `Machine::from_table` (`crates/brokkr-core/src/policy.rs:229`) | no test compiles the schema; `crates/brokkr-core/src/policy/errors.rs:48` names it | no |
 | `tool-dialect.v1` | 0065 ruling 2, accepted | shipped `dialects/tools/*.json` (three files) | schema at runtime (`crates/brokkr-runtime/src/capabilities/dialect.rs:20`, `:322`) | `crates/brokkr-runtime/src/capabilities/tests.rs:374-380`, `frozen_contracts.rs:849` | no |
 | `host.v1` | 0068's addendum of 2026-10-10, ruled (`docs/decisions/0068-the-dispatcher.md:138`) | operator (`$XDG_CONFIG_HOME/brokkr/host.json`) | `crates/brokkr-runtime/src/admission/host.rs:50` | `crates/brokkr-runtime/src/admission/host/tests.rs:81-83`, `frozen_contracts.rs:762` | no |
 
@@ -258,11 +258,53 @@ The issue counted four. The fifth, `effect-cleanup.v1`, landed on
 own heading says `proposed`. The issue's measurement could not tell an
 addendum from its decision. `forge.host/v1` landed with `run-manifest.v13`
 in the same commit, `3ad0f66c`. It is recorded in 0068's 2026-10-10
-addendum, whose heading says `ruled`, so it counts as accepted.
+addendum, whose heading says `ruled`. Read by hand, it counts as
+accepted. A test cannot read headings that way, as the next section
+shows.
 `run-manifest.v13` is named in no decision. The decisions README says a
 declined proposal "stays in the PR record, not in this directory". Seven
 files' authority could therefore leave the tree, or has never been in it,
 while their frozen bytes stay.
+
+## Addendum headings and reader sources
+
+An addendum's status is written only in its heading, and the headings
+have no closed form. `grep '^## Addendum' docs/decisions/*.md` finds 25
+in 17 decisions. They say `operator ruled:` (0021:97, 0046:240),
+`, proposed` at the end (0006:63) or `proposed:` after the date
+(0043:254), `accepted` (0035:372, 0039:145), `, operator ruling`
+(0029:139), `confirmed by the operator` (0041:420), `the operator's
+ruling` (0035:286) and `, ruled` (0068:138). Three carry no status word
+at all (0029:166, 0029:205, 0057:197), and 0057's uses a colon where the
+rest use a dash. Two headings share a date in one file (0021:97 and
+:112), so a date alone does not always name an addendum. A
+heading such as "not yet ruled" would hold the word `ruled`. Four addenda
+mint a version: 0042's of 2026-09-04 (0042:503) and 2026-09-06
+(0042:579), 0068's of 2026-10-10 (0068:138) and 0006's of 2026-09-27
+(0006:63). `seat-record.v3`'s ruling is not an addendum. It is 0034
+ruling 7, written into the ruling list with "added 2026-09-05, operator
+ruled" (`0034-the-seat-record.md:123-124`).
+
+A label constant is not always what a loader reads. The specification
+dialect keeps its three labels as constants
+(`crates/brokkr-runtime/src/dialect.rs:17-23`) apart from the accepted
+array `SCHEMAS` (`:34`) that `parse_pinned` reads (`:276`). The realms
+map does the same (`crates/brokkr-core/src/realms.rs:73-102`, `SCHEMAS`
+at `:106`, read at `:548`). Taking a version out of either array would
+refuse it while its constant stayed. The typed sources each loader
+exposes are:
+
+| Family | Source | Visibility |
+|---|---|---|
+| Realms map | `realms::SCHEMAS`, membership (`realms.rs:106`, `:548`) | `pub` |
+| Specification dialect pin | `dialect::SCHEMAS`, membership (`dialect.rs:34`, `:276`) | `pub` |
+| Seat record | `SeatRecordVersion::of_engine` and `contract()` (`crates/brokkr-store/src/seat_record.rs:121`, `:151`) | `pub`, re-exported (`crates/brokkr-store/src/lib.rs:93`) |
+| Driver protocol | `PROTO` (`crates/brokkr-protocol/src/lib.rs:25`), compared at `process.rs:376` | `pub` |
+| Dispatch envelope, Looper manifest | `DISPATCH_SCHEMA_V2`, `RUN_MANIFEST_SCHEMA_V2` (`crates/brokkr-core/src/dispatch.rs:16-17`), compared at `:246`, `:478` | `pub` |
+| Phase-machine v2 | `TABLE_SCHEMA_V2` (`crates/brokkr-core/src/policy.rs:70`), compared at `:229` | `pub` |
+| Phase-machine v1 | none: `TABLE_SCHEMA_V1` (`policy.rs:69`) is read by no production line; `Machine::from_table` (`:226`) reads every non-v2 label as v1 | loader `pub` |
+| Host file | a serde rename (`crates/brokkr-runtime/src/admission/host.rs:50`), read by `read` (`:282`) | `pub(crate)` |
+| Tool dialect | an embedded copy (`crates/brokkr-runtime/src/capabilities/dialect.rs:20`) | `pub(super)` |
 
 ## The status table and the guide
 
@@ -289,7 +331,7 @@ The label is a constant (`crates/brokkr-core/src/policy.rs:69`) with no
 production reader of its own. Any table that does not say v2 is parsed
 under v1's rules: the rule level stays open, and a park is refused
 (`policy.rs:424-460`). The open rule level is deliberate. The frozen
-production table carries annotation keys (`src/policy/errors.rs:43-46`):
+production table carries annotation keys (`crates/brokkr-core/src/policy/errors.rs:48`):
 `policy/phase-machine.json` carries `detail`, `source`, `checks`,
 `computed_inputs`, `ship_preconditions` and `terminal_for_ship`. It is the
 only v1 table in the tree (`policy/phase-machine.json:2`). Its bytes are
