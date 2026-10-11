@@ -4,15 +4,17 @@
 //! dialect's archive step owes it; this file refuses it left in place.
 //!
 //! The tasks are read as OpenSpec's own parser reads them: a list item
-//! (`-` or `*`, at any indent, then any whitespace, Unicode's included, or
-//! none) that opens on a box, `[ ]` open and `[x]` or `[X]` done. A list
-//! item whose brackets hold more than one character once their blanks are
-//! trimmed is a link, not a task. What cannot be read is refused, never skipped: a
-//! change with no `tasks.md`, a `tasks.md` with no task, a box that never
-//! closes, an empty or widened box (`[]`, `[  ]`, or a mark padded with
-//! blanks such as `[ x ]`, which OpenSpec counts as no task at all), a box
-//! marked with any other character, and a tracked file under
-//! `openspec/changes/` that stands in no change's directory.
+//! (`-` or `*`, behind any blanks, then any blanks or none) that opens on a
+//! box, one blank (`[ ]`) open and `[x]` or `[X]` done. A blank is
+//! ECMAScript's `\s`, the parser's own: Unicode's white space with a
+//! byte-order mark and without U+0085. A list item whose brackets hold more
+//! than one character once their blanks are trimmed is a link, not a task.
+//! What cannot be read is refused, never skipped: a change with no
+//! `tasks.md`, a `tasks.md` with no task, a box that never closes, an empty
+//! or widened box (`[]`, `[  ]`, or a mark padded with blanks such as
+//! `[ x ]`, which OpenSpec counts as no task at all), a box marked with any
+//! other character, and a tracked file under `openspec/changes/` that
+//! stands in no change's directory.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -36,10 +38,10 @@ enum Task {
 enum Unreadable {
     /// The box opens and never closes.
     Unclosed,
-    /// The box is empty, holds only blanks other than one space, or pads
+    /// The box is empty, holds more than one blank and nothing else, or pads
     /// its one mark with blanks.
     Widened,
-    /// The box holds one character that is neither a space nor `x`/`X`.
+    /// The box holds one character that is neither a blank nor `x`/`X`.
     Marked(String),
 }
 
@@ -53,23 +55,30 @@ impl fmt::Display for Unreadable {
     }
 }
 
+/// Whether `c` is a blank to OpenSpec's parser, ECMAScript's `\s`: Unicode's
+/// white space with U+FEFF, a byte-order mark, and without U+0085.
+fn blank(c: char) -> bool {
+    c == '\u{feff}' || (c.is_whitespace() && c != '\u{85}')
+}
+
 /// The task a line holds, `None` when it holds none, or why its box cannot
 /// be read.
 fn task(line: &str) -> Result<Option<Task>, Unreadable> {
     let Some(rest) = line
-        .trim_start()
+        .trim_start_matches(blank)
         .strip_prefix(['-', '*'])
-        .and_then(|item| item.trim_start().strip_prefix('['))
+        .and_then(|item| item.trim_start_matches(blank).strip_prefix('['))
     else {
         return Ok(None);
     };
     let Some((inside, _)) = rest.split_once(']') else {
         return Err(Unreadable::Unclosed);
     };
-    match inside {
-        " " => Ok(Some(Task::Open)),
-        "x" | "X" => Ok(Some(Task::Done)),
-        _ => match inside.trim() {
+    let mut chars = inside.chars();
+    match (chars.next(), chars.next()) {
+        (Some(one), None) if blank(one) => Ok(Some(Task::Open)),
+        (Some('x' | 'X'), None) => Ok(Some(Task::Done)),
+        _ => match inside.trim_matches(blank) {
             mark if mark.chars().count() > 1 => Ok(None),
             mark if mark.is_empty() || mark != inside => Err(Unreadable::Widened),
             mark => Err(Unreadable::Marked(mark.to_string())),
@@ -153,11 +162,21 @@ fn a_finished_or_unreadable_change_is_refused() {
             "openspec/changes/archive/2026-01-01-done/tasks.md",
             "- [x] 1.1 archived\n",
         ),
+        (
+            "openspec/changes/blank-box/tasks.md",
+            "- [x] 1.1 done\n- [\t] 1.2 open in a tabbed box\n- [\u{a0}] 1.3 open in a no-break box\n\
+             - [\u{feff}] 1.4 open in a byte-order mark's box\n",
+        ),
+        (
+            "openspec/changes/bom/tasks.md",
+            "\u{feff}- [ ] 1.1 open behind a byte-order mark\n- [x] 1.2 done\n",
+        ),
         ("openspec/changes/empty/tasks.md", "## 1. Nothing tasked\n"),
         (
             "openspec/changes/finished/tasks.md",
             "- [x] 1.1 one\n* [X] 1.2 two\n    - [x] 1.3 nested\n-\t[x] 1.4 tabbed\n-[x] 1.5\n\
-             -\u{2003}[x] 1.6 em-spaced\n",
+             -\u{2003}[x] 1.6 em-spaced\n\u{feff}-\u{feff}[x] 1.7 byte-order marked\n\
+             \u{85}- [ ] behind U+0085, no task to OpenSpec\n",
         ),
         (
             "openspec/changes/no-break/tasks.md",
@@ -182,7 +201,7 @@ fn a_finished_or_unreadable_change_is_refused() {
         [
             "openspec/changes/stray.md: stands in no change's directory",
             "openspec/changes/empty/tasks.md: holds no task",
-            "openspec/changes/finished: every task is ticked (6 of 6); a finished change is \
+            "openspec/changes/finished: every task is ticked (7 of 7); a finished change is \
              archived by the dialect's archive step (decision 0081)",
             "openspec/changes/unreadable/tasks.md:2: cannot read the task box: a box marked `~`",
             "openspec/changes/unreadable/tasks.md:3: cannot read the task box: an empty or widened box",
