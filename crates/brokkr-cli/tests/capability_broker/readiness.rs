@@ -263,9 +263,15 @@ fn a_cancelled_attempt_ends_a_box_held_at_its_entry() {
     let Some(held) = Held::started_by(Starter::Attempt, &HELD) else {
         return;
     };
+    let chain = held.chain;
+    let pre = super::handoff::diag(&held.sealed, "cancel-pre");
     let taken = cancelled(held.chain[3]);
-    let ((_, stderr), settled, _) = held.ended();
-    assert_eq!(stderr, refused(Refusal::Establishment).1);
+    let ((_, stderr), settled, notices) = held.ended();
+    assert_eq!(
+        stderr,
+        refused(Refusal::Establishment).1,
+        "chain {chain:?}\n{pre}\nNOTICES<<{notices}>>"
+    );
     assert!(taken < Duration::from_secs(5), "{taken:?}");
     assert!(settled);
 }
@@ -281,9 +287,15 @@ fn the_brokers_own_line_is_read_whole_while_its_tracer_writes_notices() {
     let Some(held) = Held::started_by(Starter::Attempt, &loud.collect::<Vec<_>>()) else {
         return;
     };
+    let chain = held.chain;
+    let pre = super::handoff::diag(&held.sealed, "own-line-pre");
     cancelled(held.chain[3]);
     let ((_, stderr), settled, notices) = held.ended();
-    assert_eq!(stderr, refused(Refusal::Establishment).1);
+    assert_eq!(
+        stderr,
+        refused(Refusal::Establishment).1,
+        "chain {chain:?}\n{pre}\nNOTICES<<{notices}>>"
+    );
     assert!(notices.contains("execve(\"/usr/bin/env\""), "{notices}");
     assert!(settled);
 }
