@@ -20,8 +20,9 @@ including reasoning, tool arguments and output in the new projections, with
 normal scrolling and the existing terminal sanitization.
 
 The pane and overlay SHALL visibly number turns from one in the same sequence
-as `brokkr transcript --turn`, including separate readable logical members of
-one DSH packed row. Physical line numbers SHALL not become turn numbers.
+as `brokkr transcript --turn`, using the final chunks defined by
+`transcript-reading`'s packed coalescing rule rather than individual members.
+Physical line numbers SHALL not become turn numbers.
 Preview clipping due to terminal space SHALL not remove content from either reading door. Transcript selection SHALL not
 change the journal checkpoint selection or reinterpret the seat's accounting.
 A participant with an unavailable reference or source SHALL show the common
@@ -58,8 +59,13 @@ and any malformed-line or unrecognized-record notices.
 - **THEN** the pane clears the previous turns, explains the selected reference's unavailability and neither reading door exposes the old seat's prose
 
 #### Scenario: A packed row is readable through individual turns and the whole door
-- **WHEN** a readable DSH source contains three text fragments in one packed row and three reasoning fragments in another, within both budgets
-- **THEN** the pane exposes six separate assistant turns with the shared reconstructed stamps; Enter on turn three opens only its third text fragment and Enter with no selection opens all six in member order, agreeing with CLI whole and selected reads
+- **WHEN** the shared reader derives a valid version-zero DSH source with text members `["a", "b", "c"]` at times 1000, 999 and 1004 in one uncited packed row, followed by reasoning members `["x", "y", "z"]` at times 2000, 2001 and 2002 in another, with distinct sequences and both budgets satisfied
+- **THEN** the pane exposes exactly two assistant turns from that projection: text chunk `abc` stamped `"1000"`, then reasoning chunk `xyz` stamped `"2000"`; Enter on either index opens its entire corresponding chunk and Enter with no selection opens both in order
+- **AND** whole and selected CLI reads of the same source return the identical roles, stamps, block kinds, content, indices and notices; preview clipping cannot turn the six source members into six selectable turns
+
+#### Scenario: Structural truncation bounds the refreshed pane
+- **WHEN** a working DSH seat's source grows to 10,000 ordinary one-byte tool-call turns with absent data
+- **THEN** refresh receives exactly the shared 7,797 retained turns, shows the size-cap notice in the pane and both doors, and does not clone, compare or retain the excluded suffix in its transcript result
 
 ### Requirement: Full-session information is truthful for its kind
 
@@ -220,7 +226,7 @@ reads and read-only journal/provider access.
 - **THEN** a subsequent active-seat refresh adds the projected turn exactly once and preserves source order
 
 #### Scenario: Assembly replaces chunks while the journal is unchanged
-- **WHEN** a live DSH step first appends two readable chunks and a later refresh sees its complete assembled message citing both chunk sequences in that same turn/step without a journal-head change
+- **WHEN** a live DSH step first appends two readable ordinary chunk rows and a later refresh sees its complete assembled message citing both chunk sequences in that same turn/step without a journal-head change
 - **THEN** the first refresh shows both chunk turns and both reading doors can open them; the later refresh replaces them with the single assembled turn, clears any prior turn selection and closes an open transcript overlay before showing the replacement
 
 #### Scenario: Codex canonical arrival replaces only its associated fallback
@@ -244,7 +250,7 @@ reads and read-only journal/provider access.
 - **THEN** refresh retains its recognized turns and shows the increased physical-row unrecognized count in the pane and both doors, without treating the safely omitted event as semantic refusal
 
 #### Scenario: Ranged partial assembly invalidates old indices without losing uncited chunks
-- **WHEN** a working DSH source has displayed chunks 10, 11, 12 and 14, packed or ordinary, and later appends a same-step assembly citing `[[10, 12]]`
+- **WHEN** a working DSH source has readable chunk members 10, 11, 12 and 14, packed or ordinary, displayed under the shared coalescing rule, and later appends a same-step assembly citing `[[10, 12]]`
 - **THEN** refresh retains uncited chunk 14 as turn one and the assembly as turn two, clears any old selection and closes its overlay before showing those indices; CLI selection for the new snapshot yields the same turns
 
 #### Scenario: An absent assembly citation preserves earlier fragments
@@ -264,8 +270,14 @@ reads and read-only journal/provider access.
 - **WHEN** a working DSH participant's unique version-zero file was readable but an additional safe depth-zero version-one candidate appears before a refresh, with discovery otherwise successful
 - **THEN** the pane changes to `ambiguous-source`, keeps the common reference with null path/hint, zero counts and no truncation/notices, clears all old turns and selection and closes both doors; it cannot retain the previous file by preferring its supported version
 
+#### Scenario: Partial assembly replaces packed chunks without retaining stale text
+- **WHEN** a working source initially shows a coalesced `abcd` packed chunk for member sequences 10 through 13, then appends a readable same-turn/step assembly citing `[11, 13]` without a journal-head change
+- **THEN** refresh replaces the old chunk with the shared `a`, `c`, assembly projection, clears the old turn selection and closes its overlay before showing new indices; no cached `b` or `d` remains in either reading door
+- **AND** CLI selection of that snapshot returns the same new turns and stamps
+
 ## Provenance
 
 - `2026-09-10-read-every-transcript-kind` — folded 2026-09-10
 - `2026-09-14-admit-dsh-session-v3` — folded 2026-09-14
 - `2026-09-27-352-browser-reads-by-participant` — folded 2026-09-27
+- `2026-09-17-bound-transcript-projector` — folded 2026-10-11

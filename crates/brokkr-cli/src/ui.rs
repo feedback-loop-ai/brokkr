@@ -4,15 +4,19 @@
 //! assets; removing this module changes nothing about execution
 //! semantics (first-release acceptance criteria).
 //!
-//! Routes: `/` (page) · `/api/runs` · `/api/view/<id>` · `/api/run/<id>` ·
+//! Routes: `/` (page) · `/api/runs` · `/api/view/<id>` ·
 //! `/api/presentation/<run>/<key>` · `/api/transcript/<run>/<key>` ·
 //! `/sse/<id>` (server-sent head changes, poll-backed) ·
 //! `/sse/transcript/<run>/<key>` (server-sent transcript growth,
 //! poll-backed by the same clock).
 //!
 //! `/api/runs` and `/api/view/<id>` serve `brokkr-view`'s models: the page
-//! paints them and derives nothing (decision 0013). `/api/run/<id>` keeps
-//! its raw summary-and-events shape as the parity baseline.
+//! paints them and derives nothing (decision 0013).
+//!
+//! What a client may hold of the surface, its request's bytes and time, a
+//! write's wait and a share of the connections, is bounded in [`limits`].
+
+mod limits;
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -25,6 +29,7 @@ use brokkr_view::transcript::{Selection, ValidReference};
 use serde_json::{json, Value};
 
 use crate::local_transcript::{self, Discovery};
+use limits::{Deadline, Exceeded, Limits, Slots, Unread};
 
 const PAGE: &str = include_str!("ui.html");
 
@@ -120,32 +125,11 @@ pub fn handle(db: &Path, path: &str) -> Response {
             Err(_) => return not_found(run_id),
         };
         let state = fold(&events).ok();
-        let view = brokkr_view::run_view(&events, state.as_ref());
+        let view = brokkr_view::run_view(&events, state.as_ref()).with_scopes();
         return ok(
             "application/json",
             serde_json::to_string(&view).expect("the run view serializes"),
         );
-    }
-    if let Some(run_id) = path.strip_prefix("/api/run/") {
-        let events = match store.load(run_id) {
-            Ok(events) => events,
-            Err(_) => return not_found(run_id),
-        };
-        let state = fold(&events).ok();
-        let body = json!({
-            "summary": state.map(|s| json!({
-                "run_id": s.run_id,
-                "status": s.status.as_str(),
-                "phase": s.phase,
-                "seq": s.seq,
-                "park_reason": s.park_reason,
-                "consecutive_failures": s.consecutive_failures,
-                "last_decision": s.last_decision,
-                "feature": s.feature,
-            })),
-            "events": events,
-        });
-        return ok("application/json", body.to_string());
     }
     not_found(path)
 }
@@ -371,36 +355,58 @@ fn head_seq(db: &Path, run_id: &str) -> u64 {
         .unwrap_or(0)
 }
 
-fn read_request(reader: &mut impl BufRead) -> std::io::Result<(String, String, Option<String>)> {
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
+/// The request line and the headers, within `limits`' bytes: a line that
+/// runs past its room is refused before it is held whole. The section ends
+/// at its blank line or at EOF.
+fn read_request(
+    reader: &mut impl BufRead,
+    limits: &Limits,
+) -> Result<(String, String, Option<String>), Unread> {
+    let over_line = Exceeded::RequestLine {
+        limit: limits.request_line_bytes,
+    };
+    let line = limits.line(reader, limits.request_line_bytes, over_line)?;
     let method = line.split_whitespace().next().unwrap_or("").to_string();
     let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
     let mut host: Option<String> = None;
-    let mut header = String::new();
+    let over_headers = Exceeded::Headers {
+        limit: limits.header_bytes,
+    };
+    let mut room = limits.header_bytes;
     loop {
-        header.clear();
-        match reader.read_line(&mut header)? {
-            0 => break,
-            _ if header.trim().is_empty() => break,
-            _ => {
-                if let Some(value) = header.to_ascii_lowercase().strip_prefix("host:") {
-                    host = Some(value.trim().to_string());
-                }
-            }
+        let header = limits.line(reader, room, over_headers)?;
+        room -= header.len();
+        if header.trim().is_empty() {
+            break;
+        }
+        if let Some(value) = header.to_ascii_lowercase().strip_prefix("host:") {
+            host = Some(value.trim().to_string());
         }
     }
     Ok((method, path, host))
 }
 
-fn serve_client(db: PathBuf, stream: TcpStream) {
-    serve_client_with_limit(db, stream, None)
+fn serve_client(db: PathBuf, stream: TcpStream, limits: Limits) {
+    serve_client_with_limit(db, stream, limits, None)
 }
 
-fn serve_client_with_limit(db: PathBuf, stream: TcpStream, sse_limit: Option<usize>) {
-    let mut reader = BufReader::new(&stream);
+fn serve_client_with_limit(
+    db: PathBuf,
+    stream: TcpStream,
+    limits: Limits,
+    sse_limit: Option<usize>,
+) {
+    // The platform refuses a zero write timeout: no write is admitted, so
+    // the connection closes unanswered.
+    if stream
+        .set_write_timeout(Some(limits.write_timeout))
+        .is_err()
+    {
+        return;
+    }
+    let mut reader = BufReader::new(Deadline::new(&stream, limits.read_timeout));
     let mut writer = &stream;
-    serve_io(&db, &mut reader, &mut writer, sse_limit);
+    serve_io(&db, &mut reader, &mut writer, &limits, sse_limit);
 }
 
 /// One poll of every server-sent stream on this surface. The run's head
@@ -427,11 +433,13 @@ fn serve_io(
     db: &Path,
     reader: &mut impl BufRead,
     stream: &mut impl Write,
+    limits: &Limits,
     sse_limit: Option<usize>,
 ) {
-    let request = read_request(reader);
-    let Ok((method, path, host)) = request else {
-        return;
+    let (method, path, host) = match read_request(reader, limits) {
+        Ok(request) => request,
+        Err(Unread::Exceeded(exceeded)) => return write_response(stream, exceeded.response()),
+        Err(Unread::Unreadable) => return,
     };
     if !request_allowed(&method, host.as_deref()) {
         let _ = stream
@@ -542,11 +550,15 @@ fn open_browser_with(url: &str, spawn: impl FnOnce(&str, &str)) {
     }
 }
 
+/// Accept and serve, each connection on a thread of its own while
+/// `limits.connections` are served; one past them is refused by [`refuse`].
+/// `connection_limit` ends the loop after that many accepts.
 fn serve_listener(
     db: PathBuf,
     listener: TcpListener,
     open_browser: bool,
     connection_limit: Option<usize>,
+    limits: Limits,
     mut opener: impl FnMut(&str),
 ) -> std::io::Result<()> {
     let bound = listener.local_addr()?.port();
@@ -555,21 +567,46 @@ fn serve_listener(
     if open_browser {
         opener(&url);
     }
+    let slots = Slots::new(limits.connections);
     let limit = connection_limit.unwrap_or(usize::MAX);
     for stream in listener.incoming().flatten().take(limit) {
+        let Some(slot) = slots.take() else {
+            refuse(stream, limits.connections);
+            continue;
+        };
         let db = db.clone();
-        std::thread::spawn(move || serve_client(db, stream));
+        std::thread::spawn(move || {
+            serve_client(db, stream, limits);
+            drop(slot);
+        });
     }
     Ok(())
+}
+
+/// A connection past the cap, answered from the acceptor and closed: it is
+/// never given a thread, and a client that does not read cannot hold the
+/// acceptor, because the write does not block.
+fn refuse(mut stream: TcpStream, limit: usize) {
+    let _ = stream.set_nonblocking(true);
+    write_response(&mut stream, Exceeded::Connections { limit }.response());
 }
 
 /// Bind loopback and serve until killed. Returns the bound port (0 in
 /// `port` picks an ephemeral one).
 pub(crate) fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port))?;
-    serve_listener(db, listener, open_browser, None, open_system_browser)
+    serve_listener(
+        db,
+        listener,
+        open_browser,
+        None,
+        Limits::DEFAULT,
+        open_system_browser,
+    )
 }
 
+#[cfg(test)]
+mod limit_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

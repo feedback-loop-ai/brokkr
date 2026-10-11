@@ -26,14 +26,16 @@
 //! risk for a one-release transition, from 0.12.0 until 0.13.0 ends it;
 //! from then on a lockless tree is kept and said, never reaped. A lock
 //! the reaper cannot probe is no answer: it keeps the tree and says why.
+//! A tree it would reap but cannot remove it keeps and says too (#620).
 
+use std::ffi::CStr;
 use std::fmt;
 use std::fs::File;
-use std::os::fd::{AsFd, BorrowedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use rustix::fs::{FileType, FlockOperation, Mode, OFlags};
+use rustix::fs::{AtFlags, Dir, FileType, FlockOperation, Mode, OFlags};
 use rustix::io::Errno;
 use rustix::process::Pid;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
@@ -117,7 +119,13 @@ pub struct Session {
 impl Session {
     /// A new session under the temporary directory (`TMPDIR` honoured).
     pub fn create(label: &str) -> Result<Session, SessionError> {
-        Session::create_in(&std::env::temp_dir(), label, flock, create_lock)
+        Session::create_under(&std::env::temp_dir(), label)
+    }
+
+    /// A new session under `tmp`: a test hands in its own directory, so
+    /// the host's temporary directory never holds a test's tree (#620).
+    pub(super) fn create_under(tmp: &Path, label: &str) -> Result<Session, SessionError> {
+        Session::create_in(tmp, label, flock, create_lock)
     }
 
     fn create_in(
@@ -182,7 +190,7 @@ impl Session {
             // `forever` ends only when the handle is closed, and nothing
             // closes it: the first item is the first signal.
             let signal = signals.forever().next().unwrap_or(SIGTERM);
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = remove_tree(&dir);
             std::process::exit(code(signal));
         });
         Ok(())
@@ -191,20 +199,69 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
+        let _ = remove_tree(&self.dir);
     }
+}
+
+/// Directory opens in a session's tree: never through a symlink.
+fn walk_flags() -> OFlags {
+    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
+/// Remove a session's tree whole, its overlay work directories unsealed
+/// first: overlayfs makes each layer's `overlay/<n>/work/work` with no
+/// bit for its owner, and `remove_dir_all` cannot list it (#620).
+fn remove_tree(tree: &Path) -> std::io::Result<()> {
+    unseal_overlay_work(tree);
+    std::fs::remove_dir_all(tree)
+}
+
+/// Give the owner read, write and search on `overlay/`, each
+/// `overlay/<n>`, its `work` and that `work/work`, and on nothing else.
+/// The walk descends by descriptor, each opened no-follow from the one
+/// above, so it never leaves the tree; an entry that is not a directory,
+/// a symlink included, is neither changed nor entered. What it cannot
+/// reach it leaves to the removal, whose error says it.
+fn unseal_overlay_work(tree: &Path) -> Option<()> {
+    let tree = rustix::fs::open(tree, walk_flags(), Mode::empty()).ok()?;
+    let overlay = unsealed(tree.as_fd(), c"overlay")?;
+    for layer in Dir::read_from(&overlay).ok()?.flatten() {
+        let name = layer.file_name();
+        if matches!(name.to_bytes(), b"." | b"..") {
+            continue;
+        }
+        let _ = unsealed(overlay.as_fd(), name)
+            .and_then(|layer| unsealed(layer.as_fd(), c"work"))
+            .and_then(|work| unsealed(work.as_fd(), c"work"));
+    }
+    Some(())
+}
+
+/// The directory `name` in `dir`, set to 0700 and opened; none when it
+/// is not a directory or cannot be changed or opened. The type is read
+/// without following a symlink, and the open refuses one: under the
+/// accidental-misuse threat model (ruling of 2026-09-26) a dead owner's
+/// tree is not raced between the read and the change.
+fn unsealed(dir: BorrowedFd<'_>, name: &CStr) -> Option<OwnedFd> {
+    let stat = rustix::fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW).ok()?;
+    if FileType::from_raw_mode(stat.st_mode) != FileType::Directory {
+        return None;
+    }
+    rustix::fs::chmodat(dir, name, Mode::RWXU, AtFlags::empty()).ok()?;
+    rustix::fs::openat(dir, name, walk_flags(), Mode::empty()).ok()
 }
 
 /// Why a reaped tree was removed, as the start prints it.
 const REAPED_BECAUSE: &str = "its owner is dead and holds no lock";
 
 /// What one reaping did: the trees it removed, and the trees it kept for
-/// want of an answer from their locks. Displayed one line per tree, for
-/// the start to print on stderr; nothing is journaled.
+/// want of an answer from their locks or because their removal failed.
+/// Displayed one line per tree, for the start to print on stderr; nothing
+/// is journaled.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Reaped {
     removed: Vec<PathBuf>,
-    kept: Vec<(PathBuf, Unprobed)>,
+    kept: Vec<(PathBuf, Kept)>,
 }
 
 impl Reaped {
@@ -222,9 +279,7 @@ impl Reaped {
         }
         for (tree, why) in &self.kept {
             let tree = safe(&tree.display().to_string());
-            said.push_str(&format!(
-                "hands: kept {tree}: its lock cannot be probed: {why}\n"
-            ));
+            said.push_str(&format!("hands: kept {tree}: {why}\n"));
         }
         said
     }
@@ -235,6 +290,30 @@ impl fmt::Display for Reaped {
         f.write_str(&self.lines_with(|tree| tree.to_owned()))
     }
 }
+
+/// Why a dead owner's tree was kept.
+#[derive(Debug, Error, PartialEq, Eq)]
+enum Kept {
+    #[error("its lock cannot be probed: {0}")]
+    Unprobed(Unprobed),
+    #[error("it cannot be removed: {0}")]
+    Unremovable(Unremovable),
+}
+
+/// The error a tree's removal met, as `std::io::Error` prints it.
+#[derive(Debug, Error)]
+#[error(transparent)]
+struct Unremovable(std::io::Error);
+
+/// `std::io::Error` has no equality: two are one when their kind and
+/// errno are.
+impl PartialEq for Unremovable {
+    fn eq(&self, other: &Unremovable) -> bool {
+        (self.0.kind(), self.0.raw_os_error()) == (other.0.kind(), other.0.raw_os_error())
+    }
+}
+
+impl Eq for Unremovable {}
 
 /// Why the reaper could not tell whether a tree's lock is held.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -274,9 +353,14 @@ fn reap_dead_sessions_in(tmp: &Path, lock: Flock) -> Reaped {
         .filter(|tree| dead_owner(tree));
     for tree in trees {
         match probe(&tree, lock) {
-            Probe::Free if std::fs::remove_dir_all(&tree).is_ok() => reaped.removed.push(tree),
-            Probe::Free | Probe::Held => {}
-            Probe::Unprobed(why) => reaped.kept.push((tree, why)),
+            Probe::Free => match remove_tree(&tree) {
+                Ok(()) => reaped.removed.push(tree),
+                Err(error) => reaped
+                    .kept
+                    .push((tree, Kept::Unremovable(Unremovable(error)))),
+            },
+            Probe::Held => {}
+            Probe::Unprobed(why) => reaped.kept.push((tree, Kept::Unprobed(why))),
         }
     }
     reaped

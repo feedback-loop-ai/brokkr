@@ -103,6 +103,14 @@ fn run_view_of(
     Ok(brokkr_view::run_view(&events, Some(&state)))
 }
 
+/// `inspect --json`'s bytes, which `seats --json` prints too: the view as
+/// the browser is served it, every scope decided (#351). The readouts a
+/// terminal prints never decide them (#624).
+fn print_served(view: brokkr_view::RunView) -> Result<ExitCode> {
+    println!("{}", serde_json::to_string_pretty(&view.with_scopes())?);
+    Ok(Exit::Completed.into())
+}
+
 /// `brokkr inspect`: explain a run, whole or scoped to a phase or a seat.
 pub(crate) fn inspect(
     workspace: &Path,
@@ -117,16 +125,16 @@ pub(crate) fn inspect(
 ) -> Result<ExitCode> {
     let view = run_view_of(workspace, realms, db, &run)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&view)?);
-        return Ok(Exit::Completed.into());
+        return print_served(view);
     }
     // clap's ArgGroup already rules the two mutually exclusive.
     let scope = match (phase, seat) {
-        (Some(phase), _) => Some(render::Scope::Phase(phase)),
-        (None, Some(seat)) => Some(render::Scope::Seat(seat)),
+        (Some(phase), _) => Some(brokkr_view::Scope::Phase(phase)),
+        (None, Some(seat)) => Some(brokkr_view::Scope::Seat(seat)),
         (None, None) => None,
     };
-    let lens = render::lens_for(&view, scope.as_ref()).map_err(anyhow::Error::msg)?;
+    let lens = brokkr_view::lens_for(&view, scope.as_ref())
+        .map_err(|error| anyhow::Error::msg(render::scope_refusal(&error)))?;
     print!(
         "{}",
         render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
@@ -151,8 +159,7 @@ pub(crate) fn seats(
     // versioned for the verb.
     let view = run_view_of(workspace, realms, db, &run)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&view)?);
-        return Ok(Exit::Completed.into());
+        return print_served(view);
     }
     print!("{}", render::seats(&view, &render::Style::detect()));
     Ok(Exit::Completed.into())

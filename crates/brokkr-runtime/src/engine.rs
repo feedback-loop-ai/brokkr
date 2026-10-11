@@ -1846,7 +1846,7 @@ impl Engine {
     /// scratch, and the network prefix when the probe — run once per
     /// engine process, in that environment, on Linux only — passed.
     fn unboxed(&mut self, attempt_id: &str, spec: &HandsSpec) -> Unboxed {
-        let scratch = self.workdir().join(".forge/scratch").join(attempt_id);
+        let scratch = self.workdir().join(SEAT_SCRATCH).join(attempt_id);
         let private_home = scratch.join("home");
         let private_tmp = scratch.join("tmp");
         std::fs::create_dir_all(&private_home).ok();
@@ -4710,6 +4710,10 @@ fn is_commit_id(candidate: &str) -> bool {
 /// Where the repository declares its own delivery classes (decision 0038
 /// ruling 3) — the same file the contribution gate reads.
 const DELIVERY_CLASSES: &str = ".github/delivery-classes.json";
+
+/// Where, in the repository a run operates, each attempt's seat scratch
+/// tree is made: what admission's scratch floor measures by default (#430).
+pub(crate) const SEAT_SCRATCH: &str = ".forge/scratch";
 
 /// The docs class the repository declared at `head`: `classes.docs.paths`
 /// of `.github/delivery-classes.json` as committed there, regular

@@ -28,6 +28,8 @@ pub brokkr_protocol::adapters::AdapterKind::Exec
 pub brokkr_protocol::adapters::AdapterKind::Lanetally
 impl brokkr_protocol::adapters::AdapterKind
 pub fn brokkr_protocol::adapters::AdapterKind::parse(&str) -> core::option::Option<brokkr_protocol::adapters::AdapterKind>
+impl brokkr_protocol::adapters::AdapterKind
+pub fn brokkr_protocol::adapters::AdapterKind::served_route(self, &str) -> core::option::Option<&str>
 pub enum brokkr_protocol::adapters::CompositeError
 pub brokkr_protocol::adapters::CompositeError::Component(&'static str, alloc::string::String)
 pub brokkr_protocol::adapters::CompositeError::Config(alloc::string::String)
@@ -113,7 +115,56 @@ pub fn brokkr_protocol::adapters::dsh_composite_prepared(&brokkr_protocol::adapt
 pub fn brokkr_protocol::adapters::lanetally_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::render_prompt(&serde_json::value::Value, brokkr_protocol::adapters::AdapterKind) -> core::result::Result<alloc::string::String, brokkr_protocol::adapters::StartRefusal>
 pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>) -> core::io::error::Result<()>
+pub fn brokkr_protocol::adapters::split_route(&str) -> (core::option::Option<&str>, &str)
 pub mod brokkr_protocol::broker
+pub mod brokkr_protocol::broker::ledger
+pub enum brokkr_protocol::broker::ledger::Denial
+pub brokkr_protocol::broker::ledger::Denial::Active
+pub brokkr_protocol::broker::ledger::Denial::Budget
+pub brokkr_protocol::broker::ledger::Denial::Ungranted
+pub enum brokkr_protocol::broker::ledger::Disposition
+pub brokkr_protocol::broker::ledger::Disposition::Clean
+pub brokkr_protocol::broker::ledger::Disposition::Failed(brokkr_protocol::broker::ledger::Failure)
+pub enum brokkr_protocol::broker::ledger::Failure
+pub brokkr_protocol::broker::ledger::Failure::Limit
+pub brokkr_protocol::broker::ledger::Failure::Masking
+pub brokkr_protocol::broker::ledger::Failure::Protocol
+pub brokkr_protocol::broker::ledger::Failure::Refused(brokkr_protocol::broker::Refusal)
+pub brokkr_protocol::broker::ledger::Failure::Response
+pub brokkr_protocol::broker::ledger::Failure::Timeout
+pub brokkr_protocol::broker::ledger::Failure::Version
+pub enum brokkr_protocol::broker::ledger::Invalid
+pub brokkr_protocol::broker::ledger::Invalid::Conflict
+pub brokkr_protocol::broker::ledger::Invalid::Gap
+pub brokkr_protocol::broker::ledger::Invalid::Lifecycle
+pub brokkr_protocol::broker::ledger::Invalid::Malformed
+pub brokkr_protocol::broker::ledger::Invalid::Owner
+pub brokkr_protocol::broker::ledger::Invalid::Partial
+pub enum brokkr_protocol::broker::ledger::Outcome
+pub brokkr_protocol::broker::ledger::Outcome::Failed
+pub brokkr_protocol::broker::ledger::Outcome::Refused(brokkr_protocol::broker::ledger::Denial)
+pub brokkr_protocol::broker::ledger::Outcome::Succeeded
+pub enum brokkr_protocol::broker::ledger::Unrecorded
+pub brokkr_protocol::broker::ledger::Unrecorded::Limit
+pub brokkr_protocol::broker::ledger::Unrecorded::Record
+pub brokkr_protocol::broker::ledger::Unrecorded::Reopened
+pub struct brokkr_protocol::broker::ledger::Call
+pub struct brokkr_protocol::broker::ledger::Ledger
+impl brokkr_protocol::broker::ledger::Ledger
+pub fn brokkr_protocol::broker::ledger::Ledger::close(self) -> core::result::Result<brokkr_protocol::broker::ledger::Disposition, brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger::end(&mut self, brokkr_protocol::broker::ledger::Call, brokkr_protocol::broker::ledger::Outcome) -> core::result::Result<(), brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger::fail(&mut self, brokkr_protocol::broker::ledger::Failure)
+pub fn brokkr_protocol::broker::ledger::Ledger::open(impl std::os::fd::owned::AsFd, &std::ffi::os_str::OsStr, &brokkr_protocol::broker::Owner, &str) -> core::result::Result<brokkr_protocol::broker::ledger::Ledger, brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger::open_with(impl core::ops::function::FnMut(&[u8]) -> core::io::error::Result<()> + 'static, &brokkr_protocol::broker::Owner, &str) -> core::result::Result<brokkr_protocol::broker::ledger::Ledger, brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger::room(&mut self) -> core::result::Result<brokkr_protocol::broker::ledger::Room<'_>, brokkr_protocol::broker::ledger::Failure>
+pub struct brokkr_protocol::broker::ledger::Lifecycle
+impl brokkr_protocol::broker::ledger::Lifecycle
+pub fn brokkr_protocol::broker::ledger::Lifecycle::calls(&self) -> &[(alloc::string::String, core::option::Option<brokkr_protocol::broker::ledger::Outcome>)]
+pub fn brokkr_protocol::broker::ledger::Lifecycle::closed(&self) -> core::option::Option<&brokkr_protocol::broker::ledger::Disposition>
+pub struct brokkr_protocol::broker::ledger::Room<'l>(_)
+impl brokkr_protocol::broker::ledger::Room<'_>
+pub fn brokkr_protocol::broker::ledger::Room<'_>::begin(self, &str) -> core::result::Result<brokkr_protocol::broker::ledger::Call, brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::recover(&[u8], &brokkr_protocol::broker::Owner, &str) -> (brokkr_protocol::broker::ledger::Lifecycle, core::option::Option<brokkr_protocol::broker::ledger::Invalid>)
 pub enum brokkr_protocol::broker::Network
 pub brokkr_protocol::broker::Network::Isolated
 pub brokkr_protocol::broker::Network::Shared
@@ -122,15 +173,20 @@ pub brokkr_protocol::broker::Privilege::Confined
 pub enum brokkr_protocol::broker::Refusal
 pub brokkr_protocol::broker::Refusal::BindOverlapsReach
 pub brokkr_protocol::broker::Refusal::Establishment
+pub brokkr_protocol::broker::Refusal::Exec
+pub brokkr_protocol::broker::Refusal::Handoff
 pub brokkr_protocol::broker::Refusal::Identity
 pub brokkr_protocol::broker::Refusal::LaunchInReach
 pub brokkr_protocol::broker::Refusal::Linked
+pub brokkr_protocol::broker::Refusal::Masking
 pub brokkr_protocol::broker::Refusal::Name(alloc::string::String)
 pub brokkr_protocol::broker::Refusal::ProgramTree
+pub brokkr_protocol::broker::Refusal::Response
 pub brokkr_protocol::broker::Refusal::ServingIncomplete
 pub brokkr_protocol::broker::Refusal::StartupInputs
 pub brokkr_protocol::broker::Refusal::StoreInBox
 pub brokkr_protocol::broker::Refusal::StoreReachable
+pub brokkr_protocol::broker::Refusal::Timeout
 pub brokkr_protocol::broker::Refusal::Unavailable
 pub brokkr_protocol::broker::Refusal::Unbound
 pub enum brokkr_protocol::broker::Tree
@@ -301,7 +357,7 @@ pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>)
 pub struct brokkr_protocol::hands::ServerBox
 impl brokkr_protocol::hands::ServerBox
 pub fn brokkr_protocol::hands::ServerBox::entry(&mut self, u32) -> core::result::Result<brokkr_protocol::hands::ServerEntry, brokkr_protocol::broker::Refusal>
-pub fn brokkr_protocol::hands::ServerBox::launch<'e>(&'e brokkr_protocol::hands::ServerEntry, &[std::os::fd::owned::BorrowedFd<'_>], impl core::ops::function::FnOnce(std::os::fd::raw::RawFd, std::os::fd::raw::RawFd) -> alloc::vec::Vec<alloc::string::String>, (std::time::Instant, &'_ (dyn core::ops::function::Fn() -> bool + core::marker::Sync))) -> core::result::Result<brokkr_protocol::hands::namespace::entry::Launched<'e>, brokkr_protocol::broker::Refusal>
+pub fn brokkr_protocol::hands::ServerBox::launch<'e>(&'e brokkr_protocol::hands::ServerEntry, &[std::os::fd::owned::BorrowedFd<'_>], impl core::ops::function::FnOnce(std::os::fd::raw::RawFd, std::os::fd::raw::RawFd, std::os::fd::raw::RawFd) -> alloc::vec::Vec<alloc::string::String>, (std::time::Instant, &'_ (dyn core::ops::function::Fn() -> bool + core::marker::Sync))) -> core::result::Result<brokkr_protocol::hands::namespace::entry::Launched<'e>, brokkr_protocol::broker::Refusal>
 impl brokkr_protocol::hands::ServerBox
 pub fn brokkr_protocol::hands::ServerBox::handles(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&std::path::Path, &std::os::fd::owned::OwnedFd)>
 pub fn brokkr_protocol::hands::ServerBox::paths(&self) -> impl core::iter::traits::iterator::Iterator<Item = &std::path::Path>
@@ -866,11 +922,13 @@ pub const brokkr_protocol::secret::MIN_VALUE_BYTES: usize
 pub const brokkr_protocol::secret::NEEDLE_ENCODINGS: [(&str, brokkr_protocol::secret::Encoder); 9]
 pub const brokkr_protocol::secret::SHORT_VALUE_WARN_BYTES: usize
 pub fn brokkr_protocol::secret::denylisted(&str) -> bool
+pub fn brokkr_protocol::secret::exec_confined(impl alloc::io::read::Read, &[alloc::string::String], alloc::vec::Vec<(std::ffi::os_str::OsString, std::ffi::os_str::OsString)>, (&std::path::Path, &[alloc::string::String]), impl core::ops::function::FnOnce() -> bool) -> brokkr_protocol::broker::Refusal
 pub fn brokkr_protocol::secret::mask_bytes(&[u8], &[brokkr_protocol::secret::BoundSecret]) -> alloc::vec::Vec<u8>
 pub fn brokkr_protocol::secret::mask_json(&mut serde_json::value::Value, &[brokkr_protocol::secret::BoundSecret])
 pub fn brokkr_protocol::secret::mask_projected(&str, &[brokkr_protocol::secret::BoundSecret]) -> alloc::string::String
 pub fn brokkr_protocol::secret::resolve_bindings(&std::path::Path, &[alloc::string::String]) -> core::result::Result<alloc::vec::Vec<brokkr_protocol::secret::BoundSecret>, alloc::string::String>
 pub fn brokkr_protocol::secret::scan_secret_refs(&str) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
+pub fn brokkr_protocol::secret::send_environment(std::os::fd::owned::BorrowedFd<'_>, &std::path::Path, &[alloc::string::String], impl core::ops::function::FnOnce(&[u8]) -> core::result::Result<(), brokkr_protocol::broker::Refusal>) -> core::result::Result<(), brokkr_protocol::broker::Refusal>
 pub fn brokkr_protocol::secret::store_names(&std::path::Path) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::secret::store_remove(&std::path::Path, &str) -> core::result::Result<bool, alloc::string::String>
 pub fn brokkr_protocol::secret::store_set(&std::path::Path, &str, &str) -> core::result::Result<core::option::Option<alloc::string::String>, alloc::string::String>

@@ -6,9 +6,7 @@ what each word means, the platform paragraph stops saying Linux only,
 the readouts' unboxed rendering is documented, and the decision carries
 its one-line erratum. Reference sections are updated, never removed
 (decision 0046 rulings 1 to 5 and consequences; the commission's
-erratum). Where a requirement below names a Windows realm, it is
-historical: the hosts are Linux and macOS (decision 0063), and the
-quickstart names WSL2 as the Windows operator's Linux.
+erratum). The hosts are Linux and macOS (decision 0063).
 
 ## Requirements
 
@@ -34,7 +32,7 @@ any host path the operator's uid may read (design DD10), and its
 `driver.confine` row
 says the field is refused and points at decision 0046 ruling 5;
 `docs/guides/quickstart.md`'s platform paragraph says that a realm on
-macOS or Windows declares `boundary: harness` today, what that means —
+macOS declares `boundary: harness` today, what that means —
 judged under the harness's own sandbox, rendered *unboxed* — and that
 `namespace` is the default and needs bubblewrap, and that `seatbelt`
 and `container` are named by decision 0046 and refuse at start until
@@ -93,7 +91,7 @@ and `effect-boundary.v1` in the style of the rows before them.
 
 #### Scenario: quickstart's platform paragraph
 - **WHEN** the quickstart's platform paragraph is read
-- **THEN** it says a realm on macOS or Windows declares `boundary: harness` today, that such a run is judged under the harness's own sandbox and rendered *unboxed*, that `seatbelt` lands in slice (ii), which shipped bundles run under `harness` today and which four refuse by name and on which ground, and it no longer says macOS and Windows adopters need a Linux box
+- **THEN** it says a realm on macOS declares `boundary: harness` today, that such a run is judged under the harness's own sandbox and rendered *unboxed*, that `seatbelt` lands in slice (ii), which shipped bundles run under `harness` today and which four refuse by name and on which ground, and it no longer says macOS adopters need a Linux box
 
 #### Scenario: journal-and-verification and read-surfaces show the rendering
 - **WHEN** the two guides are read
