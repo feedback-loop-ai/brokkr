@@ -60,9 +60,12 @@ is local. An enterprise layer written against that code today would have
 to patch the core. That is the fork this decision prevents.
 
 Since it was drafted (refreshed 2026-10-12):
-- Every run already carries `runs.origin_host`, an opaque fingerprint of
-  the machine and the account written when the run is created (decision
-  0030, `crates/brokkr-store/src/origin.rs`), not only imported runs.
+- A run a journal creates already carries `runs.origin_host`, an opaque
+  fingerprint of the machine and the account written when the run is
+  created (decision 0030, `crates/brokkr-store/src/origin.rs`). It is
+  absent where no machine identity can be read, and on a run adopted
+  under 0027, which `crates/brokkr-store/src/import.rs` inserts without
+  it.
 - `forge.host/v1` (#430, #621) is the host's own configuration file. Its
   providers, routes and boxed builds overlap ruling 3's host
   requirements, and it is the natural home of a stable host id.
@@ -70,8 +73,11 @@ Since it was drafted (refreshed 2026-10-12):
   not built yet, so ruling 3 has nothing to plug into.
 - Decision 0077 makes the capability broker the holder of the secret
   boundary, so the secrets seam's resolver is the broker's.
-- Decision 0083 moves an adopter's state under `.brokkr/state/`, where a
-  host id and a fleet journal would live.
+- Decision 0083 (#634), accepted 2026-10-11 but not yet on main and
+  unbuilt, would move an adopter's state under `.brokkr/state/`. Today
+  the journal defaults to `.forge/forge.db`
+  (`crates/brokkr-cli/src/cli_args.rs`). The host id and the fleet
+  journal live wherever the journal lives when ruling 2 is built.
 - The TUI already reads several journals through the world map
   (`realms.json`).
 The operator accepted the decision whole on 2026-10-12. Rulings 2 and
@@ -96,8 +102,8 @@ these facts.
    outside the core workspace members.
 
 2. **One operator, many hosts: every host is a hearth.** *(Core.)*
-   Built once decision 0068's dispatcher is, against `runs.origin_host`,
-   `forge.host/v1` and decision 0083's `.brokkr/state/`.
+   Built once decision 0068's dispatcher is, against `runs.origin_host`
+   and `forge.host/v1`.
    - **One journal per host.** A host is any machine, virtual machine or
      container that runs Brokkr with its own journal. A container running
      Brokkr is a host: its journal lives on a volume, and it has its own
@@ -106,8 +112,9 @@ these facts.
      hosts or placed on a network filesystem (0026, 0029, #394).
    - **Host identity on every run.** Each host has a stable host id,
      generated once and kept beside its journal. Every run manifest records
-     it, and every readout that names a run can show it, extending the
-     `origin_host` fingerprint the runs table already writes for every run.
+     it, and every readout that names a run can show it. It extends the
+     `origin_host` fingerprint, which the runs table writes only for a run
+     it creates and can place, and which an import leaves empty.
    - **One view across hosts.** A deterministic verb, `brokkr collect`,
      gathers runs from the operator's hosts into a read-only fleet journal
      under decision 0027. It reads published anchors from the repository's
@@ -125,8 +132,7 @@ these facts.
    test that a tampered anchor is refused and a second collect adopts
    nothing; and a fleet-journal TUI test.
 
-3. **Work reaches a host through git, claimed once.** *(Core; proposed
-   mechanism.)* Built with ruling 2, once 0068's dispatcher is. Each host keeps its own queue in its own journal and runs
+3. **Work reaches a host through git, claimed once.** *(Core.)* Built with ruling 2, once 0068's dispatcher is. Each host keeps its own queue in its own journal and runs
    its own dispatcher (0068 ruling 1 is unchanged). Across hosts, a
    *fleet queue* lives in the repository as `refs/forge/queue/*`: each
    entry is a small file (recipe, repository, feature text, realm map,
@@ -203,6 +209,12 @@ these facts.
    on 2026-09-25 and 2026-09-26 (#394) and decision 0029's single-host
    fence both rule that out.
 
+   **Enforcement binding:** no new fence. The single-host fence stays
+   0029's and the import gates stay 0027's. The build adds a test that
+   `collect` writes the fleet journal only through 0027's import, beside
+   ruling 2's, and the events contract of ruling 5 carries no message
+   that writes.
+
 8. **Enterprise features are out of this tree's scope.** Roles, signed
    rulings between people, a team view across people, a shared runner fed
    by several people, account classes, per-person cost and standing
@@ -212,6 +224,11 @@ these facts.
    follows. The core carries the grant *seam* and its refusals (an
    uncovered act refuses). The grant schema and its verification move to
    the extension that verifies it.
+
+   **Enforcement binding:** `contracts/` gains the grant seam's verdict
+   contract and no grant schema; ruling 1's dependency lint keeps any
+   grant verifier out of the core crates; and ruling 4's refusal tests,
+   run on the grant seam, refuse an act that no extension covers.
 
 9. **Enactment, in order.** Each seam lands with its inert default, so
    every slice ships with no behaviour change:
