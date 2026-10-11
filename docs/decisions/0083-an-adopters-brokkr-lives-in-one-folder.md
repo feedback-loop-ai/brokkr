@@ -326,8 +326,12 @@ scaffold, and its layout stays.
    - **A file beside a moved script refuses the migration until it is
      moved or named; no script is read.** The rule is to refuse, not to
      move more: the move list stays what the compile read. A script moves
-     from its directory under the root, `<dir>/` (`scripts/`), to the same
-     place under `.brokkr/`, so a path it builds from its own place, such as
+     from the top-level directory it stands in under the root, `<dir>/`
+     (`scripts/`), to the same place under `.brokkr/`. `<dir>/` is always
+     the first component of the script's path: for `scripts/tools/deploy.sh`
+     it is `scripts/`, so `scripts/lib/common.sh` reached by
+     `../lib/common.sh` is a neighbour too. After the move, a path a script
+     builds from its own place, such as
      `"$(dirname "$0")/verify-lib.sh"`, names `.brokkr/scripts/verify-lib.sh`
      after the move, while a path from the repository root,
      `scripts/verify-lib.sh`, still names the root's file: the seat's
@@ -339,13 +343,15 @@ scaffold, and its layout stays.
      depth, that the move list lacks. Before any move, each neighbour
      refuses the migration unless the operator names it by `--leave
      <dir>/<neighbour>`, which says, on the command line as `--db` does,
-     that no moved script reaches it. The refusal lists every unnamed
+     that the file keeps its meaning where it stands: no moved script
+     reaches it from the script's own place, so any that reaches it names
+     it by its path from the repository root, which the move keeps. The refusal lists every unnamed
      neighbour, one per line in byte order, grouped by `<dir>/`:
 
      ```text
      these files stand in <dir>/ beside the scripts --migrate moves from it (<script>, …) and --migrate does not move them (decision 0083); nothing was moved:
        <dir>/<neighbour>
-     --migrate reads no script to learn whether one reaches them: move each out of <dir>/ first, or rerun with `--leave <dir>/<neighbour>` for each that no moved script reaches
+     --migrate reads no script to learn whether one reaches them: move each out of <dir>/ first, or rerun with `--leave <dir>/<neighbour>` for each that no moved script reaches from its own place
      ```
 
      A `--leave` path that is not a neighbour refuses the migration before
@@ -419,7 +425,9 @@ scaffold, and its layout stays.
      and `-shm`, and `.gitignore`. Any other entry in it, or a `.forge` that
      is not a directory, refuses the migration before any move, with
      `.forge/<entry> is not state --migrate knows (decision 0083); nothing
-     was moved: move or remove it first`, because a `.forge/` left standing
+     was moved: move or remove it first`, where a `.forge` that is not a
+     directory is named as `.forge` itself in place of `.forge/<entry>`,
+     because a `.forge/` left standing
      beside the new folder is the half-moved shape. `.forge/` is then empty
      and removed.
    - It then compiles the moved bundle and prints the old and the new
