@@ -113,8 +113,15 @@ scaffold, and its layout stays.
    gate's clean-tree check therefore holds with no edit to the operator's own
    `.gitignore`. The bundle's manifest walk skips `state` as a fourth
    unpinned top-level name, so a run writing its journal never moves its
-   bundle's identity. A bundle's script paths stay relative to the bundle,
-   which is `.brokkr/` itself, so `scripts/verify-seat.sh` keeps its spelling.
+   bundle's identity. In a bundle whose directory is a `.brokkr` folder,
+   discovered or named by `--bundle`, it also skips `.proof`, `.migrating`
+   and `.migrating.new`, the markers `brokkr init --migrate` writes (ruling
+   4), read from that ruling's one table of reserved places. While one
+   stands every verb but `--migrate` refuses before it compiles, so no run
+   ever reads a bundle past one, and the digest `--migrate` prints with
+   `.migrating` standing is the completed folder's. A bundle's script
+   paths stay relative to the bundle, which is `.brokkr/` itself, so
+   `scripts/verify-seat.sh` keeps its spelling.
    Capability definitions an adopter adds stand in the bundle directory, at
    `.brokkr/capabilities/`, by the same walk, and the tool dialects its
    grants name at `.brokkr/dialects/tools/`, because both are read from the
@@ -145,7 +152,11 @@ scaffold, and its layout stays.
    an OpenSpec one (which adds `dialects/`); nothing stands at the root, and
    no file `init` wrote contains the text `.forge/`. It
    adds `state_never_moves_the_bundle` there too: a compile's digest before
-   and after a file is written under `.brokkr/state/` is equal; and
+   and after a file is written under `.brokkr/state/` is equal, and so is
+   the digest of the walk `--migrate`'s closing compile makes before and
+   after a `.brokkr/.migrating` is written, while a top-level
+   `recipes/x/.migrating` beside a library bundle moves that bundle's
+   digest; and
    `a_folder_bundle_composes_no_base`: a `.brokkr/bundle.json` given
    `extends: "shared"`, with a recipe planted at `<root>/shared/bundle.json`,
    refuses with the text above exactly, from discovery and with `--bundle
@@ -593,9 +604,10 @@ scaffold, and its layout stays.
      refuses before any move (the third refusal above). Whatever a
      restatement or the move list misses, the proof refuses.
    - **No move lands on what the migration writes.** Besides the moves,
-     `--migrate` writes five places under `.brokkr/` itself:
+     `--migrate` writes six places under `.brokkr/` itself:
      `.brokkr/.proof` (the proof's marker below), `.brokkr/.migrating`
-     (the moves' marker below), `.brokkr/.gitignore`
+     and `.brokkr/.migrating.new` (the moves' marker and the name it is
+     written under before it is renamed in, below), `.brokkr/.gitignore`
      (the state bullet below), `.brokkr/agents/README.md` (above) and the
      `.brokkr/state/` subtree, which only the state moves fill. The build
      holds them in one table, which the writers and this check both read
@@ -667,8 +679,9 @@ scaffold, and its layout stays.
      moves or empties`; `read with other bytes, <old digest> before and
      <new digest> in the proof`; `read by the old compile from <old path>,
      and not by the proof's`; and `read by the proof's compile, and not by
-     the old one`. Only after the proof holds is the tree removed and the
-     listed moves made in the repository, in one pass. (The inputs
+     the old one`. Only after the proof holds are the tree's copies removed
+     and the listed moves made in the repository, in one pass, fenced as
+     the next bullet says. (The inputs
      compared are those read by reference, the move list's kind: a file a
      seat hires, an overlay `extends`, a seat's driver resolves to, a typed
      field names or the map names. Three directory walks are not inputs.
@@ -688,42 +701,94 @@ scaffold, and its layout stays.
      on it.) The closing
      compile then runs again there and must read by reference what the
      proof read; the migration holds every journal's lock, so
-     only a writer outside Brokkr can make them differ, and the output
-     then says so, naming the input, with the moves made. The tree's first
-     entry is `<root>/.brokkr/.proof`, written before any copy and removed
-     with the tree, so a crash during the proof leaves a folder every verb
-     refuses before reading it, ahead of the half-moved check, with
+     only a writer outside Brokkr can make them differ, and then the
+     marker below stands and `--migrate` refuses, naming the input. The
+     tree's first entry is `<root>/.brokkr/.proof`, written before any
+     copy, in every shape, and removed only as the first action of the
+     marker below, so while it stands nothing at the root has moved. A
+     crash during the proof leaves a folder every verb refuses before
+     reading it, after the unfinished-migration check below and ahead of
+     the half-moved check, with
      `<root>/.brokkr/ is an unfinished --migrate proof (decision 0083);
      nothing at the root was moved: remove <root>/.brokkr/ and rerun
      brokkr init --migrate`, so a stray tree is never read as the folder
      and the originals are never named for removal. In the state-only
-     shape the move list holds no file a compile reads, so there is
-     nothing to prove, and the state moves alone.
-   - **The moves are fenced as the proof is.** The proof's tree goes,
-     `.proof` with it, before the first real move. Then `--migrate` writes
+     shape the move list holds no file a compile reads, so the proof
+     builds no copy, has nothing to compare and holds at once.
+   - **The real pass is fenced as the proof is.** Once the proof holds and
+     its copies are removed, `.proof` still standing, `--migrate` writes
      `<root>/.brokkr/.migrating`, in every shape, the state-only one
-     included. It lists every move it will make, one `<from> -> <to>` line
-     in the order it makes them, the state moves included. It removes the
-     marker only after the last move and the closing compile. While the
+     included: it writes the whole marker to `.brokkr/.migrating.new`,
+     flushes it to disk and renames it in, so the marker is never read half
+     written. It is a typed record, parsed once with unknown fields denied
+     (decision 0071 ruling 3), that holds the real pass whole, so a rerun
+     reads nothing the first run knew that the marker does not hold:
+     - every action the pass makes, in the order it makes them, each
+       checkable by its own entry: the removal of `.brokkr/.proof`, first;
+       each move, `<from> -> <to>`, the state moves included; each change
+       of a moved file's bytes, the map's rewrite and every restatement,
+       as `<path>: <old digest> -> <new digest>` with the new bytes; each
+       write, `.brokkr/.gitignore` and `.brokkr/agents/README.md`, with
+       its bytes; the removal of `.forge/.gitignore`, with its digest; and
+       the removal of the emptied `.forge/`, last;
+     - the proof's record: each input its compile read, with the path that
+       named it, every link it followed and the digest of the file it
+       reached, and the old digest the output prints.
+
+     It removes the marker only after the last action, and only once the
+     closing compile in the moved folder has read by reference exactly
+     the inputs the marker's record holds, by the proof's rule. While the
      marker stands, every verb refuses before it reads the folder or opens
-     any store, ahead of the half-moved check, with
+     any store, first of the layout checks, ahead of the unfinished-proof
+     and half-moved checks, with
      `<root>/.brokkr/ is an unfinished --migrate (decision 0083); the
-     moves listed in <root>/.brokkr/.migrating are partly made, and every
+     actions listed in <root>/.brokkr/.migrating are partly made, and every
      file not yet moved is kept where it stands: rerun brokkr init
-     --migrate to finish them`. So a crash mid-move never leaves a layout
+     --migrate to finish them`. A marker that does not parse, which the
+     rename-in leaves no crash to produce, fails closed: every verb and
+     `--migrate` refuse with `<root>/.brokkr/.migrating cannot be read
+     (decision 0083); nothing was changed: <error>`. So a crash anywhere in the real pass never leaves a layout
      that no refusal matches, no store opens a fresh journal at the new
-     default while the history sits at the old one, and the originals
-     are never named for removal.
-     The rerun reads the marker's list as its only plan, in order:
+     default, or at a path an unrewritten map names, while the history
+     sits elsewhere, and the originals are never named for removal.
+     The rerun reads the marker as its only plan. It reads the shape of
+     every action first, in order, by its own entry and never through a
+     link, each against what the actions before it will have made, and
+     makes none until every one reads as to be made or as done:
      - a move whose source stands and whose destination does not is made;
-     - one whose destination stands and whose source does not is done;
-     - any other shape (both stand, or neither) refuses, naming the move,
-       with `<from> -> <to>: --migrate cannot tell whether this move was
-       made (decision 0083); nothing was changed`, and changes nothing.
-     Each entry is read by its own entry, never through a link. The rerun
-     then runs the closing compile and removes the marker. A crash
-     between the proof's removal and the marker's writing leaves the old
-     layout whole, which its own refusal names.
+       one whose destination stands and whose source does not is done; a
+       tracked one is staged as `git mv` stages it either way;
+     - a change of bytes whose file has the old digest is made, with the
+       marker's bytes; one whose file has the new digest is done;
+     - a write whose place is absent is made; one whose place has the
+       marker's digest is done;
+     - a removal whose entry stands with the marker's digest, or as an
+       empty directory for `.forge/`, is made; one whose entry is absent is
+       done;
+     - any other shape (both ends of a move stand, or neither; a file with
+       a third digest; a place holding other bytes; a `.forge/` that holds
+       an entry) refuses, naming the action, with `<action>: --migrate
+       cannot tell whether this action was made (decision 0083); nothing
+       was changed`, and changes nothing.
+
+     Every action is made or found done before the closing compile runs,
+     so a second crash during the rerun leaves the marker standing and a
+     plan the next rerun reads the same way. The closing compile is then
+     compared with the marker's record, as the proof's was with the old
+     compile's. When they differ, the marker stands, nothing more is
+     changed, and `--migrate` refuses, one line per input in byte order
+     with the proof's closed reasons:
+
+     ```text
+     --migrate made every listed action, but its closing compile did not read what its proof read (decision 0083); <root>/.brokkr/.migrating stands
+       <input>: <reason>
+     restore each input's bytes and rerun brokkr init --migrate
+     ```
+
+     Only when they agree is the marker removed, and the output printed.
+     A crash before `.migrating` is renamed in leaves `.proof` standing and
+     nothing at the root moved, which the unfinished-proof refusal names;
+     `.migrating.new` goes with the folder its remedy removes.
    - **The journal moves; it is never read in place.** `forge.db` moves with
      its `-wal` and `-shm` files, together, because a write-ahead log can hold
      committed history, and so does every journal the map names that
@@ -756,9 +821,14 @@ scaffold, and its layout stays.
      so a journal reached through a link would no longer resolve after the
      move, and the store would open a fresh one there. `.forge/` is then
      empty and removed.
-   - It then compiles the moved bundle and prints the old and the new
-     digest. In the state-only shape no bundle moved, so there is none to
-     compile, and the closing line is the refusal's `then brokkr init .`.
+   - It then prints the old digest, from the marker's record, and the new
+     one, the closing compile's. That compile runs while `.migrating`
+     stands, and the walk of a `.brokkr` folder's bundle skips the markers
+     (ruling 1), so the new digest is the one a fresh compile of the
+     completed folder gives once the marker is gone, a rerun's included.
+     In the state-only shape no bundle moved, so the record is empty,
+     there is no closing compile, and the closing line is the refusal's
+     `then brokkr init .`.
 
    There is no one-release read-in-place of `.forge/`: the refusal fires
    before a store opens, so a fresh empty journal can never appear at the new
@@ -937,24 +1007,47 @@ scaffold, and its layout stays.
    text exactly, naming `.forge/forge.db` and then `.forge`; no `.brokkr/`
    is created, and every byte and every link's text is unchanged);
    `an_interrupted_migration_refuses_until_it_is_finished` (`init`'s old
-   output with a journal and its `-wal`, migrated by a build whose test
-   hook stops the moves after the move of `.forge/forge.db` and before
-   that of its `-wal`; then the same in a root layout whose map names a
-   journal outside `.forge/` and which holds no `.forge`, stopped after
+   output with a journal and its `-wal`, and a bundle whose `policy` is
+   the absolute `<root>/policy.json`, migrated by a build whose test hook
+   stops the real pass at one action, once for each of these places: after
+   `.migrating` is renamed in and before `.proof` is removed; after the
+   move of `.forge/forge.db` and before that of its `-wal`; after
+   `realms.json` moves and before its rewrite; after `bundle.json` moves
+   and before its `policy` is restated; before the `.brokkr/.gitignore`
+   and `.brokkr/agents/README.md` writes; and before `.forge/` is
+   removed; then the same in a root layout whose map names a journal
+   outside `.forge/` and which holds no `.forge`, stopped after
    `bundle.json` moves and before `realms.json` does. In each, `brokkr
    run --feature x`, `brokkr conclude --run x --reason y` and `brokkr
    doctor`'s folder line give the unfinished-migration text exactly, no
-   store is opened or created and no `.brokkr/state/forge.db` appears
-   that was not moved there, and every byte is unchanged. Then `brokkr
-   init --migrate` finishes the listed moves, the closing compile passes,
-   and the marker is gone. A marker whose list names a move whose source
-   and destination both stand refuses with that text exactly and changes
-   nothing);
+   store is opened or created, no journal appears at any path it was not
+   moved to (`.brokkr/.forge/forge.db`, which the unrewritten map names
+   from the moved map's directory, included), and every byte is
+   unchanged. Then `brokkr init --migrate`, stopped again by the hook at
+   its next action, leaves the same refusal and a marker that reads the
+   same; a third run finishes every listed action, its closing compile
+   reads by reference exactly the inputs the marker's record holds, the
+   marker is gone, and the folder's bytes equal those of the same
+   migration run without a stop. A marker whose list names a move whose
+   source and destination both stand, and one naming a restatement whose
+   file has a third digest, each listed after a move still to be made,
+   refuse with that text exactly and change nothing, that move included;
+   a marker cut short refuses as unreadable and changes nothing;
+   and a moved charter's bytes edited after every action is made, before
+   the closing compile, leave the marker standing and refuse with the
+   closing-compile text exactly, naming that charter);
+   `migrate_prints_the_completed_folders_digest` (`init`'s old output
+   migrated straight through, and again finished by a rerun after a stop
+   before `.forge/` is removed: in each, the new digest `--migrate`
+   prints equals the digest `brokkr compile --bundle .brokkr` prints once
+   the marker is gone);
    `an_unfinished_proof_refuses` (the root layout with a
-   `<root>/.brokkr/.proof` planted beside a partial copy: `brokkr run
-   --feature x`, `brokkr doctor`'s folder line and `--migrate` each give
-   the unfinished-proof text exactly, and no root file is named for
-   removal); `migrate_refuses_to_move_an_unattested_script` (in `init`'s
+   `<root>/.brokkr/.proof` planted beside a partial copy, and again with a
+   `.brokkr/.migrating.new` beside it: `brokkr run --feature x`, `brokkr
+   doctor`'s folder line and `--migrate` each give the unfinished-proof
+   text exactly, and no root file is named for removal; with `.proof` and
+   a `.migrating` both standing, each gives the unfinished-migration text
+   instead); `migrate_refuses_to_move_an_unattested_script` (in `init`'s
    old output with a root `Cargo.toml`, and `scripts/verify-seat.sh`
    replaced by a gate that writes `fail` when
    `"$(dirname "$0")/../Cargo.toml"` names a file and `pass` otherwise,
