@@ -200,23 +200,23 @@ BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test
 
 The full suite, untruncated: the tests a plain cargo test of the whole
 workspace with every feature runs, each exactly once, built once and run
-as shards (#633). The slow binaries (every library's unit
-tests, the `it` binaries, the heap measurements) run at once, each shard
+as shards (#633). The shards run one after another, never at once, each
 with its own output and exit status, and capability_broker's real-box
-tests, which are bound to the broker's startup deadline, run after them,
-alone. The script first holds its shards to Cargo's metadata: a test
-target no shard runs, or one two shards run, is refused by name, so a new
-`[[test]]` is placed in a shard in the script before it can pass. Each
-shard's libtest summaries are read as the one-binary test guard reads a
-run's: one it cannot read, or none at all, refuses the shard, and so does
-a filtered shard that ran no test. A shard whose runner records no exit
-status is refused as `no exit status recorded`, and its log is still
-printed. Every later phase is then `not started`, because its command
-may still be running and capability_broker could not be shown to run
-alone. The run then keeps its logs in the directory it names, since a
-runner may still be writing to them; a run with every status recorded
-removes them. A plain
-cargo test runs the same tests, one binary after another. On Linux,
+tests, which are bound to the broker's startup deadline, are the last
+shard. A failing shard stops nothing: the run fails once every shard has
+run, naming each failure. The script first holds its shards to Cargo's
+metadata: a test target no shard runs, or one two shards run, is refused
+by name, so a new `[[test]]` is placed in a shard in the script before it
+can pass. Each shard's libtest summaries are read as the one-binary test
+guard reads a run's: one it cannot read, or none at all, refuses the
+shard, and so does a filtered shard that ran no test. A shard whose
+runner records no exit status is refused as `no exit status recorded`,
+and its log is still printed. Every later shard is then `not started`,
+because the unrecorded shard's command may still be running and no later
+shard could be shown to run alone. The run then keeps its logs in the
+directory it names, since a runner may still be writing to them; a run
+with every status recorded removes them. A plain cargo test runs the same
+tests, also one binary after another. On Linux,
 install bubblewrap first: the
 hands tests build a real namespace (decision 0043), and a boundary proof
 that cannot open one skips, which a Rust test reports as `ok`.
@@ -315,8 +315,9 @@ BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh
 
 Literal 100% of lines, branches and functions across the workspace, or
 refusal. There is no threshold to lower. Its instrumented suite runs
-through the same shards as [the workspace suite](#the-workspace-suite), and
-the report merges every shard's profiles before any check reads them. The
+through the same shards as [the workspace suite](#the-workspace-suite), one
+after another, and the report merges every shard's profiles before any
+check reads them. The
 script does not set
 `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` itself; CI does, because the gate
 counts regions a skipped boundary proof never enters, so set it as the

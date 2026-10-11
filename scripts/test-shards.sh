@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# The workspace suite with its slow test binaries run at once (#633). `cargo
-# test` runs the test binaries one after another, and on CI's four cores
-# brokkr-protocol's unit tests, brokkr-cli's `it` and the three heap
-# measurements are most of the wall clock. This script runs the same tests,
-# each exactly once, as shards: the shards of a phase run concurrently, each
-# with its own output and its own exit status, and the phases run in order.
-# The run fails when any shard fails, and only after every shard has ended.
+# The workspace suite as shards (#633). This script runs the tests `cargo
+# test --workspace` runs, each exactly once, as shards run one after
+# another in plan order, each with its own output and its own exit status.
+# They never run at once: libtest already spreads one binary across every
+# core, so on CI's four a second binary beside it bought about a minute and
+# cost timing-sensitive tests their margins (the operator's ruling of
+# 2026-10-11). The run fails when any shard fails, and only after every
+# shard has run.
 #
 #   scripts/test-shards.sh test                 the test jobs' suite, doctests included
 #   scripts/test-shards.sh coverage <nightly>   the exact coverage gate's instrumented run
@@ -15,8 +16,8 @@
 # package: Cargo unifies features over the selected packages, so a shard of
 # one package would build, and test, another binary than the suite does.
 # capability_broker's real-box tests are deadline-bound by design and must
-# not share the runner with another heavy binary, so they run alone, in the
-# second phase; the first phase runs `it` with them skipped. A libtest
+# not share the runner with another heavy binary, so they are their own
+# shard, the last; the shard before runs `it` with them skipped. A libtest
 # `--skip F` and the filter `F` select complementary tests, so that split
 # runs each of `it`'s tests exactly once.
 #
@@ -32,9 +33,9 @@
 # shard whose run shows no executed test, since its filter matches nothing
 # (#543). A shard whose runner ends without recording its exit status is
 # refused by name, and the logs are then kept, since its command may still
-# be writing them; for the same reason no later phase is started, since it
+# be writing them; for the same reason no later shard is started, since it
 # could not be shown to run alone. A shard that merely fails stops nothing:
-# every phase still runs, as `--no-fail-fast` would. The threat model is
+# every later shard still runs, as `--no-fail-fast` would. The threat model is
 # the operator's of 2026-09-26: realistic accidental misuse is caught, and
 # what cannot be read is refused.
 set -euo pipefail
@@ -49,27 +50,25 @@ usage() {
   exit 2
 }
 
-# The shards, in phase order. A selector is `lib` (every library's unit
-# tests), `bin:<name>`, `test:<name>` or `doc` (every library's doctests,
-# alone in its shard); `skip:<filter>` and `only:<filter>` pass libtest a
-# skip or a filter.
-shard_phase=()
+# The shards, in the order they run. A selector is `lib` (every library's
+# unit tests), `bin:<name>`, `test:<name>` or `doc` (every library's
+# doctests, alone in its shard); `skip:<filter>` and `only:<filter>` pass
+# libtest a skip or a filter.
 shard_name=()
 shard_selectors=()
 shard() {
-  shard_phase+=("$1")
-  shard_name+=("$2")
-  shift 2
+  shard_name+=("$1")
+  shift
   shard_selectors+=("$*")
 }
-shard 1 'every library' lib
-shard 1 "the it binaries, capability_broker skipped" test:it skip:capability_broker::
-shard 1 'the heap measurements' test:heap_claude test:heap_codex test:heap_dsh
-shard 1 'the other own-process binaries' bin:brokkr test:driver_conformance test:transcript_surfaces \
+shard 'every library' lib
+shard "the it binaries, capability_broker skipped" test:it skip:capability_broker::
+shard 'the heap measurements' test:heap_claude test:heap_codex test:heap_dsh
+shard 'the other own-process binaries' bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
   test:seatbelt_lifetime_probe
-shard 1 'the doctests' doc
-shard 2 'capability_broker, alone' test:it only:capability_broker::
+shard 'the doctests' doc
+shard 'capability_broker, alone' test:it only:capability_broker::
 
 mode="${1:-}"
 case "$mode" in
@@ -190,17 +189,17 @@ argv_of() {
 if [ "$mode" = plan ]; then
   for index in "${planned[@]}"; do
     argv_of "$index"
-    printf 'phase %s, %s:%s\n' "${shard_phase[$index]}" "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
+    printf '%s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
   done
   exit 0
 fi
 
 # Every test binary is built once, before any shard runs, so a compile
-# error is reported once, the shards start together, and no shard's tests,
-# some of them bound to a wall-clock deadline, run beside another shard's
-# build. cargo-llvm-cov cannot build without running, so the coverage mode
-# runs every binary once with libtest's `--list`, which executes no test and
-# runs no workspace code before `main`, so it adds no count to the report.
+# error is reported once and no shard's tests, some of them bound to a
+# wall-clock deadline, run beside a build. cargo-llvm-cov cannot build
+# without running, so the coverage mode runs every binary once with
+# libtest's `--list`, which executes no test and runs no workspace code
+# before `main`, so it adds no count to the report.
 if [ "$mode" = test ]; then
   "${prefix[@]}" --no-run
 else
@@ -230,7 +229,7 @@ summary_refusal() {
 work="$(mktemp -d "${TMPDIR:-/tmp}/brokkr-test-shards.XXXXXX")"
 # The logs are removed on exit only once every shard's runner has been
 # reaped and each recorded its status: a runner that died first may leave
-# its command still writing, and a run cut short leaves runners going.
+# its command still writing, and a run cut short leaves a runner going.
 settled=false
 trap 'if "$settled"; then rm -rf "$work"; fi' EXIT
 
@@ -238,72 +237,61 @@ failed=()
 shard_status=()
 shard_seconds=()
 lost=false
-run_phase() {
-  local phase="$1" index pids=() indices=() at waited status seconds refusal
+# Runs the shard $1 and waits for its runner, which records the command's
+# exit status and seconds, before anything else runs.
+run_shard() {
+  local index="$1" waited=0 status='' seconds='' refusal
   local status_re='^[0-9]+ [0-9]+$'
-  for index in "${planned[@]}"; do
-    [ "${shard_phase[$index]}" = "$phase" ] || continue
-    argv_of "$index"
-    printf 'test shards: phase %s starts %s:%s\n' "$phase" "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
-    (
-      set +e
-      start="$SECONDS"
-      "${argv[@]}" >"$work/$index.log" 2>&1
-      status=$?
-      printf '%s %s\n' "$status" "$((SECONDS - start))" >"$work/$index.status"
-    ) &
-    pids+=("$!")
-    indices+=("$index")
-  done
-  for at in "${!pids[@]}"; do
-    index="${indices[$at]}"
-    waited=0
-    # Bash's own notice of a runner killed by a signal is replaced by the
-    # refusal below, which names the runner's exit.
-    wait "${pids[$at]}" 2>/dev/null || waited=$?
-    status='' seconds=''
-    if [ -s "$work/$index.status" ]; then read -r status seconds <"$work/$index.status" || true; fi
-    if ! [[ "$status $seconds" =~ $status_re ]]; then
-      lost=true
-      shard_status[$index]=none
-      printf '\n==> %s (phase %s): no exit status recorded, its runner ended with exit %s; the logs are kept in %s\n' \
-        "${shard_name[$index]}" "$phase" "$waited" "$work"
-      if [ -f "$work/$index.log" ]; then cat "$work/$index.log"; fi
-      failed+=("${shard_name[$index]} recorded no exit status (its runner ended with exit $waited), so it is not shown to have passed")
-      continue
-    fi
-    shard_status[$index]="$status"
-    shard_seconds[$index]="$seconds"
-    printf '\n==> %s (phase %s): exit %s after %ss\n' "${shard_name[$index]}" "$phase" "$status" "$seconds"
-    cat "$work/$index.log"
-    if [ "$status" -ne 0 ]; then
-      failed+=("${shard_name[$index]} failed with exit $status")
-    fi
-    refusal="$(summary_refusal "$work/$index.log" "$index")"
-    if [ -n "$refusal" ]; then failed+=("${shard_name[$index]} $refusal"); fi
-  done
+  argv_of "$index"
+  printf 'test shards: runs %s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
+  (
+    set +e
+    start="$SECONDS"
+    "${argv[@]}" >"$work/$index.log" 2>&1
+    status=$?
+    printf '%s %s\n' "$status" "$((SECONDS - start))" >"$work/$index.status"
+  ) &
+  # Bash's own notice of a runner killed by a signal is replaced by the
+  # refusal below, which names the runner's exit.
+  wait "$!" 2>/dev/null || waited=$?
+  if [ -s "$work/$index.status" ]; then read -r status seconds <"$work/$index.status" || true; fi
+  if ! [[ "$status $seconds" =~ $status_re ]]; then
+    lost=true
+    shard_status[$index]=none
+    printf '\n==> %s: no exit status recorded, its runner ended with exit %s; the logs are kept in %s\n' \
+      "${shard_name[$index]}" "$waited" "$work"
+    if [ -f "$work/$index.log" ]; then cat "$work/$index.log"; fi
+    failed+=("${shard_name[$index]} recorded no exit status (its runner ended with exit $waited), so it is not shown to have passed")
+    return
+  fi
+  shard_status[$index]="$status"
+  shard_seconds[$index]="$seconds"
+  printf '\n==> %s: exit %s after %ss\n' "${shard_name[$index]}" "$status" "$seconds"
+  cat "$work/$index.log"
+  if [ "$status" -ne 0 ]; then
+    failed+=("${shard_name[$index]} failed with exit $status")
+  fi
+  refusal="$(summary_refusal "$work/$index.log" "$index")"
+  if [ -n "$refusal" ]; then failed+=("${shard_name[$index]} $refusal"); fi
 }
 
-phases="$(printf '%s\n' "${shard_phase[@]}" | sort -un)"
-for phase in $phases; do
+for index in "${planned[@]}"; do
   if ! "$lost"; then
-    run_phase "$phase"
+    run_shard "$index"
     continue
   fi
-  for index in "${planned[@]}"; do
-    if [ "${shard_phase[$index]}" = "$phase" ]; then shard_status[$index]=unstarted; fi
-  done
-  failed+=("phase $phase was not started: an earlier runner recorded no exit status, so its command may still be running and the phase cannot be shown to run alone")
+  shard_status[$index]=unstarted
+  failed+=("${shard_name[$index]} was not started: an earlier runner recorded no exit status, so its command may still be running and the shard cannot be shown to run alone")
 done
 if ! "$lost"; then settled=true; fi
 
 printf '\n'
 for index in "${planned[@]}"; do
   case "${shard_status[$index]}" in
-    none) printf 'test shards: phase %s, %s: no exit status recorded\n' "${shard_phase[$index]}" "${shard_name[$index]}" ;;
-    unstarted) printf 'test shards: phase %s, %s: not started\n' "${shard_phase[$index]}" "${shard_name[$index]}" ;;
+    none) printf 'test shards: %s: no exit status recorded\n' "${shard_name[$index]}" ;;
+    unstarted) printf 'test shards: %s: not started\n' "${shard_name[$index]}" ;;
     *)
-      printf 'test shards: phase %s, %s: exit %s after %ss\n' "${shard_phase[$index]}" "${shard_name[$index]}" \
+      printf 'test shards: %s: exit %s after %ss\n' "${shard_name[$index]}" \
         "${shard_status[$index]}" "${shard_seconds[$index]}"
       ;;
   esac

@@ -404,7 +404,7 @@ merged_only_this_run() {
 }
 
 # The instrumented suite runs as the test jobs' does (#633): each test
-# target exactly once, the slow binaries at once, capability_broker alone,
+# target exactly once, one shard after another, capability_broker last,
 # every profile into this one target. The report then merges them all, so
 # every check below reads the union, as it read the one run before.
 bash scripts/test-shards.sh coverage "$nightly" 9>&-

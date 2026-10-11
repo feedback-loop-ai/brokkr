@@ -181,8 +181,8 @@ jobs:
           protect-system-tree: 'true'
           cache-build: 'true'
       # The suite `cargo test --workspace --all-features --locked
-      # --no-fail-fast` runs, each test target exactly once, with its slow
-      # binaries at once and capability_broker alone (#633).
+      # --no-fail-fast` runs, each test target exactly once, as shards run
+      # one after another, capability_broker last (#633).
       - run: bash scripts/test-shards.sh test
         env:
           # Decision 0054 ruling 9: a boundary proof that cannot open a

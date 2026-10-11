@@ -1,11 +1,11 @@
-//! The workspace suite as concurrent shards (#633): `scripts/test-shards.sh`
-//! runs the tests `cargo test --workspace` runs, each test target exactly
-//! once, the first phase's shards at once and capability_broker alone after
-//! them. What it refuses is bound here: its shards are held to the real
-//! tree's `cargo metadata`, a planted target no shard runs, one run twice,
-//! a selector that names nothing or cannot be read is refused by name, and
-//! with a `cargo` stub first on `PATH` the phases, the failures and a
-//! filter that matches nothing are each shown.
+//! The workspace suite as shards (#633): `scripts/test-shards.sh` runs the
+//! tests `cargo test --workspace` runs, each test target exactly once, one
+//! shard after another and capability_broker last. What it refuses is
+//! bound here: its shards are held to the real tree's `cargo metadata`, a
+//! planted target no shard runs, one run twice, a selector that names
+//! nothing or cannot be read is refused by name, and with a `cargo` stub
+//! first on `PATH` the order, the failures and a filter that matches
+//! nothing are each shown.
 
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Output};
@@ -54,14 +54,14 @@ fn metadata() -> Metadata {
 
 /// A stand-in for `cargo`: `metadata` prints the planted metadata; every
 /// other call is recorded, and a shard's call prints one libtest summary.
-/// A first-phase shard waits until the whole first phase has started, so
-/// a runner that ran them one at a time fails here; the second phase
-/// fails unless the whole first phase has ended. `STUB_FAIL` names a word
-/// whose shard fails, `STUB_EMPTY=2` makes the second phase run no test,
-/// `STUB_PLANT` names a word whose shard prints `STUB_LINES` in place of
-/// its summary and exits 0, and `STUB_KILL` one whose shard kills its
-/// runner, the script's subshell, before the runner records its status,
-/// and keeps running, not yet ended, until the scratch's `release` exists.
+/// A shard's call also records `start` and `end` with its arguments in
+/// `events`, and takes a moment between them, so two shards run at once
+/// show as interleaved. `STUB_FAIL` names a word whose shard fails,
+/// `STUB_EMPTY` one whose shard runs no test, `STUB_PLANT` one whose shard
+/// prints `STUB_LINES` in place of its summary and exits 0, and
+/// `STUB_KILL` one whose shard kills its runner, the script's subshell,
+/// before the runner records its status, and keeps running, not yet
+/// ended, until the scratch's `release` exists.
 const STUB: &str = r#"#!/usr/bin/env bash
 dir="$STUB_DIR"
 if [ "$1" = metadata ]; then cat "$dir/metadata.json"; exit 0; fi
@@ -70,38 +70,25 @@ case " $* " in *" --no-run "* | *" --list "*) exit 0 ;; esac
 summary() {
   printf 'test result: %s. %s passed; %s failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n' "$1" "$2" "$3"
 }
-phase=1
-case " $* " in *" --skip "*) ;; *" capability_broker:: "*) phase=2 ;; esac
-if [ "$phase" = 1 ]; then
-  : > "$dir/started/$$"
-  tries=0
-  while started=("$dir"/started/*); [ "${#started[@]}" -lt "$STUB_PHASE_ONE" ]; do
-    tries=$((tries + 1))
-    if [ "$tries" -ge 600 ]; then echo 'stub: the first phase did not start together'; summary FAILED 0 1; exit 101; fi
-    sleep 0.05
-  done
-else
-  ended=("$dir"/ended/*)
-  if [ ! -e "${ended[0]}" ] || [ "${#ended[@]}" -ne "$STUB_PHASE_ONE" ]; then
-    echo 'stub: capability_broker started beside the first phase'; summary FAILED 0 1; exit 101
-  fi
-fi
+names() { local word="$1"; shift; [ -n "$word" ] && [[ " $* " == *" $word "* ]]; }
+printf 'start %s\n' "$*" >> "$dir/events"
+sleep 0.2
 status=0
-if [ -n "${STUB_FAIL:-}" ] && [[ " $* " == *" $STUB_FAIL "* ]]; then
+if names "${STUB_FAIL:-}" "$@"; then
   summary FAILED 0 1; status=101
-elif [ -n "${STUB_PLANT:-}" ] && [[ " $* " == *" $STUB_PLANT "* ]]; then
+elif names "${STUB_PLANT:-}" "$@"; then
   printf '%s' "$STUB_LINES"
-elif [ "${STUB_EMPTY:-}" = "$phase" ]; then
+elif names "${STUB_EMPTY:-}" "$@"; then
   summary ok 0 0
 else
   summary ok 1 0
 fi
-if [ -n "${STUB_KILL:-}" ] && [[ " $* " == *" $STUB_KILL "* ]]; then
+if names "${STUB_KILL:-}" "$@"; then
   kill -KILL "$PPID"
   tries=0
   while [ ! -e "$dir/release" ] && [ "$tries" -lt 600 ]; do tries=$((tries + 1)); sleep 0.05; done
 fi
-if [ "$phase" = 1 ]; then : > "$dir/ended/$$"; fi
+printf 'end %s\n' "$*" >> "$dir/events"
 exit "$status"
 "#;
 
@@ -114,7 +101,7 @@ struct Scratch {
 impl Scratch {
     fn new(metadata: &Metadata, script: &str) -> Self {
         let dir = tempfile::tempdir().expect("scratch");
-        for sub in ["bin", "started", "ended", "tmp"] {
+        for sub in ["bin", "tmp"] {
             std::fs::create_dir(dir.path().join(sub)).expect("scratch directory");
         }
         let cargo = dir.path().join("bin/cargo");
@@ -127,9 +114,8 @@ impl Scratch {
     }
 
     /// The script run from the workspace with `args`, the stub first on
-    /// `PATH` and the scratch `tmp/` as `TMPDIR`, expecting `phase_one`
-    /// shards in its first phase.
-    fn run(&self, args: &[&str], phase_one: usize, env: &[(&str, &str)]) -> Output {
+    /// `PATH` and the scratch `tmp/` as `TMPDIR`.
+    fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
         let path = format!(
             "{}:{}",
             self.dir.path().join("bin").display(),
@@ -142,24 +128,48 @@ impl Scratch {
             .env("PATH", path)
             .env("STUB_DIR", self.dir.path())
             .env("TMPDIR", self.dir.path().join("tmp"))
-            .env("STUB_PHASE_ONE", phase_one.to_string())
             .envs(env.iter().copied())
             .output()
             .expect("the script runs")
     }
 
-    /// Every call the stub recorded but `metadata`, sorted.
-    fn calls(&self) -> Vec<String> {
-        let calls = std::fs::read_to_string(self.dir.path().join("calls")).unwrap_or_default();
-        let mut calls: Vec<String> = calls.lines().map(str::to_string).collect();
-        calls.sort();
-        calls
+    /// The lines the stub wrote to `file`, in order.
+    fn lines(&self, file: &str) -> Vec<String> {
+        let lines = std::fs::read_to_string(self.dir.path().join(file)).unwrap_or_default();
+        lines.lines().map(str::to_string).collect()
     }
+
+    /// Every call the stub recorded but `metadata`, in order.
+    fn calls(&self) -> Vec<String> {
+        self.lines("calls")
+    }
+
+    /// Each shard call's `start` and `end`, in order.
+    fn events(&self) -> Vec<String> {
+        self.lines("events")
+    }
+}
+
+/// The `start` and `end` of each of `shards` run after `prefix`, one
+/// shard after another.
+fn one_after_another(prefix: &str, shards: &[&str]) -> Vec<String> {
+    shards
+        .iter()
+        .flat_map(|shard| {
+            [
+                format!("start {prefix} {shard}"),
+                format!("end {prefix} {shard}"),
+            ]
+        })
+        .collect()
 }
 
 fn script() -> String {
     std::fs::read_to_string(workspace().join(SCRIPT)).expect("the shard script")
 }
+
+/// The test mode's arguments to `cargo` before a shard's selection.
+const TEST: &str = "test --workspace --all-features --locked --no-fail-fast";
 
 /// The test mode's shard commands after `cargo`, as the plan prints them.
 const SHARDS: [&str; 6] = [
@@ -180,12 +190,12 @@ const SHARDS: [&str; 6] = [
 #[test]
 fn the_real_trees_shards_are_its_whole_suite() {
     let names = [
-        "phase 1, every library",
-        "phase 1, the it binaries, capability_broker skipped",
-        "phase 1, the heap measurements",
-        "phase 1, the other own-process binaries",
-        "phase 1, the doctests",
-        "phase 2, capability_broker, alone",
+        "every library",
+        "the it binaries, capability_broker skipped",
+        "the heap measurements",
+        "the other own-process binaries",
+        "the doctests",
+        "capability_broker, alone",
     ];
     let plan: Vec<String> = names
         .iter()
@@ -219,7 +229,7 @@ fn cli_targets(metadata: &mut Metadata) -> &mut Vec<Target> {
 /// The planted metadata or table, the plan's exact refusal and its
 /// closing line.
 fn assert_refused(metadata: &Metadata, script: &str, problems: &[&str]) {
-    let run = Scratch::new(metadata, script).run(&["plan", "test"], 0, &[]);
+    let run = Scratch::new(metadata, script).run(&["plan", "test"], &[]);
     let expected: String = problems
         .iter()
         .map(|problem| format!("{problem}\n"))
@@ -320,40 +330,43 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
     );
 }
 
-/// Each mode builds as it can and runs every shard once: the first
-/// phase's shards at once (the stub fails a shard that starts alone) and
-/// capability_broker only after all of them ended. Each mode builds every
-/// binary first: the test mode with `--no-run`, the coverage mode, which
-/// runs through cargo-llvm-cov with no doctests, by listing every binary.
+/// Each mode builds every binary first, the test mode with `--no-run`,
+/// the coverage mode, which runs through cargo-llvm-cov with no doctests,
+/// by listing every binary, and then runs every shard once, in plan order,
+/// one after another: no shard starts before the one before it ended, so
+/// capability_broker, last, runs alone.
 #[test]
-fn the_first_phase_runs_at_once_and_capability_broker_alone_after_it() {
+fn every_shard_runs_alone_one_after_another_in_plan_order() {
     let real = metadata();
-    let test = "test --workspace --all-features --locked --no-fail-fast";
     let coverage = "+nightly-2026-09-05 llvm-cov --no-report --workspace --all-features --locked \
                     --branch --no-fail-fast";
-    let test_calls: Vec<String> = ["--no-run"]
-        .iter()
-        .chain(&SHARDS)
-        .map(|shard| format!("{test} {shard}"))
-        .collect();
-    let coverage_calls: Vec<String> = ["-- --list"]
-        .iter()
-        .chain(&SHARDS[..4])
-        .chain(&SHARDS[5..])
-        .map(|shard| format!("{coverage} {shard}"))
-        .collect();
-    for (args, phase_one, mut expected) in [
-        (&["test"][..], 5, test_calls),
-        (&["coverage", "nightly-2026-09-05"][..], 4, coverage_calls),
+    let coverage_shards: Vec<&str> = SHARDS[..4].iter().chain(&SHARDS[5..]).copied().collect();
+    for (args, prefix, build, shards) in [
+        (&["test"][..], TEST, "--no-run", SHARDS.to_vec()),
+        (
+            &["coverage", "nightly-2026-09-05"][..],
+            coverage,
+            "-- --list",
+            coverage_shards,
+        ),
     ] {
         let scratch = Scratch::new(&real, &script());
-        let run = scratch.run(args, phase_one, &[]);
+        let run = scratch.run(args, &[]);
+        assert_eq!(
+            scratch.events(),
+            one_after_another(prefix, &shards),
+            "{args:?}"
+        );
         assert_eq!(run.status.code(), Some(0), "{args:?}: {run:?}");
-        expected.sort();
-        assert_eq!(scratch.calls(), expected, "{args:?}");
+        let calls: Vec<String> = [build]
+            .iter()
+            .chain(&shards)
+            .map(|shard| format!("{prefix} {shard}"))
+            .collect();
+        assert_eq!(scratch.calls(), calls, "{args:?}");
         let stdout = String::from_utf8_lossy(&run.stdout);
         assert!(
-            stdout.contains("test shards: phase 2, capability_broker, alone: exit 0 after "),
+            stdout.contains("test shards: capability_broker, alone: exit 0 after "),
             "{stdout}"
         );
         // A settled run removes its work directory: nothing is left in TMPDIR.
@@ -366,24 +379,22 @@ fn the_first_phase_runs_at_once_and_capability_broker_alone_after_it() {
 }
 
 /// The test mode run over `metadata` with `env` fails with exactly
-/// `refusal`, only after every shard ran, the later phase included; its
-/// scratch and its stdout.
-fn refused_after_every_shard(
-    metadata: &Metadata,
-    env: &[(&str, &str)],
-    refusal: &str,
-) -> (Scratch, String) {
+/// `refusal`, only after every shard ran, each in its turn.
+fn refused_after_every_shard(metadata: &Metadata, env: &[(&str, &str)], refusal: &str) {
     let scratch = Scratch::new(metadata, &script());
-    let run = scratch.run(&["test"], 5, env);
+    let run = scratch.run(&["test"], env);
     assert_eq!(run.status.code(), Some(1), "{env:?}: {run:?}");
     assert_eq!(String::from_utf8_lossy(&run.stderr), refusal, "{env:?}");
-    assert_eq!(scratch.calls().len(), SHARDS.len() + 1, "{env:?}");
-    (scratch, String::from_utf8_lossy(&run.stdout).into_owned())
+    assert_eq!(
+        scratch.events(),
+        one_after_another(TEST, &SHARDS),
+        "{env:?}"
+    );
 }
 
-/// A failing shard fails the run only after every shard has ended, the
-/// later phase included, and is named with its exit; a filtered shard
-/// whose run executes no test is refused, since its filter matches none.
+/// A failing shard, the first, fails the run only after every later shard
+/// has run, and is named with its exit; a filtered shard whose run
+/// executes no test is refused, since its filter matches none.
 #[test]
 fn a_failed_shard_or_an_empty_filter_fails_the_run_after_every_shard() {
     let real = metadata();
@@ -393,13 +404,13 @@ fn a_failed_shard_or_an_empty_filter_fails_the_run_after_every_shard() {
             "test shards: every library failed with exit 101\n",
         ),
         (
-            ("STUB_EMPTY", "2"),
+            ("STUB_EMPTY", "-- capability_broker::"),
             "test shards: capability_broker, alone executed no test, so its filter matches none\n",
         ),
     ] {
         refused_after_every_shard(&real, &[env], refusal);
     }
-    let run = Scratch::new(&real, &script()).run(&["coverage", "nightly"], 0, &[]);
+    let run = Scratch::new(&real, &script()).run(&["coverage", "nightly"], &[]);
     assert_eq!(run.status.code(), Some(1), "{run:?}");
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
@@ -442,54 +453,59 @@ fn every_shards_summaries_are_read_and_an_unread_or_missing_one_refuses() {
     }
 }
 
-/// The stub's calls and how many first-phase shards ended, once the
-/// scratch's `release` has let an orphaned shard command end.
-fn after_release(scratch: &Scratch) -> (Vec<String>, usize) {
+/// The stub's events once the scratch's `release` has let an orphaned
+/// shard command end, which it records last.
+fn after_release(scratch: &Scratch, last: &str) -> Vec<String> {
     std::fs::write(scratch.dir.path().join("release"), "").expect("release");
     for _ in 0..600 {
-        if ended(scratch) == SHARDS.len() - 1 {
+        if scratch.events().last().map(String::as_str) == Some(last) {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    (scratch.calls(), ended(scratch))
-}
-
-/// How many first-phase shard commands have ended.
-fn ended(scratch: &Scratch) -> usize {
-    std::fs::read_dir(scratch.dir.path().join("ended"))
-        .expect("ended")
-        .count()
+    scratch.events()
 }
 
 /// A shard whose runner dies before it records the shard's exit status is
-/// refused by name; its log is still printed, the other shards are still
-/// collected, and the logs are kept, since the shard's command may outlive
-/// its runner. For that reason the later phase is not started, even once
-/// the orphaned command has ended: capability_broker could not be shown to
-/// run alone.
+/// refused by name; its log is still printed, the shards before it are
+/// still collected, and the logs are kept, since the shard's command may
+/// outlive its runner. For that reason no later shard is started, even
+/// once the orphaned command has ended: none could be shown to run alone.
 #[test]
 fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
     let scratch = Scratch::new(&metadata(), &script());
-    let run = scratch.run(&["test"], 5, &[("STUB_KILL", "--lib")]);
-    let running = ended(&scratch);
-    let (calls, finally) = after_release(&scratch);
+    let run = scratch.run(&["test"], &[("STUB_KILL", "heap_claude")]);
+    let ran = one_after_another(TEST, &SHARDS[..3]);
+    let running = scratch.events();
+    let finally = after_release(&scratch, &ran[5]);
+    assert_eq!((running.as_slice(), finally), (&ran[..5], ran.clone()));
     assert_eq!(run.status.code(), Some(1), "{run:?}");
+    let unstarted: String = [
+        "the other own-process binaries",
+        "the doctests",
+        "capability_broker, alone",
+    ]
+    .iter()
+    .map(|shard| {
+        format!(
+            "test shards: {shard} was not started: an earlier runner recorded no exit status, \
+             so its command may still be running and the shard cannot be shown to run alone\n"
+        )
+    })
+    .collect();
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
-        "test shards: every library recorded no exit status (its runner ended with exit 137), \
-         so it is not shown to have passed\n\
-         test shards: phase 2 was not started: an earlier runner recorded no exit status, so its \
-         command may still be running and the phase cannot be shown to run alone\n"
+        format!(
+            "test shards: the heap measurements recorded no exit status (its runner ended with \
+             exit 137), so it is not shown to have passed\n{unstarted}"
+        )
     );
-    assert_eq!((running, finally), (SHARDS.len() - 2, SHARDS.len() - 1));
-    let mut first_phase: Vec<String> = ["--no-run"]
+    let calls: Vec<String> = ["--no-run"]
         .iter()
-        .chain(&SHARDS[..5])
-        .map(|shard| format!("test --workspace --all-features --locked --no-fail-fast {shard}"))
+        .chain(&SHARDS[..3])
+        .map(|shard| format!("{TEST} {shard}"))
         .collect();
-    first_phase.sort();
-    assert_eq!(calls, first_phase);
+    assert_eq!(scratch.calls(), calls);
     let stdout = String::from_utf8_lossy(&run.stdout);
     let work: Vec<_> = std::fs::read_dir(scratch.dir.path().join("tmp"))
         .expect("the scratch TMPDIR")
@@ -497,17 +513,17 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
         .collect();
     assert_eq!(work.len(), 1, "{work:?}");
     let shown = format!(
-        "\n==> every library (phase 1): no exit status recorded, its runner ended with exit 137; \
+        "\n==> the heap measurements: no exit status recorded, its runner ended with exit 137; \
          the logs are kept in {}\n{ONE_TEST}",
         work[0].display()
     );
     for line in [
         shown.as_str(),
-        "\n==> the doctests (phase 1): exit 0 after ",
-        "test shards: phase 1, every library: no exit status recorded\n",
-        "test shards: phase 2, capability_broker, alone: not started\n",
+        "\n==> every library: exit 0 after ",
+        "test shards: the heap measurements: no exit status recorded\n",
+        "test shards: capability_broker, alone: not started\n",
     ] {
         assert!(stdout.contains(line), "{line}\n{stdout}");
     }
-    assert!(work[0].join("0.log").is_file(), "{work:?}");
+    assert!(work[0].join("2.log").is_file(), "{work:?}");
 }
