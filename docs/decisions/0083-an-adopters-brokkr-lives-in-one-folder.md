@@ -242,13 +242,19 @@ scaffold, and its layout stays.
    - **The root layout.** No `.brokkr/` is discovered, and the repository
      root holds a `bundle.json`: `init`'s old signature. No library root
      holds one.
-   - **Journal only.** No `.brokkr/` is discovered, the root holds a
-     `.forge/forge.db` and no `bundle.json`, and the repository bears no
-     library mark: an adopter who named its bundle with `--bundle` every
-     time. In a library, `.forge/forge.db` is the library's own journal
-     (ruling 3's last column) and is no old layout.
+   - **State only.** No `.brokkr/` is discovered, the root holds a `.forge`
+     entry, whatever it holds, even nothing, and no `bundle.json`, and the
+     repository bears no library mark: an adopter
+     who named its bundle with `--bundle` every time, or one whose only
+     Brokkr state is a secret, because `brokkr secrets set` creates
+     `.forge/secrets.env` with no journal and no scaffold, as a run's
+     `results/` and `ledger/` can stand with no `forge.db`. The predicate is
+     the `.forge` entry itself, not any one file in it, so no Brokkr state
+     is left at the retired path while the defaults read the folder. In a
+     library, `.forge/` is the library's own state (ruling 3's last column)
+     and is no old layout.
    - **Half moved.** A `.brokkr/` is discovered, and its parent still holds a
-     `bundle.json` or a `.forge/forge.db`. A repository is read from one
+     `bundle.json` or a `.forge` entry. A repository is read from one
      layout, never two.
 
    Each refuses, exits as a refusal and opens nothing. The root layout's
@@ -275,11 +281,13 @@ scaffold, and its layout stays.
    ```
 
    (The listing is abridged here; a refusal lists every move.) The
-   journal-only refusal opens `this repository has a Brokkr journal at
-   .forge/forge.db and no .brokkr/ folder (decision 0083); nothing was
-   opened`, lists the state moves alone in the same form, and closes `then
-   brokkr init . writes the scaffold beside the moved state`. The half-moved
-   refusal names each file still at the root and says which layout is in
+   state-only refusal opens `this repository has Brokkr state in .forge/
+   and no .brokkr/ folder (decision 0083); nothing was opened`, lists the
+   state moves alone in the same form (for a repository holding only a
+   secret, the one line `mv .forge/secrets.env .brokkr/state/secrets.env`),
+   and closes `then brokkr init . writes the scaffold beside the moved
+   state`. The half-moved refusal names each file still at the root, a
+   `.forge` entry included, and says which layout is in
    force: `<root>/.brokkr/ is this repository's folder, but <path> still
    stands at the root (decision 0083); move or remove it`.
 
@@ -315,6 +323,49 @@ scaffold, and its layout stays.
      operator's own by its bytes. It stays, and `--migrate` writes
      `.brokkr/agents/README.md` afresh, as `init` would. An old bundle that
      does not compile refuses the migration with its compile error.
+   - **A moved script's neighbours are read, and a name the move would
+     break refuses.** The rule is to refuse, not to move more: the move
+     list stays what the compile read. A script moves from its directory
+     under the root, `<dir>/` (`scripts/`), to the same place under
+     `.brokkr/`, so a path it builds from its own place, such as
+     `"$(dirname "$0")/verify-lib.sh"`, names `.brokkr/scripts/verify-lib.sh`
+     after the move, while a path from the repository root,
+     `scripts/verify-lib.sh`, still names the root's file: the seat's
+     working directory is the root before the move and after it (ruling 1's
+     realm path `..`). Its neighbours are the files under `<dir>/` the move
+     list lacks. Before any move, each moved script's text is read line by
+     line, and the first line that meets one of two cases refuses the
+     migration, case 1 first where a line meets both:
+
+     1. The line spells a neighbour's path from `<dir>/` (`verify-lib.sh`,
+        `lib/common.sh`) as a whole name, neither preceded nor followed by a
+        letter, digit, `.`, `_` or `-`, and not as the tail of the
+        neighbour's path from the root (`scripts/verify-lib.sh`), whatever
+        stands before it: `$(dirname "$0")/`, `./`, a variable or a quote.
+
+        ```text
+        <script>:<line> names <neighbour>, which stands beside it and --migrate does not move (decision 0083); nothing was moved: name it from the repository root as <neighbour>, or inline it, first
+        ```
+
+     2. `<dir>/` holds a neighbour, and the line locates the script itself
+        in a form the scan cannot follow to a name: it holds `BASH_SOURCE`,
+        `${0%` or `${0#`, or it holds `$0` or `${0}` together with
+        `dirname`, `realpath` or `readlink`. The first line of a moved
+        script whose first line names neither `sh` nor `bash` counts too,
+        because its language's ways of locating itself are not ones the
+        scan reads. `<neighbour>` is the first neighbour in byte order.
+
+        ```text
+        <script>:<line> locates the script, and <neighbour> stands beside it and --migrate does not move it (decision 0083); nothing was moved: build the script's paths from the repository root, or move <neighbour> out of <dir>/, first
+        ```
+
+     A path from the root is admitted because it names the same file before
+     and after the move, and a neighbour's path from the root of a script
+     standing at the root itself is its plain name, so such a script meets
+     only case 2. `init`'s own scripts meet neither case: they source
+     nothing, name no file beside them, and their only `$0` is awk's, on
+     lines with no `dirname`, so a project's `scripts/build.sh` beside them
+     stays and the migration goes on.
    - **Tracked files move by `git mv`**, so the move is staged and reviewable;
      untracked ones are renamed. `--migrate` commits nothing.
    - **The map is rewritten**, not reinterpreted, field by field after the
@@ -365,9 +416,17 @@ scaffold, and its layout stays.
      refuses the migration: journals never merge (decision 0026 ruling 5).
    - **The rest of the state moves** (`results/`, `scratch/`, `ledger/`,
      `tasks/`, `secrets.env`, `muninn.ndjson`), `.forge/.gitignore` is removed
-     and `.brokkr/.gitignore` written. `.forge/` is removed once empty; anything
-     left in it is named, never deleted.
-   - It then compiles the moved bundle and prints the old and the new digest.
+     and `.brokkr/.gitignore` written. That is the closed list of what
+     `.forge/` may hold: those entries, the journals above with their `-wal`
+     and `-shm`, and `.gitignore`. Any other entry in it, or a `.forge` that
+     is not a directory, refuses the migration before any move, with
+     `.forge/<entry> is not state --migrate knows (decision 0083); nothing
+     was moved: move or remove it first`, because a `.forge/` left standing
+     beside the new folder is the half-moved shape. `.forge/` is then empty
+     and removed.
+   - It then compiles the moved bundle and prints the old and the new
+     digest. In the state-only shape no bundle moved, so there is none to
+     compile, and the closing line is the refusal's `then brokkr init .`.
 
    There is no one-release read-in-place of `.forge/`: the refusal fires
    before a store opens, so a fresh empty journal can never appear at the new
@@ -380,14 +439,26 @@ scaffold, and its layout stays.
    `old_root_layout_refuses_with_the_migration_text` (it plants `init`'s old
    output with a journal and its `-wal`, runs `brokkr run --feature x`, and
    asserts the exact refusal, that no `.brokkr/` was created and that the
-   journal's bytes did not move); `journal_only_layout_refuses` (it plants a
+   journal's bytes did not move); `state_only_layout_refuses` (it plants a
    `.forge/forge.db` alone, with no root `bundle.json` and no library mark,
    runs `brokkr run --bundle elsewhere --feature x`, and asserts the exact
-   journal-only refusal and unmoved journal bytes; then `brokkr init .`
-   there refuses, pointing at `--migrate`); `a_library_keeps_its_journal`
+   state-only refusal and unmoved journal bytes; then `brokkr init .`
+   there refuses, pointing at `--migrate`); `secrets_only_layout_refuses`
+   (it plants `.forge/secrets.env` alone, holding one name, with no
+   journal, no root `bundle.json` and no library mark; `brokkr run --bundle
+   elsewhere --feature x`, `brokkr secrets list` and `brokkr init .` each
+   refuse with the exact state-only refusal, whose one move is `mv
+   .forge/secrets.env .brokkr/state/secrets.env`, and none creates
+   `.brokkr/`; after `brokkr init --migrate`, `.forge/` is gone and `brokkr
+   secrets list` lists the name from `.brokkr/state/secrets.env`);
+   `a_library_keeps_its_journal`
    (a `recipes/x/bundle.json` beside `.forge/forge.db`, run with `--bundle
    recipes/x`, opens `.forge/forge.db` with no refusal);
-   `half_moved_layout_refuses`; `an_explicit_db_reaches_the_old_journal` (in
+   `half_moved_layout_refuses` (one case with a root `bundle.json` beside
+   the folder, one with a `.forge/secrets.env` alone beside it, each with
+   its exact text); `migrate_refuses_an_unknown_forge_entry` (a
+   `.forge/notes.txt` beside the journal refuses with its exact text and
+   nothing moves); `an_explicit_db_reaches_the_old_journal` (in
    the planted root layout, `brokkr conclude --run <id> --reason x --db
    .forge/forge.db` ends the unfinished run with no refusal, after which
    `--migrate` succeeds); `migrate_refuses_an_unfinished_run` (its exact text,
@@ -414,11 +485,24 @@ scaffold, and its layout stays.
    while its intake writes under `.brokkr/state/tasks/` and creates no
    `.forge/`); `migrate_refuses_an_unknown_forge_path` (a hired agent's
    charter naming `.forge/custom/` refuses with its exact text and nothing
-   moves); and
+   moves); `migrate_refuses_a_script_naming_a_neighbour` (in `init`'s old
+   output, a planted `scripts/verify-lib.sh` and the line
+   `. "$(dirname "$0")/verify-lib.sh"` added to `scripts/verify-seat.sh`:
+   `--migrate` refuses with case 1's exact text, naming that line and
+   `scripts/verify-lib.sh`, creates no `.brokkr/` and moves nothing; with
+   the line rewritten as `. scripts/verify-lib.sh` the migration goes on,
+   `scripts/verify-lib.sh` stays at the root and is named as left behind,
+   and the migrated verify gate sources it and passes);
+   `migrate_refuses_a_script_that_locates_itself` (the same helper reached
+   by `here="$(dirname "$0")"` and then `. "$here/$lib"` refuses with case
+   2's exact text at the `here=` line, and a moved seat script whose first
+   line is `#!/usr/bin/env python3` beside the same helper refuses at its
+   line 1); and
    `migrate_moves_only_what_the_compile_read` (a `scripts/build.sh` beside
    the seat scripts and an `agents/notes.json` no seat hires stay at the
    root and are named as left behind, `agents/README.md` stays, and
-   `.brokkr/agents/README.md` is written).
+   `.brokkr/agents/README.md` is written; `init`'s own scripts, whose only
+   `$0` is awk's, meet neither case of the neighbour scan).
 
 5. **`init` writes the folder and says what it wrote; `doctor` reports it.**
    `brokkr init <dir>` writes `<dir>/.brokkr/` and nothing outside it, so the
@@ -435,9 +519,10 @@ scaffold, and its layout stays.
    so `brokkr init .` from `<root>/src/` and `brokkr init src` from `<root>`
    both refuse; it never moves the target up on its own. Outside any
    repository `<dir>` is its own root, as in ruling 2. It also refuses when `<dir>/.brokkr` exists and holds anything
-   but the `.gitignore` and `state/` a journal-only migration leaves, naming
+   but the `.gitignore` and `state/` a state-only migration leaves, naming
    it, in place of today's file-by-file refusals, and when `<dir>` holds the
-   root layout or the journal-only one, pointing at `--migrate`. It compiles the folder before it
+   root layout or the state-only one, with that shape's refusal, which
+   points at `--migrate`. It compiles the folder before it
    prints, as now, and then prints its digest, every path it wrote relative
    to `<dir>`, one per line, and the commit line `git add .brokkr && git commit`.
 
