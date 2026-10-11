@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use brokkr_protocol::secret::NEEDLE_ENCODINGS;
 use serde_json::json;
 
+use super::ledger::{failed_with, sealed_ledger};
 use super::observer::NO_TRACER;
 use super::observer::{awaited, processes, started_to, status, traced, tracer, within, Starter};
 use super::readiness::{bootstraps, boxed, Reads};
@@ -241,6 +242,8 @@ fn a_handoff_that_fails_after_the_lookup_starts_no_server() {
             (case, of(&execs, &server(&sealed))),
             (case, Vec::<&str>::new())
         );
+        let closed = failed_with(cause(case, &sealed));
+        assert_eq!((case, sealed_ledger(&sealed)), (case, closed));
         assert!(within(|| boxed(&sealed).is_empty()), "{case}");
     }
 }
@@ -310,6 +313,8 @@ fn the_kernel_alone_runs_a_script_in_the_box_and_nothing_retries_one_it_refuses(
             .iter()
             .filter(|line| line.contains(&format!("\"{server}\"")));
         assert_eq!((case, retried.count()), (case, 1), "{execs:#?}");
+        let closed = failed_with(Refusal::Exec);
+        assert_eq!((case, sealed_ledger(&sealed)), (case, closed));
         assert!(within(|| boxed(&sealed).is_empty()), "{case}");
     }
 }

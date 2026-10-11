@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use serde_json::json;
 
+use super::ledger::{failed_with, sealed_ledger, Proved};
 use super::observer::{awaited, cancelled, gone, processes, started_to, status, traced};
 use super::observer::{tracer, within, Starter, NO_TRACER};
 use super::{admitted, refused, skip, unservable, Refusal, Sealed};
@@ -227,16 +228,23 @@ impl Held {
 
     /// The broker's exit and its own stderr once it has ended, and whether
     /// nothing of its box is left, nothing was looked up and no dialect
-    /// server was started; and what the tracer wrote on its stderr.
-    fn ended(self) -> ((Option<i32>, String), bool, String) {
+    /// server was started; what the tracer wrote on its stderr; and what
+    /// the plan's ledger proves.
+    fn ended(self) -> ((Option<i32>, String), bool, String, Proved) {
         let out = self.attempt.wait_with_output().unwrap();
+        let ledger = sealed_ledger(&self.sealed);
         let [bootstrap, first, launcher, _] = self.chain;
         let started = self.sealed.path("started").exists();
         let left = !(gone(bootstrap) & gone(first) & gone(launcher)) | started;
         let looked = self.reads.lookups() != 0;
         let broker = std::fs::read_to_string(self.sealed.path("broker.err")).unwrap();
         let tracer = String::from_utf8(out.stderr).unwrap();
-        ((out.status.code(), broker), !(left | looked), tracer)
+        (
+            (out.status.code(), broker),
+            !(left | looked),
+            tracer,
+            ledger,
+        )
     }
 }
 
@@ -249,11 +257,13 @@ fn a_box_held_at_its_entry_refuses_at_the_absolute_deadline() {
     // readiness's alike, never extended: the broker ends once it has
     // passed, and no more than a slice after. The box went with it.
     let elapsed = awaited(held.chain[3]) - held.begun;
-    let (answer, settled, _) = held.ended();
+    let (answer, settled, _, ledger) = held.ended();
     assert_eq!(answer, refused(Refusal::Establishment));
     let bounded = (elapsed >= Duration::from_secs(30)) & (elapsed < Duration::from_secs(32));
     assert!(bounded, "{elapsed:?}");
     assert!(settled);
+    // Its ledger closed Failed with that cause, and no call.
+    assert_eq!(ledger, failed_with(Refusal::Establishment));
 }
 
 #[test]
@@ -264,7 +274,7 @@ fn a_cancelled_attempt_ends_a_box_held_at_its_entry() {
         return;
     };
     let taken = cancelled(held.chain[3]);
-    let ((_, stderr), settled, _) = held.ended();
+    let ((_, stderr), settled, _, _) = held.ended();
     assert_eq!(stderr, refused(Refusal::Establishment).1);
     assert!(taken < Duration::from_secs(5), "{taken:?}");
     assert!(settled);
@@ -282,7 +292,7 @@ fn the_brokers_own_line_is_read_whole_while_its_tracer_writes_notices() {
         return;
     };
     cancelled(held.chain[3]);
-    let ((_, stderr), settled, notices) = held.ended();
+    let ((_, stderr), settled, notices, _) = held.ended();
     assert_eq!(stderr, refused(Refusal::Establishment).1);
     assert!(notices.contains("execve(\"/usr/bin/env\""), "{notices}");
     assert!(settled);

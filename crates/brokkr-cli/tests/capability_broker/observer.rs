@@ -237,8 +237,10 @@ fn adopt(named: &str) {
     std::process::exit(status.code().unwrap_or(128));
 }
 
-/// The sealed fixture's broker args for the plan sealed at `digest`.
+/// The sealed fixture's broker args for the plan sealed at `digest`, for a
+/// fresh lifetime of the plan: its last ledger is gone.
 pub(super) fn serve_args<'a>(sealed: &'a Sealed, digest: &'a str) -> [&'a str; 6] {
+    std::fs::remove_file(super::ledger::of(&sealed.locator)).ok();
     let locator = sealed.locator.to_str().unwrap();
     [
         "broker",

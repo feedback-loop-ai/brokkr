@@ -23,6 +23,8 @@
 //! is launched on its waiting bootstrap and its readiness received under
 //! the same deadline ([`readiness`], U6c6b), and only then are its bindings
 //! looked up and handed to the bootstrap, which execs the server (U6c8).
+//! A bound plan's ledger is opened before any of that, and closed with the
+//! session's first cause ([`lifetime`], U6d); an unbound plan has none.
 //! The plan and where it lies stay here; only the shared protocol types
 //! leave.
 
@@ -41,8 +43,10 @@ use brokkr_protocol::{hands, secret};
 use rustix::fs::{fstat, openat, FileType, Mode, OFlags, Stat, CWD};
 use serde::{Deserialize, Serialize};
 
+use lifetime::Ended;
 use readiness::{Admitted, Startup};
 
+mod lifetime;
 mod readiness;
 
 /// The protected root's components below the host HOME (D6).
@@ -67,19 +71,23 @@ const STARTUP: Duration = Duration::from_secs(30);
 /// launched on its waiting bootstrap, its readiness checked, its bindings
 /// looked up and handed over and its server's exec seen (U6c8), all within
 /// the startup deadline unless the attempt is cancelled, which ends the
-/// broker's own starter; or the first refusal. The box is ended before
+/// broker's own starter; or the first refusal. Once the plan is bound, all
+/// of it runs inside its ledger's one lifetime. The box is ended before
 /// this returns, before any MCP message.
-pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Refusal> {
+pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Ended> {
     let deadline = Instant::now() + STARTUP;
     let parent = rustix::process::getppid();
     let cancelled = || rustix::process::getppid() != parent;
     let startup: Startup<'_> = (deadline, &cancelled);
-    let (layout, plan) = bound(locator, digest)?;
-    screened(&layout, &plan)?;
-    let (record, handles) = observed(&layout, &plan, (locator, digest), startup)?;
-    let admitted = readiness::compared(&plan.intent, record, handles)?;
-    readiness::ready(&admitted, (&plan, digest), startup)?;
-    Ok(admitted)
+    let (layout, plan, attempt) = bound(locator, digest)?;
+    let ledger = (&attempt, layout.named(0));
+    lifetime::lived(ledger, (&plan.owner, digest), || {
+        screened(&plan)?;
+        let (record, handles) = observed(&layout, &plan, (locator, digest), startup)?;
+        let admitted = readiness::compared(&plan.intent, record, handles)?;
+        readiness::ready(&admitted, (&plan, digest), startup)?;
+        Ok(admitted)
+    })
 }
 
 /// `serve`'s private observer: the plan `locator` names rebound at
@@ -89,8 +97,8 @@ pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Refusal> {
 #[cfg(target_os = "linux")]
 pub(super) fn observe(locator: &Path, digest: &str) -> Result<(), Refusal> {
     helper::tethered()?;
-    let observed = bound(locator, digest).and_then(|(layout, plan)| {
-        screened(&layout, &plan)?;
+    let observed = bound(locator, digest).and_then(|(layout, plan, _)| {
+        screened(&plan)?;
         recorded(&layout, &plan)
     });
     let (record, server) = match observed {
@@ -244,10 +252,11 @@ fn protected(dir: &OwnedFd, name: &OsStr) -> Option<Vec<u8>> {
 
 /// The plan `locator` names, where the attempt's inventory pins exactly it
 /// at `digest`, its protected bytes hash to `digest`, they parse as a plan
-/// and the plan names the repository, run and attempt it lies under. A
+/// of the closed shape the engine seals and the plan names the repository,
+/// run and attempt it lies under; with the attempt directory held. A
 /// caller's file and its true digest alone confer nothing, nor does a
 /// tree of the same shape under any root but the engine's.
-fn bound<'a>(locator: &'a Path, digest: &str) -> Result<(Layout<'a>, Plan), Refusal> {
+fn bound<'a>(locator: &'a Path, digest: &str) -> Result<(Layout<'a>, Plan, OwnedFd), Refusal> {
     let home = trusted_home().ok_or(Refusal::Unbound)?;
     let root = protected_root(&home).ok_or(Refusal::Unbound)?;
     let layout = Layout::of(locator, home).ok_or(Refusal::Unbound)?;
@@ -265,7 +274,8 @@ fn bound<'a>(locator: &'a Path, digest: &str) -> Result<(Layout<'a>, Plan), Refu
     ensure(canonical::sha256_bytes(&bytes) == digest, Refusal::Unbound)?;
     let plan: Plan = serde_json::from_slice(&bytes).map_err(|_| Refusal::Unbound)?;
     ensure(owns(&layout, &plan.owner), Refusal::Unbound)?;
-    Ok((layout, plan))
+    ensure(well_formed(&layout, &plan), Refusal::Unbound)?;
+    Ok((layout, plan, dir))
 }
 
 /// Whether `owner` names the repository, run and attempt directories the
@@ -278,15 +288,14 @@ fn owns(layout: &Layout<'_>, owner: &Owner) -> bool {
     (named == owned) & owner.attempt.bytes().all(portable)
 }
 
-/// The fields of a bound plan that need no source observed, in MB3's
-/// refusal order: its own shape, the binding names and the fixed keys.
+/// The fields of a bound plan, whose shape is checked, that need no source
+/// observed, in MB3's refusal order: the binding names and the fixed keys.
 /// The broker screens them itself before its observer starts, so a
 /// binding name's cause never has to cross back from it. An invalid
 /// binding name refuses with decision 0012's cause through the one bounded
 /// sink: the plan wrote the name, so a control character in it is escaped
 /// rather than ending the line, NUL as `\u{0}`, and a long one is cut.
-fn screened(layout: &Layout<'_>, plan: &Plan) -> Result<(), Refusal> {
-    ensure(well_formed(layout, plan), Refusal::Unbound)?;
+fn screened(plan: &Plan) -> Result<(), Refusal> {
     plan.secrets
         .iter()
         .try_for_each(|name| secret::validate_name(name))
