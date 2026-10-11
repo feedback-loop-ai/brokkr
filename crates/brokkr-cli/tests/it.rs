@@ -64,6 +64,7 @@ mod script_gates;
 mod seat_items;
 mod status_pages;
 mod suppressions;
+mod test_shards;
 mod transcript_command;
 mod transcript_privacy;
 mod view_derivations;

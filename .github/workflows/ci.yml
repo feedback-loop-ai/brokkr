@@ -179,7 +179,11 @@ jobs:
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'true'
-      - run: cargo test --workspace --all-features --locked --no-fail-fast
+          cache-build: 'true'
+      # The suite `cargo test --workspace --all-features --locked
+      # --no-fail-fast` runs, each test target exactly once, with its slow
+      # binaries at once and capability_broker alone (#633).
+      - run: bash scripts/test-shards.sh test
         env:
           # Decision 0054 ruling 9: a boundary proof that cannot open a
           # namespace skips, and a skipped Rust test prints `ok`. On the
@@ -329,6 +333,7 @@ jobs:
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'true'
+          cache-build: 'true'
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run: bash scripts/coverage-exact.sh
         env:
