@@ -408,9 +408,11 @@ pub brokkr_view::RunView::notices: alloc::vec::Vec<brokkr_view::RunNotice>
 pub brokkr_view::RunView::participants: alloc::vec::Vec<brokkr_view::Participant>
 pub brokkr_view::RunView::phases: alloc::vec::Vec<brokkr_view::Phase>
 pub brokkr_view::RunView::ruling: core::option::Option<brokkr_view::Ruling>
-pub brokkr_view::RunView::scopes: brokkr_view::Scopes
+pub brokkr_view::RunView::scopes: core::option::Option<brokkr_view::Scopes>
 pub brokkr_view::RunView::summary: core::option::Option<brokkr_view::Summary>
 pub brokkr_view::RunView::view_version: u32
+impl brokkr_view::RunView
+pub fn brokkr_view::RunView::with_scopes(self) -> brokkr_view::RunView
 pub struct brokkr_view::RunsView
 pub brokkr_view::RunsView::count: usize
 pub brokkr_view::RunsView::runs: alloc::vec::Vec<brokkr_view::RunRow>

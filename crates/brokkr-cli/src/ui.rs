@@ -119,7 +119,7 @@ pub fn handle(db: &Path, path: &str) -> Response {
             Err(_) => return not_found(run_id),
         };
         let state = fold(&events).ok();
-        let view = brokkr_view::run_view(&events, state.as_ref());
+        let view = brokkr_view::run_view(&events, state.as_ref()).with_scopes();
         return ok(
             "application/json",
             serde_json::to_string(&view).expect("the run view serializes"),

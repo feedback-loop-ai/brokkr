@@ -512,8 +512,10 @@ pub struct RunView {
     /// The path, the last ruling and the last seats' notes (#503).
     pub dashboard: Dashboard,
     /// What each phase scope and each seat scope keeps, decided by the
-    /// terminal's rule (#351), so the browser paints it.
-    pub scopes: Scopes,
+    /// terminal's rule (#351), so the browser paints it. Only a surface
+    /// that serves the view decides it, by [`RunView::with_scopes`]: the
+    /// terminal asks the predicates instead and never pays for it (#624).
+    pub scopes: Option<Scopes>,
 }
 
 // --------------------------------------------------------------- helpers
@@ -2713,7 +2715,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         .find(|event| event.event_type == EventType::TransitionDecided)
         .and_then(|event| marks.get(&event.seq))
         .cloned();
-    let mut view = RunView {
+    RunView {
         view_version: VIEW_VERSION,
         summary: state.map(summary),
         ruling: ruling_of(
@@ -2728,10 +2730,8 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         journal: journal_rows(events, &scan, &buckets, &marks),
         event_count: events.len(),
         dashboard: dashboard(events),
-        scopes: Scopes::default(),
-    };
-    view.scopes = scope::scopes(&view);
-    view
+        scopes: None,
+    }
 }
 
 #[cfg(test)]

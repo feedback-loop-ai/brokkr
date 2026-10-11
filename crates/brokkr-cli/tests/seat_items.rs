@@ -144,3 +144,25 @@ fn a_seat_turn_journal_reads_exactly_as_it_did_before() {
 
     assert!(!seats_text(dir.path(), db, "turncounted").contains("items"));
 }
+
+/// Both `--json` faces serve the view the browser reads, every scope
+/// decided (#351): only the terminal's frame skips it (#624).
+#[test]
+fn the_json_faces_serve_every_scope_decided() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    plant(&db, "scoped", "scopes served", Vec::new());
+    let db = db.to_str().unwrap();
+    let served = json!({"phases": ["verify"], "participants": ["e1"], "rows": [2, 3, 4, 5]});
+    let (out, _, ok) = brokkr(
+        dir.path(),
+        &["inspect", "--run", "scoped", "--db", db, "--json"],
+    );
+    assert!(ok, "{out}");
+    let inspected: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(inspected["scopes"]["seats"]["e1"], served);
+    assert_eq!(
+        seats_json(dir.path(), db, "scoped")["scopes"],
+        inspected["scopes"]
+    );
+}
