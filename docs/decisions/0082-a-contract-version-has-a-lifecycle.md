@@ -91,9 +91,12 @@ what the loader leaves open, so that the schema and the loader disagree.
      says so. The test never asks when a version landed, because nothing
      in the tree records it. It reads the successor instead. A decision
      that carries a `Superseded by:` or a `Superseded in part by:` pointer
-     admits a row only when a decision its pointer names carries a header
-     line reading exactly `Keeps the minting of: contracts/<file>`, with
-     the row's file. That successor must admit by this same rule, so a
+     admits a row only when exactly one decision its pointer names carries
+     a header line reading exactly `Keeps the minting of:
+     contracts/<file>`, with the row's file. A pointer may name several
+     decisions, comma-separated as the decisions README writes them, and
+     each is walked; two that keep the same file refuse as ambiguous,
+     naming both (Asked 9). That successor must admit by this same rule, so a
      chain of supersessions is walked to an accepted decision that nothing
      supersedes, and a number met twice on the walk refuses. Any other
      case refuses by default, with one text:
@@ -102,7 +105,10 @@ what the loader leaves open, so that the schema and the loader disagree.
      supersedes a minting decision fails until the successor names each
      file whose minting it keeps, and a version that lands later under
      the old number is refused, since no successor names a file it has
-     not seen. A `Keeps the minting of:` line is admitted only for a file
+     not seen. Because the walk ends only at an accepted decision, a
+     decision that supersedes a minting decision lands on `main`
+     accepted, never as a proposal, unlike every decision today
+     (Asked 10). A `Keeps the minting of:` line is admitted only for a file
      whose row is minted under a decision the keeper supersedes, directly
      or along the walk. Any other such line is refused as unused (decision
      0071 ruling 6). The build adds the line to the decisions README's
@@ -151,8 +157,9 @@ what the loader leaves open, so that the schema and the loader disagree.
    `accepted` or `superseded`; a `proposed` or `withdrawn` one never mints.
    If it carries a `Superseded by:` or `Superseded in part by:` pointer,
    the walk above must reach an accepted decision that nothing supersedes
-   and that keeps the row's file. A pointer naming more than one decision
-   refuses as unreadable. A named addendum must have exactly one heading
+   and that keeps the row's file. A pointer naming several decisions is
+   walked through each, and exactly one must keep the row's file; two
+   that keep it refuse as ambiguous, naming both. A named addendum must have exactly one heading
    in that file opening `## Addendum — <date>`; none, or two, refuses,
    naming the file. Its status line is matched whole against the one admitting form,
    and the heading's text after the date is never read. Removal controls
@@ -474,3 +481,20 @@ what the loader leaves open, so that the schema and the loader disagree.
    or rules otherwise. The alternative, a closed map in the test from
    each existing heading to its status, keeps the decisions untouched but
    leaves a second grammar for every later addendum.
+9. **A pointer that names several decisions.** Ruling 1 walks each
+   decision a `Superseded by:` or `Superseded in part by:` pointer names,
+   and admits a row when exactly one of them keeps its file. The
+   decisions README makes a comma-separated list the pointer's legal
+   form, and 0045 already carries one. The alternative refuses any
+   pointer naming more than one decision as unreadable. Under it, the
+   first time 0041 or 0043 is superseded in part again, every row it
+   minted refuses, and only splitting the pointer gets through.
+10. **When a supersession's back-pointer lands.** The walk ends only at
+   an accepted decision, and the decisions README adds the
+   `Superseded by:` back-pointer in the superseding pull request. So a
+   decision that supersedes a minting decision cannot land on `main` as
+   a proposal, though every other decision, this one included, can. The
+   recommendation is to keep that, because a proposal that strands a
+   minted version should be ruled before it lands. The alternative adds
+   the back-pointer only when the successor is accepted, and changes the
+   README's rule to match.
