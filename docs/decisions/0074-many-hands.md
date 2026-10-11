@@ -1,7 +1,10 @@
 # 0074 — Many hands: one operator on many hosts is the open core, many people is an extension, and the core is extensible by contract so the enterprise layer never forks it
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-10-12: rulings 1 and 4–8 accepted; rulings 2 and 3 deferred until decision 0068's dispatcher is built
 Date: 2026-09-27
+
+Amends: 0025
+Built: unbuilt (#645) — rulings 2 and 3 are deferred
 
 ## Context
 
@@ -56,6 +59,25 @@ queue (0068) admits by the engine's rules alone, and the secret resolver
 is local. An enterprise layer written against that code today would have
 to patch the core. That is the fork this decision prevents.
 
+Since it was drafted (refreshed 2026-10-12):
+- Every run already carries `runs.origin_host`, an opaque fingerprint of
+  the machine and the account written when the run is created (decision
+  0030, `crates/brokkr-store/src/origin.rs`), not only imported runs.
+- `forge.host/v1` (#430, #621) is the host's own configuration file. Its
+  providers, routes and boxed builds overlap ruling 3's host
+  requirements, and it is the natural home of a stable host id.
+- 0068's queue and admission are built in part (#430). Its dispatcher is
+  not built yet, so ruling 3 has nothing to plug into.
+- Decision 0077 makes the capability broker the holder of the secret
+  boundary, so the secrets seam's resolver is the broker's.
+- Decision 0083 moves an adopter's state under `.brokkr/state/`, where a
+  host id and a fleet journal would live.
+- The TUI already reads several journals through the world map
+  (`realms.json`).
+The operator accepted rulings 1 and 4–8 on 2026-10-12. Rulings 2 and 3,
+the multi-host core, are deferred until 0068's dispatcher is built, and
+are refreshed then against these facts.
+
 ## Rulings
 
 1. **The line is people, not machines.** The open core is complete for
@@ -74,6 +96,9 @@ to patch the core. That is the fork this decision prevents.
    outside the core workspace members.
 
 2. **One operator, many hosts: every host is a hearth.** *(Core.)*
+   **Deferred** (operator, 2026-10-12): ruled once decision 0068's
+   dispatcher is built, and refreshed then against `runs.origin_host`,
+   `forge.host/v1` and decision 0083's `.brokkr/state/`.
    - **One journal per host.** A host is any machine, virtual machine or
      container that runs Brokkr with its own journal. A container running
      Brokkr is a host: its journal lives on a volume, and it has its own
@@ -83,7 +108,7 @@ to patch the core. That is the fork this decision prevents.
    - **Host identity on every run.** Each host has a stable host id,
      generated once and kept beside its journal. Every run manifest records
      it, and every readout that names a run can show it, extending the
-     `origin_host` the runs table already keeps for imported runs.
+     `origin_host` fingerprint the runs table already writes for every run.
    - **One view across hosts.** A deterministic verb, `brokkr collect`,
      gathers runs from the operator's hosts into a read-only fleet journal
      under decision 0027. It reads published anchors from the repository's
@@ -102,7 +127,7 @@ to patch the core. That is the fork this decision prevents.
    nothing; and a fleet-journal TUI test.
 
 3. **Work reaches a host through git, claimed once.** *(Core; proposed
-   mechanism.)* Each host keeps its own queue in its own journal and runs
+   mechanism.)* **Deferred** with ruling 2 (operator, 2026-10-12). Each host keeps its own queue in its own journal and runs
    its own dispatcher (0068 ruling 1 is unchanged). Across hosts, a
    *fleet queue* lives in the repository as `refs/forge/queue/*`: each
    entry is a small file (recipe, repository, feature text, realm map,
@@ -146,7 +171,7 @@ to patch the core. That is the fork this decision prevents.
    | **authority** | whether an act is allowed: an operator command, accepting a ruling, the by-hand label, starting a queue entry | allow, for the single operator | enforce roles, signed rulings, two-person rules |
    | **admission** | whether a queue entry may start now (0068) | 0068's deterministic rules only | add signature, account-class and per-operator budget checks |
    | **grant** | whether standing work is covered (0025) | no standing work | verify signed, expiring grants |
-   | **secrets** | where `{{secret:NAME}}` resolves (0012) | the local store | resolve from an organization's vault |
+   | **secrets** | where `{{secret:NAME}}` resolves (0012), through 0077's broker for an MCP server | the local store | resolve from an organization's vault |
    | **events** | who may read the journal as a stream | no subscriber | feed a team view, dashboards or audit export, read-only |
 
    The identity seam's output, an optional `operator` id, is recorded on
@@ -192,11 +217,13 @@ to patch the core. That is the fork this decision prevents.
 9. **Enactment, in order.** Each seam lands with its inert default, so
    every slice ships with no behaviour change:
    - (0) the multi-host core: host identity and `collect` (ruling 2),
-     then the git-claimed fleet queue (ruling 3), once 0068 is built;
+     then the git-claimed fleet queue (ruling 3). Deferred with rulings 2
+     and 3 until 0068's dispatcher is built; the seams below do not wait
+     for it;
    - (i) the extension boundary itself (ruling 4), then identity and
      authority, with the optional `operator` field;
    - (ii) admission on the dispatcher, when 0068 is built;
-   - (iii) the events stream and secrets;
+   - (iii) the events stream, and secrets at 0077's broker resolver;
    - (iv) the grant seam, with 0025's standing executor.
 
    A reference extension that exercises every seam, and lives in tests
@@ -205,9 +232,9 @@ to patch the core. That is the fork this decision prevents.
 ## Consequences
 
 - The open core loses nothing and gains no configuration: a single
-  operator never sees a seam. An operator with many hosts gains host
-  ids, a fleet view and a way to hand work to a machine, all without a
-  server.
+  operator never sees a seam. Once rulings 2 and 3 are ruled, an
+  operator with many hosts gains host ids, a fleet view and a way to
+  hand work to a machine, all without a server.
 - An enterprise layer can be a separate repository of executables that
   speak the frozen contracts. The core's release cadence does not bind it,
   and it binds nothing in the core.
@@ -232,15 +259,18 @@ to patch the core. That is the fork this decision prevents.
 - **One journal on a network filesystem, or a central server as the
   store of record.** Rejected by ruling 7.
 
-## Open questions for the operator
+## Asked
 
-- The fleet queue in git (ruling 3) is a proposal. Is git the right
-  coordination medium, or should a claim go through a host the operator
+- Deferred with ruling 3: is git the right coordination medium for the
+  fleet queue, or should a claim go through a host the operator
   designates (ssh), with git carrying only evidence?
-- Is the seam list complete? Candidates not included: notification
-  (tell someone a run parked) and billing export, both of which the
-  events seam may cover.
-- Should the reference extension live in this repository's tests, or
-  be published as an example repository for extension authors?
-- Does the authority seam also govern `brokkr run` itself (who may fire
-  a run on this realm), or only acts on existing runs and rulings?
+- Recorded 2026-10-12: the seam list stands at six. Notification (tell
+  someone a run parked) and billing export are read-only subscribers of
+  the journal stream, so the events seam covers both. A slice that finds
+  otherwise adds a seam by a new ruling.
+- Recorded 2026-10-12: the reference extension lives in this
+  repository's tests, as ruling 9 says. An example repository for
+  extension authors may follow it.
+- Open: does the authority seam also govern `brokkr run` itself (who may
+  fire a run on this realm), or only acts on existing runs and rulings?
+  The first authority slice asks it.
