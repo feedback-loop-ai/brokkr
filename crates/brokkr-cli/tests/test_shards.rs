@@ -61,7 +61,9 @@ fn metadata() -> Metadata {
 /// prints `STUB_LINES` in place of its summary and exits 0, and
 /// `STUB_KILL` one whose shard kills its runner, the script's subshell,
 /// before the runner records its status, and keeps running, not yet
-/// ended, until the scratch's `release` exists.
+/// ended, until the scratch's `release` exists. Each shard's call also
+/// records in `signals` how a SIGINT it raises ends a child shell: 130
+/// when SIGINT keeps its default, 0 when it was left ignored.
 const STUB: &str = r#"#!/usr/bin/env bash
 dir="$STUB_DIR"
 if [ "$1" = metadata ]; then cat "$dir/metadata.json"; exit 0; fi
@@ -72,6 +74,8 @@ summary() {
 }
 names() { local word="$1"; shift; [ -n "$word" ] && [[ " $* " == *" $word "* ]]; }
 printf 'start %s\n' "$*" >> "$dir/events"
+sh -c 'kill -INT $$; exit 0'
+printf '%s %s\n' "$?" "$*" >> "$dir/signals"
 sleep 0.2
 status=0
 if names "${STUB_FAIL:-}" "$@"; then
@@ -390,6 +394,25 @@ fn refused_after_every_shard(metadata: &Metadata, env: &[(&str, &str)], refusal:
         one_after_another(TEST, &SHARDS),
         "{env:?}"
     );
+}
+
+/// A shard's command receives SIGINT as a terminal sends it, never left
+/// ignored as a non-interactive shell leaves a command it starts in the
+/// background: a test that raises SIGINT on a child, as run_view's
+/// ctrl_c test does, sees the child end by the signal (128 plus 2).
+#[test]
+fn every_shard_receives_sigint_with_its_default_disposition() {
+    let real = metadata();
+    let scratch = Scratch::new(&real, &script());
+    let run = scratch.run(&["test"], &[]);
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    let signals =
+        std::fs::read_to_string(scratch.dir.path().join("signals")).expect("signals recorded");
+    let ended: Vec<&str> = signals
+        .lines()
+        .map(|line| line.split_once(' ').map_or(line, |(status, _)| status))
+        .collect();
+    assert_eq!(ended, vec!["130"; SHARDS.len()], "{signals}");
 }
 
 /// A failing shard, the first, fails the run only after every later shard

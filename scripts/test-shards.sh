@@ -244,16 +244,20 @@ run_shard() {
   local status_re='^[0-9]+ [0-9]+$'
   argv_of "$index"
   printf 'test shards: runs %s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
-  (
-    set +e
-    start="$SECONDS"
-    "${argv[@]}" >"$work/$index.log" 2>&1
-    status=$?
-    printf '%s %s\n' "$status" "$((SECONDS - start))" >"$work/$index.status"
-  ) &
-  # Bash's own notice of a runner killed by a signal is replaced by the
-  # refusal below, which names the runner's exit.
-  wait "$!" 2>/dev/null || waited=$?
+  # The runner runs in the foreground: a non-interactive shell starts a
+  # background command with SIGINT and SIGQUIT ignored, and a test that
+  # raises SIGINT on a child would see it ignored. Bash's own notice of
+  # a runner killed by a signal is replaced by the refusal below, which
+  # names the runner's exit.
+  {
+    (
+      set +e
+      start="$SECONDS"
+      "${argv[@]}" >"$work/$index.log" 2>&1
+      status=$?
+      printf '%s %s\n' "$status" "$((SECONDS - start))" >"$work/$index.status"
+    )
+  } 2>/dev/null || waited=$?
   if [ -s "$work/$index.status" ]; then read -r status seconds <"$work/$index.status" || true; fi
   if ! [[ "$status $seconds" =~ $status_re ]]; then
     lost=true
