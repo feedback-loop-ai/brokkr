@@ -1,4 +1,4 @@
-//! `brokkr doctor`'s provisional section (proposed decision 0075 ruling
+//! `brokkr doctor`'s provisional section (decision 0075 ruling
 //! 5): each model an adapter declares `"tier": "provisional"`, and the
 //! offices the world's `provisional_offices` lets it hold. Doctor
 //! reports; the compile is what refuses.

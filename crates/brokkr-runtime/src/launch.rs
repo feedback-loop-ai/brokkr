@@ -468,7 +468,7 @@ fn unreproducible(run: &str, error: LaunchError) -> LaunchError {
 
 /// The bundle compiled in the realm `name`: its dialect, its boundary,
 /// or none and `namespace` when the world names no such realm, the
-/// world's provisional offices (proposed decision 0075 ruling 5), and the
+/// world's provisional offices (decision 0075 ruling 5), and the
 /// capability grants of that realm for the operated `repo`.
 fn compile_in_realm(
     workspace: &Path,
