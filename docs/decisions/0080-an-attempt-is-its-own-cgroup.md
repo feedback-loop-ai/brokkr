@@ -1,9 +1,9 @@
 # 0080 — An attempt is its own cgroup: Linux ends a seat's tree by containment, and polls only where no containment is offered
 
-Status: proposed (implementer, 2026-10-10)
+Status: accepted — operator ruled in chat 2026-10-12
 Date: 2026-10-10
 
-Built: unbuilt (#472)
+Built: unbuilt (#472) — the build waits on the five measurements below, and is sequenced after the capability broker's next unit, with the session that owns it
 
 ## Context
 
@@ -527,10 +527,9 @@ and fail closed on what cannot be read.
    every `run` and `resume` on a host that offers neither `delegated` nor
    `scope`, before any effect, with a named error that says which reads
    failed. The ladder's order is the engine's, not the host's. The field
-   belongs to forge.host. A contract is frozen once it is in the tree, so
-   if forge.host/v1 has not merged when the operator accepts this
-   decision, v1 carries the field; otherwise forge.host/v2 adds it, and a
-   v1 host reads `best-effort`.
+   belongs to forge.host. A contract is frozen once it is in the tree,
+   and forge.host/v1 merged without it (#621), so forge.host/v2 adds it,
+   and a v1 host reads `best-effort`.
    *Enforcement binding:* the host schema's own test refuses a third
    value and an unknown field (`deny_unknown_fields`), and
    `required_containment_without_a_rung_refuses_the_start` asserts the
@@ -599,12 +598,16 @@ and fail closed on what cannot be read.
    mechanism returns with a decision of its own.
    This ruling is judgment guidance: no gate holds a study.
 
-## Asked of the operator
+## Ruled (operator, in chat, 2026-10-12)
+
+Each item below was asked of the operator, and each was ruled as
+recommended.
 
 - **The ladder's order (ruling 2).** `delegated` before `scope` because
   it costs nothing per attempt and an operator who declared a delegated
   unit chose it. The other order is one line; it costs 23 to 73 ms per
   attempt on hosts that have both.
+  **Ruled:** `delegated` before `scope`, as ruling 2 orders.
 - **The lifeline's residual (ruling 4).** A kill that takes the engine
   and its lifeline together, or the engine alone after a lifeline's
   death and before its replacement has received a live attempt's path,
@@ -634,6 +637,10 @@ and fail closed on what cannot be read.
   lifeline for every attempt whose scope exists; and that a scope
   started after the engine's unit failed still runs its driver, so the
   launch gate stays whichever is chosen.
+  **Ruled:** the residual is declared as written; the pidfd lifeline
+  and the launch gate stand. `BindsTo=` is not taken now, because it
+  needs the engine to run in a unit of its own. A later ruling may add
+  it where the engine already runs in one.
 - **Re-homing.** A process inside the attempt that asks the user manager
   for a unit of its own (`systemd-run --user`, a tmux server built with
   systemd support, a D-Bus activated user service) is started outside
@@ -641,17 +648,24 @@ and fail closed on what cannot be read.
   not a race, and polling misses most of these today too. Which of them
   a seat can reach is unmeasured; research entry 0020 lists it as owed
   measurement 4.
+  **Ruled:** a declared residual. Research entry 0020's owed
+  measurement 4 measures which of these a seat can reach.
 - **The launch gate's cost (ruling 4).** On the `scope` rung each
   attempt adds one exec of `brokkr` and one round trip to the lifeline
   before the driver runs, the price of no launch outliving the
   lifeline's cleanup.
+  **Ruled:** accepted.
 - **Where the field lives (ruling 6),** forge.host/v1 or v2, falls on
   the order in which this decision and #430's third slice land.
+  **Ruled:** forge.host/v2, since v1 merged without the field
+  (ruling 6).
 - **Who ends a leftover (rulings 3 and 8).** `resume` is admitted on a
   settled attempt and on an ended run for that cleanup alone, under a
   journaled `leftover` record, and doctor stays free of effects. The
   other shape is doctor writing `cgroup.kill` under a journaled effect
   of its own, which would make doctor an effecting verb.
+  **Ruled:** `resume`, under a journaled `leftover` record. Doctor
+  stays free of effects.
 
 ## What still needs measuring
 
