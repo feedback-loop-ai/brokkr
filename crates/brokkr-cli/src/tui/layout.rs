@@ -246,7 +246,7 @@ fn place_column(
 }
 
 /// One phase's rail content and its name, relative to its own origin.
-fn build(phase: &Phase, lens: Option<&render::Lens>, ink: &Ink) -> Built {
+fn build(phase: &Phase, lens: Option<&brokkr_view::Lens>, ink: &Ink) -> Built {
     let mut marks = Vec::new();
     let mut joins = Vec::new();
     let mut edges = Vec::new();
@@ -318,7 +318,7 @@ fn build(phase: &Phase, lens: Option<&render::Lens>, ink: &Ink) -> Built {
 /// the `⑂n` of its widest parallel column. Today's information on one
 /// line — never a blank pane and never a refusal, because losing the
 /// graph while dragging a window edge is worse than a compact one.
-fn compressed(phase: &Phase, lens: Option<&render::Lens>, ink: &Ink) -> Built {
+fn compressed(phase: &Phase, lens: Option<&brokkr_view::Lens>, ink: &Ink) -> Built {
     let mut label = name_text(phase, lens);
     let widest = phase
         .columns
@@ -468,12 +468,12 @@ pub(super) fn rows_wanted(phases: &[Phase]) -> usize {
 }
 
 /// The pure geometry: models and a rect in, owned integers out. It calls
-/// `render::keeps_phase` rather than reimplementing the scope predicate,
+/// `brokkr_view::keeps_phase` rather than reimplementing the scope predicate,
 /// lists **every** phase whether scoped or not — the lens marks, it does
 /// not hide, here — and returns a layout that fits by construction.
 pub(super) fn plan(
     phases: &[Phase],
-    lens: Option<&render::Lens>,
+    lens: Option<&brokkr_view::Lens>,
     status: &str,
     cursor: Option<&str>,
     node: Option<&str>,

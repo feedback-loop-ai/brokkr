@@ -328,7 +328,7 @@ pub(super) struct Rail<'a> {
 pub(super) fn graph_lines(
     tui: &Tui,
     view: &RunView,
-    lens: Option<&render::Lens>,
+    lens: Option<&brokkr_view::Lens>,
     rail: &Rail,
     (width, height): (usize, usize),
 ) -> Vec<Line<'static>> {
@@ -371,7 +371,7 @@ pub(super) fn draw_graph(
     tui: &Tui,
     views: &Views,
     view: &RunView,
-    lens: Option<&render::Lens>,
+    lens: Option<&brokkr_view::Lens>,
 ) {
     let rail = Rail {
         phase: tui.cursor[0].as_deref(),

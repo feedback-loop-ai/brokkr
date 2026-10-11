@@ -232,11 +232,11 @@ pub(super) fn status_line(tui: &Tui) -> String {
         line.push_str(safe(seat).as_str());
     }
     match &tui.scope {
-        Some(render::Scope::Phase(name)) => {
+        Some(brokkr_view::Scope::Phase(name)) => {
             line.push_str(" · phase ");
             line.push_str(safe(name).as_str());
         }
-        Some(render::Scope::Seat(key)) => {
+        Some(brokkr_view::Scope::Seat(key)) => {
             line.push_str(" · scoped ");
             line.push_str(safe(key).as_str());
         }

@@ -7,7 +7,7 @@ pub(super) fn draw_seats(
     area: Rect,
     tui: &Tui,
     view: &RunView,
-    lens: Option<&render::Lens>,
+    lens: Option<&brokkr_view::Lens>,
 ) {
     let cursor = tui.cursor[1].as_deref();
     let header = Row::new(
@@ -19,7 +19,7 @@ pub(super) fn draw_seats(
     let kept: Vec<&Participant> = view
         .participants
         .iter()
-        .filter(|part| render::keeps_participant(lens, part))
+        .filter(|part| brokkr_view::keeps_participant(lens, part))
         .collect();
     let texts: Vec<[String; 8]> = kept.iter().map(|part| seat_texts(part)).collect();
     let mut rows: Vec<Row> = Vec::new();
@@ -144,13 +144,13 @@ pub(super) fn draw_trail(
     area: Rect,
     tui: &Tui,
     view: &RunView,
-    lens: Option<&render::Lens>,
+    lens: Option<&brokkr_view::Lens>,
 ) {
     let cursor = tui.cursor[2].as_deref();
     let lines: Vec<Line> = view
         .journal
         .iter()
-        .filter(|row| row.in_trail && render::keeps_row(lens, row))
+        .filter(|row| row.in_trail && brokkr_view::keeps_row(lens, row))
         .map(|row| {
             let seq = row.seq.to_string();
             let model = render::trail_pair(&render::served_text(&row.served));

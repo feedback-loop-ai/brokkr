@@ -44,12 +44,12 @@ fn page_runs_and_run_detail_serve_read_only() {
     assert_eq!(parsed[0]["run_id"], "r1");
     assert_eq!(parsed[0]["phase"], "intake");
 
-    let detail = handle(&db, "/api/run/r1");
+    let detail = handle(&db, "/api/view/r1");
     let parsed: Value = serde_json::from_str(&detail.body).unwrap();
     assert_eq!(parsed["summary"]["status"], "running");
-    assert_eq!(parsed["events"].as_array().unwrap().len(), 2);
+    assert_eq!(parsed["event_count"], 2);
 
-    assert_eq!(handle(&db, "/api/run/nope").status, "404 Not Found");
+    assert_eq!(handle(&db, "/api/view/nope").status, "404 Not Found");
     assert_eq!(handle(&db, "/definitely-not").status, "404 Not Found");
 }
 
@@ -92,7 +92,7 @@ fn tcp_shell_serves_forbidden_json_and_bounded_sse_heartbeats() {
     let (_dir, db) = fixture();
     let response = exchange(
         db.clone(),
-        "GET /api/run/r1 HTTP/1.1\r\nHost: LOCALHOST:8383\r\n\r\n",
+        "GET /api/view/r1 HTTP/1.1\r\nHost: LOCALHOST:8383\r\n\r\n",
         None,
     );
     assert!(response.starts_with("HTTP/1.1 200 OK"));
@@ -808,7 +808,7 @@ fn the_console_serves_the_boundary_and_paints_the_pair() {
 
     let view = handle(&db, "/api/view/r1");
     let parsed: Value = serde_json::from_str(&view.body).unwrap();
-    assert_eq!(parsed["view_version"], 17);
+    assert_eq!(parsed["view_version"], 18);
     let seat = &parsed["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["text"], "harness");
@@ -1962,7 +1962,6 @@ fn every_api_body_and_the_presentation_send_no_store() {
     let requests = [
         "GET /api/runs HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
         "GET /api/view/r1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
-        "GET /api/run/r1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".to_string(),
         format!("/api/presentation/r1/{}", percent_encode(&key)),
         format!("/api/transcript/r1/{}", percent_encode(&key)),
     ];
@@ -2281,7 +2280,6 @@ fn a_missing_journal_gains_no_file_on_every_browser_route() {
     let db = dir.path().join("missing").join("forge.db");
     for path in [
         "/api/runs",
-        "/api/run/r222",
         "/api/view/r222",
         "/api/presentation/r222/key",
         "/api/transcript/r222/key",
@@ -2311,3 +2309,5 @@ fn a_missing_journal_gains_no_file_on_every_browser_route() {
         "no -shm was created"
     );
 }
+
+mod scope_tests;
