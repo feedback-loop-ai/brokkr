@@ -212,8 +212,9 @@ the deadline kill (`process.rs:460-466`); a protocol violation, an
 unreadable line or a failed read of the driver's stdout after `start`
 (`converse`, `process.rs:599-632`, and `recv`, `process.rs:366-381`);
 and the built-in driver's own `failed` when its command exits 0 and
-writes no result file (`adapters.rs:6895-6903`), or ends by a signal.
-A driver that exits without a result is already `indeterminate`
+writes no result file (`adapters.rs:6895-6903`), or ends by a signal,
+or when writing the prompt to the spawned command or waiting for it
+fails (`adapters.rs:6675-6702`). A driver that exits without a result is already `indeterminate`
 (`process.rs:467-475`), and so is a driver past a transport limit
 (decision 0079 ruling 3). The `idempotency_key` the engine journals
 (`engine.rs:1069`) reaches no executor, so nothing deduplicates on it.
@@ -248,19 +249,23 @@ cannot show the executor's own report, these rulings park.
    holds this ruling. Every end after `start` with no result read
    becomes `Indeterminate` there, whether `converse` or `recv` decided
    it, and `deadline_killed` stays on the report. An end decided by
-   `recv` during the handshake, before `start` is sent, stays `Failed`.
+   `recv` during the handshake, before `start` is sent, stays `Failed`,
+   except an end the transport reads as lost (a broken pipe at hello,
+   or `recv`'s end-of-stream arms), which parks as it does today.
    In `crates/brokkr-protocol/src/adapters.rs`, `run_seat_with`'s
-   no-result-file arm and an exit by signal no longer send `failed`;
+   no-result-file arm, an exit by signal, and its invoke `Err` arm for
+   an error after the command was spawned no longer send `failed`;
    they end with no result, which the transport already reads as lost.
+   The `Err` arm keeps sending `failed` for an error before the spawn.
    The tests are named under ruling 2.
 
 2. **The retry matrix.** Each end retries or parks as follows:
 
    | End | What the engine knows | Ruled |
    |---|---|---|
-   | Pre-session refusal: the engine refused the spawn, the handshake failed before `start`, a classified provider refusal, or a driver refusal sent before anything was invoked (a missing secret, an unverified charter, a harness that would not start) | the executor never began, or it said so in its own result | Retries automatically within `max_attempts`. A model chain descends where decisions 0016 and 0053 allow, which excludes the refusals sent after `accepted`. Unchanged. |
+   | Pre-session refusal: the engine refused the spawn, the handshake failed before `start`, a classified provider refusal, or a driver refusal sent before anything was invoked (a missing secret, an unverified charter, a command that could not be staged or spawned) | the executor never began, or it said so in its own result | Retries automatically within `max_attempts`, except a handshake end the transport reads as lost, which parks as it does today. A model chain descends where decisions 0016 and 0053 allow, which excludes the refusals sent after `accepted`. Unchanged. |
    | Process timeout: the deadline kill | the tree is gone, and no result was read | The effect is uncertain, and the attempt is `effect/indeterminate`. It retries only under ruling 4. Otherwise it parks for the operator. **Changed.** |
-   | Lost result: no result of the executor's was read after `start`. That is a driver exit with no result; a protocol violation, an unreadable line, a wrong `proto` or a failed stdout read after `start` (`converse` and `recv`); the built-in driver's `failed` when its command exits 0 and writes no result file, or ends by a signal; or an engine restart in flight | no result was read; whatever the driver wrote in its place is not a receipt | As for the timeout. **Changed** for every arm that reports `failed` today. An engine restart always parks, because nothing proves its tree gone. |
+   | Lost result: no result of the executor's was read after `start`. That is a driver exit with no result; a protocol violation, an unreadable line, a wrong `proto` or a failed stdout read after `start` (`converse` and `recv`); the built-in driver's `failed` when its command exits 0 and writes no result file, or ends by a signal; the built-in driver's `failed` for an invocation error after the command was spawned (writing the prompt to its stdin, waiting for it, or exec's state command); or an engine restart in flight | no result was read; whatever the driver wrote in its place is not a receipt | As for the timeout. **Changed** for every arm that reports `failed` today. An engine restart always parks, because nothing proves its tree gone. |
    | Transport limit: a line, result or checkpoint past a limit of decision 0079 (`Exceeded`) | the driver broke its bounds; nothing it sent is read | Parks for the operator, always, even on a site declared `deduplicates` whose driver delivered the identity. Accepted decision 0079 ruling 3 stands over this addendum: such an attempt is never failed in a way a retry may repeat. Ruling 4 makes no exception to it. Unchanged. |
    | Partial side effect: the executor's own `failed` report after it began work. That is a third-party driver's `failed` result, or a built-in driver's command that returned a non-zero exit status | the executor answered and its result failed; what it changed is not known | Retries automatically within `max_attempts`, as the ruling above has it. The retry runs in the same worktree, on the same result path and under the same effect identity, so it reconciles against what the attempt left there. Nothing is claimed about effects beyond the worktree (ruling 6). Unchanged. |
    | Cleanup failure: the tree is not proven gone | an outcome was received, and the cleanup is unresolved | Parks for the operator, always, whatever was received or declared (#403's addendum). Unchanged. |
@@ -278,7 +283,9 @@ cannot show the executor's own report, these rulings park.
    beside a handshake case that pins `Failed` before `start`. In
    `crates/brokkr-protocol/src/adapters.rs`'s suite,
    `a_command_that_exits_zero_without_a_result_ends_lost` pins that the
-   driver sends no `failed` for that arm. In
+   driver sends no `failed` for that arm, and
+   `a_prompt_write_failure_after_the_spawn_ends_lost` pins the same for
+   an exec command that closes its stdin before reading its prompt. In
    `crates/brokkr-cli/tests/machine_proof.rs`,
    `a_transport_limit_end_parks_even_when_declared_and_delivered` drives
    a site declared `deduplicates`, whose `accepted` echoes the identity,
@@ -304,12 +311,14 @@ cannot show the executor's own report, these rulings park.
    nothing more is earned. The following confer none, whatever they
    say: the driver's `capabilities.supports` list, a checkpoint, a
    result object, stderr, and every other string on the wire. An unknown
-   declaration value refuses the compile. So does a declaration on a
-   site whose executor is a model harness (claude, codex, dsh or
-   lanetally), because its session can act beyond anything that could
-   deduplicate (ruling 6). So does a declaration inside a panel or a
-   sequence, or inside a select arm that is one, because the identity
-   is the effect's, and two sites in one body would share it (ruling 4).
+   declaration value refuses the compile. So does a `deduplicates`
+   declaration on a site whose executor is a model harness (claude,
+   codex, dsh or lanetally), because its session can act beyond anything
+   that could deduplicate (ruling 6). So does a `deduplicates`
+   declaration inside a panel or a sequence, or inside a select arm that
+   is one, because the identity is the effect's, and two sites in one
+   body would share it (ruling 4). An explicit `none` is the default and
+   refuses nowhere.
 
    **Enforcement binding:** compile refusals in
    `crates/brokkr-runtime/src/bundle.rs`, each tested with its exact
@@ -372,9 +381,11 @@ cannot show the executor's own report, these rulings park.
    counts its commits in a marker file outside the worktree.
    - `a_marker_committed_then_lost_parks_and_is_never_committed_twice`:
      an undeclared exec commits its marker and its result is lost, with
-     a limit of 2, in two cases: it is killed at its deadline, and it
-     exits 0 without writing a result file. Each run parks, with a count
-     of 1 and one `effect/started`.
+     a limit of 2, in three cases: it is killed at its deadline; it
+     exits 0 without writing a result file; and it closes its stdin
+     before reading a prompt larger than the pipe buffer, so the
+     driver's prompt write fails after the spawn. Each run parks, with a
+     count of 1 and one `effect/started`.
    - `a_deduplicating_executor_sees_one_identity_and_acts_once`: the same
      executor is declared `deduplicates` and reads the identity. Its
      first attempt commits and is killed. Its second receives the same

@@ -21,7 +21,8 @@ withheld `accepted`. Every claim cites a file and line read at that base.
 The inference stands, and it has instances the issue did not name: a
 protocol violation or an unreadable line after `start` is also `Failed`
 and retried, and so is the built-in driver's own `failed` when its
-command exits 0 and writes no result file. Two adjacent hazards came to
+command exits 0 and writes no result file, or when writing the prompt
+to the command, or waiting for it, fails after the spawn. Two adjacent hazards came to
 light, a result file shared by an effect's attempts and a sequence retry
 that re-runs steps that succeeded. Both are named below as findings for
 the operator. The proposed addendum to decision 0006 rules on the ends
@@ -69,9 +70,10 @@ engine acts on. A cleanup that is not `Settled` turns any outcome into
 |---|---|---|---|---|
 | Engine refuses before execution: the rebuilt seat input does not match the digest recorded at request | `engine.rs:1317-1336` | none: no driver runs | `effect/started` with `driver: "none"`, then `effect/failed` with no `start_failure` | yes, under `max_attempts`; the chain does not descend |
 | Engine refuses before spawn: a site refusal, the driver binary missing, the process table unreadable | `spawn_site` `engine.rs:3146`; `run_driver` `engine.rs:2034`; `SpawnError` `process.rs:59-71` | none: `DriverRun::SpawnFailed` (`engine.rs:1921-1930`) | `effect/failed`, with `start_failure` only when the site's model was agent-selected (`start_failure_fields` `engine.rs:3109-3123`) | yes, under `max_attempts`; the chain descends where it has one |
-| Handshake fails before `start` is sent | `process.rs:533-574` | `Failed` (a broken pipe at hello is `Lost`, `process.rs:540-541`) | `effect/failed` | yes |
+| Handshake fails before `start` is sent | `process.rs:533-574` | `Failed`, except where the transport reads the driver as gone: a broken pipe at hello (`process.rs:540-541`) and `recv`'s end-of-stream, `Exceeded` and closed-stream arms (`process.rs:369`) end `Lost`, which `eof_outcome` makes `Indeterminate` (`process.rs:467-475`) | `effect/failed`, or `effect/indeterminate` for a `Lost` end | yes, except a `Lost` end, which parks |
 | Driver's own refusal before a turn: a classified provider refusal (0053) | the claude, lanetally and codex classifiers in `crates/brokkr-protocol/src/adapters.rs` | `Failed`, no `accepted`, no checkpoint | `effect/failed`, `start_failure` | yes, and the chain descends |
-| Driver's own refusal after sending `accepted` but before invoking anything: a missing secret, an unverified charter, a harness that could not be invoked | `adapters.rs:6553-6572`, `adapters.rs:6582-6597`, `adapters.rs:6676` | `Failed`, `accepted` | `effect/failed` | yes, without chain descent |
+| Driver's own refusal after sending `accepted` but before invoking anything: a missing secret, an unverified charter, or an invocation error before the command is spawned (exec's prompt file could not be staged, `adapters.rs:5640`; the spawn itself failed, `run_cli` `adapters.rs:755`) | `adapters.rs:6553-6572`, `adapters.rs:6582-6597`; the invoke `Err` arm `adapters.rs:6675-6702` | `Failed`, `accepted` | `effect/failed` | yes, without chain descent |
+| The built-in driver synthesizes failure from an invocation error after the command was spawned: writing the prompt on its stdin failed (exec feeds the prompt there when its command names no `{prompt_file}`, `adapters.rs:5650-5655`; `run_cli` spawns at `:755` and writes at `:758`, `write_prompt` `:689-693`), waiting for the command failed (`:762`, and the model harnesses' waits at `:2386`, `:2486`, `:3726`, `:5022`), or exec's `dialect_exec` state command failed after its command ended (`:5674`) | the same invoke `Err` arm, `adapters.rs:6675-6702` | `Failed`, `accepted`, with the error text | `effect/failed` | **yes** |
 | Executor reports failure after work began: its command returned a non-zero exit status (a third-party driver's `failed` result is read the same way) | `reached` `process.rs:663-675`; `adapters.rs:6885-6893` | `Failed`: "agent CLI exited N" | `effect/failed` | yes |
 | The built-in driver synthesizes failure with no executor result: the command exits 0 and writes no result file, or ends by a signal and so returns no exit status (`code().unwrap_or(-1)`, `adapters.rs:5681`) | `run_seat_with` `adapters.rs:6895-6903`, and `:6885-6893` for the signal | `Failed`: "seat wrote no result file (the result contract was not met)", or "agent CLI exited -1" | `effect/failed` | **yes** |
 | Deadline kill | watchdog `process.rs:294-309`; `eof_outcome` `process.rs:460-466`; `deadline_killed` `process.rs:453` | `Failed`: "attempt exceeded its Ns deadline and was killed", whether or not the driver had accepted | `effect/failed` | **yes**, under `max_attempts` |
@@ -81,12 +83,15 @@ engine acts on. A cleanup that is not `Settled` turns any outcome into
 | Cleanup not proven (#403) | `finish` `process.rs:443-446`; `settled_outcome` `lib.rs:183-191` | `Indeterminate`, with `received` and `cleanup` kept | `effect/indeterminate` with `contracts/effect-cleanup.v1.schema.json` fields | no, parks |
 | Engine restarted while the attempt was in flight | `engine.rs:942-958` | none | `effect/indeterminate`: "completion cannot be established" | no, parks |
 
-Three rows are in bold. Each reports `Failed` for an attempt whose
+Four rows are in bold. Each reports `Failed` for an attempt whose
 executor's result the engine never received, after `start` had reached
-the driver. In the first, the `failed` is the driver's own synthesis. A
-missing result file is a lost result, not the command's report of
-failure; the seat contract makes the file the only channel the engine
-reads. `recv`'s arms are also how a handshake fails before `start`; only
+the driver. In the first two, the `failed` is the driver's own
+synthesis. A missing result file is a lost result, not the command's
+report of failure; the seat contract makes the file the only channel the
+engine reads. An invocation error after the spawn is the same: a
+command that commits its work and then closes its stdin before reading
+a prompt larger than the pipe buffer ends with the driver's `failed`,
+and no result of the command's was read. `recv`'s arms are also how a handshake fails before `start`; only
 after `start` are they a lost result. The row below the bold rows shows that the code already treats that fact as unknown
 completion when the driver merely exits. The doc comment on `eof_outcome`
 gives the deadline kill's reason: "we killed it before any result". That
@@ -105,8 +110,10 @@ withholds it until a checkpoint proves a turn began (0053 ruling 1,
 it runs its command (`adapters.rs:5637`), so for exec `accepted` precedes
 the script. Dsh follows its session transcript by polling, so a turn's
 tool call can run before the driver reads the row that would send
-`accepted`. The three refusal paths at `adapters.rs:6553`, `:6582` and
-`:6676` send `accepted` and then `Failed` with nothing invoked. So whether
+`accepted`. The refusal paths at `adapters.rs:6553` and `:6582` send
+`accepted` and then `Failed` with nothing invoked, and so does the
+invoke `Err` arm at `:6676` when the command was never spawned; the same
+arm also carries errors from after the spawn. So whether
 `accepted` arrived tells the engine nothing certain in either direction
 about effects.
 
