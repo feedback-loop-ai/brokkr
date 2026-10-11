@@ -2,6 +2,7 @@
 
 Status: proposed
 Date: 2026-09-25
+Built: unbuilt (#644) — the build waits for decision 0065 slice two, and is read with decision 0080
 
 ## Context
 
@@ -45,6 +46,22 @@ The narrow ruling is therefore the correct floor for slice one. It is
 not the end state the operator described. This decision names the end
 state and what it takes.
 
+Since it was drafted (refreshed 2026-10-12):
+- Decision 0065 slice one merged on 2026-10-01 (#319), so this
+  decision's precondition holds.
+- Decision 0077, accepted on 2026-10-03, makes the capability broker the
+  harness's child and the holder of the secret boundary. An MCP server
+  receives only its declared secret bindings, resolved outside it, and
+  no secret value is put in MCP configuration or in the harness's
+  environment. Ruling 3's egress relay is the same boundary, applied to
+  the provider's connection.
+- Decision 0080, proposed for #472, puts each attempt's process tree in
+  a cgroup of its own. A seat box stands inside that cgroup and ends
+  with it.
+- Decision 0075, proposed, makes a harness one module plus adapter
+  data. That data is where each harness declares `hands.seat` (ruling
+  2).
+
 ## Rulings
 
 1. **Full access is a class only a seat box may emit.** Codex's
@@ -60,8 +77,10 @@ state and what it takes.
 
    **Enforcement binding:** 0065's typed `tools.sandbox` lowering admits
    the full-access class only when the site's resolved hands kind is
-   `seat` (ruling 2). The launch judgment of rebuild units 5d–5d-fix-c2
-   refuses the class in the final composed command at any other site.
+   `seat` (ruling 2). The launch judgment refuses the class in the final
+   composed command at any other site, as it refuses every sandbox class
+   the lowering did not admit (`SandboxIntent`,
+   `crates/brokkr-protocol/src/native_controls.rs`).
    Regressions cover a hands site, a `harness` site and an `open` site.
 
 2. **A seat box is a hands kind, and the realm's boundary builds it.** A
@@ -92,7 +111,11 @@ state and what it takes.
    way records `hands.seat: {"unsupported": "<measured reason>"}` and
    stays at the narrow ceiling. The relay is never simulated. If the
    relay cannot stand, the seat refuses at start; it never falls back to
-   a credential inside the box.
+   a credential inside the box. This is decision 0077's secret boundary
+   applied to the provider's connection: the credential is resolved and
+   attached outside the confined process, and never put in its
+   environment. The relay's hosts are the provider adapter's data, since
+   a provider's endpoints come with its harness (answered 2026-10-12).
 
    **Enforcement binding:** the seat-box spawn path. An integration test
    on Linux shows each of these inside the box: the harness's login
@@ -122,8 +145,11 @@ state and what it takes.
    - how resume behaves.
 
    The slices, in order:
-   - (i) `namespace` and Codex, with `recipes/standby` and
-     `recipes/wager-harness` restored to full access inside a seat box;
+   - (i) `namespace` and Codex, proven first on a new recipe written
+     for the seat box. `recipes/standby` and `recipes/wager-harness` stay
+     at the narrow ceiling until that recipe has run, and are then
+     restored to full access inside a seat box under the same rulings
+     (answered 2026-10-12);
    - (ii) Claude Code;
    - (iii) `seatbelt`;
    - (iv) `container`, together with 0046 ruling 5's retirement of
@@ -141,12 +167,15 @@ state and what it takes.
   seat, a per-harness measurement, and a new manifest identity. That is
   why it is a kind a site opts into, and why hands boxes remain the
   default for seats that only need the workspace tool.
-- `recipes/standby`'s smith runs under `workspace-write` until slice (i)
-  lands. Anything it needs outside the worktree, or from the network (a
+- `recipes/standby`'s smith runs under `workspace-write` until it is
+  restored after slice (i). Anything it needs outside the worktree, or from the network (a
   new crate), fails there today. That is recorded here as the known
   cost of the floor.
-- Decision 0065 slice one ships unchanged. This decision starts after it
-  merges and reopens none of its rulings.
+- Decision 0065 slice one merged unchanged on 2026-10-01, and this
+  decision reopens none of its rulings. The build waits for 0065 slice
+  two (decision 0077's broker), because both build in the hands,
+  namespace and secret code. It is read with decision 0080, whose
+  attempt cgroup a seat box stands inside.
 
 ## Alternatives weighed
 
@@ -167,10 +196,11 @@ state and what it takes.
   It also keeps smiths from work that needs full access, even where a
   box could safely give it.
 
-## Open questions for the operator
+## Answered (operator, in chat, 2026-10-12)
 
-- Is the relay's host list per provider adapter data, as proposed, or a
-  realm grant under 0065?
-- Should slice (i) restore `standby` and `wager-harness` to full access,
-  or first prove the seat box on a new recipe and leave those two
-  narrowed?
+- The relay's host list is per-provider adapter data, as ruling 3
+  proposed. A provider's endpoints come with its harness. Anything wider
+  stays a realm grant under 0065 (ruling 4).
+- Slice (i) proves the seat box on a new recipe first. `standby` and
+  `wager-harness` stay narrowed until that recipe has run, and are
+  restored after it.
