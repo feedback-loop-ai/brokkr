@@ -4,10 +4,10 @@
 //! dialect's archive step owes it; this file refuses it left in place.
 //!
 //! The tasks are read as OpenSpec's own parser reads them: a list item
-//! (`-` or `*`, at any indent, then any spaces or tabs, none included) that
-//! opens on a box, `[ ]` open and `[x]` or `[X]` done. A list item whose
-//! brackets hold more than one character once their blanks are trimmed is a
-//! link, not a task. What cannot be read is refused, never skipped: a
+//! (`-` or `*`, at any indent, then any whitespace, Unicode's included, or
+//! none) that opens on a box, `[ ]` open and `[x]` or `[X]` done. A list
+//! item whose brackets hold more than one character once their blanks are
+//! trimmed is a link, not a task. What cannot be read is refused, never skipped: a
 //! change with no `tasks.md`, a `tasks.md` with no task, a box that never
 //! closes, an empty or widened box (`[]`, `[  ]`, or a mark padded with
 //! blanks such as `[ x ]`, which OpenSpec counts as no task at all), a box
@@ -59,7 +59,7 @@ fn task(line: &str) -> Result<Option<Task>, Unreadable> {
     let Some(rest) = line
         .trim_start()
         .strip_prefix(['-', '*'])
-        .and_then(|item| item.trim_start_matches([' ', '\t']).strip_prefix('['))
+        .and_then(|item| item.trim_start().strip_prefix('['))
     else {
         return Ok(None);
     };
@@ -156,7 +156,12 @@ fn a_finished_or_unreadable_change_is_refused() {
         ("openspec/changes/empty/tasks.md", "## 1. Nothing tasked\n"),
         (
             "openspec/changes/finished/tasks.md",
-            "- [x] 1.1 one\n* [X] 1.2 two\n    - [x] 1.3 nested\n-\t[x] 1.4 tabbed\n-[x] 1.5\n",
+            "- [x] 1.1 one\n* [X] 1.2 two\n    - [x] 1.3 nested\n-\t[x] 1.4 tabbed\n-[x] 1.5\n\
+             -\u{2003}[x] 1.6 em-spaced\n",
+        ),
+        (
+            "openspec/changes/no-break/tasks.md",
+            "- [x] 1.1 done\n-\u{a0}[ ] 1.2 open behind a no-break space\n",
         ),
         ("openspec/changes/open/proposal.md", ""),
         (
@@ -177,7 +182,7 @@ fn a_finished_or_unreadable_change_is_refused() {
         [
             "openspec/changes/stray.md: stands in no change's directory",
             "openspec/changes/empty/tasks.md: holds no task",
-            "openspec/changes/finished: every task is ticked (5 of 5); a finished change is \
+            "openspec/changes/finished: every task is ticked (6 of 6); a finished change is \
              archived by the dialect's archive step (decision 0081)",
             "openspec/changes/unreadable/tasks.md:2: cannot read the task box: a box marked `~`",
             "openspec/changes/unreadable/tasks.md:3: cannot read the task box: an empty or widened box",
