@@ -55,9 +55,12 @@ Since it was drafted (refreshed 2026-10-12):
   no secret value is put in MCP configuration or in the harness's
   environment. Ruling 3's egress relay is the same boundary, applied to
   the provider's connection.
-- Decision 0080, proposed for #472, puts each attempt's process tree in
-  a cgroup of its own. A seat box stands inside that cgroup and ends
-  with it.
+- Decision 0080, accepted on 2026-10-12 for #472 and not yet on main,
+  puts each attempt's process tree in a cgroup of its own on a Linux
+  host that offers one, and polls where none is offered; macOS has no
+  cgroups. On such a Linux host a seat box stands inside its attempt's
+  cgroup and ends with it. A seat box takes no cgroup as a
+  prerequisite, so slice (iii) inherits none.
 - Decision 0075, proposed, makes a harness one module plus adapter
   data. That data is where each harness declares `hands.seat` (ruling
   2).
@@ -82,6 +85,14 @@ Since it was drafted (refreshed 2026-10-12):
    the lowering did not admit (`SandboxIntent`,
    `crates/brokkr-protocol/src/native_controls.rs`).
    Regressions cover a hands site, a `harness` site and an `open` site.
+   Claude Code has no typed full-access class today: `sealed_inputs` in
+   the same file refuses a typed sandbox class on any harness but Codex,
+   and admits no permission mode beside the template's `acceptEdits`,
+   and `authored_refusal` refuses a recipe's own `--permission-mode`.
+   Slice (ii) adds a typed lowering of `bypassPermissions` that admits it
+   only at a `seat` site, and the launch judgment refuses that mode, and
+   `--dangerously-skip-permissions`, in the final composed command at any
+   other site, with the same three regressions.
 
 2. **A seat box is a hands kind, and the realm's boundary builds it.** A
    site may declare `"hands": {"kind": "seat", "binds": [...]}`. The
@@ -129,11 +140,28 @@ Since it was drafted (refreshed 2026-10-12):
    never widens the network, because the box, not the harness, owns
    the network.
 
+   **Enforcement binding:** the seat-box spawn path composes the box's
+   network from the relay and the site's compiled 0065 grants alone. No
+   sandbox class, harness mode or adapter field adds a route, and a site
+   whose grant cannot be built refuses at start. Ruling 3's integration
+   test adds two cases under full access: an ungranted package registry
+   is unreachable, and the same registry is reachable once the realm
+   grants it as a capability.
+
 5. **The record says a seat stood in a seat box.** The seat record, the
    run manifest and every readout that names a seat's boundary name
    `seat` as its hands kind. A run is summarised as boxed only if every
    gate site was boxed, as 0046 ruling 3 already reads. Full access is
    shown as the class it is, never hidden behind "boxed".
+
+   **Enforcement binding:** additive `seat-record` and `run-manifest`
+   versions, new files beside the current ones, carry hands kind `seat`
+   and the sandbox class the seat ran; a version that cannot carry them
+   refuses a seat-boxed run rather than recording it as a hands box.
+   `brokkr-view`'s `run_boundary` derives the run's boxed readout once
+   (0071 ruling 7), and the CLI, the TUI and `ui.html` paint it. Tests
+   pin a seat-boxed site's readout, with its full-access class shown,
+   on each surface.
 
 6. **Enactment, measured first.** Each harness is measured before any
    shipped recipe names a seat box. The measurements are:
@@ -158,6 +186,16 @@ Since it was drafted (refreshed 2026-10-12):
    Until a harness's slice is measured and merged, that harness stays at
    the narrow ceiling.
 
+   **Enforcement binding:** a harness's `hands.seat` entry in adapter
+   data (ruling 2) names the run that measured it. The compile refuses a
+   site declaring `kind: seat` when its harness's adapter carries no
+   such entry, or carries `unsupported`, naming the harness. Tests cover
+   a measured harness, an unmeasured one and an `unsupported` one, and a
+   mutation that drops the refusal fails them (0071 ruling 9). The slice
+   order above, the restoration in slice (i) included, is
+   judgment-guidance: no mechanism reads whether a recipe has run, so
+   each slice's pull request is judged against it.
+
 ## Consequences
 
 - The operator's model becomes the shipped one where it is safe: the
@@ -167,15 +205,16 @@ Since it was drafted (refreshed 2026-10-12):
   seat, a per-harness measurement, and a new manifest identity. That is
   why it is a kind a site opts into, and why hands boxes remain the
   default for seats that only need the workspace tool.
-- `recipes/standby`'s smith runs under `workspace-write` until it is
-  restored after slice (i). Anything it needs outside the worktree, or from the network (a
-  new crate), fails there today. That is recorded here as the known
+- `recipes/standby`'s smith runs under `workspace-write` until ruling 6
+  restores it. Anything it needs outside the worktree, or from the
+  network (a new crate), fails there today. That is recorded here as the known
   cost of the floor.
 - Decision 0065 slice one merged unchanged on 2026-10-01, and this
   decision reopens none of its rulings. The build waits for 0065 slice
   two (decision 0077's broker), because both build in the hands,
   namespace and secret code. It is read with decision 0080, whose
-  attempt cgroup a seat box stands inside.
+  attempt cgroup a seat box stands inside on a Linux host that offers
+  one.
 
 ## Alternatives weighed
 
@@ -198,9 +237,6 @@ Since it was drafted (refreshed 2026-10-12):
 
 ## Answered (operator, in chat, 2026-10-12)
 
-- The relay's host list is per-provider adapter data, as ruling 3
-  proposed. A provider's endpoints come with its harness. Anything wider
-  stays a realm grant under 0065 (ruling 4).
-- Slice (i) proves the seat box on a new recipe first. `standby` and
-  `wager-harness` stay narrowed until that recipe has run, and are
-  restored after it.
+The operator answered the draft's two open questions. Each answer is
+recorded once, in the ruling it settles: the relay's hosts in ruling 3,
+and the first recipe and the restoration order in ruling 6's slice (i).
