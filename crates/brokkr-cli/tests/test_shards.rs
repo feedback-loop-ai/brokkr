@@ -10,14 +10,39 @@
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Output};
 
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 
 use crate::workspace_root::workspace;
 
 const SCRIPT: &str = "scripts/test-shards.sh";
 
+/// The part of `cargo metadata --format-version 1` the script reads, so a
+/// fixture planted from it is written back with exactly those fields.
+/// Cargo adds fields over time, so unknown ones are ignored.
+#[derive(Clone, Deserialize, Serialize)]
+struct Metadata {
+    packages: Vec<Package>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct Package {
+    name: String,
+    targets: Vec<Target>,
+}
+
+/// One compiled root: its kinds as Cargo names them (`lib`, `test`, …),
+/// an open vocabulary the script maps, and whether `cargo test` runs it
+/// and its doctests.
+#[derive(Clone, Deserialize, Serialize)]
+struct Target {
+    kind: Vec<String>,
+    name: String,
+    test: bool,
+    doctest: bool,
+}
+
 /// The real tree's targets, as the script reads them.
-fn metadata() -> Value {
+fn metadata() -> Metadata {
     let output = Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
         .current_dir(workspace())
@@ -76,7 +101,7 @@ struct Scratch {
 }
 
 impl Scratch {
-    fn new(metadata: &Value, script: &str) -> Self {
+    fn new(metadata: &Metadata, script: &str) -> Self {
         let dir = tempfile::tempdir().expect("scratch");
         for sub in ["bin", "started", "ended"] {
             std::fs::create_dir(dir.path().join(sub)).expect("scratch directory");
@@ -84,7 +109,8 @@ impl Scratch {
         let cargo = dir.path().join("bin/cargo");
         std::fs::write(&cargo, STUB).expect("stub cargo");
         std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("mode");
-        std::fs::write(dir.path().join("metadata.json"), metadata.to_string()).expect("metadata");
+        let metadata = serde_json::to_string(metadata).expect("metadata serializes");
+        std::fs::write(dir.path().join("metadata.json"), metadata).expect("metadata");
         std::fs::write(dir.path().join("test-shards.sh"), script).expect("script");
         Self { dir }
     }
@@ -168,20 +194,18 @@ fn the_real_trees_shards_are_its_whole_suite() {
 }
 
 /// brokkr-cli's targets in `metadata`, to plant a target in or change.
-fn cli_targets(metadata: &mut Value) -> &mut Vec<Value> {
-    metadata["packages"]
-        .as_array_mut()
-        .expect("packages")
+fn cli_targets(metadata: &mut Metadata) -> &mut Vec<Target> {
+    &mut metadata
+        .packages
         .iter_mut()
-        .find(|package| package["name"] == "brokkr-cli")
-        .expect("brokkr-cli")["targets"]
-        .as_array_mut()
-        .expect("targets")
+        .find(|package| package.name == "brokkr-cli")
+        .expect("brokkr-cli")
+        .targets
 }
 
 /// The planted metadata or table, the plan's exact refusal and its
 /// closing line.
-fn assert_refused(metadata: &Value, script: &str, problems: &[&str]) {
+fn assert_refused(metadata: &Metadata, script: &str, problems: &[&str]) {
     let run = Scratch::new(metadata, script).run(&["plan", "test"], 0, &[]);
     let expected: String = problems
         .iter()
@@ -206,8 +230,12 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
     let real = metadata();
     let table = script();
     let mut planted = real.clone();
-    cli_targets(&mut planted)
-        .push(json!({"kind": ["test"], "name": "a_new_binary", "test": true, "doctest": false}));
+    cli_targets(&mut planted).push(Target {
+        kind: vec!["test".to_string()],
+        name: "a_new_binary".to_string(),
+        test: true,
+        doctest: false,
+    });
     assert_refused(
         &planted,
         &table,
@@ -259,7 +287,7 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
         ],
     );
     let mut removed = real.clone();
-    cli_targets(&mut removed).retain(|target| target["name"] != "heap_dsh");
+    cli_targets(&mut removed).retain(|target| target.name != "heap_dsh");
     assert_refused(
         &removed,
         &table,
@@ -268,9 +296,9 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
     let mut untested = real.clone();
     for target in cli_targets(&mut untested)
         .iter_mut()
-        .filter(|target| target["name"] == "heap_dsh")
+        .filter(|target| target.name == "heap_dsh")
     {
-        target["test"] = json!(false);
+        target.test = false;
     }
     assert_refused(
         &untested,
@@ -288,8 +316,8 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
 fn the_first_phase_runs_at_once_and_capability_broker_alone_after_it() {
     let real = metadata();
     let test = "test --workspace --all-features --locked --no-fail-fast";
-    let coverage =
-        "+nightly-2026-09-05 llvm-cov --no-report --workspace --all-features --locked --branch";
+    let coverage = "+nightly-2026-09-05 llvm-cov --no-report --workspace --all-features --locked \
+                    --branch --no-fail-fast";
     let test_calls: Vec<String> = ["--no-run"]
         .iter()
         .chain(&SHARDS)

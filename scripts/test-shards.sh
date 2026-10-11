@@ -75,7 +75,9 @@ case "$mode" in
     [ "$#" -eq 2 ] || usage
     [[ "$2" =~ ^nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || refuse "the coverage toolchain '$2' is not nightly-YYYY-MM-DD"
     # cargo-llvm-cov runs no doctests unless asked, and the gate never asks.
-    prefix=(cargo "+$2" llvm-cov --no-report --workspace --all-features --locked --branch)
+    # `--no-fail-fast` runs a shard's every binary past a failing one, as
+    # the test mode does; the shard still exits non-zero.
+    prefix=(cargo "+$2" llvm-cov --no-report --workspace --all-features --locked --branch --no-fail-fast)
     doctests=false
     ;;
   plan)
@@ -201,14 +203,16 @@ else
   "${prefix[@]}" -- --list >/dev/null
 fi
 
+# shellcheck source=scripts/test-summary.sh
+source scripts/test-summary.sh
+
 # Whether a shard's output shows a test it executed: a libtest summary with
-# a test passed or failed.
+# a test passed or failed. A shard runs many binaries, and one a filter
+# leaves empty prints a summary of none, so one executed test is enough.
 executed_a_test() {
-  local line summary_re='^test result: (ok|FAILED)\. ([0-9]+) passed; ([0-9]+) failed;'
+  local line
   while IFS= read -r line || [ -n "$line" ]; do
-    if [[ "$line" =~ $summary_re ]] && ((10#${BASH_REMATCH[2]} + 10#${BASH_REMATCH[3]} > 0)); then
-      return 0
-    fi
+    if summary_executed "$line"; then return 0; fi
   done <"$1"
   return 1
 }
