@@ -1,10 +1,11 @@
 //! The participant transcript routes (#352): the body route that serves
 //! `brokkr transcript --json`'s document and the watch keyed like it, for
-//! every kind. They share `tests.rs`'s journal and HTTP fixtures.
+//! every kind. They share `tests.rs`'s journal fixtures and
+//! `limit_tests.rs`'s HTTP fixtures.
 
+use super::limit_tests::{exchange, BrokenWriter, FailAfterOneWrite};
 use super::tests::{
-    claude_projects_home, exchange, participant_fixture, percent_encode, transcript_route,
-    watch_request, BrokenWriter, FailAfterOneWrite,
+    claude_projects_home, participant_fixture, percent_encode, transcript_route, watch_request,
 };
 use super::*;
 use crate::tests::env_guard::EnvGuard;
@@ -321,7 +322,7 @@ fn the_session_stream_fires_on_growth_and_says_nothing_otherwise() {
         writes: 0,
         out: String::new(),
     };
-    serve_io(&db, &mut request, &mut watcher, Some(3));
+    serve_io(&db, &mut request, &mut watcher, &Limits::DEFAULT, Some(3));
     let stream = watcher.out;
     assert!(stream.starts_with("HTTP/1.1 200 OK"), "{stream}");
     assert!(
@@ -346,12 +347,19 @@ fn the_session_stream_fires_on_growth_and_says_nothing_otherwise() {
     // never a thread left polling a socket nobody is reading.
     std::fs::write(&file, turn).unwrap();
     let mut request = std::io::Cursor::new(watch_request(&route).into_bytes());
-    serve_io(&db, &mut request, &mut BrokenWriter, Some(1));
+    serve_io(
+        &db,
+        &mut request,
+        &mut BrokenWriter,
+        &Limits::DEFAULT,
+        Some(1),
+    );
     let mut request = std::io::Cursor::new(watch_request(&route).into_bytes());
     serve_io(
         &db,
         &mut request,
         &mut FailAfterOneWrite::default(),
+        &Limits::DEFAULT,
         Some(1),
     );
 }
@@ -533,7 +541,7 @@ fn a_growth_watch_changes_no_retained_byte() {
     let route = format!("r1/{}", percent_encode(&key));
     let mut request = std::io::Cursor::new(watch_request(&route).into_bytes());
     let mut sink = Vec::new();
-    serve_io(&db, &mut request, &mut sink, Some(2));
+    serve_io(&db, &mut request, &mut sink, &Limits::DEFAULT, Some(2));
     assert!(String::from_utf8_lossy(&sink).starts_with("HTTP/1.1 200 OK"));
     assert_eq!(
         std::fs::read(&file).unwrap(),
