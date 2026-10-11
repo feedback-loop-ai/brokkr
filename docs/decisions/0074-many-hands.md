@@ -1,10 +1,10 @@
 # 0074 — Many hands: one operator on many hosts is the open core, many people is an extension, and the core is extensible by contract so the enterprise layer never forks it
 
-Status: accepted — operator ruled in chat 2026-10-12: rulings 1 and 4–8 accepted; rulings 2 and 3 deferred until decision 0068's dispatcher is built
+Status: accepted — operator ruled in chat 2026-10-12, all nine rulings
 Date: 2026-09-27
 
 Amends: 0025
-Built: unbuilt (#645) — rulings 2 and 3 are deferred
+Built: unbuilt (#645) — rulings 2 and 3 are built once decision 0068's dispatcher is
 
 ## Context
 
@@ -74,9 +74,9 @@ Since it was drafted (refreshed 2026-10-12):
   host id and a fleet journal would live.
 - The TUI already reads several journals through the world map
   (`realms.json`).
-The operator accepted rulings 1 and 4–8 on 2026-10-12. Rulings 2 and 3,
-the multi-host core, are deferred until 0068's dispatcher is built, and
-are refreshed then against these facts.
+The operator accepted the decision whole on 2026-10-12. Rulings 2 and
+3, the multi-host core, are built once 0068's dispatcher is, against
+these facts.
 
 ## Rulings
 
@@ -96,8 +96,7 @@ are refreshed then against these facts.
    outside the core workspace members.
 
 2. **One operator, many hosts: every host is a hearth.** *(Core.)*
-   **Deferred** (operator, 2026-10-12): ruled once decision 0068's
-   dispatcher is built, and refreshed then against `runs.origin_host`,
+   Built once decision 0068's dispatcher is, against `runs.origin_host`,
    `forge.host/v1` and decision 0083's `.brokkr/state/`.
    - **One journal per host.** A host is any machine, virtual machine or
      container that runs Brokkr with its own journal. A container running
@@ -127,7 +126,7 @@ are refreshed then against these facts.
    nothing; and a fleet-journal TUI test.
 
 3. **Work reaches a host through git, claimed once.** *(Core; proposed
-   mechanism.)* **Deferred** with ruling 2 (operator, 2026-10-12). Each host keeps its own queue in its own journal and runs
+   mechanism.)* Built with ruling 2, once 0068's dispatcher is. Each host keeps its own queue in its own journal and runs
    its own dispatcher (0068 ruling 1 is unchanged). Across hosts, a
    *fleet queue* lives in the repository as `refs/forge/queue/*`: each
    entry is a small file (recipe, repository, feature text, realm map,
@@ -217,9 +216,8 @@ are refreshed then against these facts.
 9. **Enactment, in order.** Each seam lands with its inert default, so
    every slice ships with no behaviour change:
    - (0) the multi-host core: host identity and `collect` (ruling 2),
-     then the git-claimed fleet queue (ruling 3). Deferred with rulings 2
-     and 3 until 0068's dispatcher is built; the seams below do not wait
-     for it;
+     then the git-claimed fleet queue (ruling 3), once 0068's dispatcher
+     is built; the seams below do not wait for it;
    - (i) the extension boundary itself (ruling 4), then identity and
      authority, with the optional `operator` field;
    - (ii) admission on the dispatcher, when 0068 is built;
@@ -232,7 +230,7 @@ are refreshed then against these facts.
 ## Consequences
 
 - The open core loses nothing and gains no configuration: a single
-  operator never sees a seam. Once rulings 2 and 3 are ruled, an
+  operator never sees a seam. Once rulings 2 and 3 are built, an
   operator with many hosts gains host ids, a fleet view and a way to
   hand work to a machine, all without a server.
 - An enterprise layer can be a separate repository of executables that
@@ -261,9 +259,10 @@ are refreshed then against these facts.
 
 ## Asked
 
-- Deferred with ruling 3: is git the right coordination medium for the
-  fleet queue, or should a claim go through a host the operator
-  designates (ssh), with git carrying only evidence?
+- Accepted with ruling 3 (2026-10-12): git is the fleet queue's
+  coordination medium. If the build's two-host race test shows a claim
+  can be won twice, a new ruling moves the claim to a host the operator
+  designates (ssh), with git carrying only evidence.
 - Recorded 2026-10-12: the seam list stands at six. Notification (tell
   someone a run parked) and billing export are read-only subscribers of
   the journal stream, so the events seam covers both. A slice that finds
