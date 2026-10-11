@@ -6,8 +6,8 @@
 //! is checked in MB3's order before any lookup or start. An admitted plan's
 //! box is made ready, its bindings handed over and its server started
 //! inside it (U6c8), and serving still refuses before any MCP message
-//! until the serving protections land. The compile fence still refuses
-//! every MCP grant.
+//! until the serving protections land. A bound plan's one lifetime has its
+//! private ledger (U6d). The compile fence still refuses every MCP grant.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,7 @@ use serde_json::{json, Value};
 
 #[cfg(target_os = "linux")]
 mod handoff;
+mod ledger;
 #[cfg(target_os = "linux")]
 mod observer;
 #[cfg(target_os = "linux")]
@@ -541,6 +542,12 @@ fn each_refusal_reads_in_mb3_and_mb4s_words() {
         ),
         (Refusal::Exec, "MCP server could not start inside its box"),
         (
+            Refusal::Response,
+            "MCP server response exceeds the broker limit",
+        ),
+        (Refusal::Timeout, "MCP server call timed out"),
+        (Refusal::Masking, "MCP response cannot be safely masked"),
+        (
             Refusal::ServingIncomplete,
             "broker serving protections are incomplete",
         ),
@@ -909,8 +916,21 @@ impl Sealed {
     }
 
     /// The broker's exit and stderr for the plan at `locator` and `digest`,
-    /// its environment as `environment` leaves it.
+    /// its environment as `environment` leaves it: a fresh lifetime of the
+    /// plan, as the engine provisions each, so its last ledger is gone.
     fn serve_in(
+        &self,
+        locator: &Path,
+        digest: &str,
+        environment: impl FnOnce(&mut Command),
+    ) -> (Option<i32>, String) {
+        std::fs::remove_file(ledger::of(locator)).ok();
+        self.serve_again(locator, digest, environment)
+    }
+
+    /// The broker's exit and stderr for the plan at `locator` and `digest`
+    /// as [`Sealed::serve_in`] has them, the plan's last ledger left.
+    fn serve_again(
         &self,
         locator: &Path,
         digest: &str,
@@ -1367,6 +1387,73 @@ fn every_record_is_an_object_never_a_positional_array() {
         json!({"plans": [pin]}).to_string().as_bytes(),
     );
     binds("object pin", sealed.serve(&digest));
+}
+
+#[test]
+fn no_public_decoder_reads_a_record_by_position() {
+    use brokkr_protocol::broker::{Inventory, Owner, Restrictions, Tree};
+    use serde::Deserialize;
+    // Called as any caller outside the crate calls them, each record's
+    // decoder refuses its fields by position.
+    let message = |error: serde_json::Error| error.to_string();
+    let positional = json!(["r", "run-1", EFFECT, ATTEMPT, "research", "research#0"]);
+    let refusals = [
+        Restrictions::deserialize(json!([])).map(drop),
+        Owner::deserialize(positional).map(drop),
+        Inventory::deserialize(json!([[]])).map(drop),
+        Tree::deserialize(json!(["package", "/opt/docs"])).map(drop),
+    ];
+    let sequence = "invalid type: sequence, expected struct Fields";
+    let tree = "invalid type: sequence, expected internally tagged enum Kind";
+    assert_eq!(
+        refusals.map(|refused| refused.map_err(message)),
+        [sequence, sequence, sequence, tree].map(|text| Err(text.to_string()))
+    );
+    // The same records as objects are read, closed as ever.
+    let owner = json!({"repo": "r", "run": "run-1", "effect": EFFECT, "attempt": ATTEMPT,
+                       "site": "research", "instance": "research#0"});
+    let read = Owner::deserialize(owner.clone()).unwrap();
+    let fields = [
+        read.repo,
+        read.run,
+        read.effect,
+        read.attempt,
+        read.site,
+        read.instance,
+    ];
+    assert_eq!(
+        fields,
+        ["r", "run-1", EFFECT, ATTEMPT, "research", "research#0"]
+    );
+    let Restrictions {} = Restrictions::deserialize(json!({})).unwrap();
+    assert_eq!(
+        Inventory::deserialize(json!({"plans": []}))
+            .unwrap()
+            .plans
+            .len(),
+        0
+    );
+    let package = Tree::deserialize(json!({"kind": "package", "root": "/opt/docs"}));
+    assert!(matches!(package.unwrap(), Tree::Package { root } if root == Path::new("/opt/docs")));
+    let system = Tree::deserialize(json!({"kind": "system"})).unwrap();
+    assert!(matches!(system, Tree::System {}));
+    let mut unknown = owner.clone();
+    unknown["mounts"] = json!([]);
+    let mut missing = owner;
+    missing.as_object_mut().unwrap().remove("instance");
+    let closed = [
+        Owner::deserialize(unknown).map(drop).map_err(message),
+        Owner::deserialize(missing).map(drop).map_err(message),
+        serde_json::from_str::<Tree>(r#"{"kind": "system", "kind": "system"}"#)
+            .map(drop)
+            .map_err(message),
+    ];
+    let expected = [
+        "unknown field `mounts`, expected one of `repo`, `run`, `effect`, `attempt`, `site`, `instance`",
+        "missing field `instance`",
+        "duplicate field `kind` at line 1 column 25",
+    ];
+    assert_eq!(closed, expected.map(|text| Err(text.to_string())));
 }
 
 #[test]
