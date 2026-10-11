@@ -426,6 +426,31 @@ scaffold, and its layout stays.
      given as a name is kept, because the dialect library moves with the map
      into `.brokkr/dialects/`. The map's digest moves, and the output says
      so.
+   - **A moved file's typed references are restated** as the map's are. The
+     compile reads two paths that one moved file holds to another: the
+     bundle's `policy`, resolved against the bundle's directory (`own_table`
+     in `crates/brokkr-runtime/src/bundle/compose.rs`), and a hired agent's
+     `charter`, resolved against the agent library (`contained` in
+     `crates/brokkr-runtime/src/agents/load.rs`). Each admits an absolute
+     spelling that stands under its base, so the build has the compile
+     return each one, with its spelling, beside the move list. A relative
+     one is kept byte for byte: the file that holds it and the file it
+     names move together, to the same places under `.brokkr/`, so `init`'s
+     `policy.json` and `charters/implementer.md` name the same files after
+     the move. An absolute one is restated as the new absolute path in the
+     same field, so `<root>/policy.json` becomes `<root>/.brokkr/policy.json`
+     and `<root>/agents/charters/implementer.md` becomes
+     `<root>/.brokkr/agents/charters/implementer.md`. Left as written, the
+     first would stand outside the moved bundle's directory and the second
+     would name a file that is no longer there, so the closing compile would
+     refuse after every move was made. The restated file's digest moves, and
+     each restatement is a line of the refusal's listing and of the output,
+     as `and rewrites .brokkr/bundle.json's policy:  <old> -> <new>`. The
+     compile returns these references as one closed enum, an arm per
+     field, which `--migrate` matches with no wildcard (decision 0071
+     ruling 2), so a path field the compile learns later cannot be read
+     without its arm saying how it is restated. So the closing compile reads
+     the same files the old compile read, each from its new place.
    - **The state paths written into moved files are rewritten**, from one
      closed list: `.forge/` followed by `forge.db`, `results/`, `scratch/`,
      `ledger/`, `tasks/`, `secrets.env` or `muninn.ndjson` becomes the same
@@ -514,6 +539,15 @@ scaffold, and its layout stays.
    `<root>/.brokkr/state/app.db`, both journals and their `-wal` files stand
    there, `brokkr status` lists the run journaled before the move, and the
    next run raises no half-moved refusal);
+   `migrate_restates_absolute_typed_references` (`init`'s old output with
+   `bundle.json`'s `policy` set to `<root>/policy.json` and the implementer
+   agent's `charter` set to `<root>/agents/charters/implementer.md`, which
+   compiles before the move: the root layout's refusal lists both
+   restatements exactly; after `--migrate --scripts-use-root-paths` the
+   moved bundle's `policy` reads `<root>/.brokkr/policy.json`, the moved
+   agent's `charter` reads `<root>/.brokkr/agents/charters/implementer.md`,
+   every other agent's relative `charter` and every other field is kept
+   byte for byte, and the closing compile succeeds and prints its digest);
    `migrate_refuses_a_realm_path_into_moved_state` (a `house` of
    `.forge/tasks/house.md`, under a directory the migration moves, refuses with its exact text and nothing moves);
    `migrate_rewrites_embedded_state_paths` (in `init`'s old output the moved
