@@ -115,7 +115,14 @@ plan_lines=()
 for index in "${planned[@]}"; do
   plan_lines+=("${shard_name[$index]}	${shard_selectors[$index]}")
 done
-problems="$(cargo metadata --format-version 1 --no-deps --locked | jq -r --argjson doctests "$doctests" '
+# jq evaluates its filter once for each JSON value it reads, so output that
+# holds no value would pass every check below without reading a target:
+# the read is refused unless it is exactly one object with a packages array.
+metadata="$(cargo metadata --format-version 1 --no-deps --locked)" \
+  || refuse 'cargo metadata could not be read'
+jq -s -e 'length == 1 and (.[0] | type == "object" and (.packages | type) == "array")' \
+  >/dev/null 2>&1 <<<"$metadata" || refuse 'cargo metadata could not be read'
+problems="$(jq -r --argjson doctests "$doctests" '
   def kind: .kind as $kinds
     | if ($kinds | any(. == "lib" or . == "rlib" or . == "dylib" or . == "cdylib"
                          or . == "staticlib" or . == "proc-macro")) then "lib"
@@ -163,7 +170,7 @@ problems="$(cargo metadata --format-version 1 --no-deps --locked | jq -r --argjs
              and $filters[1] == "skip:\($filters[0] | ltrimstr("only:"))" then empty
         else "\($unit) does not run exactly once: \($runs | map("\(.shard) (\(.filter))") | join(", "))"
         end)
-' --args "${plan_lines[@]}")" || refuse 'cargo metadata could not be read'
+' --args "${plan_lines[@]}" <<<"$metadata")" || refuse 'cargo metadata could not be read'
 if [ -n "$problems" ]; then
   printf '%s\n' "$problems" >&2
   refuse 'the shards are not the whole suite, each test target exactly once'

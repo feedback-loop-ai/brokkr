@@ -252,6 +252,32 @@ fn assert_refused(metadata: &Metadata, script: &str, problems: &[&str]) {
 /// a split whose skip and filter differ, a selector that names no target
 /// or that the plan cannot read, and a shard that runs a target the suite
 /// does not.
+/// A metadata read that is not exactly one JSON object with a packages
+/// array is refused before the partition is accepted: jq evaluates its
+/// filter once per value it reads, so output with no value would pass every
+/// check without reading a target, and two values would be read twice.
+#[test]
+fn metadata_that_is_not_one_json_object_is_refused() {
+    let real = metadata();
+    for planted in ["", " \n\t\n", "{}", "{\"packages\":[]}{\"packages\":[]}"] {
+        let scratch = Scratch::new(&real, &script());
+        std::fs::write(scratch.dir.path().join("metadata.json"), planted).expect("planted");
+        for args in [
+            &["plan", "test"][..],
+            &["plan", "coverage"][..],
+            &["test"][..],
+        ] {
+            let run = scratch.run(args, &[]);
+            assert_eq!(run.status.code(), Some(1), "{planted:?} {args:?}: {run:?}");
+            assert_eq!(
+                String::from_utf8_lossy(&run.stderr),
+                "test shards: cargo metadata could not be read\n",
+                "{planted:?} {args:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
     let real = metadata();
