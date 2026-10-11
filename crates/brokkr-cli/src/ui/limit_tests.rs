@@ -288,6 +288,12 @@ fn a_disconnected_sse_client_frees_its_slot() {
     // slot comes back, within two polls.
     drop(events);
     drop(watcher);
+    the_slot_comes_back(address);
+}
+
+/// The page served to a fresh client once a held slot is given back,
+/// asked for until it is or twenty seconds pass.
+fn the_slot_comes_back(address: std::net::SocketAddr) {
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let mut next = client(address, Duration::from_secs(5));
@@ -305,6 +311,42 @@ fn a_disconnected_sse_client_frees_its_slot() {
         );
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// The smallest socket buffers the platform grants, so a page of the
+/// surface's size cannot fit in them and a write to a client that does
+/// not read blocks.
+const TIGHT_BUFFER: usize = 1024;
+
+/// A client whose receive buffer is shrunk before it connects, so the
+/// window it offers stays small.
+fn tight_client(address: std::net::SocketAddr) -> TcpStream {
+    use rustix::net::{sockopt, AddressFamily, SocketType};
+    let socket = rustix::net::socket(AddressFamily::INET, SocketType::STREAM, None).unwrap();
+    sockopt::set_socket_recv_buffer_size(&socket, TIGHT_BUFFER).unwrap();
+    rustix::net::connect(&socket, &address).unwrap();
+    TcpStream::from(socket)
+}
+
+#[test]
+fn a_client_that_stops_reading_is_ended_at_the_write_timeout() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    // An accepted connection takes the listener's send buffer.
+    rustix::net::sockopt::set_socket_send_buffer_size(&listener, TIGHT_BUFFER).unwrap();
+    let address = listener.local_addr().unwrap();
+    let limits = Limits {
+        write_timeout: Duration::from_millis(300),
+        ..capped(1)
+    };
+    std::thread::spawn(move || serve_listener(no_journal(), listener, false, None, limits, |_| {}));
+
+    // Asks for the page and never reads it, but stays connected: only the
+    // write timeout can end the write that the full buffers block.
+    let mut stalled = tight_client(address);
+    stalled.write_all(PAGE_REQUEST).unwrap();
+    assert!(PAGE.len() > 16 * TIGHT_BUFFER);
+    the_slot_comes_back(address);
+    drop(stalled);
 }
 
 #[test]
