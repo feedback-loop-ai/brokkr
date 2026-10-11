@@ -544,8 +544,10 @@ impl Handing {
             .map(|pid| (pid, status(pid)))
             .collect();
         panic!(
-            "no stage of {} reached: {boxed:?}",
-            self.sealed.locator.display()
+            "no stage of {} reached: {boxed:?} after {:?}\n{}",
+            self.sealed.locator.display(),
+            self.begun.elapsed(),
+            diag(&self.sealed, "stage")
         );
     }
 
@@ -753,8 +755,13 @@ fn a_server_started_from_a_terminal_cannot_open_it() {
         .unwrap();
     let ended = run.wait().unwrap();
     drop(run.stdin.take());
-    assert_eq!(ended.code(), admitted().0);
-    assert_eq!(std::fs::read_to_string(apart).unwrap(), admitted().1);
+    let got = std::fs::read_to_string(&apart).unwrap();
+    assert_eq!(
+        (ended.code(), got.as_str()),
+        (admitted().0, admitted().1.as_str()),
+        "{}",
+        diag(&sealed, "terminal")
+    );
     // The bootstrap held the terminal and opened it to give it up; the
     // server it then became, the same process, finds none.
     let opens = traces(&log).into_iter().filter(|opens| !opens.is_empty());
@@ -772,4 +779,21 @@ fn a_server_started_from_a_terminal_cannot_open_it() {
         "{opens:#?}"
     );
     assert!(within(|| boxed(&sealed).is_empty()));
+}
+
+/// DIAGNOSTIC (do not merge): what this host shows a failing real-box test.
+pub(super) fn diag(sealed: &super::Sealed, what: &str) -> String {
+    let sh = |line: &str| {
+        let out = std::process::Command::new("sh").args(["-c", line]).output();
+        out.map(|o| String::from_utf8_lossy(&[o.stdout, o.stderr].concat()).into_owned())
+            .unwrap_or_default()
+    };
+    let err = std::fs::read_to_string(sealed.path("broker.err")).unwrap_or_default();
+    let probe = format!(
+        "id; strace -V | head -1; ls -l /usr/bin/env /dev/tty; readlink -f /usr/bin/env; \
+         ls -ld / /var /var/tmp \"$TMPDIR\" {root} 2>&1; namei -l {root} 2>&1 | head -20; \
+         ps -eo pid,ppid,pgid,sid,stat,comm --forest | tail -40",
+        root = sealed.root.path.display()
+    );
+    format!("DIAG[{what}] broker.err<<{err}>>\n{}", sh(&probe))
 }
