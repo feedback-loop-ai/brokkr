@@ -68,6 +68,9 @@ const COPIES: &str = "brokkr-capability-broker-";
 /// replace it, nor run it while it is written. The process holds the
 /// directory's `lock` exclusively for as long as it runs: unlike a process
 /// id, a lock means the same in every PID namespace sharing the directory.
+/// The copy is written by a child `cp`, then renamed in (#255): a copy this
+/// process wrote is `Text file busy` while a sibling test's fork still holds
+/// the inherited write descriptor, and a rename keeps the inode's count.
 fn brokkr() -> &'static Path {
     static COPY: std::sync::OnceLock<(PathBuf, std::fs::File)> = std::sync::OnceLock::new();
     let (copy, _live) = COPY.get_or_init(|| {
@@ -81,8 +84,14 @@ fn brokkr() -> &'static Path {
         let live = std::fs::File::create(dir.join("lock.new")).unwrap();
         assert!(lock(&live));
         std::fs::rename(dir.join("lock.new"), dir.join("lock")).unwrap();
-        let copy = dir.join("brokkr");
-        std::fs::copy(env!("CARGO_BIN_EXE_brokkr"), &copy).unwrap();
+        let (staged, copy) = (dir.join("brokkr.staged"), dir.join("brokkr"));
+        let cp = Command::new("/bin/cp")
+            .arg(env!("CARGO_BIN_EXE_brokkr"))
+            .arg(&staged)
+            .status();
+        assert_eq!(cp.unwrap().code(), Some(0), "copying the binary");
+        chmod(&staged, 0o755);
+        std::fs::rename(&staged, &copy).unwrap();
         (std::fs::canonicalize(copy).unwrap(), live)
     });
     copy
