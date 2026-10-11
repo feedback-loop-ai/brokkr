@@ -593,8 +593,9 @@ scaffold, and its layout stays.
      refuses before any move (the third refusal above). Whatever a
      restatement or the move list misses, the proof refuses.
    - **No move lands on what the migration writes.** Besides the moves,
-     `--migrate` writes four places under `.brokkr/` itself:
-     `.brokkr/.proof` (the proof's marker below), `.brokkr/.gitignore`
+     `--migrate` writes five places under `.brokkr/` itself:
+     `.brokkr/.proof` (the proof's marker below), `.brokkr/.migrating`
+     (the moves' marker below), `.brokkr/.gitignore`
      (the state bullet below), `.brokkr/agents/README.md` (above) and the
      `.brokkr/state/` subtree, which only the state moves fill. The build
      holds them in one table, which the writers and this check both read
@@ -698,6 +699,31 @@ scaffold, and its layout stays.
      and the originals are never named for removal. In the state-only
      shape the move list holds no file a compile reads, so there is
      nothing to prove, and the state moves alone.
+   - **The moves are fenced as the proof is.** The proof's tree goes,
+     `.proof` with it, before the first real move. Then `--migrate` writes
+     `<root>/.brokkr/.migrating`, in every shape, the state-only one
+     included. It lists every move it will make, one `<from> -> <to>` line
+     in the order it makes them, the state moves included. It removes the
+     marker only after the last move and the closing compile. While the
+     marker stands, every verb refuses before it reads the folder or opens
+     any store, ahead of the half-moved check, with
+     `<root>/.brokkr/ is an unfinished --migrate (decision 0083); the
+     moves listed in <root>/.brokkr/.migrating are partly made, and every
+     file not yet moved is kept where it stands: rerun brokkr init
+     --migrate to finish them`. So a crash mid-move never leaves a layout
+     that no refusal matches, no store opens a fresh journal at the new
+     default while the history sits at the old one, and the originals
+     are never named for removal.
+     The rerun reads the marker's list as its only plan, in order:
+     - a move whose source stands and whose destination does not is made;
+     - one whose destination stands and whose source does not is done;
+     - any other shape (both stand, or neither) refuses, naming the move,
+       with `<from> -> <to>: --migrate cannot tell whether this move was
+       made (decision 0083); nothing was changed`, and changes nothing.
+     Each entry is read by its own entry, never through a link. The rerun
+     then runs the closing compile and removes the marker. A crash
+     between the proof's removal and the marker's writing leaves the old
+     layout whole, which its own refusal names.
    - **The journal moves; it is never read in place.** `forge.db` moves with
      its `-wal` and `-shm` files, together, because a write-ahead log can hold
      committed history, and so does every journal the map names that
@@ -910,6 +936,20 @@ scaffold, and its layout stays.
    `--scripts-use-root-paths` in the root layout, refuses with the link
    text exactly, naming `.forge/forge.db` and then `.forge`; no `.brokkr/`
    is created, and every byte and every link's text is unchanged);
+   `an_interrupted_migration_refuses_until_it_is_finished` (`init`'s old
+   output with a journal and its `-wal`, migrated by a build whose test
+   hook stops the moves after the move of `.forge/forge.db` and before
+   that of its `-wal`; then the same in a root layout whose map names a
+   journal outside `.forge/` and which holds no `.forge`, stopped after
+   `bundle.json` moves and before `realms.json` does. In each, `brokkr
+   run --feature x`, `brokkr conclude --run x --reason y` and `brokkr
+   doctor`'s folder line give the unfinished-migration text exactly, no
+   store is opened or created and no `.brokkr/state/forge.db` appears
+   that was not moved there, and every byte is unchanged. Then `brokkr
+   init --migrate` finishes the listed moves, the closing compile passes,
+   and the marker is gone. A marker whose list names a move whose source
+   and destination both stand refuses with that text exactly and changes
+   nothing);
    `an_unfinished_proof_refuses` (the root layout with a
    `<root>/.brokkr/.proof` planted beside a partial copy: `brokkr run
    --feature x`, `brokkr doctor`'s folder line and `--migrate` each give
