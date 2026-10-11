@@ -133,7 +133,9 @@ scaffold, and its layout stays.
    example path becomes `.brokkr/state/secrets.env`. The scripts and
    charters `init` writes name the state by its new place:
    `ledger=".brokkr/state/ledger/$run_id.md"` in `scripts/ship-seat.sh`, and
-   `.brokkr/state/tasks/` in the implementer's and intake charters.
+   `.brokkr/state/tasks/` in the implementer's and intake charters, and
+   the no-stack note `scripts/verify-seat.sh` writes names the file to
+   fill in as `.brokkr/scripts/verify-seat.sh`.
 
    **Enforcement binding:** the build adds
    `init_writes_only_under_the_folder` to a new
@@ -315,15 +317,16 @@ scaffold, and its layout stays.
      mv .forge/forge.db-wal .brokkr/state/forge.db-wal
    writes .brokkr/agents/README.md afresh; agents/README.md stays where it is
    and rewrites .brokkr/realms.json's map-relative paths to name the same places from .brokkr/
-   and rewrites the state paths in .brokkr/scripts/ship-seat.sh:  .forge/ledger/ -> .brokkr/state/ledger/
-   and rewrites the state paths in .brokkr/agents/charters/implementer.md:  .forge/tasks/ -> .brokkr/state/tasks/
-   and rewrites the state paths in .brokkr/agents/charters/intake.md:  .forge/tasks/ -> .brokkr/state/tasks/
-   it moves scripts and reads none, so it refuses until rerun with --scripts-use-root-paths: scripts/ship-seat.sh, scripts/verify-seat.sh
+   it proves these moves before making any, and it moves scripts but reads none, so it needs --scripts-use-root-paths: scripts/ship-seat.sh, scripts/verify-seat.sh
    ```
 
-   (The listing is abridged here; a refusal lists every move, and its
-   last line names every script the moves hold, or is absent when they
-   hold none.) The moves are what the old compile read, so when the old
+   (The listing is abridged here; a refusal lists every move and every
+   restatement of a typed field, and its last line names every script the
+   moves hold, or drops its second clause when they hold none.) No line
+   rewrites a file's text: `--migrate` changes no moved file's bytes but
+   the map's paths and the typed fields of the restatement below, so the
+   `.forge/` paths `init`'s old scripts and charters name move as written
+   (the script rule below, and Asked). The moves are what the old compile read, so when the old
    bundle does not compile they cannot be listed, and the root layout's
    refusal is exactly this instead, still opening nothing:
 
@@ -372,7 +375,17 @@ scaffold, and its layout stays.
    and a resumed run's drift fence still holds every pinned digest.
 
    `brokkr init --migrate` makes the move the refusal printed, and nothing
-   else:
+   else, and only once it has proved that move. One rule closes the
+   migration, stated once here, so no kind of dependency needs its own
+   arm: **the move list is what the old compile pinned, and a proof
+   compile over exactly the moved files must pin the same inputs, byte for
+   byte, or nothing moves.** A dependency the move list does not carry is
+   not reached by the proof, or is reached at a place the move empties,
+   and either way it refuses before any move, whatever its kind, a kind
+   nobody has listed yet included. The bullets below say what the list
+   holds, how the proof is run, and the only changes made to a moved
+   file's bytes: the map's paths, and the typed references the compile
+   returns.
 
    - **Which files move** is what the old compile read by reference, never
      the manifest's `files` map, which pins every file under a root
@@ -401,7 +414,14 @@ scaffold, and its layout stays.
      gives as a name, `dialects/<name>.json` and the texts it reads (`init`
      writes a name). A `house`, a `dialect` given as a path and a published
      crossing stay where they are, as their paths do. The build has the compile return that list as typed
-     data; `--migrate` does not re-derive it. A file no reference reached
+     data; `--migrate` does not re-derive it. Each entry moves as it
+     stands: a symbolic link the compile followed moves as a link, its
+     text unchanged, beside the file it reached when that file is on the
+     list too. The list grows by no kind of dependency on that kind's
+     behalf. The base an overlay agent `extends`, which the library load
+     reads but the manifest's `agents` does not pin, is not on it, and
+     neither is a file a dialect given as a path reads, nor a link's
+     target the compile did not pin; the proof below rules on each. A file no reference reached
      stays where it is and is named as left behind, whatever directory it
      stands in. `init`'s `agents/README.md` is one such file: its text
      depends on the stack `init` detected, so it is not told from an
@@ -420,11 +440,9 @@ scaffold, and its layout stays.
      `state`, and the old digest `--migrate` prints is that compile's. It
      skips nothing else: a `secrets.env` anywhere else under the root still
      refuses, as it does today. What the skip leaves unread is state, never
-     configuration, so a file under `<root>/.forge/` that the compile reads
-     by reference (a role, a charter, a policy or a script) refuses the
-     migration before any move, with `<file> is read by the bundle but
-     stands in .forge/, which --migrate moves as state (decision 0083);
-     nothing was moved: move it out of .forge/ first`.
+     configuration. A file under `<root>/.forge/` that the compile reads
+     by reference (a role, a charter, a policy or a script) is state to the
+     move list, and the proof refuses it, as a place the move empties.
    - **No script is read, so no script moves until the operator says its
      paths survive the move.** The move list stays what the compile read;
      the rule is to refuse, not to move more or to guess. A script moves
@@ -440,10 +458,13 @@ scaffold, and its layout stays.
        `"$(dirname "$0")/../Cargo.toml"` names the root's `Cargo.toml`
        before it and `.brokkr/Cargo.toml` after it, whatever the move
        list holds;
-     - a path from the root to a file the migration moves: `policy.json`
-       or `scripts/verify-seat.sh`, named from the root, names nothing
-       after the move. (The `.forge/` state paths are the exception,
-       rewritten by the next bullet's closed list.)
+     - a path from the root to a place the migration moves or empties:
+       `policy.json` or `scripts/verify-seat.sh`, named from the root,
+       names nothing after the move, and neither does any path through
+       `.forge/`, which the migration removes. `.forge/ledger/x.md` names
+       nothing, and `.forge/results/../../Cargo.toml`, which names the
+       root's `Cargo.toml` before the move, names nothing after it, because
+       a kernel resolves `.forge/results` before it climbs out of it.
 
      Every other path from the root, such as `Cargo.toml` or
      `scripts/build.sh`, names the same file before the move and after it.
@@ -451,22 +472,25 @@ scaffold, and its layout stays.
      the folder adds a component above every script it holds, and keeping
      the scripts where they stand breaks ruling 1's layout. A script's text
      cannot be read to a closed answer either (a variable, `eval` or another
-     language spells a path any way it likes), so `--migrate` reads none
-     and proves none safe. The rule is therefore closed over what it cannot
-     read: a migration whose move list holds a script refuses before any
-     move unless the operator passes `--scripts-use-root-paths`, which
-     says, on the command line as `--db` does, that every path a script
-     the migration moves names is a path from the repository root to the
-     place it must name once the move is made: none is built from the
-     script's own place, and one that names a moved file names it under
-     `.brokkr/` (the `.forge/` state paths aside, which the next bullet
-     rewrites). The refusal names every script the move list holds, one per line in byte
-     order:
+     language spells a path any way it likes), so `--migrate` reads no
+     script's text, rewrites none, proves none safe, and moves each one it
+     moves byte for byte. The proof below pins a script's bytes, never what
+     it will open when it runs. The rule is therefore closed over what it
+     cannot read: a migration whose move list holds a script refuses before
+     any move unless the operator passes `--scripts-use-root-paths`, which
+     says, on the command line as `--db` does, that every path each moved
+     script builds, a `.forge/` path and a `..` traversal included, names
+     the same file after the move as before it, or the place that file
+     moves to: none is built from the script's own place, one that names a
+     moved file names it under `.brokkr/`, and one that names state names
+     it under `.brokkr/state/`. Nothing is exempt, because nothing is
+     rewritten. The refusal names every script the move list holds, one per
+     line in byte order:
 
      ```text
-     --migrate moves these scripts and reads none of them (decision 0083); nothing was moved:
+     --migrate moves these scripts byte for byte and reads none of them (decision 0083); nothing was moved:
        <script>
-     a path a moved script builds from its own place, such as "$(dirname "$0")/../Cargo.toml", or names from the root to a file --migrate moves, names another file after the move: rewrite each as the path from the repository root it must name once the move is made, then rerun with `--scripts-use-root-paths`
+     a path a moved script builds from its own place, such as "$(dirname "$0")/../Cargo.toml", or from the root to a file --migrate moves, or through .forge/, such as ".forge/results/../../Cargo.toml", names another file or none after the move: rewrite each as the path from the repository root it must name once the move is made, then rerun with `--scripts-use-root-paths`
      ```
 
      With the flag, the migration goes on, and every file the move list
@@ -476,11 +500,22 @@ scaffold, and its layout stays.
      in the state-only shape, needs no flag, and the flag changes nothing
      there. `init`'s own seat scripts build no path from their own place
      (each place they write is the result path's directory, which the
-     prompt names), but `scripts/verify-seat.sh` is the file an operator
-     fills in, so their bytes prove nothing, and the flag is asked of every
-     migration that moves a script. This is the trade the rule takes: one
-     flag, said once, in place of reading a script, and a script that does
-     build from its own place is rewritten by the operator before the move.
+     prompt names), but its old `scripts/ship-seat.sh` names
+     `.forge/ledger/$run_id.md`, so the operator rewrites that line as
+     `.brokkr/state/ledger/$run_id.md` before giving the flag, and
+     `scripts/verify-seat.sh` is the file an operator fills in, so their
+     bytes prove nothing, and the flag is asked of every migration that
+     moves a script. This is the trade the rule takes: one flag, said once,
+     in place of reading a script, and a script whose paths do not survive
+     the move is rewritten by the operator before it. A false flag is the
+     operator's word against the script, which nothing that reads no
+     script can check; a moved script that writes under `.forge/` after
+     the move recreates it beside the folder, and every verb then refuses
+     the half-moved shape, so that much fails closed. A charter's or a
+     role's prose is not read for paths either: the proof pins its bytes,
+     and a seat that follows a `.forge/` path in it recreates `.forge/` the
+     same way. Whether to keep `init`'s old `.forge/` texts working is
+     Asked.
    - **Tracked files move by `git mv`**, so the move is staged and reviewable;
      untracked ones are renamed. `--migrate` commits nothing.
    - **The map is rewritten**, not reinterpreted, field by field after the
@@ -498,10 +533,9 @@ scaffold, and its layout stays.
      kept. A realm-relative path, a `house`, a `dialect` given as a path and
      a published crossing's `path`, is kept byte for byte, because the realm
      root it resolves against names the same directory after the move; one
-     that resolves to a place the migration moves refuses the migration
-     before any move, with `realm <name>'s <field> <path> names a place
-     --migrate moves (decision 0083); nothing was moved: point it outside
-     .forge/ first`. A `dialect`
+     that resolves to a place the migration moves or empties, or reads
+     a file there, as a dialect given as a path may read an instruction
+     text from a hired charter, is the proof's to refuse. A `dialect`
      given as a name is kept, because the dialect library moves with the map
      into `.brokkr/dialects/`, and so is a grant's `dialect`, a tool
      dialect's name, because `dialects/tools/` moves with it. The map's
@@ -536,27 +570,77 @@ scaffold, and its layout stays.
      field (`policy`, `charter`, `role`), which `--migrate` matches with no
      wildcard (decision 0071
      ruling 2), so a path field the compile learns later cannot be read
-     without its arm saying how it is restated. A capability definition and
-     a tool dialect are named by a requirement or a grant, not by a path, so
-     neither needs an arm: each moves to the place the closing compile looks
-     for it. A bundle's `extends` is a name too, but the place it is read
-     from is never moved into, so it has no arm and refuses before any move
-     (the third refusal above). So the closing
-     compile reads the same files the old compile read, each from its new
-     place.
-   - **The state paths written into moved files are rewritten**, from one
-     closed list: `.forge/` followed by `forge.db`, `results/`, `scratch/`,
-     `ledger/`, `tasks/`, `secrets.env` or `muninn.ndjson` becomes the same
-     text under `.brokkr/state/`, in every script and charter the migration
-     moves. That covers what `init` wrote (the ship script's ledger line,
-     which its close-out reads back, and the two charters' `.forge/tasks/`),
-     and an operator's own text that names the same places. A moved file
-     whose text holds any other `.forge/` refuses the migration before any
-     move, with `<file>:<line> names <text>, a .forge/ path --migrate does
-     not know (decision 0083); nothing was moved: remove it or point it
-     outside .forge/ first`, because a path the migration does not
-     recognise is never guessed at. Each rewrite is a line
-     of the refusal's listing and of the output.
+     without its arm saying how it is restated. The enum holds only typed
+     fields the compile itself returns. Nothing else a moved file holds is
+     restated: not a symbolic link's text, not a charter's, role's or
+     script's prose, not a field the compile does not return. A capability
+     definition and a tool dialect are named by a requirement or a grant,
+     not by a path, so neither needs an arm: each moves to the place the
+     closing compile looks for it. A bundle's `extends` is a name too, but
+     the place it is read from is never moved into, so it has no arm and
+     refuses before any move (the third refusal above). Whatever a
+     restatement or the move list misses, the proof refuses.
+   - **Prove before moving.** Before any move, and once every refusal
+     above, the script refusal and the state's below has passed, so none of
+     them ever leaves a tree behind, `--migrate` builds the
+     proposed folder at `<root>/.brokkr/`, which no migrating shape holds
+     (each is defined by its absence), as copies: exactly the files the
+     move list names, each at its new place, a link copied as a link with
+     its text unchanged, every byte as it stands but the rewritten map and
+     the restated typed fields. The root is untouched beside it: no
+     original is moved or edited, and `.forge/` stands as it is. That tree
+     reaches every place the moved folder will, because it is the moved
+     folder's own path, so a relative path climbing out of it, an absolute
+     spelling of a restated field and the realm root `..` all resolve as
+     they will after the move. It then runs the closing compile there, the
+     world load included (the library, the adapters, the map, its realms'
+     houses, dialects and their texts, the published crossings, the
+     definitions and the tool dialects), and the build has that compile
+     return what it read as typed data, as the old one did: for each
+     input, the path that named it, every link it followed and the file
+     it reached, with its digest. The proof holds only when the two read
+     the same inputs, byte for byte: each input of the old compile and its
+     world load, its path mapped through the move list (an input the list
+     does not move, such as a `house`, keeps its path), is an input of the
+     proof's, with
+     the bytes the move list says it has (its old bytes, or the map's and
+     a restated file's new ones), and the proof's compile read nothing
+     else; and no input of the proof's, nor any link it followed, stands
+     at a place the move empties, an old place on the move list or
+     anything under `<root>/.forge/`, because that place stands now and
+     will not after the move. Otherwise `--migrate` removes the tree it
+     built, so every path and byte in the repository is as it was, and
+     refuses with
+
+     ```text
+     --migrate moves nothing (decision 0083): its proof in <root>/.brokkr/ did not read what the old compile read
+       <input>: <reason>
+     ```
+
+     one line per input in byte order, the reason one of a closed set:
+     `the proof's compile refused: <error>`, when the compile or the load
+     did not finish, an overlay whose base is not hired or a link outside
+     the folder among the ways; `reached through <path>, which --migrate
+     moves or empties`; `read with other bytes, <old digest> before and
+     <new digest> in the proof`; `read by the old compile from <old path>,
+     and not by the proof's`; and `read by the proof's compile, and not by
+     the old one`. Only after the proof holds is the tree removed and the
+     listed moves made in the repository, in one pass. (The inputs compared are those read by reference, the
+     move list's kind, never the manifest's `files` walk, which pins
+     whatever stands under a bundle, as the Context says.) The closing
+     compile then runs again there and must read by reference what the
+     proof read; the migration holds every journal's lock, so
+     only a writer outside Brokkr can make them differ, and the output
+     then says so, naming the input, with the moves made. The tree's first
+     entry is `<root>/.brokkr/.proof`, written before any copy and removed
+     with the tree, so a crash during the proof leaves a folder every verb
+     refuses before reading it, ahead of the half-moved check, with
+     `<root>/.brokkr/ is an unfinished --migrate proof (decision 0083);
+     nothing at the root was moved: remove <root>/.brokkr/ and rerun
+     brokkr init --migrate`, so a stray tree is never read as the folder
+     and the originals are never named for removal. In the state-only
+     shape the move list holds no file a compile reads, so there is
+     nothing to prove, and the state moves alone.
    - **The journal moves; it is never read in place.** `forge.db` moves with
      its `-wal` and `-shm` files, together, because a write-ahead log can hold
      committed history, and so does every journal the map names that
@@ -692,18 +776,56 @@ scaffold, and its layout stays.
    `<root>/config/secrets.env` as well, the run prints the second
    root-layout refusal with the compile's secrets-store error and nothing
    moves; and with the inline `verify` seat's `role` pointed at
-   `.forge/tasks/role.md`, `--migrate` refuses with the read-in-state
-   text exactly and nothing moves);
+   `.forge/tasks/role.md`, `--migrate --scripts-use-root-paths` refuses
+   with the proof's text exactly, its one line naming
+   `.forge/tasks/role.md` with the error the proof's compile gave, leaves
+   no `.brokkr/`, and nothing moves);
    `migrate_refuses_a_realm_path_into_moved_state` (a `house` of
-   `.forge/tasks/house.md`, under a directory the migration moves, refuses with its exact text and nothing moves);
-   `migrate_rewrites_embedded_state_paths` (in `init`'s old output the moved
-   `scripts/ship-seat.sh` reads `ledger=".brokkr/state/ledger/$run_id.md"`
-   and both charters name `.brokkr/state/tasks/`, and a migrated run's ship
-   close-out finds the ledger the CLI wrote under `.brokkr/state/ledger/`
-   while its intake writes under `.brokkr/state/tasks/` and creates no
-   `.forge/`); `migrate_refuses_an_unknown_forge_path` (a hired agent's
-   charter naming `.forge/custom/` refuses with its exact text and nothing
-   moves); `migrate_refuses_to_move_an_unattested_script` (in `init`'s
+   `.forge/tasks/house.md`, under a directory the migration empties,
+   refuses with the proof's text exactly, its one line `reached through
+   <root>/.forge/tasks/house.md, which --migrate moves or empties`, and
+   nothing moves);
+   `migrate_rewrites_no_text` (in `init`'s old output, with the ship
+   script's ledger line rewritten by the operator as
+   `ledger=".brokkr/state/ledger/$run_id.md"`: after `--migrate
+   --scripts-use-root-paths` every moved file but the map is byte for
+   byte its old self, `scripts/ship-seat.sh` and both charters included,
+   so the charters still name `.forge/tasks/`; a migrated run's ship
+   close-out finds the ledger the CLI wrote under `.brokkr/state/ledger/`;
+   and once a seat writes `.forge/tasks/x.md`, as the unedited intake
+   charter tells it to, the next `brokkr run --feature x` refuses with the
+   half-moved text exactly, naming `.forge`);
+   `migrate_refuses_an_unhired_overlay_base` (`init`'s old output whose
+   implementer seat hires `agents/scoped.json`, an overlay that `extends`
+   `base`, with `agents/base.json` and its charter hired by no seat, which
+   compiles before the move: the root layout's refusal lists no move for
+   `agents/base.json`, and `--migrate --scripts-use-root-paths` refuses
+   with the proof's text exactly, its line naming `agents/scoped.json`
+   with the library's `extends 'base', which is not an agent in this
+   library`, leaves no `.brokkr/`, and every planted path, byte and
+   journal is unchanged); `migrate_refuses_a_path_dialect_reading_a_moved_charter`
+   (a map whose realm gives its `dialect` as the path `dialect.json`, at
+   the root, an instruction of which names `agents/charters/implementer.md`
+   beside it, the hired implementer's charter, a legal instruction path
+   since it is relative and stays beside its dialect, which compiles and
+   loads before the move:
+   `--migrate --scripts-use-root-paths` refuses with the proof's text
+   exactly, its line naming that instruction `reached through
+   <root>/agents/charters/implementer.md, which --migrate moves or
+   empties`, and every planted path and byte is unchanged);
+   `migrate_refuses_an_absolute_role_link` (the inline `verify` seat's
+   `role` `roles/verify.md`, a symbolic link whose text is the absolute
+   `<root>/roles/target.md`, which compiles before the move and pins both:
+   the root layout's refusal lists both moves, and `--migrate
+   --scripts-use-root-paths` refuses with the proof's text exactly, its
+   line naming `roles/verify.md` with the error the proof's compile gives
+   for a link that leaves the folder, leaves no `.brokkr/`, and the link's
+   text and every other planted byte are unchanged);
+   `an_unfinished_proof_refuses` (the root layout with a
+   `<root>/.brokkr/.proof` planted beside a partial copy: `brokkr run
+   --feature x`, `brokkr doctor`'s folder line and `--migrate` each give
+   the unfinished-proof text exactly, and no root file is named for
+   removal); `migrate_refuses_to_move_an_unattested_script` (in `init`'s
    old output with a root `Cargo.toml`, and `scripts/verify-seat.sh`
    replaced by a gate that writes `fail` when
    `"$(dirname "$0")/../Cargo.toml"` names a file and `pass` otherwise,
@@ -715,10 +837,19 @@ scaffold, and its layout stays.
    path and bytes are unchanged, and the gate still writes `fail`; the
    same refusal, byte for byte, holds with the probe spelled
    `"${BASH_SOURCE%/*}/../Cargo.toml"`, with the probe spelled `Cargo.toml`
-   and with `init`'s own unedited scripts, because no script is read; with
-   the probe rewritten to `Cargo.toml` and the flag given, the migration
-   goes on, `Cargo.toml` stays at the root, and the migrated gate still
-   writes `fail`); the root layout's refusal from `brokkr run` names the
+   and with `init`'s own unedited scripts, because no script is read; and
+   with the probe spelled `.forge/results/../../Cargo.toml`, which names
+   the root's `Cargo.toml` while `.forge/results/` stands, the gate writes `fail` before the move, the refusal without the
+   flag is the same byte for byte, nothing moves and the gate still
+   writes `fail`; with the flag given over that unrewritten probe the
+   migration goes on, because the flag is the operator's word that the
+   probe survives and nothing reads it to say otherwise, and the binding
+   asserts that the moved script is byte for byte the old one, holding no
+   `.brokkr/state/` text, so no rewrite turned the probe into
+   `.brokkr/state/results/../../Cargo.toml`; with the probe rewritten to
+   `Cargo.toml` and the flag given, the migration goes on, `Cargo.toml`
+   stays at the root, and the migrated gate still writes `fail`); the
+   root layout's refusal from `brokkr run` names the
    same two scripts on its last line, which
    `old_root_layout_refuses_with_the_migration_text` asserts with the
    rest; `old_root_layout_that_does_not_compile_refuses` (`init`'s old
@@ -820,10 +951,17 @@ scaffold, and its layout stays.
   `git mv` lines alone: the map's two paths must be rewritten, the journal
   is untracked, and `scripts/` and `agents/` may hold a project's own files.
 - **`--scripts-use-root-paths` for a moved script.** Ruling 4 reads no
-  script and refuses to move one until the operator says, by one flag,
-  that every path a moved script names is a path from the root to the
-  place it must name after the move, so every migration of `init`'s old
-  output costs that flag once. It replaces this decision's earlier draft,
+  script's text, rewrites none, and refuses to move one until the
+  operator says, by one flag, that every path a moved script builds, a
+  `.forge/` path and a `..` traversal included, names after the move the
+  file it named before, or the place that file moves to, so every
+  migration of `init`'s old output costs that flag once. An earlier
+  draft rewrote the `.forge/` state paths in moved scripts and exempted
+  them from the flag; a probe of `.forge/results/../../Cargo.toml`
+  became `.brokkr/state/results/../../Cargo.toml`, which names
+  `.brokkr/Cargo.toml`, so a gate that runs its suite only when the
+  manifest is found passed after the move. Nothing is rewritten now, and
+  nothing is exempt. The flag also replaces a still earlier draft,
   which refused only the files under a moved script's own directory until
   each was named by `--leave`: a script that climbs out of that directory
   from its own place, as `"$(dirname "$0")/../Cargo.toml"` does, reached a
@@ -833,6 +971,32 @@ scaffold, and its layout stays.
   script's own-place geometry would keep the scripts out of `.brokkr/`,
   against ruling 1. Recommended as ruled; the build takes another rule
   only on this ruling.
+- **Keeping `init`'s old `.forge/` texts working.** Because `--migrate`
+  rewrites no text, `init`'s old `scripts/ship-seat.sh` keeps
+  `ledger=".forge/ledger/$run_id.md"` and its old implementer and intake
+  charters keep `.forge/tasks/` unless the operator edits them before
+  the move. Ruling 4 makes that the operator's edit, and the half-moved
+  refusal catches a `.forge/` a moved file recreates. Two ways to spare
+  each adopter the edit, neither in this build: (a) a closed table of
+  the digests of every script and charter `init` has written, by
+  release and stack, against which `--migrate` matches the digest the
+  old compile pinned, reading no text, and writes the current `init`'s
+  file in place of a match, as it writes `.brokkr/agents/README.md`
+  afresh, leaving every other file byte for byte; (b) a compatibility
+  path, `.forge` kept as a symbolic link to `.brokkr/state`. The second
+  is refused here on the evidence: a kernel follows the link before it
+  climbs, so `.forge/results/../../Cargo.toml` would name
+  `.brokkr/Cargo.toml` again, the fail-open the rewrite had, and the
+  retired name would stand in every adopter's repository. Recommended:
+  (a) as a later slice, only on this ruling; until then, the edit.
+- **Narrowing what `--migrate` accepts.** The proof of ruling 4 closes
+  every dependency kind at once, so migration need not be narrowed to
+  the layouts `init` produced. A narrower rule, moving only a scaffold
+  whose every pinned digest is one `init` wrote and refusing anything
+  else for the operator to move by hand, would be simpler to judge but
+  would refuse the operator's own `verify-seat.sh`, the one file `init`
+  asks them to fill in, so every real adopter would be refused. Not
+  recommended; it is listed because the proof is the larger mechanism.
 - **A composed bundle in an adopter's repository.** Ruling 1 lets no
   bundle in `.brokkr/` compose a base, and ruling 4 refuses to move an old
   root bundle that does, because a base is read from the bundle
