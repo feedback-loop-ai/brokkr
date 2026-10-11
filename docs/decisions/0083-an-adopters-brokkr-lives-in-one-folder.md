@@ -511,7 +511,14 @@ scaffold, and its layout stays.
      operator's word against the script, which nothing that reads no
      script can check; a moved script that writes under `.forge/` after
      the move recreates it beside the folder, and every verb then refuses
-     the half-moved shape, so that much fails closed. A charter's or a
+     the half-moved shape, so that much fails closed. A script that only
+     reads does not fail closed: a probe through `.forge/` or from the
+     script's own place names nothing, or another file, after the move,
+     and the script decides on that as on any absent file, so a gate that
+     runs its failing suite only when `.forge/results/../../Cargo.toml` is
+     found writes `pass` after a migration given a false flag. That
+     fail-open is the flag's to prevent, said on the command line as `--db`
+     is, and Asked puts the trade to the operator. A charter's or a
      role's prose is not read for paths either: the proof pins its bytes,
      and a seat that follows a `.forge/` path in it recreates `.forge/` the
      same way. Whether to keep `init`'s old `.forge/` texts working is
@@ -625,9 +632,24 @@ scaffold, and its layout stays.
      <new digest> in the proof`; `read by the old compile from <old path>,
      and not by the proof's`; and `read by the proof's compile, and not by
      the old one`. Only after the proof holds is the tree removed and the
-     listed moves made in the repository, in one pass. (The inputs compared are those read by reference, the
-     move list's kind, never the manifest's `files` walk, which pins
-     whatever stands under a bundle, as the Context says.) The closing
+     listed moves made in the repository, in one pass. (The inputs
+     compared are those read by reference, the move list's kind: a file a
+     seat hires, an overlay `extends`, a seat's driver resolves to, a typed
+     field names or the map names. Three directory walks are not inputs.
+     One is the manifest's `files` walk, which pins whatever stands under
+     a bundle, as the Context says. The others are the walks
+     `Library::load` and `Adapters::load` make of `agents/` and
+     `adapters/` (`definition_files` in
+     `crates/brokkr-runtime/src/agents/load.rs`), which parse every `.json`
+     directly there. Neither puts a definition no reference reached into
+     anything the compile returns: the manifest's `agents` and `drivers`
+     hold only what a seat reached; such a definition could only have
+     refused the old compile, which compiled; and its models resolve no
+     seat's, because two files declaring one model refuse the load. So it
+     stays where it is and is named as left behind, as the move list says,
+     and the proof compares nothing about it. A definition a reference
+     reached, an overlay's base included, is an input, and the proof rules
+     on it.) The closing
      compile then runs again there and must read by reference what the
      proof read; the migration holds every journal's lock, so
      only a writer outside Brokkr can make them differ, and the output
@@ -846,7 +868,10 @@ scaffold, and its layout stays.
    probe survives and nothing reads it to say otherwise, and the binding
    asserts that the moved script is byte for byte the old one, holding no
    `.brokkr/state/` text, so no rewrite turned the probe into
-   `.brokkr/state/results/../../Cargo.toml`; with the probe rewritten to
+   `.brokkr/state/results/../../Cargo.toml`, that `.forge/` is gone and
+   `Cargo.toml` stays at the root, and that the migrated gate then writes
+   `pass`, the fail-open the false flag attested, pinned so the trade
+   ruling 4 states cannot change unseen; with the probe rewritten to
    `Cargo.toml` and the flag given, the migration goes on, `Cargo.toml`
    stays at the root, and the migrated gate still writes `fail`); the
    root layout's refusal from `brokkr run` names the
@@ -859,9 +884,13 @@ scaffold, and its layout stays.
    `.brokkr/`, and the journal's bytes do not move; `--migrate` then
    refuses with the same compile error and nothing moves); and
    `migrate_moves_only_what_the_compile_read` (with the flag, a
-   `scripts/build.sh` beside the seat scripts and an `agents/notes.json` no
-   seat hires stay at the root and are named as left behind,
-   `agents/README.md` stays, and `.brokkr/agents/README.md` is written).
+   `scripts/build.sh` beside the seat scripts, a valid `agents/notes.json`
+   no seat hires and a valid `adapters/unused.json` declaring a model no
+   seat names, both parsed by the old load's directory walks, stay at the
+   root and are named as left behind, the proof holds and the closing
+   compile pins every agent and driver with the digests the old compile
+   pinned, `agents/README.md` stays, and `.brokkr/agents/README.md` is
+   written).
    Every other binding that runs `--migrate` over a move list holding a
    script passes `--scripts-use-root-paths`.
 
@@ -969,8 +998,17 @@ scaffold, and its layout stays.
   when the manifest it probes is found would pass after the move. The
   other closed rule the evidence offers is worse: keeping each moved
   script's own-place geometry would keep the scripts out of `.brokkr/`,
-  against ruling 1. Recommended as ruled; the build takes another rule
-  only on this ruling.
+  against ruling 1. The trade the flag carries is the operator's to
+  take: a false flag over a script that only reads fails open, as
+  ruling 4 says and `migrate_refuses_to_move_an_unattested_script`
+  pins, because `.forge/results/../../Cargo.toml` names nothing after
+  the move and the gate writes `pass`; a script that writes through
+  `.forge/` fails closed on the half-moved refusal. The only rules that
+  would refuse the read-only case either read a script's text, which
+  has no closed answer, or refuse every migration that moves a script,
+  which leaves the operator to move each one by hand and puts the same
+  trust in a `git mv` they type. Recommended as ruled; the build takes
+  another rule only on this ruling.
 - **Keeping `init`'s old `.forge/` texts working.** Because `--migrate`
   rewrites no text, `init`'s old `scripts/ship-seat.sh` keeps
   `ledger=".forge/ledger/$run_id.md"` and its old implementer and intake
