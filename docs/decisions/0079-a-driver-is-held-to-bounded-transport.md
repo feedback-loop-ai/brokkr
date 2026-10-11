@@ -62,3 +62,47 @@ existing journals and fixtures are unchanged, and no contract moves. The
 loopback UI's limits, spill files and their cleanup, and the budget across
 the contention hold, the arrivals channel and the report remain with
 #433's later slices and #464.
+
+## Addendum — 2026-10-11, proposed: the loopback UI is held to the same rules
+
+Status: proposed (for the operator to accept; #433 slice 2). The rulings
+above stand; this carries them to the one other surface that reads bytes
+it does not control, the `brokkr ui` loopback server
+(`crates/brokkr-cli/src/ui.rs`). It read the request line and headers
+with an unbounded `read_line`, set no read or write timeout, and started
+a thread for every connection it accepted. The UI binds 127.0.0.1 only,
+so the case is the operator's 2026-09-26 one: a stuck or runaway local
+client, a hung tab, a script that never closes, a request with no end of
+headers, exhausting threads or memory. No remote exploit is claimed.
+
+- **Five limits, as named constants with their units** in
+  `ui/limits.rs`. The request line is at most 8 KiB, its line ending
+  included (`REQUEST_LINE_BYTES`); the header section at most 32 KiB,
+  every header line and the blank line ending them included
+  (`HEADER_BYTES`). The request must arrive within 10 seconds of its
+  accept, each read waiting only for the time left (`READ_TIMEOUT`); a
+  write waits at most 10 seconds for the client to read
+  (`WRITE_TIMEOUT`). At most 64 connections are served at once
+  (`CONNECTIONS`). Each is compared without overflow: zero admits
+  nothing, and no value means unlimited. A zero write timeout is refused
+  by the platform, so that connection closes unanswered.
+- **A line is refused before it is held whole**, at the first byte past
+  its limit, as ruling 2 refuses a driver's line.
+- **Excess work is refused before a thread exists.** The acceptor takes a
+  slot before it starts a connection's thread, and the thread gives it
+  back when it ends, on every return and on unwind. A connection past the
+  cap is answered at once from the acceptor with a write that does not
+  block, and closed: it is never queued and never given a thread.
+- **A server-sent stream counts against the cap** for as long as it is
+  open. It keeps its one-second heartbeat, so a client that has gone is
+  found by the heartbeat's failing write and its slot returns within two
+  polls; a client that stops reading is ended by the write timeout once
+  the kernel's send buffer is full.
+- **A refusal carries no content.** An over-long request line answers
+  414, an over-large header section 431, a request that did not arrive in
+  time 408, and a connection past the cap 503, each with a fixed body
+  naming the limit and its unit, never the client's bytes (ruling 5).
+- **The host configures these too**, by ruling 6's reasoning: a
+  surface's memory and thread bound is a fact about the machine. Until
+  `forge.host/v1` carries them they are constants, injectable only through
+  the private `Limits` the server's functions take, for tests.
