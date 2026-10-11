@@ -29,7 +29,7 @@ The defaults that point at the root today:
   `brokkr_runtime::bundle::DEFAULT_AGENTS_DIR` = `agents` and
   `DEFAULT_ADAPTERS_DIR` = `adapters`, relative to the working directory;
 - the realms map, `./realms.json` when one is there (`World::discover`,
-  decision 0023 ruling 3), and the bundle, `--bundle .`;
+  decision 0023 ruling 3);
 - the run-local paths written into the operated working tree: the engine's
   `.forge/results/` and `.forge/scratch/` (`SEAT_SCRATCH`), the `brokkr-cli`
   verbs' `.forge/ledger/` (`ledger.rs`) and `.forge/muninn.ndjson`
@@ -38,6 +38,11 @@ The defaults that point at the root today:
   `scripts/ship-seat.sh` sets `ledger=".forge/ledger/$run_id.md"` and reads
   that file back for its close-out, and the implementer's and the intake
   agent's charters name `.forge/tasks/` (`init.rs`).
+
+The bundle has no default today. `--bundle` is an `Option` with no default
+value (`DeliveryArgs` in `crates/brokkr-cli/src/cli_args.rs`), and `run`,
+`resume` and `rerun` each require one of `--bundle` or `--recipe` (`Cmd` in
+`lib.rs`), so a run names its bundle every time.
 
 A map's paths resolve against two bases. The map's `journal`, and each
 realm's `path` and `journal`, resolve against the map file's own directory
@@ -194,7 +199,7 @@ scaffold, and its layout stays.
    secrets set NAME` with a value on stdin refuses with the same text and
    creates neither directory, and with `--secrets-file` it writes the named
    file alone); and `an_explicit_flag_outranks_discovery`, one case per
-   flag (`--bundle`, `--realms`, `--db`, `--agents-dir`, `--adapters-dir`,
+   flag (`--bundle`, `--recipe`, `--realms`, `--db`, `--agents-dir`, `--adapters-dir`,
    `--secrets-file`), each proving the flagged path is the one opened while
    a folder stands discovered.
 
@@ -202,7 +207,7 @@ scaffold, and its layout stays.
 
    | Fact | Flag | With `.brokkr/` discovered | With none (the library layout) |
    |---|---|---|---|
-   | bundle | `--bundle` | `.brokkr/` | none: a run verb refuses, naming where it looked and `brokkr init .` |
+   | bundle | `--bundle`, `--recipe` | `.brokkr/`, a new implicit default | none: a run verb refuses, naming where it looked and `brokkr init .` |
    | realms map | `--realms` | `.brokkr/realms.json` when present | `./realms.json` when present |
    | journal | `--db` | the map's `journal`, else `.brokkr/state/forge.db` | the map's `journal`, else `.forge/forge.db` in a library and none elsewhere |
    | agent library | `--agents-dir` | `.brokkr/agents/` | `agents/` |
@@ -215,13 +220,17 @@ scaffold, and its layout stays.
    joining `.forge/` itself, so the seat's result path, the scratch place and
    the secrets store cannot disagree. The library column is today's
    behaviour, kept for Brokkr's own repository and any recipe library, whose
-   runs name their bundle with `--bundle`. The one change in that column is
-   the bundle: with no folder there is no default bundle, so a new user who
-   has not run `init` is told so instead of being handed a `.forge/` journal.
-   In a library, a run verb with no `--bundle` refuses with:
+   runs name their bundle with `--bundle` or `--recipe`. The bundle is the
+   one fact with no default today (Context), and discovery supplies a new,
+   implicit one: with a folder discovered, a run verb given neither
+   `--bundle` nor `--recipe` delivers under `.brokkr/`, and either flag
+   still wins. With no folder there is still no default bundle, and the
+   refusal that today's required flag gives becomes one that names `init`,
+   so a new user who has not run it is told so. In a library, a run verb
+   with neither flag refuses with:
 
    ```text
-   no .brokkr/ folder from <cwd> up to <root> (decision 0083), so there is no default bundle: name one with --bundle, or run `brokkr init .` from <root>
+   no .brokkr/ folder from <cwd> up to <root> (decision 0083), so there is no default bundle: name one with --bundle or --recipe, or run `brokkr init .` from <root>
    ```
 
    Outside a library the column holds no state default at all (ruling 2's
@@ -278,9 +287,22 @@ scaffold, and its layout stays.
    and rewrites the state paths in .brokkr/scripts/ship-seat.sh:  .forge/ledger/ -> .brokkr/state/ledger/
    and rewrites the state paths in .brokkr/agents/charters/implementer.md:  .forge/tasks/ -> .brokkr/state/tasks/
    and rewrites the state paths in .brokkr/agents/charters/intake.md:  .forge/tasks/ -> .brokkr/state/tasks/
+   it moves scripts and reads none, so it refuses until rerun with --scripts-use-root-paths: scripts/ship-seat.sh, scripts/verify-seat.sh
    ```
 
-   (The listing is abridged here; a refusal lists every move.) The
+   (The listing is abridged here; a refusal lists every move, and its
+   last line names every script the moves hold, or is absent when they
+   hold none.) The moves are what the old compile read, so when the old
+   bundle does not compile they cannot be listed, and the root layout's
+   refusal is exactly this instead, still opening nothing:
+
+   ```text
+   this repository has Brokkr's old root layout and no .brokkr/ folder (decision 0083); nothing was opened
+   its bundle.json does not compile, so the moves `brokkr init --migrate` makes cannot be listed: <compile error>
+   make <root>/bundle.json compile, then rerun to see them; until it does, `brokkr init --migrate` refuses with the same compile error
+   ```
+
+   The
    state-only refusal opens `this repository has Brokkr state in .forge/
    and no .brokkr/ folder (decision 0083); nothing was opened`, lists the
    state moves alone in the same form (for a repository holding only a
@@ -322,54 +344,64 @@ scaffold, and its layout stays.
      depends on the stack `init` detected, so it is not told from an
      operator's own by its bytes. It stays, and `--migrate` writes
      `.brokkr/agents/README.md` afresh, as `init` would. An old bundle that
-     does not compile refuses the migration with its compile error.
-   - **A file beside a moved script refuses the migration until it is
-     moved or named; no script is read.** The rule is to refuse, not to
-     move more: the move list stays what the compile read. A script moves
-     from the top-level directory it stands in under the root, `<dir>/`
-     (`scripts/`), to the same place under `.brokkr/`. `<dir>/` is always
-     the first component of the script's path: for `scripts/tools/deploy.sh`
-     it is `scripts/`, so `scripts/lib/common.sh` reached by
-     `../lib/common.sh` is a neighbour too. After the move, a path a script
-     builds from its own place, such as
-     `"$(dirname "$0")/verify-lib.sh"`, names `.brokkr/scripts/verify-lib.sh`
-     after the move, while a path from the repository root,
-     `scripts/verify-lib.sh`, still names the root's file: the seat's
-     working directory is the root before the move and after it (ruling 1's
-     realm path `..`). A script's text cannot be read to a closed answer to
-     whether it reaches a file beside it (a variable, `eval` or another
-     language spells the path any way it likes), so `--migrate` reads none.
-     A moved script's neighbours are every file under its `<dir>/`, at any
-     depth, that the move list lacks. Before any move, each neighbour
-     refuses the migration unless the operator names it by `--leave
-     <dir>/<neighbour>`, which says, on the command line as `--db` does,
-     that the file keeps its meaning where it stands: no moved script
-     reaches it from the script's own place, so any that reaches it names
-     it by its path from the repository root, which the move keeps. The refusal lists every unnamed
-     neighbour, one per line in byte order, grouped by `<dir>/`:
+     does not compile refuses the migration with its compile error, as the
+     root layout's second refusal above says.
+   - **No script is read, so no script moves until the operator says its
+     paths survive the move.** The move list stays what the compile read;
+     the rule is to refuse, not to move more or to guess. A script moves
+     from where it stands under the root to the same place under
+     `.brokkr/`, so `scripts/verify-seat.sh` becomes
+     `.brokkr/scripts/verify-seat.sh`, while the seat's working directory
+     is the root before the move and after it (ruling 1's realm path `..`).
+     Two kinds of path a script names change meaning with the move:
+     - a path it builds from its own place, in any direction and at any
+       depth: `"$(dirname "$0")/verify-lib.sh"` names
+       `scripts/verify-lib.sh` before the move and
+       `.brokkr/scripts/verify-lib.sh` after it, and
+       `"$(dirname "$0")/../Cargo.toml"` names the root's `Cargo.toml`
+       before it and `.brokkr/Cargo.toml` after it, whatever the move
+       list holds;
+     - a path from the root to a file the migration moves: `policy.json`
+       or `scripts/verify-seat.sh`, named from the root, names nothing
+       after the move. (The `.forge/` state paths are the exception,
+       rewritten by the next bullet's closed list.)
+
+     Every other path from the root, such as `Cargo.toml` or
+     `scripts/build.sh`, names the same file before the move and after it.
+     No move into `.brokkr/` keeps a script's own-place geometry, because
+     the folder adds a component above every script it holds, and keeping
+     the scripts where they stand breaks ruling 1's layout. A script's text
+     cannot be read to a closed answer either (a variable, `eval` or another
+     language spells a path any way it likes), so `--migrate` reads none
+     and proves none safe. The rule is therefore closed over what it cannot
+     read: a migration whose move list holds a script refuses before any
+     move unless the operator passes `--scripts-use-root-paths`, which
+     says, on the command line as `--db` does, that every path a script
+     the migration moves names is a path from the repository root to the
+     place it must name once the move is made: none is built from the
+     script's own place, and one that names a moved file names it under
+     `.brokkr/` (the `.forge/` state paths aside, which the next bullet
+     rewrites). The refusal names every script the move list holds, one per line in byte
+     order:
 
      ```text
-     these files stand in <dir>/ beside the scripts --migrate moves from it (<script>, …) and --migrate does not move them (decision 0083); nothing was moved:
-       <dir>/<neighbour>
-     --migrate reads no script to learn whether one reaches them: move each out of <dir>/ first, or rerun with `--leave <dir>/<neighbour>` for each that no moved script reaches from its own place
+     --migrate moves these scripts and reads none of them (decision 0083); nothing was moved:
+       <script>
+     a path a moved script builds from its own place, such as "$(dirname "$0")/../Cargo.toml", or names from the root to a file --migrate moves, names another file after the move: rewrite each as the path from the repository root it must name once the move is made, then rerun with `--scripts-use-root-paths`
      ```
 
-     A `--leave` path that is not a neighbour refuses the migration before
-     any move, with `--leave <path> names no file beside a script --migrate
-     moves (decision 0083); nothing was moved`, so the flag admits only what
-     it names. A named neighbour stays where it is and is named as left
-     behind. A moved script that stands at the root itself has the whole
-     repository beside it, so it refuses the migration before any move,
-     with `<script> stands at the repository root, so every file in it
-     stands beside the script (decision 0083); nothing was moved: move it
-     into a directory of its own, such as scripts/, and point its stage
-     there first`. The root layout's refusal lists the unnamed neighbours
-     too, after its moves, as `--migrate refuses until each is moved out of
-     <dir>/ or named by --leave: <dir>/<neighbour>`, so the first refusal
-     names the whole work. This is the trade the rule takes: `init`'s own
-     seat scripts beside a project's own `scripts/build.sh` refuse until
-     the operator names it, though they source nothing, because the rule
-     does not tell `init`'s scripts from an operator's edit of them.
+     With the flag, the migration goes on, and every file the move list
+     lacks stays where it stands, in whatever directory, and is named as
+     left behind; a moved script reaches it by its path from the root,
+     which the move keeps. A migration whose move list holds no script, as
+     in the state-only shape, needs no flag, and the flag changes nothing
+     there. `init`'s own seat scripts build no path from their own place
+     (each place they write is the result path's directory, which the
+     prompt names), but `scripts/verify-seat.sh` is the file an operator
+     fills in, so their bytes prove nothing, and the flag is asked of every
+     migration that moves a script. This is the trade the rule takes: one
+     flag, said once, in place of reading a script, and a script that does
+     build from its own place is rewritten by the operator before the move.
    - **Tracked files move by `git mv`**, so the move is staged and reviewable;
      untracked ones are renamed. `--migrate` commits nothing.
    - **The map is rewritten**, not reinterpreted, field by field after the
@@ -467,7 +499,7 @@ scaffold, and its layout stays.
    nothing moves); `an_explicit_db_reaches_the_old_journal` (in
    the planted root layout, `brokkr conclude --run <id> --reason x --db
    .forge/forge.db` ends the unfinished run with no refusal, after which
-   `--migrate` succeeds); `migrate_refuses_an_unfinished_run` (its exact text,
+   `--migrate --scripts-use-root-paths` succeeds); `migrate_refuses_an_unfinished_run` (its exact text,
    with the conclude line); `migrate_moves_the_journal_whole` (the run
    journaled before the migration is listed by `brokkr status` after it,
    from `.brokkr/state/forge.db`); `migrate_keeps_realm_relative_paths` (a
@@ -491,30 +523,36 @@ scaffold, and its layout stays.
    while its intake writes under `.brokkr/state/tasks/` and creates no
    `.forge/`); `migrate_refuses_an_unknown_forge_path` (a hired agent's
    charter naming `.forge/custom/` refuses with its exact text and nothing
-   moves); `migrate_refuses_a_file_beside_a_moved_script` (in `init`'s old
-   output, a planted `scripts/verify-lib.sh` with `scripts/verify-seat.sh`
-   replaced by the five lines `#!/bin/sh`, `script=$0`,
-   `here=$(dirname "$script")`, `lib=verify` and `. "$here/$lib-lib.sh"`:
-   `--migrate` refuses with the neighbour refusal's exact text, naming
-   `scripts/verify-lib.sh` beside `scripts/ship-seat.sh` and
-   `scripts/verify-seat.sh`, creates no `.brokkr/`, and every planted
-   file's path and bytes are unchanged; the same refusal, byte for byte,
-   holds with the line `. "$(dirname "$0")/verify-lib.sh"` and with the
-   line `. scripts/verify-lib.sh`, because no script is read; with `.
-   scripts/verify-lib.sh` and `--leave scripts/verify-lib.sh` the
-   migration goes on, `scripts/verify-lib.sh` stays at the root and is
-   named as left behind, and the migrated verify gate sources it and
-   passes); `migrate_refuses_a_leave_that_names_no_neighbour` (`--leave
-   scripts/absent.sh` and `--leave agents/notes.json` each refuse with the
-   exact text and nothing moves); `migrate_refuses_a_root_standing_script`
-   (a stage running `./verify.sh` from the bundle root refuses with the
-   exact text and nothing moves); and
-   `migrate_moves_only_what_the_compile_read` (a `scripts/build.sh` beside
-   the seat scripts refuses the migration with the neighbour refusal's
-   exact text, and the root layout's refusal from `brokkr run` names it;
-   with `--leave scripts/build.sh`, it and an `agents/notes.json` no seat
-   hires stay at the root and are named as left behind, `agents/README.md`
-   stays, and `.brokkr/agents/README.md` is written).
+   moves); `migrate_refuses_to_move_an_unattested_script` (in `init`'s
+   old output with a root `Cargo.toml`, and `scripts/verify-seat.sh`
+   replaced by a gate that writes `fail` when
+   `"$(dirname "$0")/../Cargo.toml"` names a file and `pass` otherwise,
+   standing for a verify gate whose failing suite runs only when the
+   manifest it probes is found, so that before the migration the gate
+   writes `fail`: `--migrate` without the flag refuses with the script
+   refusal's exact text, naming `scripts/ship-seat.sh` and
+   `scripts/verify-seat.sh`, creates no `.brokkr/`, every planted file's
+   path and bytes are unchanged, and the gate still writes `fail`; the
+   same refusal, byte for byte, holds with the probe spelled
+   `"${BASH_SOURCE%/*}/../Cargo.toml"`, with the probe spelled `Cargo.toml`
+   and with `init`'s own unedited scripts, because no script is read; with
+   the probe rewritten to `Cargo.toml` and the flag given, the migration
+   goes on, `Cargo.toml` stays at the root, and the migrated gate still
+   writes `fail`); the root layout's refusal from `brokkr run` names the
+   same two scripts on its last line, which
+   `old_root_layout_refuses_with_the_migration_text` asserts with the
+   rest; `old_root_layout_that_does_not_compile_refuses` (`init`'s old
+   output with its `bundle.json` made not to compile: `brokkr run
+   --feature x` prints the second root-layout refusal exactly, with the
+   compile error the compile verb prints for that bundle, creates no
+   `.brokkr/`, and the journal's bytes do not move; `--migrate` then
+   refuses with the same compile error and nothing moves); and
+   `migrate_moves_only_what_the_compile_read` (with the flag, a
+   `scripts/build.sh` beside the seat scripts and an `agents/notes.json` no
+   seat hires stay at the root and are named as left behind,
+   `agents/README.md` stays, and `.brokkr/agents/README.md` is written).
+   Every other binding that runs `--migrate` over a move list holding a
+   script passes `--scripts-use-root-paths`.
 
 5. **`init` writes the folder and says what it wrote; `doctor` reports it.**
    `brokkr init <dir>` writes `<dir>/.brokkr/` and nothing outside it, so the
@@ -601,15 +639,27 @@ scaffold, and its layout stays.
   prints the moves it makes, because the evidence rules out a list of
   `git mv` lines alone: the map's two paths must be rewritten, the journal
   is untracked, and `scripts/` and `agents/` may hold a project's own files.
-- **`--leave` for a file beside a moved script.** Ruling 4 reads no script
-  and refuses each file beside one the move lacks until the operator moves
-  it or names it by `--leave`, so a project's own `scripts/` costs one
-  flag per file the first time. The other closed rules the evidence offers
-  are worse: moving the whole `<dir>/` would move a project's own scripts
-  out from under its build, and reading a script for `$0`, `dirname` and
-  their kin refuses `init`'s own scripts beside any neighbour too, with no
-  way through. Recommended as ruled; the build takes another rule only on
-  this ruling.
+- **`--scripts-use-root-paths` for a moved script.** Ruling 4 reads no
+  script and refuses to move one until the operator says, by one flag,
+  that every path a moved script names is a path from the root to the
+  place it must name after the move, so every migration of `init`'s old
+  output costs that flag once. It replaces this decision's earlier draft,
+  which refused only the files under a moved script's own directory until
+  each was named by `--leave`: a script that climbs out of that directory
+  from its own place, as `"$(dirname "$0")/../Cargo.toml"` does, reached a
+  file the draft never refused, so a verify gate that runs its suite only
+  when the manifest it probes is found would pass after the move. The
+  other closed rule the evidence offers is worse: keeping each moved
+  script's own-place geometry would keep the scripts out of `.brokkr/`,
+  against ruling 1. Recommended as ruled; the build takes another rule
+  only on this ruling.
+- **The capability broker's secrets place.** The broker's sealed plan
+  store (`crates/brokkr-cli/src/broker/bootstrap.rs` and `session.rs`)
+  depends on where the secrets store stands, and another session owns
+  the broker (U6c8, #625). Before the build moves the secrets default to
+  `.brokkr/state/secrets.env`, it pings the session that owns the broker,
+  and moves the default only once that session has answered. This
+  decision moves no default.
 - **The `seat-scratch` place.** The frozen `contracts/host.v1.schema.json`
   describes `seat-scratch` as the run's `.forge/scratch`. The word still
   names the run's scratch directory, which for an adopter is now
