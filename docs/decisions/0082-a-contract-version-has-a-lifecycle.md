@@ -102,8 +102,11 @@ what the loader leaves open, so that the schema and the loader disagree.
      each is walked; two that keep the same file refuse as ambiguous,
      naming both (Asked 9). That successor must admit by this same rule, so a
      chain of supersessions is walked to an accepted decision that nothing
-     supersedes, and a number met twice on the walk refuses. Any other
-     case refuses by default, with one text:
+     supersedes, and a number met twice on the walk refuses. A pointer
+     naming a number with no decision in the ledger refuses by the default
+     below, and the ledger's own gate already refuses it as `names no other
+     decision` (`decisions_index.rs:436-437`, `Finding::DanglingPointer`).
+     Any other case refuses by default, with one text:
      `contracts/<file>: minted under <old>, which is superseded by <new>,
      and <new> does not keep its minting`. So the pull request that
      supersedes a minting decision fails until the successor names each
@@ -179,7 +182,11 @@ what the loader leaves open, so that the schema and the loader disagree.
    that keep it refuse as ambiguous, naming both. A named addendum must have exactly one heading
    in that file opening `## Addendum — <date>`; none, or two, refuses,
    naming the file. Its status line is matched whole against the one admitting form,
-   and the heading's text after the date is never read. Removal controls
+   and the heading's text after the date is never read. The test reads the
+   status of the ruling a cell names, never that ruling's text against the
+   row's file, so a cell naming the wrong accepted decision passes it; the
+   build transcribes each cell from research 0022 for the operator to
+   confirm (Asked 8). Removal controls
    for the build, each planted, run, seen failing with the test's own
    text, and removed:
    - a row minted under a proposed decision fails, naming the file and the
@@ -298,9 +305,15 @@ what the loader leaves open, so that the schema and the loader disagree.
      the release (decision 0071 ruling 6), and `brokkr doctor` names the label to move
      to for at least one minor line before that release. The decision
      names both lines in one header line, and the binding below reads it.
-   - A **record** row, an older local run manifest, has no reader to
-     remove. Its bytes stay as the description of what older journals
-     hold.
+   - A **record** row is an older version of the local run-manifest
+     lineage and nothing else: `run-manifest.v1` and `v3` to `v12`
+     today, under the current `run-manifest.v13`. The Looper's
+     `run-manifest.v2` is not of that lineage. A record row has no reader
+     to remove, since resume refuses any pinned manifest unequal to its
+     recompile. Its bytes stay as the description of what older journals
+     hold. Ruling 4's test binds a record row by its file and its loader,
+     never by its `State` cell, so no other row leaves the window and
+     retirement checks by being relabelled `record`.
 
    A family has one class, and every row of it carries that value. The
    criterion is the reader of a pinned copy. A family whose copies pinned
@@ -489,7 +502,8 @@ what the loader leaves open, so that the schema and the loader disagree.
      no kind can bind is a finding it names, never a row bound by text.
    - `State` is `current`, `reader`, `record` or `retired (0.N)`, where
      0.N is the release that removed the reader. Exactly one row per
-     family or lineage is `current`. Ruling 3 binds a `retired` row.
+     family or lineage is `current`. Ruling 3 binds a `retired` row, and
+     the check below binds a `record` row.
    - `Last written` is an engine line, or `never`, for a journal
      `reader` or `retired` row, and empty otherwise. Ruling 3 binds it.
    - `Reader until` is an engine line, or ruling 3's extended form, for
@@ -515,9 +529,29 @@ what the loader leaves open, so that the schema and the loader disagree.
      text merely names the version binds nothing. Every `engine <path>` or
      `shipped <path>` in `Writer` exists.
    - Exactly one `current` row per family or lineage.
+   - A `record` row is admitted only for a file
+     `contracts/run-manifest.v<N>.schema.json` of the local lineage, with
+     N below that of the lineage's `current` row. The test holds the
+     Looper lineage's file, `run-manifest.v2`, as one constant outside
+     it. The row's `Class` is `journal`, its `Writer` and `Reader` are
+     `none`, and its `Last written` and `Reader until` are empty. As ruling
+     3 drives a retired row's version, the lineage's `current` row's reader
+     source, driven with an instance of the record version, refuses it.
+     Any other `record` row refuses, naming the row.
    - Ruling 3's window and retirement checks.
 
    Removal controls: delete a row and see the test fail naming the file.
+   Relabel `seat-record.v5`'s row `record`, with `Reader` `none` and
+   `Last written` and `Reader until` emptied, and see it refused naming
+   the row, so its V5 dispatch cannot leave the 0.14 deadline by its
+   `State` cell. At 0.13, drop `SCHEMA_V1` from
+   `brokkr_core::realms::SCHEMAS` and relabel `realms.v1`'s row `record`
+   the same way: the set check passes both ways, and the row is still
+   refused naming it, so an input reader is never removed without ruling
+   3's `Retires the reader of:` decision. Relabel `run-manifest.v2`'s row
+   `record` and see it refused as the Looper lineage's file. Make the
+   current run-manifest reader admit a `run-manifest.v12` instance and
+   see the `run-manifest.v12` row fail.
    The behavioural ones each take a version out of a loader's accepted set
    and leave its label constant in place: drop `SCHEMA_V7` from
    `brokkr_core::realms::SCHEMAS` and see the check fail naming
@@ -638,6 +672,11 @@ what the loader leaves open, so that the schema and the loader disagree.
    or rules otherwise. The alternative, a closed map in the test from
    each existing heading to its status, keeps the decisions untouched but
    leaves a second grammar for every later addendum.
+   The same pull request lists every initial `Minted under` cell beside
+   the research 0022 row it is transcribed from, and the operator
+   confirms them too, since ruling 1's test reads a cell's ruling and not
+   that ruling's text. Recommended: confirm all three sets in that pull
+   request.
 9. **A pointer that names several decisions.** Ruling 1 walks each
    decision a `Superseded by:` or `Superseded in part by:` pointer names,
    and admits a row when exactly one of them keeps its file. The
