@@ -356,6 +356,12 @@ fn the_first_phase_runs_at_once_and_capability_broker_alone_after_it() {
             stdout.contains("test shards: phase 2, capability_broker, alone: exit 0 after "),
             "{stdout}"
         );
+        // A settled run removes its work directory: nothing is left in TMPDIR.
+        let left: Vec<std::ffi::OsString> = std::fs::read_dir(scratch.dir.path().join("tmp"))
+            .expect("scratch tmp")
+            .map(|entry| entry.expect("scratch tmp entry").file_name())
+            .collect();
+        assert_eq!(left, Vec::<std::ffi::OsString>::new(), "{args:?}");
     }
 }
 
