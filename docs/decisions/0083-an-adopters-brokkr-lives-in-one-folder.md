@@ -64,11 +64,21 @@ inline executable site names, a nested panel member, sequence step or select
 arm included, read from the bundle's directory and bound to its site
 (`parse_role` in `crates/brokkr-runtime/src/bundle/charters.rs`), the adapter
 declarations that answered (`drivers`), the capability definitions a seat's
-requirement consulted, read from the `capabilities/` beside the agent library
-(`compile_with_realm` in `bundle.rs`, `Definitions::load` in
-`crates/brokkr-runtime/src/capabilities.rs`) and pinned by name and digest
-(the manifest's `capabilities`), and the `./` scripts a stage runs
-(`pinned_script`). In a root scaffold that `capabilities/` is the root's own.
+requirement consulted or a grant of the operated realm names, and the tool
+dialect each such grant names, `dialects/tools/<name>.json` (`Authority::load`
+and `Definitions::load` in `crates/brokkr-runtime/src/capabilities.rs`,
+`ToolDialect::load` in `capabilities/dialect.rs`), all pinned by name and
+digest (the manifest's `capabilities`), and the `./` scripts a stage runs
+(`pinned_script`). The definitions and the tool dialects are read from the
+operator configuration directory: the map's own directory when a map is in
+force (`capability_context` in `crates/brokkr-runtime/src/launch.rs`), else
+the agent library's parent (`compile_with_realm` in `bundle.rs`). In a root
+scaffold both are the root.
+
+A bundle may also compose a base: its `extends` names a recipe that the
+compile reads from the bundle directory's parent, as `<parent>/<name>/`
+(`read_layers` in `crates/brokkr-runtime/src/bundle/compose.rs`). For a root
+`bundle.json` that parent is the directory above the repository.
 
 The operator ruled option A on 2026-10-11: everything Brokkr writes into an
 adopter's repository lives in one hidden folder, `.brokkr/`, as a project's
@@ -106,7 +116,17 @@ scaffold, and its layout stays.
    bundle's identity. A bundle's script paths stay relative to the bundle,
    which is `.brokkr/` itself, so `scripts/verify-seat.sh` keeps its spelling.
    Capability definitions an adopter adds stand in the bundle directory, at
-   `.brokkr/capabilities/`, by the same walk. The secrets store at
+   `.brokkr/capabilities/`, by the same walk, and the tool dialects its
+   grants name at `.brokkr/dialects/tools/`, because both are read from the
+   operator configuration directory, which is the map's own, `.brokkr/`. A
+   bundle in `.brokkr/` composes no base: its `extends` would be read from
+   the repository root, `<root>/<name>/`, a directory the project owns. So
+   the compile of a bundle whose directory is a `.brokkr` folder, discovered
+   or named by `--bundle`, refuses an `extends` before any base is read,
+   with
+   `<root>/.brokkr/bundle.json extends '<name>' (decision 0083); a bundle in
+   .brokkr/ composes no base, because its library would be <root>: remove
+   extends`. The secrets store at
    `.brokkr/state/secrets.env` stands under the bundle directory but under
    the unpinned `state/`, so the walk never digests it; the compile's
    refusal of a `secrets.env` anywhere else under the bundle stands, and its
@@ -123,7 +143,11 @@ scaffold, and its layout stays.
    an OpenSpec one (which adds `dialects/`); nothing stands at the root, and
    no file `init` wrote contains the text `.forge/`. It
    adds `state_never_moves_the_bundle` there too: a compile's digest before
-   and after a file is written under `.brokkr/state/` is equal.
+   and after a file is written under `.brokkr/state/` is equal; and
+   `a_folder_bundle_composes_no_base`: a `.brokkr/bundle.json` given
+   `extends: "shared"`, with a recipe planted at `<root>/shared/bundle.json`,
+   refuses with the text above exactly, from discovery and with `--bundle
+   .brokkr` alike, and reads no base.
 
 2. **Discovery, and its precedence.** A verb walks up from the working
    directory to the repository root: the first directory that holds a `.git`
@@ -309,6 +333,22 @@ scaffold, and its layout stays.
    make <root>/bundle.json compile, then rerun to see them; until it does, `brokkr init --migrate` refuses with the same compile error
    ```
 
+   An old bundle that compiles by composing a base cannot be moved whole:
+   the base is read from the directory above the repository, which
+   `--migrate` never moves into, and a moved `.brokkr/bundle.json` composes
+   no base (ruling 1). Moving the bundle would leave its `extends` to be
+   read from `<root>/<name>/`, so the closing compile would refuse after
+   every move, or compose a project's own directory of that name in place
+   of the base. So when the old compile composed a base, the root layout's
+   refusal is exactly this instead, still opening nothing, and `--migrate`
+   refuses with the same text and moves nothing:
+
+   ```text
+   this repository has Brokkr's old root layout and no .brokkr/ folder (decision 0083); nothing was opened
+   its bundle.json extends '<name>', read from <library>/<name>/, and a bundle in .brokkr/ composes no base, so `brokkr init --migrate` moves nothing
+   make <root>/bundle.json compile with no extends, then rerun to see the moves
+   ```
+
    The
    state-only refusal opens `this repository has Brokkr state in .forge/
    and no .brokkr/ folder (decision 0083); nothing was opened`, lists the
@@ -342,10 +382,20 @@ scaffold, and its layout stays.
      inline executable site, a nested panel member, sequence step or select
      arm included (`parse_role`); each adapter
      declaration the compile read for a seat's harness and gates (its
-     `drivers`); each capability definition a seat's requirement consulted,
-     `capabilities/<name>.json` (the manifest's `capabilities`), which moves
-     to `.brokkr/capabilities/<name>.json`, beside the moved agent library,
-     where ruling 1 has it and the closing compile looks; each script a
+     `drivers`); each capability definition a seat's requirement consulted
+     or a grant names, `capabilities/<name>.json`, which moves to
+     `.brokkr/capabilities/<name>.json`, and each tool dialect a grant
+     names, `dialects/tools/<name>.json`, which moves to
+     `.brokkr/dialects/tools/<name>.json` (the manifest's `capabilities`,
+     its `definitions` and `dialects`), beside the moved map and agent
+     library, where ruling 1 has them and the closing compile looks. The
+     compile that lists the moves loads the grants of every realm the map
+     holds, as `Authority::load` loads the operated realm's, because the
+     world already reads every realm's house and dialect and a grant's
+     names resolve against the map's directory whichever realm holds it;
+     so a grant in another realm reads, and moves, its definition and its
+     tool dialect too, and one that does not load gives the second
+     refusal above. Each script a
      hired agent's command or a stage runs by a
      `./` path under the bundle; the map; and, for each `dialect` the map
      gives as a name, `dialects/<name>.json` and the texts it reads (`init`
@@ -358,7 +408,8 @@ scaffold, and its layout stays.
      operator's own by its bytes. It stays, and `--migrate` writes
      `.brokkr/agents/README.md` afresh, as `init` would. An old bundle that
      does not compile refuses the migration with its compile error, as the
-     root layout's second refusal above says.
+     root layout's second refusal above says, and one that composes a base
+     refuses with the third, before any move.
    - **The old compile skips the old state.** In the root layout the bundle
      directory is the root, so today's walk reaches `.forge/` and refuses a
      `.forge/secrets.env` (`bundle contains a secrets store`): an adopter
@@ -452,8 +503,9 @@ scaffold, and its layout stays.
      --migrate moves (decision 0083); nothing was moved: point it outside
      .forge/ first`. A `dialect`
      given as a name is kept, because the dialect library moves with the map
-     into `.brokkr/dialects/`. The map's digest moves, and the output says
-     so.
+     into `.brokkr/dialects/`, and so is a grant's `dialect`, a tool
+     dialect's name, because `dialects/tools/` moves with it. The map's
+     digest moves, and the output says so.
    - **A moved file's typed references are restated** as the map's are. The
      compile reads three paths that one moved file holds to another: the
      bundle's `policy`, resolved against the bundle's directory (`own_table`
@@ -484,9 +536,12 @@ scaffold, and its layout stays.
      field (`policy`, `charter`, `role`), which `--migrate` matches with no
      wildcard (decision 0071
      ruling 2), so a path field the compile learns later cannot be read
-     without its arm saying how it is restated. A capability definition is
-     named by a seat's requirement, not by a path, so it needs no arm: it
-     moves to the place the closing compile looks for it. So the closing
+     without its arm saying how it is restated. A capability definition and
+     a tool dialect are named by a requirement or a grant, not by a path, so
+     neither needs an arm: each moves to the place the closing compile looks
+     for it. A bundle's `extends` is a name too, but the place it is read
+     from is never moved into, so it has no arm and refuses before any move
+     (the third refusal above). So the closing
      compile reads the same files the old compile read, each from its new
      place.
    - **The state paths written into moved files are rewritten**, from one
@@ -601,6 +656,32 @@ scaffold, and its layout stays.
    `probe.json` stands under `.brokkr/capabilities/`, `unused.json` stays
    and is named as left behind, and the closing compile succeeds and pins
    `probe` with the digest the old compile pinned);
+   `migrate_moves_granted_capability_files` (`init`'s old output whose
+   map's realm grants `web-search` through the tool dialect
+   `claude-native-search`, which no seat requires, and whose map holds a
+   second realm granting `probe` through the tool dialect `probe-tool`,
+   with `capabilities/web-search.json`, `capabilities/probe.json`,
+   `dialects/tools/claude-native-search.json`, `dialects/tools/probe-tool.json`
+   and a `dialects/tools/unused.json` no grant names, which compiles before
+   the move: the root layout's refusal lists the four `git mv` lines into
+   `.brokkr/capabilities/` and `.brokkr/dialects/tools/` and no line for
+   `unused.json`; after `--migrate --scripts-use-root-paths` the map's
+   grants are kept byte for byte, the four files stand under `.brokkr/`
+   with their bytes unchanged, `unused.json` stays and is named as left
+   behind, and the closing compile succeeds and pins `web-search` and
+   `claude-native-search` with the digests the old compile pinned; with
+   `dialects/tools/probe-tool.json` removed before the migration, the run
+   prints the second root-layout refusal with the tool dialect's error and
+   nothing moves);
+   `migrate_refuses_a_composed_bundle` (`init`'s old output in
+   `<parent>/adopter`, its `bundle.json` given `extends: "shared"`, with a
+   recipe at `<parent>/shared/bundle.json`, which compiles before the move:
+   `brokkr run --feature x` prints the third root-layout refusal exactly,
+   `--migrate --scripts-use-root-paths` refuses with the same text, no
+   `.brokkr/` is created and every planted file's path and bytes are
+   unchanged; the same holds, byte for byte, with a
+   `<parent>/adopter/shared/bundle.json` planted as well, the directory a
+   moved bundle would compose in place of the base);
    `a_root_layout_with_a_secret_lists_its_moves` (`init`'s old output with
    a `.forge/secrets.env` holding one name beside the journal: `brokkr run
    --feature x` prints the first root-layout refusal, with the line `mv
@@ -752,6 +833,15 @@ scaffold, and its layout stays.
   script's own-place geometry would keep the scripts out of `.brokkr/`,
   against ruling 1. Recommended as ruled; the build takes another rule
   only on this ruling.
+- **A composed bundle in an adopter's repository.** Ruling 1 lets no
+  bundle in `.brokkr/` compose a base, and ruling 4 refuses to move an old
+  root bundle that does, because a base is read from the bundle
+  directory's parent, which for the folder is the repository root, and
+  for a root bundle is outside the repository. Keeping a composed adopter
+  bundle would need a new place for its base, such as a
+  `.brokkr/recipes/`, which is a change to composition, not to the layout.
+  Recommended as ruled; a later slice may give the folder a base library
+  only on its own ruling.
 - **The capability broker's secrets place.** The broker's sealed plan
   store (`crates/brokkr-cli/src/broker/bootstrap.rs` and `session.rs`)
   depends on where the secrets store stands, and another session owns
