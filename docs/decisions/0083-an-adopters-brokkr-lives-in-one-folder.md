@@ -323,49 +323,47 @@ scaffold, and its layout stays.
      operator's own by its bytes. It stays, and `--migrate` writes
      `.brokkr/agents/README.md` afresh, as `init` would. An old bundle that
      does not compile refuses the migration with its compile error.
-   - **A moved script's neighbours are read, and a name the move would
-     break refuses.** The rule is to refuse, not to move more: the move
-     list stays what the compile read. A script moves from its directory
-     under the root, `<dir>/` (`scripts/`), to the same place under
-     `.brokkr/`, so a path it builds from its own place, such as
+   - **A file beside a moved script refuses the migration until it is
+     moved or named; no script is read.** The rule is to refuse, not to
+     move more: the move list stays what the compile read. A script moves
+     from its directory under the root, `<dir>/` (`scripts/`), to the same
+     place under `.brokkr/`, so a path it builds from its own place, such as
      `"$(dirname "$0")/verify-lib.sh"`, names `.brokkr/scripts/verify-lib.sh`
      after the move, while a path from the repository root,
      `scripts/verify-lib.sh`, still names the root's file: the seat's
      working directory is the root before the move and after it (ruling 1's
-     realm path `..`). Its neighbours are the files under `<dir>/` the move
-     list lacks. Before any move, each moved script's text is read line by
-     line, and the first line that meets one of two cases refuses the
-     migration, case 1 first where a line meets both:
+     realm path `..`). A script's text cannot be read to a closed answer to
+     whether it reaches a file beside it (a variable, `eval` or another
+     language spells the path any way it likes), so `--migrate` reads none.
+     A moved script's neighbours are every file under its `<dir>/`, at any
+     depth, that the move list lacks. Before any move, each neighbour
+     refuses the migration unless the operator names it by `--leave
+     <dir>/<neighbour>`, which says, on the command line as `--db` does,
+     that no moved script reaches it. The refusal lists every unnamed
+     neighbour, one per line in byte order, grouped by `<dir>/`:
 
-     1. The line spells a neighbour's path from `<dir>/` (`verify-lib.sh`,
-        `lib/common.sh`) as a whole name, neither preceded nor followed by a
-        letter, digit, `.`, `_` or `-`, and not as the tail of the
-        neighbour's path from the root (`scripts/verify-lib.sh`), whatever
-        stands before it: `$(dirname "$0")/`, `./`, a variable or a quote.
+     ```text
+     these files stand in <dir>/ beside the scripts --migrate moves from it (<script>, …) and --migrate does not move them (decision 0083); nothing was moved:
+       <dir>/<neighbour>
+     --migrate reads no script to learn whether one reaches them: move each out of <dir>/ first, or rerun with `--leave <dir>/<neighbour>` for each that no moved script reaches
+     ```
 
-        ```text
-        <script>:<line> names <neighbour>, which stands beside it and --migrate does not move (decision 0083); nothing was moved: name it from the repository root as <neighbour>, or inline it, first
-        ```
-
-     2. `<dir>/` holds a neighbour, and the line locates the script itself
-        in a form the scan cannot follow to a name: it holds `BASH_SOURCE`,
-        `${0%` or `${0#`, or it holds `$0` or `${0}` together with
-        `dirname`, `realpath` or `readlink`. The first line of a moved
-        script whose first line names neither `sh` nor `bash` counts too,
-        because its language's ways of locating itself are not ones the
-        scan reads. `<neighbour>` is the first neighbour in byte order.
-
-        ```text
-        <script>:<line> locates the script, and <neighbour> stands beside it and --migrate does not move it (decision 0083); nothing was moved: build the script's paths from the repository root, or move <neighbour> out of <dir>/, first
-        ```
-
-     A path from the root is admitted because it names the same file before
-     and after the move, and a neighbour's path from the root of a script
-     standing at the root itself is its plain name, so such a script meets
-     only case 2. `init`'s own scripts meet neither case: they source
-     nothing, name no file beside them, and their only `$0` is awk's, on
-     lines with no `dirname`, so a project's `scripts/build.sh` beside them
-     stays and the migration goes on.
+     A `--leave` path that is not a neighbour refuses the migration before
+     any move, with `--leave <path> names no file beside a script --migrate
+     moves (decision 0083); nothing was moved`, so the flag admits only what
+     it names. A named neighbour stays where it is and is named as left
+     behind. A moved script that stands at the root itself has the whole
+     repository beside it, so it refuses the migration before any move,
+     with `<script> stands at the repository root, so every file in it
+     stands beside the script (decision 0083); nothing was moved: move it
+     into a directory of its own, such as scripts/, and point its stage
+     there first`. The root layout's refusal lists the unnamed neighbours
+     too, after its moves, as `--migrate refuses until each is moved out of
+     <dir>/ or named by --leave: <dir>/<neighbour>`, so the first refusal
+     names the whole work. This is the trade the rule takes: `init`'s own
+     seat scripts beside a project's own `scripts/build.sh` refuse until
+     the operator names it, though they source nothing, because the rule
+     does not tell `init`'s scripts from an operator's edit of them.
    - **Tracked files move by `git mv`**, so the move is staged and reviewable;
      untracked ones are renamed. `--migrate` commits nothing.
    - **The map is rewritten**, not reinterpreted, field by field after the
@@ -485,24 +483,30 @@ scaffold, and its layout stays.
    while its intake writes under `.brokkr/state/tasks/` and creates no
    `.forge/`); `migrate_refuses_an_unknown_forge_path` (a hired agent's
    charter naming `.forge/custom/` refuses with its exact text and nothing
-   moves); `migrate_refuses_a_script_naming_a_neighbour` (in `init`'s old
-   output, a planted `scripts/verify-lib.sh` and the line
-   `. "$(dirname "$0")/verify-lib.sh"` added to `scripts/verify-seat.sh`:
-   `--migrate` refuses with case 1's exact text, naming that line and
-   `scripts/verify-lib.sh`, creates no `.brokkr/` and moves nothing; with
-   the line rewritten as `. scripts/verify-lib.sh` the migration goes on,
-   `scripts/verify-lib.sh` stays at the root and is named as left behind,
-   and the migrated verify gate sources it and passes);
-   `migrate_refuses_a_script_that_locates_itself` (the same helper reached
-   by `here="$(dirname "$0")"` and then `. "$here/$lib"` refuses with case
-   2's exact text at the `here=` line, and a moved seat script whose first
-   line is `#!/usr/bin/env python3` beside the same helper refuses at its
-   line 1); and
+   moves); `migrate_refuses_a_file_beside_a_moved_script` (in `init`'s old
+   output, a planted `scripts/verify-lib.sh` with `scripts/verify-seat.sh`
+   replaced by the five lines `#!/bin/sh`, `script=$0`,
+   `here=$(dirname "$script")`, `lib=verify` and `. "$here/$lib-lib.sh"`:
+   `--migrate` refuses with the neighbour refusal's exact text, naming
+   `scripts/verify-lib.sh` beside `scripts/ship-seat.sh` and
+   `scripts/verify-seat.sh`, creates no `.brokkr/`, and every planted
+   file's path and bytes are unchanged; the same refusal, byte for byte,
+   holds with the line `. "$(dirname "$0")/verify-lib.sh"` and with the
+   line `. scripts/verify-lib.sh`, because no script is read; with `.
+   scripts/verify-lib.sh` and `--leave scripts/verify-lib.sh` the
+   migration goes on, `scripts/verify-lib.sh` stays at the root and is
+   named as left behind, and the migrated verify gate sources it and
+   passes); `migrate_refuses_a_leave_that_names_no_neighbour` (`--leave
+   scripts/absent.sh` and `--leave agents/notes.json` each refuse with the
+   exact text and nothing moves); `migrate_refuses_a_root_standing_script`
+   (a stage running `./verify.sh` from the bundle root refuses with the
+   exact text and nothing moves); and
    `migrate_moves_only_what_the_compile_read` (a `scripts/build.sh` beside
-   the seat scripts and an `agents/notes.json` no seat hires stay at the
-   root and are named as left behind, `agents/README.md` stays, and
-   `.brokkr/agents/README.md` is written; `init`'s own scripts, whose only
-   `$0` is awk's, meet neither case of the neighbour scan).
+   the seat scripts refuses the migration with the neighbour refusal's
+   exact text, and the root layout's refusal from `brokkr run` names it;
+   with `--leave scripts/build.sh`, it and an `agents/notes.json` no seat
+   hires stay at the root and are named as left behind, `agents/README.md`
+   stays, and `.brokkr/agents/README.md` is written).
 
 5. **`init` writes the folder and says what it wrote; `doctor` reports it.**
    `brokkr init <dir>` writes `<dir>/.brokkr/` and nothing outside it, so the
@@ -589,6 +593,15 @@ scaffold, and its layout stays.
   prints the moves it makes, because the evidence rules out a list of
   `git mv` lines alone: the map's two paths must be rewritten, the journal
   is untracked, and `scripts/` and `agents/` may hold a project's own files.
+- **`--leave` for a file beside a moved script.** Ruling 4 reads no script
+  and refuses each file beside one the move lacks until the operator moves
+  it or names it by `--leave`, so a project's own `scripts/` costs one
+  flag per file the first time. The other closed rules the evidence offers
+  are worse: moving the whole `<dir>/` would move a project's own scripts
+  out from under its build, and reading a script for `$0`, `dirname` and
+  their kin refuses `init`'s own scripts beside any neighbour too, with no
+  way through. Recommended as ruled; the build takes another rule only on
+  this ruling.
 - **The `seat-scratch` place.** The frozen `contracts/host.v1.schema.json`
   describes `seat-scratch` as the run's `.forge/scratch`. The word still
   names the run's scratch directory, which for an adopter is now
