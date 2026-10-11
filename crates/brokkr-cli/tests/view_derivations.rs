@@ -31,6 +31,23 @@ const RESTATED: [(&str, &str); 10] = [
     ("legacy_id: part.session_id", "brokkr_view::Subject::of"),
 ];
 
+/// The scope rule the view took over (#351, ruled 2026-10-10: the TUI
+/// leads), by its Rust definitions and by the browser's old predicates:
+/// a participant's phase compared, a row's phases searched, a seat
+/// matched by its key alone. The surfaces call `brokkr_view::lens_for`
+/// and the `keeps_*` predicates, and the page reads `RunView.scopes`.
+const SCOPING: [(&str, &str); 9] = [
+    ("enum Scope", "brokkr_view::Scope"),
+    ("struct Lens", "brokkr_view::Lens"),
+    ("fn lens_for", "brokkr_view::lens_for"),
+    ("fn keeps_phase", "brokkr_view::keeps_phase"),
+    ("fn keeps_participant", "brokkr_view::keeps_participant"),
+    ("fn keeps_row", "brokkr_view::keeps_row"),
+    (".phase === phaseFilter", "the served RunView.scopes"),
+    ("phases.includes(", "the served RunView.scopes"),
+    ("|| part.key ===", "the served RunView.scopes"),
+];
+
 /// The ambient home the shared reader never resolves (#351): the shell
 /// resolves the projects home once and passes it to `read_local`.
 const AMBIENT_HOME: [(&str, &str); 3] = [
@@ -85,6 +102,49 @@ fn restatements(root: &Path, table: &[(&str, &str)]) -> Vec<String> {
 fn the_surfaces_restate_no_derivation_the_view_exports() {
     let src = workspace().join("crates/brokkr-cli/src");
     assert_eq!(restatements(&src, &RESTATED), Vec::<String>::new());
+}
+
+/// #351 ask 2: the terminal, the TUI and the browser scope a run by the
+/// view's one rule, and none of them defines or restates it.
+#[test]
+fn the_surfaces_restate_no_scope_rule() {
+    let src = workspace().join("crates/brokkr-cli/src");
+    assert_eq!(restatements(&src, &SCOPING), Vec::<String>::new());
+}
+
+/// The scope scan bites: the CLI's old definitions and the browser's old
+/// predicates, planted, are each named with the view's home. The plants
+/// and the diagnostics are written out, not read from `SCOPING`.
+#[test]
+fn the_scope_scan_names_every_definition_and_every_browser_predicate() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("render.rs"),
+        "pub(crate) enum Scope {}\npub(crate) struct Lens {}\nfn lens_for() {}\n\
+         fn keeps_phase() {}\nfn keeps_participant() {}\nfn keeps_row() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("ui.html"),
+        "parts.filter((part) => !phaseFilter || part.phase === phaseFilter)\n\
+         parts.filter((part) => !activeParticipant || part.key === activeParticipant);\n\
+         if (phaseFilter && !e.phases.includes(phaseFilter)) continue;\n",
+    )
+    .unwrap();
+    assert_eq!(
+        restatements(dir.path(), &SCOPING),
+        [
+            "render.rs: restates `enum Scope`; call brokkr_view::Scope",
+            "render.rs: restates `fn keeps_participant`; call brokkr_view::keeps_participant",
+            "render.rs: restates `fn keeps_phase`; call brokkr_view::keeps_phase",
+            "render.rs: restates `fn keeps_row`; call brokkr_view::keeps_row",
+            "render.rs: restates `fn lens_for`; call brokkr_view::lens_for",
+            "render.rs: restates `struct Lens`; call brokkr_view::Lens",
+            "ui.html: restates `.phase === phaseFilter`; call the served RunView.scopes",
+            "ui.html: restates `phases.includes(`; call the served RunView.scopes",
+            "ui.html: restates `|| part.key ===`; call the served RunView.scopes",
+        ]
+    );
 }
 
 /// #351 ask 6: the reader takes the projects home as an argument and

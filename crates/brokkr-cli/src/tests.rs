@@ -3579,7 +3579,7 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
         let events = store.load("r1").unwrap();
         let state = fold(&events).unwrap();
         let view = brokkr_view::run_view(&events, Some(&state));
-        let lens = render::lens_for(&view, None).unwrap();
+        let lens = brokkr_view::lens_for(&view, None).unwrap();
         render::inspect(&view, lens.as_ref(), true, &render::Style::detect())
     };
     assert_eq!(rendered(&adopted), rendered(&native));

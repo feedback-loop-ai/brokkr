@@ -4,15 +4,14 @@
 //! assets; removing this module changes nothing about execution
 //! semantics (first-release acceptance criteria).
 //!
-//! Routes: `/` (page) · `/api/runs` · `/api/view/<id>` · `/api/run/<id>` ·
+//! Routes: `/` (page) · `/api/runs` · `/api/view/<id>` ·
 //! `/api/presentation/<run>/<key>` · `/api/transcript/<run>/<key>` ·
 //! `/sse/<id>` (server-sent head changes, poll-backed) ·
 //! `/sse/transcript/<run>/<key>` (server-sent transcript growth,
 //! poll-backed by the same clock).
 //!
 //! `/api/runs` and `/api/view/<id>` serve `brokkr-view`'s models: the page
-//! paints them and derives nothing (decision 0013). `/api/run/<id>` keeps
-//! its raw summary-and-events shape as the parity baseline.
+//! paints them and derives nothing (decision 0013).
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -125,27 +124,6 @@ pub fn handle(db: &Path, path: &str) -> Response {
             "application/json",
             serde_json::to_string(&view).expect("the run view serializes"),
         );
-    }
-    if let Some(run_id) = path.strip_prefix("/api/run/") {
-        let events = match store.load(run_id) {
-            Ok(events) => events,
-            Err(_) => return not_found(run_id),
-        };
-        let state = fold(&events).ok();
-        let body = json!({
-            "summary": state.map(|s| json!({
-                "run_id": s.run_id,
-                "status": s.status.as_str(),
-                "phase": s.phase,
-                "seq": s.seq,
-                "park_reason": s.park_reason,
-                "consecutive_failures": s.consecutive_failures,
-                "last_decision": s.last_decision,
-                "feature": s.feature,
-            })),
-            "events": events,
-        });
-        return ok("application/json", body.to_string());
     }
     not_found(path)
 }
