@@ -501,8 +501,8 @@ fn an_adapter_fragment_that_names_a_model_flag_is_refused_at_load() {
                 format!(
                     "{file} '{at}' names the model flag '{flag}'; a model pin is the engine's to \
                      compose from a seat's chain, where the provisional tier judges it, and one \
-                     an adapter carries would seat a model no tier check reads (proposed \
-                     decision 0075 ruling 5)"
+                     an adapter carries would seat a model no tier check reads (decision 0075 \
+                     ruling 5)"
                 )
             ),
             other => panic!("expected '{at}' refused, got {other:?}"),
@@ -761,8 +761,8 @@ fn the_model_tier_is_a_closed_declaration_inside_the_models_map() {
         refused(json!({"id": "fresh-1", "tier": "promoted"})),
         format!(
             "{file} 'models.fresh' declares tier 'promoted'; the only tier a model declares is \
-             \"provisional\", and a model that declares none is promoted (proposed decision \
-             0075 ruling 5)"
+             \"provisional\", and a model that declares none is promoted (decision 0075 \
+             ruling 5)"
         )
     );
     // A tier that is written is read: one that cannot be is refused, not
