@@ -1,6 +1,6 @@
 # 0072 — Full access is the box's to give: a harness drops its own sandbox only when the whole seat stands in an engine-owned boundary, and its credentials stand outside it
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-10-12
 Date: 2026-09-25
 Built: unbuilt (#644) — the build waits for decision 0065 slice two, and is read with decision 0080
 
