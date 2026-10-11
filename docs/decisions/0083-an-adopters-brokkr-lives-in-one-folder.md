@@ -719,8 +719,17 @@ scaffold, and its layout stays.
      was moved: move or remove it first`, where a `.forge` that is not a
      directory is named as `.forge` itself in place of `.forge/<entry>`,
      because a `.forge/` left standing
-     beside the new folder is the half-moved shape. `.forge/` is then empty
-     and removed.
+     beside the new folder is the half-moved shape. Each of these is read
+     by its own entry, never through a link: `.forge` itself, every
+     journal with its `-wal` and `-shm`, and every entry above. A symbolic
+     link among them refuses the migration before any move, in every
+     shape, with `.forge/<entry> is a symbolic link, and --migrate moves no
+     link as state (decision 0083); nothing was moved: put the file or
+     directory it names in its place first`, where `.forge` itself is
+     named as `.forge`. A rename carries a link's text, not what it names,
+     so a journal reached through a link would no longer resolve after the
+     move, and the store would open a fresh one there. `.forge/` is then
+     empty and removed.
    - It then compiles the moved bundle and prints the old and the new
      digest. In the state-only shape no bundle moved, so there is none to
      compile, and the closing line is the refusal's `then brokkr init .`.
@@ -894,6 +903,13 @@ scaffold, and its layout stays.
    is written by --migrate` in turn; in each, no `.brokkr/` is created and
    every planted path and byte, the journal and `.forge/` included, is
    unchanged);
+   `migrate_refuses_a_linked_state_entry` (in the state-only shape and in
+   `init`'s old output, a planted `.forge/forge.db` that is a relative link
+   to `../history.sqlite`, and then a `.forge` that is itself a link to a
+   directory holding a journal: `--migrate`, with
+   `--scripts-use-root-paths` in the root layout, refuses with the link
+   text exactly, naming `.forge/forge.db` and then `.forge`; no `.brokkr/`
+   is created, and every byte and every link's text is unchanged);
    `an_unfinished_proof_refuses` (the root layout with a
    `<root>/.brokkr/.proof` planted beside a partial copy: `brokkr run
    --feature x`, `brokkr doctor`'s folder line and `--migrate` each give
