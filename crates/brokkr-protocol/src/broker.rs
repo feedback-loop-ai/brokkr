@@ -227,8 +227,9 @@ pub enum Privilege {
 }
 
 /// The network the dialect's egress projects to: `local` is isolated,
-/// `contracted` and `uncontracted` share the host's.
-#[derive(Debug, Deserialize)]
+/// `contracted` and `uncontracted` share the host's. The bootstrap's sealed
+/// intent names it in the same words.
+#[derive(Debug, Clone, Copy, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Network {
     Isolated,
@@ -253,7 +254,8 @@ pub struct Excluded {
 }
 
 /// Why the broker serves no plan, in MB3 and MB4's exact words. A text
-/// names no path, binding value or child output. The box causes are
+/// names no binding value or child output, and no path but the store's in
+/// decision 0012's own binding causes ([`Refusal::Name`]). The box causes are
 /// declared in MB3's precedence, which their order is: where the source
 /// observer meets several, the least wins.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, thiserror::Error)]
@@ -291,6 +293,14 @@ pub enum Refusal {
     /// without its private control context (U6c6a).
     #[error("MCP server box could not be established")]
     Establishment,
+    /// The binding frame did not reach the waiting bootstrap whole, or it
+    /// refused it: a post-lookup failure that starts no server (MB4, U6c8).
+    #[error("MCP server secret environment could not be delivered")]
+    Handoff,
+    /// The confined exec failed inside the box, with no retry outside it
+    /// (MB3, U6c8).
+    #[error("MCP server could not start inside its box")]
+    Exec,
     /// SD3's temporary cause: an admitted plan before U6f completes the
     /// serving protections, removed with them.
     #[error("broker serving protections are incomplete")]

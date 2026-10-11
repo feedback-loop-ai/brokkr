@@ -117,7 +117,7 @@ fn a_launch_that_cannot_stand_refuses_by_its_own_cause_and_its_entry_removes_the
     let scratch = scratch_of(&entry);
     let handles: Vec<BorrowedFd<'_>> = server.handles().map(|(_, fd)| fd.as_fd()).collect();
     let launched = |entry: &ServerEntry, handles: &[BorrowedFd<'_>]| {
-        ServerBox::launch(entry, handles, |_, _| Vec::new(), soon()).map(drop)
+        ServerBox::launch(entry, handles, |_, _, _| Vec::new(), soon()).map(drop)
     };
     // An identity tree not handed to this process is never removed: one
     // naming it but outside the temporary directory, or one there naming

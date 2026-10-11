@@ -21,8 +21,10 @@
 //! the observed a subset of the sealed, never that the two are equal.
 //! Cancellation or the deadline kills its group and reaps it. Then the box
 //! is launched on its waiting bootstrap and its readiness received under
-//! the same deadline ([`readiness`], U6c6b). The plan and where it lies
-//! stay here; only the shared protocol types leave.
+//! the same deadline ([`readiness`], U6c6b), and only then are its bindings
+//! looked up and handed to the bootstrap, which execs the server (U6c8).
+//! The plan and where it lies stay here; only the shared protocol types
+//! leave.
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
@@ -62,10 +64,11 @@ const STARTUP: Duration = Duration::from_secs(30);
 /// The plan `locator` names, bound to this attempt at `digest` and checked
 /// in MB3's refusal order, its box's sources observed afresh by the
 /// private observer and compared with what the plan sealed, then the box
-/// launched on its waiting bootstrap and its readiness checked, all within
+/// launched on its waiting bootstrap, its readiness checked, its bindings
+/// looked up and handed over and its server's exec seen (U6c8), all within
 /// the startup deadline unless the attempt is cancelled, which ends the
-/// broker's own starter; or the first refusal. Nothing is looked up, and no
-/// dialect server started.
+/// broker's own starter; or the first refusal. The box is ended before
+/// this returns, before any MCP message.
 pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Refusal> {
     let deadline = Instant::now() + STARTUP;
     let parent = rustix::process::getppid();
@@ -75,7 +78,7 @@ pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Refusal> {
     screened(&layout, &plan)?;
     let (record, handles) = observed(&layout, &plan, (locator, digest), startup)?;
     let admitted = readiness::compared(&plan.intent, record, handles)?;
-    readiness::ready(&admitted, (&plan.intent, digest), startup)?;
+    readiness::ready(&admitted, (&plan, digest), startup)?;
     Ok(admitted)
 }
 
