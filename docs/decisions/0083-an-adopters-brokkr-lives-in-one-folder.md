@@ -59,9 +59,16 @@ the workspace. Every other regular file under the bundle is pinned in the
 manifest's `files` map (`walk_files`), whether the compile read it or not, so
 in a root scaffold a project's own `scripts/build.sh` is pinned beside the
 seat scripts. What the compile read by reference is recorded apart: the agents
-its seats hire, with their charters (the manifest's `agents`), the adapter
-declarations that answered (`drivers`), and the `./` scripts a stage runs
-(`pinned_script`).
+its seats hire, with their charters (the manifest's `agents`), the `role` an
+inline executable site names, a nested panel member, sequence step or select
+arm included, read from the bundle's directory and bound to its site
+(`parse_role` in `crates/brokkr-runtime/src/bundle/charters.rs`), the adapter
+declarations that answered (`drivers`), the capability definitions a seat's
+requirement consulted, read from the `capabilities/` beside the agent library
+(`compile_with_realm` in `bundle.rs`, `Definitions::load` in
+`crates/brokkr-runtime/src/capabilities.rs`) and pinned by name and digest
+(the manifest's `capabilities`), and the `./` scripts a stage runs
+(`pinned_script`). In a root scaffold that `capabilities/` is the root's own.
 
 The operator ruled option A on 2026-10-11: everything Brokkr writes into an
 adopter's repository lives in one hidden folder, `.brokkr/`, as a project's
@@ -331,9 +338,15 @@ scaffold, and its layout stays.
      the manifest's `files` map, which pins every file under a root
      scaffold, a project's own `scripts/build.sh` included (Context): the
      bundle; the policy table it names; each agent a seat hires and the
-     charter that agent names (the manifest's `agents`); each adapter
+     charter that agent names (the manifest's `agents`); the `role` of each
+     inline executable site, a nested panel member, sequence step or select
+     arm included (`parse_role`); each adapter
      declaration the compile read for a seat's harness and gates (its
-     `drivers`); each script a hired agent's command or a stage runs by a
+     `drivers`); each capability definition a seat's requirement consulted,
+     `capabilities/<name>.json` (the manifest's `capabilities`), which moves
+     to `.brokkr/capabilities/<name>.json`, beside the moved agent library,
+     where ruling 1 has it and the closing compile looks; each script a
+     hired agent's command or a stage runs by a
      `./` path under the bundle; the map; and, for each `dialect` the map
      gives as a name, `dialects/<name>.json` and the texts it reads (`init`
      writes a name). A `house`, a `dialect` given as a path and a published
@@ -346,6 +359,21 @@ scaffold, and its layout stays.
      `.brokkr/agents/README.md` afresh, as `init` would. An old bundle that
      does not compile refuses the migration with its compile error, as the
      root layout's second refusal above says.
+   - **The old compile skips the old state.** In the root layout the bundle
+     directory is the root, so today's walk reaches `.forge/` and refuses a
+     `.forge/secrets.env` (`bundle contains a secrets store`): an adopter
+     whose secret stands at today's default could never see the moves, and
+     the second refusal's remedy would not be theirs. So the compile that
+     lists the moves, for the refusal and for `--migrate` alike, skips the
+     root's `.forge` as an unpinned top-level name, as ruling 1's walk skips
+     `state`, and the old digest `--migrate` prints is that compile's. It
+     skips nothing else: a `secrets.env` anywhere else under the root still
+     refuses, as it does today. What the skip leaves unread is state, never
+     configuration, so a file under `<root>/.forge/` that the compile reads
+     by reference (a role, a charter, a policy or a script) refuses the
+     migration before any move, with `<file> is read by the bundle but
+     stands in .forge/, which --migrate moves as state (decision 0083);
+     nothing was moved: move it out of .forge/ first`.
    - **No script is read, so no script moves until the operator says its
      paths survive the move.** The move list stays what the compile read;
      the rule is to refuse, not to move more or to guess. A script moves
@@ -427,11 +455,15 @@ scaffold, and its layout stays.
      into `.brokkr/dialects/`. The map's digest moves, and the output says
      so.
    - **A moved file's typed references are restated** as the map's are. The
-     compile reads two paths that one moved file holds to another: the
+     compile reads three paths that one moved file holds to another: the
      bundle's `policy`, resolved against the bundle's directory (`own_table`
-     in `crates/brokkr-runtime/src/bundle/compose.rs`), and a hired agent's
+     in `crates/brokkr-runtime/src/bundle/compose.rs`); a hired agent's
      `charter`, resolved against the agent library (`contained` in
-     `crates/brokkr-runtime/src/agents/load.rs`). Each admits an absolute
+     `crates/brokkr-runtime/src/agents/load.rs`); and an inline executable
+     site's `role`, at any depth, resolved against the bundle's directory
+     (`parse_role`, which reads it through `owned_input`, whose `queue` in
+     `bundle.rs` admits an absolute spelling under that directory). Each
+     admits an absolute
      spelling that stands under its base, so the build has the compile
      return each one, with its spelling, beside the move list. A relative
      one is kept byte for byte: the file that holds it and the file it
@@ -440,17 +472,23 @@ scaffold, and its layout stays.
      the move. An absolute one is restated as the new absolute path in the
      same field, so `<root>/policy.json` becomes `<root>/.brokkr/policy.json`
      and `<root>/agents/charters/implementer.md` becomes
-     `<root>/.brokkr/agents/charters/implementer.md`. Left as written, the
+     `<root>/.brokkr/agents/charters/implementer.md`, whether a hired
+     agent's `charter` or a site's `role` names it. Left as written, the
      first would stand outside the moved bundle's directory and the second
      would name a file that is no longer there, so the closing compile would
      refuse after every move was made. The restated file's digest moves, and
      each restatement is a line of the refusal's listing and of the output,
-     as `and rewrites .brokkr/bundle.json's policy:  <old> -> <new>`. The
+     as `and rewrites .brokkr/bundle.json's policy:  <old> -> <new>`, a
+     site's `role` named by its seat label. The
      compile returns these references as one closed enum, an arm per
-     field, which `--migrate` matches with no wildcard (decision 0071
+     field (`policy`, `charter`, `role`), which `--migrate` matches with no
+     wildcard (decision 0071
      ruling 2), so a path field the compile learns later cannot be read
-     without its arm saying how it is restated. So the closing compile reads
-     the same files the old compile read, each from its new place.
+     without its arm saying how it is restated. A capability definition is
+     named by a seat's requirement, not by a path, so it needs no arm: it
+     moves to the place the closing compile looks for it. So the closing
+     compile reads the same files the old compile read, each from its new
+     place.
    - **The state paths written into moved files are rewritten**, from one
      closed list: `.forge/` followed by `forge.db`, `results/`, `scratch/`,
      `ledger/`, `tasks/`, `secrets.env` or `muninn.ndjson` becomes the same
@@ -541,13 +579,40 @@ scaffold, and its layout stays.
    next run raises no half-moved refusal);
    `migrate_restates_absolute_typed_references` (`init`'s old output with
    `bundle.json`'s `policy` set to `<root>/policy.json` and the implementer
-   agent's `charter` set to `<root>/agents/charters/implementer.md`, which
-   compiles before the move: the root layout's refusal lists both
-   restatements exactly; after `--migrate --scripts-use-root-paths` the
+   agent's `charter` set to `<root>/agents/charters/implementer.md`, and
+   the inline `verify` seat given a `role` of
+   `<root>/agents/charters/verify.md`, a planted charter no agent hires,
+   which compiles before the move: the root layout's refusal lists the
+   move of `agents/charters/verify.md` and all three restatements exactly;
+   after `--migrate --scripts-use-root-paths` the
    moved bundle's `policy` reads `<root>/.brokkr/policy.json`, the moved
    agent's `charter` reads `<root>/.brokkr/agents/charters/implementer.md`,
+   the `verify` seat's `role` reads
+   `<root>/.brokkr/agents/charters/verify.md`, which stands there and is
+   not named as left behind,
    every other agent's relative `charter` and every other field is kept
    byte for byte, and the closing compile succeeds and prints its digest);
+   `migrate_moves_consulted_capability_definitions` (`init`'s old output
+   with a root `capabilities/probe.json` that a seat's `capabilities`
+   requires, and a `capabilities/unused.json` no seat requires, which
+   compiles before the move: the root layout's refusal lists `git mv
+   capabilities/probe.json .brokkr/capabilities/probe.json` and no line
+   for `unused.json`; after `--migrate --scripts-use-root-paths`,
+   `probe.json` stands under `.brokkr/capabilities/`, `unused.json` stays
+   and is named as left behind, and the closing compile succeeds and pins
+   `probe` with the digest the old compile pinned);
+   `a_root_layout_with_a_secret_lists_its_moves` (`init`'s old output with
+   a `.forge/secrets.env` holding one name beside the journal: `brokkr run
+   --feature x` prints the first root-layout refusal, with the line `mv
+   .forge/secrets.env .brokkr/state/secrets.env`, not the compile error;
+   after `--migrate --scripts-use-root-paths`, `.forge/` is gone, `brokkr
+   secrets list` lists the name from `.brokkr/state/secrets.env` and the
+   closing compile succeeds; with a `secrets.env` planted at
+   `<root>/config/secrets.env` as well, the run prints the second
+   root-layout refusal with the compile's secrets-store error and nothing
+   moves; and with the inline `verify` seat's `role` pointed at
+   `.forge/tasks/role.md`, `--migrate` refuses with the read-in-state
+   text exactly and nothing moves);
    `migrate_refuses_a_realm_path_into_moved_state` (a `house` of
    `.forge/tasks/house.md`, under a directory the migration moves, refuses with its exact text and nothing moves);
    `migrate_rewrites_embedded_state_paths` (in `init`'s old output the moved
