@@ -692,6 +692,59 @@ struct Sealed {
     attempt: PathBuf,
     locator: PathBuf,
     sources: std::sync::OnceLock<Value>,
+    _slot: Slot,
+}
+
+/// The sealed fixtures, and so the real boxes, the suite holds at once.
+/// Every box's admission observes the whole system set against the
+/// broker's fixed startup deadline, which no test may lengthen; on a small
+/// runner many started together starve one another past it.
+const BOXES: usize = 3;
+
+/// The suite's places among [`BOXES`]: how many are taken, and the signal
+/// that one was given back.
+static SLOTS: (std::sync::Mutex<usize>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+std::thread_local! {
+    /// The places this test's own thread holds, so a fixture built inside
+    /// another takes none and no test waits on itself.
+    static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// A place among [`BOXES`], given back when its fixture is dropped.
+struct Slot;
+
+impl Slot {
+    fn take() -> Slot {
+        if HELD.get() == 0 {
+            let (taken, freed) = &SLOTS;
+            let mut taken = taken
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            while *taken >= BOXES {
+                taken = freed
+                    .wait(taken)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+            *taken += 1;
+        }
+        HELD.set(HELD.get() + 1);
+        Slot
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        HELD.set(HELD.get() - 1);
+        if HELD.get() == 0 {
+            let (taken, freed) = &SLOTS;
+            *taken
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) -= 1;
+            freed.notify_one();
+        }
+    }
 }
 
 impl Sealed {
@@ -701,6 +754,7 @@ impl Sealed {
 
     /// An attempt sealed in the directory `name` of repository `repo`.
     fn at(repo: &str, name: &str) -> Sealed {
+        let slot = Slot::take();
         let root = Root::new();
         let home = root.path.join("home");
         let capabilities = home.join(".local/state/brokkr/capabilities");
@@ -729,6 +783,7 @@ impl Sealed {
             home,
             attempt,
             sources: std::sync::OnceLock::new(),
+            _slot: slot,
         }
     }
 
