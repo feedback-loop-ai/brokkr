@@ -59,10 +59,12 @@ A retained selection SHALL return one unchanged `Turn`, retain its original
 position in text output and preserve all of the source's notices, including
 truncation, malformed lines and unrecognized records. It SHALL NOT count only
 assistant messages, checkpoint turns,
-provider steps or raw JSONL lines. Multiple readable members of one DSH
-packed row SHALL receive separate indices; equivalent packed and ordinary
-event encodings SHALL have the same turns and indices when both complete
-sources fit the input budget. Indices address one bounded snapshot;
+provider steps or raw JSONL lines. DSH packed members SHALL receive indices
+only through the final chunks defined by `transcript-reading`'s coalescing
+rule; the command SHALL not assign an index to each underlying member or
+undo coalescing for selection. Equivalent packed and ordinary encodings can
+therefore have different turn counts while retaining the same content and
+citation outcomes. Indices address one bounded snapshot;
 they are not durable message ids across refreshes. If canonical content
 replaces fallback events/chunks, numbering SHALL be recomputed from the new
 source-ordered projection, exactly as for the TUI.
@@ -102,8 +104,14 @@ The command SHALL not scan past the caps to satisfy a turn request.
 - **THEN** invalid syntax is a usage error, and the valid out-of-range index returns `turn-not-retained` without returning the last available turn instead
 
 #### Scenario: A packed row's members have separate selectable turns
-- **WHEN** a supported DSH text-chunks row yields three readable fragments, followed by an ordinary user message, with both budgets satisfied
-- **THEN** `--turn 2` returns only the second fragment with its reconstructed stamp, `--turn 4` returns the user message, and equivalent ordinary chunk rows yield exactly those same indices and turns
+- **WHEN** a packed row's readable members at sequences 10, 11 and 12 are followed by a same-step readable assembly citing only member 11, with both budgets satisfied
+- **THEN** the suppression gap leaves two separate chunk turns: `--turn 1` returns member 10's chunk, `--turn 2` returns member 12's chunk and `--turn 3` returns the assembly; the unsplit case instead follows the next scenario
+
+#### Scenario: Packed selection addresses coalesced chunks
+- **WHEN** a version-zero DSH snapshot contains an uncited `text-chunks` row with `seq0: 10`, `time0: 1000`, `data.turn: 1`, `data.step: 1`, `data.index: 0`, `data.dt: [-1, 5]` and `data.texts: ["a", "b", "c"]`, followed by an ordinary user message containing `q` at time 2000, with both budgets satisfied
+- **THEN** whole text and JSON output contain exactly two turns: assistant chunk `abc` stamped `"1000"` and user message `q` stamped `"2000"`; `--turn 1` and `--turn 2` return those unchanged turns, and the TUI has the same two indices
+- **AND** `--turn 3` exits one with `turn-not-retained` and no turns, retaining `truncated: false`, zero malformed/unrecognized counts and no notices; a different refusal is not equivalent
+- **AND** an otherwise identical snapshot using three ordinary chunk rows instead retains four turns: `a` at `"1000"`, `b` at `"999"`, `c` at `"1004"`, then `q` at `"2000"`; ordinary index two selects `b` and index four selects `q`, so packed and ordinary index two deliberately differ
 
 #### Scenario: Partial citations recompute the displayed indices
 - **WHEN** a complete DSH snapshot has chunks at sequences 10, 11, 12 and 14 followed by a readable same-step assembly citing `[[10, 12]]`
@@ -112,6 +120,11 @@ The command SHALL not scan past the caps to satisfy a turn request.
 #### Scenario: Turn selection cannot bypass DSH semantic refusal
 - **WHEN** an owned DSH file has readable early content followed within the source cap by an unknown required event or structurally invalid packed row, and the operator requests the whole transcript, `--turn 1` or `--turn 999`
 - **THEN** every request exits one with `unsupported-format`, no turns and the same source metadata/counts/notices; neither the early turn nor the out-of-range request changes the refusal, even if display capping would have stopped before the offending row
+
+#### Scenario: Structural truncation survives whole and selected JSON reads
+- **WHEN** a DSH snapshot projects 10,000 one-byte tool-call turns with absent data and the operator requests whole JSON output or `--turn 7797`
+- **THEN** the whole document contains exactly 7,797 turns, the selection contains the unchanged turn at index 7,797, and both carry `truncated: true` and `transcript truncated (size cap)`
+- **AND** `--turn 7798` returns `turn-not-retained` with truncation; selection never serializes or retains the over-budget suffix
 
 ### Requirement: JSON exposes a distinct local transcript document
 
@@ -318,3 +331,4 @@ empty stdout, including when `--json` was requested.
 ## Provenance
 
 - `2026-09-10-read-every-transcript-kind` — folded 2026-09-10
+- `2026-09-17-bound-transcript-projector` — folded 2026-10-11

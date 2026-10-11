@@ -217,12 +217,7 @@ fn every_living_doc_is_read() {
     let unreadable: Vec<String> = unreadable.into_iter().filter_map(Result::err).collect();
     assert_eq!(unreadable, Vec::<String>::new());
     let paths: Vec<String> = readable.into_iter().flatten().map(|doc| doc.path).collect();
-    for living in [
-        "README.md",
-        "ARCHITECTURE.md",
-        "docs/guides/quickstart.md",
-        "openspec/specs/boundary-guides/spec.md",
-    ] {
+    for living in ["README.md", "ARCHITECTURE.md", "docs/guides/quickstart.md"] {
         assert!(
             paths.iter().any(|path| path == living),
             "{living} is not read"
@@ -232,6 +227,7 @@ fn every_living_doc_is_read() {
         "docs/decisions/README.md",
         "docs/history/target-architecture.md",
         "contracts/README.md",
+        "openspec/specs/boundary-guides/spec.md",
     ] {
         assert!(!paths.iter().any(|path| path == unread), "{unread} is read");
     }
@@ -493,7 +489,7 @@ impl Tree {
 /// the doc (or the directory of docs, `""` for any), the path it names (or
 /// the start of it), and why. An allowance that covers nothing fails, so
 /// none outlives its text.
-const ABSENT: [(&str, &str, &str); 40] = [
+const ABSENT: [(&str, &str, &str); 22] = [
     (
         "",
         "credentials.toml",
@@ -518,13 +514,6 @@ const ABSENT: [(&str, &str, &str); 40] = [
         "",
         "alias/../",
         "a library spelling refused for climbing out of its directory",
-    ),
-    ("", "scripts1/", "a sibling directory a scenario plants"),
-    ("", "scripts[1]/", "a directory a scenario plants"),
-    (
-        "",
-        ".\\",
-        "a Windows-separated script token a scenario refuses",
     ),
     (
         "docs/research/github-peers/",
@@ -562,57 +551,9 @@ const ABSENT: [(&str, &str, &str); 40] = [
         "git's lock in a workspace's own `.git`",
     ),
     (
-        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
-        "cordis.yml",
-        "a file of dsh's profile",
-    ),
-    (
-        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
-        "pnpm-workspace.yaml",
-        "a file of dsh's profile",
-    ),
-    (
-        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
-        "dsh-pair-qualification-",
-        "the superseded qualification a scenario names",
-    ),
-    (
-        "openspec/changes/boundary-seatbelt-slice-ii/specs/",
-        "bundles/",
-        "an in-flight delta written before decision 0078; the specs it folds into read \
-         `recipes/`",
-    ),
-    (
         "docs/guides/recipe-authoring.md",
         "../",
         "the spellings a recipe refuses, which never become paths",
-    ),
-    (
-        "openspec/specs/gate-boundary-policy/spec.md",
-        "./",
-        "its scenarios spell a gate's script token, relative to the declaring layer, some \
-         unreadable on purpose",
-    ),
-    (
-        "openspec/changes/boundary-seatbelt-slice-ii/specs/gate-boundary-policy/spec.md",
-        "./",
-        "its scenarios spell a gate's script token, relative to the declaring layer, some \
-         unreadable on purpose",
-    ),
-    (
-        "openspec/specs/transcript-reading/spec.md",
-        "../other-seat",
-        "a traversal locator a scenario refuses",
-    ),
-    (
-        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
-        "./dsh",
-        "a program-name spelling the resolution matrix tests",
-    ),
-    (
-        "openspec/changes/2026-09-09-226-session-resumption/specs/adapter-resume-safety/",
-        "../dsh",
-        "a program-name spelling the resolution matrix tests",
     ),
     (
         "docs/guides/",
@@ -653,36 +594,6 @@ const ABSENT: [(&str, &str, &str); 40] = [
         "extensions/dsh/PROVENANCE.md",
         "extensions/dsh/resume-policy/",
         "names the home an extension takes only once one is needed",
-    ),
-    (
-        "openspec/specs/driver-confine-retirement/spec.md",
-        "crates/brokkr-runtime/tests/confine_test.rs",
-        "requires the file's deletion",
-    ),
-    (
-        "openspec/specs/gate-boundary-policy/spec.md",
-        "recipes/sdd",
-        "records that the recipe folded into triage",
-    ),
-    (
-        "openspec/specs/gate-boundary-policy/spec.md",
-        ".cargo/credentials.toml",
-        "a file a scenario plants under a test's own HOME",
-    ),
-    (
-        "openspec/specs/realm-crossing/spec.md",
-        "contracts/orders.v1.schema.json",
-        "another realm's contract, in a scenario",
-    ),
-    (
-        "openspec/changes/decision-0065-capabilities-slice-one/specs/",
-        "capabilities/",
-        "a path inside the recipe a scenario builds",
-    ),
-    (
-        "openspec/changes/decision-0065-capabilities-slice-one/specs/",
-        "agents/charters/worker.md",
-        "a charter in the library a scenario builds",
     ),
     (
         "recipes/wager-harness/README.md",
@@ -1504,7 +1415,7 @@ const RETIRED: [Retired; 8] = [
         cite: Some("0063"),
     },
     // The Cordis/DeepSeek harness; Cordis stays dsh's own framework, which
-    // [`ALLOWED`] lets the dsh extension and #226's change name.
+    // [`ALLOWED`] lets the dsh extension name.
     Retired {
         spellings: &["Cordis"],
         why: NEVER_BUILT,
@@ -1534,55 +1445,16 @@ const RETIRED: [Retired; 8] = [
 
 /// Living docs that may name a retired term, each with its reason. An
 /// allowance that covers nothing fails, so none outlives its text.
-const ALLOWED: [(&str, &str, &str); 9] = [
+const ALLOWED: [(&str, &str, &str); 2] = [
     (
         "extensions/dsh/",
         "Cordis",
         "dsh's own framework, which the vendored extension builds on",
     ),
     (
-        "openspec/changes/2026-09-09-226-session-resumption/",
-        "Cordis",
-        "#226's change names dsh's own framework, its patch and its hooks",
-    ),
-    (
         "docs/research/",
         "Windows",
         "a research entry reads another project, whose hosts are its own",
-    ),
-    (
-        "openspec/specs/gate-boundary-policy/spec.md",
-        "Windows",
-        "its Purpose rules each Windows scenario historical under decision 0063 until \
-         boundary-seatbelt-slice-ii's delta folds the requirement",
-    ),
-    (
-        "openspec/specs/boundary-guides/spec.md",
-        "Windows",
-        "its Purpose rules each Windows requirement historical under decision 0063",
-    ),
-    (
-        "openspec/changes/boundary-seatbelt-slice-ii/specs/",
-        "Windows",
-        "an in-flight delta written before decision 0063; it folds into the specs whose \
-         Purpose already rules it historical",
-    ),
-    (
-        "openspec/changes/2026-09-09-226-session-resumption/specs/",
-        "Windows",
-        "an in-flight delta written before decision 0063; #226's lane folds it at archive",
-    ),
-    (
-        "openspec/changes/boundary-seatbelt-slice-ii/specs/",
-        "bundles/",
-        "an in-flight delta written before decision 0078; the specs it folds into read \
-         `recipes/`",
-    ),
-    (
-        "openspec/changes/decision-0065-capabilities-slice-two/specs/",
-        "bundles/",
-        "the slice-two lane's in-flight delta, written before decision 0078; that lane \
-         folds it",
     ),
 ];
 

@@ -11,7 +11,7 @@ When implementing, build against the change's artifacts, work the tasks in
 order, and tick each completed task. Tests are part of the work. On a returned
 visit, answer the finding in `returned_from`; if the change was already
 archived, reopen it with `git mv` before amending it. Where the dialect declares
-an archive operation, fold the change into the living truth as the final task.
+an archive operation, archive the change last: that ends its work slice.
 
 Record progress in the task artifact as you go, not at commit time. Before a
 group's first edit, record the group as in progress and name the focused
