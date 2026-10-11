@@ -81,15 +81,40 @@ what the loader leaves open, so that the schema and the loader disagree.
 1. **A new contract version is minted only under an accepted ruling.**
    A file added to `contracts/` names the ruling it was minted under: a
    decision, or an addendum inside one.
-   - **A decision** mints if it was accepted when the version landed. The
-     ledger moves a decision only from `proposed` to `accepted` or
-     `withdrawn`, and from `accepted` to `superseded`. So a decision whose
-     `Status:` reads `accepted` or `superseded` admits, and a later
-     supersession never fails an unchanged row. A `withdrawn` decision was
-     never accepted and mints nothing. A `proposed` one does not mint. The
-     build adds the transition sentence to the decisions README's
-     vocabulary bullet: a proposal is never superseded, and an accepted
-     decision is never withdrawn.
+   - **A decision** mints if its `Status:` reads `accepted` and nothing
+     supersedes it. A `withdrawn` decision was never accepted and mints
+     nothing. A `proposed` one does not mint. The build adds the
+     transition sentence to the decisions README's vocabulary bullet: a
+     proposal is never superseded, and an accepted decision is never
+     withdrawn.
+   - **A superseded decision** keeps a minting only when its successor
+     says so. The test never asks when a version landed, because nothing
+     in the tree records it. It reads the successor instead. A decision
+     that carries a `Superseded by:` or a `Superseded in part by:` pointer
+     admits a row only when a decision its pointer names carries a header
+     line reading exactly `Keeps the minting of: contracts/<file>`, with
+     the row's file. That successor must admit by this same rule, so a
+     chain of supersessions is walked to an accepted decision that nothing
+     supersedes, and a number met twice on the walk refuses. Any other
+     case refuses by default, with one text:
+     `contracts/<file>: minted under <old>, which is superseded by <new>,
+     and <new> does not keep its minting`. So the pull request that
+     supersedes a minting decision fails until the successor names each
+     file whose minting it keeps, and a version that lands later under
+     the old number is refused, since no successor names a file it has
+     not seen. A `Keeps the minting of:` line is admitted only for a file
+     whose row is minted under a decision the keeper supersedes, directly
+     or along the walk. Any other such line is refused as unused (decision
+     0071 ruling 6). The build adds the line to the decisions README's
+     header vocabulary.
+
+     No decision is superseded whole today. Two that are superseded in
+     part mint versions: 0041 (`run-manifest.v7`, `run-manifest.v8`,
+     `realms.v3`, `phase-entered-case.v1`) and 0043 (`run-manifest.v6`),
+     both by 0045, which does not touch those contracts. The build gives
+     0045 one `Keeps the minting of:` line for each of the five files,
+     for the operator to confirm (Asked 8). The other five decisions
+     superseded in part (0008, 0030, 0033, 0049, 0055) mint no version.
    - **An addendum** mints only by its own status line, never by its
      heading. The first non-blank line under its `## Addendum — <date>`
      heading reads exactly `Addendum status: accepted (operator, <date>)`,
@@ -122,10 +147,14 @@ what the loader leaves open, so that the schema and the loader disagree.
    cell is one decision number, optionally followed by the date of the
    addendum that minted it (`0042 (2026-09-06 addendum)`), or one of
    ruling 2's listed cells, matched whole. Every other form refuses as
-   unreadable. The decision must be in the ledger with status `accepted`
-   or `superseded`. A named addendum must have exactly one heading in that
-   file opening `## Addendum — <date>`; none, or two, refuses, naming the
-   file. Its status line is matched whole against the one admitting form,
+   unreadable. The decision must be in the ledger with a `Status:` reading
+   `accepted` or `superseded`; a `proposed` or `withdrawn` one never mints.
+   If it carries a `Superseded by:` or `Superseded in part by:` pointer,
+   the walk above must reach an accepted decision that nothing supersedes
+   and that keeps the row's file. A pointer naming more than one decision
+   refuses as unreadable. A named addendum must have exactly one heading
+   in that file opening `## Addendum — <date>`; none, or two, refuses,
+   naming the file. Its status line is matched whole against the one admitting form,
    and the heading's text after the date is never read. Removal controls
    for the build, each planted, run, seen failing with the test's own
    text, and removed:
@@ -140,9 +169,21 @@ what the loader leaves open, so that the schema and the loader disagree.
      which shows the heading is not read;
    - `Addendum status: accepted (not yet ruled)` refuses as unreadable;
    - `Addendum status: proposed` refuses as proposed;
-   - a row's decision set to `withdrawn` fails. Set to `superseded`, with
-     its `Superseded by:` pointer, it still passes, which shows a later
-     supersession does not fail an unchanged row.
+   - a row's decision set to `withdrawn` fails;
+   - an existing accepted mint survives supersession when the successor
+     names its file: set a row's decision to `superseded`, with its
+     `Superseded by:` pointer to a planted accepted successor carrying
+     `Keeps the minting of: contracts/<that row's file>`, and it passes;
+   - a new row under a superseded decision whose successor does not name
+     it refuses: under the same plant, add a row for a new file minted
+     under the superseded decision, and see it fail with
+     `contracts/<new file>: minted under <old>, which is superseded by
+     <new>, and <new> does not keep its minting`;
+   - delete one of 0045's five `Keeps the minting of:` lines and see its
+     row fail with the same text, naming 0041 or 0043 and 0045, which
+     shows a supersession in part is read like a whole one;
+   - a `Keeps the minting of:` line naming a file minted under a decision
+     the keeper does not supersede refuses as unused.
 
 2. **The versions already minted without an accepted ruling stand, and
    are marked.** Their bytes stay frozen. Each row reads
@@ -214,6 +255,15 @@ what the loader leaves open, so that the schema and the loader disagree.
      hold.
 
    A family has one class, and every row of it carries that value. The
+   criterion is the reader of a pinned copy. A family whose copies pinned
+   into a run are read back at resume by the same reader that admits it
+   live at launch is an input family, because that reader's labels are
+   ruled as an input's. A family with any copy read back by a reader that
+   the live path does not use, or read back only, is a journal family.
+   The dispatch envelope is pinned and read back at resume
+   (`crates/brokkr-runtime/src/engine.rs:653-655`) through the same
+   `DispatchEnvelopeV2::verify` that reads it live at launch
+   (`crates/brokkr-runtime/src/launch.rs:340-368`), so it is input. The
    dialect is a journal family: a dialect file is read at v3 only
    (`crates/brokkr-runtime/src/dialect.rs:262-268`), so v1 and v2 are read
    only as the pins older runs carry into their manifests, which a resume
@@ -409,7 +459,13 @@ what the loader leaves open, so that the schema and the loader disagree.
    by engine line. Whether each older tag builds and which carry release
    archives. Whether any third-party driver or Looper deployment reads a
    specific version. Each bears on N.
-8. **The four addendum status lines.** Ruling 1 reads an addendum's own
+8. **The four addendum status lines and 0045's five keep lines.** The
+   build also gives 0045 one `Keeps the minting of:` header line for each
+   file minted under 0041 or 0043, the decisions it supersedes in part,
+   and the operator confirms those five as well. The alternative is to
+   read a supersession in part as leaving the minting standing, which
+   reopens ruling 1's gap for any ruling a part supersedes.
+   Ruling 1 reads an addendum's own
    `Addendum status:` line, not its heading. The build writes one line
    into each of the four minting addenda, transcribed from its heading:
    accepted for 0042's 2026-09-04 and 2026-09-06 addenda and 0068's
