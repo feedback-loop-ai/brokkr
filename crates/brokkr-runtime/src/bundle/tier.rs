@@ -267,7 +267,7 @@ fn declaring<'a>(
 /// The flag a harness reads a second model from, the one it falls to at
 /// run time: claude's grammar admits it as inert, so the model policy
 /// walks past it, and the tier reads it as link 2 of an inline chain.
-const FALLBACK_FLAG: &str = "--fallback-model";
+pub(super) const FALLBACK_FLAG: &str = "--fallback-model";
 
 /// An inline command's provisional models: the ones any loaded adapter
 /// declares provisional at the concrete ids the command pins, link 1 read

@@ -32,6 +32,7 @@ mod fleet;
 mod items;
 pub mod js;
 mod participant;
+mod scope;
 pub mod transcript;
 
 pub use compare::{
@@ -47,6 +48,10 @@ pub use fleet::{
     Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use participant::Subject;
+pub use scope::{
+    keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
+    Scopes,
+};
 
 use std::collections::BTreeMap;
 
@@ -92,7 +97,8 @@ use serde_json::Value;
 /// Bumped to 15 by #503's landing: a run row gained its `quarantine`.
 /// Bumped to 16 by decision 0065: a checkpoint gained its capability call.
 /// Bumped to 17 by #351: a participant gained its `working`.
-pub const VIEW_VERSION: u32 = 17;
+/// Bumped to 18 by #351's third slice: the run view gained its `scopes`.
+pub const VIEW_VERSION: u32 = 18;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -505,6 +511,9 @@ pub struct RunView {
     pub event_count: usize,
     /// The path, the last ruling and the last seats' notes (#503).
     pub dashboard: Dashboard,
+    /// What each phase scope and each seat scope keeps, decided by the
+    /// terminal's rule (#351), so the browser paints it.
+    pub scopes: Scopes,
 }
 
 // --------------------------------------------------------------- helpers
@@ -2704,7 +2713,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         .find(|event| event.event_type == EventType::TransitionDecided)
         .and_then(|event| marks.get(&event.seq))
         .cloned();
-    RunView {
+    let mut view = RunView {
         view_version: VIEW_VERSION,
         summary: state.map(summary),
         ruling: ruling_of(
@@ -2719,7 +2728,10 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         journal: journal_rows(events, &scan, &buckets, &marks),
         event_count: events.len(),
         dashboard: dashboard(events),
-    }
+        scopes: Scopes::default(),
+    };
+    view.scopes = scope::scopes(&view);
+    view
 }
 
 #[cfg(test)]

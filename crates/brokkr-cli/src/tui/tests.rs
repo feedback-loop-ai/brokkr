@@ -452,7 +452,7 @@ fn enter_descends_one_rung_at_a_time_and_esc_pops_the_same_rungs() {
     apply(&mut tui, &views, Key::Char('j'));
     apply(&mut tui, &views, Key::Enter);
     assert!(
-        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "intake"),
+        matches!(&tui.scope, Some(brokkr_view::Scope::Phase(name)) if name == "intake"),
         "the graph pane scopes by phase"
     );
 
@@ -628,13 +628,13 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
     let mut tui = at_run();
     apply(&mut tui, &views, Key::Char('j'));
     apply(&mut tui, &views, Key::Enter);
-    assert!(matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "intake"));
+    assert!(matches!(&tui.scope, Some(brokkr_view::Scope::Phase(name)) if name == "intake"));
     // The graph pane lists every phase whether or not one is scoped —
     // a selector that hid the alternatives could never replace a scope.
     apply(&mut tui, &views, Key::Char('j'));
     apply(&mut tui, &views, Key::Enter);
     assert!(
-        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"),
+        matches!(&tui.scope, Some(brokkr_view::Scope::Phase(name)) if name == "design"),
         "exclusivity is one Option field, not a rule: {:?}",
         tui.cursor
     );
@@ -2030,7 +2030,7 @@ fn the_plan_is_owned_geometry_that_fits_by_construction() {
 /// care about them, and naming them each time buries what they do.
 fn plan_of(
     phases: &[Phase],
-    lens: Option<&render::Lens>,
+    lens: Option<&brokkr_view::Lens>,
     status: &str,
     width: usize,
     height: usize,
@@ -2043,11 +2043,11 @@ fn the_lens_marks_the_scoped_phase_and_hides_none_of_them() {
     let phases = rail_phases();
     let views = graph_views(rail_phases(), "running");
     let view = views.run.as_ref().unwrap();
-    let lens = render::lens_for(view, Some(&render::Scope::Phase("design".to_string())))
+    let lens = brokkr_view::lens_for(view, Some(&brokkr_view::Scope::Phase("design".to_string())))
         .unwrap()
         .unwrap();
 
-    // AC-draw-4: `render::keeps_phase` decides the marker — the crate's
+    // AC-draw-4: `brokkr_view::keeps_phase` decides the marker — the crate's
     // ONE phase predicate, called and never reimplemented.
     let marked = plan_of(&phases, Some(&lens), "running", 80, 7);
     assert_eq!(marked.segments.len(), 3, "the lens marks; it does not hide");
@@ -2460,7 +2460,7 @@ fn enter_scopes_the_phase_whatever_the_lane_cursor_says() {
     );
     apply(&mut tui, &views, Key::Enter);
     assert!(
-        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"),
+        matches!(&tui.scope, Some(brokkr_view::Scope::Phase(name)) if name == "design"),
         "Enter scopes the PHASE, not the lane: {}",
         status_line(&tui)
     );
@@ -3598,7 +3598,7 @@ fn the_rail_cursor_starts_on_the_current_phase_and_moving_it_scopes() {
     apply(&mut tui, &views, Key::Char('j'));
     let landed = tui.cursor[0].clone().unwrap();
     let scoped = match &tui.scope {
-        Some(render::Scope::Phase(name)) => Some(name.clone()),
+        Some(brokkr_view::Scope::Phase(name)) => Some(name.clone()),
         _ => None,
     };
     assert_eq!(
@@ -3707,7 +3707,7 @@ fn seeding_falls_back_to_the_last_phase_and_an_empty_run_seeds_nothing() {
 
     // And an empty rail clears the scope rather than stranding one.
     let mut tui = at_run();
-    tui.scope = Some(render::Scope::Phase("design".to_string()));
+    tui.scope = Some(brokkr_view::Scope::Phase("design".to_string()));
     apply(&mut tui, &empty, Key::Char('j'));
     assert!(tui.scope.is_none(), "nothing to select, nothing scoped");
 }
@@ -4234,8 +4234,8 @@ fn the_sequence_phases_box_spans_its_steps() {
 fn panes_under(tui: &Tui, views: &Views) -> (Vec<String>, Vec<String>) {
     let mut probe = Tui::new(tui.run.clone());
     probe.scope = match &tui.scope {
-        Some(render::Scope::Phase(name)) => Some(render::Scope::Phase(name.clone())),
-        Some(render::Scope::Seat(key)) => Some(render::Scope::Seat(key.clone())),
+        Some(brokkr_view::Scope::Phase(name)) => Some(brokkr_view::Scope::Phase(name.clone())),
+        Some(brokkr_view::Scope::Seat(key)) => Some(brokkr_view::Scope::Seat(key.clone())),
         None => None,
     };
     probe.pane = 1;
@@ -4262,7 +4262,7 @@ fn the_lane_cursor_scopes_the_member_and_the_seats_and_trail_filter_to_it() {
     apply(&mut tui, &views, Key::Down);
     assert_eq!(tui.node.as_deref(), Some("eff-d:positions:simplicity"));
     assert!(
-        matches!(&tui.scope, Some(render::Scope::Seat(key))
+        matches!(&tui.scope, Some(brokkr_view::Scope::Seat(key))
                  if key == "eff-d:positions:simplicity"),
         "moving the lane cursor IS scoping the seat: {}",
         status_line(&tui)
@@ -4320,7 +4320,7 @@ fn the_lane_cursor_on_a_plain_step_scopes_that_steps_seat() {
         "wrapped to the foot"
     );
     assert!(
-        matches!(&tui.scope, Some(render::Scope::Seat(key)) if key == "eff-d:chief"),
+        matches!(&tui.scope, Some(brokkr_view::Scope::Seat(key)) if key == "eff-d:chief"),
         "a plain step scopes its seat: {}",
         status_line(&tui)
     );
@@ -4331,7 +4331,7 @@ fn the_lane_cursor_on_a_plain_step_scopes_that_steps_seat() {
     apply(&mut tui, &views, Key::Right);
     apply(&mut tui, &views, Key::Down);
     assert_eq!(tui.node.as_deref(), Some("eff-i"));
-    assert!(matches!(&tui.scope, Some(render::Scope::Seat(key)) if key == "eff-i"));
+    assert!(matches!(&tui.scope, Some(brokkr_view::Scope::Seat(key)) if key == "eff-i"));
     let (seats, _) = panes_under(&tui, &views);
     assert_eq!(seats, vec!["eff-i".to_string()]);
 }
@@ -4348,11 +4348,11 @@ fn a_structural_node_and_an_empty_lane_both_leave_the_rails_phase_scoped() {
     apply(&mut tui, &plain, Key::Right);
     assert_eq!(tui.cursor[0].as_deref(), Some("intake"));
     assert!(lane_keys(&tui, &plain).is_empty());
-    tui.scope = Some(render::Scope::Seat("eff-d:chief".to_string()));
+    tui.scope = Some(brokkr_view::Scope::Seat("eff-d:chief".to_string()));
     apply(&mut tui, &plain, Key::Down);
     assert_eq!(tui.node, None, "no lane to be in");
     assert!(
-        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "intake"),
+        matches!(&tui.scope, Some(brokkr_view::Scope::Phase(name)) if name == "intake"),
         "back on the rail row, the rail's phase is the scope again: {}",
         status_line(&tui)
     );
@@ -4366,7 +4366,7 @@ fn a_structural_node_and_an_empty_lane_both_leave_the_rails_phase_scoped() {
         "and that node names no seat"
     );
     assert!(
-        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"),
+        matches!(&tui.scope, Some(brokkr_view::Scope::Phase(name)) if name == "design"),
         "so the phase stays scoped: {}",
         status_line(&tui)
     );
@@ -4386,12 +4386,12 @@ fn rail_movement_clears_the_lane_cursor_and_re_scopes_the_phase() {
     apply(&mut tui, &views, Key::Left);
     assert_eq!(tui.node, None);
     assert!(
-        matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "intake"),
+        matches!(&tui.scope, Some(brokkr_view::Scope::Phase(name)) if name == "intake"),
         "the phase it landed on is what is scoped: {}",
         status_line(&tui)
     );
     apply(&mut tui, &views, Key::Right);
-    assert!(matches!(&tui.scope, Some(render::Scope::Phase(name)) if name == "design"));
+    assert!(matches!(&tui.scope, Some(brokkr_view::Scope::Phase(name)) if name == "design"));
 }
 
 #[test]

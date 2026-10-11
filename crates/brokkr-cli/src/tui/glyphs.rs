@@ -202,9 +202,9 @@ pub(super) fn visits_text(visits: u64) -> Option<String> {
 /// The name baseline's text: the scope marker the crate's ONE phase
 /// predicate decides — called, never reimplemented — then the name,
 /// then the revisit marker.
-pub(super) fn name_text(phase: &Phase, lens: Option<&render::Lens>) -> String {
+pub(super) fn name_text(phase: &Phase, lens: Option<&brokkr_view::Lens>) -> String {
     let mut text = String::new();
-    if lens.is_some() && render::keeps_phase(lens, phase) {
+    if lens.is_some() && brokkr_view::keeps_phase(lens, phase) {
         text.push('▸');
     }
     text.push_str(&phase.name);

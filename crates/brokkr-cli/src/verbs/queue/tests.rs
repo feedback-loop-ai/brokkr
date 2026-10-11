@@ -336,3 +336,14 @@ fn each_refusal_leaves_with_its_own_words() {
         clap::error::ErrorKind::UnknownArgument
     );
 }
+
+#[test]
+fn a_host_configuration_no_directory_places_refuses_the_pass() {
+    let home = Some("relative/home".into());
+    let error = on_the_host_at(None, home, Path::new("/t"), |_| Ok(())).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "no host configuration can be found: neither XDG_CONFIG_HOME nor HOME names an absolute \
+         directory"
+    );
+}

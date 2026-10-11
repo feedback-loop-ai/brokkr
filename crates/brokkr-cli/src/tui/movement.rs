@@ -41,7 +41,7 @@ pub(super) fn labels_for(tui: &Tui, views: &Views) -> Vec<(String, String)> {
 pub(super) fn run_labels(
     tui: &Tui,
     view: &RunView,
-    lens: Option<&render::Lens>,
+    lens: Option<&brokkr_view::Lens>,
 ) -> Vec<(String, String)> {
     match tui.pane {
         // The graph is the SELECTOR: it lists every phase the run
@@ -56,13 +56,13 @@ pub(super) fn run_labels(
         1 => view
             .participants
             .iter()
-            .filter(|part| render::keeps_participant(lens, part))
+            .filter(|part| brokkr_view::keeps_participant(lens, part))
             .map(|part| (part.key.clone(), safe(&part.label)))
             .collect(),
         _ => view
             .journal
             .iter()
-            .filter(|row| row.in_trail && render::keeps_row(lens, row))
+            .filter(|row| row.in_trail && brokkr_view::keeps_row(lens, row))
             .map(|row| (row.seq.to_string(), safe(&row.what.text)))
             .collect(),
     }
@@ -222,7 +222,7 @@ pub(super) fn step(tui: &mut Tui, views: &Views, step: Step) {
     // and an operator who has moved the rail cursor onto a phase has
     // said which phase they mean. Enter then descends; Esc clears.
     if in_graph(tui) {
-        tui.scope = tui.cursor[0].clone().map(render::Scope::Phase);
+        tui.scope = tui.cursor[0].clone().map(brokkr_view::Scope::Phase);
     }
 }
 
@@ -352,10 +352,10 @@ pub(super) fn lane_member<'a>(tui: &Tui, views: &'a Views) -> Option<&'a Partici
 /// same `Scope`/`lens_for` the seats pane's own `Enter` produces, never a
 /// second filtering mechanism. Anything the lanes cannot resolve falls
 /// back to exactly what the rail already set.
-pub(super) fn graph_scope(tui: &Tui, views: &Views) -> Option<render::Scope> {
+pub(super) fn graph_scope(tui: &Tui, views: &Views) -> Option<brokkr_view::Scope> {
     match lane_member(tui, views) {
-        Some(part) => Some(render::Scope::Seat(part.key.clone())),
-        None => tui.cursor[0].clone().map(render::Scope::Phase),
+        Some(part) => Some(brokkr_view::Scope::Seat(part.key.clone())),
+        None => tui.cursor[0].clone().map(brokkr_view::Scope::Phase),
     }
 }
 

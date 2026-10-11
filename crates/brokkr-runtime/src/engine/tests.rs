@@ -4159,12 +4159,12 @@ fn a_run_in_a_world_with_a_crossing_records_the_digest_it_stood_on() {
     let started = &engine.store.load(&engine.run_id).unwrap()[0];
     assert_eq!(started.payload["manifest"], manifest);
 
-    // And it is the contract it claims: run-manifest/v12, which keeps v11's
+    // And it is the contract it claims: run-manifest/v13, which keeps v11's
     // required `capabilities` section (decision 0065 ruling 8; SC3).
     let schema: Value = serde_json::from_slice(
         &std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../contracts/run-manifest.v12.schema.json"),
+                .join("../../contracts/run-manifest.v13.schema.json"),
         )
         .unwrap(),
     )

@@ -152,7 +152,7 @@ pub(super) fn enter(tui: &mut Tui, views: &Views) {
                 return;
             };
             match tui.pane {
-                0 => tui.scope = Some(render::Scope::Phase(key)),
+                0 => tui.scope = Some(brokkr_view::Scope::Phase(key)),
                 1 => {
                     if scoped_seat(tui) == Some(key.as_str()) {
                         tui.level = Level::Participant;
@@ -164,7 +164,7 @@ pub(super) fn enter(tui: &mut Tui, views: &Views) {
                         tui.turn = None;
                         tui.force = true;
                     } else {
-                        tui.scope = Some(render::Scope::Seat(key));
+                        tui.scope = Some(brokkr_view::Scope::Seat(key));
                     }
                 }
                 // The trail is evidence — and evidence you cannot read is not
