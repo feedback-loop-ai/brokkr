@@ -60,7 +60,8 @@ fn metadata() -> Metadata {
 /// whose shard fails, `STUB_EMPTY=2` makes the second phase run no test,
 /// `STUB_PLANT` names a word whose shard prints `STUB_LINES` in place of
 /// its summary and exits 0, and `STUB_KILL` one whose shard kills its
-/// runner, the script's subshell, before the runner records its status.
+/// runner, the script's subshell, before the runner records its status,
+/// and keeps running, not yet ended, until the scratch's `release` exists.
 const STUB: &str = r#"#!/usr/bin/env bash
 dir="$STUB_DIR"
 if [ "$1" = metadata ]; then cat "$dir/metadata.json"; exit 0; fi
@@ -95,8 +96,12 @@ elif [ "${STUB_EMPTY:-}" = "$phase" ]; then
 else
   summary ok 1 0
 fi
+if [ -n "${STUB_KILL:-}" ] && [[ " $* " == *" $STUB_KILL "* ]]; then
+  kill -KILL "$PPID"
+  tries=0
+  while [ ! -e "$dir/release" ] && [ "$tries" -lt 600 ]; do tries=$((tries + 1)); sleep 0.05; done
+fi
 if [ "$phase" = 1 ]; then : > "$dir/ended/$$"; fi
-if [ -n "${STUB_KILL:-}" ] && [[ " $* " == *" $STUB_KILL "* ]]; then kill -KILL "$PPID"; fi
 exit "$status"
 "#;
 
@@ -431,18 +436,55 @@ fn every_shards_summaries_are_read_and_an_unread_or_missing_one_refuses() {
     }
 }
 
+/// The stub's calls and how many first-phase shards ended, once the
+/// scratch's `release` has let an orphaned shard command end.
+fn after_release(scratch: &Scratch) -> (Vec<String>, usize) {
+    std::fs::write(scratch.dir.path().join("release"), "").expect("release");
+    for _ in 0..600 {
+        if ended(scratch) == SHARDS.len() - 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    (scratch.calls(), ended(scratch))
+}
+
+/// How many first-phase shard commands have ended.
+fn ended(scratch: &Scratch) -> usize {
+    std::fs::read_dir(scratch.dir.path().join("ended"))
+        .expect("ended")
+        .count()
+}
+
 /// A shard whose runner dies before it records the shard's exit status is
 /// refused by name; its log is still printed, the other shards are still
-/// collected and the later phase still runs, and the logs are kept, since
-/// the shard's command may outlive its runner.
+/// collected, and the logs are kept, since the shard's command may outlive
+/// its runner. For that reason the later phase is not started, even once
+/// the orphaned command has ended: capability_broker could not be shown to
+/// run alone.
 #[test]
 fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
-    let (scratch, stdout) = refused_after_every_shard(
-        &metadata(),
-        &[("STUB_KILL", "--lib")],
+    let scratch = Scratch::new(&metadata(), &script());
+    let run = scratch.run(&["test"], 5, &[("STUB_KILL", "--lib")]);
+    let running = ended(&scratch);
+    let (calls, finally) = after_release(&scratch);
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
         "test shards: every library recorded no exit status (its runner ended with exit 137), \
-         so it is not shown to have passed\n",
+         so it is not shown to have passed\n\
+         test shards: phase 2 was not started: an earlier runner recorded no exit status, so its \
+         command may still be running and the phase cannot be shown to run alone\n"
     );
+    assert_eq!((running, finally), (SHARDS.len() - 2, SHARDS.len() - 1));
+    let mut first_phase: Vec<String> = ["--no-run"]
+        .iter()
+        .chain(&SHARDS[..5])
+        .map(|shard| format!("test --workspace --all-features --locked --no-fail-fast {shard}"))
+        .collect();
+    first_phase.sort();
+    assert_eq!(calls, first_phase);
+    let stdout = String::from_utf8_lossy(&run.stdout);
     let work: Vec<_> = std::fs::read_dir(scratch.dir.path().join("tmp"))
         .expect("the scratch TMPDIR")
         .map(|entry| entry.expect("an entry").path())
@@ -457,7 +499,7 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
         shown.as_str(),
         "\n==> the doctests (phase 1): exit 0 after ",
         "test shards: phase 1, every library: no exit status recorded\n",
-        "test shards: phase 2, capability_broker, alone: exit 0 after ",
+        "test shards: phase 2, capability_broker, alone: not started\n",
     ] {
         assert!(stdout.contains(line), "{line}\n{stdout}");
     }

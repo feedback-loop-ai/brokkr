@@ -32,8 +32,11 @@
 # shard whose run shows no executed test, since its filter matches nothing
 # (#543). A shard whose runner ends without recording its exit status is
 # refused by name, and the logs are then kept, since its command may still
-# be writing them. The threat model is the operator's of 2026-09-26:
-# realistic accidental misuse is caught, and what cannot be read is refused.
+# be writing them; for the same reason no later phase is started, since it
+# could not be shown to run alone. A shard that merely fails stops nothing:
+# every phase still runs, as `--no-fail-fast` would. The threat model is
+# the operator's of 2026-09-26: realistic accidental misuse is caught, and
+# what cannot be read is refused.
 set -euo pipefail
 
 refuse() {
@@ -282,17 +285,28 @@ run_phase() {
 }
 
 phases="$(printf '%s\n' "${shard_phase[@]}" | sort -un)"
-for phase in $phases; do run_phase "$phase"; done
+for phase in $phases; do
+  if ! "$lost"; then
+    run_phase "$phase"
+    continue
+  fi
+  for index in "${planned[@]}"; do
+    if [ "${shard_phase[$index]}" = "$phase" ]; then shard_status[$index]=unstarted; fi
+  done
+  failed+=("phase $phase was not started: an earlier runner recorded no exit status, so its command may still be running and the phase cannot be shown to run alone")
+done
 if ! "$lost"; then settled=true; fi
 
 printf '\n'
 for index in "${planned[@]}"; do
-  if [ "${shard_status[$index]}" = none ]; then
-    printf 'test shards: phase %s, %s: no exit status recorded\n' "${shard_phase[$index]}" "${shard_name[$index]}"
-  else
-    printf 'test shards: phase %s, %s: exit %s after %ss\n' "${shard_phase[$index]}" "${shard_name[$index]}" \
-      "${shard_status[$index]}" "${shard_seconds[$index]}"
-  fi
+  case "${shard_status[$index]}" in
+    none) printf 'test shards: phase %s, %s: no exit status recorded\n' "${shard_phase[$index]}" "${shard_name[$index]}" ;;
+    unstarted) printf 'test shards: phase %s, %s: not started\n' "${shard_phase[$index]}" "${shard_name[$index]}" ;;
+    *)
+      printf 'test shards: phase %s, %s: exit %s after %ss\n' "${shard_phase[$index]}" "${shard_name[$index]}" \
+        "${shard_status[$index]}" "${shard_seconds[$index]}"
+      ;;
+  esac
 done
 if [ "${#failed[@]}" -gt 0 ]; then
   printf 'test shards: %s\n' "${failed[@]}" >&2
