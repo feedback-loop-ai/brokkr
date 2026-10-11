@@ -1,18 +1,22 @@
 //! `brokkr broker bootstrap` (decision 0077, design D5; MB3, MB4, MB5;
-//! slice two U6c6a): the trusted helper a server box runs first. It reads
-//! the broker's sealed, nonsecret intent from one inherited anonymous pipe,
-//! checks the box it actually stands in against it — its namespaces, every
-//! mount, the private tmpfs `HOME` and `TMPDIR`, the network and its own
-//! fixed environment — and writes one closed ready message of at most
-//! 4 KiB on a second inherited pipe, never stdout. Then it waits on the
-//! first until the broker lets it go.
+//! slice two U6c6a, U6c8): the trusted helper a server box runs first. It
+//! reads the broker's sealed, nonsecret intent from one inherited anonymous
+//! pipe, checks the box it actually stands in against it — its namespaces,
+//! every mount, the private tmpfs `HOME` and `TMPDIR`, the network and its
+//! own fixed environment — and writes one closed ready message of at most
+//! 4 KiB on a second inherited pipe, never stdout.
 //!
-//! It takes no plan, store or grant locator and runs nothing: the binding
-//! channel and the server's exec are U6c8's, so a released bootstrap still
-//! refuses with SD3's incomplete-serving cause. Absent or invalid control
-//! context, or a box it cannot show, is MB3's establishment cause, and no
-//! ready byte is written. A marker or an environment bit is no evidence:
-//! every fact is read from `/proc` and the private directories themselves.
+//! Then it receives the one binding frame on the first pipe, and that
+//! pipe's end, gives up its controlling terminal, leaves no descriptor but
+//! its standard streams open across an exec, and execs the server the
+//! intent seals, with its final environment ([`secret::exec_confined`]).
+//! A frame not received whole, or a server that cannot start, is reported
+//! as one tag on a third inherited pipe, never stderr, which a started
+//! server's exec closes. It takes no plan, store or grant locator. Absent
+//! or invalid control context, or a box it cannot show, is MB3's
+//! establishment cause, and no ready byte is written. A marker or an
+//! environment bit is no evidence: every fact is read from `/proc` and the
+//! private directories themselves.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -25,19 +29,17 @@ use std::path::{Path, PathBuf};
 use brokkr_core::canonical;
 use brokkr_protocol::broker::{Network, Refusal};
 use brokkr_protocol::hands::server_environment;
-use serde::{Deserialize, Serialize};
+use brokkr_protocol::secret;
 
 use crate::cli_args::BrokerBootstrapArgs;
+use handshake::{Intent, Ready, Source, Spaces, Status, FRAME_MAX};
+
+pub(super) mod handshake;
 
 // Linux's: elsewhere no `/proc` names a descriptor, so every bootstrap
 // refuses before its pipes are taken.
 #[cfg(all(test, target_os = "linux"))]
 mod tests;
-
-/// The most bytes one control message holds: the intent frame's body, and
-/// the ready message, which [`message`] measures before a byte is written
-/// (MB3).
-const FRAME_MAX: usize = 4096;
 
 /// MB4's private directories, by the fixed names that locate them. The
 /// names only say where to look: each must be shown a fresh private tmpfs.
@@ -74,54 +76,6 @@ const BUBBLEWRAP_ROOT: &str = "/newroot";
 
 /// A file's identity: its device, `major:minor`, and its inode.
 type Identity = ((u32, u32), u64);
-
-/// The broker's sealed intent for this box: the plan and source-set
-/// digests readiness binds, the network the dialect's egress projects to,
-/// the broker's own namespaces, which the box must not share, and every
-/// mount it binds into the box. Names and numbers only: no locator, value
-/// or authority.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Intent {
-    plan: String,
-    sources: String,
-    network: Network,
-    host: Spaces,
-    mounts: Vec<Source>,
-}
-
-/// One mount the broker binds into the box, nested ones each their own
-/// (MB3): where it stands in the box, and the device and inode of the
-/// checked source it shows there.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Source {
-    path: PathBuf,
-    device: (u32, u32),
-    inode: u64,
-}
-
-/// A process's namespaces, by the inode `/proc` gives each.
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Spaces {
-    mnt: u64,
-    pid: u64,
-    net: u64,
-    ipc: u64,
-    uts: u64,
-}
-
-/// The one ready message (MB3): the plan and source-set digests the
-/// intent sealed, this child by its process id in the box, and the
-/// namespaces it observed itself in.
-#[derive(Serialize)]
-struct Ready<'a> {
-    plan: &'a str,
-    sources: &'a str,
-    pid: u32,
-    namespaces: &'a Spaces,
-}
 
 /// What the bootstrap observes of the box it stands in.
 struct Observed {
@@ -185,8 +139,8 @@ enum Place {
     Elsewhere,
 }
 
-/// Run the bootstrap `args` names in the box it stands in, and end with
-/// the cause it refuses by: nothing it does ends in serving.
+/// Run the bootstrap `args` names in the box it stands in, exec the
+/// server it seals, and otherwise end with the cause it refuses by.
 pub(super) fn run(args: &BrokerBootstrapArgs) -> Refusal {
     run_with(args, observe)
 }
@@ -194,73 +148,121 @@ pub(super) fn run(args: &BrokerBootstrapArgs) -> Refusal {
 /// [`run`], with `observe` standing for the box's facts.
 fn run_with(args: &BrokerBootstrapArgs, observe: impl FnOnce(&Intent) -> Observed) -> Refusal {
     match ready(args, observe) {
-        Ok(control) => released(control),
+        Ok((control, status, intent)) => served(control, status, &intent),
         Err(refusal) => refusal,
     }
 }
 
 /// Take the control descriptors, read the intent, check the box, and write
-/// the one ready message, closing its pipe; the control pipe, still held,
-/// where all of it held.
+/// the one ready message, closing its pipe; the control and status pipes,
+/// still held, and the intent, where all of it held.
 fn ready(
     args: &BrokerBootstrapArgs,
     observe: impl FnOnce(&Intent) -> Observed,
-) -> Result<File, Refusal> {
-    let numbers = (args.control.as_deref(), args.ready.as_deref());
-    let (mut control, ready) = descriptors(numbers, &standard())?;
+) -> Result<(File, File, Intent), Refusal> {
+    let numbers = [&args.control, &args.ready, &args.status].map(Option::as_deref);
+    let [mut control, mut ready, status] = descriptors(numbers, &standard())?;
     let intent = intent(&mut control)?;
     let observed = observe(&intent);
     let bytes = message(&decide(&intent, &observed)?)?;
-    File::from(ready)
-        .write_all(&bytes)
-        .or(Err(Refusal::Establishment))?;
-    Ok(control)
+    ready.write_all(&bytes).or(Err(Refusal::Establishment))?;
+    Ok((control, status, intent))
 }
 
 /// The bytes of the one ready message, where they fit [`FRAME_MAX`].
-fn message(ready: &Ready<'_>) -> Result<Vec<u8>, Refusal> {
+fn message(ready: &Ready) -> Result<Vec<u8>, Refusal> {
     let bytes = serde_json::to_vec(ready).or(Err(Refusal::Establishment))?;
     (bytes.len() <= FRAME_MAX)
         .then_some(bytes)
         .ok_or(Refusal::Establishment)
 }
 
-/// Wait on the control pipe until the broker lets the bootstrap go. No
-/// binding channel stands yet (U6c8), so a release is still SD3's
-/// incomplete-serving cause; a byte after the intent frame is no release.
-fn released(control: File) -> Refusal {
-    let mut rest = Vec::new();
-    match control.take(1).read_to_end(&mut rest) {
-        Ok(0) => Refusal::ServingIncomplete,
-        Ok(_) | Err(_) => Refusal::Establishment,
+/// Receive the binding frame on `control` and exec the server `intent`
+/// seals ([`secret::exec_confined`]), once this process has given up its
+/// controlling terminal, its fixed entries [`fixed_environment`]. The
+/// receiver marks every descriptor above the standard streams
+/// close-on-exec in one operation, `status` among them, or starts nothing.
+/// Only a server that did not start returns: its cause is reported on
+/// `status` as its one tag.
+fn served(control: File, mut status: File, intent: &Intent) -> Refusal {
+    let server = (intent.executable.as_path(), intent.argv.as_slice());
+    let fixed = fixed_environment();
+    let refusal = secret::exec_confined(control, &intent.secrets, fixed, server, detached);
+    for failed in Status::ALL
+        .into_iter()
+        .filter(|tag| tag.refusal() == refusal)
+    {
+        status.write_all(&[failed.tag()]).ok();
+    }
+    refusal
+}
+
+/// MB4's fixed entries, as this process holds them, and nothing else:
+/// whatever a runtime set here since its start, which readiness never saw,
+/// stays here.
+fn fixed_environment() -> Vec<(OsString, OsString)> {
+    let fixed = |name: &OsString| server_environment().any(|fixed| name == fixed);
+    std::env::vars_os()
+        .filter(|(name, _)| fixed(name))
+        .collect()
+}
+
+/// Give up this process's controlling terminal, where it has one, so that
+/// neither it nor the server it becomes can open `/dev/tty` (MB5). Its
+/// process group and session stay the box's.
+#[cfg(target_os = "linux")]
+fn detached() -> bool {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDWR | OFlags::NOCTTY | OFlags::CLOEXEC;
+    given_up(rustix::fs::open("/dev/tty", flags, Mode::empty()))
+}
+
+/// Off Linux no box stands, so no server is started.
+#[cfg(not(target_os = "linux"))]
+fn detached() -> bool {
+    false
+}
+
+/// Whether the controlling terminal `tty` opened was given up: there is
+/// none to give up where opening it found none.
+#[cfg(target_os = "linux")]
+fn given_up(tty: rustix::io::Result<OwnedFd>) -> bool {
+    match tty {
+        // SAFETY: TIOCNOTTY takes no argument and reads or writes no
+        // memory; it only detaches this process from its terminal.
+        Ok(tty) => unsafe { rustix::ioctl::ioctl(&tty, Detach::new()) }.is_ok(),
+        Err(errno) => errno == rustix::io::Errno::NXIO,
     }
 }
+
+/// Linux's `TIOCNOTTY`, the request that gives up the controlling terminal
+/// of the process that holds it open: the generic value every supported
+/// Linux architecture (x86_64, aarch64) shares.
+#[cfg(target_os = "linux")]
+type Detach = rustix::ioctl::NoArg<0x5422>;
 
 /// What this process's standard streams are open on, where they are.
 fn standard() -> Vec<String> {
     (0..3).filter_map(link).collect()
 }
 
-/// The control and ready descriptors `numbers` names: two distinct
-/// inherited anonymous pipes, neither one a `stdio` stream's, so neither
-/// stdout nor a marker file can carry readiness. Each is owned only once
-/// every check held.
-fn descriptors(
-    (control, ready): (Option<&str>, Option<&str>),
-    stdio: &[String],
-) -> Result<(File, OwnedFd), Refusal> {
-    let (control, control_link) = pipe(control)?;
-    let (ready, ready_link) = pipe(ready)?;
-    let links = [&control_link, &ready_link];
+/// The control, ready and status descriptors `numbers` names: three
+/// distinct inherited anonymous pipes, none a `stdio` stream's, so neither
+/// stdout nor a marker file can carry readiness or a status. Each is owned
+/// only once every check held.
+fn descriptors(numbers: [Option<&str>; 3], stdio: &[String]) -> Result<[File; 3], Refusal> {
+    let [control, ready, status] = numbers;
+    let held = [pipe(control)?, pipe(ready)?, pipe(status)?];
+    let links = held.each_ref().map(|(_, link)| link);
     let shared = stdio.iter().any(|link| links.contains(&link));
-    if (control_link == ready_link) | shared {
+    let repeated = (links[0] == links[1]) | (links[0] == links[2]) | (links[1] == links[2]);
+    if repeated | shared {
         return Err(Refusal::Establishment);
     }
     // SAFETY: `/proc` shows each number open on an anonymous pipe in this
-    // process. The broker made both for this process to inherit; neither
-    // is a standard stream nor the other, and nothing else here takes it.
-    let (control, ready) = unsafe { (OwnedFd::from_raw_fd(control), OwnedFd::from_raw_fd(ready)) };
-    Ok((File::from(control), ready))
+    // process. The broker made each for this process to inherit; none is a
+    // standard stream nor another, and nothing else here takes it.
+    Ok(held.map(|(fd, _)| File::from(unsafe { OwnedFd::from_raw_fd(fd) })))
 }
 
 /// The inherited descriptor `text` numbers, and the anonymous pipe it
@@ -390,7 +392,7 @@ fn directory(path: OsString) -> Option<Directory> {
 /// with the network the intent projects, fresh private directories, each
 /// sealed source where the intent puts it, and every mount where the box
 /// may hold it.
-fn decide<'a>(intent: &'a Intent, observed: &'a Observed) -> Result<Ready<'a>, Refusal> {
+fn decide(intent: &Intent, observed: &Observed) -> Result<Ready, Refusal> {
     let spaces = observed.spaces.as_ref().ok_or(Refusal::Establishment)?;
     let private = private(observed, &intent.mounts).ok_or(Refusal::Establishment)?;
     let held = fixed(&observed.environment)
@@ -398,10 +400,10 @@ fn decide<'a>(intent: &'a Intent, observed: &'a Observed) -> Result<Ready<'a>, R
         & bound(&intent.mounts, &observed.sources)
         & mounted(&observed.mounts, &private, &intent.mounts);
     let ready = Ready {
-        plan: &intent.plan,
-        sources: &intent.sources,
+        plan: intent.plan.clone(),
+        sources: intent.sources.clone(),
         pid: observed.pid,
-        namespaces: spaces,
+        namespaces: spaces.clone(),
     };
     held.then_some(ready).ok_or(Refusal::Establishment)
 }

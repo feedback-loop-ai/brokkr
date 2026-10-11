@@ -629,15 +629,16 @@ pub(super) enum BrokerCmd {
     /// authority `serve` does not.
     #[command(hide = true)]
     Observe(BrokerServeArgs),
-    /// `serve`'s own waiting bootstrap (U6c6a): inside the server box, read
-    /// the broker's sealed intent from one inherited pipe, check the box it
-    /// stands in, write one ready message on another, and wait. It takes no
-    /// plan, store or grant, and runs nothing.
+    /// `serve`'s own waiting bootstrap (U6c6a, U6c8): inside the server box,
+    /// read the broker's sealed intent from one inherited pipe, check the
+    /// box it stands in, write one ready message on another, then receive
+    /// the binding frame on the first and exec the sealed server, reporting
+    /// a failure on a third. It takes no plan, store or grant.
     #[command(hide = true)]
     Bootstrap(BrokerBootstrapArgs),
 }
 
-/// The bootstrap's two private control descriptors, by number. They are
+/// The bootstrap's three private control descriptors, by number. They are
 /// taken as text, a negative number or no value included, so that an
 /// absent or malformed one is the box's establishment cause rather than a
 /// usage error.
@@ -650,6 +651,9 @@ pub(super) struct BrokerBootstrapArgs {
     /// The inherited pipe the one ready message leaves on.
     #[arg(long, num_args = 0..=1, allow_negative_numbers = true)]
     pub(super) ready: Option<String>,
+    /// The inherited pipe a failed handoff or exec is reported on.
+    #[arg(long, num_args = 0..=1, allow_negative_numbers = true)]
+    pub(super) status: Option<String>,
 }
 
 #[derive(clap::Args)]

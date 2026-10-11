@@ -10,11 +10,13 @@
 //! looked up or anything is started; its private `observe` verb is the
 //! observer `serve` runs to prepare the box (U6c5b), and holds nothing
 //! `serve` does not. Its private `bootstrap` verb is the waiting helper the
-//! server box runs (U6c6a): it checks the box it stands in, reports ready
-//! on a private pipe, and runs nothing. The serving protections are later
-//! units' (slice two U6c3–U6f), so an admitted plan is still refused with
-//! SD3's incomplete-serving cause, and decision 0065's compile fence still
-//! refuses every MCP grant.
+//! server box runs (U6c6a, U6c8): it checks the box it stands in, reports
+//! ready on a private pipe, receives the declared bindings, which the
+//! broker looks up only then, and execs the server. The serving
+//! protections are later units' (slice two U6c3–U6f), so the box of an
+//! admitted plan is ended once its server has started, before any MCP
+//! message, and the plan still refused with SD3's incomplete-serving cause;
+//! decision 0065's compile fence still refuses every MCP grant.
 
 mod bootstrap;
 mod session;
@@ -85,15 +87,18 @@ pub(crate) fn plan_digest(text: &str) -> Result<String, BrokerError> {
     }
 }
 
-/// Serve the plan `command` names, or refuse before looking up a secret
-/// or starting anything; or, as `serve`'s private observer, observe it and
-/// hand back what was checked; or, as its waiting bootstrap, report the
-/// box ready and still refuse, having run nothing.
+/// Serve the plan `command` names: refuse before looking up a secret or
+/// starting anything where a check fails, and otherwise once its box has
+/// been launched, its server handed its bindings and started, and the box
+/// ended, before any MCP message. Or, as `serve`'s private observer,
+/// observe it and hand back what was checked; or, as its waiting
+/// bootstrap, report the box ready and exec the server, returning only the
+/// cause of one that did not start.
 pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
     match command {
         BrokerCmd::Serve(BrokerServeArgs { plan, plan_digest }) => {
             // The checked handles stay held until the refusal ends the
-            // broker: the later launch mounts these very objects.
+            // broker: the launch mounted these very objects.
             let _admitted = session::admit(&plan, &plan_digest)?;
             Err(Refusal::ServingIncomplete.into())
         }
