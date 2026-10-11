@@ -1826,7 +1826,7 @@ fn a_final_validation_refusal_is_bounded_as_a_compile_refusal_is() {
 /// measured deny list (its default-OFF refusal is above). `brokkr-protocol`'s
 /// own suite shows each reading equal to its launch's outcome on the same
 /// command, a DSH model pin admitted among them: a template that pins a
-/// model is no adapter's to declare (proposed decision 0075 ruling 5).
+/// model is no adapter's to declare (decision 0075 ruling 5).
 #[test]
 fn dsh_and_lanetally_plans_are_judged_by_their_launches_own_final_validation() {
     let dir = workspace_with(Some(json!([realm("private", None)])));

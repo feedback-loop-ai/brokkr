@@ -800,7 +800,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         &what,
     )?;
     // Every adapter is authority data: its native capabilities (decision
-    // 0065 ruling 4) and its models' tiers (proposed decision 0075 ruling
+    // 0065 ruling 4) and its models' tiers (decision 0075 ruling
     // 5) alike, so a key written twice anywhere in the file is a refusal
     // rather than whichever copy came second.
     let text = std::fs::read_to_string(path)?;

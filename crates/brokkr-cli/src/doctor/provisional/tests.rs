@@ -44,7 +44,7 @@ fn lines(dir: &Path, world: Option<&World>) -> String {
     report.render()
 }
 
-/// Proposed decision 0075 ruling 5: doctor names each provisional model
+/// Decision 0075 ruling 5: doctor names each provisional model
 /// with the offices the world lets it hold, and says so plainly where the
 /// list names none, so an operator sees the fail-closed default.
 #[test]

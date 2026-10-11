@@ -1,7 +1,8 @@
 # 0075 — Harness onboarding in a day: a harness is a spec, a probe measures it, a new seat starts provisional, and evidence promotes it
 
-Status: proposed
+Status: accepted — operator ruled in chat 2026-10-12
 Date: 2026-09-28
+Built: partial (#485) — the conformance probe (#500) and the provisional tier (#526) are built; the epic tracks the rest
 
 ## Context
 
@@ -66,6 +67,30 @@ boundary and cannot hold a boxed office (#290).
   refactor on the critical path (#226 → #348 → #347) and one new tool (the
   probe, #484), and it turns each later harness into a day's work.
 
+Since it was drafted (refreshed 2026-10-12):
+- The conformance probe is built: `brokkr probe harness` measures an
+  agent CLI and writes the facts its adapter must declare (#500, which
+  closed #484 on 2026-10-06).
+- Ruling 5's provisional tier is built (#526, 2026-10-04, ported onto
+  decision 0065). An adapter's model declares its tier, `forge.realms/v7`
+  lists the offices a provisional model may hold, the compile refuses one
+  anywhere else and never seats one as a gate, and `brokkr doctor` names
+  each provisional model.
+- Decision 0077, accepted on 2026-10-03, makes the capability broker the
+  harness's child and measures a harness to exclude ambient MCP
+  configuration. That is the mechanism for #467's isolation.
+- Decision 0072, accepted on 2026-10-12, lets a harness hold full access
+  inside a seat box: an engine-owned boundary around the harness process,
+  with its credential outside. Whether a harness can stand in one is an
+  adapter fact (`hands.seat`), measured like the rest.
+- The contract lifecycle #361 asks for is proposed decision 0082 (#643).
+  Ruling 2's mint goes through it.
+- The fast lane is proven. New models have entered as dsh routes within
+  hours: a locally served GLM model, DeepSeek Flash, and Muse through
+  OpenRouter. dsh's hands (#290) are still open.
+- The critical path for rulings 1 and 2 is unchanged and still open:
+  #226, #348, #347.
+
 ## Rulings
 
 1. **A harness is a declarative spec plus at most one module.** The adapter
@@ -84,7 +109,7 @@ boundary and cannot hold a boxed office (#290).
    from the harness's adapter, validated against the adapters loaded, not
    against a closed enum in a frozen contract. So a new harness needs no
    contract version. The change is minted through the contract lifecycle
-   (#361), once.
+   (#361, which proposed decision 0082 rules), once.
    *Binding:* the seat-record schema accepts a declared kind; a test seats a
    fixture harness unknown to the schema's author and its record verifies.
 
@@ -96,12 +121,17 @@ boundary and cannot hold a boxed office (#290).
    the three shipped harnesses, reproducing their adapters' measured fields,
    before it is trusted on a new one. Live probing needs real credentials,
    bound through decision 0012. It is an operator host step, never CI, and
-   the no-real-providers gate still holds for the repository.
+   the no-real-providers gate still holds for the repository. The probe
+   itself is built (`brokkr probe harness`, #500); what remains of this
+   ruling is tracked under #485.
    *Binding:* a test that every adapter field carries a measurement reference
    to a committed probe report. Re-running the probe on a new CLI version
    reports drift against that report.
 
 4. **Eligibility is derived, not argued.** From the probe's measured facts:
+   - a harness that can stand in a seat box (`hands.seat` measured, decision
+     0072) may hold full access inside it, at work sites, as that decision
+     rules, and only after its own slice is measured and merged;
    - a harness whose own tools can be switched off and which takes an MCP
      server may hold boxed offices (decisions 0043 and 0046);
    - one that cannot may hold unboxed or tool-less offices only;
@@ -109,7 +139,8 @@ boundary and cannot hold a boxed office (#290).
      realm that has not granted that capability (decision 0065 ruling 4,
      restated here for new harnesses);
    - one whose user-scope configuration cannot be isolated (#467) is
-     refused.
+     refused. Decision 0077 measures a harness to exclude ambient MCP
+     configuration.
    *Binding:* the existing boundary and capability compile refusals consume
    the adapter's measured fields; a fixture harness of each kind is refused
    or admitted exactly as stated.
@@ -156,7 +187,7 @@ boundary and cannot hold a boxed office (#290).
   - A new shape takes longer, and pays for that shape once.
 - **Critical path:** #226 (safe resumption across harnesses) → #348 (split
   brokkr-protocol) → #347 (a harness is one module). Rulings 1 and 2 wait on
-  it. Rulings 3 to 7 do not: the probe (#484), config isolation (#467),
+  it. Rulings 3 to 7 do not: the probe (#484, built by #500), config isolation (#467),
   native-capability declarations (#319, #462), dsh's hands (#290) and the
   provisional tier can start now.
 - **What it costs:**
@@ -168,5 +199,7 @@ boundary and cannot hold a boxed office (#290).
 - **Tracking:** epic #485.
 - **Related decisions:** 0012 (secret bindings), 0036 (egress is a property
   of the route), 0043 and 0046 (hands and the boundary), 0045 (the Astra
-  roster, the pattern this replaces), 0065 (capabilities are the realm's to
-  grant), 0071 (the architectural principles).
+  roster, whose pattern this decision generalises), 0065 (capabilities are
+  the realm's to grant), 0071 (the architectural principles), 0072 (full
+  access inside a seat box), 0077 (the broker as the harness's child), and
+  0082, proposed (the contract lifecycle).
