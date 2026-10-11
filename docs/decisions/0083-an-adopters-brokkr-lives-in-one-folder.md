@@ -377,15 +377,18 @@ scaffold, and its layout stays.
    `brokkr init --migrate` makes the move the refusal printed, and nothing
    else, and only once it has proved that move. One rule closes the
    migration, stated once here, so no kind of dependency needs its own
-   arm: **the move list is what the old compile pinned, and a proof
-   compile over exactly the moved files must pin the same inputs, byte for
-   byte, or nothing moves.** A dependency the move list does not carry is
+   arm: **the move list is what the old compile pinned, no move lands on
+   a path the migration writes itself, and a proof compile over exactly
+   the moved files must pin the same inputs, byte for byte, or nothing
+   moves.** A dependency the move list does not carry is
    not reached by the proof, or is reached at a place the move empties,
    and either way it refuses before any move, whatever its kind, a kind
-   nobody has listed yet included. The bullets below say what the list
-   holds, how the proof is run, and the only changes made to a moved
-   file's bytes: the map's paths, and the typed references the compile
-   returns.
+   nobody has listed yet included; a move the list does carry is never
+   overwritten after the proof, because nothing the migration writes may
+   be its destination. The bullets below say what the list
+   holds, which places are the migration's own, how the proof is run, and
+   the only changes made to a moved file's bytes: the map's paths, and the
+   typed references the compile returns.
 
    - **Which files move** is what the old compile read by reference, never
      the manifest's `files` map, which pins every file under a root
@@ -426,7 +429,9 @@ scaffold, and its layout stays.
      stands in. `init`'s `agents/README.md` is one such file: its text
      depends on the stack `init` detected, so it is not told from an
      operator's own by its bytes. It stays, and `--migrate` writes
-     `.brokkr/agents/README.md` afresh, as `init` would. An old bundle that
+     `.brokkr/agents/README.md` afresh, as `init` would; when a reference
+     did reach it, as a role or a charter, it is on the list, and its move
+     lands on a place the migration writes, which refuses (below). An old bundle that
      does not compile refuses the migration with its compile error, as the
      root layout's second refusal above says, and one that composes a base
      refuses with the third, before any move.
@@ -587,6 +592,36 @@ scaffold, and its layout stays.
      the place it is read from is never moved into, so it has no arm and
      refuses before any move (the third refusal above). Whatever a
      restatement or the move list misses, the proof refuses.
+   - **No move lands on what the migration writes.** Besides the moves,
+     `--migrate` writes four places under `.brokkr/` itself:
+     `.brokkr/.proof` (the proof's marker below), `.brokkr/.gitignore`
+     (the state bullet below), `.brokkr/agents/README.md` (above) and the
+     `.brokkr/state/` subtree, which only the state moves fill. The build
+     holds them in one table, which the writers and this check both read
+     (decision 0071 ruling 5), so a place the migration learns to write
+     later is reserved by being written. A move whose destination is one of
+     them, stands under one or stands above one is refused once the move
+     list is known and before the proof writes its first entry, so no
+     `.brokkr/` is created and every byte at the root is as it was. The
+     comparison folds ASCII case, as macOS's default volume does, so the
+     refusal is the same on both hosts (decision 0063). A restatement
+     names a moved file's new place, so it lands on a reserved place only
+     through a move, and this refuses that move. The refusal is
+     exactly, one line per such move in byte order:
+
+     ```text
+     --migrate moves nothing (decision 0083): a move would land on a place --migrate writes itself
+       <old path> -> <new path>: <reserved place> is written by --migrate
+     ```
+
+     Without this rule each collision would pass the proof and then break
+     the migrated folder: a seat whose `role` is the root's `.gitignore`
+     would have its moved role overwritten by `state/` after every move, so
+     the closing compile read other bytes than the proof; a `role` of a
+     root `.proof` would land the marker in the migrated folder, which
+     every verb then refuses as an unfinished proof whose remedy removes
+     the folder that now holds the only journal; and a `role` of
+     `agents/README.md` would be overwritten by the fresh `README.md`.
    - **Prove before moving.** Before any move, and once every refusal
      above, the script refusal and the state's below has passed, so none of
      them ever leaves a tree behind, `--migrate` builds the
@@ -843,6 +878,22 @@ scaffold, and its layout stays.
    line naming `roles/verify.md` with the error the proof's compile gives
    for a link that leaves the folder, leaves no `.brokkr/`, and the link's
    text and every other planted byte are unchanged);
+   `migrate_refuses_a_move_onto_its_own_output` (`init`'s old output with a
+   journal, its inline `verify` seat asking nothing so that any text is its
+   role, which compiles before the move in each case: with that `role` the
+   root's `.gitignore`, a planted root `.proof`, `init`'s own
+   `agents/README.md`, a planted `state/role.md`, and a planted
+   `agents/readme.md`, which on Linux is a file of its own, `--migrate
+   --scripts-use-root-paths` refuses with the reserved-place text exactly,
+   its one line `.gitignore -> .brokkr/.gitignore: .brokkr/.gitignore is
+   written by --migrate`, `.proof -> .brokkr/.proof: .brokkr/.proof is
+   written by --migrate`, `agents/README.md -> .brokkr/agents/README.md:
+   .brokkr/agents/README.md is written by --migrate`, `state/role.md ->
+   .brokkr/state/role.md: .brokkr/state/ is written by --migrate` and
+   `agents/readme.md -> .brokkr/agents/readme.md: .brokkr/agents/README.md
+   is written by --migrate` in turn; in each, no `.brokkr/` is created and
+   every planted path and byte, the journal and `.forge/` included, is
+   unchanged);
    `an_unfinished_proof_refuses` (the root layout with a
    `<root>/.brokkr/.proof` planted beside a partial copy: `brokkr run
    --feature x`, `brokkr doctor`'s folder line and `--migrate` each give
