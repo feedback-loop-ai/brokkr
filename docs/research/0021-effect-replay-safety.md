@@ -18,12 +18,15 @@ transaction. It named an inference the code makes without evidence.
 This entry inventories the same paths at `3ad0f66c`, after #403's process
 settlement, decision 0079's bounded transport and decision 0053's
 withheld `accepted`. Every claim cites a file and line read at that base.
-The inference stands, and it has a second instance the issue did not
-name: a protocol violation after `start` is also `Failed` and retried.
-Two adjacent hazards came to light, a result file shared by an effect's
-attempts and a sequence retry that re-runs steps that succeeded. Both are
-named below as findings for the operator. The proposed addendum to
-decision 0006 rules on them.
+The inference stands, and it has instances the issue did not name: a
+protocol violation or an unreadable line after `start` is also `Failed`
+and retried, and so is the built-in driver's own `failed` when its
+command exits 0 and writes no result file. Two adjacent hazards came to
+light, a result file shared by an effect's attempts and a sequence retry
+that re-runs steps that succeeded. Both are named below as findings for
+the operator. The proposed addendum to decision 0006 rules on the ends
+of an attempt and leaves these two unruled, as questions in its Asked
+paragraph.
 
 ## Findings
 
@@ -31,7 +34,7 @@ decision 0006 rules on them.
 |---|---|---|---|
 | 1 | Keep four facts apart: the attempt's process ended, its result was received, it was refused before execution, and what its side effects were | planned | #434; `docs/decisions/0006-bounded-attempts-and-deadlines.md` |
 | 2 | Never retry automatically an attempt whose end left completion unknown | implemented | decision 0006, decision 0079, `crates/brokkr-core/src/fold.rs` |
-| 3 | Read a deadline kill and a protocol violation after `start` as unknown completion, not as a determinate failure | planned | #434; `crates/brokkr-protocol/src/process.rs` |
+| 3 | Read a deadline kill, and every other end after `start` with no result of the executor's read, as unknown completion, not as a determinate failure | planned | #434; `crates/brokkr-protocol/src/process.rs` |
 | 4 | Retry, and fall back down the model chain, within a bound, on a failure known to precede execution | implemented | decision 0016, decision 0053, `crates/brokkr-runtime/src/engine.rs` |
 | 5 | Keep one effect identity across an effect's attempts, with a fresh id for each attempt | implemented | `crates/brokkr-runtime/src/engine.rs`, `contracts/README.md` |
 | 6 | Give replay authority only to an executor that receives the effect identity and acknowledges it, on pinned data, never on a payload string | planned | #434; `contracts/driver-protocol.v1.schema.json` |
@@ -64,21 +67,27 @@ engine acts on. A cleanup that is not `Settled` turns any outcome into
 
 | End | Where it is decided | Outcome reported | Engine journals | Retried today |
 |---|---|---|---|---|
-| Engine refuses before spawn: input digest mismatch, a site refusal, the driver binary missing, the process table unreadable | `engine.rs:1317-1336`; `spawn_site` `engine.rs:3146`; `run_driver` `engine.rs:2034`; `SpawnError` `process.rs:59-71` | none: `DriverRun::SpawnFailed` | `effect/failed`, with `start_failure` | yes, under `max_attempts`, and the chain descends |
+| Engine refuses before execution: the rebuilt seat input does not match the digest recorded at request | `engine.rs:1317-1336` | none: no driver runs | `effect/started` with `driver: "none"`, then `effect/failed` with no `start_failure` | yes, under `max_attempts`; the chain does not descend |
+| Engine refuses before spawn: a site refusal, the driver binary missing, the process table unreadable | `spawn_site` `engine.rs:3146`; `run_driver` `engine.rs:2034`; `SpawnError` `process.rs:59-71` | none: `DriverRun::SpawnFailed` (`engine.rs:1921-1930`) | `effect/failed`, with `start_failure` only when the site's model was agent-selected (`start_failure_fields` `engine.rs:3109-3123`) | yes, under `max_attempts`; the chain descends where it has one |
 | Handshake fails before `start` is sent | `process.rs:533-574` | `Failed` (a broken pipe at hello is `Lost`, `process.rs:540-541`) | `effect/failed` | yes |
 | Driver's own refusal before a turn: a classified provider refusal (0053) | the claude, lanetally and codex classifiers in `crates/brokkr-protocol/src/adapters.rs` | `Failed`, no `accepted`, no checkpoint | `effect/failed`, `start_failure` | yes, and the chain descends |
 | Driver's own refusal after sending `accepted` but before invoking anything: a missing secret, an unverified charter, a harness that could not be invoked | `adapters.rs:6553-6572`, `adapters.rs:6582-6597`, `adapters.rs:6676` | `Failed`, `accepted` | `effect/failed` | yes, without chain descent |
-| Executor reports failure after work began: a non-zero exit, no result file | `reached` `process.rs:663-675`; `adapters.rs:6885-6903` | `Failed` | `effect/failed` | yes |
+| Executor reports failure after work began: its command returned a non-zero exit status (a third-party driver's `failed` result is read the same way) | `reached` `process.rs:663-675`; `adapters.rs:6885-6893` | `Failed`: "agent CLI exited N" | `effect/failed` | yes |
+| The built-in driver synthesizes failure with no executor result: the command exits 0 and writes no result file, or ends by a signal and so returns no exit status (`code().unwrap_or(-1)`, `adapters.rs:5681`) | `run_seat_with` `adapters.rs:6895-6903`, and `:6885-6893` for the signal | `Failed`: "seat wrote no result file (the result contract was not met)", or "agent CLI exited -1" | `effect/failed` | **yes** |
 | Deadline kill | watchdog `process.rs:294-309`; `eof_outcome` `process.rs:460-466`; `deadline_killed` `process.rs:453` | `Failed`: "attempt exceeded its Ns deadline and was killed", whether or not the driver had accepted | `effect/failed` | **yes**, under `max_attempts` |
-| Protocol violation after `start`: a foreign effect id, a message out of place | `converse` `process.rs:599-632`, mapped at `process.rs:650-652` | `Failed`, even after `accepted` | `effect/failed` | **yes** |
+| Protocol violation after `start`: a foreign effect id, a message out of place (`converse`); a failed stdout read, an unreadable line or a wrong `proto` (`recv`) | `converse` `process.rs:599-632`; `recv` `process.rs:366-381`; both mapped at `process.rs:650-652` | `Failed`, even after `accepted` | `effect/failed` | **yes** |
 | Driver exits after `start` with no result | `Ended::Lost`, `eof_outcome` `process.rs:467-475` | `Indeterminate`, accepted or not | `effect/indeterminate` | no, parks |
 | A line or checkpoint past a transport limit (0079) | `Exceeded::outcome` `process/limits.rs:101`; `process.rs:438`, `process.rs:656` | `Indeterminate` | `effect/indeterminate` | no, parks |
 | Cleanup not proven (#403) | `finish` `process.rs:443-446`; `settled_outcome` `lib.rs:183-191` | `Indeterminate`, with `received` and `cleanup` kept | `effect/indeterminate` with `contracts/effect-cleanup.v1.schema.json` fields | no, parks |
 | Engine restarted while the attempt was in flight | `engine.rs:942-958` | none | `effect/indeterminate`: "completion cannot be established" | no, parks |
 
-Two rows are in bold. Each reports `Failed` for an attempt whose result
-the engine never received, after `start` had reached the driver. The row
-below them shows that the code already treats that fact as unknown
+Three rows are in bold. Each reports `Failed` for an attempt whose
+executor's result the engine never received, after `start` had reached
+the driver. In the first, the `failed` is the driver's own synthesis. A
+missing result file is a lost result, not the command's report of
+failure; the seat contract makes the file the only channel the engine
+reads. `recv`'s arms are also how a handshake fails before `start`; only
+after `start` are they a lost result. The row below the bold rows shows that the code already treats that fact as unknown
 completion when the driver merely exits. The doc comment on `eof_outcome`
 gives the deadline kill's reason: "we killed it before any result". That
 is a fact about who ended the process, not about the effect. The driver
@@ -121,8 +130,10 @@ to pick the next model. Nothing else reaches the decision.
 
 The limits are seat data. `max_attempts` defaults to 1 and
 `timeout_seconds` to 3600 (`crates/brokkr-runtime/src/bundle.rs:361-367`).
-Every seat of `recipes/self` reaches 2 through its agents and the `fast`
-recipe it extends: intake, implement, review, verify and ship. So a
+Every seat of `recipes/self` reaches 2 through its agents and its extends
+chain, `self` to `panel-review` to `fast` (`recipes/self/bundle.json:5`,
+`recipes/panel-review/bundle.json:5`): intake, implement, review, verify
+and ship. So a
 deadline kill of the self implementer, after up to 90 minutes of work, is
 retried once, on the same worktree.
 
@@ -133,7 +144,10 @@ is a fresh UUID (`engine.rs:1059`) and `idempotency_key` is
 `"{run_id}:{seq}"`, the journal sequence of the `effect/requested` event
 itself (`engine.rs:1062`, `engine.rs:1069`). It is written once per
 effect, so every automatic attempt of that effect shares it. Each
-attempt's `attempt_id` is a fresh UUID (`engine.rs:1359`). The contract
+attempt's `attempt_id` is a fresh UUID (`engine.rs:1359`). A panel's
+members and a sequence's steps run under their effect's one `effect_id`
+and one `attempt_id` (`engine/sequence.rs:38-39`), so the key names the
+effect and no site within its body. The contract
 names the key in prose only (`contracts/README.md:166`). No schema under
 `contracts/` or `reference/` declares it.
 
