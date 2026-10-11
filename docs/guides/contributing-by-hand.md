@@ -206,7 +206,10 @@ with its own output and exit status, and capability_broker's real-box
 tests, which are bound to the broker's startup deadline, run after them,
 alone. The script first holds its shards to Cargo's metadata: a test
 target no shard runs, or one two shards run, is refused by name, so a new
-`[[test]]` is placed in a shard in the script before it can pass. A plain
+`[[test]]` is placed in a shard in the script before it can pass. Each
+shard's libtest summaries are read as the one-binary test guard reads a
+run's: one it cannot read, or none at all, refuses the shard, and so does
+a filtered shard that ran no test. A plain
 cargo test runs the same tests, one binary after another. On Linux,
 install bubblewrap first: the
 hands tests build a real namespace (decision 0043), and a boundary proof

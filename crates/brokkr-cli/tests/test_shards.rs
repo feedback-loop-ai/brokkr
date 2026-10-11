@@ -57,7 +57,10 @@ fn metadata() -> Metadata {
 /// A first-phase shard waits until the whole first phase has started, so
 /// a runner that ran them one at a time fails here; the second phase
 /// fails unless the whole first phase has ended. `STUB_FAIL` names a word
-/// whose shard fails, and `STUB_EMPTY=2` makes the second phase run no test.
+/// whose shard fails, `STUB_EMPTY=2` makes the second phase run no test,
+/// `STUB_PLANT` names a word whose shard prints `STUB_LINES` in place of
+/// its summary and exits 0, and `STUB_KILL` one whose shard kills its
+/// runner, the script's subshell, before the runner records its status.
 const STUB: &str = r#"#!/usr/bin/env bash
 dir="$STUB_DIR"
 if [ "$1" = metadata ]; then cat "$dir/metadata.json"; exit 0; fi
@@ -85,12 +88,15 @@ fi
 status=0
 if [ -n "${STUB_FAIL:-}" ] && [[ " $* " == *" $STUB_FAIL "* ]]; then
   summary FAILED 0 1; status=101
+elif [ -n "${STUB_PLANT:-}" ] && [[ " $* " == *" $STUB_PLANT "* ]]; then
+  printf '%s' "$STUB_LINES"
 elif [ "${STUB_EMPTY:-}" = "$phase" ]; then
   summary ok 0 0
 else
   summary ok 1 0
 fi
 if [ "$phase" = 1 ]; then : > "$dir/ended/$$"; fi
+if [ -n "${STUB_KILL:-}" ] && [[ " $* " == *" $STUB_KILL "* ]]; then kill -KILL "$PPID"; fi
 exit "$status"
 "#;
 
@@ -103,7 +109,7 @@ struct Scratch {
 impl Scratch {
     fn new(metadata: &Metadata, script: &str) -> Self {
         let dir = tempfile::tempdir().expect("scratch");
-        for sub in ["bin", "started", "ended"] {
+        for sub in ["bin", "started", "ended", "tmp"] {
             std::fs::create_dir(dir.path().join(sub)).expect("scratch directory");
         }
         let cargo = dir.path().join("bin/cargo");
@@ -116,7 +122,8 @@ impl Scratch {
     }
 
     /// The script run from the workspace with `args`, the stub first on
-    /// `PATH`, expecting `phase_one` shards in its first phase.
+    /// `PATH` and the scratch `tmp/` as `TMPDIR`, expecting `phase_one`
+    /// shards in its first phase.
     fn run(&self, args: &[&str], phase_one: usize, env: &[(&str, &str)]) -> Output {
         let path = format!(
             "{}:{}",
@@ -129,6 +136,7 @@ impl Scratch {
             .current_dir(workspace())
             .env("PATH", path)
             .env("STUB_DIR", self.dir.path())
+            .env("TMPDIR", self.dir.path().join("tmp"))
             .env("STUB_PHASE_ONE", phase_one.to_string())
             .envs(env.iter().copied())
             .output()
@@ -346,6 +354,22 @@ fn the_first_phase_runs_at_once_and_capability_broker_alone_after_it() {
     }
 }
 
+/// The test mode run over `metadata` with `env` fails with exactly
+/// `refusal`, only after every shard ran, the later phase included; its
+/// scratch and its stdout.
+fn refused_after_every_shard(
+    metadata: &Metadata,
+    env: &[(&str, &str)],
+    refusal: &str,
+) -> (Scratch, String) {
+    let scratch = Scratch::new(metadata, &script());
+    let run = scratch.run(&["test"], 5, env);
+    assert_eq!(run.status.code(), Some(1), "{env:?}: {run:?}");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), refusal, "{env:?}");
+    assert_eq!(scratch.calls().len(), SHARDS.len() + 1, "{env:?}");
+    (scratch, String::from_utf8_lossy(&run.stdout).into_owned())
+}
+
 /// A failing shard fails the run only after every shard has ended, the
 /// later phase included, and is named with its exit; a filtered shard
 /// whose run executes no test is refused, since its filter matches none.
@@ -362,11 +386,7 @@ fn a_failed_shard_or_an_empty_filter_fails_the_run_after_every_shard() {
             "test shards: capability_broker, alone executed no test, so its filter matches none\n",
         ),
     ] {
-        let scratch = Scratch::new(&real, &script());
-        let run = scratch.run(&["test"], 5, &[env]);
-        assert_eq!(run.status.code(), Some(1), "{env:?}: {run:?}");
-        assert_eq!(String::from_utf8_lossy(&run.stderr), refusal);
-        assert_eq!(scratch.calls().len(), SHARDS.len() + 1, "{env:?}");
+        refused_after_every_shard(&real, &[env], refusal);
     }
     let run = Scratch::new(&real, &script()).run(&["coverage", "nightly"], 0, &[]);
     assert_eq!(run.status.code(), Some(1), "{run:?}");
@@ -374,4 +394,72 @@ fn a_failed_shard_or_an_empty_filter_fails_the_run_after_every_shard() {
         String::from_utf8_lossy(&run.stderr),
         "test shards: the coverage toolchain 'nightly' is not nightly-YYYY-MM-DD\n"
     );
+}
+
+/// A readable summary showing a test executed.
+const ONE_TEST: &str = "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; \
+                        0 filtered out; finished in 0.00s\n";
+
+/// `test result:` lines in shapes the grammar cannot read.
+const UNREAD: &str = "test result: everything is fine\n";
+const UNKNOWN: &str = "test result: UNKNOWN. unreadable\n";
+
+/// Every shard's summaries are ruled on as scripts/run-it-tests.sh rules on
+/// a run's, though the shard exits 0: a filtered shard with a summary the
+/// grammar cannot read is refused beside a readable executed one, before it
+/// or after it, and an unfiltered shard is refused when it prints no summary
+/// or only one the grammar cannot read.
+#[test]
+fn every_shards_summaries_are_read_and_an_unread_or_missing_one_refuses() {
+    let real = metadata();
+    let unread = "printed a test result: summary the guard cannot read, so no test is \
+                  shown to have run";
+    let skipped = "the it binaries, capability_broker skipped";
+    for (word, lines, shard, refusal) in [
+        ("--skip", [UNREAD, ONE_TEST].concat(), skipped, unread),
+        ("--skip", [ONE_TEST, UNKNOWN].concat(), skipped, unread),
+        (
+            "--lib",
+            "running the library\n".to_string(),
+            "every library",
+            "printed no test result: summary, so no test is shown to have run",
+        ),
+        ("--lib", UNREAD.to_string(), "every library", unread),
+    ] {
+        let env = [("STUB_PLANT", word), ("STUB_LINES", lines.as_str())];
+        refused_after_every_shard(&real, &env, &format!("test shards: {shard} {refusal}\n"));
+    }
+}
+
+/// A shard whose runner dies before it records the shard's exit status is
+/// refused by name; its log is still printed, the other shards are still
+/// collected and the later phase still runs, and the logs are kept, since
+/// the shard's command may outlive its runner.
+#[test]
+fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
+    let (scratch, stdout) = refused_after_every_shard(
+        &metadata(),
+        &[("STUB_KILL", "--lib")],
+        "test shards: every library recorded no exit status (its runner ended with exit 137), \
+         so it is not shown to have passed\n",
+    );
+    let work: Vec<_> = std::fs::read_dir(scratch.dir.path().join("tmp"))
+        .expect("the scratch TMPDIR")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    assert_eq!(work.len(), 1, "{work:?}");
+    let shown = format!(
+        "\n==> every library (phase 1): no exit status recorded, its runner ended with exit 137; \
+         the logs are kept in {}\n{ONE_TEST}",
+        work[0].display()
+    );
+    for line in [
+        shown.as_str(),
+        "\n==> the doctests (phase 1): exit 0 after ",
+        "test shards: phase 1, every library: no exit status recorded\n",
+        "test shards: phase 2, capability_broker, alone: exit 0 after ",
+    ] {
+        assert!(stdout.contains(line), "{line}\n{stdout}");
+    }
+    assert!(work[0].join("0.log").is_file(), "{work:?}");
 }

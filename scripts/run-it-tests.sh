@@ -37,25 +37,7 @@ trap 'rm -f "$output"' EXIT
 status=$?
 cat "$output"
 
-summaries=0
-unread=0
-no_test=0
-while IFS= read -r line || [ -n "$line" ]; do
-  case "$line" in
-    'test result:'*)
-      summaries=$((summaries + 1))
-      verdict=0
-      summary_executed "$line" || verdict=$?
-      # Anything but the grammar's two readings is unread, so a reader
-      # that could not run refuses rather than passes.
-      case "$verdict" in
-        0) ;;
-        1) no_test=1 ;;
-        *) unread=1 ;;
-      esac
-      ;;
-  esac
-done <"$output"
+summaries_read "$output"
 
 if [ "$unread" -eq 1 ]; then
   printf 'run-it-tests: the command printed a test result: summary the guard cannot read, so no test is shown to have run: %s\n' "$*" >&2

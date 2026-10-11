@@ -26,10 +26,14 @@
 # or exactly twice by a filter and its skip. A target no shard selects, one
 # selected twice, a selector that names no target, a shard that runs a
 # target the suite does not, and a selector the plan cannot read are each
-# refused by name. A filtered shard whose run shows no executed test is
-# refused too, since its filter matches nothing (#543). The threat model is
-# the operator's of 2026-09-26: realistic accidental misuse is caught, and
-# what cannot be read is refused.
+# refused by name. Every shard's output is ruled on as scripts/run-it-tests.sh
+# rules on a run's: a shard that prints a `test result:` summary the
+# grammar cannot read, or none at all, is refused, and so is a filtered
+# shard whose run shows no executed test, since its filter matches nothing
+# (#543). A shard whose runner ends without recording its exit status is
+# refused by name, and the logs are then kept, since its command may still
+# be writing them. The threat model is the operator's of 2026-09-26:
+# realistic accidental misuse is caught, and what cannot be read is refused.
 set -euo pipefail
 
 refuse() {
@@ -188,9 +192,6 @@ if [ "$mode" = plan ]; then
   exit 0
 fi
 
-work="$(mktemp -d "${TMPDIR:-/tmp}/brokkr-test-shards.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
-
 # Every test binary is built once, before any shard runs, so a compile
 # error is reported once, the shards start together, and no shard's tests,
 # some of them bound to a wall-clock deadline, run beside another shard's
@@ -206,20 +207,37 @@ fi
 # shellcheck source=scripts/test-summary.sh
 source scripts/test-summary.sh
 
-# Whether a shard's output shows a test it executed: a libtest summary with
-# a test passed or failed. A shard runs many binaries, and one a filter
-# leaves empty prints a summary of none, so one executed test is enough.
-executed_a_test() {
-  local line
-  while IFS= read -r line || [ -n "$line" ]; do
-    if summary_executed "$line"; then return 0; fi
-  done <"$1"
-  return 1
+# Why the output $1 of the shard $2 refuses it, or nothing: as
+# scripts/run-it-tests.sh refuses a run, a summary the grammar cannot read
+# anywhere, or no summary at all; and a filtered shard whose summaries show
+# no test executed. A shard runs many binaries, and one a filter leaves
+# empty prints a summary of none, so one executed test is enough.
+summary_refusal() {
+  summaries_read "$1"
+  if [ "$unread" -eq 1 ]; then
+    printf 'printed a test result: summary the guard cannot read, so no test is shown to have run'
+  elif [ "$summaries" -eq 0 ]; then
+    printf 'printed no test result: summary, so no test is shown to have run'
+  elif [[ " ${shard_selectors[$2]}" == *" skip:"* || " ${shard_selectors[$2]}" == *" only:"* ]] &&
+    [ "$executed" -eq 0 ]; then
+    printf 'executed no test, so its filter matches none'
+  fi
 }
 
+work="$(mktemp -d "${TMPDIR:-/tmp}/brokkr-test-shards.XXXXXX")"
+# The logs are removed on exit only once every shard's runner has been
+# reaped and each recorded its status: a runner that died first may leave
+# its command still writing, and a run cut short leaves runners going.
+settled=false
+trap 'if "$settled"; then rm -rf "$work"; fi' EXIT
+
 failed=()
+shard_status=()
+shard_seconds=()
+lost=false
 run_phase() {
-  local phase="$1" index pids=() indices=() at status seconds
+  local phase="$1" index pids=() indices=() at waited status seconds refusal
+  local status_re='^[0-9]+ [0-9]+$'
   for index in "${planned[@]}"; do
     [ "${shard_phase[$index]}" = "$phase" ] || continue
     argv_of "$index"
@@ -236,26 +254,45 @@ run_phase() {
   done
   for at in "${!pids[@]}"; do
     index="${indices[$at]}"
-    wait "${pids[$at]}" || true
-    read -r status seconds <"$work/$index.status"
+    waited=0
+    # Bash's own notice of a runner killed by a signal is replaced by the
+    # refusal below, which names the runner's exit.
+    wait "${pids[$at]}" 2>/dev/null || waited=$?
+    status='' seconds=''
+    if [ -s "$work/$index.status" ]; then read -r status seconds <"$work/$index.status" || true; fi
+    if ! [[ "$status $seconds" =~ $status_re ]]; then
+      lost=true
+      shard_status[$index]=none
+      printf '\n==> %s (phase %s): no exit status recorded, its runner ended with exit %s; the logs are kept in %s\n' \
+        "${shard_name[$index]}" "$phase" "$waited" "$work"
+      if [ -f "$work/$index.log" ]; then cat "$work/$index.log"; fi
+      failed+=("${shard_name[$index]} recorded no exit status (its runner ended with exit $waited), so it is not shown to have passed")
+      continue
+    fi
+    shard_status[$index]="$status"
+    shard_seconds[$index]="$seconds"
     printf '\n==> %s (phase %s): exit %s after %ss\n' "${shard_name[$index]}" "$phase" "$status" "$seconds"
     cat "$work/$index.log"
     if [ "$status" -ne 0 ]; then
       failed+=("${shard_name[$index]} failed with exit $status")
-    elif [[ " ${shard_selectors[$index]}" == *" skip:"* || " ${shard_selectors[$index]}" == *" only:"* ]] &&
-      ! executed_a_test "$work/$index.log"; then
-      failed+=("${shard_name[$index]} executed no test, so its filter matches none")
     fi
+    refusal="$(summary_refusal "$work/$index.log" "$index")"
+    if [ -n "$refusal" ]; then failed+=("${shard_name[$index]} $refusal"); fi
   done
 }
 
 phases="$(printf '%s\n' "${shard_phase[@]}" | sort -un)"
 for phase in $phases; do run_phase "$phase"; done
+if ! "$lost"; then settled=true; fi
 
 printf '\n'
 for index in "${planned[@]}"; do
-  read -r status seconds <"$work/$index.status"
-  printf 'test shards: phase %s, %s: exit %s after %ss\n' "${shard_phase[$index]}" "${shard_name[$index]}" "$status" "$seconds"
+  if [ "${shard_status[$index]}" = none ]; then
+    printf 'test shards: phase %s, %s: no exit status recorded\n' "${shard_phase[$index]}" "${shard_name[$index]}"
+  else
+    printf 'test shards: phase %s, %s: exit %s after %ss\n' "${shard_phase[$index]}" "${shard_name[$index]}" \
+      "${shard_status[$index]}" "${shard_seconds[$index]}"
+  fi
 done
 if [ "${#failed[@]}" -gt 0 ]; then
   printf 'test shards: %s\n' "${failed[@]}" >&2
