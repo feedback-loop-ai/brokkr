@@ -85,8 +85,12 @@ what the loader leaves open, so that the schema and the loader disagree.
      supersedes it. A `withdrawn` decision was never accepted and mints
      nothing. A `proposed` one does not mint. The build adds the
      transition sentence to the decisions README's vocabulary bullet: a
-     proposal is never superseded, and an accepted decision is never
-     withdrawn.
+     proposal's `Status:` never becomes `superseded`, and an accepted
+     decision is never withdrawn. The sentence is about the status word
+     only. A part of a proposal may still be taken over by pointer: 0055
+     reads `Status: proposed` over `Superseded in part by: 0073` today.
+     0055 mints no version, so no row names it and no walk below reads
+     its pointer.
    - **A superseded decision** keeps a minting only when its successor
      says so. The test never asks when a version landed, because nothing
      in the tree records it. It reads the successor instead. A decision
@@ -156,7 +160,15 @@ what the loader leaves open, so that the schema and the loader disagree.
    cell is one decision number, optionally followed by the date of the
    addendum that minted it (`0042 (2026-09-06 addendum)`), or one of
    ruling 2's listed cells or its withdrawn form of one, matched whole.
-   Every other form refuses as unreadable. The decision must be in the
+   Every other form refuses as unreadable. Three files,
+   `run-manifest.v1`, `event-envelope.v1` and `driver-protocol.v1`, were
+   frozen "under decisions 0003–0005" (`contracts/README.md:3-4`), a
+   range the cell does not read. The build writes `0003` for each: its
+   ruling places the event contract, bundle shape and driver protocol in
+   the target architecture (`0003-native-rust-runtime.md:98-100`), its
+   bold `**Status**:` line reads `accepted`, which the index test reads
+   bold or plain (`decisions_index.rs:494-498`), and it carries no
+   supersession pointer. The decision must be in the
    ledger with a `Status:` reading `accepted` or `superseded`; a
    `proposed` or `withdrawn` one never mints, and only ruling 2's list
    records a version that stands without it.
@@ -236,13 +248,16 @@ what the loader leaves open, so that the schema and the loader disagree.
    decision's `Status:`, or the named addendum's status line, reads
    `withdrawn`. Under any other status it refuses, and a row naming no
    decision in the ledger has no withdrawn form. One whose decision reads `superseded` is refused, because a
-   proposal is never superseded. Every row off the list passed the check
+   proposal's `Status:` never becomes `superseded`. Every row off the list passed the check
    on the day it landed, so its decision was accepted then. A decision that minted
    a contract version never leaves this directory. If the operator
    declines it, it stays with status `withdrawn` and a dated note, and the
    withdrawal rules its versions' reader state. A version that lost its
-   authority is read for ruling 3's window like any older version, or is
-   retired at once where nothing ever wrote it. Two rows need a home in
+   authority keeps its reader under ruling 3 like any older version, and
+   retires only as ruling 3's binding admits a `retired` row. A journal
+   version nothing ever wrote reads `Last written` `never`, so its
+   deadline is the build's landing line and it retires in the release
+   after. Two rows need a home in
    the tree before they can leave the list. `realms.v7` needs either 0075
    landing or a dated erratum to 0065, where PR #526 ported the
    provisional tier. `run-manifest.v13` needs a dated erratum to 0068's
@@ -281,7 +296,8 @@ what the loader leaves open, so that the schema and the loader disagree.
      driver protocol. No release ages it. An input
      label's reader is removed only under an accepted decision that names
      the release (decision 0071 ruling 6), and `brokkr doctor` names the label to move
-     to for at least one minor line before that release.
+     to for at least one minor line before that release. The decision
+     names both lines in one header line, and the binding below reads it.
    - A **record** row, an older local run manifest, has no reader to
      remove. Its bytes stay as the description of what older journals
      hold.
@@ -315,7 +331,8 @@ what the loader leaves open, so that the schema and the loader disagree.
    The dialect pins' last lines are measured by the build, not here.
 
    **Enforcement binding:** the table test from ruling 4 computes each
-   journal `reader` row's deadline and never reads it from the row. The
+   journal `reader` or `retired` row's deadline and never reads it from
+   the row. The
    deadline is the row's `Last written` line plus N, or the line the
    build lands in where that is later; the test holds that landing line
    as one constant, so it does not move with later releases. `Reader
@@ -334,17 +351,55 @@ what the loader leaves open, so that the schema and the loader disagree.
      dispatches to that row's version, and the next minor line it does
      not, so the line is the last that version was written under. v2's
      row reads `never`: `of_engine` selects v2 for no line from 0.0 to
-     the workspace line, and its deadline is the landing line;
-   - any other journal `reader` row, today the dialect pins v1 and v2,
-     has no loader that holds its line. The test admits such a row's
-     `Last written` cell only from a closed list it holds, by exact file
-     and cell, as ruling 2's list is held. The build measures those
-     lines and names in its pull request the commit each was read from.
+     the workspace line, and its deadline is the landing line. A retired
+     seat-record version keeps its variant and its `of_engine` arm, which
+     the store answers with the refusal above, so a retired row's line
+     stays bound to the same dispatch;
+   - any other journal `reader` or `retired` row, today the dialect pins
+     v1 and v2, has no loader that holds its line. The test admits such a
+     row's `Last written` cell only from a closed list it holds, by exact
+     file and cell, as ruling 2's list is held, and an entry stays when
+     its row retires. The build measures those lines and names in its
+     pull request the commit each was read from.
 
    The test then compares each `reader` row's `Reader until` with the
    workspace version in `Cargo.toml`, and fails at the version bump that
    passes it while the row is still `reader`. For seat-record rows the
    dispatch check above keeps the table and the store from disagreeing.
+
+   A `retired (0.N)` row is bound to the same authority, never to its own
+   cells alone.
+   - A journal row keeps its `Last written` and `Reader until`, bound as
+     above, and `Reader until` still equals the computed deadline. 0.N
+     must be later than that deadline, so a reader removed inside its
+     window refuses, naming the row, 0.N and the deadline. 0.N must not
+     be later than the workspace version, so a row cannot record a
+     removal the tree has not made.
+   - An input row is retired only by an accepted decision that nothing
+     supersedes and that carries a header line reading exactly
+     `Retires the reader of: contracts/<file> in <0.N>, warned from
+     <0.M>`, with 0.M earlier than 0.N. Such a line no row names is
+     refused as unused (decision 0071 ruling 6), and the build adds the
+     line to the decisions README's header vocabulary. While the
+     workspace version is earlier than 0.N, the row stays `reader` and
+     its `Reader until` reads `0.N (decision NNNN)`, matched whole
+     against that line. From 0.M on, the test drives `brokkr doctor`
+     against an input under the row's label and asserts its exact
+     warning, naming the label to move to. From 0.N on, the row reads
+     `retired (0.N)` with the same `Reader until`, and the version bump
+     that reaches 0.N fails while it still reads `reader`. A decision
+     not in the ledger, not accepted, or superseded, a line whose file
+     or release differs from the row's, a 0.M not earlier than 0.N, or
+     any other `Reader until` form, refuses, naming the row.
+   - For both classes, no reader source admits a retired row's version:
+     a `set` family's array omits it, the seat-record dispatch answers
+     its lines with the refusal, and any other kind's loader, driven
+     with an instance of it, refuses it.
+
+   One tree cannot show that the 0.M release was cut after the retiring
+   decision landed. The operator, accepting the decision, rules a 0.M
+   not yet released, and the test reads no history.
+
    `crates/brokkr-store` gains a test that plants a `run/started` naming
    a retired line and asserts the exact refusal text. In
    `crates/brokkr-runtime/tests/frozen_contracts.rs`, the `contracts/`
@@ -365,6 +420,24 @@ what the loader leaves open, so that the schema and the loader disagree.
    naming the row, since `of_engine` dispatches 0.10 to v5; change a
    dialect pin's `Last written` cell and see it refused as outside the
    list; delete one `FROZEN` entry and see it fail naming the file.
+   Retired rows, each with the workspace version planted:
+   - at 0.13, remove `seat-record.v5`'s reader and write its row
+     `retired (0.13)`, and see it fail naming the row, 0.13 and the
+     deadline 0.14, which shows an early retirement is refused;
+   - at 0.13, write `seat-record.v4`'s row `retired (0.14)`, and see it
+     fail as a removal the tree has not made;
+   - empty a retired row's `Last written` or `Reader until`, and see it
+     refused as unreadable;
+   - at 0.13, drop `SCHEMA_V1` from `brokkr_core::realms::SCHEMAS` and
+     write `realms.v1`'s row `retired (0.13)` with `Reader until`
+     `0.13 (decision NNNN)`: with no such decision in the ledger, see it
+     refused; plant the decision `proposed`, and see it refused; plant
+     it accepted with `in 0.14, warned from 0.12`, and see it refused as
+     the wrong release; plant it with `in 0.13, warned from 0.13`, and
+     see it refused as a warning shorter than one line;
+   - at 0.12, with `realms.v1` still `reader` under an accepted decision
+     reading `in 0.13, warned from 0.12`, remove the doctor's warning for
+     `forge.realms/v1`, and see the test fail naming the label.
 
 4. **One lifecycle table, in `versioning.md`, covers every file in
    `contracts/` and is checked against the tree.** It takes the place of
@@ -414,13 +487,17 @@ what the loader leaves open, so that the schema and the loader disagree.
      build adds no `pub` item for the check (decision 0071 ruling 6). It
      fills each current row with the kind its loader supports, and a row
      no kind can bind is a finding it names, never a row bound by text.
-   - `State` is `current`, `reader`, `record` or `retired (0.N)`. Exactly
-     one row per family or lineage is `current`.
+   - `State` is `current`, `reader`, `record` or `retired (0.N)`, where
+     0.N is the release that removed the reader. Exactly one row per
+     family or lineage is `current`. Ruling 3 binds a `retired` row.
    - `Last written` is an engine line, or `never`, for a journal
-     `reader` row, and empty otherwise. Ruling 3 binds it.
+     `reader` or `retired` row, and empty otherwise. Ruling 3 binds it.
    - `Reader until` is an engine line, or ruling 3's extended form, for
-     a journal `reader` row, `decision` for an input `reader` row, and
-     empty otherwise. Ruling 3 computes it; the row only states it.
+     a journal `reader` or `retired` row. For an input row it is
+     `decision` while no retirement is ruled, and `0.N (decision NNNN)`
+     for a `reader` or `retired` row whose retirement is ruled. It is
+     empty otherwise. Ruling 3 computes or binds it; the row only states
+     it.
 
    Rows are written by hand and checked. The guide's three stale
    sentences are corrected in the same slice.
@@ -438,7 +515,7 @@ what the loader leaves open, so that the schema and the loader disagree.
      text merely names the version binds nothing. Every `engine <path>` or
      `shipped <path>` in `Writer` exists.
    - Exactly one `current` row per family or lineage.
-   - Ruling 3's window check.
+   - Ruling 3's window and retirement checks.
 
    Removal controls: delete a row and see the test fail naming the file.
    The behavioural ones each take a version out of a loader's accepted set
@@ -491,10 +568,11 @@ what the loader leaves open, so that the schema and the loader disagree.
   are still the only families validated by a schema at runtime. The
   table's `Reader` column shows which is which. Collapsing the two is not
   ruled here.
-- Not ruled here, and named as follow-ups in research 0022: the
-  phase-machine loader reads an unknown label under v1's rules (row 6),
-  and `brokkr init` writes `forge.realms/v3` or `v4` while v8 is current
-  (row 11).
+- Not ruled here: the phase-machine loader reads an unknown label under
+  v1's rules (research 0022, row 6), and `brokkr init` writes
+  `forge.realms/v3` or `v4` while v8 is current (row 11). The research
+  names both as findings, classifies both `not-planned`, and leaves them
+  unruled. Nothing here plans either.
 - No contract, fixture, policy table or reference byte moves under any
   ruling here.
 
@@ -528,10 +606,11 @@ what the loader leaves open, so that the schema and the loader disagree.
    Recommended closed, as ruling 1 rules. Leaving it open is option (b)
    above.
 6. **The unknown phase-machine label.** Whether ruling 5 should also
-   refuse a table whose label is neither v1 nor v2, or leave that to a
-   follow-up. Recommended the follow-up research 0022 names (row 6):
-   ruling 5 records a label, and refusing an unknown one changes what
-   the loader admits, with its own refusal text and tests. The
+   refuse a table whose label is neither v1 nor v2, or leave it unruled.
+   Recommended unruled here, as research 0022 leaves it (row 6,
+   `not-planned`), until a commission asks for it: ruling 5 records a
+   label, and refusing an unknown one changes what the loader admits,
+   with its own refusal text and tests. The
    alternative rules it here, so ruling 5's build also makes
    `Machine::from_table` refuse a label that is neither v1 nor v2.
 7. **What was not measured.** Which journals the operator still verifies,
