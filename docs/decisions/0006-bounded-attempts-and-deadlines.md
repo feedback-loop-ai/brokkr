@@ -195,3 +195,233 @@ determinate was not.
   launchd unseen. Separately, and not a limit of settlement: without a
   pidfd, a pid reused between `ps`'s confirmation and the signal could
   be signalled.
+
+## Addendum — 2026-10-11, proposed: ending a process proves nothing about its effects, and a retry needs evidence (#434)
+
+Status: proposed; only the operator accepts this addendum. Until then
+the rulings above stand as written, and no retry behaviour changes.
+
+The ruling above calls a deadline kill determinate "because the engine
+killed it before any result". That fact is about who ended the process.
+It is silent on what the attempt did first. #403's addendum since proves
+the attempt's process tree gone before a retry starts, and that proof is
+about processes too. Research 0021 inventories every end of an attempt
+at `3ad0f66c`. Two ends report `failed`, and so retry, although the
+engine read no result after the driver received `start`: the deadline
+kill (`process.rs:460-466`) and a protocol violation after `start`
+(`process.rs:599-632`). The third such end, a driver that exits without
+a result, is already `indeterminate` (`process.rs:467-475`). The
+`idempotency_key` the engine journals (`engine.rs:1069`) reaches no
+executor, so nothing deduplicates on it. The operator's threat model of
+2026-09-26 asks the engine to catch realistic accidental misuse and to
+fail closed on what it cannot read. These rulings apply that to replay.
+
+1. **Four facts, kept apart.** An attempt's end is read for four facts,
+   and none of them implies another:
+   - *termination*: the attempt's process tree is proven gone
+     (`Cleanup::Settled`, #403);
+   - *receipt*: the executor's own result reached the engine whole and
+     readable, within the transport's limits (decision 0079);
+   - *refusal before execution*: the engine knows the executor never
+     began. Either the engine refused before spawning, or the driver
+     never received `start`, or the driver's own result refused with no
+     `accepted`, no checkpoint and no deadline kill (decision 0053's
+     predicate, `failed_to_start`);
+   - *effect certainty*: what the attempt changed. Brokkr knows this
+     only for the run's own worktree, and only by reading it.
+
+   A failure the ruling above may retry needs receipt or a refusal
+   before execution. Termination alone never makes one.
+
+   **Enforcement binding:** the outcome classification in
+   `crates/brokkr-protocol/src/process.rs` (`eof_outcome` and `end`)
+   holds this ruling. A deadline kill, and a protocol violation after
+   `start`, become `Indeterminate` there, and `deadline_killed` stays on
+   the report. The tests are named under ruling 2.
+
+2. **The retry matrix.** Each end retries or parks as follows:
+
+   | End | What the engine knows | Ruled |
+   |---|---|---|
+   | Pre-session refusal: the engine refused the spawn, the handshake failed before `start`, a classified provider refusal, or a driver refusal sent before anything was invoked (a missing secret, an unverified charter, a harness that would not start) | the executor never began, or it said so in its own result | Retries automatically within `max_attempts`. A model chain descends where decisions 0016 and 0053 allow, which excludes the refusals sent after `accepted`. Unchanged. |
+   | Process timeout: the deadline kill | the tree is gone, and no result was read | The effect is uncertain, and the attempt is `effect/indeterminate`. It retries only under ruling 4. Otherwise it parks for the operator. **Changed.** |
+   | Lost result: an exit after `start` with no result, a protocol violation after `start`, a line past a transport limit, or an engine restart in flight | no result was read | As for the timeout. Only the protocol violation changes, from `failed`. An engine restart always parks, because nothing proves its tree gone. |
+   | Partial side effect: the executor's own `failed` result after it began work | the executor answered and its result failed; what it changed is not known | Retries automatically within `max_attempts`, as the ruling above has it. The retry runs in the same worktree, on the same result path and under the same effect identity, so it reconciles against what the attempt left there. Nothing is claimed about effects beyond the worktree (ruling 6). Unchanged. |
+   | Cleanup failure: the tree is not proven gone | an outcome was received, and the cleanup is unresolved | Parks for the operator, always, whatever was received or declared (#403's addendum). Unchanged. |
+
+   A panel or sequence attempt is uncertain when any member or step is,
+   as it is today. Under ruling 4 it retries only when every member or
+   step that received `start` holds an acknowledged identity.
+
+   **Enforcement binding:** in
+   `crates/brokkr-protocol/src/process/tests.rs`, the `deadline_failure`
+   helper's pinned outcome becomes the indeterminate reason of ruling 6.
+   A new test, `a_protocol_violation_after_start_is_indeterminate`, pins
+   that row. In `crates/brokkr-cli/tests/machine_proof.rs`,
+   `hung_driver_is_killed_at_its_deadline` and
+   `indeterminate_is_never_auto_retried_even_with_attempts_left` keep
+   their names and assertions. A new test,
+   `a_deadline_kill_with_attempts_left_parks_after_one_attempt`, drives a
+   hanging seat with a limit of 2. Another,
+   `a_reported_failure_retries_on_the_tree_the_attempt_left`, drives a
+   fake executor that writes a marker and reports failure, and pins that
+   its retry reads the marker. For the acceptance item on a known failure
+   before acceptance, `crates/brokkr-cli/tests/agent_fallback.rs` adds
+   `a_refusal_before_the_session_still_descends_within_its_bound`.
+
+3. **No payload earns replay authority.** Authority to retry an
+   uncertain attempt has one source: a closed declaration in the compiled
+   bundle, digested into the manifest, together with the attempt's own
+   journaled acknowledgement of the effect's identity (ruling 4). The
+   following confer none, whatever they say: the driver's
+   `capabilities.supports` list, a checkpoint, a result object, stderr,
+   and every other string on the wire. An unknown declaration value
+   refuses the compile. So does a declaration on a site whose executor
+   is a model harness (claude, codex, dsh or lanetally), because its
+   session can act beyond anything that could deduplicate (ruling 6).
+
+   **Enforcement binding:** compile refusals in
+   `crates/brokkr-runtime/src/bundle.rs`, each tested with its exact
+   text: an unknown `replay` value, and `deduplicates` on a model-harness
+   site. A machine-proof test,
+   `a_driver_advertising_replay_on_the_wire_parks`, drives a fake driver
+   that lists an extra `supports` string and writes a replay-shaped field
+   into its checkpoint, then is killed at its deadline. It pins the park.
+
+4. **The effect's identity is stable, and attempt ids stay distinct.**
+   - **The identity.** It is the `idempotency_key` that `effect/requested`
+     already journals, `{run_id}:{seq}`. Its bytes and derivation do not
+     change. Every automatic attempt of the effect carries it, and each
+     attempt keeps a fresh `attempt_id`.
+   - **Delivery and acknowledgement.** The next version of the driver
+     protocol delivers the identity in `start` and `resume`. The executor
+     acknowledges it by echoing it exactly in `accepted`, before any
+     effect.
+   - **The declaration.** An `exec` site may declare `replay`, a closed
+     vocabulary of `none` (the default) and `deduplicates`. With
+     `deduplicates`, the operator states that the command acts at most
+     once per identity. Handed an identity it has already acted on, the
+     command reports the committed outcome instead of acting again.
+     Reconciliation is that same report, so it takes no second value.
+     The exec driver passes the identity to the command through a
+     template placeholder, and a declaration whose command does not name
+     the placeholder refuses the compile.
+   - **When it retries.** An uncertain end of a `deduplicates` site
+     retries within `max_attempts` only when all of these hold: its
+     cleanup is settled; its journaled `accepted` echoed the effect's
+     identity byte for byte; and its end was not an engine restart. The
+     attempt's terminal event is then `effect/failed`. It carries the
+     evidence behind the decision: the declaration, the identity, the
+     acknowledging attempt id and the outcome received. A numbered
+     contract extension beside `effect-cleanup.v1` holds that evidence,
+     and fold never reads it. If any condition fails, the attempt is
+     `effect/indeterminate` and parks.
+   - **An operator's `retry`** opens a new effect with a new identity,
+     as it does today. It is the operator's decision to act again, after
+     reconciling what the parked effect did.
+
+   **Enforcement binding:** the issue's acceptance tests, in
+   `crates/brokkr-cli/tests/machine_proof.rs`. Each test's fake executor
+   counts its commits in a marker file outside the worktree.
+   - `a_marker_committed_then_lost_parks_and_is_never_committed_twice`:
+     an undeclared exec commits its marker and is then killed at its
+     deadline. The run parks, with a count of 1 and one `effect/started`.
+   - `a_deduplicating_executor_sees_one_identity_and_acts_once`: the same
+     executor is declared `deduplicates` and reads the identity. Its
+     first attempt commits and is killed. Its second receives the same
+     identity, finds its marker and reports the committed outcome. The
+     test pins: a count of 1; two `effect/started` with different
+     attempt ids; both `accepted` echoing one identity equal to
+     `effect/requested.idempotency_key`; the replay evidence on the first
+     `effect/failed`; and a completed run.
+   - `an_unacknowledged_identity_parks`: the site is declared, but its
+     `accepted` does not echo the identity, so the run parks.
+
+   A fold test in `crates/brokkr-core/src/fold.rs`'s suite pins that an
+   `effect/failed` carrying the evidence folds exactly as one without it.
+
+5. **No retry overlaps the attempt it repeats.** Every retry this
+   addendum allows starts only after the earlier attempt's cleanup is
+   `Settled`. The settled outcome is read before any declaration, so an
+   unresolved cleanup is indeterminate and parks, `deduplicates` or not.
+
+   **Enforcement binding:**
+   `a_deduplicating_site_whose_descendant_outlives_the_kill_parks` in
+   `crates/brokkr-cli/tests/machine_proof.rs`. Its executor leaves a
+   descendant that the teardown cannot prove gone, built from #403's
+   fixtures in `crates/brokkr-protocol/src/process/tests.rs`. The test
+   pins the park with the cleanup evidence, a marker count of 1, and no
+   second `effect/started`.
+
+6. **The limits, stated.** Brokkr does not promise exactly-once
+   execution. It promises three things:
+   - an attempt known not to have begun may be repeated;
+   - an attempt whose result was not read is repeated only for an
+     executor that acknowledged the effect's identity and is declared to
+     deduplicate on it;
+   - every other uncertain end is the operator's to judge.
+
+   A settled cleanup proves that the local process tree ended. It is
+   never reported, journaled or shown as a rollback of anything the
+   attempt did, locally or remotely. Some effects are outside what
+   Brokkr can observe or deduplicate: an agent session's remote actions,
+   a push made from inside a session, and provider usage already paid
+   for. A retry of a reported failure may repeat them. A `max_attempts`
+   above 1 on a seat that can reach them is the operator's acceptance of
+   that risk.
+
+   **Enforcement binding:** the deadline kill's indeterminate reason is
+   pinned once, in `crates/brokkr-protocol/src/process/tests.rs`. It
+   reads: "attempt exceeded its Ns deadline and was killed; its process
+   tree is gone, and what it did is unknown". The outcome table and the
+   "Deadlines and kills" section of `docs/guides/driver-authoring.md`
+   state this ruling's three promises and its limits. Today that section
+   says the kill "is what makes bounded retry safe", which is the
+   inference this addendum withdraws. Beyond that text, the ruling is judgment guidance for
+   reviewers: no readout may call a settled cleanup a rollback.
+
+7. **Compatibility.** No journal byte moves, and fold does not change:
+   `effect/failed` still returns the effect for a retry, and
+   `effect/indeterminate` still parks. Every existing journal replays to
+   the state it did. A deadline kill that an earlier engine journaled as
+   `effect/failed` stays one.
+   - Ruling 2 is a stricter engine reading of how an attempt ended. It
+     is journaled with the v1 `effect/indeterminate` event and its
+     `reason`. It applies to attempts that start after the build lands,
+     those of a resumed run included. It takes this ruling, not a
+     contract version.
+   - Ruling 4's guarantee takes explicit versions: the driver protocol's
+     next version, the bundle's `replay` key pinned through the next
+     run-manifest version, and the evidence's contract extension.
+   - A v1 driver, or a bundle without `replay`, never earns replay
+     authority. An existing bundle compiles to `none` and keeps every
+     behaviour except ruling 2's.
+
+   **Enforcement binding:** `crates/brokkr-cli/tests/witness_journal.rs`
+   replays its pinned journals unchanged. A witness digest moves only
+   where its test drives a deadline kill or a protocol violation after
+   `start`, and it is re-pinned from that test's reported value. A
+   bundle test pins that a bundle with no `replay` compiles to `none` and
+   the same manifest digest it had.
+
+**Asked.** These are left to the operator's ruling:
+- The cost of ruling 2 was not measured. A hung seat with a limit of 2
+  now parks after its first deadline instead of retrying once. Should
+  that rate be counted from the journals before acceptance?
+- A seat's reach can be pinned to its worktree: boxed, with network off
+  and no capability granted that writes elsewhere. Should a deadline
+  kill on such a seat retry as a reconciliation, since its effects are
+  in the tree the retry reads, rather than park? The simplest rule the
+  evidence supports is no, and that is what ruling 2 rules.
+- Should a reported failure on a seat that can reach beyond its
+  worktree (network on, or an unboxed boundary) park rather than retry?
+  In the shipped library that is `agents/release-manager.json`.
+- Should an operator's `retry` of a parked `deduplicates` effect keep
+  its identity, rather than opening a new effect?
+- Research 0021 rows 8 and 9 are unruled: a result file shared by an
+  effect's attempts, and a sequence retry that re-runs steps that
+  succeeded. Are they follow-ups, or part of this addendum?
+- Decision 0053 ruling 5 reasons from a deadline kill's outcome being
+  `failed`. Its conclusion still holds once this is accepted, because an
+  indeterminate attempt is never a failure to start. Does 0053 take an
+  erratum that says so?
