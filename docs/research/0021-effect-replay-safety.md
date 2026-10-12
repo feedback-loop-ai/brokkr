@@ -38,7 +38,7 @@ neither is part of the addendum, and their design is unruled.
 | 3 | Read a deadline kill, and every other end after `start` with no result of the executor's read, as unknown completion, not as a determinate failure | planned | #434; `crates/brokkr-protocol/src/process.rs` |
 | 4 | Retry, and fall back down the model chain, within a bound, on a failure known to precede execution | implemented | decision 0016, decision 0053, `crates/brokkr-runtime/src/engine.rs` |
 | 5 | Keep one effect identity across an effect's attempts, with a fresh id for each attempt | implemented | `crates/brokkr-runtime/src/engine.rs`, `contracts/README.md` |
-| 6 | Give replay authority only to an executor that receives the effect identity and acknowledges it, on pinned data, never on a payload string | planned | #434; `contracts/driver-protocol.v1.schema.json` |
+| 6 | Give replay authority only on pinned data, never on a payload string: a site's pinned declaration that its executor deduplicates, with the driver's echo as proof the identity was delivered (a command-level acknowledgement is a later option) | planned | #434; `contracts/driver-protocol.v1.schema.json` |
 | 7 | Retry only once the attempt's whole process tree is proven gone, and never read that proof as a remote rollback | implemented | decision 0006, `crates/brokkr-protocol/src/lib.rs` |
 | 8 | Bind a seat's result file to the attempt that wrote it | not-planned | |
 | 9 | Resume a failed sequence at its failed step rather than re-running steps that succeeded | not-planned | |

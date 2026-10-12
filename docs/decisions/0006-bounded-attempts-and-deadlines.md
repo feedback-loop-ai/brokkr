@@ -285,21 +285,22 @@ cannot show the executor's own report, these rulings park.
    `an_unreadable_line_after_start_is_indeterminate` for `recv`'s arms,
    beside a handshake case that pins `Failed` before `start`. In
    `crates/brokkr-protocol/src/adapters.rs`'s suite,
-   `a_reported_failure_on_a_seat_beyond_its_worktree_parks` pins the
-   partial-side-effect row's split: the same `failed` result retries on a
-   boxed, network-off seat with no `writes` grant, and parks on a
-   network-on one, on a boxed, network-off one granted a `writes`
-   capability, and on one whose pinned boundary or network fact cannot be
-   read.
    `a_command_that_exits_zero_without_a_result_ends_lost` pins that the
    driver sends no `failed` for that arm, and
    `a_prompt_write_failure_after_the_spawn_ends_lost` pins the same for
    an exec command that closes its stdin before reading its prompt. In
-   `crates/brokkr-cli/tests/machine_proof.rs`,
+   `crates/brokkr-cli/tests/machine_proof.rs`, where the engine reads the
+   pinned manifest, `a_reported_failure_on_a_seat_beyond_its_worktree_parks`
+   pins the partial-side-effect row's split from the run's journal, with
+   a limit of 2: the same `failed` result retries on a boxed, network-off
+   seat with no `writes` grant, with two `effect/started`, and parks after
+   one, with its exact reason, on a network-on seat, on a boxed,
+   network-off one granted a `writes` capability, and on one whose pinned
+   boundary or network fact cannot be read. Also in `machine_proof.rs`,
    `a_transport_limit_end_parks_even_when_declared_and_delivered` drives
    a site declared `deduplicates`, whose `accepted` echoes the identity,
    past the frame limit, with a limit of 2. It pins the park, the
-   0079 reason, and one `effect/started`. Also in `machine_proof.rs`,
+   0079 reason, and one `effect/started`. There too,
    `hung_driver_is_killed_at_its_deadline` and
    `indeterminate_is_never_auto_retried_even_with_attempts_left` keep
    their names and assertions. A new test,
