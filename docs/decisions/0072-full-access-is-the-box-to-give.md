@@ -61,8 +61,8 @@ Since it was drafted (refreshed 2026-10-12):
   cgroups. On such a Linux host a seat box stands inside its attempt's
   cgroup and ends with it. A seat box takes no cgroup as a
   prerequisite, so slice (iii) inherits none.
-- Decision 0075, accepted on 2026-10-12 and not yet on main, makes a
-  harness one module plus adapter data. That data is where each harness declares `hands.seat` (ruling
+- Decision 0075, accepted on 2026-10-12 (#486), makes a harness one
+  module plus adapter data. That data is where each harness declares `hands.seat` (ruling
   2).
 
 ## Rulings
