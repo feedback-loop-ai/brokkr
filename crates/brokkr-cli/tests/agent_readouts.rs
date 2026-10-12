@@ -160,33 +160,11 @@ impl Workspace {
     }
 
     fn brokkr(&self, args: &[&str]) -> (String, String) {
-        let out = Command::new(brokkr_bin())
-            .args(args)
-            .current_dir(self.path())
-            .output()
-            .unwrap();
-        (
-            String::from_utf8_lossy(&out.stdout).into_owned(),
-            String::from_utf8_lossy(&out.stderr).into_owned(),
-        )
+        crate::engine::printed_in(self.path(), args)
     }
 
     fn run(&self) -> String {
-        let (_, stderr) = self.brokkr(&[
-            "run",
-            "--bundle",
-            self.path().join("bundle").to_str().unwrap(),
-            "--feature",
-            "readouts",
-            "--db",
-            self.db().to_str().unwrap(),
-        ]);
-        stderr
-            .lines()
-            .find_map(|line| line.strip_prefix("run started: "))
-            .unwrap_or_else(|| panic!("run id on stderr: {stderr}"))
-            .trim()
-            .to_string()
+        self.run_printing(&[]).0
     }
 
     /// `brokkr run` of the fixture bundle with `extra` arguments, off a
