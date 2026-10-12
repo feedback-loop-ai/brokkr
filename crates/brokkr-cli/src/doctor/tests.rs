@@ -1870,7 +1870,7 @@ fn doctor_exposes_the_effort_pin_refusal_with_its_repair() {
         bundle.join("bundle.json"),
         serde_json::to_vec_pretty(&json!({
             "name": "halfhire",
-            "policy": "policy.json",
+            "policy": "policy.json", "protected_phase": "done",
             "seats": {"implement": {
                 "results": ["complete"],
                 "role": "role.md",

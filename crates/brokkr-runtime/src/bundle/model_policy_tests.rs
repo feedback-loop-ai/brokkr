@@ -9,7 +9,10 @@
 //! vendor's name, a vendor's name would have got into the engine.
 
 use super::*;
+use pin_walk::typed_seats;
 use serde_json::json;
+
+mod pin_walk;
 
 /// Two work results and a review that concludes: enough table for a
 /// single seat, a two-member panel, or a two-step sequence to sit in the
@@ -341,7 +344,7 @@ fn the_model_pin_refusal_names_every_inline_invocation_site_and_the_fix() {
             ]
         }
     });
-    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
+    let refusal = enforce_model_pins(&typed_seats(&seats), None)
         .unwrap_err()
         .to_string();
     for site in [
@@ -389,7 +392,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
                 ["{brokkr}", "driver", "claude", "--", "--model", "claude-opus-5"]},
         },
     });
-    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
+    let refusal = enforce_model_pins(&typed_seats(&seats), None)
         .unwrap_err()
         .to_string();
     assert!(!refusal.contains("do not pin a model"), "{refusal}");
@@ -439,7 +442,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
     ] {
         let seats = json!({"work": {"driver": {"command": command}}});
         assert!(
-            enforce_model_pins(seats.as_object().unwrap(), None)
+            enforce_model_pins(&typed_seats(&seats), None)
                 .unwrap_err()
                 .to_string()
                 .contains("do not pin an effort"),
@@ -450,7 +453,7 @@ fn a_model_pinned_without_an_effort_is_refused_on_its_own() {
     // And an exec seat needs neither pin: ruling 5's own exemption.
     let exec = json!({"work": {"driver": {"command":
         ["{brokkr}", "driver", "exec", "--", "true"]}}});
-    enforce_model_pins(exec.as_object().unwrap(), None).expect("exec needs no effort");
+    enforce_model_pins(&typed_seats(&exec), None).expect("exec needs no effort");
 }
 
 #[test]
@@ -467,7 +470,7 @@ fn explicit_split_and_equals_pins_agents_custom_drivers_and_exec_are_accepted() 
         "agent": {"agent": "implementer"},
         "custom": {"driver": {"command": ["custom-driver"]}}
     });
-    enforce_model_pins(seats.as_object().unwrap(), None).expect("every model invocation is pinned");
+    enforce_model_pins(&typed_seats(&seats), None).expect("every model invocation is pinned");
 
     for command in [
         json!(null),
@@ -494,7 +497,7 @@ fn explicit_split_and_equals_pins_agents_custom_drivers_and_exec_are_accepted() 
         ]),
     ] {
         assert!(
-            !command_pins_model(&json!({"driver":{"command":command}})),
+            !command_pins_model(&command_parts(&json!({"driver":{"command":command}}))),
             "a missing, flag-shaped or ambiguous model is not a concrete pin"
         );
     }
@@ -532,10 +535,10 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
             "--effort=medium", "--effort-cap=medium"
         ]}},
     });
-    enforce_model_pins(seats.as_object().unwrap(), None)
+    enforce_model_pins(&typed_seats(&seats), None)
         .expect("a seat that states both pins has stated them, whatever stands beside them");
     for site in seats.as_object().unwrap().values() {
-        assert!(command_pins_model(site));
+        assert!(command_pins_model(&command_parts(site)));
     }
 
     // And the rule the strict reading is there for is unchanged: two
@@ -546,7 +549,7 @@ fn a_longer_flag_of_the_same_family_leaves_both_pins_stated() {
         "--effort", "high"
     ]}}});
     assert!(
-        enforce_model_pins(twice.as_object().unwrap(), None)
+        enforce_model_pins(&typed_seats(&twice), None)
             .unwrap_err()
             .to_string()
             .contains("do not pin a model"),
@@ -616,7 +619,7 @@ fn a_dsh_seat_is_refused_at_compile_for_the_model_words_its_driver_refuses_at_sp
         "--model=claude-opus-5", "--model-fallback", "claude-sonnet-5",
         "--effort", "high"
     ]}}});
-    enforce_model_pins(claude.as_object().unwrap(), None)
+    enforce_model_pins(&typed_seats(&claude), None)
         .expect("only the dsh driver refuses these words at spawn");
 }
 
@@ -1736,13 +1739,6 @@ fn a_class_outside_the_vocabulary_refuses() {
     let mut work = seat("judge", None, None);
     work["class"] = json!(2);
     assert!(fixture.refusal(work).contains("unknown class"));
-}
-
-#[test]
-fn whole_gate_class_rejects_empty_and_driverless_shapes() {
-    assert!(!is_gate_class(&Value::Null));
-    assert!(!is_gate_class(&json!({"panel": {}})));
-    assert!(!is_gate_class(&json!({"sequence": []})));
 }
 
 #[test]
@@ -4129,14 +4125,14 @@ fn effortless_routes_excuse_only_their_own_lanes() {
 
     // Exempt, with the answering digest witnessed beside the exemption.
     let (witnessed, _resume, _resume_witness, _notice) =
-        enforce_model_pins(seats.as_object().unwrap(), Some(&adapters)).unwrap();
+        enforce_model_pins(&typed_seats(&seats), Some(&adapters)).unwrap();
     assert_eq!(
         witnessed["implement"]["dsh"],
         Value::String(adapters.adapter("dsh").unwrap().digest.clone()),
     );
 
     // No adapters: the strict rule stands.
-    let refusal = enforce_model_pins(seats.as_object().unwrap(), None)
+    let refusal = enforce_model_pins(&typed_seats(&seats), None)
         .unwrap_err()
         .to_string();
     assert!(refusal.contains("do not pin an effort"), "{refusal}");
@@ -4146,7 +4142,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
         "{brokkr}", "driver", "dsh", "--",
         "--model", "deepseek-v4-flash",
     ]))});
-    let refusal = enforce_model_pins(bare.as_object().unwrap(), Some(&adapters))
+    let refusal = enforce_model_pins(&typed_seats(&bare), Some(&adapters))
         .unwrap_err()
         .to_string();
     assert!(refusal.contains("do not pin an effort"), "{refusal}");
@@ -4156,7 +4152,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
         "{brokkr}", "driver", "dsh", "--",
         "--model", "dashscope/qwen3.8-flash",
     ]))});
-    let refusal = enforce_model_pins(studio.as_object().unwrap(), Some(&adapters))
+    let refusal = enforce_model_pins(&typed_seats(&studio), Some(&adapters))
         .unwrap_err()
         .to_string();
     assert!(refusal.contains("do not pin an effort"), "{refusal}");
@@ -4170,7 +4166,7 @@ fn effortless_routes_excuse_only_their_own_lanes() {
         "--effort", "low",
     ]))});
     let (witnessed, _resume, _resume_witness, _notice) =
-        enforce_model_pins(pinned.as_object().unwrap(), Some(&adapters)).unwrap();
+        enforce_model_pins(&typed_seats(&pinned), Some(&adapters)).unwrap();
     assert!(witnessed.is_empty());
 }
 
@@ -4189,7 +4185,7 @@ fn effort_exempt_with_no_declaration_for_the_seats_driver_claims_nothing() {
     let mut witnessed = BTreeMap::new();
     assert!(!effort_exempt(
         "work",
-        &raw,
+        &command_parts(&raw),
         Some(&adapters),
         &mut witnessed
     ));
@@ -4199,7 +4195,7 @@ fn effort_exempt_with_no_declaration_for_the_seats_driver_claims_nothing() {
     ]}});
     assert!(!effort_exempt(
         "check",
-        &exec,
+        &command_parts(&exec),
         Some(&adapters),
         &mut witnessed
     ));

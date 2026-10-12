@@ -9,6 +9,17 @@ use brokkr_runtime::{Seat, SequenceStep, StepBody};
 use std::collections::BTreeMap;
 
 fn bundle_with_sequence() -> Bundle {
+    let step = |name: &str, result: &str| SequenceStep {
+        name: name.into(),
+        results: vec![result.into()],
+        class: brokkr_runtime::SeatClass::Work,
+        body: StepBody::Single {
+            role_path: "role.md".into(),
+            command: vec!["driver".into()],
+            candidates: Vec::new(),
+            written: Vec::new(),
+        },
+    };
     let mut seats = BTreeMap::new();
     seats.insert(
         "review".into(),
@@ -19,28 +30,7 @@ fn bundle_with_sequence() -> Bundle {
             inputs: Vec::new(),
             secrets: Vec::new(),
             body: SeatBody::Sequence {
-                steps: vec![
-                    SequenceStep {
-                        name: "draft".into(),
-                        results: vec!["drafted".into()],
-                        class: brokkr_runtime::SeatClass::Work,
-                        body: StepBody::Single {
-                            role_path: "role.md".into(),
-                            command: vec!["driver".into()],
-                            candidates: Vec::new(),
-                        },
-                    },
-                    SequenceStep {
-                        name: "verify".into(),
-                        results: vec!["pass".into()],
-                        class: brokkr_runtime::SeatClass::Work,
-                        body: StepBody::Single {
-                            role_path: "role.md".into(),
-                            command: vec!["driver".into()],
-                            candidates: Vec::new(),
-                        },
-                    },
-                ],
+                steps: vec![step("draft", "drafted"), step("verify", "pass")],
             },
         },
     );
@@ -93,8 +83,6 @@ fn resolver_and_sequence_summary_cover_every_shape() {
     selected.seats.get_mut("review").unwrap().body = SeatBody::Select {
         cases: BTreeMap::new(),
         default: Some(Box::new(sequence.clone())),
-        case_gates: BTreeMap::new(),
-        default_gate: false,
     };
     assert_eq!(seat_summary(&selected), "review{default=draft>verify}");
 
@@ -104,13 +92,9 @@ fn resolver_and_sequence_summary_cover_every_shape() {
             SeatBody::Select {
                 cases: BTreeMap::from([("leaf".into(), sequence)]),
                 default: None,
-                case_gates: BTreeMap::new(),
-                default_gate: false,
             },
         )]),
         default: None,
-        case_gates: BTreeMap::new(),
-        default_gate: false,
     };
     assert_eq!(seat_summary(&selected), "review{nested=draft>verify}");
 
@@ -120,9 +104,9 @@ fn resolver_and_sequence_summary_cover_every_shape() {
             role_path: PathBuf::new(),
             command: Vec::new(),
             candidates: Vec::new(),
+            written: Vec::new(),
+            class: brokkr_runtime::SeatClass::Work,
         })),
-        case_gates: BTreeMap::new(),
-        default_gate: false,
     };
     assert_eq!(seat_summary(&selected), "review{default=inline}");
     selected.seats.get_mut("review").unwrap().body = SeatBody::Select {
@@ -131,13 +115,9 @@ fn resolver_and_sequence_summary_cover_every_shape() {
             SeatBody::Select {
                 cases: BTreeMap::new(),
                 default: None,
-                case_gates: BTreeMap::new(),
-                default_gate: false,
             },
         )]),
         default: None,
-        case_gates: BTreeMap::new(),
-        default_gate: false,
     };
     assert_eq!(seat_summary(&selected), "review{nested=unresolved}");
 }

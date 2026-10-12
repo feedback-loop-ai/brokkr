@@ -6,7 +6,7 @@
 
 use super::tests::{
     bundle, checkpointing_command, composition, driver_command, member, single_body, state,
-    unlimited,
+    step_body, unlimited,
 };
 use super::*;
 use crate::agents::{Adapters, Availability, HarnessHands, Library, ResultDoor};
@@ -3245,11 +3245,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
             name: "author".into(),
             class: SeatClass::Work,
             results: vec!["drafted".into()],
-            body: StepBody::Single {
-                role_path: "role.md".into(),
-                command: vec!["driver".into()],
-                candidates: Vec::new(),
-            },
+            body: step_body(vec!["driver".into()]),
         },
         SequenceStep {
             name: "validate".into(),
@@ -3583,17 +3579,13 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
         name: name.into(),
         class: SeatClass::Gate,
         results: results.iter().map(|r| r.to_string()).collect(),
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command: driver_command(
-                "effect",
-                "attempt",
-                AttemptOutcome::Succeeded {
-                    result: json!({"result": result, "model": format!("m-{name}")}),
-                },
-            ),
-            candidates: Vec::new(),
-        },
+        body: step_body(driver_command(
+            "effect",
+            "attempt",
+            AttemptOutcome::Succeeded {
+                result: json!({"result": result, "model": format!("m-{name}")}),
+            },
+        )),
     };
     let steps = vec![
         step("first", vec!["done"], "done"),
