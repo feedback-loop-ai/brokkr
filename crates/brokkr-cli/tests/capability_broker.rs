@@ -3,9 +3,11 @@
 //! plan locator and digest and nothing else: no server argv, grant or
 //! secret value is an option. A plan is bound only where the attempt's
 //! protected inventory pins it; a bound plan's every field and box intent
-//! is checked in MB3's order, and even an admitted plan still refuses
-//! before any lookup or start until the serving protections land. The
-//! compile fence still refuses every MCP grant.
+//! is checked in MB3's order before any lookup or start. An admitted plan's
+//! box is made ready, its bindings handed over and its server started
+//! inside it (U6c8), and serving still refuses before any MCP message
+//! until the serving protections land. A bound plan's one lifetime has its
+//! private ledger (U6d). The compile fence still refuses every MCP grant.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -16,11 +18,18 @@ use brokkr_protocol::broker::Refusal;
 use serde_json::{json, Value};
 
 #[cfg(target_os = "linux")]
+mod handoff;
+mod ledger;
+#[cfg(target_os = "linux")]
 mod observer;
 #[cfg(target_os = "linux")]
 mod readiness;
 
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+/// The value a fixture's store binds to `DOCS_TOKEN`: a canary no other
+/// byte of a run spells, in any of decision 0012's encodings.
+const TOKEN: &str = "u6c8-canary-Qx7Zv";
 
 /// What one invocation left: its exit code, stdout and stderr.
 struct Ran {
@@ -59,6 +68,9 @@ const COPIES: &str = "brokkr-capability-broker-";
 /// replace it, nor run it while it is written. The process holds the
 /// directory's `lock` exclusively for as long as it runs: unlike a process
 /// id, a lock means the same in every PID namespace sharing the directory.
+/// The copy is written by a child `cp`, then renamed in (#255): a copy this
+/// process wrote is `Text file busy` while a sibling test's fork still holds
+/// the inherited write descriptor, and a rename keeps the inode's count.
 fn brokkr() -> &'static Path {
     static COPY: std::sync::OnceLock<(PathBuf, std::fs::File)> = std::sync::OnceLock::new();
     let (copy, _live) = COPY.get_or_init(|| {
@@ -72,8 +84,14 @@ fn brokkr() -> &'static Path {
         let live = std::fs::File::create(dir.join("lock.new")).unwrap();
         assert!(lock(&live));
         std::fs::rename(dir.join("lock.new"), dir.join("lock")).unwrap();
-        let copy = dir.join("brokkr");
-        std::fs::copy(env!("CARGO_BIN_EXE_brokkr"), &copy).unwrap();
+        let (staged, copy) = (dir.join("brokkr.staged"), dir.join("brokkr"));
+        let cp = Command::new("/bin/cp")
+            .arg(env!("CARGO_BIN_EXE_brokkr"))
+            .arg(&staged)
+            .status();
+        assert_eq!(cp.unwrap().code(), Some(0), "copying the binary");
+        chmod(&staged, 0o755);
+        std::fs::rename(&staged, &copy).unwrap();
         (std::fs::canonicalize(copy).unwrap(), live)
     });
     copy
@@ -117,11 +135,12 @@ impl Root {
         path
     }
 
-    /// An empty owner-only store at `relative`, every directory it lies in
-    /// below the root writable by its owner alone whatever the umask, as
-    /// MB4 guards a store's route (U6c5c).
+    /// An owner-only store at `relative` holding the plan's one declared
+    /// binding, [`TOKEN`], every directory it lies in below the root
+    /// writable by its owner alone whatever the umask, as MB4 guards a
+    /// store's route (U6c5c).
     fn store(&self, relative: &str) -> PathBuf {
-        let path = self.write(relative, "");
+        let path = self.write(relative, &format!("DOCS_TOKEN={TOKEN}\n"));
         chmod(&path, 0o600);
         let dirs = path.ancestors().skip(1);
         for dir in dirs.take_while(|dir| *dir != self.path) {
@@ -351,15 +370,18 @@ fn no_server_argv_grant_or_secret_value_is_an_option() {
     );
 }
 
-/// The binary's waiting bootstrap started as a box starts it (U6c6a):
-/// `frame` arrives on an anonymous pipe at descriptor 3, stdin is
-/// closed, and `ready` redirects descriptor 4, the ready channel; `$2` is
-/// a marker file beside the frame.
+/// The binary's waiting bootstrap started as a box starts it (U6c6a,
+/// U6c8): `frame` arrives on an anonymous pipe at descriptor 3, stdin is
+/// closed, the status pipe is a third anonymous pipe at descriptor 5, and
+/// `ready` redirects descriptor 4, the ready channel; `$2` is a marker
+/// file beside the frame. The shell exits as the bootstrap did.
 fn bootstrapped(root: &Root, frame: &[u8], ready: &str) -> Ran {
     let framed = root.path.join("frame");
     std::fs::write(&framed, frame).unwrap();
     let script = format!(
-        "cat \"$1\" | \"$0\" broker bootstrap --control 3 --ready 4 3<&0 0</dev/null {ready}"
+        "exec 6>&1; {{ cat \"$1\" | \"$0\" broker bootstrap --control 3 --ready 4 --status 5 \
+         3<&0 0</dev/null 5>&7 7>&- 6>&- {ready}; echo $? >\"$1.exit\"; }} 7>&1 1>&6 \
+         | cat >/dev/null; exit \"$(cat \"$1.exit\")\""
     );
     let mut command = Command::new("/bin/sh");
     command.args(["-c", &script]).arg(brokkr()).arg(&framed);
@@ -524,6 +546,17 @@ fn each_refusal_reads_in_mb3_and_mb4s_words() {
             "MCP server box could not be established",
         ),
         (
+            Refusal::Handoff,
+            "MCP server secret environment could not be delivered",
+        ),
+        (Refusal::Exec, "MCP server could not start inside its box"),
+        (
+            Refusal::Response,
+            "MCP server response exceeds the broker limit",
+        ),
+        (Refusal::Timeout, "MCP server call timed out"),
+        (Refusal::Masking, "MCP response cannot be safely masked"),
+        (
             Refusal::ServingIncomplete,
             "broker serving protections are incomplete",
         ),
@@ -675,6 +708,59 @@ struct Sealed {
     attempt: PathBuf,
     locator: PathBuf,
     sources: std::sync::OnceLock<Value>,
+    _slot: Slot,
+}
+
+/// The sealed fixtures, and so the real boxes, the suite holds at once.
+/// Every box's admission observes the whole system set against the
+/// broker's fixed startup deadline, which no test may lengthen; on a small
+/// runner many started together starve one another past it.
+const BOXES: usize = 3;
+
+/// The suite's places among [`BOXES`]: how many are taken, and the signal
+/// that one was given back.
+static SLOTS: (std::sync::Mutex<usize>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+std::thread_local! {
+    /// The places this test's own thread holds, so a fixture built inside
+    /// another takes none and no test waits on itself.
+    static HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// A place among [`BOXES`], given back when its fixture is dropped.
+struct Slot;
+
+impl Slot {
+    fn take() -> Slot {
+        if HELD.get() == 0 {
+            let (taken, freed) = &SLOTS;
+            let mut taken = taken
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            while *taken >= BOXES {
+                taken = freed
+                    .wait(taken)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+            }
+            *taken += 1;
+        }
+        HELD.set(HELD.get() + 1);
+        Slot
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        HELD.set(HELD.get() - 1);
+        if HELD.get() == 0 {
+            let (taken, freed) = &SLOTS;
+            *taken
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) -= 1;
+            freed.notify_one();
+        }
+    }
 }
 
 impl Sealed {
@@ -684,6 +770,7 @@ impl Sealed {
 
     /// An attempt sealed in the directory `name` of repository `repo`.
     fn at(repo: &str, name: &str) -> Sealed {
+        let slot = Slot::take();
         let root = Root::new();
         let home = root.path.join("home");
         let capabilities = home.join(".local/state/brokkr/capabilities");
@@ -703,8 +790,8 @@ impl Sealed {
             ),
         );
         chmod(&server, 0o755);
-        // The operator's store, empty and owner-only, outside both reach
-        // sets: the secret-free control MB4 admits (U6c5c).
+        // The operator's store, owner-only and outside both reach sets,
+        // holding the declared binding (U6c5c, U6c8).
         root.store("store/secrets.env");
         Sealed {
             locator: attempt.join("cap-library-docs.json"),
@@ -712,6 +799,7 @@ impl Sealed {
             home,
             attempt,
             sources: std::sync::OnceLock::new(),
+            _slot: slot,
         }
     }
 
@@ -837,8 +925,21 @@ impl Sealed {
     }
 
     /// The broker's exit and stderr for the plan at `locator` and `digest`,
-    /// its environment as `environment` leaves it.
+    /// its environment as `environment` leaves it: a fresh lifetime of the
+    /// plan, as the engine provisions each, so its last ledger is gone.
     fn serve_in(
+        &self,
+        locator: &Path,
+        digest: &str,
+        environment: impl FnOnce(&mut Command),
+    ) -> (Option<i32>, String) {
+        std::fs::remove_file(ledger::of(locator)).ok();
+        self.serve_again(locator, digest, environment)
+    }
+
+    /// The broker's exit and stderr for the plan at `locator` and `digest`
+    /// as [`Sealed::serve_in`] has them, the plan's last ledger left.
+    fn serve_again(
         &self,
         locator: &Path,
         digest: &str,
@@ -941,13 +1042,12 @@ impl Store {
 }
 
 #[test]
-fn a_sealed_plan_is_admitted_and_still_refused_before_any_lookup_or_start() {
+fn a_sealed_plan_is_admitted_and_a_store_without_identity_refused_unopened() {
     if let Some(reason) = unservable() {
         return skip(&reason);
     }
-    // The protected empty store admits the plan, though it declares a
-    // binding no value of which the store holds: nothing is looked up, and
-    // nothing started (MB4).
+    // The protected store admits the plan, which still refuses before any
+    // MCP message; nothing runs outside the box (MB4).
     let sealed = Sealed::new();
     assert_eq!(sealed.answer(|_| ()), admitted());
     assert!(!sealed.path("started").exists());
@@ -964,7 +1064,7 @@ fn a_sealed_plan_is_admitted_and_still_refused_before_any_lookup_or_start() {
     std::fs::remove_file(&path).unwrap();
     assert_eq!(sealed.answer(|_| ()), past_prepare(Refusal::Identity));
     assert!(!path.exists());
-    chmod(&sealed.root.write("store/secrets.env", ""), 0o600);
+    sealed.root.store("store/secrets.env");
     std::fs::hard_link(&path, sealed.path("store/again")).unwrap();
     assert_eq!(sealed.answer(|_| ()), past_prepare(Refusal::Identity));
     std::fs::remove_file(sealed.path("store/again")).unwrap();
@@ -1296,6 +1396,73 @@ fn every_record_is_an_object_never_a_positional_array() {
         json!({"plans": [pin]}).to_string().as_bytes(),
     );
     binds("object pin", sealed.serve(&digest));
+}
+
+#[test]
+fn no_public_decoder_reads_a_record_by_position() {
+    use brokkr_protocol::broker::{Inventory, Owner, Restrictions, Tree};
+    use serde::Deserialize;
+    // Called as any caller outside the crate calls them, each record's
+    // decoder refuses its fields by position.
+    let message = |error: serde_json::Error| error.to_string();
+    let positional = json!(["r", "run-1", EFFECT, ATTEMPT, "research", "research#0"]);
+    let refusals = [
+        Restrictions::deserialize(json!([])).map(drop),
+        Owner::deserialize(positional).map(drop),
+        Inventory::deserialize(json!([[]])).map(drop),
+        Tree::deserialize(json!(["package", "/opt/docs"])).map(drop),
+    ];
+    let sequence = "invalid type: sequence, expected struct Fields";
+    let tree = "invalid type: sequence, expected internally tagged enum Kind";
+    assert_eq!(
+        refusals.map(|refused| refused.map_err(message)),
+        [sequence, sequence, sequence, tree].map(|text| Err(text.to_string()))
+    );
+    // The same records as objects are read, closed as ever.
+    let owner = json!({"repo": "r", "run": "run-1", "effect": EFFECT, "attempt": ATTEMPT,
+                       "site": "research", "instance": "research#0"});
+    let read = Owner::deserialize(owner.clone()).unwrap();
+    let fields = [
+        read.repo,
+        read.run,
+        read.effect,
+        read.attempt,
+        read.site,
+        read.instance,
+    ];
+    assert_eq!(
+        fields,
+        ["r", "run-1", EFFECT, ATTEMPT, "research", "research#0"]
+    );
+    let Restrictions {} = Restrictions::deserialize(json!({})).unwrap();
+    assert_eq!(
+        Inventory::deserialize(json!({"plans": []}))
+            .unwrap()
+            .plans
+            .len(),
+        0
+    );
+    let package = Tree::deserialize(json!({"kind": "package", "root": "/opt/docs"}));
+    assert!(matches!(package.unwrap(), Tree::Package { root } if root == Path::new("/opt/docs")));
+    let system = Tree::deserialize(json!({"kind": "system"})).unwrap();
+    assert!(matches!(system, Tree::System {}));
+    let mut unknown = owner.clone();
+    unknown["mounts"] = json!([]);
+    let mut missing = owner;
+    missing.as_object_mut().unwrap().remove("instance");
+    let closed = [
+        Owner::deserialize(unknown).map(drop).map_err(message),
+        Owner::deserialize(missing).map(drop).map_err(message),
+        serde_json::from_str::<Tree>(r#"{"kind": "system", "kind": "system"}"#)
+            .map(drop)
+            .map_err(message),
+    ];
+    let expected = [
+        "unknown field `mounts`, expected one of `repo`, `run`, `effect`, `attempt`, `site`, `instance`",
+        "missing field `instance`",
+        "duplicate field `kind` at line 1 column 25",
+    ];
+    assert_eq!(closed, expected.map(|text| Err(text.to_string())));
 }
 
 #[test]

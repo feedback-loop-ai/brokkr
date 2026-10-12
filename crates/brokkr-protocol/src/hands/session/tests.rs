@@ -309,8 +309,8 @@ fn a_lock_that_cannot_be_probed_keeps_the_tree_and_says_so() {
     let mut kept = reaped.kept;
     kept.sort_by(|a, b| a.0.cmp(&b.0));
     let mut expected = vec![
-        (unopenable, Unprobed::Open(Errno::ACCESS)),
-        (unsearchable, Unprobed::Stat(Errno::ACCESS)),
+        (unopenable, Kept::Unprobed(Unprobed::Open(Errno::ACCESS))),
+        (unsearchable, Kept::Unprobed(Unprobed::Stat(Errno::ACCESS))),
     ];
     expected.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!((reaped.removed, kept), (vec![refusing], expected));
@@ -415,7 +415,7 @@ fn only_a_tree_whose_owner_is_dead_and_unlocked_is_reaped() {
         reaped,
         Reaped {
             removed: expected.clone(),
-            kept: vec![(unreadable, Unprobed::NotRegular)],
+            kept: vec![(unreadable, Kept::Unprobed(Unprobed::NotRegular))],
         }
     );
     for tree in &expected {
@@ -470,25 +470,156 @@ fn a_tree_mid_creation_is_never_reapable() {
     assert_eq!(now[0].as_ref().unwrap().file_name(), name);
 }
 
-/// A dead owner's unheld tree that cannot be removed is neither removed
-/// nor reported kept: the next start tries it again. Until #504 an exec
-/// box's overlay `work` directory (mode 000, made by overlayfs) was what
-/// made a tree unremovable; an exec box now writes its overlays to RAM,
-/// so the refusal is planted here as a directory its owner cannot write.
-#[cfg(unix)]
+fn set_mode(path: &Path, bits: u32) {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(bits)).unwrap();
+}
+
+/// A dead owner's unheld tree that cannot be removed is kept and said,
+/// with the removal's error, so the start's stderr names it (#620). One
+/// tree holds a directory its owner cannot write; another cannot be
+/// listed at all, so the overlay walk cannot open it either.
 #[test]
-fn a_free_tree_that_cannot_be_removed_is_left_for_the_next_start() {
-    use std::os::unix::fs::PermissionsExt;
+fn a_free_tree_that_cannot_be_removed_is_kept_and_said() {
     let tmp = tempfile::tempdir().unwrap();
-    let tree = planted(tmp.path(), "exec", &dead_pid().to_string());
+    let dead = dead_pid().to_string();
+    let tree = planted(tmp.path(), "exec", &dead);
     let sealed = tree.join("sealed");
     std::fs::create_dir(&sealed).unwrap();
     std::fs::write(sealed.join("call"), "").unwrap();
-    std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o500)).unwrap();
+    set_mode(&sealed, 0o500);
+    let unlistable = planted(tmp.path(), "serve", &dead);
+    set_mode(&unlistable, 0o300);
+
+    let mut reaped = reap_dead_sessions_in(tmp.path(), flock);
+    set_mode(&sealed, 0o700);
+    set_mode(&unlistable, 0o700);
+    reaped.kept.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let denied = || Unremovable(said(Errno::ACCESS));
+    let mut kept = vec![
+        (tree.clone(), Kept::Unremovable(denied())),
+        (unlistable.clone(), Kept::Unremovable(denied())),
+    ];
+    kept.sort_by(|a, b| a.0.cmp(&b.0));
+    let lines: Vec<String> = kept
+        .iter()
+        .map(|(tree, _)| {
+            format!(
+                "hands: kept {}: it cannot be removed: {}\n",
+                tree.display(),
+                said(Errno::ACCESS)
+            )
+        })
+        .collect();
+    assert_eq!(reaped.to_string(), lines.concat());
+    assert_eq!(
+        reaped,
+        Reaped {
+            removed: Vec::new(),
+            kept
+        }
+    );
+    assert!(sealed.join("call").is_file(), "the tree is left whole");
+    assert!(unlistable.is_dir());
+}
+
+/// A layer's overlay work directory as overlayfs leaves it under `tree`:
+/// `overlay/<n>/work/work` with no bit for its owner, holding a file.
+fn sealed_overlay_work(tree: &Path, layer: &str) -> PathBuf {
+    let work = tree.join("overlay").join(layer).join("work").join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join("index"), "").unwrap();
+    set_mode(&work, 0o000);
+    work
+}
+
+/// A dead owner's tree whose overlay work directories were left at 0000
+/// and 0200 is reaped whole (#620), and so is a live session's own tree
+/// when it drops.
+#[test]
+fn a_tree_whose_overlay_work_is_sealed_is_removed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = planted(tmp.path(), "exec", &dead_pid().to_string());
+    sealed_overlay_work(&tree, "0");
+    set_mode(&sealed_overlay_work(&tree, "1"), 0o200);
+    std::fs::write(tree.join("overlay").join("2"), "").unwrap();
+
+    assert_eq!(
+        reap_dead_sessions_in(tmp.path(), flock).to_string(),
+        format!(
+            "hands: reaped {}: its owner is dead and holds no lock\n",
+            tree.display()
+        )
+    );
+    assert!(!tree.exists());
+
+    let session = Session::create_under(tmp.path(), "serve").unwrap();
+    let own = session.path().to_path_buf();
+    sealed_overlay_work(&own, "0");
+    drop(session);
+    assert!(!own.exists(), "dropping the session removes its tree");
+}
+
+/// The overlay walk changes no directory but the work ones: a sealed
+/// `work/work` beside `overlay/`, or a sealed directory in a layer's
+/// upper, keeps its mode, and the tree is kept and said.
+#[test]
+fn the_overlay_walk_changes_only_the_work_directories() {
+    let tmp = tempfile::tempdir().unwrap();
+    let tree = planted(tmp.path(), "exec", &dead_pid().to_string());
+    sealed_overlay_work(&tree, "0");
+    let beside = tree.join("work").join("work");
+    let upper = tree.join("overlay").join("0").join("upper").join("sealed");
+    for sealed in [&beside, &upper] {
+        std::fs::create_dir_all(sealed).unwrap();
+        std::fs::write(sealed.join("call"), "").unwrap();
+        set_mode(sealed, 0o500);
+    }
 
     let reaped = reap_dead_sessions_in(tmp.path(), flock);
-    std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let modes = [&beside, &upper].map(|sealed| {
+        let mode = std::fs::metadata(sealed).ok()?.permissions().mode() & 0o777;
+        set_mode(sealed, 0o700);
+        Some(mode)
+    });
 
-    assert_eq!(reaped, Reaped::default());
-    assert!(sealed.join("call").is_file(), "the tree is left whole");
+    assert_eq!(
+        reaped.to_string(),
+        format!(
+            "hands: kept {}: it cannot be removed: {}\n",
+            tree.display(),
+            said(Errno::ACCESS)
+        )
+    );
+    assert_eq!(modes, [Some(0o500), Some(0o500)]);
+}
+
+/// The overlay walk follows no symlink: a link at `overlay/<n>/work/work`
+/// to a directory outside the tree leaves that directory's mode alone,
+/// and the link is removed with the tree, never its target.
+#[test]
+fn the_overlay_walk_follows_no_symlink_out_of_the_tree() {
+    let tmp = tempfile::tempdir().unwrap();
+    let outside = tmp.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("kept"), "").unwrap();
+    set_mode(&outside, 0o500);
+    let tree = planted(tmp.path(), "exec", &dead_pid().to_string());
+    let work = tree.join("overlay").join("0").join("work");
+    std::fs::create_dir_all(&work).unwrap();
+    std::os::unix::fs::symlink(&outside, work.join("work")).unwrap();
+
+    let reaped = reap_dead_sessions_in(tmp.path(), flock);
+    let mode = std::fs::metadata(&outside).unwrap().permissions().mode() & 0o777;
+    set_mode(&outside, 0o700);
+
+    assert_eq!(
+        reaped.to_string(),
+        format!(
+            "hands: reaped {}: its owner is dead and holds no lock\n",
+            tree.display()
+        )
+    );
+    assert_eq!(mode, 0o500, "the link's target was not changed");
+    assert!(outside.join("kept").is_file(), "nor removed");
 }

@@ -425,8 +425,10 @@ protect the host broker's secret-bearing memory from native tools.
 
 The order is bound plan and eligibility/compatibility, valid/fixed names,
 resolution, reach/link/identity, store exclusion, verified empty namespace,
-then value lookup and final exec. Until U6f the public command refuses before
-any lookup or box spawn; tests exercise private consumed seams. Once serving
+then value lookup and final exec. Until U6f the public command refuses with
+the incomplete-serving cause before any MCP message is exchanged; from U6c8 it
+first runs the preparation, launch, handoff and exec, then ends the box
+(operator ruling 2026-10-10). Once serving
 is complete, open the owned ledger before box preparation so setup failure
 can close Failed without calls. An unbound plan opens no ledger.
 
@@ -852,8 +854,9 @@ module is used by an existing production caller in the same PR; no unused
 public staging API is added. The broker command is a consumer even while
 realm compilation remains fenced; it still requires a bound engine plan.
 U6b–U6e, including U6c2–U6c8, implement consumed parsing/validation and bounded private session seams,
-but the public handler refuses before spawn until masking, ledger and admission
-protections are complete in U6f. A directly invoked CLI cannot bypass this just
+but until masking, ledger and admission protections are complete in U6f the
+public handler refuses before any MCP message is exchanged; from U6c8 it ends
+the box it launched first (operator ruling 2026-10-10). A directly invoked CLI cannot bypass this just
 because realm compilation is fenced. Keep incomplete session seams private;
 no exported “not implemented” scaffolding counts as a production consumer.
 
@@ -1220,7 +1223,7 @@ At each PR recheck these paths and baseline counts against main.
 | `contracts/run-manifest.v12.schema.json` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/manifest.rs` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/secret.rs` (706 at this visit) | U6a, U6c7, U6c8 | 0012 single-injector proof; no second plaintext accessor |
-| `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c5b, U6c6a, U8g | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c5b, U6c6a, U6c8, U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/lib.rs` (1918) | U6b | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/broker.rs` | U6b, U6c, U6c2, U6c5b, U6c6a, U6e | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/session.rs` | U6c2, U6c4, U6c5b, U6c5c, U6c6b, U6c8, U6d, U6e, U6f, U8b | New module; keep protocol types shared, no duplicate policy |
@@ -1236,14 +1239,14 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5a, U6c5b, U6c5c, U6c6b | Count registration and same-unit consumers; recheck size and concurrent main edits |
-| `crates/brokkr-protocol/src/hands/namespace/entry.rs` | U6c6b | New consumed child of namespace.rs; the box launched on the bootstrap |
+| `crates/brokkr-protocol/src/hands/namespace/entry.rs` | U6c6b, U6c8 | New consumed child of namespace.rs; the box launched on the bootstrap |
 | `crates/brokkr-protocol/src/hands/namespace/sources/host.rs` | U6c5a, U6c5c | The observer's host facts (mountinfo, writer credentials, ACL and write-exclusion proofs, the reopening of a file through its own handle) and each source's whole-chain resolution (`resolve`, `Walk`, `Hop`, `Resolved`); a consumed child of sources.rs, which keeps the bounds, directory walk, the one per-object observation with its link rules, digest and verdict |
 | `crates/brokkr-protocol/src/hands/namespace/sources/store.rs` | U6c5c | MB4 store identity beside the observer's resolution and alias facts; a consumed child of sources.rs |
 | `crates/brokkr-cli/Cargo.toml` | U6c5b | Only rustix's `net` feature, for the helper's descriptor hand-off (operator ruling 2026-10-07) |
 | `crates/brokkr-protocol/src/hands/namespace/sources.rs` | U6c5a, U6c5b | Includes system write-exclusion/credential observation and task 28.17 measurement; split before implementation if ceilings cannot hold |
 | `crates/brokkr-cli/src/broker/bootstrap.rs` | U6c6a, U6c8 | Ready state, complete-frame EOF and close-on-exec status; count registration/consumers and recheck ceilings |
 | `crates/brokkr-protocol/src/secret/store.rs` | U6c7 | Count registration and same-unit consumers; recheck size and concurrent main edits |
-| `crates/brokkr-protocol/src/broker.rs` | U6c, U6c5a, U6c6a, U6d | Shared consumed protocol edge; registration counts in lib.rs |
+| `crates/brokkr-protocol/src/broker.rs` | U6c, U6c5a, U6c6a, U6c8, U6d | Shared consumed protocol edge; registration counts in lib.rs |
 Also coordinate `crates/brokkr-cli/tests/init_doctor.rs` and
 `crates/brokkr-cli/tests/init_stacks.rs` (U1f2/U1g1),
 `crates/brokkr-runtime/tests/witness_digests.rs`,
@@ -1345,7 +1348,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U6c6a | U6c5c | Register the private waiting bootstrap and its establishment cause; 28.11–28.12 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs`; `crates/brokkr-protocol/src/broker.rs` |
 | U6c6b | U6c6a | Launch the box on the bootstrap and receive its readiness behind the fence; 28.11–28.12 | `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/entry.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/session/readiness.rs` |
 | U6c7 | U6a | Extract the shared typed store reader; 28.13–28.14 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-protocol/src/secret/store.rs` |
-| U6c8 | U6c6b, U6c7 | Wire the confined environment handoff; 28.15–28.16 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs`; `crates/brokkr-cli/src/broker/session.rs` |
+| U6c8 | U6c6b, U6c7 | Wire the confined environment handoff; 28.15–28.16 | `crates/brokkr-protocol/src/secret.rs`; `crates/brokkr-cli/src/broker/bootstrap.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-protocol/src/hands/namespace/entry.rs`; `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-protocol/src/broker.rs` |
 | U6d | U6c8 | Establish durable ledger records before calls; 29.1–29.2 | `crates/brokkr-protocol/src/broker.rs`; `crates/brokkr-protocol/src/broker/ledger.rs`; `crates/brokkr-cli/src/broker/session.rs` |
 | U6e | U6d | Serve the filtered protocol; 30.1–30.2 | `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/rpc.rs` |
 | U6f | U6e | Mask output and prove complete session cleanup; 31.1–32.2 | `crates/brokkr-cli/src/broker/rpc.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-cli/src/broker/output.rs` |
@@ -1797,18 +1800,20 @@ Owning tests: `crates/brokkr-protocol/src/secret/tests.rs`, `crates/brokkr-cli/t
 
 ### U6c8 — Wire the confined environment handoff
 
-Add only the narrow protocol sender/receiver API consumed immediately by session and bootstrap. The sender reads the admitted descriptor after verified readiness, calls bind_environment on a prepared cleared Command and encodes that environment inside secret.rs; receiver validates the same closed frame and builds only the final confined environment. Session consumes the complete preparation/launch operation through the existing command seam; the public incomplete-serving check stays before invoking it until U6f. No second plaintext accessor, encoding catalogue, shell wrapper, file transport or host env binding. Carry typed read errors from U6c7 and keep secret buffers out of Debug/logging. Require a complete binding frame followed by EOF before actual server exec;
+Add only the narrow protocol sender/receiver API consumed immediately by session and bootstrap. The sender reads the admitted descriptor after verified readiness, calls bind_environment on a prepared cleared Command and encodes that environment inside secret.rs; receiver validates the same closed frame and builds only the final confined environment. Session consumes the complete preparation/launch operation through the existing command seam; until U6f, `serve` runs the preparation, launch, handoff and exec, then ends the box and refuses with the incomplete-serving cause before any MCP message is exchanged (operator ruling 2026-10-10). No second plaintext accessor, encoding catalogue, shell wrapper, file transport or host env binding. Carry typed read errors from U6c7 and keep secret buffers out of Debug/logging. Require a complete binding frame followed by EOF before actual server exec;
 close the sender after its one frame and reject any trailing byte. Close all
 unrelated descriptors, keeping only the private typed-failure status pipe marked
 close-on-exec until exec. Use that pipe for a typed handoff or exec error, never stderr;
 EOF authorizes initialization only, and all startup uncertainty stays failed.
+Six production files (operator ruling 2026-10-10): `hands/namespace/entry.rs` carries the private status pipe and the server's standard input and output pipes between the broker and the box; `cli_args.rs` gives the bootstrap its `--status` descriptor; `crates/brokkr-protocol/src/broker.rs` adds `Refusal::Handoff` ("MCP server secret environment could not be delivered") and `Refusal::Exec` ("MCP server could not start inside its box") after `Establishment`. Before exec the bootstrap gives up its controlling terminal, so the box cannot open `/dev/tty` (MB5's terminal isolation, operator ruling 2026-10-10).
 
 Closes tasks 28.15 and 28.16; requirements [MB3](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [MB5](specs/mcp-capability-broker/spec.md), [SD3](specs/slice-two-delivery/spec.md).
-Proof: Single-injector machine proof plus independent host argv/env/pipe-diagnostic leak scans; exact one-frame limits/name equality, EOF/timeout/NUL/duplicate refusals, zero starts on handoff failure, and protected installed server with DOCS_TOKEN and allowed loading names. Fixed HOME/TMPDIR collisions remain zero lookup/start, while missing/invalid store values and delivery failures are accurately post-readiness/post-lookup. Real namespace and bootstrap consumers prove the handoff; the public fence stays unchanged.
+Proof: Single-injector machine proof plus independent host argv/env/pipe-diagnostic leak scans; exact one-frame limits/name equality, EOF/timeout/NUL/duplicate refusals, zero starts on handoff failure, and protected installed server with DOCS_TOKEN and allowed loading names. Fixed HOME/TMPDIR collisions remain zero lookup/start, while missing/invalid store values and delivery failures are accurately post-readiness/post-lookup. Real namespace and bootstrap consumers prove the handoff through `serve`; the MCP compile fence stays unchanged and serving still refuses before any MCP message. A real Linux box cannot open `/dev/tty` once the bootstrap has given up its terminal.
 Also bind open-after-frame timeout, truncation, trailing bytes/second frames,
 each failure tag, malformed status and bootstrap death at each side of sender completion.
-Independently remove the EOF check and status-error propagation. A successful
-exec with failed initialization must retain its separate protocol cause;
+Independently remove the EOF check and status-error propagation. A failed
+initialization's own protocol cause is proved where initialization is built
+(U6e, U6f), since U6c8 exchanges no MCP message (operator ruling 2026-10-10);
 assert the child's exact environment and `/proc/self/fd` with a purpose-built
 fixture rather than compensating for a shell's startup changes.
 

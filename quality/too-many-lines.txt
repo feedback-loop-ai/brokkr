@@ -6,7 +6,6 @@
  113 crates/brokkr-cli/src/init.rs:1455 init
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  140 crates/brokkr-core/src/dispatch.rs:241 verify
- 266 crates/brokkr-core/src/fold.rs:344 apply
  113 crates/brokkr-core/src/policy.rs:339 parse_rule
  106 crates/brokkr-core/src/policy.rs:467 parse_condition
  218 crates/brokkr-core/src/realms.rs:514 of

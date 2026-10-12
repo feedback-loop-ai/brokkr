@@ -25,30 +25,19 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
+# shellcheck source=scripts/test-summary.sh
+source "$(dirname "${BASH_SOURCE[0]}")/test-summary.sh" || {
+  printf 'run-it-tests: the summary grammar scripts/test-summary.sh could not be read\n' >&2
+  exit 2
+}
+
 output="$(mktemp "${TMPDIR:-/tmp}/brokkr-run-it-tests.XXXXXX")"
 trap 'rm -f "$output"' EXIT
 "$@" >"$output" 2>&1
 status=$?
 cat "$output"
 
-summary_re='^test result: (ok|FAILED)\. ([0-9]+) passed; ([0-9]+) failed;'
-summaries=0
-unread=0
-no_test=0
-while IFS= read -r line || [ -n "$line" ]; do
-  case "$line" in
-    'test result:'*)
-      summaries=$((summaries + 1))
-      if [[ "$line" =~ $summary_re ]]; then
-        if [[ "${BASH_REMATCH[2]}" -eq 0 && "${BASH_REMATCH[3]}" -eq 0 ]]; then
-          no_test=1
-        fi
-      else
-        unread=1
-      fi
-      ;;
-  esac
-done <"$output"
+summaries_read "$output"
 
 if [ "$unread" -eq 1 ]; then
   printf 'run-it-tests: the command printed a test result: summary the guard cannot read, so no test is shown to have run: %s\n' "$*" >&2

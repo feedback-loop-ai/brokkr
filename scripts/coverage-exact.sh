@@ -403,14 +403,13 @@ merged_only_this_run() {
   fi
 }
 
+# The instrumented suite runs as the test jobs' does (#633): each test
+# target exactly once, one shard after another, capability_broker last,
+# every profile into this one target. The report then merges them all, so
+# every check below reads the union, as it read the one run before.
+bash scripts/test-shards.sh coverage "$nightly" 9>&-
 rm -f "$profile_list"
-cargo "+$nightly" llvm-cov \
-  --workspace \
-  "${report_flags[@]}" \
-  --all-features \
-  --locked \
-  --branch \
-  --json \
+cargo "+$nightly" llvm-cov report "${report_flags[@]}" --branch --json \
   --output-path "$forge_coverage_dir/coverage.json" 9>&-
 merged_only_this_run
 

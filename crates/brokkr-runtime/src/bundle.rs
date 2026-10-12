@@ -1524,7 +1524,7 @@ impl Bundle {
         // model seat in a bundle that seats no gate opens no agent
         // context, and its adapter's native declaration is still what
         // says how its search is switched off, as its model's tier is what
-        // says whether it may be seated (proposed decision 0075 ruling 5).
+        // says whether it may be seated (decision 0075 ruling 5).
         let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
         let inline_adapters = pin_adapters.as_ref().and_then(|l| l.as_ref().ok());
         let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) =

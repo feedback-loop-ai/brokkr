@@ -434,7 +434,7 @@ pub struct Adapter {
     pub driver: Vec<String>,
     /// Abstract model name → concrete provider model id.
     pub models: BTreeMap<String, String>,
-    /// Proposed decision 0075 ruling 5: the models declared provisional.
+    /// Decision 0075 ruling 5: the models declared provisional.
     pub provisional: BTreeSet<String>,
     /// Decision 0041 ruling 3: the abstract model names this adapter is
     /// authorised to seat at a gate. Absence loads as empty so a new or

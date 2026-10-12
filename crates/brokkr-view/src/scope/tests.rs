@@ -62,17 +62,22 @@ fn lens(view: &RunView, scope: Scope) -> Lens {
     lens_for(view, Some(&scope)).unwrap().unwrap()
 }
 
+/// The scopes a served view carries.
+fn served(view: &RunView) -> &Scopes {
+    view.scopes.as_ref().unwrap()
+}
+
 /// A phase scope keeps that phase, the participants requested in it and
 /// its journal rows, and the run view serves the same answer by name.
 #[test]
 fn a_phase_scope_keeps_its_phase_its_participants_and_its_rows() {
-    let view = run_view(&journal(), None);
+    let view = run_view(&journal(), None).with_scopes();
     let design = kept(&["design"], &["eff-d", "eff-d2"], &[5, 6, 7, 11, 12]);
     let by_lens = membership(&view, &lens(&view, Scope::Phase("design".into())));
     assert_eq!(by_lens, design);
-    assert_eq!(view.scopes.phases["design"], design);
+    assert_eq!(served(&view).phases["design"], design);
     assert_eq!(
-        view.scopes.phases["intake"],
+        served(&view).phases["intake"],
         kept(&["intake"], &["eff-i"], &[2, 3, 4])
     );
 }
@@ -82,7 +87,7 @@ fn a_phase_scope_keeps_its_phase_its_participants_and_its_rows() {
 /// matches its own participant, which is what the browser serves.
 #[test]
 fn a_seat_scope_keeps_its_phases_rows_and_matches_participants_by_key() {
-    let view = run_view(&journal(), None);
+    let view = run_view(&journal(), None).with_scopes();
     let design = lens(&view, Scope::Seat("design".into()));
     // Both occurrences sat in design: the lens names it once.
     assert_eq!(design.phases, ["design"]);
@@ -96,13 +101,23 @@ fn a_seat_scope_keeps_its_phases_rows_and_matches_participants_by_key() {
         membership(&view, &lens(&view, Scope::Seat("eff-d2".into()))),
         by_key
     );
-    assert_eq!(view.scopes.seats["eff-d2"], by_key);
+    assert_eq!(served(&view).seats["eff-d2"], by_key);
     // A seat with no phase keeps itself and no phase's traffic.
-    assert_eq!(view.scopes.seats["eff-x"], kept(&[], &["eff-x"], &[]));
+    assert_eq!(served(&view).seats["eff-x"], kept(&[], &["eff-x"], &[]));
     assert_eq!(
         serde_json::to_value(&view).unwrap()["scopes"]["seats"]["eff-i"],
         json!({"phases": ["intake"], "participants": ["eff-i"], "rows": [2, 3, 4]})
     );
+}
+
+/// The terminal's view decides no scope: a frame asks the predicates, and
+/// only a serving surface pays for every scope's membership (#624).
+#[test]
+fn the_terminal_view_decides_no_scope_until_it_is_served() {
+    let view = run_view(&journal(), None);
+    assert_eq!(view.scopes, None);
+    let expected = scopes(&view);
+    assert_eq!(view.with_scopes().scopes, Some(expected));
 }
 
 /// No scope is no lens, and no lens keeps everything.

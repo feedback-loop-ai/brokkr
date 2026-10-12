@@ -3,6 +3,8 @@
 //! shell script that plays prepared bytes.
 
 use std::path::Path;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
@@ -200,10 +202,11 @@ fn an_endless_line_with_no_newline_is_refused_and_its_driver_ended() {
 }
 
 /// A refused line outranks the deadline. The engine's journal lags, so
-/// the checkpoint before the line returns only after the deadline and its
-/// drain, when the attempt loop's next read gives up on stdout; the
-/// attempt still ends on the frame limit's refusal, indeterminate, never
-/// as the deadline's failure that a retry may safely repeat.
+/// the checkpoint before the line returns only after the deadline has
+/// fired and its drain has passed, when the attempt loop's next read
+/// gives up on stdout; the attempt still ends on the frame limit's
+/// refusal, indeterminate, never as the deadline's failure that a retry
+/// may safely repeat.
 #[test]
 fn a_refused_line_outranks_the_deadline_while_a_checkpoint_is_journaled() {
     let deadline = Duration::from_secs(1);
@@ -212,7 +215,16 @@ fn a_refused_line_outranks_the_deadline_while_a_checkpoint_is_journaled() {
     let mut process = driver.spawned(framing(512), b"", "; read -r never", Some(deadline));
     process.bounds.drain = Duration::from_millis(100);
     let give_up = process.started + deadline + process.bounds.drain;
+    let fired = Arc::clone(&process.timed_out);
     let report = process.run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {
+        // The watchdog may wake past the give-up on a loaded host (#636),
+        // so its firing is waited for as a fact, not a time. The bound
+        // only keeps a watchdog that never fires from hanging the test,
+        // whose assertion on the kill then names it.
+        let bound = give_up + Duration::from_secs(10);
+        while !fired.load(Ordering::SeqCst) && Instant::now() < bound {
+            std::thread::sleep(Duration::from_millis(1));
+        }
         std::thread::sleep(
             give_up.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
         );
