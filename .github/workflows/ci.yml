@@ -183,7 +183,21 @@ jobs:
       # The suite `cargo test --workspace --all-features --locked
       # --no-fail-fast` runs, each test target exactly once, as shards run
       # one after another, capability_broker last (#633).
-      - run: bash scripts/test-shards.sh test
+      - name: DIAG macOS broker tests (do not merge)
+        if: runner.os == 'macOS'
+        timeout-minutes: 20
+        run: |
+          set +e
+          cargo test -p brokkr-cli --lib --tests --all-features --no-run 2>&1 | tail -3
+          echo "=== lib broker:: one at a time"
+          cargo test -p brokkr-cli --lib --all-features -- broker:: --test-threads=1 2>&1
+          echo "=== lib exit $?"
+          echo "=== it capability_broker:: one at a time"
+          cargo test -p brokkr-cli --test it --all-features -- capability_broker:: --test-threads=1 2>&1
+          echo "=== it exit $?"
+          exit 1
+      - if: runner.os != 'macOS'
+        run: bash scripts/test-shards.sh test
         env:
           # Decision 0054 ruling 9: a boundary proof that cannot open a
           # namespace skips, and a skipped Rust test prints `ok`. On the
