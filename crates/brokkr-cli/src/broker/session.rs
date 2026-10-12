@@ -22,9 +22,9 @@
 //! Cancellation or the deadline kills its group and reaps it. Then the box
 //! is launched on its waiting bootstrap and its readiness received under
 //! the same deadline ([`readiness`], U6c6b), and only then are its bindings
-//! looked up and handed to the bootstrap, which execs the server (U6c8).
-//! A bound plan's ledger is opened before any of that, and closed with the
-//! session's first cause ([`lifetime`], U6d); an unbound plan has none.
+//! looked up and handed over, and the server started (U6c8) and initialized
+//! (U6e). A bound plan's ledger is opened first, handed to the session and
+//! closed with its first cause ([`lifetime`], U6d); an unbound plan has none.
 //! The plan and where it lies stay here; only the shared protocol types
 //! leave.
 
@@ -43,10 +43,10 @@ use brokkr_protocol::{hands, secret};
 use rustix::fs::{fstat, openat, FileType, Mode, OFlags, Stat, CWD};
 use serde::{Deserialize, Serialize};
 
-use lifetime::Ended;
-use readiness::{Admitted, Startup};
+pub(super) use lifetime::Ended;
+pub(super) use readiness::{polled, timely, Admitted, Link, Pace, Startup};
 
-mod lifetime;
+pub(super) mod lifetime;
 mod readiness;
 
 /// The protected root's components below the host HOME (D6).
@@ -69,11 +69,11 @@ const STARTUP: Duration = Duration::from_secs(30);
 /// in MB3's refusal order, its box's sources observed afresh by the
 /// private observer and compared with what the plan sealed, then the box
 /// launched on its waiting bootstrap, its readiness checked, its bindings
-/// looked up and handed over and its server's exec seen (U6c8), all within
-/// the startup deadline unless the attempt is cancelled, which ends the
-/// broker's own starter; or the first refusal. Once the plan is bound, all
-/// of it runs inside its ledger's one lifetime. The box is ended before
-/// this returns, before any MCP message.
+/// looked up and handed over, its server's exec seen (U6c8) and the server
+/// initialized (U6e), all within the startup deadline unless the attempt is
+/// cancelled, which ends the broker's own starter; or the first cause. Once
+/// the plan is bound, all of it runs inside its ledger's one lifetime. The
+/// box is ended before this returns, before any message reaches the harness.
 pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Ended> {
     let deadline = Instant::now() + STARTUP;
     let parent = rustix::process::getppid();
@@ -81,11 +81,12 @@ pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Ended> {
     let startup: Startup<'_> = (deadline, &cancelled);
     let (layout, plan, attempt) = bound(locator, digest)?;
     let ledger = (&attempt, layout.named(0));
-    lifetime::lived(ledger, (&plan.owner, digest), || {
+    lifetime::lived(ledger, (&plan.owner, digest), |_| {
         screened(&plan)?;
         let (record, handles) = observed(&layout, &plan, (locator, digest), startup)?;
         let admitted = readiness::compared(&plan.intent, record, handles)?;
-        readiness::ready(&admitted, (&plan, digest), startup)?;
+        let served = super::rpc::initialized(&plan, startup);
+        readiness::ready(&admitted, (&plan, digest), startup, served)?;
         Ok(admitted)
     })
 }
@@ -115,7 +116,7 @@ pub(super) fn observe(_: &Path, _: &str) -> Result<(), Refusal> {
 }
 
 /// `holds`, or `refusal`.
-fn ensure(holds: bool, refusal: Refusal) -> Result<(), Refusal> {
+pub(super) fn ensure<E>(holds: bool, refusal: E) -> Result<(), E> {
     match holds {
         true => Ok(()),
         false => Err(refusal),
