@@ -307,6 +307,7 @@ scaffold, and its layout stays.
    ```text
    this repository has Brokkr's old root layout and no .brokkr/ folder (decision 0083); nothing was opened, and Brokkr moves nothing
    make these moves, then run `brokkr doctor` to check the result:
+     mkdir -p .brokkr/adapters .brokkr/agents .brokkr/scripts .brokkr/state
      git mv bundle.json .brokkr/bundle.json
      git mv policy.json .brokkr/policy.json
      git mv adapters/claude.json .brokkr/adapters/claude.json
@@ -314,12 +315,16 @@ scaffold, and its layout stays.
      git mv scripts/verify-seat.sh .brokkr/scripts/verify-seat.sh
      git mv realms.json .brokkr/realms.json
      in .brokkr/realms.json, rewrite journal ".forge/forge.db" as "state/forge.db" and realms[0].path "." as ".."
-     mkdir -p .brokkr/state && mv .forge/forge.db .forge/forge.db-wal .brokkr/state/
+     mv .forge/forge.db .forge/forge.db-wal .brokkr/state/
      git rm .forge/.gitignore && printf 'state/\n' > .brokkr/.gitignore
+     rmdir .forge
    Brokkr reads no script or charter: edit any path one names under .forge/, or builds from its own place, to name the same file after the move
    ```
 
-   (Abridged here; the refusal lists every move.) The list holds three
+   (Abridged here; the refusal lists every move.) It first creates
+   `.brokkr/` and each destination directory, because `git mv` into a
+   missing directory fails. An entry git tracks moves by `git mv` and goes
+   by `git rm`; an untracked one by `mv` and `rm`. The list holds three
    groups:
 
    - **The files the compile reads**, each to the same relative place under
@@ -346,10 +351,11 @@ scaffold, and its layout stays.
    - **The state**, to `.brokkr/state/`: each journal under `.forge/` with
      its `-wal` and `-shm`, together, because a write-ahead log can hold
      committed history, and every other `.forge/` entry; then
-     `.forge/.gitignore` is removed and `.brokkr/.gitignore` written with
-     its one line `state/`. A run that has not ended is ended first, by the
-     escape below: it pinned the old paths, and its resume would meet the
-     drift fence.
+     `.forge/.gitignore` is removed, `.brokkr/.gitignore` is written with
+     its one line `state/`, and the emptied `.forge/` is removed, because a
+     `.forge` entry beside the folder, even an empty one, is the half-moved
+     shape. A run that has not ended is ended first, by the escape below:
+     it pinned the old paths, and its resume would meet the drift fence.
 
    The state-only refusal opens `this repository has Brokkr state in .forge/
    and no .brokkr/ folder (decision 0083); nothing was opened, and Brokkr
@@ -397,7 +403,7 @@ scaffold, and its layout stays.
    exactly, and the journal's bytes do not move);
    `secrets_only_layout_refuses` (a `.forge/secrets.env` alone, holding one
    name: `brokkr secrets list` gives the state-only first line exactly and
-   creates no `.brokkr/`; after the listed `mv` and `brokkr init .`,
+   creates no `.brokkr/`; after the listed moves and `brokkr init .`,
    `brokkr secrets list` lists the name from `.brokkr/state/secrets.env`);
    `a_library_keeps_its_journal` (a `recipes/x/bundle.json` beside
    `.forge/forge.db`, run with `--bundle recipes/x`, opens
@@ -441,9 +447,9 @@ scaffold, and its layout stays.
 
    `brokkr doctor`'s first line is the folder: `folder: <root>/.brokkr (found
    from <cwd>)`, `folder: none from <cwd> up to <root> — brokkr init . writes
-   one`, or the first line of ruling 4's refusal, because doctor reports and
-   never refuses (decision 0046's Addendum). Its journal, agents, adapters
-   and secrets lines read the paths ruling 3 resolved, and a state fact with
+   one`, or, in the root layout or the state-only shape, the first line of
+   ruling 4's refusal, because doctor reports and never refuses (decision
+   0046's Addendum). Its journal, agents, adapters and secrets lines read the paths ruling 3 resolved, and a state fact with
    no place (ruling 2's step 4) is reported as `none`.
 
    Doctor is how a hand move is checked. With a folder discovered, its
