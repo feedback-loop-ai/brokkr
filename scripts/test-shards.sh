@@ -213,6 +213,59 @@ else
   "${prefix[@]}" -- --list >/dev/null
 fi
 
+# The protected system set the broker's boundary proofs read, prepared in
+# the background while the build ran (#647): where setup-bubblewrap's
+# `protect-system-tree: background` named its directory in
+# BROKKR_SYSTEM_SET, no shard starts until the preparation's `status` there
+# records exit 0. A directory that is not there, a status that does not
+# arrive within BROKKR_SYSTEM_SET_WAIT_SECONDS (600 unless set), one that
+# cannot be read and a non-zero exit are each refused with its log printed:
+# the set may be half protected. Where nothing names a set, nothing waits.
+# An exit status and its seconds as a runner records them: the status is
+# what `$?` can be, 0 to 255 written plainly, so a record outside that is
+# refused as unreadable, never compared as a number a shell cannot hold.
+exit_status_re='^(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5]) [0-9]+$'
+# The record in the file $1, into `record`, or '' where the file is not
+# exactly one record and its newline, byte for byte. Bash drops a NUL from
+# what it reads, with a warning, and strips every trailing newline, so the
+# file is compared whole with the record read from it; a file that cannot
+# be read is never read, since a failed redirection would end the script
+# before any refusal.
+read_record() {
+  record=''
+  if [ -r "$1" ] && { record="$(<"$1")"; } 2>/dev/null && [[ "$record" =~ $exit_status_re ]] &&
+    printf '%s\n' "$record" | cmp -s - "$1"; then
+    return
+  fi
+  record=''
+}
+await_system_set() {
+  local dir="$1" limit="${BROKKR_SYSTEM_SET_WAIT_SECONDS:-600}" started="$SECONDS"
+  local record='' status='' seconds='' refusal=''
+  if ! [[ "$limit" =~ ^[0-9]+$ ]]; then
+    printf '\n==> the protected system set: not awaited\n'
+    if [ -f "$dir/log" ]; then cat "$dir/log"; fi
+    refuse "BROKKR_SYSTEM_SET_WAIT_SECONDS '$limit' is not a number of seconds"
+  fi
+  [ -d "$dir" ] || refuse "the protected system set's directory $dir is not there, so its preparation was never started"
+  while [ ! -e "$dir/status" ] && [ "$((SECONDS - started))" -lt "$limit" ]; do sleep 1; done
+  # The whole record is read, a line it does not end with included: a
+  # second record or any other byte refuses as unreadable.
+  read_record "$dir/status"
+  if [ ! -e "$dir/status" ]; then
+    refusal="recorded no exit status within ${limit}s"
+  elif [ -z "$record" ]; then
+    refusal='recorded an exit status the guard cannot read'
+  else
+    status="${record%% *}" seconds="${record#* }"
+    [ "$status" = 0 ] || refusal="failed with exit $status after ${seconds}s"
+  fi
+  printf '\n==> the protected system set: %s\n' "${refusal:-exit 0 after ${seconds}s, awaited for $((SECONDS - started))s}"
+  if [ -f "$dir/log" ]; then cat "$dir/log"; fi
+  [ -z "$refusal" ] || refuse "the protected system set's preparation $refusal, so the boundary proofs would read a set it may have left half protected"
+}
+if [ -n "${BROKKR_SYSTEM_SET:-}" ]; then await_system_set "$BROKKR_SYSTEM_SET"; fi
+
 # shellcheck source=scripts/test-summary.sh
 source scripts/test-summary.sh
 
@@ -248,7 +301,6 @@ lost=false
 # exit status and seconds, before anything else runs.
 run_shard() {
   local index="$1" waited=0 status='' seconds='' refusal
-  local status_re='^[0-9]+ [0-9]+$'
   argv_of "$index"
   printf 'test shards: runs %s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
   # The runner runs in the foreground: a non-interactive shell starts a
@@ -265,8 +317,9 @@ run_shard() {
       printf '%s %s\n' "$status" "$((SECONDS - start))" >"$work/$index.status"
     )
   } 2>/dev/null || waited=$?
-  if [ -s "$work/$index.status" ]; then read -r status seconds <"$work/$index.status" || true; fi
-  if ! [[ "$status $seconds" =~ $status_re ]]; then
+  local record=''
+  read_record "$work/$index.status"
+  if [ -z "$record" ]; then
     lost=true
     shard_status[$index]=none
     printf '\n==> %s: no exit status recorded, its runner ended with exit %s; the logs are kept in %s\n' \
@@ -275,11 +328,12 @@ run_shard() {
     failed+=("${shard_name[$index]} recorded no exit status (its runner ended with exit $waited), so it is not shown to have passed")
     return
   fi
+  status="${record%% *}" seconds="${record#* }"
   shard_status[$index]="$status"
   shard_seconds[$index]="$seconds"
   printf '\n==> %s: exit %s after %ss\n' "${shard_name[$index]}" "$status" "$seconds"
   cat "$work/$index.log"
-  if [ "$status" -ne 0 ]; then
+  if [ "$status" != 0 ]; then
     failed+=("${shard_name[$index]} failed with exit $status")
   fi
   refusal="$(summary_refusal "$work/$index.log" "$index")"

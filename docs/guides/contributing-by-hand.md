@@ -215,7 +215,11 @@ and its log is still printed. Every later shard is then `not started`,
 because the unrecorded shard's command may still be running and no later
 shard could be shown to run alone. The run then keeps its logs in the
 directory it names, since a runner may still be writing to them; a run
-with every status recorded removes them. A plain cargo test runs the same
+with every status recorded removes them. On CI's Linux legs the runner's
+protected system set is prepared in the background while the build runs,
+and the shards wait for it after the build, refusing before any shard if
+its preparation failed or never finished (#647); locally nothing names one
+in `BROKKR_SYSTEM_SET`, so nothing waits. A plain cargo test runs the same
 tests, also one binary after another. On Linux,
 install bubblewrap first: the
 hands tests build a real namespace (decision 0043), and a boundary proof

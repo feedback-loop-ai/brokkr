@@ -30,13 +30,24 @@ inputs:
     description: >-
       'true' makes the runner's system set protected before the broker's
       boundary proofs run (decision 0065 slice two, operator ruling
-      2026-10-07).
+      2026-10-07). 'background' starts the same preparation detached and
+      names it in BROKKR_SYSTEM_SET, so it overlaps the build and
+      scripts/test-shards.sh waits on it, failing closed, before its first
+      shard (#647). 'false' leaves the set as the image ships it; any other
+      value fails the step.
     default: 'false'
   cache-build:
     description: >-
       'true' restores the bwrap this file's pins built on the same runner
       release, and saves the one it builds on a miss (#633).
     default: 'false'
+outputs:
+  system-set:
+    description: >-
+      The directory the background preparation writes its log and exit
+      status to, which scripts/test-shards.sh waits on before its first
+      shard (#647). Empty unless protect-system-tree is 'background'.
+    value: ${{ steps.protect.outputs.system-set }}
 runs:
   using: composite
   steps:
@@ -94,27 +105,62 @@ runs:
     # run host is. Owners change only where they are not root, so no
     # setuid bit on a root file is cleared, and group owners are left as
     # they are.
+    #
+    # The preparation takes about 143 s, so 'background' overlaps it with
+    # the build (#647). The build only reads /usr: setfacl -b, chmod go-w and
+    # a chown to root keep every read, and no step between this one and the
+    # shards installs under /usr. Its output goes to the directory's `log`,
+    # and its exit status and seconds to `status`, renamed into place once
+    # it has ended; scripts/test-shards.sh waits for that status after its
+    # build and before its first shard, and refuses a missing, unreadable
+    # or non-zero one with the log printed, so a half-protected set never
+    # reaches the proofs and nothing changes the set once they start.
     - name: a protected system set for the broker's boundary proofs
-      if: inputs.protect-system-tree == 'true'
+      id: protect
+      if: inputs.protect-system-tree != 'false'
       shell: bash
+      env:
+        PROTECT: ${{ inputs.protect-system-tree }}
       run: |
         set -euo pipefail
-        # The hosted image's preinstalled SDKs make the server's system set
-        # ~708,000 entries (420,000 under /usr/local), and one broker
-        # admission walks it in ~11 s, so the full suite's contention pushes
-        # some past the fixed 30 s deadline (diagnostic #587). No test uses
-        # them; removing them leaves an ordinary host's set (operator ruling
-        # 2026-10-08). The broker's real cost on such hosts stays a finding
-        # for task 28.17.
-        sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/share/powershell \
-          /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/julia* /usr/local/.ghcup \
-          /usr/share/swift /usr/local/aws-cli /usr/local/aws-sam-cli /usr/lib/jvm
-        for d in /usr/bin /usr/sbin /usr/lib /usr/lib64 /usr/include /usr/share /usr/local \
-                 /usr/libexec /bin /sbin /lib /lib64 /etc/ssl/certs /etc/ca-certificates /etc/alternatives \
-                 /etc/ld.so.cache /etc/ld.so.conf /etc/ld.so.conf.d; do
-          if [ ! -e "$d" ] || [ -L "$d" ]; then continue; fi
-          sudo setfacl -R -P -b "$d"
-          sudo find "$d" -xdev ! -user root -exec chown -h root {} +
-          sudo find "$d" -xdev ! -type l -perm /022 -exec chmod go-w {} +
-        done
-        echo "server system set: $(sudo find /usr/bin /usr/lib /usr/share /usr/local /usr/libexec /usr/include -xdev 2>/dev/null | wc -l) entries"
+        protect() {
+          set -euo pipefail
+          # The hosted image's preinstalled SDKs make the server's system set
+          # ~708,000 entries (420,000 under /usr/local), and one broker
+          # admission walks it in ~11 s, so the full suite's contention pushes
+          # some past the fixed 30 s deadline (diagnostic #587). No test uses
+          # them; removing them leaves an ordinary host's set (operator ruling
+          # 2026-10-08). The broker's real cost on such hosts stays a finding
+          # for task 28.17.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/share/powershell \
+            /usr/local/share/chromium /usr/local/share/vcpkg /usr/local/julia* /usr/local/.ghcup \
+            /usr/share/swift /usr/local/aws-cli /usr/local/aws-sam-cli /usr/lib/jvm
+          for d in /usr/bin /usr/sbin /usr/lib /usr/lib64 /usr/include /usr/share /usr/local \
+                   /usr/libexec /bin /sbin /lib /lib64 /etc/ssl/certs /etc/ca-certificates /etc/alternatives \
+                   /etc/ld.so.cache /etc/ld.so.conf /etc/ld.so.conf.d; do
+            if [ ! -e "$d" ] || [ -L "$d" ]; then continue; fi
+            sudo setfacl -R -P -b "$d"
+            sudo find "$d" -xdev ! -user root -exec chown -h root {} +
+            sudo find "$d" -xdev ! -type l -perm /022 -exec chmod go-w {} +
+          done
+          echo "server system set: $(sudo find /usr/bin /usr/lib /usr/share /usr/local /usr/libexec /usr/include -xdev 2>/dev/null | wc -l) entries"
+        }
+        case "$PROTECT" in
+          true) protect; exit 0 ;;
+          background) ;;
+          *) echo "protect-system-tree is 'true', 'background' or 'false', not '$PROTECT'" >&2; exit 1 ;;
+        esac
+        set_dir="${RUNNER_TEMP}/brokkr-system-set"
+        mkdir "$set_dir"
+        echo "system-set=$set_dir" >> "$GITHUB_OUTPUT"
+        export -f protect
+        # A new session, every descriptor away from the step's: the step
+        # ends at once, and the runner keeps the preparation to the job's end.
+        setsid bash -c '
+          start="$SECONDS"
+          (protect) >"$1/log" 2>&1
+          status=$?
+          printf "%s %s\n" "$status" "$((SECONDS - start))" >"$1/status.new"
+          mv "$1/status.new" "$1/status"
+        ' _ "$set_dir" </dev/null >/dev/null 2>&1 &
+        echo "the protected system set is prepared in the background; its log is $set_dir/log"

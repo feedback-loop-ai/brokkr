@@ -272,8 +272,13 @@ impl WorkflowLeg {
                     )
                 })
                 .1;
+            // An omitted variable never reaches the guide's line, so its
+            // value needs no local form (#647's step output is one).
+            if matches!(carried, Local::Omitted) {
+                continue;
+            }
             let value = local_value(value, self.runner);
-            if matches!(carried, Local::Carried) && !value.is_empty() {
+            if !value.is_empty() {
                 prefix.push_str(&format!("{name}={value} "));
             }
         }
@@ -419,7 +424,7 @@ enum Local {
 /// variable no row has ruled on fails the test rather than dropping out of
 /// the guide. A step no row writes, such as each of `delivered by
 /// brokkr`'s, has its variables held word for word by `JOB_LINES`.
-const LOCAL_ENV: [(&str, Local); 6] = [
+const LOCAL_ENV: [(&str, Local); 7] = [
     ("BROKKR_REQUIRE_BOUNDARY_EVIDENCE", Local::Carried),
     ("BROKKR_SUPPRESSION_BASE", Local::Carried),
     ("PR_BODY", Local::Carried),
@@ -429,6 +434,9 @@ const LOCAL_ENV: [(&str, Local); 6] = [
     ("MUTANTS_JOBS", Local::Omitted),
     // `npm ci --ignore-scripts` runs no download script either way.
     ("PUPPETEER_SKIP_DOWNLOAD", Local::Omitted),
+    // The protected set's directory exists only where CI's setup step
+    // prepared it in the background (#647); a local run waits on nothing.
+    ("BROKKR_SYSTEM_SET", Local::Omitted),
 ];
 
 /// A variable's value on a local run of `runner`'s leg: a literal
@@ -1111,13 +1119,15 @@ const JOB_LINES: [(&str, &str); 11] = [
 <stable toolchain>
 <rust-cache>
       - name: bubblewrap for the hands tests
+        id: bubblewrap
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-bubblewrap
         with:
-          protect-system-tree: 'true'
+          protect-system-tree: 'background'
           cache-build: 'true'
       - run:
         env:
+          BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
       - name: R3 native startup gate
         if: runner.os == 'macOS'
@@ -1160,13 +1170,15 @@ const JOB_LINES: [(&str, &str); 11] = [
           path: ~/.cache/brokkr-coverage-cache
           key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
       - name: bubblewrap for the hands tests
+        id: bubblewrap
         uses: ./.github/actions/setup-bubblewrap
         with:
-          protect-system-tree: 'true'
+          protect-system-tree: 'background'
           cache-build: 'true'
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run:
         env:
+          BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: '1'
       - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
