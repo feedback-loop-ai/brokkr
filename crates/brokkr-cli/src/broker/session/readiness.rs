@@ -14,14 +14,16 @@
 //! one binding frame on the control pipe, which the broker then closes, and
 //! the bootstrap's status pipe read to its end: a tag is the handoff's or
 //! the exec's cause, and its end permits only the server's initialization
-//! (U6c8). The startup's absolute deadline and the attempt's cancellation
-//! bound every wait. The box is settled either way, its server with it:
-//! serving still refuses before any MCP message.
+//! (U6c8), which the box's live stdio is handed on to (U6e). The startup's
+//! absolute deadline and the attempt's cancellation bound every wait. The
+//! box is settled once that has answered, either way, its server with it:
+//! serving still refuses before any message reaches the harness.
 
 use std::collections::BTreeSet;
+use std::io::{ErrorKind, PipeReader, PipeWriter};
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::{BoxIntent, Privilege, Refusal};
 use brokkr_protocol::hands::ServerEntry;
@@ -46,11 +48,42 @@ pub(in crate::broker) struct Admitted {
     entry: ServerEntry,
 }
 
-/// The startup's absolute deadline (MB3), which observation and readiness
-/// share and never extend, and the attempt's cancellation: whether the
-/// broker's own starter has ended, which the launch's watcher asks from a
-/// thread of its own.
-pub(super) type Startup<'a> = (Instant, &'a (dyn Fn() -> bool + Sync));
+/// The startup's absolute deadline (MB3), which observation, readiness and
+/// the server's initialization share and never extend, and the attempt's
+/// cancellation: whether the broker's own starter has ended, which the
+/// launch's watcher asks from a thread of its own.
+pub(in crate::broker) type Startup<'a> = (Instant, &'a (dyn Fn() -> bool + Sync));
+
+/// A launched box's server's standard input and output, its only stdio,
+/// as the protocol takes them over (U6e).
+pub(in crate::broker) type Link<'l> = (&'l mut PipeWriter, &'l mut PipeReader);
+
+/// The longest one wait on a pipe lasts before the deadline and the
+/// cancellation are read again.
+pub(in crate::broker) const SLICE: Duration = Duration::from_millis(10);
+
+/// Whether `startup`'s deadline is still ahead, the attempt not cancelled.
+pub(in crate::broker) fn timely((deadline, cancelled): Startup<'_>) -> bool {
+    (Instant::now() < deadline) & !cancelled()
+}
+
+/// Whether `step` was taken until it was done, while `startup` is
+/// [`timely`], waiting at most [`SLICE`] wherever it would block; not
+/// where any other error, the deadline or the cancellation came first.
+pub(in crate::broker) fn polled(
+    startup: Startup<'_>,
+    mut step: impl FnMut() -> std::io::Result<bool>,
+) -> bool {
+    while timely(startup) {
+        match step() {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(error) if error.kind() == ErrorKind::WouldBlock => std::thread::sleep(SLICE),
+            Err(_) => return false,
+        }
+    }
+    false
+}
 
 /// The observer's `record` against what `intent` sealed, with the
 /// `handles` it handed back: its own refusal; identity unprotected where
@@ -96,15 +129,16 @@ pub(super) fn compared(
     })
 }
 
-/// Off Linux no box stands, so none is launched.
+/// Off Linux no box stands, so none is launched and nothing is served.
 #[cfg(not(target_os = "linux"))]
-pub(super) fn ready(
+pub(super) fn ready<T, E: From<Refusal>>(
     admitted: &Admitted,
     _: (&brokkr_protocol::broker::Plan, &str),
     _: Startup<'_>,
-) -> Result<(), Refusal> {
+    _: impl FnOnce(Link<'_>) -> Result<T, E>,
+) -> Result<T, E> {
     let _ = (&admitted.handles, &admitted.store, &admitted.entry);
-    Err(Refusal::Unavailable)
+    Err(Refusal::Unavailable.into())
 }
 
 /// The launch and the receiver, which read Linux's `/proc` and device
@@ -117,14 +151,13 @@ mod linux {
     use std::os::unix::io::RawFd;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
 
     use brokkr_protocol::broker::{Plan, Refusal};
     use brokkr_protocol::hands::ServerBox;
     use brokkr_protocol::secret;
     use serde::Deserialize;
 
-    use super::{Admitted, Startup};
+    use super::{polled, Admitted, Link, Startup};
     use crate::broker::bootstrap::handshake::Status;
     pub(super) use crate::broker::bootstrap::handshake::{
         Intent, Ready, Source, Spaces, FRAME_MAX,
@@ -133,10 +166,6 @@ mod linux {
 
     /// The most bytes bubblewrap's info holds.
     const INFO_MAX: usize = 4096;
-
-    /// The longest one wait on a pipe lasts before the deadline and the
-    /// cancellation are read again.
-    const SLICE: Duration = Duration::from_millis(10);
 
     /// What bubblewrap's info names: the box's first process, by its host
     /// pid. Its other keys, which vary by version, are no authority here.
@@ -162,13 +191,15 @@ mod linux {
     /// its launcher cannot start, and not established where its start
     /// overruns, the started launcher names no first process, the intent
     /// cannot be sent or the readiness is not the owned bootstrap's, whole,
-    /// for this plan and these sources. The box is settled once this
-    /// returns, either way, its server with it.
-    pub(in crate::broker) fn ready(
+    /// for this plan and these sources. Only then is the server's stdio
+    /// handed on, live, to `served` (U6e), whose answer this is. The box is
+    /// settled once this returns, either way, its server with it.
+    pub(in crate::broker) fn ready<T, E: From<Refusal>>(
         admitted: &Admitted,
         (plan, digest): (&Plan, &str),
         startup: Startup<'_>,
-    ) -> Result<(), Refusal> {
+        served: impl FnOnce(Link<'_>) -> Result<T, E>,
+    ) -> Result<T, E> {
         let handles = admitted.handles.iter().map(|(_, fd)| fd.as_fd());
         let handles: Vec<BorrowedFd<'_>> = handles.collect();
         let mut launched = ServerBox::launch(&admitted.entry, &handles, bootstrap, startup)?;
@@ -195,7 +226,8 @@ mod linux {
             child.kill().ok();
         };
         decided(&ready, (digest, &intent.sources), launcher, &seen)
-            .and_then(|()| delivered(pipes, (admitted, plan), startup, end))
+            .and_then(|()| delivered(pipes, (admitted, plan), startup, end))?;
+        served((&mut launched.input, &mut launched.output))
     }
 
     /// Hand the ready bootstrap its server's bindings on the box's
@@ -390,25 +422,6 @@ mod linux {
             Ok(left.is_empty())
         });
         ensure(whole, Refusal::Establishment)
-    }
-
-    /// Whether `step` was taken until it was done, within `startup`'s
-    /// absolute deadline unless the attempt is cancelled, waiting at most
-    /// [`SLICE`] wherever it would block; not where any other error, the
-    /// deadline or the cancellation came first.
-    fn polled(
-        (deadline, cancelled): Startup<'_>,
-        mut step: impl FnMut() -> std::io::Result<bool>,
-    ) -> bool {
-        while (Instant::now() < deadline) & !cancelled() {
-            match step() {
-                Ok(true) => return true,
-                Ok(false) => {}
-                Err(error) if error.kind() == ErrorKind::WouldBlock => std::thread::sleep(SLICE),
-                Err(_) => return false,
-            }
-        }
-        false
     }
 
     /// The namespaces `/proc` shows the process `pid` in, by inode, in
