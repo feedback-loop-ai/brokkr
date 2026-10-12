@@ -25,8 +25,8 @@ command exits 0 and writes no result file, or when writing the prompt
 to the command, or waiting for it, fails after the spawn. Two adjacent hazards came to
 light, a result file shared by an effect's attempts and a sequence retry
 that re-runs steps that succeeded. Both are named below as findings for
-the operator. The proposed addendum to decision 0006 rules on the ends
-of an attempt and leaves these two unruled, as questions in its Asked
+the operator. The addendum to decision 0006, accepted on 2026-10-12, rules on the ends
+of an attempt and leaves these two unruled, as questions in its Ruled
 paragraph.
 
 ## Findings
@@ -231,5 +231,5 @@ direct reads, and each line number above was re-read before it was
 written. No run was driven and no fault was injected: this entry states
 what the code decides, not a measured incidence. How often a deadline
 kill or a protocol violation after `start` occurs in the operator's
-journals was not measured. The addendum's Asked paragraph names that cost
-as open.
+journals was not measured. The addendum's Ruled paragraph has the build
+count that cost first.

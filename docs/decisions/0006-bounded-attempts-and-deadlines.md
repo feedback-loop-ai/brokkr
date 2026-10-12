@@ -3,7 +3,7 @@
 **Status**: accepted (operator goal directive, 2026-08-23 — "fully
 autonomous, end-to-end"; enumeration by Claude under that directive)
 
-Built: built
+Built: partial (#434) — the 2026-10-11 addendum's retry matrix and effect identity are unbuilt
 Amended by: 0067
 
 ## Ruling
@@ -196,10 +196,13 @@ determinate was not.
   pidfd, a pid reused between `ps`'s confirmation and the signal could
   be signalled.
 
-## Addendum — 2026-10-11, proposed: ending a process proves nothing about its effects, and a retry needs evidence (#434)
+## Addendum — 2026-10-11, accepted 2026-10-12: ending a process proves nothing about its effects, and a retry needs evidence (#434)
 
-Status: proposed; only the operator accepts this addendum. Until then
-the rulings above stand as written, and no retry behaviour changes.
+Addendum status: accepted (operator, 2026-10-12)
+
+The operator accepted this addendum in chat on 2026-10-12, ruling each
+asked item as recommended (Ruled, below). Retry behaviour changes when
+#434's build lands; until then the rulings above stand as written.
 
 The ruling above calls a deadline kill determinate "because the engine
 killed it before any result". That fact is about who ended the process.
@@ -267,7 +270,7 @@ cannot show the executor's own report, these rulings park.
    | Process timeout: the deadline kill | the tree is gone, and no result was read | The effect is uncertain, and the attempt is `effect/indeterminate`. It retries only under ruling 4. Otherwise it parks for the operator. **Changed.** |
    | Lost result: no result of the executor's was read after `start`. That is a driver exit with no result; a protocol violation, an unreadable line, a wrong `proto` or a failed stdout read after `start` (`converse` and `recv`); the built-in driver's `failed` when its command exits 0 and writes no result file, or ends by a signal; the built-in driver's `failed` for an invocation error after the command was spawned (writing the prompt to its stdin, waiting for it, or exec's state command); or an engine restart in flight | no result was read; whatever the driver wrote in its place is not a receipt | As for the timeout. **Changed** for every arm that reports `failed` today. An engine restart always parks, because nothing proves its tree gone. |
    | Transport limit: a line, result or checkpoint past a limit of decision 0079 (`Exceeded`) | the driver broke its bounds; nothing it sent is read | Parks for the operator, always, even on a site declared `deduplicates` whose driver delivered the identity. Accepted decision 0079 ruling 3 stands over this addendum: such an attempt is never failed in a way a retry may repeat. Ruling 4 makes no exception to it. Unchanged. |
-   | Partial side effect: the executor's own `failed` report after it began work. That is a third-party driver's `failed` result, or a built-in driver's command that returned a non-zero exit status | the executor answered and its result failed; what it changed is not known | Retries automatically within `max_attempts`, as the ruling above has it. The retry runs in the same worktree, on the same result path and under the same effect identity, so it reconciles against what the attempt left there. Nothing is claimed about effects beyond the worktree (ruling 6). Unchanged. |
+   | Partial side effect: the executor's own `failed` report after it began work. That is a third-party driver's `failed` result, or a built-in driver's command that returned a non-zero exit status | the executor answered and its result failed; what it changed is not known | On a seat whose reach is its worktree (boxed hands, network off, and no capability granted that writes elsewhere), retries automatically within `max_attempts`, as the ruling above has it. The retry runs in the same worktree, on the same result path and under the same effect identity, so it reconciles against what the attempt left there. On a seat that can reach beyond its worktree (network on, or an unboxed boundary), parks for the operator, because a retry may repeat an effect outside the tree (ruled 2026-10-12). Nothing is claimed about effects beyond the worktree (ruling 6). Changed for seats that reach beyond their worktree. |
    | Cleanup failure: the tree is not proven gone | an outcome was received, and the cleanup is unresolved | Parks for the operator, always, whatever was received or declared (#403's addendum). Unchanged. |
 
    A panel or sequence attempt is uncertain when any member or step is,
@@ -282,6 +285,9 @@ cannot show the executor's own report, these rulings park.
    `an_unreadable_line_after_start_is_indeterminate` for `recv`'s arms,
    beside a handshake case that pins `Failed` before `start`. In
    `crates/brokkr-protocol/src/adapters.rs`'s suite,
+   `a_reported_failure_on_a_seat_beyond_its_worktree_parks` pins the
+   partial-side-effect row's split: the same `failed` result retries on a
+   boxed, network-off seat and parks on a network-on one.
    `a_command_that_exits_zero_without_a_result_ends_lost` pins that the
    driver sends no `failed` for that arm, and
    `a_prompt_write_failure_after_the_spawn_ends_lost` pins the same for
@@ -396,6 +402,12 @@ cannot show the executor's own report, these rulings park.
      `effect/failed`; and a completed run.
    - `an_undelivered_identity_parks`: the site is declared, but its
      `accepted` does not echo the identity, so the run parks.
+   - `an_operator_retry_keeps_the_effect_identity`: the operator's
+     `retry` of a parked `deduplicates` effect sends the same identity,
+     so the executor's deduplication still applies (ruled 2026-10-12).
+
+   An operator's `retry` of a parked `deduplicates` effect keeps its
+   effect identity, and opens no new effect.
 
    A fold test in `crates/brokkr-core/src/fold.rs`'s suite pins that an
    `effect/failed` carrying the evidence folds exactly as one without it.
@@ -470,20 +482,25 @@ cannot show the executor's own report, these rulings park.
    bundle test pins that a bundle with no `replay` compiles to `none` and
    the same manifest digest it had.
 
-**Asked.** These are left to the operator's ruling:
+**Ruled** (operator, in chat, 2026-10-12). Each item below was asked of
+the operator, and each was ruled as recommended:
 - The cost of ruling 2 was not measured. A hung seat with a limit of 2
   now parks after its first deadline instead of retrying once. Should
   that rate be counted from the journals before acceptance?
+  **Ruled:** accepted now; the build's first step counts that rate from the journals.
 - A seat's reach can be pinned to its worktree: boxed, with network off
   and no capability granted that writes elsewhere. Should a deadline
   kill on such a seat retry as a reconciliation, since its effects are
   in the tree the retry reads, rather than park? The simplest rule the
   evidence supports is no, and that is what ruling 2 rules.
+  **Ruled:** no; such a seat parks, as ruling 2 rules, until the count says otherwise.
 - Should a reported failure on a seat that can reach beyond its
   worktree (network on, or an unboxed boundary) park rather than retry?
   In the shipped library that is `agents/release-manager.json`.
+  **Ruled:** yes; the partial-side-effect row of ruling 2 now parks it.
 - Should an operator's `retry` of a parked `deduplicates` effect keep
   its identity, rather than opening a new effect?
+  **Ruled:** yes; ruling 4 now says so.
 - The issue asks for an identity "acknowledged by the actual executor".
   Ruling 4 makes the pinned declaration the authority and the driver's
   echo proof of delivery only, because no channel today carries the
@@ -492,16 +509,20 @@ cannot show the executor's own report, these rulings park.
   identity before acting, the driver forwards it, and a retry needs it.
   Its binding test would pin that a driver-only echo parks. Should the
   build take that form instead?
+  **Ruled:** the pinned declaration plus the driver's echo, as ruling 4 rules; the command-level acknowledgement is a later option.
 - Ruling 4 refuses `deduplicates` inside a panel or a sequence. The
   alternative scopes the delivered identity to the structural site, the
   `idempotency_key` with the site's path in the body, stable across
   retries. Its binding test would drive two declared exec steps in one
   sequence and pin two distinct identities, each acted on once. Is that
   a follow-up?
+  **Ruled:** a follow-up; `deduplicates` stays refused inside a panel or a sequence until then.
 - Research 0021 rows 8 and 9 are unruled: a result file shared by an
   effect's attempts, and a sequence retry that re-runs steps that
   succeeded. Are they follow-ups, or part of this addendum?
+  **Ruled:** follow-ups.
 - Decision 0053 ruling 5 reasons from a deadline kill's outcome being
   `failed`. Its conclusion still holds once this is accepted, because an
   indeterminate attempt is never a failure to start. Does 0053 take an
   erratum that says so?
+  **Ruled:** yes; 0053's ruling 5 carries the erratum.
