@@ -227,17 +227,24 @@ fi
 exit_status_re='^(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5]) [0-9]+$'
 await_system_set() {
   local dir="$1" limit="${BROKKR_SYSTEM_SET_WAIT_SECONDS:-600}" started="$SECONDS"
-  local status='' seconds='' refusal=''
-  [[ "$limit" =~ ^[0-9]+$ ]] || refuse "BROKKR_SYSTEM_SET_WAIT_SECONDS '$limit' is not a number of seconds"
+  local record='' status='' seconds='' refusal=''
+  if ! [[ "$limit" =~ ^[0-9]+$ ]]; then
+    printf '\n==> the protected system set: not awaited\n'
+    if [ -f "$dir/log" ]; then cat "$dir/log"; fi
+    refuse "BROKKR_SYSTEM_SET_WAIT_SECONDS '$limit' is not a number of seconds"
+  fi
   [ -d "$dir" ] || refuse "the protected system set's directory $dir is not there, so its preparation was never started"
   while [ ! -e "$dir/status" ] && [ "$((SECONDS - started))" -lt "$limit" ]; do sleep 1; done
-  if [ -e "$dir/status" ]; then read -r status seconds <"$dir/status" || true; fi
+  # The whole record is read, a line it does not end with included: a
+  # second record or any other line refuses as unreadable.
+  if [ -e "$dir/status" ]; then record="$(<"$dir/status")" || record=''; fi
   if [ ! -e "$dir/status" ]; then
     refusal="recorded no exit status within ${limit}s"
-  elif ! [[ "$status $seconds" =~ $exit_status_re ]]; then
+  elif ! [[ "$record" =~ $exit_status_re ]]; then
     refusal='recorded an exit status the guard cannot read'
-  elif [ "$status" != 0 ]; then
-    refusal="failed with exit $status after ${seconds}s"
+  else
+    status="${record%% *}" seconds="${record#* }"
+    [ "$status" = 0 ] || refusal="failed with exit $status after ${seconds}s"
   fi
   printf '\n==> the protected system set: %s\n' "${refusal:-exit 0 after ${seconds}s, awaited for $((SECONDS - started))s}"
   if [ -f "$dir/log" ]; then cat "$dir/log"; fi
@@ -296,8 +303,10 @@ run_shard() {
       printf '%s %s\n' "$status" "$((SECONDS - start))" >"$work/$index.status"
     )
   } 2>/dev/null || waited=$?
-  if [ -s "$work/$index.status" ]; then read -r status seconds <"$work/$index.status" || true; fi
-  if ! [[ "$status $seconds" =~ $exit_status_re ]]; then
+  local record=''
+  if [ -s "$work/$index.status" ]; then record="$(<"$work/$index.status")" || record=''; fi
+  if [[ "$record" =~ $exit_status_re ]]; then status="${record%% *}" seconds="${record#* }"; fi
+  if ! [[ "$record" =~ $exit_status_re ]]; then
     lost=true
     shard_status[$index]=none
     printf '\n==> %s: no exit status recorded, its runner ended with exit %s; the logs are kept in %s\n' \

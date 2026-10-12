@@ -645,6 +645,13 @@ fn an_unfinished_or_failed_system_set_preparation_refuses_before_any_shard() {
                 "600",
                 half_protected("recorded an exit status the guard cannot read"),
             ),
+            // A second record after the first is no record: the whole file
+            // is read, never its first line alone.
+            (
+                Some("0 3\n1 4\n"),
+                "600",
+                half_protected("recorded an exit status the guard cannot read"),
+            ),
             (
                 Some("00 3\n"),
                 "600",
@@ -683,10 +690,8 @@ fn an_unfinished_or_failed_system_set_preparation_refuses_before_any_shard() {
                 "{args:?} {status:?}"
             );
             assert_eq!(scratch.events(), Vec::<String>::new(), "{args:?}");
-            if wait != "soon" {
-                let stdout = String::from_utf8_lossy(&run.stdout);
-                assert!(stdout.ends_with("\nsetfacl: the set\n"), "{stdout}");
-            }
+            let stdout = String::from_utf8_lossy(&run.stdout);
+            assert!(stdout.ends_with("\nsetfacl: the set\n"), "{stdout}");
         }
     }
     let scratch = Scratch::new(&real, &script());

@@ -178,6 +178,7 @@ jobs:
       # build, and the shard script waits on it before its first shard
       # (#647); nothing between here and the shards installs under /usr.
       - name: bubblewrap for the hands tests
+        id: bubblewrap
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-bubblewrap
         with:
@@ -188,6 +189,9 @@ jobs:
       # one after another, capability_broker last (#633).
       - run: bash scripts/test-shards.sh test
         env:
+          # The protected set's directory, empty where the step was skipped
+          # (macOS), so nothing waits there (#647).
+          BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           # Decision 0054 ruling 9: a boundary proof that cannot open a
           # namespace skips, and a skipped Rust test prints `ok`. On the
           # Linux leg — the one that installed bubblewrap above and whose
@@ -334,6 +338,7 @@ jobs:
           key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
       # As in the test jobs, coverage-exact.sh's shards wait on the set (#647).
       - name: bubblewrap for the hands tests
+        id: bubblewrap
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'background'
@@ -341,6 +346,7 @@ jobs:
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run: bash scripts/coverage-exact.sh
         env:
+          BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           # The exact gate counts regions a skipped proof never enters, so
           # this job must run the boundary proofs for real too
           # (decision 0054 ruling 9).

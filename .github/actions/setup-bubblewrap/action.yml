@@ -41,6 +41,13 @@ inputs:
       'true' restores the bwrap this file's pins built on the same runner
       release, and saves the one it builds on a miss (#633).
     default: 'false'
+outputs:
+  system-set:
+    description: >-
+      The directory the background preparation writes its log and exit
+      status to, which scripts/test-shards.sh waits on before its first
+      shard (#647). Empty unless protect-system-tree is 'background'.
+    value: ${{ steps.protect.outputs.system-set }}
 runs:
   using: composite
   steps:
@@ -109,11 +116,12 @@ runs:
     # or non-zero one with the log printed, so a half-protected set never
     # reaches the proofs and nothing changes the set once they start.
     - name: a protected system set for the broker's boundary proofs
+      id: protect
       if: inputs.protect-system-tree != 'false'
       shell: bash
       env:
         PROTECT: ${{ inputs.protect-system-tree }}
-      run: | # zizmor: ignore[github-env] BROKKR_SYSTEM_SET is ${RUNNER_TEMP}/brokkr-system-set, a runner-controlled constant scripts/test-shards.sh reads; no input reaches it
+      run: |
         set -euo pipefail
         protect() {
           set -euo pipefail
@@ -144,7 +152,7 @@ runs:
         esac
         set_dir="${RUNNER_TEMP}/brokkr-system-set"
         mkdir "$set_dir"
-        echo "BROKKR_SYSTEM_SET=$set_dir" >> "$GITHUB_ENV"
+        echo "system-set=$set_dir" >> "$GITHUB_OUTPUT"
         export -f protect
         # A new session, every descriptor away from the step's: the step
         # ends at once, and the runner keeps the preparation to the job's end.
