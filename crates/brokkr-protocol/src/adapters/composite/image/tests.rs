@@ -2,7 +2,7 @@ use super::*;
 use std::io::Cursor;
 
 /// Inspect a synthetic image held in memory.
-fn inspected(bytes: &[u8]) -> Result<Native, String> {
+fn inspected(bytes: &[u8]) -> Result<Native, Unloadable> {
     inspect(&mut Cursor::new(bytes.to_vec()), bytes.len() as u64)
 }
 
@@ -297,30 +297,23 @@ fn every_elf_rule_refuses_by_name() {
         memsz: len,
     };
     let path = interp(b"/ld");
-    let cases: Vec<(Vec<u8>, String)> = vec![
+    let cases: Vec<(Vec<u8>, Unloadable)> = vec![
         (
             elf64_with([3, ELF_DATA, 1], ET_DYN, ARCH.elf, &[load()], b""),
-            "an unsupported ELF class 3".into(),
+            Unloadable::ElfClass(3),
         ),
         (
             elf64_with([2, 3 - ELF_DATA, 1], ET_DYN, ARCH.elf, &[load()], b""),
-            format!("an unsupported ELF byte order {}", 3 - ELF_DATA),
+            Unloadable::ElfByteOrder(3 - ELF_DATA),
         ),
         (
             elf64_with([2, ELF_DATA, 2], ET_DYN, ARCH.elf, &[load()], b""),
-            "an unsupported ELF version 2".into(),
+            Unloadable::ElfVersion(2),
         ),
-        (
-            elf64(1, ARCH.elf, &[load()], b""),
-            "ELF type 1, which is neither an executable nor a shared object".into(),
-        ),
+        (elf64(1, ARCH.elf, &[load()], b""), Unloadable::ElfType(1)),
         (
             elf64(ET_DYN, ARCH.elf.wrapping_add(1), &[load()], b""),
-            format!(
-                "ELF machine {}, which is not this target's {}",
-                ARCH.elf.wrapping_add(1),
-                ARCH.elf
-            ),
+            Unloadable::ElfMachine(ARCH.elf.wrapping_add(1)),
         ),
         (
             {
@@ -328,19 +321,19 @@ fn every_elf_rule_refuses_by_name() {
                 bytes[54] = 55;
                 bytes
             },
-            "an ELF program header size 55 where 56 is required".into(),
+            Unloadable::ElfHeaderSize {
+                found: 55,
+                required: 56,
+            },
         ),
-        (
-            elf64(ET_DYN, ARCH.elf, &[], b""),
-            "no ELF program headers".into(),
-        ),
+        (elf64(ET_DYN, ARCH.elf, &[], b""), Unloadable::ElfNoHeaders),
         (
             {
                 let mut bytes = elf64(ET_DYN, ARCH.elf, &[load()], b"");
                 bytes[56..58].copy_from_slice(&2000u16.to_le_bytes());
                 bytes
             },
-            "an ELF program header table of 112000 bytes, above the 65536-byte bound".into(),
+            Unloadable::ElfTableBound(112_000),
         ),
         (
             {
@@ -348,7 +341,7 @@ fn every_elf_rule_refuses_by_name() {
                 bytes[56..58].copy_from_slice(&2u16.to_le_bytes());
                 bytes
             },
-            "an ELF program header table beyond the end of the file".into(),
+            Unloadable::Beyond(Region::ElfProgramHeaders),
         ),
         (
             elf64(
@@ -362,7 +355,10 @@ fn every_elf_rule_refuses_by_name() {
                 }],
                 b"",
             ),
-            "an ELF load segment whose file size 65 exceeds its memory size 64".into(),
+            Unloadable::ElfSegmentSize {
+                filesz: 65,
+                memsz: 64,
+            },
         ),
         (
             elf64(
@@ -376,7 +372,7 @@ fn every_elf_rule_refuses_by_name() {
                 }],
                 b"",
             ),
-            "an ELF load segment beyond the end of the file".into(),
+            Unloadable::Beyond(Region::ElfLoadSegment),
         ),
         (
             elf64(
@@ -390,7 +386,7 @@ fn every_elf_rule_refuses_by_name() {
                 }],
                 b"",
             ),
-            "an ELF load segment beyond the end of the file".into(),
+            Unloadable::Beyond(Region::ElfLoadSegment),
         ),
         (
             elf64(
@@ -399,35 +395,35 @@ fn every_elf_rule_refuses_by_name() {
                 &[interp_at(payload_at(2), 4), interp_at(payload_at(2), 4)],
                 &path,
             ),
-            "more than one ELF interpreter".into(),
+            Unloadable::ElfInterpreters,
         ),
         (
             elf64(ET_DYN, ARCH.elf, &[interp_at(payload_at(1), 1)], &path),
-            "an ELF interpreter path of 1 bytes".into(),
+            Unloadable::ElfInterpreterLength(1),
         ),
         (
             elf64(ET_DYN, ARCH.elf, &[interp_at(payload_at(1), 4097)], &path),
-            "an ELF interpreter path of 4097 bytes".into(),
+            Unloadable::ElfInterpreterLength(4097),
         ),
         (
             elf64(ET_DYN, ARCH.elf, &[interp_at(payload_at(1), 5)], &path),
-            "an ELF interpreter path beyond the end of the file".into(),
+            Unloadable::Beyond(Region::ElfInterpreter),
         ),
         (
             elf64(ET_DYN, ARCH.elf, &[interp_at(payload_at(1), 3)], &path),
-            "an ELF interpreter path that is not NUL-terminated".into(),
+            Unloadable::ElfInterpreterUnterminated,
         ),
         (
             elf64(ET_DYN, ARCH.elf, &[interp_at(payload_at(1), 3)], b"\0\0\0"),
-            "an empty ELF interpreter path".into(),
+            Unloadable::ElfInterpreterEmpty,
         ),
         (
             elf32(ET_EXEC, ARCH.elf, &[load()], b""),
-            "ELF class 1, which is not this target's".into(),
+            Unloadable::ElfForeignClass(1),
         ),
         (
             elf64(ET_DYN, ARCH.elf, &[load()], b"")[..60].to_vec(),
-            "an ELF header beyond the end of the file".into(),
+            Unloadable::Beyond(Region::ElfHeader),
         ),
     ];
     for (bytes, reason) in cases {
@@ -449,7 +445,10 @@ fn every_elf_rule_refuses_by_name() {
     );
     assert_eq!(
         inspected(&bad_32).unwrap_err(),
-        "an ELF load segment whose file size 9 exceeds its memory size 8"
+        Unloadable::ElfSegmentSize {
+            filesz: 9,
+            memsz: 8
+        }
     );
     let interp_32 = elf32(
         ET_EXEC,
@@ -464,7 +463,7 @@ fn every_elf_rule_refuses_by_name() {
     );
     assert_eq!(
         inspected(&interp_32).unwrap_err(),
-        "ELF class 1, which is not this target's"
+        Unloadable::ElfForeignClass(1)
     );
 }
 
@@ -552,51 +551,37 @@ fn a_macho_declares_its_dynamic_linker_or_is_one() {
 #[test]
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn every_macho_rule_refuses_by_name() {
-    let malformed = |command: Vec<u8>, reason: &str| {
-        (
-            macho(ARCH.macho, MH_EXECUTE, &[command]),
-            reason.to_string(),
-        )
-    };
-    let cases: Vec<(Vec<u8>, String)> = vec![
+    let malformed =
+        |command: Vec<u8>, reason: Unloadable| (macho(ARCH.macho, MH_EXECUTE, &[command]), reason);
+    let cases: Vec<(Vec<u8>, Unloadable)> = vec![
         (
             vec![0xce, 0xfa, 0xed, 0xfe, 0, 0, 0, 0],
-            "an unsupported 32-bit Mach-O image".into(),
+            Unloadable::MachO32,
         ),
         (
             vec![0xfe, 0xed, 0xfa, 0xce, 0, 0, 0, 0],
-            "an unsupported byte-swapped Mach-O image".into(),
+            Unloadable::MachOSwapped,
         ),
         (
             vec![0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0],
-            "an unsupported byte-swapped Mach-O image".into(),
+            Unloadable::MachOSwapped,
         ),
         (
             vec![0xca, 0xfe, 0xba, 0xbf, 0, 0, 0, 0],
-            "an unsupported 64-bit universal image".into(),
+            Unloadable::Universal64,
         ),
         (
             macho(ARCH.macho.wrapping_add(1), MH_EXECUTE, &[]),
-            format!(
-                "Mach-O CPU type {}, which is not this target's {}",
-                ARCH.macho.wrapping_add(1),
-                ARCH.macho
-            ),
+            Unloadable::MachOCpu(ARCH.macho.wrapping_add(1)),
         ),
-        (
-            macho(ARCH.macho, 1, &[]),
-            "Mach-O file type 1, which is neither an executable nor a dynamic linker".into(),
-        ),
+        (macho(ARCH.macho, 1, &[]), Unloadable::MachOFileType(1)),
         (
             {
                 let mut bytes = macho(ARCH.macho, MH_EXECUTE, &[]);
                 bytes[20..24].copy_from_slice(&(MACHO_COMMANDS_BOUND + 1).to_le_bytes());
                 bytes
             },
-            format!(
-                "a Mach-O load-command table of {} bytes, above the {MACHO_COMMANDS_BOUND}-byte bound",
-                MACHO_COMMANDS_BOUND + 1
-            ),
+            Unloadable::MachOTableBound(MACHO_COMMANDS_BOUND + 1),
         ),
         (
             {
@@ -604,7 +589,7 @@ fn every_macho_rule_refuses_by_name() {
                 bytes[20..24].copy_from_slice(&8u32.to_le_bytes());
                 bytes
             },
-            "a Mach-O load-command table beyond the end of the file".into(),
+            Unloadable::Beyond(Region::MachOCommands),
         ),
         (
             {
@@ -612,7 +597,7 @@ fn every_macho_rule_refuses_by_name() {
                 bytes[16..20].copy_from_slice(&2u32.to_le_bytes());
                 bytes
             },
-            "a Mach-O load command beyond its table".into(),
+            Unloadable::MachOCommandBeyond,
         ),
         malformed(
             {
@@ -620,7 +605,7 @@ fn every_macho_rule_refuses_by_name() {
                 command[4..8].copy_from_slice(&4u32.to_le_bytes());
                 command
             },
-            "a malformed Mach-O load command",
+            Unloadable::MachOCommand,
         ),
         malformed(
             {
@@ -628,7 +613,7 @@ fn every_macho_rule_refuses_by_name() {
                 command[4..8].copy_from_slice(&80u32.to_le_bytes());
                 command
             },
-            "a malformed Mach-O load command",
+            Unloadable::MachOCommand,
         ),
         (
             macho(
@@ -636,7 +621,7 @@ fn every_macho_rule_refuses_by_name() {
                 MH_EXECUTE,
                 &[dylinker(b"/usr/lib/dyld"), dylinker(b"/usr/lib/dyld")],
             ),
-            "more than one Mach-O dynamic linker".into(),
+            Unloadable::MachODylinkers,
         ),
         malformed(
             {
@@ -644,7 +629,7 @@ fn every_macho_rule_refuses_by_name() {
                 command[8..12].copy_from_slice(&11u32.to_le_bytes());
                 command
             },
-            "a malformed Mach-O dynamic linker command",
+            Unloadable::MachODylinker,
         ),
         // `cmdsize` 8 on the dynamic-linker command: the generic bound
         // admits it, and the offset field at 8 is not there to read. This
@@ -656,7 +641,7 @@ fn every_macho_rule_refuses_by_name() {
                 command[4..8].copy_from_slice(&8u32.to_le_bytes());
                 command
             },
-            "a malformed Mach-O dynamic linker command",
+            Unloadable::MachODylinker,
         ),
         malformed(
             {
@@ -665,12 +650,12 @@ fn every_macho_rule_refuses_by_name() {
                 command[8..12].copy_from_slice(&size.to_le_bytes());
                 command
             },
-            "a malformed Mach-O dynamic linker command",
+            Unloadable::MachODylinker,
         ),
-        malformed(dylinker(b""), "an empty Mach-O dynamic linker path"),
+        malformed(dylinker(b""), Unloadable::MachODylinkerEmpty),
         (
             macho(ARCH.macho, MH_EXECUTE, &[])[..20].to_vec(),
-            "a Mach-O header beyond the end of the file".into(),
+            Unloadable::Beyond(Region::MachOHeader),
         ),
     ];
     for (bytes, reason) in cases {
@@ -714,26 +699,23 @@ fn a_universal_image_is_read_at_this_targets_slice() {
         inspected(&image).unwrap().loader,
         Some(b"/usr/lib/dyld".to_vec())
     );
-    let cases: Vec<(Vec<u8>, String)> = vec![
-        (fat(&[]), "a universal image with 0 architectures".into()),
+    let cases: Vec<(Vec<u8>, Unloadable)> = vec![
+        (fat(&[]), Unloadable::UniversalCount(0)),
         (
             {
                 let mut bytes = fat(&[(ARCH.macho, ours.clone())]);
                 bytes[4..8].copy_from_slice(&65u32.to_be_bytes());
                 bytes
             },
-            "a universal image with 65 architectures".into(),
+            Unloadable::UniversalCount(65),
         ),
         (
             fat(&[(ARCH.macho, ours.clone())])[..20].to_vec(),
-            "a universal architecture table beyond the end of the file".into(),
+            Unloadable::Beyond(Region::UniversalTable),
         ),
         (
             fat(&[(ARCH.macho.wrapping_add(1), other.clone())]),
-            format!(
-                "a universal image with no slice for this target's CPU type {}",
-                ARCH.macho
-            ),
+            Unloadable::UniversalNoSlice,
         ),
         (
             {
@@ -741,19 +723,19 @@ fn a_universal_image_is_read_at_this_targets_slice() {
                 bytes[20..24].copy_from_slice(&u32::MAX.to_be_bytes());
                 bytes
             },
-            "a universal slice beyond the end of the file".into(),
+            Unloadable::Beyond(Region::UniversalSlice),
         ),
         (
             fat(&[(ARCH.macho, fat(&[(ARCH.macho, ours.clone())]))]),
-            "a universal slice that is not a 64-bit Mach-O image".into(),
+            Unloadable::UniversalSliceNotMachO,
         ),
         (
             fat(&[(ARCH.macho, ours[..20].to_vec())]),
-            "a Mach-O header beyond the end of the file".into(),
+            Unloadable::Beyond(Region::MachOHeader),
         ),
         (
             fat(&[(ARCH.macho, vec![0; 4])]),
-            "a universal slice that is not a 64-bit Mach-O image".into(),
+            Unloadable::UniversalSliceNotMachO,
         ),
     ];
     for (bytes, reason) in cases {
@@ -763,24 +745,12 @@ fn a_universal_image_is_read_at_this_targets_slice() {
 
 #[test]
 fn an_unknown_head_and_a_failing_device_are_refused_by_name() {
-    assert_eq!(
-        inspected(b"#!/bin/sh\n").unwrap_err(),
-        "neither a #! script nor a native image"
-    );
-    assert_eq!(
-        inspected(b"").unwrap_err(),
-        "neither a #! script nor a native image"
-    );
-    assert_eq!(
-        inspected(b"MZ").unwrap_err(),
-        "neither a #! script nor a native image"
-    );
+    assert_eq!(inspected(b"#!/bin/sh\n").unwrap_err(), Unloadable::Unknown);
+    assert_eq!(inspected(b"").unwrap_err(), Unloadable::Unknown);
+    assert_eq!(inspected(b"MZ").unwrap_err(), Unloadable::Unknown);
     // A PE's magic is not a native image's: no supported host loads one
     // (decision 0063).
-    assert_eq!(
-        inspected(b"MZ\x90\0").unwrap_err(),
-        "neither a #! script nor a native image"
-    );
+    assert_eq!(inspected(b"MZ\x90\0").unwrap_err(), Unloadable::Unknown);
     let dynamic = elf64(
         ET_DYN,
         ARCH.elf,
@@ -798,9 +768,13 @@ fn an_unknown_head_and_a_failing_device_are_refused_by_name() {
         at: 0,
         ok: 4,
     };
+    let eio = |region| Unloadable::Unread {
+        region,
+        cause: "the device answered EIO".to_string(),
+    };
     assert_eq!(
         inspect(&mut failing, dynamic.len() as u64).unwrap_err(),
-        "an ELF header cannot be read: the device answered EIO"
+        eio(Region::ElfHeader)
     );
     let mut failing = Failing {
         bytes: dynamic.clone(),
@@ -809,7 +783,7 @@ fn an_unknown_head_and_a_failing_device_are_refused_by_name() {
     };
     assert_eq!(
         inspect(&mut failing, dynamic.len() as u64).unwrap_err(),
-        "the first four bytes cannot be read: the device answered EIO"
+        eio(Region::Magic)
     );
     // A universal slice whose bytes the device will not answer.
     let image = fat(&[(ARCH.macho, macho(ARCH.macho, MH_EXECUTE, &[]))]);
@@ -820,7 +794,7 @@ fn an_unknown_head_and_a_failing_device_are_refused_by_name() {
     };
     assert_eq!(
         inspect(&mut failing, image.len() as u64).unwrap_err(),
-        "a universal slice cannot be read: the device answered EIO"
+        eio(Region::UniversalSlice)
     );
     // The field readers answer `None` past the end and at an offset that
     // cannot be extended, rather than panicking.
@@ -833,4 +807,168 @@ fn an_unknown_head_and_a_failing_device_are_refused_by_name() {
     assert_eq!(bytes.u32_be(usize::MAX), None);
     assert_eq!(bytes.u32_be(0), None);
     assert_eq!(bytes.u64_le(0), None);
+}
+
+/// The one place each refusal's bytes are pinned (#353): the resolver
+/// folds them into its own refusal, so they are what an operator reads.
+#[test]
+fn every_unloadable_image_reads_as_it_always_has() {
+    let regions = [
+        (Region::Magic, "the first four bytes"),
+        (Region::ElfHeader, "an ELF header"),
+        (Region::ElfProgramHeaders, "an ELF program header table"),
+        (Region::ElfLoadSegment, "an ELF load segment"),
+        (Region::ElfInterpreter, "an ELF interpreter path"),
+        (Region::UniversalHeader, "a universal header"),
+        (Region::UniversalTable, "a universal architecture table"),
+        (Region::UniversalSlice, "a universal slice"),
+        (Region::MachOHeader, "a Mach-O header"),
+        (Region::MachOCommands, "a Mach-O load-command table"),
+    ];
+    for (region, spelled) in regions {
+        assert_eq!(
+            Unloadable::Beyond(region).to_string(),
+            format!("{spelled} beyond the end of the file")
+        );
+    }
+    for (refusal, text) in elf_pins().into_iter().chain(macho_pins()) {
+        assert_eq!(refusal.to_string(), text);
+    }
+}
+
+/// The head's and the ELF reader's refusals, each with its bytes.
+fn elf_pins() -> Vec<(Unloadable, String)> {
+    let elf = ARCH.elf;
+    vec![
+        (
+            Unloadable::Unread {
+                region: Region::ElfHeader,
+                cause: "EIO".into(),
+            },
+            "an ELF header cannot be read: EIO".to_string(),
+        ),
+        (
+            Unloadable::MachO32,
+            "an unsupported 32-bit Mach-O image".into(),
+        ),
+        (
+            Unloadable::MachOSwapped,
+            "an unsupported byte-swapped Mach-O image".into(),
+        ),
+        (
+            Unloadable::Universal64,
+            "an unsupported 64-bit universal image".into(),
+        ),
+        (
+            Unloadable::Unknown,
+            "neither a #! script nor a native image".into(),
+        ),
+        (Unloadable::ElfClass(3), "an unsupported ELF class 3".into()),
+        (
+            Unloadable::ElfByteOrder(2),
+            "an unsupported ELF byte order 2".into(),
+        ),
+        (
+            Unloadable::ElfVersion(2),
+            "an unsupported ELF version 2".into(),
+        ),
+        (
+            Unloadable::ElfType(1),
+            "ELF type 1, which is neither an executable nor a shared object".into(),
+        ),
+        (
+            Unloadable::ElfMachine(7),
+            format!("ELF machine 7, which is not this target's {elf}"),
+        ),
+        (
+            Unloadable::ElfHeaderSize {
+                found: 55,
+                required: 56,
+            },
+            "an ELF program header size 55 where 56 is required".into(),
+        ),
+        (Unloadable::ElfNoHeaders, "no ELF program headers".into()),
+        (
+            Unloadable::ElfTableBound(112_000),
+            "an ELF program header table of 112000 bytes, above the 65536-byte bound".into(),
+        ),
+        (
+            Unloadable::ElfSegmentSize {
+                filesz: 65,
+                memsz: 64,
+            },
+            "an ELF load segment whose file size 65 exceeds its memory size 64".into(),
+        ),
+        (
+            Unloadable::ElfInterpreters,
+            "more than one ELF interpreter".into(),
+        ),
+        (
+            Unloadable::ElfInterpreterLength(1),
+            "an ELF interpreter path of 1 bytes".into(),
+        ),
+        (
+            Unloadable::ElfInterpreterUnterminated,
+            "an ELF interpreter path that is not NUL-terminated".into(),
+        ),
+        (
+            Unloadable::ElfInterpreterEmpty,
+            "an empty ELF interpreter path".into(),
+        ),
+        (
+            Unloadable::ElfForeignClass(1),
+            "ELF class 1, which is not this target's".into(),
+        ),
+    ]
+}
+
+/// The Mach-O readers' refusals, universal and thin, each with its bytes.
+fn macho_pins() -> Vec<(Unloadable, String)> {
+    let cpu = ARCH.macho;
+    vec![
+        (
+            Unloadable::UniversalCount(65),
+            "a universal image with 65 architectures".into(),
+        ),
+        (
+            Unloadable::UniversalSliceNotMachO,
+            "a universal slice that is not a 64-bit Mach-O image".into(),
+        ),
+        (
+            Unloadable::UniversalNoSlice,
+            format!("a universal image with no slice for this target's CPU type {cpu}"),
+        ),
+        (
+            Unloadable::MachOCpu(8),
+            format!("Mach-O CPU type 8, which is not this target's {cpu}"),
+        ),
+        (
+            Unloadable::MachOFileType(1),
+            "Mach-O file type 1, which is neither an executable nor a dynamic linker".into(),
+        ),
+        (
+            Unloadable::MachOTableBound(1_048_577),
+            "a Mach-O load-command table of 1048577 bytes, above the 1048576-byte bound".into(),
+        ),
+        (
+            Unloadable::MachOCommandBeyond,
+            "a Mach-O load command beyond its table".into(),
+        ),
+        (
+            Unloadable::MachOCommand,
+            "a malformed Mach-O load command".into(),
+        ),
+        (
+            Unloadable::MachODylinkers,
+            "more than one Mach-O dynamic linker".into(),
+        ),
+        (
+            Unloadable::MachODylinker,
+            "a malformed Mach-O dynamic linker command".into(),
+        ),
+        (
+            Unloadable::MachODylinkerEmpty,
+            "an empty Mach-O dynamic linker path".into(),
+        ),
+    ]
 }
