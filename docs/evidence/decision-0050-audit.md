@@ -16,9 +16,11 @@ second slice (#429) moves `recipes/verify` and `recipes/preflight` to v2,
 names the `residual` verdict at severity `none` with
 `REVIEW-RESIDUAL-NONE` in every table that left it unruled, and refuses
 an unruled valuation, and a table past the sweep's budget, at compile.
-The table below, the gaps under rulings 1, 2 and 4 and the measured
-counts record both slices; the rest of this file is the audit as it was
-taken. What remains is rulings 5, 6 and 7.
+The third slice (#429) writes the fold's transition relation as one
+table and enumerates every pair of it. The table below, the gaps under
+rulings 1, 2, 4 and 6 and the measured counts record the three slices;
+the rest of this file is the audit as it was taken. What remains is
+rulings 5 and 7.
 
 ## The seven rulings
 
@@ -29,7 +31,7 @@ taken. What remains is rulings 5, 6 and 7.
 | 3. Liveness | built: refused at load | `Machine::from_table` through `Machine::refuse_findings`, `Finding::Unreachable` and `Finding::DeadEnd` | none |
 | 4. Totality | built: refused at compile | `Machine::refuse_unruled`, called by the compiler in `crates/brokkr-runtime/src/bundle.rs`; `Refusal::Totality` and `Refusal::Unswept`; the named park `REVIEW-RESIDUAL-NONE` | none |
 | 5. Stated properties | partial: the three properties hold on every shipped table at the valuations the test evaluates; `clean` is held at the plain verdict only | `crates/brokkr-runtime/tests/table_lints.rs` | the clean property's domain awaits a ruling; the sequence leg waits on ruling 7; no `table_properties.rs` |
-| 6. Fold arms total | unbuilt | none | no transition table and no enumeration test |
+| 6. Fold arms total | built: one table, enumerated under test | `crates/brokkr-core/src/fold/relation.rs` (`row`, `arm`), which `apply` in `fold.rs` reads first; `the_relation_answers_every_pair_and_the_fold_answers_by_it` in `crates/brokkr-core/src/fold/tests.rs` | none |
 | 7. Sequence endings compiled | unbuilt | none | the ending is still a run-time comparison, and a hard word reported by a non-final step does not end the sequence |
 
 ### Ruling 1: presence
@@ -263,10 +265,38 @@ taken. What remains is rulings 5, 6 and 7.
   The recorded journal
   `fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson`
   exists.
-- **Gap.** There is no transition table and no test that enumerates all
-  135 pairs. Writing the table so that it restates today's arms adds no
-  refusal, so it needs no ruling. It moves `fold.rs`, which is outside
-  this story's files, and is a follow-up.
+- **Gap, as audited.** There is no transition table and no test that
+  enumerates all 135 pairs. Writing the table so that it restates today's
+  arms adds no refusal, so it needs no ruling. It moves `fold.rs`, which
+  is outside this story's files, and is a follow-up.
+- **Built (third slice).** `row` in `crates/brokkr-core/src/fold/relation.rs`
+  is the relation: one row per event type, one column per position, and
+  each cell names the transition the event takes there
+  (`Arm::Moves(Transition)`), `Arm::OutOfPlace`, `Arm::Annotates` or
+  `Arm::AfterTerminal`. The match names every event type and each row is
+  typed by the position count, so a new event type or cursor state does
+  not compile until its row and column are written. `apply` reads the
+  cell before anything else, and has no arm that places an event by a
+  wildcard; an arm it admits still checks the phase or effect the event
+  names against the one the cursor holds, as before. The table restates
+  the arms as they were: it adds no refusal and admits nothing new.
+- **Re-measured.** The fold reads a terminal status before the cursor, so
+  the relation has ten positions: the nine cursor states, with `Idle`
+  read as parked, and `Terminal`. That is 15 × 10 = 150 pairs: 57
+  transitions, 78 out of place, 2 annotations (`operator/commanded` and
+  `operator/rejected` on a terminal run) and 13 after terminal.
+- **Tests.** `the_relation_answers_every_pair_and_the_fold_answers_by_it`
+  in `crates/brokkr-core/src/fold/tests.rs` states the transitions and
+  where each is taken, checks every one of the 150 cells against them,
+  applies a well-formed event at every pair and checks the exact answer,
+  and pins the tally. `a_malformed_event_out_of_place_is_refused_for_its_payload_first`
+  pins that an event both malformed and out of place is refused for the
+  field it names its target by, as the arms always read it.
+  `the_committed_fixture_journal_folds_exactly_as_it_did` in
+  `crates/brokkr-core/tests/fold_test.rs` still folds the recorded
+  journal, and every prefix of each journal under `fixtures/journals/`
+  folds to the same `format!("{:?}")` bytes before and after the change.
+- **Gap.** None.
 
 ### Ruling 7: the sequence's endings are compiled
 

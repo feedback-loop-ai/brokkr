@@ -147,8 +147,10 @@ of kind 'mcp', whose broker support is not implemented until decision 0065
 slice two". This includes wants, unused grants and offices [].
 Earlier units may parse/test internal records or execute a fake child through
 a bound test plan, but SHALL add no production compile escape. A directly
-invoked broker command SHALL also refuse before spawn while its serving
-protections are incomplete, with "broker serving protections are incomplete".
+invoked broker command SHALL also refuse while its serving protections are
+incomplete, with "broker serving protections are incomplete", before any MCP
+message is exchanged; it MAY first run the admitted box's preparation, launch,
+handoff and exec, and SHALL then end that box (operator ruling 2026-10-10).
 Once nonretaining serving is complete but retention is not, a retained plan
 SHALL refuse "broker retained-response support is incomplete" rather than
 silently discard its retention obligation. These temporary preparation causes
@@ -184,7 +186,7 @@ It SHALL not change the requested effect digest or qualify a resume shape.
 #### Scenario: Direct invocation cannot exploit a preparation merge
 
 - **WHEN** a valid bound test plan reaches the public command before U6f's serving protections, or a retained plan reaches it before U8b
-- **THEN** the exact incomplete-serving or incomplete-retention cause above refuses before child spawn
+- **THEN** the exact incomplete-serving or incomplete-retention cause above refuses before any MCP message is exchanged, after ending any box it launched
 - **AND** the existing unbound-plan refusal still wins for an untrusted locator; private fake-child tests confer no production authority
 
 #### Scenario: The enabling proof uses the real path

@@ -1,4 +1,4 @@
-//! Proposed decision 0075 ruling 5, arm by arm: a provisional model is
+//! Decision 0075 ruling 5, arm by arm: a provisional model is
 //! refused at a gate whatever the list says, refused in an office the
 //! operator did not list, admitted in one they did, and judged on every
 //! link of a chain. Every provider here is invented; the shipped tree is
@@ -179,7 +179,7 @@ fn a_provisional_model_at_a_gate_is_refused_even_where_its_office_is_listed() {
         error.to_string(),
         "bundle: seat 'work' is gate class but link 1 seats model 'fresh', which adapter \
          'newcomer' declares provisional; a provisional model never holds a gate, whatever \
-         provisional_offices lists (proposed decision 0075 ruling 5)"
+         provisional_offices lists (decision 0075 ruling 5)"
     );
 }
 
@@ -208,7 +208,7 @@ fn a_provisional_model_compiles_in_a_listed_work_office_and_nowhere_else() {
         "seat 'work' link 1 seats model 'fresh', which adapter 'newcomer' declares \
          provisional, in office 'researcher', which realms.json does not list in \
          provisional_offices; a provisional model holds only the offices the operator lists, \
-         and an absent or empty list names none (proposed decision 0075 ruling 5)"
+         and an absent or empty list names none (decision 0075 ruling 5)"
     );
     // Absent or empty, the list names no office at all.
     assert_eq!(workspace.refusal(seat("researcher", "work"), &[]), refusal);
@@ -261,7 +261,7 @@ fn an_inline_command_pinning_a_provisional_model_holds_no_office() {
         "seat 'work' link 1 seats model 'fresh', which adapter 'newcomer' declares \
          provisional, in no office (an inline command names no agent), which realms.json does \
          not list in provisional_offices; a provisional model holds only the offices the \
-         operator lists, and an absent or empty list names none (proposed decision 0075 \
+         operator lists, and an absent or empty list names none (decision 0075 \
          ruling 5)"
     );
     assert_eq!(
@@ -331,7 +331,7 @@ fn an_inline_pin_the_tier_cannot_read_is_refused_where_the_adapter_declares_a_pr
         refusal.to_string(),
         "seat 'work' pins its model on '--model', which this compiler cannot read as one \
          concrete id, and adapter 'newcomer' declares a provisional model the pin may reach; a \
-         pin the tier cannot read is refused, never read as promoted (proposed decision 0075 \
+         pin the tier cannot read is refused, never read as promoted (decision 0075 \
          ruling 5)"
     );
     assert_eq!(workspace.refusal(twice("gate"), &[]), refusal);
@@ -422,7 +422,7 @@ fn an_inline_pin_on_no_declared_id_is_refused_where_the_adapter_declares_a_provi
         "seat 'work' pins 'fresh' on '--model', which is the id of no model the seat's own \
          adapter declares, and adapter 'newcomer' declares a provisional model; an alias or an \
          undeclared id may reach that model, so a pin the tier cannot map to a declared id is \
-         refused, never read as promoted (proposed decision 0075 ruling 5)"
+         refused, never read as promoted (decision 0075 ruling 5)"
     );
     assert_eq!(workspace.refusal(inline("gate", "fresh"), &[]), refusal);
     let mut falling = inline("work", "steady-1");
@@ -501,8 +501,8 @@ fn an_adapter_fragment_that_names_a_model_flag_is_refused_at_load() {
                 format!(
                     "{file} '{at}' names the model flag '{flag}'; a model pin is the engine's to \
                      compose from a seat's chain, where the provisional tier judges it, and one \
-                     an adapter carries would seat a model no tier check reads (proposed \
-                     decision 0075 ruling 5)"
+                     an adapter carries would seat a model no tier check reads (decision 0075 \
+                     ruling 5)"
                 )
             ),
             other => panic!("expected '{at}' refused, got {other:?}"),
@@ -572,7 +572,7 @@ fn an_inline_command_that_pins_no_model_is_refused_where_the_adapter_declares_a_
         "seat 'work' pins no model, and adapter 'newcomer' declares a provisional model the \
          harness's own default may be; pin a promoted model's id on the adapter's model flag, \
          because a seat whose model the tier cannot read is refused, never read as promoted \
-         (proposed decision 0075 ruling 5)"
+         (decision 0075 ruling 5)"
     );
     assert_eq!(workspace.refusal(unpinned("gate", &[]), &[]), refusal);
     // A flag the model read walks past pins nothing either.
@@ -761,8 +761,8 @@ fn the_model_tier_is_a_closed_declaration_inside_the_models_map() {
         refused(json!({"id": "fresh-1", "tier": "promoted"})),
         format!(
             "{file} 'models.fresh' declares tier 'promoted'; the only tier a model declares is \
-             \"provisional\", and a model that declares none is promoted (proposed decision \
-             0075 ruling 5)"
+             \"provisional\", and a model that declares none is promoted (decision 0075 \
+             ruling 5)"
         )
     );
     // A tier that is written is read: one that cannot be is refused, not

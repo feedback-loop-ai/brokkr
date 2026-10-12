@@ -101,3 +101,27 @@ Seventeen of the nineteen rows after U6c6 touch a production file with no room: 
 ## Addendum, 2026-10-10: a parent module's re-export, and U6c6b's typed entry
 
 U6c6b's first run stopped on its review's M1: the closed launch entry crossed from the protocol crate to the CLI as JSON text, because naming its type in the CLI needs a re-export in `crates/brokkr-protocol/src/hands.rs`, the parent of the row's `hands/namespace.rs` and outside the row. Ruled, for U6c6b: `hands.rs` takes `ServerEntry` into its existing `pub use namespace::{…}` list, size-neutral, so the observation and admission carry the entry typed. Extended, as part of the 2026-10-09 standing rule for the remaining units: a unit may add a name to an existing re-export in the parent module that declares one of its row's files, without a separate ruling, where the parent's line count does not change. Any public API growth that brings still needs the operator's ruling. U6c6b's review L2 (one home for the bootstrap handshake's vocabulary and bound) moves to U6c8, whose row holds `broker/bootstrap.rs`.
+
+## Addendum, 2026-10-10: U6c8 widens to six files, `serve` runs the handoff, and the box has no terminal
+
+U6c8's run stopped oversized for three reasons. The status pipe and the server's standard streams can reach the box only through `ServerBox::launch` in `hands/namespace/entry.rs`. The bootstrap names its descriptors in `cli_args.rs`. And MB3's and MB4's two new causes have no home in the shared refusal catalogue. All three lie outside the row and outside its files' module trees. The settled unit also kept `serve` refusing before the launch while requiring real-box proof of the handoff, which only `serve` can give. Ruled:
+- U6c8's row gains `crates/brokkr-protocol/src/hands/namespace/entry.rs` (the status pipe and the server's standard input and output pipes), `crates/brokkr-cli/src/cli_args.rs` (the bootstrap's `--status` descriptor) and `crates/brokkr-protocol/src/broker.rs` (`Refusal::Handoff` and `Refusal::Exec` after `Establishment`), for those purposes only. One pull request.
+- Until U6f, `serve` runs the preparation, launch, handoff and exec, then ends the box and refuses with the incomplete-serving cause before any MCP message is exchanged. The MCP compile fence still refuses every grant until U9b.
+- MB5's terminal residual, owed since U6c4: before exec the bootstrap gives up its controlling terminal, and a real Linux box cannot open `/dev/tty`.
+- The public API growth is approved: `Refusal::Handoff`, `Refusal::Exec`, and the launched box's status pipe and server input and output on `Launched`.
+
+## Addendum, 2026-10-11: U6c8's handoff seam, its child file, and the terminal residual for U9b
+
+U6c8's second run was held on a fail-open descriptor enumeration (H1) and an unsupervised handoff (M1), both repaired in its third run. Its council also returned scope and API items, ruled here:
+- Approved public API, beyond the 2026-10-10 list: `secret::send_environment` and `secret::exec_confined`, the launch callback's third descriptor, `Launched::control` as an optional writer, and `Network`'s `Serialize`, `Clone` and `Copy`. They are the protocol crate's crossing point for the CLI's handoff.
+- `crates/brokkr-protocol/src/secret/handoff.rs` is admitted as a consumed child of `secret.rs`. The standing rule of 2026-10-09 is extended: a unit may also add a private child module beside a row file that its own change would push past the 800-line ceiling.
+- `crates/brokkr-cli/src/broker.rs`'s module and `run` comments may be corrected in U6c8, comments only, because the broker now looks up a secret and starts a server before refusing.
+- The terminal isolation's remaining gap, ancestor-mediated access through the box's bubblewrap parent (review L6), is recorded and accepted until U9b. U9b's enablement must close it before any server serves.
+
+## Addendum, 2026-10-11: a stuck store read ends with its session
+
+U6c8's third run stopped on its review's M1. A store read the kernel itself holds (a hung network or FUSE file system) cannot be interrupted in a thread, so joining the sender bounds nothing, and nothing can stop the thread mid-read. Ruled: at the startup deadline or on cancellation, the broker ends the box, settles its cleanup and refuses with the handoff cause at once, without waiting for the sender. The sender runs on a thread that owns its own duplicated handles and ends when the `serve` process exits on that refusal. A worker ended by its own session's exit is not abandoned. A read the kernel cannot release, even to a killed process, stays a recorded residual of the host.
+
+## Addendum, 2026-10-11: U6d completes the closed call causes, and its ledger is public
+
+U6d's first run parked after two reforgings on its review's M1. The ledger's closed failure catalogue, and the shared `Refusal`, lack three causes CR3, D7, MB3 and MB4 already name: "MCP server response exceeds the broker limit", "MCP server call timed out" and "MCP response cannot be safely masked". U6e and U6f consume them but do not own the protocol files that hold the catalogue. Ruled: U6d adds the three causes to `crates/brokkr-protocol/src/broker.rs` and `broker/ledger.rs`, in its own row, with exact-text, durable round-trip and first-cause controls. The public `broker::ledger` module (its `Ledger`, call, outcome, failure, invalid-record and lifecycle types) and the three causes are approved public API.

@@ -244,6 +244,17 @@ runs as boxed exec gates; the dialect's own workflow never drives the
 machine. Returns are bounded by `visits_<phase>`: a spec defect goes
 back to specify, an oversized implementation back to triage.
 
+A dialect's artifacts track one slice of work and are never the realm's
+living truth (decision 0081): the decisions rule, this page maps what is
+built, and the code and tests are the executable contract. This repository
+speaks OpenSpec. A change under `openspec/changes/` is a slice in flight;
+`openspec/specs/` is the tool's record of the requirements archived slices
+left, not a contract, and where it disagrees with a decision or the code,
+the decision and the code win. A change is archived by the dialect's archive
+step when every task in its `tasks.md` is ticked, and a test refuses a
+finished change left in place. An evidence ledger belongs in
+`docs/evidence/` or a run's `refs/forge` anchor, not in a change directory.
+
 ## Drivers
 
 ```mermaid

@@ -5,7 +5,8 @@
 //! phases' journal rows. The TUI and `brokkr inspect` ask [`lens_for`] and
 //! the `keeps_*` predicates; the browser cannot call Rust, so the run view
 //! serves every scope's [`Membership`] already decided, and the page only
-//! paints it (decision 0013).
+//! paints it (decision 0013). Only a serving surface decides it, by
+//! [`RunView::with_scopes`]: a terminal frame never pays for it (#624).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -197,7 +198,7 @@ pub struct Membership {
 
 /// Every scope a click can select, served so the browser paints the
 /// terminal's answer: each phase by name, and each participant by key.
-#[derive(Serialize, Default)]
+#[derive(Serialize, Debug, PartialEq, Eq)]
 pub struct Scopes {
     pub phases: BTreeMap<String, Membership>,
     pub seats: BTreeMap<String, Membership>,
@@ -227,9 +228,19 @@ fn membership(view: &RunView, lens: &Lens) -> Membership {
     }
 }
 
+impl RunView {
+    /// The view a surface serves: every scope's membership decided, as
+    /// `/api/view/<id>` and `inspect --json` print it. The terminal
+    /// draws from the bare [`crate::run_view`] (#624).
+    pub fn with_scopes(mut self) -> RunView {
+        self.scopes = Some(scopes(&self));
+        self
+    }
+}
+
 /// The membership of every phase scope and every seat scope by key, by
 /// the same lens [`lens_for`] resolves for a terminal.
-pub(crate) fn scopes(view: &RunView) -> Scopes {
+fn scopes(view: &RunView) -> Scopes {
     Scopes {
         phases: view
             .phases

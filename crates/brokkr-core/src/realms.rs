@@ -53,7 +53,7 @@
 //! This module judges the grant's SHAPE only; finding the dialect file,
 //! and everything the grant means for a seat, is `brokkr-runtime`'s work.
 //!
-//! v7 (proposed decision 0075 ruling 5) adds one WORLD-level list, the
+//! v7 (decision 0075 ruling 5) adds one WORLD-level list, the
 //! `provisional_offices`, judged in `realms/provisional.rs`.
 //!
 //! v8 (decision 0065 slice two, SC2) reserves one more grant key, `retain`,
@@ -93,7 +93,7 @@ pub const SCHEMA_V5: &str = "forge.realms/v5";
 /// and grants nothing — there is no grandfathering (ruling 4).
 pub const SCHEMA_V6: &str = "forge.realms/v6";
 
-/// The provisional tier (proposed decision 0075 ruling 5): v6 plus one
+/// The provisional tier (decision 0075 ruling 5): v6 plus one
 /// optional world-level `provisional_offices`, and nothing else.
 pub const SCHEMA_V7: &str = "forge.realms/v7";
 

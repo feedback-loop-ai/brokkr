@@ -1,4 +1,4 @@
-//! The harness conformance probe (proposed decision 0075 ruling 3, #484):
+//! The harness conformance probe (decision 0075 ruling 3, #484):
 //! run one agent CLI against a scratch repository and write the facts
 //! its adapter must declare. Each fact is measured, with its evidence;
 //! `unmeasured`, with why; or `unsupported`, as the CLI answered.
