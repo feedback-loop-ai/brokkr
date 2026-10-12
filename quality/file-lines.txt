@@ -185,7 +185,7 @@
    903 crates/brokkr-cli/tests/capability_broker/ledger.rs
    975 crates/brokkr-cli/tests/capability_broker/observer.rs
    156 crates/brokkr-cli/tests/capability_broker/protocol.rs
-   299 crates/brokkr-cli/tests/capability_broker/readiness.rs
+   312 crates/brokkr-cli/tests/capability_broker/readiness.rs
    720 crates/brokkr-cli/tests/capability_verbs.rs
   1862 crates/brokkr-cli/tests/contributing.rs
    195 crates/brokkr-cli/tests/contributing/inline_copies.rs
