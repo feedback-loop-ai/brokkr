@@ -12,13 +12,16 @@
 //! `serve` does not. Its private `bootstrap` verb is the waiting helper the
 //! server box runs (U6c6a, U6c8): it checks the box it stands in, reports
 //! ready on a private pipe, receives the declared bindings, which the
-//! broker looks up only then, and execs the server. The serving
-//! protections are later units' (slice two U6c3–U6f), so the box of an
-//! admitted plan is ended once its server has started, before any MCP
-//! message, and the plan still refused with SD3's incomplete-serving cause;
-//! decision 0065's compile fence still refuses every MCP grant.
+//! broker looks up only then, and execs the server. The [`rpc`] protocol
+//! then initializes that server and lists its filtered catalog (U6e). The
+//! serving protections are a later unit's (slice two U6f), so the box of
+//! an admitted plan is ended once its server has initialized, before any
+//! message reaches the harness, and the plan still refused with SD3's
+//! incomplete-serving cause; decision 0065's compile fence still refuses
+//! every MCP grant.
 
 mod bootstrap;
+mod rpc;
 mod session;
 
 use std::path::{Component, Path, PathBuf};
@@ -89,8 +92,9 @@ pub(crate) fn plan_digest(text: &str) -> Result<String, BrokerError> {
 
 /// Serve the plan `command` names: refuse before looking up a secret or
 /// starting anything where a check fails, and otherwise once its box has
-/// been launched, its server handed its bindings and started, and the box
-/// ended, before any MCP message. Or, as `serve`'s private observer,
+/// been launched, its server handed its bindings, started and initialized,
+/// and the box ended, before any message reaches the harness. Or, as
+/// `serve`'s private observer,
 /// observe it and hand back what was checked; or, as its waiting
 /// bootstrap, report the box ready and exec the server, returning only the
 /// cause of one that did not start.

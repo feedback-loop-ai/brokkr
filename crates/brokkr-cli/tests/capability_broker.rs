@@ -5,9 +5,10 @@
 //! protected inventory pins it; a bound plan's every field and box intent
 //! is checked in MB3's order before any lookup or start. An admitted plan's
 //! box is made ready, its bindings handed over and its server started
-//! inside it (U6c8), and serving still refuses before any MCP message
-//! until the serving protections land. A bound plan's one lifetime has its
-//! private ledger (U6d). The compile fence still refuses every MCP grant.
+//! inside it (U6c8) and initialized (U6e), and serving still refuses before
+//! any message reaches the harness until the serving protections land. A
+//! bound plan's one lifetime has its private ledger (U6d). The compile
+//! fence still refuses every MCP grant.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -22,6 +23,8 @@ mod handoff;
 mod ledger;
 #[cfg(target_os = "linux")]
 mod observer;
+#[cfg(target_os = "linux")]
+mod protocol;
 #[cfg(target_os = "linux")]
 mod readiness;
 
@@ -583,10 +586,30 @@ fn past_prepare(refusal: Refusal) -> (Option<i32>, String) {
     }
 }
 
-/// The answer to a plan the broker admits, still refused before serving.
+/// The answer to a plan the broker admits and whose server initializes,
+/// still refused before serving.
 fn admitted() -> (Option<i32>, String) {
     past_prepare(Refusal::ServingIncomplete)
 }
+
+/// The exit and stderr of a session that ends with `failure` once its
+/// server has started (U6e).
+#[cfg(target_os = "linux")]
+fn ended(failure: brokkr_protocol::broker::ledger::Failure) -> (Option<i32>, String) {
+    (Some(1), format!("error: {failure}\n"))
+}
+
+/// What the fixture's server says once started, run by the box's own
+/// shell: `serve`'s startup in MCP and nothing more, the dialect's pinned
+/// version and both granted tools beside one the plan does not grant,
+/// each request read whole as one line; then it waits for its input's end.
+const SPEAKS: &str = r#"read -r line
+echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"docs","version":"1.4.2"}}}'
+read -r line
+read -r line
+echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"resolve","inputSchema":{"type":"object"}},{"name":"admin","inputSchema":{"type":"object"}},{"name":"read","inputSchema":{"type":"object"}}]}}'
+read -r line
+"#;
 
 /// Whether this run stands in a seat's hands box, where no box is prepared.
 fn boxed() -> bool {
@@ -781,11 +804,12 @@ impl Sealed {
         for dir in attempt.ancestors().skip(4).take(4) {
             chmod(dir, 0o755);
         }
-        // The server leaves a marker if it is ever started.
+        // The server would leave a marker on the host if it could, and
+        // speaks MCP's startup (U6e).
         let server = root.write(
             "opt/docs/bin/docs-mcp",
             &format!(
-                "#!/bin/sh\ntouch '{}'\n",
+                "#!/bin/sh\ntouch '{}'\n{SPEAKS}",
                 root.path.join("started").display()
             ),
         );
@@ -1597,10 +1621,11 @@ fn a_long_binding_name_is_cut_to_one_bounded_line() {
     assert_eq!((code, stderr), (Some(1), format!("error: {cause}\n")));
 }
 
-/// An executable at `path`, its directories made.
+/// An executable at `path` that speaks MCP's startup, its directories
+/// made.
 fn plant(path: &Path) -> PathBuf {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, "#!/bin/sh\n").unwrap();
+    std::fs::write(path, format!("#!/bin/sh\n{SPEAKS}")).unwrap();
     chmod(path, 0o755);
     path.to_path_buf()
 }
@@ -1615,10 +1640,11 @@ fn the_program_tree_is_mb3s_layout_of_the_executable() {
         return;
     }
     let sealed = Sealed::new();
-    // Each program is sealed with the sources the observer finds for it.
+    // Each program is sealed with the sources the observer finds for it,
+    // and told to speak MCP's startup: a shell runs it, a script ignores it.
     let tree = |argv0: Value, executable: &Path, tree: Value| {
         sealed.answer(|plan| {
-            set(plan, "/connection/argv/0", argv0);
+            set(plan, "/connection/argv", json!([argv0, "-c", SPEAKS]));
             set(plan, "/box/executable", json!(executable));
             set(plan, "/box/tree", tree);
             *plan = sealed.observing(plan.take());
