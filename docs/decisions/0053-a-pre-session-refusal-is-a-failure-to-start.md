@@ -169,6 +169,11 @@ Alternatives weighed:
    pins the fact on the report; the structural-predicate test in
    `agent_tests.rs` pins that a killed attempt is not a failure to start.
 
+   *Erratum (operator, 2026-10-12, with decision 0006's addendum of
+   2026-10-11):* a deadline kill's outcome is now `Indeterminate`, not
+   `Failed`, as that addendum rules. This ruling's conclusion holds:
+   an indeterminate attempt is never a failure to start.
+
 6. **A refusal is bounded wire data, and it names its own evidence.**
    Every field the classifiers read — the token as much as the prose
    excerpt — comes off the harness's stream, so all of it is
