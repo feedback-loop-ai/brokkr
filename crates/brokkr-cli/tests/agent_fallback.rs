@@ -10,7 +10,6 @@
 //! rather than described in a comment, and both sides of it are run here.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::{json, Value};
 
@@ -169,49 +168,26 @@ impl Workspace {
         })
     }
 
-    fn brokkr(&self, args: &[&str]) -> (String, String) {
-        let out = Command::new(brokkr_bin())
-            .args(args)
-            .current_dir(self.path())
-            .output()
-            .unwrap();
-        (
-            String::from_utf8_lossy(&out.stdout).into_owned(),
-            String::from_utf8_lossy(&out.stderr).into_owned(),
-        )
-    }
-
     fn run(&self) -> String {
-        let (_, stderr) = self.brokkr(&[
-            "run",
-            "--bundle",
-            self.path().join("bundle").to_str().unwrap(),
-            "--feature",
-            "fallback",
-            "--db",
-            self.db().to_str().unwrap(),
-        ]);
-        stderr
-            .lines()
-            .find_map(|line| line.strip_prefix("run started: "))
-            .unwrap_or_else(|| panic!("run id on stderr: {stderr}"))
-            .trim()
-            .to_string()
+        crate::engine::run_in(self.path(), "fallback", &self.db()).0
     }
 
     /// The journal, as the store holds it — read by a SECOND process, so
     /// every assertion below is about journaled facts rather than about
     /// anything the running engine kept in memory.
     fn events(&self, run_id: &str) -> Vec<Value> {
-        self.brokkr(&[
-            "export",
-            "--run",
-            run_id,
-            "--out",
-            self.path().to_str().unwrap(),
-            "--db",
-            self.db().to_str().unwrap(),
-        ]);
+        crate::engine::printed_in(
+            self.path(),
+            &[
+                "export",
+                "--run",
+                run_id,
+                "--out",
+                self.path().to_str().unwrap(),
+                "--db",
+                self.db().to_str().unwrap(),
+            ],
+        );
         std::fs::read_to_string(self.path().join(format!("{run_id}.ndjson")))
             .unwrap()
             .lines()

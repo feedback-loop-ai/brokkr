@@ -637,14 +637,21 @@ pub(super) enum Starter {
 /// `starter`, a shell under `no_new_privs` as a confined harness is, with
 /// the engine's HOME; the whole run traced where `block` holds the
 /// launcher. The broker's own stderr goes apart, to [`broker_err`], so no
-/// tracer notice shares a line with it.
+/// tracer notice shares a line with it. Its TMPDIR is the fixture's own,
+/// removed with it: a blocked observer killed there leaves its server
+/// identity's tree behind, which must not reach the shared TMPDIR another
+/// test's run reaps and says on its stderr (#646).
 fn serving(sealed: &Sealed, digest: &str, block: &Block, starter: Starter) -> Command {
     let command = match block {
         Block::Mount { .. } => Command::new(setpriv()),
         Block::Launcher { tracer } => traced(tracer, TRACED),
     };
     let apart = sealed.path("broker.err");
-    started_to(command, sealed, digest, (starter, Some(&apart)))
+    let mut command = started_to(command, sealed, digest, (starter, Some(&apart)));
+    let tmp = sealed.path("tmp");
+    std::fs::create_dir_all(&tmp).unwrap();
+    command.env("TMPDIR", tmp);
+    command
 }
 
 /// What the broker [`serving`] `sealed` wrote to its own stderr.
