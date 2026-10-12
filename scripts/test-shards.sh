@@ -213,6 +213,34 @@ else
   "${prefix[@]}" -- --list >/dev/null
 fi
 
+# The protected system set the broker's boundary proofs read, prepared in
+# the background while the build ran (#647): where setup-bubblewrap's
+# `protect-system-tree: background` named its directory in
+# BROKKR_SYSTEM_SET, no shard starts until the preparation's `status` there
+# records exit 0. A directory that is not there, a status that does not
+# arrive within BROKKR_SYSTEM_SET_WAIT_SECONDS (600 unless set), one that
+# cannot be read and a non-zero exit are each refused with its log printed:
+# the set may be half protected. Where nothing names a set, nothing waits.
+await_system_set() {
+  local dir="$1" limit="${BROKKR_SYSTEM_SET_WAIT_SECONDS:-600}" started="$SECONDS"
+  local status='' seconds='' status_re='^[0-9]+ [0-9]+$' refusal=''
+  [[ "$limit" =~ ^[0-9]+$ ]] || refuse "BROKKR_SYSTEM_SET_WAIT_SECONDS '$limit' is not a number of seconds"
+  [ -d "$dir" ] || refuse "the protected system set's directory $dir is not there, so its preparation was never started"
+  while [ ! -e "$dir/status" ] && [ "$((SECONDS - started))" -lt "$limit" ]; do sleep 1; done
+  if [ -e "$dir/status" ]; then read -r status seconds <"$dir/status" || true; fi
+  if [ ! -e "$dir/status" ]; then
+    refusal="recorded no exit status within ${limit}s"
+  elif ! [[ "$status $seconds" =~ $status_re ]]; then
+    refusal='recorded an exit status the guard cannot read'
+  elif [ "$status" -ne 0 ]; then
+    refusal="failed with exit $status after ${seconds}s"
+  fi
+  printf '\n==> the protected system set: %s\n' "${refusal:-exit 0 after ${seconds}s, awaited for $((SECONDS - started))s}"
+  if [ -f "$dir/log" ]; then cat "$dir/log"; fi
+  [ -z "$refusal" ] || refuse "the protected system set's preparation $refusal, so the boundary proofs would read a set it may have left half protected"
+}
+if [ -n "${BROKKR_SYSTEM_SET:-}" ]; then await_system_set "$BROKKR_SYSTEM_SET"; fi
+
 # shellcheck source=scripts/test-summary.sh
 source scripts/test-summary.sh
 

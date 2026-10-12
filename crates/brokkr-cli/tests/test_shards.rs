@@ -120,21 +120,29 @@ impl Scratch {
     /// The script run from the workspace with `args`, the stub first on
     /// `PATH` and the scratch `tmp/` as `TMPDIR`.
     fn run(&self, args: &[&str], env: &[(&str, &str)]) -> Output {
+        self.command(args, env).output().expect("the script runs")
+    }
+
+    /// The command [`Scratch::run`] runs. A protected system set the job
+    /// running these tests named is not this run's: only `env` names one.
+    fn command(&self, args: &[&str], env: &[(&str, &str)]) -> Command {
         let path = format!(
             "{}:{}",
             self.dir.path().join("bin").display(),
             std::env::var("PATH").expect("PATH")
         );
-        Command::new("bash")
+        let mut command = Command::new("bash");
+        command
             .arg(self.dir.path().join("test-shards.sh"))
             .args(args)
             .current_dir(workspace())
             .env("PATH", path)
             .env("STUB_DIR", self.dir.path())
             .env("TMPDIR", self.dir.path().join("tmp"))
-            .envs(env.iter().copied())
-            .output()
-            .expect("the script runs")
+            .env_remove("BROKKR_SYSTEM_SET")
+            .env_remove("BROKKR_SYSTEM_SET_WAIT_SECONDS")
+            .envs(env.iter().copied());
+        command
     }
 
     /// The lines the stub wrote to `file`, in order.
@@ -575,4 +583,144 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
         assert!(stdout.contains(line), "{line}\n{stdout}");
     }
     assert!(work[0].join("2.log").is_file(), "{work:?}");
+}
+
+/// A protected system set's preparation, as setup-bubblewrap's background
+/// step leaves it in the scratch's `set/`: its `log`, and its `status`
+/// renamed into place once written, as the step does.
+fn prepared(scratch: &Scratch, log: &str, status: &str) {
+    let set = scratch.dir.path().join("set");
+    std::fs::write(set.join("log"), log).expect("log");
+    std::fs::write(set.join("status.new"), status).expect("status");
+    std::fs::rename(set.join("status.new"), set.join("status")).expect("status renamed");
+}
+
+/// The refusal of a protected system set's preparation that `failed` as
+/// shown.
+fn half_protected(failed: &str) -> String {
+    format!(
+        "test shards: the protected system set's preparation {failed}, so the boundary \
+         proofs would read a set it may have left half protected\n"
+    )
+}
+
+/// A protected system set whose preparation failed, never recorded its
+/// status, recorded one the guard cannot read, or was never started is
+/// refused in both modes after the build and before any shard runs, with
+/// its log printed (#647); so is a wait limit that is not a number.
+#[test]
+fn an_unfinished_or_failed_system_set_preparation_refuses_before_any_shard() {
+    let real = metadata();
+    let coverage = "+nightly-2026-09-05 llvm-cov --no-report --workspace --all-features --locked \
+                    --branch --no-fail-fast -- --list";
+    let failed = half_protected("failed with exit 1 after 3s");
+    for (args, build) in [
+        (&["test"][..], format!("{TEST} --no-run")),
+        (
+            &["coverage", "nightly-2026-09-05"][..],
+            coverage.to_string(),
+        ),
+    ] {
+        for (status, wait, refusal) in [
+            (Some("1 3\n"), "600", failed.clone()),
+            (
+                None,
+                "1",
+                half_protected("recorded no exit status within 1s"),
+            ),
+            (
+                Some("done\n"),
+                "600",
+                half_protected("recorded an exit status the guard cannot read"),
+            ),
+            (
+                Some("0 3\n"),
+                "soon",
+                "test shards: BROKKR_SYSTEM_SET_WAIT_SECONDS 'soon' is not a number of seconds\n"
+                    .to_string(),
+            ),
+        ] {
+            let scratch = Scratch::new(&real, &script());
+            let set = scratch.dir.path().join("set");
+            std::fs::create_dir(&set).expect("set");
+            match status {
+                Some(status) => prepared(&scratch, "setfacl: the set\n", status),
+                None => std::fs::write(set.join("log"), "setfacl: the set\n").expect("log"),
+            }
+            let set_dir = set.to_str().expect("a UTF-8 scratch");
+            let env = [
+                ("BROKKR_SYSTEM_SET", set_dir),
+                ("BROKKR_SYSTEM_SET_WAIT_SECONDS", wait),
+            ];
+            let run = scratch.run(args, &env);
+            assert_eq!(run.status.code(), Some(1), "{args:?} {status:?}: {run:?}");
+            assert_eq!(String::from_utf8_lossy(&run.stderr), refusal, "{args:?}");
+            assert_eq!(
+                scratch.calls(),
+                std::slice::from_ref(&build),
+                "{args:?} {status:?}"
+            );
+            assert_eq!(scratch.events(), Vec::<String>::new(), "{args:?}");
+            if wait != "soon" {
+                let stdout = String::from_utf8_lossy(&run.stdout);
+                assert!(stdout.ends_with("\nsetfacl: the set\n"), "{stdout}");
+            }
+        }
+    }
+    let scratch = Scratch::new(&real, &script());
+    let missing = scratch.dir.path().join("set");
+    let run = scratch.run(
+        &["test"],
+        &[("BROKKR_SYSTEM_SET", missing.to_str().expect("UTF-8"))],
+    );
+    assert_eq!(run.status.code(), Some(1), "{run:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        format!(
+            "test shards: the protected system set's directory {} is not there, so its \
+             preparation was never started\n",
+            missing.display()
+        )
+    );
+    assert_eq!(scratch.calls(), [format!("{TEST} --no-run")]);
+}
+
+/// The shards wait for a protected system set's preparation still running
+/// once the build has ended: no shard starts until its status records exit
+/// 0, and the run then passes with its log printed (#647).
+#[test]
+fn the_shards_wait_after_the_build_for_the_system_sets_preparation() {
+    let scratch = Scratch::new(&metadata(), &script());
+    let set = scratch.dir.path().join("set");
+    std::fs::create_dir(&set).expect("set");
+    let set_dir = set.to_str().expect("a UTF-8 scratch");
+    let child = scratch
+        .command(&["test"], &[("BROKKR_SYSTEM_SET", set_dir)])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("the script starts");
+    let build = [format!("{TEST} --no-run")];
+    for _ in 0..600 {
+        if scratch.calls() == build {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let waiting = (scratch.calls(), scratch.events());
+    prepared(&scratch, "server system set: 10 entries\n", "0 143\n");
+    let run = child.wait_with_output().expect("the script ends");
+    assert_eq!(waiting, (build.to_vec(), Vec::new()));
+    assert_eq!(run.status.code(), Some(0), "{run:?}");
+    assert_eq!(scratch.events(), one_after_another(TEST, &SHARDS));
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let shown = stdout
+        .split_once("\n==> the protected system set: exit 0 after 143s, awaited for ")
+        .and_then(|(_, rest)| rest.split_once("s\n"))
+        .map_or("", |(_, log)| log);
+    assert!(
+        shown.starts_with("server system set: 10 entries\ntest shards: runs every library:"),
+        "{stdout}"
+    );
 }

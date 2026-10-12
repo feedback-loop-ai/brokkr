@@ -1114,7 +1114,7 @@ const JOB_LINES: [(&str, &str); 11] = [
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-bubblewrap
         with:
-          protect-system-tree: 'true'
+          protect-system-tree: 'background'
           cache-build: 'true'
       - run:
         env:
@@ -1162,7 +1162,7 @@ const JOB_LINES: [(&str, &str); 11] = [
       - name: bubblewrap for the hands tests
         uses: ./.github/actions/setup-bubblewrap
         with:
-          protect-system-tree: 'true'
+          protect-system-tree: 'background'
           cache-build: 'true'
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run:

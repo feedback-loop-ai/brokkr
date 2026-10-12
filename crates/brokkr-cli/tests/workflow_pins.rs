@@ -1333,6 +1333,26 @@ fn bubblewrap_is_built_once_from_a_tarball_verified_by_digest() {
     );
 }
 
+/// A system set prepared in the background is protected only once
+/// scripts/test-shards.sh has waited on it (#647), so only the two jobs
+/// whose next step runs the shards, `engine` and `coverage`, which
+/// contributing.rs holds line for line, prepare it so; a job that runs
+/// anything else protects its set in the foreground.
+#[test]
+fn only_the_sharded_jobs_prepare_the_system_set_in_the_background() {
+    let sites: Vec<(String, usize)> = workflows()
+        .into_iter()
+        .map(|file| {
+            let count = read(&file)
+                .matches("protect-system-tree: 'background'")
+                .count();
+            (file, count)
+        })
+        .filter(|(_, count)| *count > 0)
+        .collect();
+    assert_eq!(sites, [(".github/workflows/ci.yml".to_string(), 2)]);
+}
+
 /// cargo-audit is installed from one place, from a release verified by
 /// digest; every audit-check follows it in its job, which the pin scan
 /// above holds as [`Unpinned::CargoAuditMissing`].

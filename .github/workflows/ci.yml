@@ -174,11 +174,14 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Decision 0043: the hands tests build a real bubblewrap namespace on
       # Linux; the boundary is never simulated, so the tool is installed.
+      # The protected system set is prepared in the background, beside the
+      # build, and the shard script waits on it before its first shard
+      # (#647); nothing between here and the shards installs under /usr.
       - name: bubblewrap for the hands tests
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-bubblewrap
         with:
-          protect-system-tree: 'true'
+          protect-system-tree: 'background'
           cache-build: 'true'
       # The suite `cargo test --workspace --all-features --locked
       # --no-fail-fast` runs, each test target exactly once, as shards run
@@ -329,10 +332,11 @@ jobs:
         with:
           path: ~/.cache/brokkr-coverage-cache
           key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
+      # As in the test jobs, coverage-exact.sh's shards wait on the set (#647).
       - name: bubblewrap for the hands tests
         uses: ./.github/actions/setup-bubblewrap
         with:
-          protect-system-tree: 'true'
+          protect-system-tree: 'background'
           cache-build: 'true'
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run: bash scripts/coverage-exact.sh
