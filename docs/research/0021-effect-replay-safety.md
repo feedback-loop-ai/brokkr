@@ -26,8 +26,8 @@ to the command, or waiting for it, fails after the spawn. Two adjacent hazards c
 light, a result file shared by an effect's attempts and a sequence retry
 that re-runs steps that succeeded. Both are named below as findings for
 the operator. The addendum to decision 0006, accepted on 2026-10-12, rules on the ends
-of an attempt and leaves these two unruled, as questions in its Ruled
-paragraph.
+of an attempt and rules these two follow-ups in its Ruled paragraph:
+neither is part of the addendum, and their design is unruled.
 
 ## Findings
 
@@ -44,7 +44,8 @@ paragraph.
 | 9 | Resume a failed sequence at its failed step rather than re-running steps that succeeded | not-planned | |
 | 10 | Promise exactly-once execution of an effect | declined | decision 0006 |
 
-Rows 8 and 9 are new and unruled. Row 8: the result path is
+Rows 8 and 9 are new; decision 0006's addendum rules them follow-ups,
+and their design is unruled. Row 8: the result path is
 `.forge/results/<effect_id>.json`, one path for every attempt of an
 effect, and no driver clears it before an attempt. A retry whose seat
 exits 0 without writing would read an earlier attempt's file as its own.

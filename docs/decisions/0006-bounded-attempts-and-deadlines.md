@@ -270,7 +270,7 @@ cannot show the executor's own report, these rulings park.
    | Process timeout: the deadline kill | the tree is gone, and no result was read | The effect is uncertain, and the attempt is `effect/indeterminate`. It retries only under ruling 4. Otherwise it parks for the operator. **Changed.** |
    | Lost result: no result of the executor's was read after `start`. That is a driver exit with no result; a protocol violation, an unreadable line, a wrong `proto` or a failed stdout read after `start` (`converse` and `recv`); the built-in driver's `failed` when its command exits 0 and writes no result file, or ends by a signal; the built-in driver's `failed` for an invocation error after the command was spawned (writing the prompt to its stdin, waiting for it, or exec's state command); or an engine restart in flight | no result was read; whatever the driver wrote in its place is not a receipt | As for the timeout. **Changed** for every arm that reports `failed` today. An engine restart always parks, because nothing proves its tree gone. |
    | Transport limit: a line, result or checkpoint past a limit of decision 0079 (`Exceeded`) | the driver broke its bounds; nothing it sent is read | Parks for the operator, always, even on a site declared `deduplicates` whose driver delivered the identity. Accepted decision 0079 ruling 3 stands over this addendum: such an attempt is never failed in a way a retry may repeat. Ruling 4 makes no exception to it. Unchanged. |
-   | Partial side effect: the executor's own `failed` report after it began work. That is a third-party driver's `failed` result, or a built-in driver's command that returned a non-zero exit status | the executor answered and its result failed; what it changed is not known | On a seat whose reach is its worktree (boxed hands, network off, and no capability granted that writes elsewhere), retries automatically within `max_attempts`, as the ruling above has it. The retry runs in the same worktree, on the same result path and under the same effect identity, so it reconciles against what the attempt left there. On a seat that can reach beyond its worktree (network on, or an unboxed boundary), parks for the operator, because a retry may repeat an effect outside the tree (ruled 2026-10-12). Nothing is claimed about effects beyond the worktree (ruling 6). Changed for seats that reach beyond their worktree. |
+   | Partial side effect: the executor's own `failed` report after it began work. That is a third-party driver's `failed` result, or a built-in driver's command that returned a non-zero exit status | the executor answered and its result failed; what it changed is not known | A seat's reach is its worktree only when all three facts, read from the pinned run manifest, say so: boxed hands, network off, and no capability granted of class `writes` (decision 0065: it changes something outside the workspace). Such a seat retries automatically within `max_attempts`, as the ruling above has it. The retry runs in the same worktree, on the same result path and under the same effect identity, so it reconciles against what the attempt left there. Every other seat parks for the operator: network on, an unboxed boundary, a `writes` grant, or any of the three facts the engine cannot read. A retry there may repeat an effect outside the tree (ruled 2026-10-12). Nothing is claimed about effects beyond the worktree (ruling 6). Changed for every seat whose reach is not proven to be its worktree. |
    | Cleanup failure: the tree is not proven gone | an outcome was received, and the cleanup is unresolved | Parks for the operator, always, whatever was received or declared (#403's addendum). Unchanged. |
 
    A panel or sequence attempt is uncertain when any member or step is,
@@ -287,7 +287,10 @@ cannot show the executor's own report, these rulings park.
    `crates/brokkr-protocol/src/adapters.rs`'s suite,
    `a_reported_failure_on_a_seat_beyond_its_worktree_parks` pins the
    partial-side-effect row's split: the same `failed` result retries on a
-   boxed, network-off seat and parks on a network-on one.
+   boxed, network-off seat with no `writes` grant, and parks on a
+   network-on one, on a boxed, network-off one granted a `writes`
+   capability, and on one whose pinned boundary or network fact cannot be
+   read.
    `a_command_that_exits_zero_without_a_result_ends_lost` pins that the
    driver sends no `failed` for that arm, and
    `a_prompt_write_failure_after_the_spawn_ends_lost` pins the same for
@@ -378,9 +381,12 @@ cannot show the executor's own report, these rulings park.
      `effect-cleanup.v1` holds that evidence, and fold never reads it.
      If any condition fails, the attempt is `effect/indeterminate` and
      parks.
-   - **An operator's `retry`** opens a new effect with a new identity,
-     as it does today. It is the operator's decision to act again, after
-     reconciling what the parked effect did.
+   - **An operator's `retry`** of a parked effect not declared
+     `deduplicates` opens a new effect with a new identity, as it does
+     today. It is the operator's decision to act again, after reconciling
+     what the parked effect did. An operator's `retry` of a parked
+     `deduplicates` effect is the exception below: it keeps the effect's
+     identity.
 
    **Enforcement binding:** the issue's acceptance tests, in
    `crates/brokkr-cli/tests/machine_proof.rs`. Each test's fake executor
@@ -405,6 +411,8 @@ cannot show the executor's own report, these rulings park.
    - `an_operator_retry_keeps_the_effect_identity`: the operator's
      `retry` of a parked `deduplicates` effect sends the same identity,
      so the executor's deduplication still applies (ruled 2026-10-12).
+     It pins that the retry's `effect/requested` carries the parked
+     effect's own `effect_id` and `idempotency_key`.
 
    An operator's `retry` of a parked `deduplicates` effect keeps its
    effect identity, and opens no new effect.
@@ -440,9 +448,12 @@ cannot show the executor's own report, these rulings park.
    attempt did, locally or remotely. Some effects are outside what
    Brokkr can observe or deduplicate: an agent session's remote actions,
    a push made from inside a session, and provider usage already paid
-   for. A retry of a reported failure may repeat them. A `max_attempts`
-   above 1 on a seat that can reach them is the operator's acceptance of
-   that risk.
+   for. A retry may repeat them, so a reported failure on a seat whose
+   reach is not proven to be its worktree parks (ruling 2's
+   partial-side-effect row). On such a seat a `max_attempts` above 1
+   confers no authority to retry a reported failure. It governs only the
+   pre-session refusals, which never began, and ruling 4's deduplicated
+   retries.
 
    **Enforcement binding:** the deadline kill's indeterminate reason is
    pinned once, in `crates/brokkr-protocol/src/process/tests.rs`. It
@@ -473,6 +484,18 @@ cannot show the executor's own report, these rulings park.
    - A v1 driver, or a bundle without `replay`, never earns replay
      authority. An existing bundle compiles to `none` and keeps every
      behaviour except ruling 2's.
+   - An operator's `retry` of a parked `deduplicates` effect keeps its
+     identity with the events v1 already has. Fold's `retry` still
+     returns the cursor to request an effect (`fold.rs`). The engine,
+     finding that the effect the run parked on was declared
+     `deduplicates`, journals that request as `effect/requested` with the
+     parked effect's own `effect_id` and `idempotency_key`, read from its
+     first `effect/requested`, instead of minting new ones
+     (`engine.rs`). Fold opens the effect a request names, whatever id
+     it carries, so it does not change. The request opens the effect's
+     next attempt, not a new effect. A reader that counts effects by
+     their `effect/requested` events rather than by `effect_id` is named
+     by the build and counted by id.
 
    **Enforcement binding:** `crates/brokkr-cli/tests/witness_journal.rs`
    replays its pinned journals unchanged. A witness digest moves only
@@ -497,7 +520,7 @@ the operator, and each was ruled as recommended:
 - Should a reported failure on a seat that can reach beyond its
   worktree (network on, or an unboxed boundary) park rather than retry?
   In the shipped library that is `agents/release-manager.json`.
-  **Ruled:** yes; the partial-side-effect row of ruling 2 now parks it.
+  **Ruled:** yes; the partial-side-effect row of ruling 2 now parks it, and every seat whose reach the pinned manifest does not prove to be its worktree.
 - Should an operator's `retry` of a parked `deduplicates` effect keep
   its identity, rather than opening a new effect?
   **Ruled:** yes; ruling 4 now says so.
