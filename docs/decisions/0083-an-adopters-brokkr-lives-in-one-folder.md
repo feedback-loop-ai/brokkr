@@ -312,12 +312,12 @@ scaffold, and its layout stays.
      git mv policy.json .brokkr/policy.json
      git mv adapters/claude.json .brokkr/adapters/claude.json
      git mv agents/implementer.json .brokkr/agents/implementer.json
+     git mv agents/README.md .brokkr/agents/README.md
      git mv scripts/verify-seat.sh .brokkr/scripts/verify-seat.sh
      git mv realms.json .brokkr/realms.json
      in .brokkr/realms.json, rewrite journal ".forge/forge.db" as "state/forge.db" and realms[0].path "." as ".."
      mv .forge/forge.db .forge/forge.db-wal .brokkr/state/
      git rm .forge/.gitignore && printf 'state/\n' > .brokkr/.gitignore
-     rmdir .forge
    Brokkr reads no script or charter: edit any path one names under .forge/, or builds from its own place, to name the same file after the move
    ```
 
@@ -334,7 +334,10 @@ scaffold, and its layout stays.
      consulted, the `./` scripts a stage runs, the map and each dialect the
      map names by name. They are what the old compile read by reference,
      never the manifest's `files` map, which pins every file under a root
-     scaffold, a project's own `scripts/build.sh` included (Context). The
+     scaffold, a project's own `scripts/build.sh` included (Context). One
+     file `init` wrote is read by no compile and joins this group by name:
+     its notes, `agents/README.md`, which ruling 1's layout places at
+     `.brokkr/agents/README.md`. The
      compile that lists them skips the root's `.forge` as ruling 1's walk
      skips `state`, so a secret at today's default does not stop the
      listing. Where that compile cannot be read, the refusal says so and
@@ -354,7 +357,9 @@ scaffold, and its layout stays.
      `.forge/.gitignore` is removed, `.brokkr/.gitignore` is written with
      its one line `state/`, and the emptied `.forge/` is removed, because a
      `.forge` entry beside the folder, even an empty one, is the half-moved
-     shape. A run that has not ended is ended first, by the escape below:
+     shape. `git rm` of a tracked `.forge/.gitignore` removes the emptied
+     directory itself, so the list adds `rmdir .forge` only where that file
+     is untracked and goes by `rm`. A run that has not ended is ended first, by the escape below:
      it pinned the old paths, and its resume would meet the drift fence.
 
    The state-only refusal opens `this repository has Brokkr state in .forge/
