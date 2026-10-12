@@ -1115,6 +1115,7 @@ const JOB_LINES: [(&str, &str); 11] = [
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'true'
+          cache-build: 'true'
       - run:
         env:
           BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ runner.os == 'Linux' && '1' || '' }}
@@ -1162,6 +1163,7 @@ const JOB_LINES: [(&str, &str); 11] = [
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'true'
+          cache-build: 'true'
       - name: prove literal nonzero 100% source-line/branch/function coverage
         run:
         env:

@@ -305,7 +305,7 @@ BROKKR_BLESS=1 cargo test -p brokkr-runtime --test it witness_digests::
 ### The provisional tier
 
 A new model, on a new harness or an existing one (a dsh route
-included), starts provisional (proposed decision 0075 ruling 5). Its
+included), starts provisional (decision 0075 ruling 5). Its
 `models` entry names the concrete id and the tier together:
 
 ```json
