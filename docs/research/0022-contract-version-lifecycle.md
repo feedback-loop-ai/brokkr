@@ -354,5 +354,5 @@ hand. Three things were not measured. Which journals the operator still
 needs to verify, by engine line, was not counted. Whether each old tag
 still builds, and which tags carry release archives, was not checked.
 Whether any third-party driver or Looper deployment reads a specific
-version was not checked either. Decision 0082's Asked paragraph names all
+version was not checked either. Decision 0082's Ruled section names all
 three.

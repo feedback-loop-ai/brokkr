@@ -1,6 +1,6 @@
 # 0082 — A contract version has a lifecycle: it is minted under an accepted ruling, tabled with its writer and reader, and read for a stated window
 
-Status: proposed (implementer, 2026-10-11)
+Status: accepted — operator ruled in chat 2026-10-12
 Date: 2026-10-11
 
 Built: unbuilt (#361)
@@ -100,7 +100,7 @@ what the loader leaves open, so that the schema and the loader disagree.
      contracts/<file>`, with the row's file. A pointer may name several
      decisions, comma-separated as the decisions README writes them, and
      each is walked; two that keep the same file refuse as ambiguous,
-     naming both (Asked 9). That successor must admit by this same rule, so a
+     naming both (Ruled item 9). That successor must admit by this same rule, so a
      chain of supersessions is walked to an accepted decision that nothing
      supersedes, and a number met twice on the walk refuses. A pointer
      naming a number with no decision in the ledger refuses by the default
@@ -115,7 +115,7 @@ what the loader leaves open, so that the schema and the loader disagree.
      not seen. Because the walk ends only at an accepted decision, a
      decision that supersedes a minting decision lands on `main`
      accepted, never as a proposal, unlike every decision today
-     (Asked 10). A `Keeps the minting of:` line is admitted only for a file
+     (Ruled item 10). A `Keeps the minting of:` line is admitted only for a file
      whose row is minted under a decision the keeper supersedes, directly
      or along the walk. Any other such line is refused as unused (decision
      0071 ruling 6). The build adds the line to the decisions README's
@@ -126,7 +126,7 @@ what the loader leaves open, so that the schema and the loader disagree.
      `realms.v3`, `phase-entered-case.v1`) and 0043 (`run-manifest.v6`),
      both by 0045, which does not touch those contracts. The build gives
      0045 one `Keeps the minting of:` line for each of the five files,
-     for the operator to confirm (Asked 8). The other five decisions
+     for the operator to confirm (Ruled item 8). The other five decisions
      superseded in part (0008, 0030, 0033, 0049, 0055) mint no version.
    - **An addendum** mints only by its own status line, never by its
      heading. The first non-blank line under its `## Addendum — <date>`
@@ -145,7 +145,7 @@ what the loader leaves open, so that the schema and the loader disagree.
 
    Four addenda mint a version today, and the build gives each its status
    line once, transcribed from its heading, for the operator to confirm in
-   the build's pull request (Asked 8). 0042's 2026-09-04 and 2026-09-06
+   the build's pull request (Ruled item 8). 0042's 2026-09-04 and 2026-09-06
    addenda and 0068's 2026-10-10 addendum read
    `Addendum status: accepted (operator, <the heading's date>)`, and
    0006's 2026-09-27 addendum reads `Addendum status: proposed`. The other
@@ -186,7 +186,7 @@ what the loader leaves open, so that the schema and the loader disagree.
    status of the ruling a cell names, never that ruling's text against the
    row's file, so a cell naming the wrong accepted decision passes it; the
    build transcribes each cell from research 0022 for the operator to
-   confirm (Asked 8). Removal controls
+   confirm (Ruled item 8). Removal controls
    for the build, each planted, run, seen failing with the test's own
    text, and removed:
    - a row minted under a proposed decision fails, naming the file and the
@@ -610,20 +610,27 @@ what the loader leaves open, so that the schema and the loader disagree.
 - No contract, fixture, policy table or reference byte moves under any
   ruling here.
 
-## Asked
+## Ruled (operator, in chat, 2026-10-12)
+
+Each item below was asked of the operator, and each was ruled as
+recommended.
 
 1. **N, the window.** Recommended 3 minor lines, which keeps a version
    read for about a month at this year's cadence. The alternatives are 2,
    or no window before 1.0, which leaves every reader in place until then.
+   **Ruled:** 3 minor lines.
 2. **The table: written by hand and checked, or generated.** Recommended
    by hand and checked, the form of the decisions and research indexes.
    Generating it would need a typed source for each row's writer and
    reader that the tree does not have.
+   **Ruled:** by hand, and checked.
 3. **The test home for the minting rule.** Recommended in
    `decisions_index.rs`, which owns the ledger the rule reads, with the
    table check in `contract_lifecycle.rs`, and the rows whose reader is
    private checked in the owning crate. The alternative is one module
    for both, with the ledger reader shared through `tests/support/`.
+   **Ruled:** the minting rule in `decisions_index.rs`; the table check in
+   `contract_lifecycle.rs`; private readers checked in the owning crate.
 4. **The nine pending rows.** For each, accept the decision, withdraw it,
    or give it a home in the tree: 0075 or an erratum to 0065 for
    `realms.v7`, and an erratum to 0068's 2026-10-10 addendum for
@@ -636,9 +643,15 @@ what the loader leaves open, so that the schema and the loader disagree.
    in this decision, which would accept five proposals' content unread,
    or withdrawing a decision, so that its rows read `withdrawn` and its
    versions take ruling 3's window.
+   **Ruled:** as recommended, with one row overtaken. Decision 0075 was
+   accepted on 2026-10-12 and is on `main` (#486), so `realms.v7` is
+   minted under 0075 and needs no erratum. `run-manifest.v13` takes the
+   erratum to 0068's 2026-10-10 addendum. The five rows under proposed
+   decisions are ruled with each decision. The Looper pair stays listed.
 5. **Whether `enacted, pending acceptance` stays open for new versions.**
    Recommended closed, as ruling 1 rules. Leaving it open is option (b)
    above.
+   **Ruled:** closed.
 6. **The unknown phase-machine label.** Whether ruling 5 should also
    refuse a table whose label is neither v1 nor v2, or leave it unruled.
    Recommended unruled here, as research 0022 leaves it (row 6,
@@ -647,6 +660,7 @@ what the loader leaves open, so that the schema and the loader disagree.
    with its own refusal text and tests. The
    alternative rules it here, so ruling 5's build also makes
    `Machine::from_table` refuse a label that is neither v1 nor v2.
+   **Ruled:** unruled here, until a commission asks for it.
 7. **What was not measured.** Which journals the operator still verifies,
    by engine line. Whether each older tag builds and which carry release
    archives. Whether any third-party driver or Looper deployment reads a
@@ -657,6 +671,8 @@ what the loader leaves open, so that the schema and the loader disagree.
    other two stay unmeasured, because a refused journal names the
    engine to verify it with. The alternative holds N until all three
    are measured, which leaves every reader in place meanwhile.
+   **Ruled:** N is ruled now; the build counts the journals still verified
+   by engine line before the first release that removes a reader.
 8. **The four addendum status lines and 0045's five keep lines.** The
    build also gives 0045 one `Keeps the minting of:` header line for each
    file minted under 0041 or 0043, the decisions it supersedes in part,
@@ -677,6 +693,7 @@ what the loader leaves open, so that the schema and the loader disagree.
    confirms them too, since ruling 1's test reads a cell's ruling and not
    that ruling's text. Recommended: confirm all three sets in that pull
    request.
+   **Ruled:** the three sets are confirmed in the build's pull request.
 9. **A pointer that names several decisions.** Ruling 1 walks each
    decision a `Superseded by:` or `Superseded in part by:` pointer names,
    and admits a row when exactly one of them keeps its file. The
@@ -685,6 +702,7 @@ what the loader leaves open, so that the schema and the loader disagree.
    pointer naming more than one decision as unreadable. Under it, the
    first time 0041 or 0043 is superseded in part again, every row it
    minted refuses, and only splitting the pointer gets through.
+   **Ruled:** each named decision is walked; exactly one keeps the file.
 10. **When a supersession's back-pointer lands.** The walk ends only at
    an accepted decision, and the decisions README adds the
    `Superseded by:` back-pointer in the superseding pull request. So a
@@ -694,3 +712,5 @@ what the loader leaves open, so that the schema and the loader disagree.
    minted version should be ruled before it lands. The alternative adds
    the back-pointer only when the successor is accepted, and changes the
    README's rule to match.
+   **Ruled:** kept: a decision that supersedes a minting decision lands
+   accepted.
