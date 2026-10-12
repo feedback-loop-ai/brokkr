@@ -425,6 +425,54 @@ fn a_scoped_fail_counts_and_a_scoped_pass_resets() {
     assert_eq!(decide("pass"), 0);
 }
 
+/// The consecutive-failure rule has one home (#345): the universal
+/// failures always count, and `fail` counts exactly where the counter is
+/// read.
+#[test]
+fn the_failure_rule_counts_universal_failures_and_a_read_fail() {
+    for counter_read in [true, false] {
+        assert!(counts_as_failure("failed", counter_read));
+        assert!(counts_as_failure("broken", counter_read));
+        assert!(!counts_as_failure("complete", counter_read));
+    }
+    assert!(counts_as_failure("fail", true));
+    assert!(!counts_as_failure("fail", false));
+}
+
+/// A decision outside its closed contract fails the fold closed, naming
+/// what does not read (#345).
+#[test]
+fn a_decision_outside_its_contract_fails_the_fold() {
+    let mut current = state(Cursor::Decide {
+        effect_id: "e".into(),
+        result: json!({}),
+    });
+    let decided = json!({"from": "verify", "result": "pass", "next": 5});
+    assert_eq!(
+        apply(&mut current, &event(EventType::TransitionDecided, decided)),
+        Err(FoldError::BadDecision {
+            seq: 2,
+            detail: "invalid type: integer `5`, expected a string".into(),
+        })
+    );
+    assert_eq!(
+        FoldError::BadDecision {
+            seq: 2,
+            detail: "unknown field `x`".into(),
+        }
+        .to_string(),
+        "event 2: transition/decided payload does not read: unknown field `x`"
+    );
+    assert_eq!(
+        FoldError::BadDecision {
+            seq: 9,
+            detail: String::new(),
+        }
+        .seq(),
+        9
+    );
+}
+
 #[test]
 fn decision_captures_reviewed_heads() {
     let mut current = state(Cursor::Decide {
@@ -444,7 +492,10 @@ fn decision_captures_reviewed_heads() {
         ),
     )
     .unwrap();
-    assert_eq!(current.reviewed_heads, Some(json!({"repo": "abc"})));
+    assert_eq!(
+        current.reviewed_heads,
+        Some(ReviewedHeads::read(&json!({"repo": "abc"})))
+    );
 
     let mut without_heads = state(Cursor::Decide {
         effect_id: "e".into(),

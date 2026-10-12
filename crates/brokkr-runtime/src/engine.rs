@@ -15,7 +15,7 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{computed_inputs, Cursor, RunState, Status};
 use brokkr_core::gate_moved_head::{self, MovedHead};
 use brokkr_core::policy::Outcome;
-use brokkr_core::realms::{recorded_head, Boundary, LEGACY_REALM_KEY};
+use brokkr_core::realms::{Boundary, LEGACY_REALM_KEY};
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{
@@ -40,7 +40,7 @@ use crate::bundle::{
 // The test modules reach this through `use super::*`.
 #[cfg(test)]
 use crate::bundle::SequenceStep;
-use brokkr_core::policy::{SEVERITY_ORDER, VISIT_PREFIX};
+use brokkr_core::policy::{CONSECUTIVE_FAILURES, SEVERITY_ORDER, VISIT_PREFIX};
 use brokkr_protocol::{AttemptReport, Cleanup, CleanupEvidence};
 use serde::Serialize;
 
@@ -1046,8 +1046,7 @@ impl Engine {
                 let reason = state
                     .last_decision
                     .as_ref()
-                    .and_then(|d| d.get("rule_id"))
-                    .and_then(Value::as_str)
+                    .and_then(|d| d.rule_id.present())
                     .map(|r| format!("hard stop ruled by {r}"))
                     .unwrap_or("stopped".to_string());
                 self.append(EventType::RunStopped, json!({"reason": reason}), None)?;
@@ -1117,8 +1116,7 @@ impl Engine {
                 state
                     .phase_results
                     .get(earlier)
-                    .cloned()
-                    .map(|result| (earlier.clone(), result))
+                    .map(|result| (earlier.clone(), json!(result)))
             })
             .collect();
         if !results.is_empty() {
@@ -1135,7 +1133,7 @@ impl Engine {
             context.insert(
                 "returned_from".into(),
                 json!({
-                    "phase": state.last_decision.as_ref().and_then(|d| d.get("from")),
+                    "phase": state.last_decision.as_ref().map(|d| &d.from),
                     "result": state.last_result,
                 }),
             );
@@ -2525,17 +2523,12 @@ impl Engine {
         inputs.retain(|key, _| !crate::bundle::is_engine_owned(key));
         inputs.retain(|key, _| seat.inputs.iter().any(|declared| declared == key));
         // Journal-computed inputs overlay (never accepted from the seat).
-        for (key, value) in computed_inputs(state, &phase, &result) {
+        let counter_read = self
+            .bundle
+            .machine
+            .reads_counter(&phase, CONSECUTIVE_FAILURES);
+        for (key, value) in computed_inputs(state, &phase, &result, counter_read) {
             inputs.insert(key, value);
-        }
-        if result == "fail"
-            && self
-                .bundle
-                .machine
-                .reads_counter(&phase, "consecutive_failures")
-        {
-            let prior = state.consecutive_failures.get(&phase).copied().unwrap_or(0);
-            inputs.insert("consecutive_failures".into(), Value::from(prior + 1));
         }
         // The phase-visit predicate (decision 0022), supplied for exactly
         // the phases this phase's rules ask about — counted from
@@ -2574,8 +2567,7 @@ impl Engine {
             && state
                 .last_decision
                 .as_ref()
-                .and_then(|decision| decision.get("from"))
-                .and_then(Value::as_str)
+                .map(|decision| decision.from.as_str())
                 == Some(self.bundle.protected_phase.as_str());
         if returned_from_review {
             if let Some(head) = git_head(repo) {
@@ -2595,7 +2587,7 @@ impl Engine {
             // drift — silence here shipped where the old code
             // re-armed review (this run's own review caught it).
             let drifted = state.reviewed_heads.as_ref().map(|recorded| {
-                match recorded_head(recorded, realm.as_deref()) {
+                match recorded.head_for(realm.as_deref()) {
                     Some(reviewed) => head.as_deref() != Some(reviewed),
                     None => true,
                 }

@@ -4,7 +4,7 @@
 use super::*;
 use crate::tests::state;
 use crate::{Superseded, SupersededBy};
-use serde_json::json;
+use serde_json::{json, Value};
 
 const NOW: &str = "2026-01-02T00:00:00Z";
 /// A day before [`NOW`], to the second: the first moment a finished run
@@ -174,7 +174,11 @@ fn a_stop_says_who_stopped_it_and_by_which_rule() {
         verdict(Some(&unruled), &[]),
         wanted(Standing::Stopped, None, None, ABSENT)
     );
-    let unnamed = settled(Status::Stopped, "stop", Some(json!({"rule_id": 7})));
+    let unnamed = settled(
+        Status::Stopped,
+        "stop",
+        Some(json!({"rule_id": null, "from": "review", "result": "ruled"})),
+    );
     assert_eq!(
         verdict(Some(&unnamed), &[]),
         wanted(Standing::Stopped, None, None, ABSENT)

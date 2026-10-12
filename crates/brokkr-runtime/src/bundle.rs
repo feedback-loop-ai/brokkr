@@ -11,7 +11,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_bytes;
-use brokkr_core::policy::{Machine, BOOLEAN_INPUTS, IDENTIFIER_INPUTS, SEVERITY_INPUTS};
+use brokkr_core::policy::{is_declarable, Machine};
 use brokkr_core::realms::Boundary;
 use serde_json::{json, Map, Value};
 use thiserror::Error;
@@ -78,10 +78,6 @@ fn capability_line(reason: &str) -> String {
 /// The engine-owned inputs live with the policy that reads them, because
 /// the loader's presence refusal (decision 0050, ruling 1) exempts them.
 pub use brokkr_core::policy::{is_engine_owned, ENGINE_OWNED_INPUTS, REALM_FACTS};
-
-/// Closed, seat-declarable enum inputs. Their values are validated by the
-/// pure policy evaluator whenever a ruling reads them.
-pub const ENUM_INPUTS: [&str; 1] = ["drift_in"];
 
 /// The two results synthesized by a dialect exec for each phase. This is
 /// also the vocabulary recorded on every compiled dialect step, so dispatch
@@ -1881,7 +1877,7 @@ impl Bundle {
             // non-engine-owned evaluator inputs. An agent-resolved seat
             // faces this lint exactly as an inline one does — its
             // declaration is the agent's, or the 0007 default.
-            let referenced = referenced_seat_inputs(&table, phase);
+            let referenced = machine.seat_inputs(phase);
             let raw_inputs = match agent_seat
                 .as_ref()
                 .and_then(|agent_seat| agent_seat.inputs.clone())
@@ -1912,7 +1908,7 @@ impl Bundle {
                                  journal-computed truth is never accepted from a seat"
                             )));
                         }
-                        if !declarable_input(name) {
+                        if !is_declarable(name) {
                             return Err(CompileError::Invalid(format!(
                                 "seat '{phase}' declares unknown input '{name}'; known: \
                                  the evaluator's closed vocabulary minus engine-owned"
@@ -6966,50 +6962,6 @@ fn brokkr_executable(current: std::io::Result<PathBuf>) -> String {
         Ok(path) => path.to_string_lossy().into_owned(),
         Err(_) => "brokkr".to_string(),
     }
-}
-
-fn declarable_input(name: &str) -> bool {
-    !is_engine_owned(name)
-        && (BOOLEAN_INPUTS.contains(&name)
-            || SEVERITY_INPUTS.contains(&name)
-            || ENUM_INPUTS.contains(&name)
-            || IDENTIFIER_INPUTS.contains(&name))
-}
-
-/// The non-engine-owned inputs the phase's rules reference: the default
-/// (and minimum) seat declaration.
-fn referenced_seat_inputs(table: &Value, phase: &str) -> Vec<String> {
-    let mut names: Vec<String> = Vec::new();
-    let Some(rules) = table.get("rules").and_then(Value::as_array) else {
-        return names;
-    };
-    for rule in rules {
-        if rule.get("from").and_then(Value::as_str) != Some(phase) {
-            continue;
-        }
-        let Some(when) = rule.get("when").and_then(Value::as_object) else {
-            continue;
-        };
-        for key in when.keys() {
-            let name = if key == "strategy_in" {
-                "strategy"
-            } else if key == "drift_in" {
-                "drift_in"
-            } else {
-                key.strip_suffix("_gte")
-                    .or_else(|| key.strip_suffix("_above"))
-                    .or_else(|| key.strip_suffix("_at_most"))
-                    .or_else(|| key.strip_suffix("_in"))
-                    .unwrap_or(key)
-            }
-            .to_string();
-            if !is_engine_owned(&name) && !names.contains(&name) {
-                names.push(name);
-            }
-        }
-    }
-    names.sort();
-    names
 }
 
 /// Fold every site's pinned driver digests into the manifest's `drivers`

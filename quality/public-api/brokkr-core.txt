@@ -7,6 +7,37 @@ pub fn brokkr_core::canonical::parse_strict(&str) -> core::result::Result<serde_
 pub fn brokkr_core::canonical::sha256_bytes(&[u8]) -> alloc::string::String
 pub fn brokkr_core::canonical::sha256_hex(&serde_json::value::Value) -> alloc::string::String
 pub fn brokkr_core::canonical::to_bytes(&serde_json::value::Value) -> alloc::vec::Vec<u8>
+pub mod brokkr_core::decision
+pub enum brokkr_core::decision::Recorded<T>
+pub brokkr_core::decision::Recorded::Absent
+pub brokkr_core::decision::Recorded::Null
+pub brokkr_core::decision::Recorded::Present(T)
+impl<T> brokkr_core::decision::Recorded<T>
+pub fn brokkr_core::decision::Recorded<T>::is_absent(&self) -> bool
+pub fn brokkr_core::decision::Recorded<T>::present(&self) -> core::option::Option<&T>
+impl<'de, T: serde_core::de::Deserialize<'de>> serde_core::de::Deserialize<'de> for brokkr_core::decision::Recorded<T>
+pub fn brokkr_core::decision::Recorded<T>::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+impl<T: serde_core::ser::Serialize> serde_core::ser::Serialize for brokkr_core::decision::Recorded<T>
+pub fn brokkr_core::decision::Recorded<T>::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+pub struct brokkr_core::decision::Decision
+pub brokkr_core::decision::Decision::from: alloc::string::String
+pub brokkr_core::decision::Decision::inputs: brokkr_core::decision::Recorded<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub brokkr_core::decision::Decision::next: brokkr_core::decision::Recorded<alloc::string::String>
+pub brokkr_core::decision::Decision::problem: brokkr_core::decision::Recorded<alloc::string::String>
+pub brokkr_core::decision::Decision::result: alloc::string::String
+pub brokkr_core::decision::Decision::rule_id: brokkr_core::decision::Recorded<alloc::string::String>
+pub brokkr_core::decision::Decision::severity: brokkr_core::decision::Recorded<brokkr_core::policy::RuleSeverity>
+pub struct brokkr_core::decision::PhaseResult
+pub brokkr_core::decision::PhaseResult::inputs: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub brokkr_core::decision::PhaseResult::result: alloc::string::String
+impl brokkr_core::decision::PhaseResult
+pub fn brokkr_core::decision::PhaseResult::of(&brokkr_core::decision::Decision) -> brokkr_core::decision::PhaseResult
+pub struct brokkr_core::decision::ReviewedHeads(_)
+impl brokkr_core::decision::ReviewedHeads
+pub fn brokkr_core::decision::ReviewedHeads::head_for(&self, core::option::Option<&str>) -> core::option::Option<&str>
+pub fn brokkr_core::decision::ReviewedHeads::read(&serde_json::value::Value) -> brokkr_core::decision::ReviewedHeads
+pub fn brokkr_core::decision::ReviewedHeads::recorded_in(&serde_json::value::Value) -> core::option::Option<brokkr_core::decision::ReviewedHeads>
+pub fn brokkr_core::decision::ReviewedHeads::sole(&self) -> core::option::Option<&str>
 pub mod brokkr_core::dispatch
 pub enum brokkr_core::dispatch::DispatchError
 pub brokkr_core::dispatch::DispatchError::AgentsUnsupportedByDispatchLineage
@@ -191,6 +222,9 @@ pub fn brokkr_core::fold::Cursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 pub enum brokkr_core::fold::FoldError
 pub brokkr_core::fold::FoldError::AfterTerminal
 pub brokkr_core::fold::FoldError::AfterTerminal::seq: u64
+pub brokkr_core::fold::FoldError::BadDecision
+pub brokkr_core::fold::FoldError::BadDecision::detail: alloc::string::String
+pub brokkr_core::fold::FoldError::BadDecision::seq: u64
 pub brokkr_core::fold::FoldError::BadPayload
 pub brokkr_core::fold::FoldError::BadPayload::field: alloc::string::String
 pub brokkr_core::fold::FoldError::BadPayload::seq: u64
@@ -237,14 +271,14 @@ pub struct brokkr_core::fold::RunState
 pub brokkr_core::fold::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::fold::RunState::cursor: brokkr_core::fold::Cursor
 pub brokkr_core::fold::RunState::feature: core::option::Option<alloc::string::String>
-pub brokkr_core::fold::RunState::last_decision: core::option::Option<serde_json::value::Value>
+pub brokkr_core::fold::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::fold::RunState::last_hash: alloc::string::String
 pub brokkr_core::fold::RunState::last_result: core::option::Option<serde_json::value::Value>
 pub brokkr_core::fold::RunState::park_reason: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
 pub brokkr_core::fold::RunState::phase: core::option::Option<alloc::string::String>
-pub brokkr_core::fold::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>
-pub brokkr_core::fold::RunState::reviewed_heads: core::option::Option<serde_json::value::Value>
+pub brokkr_core::fold::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::decision::PhaseResult>
+pub brokkr_core::fold::RunState::reviewed_heads: core::option::Option<brokkr_core::decision::ReviewedHeads>
 pub brokkr_core::fold::RunState::riding_stop: bool
 pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
@@ -253,7 +287,7 @@ pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::S
 pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
-pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str, bool) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub mod brokkr_core::gate_moved_head
@@ -429,6 +463,13 @@ pub brokkr_core::policy::RuleKey::RequiresArtifacts
 pub brokkr_core::policy::RuleKey::Result
 pub brokkr_core::policy::RuleKey::Severity
 pub brokkr_core::policy::RuleKey::When
+pub enum brokkr_core::policy::RuleSeverity
+pub brokkr_core::policy::RuleSeverity::Flagged
+pub brokkr_core::policy::RuleSeverity::Hard
+pub brokkr_core::policy::RuleSeverity::Normal
+impl brokkr_core::policy::RuleSeverity
+pub fn brokkr_core::policy::RuleSeverity::label(self) -> &'static str
+pub fn brokkr_core::policy::RuleSeverity::named(&str) -> core::option::Option<brokkr_core::policy::RuleSeverity>
 pub enum brokkr_core::policy::Severity
 pub brokkr_core::policy::Severity::Critical
 pub brokkr_core::policy::Severity::High
@@ -479,6 +520,7 @@ impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
 pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
+pub fn brokkr_core::policy::Machine::seat_inputs(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_core::policy::Rule
 pub brokkr_core::policy::Rule::from: alloc::string::String
@@ -489,6 +531,7 @@ pub brokkr_core::policy::Rule::requires_artifacts: alloc::vec::Vec<alloc::string
 pub brokkr_core::policy::Rule::result: alloc::string::String
 pub brokkr_core::policy::Rule::severity: alloc::string::String
 pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
+pub const brokkr_core::policy::CONSECUTIVE_FAILURES: &str
 pub const brokkr_core::policy::COUNTER_INPUTS: [&str; 1]
 pub const brokkr_core::policy::DRIFT_PHASES: [&str; 3]
 pub const brokkr_core::policy::ENGINE_OWNED_INPUTS: [&str; 7]
@@ -501,6 +544,7 @@ pub const brokkr_core::policy::STRATEGIES: [&str; 5]
 pub const brokkr_core::policy::TABLE_SCHEMA_V1: &str
 pub const brokkr_core::policy::TABLE_SCHEMA_V2: &str
 pub const brokkr_core::policy::VISIT_PREFIX: &str
+pub fn brokkr_core::policy::is_declarable(&str) -> bool
 pub fn brokkr_core::policy::is_engine_owned(&str) -> bool
 pub fn brokkr_core::policy::is_identifier(&str) -> bool
 pub mod brokkr_core::realms
@@ -694,7 +738,6 @@ pub const brokkr_core::realms::SCHEMA_V6: &str
 pub const brokkr_core::realms::SCHEMA_V7: &str
 pub const brokkr_core::realms::SCHEMA_V8: &str
 pub fn brokkr_core::realms::is_name(&str) -> bool
-pub fn brokkr_core::realms::recorded_head<'a>(&'a serde_json::value::Value, core::option::Option<&str>) -> core::option::Option<&'a str>
 pub mod brokkr_core::residual
 pub enum brokkr_core::residual::Claim
 pub brokkr_core::residual::Claim::HighRiskUncovered
@@ -758,6 +801,9 @@ pub const fn brokkr_core::envelope::EventType::as_str(self) -> &'static str
 pub enum brokkr_core::FoldError
 pub brokkr_core::FoldError::AfterTerminal
 pub brokkr_core::FoldError::AfterTerminal::seq: u64
+pub brokkr_core::FoldError::BadDecision
+pub brokkr_core::FoldError::BadDecision::detail: alloc::string::String
+pub brokkr_core::FoldError::BadDecision::seq: u64
 pub brokkr_core::FoldError::BadPayload
 pub brokkr_core::FoldError::BadPayload::field: alloc::string::String
 pub brokkr_core::FoldError::BadPayload::seq: u64
@@ -829,19 +875,20 @@ impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
 pub fn brokkr_core::policy::Machine::reads_counter(&self, &str, &str) -> bool
+pub fn brokkr_core::policy::Machine::seat_inputs(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_core::RunState
 pub brokkr_core::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::RunState::cursor: brokkr_core::fold::Cursor
 pub brokkr_core::RunState::feature: core::option::Option<alloc::string::String>
-pub brokkr_core::RunState::last_decision: core::option::Option<serde_json::value::Value>
+pub brokkr_core::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::RunState::last_hash: alloc::string::String
 pub brokkr_core::RunState::last_result: core::option::Option<serde_json::value::Value>
 pub brokkr_core::RunState::park_reason: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
 pub brokkr_core::RunState::phase: core::option::Option<alloc::string::String>
-pub brokkr_core::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>
-pub brokkr_core::RunState::reviewed_heads: core::option::Option<serde_json::value::Value>
+pub brokkr_core::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::decision::PhaseResult>
+pub brokkr_core::RunState::reviewed_heads: core::option::Option<brokkr_core::decision::ReviewedHeads>
 pub brokkr_core::RunState::riding_stop: bool
 pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64

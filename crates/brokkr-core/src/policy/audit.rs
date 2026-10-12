@@ -424,7 +424,7 @@ fn axes<'a>(rules: &[&'a Rule]) -> BTreeMap<&'a str, Vec<Setting>> {
 }
 
 impl Condition {
-    fn name(&self) -> &str {
+    pub(super) fn name(&self) -> &str {
         match self {
             Condition::CounterGte { name, .. }
             | Condition::SeverityAbove { name, .. }

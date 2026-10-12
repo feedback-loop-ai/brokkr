@@ -5,6 +5,7 @@ use crate::bundle::{Limits, Seat};
 use crate::dispatch_fixture::dispatch_envelope;
 use crate::envelope_builder::EnvelopeBuilder;
 use brokkr_core::canonical::ZERO_HASH;
+use brokkr_core::decision::{Decision, PhaseResult, ReviewedHeads};
 use brokkr_core::policy::Machine;
 // A test whose sites get real hands plays in an engine of its own (#403),
 // so no other test's orphan reads as a stray of its attempt.
@@ -330,10 +331,7 @@ fn forward_context_carries_only_typed_phase_facts() {
     let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
     runtime.bundle.machine.phases.insert(0, "specify".into());
     let mut current = state(Some("work"), Cursor::Idle);
-    current.phase_results.insert(
-        "specify".into(),
-        json!({"result":"drafted", "inputs":{"change":"0042-dialect"}}),
-    );
+    drafted(&mut current, "0042-dialect");
     let input = runtime.seat_input(&current, "work", "effect").unwrap();
     assert_eq!(input["context"]["results"]["specify"]["result"], "drafted");
     assert_eq!(
@@ -367,10 +365,7 @@ fn implement_receives_dialect_instructions_only_after_a_change_exists() {
     assert!(without_change.get("spec_dialect").is_none());
 
     let mut sdd = state(Some("implement"), Cursor::Idle);
-    sdd.phase_results.insert(
-        "specify".into(),
-        json!({"result":"drafted", "inputs":{"change":"decision-0042"}}),
-    );
+    drafted(&mut sdd, "decision-0042");
     let with_change = runtime.seat_input(&sdd, "implement", "sdd-effect").unwrap();
     assert_eq!(with_change["spec_dialect"], "Archive the dialect change.");
 }
@@ -619,28 +614,10 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         .unwrap();
 
     let (_kept, mut storage_error) = engine_failing("effect/checkpointed");
-    let mut selection = Selection::new();
-    selection.insert(
-        Some("validate".into()),
-        templated(Candidate {
-            lowering: Lowering::Unavailable,
-            agent: "dialect".into(),
-            model: "none".into(),
-            effort: None,
-            provider: "exec".into(),
-            hands_fragment: Vec::new(),
-            harness: HarnessHands::default(),
-            resume: Default::default(),
-            hands_notice: None,
-            argv: driver_command(
-                "effect",
-                "attempt",
-                AttemptOutcome::Succeeded {
-                    result: json!({"result":"drafted"}),
-                },
-            ),
-        }),
-    );
+    let outcome = AttemptOutcome::Succeeded {
+        result: json!({"result":"drafted"}),
+    };
+    let selection = exec_selection("validate", driver_command("effect", "attempt", outcome));
     let failing_step = SequenceStep {
         name: "validate".into(),
         results: vec!["drafted".into(), "fail".into()],
@@ -708,28 +685,10 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
     });
     let (_kept, mut runtime) = engine(single_body(vec!["driver".into()]));
     runtime.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
-    let mut selection = Selection::new();
-    selection.insert(
-        Some("validate".into()),
-        templated(Candidate {
-            lowering: Lowering::Unavailable,
-            agent: "dialect".into(),
-            model: "none".into(),
-            effort: None,
-            provider: "exec".into(),
-            hands_fragment: Vec::new(),
-            harness: HarnessHands::default(),
-            resume: Default::default(),
-            hands_notice: None,
-            argv: driver_command(
-                "effect",
-                "attempt",
-                AttemptOutcome::Succeeded {
-                    result: json!({"result":"drafted"}),
-                },
-            ),
-        }),
-    );
+    let outcome = AttemptOutcome::Succeeded {
+        result: json!({"result":"drafted"}),
+    };
+    let selection = exec_selection("validate", driver_command("effect", "attempt", outcome));
     let steps = [first, validate];
     runtime
         .execute_sequence(
@@ -905,6 +864,48 @@ pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
         pending_command: None,
         riding_stop: false,
     }
+}
+
+/// A recorded `transition/decided` payload, as the fold keeps it.
+fn decided(payload: Value) -> Decision {
+    serde_json::from_value(payload).unwrap()
+}
+
+/// `specify`'s ruling, drafted and naming `change`, handed forward.
+fn drafted(state: &mut RunState, change: &str) {
+    let ruling = json!({"from": "specify", "result": "drafted", "inputs": {"change": change}});
+    let handed = PhaseResult::of(&decided(ruling));
+    state.phase_results.insert("specify".into(), handed);
+}
+
+/// The sequence of `current`'s phase run as `<run>-effect`, attempt
+/// `<run>-attempt`, on the seat input `current` builds: the journal it
+/// leaves.
+fn sequence_journal(
+    engine: &mut Engine,
+    current: &RunState,
+    run: &str,
+    steps: &[SequenceStep],
+    selection: &Selection,
+) -> Vec<EventEnvelope> {
+    let phase = current.phase.as_deref().unwrap();
+    let effect = format!("{run}-effect");
+    let input = engine.seat_input(current, phase, &effect).unwrap();
+    let deadline = std::time::Duration::from_secs(10);
+    let attempt = format!("{run}-attempt");
+    engine
+        .execute_sequence(&effect, &attempt, phase, steps, &input, deadline, selection)
+        .unwrap();
+    engine.store.load(&engine.run_id).unwrap()
+}
+
+/// Ship decided over the heads review `recorded`: the inputs of the
+/// decision journaled at `at`.
+fn ship_inputs(engine: &mut Engine, recorded: Value, at: usize) -> Value {
+    let mut ship = state(Some("ship"), Cursor::Idle);
+    ship.reviewed_heads = Some(ReviewedHeads::read(&recorded));
+    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
+    engine.store.load(&engine.run_id).unwrap()[at].payload["inputs"].clone()
 }
 
 pub(super) fn report(outcome: AttemptOutcome, stderr: &str) -> AttemptReport {
@@ -1702,7 +1703,9 @@ fn request_finish_input_and_execute_refusals_are_journaled() {
     );
 
     let mut stop = state(Some("stop"), Cursor::RequestEffect);
-    stop.last_decision = Some(json!({"rule_id":"SECURITY"}));
+    stop.last_decision = Some(decided(
+        json!({"from":"review","result":"x","rule_id":"SECURITY"}),
+    ));
     engine.request_or_finish(&stop).unwrap();
     engine
         .request_or_finish(&state(Some("done"), Cursor::RequestEffect))
@@ -2279,7 +2282,7 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
         .unwrap();
     git_commit(&repo, "moved");
     let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({"repo":reviewed}));
+    ship.reviewed_heads = Some(ReviewedHeads::read(&json!({"repo":reviewed})));
     engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     assert!(events.iter().any(|event| {
@@ -4256,10 +4259,7 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     );
 
     git_commit(&repo, "moved");
-    let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({ "brokkr": reviewed }));
-    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
-    let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
+    let inputs = ship_inputs(&mut engine, json!({ "brokkr": reviewed }), 2);
     assert_eq!(inputs["drift_detected"], json!(true));
     assert_eq!(inputs["dirty_worktrees"], json!(false));
     let facts = &inputs["realm_facts"]["brokkr"];
@@ -4284,10 +4284,7 @@ fn an_unresolvable_realm_at_ship_is_drift_not_silence() {
     let mut engine = engine_in(dir.path(), Some(world), &elsewhere);
     let reviewed = git_commit(&repo, "reviewed");
     git_commit(&elsewhere, "unrelated");
-    let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({ "brokkr": reviewed }));
-    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
-    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    let inputs = ship_inputs(&mut engine, json!({ "brokkr": reviewed }), 1);
     assert_eq!(
         inputs["drift_detected"],
         json!(true),
@@ -4307,10 +4304,7 @@ fn a_head_recorded_before_the_map_still_drives_the_ship_gate() {
     let world = world_over(dir.path(), &repo, "brokkr");
     let mut engine = engine_in(dir.path(), Some(world), &repo);
     let reviewed = git_commit(&repo, "reviewed");
-    let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({ "repo": reviewed }));
-    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
-    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    let inputs = ship_inputs(&mut engine, json!({ "repo": reviewed }), 1);
     assert_eq!(inputs["drift_detected"], json!(false));
     assert_eq!(
         inputs["realm_facts"]["brokkr"]["drift_detected"],
@@ -4437,10 +4431,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
         json!({ "alpha": moved }),
         "review recorded alpha's own head, under alpha's own name"
     );
-    let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({ "alpha": moved }));
-    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
-    let inputs = engine.store.load(&engine.run_id).unwrap()[2].payload["inputs"].clone();
+    let inputs = ship_inputs(&mut engine, json!({ "alpha": moved }), 2);
     let facts = inputs["realm_facts"].clone();
     assert_eq!(keys(&facts), vec!["alpha".to_string()]);
     assert!(
@@ -4466,15 +4457,11 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     // The same map, the other repository: beta's run records beta's own
     // untouched head under beta, and knows nothing of the commit alpha
     // made while it was not looking.
-    let mut engine = engine_in(
-        dir.path(),
-        Some(crate::realms::World::load(&map).unwrap()),
-        &beta,
-    );
-    let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({ "beta": beta_head }));
-    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
-    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    let ship_in_beta = |recorded: Value| {
+        let world = crate::realms::World::load(&map).unwrap();
+        ship_inputs(&mut engine_in(dir.path(), Some(world), &beta), recorded, 1)
+    };
+    let inputs = ship_in_beta(json!({ "beta": beta_head }));
     let facts = inputs["realm_facts"].clone();
     assert_eq!(keys(&facts), vec!["beta".to_string()]);
     assert_eq!(facts["beta"]["head"], json!(beta_head));
@@ -4491,7 +4478,6 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     );
     assert_eq!(inputs["dirty_worktrees"], json!(true));
     assert_eq!(inputs["drift_detected"], json!(false));
-    drop(engine);
 
     // And one realm's recorded head cannot answer for the other: a run in
     // beta handed the heads ALPHA's review recorded finds no head of its
@@ -4499,15 +4485,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     // drift, never silence. This is where the two repositories bite —
     // in a one-tree world the two realms' heads are the same string, so
     // the same fixture proves nothing.
-    let mut engine = engine_in(
-        dir.path(),
-        Some(crate::realms::World::load(&map).unwrap()),
-        &beta,
-    );
-    let mut ship = state(Some("ship"), Cursor::Idle);
-    ship.reviewed_heads = Some(json!({ "alpha": moved }));
-    engine.decide(&ship, json!({"result":"shipped"})).unwrap();
-    let inputs = engine.store.load(&engine.run_id).unwrap()[1].payload["inputs"].clone();
+    let inputs = ship_in_beta(json!({ "alpha": moved }));
     assert_eq!(inputs["drift_detected"], json!(true));
     assert_eq!(inputs["realm_facts"]["beta"]["drift_detected"], json!(true));
     assert_eq!(inputs["realm_facts"]["beta"]["head"], json!(beta_head));
@@ -4944,15 +4922,18 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
     }
 }
 
-/// A deterministic non-zero loop check is evidence a later judge cannot
-/// overrule. Clarify parks on a contradictory `clear`; analyze still lets
-/// its judge classify the finding and routes on the returned `drift_in`.
-#[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
-fn compiled_loop_check_failure_cannot_be_judged_away() {
-    let (_dir, mut engine) = compiled_triage_engine();
-    let SeatBody::Sequence { mut steps } = engine.bundle.seats["clarify"].body.clone() else {
-        panic!("compiled triage clarify is a sequence");
+/// A compiled triage engine and `seat`'s sequence, its judge step
+/// answering `judged` and its deterministic `check` step `checked`, both
+/// as `<run>-effect`, attempt `<run>-attempt`.
+fn judged_sequence(
+    seat: &str,
+    run: &str,
+    judged: Value,
+    checked: Value,
+) -> (tempfile::TempDir, Engine, Vec<SequenceStep>, Selection) {
+    let (dir, engine) = compiled_triage_engine();
+    let SeatBody::Sequence { mut steps } = engine.bundle.seats[seat].body.clone() else {
+        panic!("compiled triage {seat} is a sequence");
     };
     let StepBody::Single {
         command,
@@ -4960,19 +4941,22 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
         ..
     } = &mut steps[1].body
     else {
-        panic!("the compiled judge is a single step");
+        panic!("the compiled {seat} judge is a single step");
     };
-    *command = driver_command(
-        "check-effect",
-        "check-attempt",
-        AttemptOutcome::Succeeded {
-            result: json!({"result":"clear"}),
-        },
-    );
+    let (effect, attempt) = (format!("{run}-effect"), format!("{run}-attempt"));
+    let succeeded = |result| AttemptOutcome::Succeeded { result };
+    *command = driver_command(&effect, &attempt, succeeded(judged));
     candidates.clear();
+    let checks = driver_command(&effect, &attempt, succeeded(checked));
+    (dir, engine, steps, exec_selection("check", checks))
+}
+
+/// A selection seating the sequence step `step` with an exec candidate
+/// that runs `argv`.
+fn exec_selection(step: &str, argv: Vec<String>) -> Selection {
     let mut selection = Selection::new();
     selection.insert(
-        Some("check".into()),
+        Some(step.into()),
         templated(Candidate {
             lowering: Lowering::Unavailable,
             agent: "dialect".into(),
@@ -4983,35 +4967,27 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
             harness: HarnessHands::default(),
             resume: Default::default(),
             hands_notice: None,
-            argv: driver_command(
-                "check-effect",
-                "check-attempt",
-                AttemptOutcome::Succeeded {
-                    result: json!({"result":"ambiguous"}),
-                },
-            ),
+            argv,
         }),
     );
-    let mut current = state(Some("clarify"), Cursor::Idle);
-    current.phase_results.insert(
-        "specify".into(),
-        json!({"result":"drafted", "inputs":{"change":"proof-change"}}),
+    selection
+}
+
+/// A deterministic non-zero loop check is evidence a later judge cannot
+/// overrule. Clarify parks on a contradictory `clear`; analyze still lets
+/// its judge classify the finding and routes on the returned `drift_in`.
+#[test]
+fn compiled_loop_check_failure_cannot_be_judged_away() {
+    let clear = json!({"result":"clear"});
+    let (_dir, mut engine, steps, selection) = judged_sequence(
+        "clarify",
+        "check",
+        clear.clone(),
+        json!({"result":"ambiguous"}),
     );
-    let input = engine
-        .seat_input(&current, "clarify", "check-effect")
-        .unwrap();
-    engine
-        .execute_sequence(
-            "check-effect",
-            "check-attempt",
-            "clarify",
-            &steps,
-            &input,
-            std::time::Duration::from_secs(10),
-            &selection,
-        )
-        .unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
+    let mut current = state(Some("clarify"), Cursor::Idle);
+    drafted(&mut current, "proof-change");
+    let events = sequence_journal(&mut engine, &current, "check", &steps, &selection);
     let contradiction = events
         .iter()
         .find(|event| event.event_type == EventType::EffectIndeterminate)
@@ -5021,136 +4997,23 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
         .unwrap()
         .contains("contradicts deterministic step 'check' result 'ambiguous'"));
 
-    let (_dir, mut engine) = compiled_triage_engine();
-    let SeatBody::Sequence { mut steps } = engine.bundle.seats["clarify"].body.clone() else {
-        panic!("compiled triage clarify is a sequence");
-    };
-    let StepBody::Single {
-        command,
-        candidates,
-        ..
-    } = &mut steps[1].body
-    else {
-        panic!("the compiled judge is a single step");
-    };
-    *command = driver_command(
-        "clean-effect",
-        "clean-attempt",
-        AttemptOutcome::Succeeded {
-            result: json!({"result":"clear"}),
-        },
-    );
-    candidates.clear();
-    let mut selection = Selection::new();
-    selection.insert(
-        Some("check".into()),
-        templated(Candidate {
-            lowering: Lowering::Unavailable,
-            agent: "dialect".into(),
-            model: "none".into(),
-            effort: None,
-            provider: "exec".into(),
-            hands_fragment: Vec::new(),
-            harness: HarnessHands::default(),
-            resume: Default::default(),
-            hands_notice: None,
-            argv: driver_command(
-                "clean-effect",
-                "clean-attempt",
-                AttemptOutcome::Succeeded {
-                    result: json!({"result":"clear"}),
-                },
-            ),
-        }),
-    );
+    let (_dir, mut engine, steps, selection) =
+        judged_sequence("clarify", "clean", clear.clone(), clear);
     let mut current = state(Some("clarify"), Cursor::Idle);
-    current.phase_results.insert(
-        "specify".into(),
-        json!({"result":"drafted", "inputs":{"change":"proof-change"}}),
-    );
-    let input = engine
-        .seat_input(&current, "clarify", "clean-effect")
-        .unwrap();
-    engine
-        .execute_sequence(
-            "clean-effect",
-            "clean-attempt",
-            "clarify",
-            &steps,
-            &input,
-            std::time::Duration::from_secs(10),
-            &selection,
-        )
-        .unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
+    drafted(&mut current, "proof-change");
+    let events = sequence_journal(&mut engine, &current, "clean", &steps, &selection);
     assert!(events.iter().any(|event| {
         event.event_type == EventType::EffectSucceeded
             && event.payload["result"]["result"] == "clear"
     }));
 
-    let (_dir, mut engine) = compiled_triage_engine();
-    let SeatBody::Sequence { mut steps } = engine.bundle.seats["analyze"].body.clone() else {
-        panic!("compiled triage analyze is a sequence");
-    };
-    let StepBody::Single {
-        command,
-        candidates,
-        ..
-    } = &mut steps[1].body
-    else {
-        panic!("the compiled analyst is a single step");
-    };
-    *command = driver_command(
-        "analyze-effect",
-        "analyze-attempt",
-        AttemptOutcome::Succeeded {
-            result: json!({"result":"drift", "inputs":{"drift_in":"design"}}),
-        },
-    );
-    candidates.clear();
-    let mut selection = Selection::new();
-    selection.insert(
-        Some("check".into()),
-        templated(Candidate {
-            lowering: Lowering::Unavailable,
-            agent: "dialect".into(),
-            model: "none".into(),
-            effort: None,
-            provider: "exec".into(),
-            hands_fragment: Vec::new(),
-            harness: HarnessHands::default(),
-            resume: Default::default(),
-            hands_notice: None,
-            argv: driver_command(
-                "analyze-effect",
-                "analyze-attempt",
-                AttemptOutcome::Succeeded {
-                    result: json!({"result":"drift"}),
-                },
-            ),
-        }),
-    );
+    let judged = json!({"result":"drift", "inputs":{"drift_in":"design"}});
+    let (_dir, mut engine, steps, selection) =
+        judged_sequence("analyze", "analyze", judged, json!({"result":"drift"}));
     let mut current = state(Some("analyze"), Cursor::Idle);
     current.visits.insert("analyze".into(), 1);
-    current.phase_results.insert(
-        "specify".into(),
-        json!({"result":"drafted", "inputs":{"change":"proof-change"}}),
-    );
-    let input = engine
-        .seat_input(&current, "analyze", "analyze-effect")
-        .unwrap();
-    engine
-        .execute_sequence(
-            "analyze-effect",
-            "analyze-attempt",
-            "analyze",
-            &steps,
-            &input,
-            std::time::Duration::from_secs(10),
-            &selection,
-        )
-        .unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
+    drafted(&mut current, "proof-change");
+    let events = sequence_journal(&mut engine, &current, "analyze", &steps, &selection);
     let result = events
         .iter()
         .find(|event| event.event_type == EventType::EffectSucceeded)
@@ -5395,7 +5258,7 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
     commit_file(&repo, "docs/answer.md", "# answer\n", "answer finding");
     let mut returned = state(Some("implement"), Cursor::Idle);
     returned.visits.insert("implement".into(), 2);
-    returned.last_decision = Some(json!({"from": "review"}));
+    returned.last_decision = Some(decided(json!({"from": "review", "result": "ruled"})));
     engine
         .decide(
             &returned,
@@ -5443,7 +5306,7 @@ fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
     );
     let mut returned = state(Some("implement"), Cursor::Idle);
     returned.visits.insert("implement".into(), 2);
-    returned.last_decision = Some(json!({"from": "verify"}));
+    returned.last_decision = Some(decided(json!({"from": "verify", "result": "ruled"})));
     engine
         .decide(&returned, json!({"result": "complete", "inputs": {}}))
         .unwrap();
@@ -5471,7 +5334,7 @@ fn a_review_return_exposes_no_docs_fact_without_both_heads() {
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let mut engine = Engine::start(store, compiled, "review return", Some(repo.clone())).unwrap();
     let mut returned = state(Some("implement"), Cursor::Idle);
-    returned.last_decision = Some(json!({"from": "review"}));
+    returned.last_decision = Some(decided(json!({"from": "review", "result": "ruled"})));
 
     // Without both heads, then without a repository at all.
     for unreadable in [false, true] {

@@ -21,7 +21,7 @@ pub(super) const HELD: &str = "cargo-exemption-hold-5b6c7d8e";
 pub(super) fn ruled(status: Status, phase: &str, decision: Value) -> RunState {
     let mut state = state_of(status);
     state.phase = Some(phase.to_string());
-    state.last_decision = Some(decision);
+    state.last_decision = Some(serde_json::from_value(decision).unwrap());
     state
 }
 

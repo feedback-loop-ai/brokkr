@@ -15,6 +15,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use brokkr_core::decision::ReviewedHeads;
 use brokkr_core::envelope::{EventEnvelope, EventType};
 use brokkr_store::Store;
 use serde_json::{json, Map, Value};
@@ -99,14 +100,10 @@ fn ref_name(run_id: &str) -> String {
 fn vouched_head(events: &[EventEnvelope]) -> Option<String> {
     let recorded = events.iter().rev().find_map(|event| {
         (event.event_type == EventType::TransitionDecided)
-            .then(|| event.payload.pointer("/inputs/reviewed_heads"))
+            .then(|| ReviewedHeads::recorded_in(&event.payload))
             .flatten()
     })?;
-    let heads = recorded.as_object()?;
-    if heads.len() != 1 {
-        return None;
-    }
-    let head = heads.values().next()?.as_str()?;
+    let head = recorded.sole()?;
     (head.len() == 40 && head.chars().all(|character| character.is_ascii_hexdigit()))
         .then(|| head.to_ascii_lowercase())
 }
