@@ -16,7 +16,7 @@ use super::linux::{
     decided, delivered, exec_status, first, framed, handed as supervised, message, read, sent,
     Intent, Ready, Seen, Source, Spaces, FRAME_MAX,
 };
-use super::{compared, ready, Admitted, Record, Startup};
+use super::{compared, ready, Admitted, Link, Record, Startup};
 
 /// The sealed plan's and source set's digests.
 const PLAN: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -371,14 +371,16 @@ fn plan_sealed(names: &[&str]) -> Plan {
 #[test]
 fn a_launcher_that_cannot_start_is_unavailable_and_one_that_stands_no_box_is_not_established() {
     let plan = plan_sealed(&[]);
+    // Nothing stands to be served.
+    let served = || |_: Link<'_>| Ok::<(), Refusal>(());
     // A launcher that cannot start at all: its handle a directory's.
     let directory = admitted(std::fs::File::open("/").unwrap().into());
-    let answer = ready(&directory, (&plan, PLAN), startup(&live));
+    let answer = ready(&directory, (&plan, PLAN), startup(&live), served());
     assert_eq!(answer, Err(Refusal::Unavailable));
     // One that starts and fails naming no first process, as bubblewrap
     // denied its namespaces does.
     let failing = admitted(std::fs::File::open("/bin/false").unwrap().into());
-    let answer = ready(&failing, (&plan, PLAN), startup(&live));
+    let answer = ready(&failing, (&plan, PLAN), startup(&live), served());
     assert_eq!(answer, Err(Refusal::Establishment));
 }
 

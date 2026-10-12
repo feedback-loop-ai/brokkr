@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use brokkr_protocol::broker::ledger::Failure;
 use brokkr_protocol::secret::NEEDLE_ENCODINGS;
 use serde_json::json;
 
@@ -20,7 +21,7 @@ use super::ledger::{failed_with, sealed_ledger};
 use super::observer::NO_TRACER;
 use super::observer::{awaited, processes, started_to, status, traced, tracer, within, Starter};
 use super::readiness::{bootstraps, boxed, Reads};
-use super::{admitted, refused, skip, unservable, Refusal, Sealed, TOKEN};
+use super::{admitted, ended, refused, skip, unservable, Refusal, Sealed, SPEAKS, TOKEN};
 
 /// A sealed fixture whose server is `script`, its store holding `store`
 /// and its plan declaring `names`; the plan's digest, and the tracer. None,
@@ -170,7 +171,8 @@ fn leaks(text: &str) -> bool {
 fn a_protected_installed_server_alone_receives_its_bindings_beside_its_fixed_environment() {
     let store = format!("DOCS_TOKEN={TOKEN}\nPYTHONUSERBASE=/seat/site\nUNDECLARED=x\n");
     let names = ["DOCS_TOKEN", "PYTHONUSERBASE"];
-    let Some((sealed, digest, tracer)) = serving("#!/bin/sh\n:\n", store.as_bytes(), &names) else {
+    let script = format!("#!/bin/sh\n{SPEAKS}");
+    let Some((sealed, digest, tracer)) = serving(script, store.as_bytes(), &names) else {
         return;
     };
     let (answer, execs) = recorded(&sealed, &digest, &tracer);
@@ -326,8 +328,9 @@ fn the_kernel_alone_runs_a_script_in_the_box_and_nothing_retries_one_it_refuses(
 /// held ten seconds as it returns, its new image loaded and every
 /// close-on-exec descriptor closed, before the server runs an instruction;
 /// and each process's second `kill` (the broker's: its observer's group,
-/// then the box's launcher) skipped and held as long, so the box stands.
-/// The tracer counts each process's calls apart.
+/// then the box's launcher) skipped and held as long. The broker, which
+/// awaits the server's initialization meanwhile (U6e), leaves the box
+/// standing. The tracer counts each process's calls apart.
 const HOLD_SERVER: [&str; 11] = [
     "-f",
     "--seccomp-bpf",
@@ -347,8 +350,10 @@ fn halted(pid: i32) -> bool {
     status(pid).is_some_and(|(state, _, _)| "tT".contains(state))
 }
 
-/// The broker and the server of `sealed`'s box, once the tracer holds
-/// both: the broker at the box's end, the server as its exec returns.
+/// The broker and the server of `sealed`'s box, once the tracer holds the
+/// server as its exec returns, the broker awaiting its initialization:
+/// the one `broker serve` of `sealed`'s own plan, never the tracer or the
+/// shell that name it in their arguments, nor another test's broker.
 fn stopped(sealed: &Sealed) -> (i32, i32) {
     let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
     let arguments = |pid: i32| std::fs::read(format!("/proc/{pid}/cmdline")).unwrap_or_default();
@@ -357,12 +362,19 @@ fn stopped(sealed: &Sealed) -> (i32, i32) {
             .split(|byte| *byte == 0)
             .any(|arg| arg == name)
     };
+    let locator = sealed.locator.to_str().unwrap().as_bytes();
+    let serving = |pid: i32| {
+        let arguments = arguments(pid);
+        let argv: Vec<&[u8]> = arguments.split(|byte| *byte == 0).collect();
+        let verb: [&[u8]; 4] = [b"broker", b"serve", b"--plan", locator];
+        argv.get(1..5) == Some(&verb[..])
+    };
     let script = server(sealed).into_bytes();
     while std::time::Instant::now() < until {
         let server = boxed(sealed)
             .into_iter()
             .find(|pid| named(*pid, &script) & halted(*pid));
-        let broker = processes().find(|pid| named(*pid, b"serve") & halted(*pid));
+        let broker = processes().find(|pid| serving(*pid));
         if let (Some(broker), Some(server)) = (broker, server) {
             return (broker, server);
         }
@@ -434,13 +446,14 @@ fn the_server_inherits_only_its_stdio_and_its_environment_from_the_private_home(
         .collect();
     entries.sort();
     assert_eq!(entries, confined(&[format!("DOCS_TOKEN={TOKEN}")]));
-    // The server ended, the box follows it, and the broker let go ends
-    // with serving still refused.
-    assert!(halted(broker));
+    // The broker awaits the server's initialization (U6e) under the
+    // startup's deadline. The server ended without a word of MCP, the box
+    // follows it, and the broker ends with the protocol's cause.
+    assert!(status(broker).is_some());
     signalled(server, rustix::process::Signal::KILL);
-    let ended = attempt.wait().unwrap();
-    let answer = (ended.code(), std::fs::read_to_string(apart).unwrap());
-    assert_eq!(answer, admitted());
+    let ran = attempt.wait().unwrap();
+    let answer = (ran.code(), std::fs::read_to_string(apart).unwrap());
+    assert_eq!(answer, ended(Failure::Protocol));
     assert!(within(|| boxed(&sealed).is_empty()));
 }
 
@@ -698,15 +711,16 @@ fn a_store_read_held_when_the_attempt_is_cancelled_is_refused_at_once() {
 fn a_bootstrap_gone_after_the_sender_completed_certifies_nothing() {
     // Killed at its terminal, the whole frame and its end received, the
     // bootstrap closes its status pipe with no tag: that end permits no
-    // more than initialization, which `serve` does not reach, and nothing
-    // is certified. No server started.
+    // more than initialization, which no server answers, so nothing is
+    // certified and the protocol's cause ends the session (U6e). No server
+    // started.
     let Some(mut handing) = Handing::at_a_terminal(|_| hold_terminal(10)) else {
         return;
     };
     let bootstrap = handing.at(at_its_terminal);
     signalled(bootstrap, rustix::process::Signal::KILL);
     let (answer, reads, settled) = handing.ended();
-    assert_eq!(answer, admitted());
+    assert_eq!(answer, ended(Failure::Protocol));
     assert_eq!(reads, (1, 0));
     assert!(settled);
 }
@@ -797,9 +811,10 @@ fn a_server_started_from_a_terminal_cannot_open_it() {
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
-    let ended = run.wait().unwrap();
-    assert_eq!(ended.code(), admitted().0);
-    assert_eq!(std::fs::read_to_string(apart).unwrap(), admitted().1);
+    // The server's shell ends with no word of MCP: the protocol's cause.
+    let ran = run.wait().unwrap();
+    let answer = (ran.code(), std::fs::read_to_string(apart).unwrap());
+    assert_eq!(answer, ended(Failure::Protocol));
     // One process of the run gives a terminal up: the bootstrap, which
     // held it, and gave it up before it became the server, the same
     // process; the server's own shell then finds no terminal to open.

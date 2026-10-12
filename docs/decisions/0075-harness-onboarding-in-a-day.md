@@ -83,7 +83,7 @@ Since it was drafted (refreshed 2026-10-12):
   inside a seat box: an engine-owned boundary around the harness process,
   with its credential outside. Whether a harness can stand in one is an
   adapter fact (`hands.seat`), measured like the rest.
-- The contract lifecycle #361 asks for is proposed decision 0082 (#643).
+- The contract lifecycle #361 asks for is decision 0082 (#643).
   Ruling 2's mint goes through it.
 - The fast lane is proven. New models have entered as dsh routes within
   hours: a locally served GLM model, DeepSeek Flash, and Muse through
@@ -109,7 +109,7 @@ Since it was drafted (refreshed 2026-10-12):
    from the harness's adapter, validated against the adapters loaded, not
    against a closed enum in a frozen contract. So a new harness needs no
    contract version. The change is minted through the contract lifecycle
-   (#361, which proposed decision 0082 rules), once.
+   (#361, which decision 0082 rules), once.
    *Binding:* the seat-record schema accepts a declared kind; a test seats a
    fixture harness unknown to the schema's author and its record verifies.
 
@@ -202,4 +202,4 @@ Since it was drafted (refreshed 2026-10-12):
   roster, whose pattern this decision generalises), 0065 (capabilities are
   the realm's to grant), 0071 (the architectural principles), 0072 (full
   access inside a seat box), 0077 (the broker as the harness's child), and
-  0082, proposed (the contract lifecycle).
+  0082 (the contract lifecycle).
