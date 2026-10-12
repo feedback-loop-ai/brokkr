@@ -161,8 +161,6 @@ cell; the row keeps the decision's own status and `Built` state.
 |---|---|
 | 0024 | Reserved on 2026-09-01 for an OSS-core scope decision that was never written. Decision 0029 was renumbered off it, as its erratum records, and 0025 ruling 7 cites that unwritten ruling. |
 | 0072 | Claimed by the proposed decision "Full access is the box's to give" on the unmerged branch `decision-0072-full-access-is-the-box`. The transcript decision drafted as 0072 landed as 0073. |
-| 0075 | Claimed by the proposed decision "Harness onboarding in a day" on the unmerged branch `decision-0075-harness-onboarding` (draft PR #486). |
-| 0074 | Claimed by the proposed decision "Many hands" on the unmerged branch `decision-0073-many-hands`, renumbered from 0073 when the transcript decision took that number. |
 | 0080 | Claimed by the proposed decision "An attempt is its own cgroup" on the unmerged branch `story-472-design` (#472). |
 
 ## How a decision is made
