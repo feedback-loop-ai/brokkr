@@ -113,7 +113,7 @@ runs:
       shell: bash
       env:
         PROTECT: ${{ inputs.protect-system-tree }}
-      run: |
+      run: | # zizmor: ignore[github-env] BROKKR_SYSTEM_SET is ${RUNNER_TEMP}/brokkr-system-set, a runner-controlled constant scripts/test-shards.sh reads; no input reaches it
         set -euo pipefail
         protect() {
           set -euo pipefail

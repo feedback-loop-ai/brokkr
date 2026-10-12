@@ -633,6 +633,28 @@ fn an_unfinished_or_failed_system_set_preparation_refuses_before_any_shard() {
                 "600",
                 half_protected("recorded an exit status the guard cannot read"),
             ),
+            // A status `$?` cannot be: past 64 bits a numeric test would
+            // error and read as success, so each is refused as unreadable.
+            (
+                Some("9223372036854775808 3\n"),
+                "600",
+                half_protected("recorded an exit status the guard cannot read"),
+            ),
+            (
+                Some("18446744073709551616 3\n"),
+                "600",
+                half_protected("recorded an exit status the guard cannot read"),
+            ),
+            (
+                Some("00 3\n"),
+                "600",
+                half_protected("recorded an exit status the guard cannot read"),
+            ),
+            (
+                Some("256 3\n"),
+                "600",
+                half_protected("recorded an exit status the guard cannot read"),
+            ),
             (
                 Some("0 3\n"),
                 "soon",

@@ -221,18 +221,22 @@ fi
 # arrive within BROKKR_SYSTEM_SET_WAIT_SECONDS (600 unless set), one that
 # cannot be read and a non-zero exit are each refused with its log printed:
 # the set may be half protected. Where nothing names a set, nothing waits.
+# An exit status and its seconds as a runner records them: the status is
+# what `$?` can be, 0 to 255 written plainly, so a record outside that is
+# refused as unreadable, never compared as a number a shell cannot hold.
+exit_status_re='^(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5]) [0-9]+$'
 await_system_set() {
   local dir="$1" limit="${BROKKR_SYSTEM_SET_WAIT_SECONDS:-600}" started="$SECONDS"
-  local status='' seconds='' status_re='^[0-9]+ [0-9]+$' refusal=''
+  local status='' seconds='' refusal=''
   [[ "$limit" =~ ^[0-9]+$ ]] || refuse "BROKKR_SYSTEM_SET_WAIT_SECONDS '$limit' is not a number of seconds"
   [ -d "$dir" ] || refuse "the protected system set's directory $dir is not there, so its preparation was never started"
   while [ ! -e "$dir/status" ] && [ "$((SECONDS - started))" -lt "$limit" ]; do sleep 1; done
   if [ -e "$dir/status" ]; then read -r status seconds <"$dir/status" || true; fi
   if [ ! -e "$dir/status" ]; then
     refusal="recorded no exit status within ${limit}s"
-  elif ! [[ "$status $seconds" =~ $status_re ]]; then
+  elif ! [[ "$status $seconds" =~ $exit_status_re ]]; then
     refusal='recorded an exit status the guard cannot read'
-  elif [ "$status" -ne 0 ]; then
+  elif [ "$status" != 0 ]; then
     refusal="failed with exit $status after ${seconds}s"
   fi
   printf '\n==> the protected system set: %s\n' "${refusal:-exit 0 after ${seconds}s, awaited for $((SECONDS - started))s}"
@@ -276,7 +280,6 @@ lost=false
 # exit status and seconds, before anything else runs.
 run_shard() {
   local index="$1" waited=0 status='' seconds='' refusal
-  local status_re='^[0-9]+ [0-9]+$'
   argv_of "$index"
   printf 'test shards: runs %s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
   # The runner runs in the foreground: a non-interactive shell starts a
@@ -294,7 +297,7 @@ run_shard() {
     )
   } 2>/dev/null || waited=$?
   if [ -s "$work/$index.status" ]; then read -r status seconds <"$work/$index.status" || true; fi
-  if ! [[ "$status $seconds" =~ $status_re ]]; then
+  if ! [[ "$status $seconds" =~ $exit_status_re ]]; then
     lost=true
     shard_status[$index]=none
     printf '\n==> %s: no exit status recorded, its runner ended with exit %s; the logs are kept in %s\n' \
@@ -307,7 +310,7 @@ run_shard() {
   shard_seconds[$index]="$seconds"
   printf '\n==> %s: exit %s after %ss\n' "${shard_name[$index]}" "$status" "$seconds"
   cat "$work/$index.log"
-  if [ "$status" -ne 0 ]; then
+  if [ "$status" != 0 ]; then
     failed+=("${shard_name[$index]} failed with exit $status")
   fi
   refusal="$(summary_refusal "$work/$index.log" "$index")"
