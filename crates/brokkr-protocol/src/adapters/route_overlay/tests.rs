@@ -439,6 +439,11 @@ fn the_semantic_helpers_refuse_non_mappings_and_repeated_or_nested_fields() {
         "- id: llm-pi-ai\n  config: x\n",
         Overlay::NotAMapping(Part::Named(Field::Config)),
     );
+    // `providers` must be a mapping.
+    refused(
+        "- id: llm-pi-ai\n  config:\n    providers: x\n",
+        Overlay::NotAMapping(Part::Named(Field::Providers)),
+    );
     // A repeated route-entry field is refused by `field`, not collapsed.
     refused(
         "- id: llm-pi-ai\n  id: llm-pi-ai\n",
