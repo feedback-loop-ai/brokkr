@@ -799,11 +799,11 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
     // waits as `sleep`, holding what it was given.
     let entry = server.entry(std::process::id()).unwrap();
     let handles: Vec<_> = server.handles().map(|(_, fd)| fd.as_fd()).collect();
-    let given = std::cell::Cell::new((0, 0));
-    let command = |control: i32, ready: i32| {
-        given.set((control, ready));
-        let numbers = [control, ready].map(|fd| fd.to_string());
-        let args = ["-c", &script, "sh", &numbers[0], &numbers[1]];
+    let given = std::cell::Cell::new((0, 0, 0));
+    let command = |control: i32, ready: i32, status: i32| {
+        given.set((control, ready, status));
+        let numbers = [control, ready, status].map(|fd| fd.to_string());
+        let args = ["-c", &script, "sh", &numbers[0], &numbers[1], &numbers[2]];
         args.map(String::from).to_vec()
     };
     let mut launched = ServerBox::launch(&entry, &handles, command, super::entry::soon()).unwrap();
@@ -820,20 +820,24 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
     }
     assert_eq!(&ready, b"ready");
     // bubblewrap named the box's first process, the launcher's own child,
-    // and the waiting process it started holds its standard streams on
-    // nothing, and its two control pipes at the very numbers it was given,
-    // and no other descriptor: no handle, no info pipe and nothing else of
-    // this process.
+    // and the waiting process it started holds its standard input and
+    // output on the server's own pipes and its error on nothing, and its
+    // three control pipes at the very numbers it was given, and no other
+    // descriptor: no handle, no info pipe and nothing else of this process.
     let first: serde_json::Value = serde_json::from_str(&info).unwrap();
     let first = first["child-pid"].as_u64().unwrap();
     assert_eq!(parent_of(first), Some(u64::from(launched.child.id())));
     let waiting = waiting_child(first);
     let pipe = |fd: &dyn AsFd| format!("pipe:[{}]", rustix::fs::fstat(fd).unwrap().st_ino);
-    let (control, ready) = given.get();
-    let null = || "/dev/null".to_string();
-    let mut expected = vec![(0, null()), (1, null()), (2, null())];
-    expected.push((control.unsigned_abs(), pipe(&launched.control)));
+    let (control, ready, status) = given.get();
+    let mut expected = vec![(0, pipe(&launched.input)), (1, pipe(&launched.output))];
+    expected.push((2, "/dev/null".to_string()));
+    expected.push((
+        control.unsigned_abs(),
+        pipe(launched.control.as_ref().unwrap()),
+    ));
     expected.push((ready.unsigned_abs(), pipe(&launched.ready)));
+    expected.push((status.unsigned_abs(), pipe(&launched.status)));
     expected.sort();
     assert_eq!(descriptors(waiting), expected);
     // Settled when dropped, this process living on: the box's waiting

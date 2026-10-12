@@ -1,5 +1,5 @@
 //! `brokkr probe harness`: measure one agent CLI and write the facts its
-//! adapter must declare (proposed decision 0075 ruling 3, #484). The
+//! adapter must declare (decision 0075 ruling 3, #484). The
 //! measuring is `brokkr_protocol::probe`'s; this handler resolves the
 //! adapter and the credentials, and writes the report.
 

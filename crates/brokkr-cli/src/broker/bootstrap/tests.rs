@@ -116,8 +116,15 @@ fn intent(network: &str) -> Value {
         "network": network,
         "host": {"mnt": mnt, "pid": pid, "net": net, "ipc": ipc, "uts": uts},
         "mounts": mounts,
+        "executable": NO_SERVER,
+        "argv": ["docs-mcp", "--stdio"],
+        "secrets": ["DOCS_TOKEN"],
     })
 }
+
+/// The server every intent here seals: none stands there, so no exec here
+/// ever replaces this process.
+const NO_SERVER: &str = "/nonexistent/brokkr-u6c8/docs-mcp";
 
 /// `body` as one control frame.
 fn frame(body: &[u8]) -> Vec<u8> {
@@ -130,26 +137,39 @@ fn anonymous() -> (PipeReader, PipeWriter) {
     std::io::pipe().unwrap()
 }
 
-/// The arguments naming `control` and `ready`, each given up to the
-/// bootstrap.
-fn handed(control: impl IntoRawFd, ready: impl IntoRawFd) -> BrokerBootstrapArgs {
+/// The arguments naming `control`, `ready` and `status`, each given up to
+/// the bootstrap.
+fn handed(
+    control: impl IntoRawFd,
+    ready: impl IntoRawFd,
+    status: impl IntoRawFd,
+) -> BrokerBootstrapArgs {
     BrokerBootstrapArgs {
         control: Some(control.into_raw_fd().to_string()),
         ready: Some(ready.into_raw_fd().to_string()),
+        status: Some(status.into_raw_fd().to_string()),
     }
 }
 
 /// Run the bootstrap with `control` written and closed before it starts,
-/// standing in `observed`: its cause, and every byte its ready pipe
-/// carried before it closed.
-fn bootstrap(control: &[u8], observed: Observed) -> (Refusal, Vec<u8>) {
+/// standing in `observed`: its cause, and every byte its ready and status
+/// pipes carried before they closed.
+fn reported(control: &[u8], observed: Observed) -> (Refusal, Vec<u8>, Vec<u8>) {
     let (control_rx, mut control_tx) = anonymous();
     let (mut ready_rx, ready_tx) = anonymous();
+    let (mut status_rx, status_tx) = anonymous();
     control_tx.write_all(control).unwrap();
     drop(control_tx);
-    let refusal = run_with(&handed(control_rx, ready_tx), |_| observed);
-    let mut ready = Vec::new();
+    let refusal = run_with(&handed(control_rx, ready_tx, status_tx), |_| observed);
+    let (mut ready, mut status) = (Vec::new(), Vec::new());
     ready_rx.read_to_end(&mut ready).unwrap();
+    status_rx.read_to_end(&mut status).unwrap();
+    (refusal, ready, status)
+}
+
+/// [`reported`], without its status.
+fn bootstrap(control: &[u8], observed: Observed) -> (Refusal, Vec<u8>) {
+    let (refusal, ready, _) = reported(control, observed);
     (refusal, ready)
 }
 
@@ -185,22 +205,110 @@ fn ready_message(net: u64) -> Value {
 }
 
 #[test]
-fn an_admitted_box_writes_one_closed_ready_message_and_still_refuses_when_released() {
-    let (refusal, ready) = answer("isolated", admitted());
-    assert_eq!(refusal, Refusal::ServingIncomplete);
+fn an_admitted_box_writes_one_closed_ready_message_and_then_waits_for_its_bindings() {
+    // Released with no binding frame, the pipe's end where its length
+    // should be: the frame was truncated, which the status reports.
+    let (refusal, ready, status) = reported(&intent_frame("isolated"), admitted());
+    assert_eq!((refusal, status), (Refusal::Handoff, b"H".to_vec()));
     let message: Value = serde_json::from_slice(&ready).unwrap();
     assert_eq!(message, ready_message(13));
     assert!(ready.len() <= FRAME_MAX, "{}", ready.len());
 }
 
+/// The isolated or shared intent as one control frame.
+fn intent_frame(network: &str) -> Vec<u8> {
+    frame(intent(network).to_string().as_bytes())
+}
+
+/// The intent's frame, then `bindings` as the binding frame.
+fn handed_over(bindings: &Value) -> Vec<u8> {
+    [
+        intent_frame("isolated"),
+        frame(bindings.to_string().as_bytes()),
+    ]
+    .concat()
+}
+
+#[test]
+fn the_whole_binding_frame_and_its_end_reach_the_exec_and_a_failed_exec_is_reported() {
+    // The sealed server is absent: its exec fails inside the box, which the
+    // status reports as the exec's tag, never as stderr.
+    let whole = handed_over(&json!({"DOCS_TOKEN": "value"}));
+    let (refusal, ready, status) = reported(&whole, admitted());
+    assert_eq!((refusal, status), (Refusal::Exec, b"E".to_vec()));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&ready).unwrap(),
+        ready_message(13)
+    );
+    // A byte after the binding frame, a second frame, changed names or a
+    // truncated frame never reach the exec: the handoff's tag.
+    let cases = [
+        ("trailing", [whole.clone(), vec![0]].concat()),
+        ("second", [whole.clone(), frame(b"{}")].concat()),
+        ("renamed", handed_over(&json!({"OTHER": "value"}))),
+        ("truncated", whole[..whole.len() - 1].to_vec()),
+    ];
+    for (case, control) in cases {
+        let (refusal, _, status) = reported(&control, admitted());
+        assert_eq!(
+            (case, refusal, status),
+            (case, Refusal::Handoff, b"H".to_vec())
+        );
+    }
+}
+
+#[test]
+fn the_status_tags_are_one_byte_each_and_name_their_causes() {
+    let tags = Status::ALL.map(|status| (status.tag(), status.refusal()));
+    assert_eq!(tags, [(b'H', Refusal::Handoff), (b'E', Refusal::Exec)]);
+    let read = [&b""[..], b"H", b"E", b"HE", b"x"].map(Status::read);
+    let expected = [
+        None,
+        Some(Status::HandoffFailed),
+        Some(Status::ExecFailed),
+        None,
+        None,
+    ];
+    assert_eq!(read, expected);
+}
+
+#[test]
+fn the_terminal_is_given_up_only_where_one_is_held() {
+    use rustix::io::Errno;
+    // No controlling terminal to give up; a terminal that would not open;
+    // and an open file that is no terminal, which cannot be given up.
+    assert!(given_up(Err(Errno::NXIO)));
+    assert!(!given_up(Err(Errno::ACCESS)));
+    let file = std::fs::File::open("/dev/null").unwrap();
+    assert!(!given_up(Ok(file.into())));
+    // This process holds none afterwards, whether it held one or not.
+    assert!(detached());
+    let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY;
+    let reopened = rustix::fs::open("/dev/tty", flags, rustix::fs::Mode::empty());
+    assert_eq!(reopened.map(drop), Err(Errno::NXIO));
+}
+
+#[test]
+fn the_server_is_given_mb4s_fixed_entries_alone() {
+    // This process runs under cargo, its environment far wider than MB4's.
+    let names: Vec<OsString> = fixed_environment()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    let fixed: Vec<OsString> = server_environment().map(OsString::from).collect();
+    assert!(names.iter().all(|name| fixed.contains(name)), "{names:?}");
+    assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_some());
+    let path = names.iter().filter(|name| *name == "PATH").count();
+    assert_eq!(path, 1);
+}
+
 #[test]
 fn a_ready_message_is_written_only_within_the_bound() {
-    let wide = ids([u64::MAX; 5]);
-    let ready = |plan| Ready {
-        plan,
-        sources: SOURCES,
+    let ready = |plan: &str| Ready {
+        plan: plan.to_string(),
+        sources: SOURCES.to_string(),
         pid: u32::MAX,
-        namespaces: &wide,
+        namespaces: ids([u64::MAX; 5]),
     };
     let size = |plan| message(&ready(plan)).map(|bytes| bytes.len());
     assert_eq!(size(PLAN), Ok(319));
@@ -259,7 +367,7 @@ fn a_shared_network_is_the_brokers_and_an_isolated_one_is_not() {
         ..admitted()
     };
     let (refusal, ready) = answer("shared", shared(3));
-    assert_eq!(refusal, Refusal::ServingIncomplete);
+    assert_eq!(refusal, Refusal::Handoff);
     let message: Value = serde_json::from_slice(&ready).unwrap();
     assert_eq!(message, ready_message(3));
     assert_eq!(answer("shared", shared(13)), unestablished());
@@ -645,7 +753,7 @@ fn the_intent_is_one_closed_frame_of_at_most_four_kibibytes() {
     let body = intent("isolated").to_string();
     let padded = |size: usize| format!("{body:<size$}").into_bytes();
     let (refusal, ready) = bootstrap(&frame(&padded(FRAME_MAX)), admitted());
-    assert_eq!(refusal, Refusal::ServingIncomplete);
+    assert_eq!(refusal, Refusal::Handoff);
     assert!(!ready.is_empty());
     let mut unknown = intent("isolated");
     unknown["store"] = json!("/x");
@@ -669,10 +777,10 @@ fn the_intent_is_one_closed_frame_of_at_most_four_kibibytes() {
 }
 
 #[test]
-fn a_byte_after_the_frame_is_no_release() {
-    let trailing = [frame(intent("isolated").to_string().as_bytes()), vec![b'x']].concat();
+fn a_byte_after_the_intent_is_no_binding_frame() {
+    let trailing = [intent_frame("isolated"), vec![b'x']].concat();
     let (refusal, ready) = bootstrap(&trailing, admitted());
-    assert_eq!(refusal, Refusal::Establishment);
+    assert_eq!(refusal, Refusal::Handoff);
     let message: Value = serde_json::from_slice(&ready).unwrap();
     assert_eq!(message, ready_message(13));
 }
@@ -681,24 +789,30 @@ fn a_byte_after_the_frame_is_no_release() {
 fn readiness_leaves_on_a_distinct_private_pipe_and_no_other_descriptor() {
     let (control_rx, _control_tx) = anonymous();
     let (ready_rx, ready_tx) = anonymous();
+    let (_status_rx, status_tx) = anonymous();
     let link = link(ready_tx.as_raw_fd()).unwrap();
-    let args = handed(control_rx, ready_tx);
-    let numbers = (args.control.as_deref(), args.ready.as_deref());
+    let args = handed(control_rx, ready_tx, status_tx);
+    let numbers = [&args.control, &args.ready, &args.status].map(Option::as_deref);
     let stdout = descriptors(numbers, &[link]).err();
     assert_eq!(stdout, Some(Refusal::Establishment));
     drop(ready_rx);
 
-    let (control_rx, control_tx) = anonymous();
-    let same = descriptors((Some(&rx(control_rx)), Some(&tx(control_tx))), &[]).err();
-    assert_eq!(same, Some(Refusal::Establishment));
+    // No two of the three are one pipe, in any pairing.
+    let ends = [anonymous(), anonymous(), anonymous()];
+    let numbers = ends.each_ref().map(|(end, _)| end.as_raw_fd().to_string());
+    for pair in [(0, 1), (0, 2), (1, 2)] {
+        let mut paired = numbers.each_ref().map(|number| Some(number.as_str()));
+        paired[pair.1] = paired[pair.0];
+        let refused = descriptors(paired, &[]).err();
+        assert_eq!((pair, refused), (pair, Some(Refusal::Establishment)));
+    }
 
     let marker = tempfile::tempfile().unwrap();
     let (control_rx, mut control_tx) = anonymous();
-    control_tx
-        .write_all(&frame(intent("isolated").to_string().as_bytes()))
-        .unwrap();
+    let (_status_rx, status_tx) = anonymous();
+    control_tx.write_all(&intent_frame("isolated")).unwrap();
     drop(control_tx);
-    let marked = handed(control_rx, marker.try_clone().unwrap());
+    let marked = handed(control_rx, marker.try_clone().unwrap(), status_tx);
     assert_eq!(run_with(&marked, |_| admitted()), Refusal::Establishment);
     assert_eq!(marker.metadata().unwrap().len(), 0);
 }
@@ -708,29 +822,32 @@ fn rx(pipe: PipeReader) -> String {
     pipe.into_raw_fd().to_string()
 }
 
-/// `pipe`'s write end given up, by number.
-fn tx(pipe: PipeWriter) -> String {
-    pipe.into_raw_fd().to_string()
-}
-
 #[test]
 fn absent_or_unusable_control_context_refuses() {
     let (control_rx, _control_tx) = anonymous();
-    let control = rx(control_rx);
-    for ready in [None, Some("x"), Some("2"), Some("-1"), Some("999999")] {
-        let refused = descriptors((Some(&control), ready), &[]).err();
-        assert_eq!((ready, refused), (ready, Some(Refusal::Establishment)));
+    let (ready_rx, _ready_tx) = anonymous();
+    let (control, ready) = (rx(control_rx), rx(ready_rx));
+    for unusable in [None, Some("x"), Some("2"), Some("-1"), Some("999999")] {
+        let refused = descriptors([Some(&control), unusable, Some(&ready)], &[]).err();
+        assert_eq!(
+            (unusable, refused),
+            (unusable, Some(Refusal::Establishment))
+        );
+        let refused = descriptors([Some(&control), Some(&ready), unusable], &[]).err();
+        assert_eq!(
+            (unusable, refused),
+            (unusable, Some(Refusal::Establishment))
+        );
     }
-    let refused = descriptors((None, Some(&control)), &[]).err();
+    let refused = descriptors([None, Some(&control), Some(&ready)], &[]).err();
     assert_eq!(refused, Some(Refusal::Establishment));
 
     let (control_rx, mut control_tx) = anonymous();
     let (ready_rx, _ready_tx) = anonymous();
-    control_tx
-        .write_all(&frame(intent("isolated").to_string().as_bytes()))
-        .unwrap();
+    let (_status_rx, status_tx) = anonymous();
+    control_tx.write_all(&intent_frame("isolated")).unwrap();
     drop(control_tx);
-    let backwards = handed(control_rx, ready_rx);
+    let backwards = handed(control_rx, ready_rx, status_tx);
     assert_eq!(run_with(&backwards, |_| admitted()), Refusal::Establishment);
 }
 
@@ -742,11 +859,13 @@ fn a_host_is_no_box() {
     ours["host"] = json!({"mnt": mnt, "pid": pid, "net": net, "ipc": ipc, "uts": uts});
     let (control_rx, mut control_tx) = anonymous();
     let (mut ready_rx, ready_tx) = anonymous();
+    let (_status_rx, status_tx) = anonymous();
     control_tx
         .write_all(&frame(ours.to_string().as_bytes()))
         .unwrap();
     drop(control_tx);
-    assert_eq!(run(&handed(control_rx, ready_tx)), Refusal::Establishment);
+    let args = handed(control_rx, ready_tx, status_tx);
+    assert_eq!(run(&args), Refusal::Establishment);
     let mut ready = Vec::new();
     ready_rx.read_to_end(&mut ready).unwrap();
     assert_eq!(ready, Vec::<u8>::new());

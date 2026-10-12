@@ -1,4 +1,4 @@
-//! `forge.realms/v7`'s one word (proposed decision 0075 ruling 5): the
+//! `forge.realms/v7`'s one word (decision 0075 ruling 5): the
 //! world-level `provisional_offices`, the agents a model its adapter
 //! declares provisional may be seated in. Absent or empty, a provisional
 //! model is seated nowhere, and a v7 map that does not name the list reads

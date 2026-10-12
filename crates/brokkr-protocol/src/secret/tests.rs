@@ -797,3 +797,338 @@ fn a_missing_binding_never_falls_back_to_the_ambient_environment() {
         Err(store::StoreError::MissingName { name, .. }) if name == ambient
     ));
 }
+
+// ------------------------------------------- the confined handoff (U6c8)
+
+use super::handoff::{exec_confined_with, BINDINGS_MAX, HANDOFF_MAX};
+use crate::broker::Refusal;
+use std::ffi::{CStr, OsString};
+use std::io::Read;
+
+fn owned(names: &[&str]) -> Vec<String> {
+    names.iter().map(|name| name.to_string()).collect()
+}
+
+/// `body` as one binding frame: its four-byte big-endian length first.
+fn handoff_frame(body: &[u8]) -> Vec<u8> {
+    let mut frame = Vec::from(u32::try_from(body.len()).unwrap().to_be_bytes());
+    frame.extend_from_slice(body);
+    frame
+}
+
+/// What the sender hands over for the declared `names` from the store
+/// that `handle` holds, which `path` names: the frame, or its cause.
+#[cfg(target_os = "linux")]
+fn sending(handle: &std::fs::File, path: &Path, names: &[&str]) -> Result<Vec<u8>, Refusal> {
+    use std::os::fd::AsFd;
+    let mut sent = None;
+    let send = |frame: &[u8]| {
+        sent = Some(frame.to_vec());
+        Ok(())
+    };
+    send_environment(handle.as_fd(), path, &owned(names), send).map(|()| sent.unwrap())
+}
+
+/// [`sending`] from the store holding `bytes`.
+#[cfg(target_os = "linux")]
+fn sent_from(bytes: &[u8], names: &[&str]) -> Result<Vec<u8>, Refusal> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = store_at(dir.path(), "secrets.env", bytes, 0o600);
+    sending(&std::fs::File::open(&path).unwrap(), &path, names)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_sender_frames_the_injectors_environment_of_the_declared_names_alone() {
+    let store = b"DOCS_TOKEN=a \"quoted\" value\nOTHER=never sent\n";
+    let body = br#"{"DOCS_TOKEN":"a \"quoted\" value"}"#;
+    assert_eq!(sent_from(store, &["DOCS_TOKEN"]), Ok(handoff_frame(body)));
+    // No name, no lookup: a store no reader would take still sends `{}`.
+    let dir = tempfile::tempdir().unwrap();
+    let broad = store_at(dir.path(), "broad.env", b"garbage", 0o644);
+    let handle = std::fs::File::open(&broad).unwrap();
+    assert_eq!(sending(&handle, &broad, &[]), Ok(handoff_frame(b"{}")));
+    // Whatever the transport answers is the sender's answer.
+    let refused = send_environment(std::os::fd::AsFd::as_fd(&handle), &broad, &[], |_| {
+        Err(Refusal::Exec)
+    });
+    assert_eq!(refused, Err(Refusal::Exec));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_sender_carries_decision_0012s_own_causes_from_the_admitted_handle() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = store_at(dir.path(), "missing.env", b"OTHER=value\n", 0o600);
+    let broad = store_at(dir.path(), "broad.env", b"DOCS_TOKEN=value\n", 0o640);
+    let raw = store_at(dir.path(), "raw.env", b"DOCS_TOKEN=\xff\xfe\n", 0o600);
+    let shut = store_at(dir.path(), "shut.env", b"DOCS_TOKEN=value\n", 0o000);
+    let cause = |path: &Path| {
+        let handle = std::fs::File::open(path).unwrap();
+        sending(&handle, path, &["DOCS_TOKEN"])
+    };
+    let name = |text: String| Err(Refusal::Name(text));
+    let not_in = format!(
+        "secret 'DOCS_TOKEN' is not in the store at {} (brokkr secrets set DOCS_TOKEN)",
+        missing.display()
+    );
+    assert_eq!(cause(&missing), name(not_in));
+    let broad_text = format!(
+        "refusing secrets store {}: permissions 640 are broader than 0600",
+        broad.display()
+    );
+    assert_eq!(cause(&broad), name(broad_text));
+    assert_eq!(
+        cause(&raw),
+        name("secret 'DOCS_TOKEN' is not valid UTF-8".into())
+    );
+    // A path handle to a store this user may not read: reopened through
+    // the handle, the open itself refuses.
+    let flags = rustix::fs::OFlags::PATH | rustix::fs::OFlags::CLOEXEC;
+    let path_only = rustix::fs::open(&shut, flags, rustix::fs::Mode::empty()).unwrap();
+    let unread = sending(&std::fs::File::from(path_only), &shut, &["DOCS_TOKEN"]);
+    let denied = format!(
+        "cannot read secrets store {}: Permission denied (os error 13)",
+        shut.display()
+    );
+    assert_eq!(unread, name(denied));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_sender_refuses_a_frame_past_mb4s_bounds_and_sends_one_at_them() {
+    // 256 bindings and a 1 MiB body are sent; one binding or one byte more
+    // is the handoff cause.
+    let names: Vec<String> = (0..=BINDINGS_MAX).map(|at| format!("N{at:03}")).collect();
+    let store: String = names.iter().map(|name| format!("{name}=value\n")).collect();
+    let declared: Vec<&str> = names.iter().map(String::as_str).collect();
+    let most = sent_from(store.as_bytes(), &declared[..BINDINGS_MAX]).map(|frame| frame.len());
+    // `{`, each `"N000":"value"` and the commas between them, and `}`.
+    assert_eq!(most, Ok(4 + 2 + BINDINGS_MAX * 15 - 1));
+    assert_eq!(
+        sent_from(store.as_bytes(), &declared),
+        Err(Refusal::Handoff)
+    );
+    let fixed = br#"{"DOCS_TOKEN":""}"#.len();
+    let value = |size: usize| format!("DOCS_TOKEN={}\n", "v".repeat(size));
+    let at = sent_from(value(HANDOFF_MAX - fixed).as_bytes(), &["DOCS_TOKEN"]);
+    assert_eq!(at.map(|frame| frame.len()), Ok(4 + HANDOFF_MAX));
+    let over = sent_from(value(HANDOFF_MAX - fixed + 1).as_bytes(), &["DOCS_TOKEN"]);
+    assert_eq!(over, Err(Refusal::Handoff));
+}
+
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn off_linux_the_sender_reads_no_store_for_a_declared_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = store_at(dir.path(), "secrets.env", b"DOCS_TOKEN=value\n", 0o600);
+    let handle = std::fs::File::open(&path).unwrap();
+    let send = |frame: &[u8]| -> Result<(), Refusal> { panic!("sent {} bytes", frame.len()) };
+    let names = owned(&["DOCS_TOKEN"]);
+    let answer = send_environment(std::os::fd::AsFd::as_fd(&handle), &path, &names, send);
+    let unread = format!("cannot read secrets store {}: unsupported", path.display());
+    assert_eq!(answer, Err(Refusal::Name(unread)));
+}
+
+/// What the receiver does with `input` for the declared `names`, its fixed
+/// environment `HOME` and `PATH`: its cause, and the exec it asked for, if
+/// it reached one: the program, argv and environment, as text.
+fn receiving(input: impl Read, names: &[&str]) -> (Refusal, Option<[Vec<String>; 3]>) {
+    let fixed = [("HOME", "/runtime/home"), ("PATH", "/usr/bin")];
+    let fixed = fixed.map(|(key, value)| (OsString::from(key), OsString::from(value)));
+    let argv = owned(&["docs-mcp", "--stdio"]);
+    let server = (Path::new("/opt/docs/bin/docs-mcp"), argv.as_slice());
+    let text = |string: &CStr| string.to_str().unwrap().to_string();
+    let mut asked = None;
+    let exec = |program: &CStr, argv: &[&CStr], environment: &[&CStr]| {
+        let each = |strings: &[&CStr]| strings.iter().map(|string| text(string)).collect();
+        asked = Some([vec![text(program)], each(argv), each(environment)]);
+    };
+    let names = owned(names);
+    let refusal = exec_confined_with(input, &names, fixed.to_vec(), server, || true, exec);
+    (refusal, asked)
+}
+
+/// The exec a received `DOCS_TOKEN` of `value` asks for.
+fn execed(value: &str) -> Option<[Vec<String>; 3]> {
+    let environment = ["HOME=/runtime/home", "PATH=/usr/bin"].map(String::from);
+    let environment = [environment.to_vec(), vec![format!("DOCS_TOKEN={value}")]].concat();
+    Some([
+        vec!["/opt/docs/bin/docs-mcp".to_string()],
+        owned(&["docs-mcp", "--stdio"]),
+        environment,
+    ])
+}
+
+#[test]
+fn the_receiver_execs_the_sealed_server_with_its_final_environment_alone() {
+    let whole = handoff_frame(br#"{"DOCS_TOKEN":"value"}"#);
+    let answer = receiving(whole.as_slice(), &["DOCS_TOKEN"]);
+    assert_eq!(answer, (Refusal::Exec, execed("value")));
+    // A frame at the bound, padded with the whitespace JSON allows.
+    let mut padded = br#"{"DOCS_TOKEN":"value"}"#.to_vec();
+    padded.resize(HANDOFF_MAX, b' ');
+    let answer = receiving(handoff_frame(&padded).as_slice(), &["DOCS_TOKEN"]);
+    assert_eq!(answer, (Refusal::Exec, execed("value")));
+    // 256 bindings, each its own.
+    let names: Vec<String> = (0..BINDINGS_MAX).map(|at| format!("N{at:03}")).collect();
+    let body: serde_json::Map<String, serde_json::Value> = names
+        .iter()
+        .map(|name| (name.clone(), name.as_str().into()))
+        .collect();
+    let body = serde_json::to_vec(&body).unwrap();
+    let declared: Vec<&str> = names.iter().map(String::as_str).collect();
+    let (refusal, asked) = receiving(handoff_frame(&body).as_slice(), &declared);
+    let environment = asked.map(|[_, _, environment]| environment.len());
+    assert_eq!(
+        (refusal, environment),
+        (Refusal::Exec, Some(2 + BINDINGS_MAX))
+    );
+}
+
+/// A reader of `bytes` that then fails, as a pipe still open at the
+/// deadline does once the broker ends the box.
+struct Stalled(std::io::Cursor<Vec<u8>>);
+
+impl Read for Stalled {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self.0.read(buf)? {
+            0 => Err(std::io::ErrorKind::TimedOut.into()),
+            read => Ok(read),
+        }
+    }
+}
+
+#[test]
+fn the_receiver_refuses_every_frame_but_one_whole_closed_one_and_execs_nothing() {
+    let whole = handoff_frame(br#"{"DOCS_TOKEN":"value"}"#);
+    let framed = |body: &str| handoff_frame(body.as_bytes());
+    // A whole frame one byte past the bound, padded as JSON allows.
+    let mut over = br#"{"DOCS_TOKEN":"value"}"#.to_vec();
+    over.resize(HANDOFF_MAX + 1, b' ');
+    let cases: [(&str, Vec<u8>); 15] = [
+        ("empty", Vec::new()),
+        ("length", whole[..2].to_vec()),
+        ("over", handoff_frame(&over)),
+        ("truncated", whole[..whole.len() - 1].to_vec()),
+        ("trailing", [whole.clone(), vec![b'\n']].concat()),
+        ("second", [whole.clone(), framed("{}")].concat()),
+        ("partial second", [whole.clone(), vec![0, 0]].concat()),
+        ("unknown", framed(r#"{"DOCS_TOKEN":"value","OTHER":"x"}"#)),
+        ("missing", framed("{}")),
+        ("renamed", framed(r#"{"OTHER":"value"}"#)),
+        (
+            "duplicate",
+            framed(r#"{"DOCS_TOKEN":"value","DOCS_TOKEN":"value"}"#),
+        ),
+        ("deep", framed(r#"{"DOCS_TOKEN":{"a":{"b":{"c":"d"}}}}"#)),
+        ("not an object", framed(r#"[["DOCS_TOKEN","value"]]"#)),
+        ("NUL value", framed(r#"{"DOCS_TOKEN":"va\u0000lue"}"#)),
+        ("NUL name", framed(r#"{"DOCS_TOKEN\u0000":"value"}"#)),
+    ];
+    for (case, input) in cases {
+        let answer = receiving(input.as_slice(), &["DOCS_TOKEN"]);
+        assert_eq!((case, answer), (case, (Refusal::Handoff, None)));
+    }
+    // A whole frame whose pipe stays open past the deadline never execs.
+    let open = receiving(Stalled(std::io::Cursor::new(whole)), &["DOCS_TOKEN"]);
+    assert_eq!(open, (Refusal::Handoff, None));
+    // One binding past the bound refuses, though every name is declared.
+    let names: Vec<String> = (0..=BINDINGS_MAX).map(|at| format!("N{at:03}")).collect();
+    let many: serde_json::Map<String, serde_json::Value> = names
+        .iter()
+        .map(|name| (name.clone(), "v".into()))
+        .collect();
+    let declared: Vec<&str> = names.iter().map(String::as_str).collect();
+    let count = handoff_frame(&serde_json::to_vec(&many).unwrap());
+    assert_eq!(
+        receiving(count.as_slice(), &declared),
+        (Refusal::Handoff, None)
+    );
+    // A repeated name refuses as it is read, even where the names it is
+    // held to repeat it too.
+    let twice = framed(r#"{"DOCS_TOKEN":"value","DOCS_TOKEN":"value"}"#);
+    let repeated = receiving(twice.as_slice(), &["DOCS_TOKEN", "DOCS_TOKEN"]);
+    assert_eq!(repeated, (Refusal::Handoff, None));
+    // Nor does a binding that would replace a fixed name.
+    let home = receiving(framed(r#"{"HOME":"/work"}"#).as_slice(), &["HOME"]);
+    assert_eq!(home, (Refusal::Handoff, None));
+}
+
+#[test]
+fn the_exec_is_the_kernels_alone_and_only_once_the_box_is_prepared() {
+    let whole = handoff_frame(br#"{"DOCS_TOKEN":"value"}"#);
+    let names = owned(&["DOCS_TOKEN"]);
+    let argv = owned(&["docs-mcp"]);
+    let never = |_: &CStr, _: &[&CStr], _: &[&CStr]| panic!("no exec");
+    // An unprepared box, an empty argv or a name with NUL never execs.
+    let unprepared = (Path::new("/bin/true"), argv.as_slice());
+    let answer = exec_confined_with(
+        whole.as_slice(),
+        &names,
+        vec![],
+        unprepared,
+        || false,
+        never,
+    );
+    assert_eq!(answer, Refusal::Exec);
+    let empty = (Path::new("/bin/true"), &[][..]);
+    let prepare = || panic!("prepared for no argv");
+    assert_eq!(
+        exec_confined_with(whole.as_slice(), &names, vec![], empty, prepare, never),
+        Refusal::Exec
+    );
+    let nul = (Path::new("/bin/tr\0ue"), argv.as_slice());
+    assert_eq!(
+        exec_confined_with(whole.as_slice(), &names, vec![], nul, || true, never),
+        Refusal::Exec
+    );
+    let nul_arg = owned(&["docs\0mcp"]);
+    let nul_arg = (Path::new("/bin/true"), nul_arg.as_slice());
+    assert_eq!(
+        exec_confined_with(whole.as_slice(), &names, vec![], nul_arg, || true, never),
+        Refusal::Exec
+    );
+    // The real exec of an absent program returns the boxed-exec cause. A
+    // script the kernel will not run is the real box's to show: here a
+    // shell's retry would replace this very process.
+    let absent = (Path::new("/nonexistent/brokkr-u6c8"), argv.as_slice());
+    let answer = exec_confined(whole.as_slice(), &names, vec![], absent, || true);
+    assert_eq!(answer, Refusal::Exec);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn every_descriptor_above_the_standard_streams_is_sealed_before_the_exec_or_nothing_starts() {
+    use super::handoff::sealing;
+    use rustix::io::{fcntl_getfd, fcntl_setfd, FdFlags};
+    let whole = handoff_frame(br#"{"DOCS_TOKEN":"value"}"#);
+    let names = owned(&["DOCS_TOKEN"]);
+    let argv = owned(&["docs-mcp"]);
+    let server = (Path::new("/bin/true"), argv.as_slice());
+    // A seal that fails, which may have left any descriptor open across
+    // the exec, refuses as an unprepared box does, and neither execs; one
+    // that holds, after a prepared box, execs once.
+    let cases = [((true, false), 0), ((false, true), 0), ((true, true), 1)];
+    for ((prepared, sealed), expected) in cases {
+        let execs = std::cell::Cell::new(0);
+        let exec = |_: &CStr, _: &[&CStr], _: &[&CStr]| execs.set(execs.get() + 1);
+        let prepare = sealing(|| prepared, || sealed);
+        let answer = exec_confined_with(whole.as_slice(), &names, vec![], server, prepare, exec);
+        let case = (prepared, sealed);
+        assert_eq!((case, answer, execs.get()), (case, Refusal::Exec, expected));
+    }
+    // An unprepared box is never sealed.
+    let unprepared = sealing(|| false, || panic!("sealed an unprepared box"));
+    assert!(!unprepared());
+    // The real receiver seals every descriptor, one left open across an
+    // exec included, before its exec, which here finds no program.
+    let (kept, _writer) = std::io::pipe().unwrap();
+    fcntl_setfd(&kept, FdFlags::empty()).unwrap();
+    let absent = (Path::new("/nonexistent/brokkr-u6c8"), argv.as_slice());
+    let answer = exec_confined(whole.as_slice(), &names, vec![], absent, || true);
+    assert_eq!(
+        (answer, fcntl_getfd(&kept)),
+        (Refusal::Exec, Ok(FdFlags::CLOEXEC))
+    );
+}

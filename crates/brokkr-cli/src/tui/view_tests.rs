@@ -106,6 +106,26 @@ fn the_run_view_is_the_frame_tui_run_draws() {
     assert_eq!(run_view.buffer(), tui_run.buffer());
 }
 
+/// The console's view decides no scope: a frame asks the predicates, and
+/// only a serving surface pays for every scope's membership (#624).
+#[test]
+fn the_console_view_decides_no_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "run-on-disk");
+    let ask = Ask {
+        run: Some("run-on-disk"),
+        subject: None,
+        force: true,
+        fleet: false,
+        tab: 0,
+    };
+    let views = crate::tui_views(&db, true, ask, &mut None, &mut None, || NOW.to_string())
+        .unwrap()
+        .expect("the forced frame is built");
+    assert_eq!(views.run.expect("the run is read").scopes, None);
+}
+
 /// Ctrl+C stops a run this process drives, as SIGINT would; everywhere
 /// else, `brokkr tui` and `brokkr watch` alike, it quits. `q` closes the
 /// view over a driven run and leaves the run to its drive.

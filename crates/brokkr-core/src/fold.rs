@@ -15,6 +15,9 @@ use crate::envelope::{EventEnvelope, EventType};
 use crate::gate_moved_head;
 use crate::policy::STRATEGIES;
 
+mod relation;
+use relation::{Arm, Position, Transition};
+
 /// The phase whose ruling, when it is one of [`STRATEGIES`], sets the
 /// run's `strategy`. It belongs beside `STRATEGIES` in `policy.rs`; it
 /// lives here, with its one reader, until that file is free to move.
@@ -389,325 +392,322 @@ pub fn fold_onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunSta
     Ok(state)
 }
 
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
+/// Apply one event: the relation ([`relation::arm`]) answers for the
+/// event at the run's position, and a transition it names is taken.
 fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    use EventType::*;
-
-    if terminal(state.status) {
+    match relation::arm(event.event_type, Position::of(state)) {
+        Arm::Moves(transition) => take(transition, state, event),
+        Arm::OutOfPlace => {
+            for field in relation::named_first(event.event_type) {
+                payload_str(event, field)?;
+            }
+            Err(out_of_place(state, event))
+        }
         // Terminal runs accept only operator annotations that change nothing.
-        return match event.event_type {
-            OperatorCommanded | OperatorRejected => Ok(()),
-            _ => Err(FoldError::AfterTerminal { seq: event.seq }),
-        };
+        Arm::Annotates => Ok(()),
+        Arm::AfterTerminal => Err(FoldError::AfterTerminal { seq: event.seq }),
     }
+}
 
-    let out_of_place = |state: &RunState| FoldError::OutOfPlace {
+fn out_of_place(state: &RunState, event: &EventEnvelope) -> FoldError {
+    FoldError::OutOfPlace {
         seq: event.seq,
         event: format!("{:?}", event.event_type),
         cursor: state.cursor.to_string(),
-    };
+    }
+}
 
-    match event.event_type {
-        RunStarted => Err(out_of_place(state)),
-
-        PhaseEntered => {
-            let phase = payload_str(event, "phase")?;
-            match &state.cursor {
-                Cursor::Start => {}
-                Cursor::EnterPhase { phase: expected } if *expected == phase => {}
-                _ => return Err(out_of_place(state)),
-            }
-            *state.visits.entry(phase.clone()).or_insert(0) += 1;
-            state.phase = Some(phase);
-            state.cursor = Cursor::RequestEffect;
+fn take(
+    transition: Transition,
+    state: &mut RunState,
+    event: &EventEnvelope,
+) -> Result<(), FoldError> {
+    match transition {
+        Transition::Enter => enter(state, event),
+        Transition::Request => request(state, event),
+        Transition::Start => start(state, event),
+        Transition::Checkpoint => checkpoint(state, event),
+        Transition::Succeed => succeed(state, event),
+        Transition::Fail => fail(state, event),
+        Transition::Close => close(state, event),
+        Transition::Rule => rule(state, event),
+        Transition::Command => command(state, event),
+        Transition::Accept => accept(state, event),
+        Transition::Reject => {
+            state.pending_command = None;
             Ok(())
         }
+        Transition::Park => park(state, event),
+        Transition::Complete => conclude_run(state, Status::Completed),
+        Transition::Stop => conclude_run(state, Status::Stopped),
+    }
+}
 
-        EffectRequested => {
-            if state.cursor != Cursor::RequestEffect {
-                return Err(out_of_place(state));
-            }
-            state.cursor = Cursor::ExecuteEffect {
-                effect_id: payload_str(event, "effect_id")?,
-                seat: payload_str(event, "seat")?,
-                failed_attempts: 0,
+/// Is `effect_id` the effect the cursor holds open, requested or in
+/// flight? The relation has already placed the event at one of the two.
+fn names_the_open_effect(state: &RunState, effect_id: &str) -> bool {
+    matches!(
+        &state.cursor,
+        Cursor::ExecuteEffect { effect_id: open, .. }
+            | Cursor::EffectInFlight { effect_id: open, .. } if open == effect_id
+    )
+}
+
+/// At `Start`, or at `EnterPhase` for the phase it names.
+fn enter(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    let phase = payload_str(event, "phase")?;
+    if matches!(&state.cursor, Cursor::EnterPhase { phase: expected } if *expected != phase) {
+        return Err(out_of_place(state, event));
+    }
+    *state.visits.entry(phase.clone()).or_insert(0) += 1;
+    state.phase = Some(phase);
+    state.cursor = Cursor::RequestEffect;
+    Ok(())
+}
+
+fn request(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    state.cursor = Cursor::ExecuteEffect {
+        effect_id: payload_str(event, "effect_id")?,
+        seat: payload_str(event, "seat")?,
+        failed_attempts: 0,
+    };
+    Ok(())
+}
+
+/// At `ExecuteEffect`, for the effect it holds.
+fn start(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    let effect_id = payload_str(event, "effect_id")?;
+    let attempt_id = payload_str(event, "attempt_id")?;
+    match &state.cursor {
+        Cursor::ExecuteEffect {
+            effect_id: open,
+            seat,
+            failed_attempts,
+        } if *open == effect_id => {
+            state.cursor = Cursor::EffectInFlight {
+                effect_id,
+                attempt_id,
+                seat: seat.clone(),
+                failed_attempts: *failed_attempts,
             };
             Ok(())
         }
+        // Another effect's start: the relation placed the event here.
+        _ => Err(out_of_place(state, event)),
+    }
+}
 
-        EffectStarted => {
-            let effect_id = payload_str(event, "effect_id")?;
-            let attempt_id = payload_str(event, "attempt_id")?;
-            match &state.cursor {
-                Cursor::ExecuteEffect {
-                    effect_id: open,
-                    seat,
-                    failed_attempts,
-                } if *open == effect_id => {
-                    state.cursor = Cursor::EffectInFlight {
-                        effect_id,
-                        attempt_id,
-                        seat: seat.clone(),
-                        failed_attempts: *failed_attempts,
-                    };
-                    Ok(())
-                }
-                _ => Err(out_of_place(state)),
-            }
-        }
+/// The effect `event` names, refused as out of place unless it is the one
+/// the cursor holds open.
+fn the_open_effect(state: &RunState, event: &EventEnvelope) -> Result<String, FoldError> {
+    let effect_id = payload_str(event, "effect_id")?;
+    match names_the_open_effect(state, &effect_id) {
+        true => Ok(effect_id),
+        false => Err(out_of_place(state, event)),
+    }
+}
 
-        EffectCheckpointed => match &state.cursor {
-            Cursor::EffectInFlight { effect_id, .. }
-                if *effect_id == payload_str(event, "effect_id")? =>
-            {
-                Ok(())
-            }
-            _ => Err(out_of_place(state)),
-        },
+/// At `EffectInFlight`, for the effect it holds.
+fn checkpoint(state: &RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    the_open_effect(state, event).map(drop)
+}
 
-        EffectSucceeded => {
-            let effect_id = payload_str(event, "effect_id")?;
-            match &state.cursor {
-                Cursor::EffectInFlight {
-                    effect_id: open, ..
-                } if *open == effect_id => {
-                    let result =
-                        event
-                            .payload
-                            .get("result")
-                            .cloned()
-                            .ok_or(FoldError::BadPayload {
-                                seq: event.seq,
-                                field: "result".into(),
-                            })?;
-                    state.last_result = Some(result.clone());
-                    conclude(state, Cursor::Decide { effect_id, result });
-                    Ok(())
-                }
-                _ => Err(out_of_place(state)),
-            }
-        }
+/// At `EffectInFlight`, for the effect it holds.
+fn succeed(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    let effect_id = the_open_effect(state, event)?;
+    let result = event
+        .payload
+        .get("result")
+        .cloned()
+        .ok_or(FoldError::BadPayload {
+            seq: event.seq,
+            field: "result".into(),
+        })?;
+    state.last_result = Some(result.clone());
+    conclude(state, Cursor::Decide { effect_id, result });
+    Ok(())
+}
 
-        EffectFailed => {
-            // A determinate failure returns the effect to the executable
-            // position; the ENGINE decides retry-or-park against the
-            // seat's declared attempt limit (decision 0006).
-            let effect_id = payload_str(event, "effect_id")?;
-            match &state.cursor {
-                Cursor::EffectInFlight {
-                    effect_id: open,
-                    seat,
-                    failed_attempts,
-                    ..
-                } if *open == effect_id => {
-                    let normal = Cursor::ExecuteEffect {
-                        effect_id,
-                        seat: seat.clone(),
-                        failed_attempts: failed_attempts + 1,
-                    };
-                    conclude(state, normal);
-                    Ok(())
-                }
-                _ => Err(out_of_place(state)),
-            }
-        }
-
-        EffectIndeterminate => {
-            // Completion could not be established: NEVER auto-retried —
-            // a retry could silently re-pay for or duplicate completed
-            // work. Always parks into operator judgment.
-            let effect_id = payload_str(event, "effect_id")?;
-            let matches_open = matches!(
-                &state.cursor,
-                Cursor::EffectInFlight { effect_id: open, .. } if *open == effect_id
-            ) || matches!(
-                // A requested-but-never-started effect can be closed as
-                // indeterminate during crash recovery.
-                &state.cursor,
-                Cursor::ExecuteEffect { effect_id: open, .. } if *open == effect_id
-            );
-            if !matches_open {
-                return Err(out_of_place(state));
-            }
-            let detail = event
-                .payload
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or("no detail recorded");
-            let normal = Cursor::Park {
-                reason: if gate_moved_head::decode::<Value>(detail).is_some() {
-                    gate_moved_head::PREFIX.to_string()
-                } else {
-                    format!("effect {effect_id} indeterminate: {detail}")
-                },
+/// At `EffectInFlight`, for the effect it holds. A determinate failure
+/// returns the effect to the executable position; the ENGINE decides
+/// retry-or-park against the seat's declared attempt limit (decision
+/// 0006).
+fn fail(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    let effect_id = payload_str(event, "effect_id")?;
+    match &state.cursor {
+        Cursor::EffectInFlight {
+            effect_id: open,
+            seat,
+            failed_attempts,
+            ..
+        } if *open == effect_id => {
+            let normal = Cursor::ExecuteEffect {
+                effect_id,
+                seat: seat.clone(),
+                failed_attempts: failed_attempts + 1,
             };
             conclude(state, normal);
             Ok(())
         }
+        // Another effect's failure: the relation placed the event here.
+        _ => Err(out_of_place(state, event)),
+    }
+}
 
-        TransitionDecided => {
-            if !matches!(&state.cursor, Cursor::Decide { .. }) {
-                return Err(out_of_place(state));
-            }
-            let from = payload_str(event, "from")?;
-            let result = payload_str(event, "result")?;
-            state.phase_results.insert(
-                from.clone(),
-                serde_json::json!({
-                    "result": result.clone(),
-                    "inputs": event.payload.get("inputs").cloned().unwrap_or_else(|| serde_json::json!({})),
-                }),
-            );
-            if from == STRATEGY_PHASE && STRATEGIES.contains(&result.as_str()) {
-                state.strategy = Some(result.clone());
-            }
-            let scoped_failure = result == "fail"
-                && event
-                    .payload
-                    .pointer("/inputs/consecutive_failures")
-                    .is_some();
-            if FAILURE_RESULTS.contains(&result.as_str()) || scoped_failure {
-                *state.consecutive_failures.entry(from.clone()).or_insert(0) += 1;
-            } else {
-                state.consecutive_failures.insert(from.clone(), 0);
-            }
-            if let Some(inputs) = event.payload.get("inputs").and_then(Value::as_object) {
-                if let Some(heads) = inputs.get("reviewed_heads") {
-                    state.reviewed_heads = Some(heads.clone());
-                }
-            }
-            state.last_decision = Some(event.payload.clone());
-            match event.payload.get("next").and_then(Value::as_str) {
-                Some(next) => {
-                    state.cursor = Cursor::EnterPhase {
-                        phase: next.to_string(),
-                    };
-                }
-                None => {
-                    let problem = event
-                        .payload
-                        .get("problem")
-                        .and_then(Value::as_str)
-                        .unwrap_or("no rule matched");
-                    // A named rule reached this position on purpose — a
-                    // rule-driven park (decision 0022) or a rule whose
-                    // artifact gate blocked it. Saying "no ruling" there
-                    // would be the exact mislabeling the ruling forbids.
-                    state.cursor = Cursor::Park {
-                        reason: match event.payload.get("rule_id").and_then(Value::as_str) {
-                            Some(rule_id) => format!("{rule_id} for ({from}, {result}): {problem}"),
-                            None => format!("no ruling for ({from}, {result}): {problem}"),
-                        },
-                    };
-                }
-            }
-            Ok(())
-        }
+/// At `EffectInFlight` or `ExecuteEffect`, for the effect it holds.
+/// Completion could not be established: NEVER auto-retried — a retry
+/// could silently re-pay for or duplicate completed work. Always parks
+/// into operator judgment.
+fn close(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    let effect_id = the_open_effect(state, event)?;
+    let detail = event
+        .payload
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or("no detail recorded");
+    let normal = Cursor::Park {
+        reason: if gate_moved_head::decode::<Value>(detail).is_some() {
+            gate_moved_head::PREFIX.to_string()
+        } else {
+            format!("effect {effect_id} indeterminate: {detail}")
+        },
+    };
+    conclude(state, normal);
+    Ok(())
+}
 
-        OperatorCommanded => {
-            state.pending_command = Some((
-                payload_str(event, "command_id")?,
-                payload_str(event, "command")?,
-            ));
-            Ok(())
-        }
-
-        OperatorAccepted => {
-            let command_id = payload_str(event, "command_id")?;
-            let Some((pending_id, command)) = state.pending_command.take() else {
-                return Err(FoldError::NoMatchingCommand { seq: event.seq });
-            };
-            if pending_id != command_id {
-                return Err(FoldError::NoMatchingCommand { seq: event.seq });
-            }
-            let Some(command) = OperatorCommand::parse(&command) else {
-                return Err(FoldError::UnknownCommand {
-                    seq: event.seq,
-                    command,
-                });
-            };
-            // `acceptance_refusal`'s terminal answer never reaches here:
-            // the top of `apply` refuses every event after a terminal
-            // first. What is left is a retry with nothing to return to.
-            if acceptance_refusal(state, command).is_some() {
-                return Err(out_of_place(state));
-            }
-            match command {
-                OperatorCommand::Retry => {
-                    state.status = Status::Running;
-                    state.park_reason = None;
-                    state.cursor = Cursor::RequestEffect;
-                }
-                // `brokkr operator` is a live kill switch: it journals
-                // the command AND its acceptance without reading the
-                // run's cursor first, so a stop legitimately lands
-                // wherever the run stands. It always reaches a
-                // conclusion; only WHEN differs. Mid-flight it rides —
-                // the attempt is untouched, its checkpoints keep
-                // applying, and the effect's own boundary (result,
-                // failure, or indeterminate close) concludes the run per
-                // it, so decision 0006's attempt bounds are never
-                // truncated. Anywhere else there is no attempt to wait
-                // for, so the run concludes where it stands: parked (the
-                // operator answering a park with "stop") and running
-                // between effects are the same sentence, finished at the
-                // first position the journal offers.
-                OperatorCommand::Stop => {
-                    if matches!(state.cursor, Cursor::EffectInFlight { .. }) {
-                        state.riding_stop = true;
-                    } else {
-                        state.status = Status::Running;
-                        state.park_reason = None;
-                        state.cursor = Cursor::Stop;
-                    }
-                }
-            }
-            Ok(())
-        }
-
-        OperatorRejected => {
-            state.pending_command = None;
-            Ok(())
-        }
-
-        RunParked => {
-            // Legal at Park, and at ExecuteEffect when the engine has
-            // exhausted the seat's attempt limit (decision 0006). A
-            // selector with no journal strategy and no default also parks
-            // while entering the phase, before an effect can be requested.
-            if !matches!(
-                &state.cursor,
-                Cursor::Start
-                    | Cursor::EnterPhase { .. }
-                    | Cursor::Park { .. }
-                    | Cursor::ExecuteEffect { .. }
-            ) {
-                return Err(out_of_place(state));
-            }
-            state.status = Status::AwaitingOperator;
-            state.park_reason = Some(payload_str(event, "reason")?);
-            state.cursor = Cursor::Idle;
-            Ok(())
-        }
-
-        RunCompleted => {
-            if state.status != Status::Running {
-                return Err(out_of_place(state));
-            }
-            state.status = Status::Completed;
-            state.cursor = Cursor::Idle;
-            Ok(())
-        }
-
-        RunStopped => {
-            if state.status != Status::Running {
-                return Err(out_of_place(state));
-            }
-            state.status = Status::Stopped;
-            state.cursor = Cursor::Idle;
-            Ok(())
+/// At `Decide`: the policy's ruling on the succeeded result.
+fn rule(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    let from = payload_str(event, "from")?;
+    let result = payload_str(event, "result")?;
+    state.phase_results.insert(
+        from.clone(),
+        serde_json::json!({
+            "result": result.clone(),
+            "inputs": event.payload.get("inputs").cloned().unwrap_or_else(|| serde_json::json!({})),
+        }),
+    );
+    if from == STRATEGY_PHASE && STRATEGIES.contains(&result.as_str()) {
+        state.strategy = Some(result.clone());
+    }
+    let scoped_failure = result == "fail"
+        && event
+            .payload
+            .pointer("/inputs/consecutive_failures")
+            .is_some();
+    if FAILURE_RESULTS.contains(&result.as_str()) || scoped_failure {
+        *state.consecutive_failures.entry(from.clone()).or_insert(0) += 1;
+    } else {
+        state.consecutive_failures.insert(from.clone(), 0);
+    }
+    if let Some(inputs) = event.payload.get("inputs").and_then(Value::as_object) {
+        if let Some(heads) = inputs.get("reviewed_heads") {
+            state.reviewed_heads = Some(heads.clone());
         }
     }
+    state.last_decision = Some(event.payload.clone());
+    match event.payload.get("next").and_then(Value::as_str) {
+        Some(next) => {
+            state.cursor = Cursor::EnterPhase {
+                phase: next.to_string(),
+            };
+        }
+        None => {
+            let problem = event
+                .payload
+                .get("problem")
+                .and_then(Value::as_str)
+                .unwrap_or("no rule matched");
+            // A named rule reached this position on purpose — a
+            // rule-driven park (decision 0022) or a rule whose
+            // artifact gate blocked it. Saying "no ruling" there
+            // would be the exact mislabeling the ruling forbids.
+            state.cursor = Cursor::Park {
+                reason: match event.payload.get("rule_id").and_then(Value::as_str) {
+                    Some(rule_id) => format!("{rule_id} for ({from}, {result}): {problem}"),
+                    None => format!("no ruling for ({from}, {result}): {problem}"),
+                },
+            };
+        }
+    }
+    Ok(())
+}
+
+fn command(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    state.pending_command = Some((
+        payload_str(event, "command_id")?,
+        payload_str(event, "command")?,
+    ));
+    Ok(())
+}
+
+fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    let command_id = payload_str(event, "command_id")?;
+    let Some((pending_id, command)) = state.pending_command.take() else {
+        return Err(FoldError::NoMatchingCommand { seq: event.seq });
+    };
+    if pending_id != command_id {
+        return Err(FoldError::NoMatchingCommand { seq: event.seq });
+    }
+    let Some(command) = OperatorCommand::parse(&command) else {
+        return Err(FoldError::UnknownCommand {
+            seq: event.seq,
+            command,
+        });
+    };
+    // `acceptance_refusal`'s terminal answer never reaches here: the
+    // relation refuses every event after a terminal first. What is left
+    // is a retry with nothing to return to.
+    if acceptance_refusal(state, command).is_some() {
+        return Err(out_of_place(state, event));
+    }
+    match command {
+        OperatorCommand::Retry => {
+            state.status = Status::Running;
+            state.park_reason = None;
+            state.cursor = Cursor::RequestEffect;
+        }
+        // `brokkr operator` is a live kill switch: it journals the
+        // command AND its acceptance without reading the run's cursor
+        // first, so a stop legitimately lands wherever the run stands.
+        // It always reaches a conclusion; only WHEN differs. Mid-flight
+        // it rides — the attempt is untouched, its checkpoints keep
+        // applying, and the effect's own boundary (result, failure, or
+        // indeterminate close) concludes the run per it, so decision
+        // 0006's attempt bounds are never truncated. Anywhere else there
+        // is no attempt to wait for, so the run concludes where it
+        // stands: parked (the operator answering a park with "stop") and
+        // running between effects are the same sentence, finished at the
+        // first position the journal offers.
+        OperatorCommand::Stop => {
+            if matches!(state.cursor, Cursor::EffectInFlight { .. }) {
+                state.riding_stop = true;
+            } else {
+                state.status = Status::Running;
+                state.park_reason = None;
+                state.cursor = Cursor::Stop;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// At `Park`, and at `ExecuteEffect` when the engine has exhausted the
+/// seat's attempt limit (decision 0006). A selector with no journal
+/// strategy and no default also parks while entering the phase, before
+/// an effect can be requested.
+fn park(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    state.status = Status::AwaitingOperator;
+    state.park_reason = Some(payload_str(event, "reason")?);
+    state.cursor = Cursor::Idle;
+    Ok(())
+}
+
+/// `run/completed` or `run/stopped`, at any position of a running run.
+fn conclude_run(state: &mut RunState, status: Status) -> Result<(), FoldError> {
+    state.status = status;
+    state.cursor = Cursor::Idle;
+    Ok(())
 }
 
 /// The evaluation inputs the ENGINE computes from the journal (never

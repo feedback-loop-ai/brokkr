@@ -833,7 +833,7 @@ fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
     );
 }
 
-/// Proposed decision 0075 ruling 5, end to end: the scaffold's work
+/// Decision 0075 ruling 5, end to end: the scaffold's work
 /// offices hire `sonnet`, so marking it provisional refuses the bundle
 /// until the workspace's own map lists those offices — the list reaches
 /// the compile from `realms.json`, and doctor names what it may hold.
@@ -922,7 +922,7 @@ fn the_recipe_verbs_read_the_provisional_offices_the_map_lists() {
         "error: bundle: seat 'implement' link 2 seats model 'sonnet', which adapter 'claude' \
          declares provisional, in office 'implementer', which realms.json does not list in \
          provisional_offices; a provisional model holds only the offices the operator lists, \
-         and an absent or empty list names none (proposed decision 0075 ruling 5)\n"
+         and an absent or empty list names none (decision 0075 ruling 5)\n"
     );
 }
 

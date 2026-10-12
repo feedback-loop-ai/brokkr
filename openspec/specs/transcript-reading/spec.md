@@ -23,13 +23,16 @@ read, never to the journal-derived run/participant models.
 A physical source record SHALL be one complete JSONL row. A logical event
 SHALL be the event represented by an ordinary row or one member decoded from
 a supported DSH packed row. A displayed turn SHALL be one content-bearing
-logical event after per-kind projection and duplicate suppression, not a
-physical line number, journal checkpoint or provider's billable turn. A
-readable streaming fragment is one logical event; fragments SHALL not be
-concatenated into an invented assembled message. Order SHALL be physical row
+projection after per-kind duplicate suppression and the packed-chunk
+coalescing rule in "DSH sessions expose assembled or provisional content
+once" below. That rule is the sole exception to one logical event per
+displayed turn; coalescing supplies a provisional chunk, not a provider's
+assembled message. A displayed index SHALL not mean a physical line number,
+journal checkpoint or provider's billable turn. Order SHALL be physical row
 order, then stored member order within a packed row, never a sort by time,
 sequence number or provider turn. Diagnostics SHALL count physical rows;
-turn numbering and the display budget SHALL apply to projected logical events.
+turn numbering and the display budget SHALL apply to the final displayed
+turns, including coalesced chunks.
 The timestamp SHALL be the recorded timestamp (DSH's numeric representation
 is pinned below) or an empty string when absent; source order SHALL outrank
 timestamp order.
@@ -439,7 +442,13 @@ version is foreign. Header read I/O or invalid UTF-8 that prevents a unique
 answer SHALL return `unreadable`, not a guessed ownership result.
 
 Discovery SHALL inspect at most 10,000 directory entries per lookup and
-read at most 65,536 bytes of each DSH candidate's first-record header.
+admit at most 65,536 bytes of each DSH candidate's first-record header,
+excluding its terminating newline when present. A byte beyond that bound
+SHALL only detect a newline or overflow, never become admitted header content.
+The same limit SHALL hold at true EOF without a newline: 65,537 header bytes
+SHALL return `discovery-limit` even if those bytes form valid JSON and no
+further source byte exists. This enforces the existing limit, not a new
+header-format restriction.
 Claude and Codex discovery SHALL read no transcript content; their selected
 source reads use the separate 32 MiB budget below, with no 65,536-byte
 opening-record gate. Exhausting discovery limits SHALL return
@@ -741,6 +750,16 @@ response. SSE remains a growth notification, not a new transcript body API.
 - **WHEN** establishing a unique candidate would exceed 10,000 examined entries or requires a DSH first-record header exceeding 65,536 bytes
 - **THEN** discovery reports `discovery-limit` and performs no unbounded scan or header allocation
 
+#### Scenario: A newline-less DSH header fits exactly at the discovery limit
+- **WHEN** an otherwise unique safe DSH candidate has a valid depth-zero version-zero or version-three opening session header of exactly 65,536 UTF-8 bytes and ends there without a newline
+- **THEN** discovery admits that candidate and the read succeeds with zero turns, zero diagnostic counts, no truncation and its confirmed path/hint
+- **AND** the identical header followed by a newline also fits; that delimiter is not a header byte
+
+#### Scenario: One extra header byte refuses even at EOF
+- **WHEN** the same otherwise valid candidate's header is 65,537 UTF-8 bytes, with no newline and no byte after it
+- **THEN** discovery returns exactly `discovery-limit`, null path and DSH full-session hint, no turns, zero counts, `truncated: false` and no notices, rather than success, `not-found`, `unreadable` or body-stage truncation
+- **AND** the over-limit header with a terminating newline has the same refusal
+
 ### Requirement: Local lookup rejects paths that escape ownership
 
 Identifier validation SHALL be provider-specific, with one accepted language
@@ -1025,8 +1044,10 @@ DSH SHALL read retained `user/message`, assembled `assistant/message`,
 `tool/call` and `tool/result` events in source order, including readable
 reasoning in assembled messages. It SHALL support ordinary event rows and
 `text-chunks`, `reasoning-chunks` and `tool-call-chunks` storage rows, including
-files mixing both encodings. Packed rows SHALL decode before event projection;
-they SHALL not be classified as unknown events or joined into one message.
+files mixing both encodings. Packed rows SHALL validate and retain their
+logical member identities before content projection; they SHALL not be
+classified as unknown events or treated as completed assistant messages.
+Their displayed chunks SHALL follow the coalescing rule below.
 The supported packed representation is:
 
 | Row | Logical members and recorded fields |
@@ -1058,13 +1079,35 @@ member can supply content or association. A valid JSON row violating this
 encoding SHALL cause `unsupported-format` and count once in
 `unrecognized_records`, never `skipped_lines`, even if early members are valid.
 
-Each recognized readable `assistant/chunk` SHALL project as its own assistant
-turn unless a complete readable assembly in the bounded snapshot proves it
-is a source. Text/reasoning deltas retain each fragment as recorded, including
-whitespace; an empty string supplies no block or turn. Tool-argument fragments,
-block boundaries, usage and finish chunks SHALL remain recognized quiet
-omissions, not assembled calls. Interrupted or live steps need no step-end or
-assistant message before retained text/reasoning can be read.
+Each recognized readable ordinary `assistant/chunk` row SHALL project as its
+own assistant turn unless a complete readable assembly in the bounded
+snapshot proves it is a source. Packed text/reasoning members SHALL instead
+follow this single coalescing rule: after member-level citation suppression,
+each maximal consecutive run of unsuppressed members within one validated
+`text-chunks` or `reasoning-chunks` physical row SHALL yield one assistant
+chunk turn, with one block of that row's kind and the member texts
+concatenated exactly in stored order. The row records one common
+`(data.turn, data.step, data.index)` and kind for that run. No separator,
+whitespace normalization, completed-message status or invented text SHALL be
+added. Empty members supply no text or turn and do not split a run; a
+suppressed readable member splits it, so surviving members on opposite sides
+remain separate chunks. An all-empty or entirely suppressed run supplies no
+turn. The chunk's position and timestamp SHALL be those of its first
+surviving nonempty member; later timestamps, including backwards clock
+movement, SHALL not reorder text or create new turns.
+
+Coalescing SHALL NOT cross a physical packed-row boundary, include an
+ordinary event row, combine text with reasoning, or combine different
+recorded turn, step or chunk index values. This deliberately changes the
+former packed/plain turn-count equivalence: equivalent encodings keep their
+content and citation outcomes, but ordinary rows keep individual turns and
+packed rows expose the coalesced chunks. It bounds per-token packed
+expansion using recorded grouping, without inferring a whole provider
+message from adjacency. Text/reasoning deltas retain every surviving
+fragment's bytes, including whitespace. Tool-argument fragments, block
+boundaries, usage and finish chunks SHALL remain recognized quiet omissions,
+not assembled calls. Interrupted or live steps need no step-end or assistant
+message before retained text/reasoning can be read.
 
 Top-level `sourceEventSeqs` on a recognized `user/message`,
 `assistant/message` or `tool/result` SHALL accept an array of individual
@@ -1099,14 +1142,19 @@ suppress chunks. Display capping SHALL not resurrect suppressed chunks.
 
 Citation ranges SHALL be tested against bounded observed event identities
 without expanding the integer interval or allocating space proportional to
-its width. Packed decoding work and storage SHALL be bounded by actual
+its width. Packed decoding work and identity storage SHALL be bounded by actual
 members of complete rows in the source prefix; no lookup, synthetic event
-or memory allocation SHALL depend on an unobserved sequence gap. The source
-cap counts encoded physical bytes, while the display cap and CLI/TUI turn
-indices count final logical-event projections. An incomplete or source-cap
-fragment of a packed row SHALL supply no members or associations. A complete
-row can supply several turns, and the display cap can stop between members
-without changing their individual text or numbering.
+or memory allocation SHALL depend on an unobserved sequence gap. Coalescing
+SHALL NOT erase member identities or make a citation suppress a whole run
+when it proves only a subset. Quiet and empty members SHALL still contribute
+their sequences to ambiguity checks. The source cap counts encoded physical
+bytes, while the display budget charges final turns as specified below and
+CLI/TUI indices address those turns. An incomplete or source-cap fragment of
+a packed row SHALL supply no members or associations. A complete row can
+supply several chunks when suppression splits its runs, and the display cap
+SHALL stop only between final turns, never split a coalesced chunk to make it
+fit. Full-row validation and whole-prefix classification SHALL still precede
+any successful capped result.
 
 Dedicated call/result events SHALL own a duplicated embedded tool block only
 on a proved matching recorded call id and turn/step; an unassociated embedded
@@ -1126,9 +1174,9 @@ a step cancelled mid-stream is one `assistant/message` with
 finalized. The reader SHALL project such a message as recorded, at its own
 position and time, with no interruption marker, notice or block, exactly
 as an interrupted version-zero step shows its retained fragments without
-one. The rule that fragments are never concatenated is unchanged
-and, under version three, has nothing to concatenate: the reader SHALL
-assemble nothing under either version. `interrupted`, the embedded
+one. Version-zero packed-chunk coalescing does not apply under version
+three, which has no admitted fragments to concatenate: the reader SHALL
+invent no completed message under either version. `interrupted`, the embedded
 `stream` and `usage` on `assistant/message` SHALL never be expanded into
 fragments, duplicated as turns or rendered as prose, under any admission
 of that row. `assistant/attempt`, a version-three record carrying a
@@ -1285,8 +1333,13 @@ either version.
 - **THEN** the answer appears without manufactured reasoning, and request settings or token counts are not substituted for reasoning text
 
 #### Scenario: Packed and unpacked interrupted fragments produce identical turns
-- **WHEN** an interrupted DSH file stores three text fragments in one `text-chunks` row at `seq0: 10`, `time0: 1000`, `dt: [-1, 5]` and three reasoning fragments in one `reasoning-chunks` row, and a second file stores the equivalent six ordinary events with no assembly
-- **THEN** both reads produce the same six assistant turns, blocks and order, with the first three stamps `"1000"`, `"999"`, `"1004"`, zero diagnostic counts and no concatenation; either file's turn three is the third text fragment
+- **WHEN** each packed text/reasoning row has only one nonempty member, with no suppressing assembly, and another complete source uses its equivalent ordinary chunk rows, with both budgets satisfied
+- **THEN** both sources retain identical turns and stamps because each coalesced run has only one visible member; the following scenario replaces the former general equivalence for multi-member runs
+
+#### Scenario: Packed interrupted fragments coalesce while ordinary rows retain their boundaries
+- **WHEN** a version-zero file stores texts `["a", " ", "b"]` in one `text-chunks` row at `seq0: 10`, `time0: 1000`, `dt: [-1, 5]`, followed by one reasoning row with `["r", "e", "s"]` at time 2000, with no assembly and both budgets satisfied
+- **THEN** it produces two assistant turns: one text block `a b` stamped `"1000"` and one reasoning block `res` stamped `"2000"`, with zero diagnostic counts and no notices
+- **AND** the equivalent six ordinary chunk rows still produce six turns and their original stamps, including `"1000"`, `"999"` and `"1004"` for the text rows; coalescing changes packed indices, not source bytes or accounting facts
 
 #### Scenario: A packed tool-argument run is not a completed call
 - **WHEN** a valid `tool-call-chunks` row records several raw argument fragments and the bounded snapshot contains no completed call
@@ -1306,7 +1359,7 @@ either version.
 
 #### Scenario: Empty absent and partial citations preserve uncited content
 - **WHEN** three otherwise identical snapshots have two readable same-step chunks at sequences 10 and 11 and a later readable assembly with respectively `[]`, absent `sourceEventSeqs`, or `[10]`
-- **THEN** the first two retain both chunks followed by the assembly and the third retains chunk 11 followed by the assembly; a shared step or equal words cannot erase the uncited content
+- **THEN** the first two retain both fragments in the chunk or chunks defined by the coalescing rule, followed by the assembly, and the third retains chunk 11 followed by the assembly; a shared step or equal words cannot erase the uncited content
 
 #### Scenario: Citation scope and ambiguous identities do not invent association
 - **WHEN** an assembly cites a chunk in another step, a sequence shared by two earlier events, a non-chunk event or a sequence absent from the bounded snapshot
@@ -1320,15 +1373,21 @@ either version.
 #### Scenario: Citation entry order does not become transcript order
 - **WHEN** a complete DSH snapshot has unique readable same-step chunks at sequences 10, 11, 12 and 14 and a later readable assembly at sequence 20 with `sourceEventSeqs: [[12, 14], [10, 12], 11]`, with both budgets satisfied and no other diagnostic condition
 - **THEN** the reader succeeds with only the assembly at its own position and timestamp, zero diagnostic counts and no notices, exactly as for citations `[10, 11, 12, 14]`; overlapping or out-of-order entries neither refuse this audit read nor duplicate content, and missing sequence 13 creates no event or lookup
-- **AND** CLI whole output, `--turn 1` and the TUI show that same assembly; a live replacement of the four chunk turns clears the old selection and closes its overlay under the existing refresh rule, without validating or changing the provider's replay history
+- **AND** CLI whole output, `--turn 1` and the TUI show that same assembly; a live replacement of the previously displayed chunks clears the old selection and closes its overlay under the existing refresh rule, without validating or changing the provider's replay history
 
 #### Scenario: Interrupted assembly and compaction keep the audit order
 - **WHEN** a complete readable version-zero interrupted assembly cites some same-step chunks and a later version-zero message carries a surface replacement citing earlier messages
 - **THEN** only the interrupted assembly's proved chunk sources disappear; uncited chunks, earlier messages and tool events retain audit order, and the later replacement message appears at its recorded position rather than rewriting history
 
 #### Scenario: The display cap can stop between packed members
-- **WHEN** a complete valid packed row yields a first text turn of exactly 4,000,000 UTF-8 bytes and a second nonempty text turn, while the encoded row fits the source cap
-- **THEN** turn one is retained, turn two is not, `truncated` is true and diagnostics count no unknown record; the packed row is fully validated but is neither one oversized turn nor a means to exceed the display cap
+- **WHEN** a packed row has readable members at sequences 10, 11 and 12, a later readable same-step assembly uniquely cites member 11, member 10's text is 3,999,488 UTF-8 bytes and member 12 has nonempty text
+- **THEN** suppression separates the surviving members into two chunks, member 10's chunk fits exactly, and the cap stops before member 12's chunk with truncation and no unknown-record diagnostic; it never splits a coalesced chunk
+- **AND** without the citation splitting the run, the entire coalesced chunk is over budget and none of it is retained, as the next scenario pins
+
+#### Scenario: A packed chunk is indivisible under the charged display budget
+- **WHEN** a complete valid text packed row has two unsuppressed members whose concatenated text is 3,999,489 UTF-8 bytes and the encoded row fits the source cap
+- **THEN** their one chunk costs 4,000,001 display accounting bytes, no turn is retained, `truncated` is true with the shared size-cap notice, and no diagnostic count increases
+- **AND** reducing their combined text by one byte retains the whole one-chunk turn at equality with no truncation when no other content follows; the reader never retains only the first member to evade the new chunk boundary
 
 #### Scenario: Version-3 content projects on the writer's own definitions
 - **WHEN** a version-three session holds a `user/message` whose `data` is `{id, role, content, source}` with `content` an array of one `text` block, a `tool/call`, its `tool/result` whose `data.message.content` holds one `tool-result` block naming the call's `callId` with textual content, and an `assistant/message` whose `data.message.content` holds `reasoning`, `text`, `image` and `file` blocks in that order with `surfaceOp: "append"`, a `stream` array and a `usage` object, and an otherwise identical file whose user message carries string `content`
@@ -1379,6 +1438,25 @@ either version.
 #### Scenario: Zero-digit underflow and duplicated time members are not zero stamps
 - **WHEN** a version-three source holds `tool/call` rows whose `time` is spelled `10e-400`, `0.1e-400` and `1.0e-400`, a `tool/call` that records `time` twice at its top level as `"time":1000` then `"time":2000`, a `tool/call` whose member is named `"\u0074ime"` with the value `1e-400`, and `tool/call` rows spelling `time` as `0`, `0.0`, `-0` and `0e0`; a version-zero source holds an ordinary `assistant/chunk` at `time: 10e-400` and another that records `time` twice; and two version-zero sources hold a packed `text-chunks` row spelling `time0` as `10e-400` and one recording `time0` twice as `1000` then `2000`
 - **THEN** the three zero-digit underflow calls, the twice-recorded call and the escaped-name call each project with an empty stamp, because a zero digit inside an underflowing mantissa is not a zero spelling, a member recorded twice has no established token and an escaped name binds to the same judgment as a literal one, while the four genuine zero spellings render `"0"`; every version-three row projects with zero counts and no notice; the version-zero chunks each render an empty stamp with zero counts; and each version-zero packed row returns `unsupported-format` with one unrecognized record and no turns
+
+#### Scenario: Partial packed citations split only the proved members
+- **WHEN** one packed text row at sequences 10 through 13, times 1000 through 1003 and one recorded turn/step/index has texts `["a", "b", "c", "d"]`, followed by a readable same-turn/step assembly at sequence 20 citing `[11, 13]`
+- **THEN** the read yields chunk `a` stamped `"1000"`, chunk `c` stamped `"1002"`, then the assembly at its own position and stamp; neither `b` nor `d` reappears and the survivors do not join across a suppressed member
+- **AND** absent or empty citations instead leave one `abcd` chunk before the assembly; a citation proving all four members leaves only the assembly
+
+#### Scenario: Coalescing preserves empty-member identity and the first visible stamp
+- **WHEN** a packed row at sequences 10 through 13 has texts `["", "a", "", "b"]` and times 1000 through 1003, without a suppressing assembly
+- **THEN** it produces one `ab` chunk stamped `"1001"`, no empty turns and zero counts
+- **AND** a later blockless event sharing sequence 11 keeps an assembly's citation to 11 ambiguous, so that citation cannot remove `a`; all four packed member sequences still participate in identity checks
+
+#### Scenario: Separate packed rows do not become one inferred message
+- **WHEN** adjacent packed rows share a provider turn and step, whether they share or differ in index or block kind, and both have unsuppressed readable members
+- **THEN** each row contributes its own coalesced chunks with its own first visible stamp; an intervening ordinary chunk, message or tool event keeps its own source position and never joins either packed row
+
+#### Scenario: A blockless DSH event keeps facts without retaining a payload
+- **WHEN** an admitted DSH snapshot contains many `tool/result` or `user/message` rows with absent data, around readable chunks and assemblies
+- **THEN** those rows retain no payload-bearing event, block or displayed turn and spend no display budget, while their diagnostic disposition and observed sequences remain unchanged
+- **AND** a blockless row duplicating a readable chunk's sequence prevents a citation from proving that chunk; a blockless assistant assembly suppresses nothing; an invalid citation on a blockless content row still produces `unsupported-format` and its unrecognized-row count
 
 ### Requirement: Partial records and read failures remain distinguishable
 
@@ -1571,11 +1649,26 @@ three-field compatibility response remains.
 
 ### Requirement: Every kind obeys the same source and display caps
 
-A read SHALL retain at most **4,000,000 UTF-8 bytes** summed over emitted
-block texts, the existing Claude budget. It SHALL retain complete turns in
-file order and stop before the first turn that would exceed that budget;
+A read SHALL retain at most **4,000,000 display accounting bytes**. The
+numeric `DISPLAY_CAP` SHALL remain 4,000,000. The cost of each final
+content-bearing event, represented as one displayed turn, SHALL be the fixed
+structural charge **`DISPLAY_EVENT_COST = 512` accounting bytes** plus the
+sum of its emitted block texts' UTF-8 byte lengths. All displayed turns of
+all three harnesses SHALL pay the charge, including tool or omitted-only
+turns with little text; a blockless event supplies no turn and pays nothing.
+A coalesced packed chunk SHALL pay once as its final turn, not once per token.
+No change in block count, provider role or `--turn` selection SHALL waive
+that per-turn charge. The 512-byte constant conservatively rounds above the
+approximately 330-byte event footprint cited in #277; it is a portable
+accounting allowance, not a measured exact allocator or whole-process RSS
+size. Tests and measurement SHALL distinguish those units.
+
+Canonical suppression and coalescing SHALL determine the final turns before
+charging the display budget. The read SHALL retain complete turns in file
+order and stop before the first turn that would exceed the remaining budget;
 it SHALL NOT skip that turn to include later smaller turns. Equality with
-the budget SHALL fit. Independently, reading a selected source SHALL consume
+the budget SHALL fit, and cost arithmetic SHALL never wrap into admission.
+Independently, reading a selected source SHALL consume
 at most **33,554,432 bytes (32 MiB)** plus at most one byte solely to detect
 whether more source remains, without first allocating the whole file. Only
 complete physical rows within that source prefix SHALL be parsed; a packed
@@ -1595,24 +1688,45 @@ produce zero retained turns with that notice. Reaching EOF exactly at a
 limit without omitted content SHALL not claim truncation. The budgets SHALL
 apply before `--turn` selection; choosing one turn SHALL not bypass the
 whole-transcript bound. Header discovery SHALL have the separate bounds
-stated above. The 32 MiB source bound adds a finite input limit to the old
-displayed-text cap, including logs dominated by records that render nothing.
+stated above. The independent 32 MiB source bound also applies to logs
+dominated by records that render nothing. Display accounting bounds what the local
+surfaces retain; encoded-source bytes, transient JSON parsing and compact
+association metadata are distinct costs whose peak must be measured.
+A fixed structural charge alone is not proof that projector allocation is
+bounded before its final output is capped.
 
 #### Scenario: The existing display cap applies to each harness
-- **WHEN** a Claude, Codex or DSH file projects a 4,000,000-byte prefix followed by another nonempty turn
-- **THEN** that exact prefix is retained and every local surface reports truncation; a file ending at that same prefix without further content is not truncated
+- **WHEN** a Claude, Codex or DSH file's final projected prefix has N turns and T UTF-8 block-text bytes such that `512 * N + T = 4,000,000`
+- **THEN** that complete prefix is retained, EOF without further projected content is not truncated, and another content-bearing turn sets truncation with the same notice on every local surface
 
 #### Scenario: An oversized first turn cannot erase the warning
-- **WHEN** the first projected turn contains 4,000,001 UTF-8 bytes of block text
+- **WHEN** the first projected turn contains 3,999,489 UTF-8 bytes of block text, so its charged cost is 4,000,001
 - **THEN** no turns are retained and text, JSON and the TUI still indicate truncation rather than reporting an empty or missing session
 
 #### Scenario: Multibyte text spends bytes rather than characters
-- **WHEN** a turn's block texts fit by character count but exceed the remaining UTF-8 byte budget
+- **WHEN** a turn's block texts fit by character count but exceed the remaining display accounting budget after the 512-byte charge
 - **THEN** that entire turn is excluded and truncation is reported without splitting a character or including a later turn
 
 #### Scenario: Ignored records and enormous lines cannot force an unbounded read
 - **WHEN** a file exceeds 32 MiB using context records or one enormous JSON line while its projected block text would otherwise fit
 - **THEN** only complete records within the bounded source prefix are considered, no whole-file allocation occurs and `truncated` is true
+
+#### Scenario: Tiny tool calls exhaust structural budget without exhausting text bytes
+- **WHEN** an admitted DSH source contains 10,000 ordinary `{"type":"tool/call"}` rows with absent data and no other content
+- **THEN** each projects its existing one-byte `?` tool block, costs 513 accounting bytes, and the read retains exactly 7,797 turns, with truncation and the shared notice; total retained text is only 7,797 bytes
+- **AND** the same source ending after 7,797 calls is not truncated; merging packed members cannot satisfy this bound because there are no packed members
+
+#### Scenario: An over-budget turn is not skipped for a smaller successor
+- **WHEN** one retained turn costs 3,999,000 accounting bytes, the next costs 1,001, and a later turn costs 513
+- **THEN** only the first remains, with truncation, even though the last would fit the unused 1,000 bytes
+
+#### Scenario: Canonical preference precedes structural charging
+- **WHEN** a bounded snapshot contains a large fallback chunk and a later small readable assembly that uniquely cites every member of that chunk within the same turn/step
+- **THEN** the assembly removes the fallback before charging, and the assembly is retained without display truncation if it fits; temporarily seeing an over-budget fallback does not stop the source scan or consume the canonical turn's budget
+
+#### Scenario: Required refusal and diagnostic counting continue beyond the displayed prefix
+- **WHEN** enough tiny content-bearing events exhaust the display budget, followed within the complete source prefix by malformed physical lines, counted omissions and a required unknown DSH event or invalid packed row
+- **THEN** the result is `unsupported-format` with no turns and the complete-prefix diagnostic counts, retaining only any established source-cap truncation under the existing refusal rule; an early display stop never hides that refusal
 
 ### Requirement: Transcript prose stays local and inert
 
@@ -1667,7 +1781,7 @@ journal SHALL gain no file of any kind: no database, no `-wal` and no `-shm`.
 
 #### Scenario: A missing journal gains no file on any read surface
 - **WHEN** the transcript command is given `--db` naming a journal that does not exist
-- **OR** the browser server answers `/api/runs`, `/api/run/<run>`, `/api/view/<run>` and `/api/presentation/<run>/<key>`, and one poll of its run stream `/sse/<run>`, over that path
+- **OR** the browser server answers `/api/runs`, `/api/view/<run>` and `/api/presentation/<run>/<key>`, and one poll of its run stream `/sse/<run>`, over that path
 - **OR** the TUI is started with `--db` on that path
 - **THEN** the command and the TUI refuse, each route answers not found, and the run stream reports head sequence zero
 - **AND** after each of them that path, its `-wal` and its `-shm` still do not exist
@@ -1793,6 +1907,63 @@ thresholds, or edits to `scripts/coverage-exact.sh`.
 - **THEN** that arm is removed by restructuring and the unreachability argument is recorded
 - **AND** every arm that one of those routes does reach keeps its handling and gains a test asserting its specified outcome
 
+### Requirement: DSH projection bounds event retention before returning
+
+DSH projection SHALL enforce the structural-and-text display budget on
+accumulated content-bearing event/turn storage during a read, allowing at
+most one additional current candidate turn while deciding whether it fits.
+Thus accumulated charged turns SHALL number at most
+`floor(4,000,000 / 512) = 7,812`, plus that one candidate; their accumulated
+charged text and structural cost SHALL also fit, not merely their count.
+The bound SHALL hold before a result is handed to CLI JSON serialization or
+TUI refresh, cloning or equality comparison. Creating an unbounded payload
+list and applying the cap only when returning it SHALL NOT satisfy this
+requirement. Packed coalescing SHALL avoid materializing one payload-bearing
+event per token even transiently; coalescing an already expanded list is not
+a bound. A current candidate can itself exceed the display budget and is
+then discarded whole under the cap rule.
+
+Complete-prefix classification, required refusals and exact association
+outcomes SHALL remain unchanged. Source parsing and compact identity or
+citation facts can scale with the actual complete bounded source, including
+quiet or blockless rows' sequences, but SHALL NOT retain disguised copies of
+per-token/per-row content-bearing events outside the budget. They SHALL not
+scale with an unobserved sequence gap or citation interval. Measurement SHALL
+report their contribution separately when possible and SHALL NOT claim the
+display accounting limit is an exact process-memory ceiling.
+
+The implementation SHALL provide reproducible measurements on the unchanged
+base and completed projector using the same synthetic version-zero DSH
+session, one packed member per token, of a stated exact encoded size. The
+record SHALL name the generator parameters, token/member counts, build
+profile, measurement method and scope, actual before/after peak allocation
+or a defensible proxy, and retained result counts/size. Source/fixture setup
+inside the measured interval and the proxy's limitations SHALL be explicit.
+Separate tiny-call and blockless-row cases SHALL exercise their independent
+retention risks. Estimates or final vector lengths alone SHALL not be
+reported as peak allocation measurements. Each automated bound proof SHALL
+be shown to fail for its own assertion when its protecting behavior is
+removed, then pass after restoration; a compile failure is not that proof.
+
+#### Scenario: Ordinary token streaming does not create a payload object per token
+- **WHEN** an admitted version-zero packed row contains many one-character text members for one chunk, without an assembly
+- **THEN** coalescing constructs the chunk without retaining one payload-bearing event per member; if its combined text fits with its 512-byte charge it returns one complete turn, otherwise zero turns and truncation
+- **AND** the regression observes peak event retention while projection runs and fails when per-member event construction is restored, even if final output is later coalesced
+
+#### Scenario: Tiny ordinary rows stay bounded during projection
+- **WHEN** ordinary tiny tool-call rows in a complete bounded DSH source exceed the display budget
+- **THEN** accumulated payload-bearing events stay within the charged budget plus one current candidate throughout the read, while all rows still contribute required classification and association facts
+- **AND** a regression fails when uncapped event accumulation before final display capping is restored, even though the returned prefix still fits
+
+#### Scenario: Blockless rows retain no wasted events during the pass
+- **WHEN** a synthetic DSH source contains thousands of blockless user messages and tool results between two content-bearing events
+- **THEN** only the two content-bearing events require retained payloads, and sequences and diagnostics still reflect all rows
+- **AND** removing only the blockless retention guard makes the regression fail during collection, even though the displayed turns are unchanged
+
+#### Scenario: Allocation evidence is a repeatable observation
+- **WHEN** the implementation reports the bound repaired
+- **THEN** its evidence includes actual before and after measurements from identical ordinary token-stream input, named measurement scope and method, and relevant failing/passing removal-test results for merging, charging and transient retention independently
+
 ## Provenance
 
 - `2026-09-10-read-every-transcript-kind` — folded 2026-09-10
@@ -1801,3 +1972,4 @@ thresholds, or edits to `scripts/coverage-exact.sh`.
 - `2026-09-14-admit-dsh-session-v3` — folded 2026-09-14
 - `2026-09-27-352-browser-reads-by-participant` — folded 2026-09-27
 - `2026-09-27-356-windows-is-not-a-host` — folded 2026-09-27
+- `2026-09-17-bound-transcript-projector` — folded 2026-10-11

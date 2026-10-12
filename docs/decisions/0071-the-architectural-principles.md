@@ -360,3 +360,32 @@ stderr.
   would move every run's event stream and the witness digests that pin
   it, for a fact that belongs to the host's temporary directory. The
   stderr lines are the record.
+
+## Addendum — 2026-10-11, proposed: a dead tree's overlay work directories are unsealed before removal, and a removal that fails is said
+
+Status: proposed (for the operator to accept; #620). The rulings above
+and the 2026-09-28 addendum stand; this names one more host effect of
+the same reap.
+
+overlayfs makes each layer's `overlay/<n>/work/work` with no permission
+bit for its owner, so neither the reaper nor a session's own removal
+could list it, and an exec tree that had mounted an overlay could never
+be removed: it stayed in the temporary directory for good.
+
+- **What is changed, and where.** Removing a session's tree (the reap at
+  a run's start, a session's Drop, and the termination handler) first
+  gives the owner read, write and search on `overlay/`, each
+  `overlay/<n>`, its `work` and that `work/work`, and on nothing else.
+  The walk descends by descriptor, each opened without following a
+  symlink from the one above, so it never follows a link and never
+  leaves the tree. The reap applies it only to a tree the reaper may
+  already remove: a name this code wrote, a dead pid, and a lock no
+  process holds.
+- **What is kept and said.** A tree the reap may remove but whose
+  removal fails is kept, and the start says so in one line naming the
+  tree and the error ("hands: kept <tree>: it cannot be removed:
+  <error>"). Before, such a tree was neither removed nor said. The
+  removed and lock-probe lines are unchanged.
+- **Tests leave nothing behind.** A test that makes a session makes it
+  under its own temporary directory, so the suite leaves no
+  `brokkr-hands-test-*` in the host's.

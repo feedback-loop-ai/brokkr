@@ -256,7 +256,7 @@ pub(crate) enum Verdict {
     /// Seated only in a realm that grants each native capability the
     /// probe measured no off switch for, which the reason names. A
     /// tool-less office switches nothing off inside the CLI, so it admits
-    /// nothing more (operator ruling A, 2026-09-29: proposed decision
+    /// nothing more (operator ruling A, 2026-09-29: decision
     /// 0075 ruling 4 read with decision 0065 ruling 4).
     GrantingRealmsOnly,
     Refused,

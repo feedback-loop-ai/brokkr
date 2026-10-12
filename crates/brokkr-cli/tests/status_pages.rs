@@ -117,7 +117,7 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         driver: _,
         models: _,
         // Which models may be seated where is the compile's to judge and
-        // doctor's to list (proposed decision 0075 ruling 5).
+        // doctor's to list (decision 0075 ruling 5).
         provisional: _,
         model_flag: _,
         effort_flag: _,
@@ -636,7 +636,9 @@ fn every_known_limitation_links_its_issue() {
 }
 
 /// Records whose words are fixed when they are written, and so are not
-/// living docs.
+/// living docs. `openspec/` is the spec dialect's work-slice record, its
+/// changes and the capability tree their archives fold into, never the
+/// living truth (decision 0081).
 const RECORDS: [&str; 7] = [
     "docs/decisions/",
     "docs/releases/",
@@ -644,18 +646,12 @@ const RECORDS: [&str; 7] = [
     "docs/essays/",
     "docs/evidence/",
     "docs/history/",
-    "openspec/changes/archive/",
+    "openspec/",
 ];
 
-/// Whether a path is a record: under one of [`RECORDS`], or one of an
-/// in-flight change's own records (its proposal, design, tasks, evidence
-/// and rulings), dated as they are written. A change's `specs/` deltas
-/// are living text, and the guard reads them, as `doc_truth` does (#365).
+/// Whether a path is a record: under one of [`RECORDS`].
 pub(crate) fn is_record(path: &str) -> bool {
     RECORDS.iter().any(|record| path.starts_with(record))
-        || path
-            .strip_prefix("openspec/changes/")
-            .is_some_and(|change| !change.contains("/specs/"))
 }
 
 /// What names a claude seat's tool list: the list itself, the agent
@@ -1847,15 +1843,17 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
     for page in ["ARCHITECTURE.md", "README.md", "docs/security-model.md"] {
         assert!(pages.iter().any(|p| p == page), "{page} is not scanned");
     }
-    // An in-flight change's records are dated; its deltas are read.
+    // A spec dialect's changes, deltas and capability tree are its
+    // work-slice record (decision 0081); the living docs are read.
     assert_eq!(
         [
             "openspec/changes/a-change/evidence.md",
             "openspec/changes/a-change/specs/a-capability/spec.md",
             "openspec/specs/a-capability/spec.md",
+            "docs/guides/repository-layout.md",
         ]
         .map(is_record),
-        [true, false, false]
+        [true, true, true, false]
     );
     // This file holds the refused sentences as its fixtures.
     let sources: Vec<String> =
