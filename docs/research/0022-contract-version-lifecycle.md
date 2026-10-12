@@ -53,7 +53,7 @@ Two adjacent hazards came to light. The phase-machine loader reads any
 label other than v2 under v1's rules, so it accepts a label it does not
 know without refusing it. `brokkr init` writes `forge.realms/v3` or `v4`
 while v8 is current. Both are named below as findings and left unruled.
-Proposed decision 0082 rules on the rest.
+Decision 0082, accepted on 2026-10-12, rules on the rest.
 
 ## Findings
 
@@ -200,7 +200,7 @@ reader: the operator's live map, and an older run's pin.
 | `realms.v4` | 0046 ruling 1, accepted | operator; `brokkr init` with a boundary | core loader | `frozen_contracts.rs:383` | yes |
 | `realms.v5` | 0057, **proposed** | operator | core loader | `frozen_contracts.rs:489` | yes (`frozen_contracts.rs:593-603`) |
 | `realms.v6` | 0065 ruling 3, accepted | operator | core loader, with grants judged in `crates/brokkr-core/src/realms/grants.rs` | `frozen_contracts.rs:625` | yes |
-| `realms.v7` | **"proposed decision 0075 ruling 5"** (`realms.rs:96-98`, `frozen_contracts.rs:54`), a number with no file: `docs/decisions/README.md:162` lists it as claimed by draft PR #486; PR #526 ported its tier onto decision 0065 (#487) | operator | core loader (`crates/brokkr-core/src/realms/provisional.rs:31`) | `frozen_contracts.rs:704` | yes |
+| `realms.v7` | **"decision 0075 ruling 5"**, cited at the base while 0075 was still a draft (`realms.rs:96-98`, `frozen_contracts.rs:54`), a number with no file then: `docs/decisions/README.md:162` lists it as claimed by draft PR #486; PR #526 ported its tier onto decision 0065 (#487) | operator | core loader (`crates/brokkr-core/src/realms/provisional.rs:31`) | `frozen_contracts.rs:704` | yes |
 | `realms.v8` | 0065 slice two, accepted | operator | core loader (`grants.rs:186`) | `frozen_contracts.rs:786` | no |
 
 ### Specification dialect
