@@ -1,4 +1,4 @@
-//! The provisional tier (proposed decision 0075 ruling 5): a model its
+//! The provisional tier (decision 0075 ruling 5): a model its
 //! adapter declares `"tier": "provisional"` holds only the offices the
 //! operator lists in `realms.json`'s `provisional_offices`
 //! (`forge.realms/v7`), and never a gate. The check is a lookup and a
@@ -77,7 +77,7 @@ pub enum ProvisionalRefusal {
     #[error(
         "seat '{seat}' is gate class but link {link} seats model '{model}', which adapter \
          '{adapter}' declares provisional; a provisional model never holds a gate, whatever \
-         provisional_offices lists (proposed decision 0075 ruling 5)"
+         provisional_offices lists (decision 0075 ruling 5)"
     )]
     Gate {
         seat: String,
@@ -89,7 +89,7 @@ pub enum ProvisionalRefusal {
         "seat '{seat}' link {link} seats model '{model}', which adapter '{adapter}' declares \
          provisional, in {}, which realms.json does not list in provisional_offices; a \
          provisional model holds only the offices the operator lists, and an absent or empty \
-         list names none (proposed decision 0075 ruling 5)",
+         list names none (decision 0075 ruling 5)",
         office_named(.office.as_deref())
     )]
     Unlisted {
@@ -102,7 +102,7 @@ pub enum ProvisionalRefusal {
     #[error(
         "seat '{seat}' pins its model on {}, which this compiler cannot read as one concrete \
          id, and adapter '{adapter}' declares a provisional model the pin may reach; a pin the \
-         tier cannot read is refused, never read as promoted (proposed decision 0075 ruling 5)",
+         tier cannot read is refused, never read as promoted (decision 0075 ruling 5)",
         flags_named(.flags)
     )]
     Unreadable {
@@ -114,14 +114,14 @@ pub enum ProvisionalRefusal {
         "seat '{seat}' pins no model, and adapter '{adapter}' declares a provisional model the \
          harness's own default may be; pin a promoted model's id on the adapter's model flag, \
          because a seat whose model the tier cannot read is refused, never read as promoted \
-         (proposed decision 0075 ruling 5)"
+         (decision 0075 ruling 5)"
     )]
     Unpinned { seat: String, adapter: String },
     #[error(
         "seat '{seat}' pins '{value}' on {}, which is the id of no model the seat's own adapter \
          declares, and adapter '{adapter}' declares a provisional model; an alias or an \
          undeclared id may reach that model, so a pin the tier cannot map to a declared id is \
-         refused, never read as promoted (proposed decision 0075 ruling 5)",
+         refused, never read as promoted (decision 0075 ruling 5)",
         flags_named(.flags)
     )]
     Undeclared {

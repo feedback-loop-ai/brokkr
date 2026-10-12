@@ -12,7 +12,7 @@
 //! whichever directory the operator happened to stand in would report
 //! working recipes as broken — and, in `add`, delete them for it. For the
 //! same reason each reads the workspace map's provisional offices
-//! (proposed decision 0075 ruling 5).
+//! (decision 0075 ruling 5).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
