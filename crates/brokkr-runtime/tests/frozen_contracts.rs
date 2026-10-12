@@ -51,7 +51,7 @@ const FROZEN: [(&str, &str); 27] = [
         "contracts/realms.v7.schema.json",
         "ed10a6ba4610668408cc326b593403f22d8abb5310304a5f1f6d74bd6b480d03",
     ),
-    // Proposed decision 0075 ruling 5 lands `forge.realms/v7` beside v6,
+    // Decision 0075 ruling 5 lands `forge.realms/v7` beside v6,
     // which was the new file when decision 0065 landed and is frozen from
     // here.
     (
@@ -696,7 +696,7 @@ fn published<const N: usize>(versions: [&str; N]) -> [serde_json::Value; N] {
     })
 }
 
-/// Proposed decision 0075 ruling 5: the published contract for the
+/// Decision 0075 ruling 5: the published contract for the
 /// operator's list. v7 is published beside v6, whose bytes are pinned
 /// above, as v6 plus one optional world-level property and nothing else,
 /// and the list is closed to what the loader admits.

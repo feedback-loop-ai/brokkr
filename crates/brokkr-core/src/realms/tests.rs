@@ -1152,7 +1152,7 @@ fn a_map_embedded_as_a_value_carries_the_same_grants() {
     assert_eq!(map.realms[0].grants["web-search"].dialect, "d");
 }
 
-/// Proposed decision 0075 ruling 5: the operator's list of offices a
+/// Decision 0075 ruling 5: the operator's list of offices a
 /// provisional model may hold is v7 vocabulary on the world, read back
 /// exactly as written, and none at all where the map names none.
 #[test]

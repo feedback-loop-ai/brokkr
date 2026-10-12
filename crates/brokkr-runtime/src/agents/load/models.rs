@@ -1,5 +1,5 @@
 //! An adapter's `models` map, with the tier a model may declare
-//! (proposed decision 0075 ruling 5). An abstract name maps to its
+//! (decision 0075 ruling 5). An abstract name maps to its
 //! concrete id, as it always has, or to `{"id", "tier"}` where the model
 //! is provisional. A model that declares no tier, bare id or object, is
 //! promoted, which is every model shipped before the tier existed, so
@@ -48,7 +48,7 @@ pub(super) fn models(
                 return invalid(format!(
                     "{at} declares tier '{tier}'; the only tier a model declares is \
                      \"{PROVISIONAL}\", and a model that declares none is promoted \
-                     (proposed decision 0075 ruling 5)"
+                     (decision 0075 ruling 5)"
                 ));
             }
             provisional.insert(name.clone());
@@ -106,7 +106,7 @@ pub(super) fn pinless(adapter: Adapter, path: &Path) -> Result<Adapter, LibraryE
             return invalid(format!(
                 "{what} '{key}' names the model flag '{flag}'; a model pin is the engine's to \
                  compose from a seat's chain, where the provisional tier judges it, and one an \
-                 adapter carries would seat a model no tier check reads (proposed decision 0075 \
+                 adapter carries would seat a model no tier check reads (decision 0075 \
                  ruling 5)"
             ));
         }
