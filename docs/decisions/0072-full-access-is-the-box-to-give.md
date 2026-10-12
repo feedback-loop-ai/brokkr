@@ -1,0 +1,242 @@
+# 0072 — Full access is the box's to give: a harness drops its own sandbox only when the whole seat stands in an engine-owned boundary, and its credentials stand outside it
+
+Status: accepted — operator ruled in chat 2026-10-12
+Date: 2026-09-25
+Built: unbuilt (#644) — the build waits for decision 0065 slice two, and is read with decision 0080
+
+## Context
+
+On 2026-09-25 the operator ruled "narrow" for decision 0065's inline Codex
+sandbox classes. Work seats run `workspace-write`, gates run `read-only`,
+and `danger-full-access` is admitted nowhere. Rebuild unit 7 enacted it.
+`recipes/standby`'s Codex smith and `recipes/wager-harness`'s Codex
+implementer had both run under `danger-full-access`. `standby`'s README
+gave the reason: "a smith that cannot write is not a smith".
+
+The operator then asked the question this decision answers. Isn't
+sandboxing meant to give the model full permission *inside* the sandbox?
+It is. The ruling refuses `danger-full-access` because, at every site
+Brokkr can build today, nothing of Brokkr's stands around the harness
+process. Two facts make that so.
+
+1. **Decision 0043 boxes the tool, not the harness.** `brokkr hands serve`
+   runs each `workspace` call in an empty-root namespace: the worktree
+   read-write, the toolchain read-only, a private `HOME` and `/tmp`, the
+   environment cleared and the network unshared. The harness process
+   runs on the host. For Codex, 0043 ruling 2 sets the harness's own
+   sandbox read-only and adds the server. The model can therefore write
+   only through the box. `danger-full-access` at a hands site would give
+   the model a second shell with the operator's full reach, beside the
+   box it was meant to use.
+2. **The harness holds a credential and needs the network.** It
+   authenticates to its provider with login state or a key, and it must
+   reach the provider's endpoint. Suppose Brokkr moved the whole harness
+   process into the box and dropped the harness's own sandbox. The
+   model's shell would then share a box with the credential, and with a
+   network path out. A box that holds the key and the way out confines
+   nothing that matters.
+
+Decision 0046 names what can stand around a site: `namespace`,
+`seatbelt`, `container`, `harness` and `open`. None of them, as enacted,
+puts the harness process itself inside. `container` (0008's `confine`,
+re-homed) comes closest, and it is unbuilt. At `harness`, the harness's
+sandbox is the boundary, so dropping it leaves `open`.
+
+The narrow ruling is therefore the correct floor for slice one. It is
+not the end state the operator described. This decision names the end
+state and what it takes.
+
+Since it was drafted (refreshed 2026-10-12):
+- Decision 0065 slice one merged on 2026-10-01 (#319), so this
+  decision's precondition holds.
+- Decision 0077, accepted on 2026-10-03, makes the capability broker the
+  harness's child and the holder of the secret boundary. An MCP server
+  receives only its declared secret bindings, resolved outside it, and
+  no secret value is put in MCP configuration or in the harness's
+  environment. Ruling 3's egress relay is the same boundary, applied to
+  the provider's connection.
+- Decision 0080, accepted on 2026-10-12 for #472 and not yet on main,
+  puts each attempt's process tree in a cgroup of its own on a Linux
+  host that offers one, and polls where none is offered; macOS has no
+  cgroups. On such a Linux host a seat box stands inside its attempt's
+  cgroup and ends with it. A seat box takes no cgroup as a
+  prerequisite, so slice (iii) inherits none.
+- Decision 0075, accepted on 2026-10-12 (#486), makes a harness one
+  module plus adapter data. That data is where each harness declares `hands.seat` (ruling
+  2).
+
+## Rulings
+
+1. **Full access is a class only a seat box may emit.** Codex's
+   `danger-full-access`, and any harness mode that removes the harness's
+   own confinement, is emitted only by the engine and only at a site
+   whose harness process stands inside an engine-owned boundary: a
+   *seat box*. Claude Code's `bypassPermissions` is such a mode, and a
+   future harness declares its equivalent in adapter data. Everywhere
+   else the 2026-09-25 narrow ruling stands unchanged: `workspace-write`
+   at work, `read-only` at gates, full access nowhere. It is refused as
+   decision 0065 refuses every uncompiled capability: never
+   reconciled, never clamped.
+
+   **Enforcement binding:** 0065's typed `tools.sandbox` lowering admits
+   the full-access class only when the site's resolved hands kind is
+   `seat` (ruling 2). The launch judgment refuses the class in the final
+   composed command at any other site, as it refuses every sandbox class
+   the lowering did not admit (`SandboxIntent`,
+   `crates/brokkr-protocol/src/native_controls.rs`).
+   Regressions cover a hands site, a `harness` site and an `open` site.
+   Claude Code has no typed full-access class today: `sealed_inputs` in
+   the same file refuses a typed sandbox class on any harness but Codex,
+   and admits no permission mode beside the template's `acceptEdits`,
+   and `authored_refusal` refuses a recipe's own `--permission-mode`.
+   Slice (ii) adds a typed lowering of `bypassPermissions` that admits it
+   only at a `seat` site, and the launch judgment refuses that mode, and
+   `--dangerously-skip-permissions`, in the final composed command at any
+   other site, with the same three regressions.
+
+2. **A seat box is a hands kind, and the realm's boundary builds it.** A
+   site may declare `"hands": {"kind": "seat", "binds": [...]}`. The
+   harness process is spawned inside the realm's boundary, and so is
+   every command it runs. The contents are 0043's box: the worktree
+   read-write at its own path, the toolchain read-only, binds in 0043's
+   three modes, a private `HOME` and `/tmp`, and the environment cleared.
+   Only `namespace`, `seatbelt` and `container` can build a seat box.
+   Under `harness` or `open` it is refused at compile and at start,
+   naming the realm (0046 rulings 1–2). The first slice admits a seat box
+   at work sites only. A gate needs no full access, so gates keep
+   0043/0046 as they are.
+
+   **Enforcement binding:** the hands parser and the adapter loaders
+   (`hands.seat` in adapter data, or `unsupported` with a measured
+   reason); `refuse_unboxable`; `run-manifest` pins `kind: seat` beside
+   the boundary, so a seat-boxed run is its own identity (0043 ruling
+   4).
+
+3. **No credential enters a seat box.** No provider key, login file or
+   token is bound, copied or passed into the box's environment. The
+   harness reaches its provider only through an engine-owned egress
+   relay that stands outside the box. The relay is the box's only
+   network path; the network is otherwise unshared. It forwards to the
+   hosts the adapter declares for that provider, and it attaches the
+   credential on the way out. A harness that cannot authenticate this
+   way records `hands.seat: {"unsupported": "<measured reason>"}` and
+   stays at the narrow ceiling. The relay is never simulated. If the
+   relay cannot stand, the seat refuses at start; it never falls back to
+   a credential inside the box. This is decision 0077's secret boundary
+   applied to the provider's connection: the credential is resolved and
+   attached outside the confined process, and never put in its
+   environment. The relay's hosts are the provider adapter's data, since
+   a provider's endpoints come with its harness (answered 2026-10-12).
+
+   **Enforcement binding:** the seat-box spawn path. An integration test
+   on Linux shows each of these inside the box: the harness's login
+   state is absent; an arbitrary host is unreachable; the provider is
+   reachable through the relay alone; and a command with full access
+   still cannot read the relay's credential.
+
+4. **Wider network is a capability, not a side effect.** Anything beyond
+   the relay is a decision 0065 capability the realm grants: a package
+   registry, web fetch, a second provider. Full access inside the box
+   never widens the network, because the box, not the harness, owns
+   the network.
+
+   **Enforcement binding:** the seat-box spawn path composes the box's
+   network from the relay and the site's compiled 0065 grants alone. No
+   sandbox class, harness mode or adapter field adds a route, and a site
+   whose grant cannot be built refuses at start. Ruling 3's integration
+   test adds two cases under full access: an ungranted package registry
+   is unreachable, and the same registry is reachable once the realm
+   grants it as a capability.
+
+5. **The record says a seat stood in a seat box.** The seat record, the
+   run manifest and every readout that names a seat's boundary name
+   `seat` as its hands kind. A run is summarised as boxed only if every
+   gate site was boxed, as 0046 ruling 3 already reads. Full access is
+   shown as the class it is, never hidden behind "boxed".
+
+   **Enforcement binding:** additive `seat-record` and `run-manifest`
+   versions, new files beside the current ones, carry hands kind `seat`
+   and the sandbox class the seat ran; a version that cannot carry them
+   refuses a seat-boxed run rather than recording it as a hands box.
+   `brokkr-view`'s `run_boundary` derives the run's boxed readout once
+   (0071 ruling 7), and the CLI, the TUI and `ui.html` paint it. Tests
+   pin a seat-boxed site's readout, with its full-access class shown,
+   on each surface.
+
+6. **Enactment, measured first.** Each harness is measured before any
+   shipped recipe names a seat box. The measurements are:
+   - whether it runs with its home directory private and its login state
+     absent;
+   - whether it accepts an egress relay (a configurable endpoint or
+     proxy) for authentication;
+   - what its own tools do under full access inside the box;
+   - how resume behaves.
+
+   The slices, in order:
+   - (i) `namespace` and Codex, proven first on a new recipe written
+     for the seat box. `recipes/standby` and `recipes/wager-harness` stay
+     at the narrow ceiling until that recipe has run, and are then
+     restored to full access inside a seat box under the same rulings
+     (answered 2026-10-12);
+   - (ii) Claude Code;
+   - (iii) `seatbelt`;
+   - (iv) `container`, together with 0046 ruling 5's retirement of
+     `confine`.
+
+   Until a harness's slice is measured and merged, that harness stays at
+   the narrow ceiling.
+
+   **Enforcement binding:** a harness's `hands.seat` entry in adapter
+   data (ruling 2) names the run that measured it. The compile refuses a
+   site declaring `kind: seat` when its harness's adapter carries no
+   such entry, or carries `unsupported`, naming the harness. Tests cover
+   a measured harness, an unmeasured one and an `unsupported` one, and a
+   mutation that drops the refusal fails them (0071 ruling 9). The slice
+   order above, the restoration in slice (i) included, is
+   judgment-guidance: no mechanism reads whether a recipe has run, so
+   each slice's pull request is judged against it.
+
+## Consequences
+
+- The operator's model becomes the shipped one where it is safe: the
+  box confines, and the harness inside it may do anything the box
+  allows.
+- A seat box is a heavier boundary than a hands box. It adds a relay per
+  seat, a per-harness measurement, and a new manifest identity. That is
+  why it is a kind a site opts into, and why hands boxes remain the
+  default for seats that only need the workspace tool.
+- `recipes/standby`'s smith runs under `workspace-write` until ruling 6
+  restores it. Anything it needs outside the worktree, or from the
+  network (a new crate), fails there today. That is recorded here as the known
+  cost of the floor.
+- Decision 0065 slice one merged unchanged on 2026-10-01, and this
+  decision reopens none of its rulings. The build waits for 0065 slice
+  two (decision 0077's broker), because both build in the hands,
+  namespace and secret code. It is read with decision 0080, whose
+  attempt cgroup a seat box stands inside on a Linux host that offers
+  one.
+
+## Alternatives weighed
+
+- **Admit `danger-full-access` at hands sites.** Rejected: the harness
+  process is on the host, so the model gains a host shell beside the box
+  (fact 1).
+- **Admit it under the `harness` boundary.** Rejected: there the
+  harness's own sandbox *is* the boundary, so dropping it is `open`.
+- **Put the whole harness in the box with its credential.** Rejected:
+  the model's full-access shell shares the box with the key and the way
+  out (fact 2).
+- **Wait for `container` alone.** Rejected as the only path. A container
+  meets the rulings, but it is the least built boundary. A Linux
+  namespace seat box reuses 0043's empty root, which is measured and
+  shipped. `container` remains slice (iv) under the same rulings.
+- **Keep full access nowhere, forever.** Rejected: it gives up the
+  simplest confinement model, which is one box with everything inside.
+  It also keeps smiths from work that needs full access, even where a
+  box could safely give it.
+
+## Answered (operator, in chat, 2026-10-12)
+
+The operator answered the draft's two open questions. Each answer is
+recorded once, in the ruling it settles: the relay's hosts in ruling 3,
+and the first recipe and the restoration order in ruling 6's slice (i).
