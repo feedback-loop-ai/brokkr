@@ -304,6 +304,13 @@ fn a_tree_left_in_the_shared_tmpdir_does_not_reach_a_runs_stderr() {
         out.status.success() && said.contains("1 passed"),
         "the re-executed scenario passed: {said}"
     );
+    // The scenario played, and planted where this test stood the shared
+    // TMPDIR: a role or a plant that stopped reaching it would pass empty.
+    let stands = format!(
+        "the planted tree stands: {}/brokkr-hands-server-",
+        shared.path().display()
+    );
+    assert!(said.contains(&stands), "{stands} in: {said}");
 }
 
 /// The scenario [`a_tree_left_in_the_shared_tmpdir_does_not_reach_a_runs_stderr`]
@@ -321,4 +328,5 @@ fn a_leaked_tree_stands_in_the_shared_tmpdir() {
     let leaked = Leaked::plant();
     a_conclusions_gaps_reach_stderr();
     assert!(leaked.0.join(".owner.lock").is_file(), "{:?}", leaked.0);
+    println!("the planted tree stands: {}", leaked.0.display());
 }
