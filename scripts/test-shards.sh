@@ -225,6 +225,20 @@ fi
 # what `$?` can be, 0 to 255 written plainly, so a record outside that is
 # refused as unreadable, never compared as a number a shell cannot hold.
 exit_status_re='^(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5]) [0-9]+$'
+# The record in the file $1, into `record`, or '' where the file is not
+# exactly one record and its newline, byte for byte. Bash drops a NUL from
+# what it reads, with a warning, and strips every trailing newline, so the
+# file is compared whole with the record read from it; a file that cannot
+# be read is never read, since a failed redirection would end the script
+# before any refusal.
+read_record() {
+  record=''
+  if [ -r "$1" ] && { record="$(<"$1")"; } 2>/dev/null && [[ "$record" =~ $exit_status_re ]] &&
+    printf '%s\n' "$record" | cmp -s - "$1"; then
+    return
+  fi
+  record=''
+}
 await_system_set() {
   local dir="$1" limit="${BROKKR_SYSTEM_SET_WAIT_SECONDS:-600}" started="$SECONDS"
   local record='' status='' seconds='' refusal=''
@@ -236,11 +250,11 @@ await_system_set() {
   [ -d "$dir" ] || refuse "the protected system set's directory $dir is not there, so its preparation was never started"
   while [ ! -e "$dir/status" ] && [ "$((SECONDS - started))" -lt "$limit" ]; do sleep 1; done
   # The whole record is read, a line it does not end with included: a
-  # second record or any other line refuses as unreadable.
-  if [ -e "$dir/status" ]; then record="$(<"$dir/status")" || record=''; fi
+  # second record or any other byte refuses as unreadable.
+  read_record "$dir/status"
   if [ ! -e "$dir/status" ]; then
     refusal="recorded no exit status within ${limit}s"
-  elif ! [[ "$record" =~ $exit_status_re ]]; then
+  elif [ -z "$record" ]; then
     refusal='recorded an exit status the guard cannot read'
   else
     status="${record%% *}" seconds="${record#* }"
@@ -304,9 +318,8 @@ run_shard() {
     )
   } 2>/dev/null || waited=$?
   local record=''
-  if [ -s "$work/$index.status" ]; then record="$(<"$work/$index.status")" || record=''; fi
-  if [[ "$record" =~ $exit_status_re ]]; then status="${record%% *}" seconds="${record#* }"; fi
-  if ! [[ "$record" =~ $exit_status_re ]]; then
+  read_record "$work/$index.status"
+  if [ -z "$record" ]; then
     lost=true
     shard_status[$index]=none
     printf '\n==> %s: no exit status recorded, its runner ended with exit %s; the logs are kept in %s\n' \
@@ -315,6 +328,7 @@ run_shard() {
     failed+=("${shard_name[$index]} recorded no exit status (its runner ended with exit $waited), so it is not shown to have passed")
     return
   fi
+  status="${record%% *}" seconds="${record#* }"
   shard_status[$index]="$status"
   shard_seconds[$index]="$seconds"
   printf '\n==> %s: exit %s after %ss\n' "${shard_name[$index]}" "$status" "$seconds"

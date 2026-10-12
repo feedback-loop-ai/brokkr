@@ -1353,6 +1353,61 @@ fn only_the_sharded_jobs_prepare_the_system_set_in_the_background() {
     assert_eq!(sites, [(".github/workflows/ci.yml".to_string(), 2)]);
 }
 
+/// The output setup-bubblewrap names the background preparation's
+/// directory by (#647): a rename on one side alone leaves ci.yml's
+/// BROKKR_SYSTEM_SET empty, and the shards would never wait.
+const SYSTEM_SET: &str = "system-set";
+
+/// The protected system set's directory reaches the shards by one output,
+/// [`SYSTEM_SET`], held word for word on every side (#647): the protect
+/// step writes it, the action's outputs block passes it on, and ci.yml's
+/// two shard steps read it, in the jobs contributing.rs holds. The status
+/// record the preparation writes is held beside the pattern
+/// scripts/test-shards.sh reads it by, so the writer's format and the
+/// reader's grammar move only together.
+#[test]
+fn the_system_set_output_and_its_record_are_held_on_both_sides() {
+    let action = read(BUBBLEWRAP_ACTION);
+    let protect = "\n    - name: a protected system set for the broker's boundary proofs\n      \
+                   id: protect\n";
+    let writer = format!("\n        echo \"{SYSTEM_SET}=$set_dir\" >> \"$GITHUB_OUTPUT\"\n");
+    let outputs = format!(
+        "\noutputs:
+  {SYSTEM_SET}:
+    description: >-
+      The directory the background preparation writes its log and exit
+      status to, which scripts/test-shards.sh waits on before its first
+      shard (#647). Empty unless protect-system-tree is 'background'.
+    value: ${{{{ steps.protect.outputs.{SYSTEM_SET} }}}}
+runs:\n"
+    );
+    let record = "\n          printf \"%s %s\\n\" \"$status\" \"$((SECONDS - start))\" \
+                  >\"$1/status.new\"\n";
+    for held in [protect, &writer, &outputs, record] {
+        let count = action.matches(held).count();
+        assert_eq!(count, 1, "{BUBBLEWRAP_ACTION} does not hold, once:{held}");
+    }
+    // The output is written by the step the outputs block reads, the last.
+    let step = action.find(protect).expect("the protect step");
+    let written = action.find(&writer).expect("the write");
+    assert!(
+        step < written && !action[step + 1..written].contains("\n    - "),
+        "{BUBBLEWRAP_ACTION} writes {SYSTEM_SET} outside its protect step"
+    );
+    let read_by = format!("BROKKR_SYSTEM_SET: ${{{{ steps.bubblewrap.outputs.{SYSTEM_SET} }}}}\n");
+    assert_eq!(
+        read(".github/workflows/ci.yml").matches(&read_by).count(),
+        2,
+        "ci.yml's two shard steps do not read {read_by}"
+    );
+    let grammar = "\nexit_status_re='^(0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5]) [0-9]+$'\n";
+    assert_eq!(
+        read("scripts/test-shards.sh").matches(grammar).count(),
+        1,
+        "scripts/test-shards.sh does not read the record by, once:{grammar}"
+    );
+}
+
 /// cargo-audit is installed from one place, from a release verified by
 /// digest; every audit-check follows it in its job, which the pin scan
 /// above holds as [`Unpinned::CargoAuditMissing`].

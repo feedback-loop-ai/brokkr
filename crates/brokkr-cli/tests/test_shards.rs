@@ -61,7 +61,10 @@ fn metadata() -> Metadata {
 /// prints `STUB_LINES` in place of its summary and exits 0, and
 /// `STUB_KILL` one whose shard kills its runner, the script's subshell,
 /// before the runner records its status, and keeps running, not yet
-/// ended, until the scratch's `release` exists. Each shard's call also
+/// ended, until the scratch's `release` exists. `STUB_RECORD` names a word
+/// whose shard writes the scratch's `record` as its own status record, the
+/// one whose log has none yet, and kills its runner before the runner
+/// writes one. Each shard's call also
 /// records in `signals` how a SIGINT it raises ends a child shell: 130
 /// when SIGINT keeps its default, 0 when it was left ignored.
 const STUB: &str = r#"#!/usr/bin/env bash
@@ -91,6 +94,12 @@ if names "${STUB_KILL:-}" "$@"; then
   kill -KILL "$PPID"
   tries=0
   while [ ! -e "$dir/release" ] && [ "$tries" -lt 600 ]; do tries=$((tries + 1)); sleep 0.05; done
+fi
+if names "${STUB_RECORD:-}" "$@"; then
+  for log in "$TMPDIR"/brokkr-test-shards.*/*.log; do
+    [ -e "${log%.log}.status" ] || cp "$dir/record" "${log%.log}.status"
+  done
+  kill -KILL "$PPID"
 fi
 printf 'end %s\n' "$*" >> "$dir/events"
 exit "$status"
@@ -183,6 +192,27 @@ fn script() -> String {
 /// The test mode's arguments to `cargo` before a shard's selection.
 const TEST: &str = "test --workspace --all-features --locked --no-fail-fast";
 
+/// The coverage mode's arguments to `cargo` before a shard's selection.
+const COVERAGE: &str = "+nightly-2026-09-05 llvm-cov --no-report --workspace --all-features \
+                        --locked --branch --no-fail-fast";
+
+/// Each mode that runs shards: its arguments, its arguments to `cargo`
+/// before a shard's selection, and its build's selection.
+const MODES: [(&[&str], &str, &str); 2] = [
+    (&["test"], TEST, "--no-run"),
+    (&["coverage", "nightly-2026-09-05"], COVERAGE, "-- --list"),
+];
+
+/// The shards' names, in plan order.
+const NAMES: [&str; 6] = [
+    "every library",
+    "the it binaries, capability_broker skipped",
+    "the heap measurements",
+    "the other own-process binaries",
+    "the doctests",
+    "capability_broker, alone",
+];
+
 /// The test mode's shard commands after `cargo`, as the plan prints them.
 const SHARDS: [&str; 6] = [
     "--lib",
@@ -201,15 +231,7 @@ const SHARDS: [&str; 6] = [
 /// runs.
 #[test]
 fn the_real_trees_shards_are_its_whole_suite() {
-    let names = [
-        "every library",
-        "the it binaries, capability_broker skipped",
-        "the heap measurements",
-        "the other own-process binaries",
-        "the doctests",
-        "capability_broker, alone",
-    ];
-    let plan: Vec<String> = names
+    let plan: Vec<String> = NAMES
         .iter()
         .zip(SHARDS)
         .map(|(name, shard)| format!("{name}: {shard}\n"))
@@ -376,18 +398,9 @@ fn a_target_no_shard_runs_or_two_shards_run_is_refused_by_name() {
 #[test]
 fn every_shard_runs_alone_one_after_another_in_plan_order() {
     let real = metadata();
-    let coverage = "+nightly-2026-09-05 llvm-cov --no-report --workspace --all-features --locked \
-                    --branch --no-fail-fast";
     let coverage_shards: Vec<&str> = SHARDS[..4].iter().chain(&SHARDS[5..]).copied().collect();
-    for (args, prefix, build, shards) in [
-        (&["test"][..], TEST, "--no-run", SHARDS.to_vec()),
-        (
-            &["coverage", "nightly-2026-09-05"][..],
-            coverage,
-            "-- --list",
-            coverage_shards,
-        ),
-    ] {
+    for ((args, prefix, build), shards) in MODES.into_iter().zip([SHARDS.to_vec(), coverage_shards])
+    {
         let scratch = Scratch::new(&real, &script());
         let run = scratch.run(args, &[]);
         assert_eq!(
@@ -514,13 +527,18 @@ fn every_shards_summaries_are_read_and_an_unread_or_missing_one_refuses() {
 /// shard command end, which it records last.
 fn after_release(scratch: &Scratch, last: &str) -> Vec<String> {
     std::fs::write(scratch.dir.path().join("release"), "").expect("release");
+    poll(|| scratch.events().last().map(String::as_str) == Some(last));
+    scratch.events()
+}
+
+/// Returns once `done` holds, or after 30 seconds, looking every 50 ms.
+fn poll(done: impl Fn() -> bool) {
     for _ in 0..600 {
-        if scratch.events().last().map(String::as_str) == Some(last) {
+        if done() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    scratch.events()
 }
 
 /// A shard whose runner dies before it records the shard's exit status is
@@ -537,19 +555,7 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
     let finally = after_release(&scratch, &ran[5]);
     assert_eq!((running.as_slice(), finally), (&ran[..5], ran.clone()));
     assert_eq!(run.status.code(), Some(1), "{run:?}");
-    let unstarted: String = [
-        "the other own-process binaries",
-        "the doctests",
-        "capability_broker, alone",
-    ]
-    .iter()
-    .map(|shard| {
-        format!(
-            "test shards: {shard} was not started: an earlier runner recorded no exit status, \
-             so its command may still be running and the shard cannot be shown to run alone\n"
-        )
-    })
-    .collect();
+    let unstarted = not_started(&NAMES[3..]);
     assert_eq!(
         String::from_utf8_lossy(&run.stderr),
         format!(
@@ -585,6 +591,68 @@ fn a_shard_whose_runner_dies_unrecorded_is_refused_and_its_logs_are_kept() {
     assert!(work[0].join("2.log").is_file(), "{work:?}");
 }
 
+/// The refusal of each of `shards`, left unstarted after an earlier
+/// runner recorded no exit status.
+fn not_started(shards: &[&str]) -> String {
+    shards
+        .iter()
+        .map(|shard| {
+            format!(
+                "test shards: {shard} was not started: an earlier runner recorded no exit \
+                 status, so its command may still be running and the shard cannot be shown to \
+                 run alone\n"
+            )
+        })
+        .collect()
+}
+
+/// A shard's status record that is not exactly one record and its newline,
+/// byte for byte, is no record (#647): one with a NUL bash would drop, a
+/// second newline bash would strip, or a NUL in place of its newline is
+/// refused in both modes as recorded by none, and no later shard starts.
+/// The record written plainly, its runner killed alike, passes.
+#[test]
+fn a_shard_status_record_that_is_not_one_line_byte_for_byte_is_refused() {
+    let real = metadata();
+    for (args, prefix, build) in MODES {
+        // The coverage mode runs no doctests.
+        let later: Vec<&str> = NAMES[1..]
+            .iter()
+            .copied()
+            .filter(|name| prefix == TEST || *name != "the doctests")
+            .collect();
+        for record in ["0\0 3\n", "0 3\n\n", "0 3\0", "0 3\n"] {
+            let scratch = Scratch::new(&real, &script());
+            std::fs::write(scratch.dir.path().join("record"), record).expect("record");
+            let run = scratch.run(args, &[("STUB_RECORD", "--lib")]);
+            let stderr = String::from_utf8_lossy(&run.stderr);
+            if record == "0 3\n" {
+                assert_eq!(
+                    (run.status.code(), stderr.as_ref()),
+                    (Some(0), ""),
+                    "{args:?}"
+                );
+                continue;
+            }
+            assert_eq!(run.status.code(), Some(1), "{args:?} {record:?}: {run:?}");
+            assert_eq!(
+                stderr,
+                format!(
+                    "test shards: every library recorded no exit status (its runner ended with \
+                     exit 137), so it is not shown to have passed\n{}",
+                    not_started(&later)
+                ),
+                "{args:?} {record:?}"
+            );
+            assert_eq!(
+                scratch.calls(),
+                [format!("{prefix} {build}"), format!("{prefix} --lib")],
+                "{args:?} {record:?}"
+            );
+        }
+    }
+}
+
 /// A protected system set's preparation, as setup-bubblewrap's background
 /// step leaves it in the scratch's `set/`: its `log`, and its `status`
 /// renamed into place once written, as the step does.
@@ -604,6 +672,31 @@ fn half_protected(failed: &str) -> String {
     )
 }
 
+/// The run of `args` over the scratch's protected system set `set/`,
+/// waiting at most `wait` seconds, refuses with exactly `refusal` after the
+/// build `build` and before any shard, the set's log printed last.
+fn refused_before_any_shard(
+    scratch: &Scratch,
+    args: &[&str],
+    build: &str,
+    wait: &str,
+    refusal: &str,
+) {
+    let set = scratch.dir.path().join("set");
+    let set_dir = set.to_str().expect("a UTF-8 scratch");
+    let env = [
+        ("BROKKR_SYSTEM_SET", set_dir),
+        ("BROKKR_SYSTEM_SET_WAIT_SECONDS", wait),
+    ];
+    let run = scratch.run(args, &env);
+    assert_eq!(run.status.code(), Some(1), "{args:?}: {run:?}");
+    assert_eq!(String::from_utf8_lossy(&run.stderr), refusal, "{args:?}");
+    assert_eq!(scratch.calls(), [build], "{args:?}");
+    assert_eq!(scratch.events(), Vec::<String>::new(), "{args:?}");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(stdout.ends_with("\nsetfacl: the set\n"), "{stdout}");
+}
+
 /// A protected system set whose preparation failed, never recorded its
 /// status, recorded one the guard cannot read, or was never started is
 /// refused in both modes after the build and before any shard runs, with
@@ -611,16 +704,10 @@ fn half_protected(failed: &str) -> String {
 #[test]
 fn an_unfinished_or_failed_system_set_preparation_refuses_before_any_shard() {
     let real = metadata();
-    let coverage = "+nightly-2026-09-05 llvm-cov --no-report --workspace --all-features --locked \
-                    --branch --no-fail-fast -- --list";
     let failed = half_protected("failed with exit 1 after 3s");
-    for (args, build) in [
-        (&["test"][..], format!("{TEST} --no-run")),
-        (
-            &["coverage", "nightly-2026-09-05"][..],
-            coverage.to_string(),
-        ),
-    ] {
+    let unreadable = half_protected("recorded an exit status the guard cannot read");
+    for (args, prefix, build) in MODES {
+        let build = format!("{prefix} {build}");
         for (status, wait, refusal) in [
             (Some("1 3\n"), "600", failed.clone()),
             (
@@ -628,40 +715,22 @@ fn an_unfinished_or_failed_system_set_preparation_refuses_before_any_shard() {
                 "1",
                 half_protected("recorded no exit status within 1s"),
             ),
-            (
-                Some("done\n"),
-                "600",
-                half_protected("recorded an exit status the guard cannot read"),
-            ),
+            (Some("done\n"), "600", unreadable.clone()),
             // A status `$?` cannot be: past 64 bits a numeric test would
             // error and read as success, so each is refused as unreadable.
-            (
-                Some("9223372036854775808 3\n"),
-                "600",
-                half_protected("recorded an exit status the guard cannot read"),
-            ),
-            (
-                Some("18446744073709551616 3\n"),
-                "600",
-                half_protected("recorded an exit status the guard cannot read"),
-            ),
+            (Some("9223372036854775808 3\n"), "600", unreadable.clone()),
+            (Some("18446744073709551616 3\n"), "600", unreadable.clone()),
             // A second record after the first is no record: the whole file
             // is read, never its first line alone.
-            (
-                Some("0 3\n1 4\n"),
-                "600",
-                half_protected("recorded an exit status the guard cannot read"),
-            ),
-            (
-                Some("00 3\n"),
-                "600",
-                half_protected("recorded an exit status the guard cannot read"),
-            ),
-            (
-                Some("256 3\n"),
-                "600",
-                half_protected("recorded an exit status the guard cannot read"),
-            ),
+            (Some("0 3\n1 4\n"), "600", unreadable.clone()),
+            (Some("00 3\n"), "600", unreadable.clone()),
+            (Some("256 3\n"), "600", unreadable.clone()),
+            // Bash drops a NUL and strips every trailing newline from what
+            // it reads, so each would read as `0 3`: the file is compared
+            // byte for byte with the one record and its newline.
+            (Some("0\0 3\n"), "600", unreadable.clone()),
+            (Some("0 3\n\n"), "600", unreadable.clone()),
+            (Some("0 3\0"), "600", unreadable.clone()),
             (
                 Some("0 3\n"),
                 "soon",
@@ -676,22 +745,20 @@ fn an_unfinished_or_failed_system_set_preparation_refuses_before_any_shard() {
                 Some(status) => prepared(&scratch, "setfacl: the set\n", status),
                 None => std::fs::write(set.join("log"), "setfacl: the set\n").expect("log"),
             }
-            let set_dir = set.to_str().expect("a UTF-8 scratch");
-            let env = [
-                ("BROKKR_SYSTEM_SET", set_dir),
-                ("BROKKR_SYSTEM_SET_WAIT_SECONDS", wait),
-            ];
-            let run = scratch.run(args, &env);
-            assert_eq!(run.status.code(), Some(1), "{args:?} {status:?}: {run:?}");
-            assert_eq!(String::from_utf8_lossy(&run.stderr), refusal, "{args:?}");
-            assert_eq!(
-                scratch.calls(),
-                std::slice::from_ref(&build),
-                "{args:?} {status:?}"
-            );
-            assert_eq!(scratch.events(), Vec::<String>::new(), "{args:?}");
-            let stdout = String::from_utf8_lossy(&run.stdout);
-            assert!(stdout.ends_with("\nsetfacl: the set\n"), "{stdout}");
+            refused_before_any_shard(&scratch, args, &build, wait, &refusal);
+        }
+        // A status that cannot be read is refused as unreadable, its log
+        // printed, never left to end the script at its redirection. Root
+        // reads a mode-000 file, so where the tests run as root this case
+        // is skipped.
+        if !rustix::process::geteuid().is_root() {
+            let scratch = Scratch::new(&real, &script());
+            std::fs::create_dir(scratch.dir.path().join("set")).expect("set");
+            prepared(&scratch, "setfacl: the set\n", "0 3\n");
+            let status = scratch.dir.path().join("set/status");
+            std::fs::set_permissions(&status, std::fs::Permissions::from_mode(0o000))
+                .expect("mode");
+            refused_before_any_shard(&scratch, args, &build, "600", &unreadable);
         }
     }
     let scratch = Scratch::new(&real, &script());
@@ -728,12 +795,7 @@ fn the_shards_wait_after_the_build_for_the_system_sets_preparation() {
         .spawn()
         .expect("the script starts");
     let build = [format!("{TEST} --no-run")];
-    for _ in 0..600 {
-        if scratch.calls() == build {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+    poll(|| scratch.calls() == build);
     std::thread::sleep(std::time::Duration::from_millis(1500));
     let waiting = (scratch.calls(), scratch.events());
     prepared(&scratch, "server system set: 10 entries\n", "0 143\n");
