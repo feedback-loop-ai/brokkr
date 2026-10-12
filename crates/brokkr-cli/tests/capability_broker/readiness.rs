@@ -162,15 +162,28 @@ const HELD: [&str; 11] = [
 ];
 
 /// The process entering this fixture's box, once the tracer holds it
-/// stopped at its entry.
+/// stopped at its entry: one with no child of its own, still stopped a
+/// moment later. The launcher's own processes carry the bootstrap's words
+/// on their command lines and pass through a tracer's stop at each fork,
+/// so a process merely stopped once could be the box's first process and
+/// put the chain one process short (CI's empty broker channel, #639).
 fn held(sealed: &Sealed) -> i32 {
     let until = Instant::now() + Duration::from_secs(20);
+    let stopped = |pid: i32| status(pid).is_some_and(|(state, _, _)| "tT".contains(state));
+    let parent =
+        |pid: i32| processes().any(|child| status(child).is_some_and(|(_, of, _)| of == pid));
     while Instant::now() < until {
-        let stopped = |pid: &i32| status(*pid).is_some_and(|(state, _, _)| "tT".contains(state));
-        if let Some(pid) = bootstraps(sealed).into_iter().find(stopped) {
+        let candidates = bootstraps(sealed)
+            .into_iter()
+            .filter(|pid| stopped(*pid) & !parent(*pid));
+        let candidates: Vec<i32> = candidates.collect();
+        std::thread::sleep(Duration::from_millis(200));
+        if let Some(pid) = candidates
+            .into_iter()
+            .find(|pid| stopped(*pid) & !parent(*pid))
+        {
             return pid;
         }
-        std::thread::sleep(Duration::from_millis(20));
     }
     panic!("no box of {} held", sealed.locator.display());
 }
