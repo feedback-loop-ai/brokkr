@@ -1,4 +1,4 @@
-//! What the loopback UI holds of a client (#433, decision 0079's proposed
+//! What the loopback UI holds of a client (#433, decision 0079's
 //! addendum). A stuck or runaway local client, a hung tab, a script that
 //! never closes, a request with no end of headers, must not exhaust the
 //! surface's threads or memory.
