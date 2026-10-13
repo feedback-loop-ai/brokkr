@@ -9,10 +9,10 @@
 //! vendor's name, a vendor's name would have got into the engine.
 
 use super::*;
-use pin_walk::typed_seats;
+use pin_walk_tests::typed_seats;
 use serde_json::json;
 
-mod pin_walk;
+mod pin_walk_tests;
 
 /// Two work results and a review that concludes: enough table for a
 /// single seat, a two-member panel, or a two-step sequence to sit in the
