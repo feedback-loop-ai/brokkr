@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::{BoxIntent, Network, Plan, Refusal};
+use brokkr_protocol::secret::BoundSecret;
 use serde_json::json;
 
 use super::super::helper::{handed, received};
@@ -375,12 +376,12 @@ fn a_launcher_that_cannot_start_is_unavailable_and_one_that_stands_no_box_is_not
     let served = || |_: Link<'_>| Ok::<(), Refusal>(());
     // A launcher that cannot start at all: its handle a directory's.
     let directory = admitted(std::fs::File::open("/").unwrap().into());
-    let answer = ready(&directory, (&plan, PLAN), startup(&live), served());
+    let answer = ready(&directory, (&plan, PLAN), startup(&live), unbound, served());
     assert_eq!(answer, Err(Refusal::Unavailable));
     // One that starts and fails naming no first process, as bubblewrap
     // denied its namespaces does.
     let failing = admitted(std::fs::File::open("/bin/false").unwrap().into());
-    let answer = ready(&failing, (&plan, PLAN), startup(&live), served());
+    let answer = ready(&failing, (&plan, PLAN), startup(&live), unbound, served());
     assert_eq!(answer, Err(Refusal::Establishment));
 }
 
@@ -526,27 +527,45 @@ fn admitted_store(dir: &Path, store: &str) -> Admitted {
     admitted
 }
 
+/// A session's binder that keeps nothing and refuses nothing.
+fn unbound(_: Vec<BoundSecret>) -> Result<(), Refusal> {
+    Ok(())
+}
+
+/// A delivery's answer, whether it closed its control pipe, and what that
+/// pipe carried.
+type Delivery = (Result<(), Refusal>, bool, Vec<u8>);
+
 /// What [`delivered`] answers for a plan declaring `names`, its store
 /// holding `store`, on a control pipe whose reader is `kept` or gone and a
-/// status pipe that holds `status`: its answer, whether it closed the
-/// control pipe, and every byte that pipe carried, where its reader was
-/// kept.
+/// status pipe that holds `status`, its binder answering `bound`: its
+/// answer, whether it closed the control pipe, and every byte that pipe
+/// carried, where its reader was kept; and the names its binder was given.
 fn delivering(
     names: &[&str],
     store: &str,
-    kept: bool,
-    status: &[u8],
-) -> (Result<(), Refusal>, bool, Vec<u8>) {
+    (kept, status): (bool, &[u8]),
+    bound: Result<(), Refusal>,
+) -> (Delivery, Option<Vec<String>>) {
     let dir = tempfile::tempdir().unwrap();
     let admitted = admitted_store(dir.path(), store);
     let (reader, writer) = std::io::pipe().unwrap();
     let mut reader = kept.then_some(reader);
     let mut control = Some(writer);
+    let given = std::cell::RefCell::new(None);
+    let bind = |bindings: Vec<BoundSecret>| {
+        let named = bindings.iter().map(|bound| bound.name().to_owned());
+        given.replace(Some(named.collect()));
+        bound
+    };
     let answer = delivered(
         (&mut control, &mut written(status)),
         (&admitted, &plan_sealed(names)),
         startup(&live),
-        || panic!("a sender that answered in time ended its box"),
+        (
+            || panic!("a sender that answered in time ended its box"),
+            bind,
+        ),
     );
     let closed = control.is_none();
     drop(control);
@@ -554,7 +573,7 @@ fn delivering(
     if let Some(reader) = reader.as_mut() {
         reader.read_to_end(&mut carried).unwrap();
     }
-    (answer, closed, carried)
+    ((answer, closed, carried), given.into_inner())
 }
 
 #[test]
@@ -565,24 +584,36 @@ fn the_bindings_are_looked_up_after_readiness_sent_once_and_their_pipe_closed() 
     let body = br#"{"DOCS_TOKEN":"value"}"#;
     let length = u32::try_from(body.len()).unwrap().to_be_bytes();
     let frame = [&length[..], body].concat();
-    let answer = delivering(&["DOCS_TOKEN"], stored, true, b"");
-    assert_eq!(answer, (Ok(()), true, frame.clone()));
+    // The binder is given each binding looked up, whatever follows.
+    let token = Some(vec!["DOCS_TOKEN".to_string()]);
+    let answer = delivering(&["DOCS_TOKEN"], stored, (true, b""), Ok(()));
+    assert_eq!(answer, ((Ok(()), true, frame.clone()), token.clone()));
     // No name, no lookup: an empty frame, whatever the store holds.
-    let answer = delivering(&[], "not an assignment", true, b"");
-    assert_eq!(answer, (Ok(()), true, [0, 0, 0, 2, b'{', b'}'].to_vec()));
+    let answer = delivering(&[], "not an assignment", (true, b""), Ok(()));
+    let empty = [0, 0, 0, 2, b'{', b'}'].to_vec();
+    assert_eq!(answer, ((Ok(()), true, empty), Some(vec![])));
     // A name the store lacks is decision 0012's own cause, and nothing is
-    // sent; a bootstrap gone before the frame, the handoff's.
+    // sent or bound; a bootstrap gone before the frame, the handoff's, its
+    // bindings given to the binder first (operator ruling 2026-10-13).
     let missing = Refusal::Name(
         "secret 'DOCS_TOKEN' is not in the store at /store (brokkr secrets set DOCS_TOKEN)"
             .to_string(),
     );
-    let answer = delivering(&["DOCS_TOKEN"], "", true, b"");
-    assert_eq!(answer, (Err(missing), false, Vec::new()));
-    let answer = delivering(&["DOCS_TOKEN"], stored, false, b"");
-    assert_eq!(answer, (Err(Refusal::Handoff), false, Vec::new()));
+    let answer = delivering(&["DOCS_TOKEN"], "", (true, b""), Ok(()));
+    assert_eq!(answer, ((Err(missing), false, Vec::new()), Some(vec![])));
+    let answer = delivering(&["DOCS_TOKEN"], stored, (false, b""), Ok(()));
+    let gone = (Err(Refusal::Handoff), false, Vec::new());
+    assert_eq!(answer, (gone, token.clone()));
     // The bootstrap's report after the whole frame keeps its own cause.
-    let answer = delivering(&["DOCS_TOKEN"], stored, true, b"H");
-    assert_eq!(answer, (Err(Refusal::Handoff), true, frame));
+    let answer = delivering(&["DOCS_TOKEN"], stored, (true, b"H"), Ok(()));
+    assert_eq!(
+        answer,
+        ((Err(Refusal::Handoff), true, frame), token.clone())
+    );
+    // The binder's refusal is the answer, before the send's own cause or
+    // the bootstrap's is read, and the control pipe is not closed for it.
+    let refused = delivering(&["DOCS_TOKEN"], stored, (false, b""), Err(Refusal::Masking));
+    assert_eq!(refused, ((Err(Refusal::Masking), false, Vec::new()), token));
 }
 
 #[test]
@@ -593,7 +624,7 @@ fn a_control_pipe_already_closed_carries_no_frame() {
         (&mut None, &mut written(b"")),
         (&admitted, &plan_sealed(&[])),
         startup(&live),
-        || panic!("no sender ran"),
+        (|| panic!("no sender ran"), unbound),
     );
     assert_eq!(answer, Err(Refusal::Handoff));
 }
@@ -659,7 +690,7 @@ fn a_store_its_peer_holds_answers_at_once_with_its_read_cause() {
         let plan = plan_sealed(&["DOCS_TOKEN"]);
         let far = (begun + Duration::from_secs(30), &live as _);
         let end = || panic!("a sender that answered in time ended its box");
-        let answer = delivered(pipes, (&admitted, &plan), far, end);
+        let answer = delivered(pipes, (&admitted, &plan), far, (end, unbound));
         answered.store(true, std::sync::atomic::Ordering::SeqCst);
         answer
     });
@@ -684,7 +715,7 @@ fn untaken_delivery(startup: Startup<'_>) -> (Result<(), Refusal>, Option<Instan
     let pipes = (&mut Some(writer), &mut written(b""));
     let plan = plan_sealed(&["DOCS_TOKEN"]);
     let end = || ended.set(Some(Instant::now()));
-    let answer = delivered(pipes, (&admitted, &plan), startup, end);
+    let answer = delivered(pipes, (&admitted, &plan), startup, (end, unbound));
     (answer, ended.get())
 }
 
@@ -787,7 +818,7 @@ fn a_sender_thread_that_cannot_be_made_is_the_handoff_cause() {
     // No stack this large can be mapped, so no thread is made: the handoff
     // cause, with no sender run and no box ended by the supervisor.
     let unmade = std::thread::Builder::new().stack_size(usize::MAX);
-    let answer = supervised(
+    let answer: Result<(), Refusal> = supervised(
         unmade,
         startup(&live),
         || panic!("a sender never made ended its box"),
