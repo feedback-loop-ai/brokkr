@@ -339,8 +339,11 @@ fn run_tui_names_a_tab_per_hearth_in_a_many_hearth_world() {
 /// A workspace holding no `realms.json`. Named explicitly by the tests
 /// that turn on map DISCOVERY, so what they assert is a function of the
 /// arguments and not of the directory the harness happens to stand in.
+/// A directory that stands, in this library's checkout, because the walk
+/// resolves the real directory and refuses one that is not there (round
+/// 634j).
 fn unmapped() -> &'static std::path::Path {
-    std::path::Path::new("target/no-such-workspace")
+    std::path::Path::new("tests/support")
 }
 
 /// Drive one command from a named workspace — `run`, with the

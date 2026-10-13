@@ -1093,24 +1093,28 @@ fn a_linked_forge_is_removed_as_a_link() {
 }
 
 /// A `.forge/` shape the state moves list: its entries, each holding its
-/// own name as its bytes, whether `.forge` is a link to them, and whether
-/// git tracks its ignore file.
+/// own name as its bytes, whether `.forge` is a link to them, whether
+/// git tracks its ignore file, and whether no listed move could empty it.
 struct Shape {
     entries: &'static [&'static str],
     linked: bool,
     tracked_ignore: bool,
+    refused: bool,
 }
 
 /// Every shape of `.forge/` this slice moves, its listed moves made as
 /// listed by `sh` (round 634i's third finding): `.forge` no longer
 /// stands, and every entry arrived under `.brokkr/state/` byte for byte,
-/// but the old ignore file, which the list removes.
+/// but the old ignore file, which the list removes. A shape no listed
+/// move could empty, an ignore entry that is a directory, refuses by
+/// name with no moves (round 634j's second finding).
 #[test]
 fn the_listed_moves_empty_every_forge() {
     let shape = |entries, linked, tracked_ignore| Shape {
         entries,
         linked,
         tracked_ignore,
+        refused: false,
     };
     let shapes = [
         shape(
@@ -1127,11 +1131,16 @@ fn the_listed_moves_empty_every_forge() {
         shape(&["run history.sqlite", "it's", "it's-wal"], false, false),
         shape(&["forge.db", ".gitignore", ".gitignore-wal"], false, true),
         shape(&["forge.db", "forge.db-wal"], true, false),
+        Shape {
+            refused: true,
+            ..shape(&["forge.db", ".gitignore/keep"], false, false)
+        },
     ];
     for Shape {
         entries,
         linked,
         tracked_ignore,
+        refused,
     } in shapes
     {
         let repo = Repo::new();
@@ -1154,6 +1163,15 @@ fn the_listed_moves_empty_every_forge() {
             git(&repo.root, &[&author[..], &commit[..]].concat());
         }
         let ran = repo.brokkr("", &["runs"]);
+        if refused {
+            let refusal = format!(
+                "error: {} is neither a file nor a link, so no listed move could remove it \
+                 (decision 0083); nothing was opened: move it aside\n",
+                repo.path(".forge/.gitignore").display()
+            );
+            assert_eq!((ran.code, ran.stderr), (Some(1), refusal), "{entries:?}");
+            continue;
+        }
         assert_eq!(
             (ran.code, ran.first_line()),
             (Some(1), STATE_ONLY),

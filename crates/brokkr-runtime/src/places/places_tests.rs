@@ -31,7 +31,7 @@ fn a_workspace_without_a_folder_keeps_the_library_layout() {
 #[test]
 fn a_workspace_with_a_folder_reads_it() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &dir.path().canonicalize().unwrap();
     std::fs::create_dir(root.join(".brokkr")).unwrap();
     assert_eq!(
         Places::of(root).unwrap(),
@@ -84,6 +84,57 @@ fn places_are_the_root_folders_from_a_subdirectory() {
     );
 }
 
+/// The walk is over the real directory's ancestors (round 634j's first
+/// finding): a workspace reached through a link is judged where it
+/// stands, so a `.brokkr` above the real directory refuses though the
+/// link's own name has none above it; and a workspace that cannot be
+/// resolved refuses by name.
+#[test]
+fn a_linked_workspace_is_walked_from_its_real_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    plant_library(&root);
+    let (real, link) = (root.join("other/deep"), root.join("src"));
+    std::fs::create_dir_all(&real).unwrap();
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let layout = Layout::discover(&link).unwrap();
+    assert_eq!(
+        (layout.cwd(), layout.root()),
+        (real.as_path(), root.as_path())
+    );
+    assert_eq!(layout.workspace(), link);
+
+    std::fs::create_dir(root.join("other/.brokkr")).unwrap();
+    let refused = Layout::discover(&link).unwrap_err();
+    let other = root.join("other");
+    assert!(
+        matches!(refused, PlacesError::Nested { ref path, root: ref at } if *path == other && *at == root),
+        "{refused:?}"
+    );
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "{}/.brokkr is not at this repository's root {} (decision 0083); Brokkr reads only \
+             {}/.brokkr: move or remove it",
+            other.display(),
+            root.display(),
+            root.display()
+        )
+    );
+
+    let gone = root.join("gone");
+    let refused = Layout::discover(&gone).unwrap_err();
+    assert!(matches!(refused, PlacesError::Unreadable { ref path, .. } if *path == gone));
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "reading {}: No such file or directory (os error 2)",
+            gone.display()
+        )
+    );
+}
+
 /// A dispatch judges a workspace's state by the CLI's one rule (round
 /// 634c's second finding): no folder, no library mark and no old layout
 /// is no place, refused in the CLI's words rather than read as a
@@ -92,7 +143,7 @@ fn places_are_the_root_folders_from_a_subdirectory() {
 #[test]
 fn a_workspace_with_no_place_refuses_its_state() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &dir.path().canonicalize().unwrap();
     let refused = state_of(root).unwrap_err();
     assert!(
         matches!(refused, PlacesError::NoPlace { ref cwd, root: ref at } if cwd == root && at == root)
@@ -147,7 +198,7 @@ fn mode(path: &Path, bits: u32) {
 #[test]
 fn an_unreadable_library_mark_refuses() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &dir.path().canonicalize().unwrap();
     let (recipes, recipe) = (root.join("recipes"), root.join("recipes/x"));
     std::fs::create_dir_all(root.join(".brokkr")).unwrap();
     std::fs::create_dir_all(&recipe).unwrap();
@@ -211,7 +262,8 @@ fn a_library_holding_a_folder_keeps_the_library_layout() {
 #[test]
 fn a_linked_or_file_folder_refuses() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let real = dir.path().canonicalize().unwrap();
+    let root = real.as_path();
     let refused = |root: &Path| match Places::of(root) {
         Err(PlacesError::NotADirectory { root }) => root,
         other => panic!("{other:?}"),

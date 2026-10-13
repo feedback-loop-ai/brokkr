@@ -27,16 +27,18 @@ fn a_workspace_that_cannot_be_made_absolute_is_unreadable() {
     );
 }
 
-/// An entry the walk cannot read is refused, never taken as absent.
+/// An entry the walk cannot read is refused, never taken as absent. The
+/// workspace itself is locked, not its parent, so it still resolves to
+/// the real directory the walk begins in (round 634j).
 #[test]
 fn an_entry_that_cannot_be_read_refuses() {
     let dir = tempfile::tempdir().unwrap();
-    let locked = dir.path().join("locked");
+    let locked = dir.path().canonicalize().unwrap().join("locked");
     std::fs::create_dir_all(locked.join("inner")).unwrap();
     let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
-    std::fs::set_permissions(&locked, mode(0o000)).unwrap();
+    std::fs::set_permissions(locked.join("inner"), mode(0o000)).unwrap();
     let refused = Layout::discover(&locked.join("inner"));
-    std::fs::set_permissions(&locked, mode(0o755)).unwrap();
+    std::fs::set_permissions(locked.join("inner"), mode(0o755)).unwrap();
     let refused = refused.unwrap_err();
     let git = locked.join("inner/.git");
     let named = |refused: &PlacesError| matches!(refused, PlacesError::Unreadable { path, .. } if *path == git);
@@ -50,7 +52,7 @@ fn an_entry_that_cannot_be_read_refuses() {
 #[test]
 fn doctor_reads_the_folder_or_else_reports_no_journal() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().to_path_buf();
+    let root = dir.path().canonicalize().unwrap();
     std::fs::create_dir_all(root.join(".brokkr")).unwrap();
     let found = DoctorDefaults::of(root.clone(), None);
     let state = root.join(".brokkr/state");
@@ -75,6 +77,7 @@ fn doctor_reads_the_folder_or_else_reports_no_journal() {
     // never does: the journal has no place, and it says why; what doctor
     // only reads takes the library column.
     std::fs::create_dir_all(root.join("sub/.brokkr")).unwrap();
+    std::fs::create_dir_all(root.join("sub/deep")).unwrap();
     std::fs::create_dir(root.join(".git")).unwrap();
     let flagged = Some(PathBuf::from("named.env"));
     let fallen = DoctorDefaults::of(root.join("sub/deep"), flagged);
@@ -189,7 +192,7 @@ fn a_journal_moves_whole_whatever_its_name_and_tracking() {
 fn a_name_that_is_not_utf8_refuses_and_tracking_matches_bytes() {
     use std::os::unix::ffi::OsStrExt;
     let dir = repository_with_a_forge();
-    let root = dir.path();
+    let root = &dir.path().canonicalize().unwrap();
     let odd = root
         .join(".forge")
         .join(std::ffi::OsStr::from_bytes(b"journal-\xff.db"));
@@ -214,6 +217,61 @@ fn a_name_that_is_not_utf8_refuses_and_tracking_matches_bytes() {
     assert_eq!(
         state_moves(root).unwrap()[1],
         "mv '.forge/journal-\u{FFFD}.db' '.brokkr/state/journal-\u{FFFD}.db'"
+    );
+}
+
+/// A `.forge/` entry whose name holds a control character is valid UTF-8
+/// but no move line could name it on one display line, so it refuses by
+/// name, escaped, with no moves (round 634j's third finding).
+#[test]
+fn a_name_with_a_control_character_refuses() {
+    let dir = repository_with_a_forge();
+    let root = dir.path().canonicalize().unwrap();
+    for (name, escaped) in [
+        ("a\nb.db", r"a\nb.db"),
+        ("a\tb", r"a\tb"),
+        ("a\rb", r"a\rb"),
+    ] {
+        let odd = root.join(".forge").join(name);
+        std::fs::write(&odd, "journal").unwrap();
+        let refusal = refused(&root);
+        assert!(matches!(refusal, FolderError::ControlCharacter { ref path } if *path == odd));
+        assert_eq!(
+            refusal.to_string(),
+            format!(
+                "{}/.forge/{escaped} holds a control character, so no listed move could name it \
+                 on one line (decision 0083); nothing was opened: rename it",
+                root.display()
+            )
+        );
+        std::fs::remove_file(&odd).unwrap();
+    }
+}
+
+/// The old ignore entry is judged as the entry itself (round 634j's second
+/// finding): a link, even to nothing, goes by `rm`; a directory, which no
+/// `rm` removes, refuses by name with no moves.
+#[test]
+fn an_ignore_entry_that_is_not_a_file_or_a_link_refuses() {
+    let dir = repository_with_a_forge();
+    let root = dir.path().canonicalize().unwrap();
+    let ignore = root.join(".forge/.gitignore");
+    std::os::unix::fs::symlink(root.join("absent"), &ignore).unwrap();
+    assert_eq!(
+        state_moves(&root).unwrap()[1..3],
+        ["rm .forge/.gitignore", "rmdir .forge"]
+    );
+    std::fs::remove_file(&ignore).unwrap();
+    std::fs::create_dir_all(ignore.join("keep")).unwrap();
+    let refusal = refused(&root);
+    assert!(matches!(refusal, FolderError::IgnoreNotAFile { ref path } if *path == ignore));
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "{} is neither a file nor a link, so no listed move could remove it (decision 0083); \
+             nothing was opened: move it aside",
+            ignore.display()
+        )
     );
 }
 
@@ -298,7 +356,7 @@ fn refused(root: &Path) -> FolderError {
 #[test]
 fn a_forge_that_cannot_be_listed_refuses() {
     let dir = tempfile::tempdir().unwrap();
-    let forge = dir.path().join(".forge");
+    let forge = dir.path().canonicalize().unwrap().join(".forge");
     std::fs::create_dir(&forge).unwrap();
     std::fs::write(forge.join("forge.db"), "journal").unwrap();
     let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
@@ -325,7 +383,7 @@ fn a_forge_that_cannot_be_listed_refuses() {
 #[test]
 fn a_forge_that_is_a_file_refuses() {
     let dir = tempfile::tempdir().unwrap();
-    let forge = dir.path().join(".forge");
+    let forge = dir.path().canonicalize().unwrap().join(".forge");
     std::fs::write(&forge, "").unwrap();
     for shape in ["state-only", "root"] {
         let refusal = refused(dir.path());
@@ -371,7 +429,7 @@ fn a_linked_forge_with_a_tracked_ignore_file_is_removed_as_a_link() {
 #[test]
 fn a_repository_git_cannot_list_refuses_the_moves() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let root = &dir.path().canonicalize().unwrap();
     std::fs::write(root.join(".git"), "not a gitfile\n").unwrap();
     std::fs::create_dir(root.join(".forge")).unwrap();
     let out = std::process::Command::new("git")

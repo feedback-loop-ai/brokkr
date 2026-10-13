@@ -182,10 +182,15 @@ pub struct Layout {
 impl Layout {
     /// Walk up from `workspace` to the repository root ([`root`]); refuse
     /// a `.brokkr` below the root, and a root `.brokkr` that is not a
-    /// directory, before anything is opened. The walk is over the
-    /// absolute path as the process names it, as git's own is.
+    /// directory, before anything is opened. The walk is over the real
+    /// directory's ancestors, every link resolved, as the CLI's working
+    /// directory names them: a queued workspace that has since become a
+    /// link is judged where it now stands, never along the chain its old
+    /// name spells. A workspace that cannot be resolved refuses by name.
     pub fn discover(workspace: &Path) -> Result<Layout, PlacesError> {
-        let cwd = std::path::absolute(workspace).map_err(unreadable(workspace))?;
+        let cwd = std::path::absolute(workspace)
+            .and_then(std::fs::canonicalize)
+            .map_err(unreadable(workspace))?;
         let root = root(&cwd)?;
         for dir in cwd.ancestors().take_while(|dir| *dir != root) {
             if stands(dir, FOLDER)? {
@@ -220,7 +225,7 @@ impl Layout {
         self.kind
     }
 
-    /// The absolute directory the walk began in.
+    /// The real directory the walk began in, every link resolved.
     pub fn cwd(&self) -> &Path {
         &self.cwd
     }
@@ -363,7 +368,8 @@ fn stands(dir: &Path, name: &str) -> Result<bool, PlacesError> {
 /// The repository root above `cwd`, an absolute path: the first directory
 /// holding a `.git` entry, or `cwd` itself outside any repository. An
 /// entry the walk cannot read refuses, never taken as absent. The walk is
-/// over the path as it is named, as git's own is.
+/// over the path as it is named, which [`Layout::discover`] resolves
+/// first.
 pub fn root(cwd: &Path) -> Result<PathBuf, PlacesError> {
     for dir in cwd.ancestors() {
         let git = dir.join(".git");

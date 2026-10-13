@@ -44,6 +44,12 @@ pub(crate) enum FolderError {
     /// A `.forge/` entry whose name is not UTF-8, which no listed move
     /// could name.
     NotUtf8 { path: PathBuf },
+    /// A `.forge/` entry whose name holds a control character, which no
+    /// listed move could name on one line.
+    ControlCharacter { path: PathBuf },
+    /// The old layout's ignore entry that is neither a file nor a link,
+    /// which no listed `rm` could remove.
+    IgnoreNotAFile { path: PathBuf },
 }
 
 impl From<PlacesError> for FolderError {
@@ -91,6 +97,18 @@ impl fmt::Display for FolderError {
                 f,
                 "{} is not named in UTF-8, so no listed move could name it (decision 0083); \
                  nothing was opened: rename it",
+                path.display()
+            ),
+            FolderError::ControlCharacter { path } => write!(
+                f,
+                "{} holds a control character, so no listed move could name it on one line \
+                 (decision 0083); nothing was opened: rename it",
+                path.display().to_string().escape_debug()
+            ),
+            FolderError::IgnoreNotAFile { path } => write!(
+                f,
+                "{} is neither a file nor a link, so no listed move could remove it (decision \
+                 0083); nothing was opened: move it aside",
                 path.display()
             ),
         }
@@ -370,8 +388,8 @@ fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
 /// the link itself goes by `rm`, never `rmdir`, leaving the directory it
 /// names. The compile-derived moves are not listed (the operator's ruling
 /// of 2026-10-13). A `.forge` that is neither, entries that cannot be
-/// listed or named, or a repository git will not list refuse by name,
-/// with no list at all.
+/// listed or named, an ignore entry no `rm` could remove, or a repository
+/// git will not list refuse by name, with no list at all.
 fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
     let forge = Forge::at(root)?;
     let (names, tracked) = (forge_entries(root, forge)?, tracked(root)?);
@@ -391,12 +409,10 @@ fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
             moves.push(format!("{verb} {} {to}", word(&forged(member))));
         }
     }
-    let ignore = (IGNORE.to_string(), forged(IGNORE));
-    match (tracks(IGNORE), names.contains(&ignore.0)) {
-        (true, _) => {
-            moves.extend([vec![format!("git rm {}", ignore.1)], forge.unlinked()].concat())
-        }
-        (false, true) => moves.extend([vec![format!("rm {}", ignore.1)], forge.removal()].concat()),
+    let ignore = forged(IGNORE);
+    match (tracks(IGNORE), ignore_stands(root, &names)?) {
+        (true, _) => moves.extend([vec![format!("git rm {ignore}")], forge.unlinked()].concat()),
+        (false, true) => moves.extend([vec![format!("rm {ignore}")], forge.removal()].concat()),
         (false, false) => moves.extend(forge.removal()),
     }
     moves.push(format!("printf '{STATE}/\\n' > {FOLDER}/{IGNORE}"));
@@ -405,6 +421,22 @@ fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
 
 /// The old layout's ignore file, and the folder's.
 const IGNORE: &str = ".gitignore";
+
+/// Whether the old ignore file stands among `names`, the root's `.forge/`
+/// entries, judged as the entry itself, as the root's `.forge` is
+/// (ruling 4): a file or a link goes by `rm` or `git rm`; anything else
+/// refuses by name, with no moves, because no listed `rm` could remove it.
+fn ignore_stands(root: &Path, names: &[String]) -> Result<bool, FolderError> {
+    if !names.iter().any(|name| name == IGNORE) {
+        return Ok(false);
+    }
+    let path = root.join(forged(IGNORE));
+    let found = std::fs::symlink_metadata(&path).map_err(unreadable(&path))?;
+    match found.is_file() || found.is_symlink() {
+        true => Ok(true),
+        false => Err(FolderError::IgnoreNotAFile { path }),
+    }
+}
 
 /// What stands at the root's `.forge`, judged as the entry itself and
 /// never through a link (ruling 4).
@@ -484,8 +516,8 @@ fn journal_log(name: &str, names: &[String]) -> bool {
 
 /// The names directly under the root's `.forge/`, `forge` what stands
 /// there, sorted. A `.forge` whose entries cannot be listed refuses by
-/// name, never read as empty, and so does an entry whose name is not
-/// UTF-8, which no listed move could name.
+/// name, never read as empty, and so does an entry no listed move could
+/// name on one line ([`nameable`]).
 fn forge_entries(root: &Path, forge: Forge) -> Result<Vec<String>, FolderError> {
     let path = root.join(LIBRARY_STATE);
     let mut names = Vec::new();
@@ -494,13 +526,25 @@ fn forge_entries(root: &Path, forge: Forge) -> Result<Vec<String>, FolderError> 
     }
     for listed in std::fs::read_dir(&path).map_err(unreadable(&path))? {
         let name = listed.map_err(unreadable(&path))?.file_name();
-        let not_utf8 = |name| FolderError::NotUtf8 {
-            path: path.join(name),
-        };
-        names.push(name.into_string().map_err(not_utf8)?);
+        names.push(nameable(&path, name)?);
     }
     names.sort();
     Ok(names)
+}
+
+/// `name`, an entry of the `.forge` at `forge`, as a listed move names
+/// it on one line: a name that is not UTF-8, or that holds a control
+/// character such as a newline, a tab or a carriage return, refuses by
+/// name.
+fn nameable(forge: &Path, name: std::ffi::OsString) -> Result<String, FolderError> {
+    let path = forge.join(&name);
+    match name.into_string() {
+        Err(_) => Err(FolderError::NotUtf8 { path }),
+        Ok(name) if name.chars().any(char::is_control) => {
+            Err(FolderError::ControlCharacter { path })
+        }
+        Ok(name) => Ok(name),
+    }
 }
 
 /// The names directly under `.forge/` that git tracks, as git's bytes.
