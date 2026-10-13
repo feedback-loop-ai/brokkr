@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Step 1 — All realms</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F3EF}
+a{color:#1F5FAD}a:hover{color:#163F73}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:500;line-height:18px;white-space:nowrap}
+.park{background:#FDF0DC;color:#8A3F06}
+.run{background:#E3ECF8;color:#163F73}
+.ship{background:#E2F0E4;color:#22502B}
+.stop{background:#ECEAE3;color:#3D414B}
+.later{background:#F1F0EB;color:#5B6070;border:1px dashed #C9C6BC}
+.btn{font:inherit;font-size:14px;font-weight:500;min-height:40px;padding:0 14px;border-radius:8px;border:1px solid #C9C6BC;background:#FFFFFF;color:#16181D;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.cell{background:#FFFFFF;border:1px solid #E1DED5;border-radius:12px}
+.realm{display:flex;flex-direction:column;gap:10px;padding:16px 18px;text-decoration:none;color:#16181D}
+.k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5B6070}
+.mini{font-size:12px;color:#5B6070;line-height:18px;display:flex;flex-direction:column;gap:3px}
+.mini strong{color:#16181D;font-weight:500}
+.cite{font-size:13px;background:#EEF2F8;color:#163F73;border-radius:4px;padding:1px 6px;text-decoration:none}
+.side a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;font-size:14px;text-decoration:none;color:#C3C7D0}
+.side a.on{background:#2C2F37;color:#FFFFFF}
+.ico{width:18px;height:18px;border-radius:5px;border:1.5px solid currentColor;box-sizing:border-box;position:relative;flex:0 0 18px}
+.dot{position:absolute;right:-7px;top:-7px;min-width:16px;height:16px;border-radius:8px;background:#D98A2B;color:#16181D;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 3px;box-sizing:border-box}
+</style>
+</helmet>
+<div style="font-family:'IBM Plex Sans',system-ui,sans-serif;color:#16181D;min-height:1000px;background:#F4F3EF;display:flex;flex-wrap:wrap">
+
+  <nav aria-label="dsh panels" class="side" style="flex:0 0 200px;background:#1B1D22;padding:16px 12px;box-sizing:border-box;display:flex;flex-direction:column;gap:4px">
+    <div style="font-weight:600;font-size:15px;color:#FFFFFF;padding:0 10px 14px">dsh</div>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Conversations</a>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Schedule</a>
+    <a href="#" class="on"><span class="ico" aria-hidden="true"><span class="dot">4</span></span>Brokkr</a>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Plugins</a>
+    <div style="margin-top:auto;font-size:12px;color:#9BA0AD;padding:10px;line-height:17px">Brokkr panel · this machine<br>live · updated 4s ago</div>
+  </nav>
+
+  <div style="flex:999 1 900px;min-width:0;display:flex;flex-direction:column">
+    <nav aria-label="Brokkr views" style="background:#FFFFFF;border-bottom:1px solid #E4E2DB;padding:0 24px;display:flex;gap:18px;align-items:center;font-size:14px;flex-wrap:wrap;min-height:48px">
+      <span style="font-weight:600;font-size:16px;margin-right:8px">Brokkr</span>
+      <a href="#" style="text-decoration:none;color:#16181D;font-weight:600;border-bottom:2px solid #16181D;padding:13px 2px">Realms</a>
+      <a href="#" style="text-decoration:none;color:#5B6070;padding:13px 2px">Analytics</a>
+      <span style="margin-left:auto;font-size:13px;color:#5B6070">9 running · <strong style="color:#8A3F06">4 waiting on you</strong> · 1 quiet</span>
+    </nav>
+
+    <div style="flex:1;display:flex;flex-wrap:wrap;min-height:0">
+      <main style="flex:999 1 620px;min-width:0;padding:22px 24px;box-sizing:border-box;display:flex;flex-direction:column;gap:18px">
+
+        <section aria-label="Realms" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px">
+          <a href="#" class="cell realm" style="border:2px solid #B45309">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:18px;font-weight:600">brokkr</span><span class="chip park">3 need you</span></div>
+            <div class="mini">
+              <span><strong>Encrypt the token store</strong> · held at security review · 5h</span>
+              <span><strong>Search latency targets</strong> · questions after 5 clarify rounds · 2h</span>
+              <span><strong>Port the probe to ruzstd</strong> · out of attempts · 40m</span>
+            </div>
+            <div style="font-size:12px;color:#5B6070">4 running · shipped 24h: 3 · stopped: 1 · <span style="color:#1F5FAD">open →</span></div>
+          </a>
+          <a href="#" class="cell realm">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:18px;font-weight:600">lanetally</span><span class="chip stop">1 quiet</span></div>
+            <div class="mini">
+              <span><strong>Speckit import</strong> · no activity for 3h · last step: specify</span>
+              <span><strong>Lane detection v2</strong> · implementing · 12m</span>
+            </div>
+            <div style="font-size:12px;color:#5B6070">1 running · shipped 24h: 1 · <span style="color:#1F5FAD">open →</span></div>
+          </a>
+          <a href="#" class="cell realm">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:18px;font-weight:600">looper</span><span class="chip park">1 needs you</span></div>
+            <div class="mini">
+              <span><strong>Retry budget per seat</strong> · held at design: architect failed twice</span>
+              <span><strong>Journal compaction</strong> · verifying</span>
+            </div>
+            <div style="font-size:12px;color:#5B6070">2 running · shipped 24h: 2 · <span style="color:#1F5FAD">open →</span></div>
+          </a>
+          <a href="#" class="cell realm">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:18px;font-weight:600">xbox-inference</span><span class="chip run">all moving</span></div>
+            <div class="mini">
+              <span><strong>KV-cache paging</strong> · implementing · 25m</span>
+              <span><strong>Bench harness</strong> · researching</span>
+              <span><strong>Quantised model loader</strong> · shipped 6h ago</span>
+            </div>
+            <div style="font-size:12px;color:#5B6070">2 running · 1 queued · <span style="color:#1F5FAD">open →</span></div>
+          </a>
+        </section>
+
+        <section aria-label="Queue" class="cell" style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+            <h2 style="margin:0;font-size:15px;font-weight:600">Queued runs</h2>
+            <span style="font-size:13px;color:#5B6070">what's waiting to start, and why Brokkr would hold it back right now</span>
+          </div>
+          <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,2.6fr);gap:10px 16px;align-items:center;font-size:14px">
+            <span class="k">Run</span><span class="k">Route</span><span class="k">Brokkr says</span>
+            <span><strong>Weekly research sweep</strong><br><span style="font-size:12px;color:#5B6070">brokkr · research · queued 20m</span></span>
+            <span>local · spark-glm</span>
+            <span><span class="chip ship">could start</span> <span style="color:#3D414B">route has room: 1 of 2 runs</span></span>
+            <span><strong>Perf regression hunt</strong><br><span style="font-size:12px;color:#5B6070">xbox-inference · fast · queued 1h</span></span>
+            <span>cloud · claude</span>
+            <span><span class="chip park">waiting</span> <span style="color:#3D414B">route full: 3 of 3 runs on this machine</span></span>
+            <span><strong>Ledger export v2</strong><br><span style="font-size:12px;color:#5B6070">looper · self-build · queued 3h</span></span>
+            <span>cloud · codex</span>
+            <span><span class="chip stop">held</span> <span style="color:#3D414B">waits for “Journal compaction” to finish · held by valentin</span></span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:#FAFAF7;border:1px dashed #C9C6BC;border-radius:10px;font-size:13px;color:#3D414B">
+            <span class="chip later">coming later</span>
+            Starting queued runs from here comes with Brokkr's dispatcher. Today, start them with <code style="font-family:'IBM Plex Mono',monospace;font-size:12px">brokkr run</code>.
+          </div>
+        </section>
+      </main>
+
+      <aside aria-label="Ask Brokkr" style="flex:1 1 320px;max-width:380px;min-width:0;background:#FFFFFF;border-left:1px solid #E4E2DB;display:flex;flex-direction:column">
+        <div style="padding:14px 18px;border-bottom:1px solid #E4E2DB">
+          <div style="font-weight:600;font-size:15px">Ask Brokkr</div>
+          <div style="font-size:12px;color:#5B6070;line-height:17px;margin-top:2px">Reads every realm. It can explain and suggest; you press the buttons.</div>
+        </div>
+        <div style="flex:1;padding:18px;display:flex;flex-direction:column;gap:14px;font-size:14px;line-height:21px">
+          <div style="align-self:flex-end;background:#F1F0EB;border-radius:12px;padding:10px 14px;max-width:280px">Where should I spend the next hour?</div>
+          <div>Start with <strong>brokkr</strong>. Two of its three waiting runs can move with one Retry each. Then <strong>looper</strong>: its design step failed twice, so it needs your judgement. <a class="cite" href="#">brokkr runs</a> <a class="cite" href="#">looper ruling</a></div>
+          <div style="align-self:flex-end;background:#F1F0EB;border-radius:12px;padding:10px 14px;max-width:280px">Why is the perf hunt not starting?</div>
+          <div>Three Claude runs are already going on this machine, and the ceiling is three. It will be admitted when one finishes. <a class="cite" href="#">admission verdict</a></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn" type="button" style="min-height:36px;font-size:13px">Open brokkr</button>
+            <button class="btn" type="button" style="min-height:36px;font-size:13px">Show Speckit import</button>
+          </div>
+        </div>
+        <div style="margin:0 14px 10px;padding:10px 12px;background:#FAFAF7;border:1px solid #E4E2DB;border-radius:10px;font-size:12px;line-height:17px;color:#3D414B">
+          <strong style="color:#16181D">Muninn's last review</strong> · 9h ago · flagged 2 parked runs and 1 open finding. <a href="#">Read it</a>
+        </div>
+        <div style="padding:12px 18px 14px;border-top:1px solid #E4E2DB">
+          <label for="askr" style="position:absolute;left:-9999px">Ask Brokkr</label>
+          <input id="askr" placeholder="Ask about any realm…" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;border:1px solid #C9C6BC;border-radius:10px;padding:11px 12px">
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

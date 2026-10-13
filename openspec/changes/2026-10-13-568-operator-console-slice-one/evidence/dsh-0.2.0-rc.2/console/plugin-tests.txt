@@ -1,0 +1,59 @@
+$ date -Is
+2026-10-13T10:54:36+03:00
+$ node --version
+v22.23.2
+$ npm test -- --test-reporter=spec
+✔ the panel-list icon counts the runs that need the operator across every hearth (8.103102ms)
+✔ the Realms header reads the same count (5.060864ms)
+✔ only admitted commands are buttons, named for their effect; the rest is under "Not available yet" with its reason (7.516485ms)
+✔ clarify’s buttons read Retry clarify, and Retry implement for an implement park (8.379119ms)
+✔ a run is led by its title, and its id appears only under "Details for audit" (3.708816ms)
+✔ a press with no reason sends nothing and asks for one (12.609276ms)
+✔ a press carries its command id and the head the operator saw, and paints "not sent" when the run moved (14.747891ms)
+✔ a refusal is painted as Brokkr’s own words (10.170323ms)
+✔ the two assistant panels are titled Ask Brokkr and Ask about this run (4.260617ms)
+✔ Analytics ends with the readout’s "not recorded yet" list, and a realm with no reporting seat reads "not reported" (9.069997ms)
+✔ two runs whose titles read alike are told apart by more of their feature, and the run header says the same (2.193354ms)
+✔ a timeline row does not repeat its badge’s words beside the badge (1.965335ms)
+✔ "Where runs wait for you" says so when nothing waited, and the assistant panels offer no box to type in (8.049918ms)
+✔ runs alike for 20 words of their feature are told apart by the time each started, said once (18.200364ms)
+✔ a head that moved since the card was opened is not sent, and the fresh view comes back (61.767177ms)
+✔ a repeated command id gets the first answer and sends nothing (82.168897ms)
+✔ retry is followed by resume, under the configured recipe, in the run’s worktree (383.924114ms)
+✔ stop is not followed by resume (89.59539ms)
+✔ conclude is not followed by resume (88.19376ms)
+✔ an empty reason is refused before anything is read or sent (1.217493ms)
+✔ a verb that refuses answers with its own words, verbatim, and nothing is retried (83.676885ms)
+✔ a command the fresh view refuses is answered with Brokkr’s text and never invoked (39.487686ms)
+✔ a lost answer is reconciled from the record by command id, and nothing is resent (1119.865304ms)
+✔ an answer past the output bound is never done: with no trace in the record it is not sent (113.740067ms)
+✔ a timeout whose record cannot be read stays checking, and a repeat re-reads without resending (2103.035784ms)
+✔ a retry is not sent when no bundle names what to resume under (40.555891ms)
+✔ a run the fleet does not list is not sent and nothing is read (0.98847ms)
+✔ every route answers DSH's 401 and runs nothing (4.515229ms)
+✔ the upgrade answers DSH's 401 before any handshake (1.014777ms)
+✔ every route answers DSH's 403 and runs nothing (0.875837ms)
+✔ the upgrade answers DSH's 403 before any handshake (0.94467ms)
+✔ past the fence, a command with an empty reason is answered 400 and sends nothing (4.034651ms)
+✔ an admitted upgrade completes the RFC 6455 handshake (1.595218ms)
+✔ a run is re-read only when its head moved, and only for the client that has it open (331.403697ms)
+✔ the overview’s readouts go only to a client on the Realms view (304.508584ms)
+✔ a client that reconnects receives the current snapshot, its open run included (204.617535ms)
+✔ brokkr runs at another view version is refused, not painted (2.187494ms)
+✔ brokkr inspect at another view version is refused, not painted (0.32278ms)
+✔ brokkr analytics at another view version is refused, not painted (0.411752ms)
+✔ a one-hearth listing is one hearth with no journal to name (1.079951ms)
+✔ a field the console paints that is missing refuses the whole readout (0.39204ms)
+✔ an operator event’s recorded reason is read from its payload, and nothing else of it (0.751165ms)
+✔ a missing state directory is made closed to others and accepted (1.569104ms)
+✔ a state directory open to others, or a symlink standing in for one, is refused (0.680991ms)
+✔ a log path planted as a symlink is not written through, and nothing is started (0.791161ms)
+✔ in a private directory the log is written and the run is started (42.661743ms)
+ℹ tests 46
+ℹ suites 0
+ℹ pass 46
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4316.40603

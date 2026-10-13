@@ -200,12 +200,9 @@ pub(crate) fn operator(
             // `run_not_awaiting_operator` for a command the run
             // was never in a state to take — so this line states
             // the condition and passes the word through rather
-            // than paraphrasing it into one story.
-            eprintln!(
-                "refused operator {command} ({reason}): the run is not in a state \
-                 this command can apply to; the refusal is journaled. Read it with: \
-                 brokkr inspect --run {run}"
-            );
+            // than paraphrasing it into one story. The view offers the
+            // same words before the command is typed (#568).
+            eprintln!("{}", brokkr_view::operator_refusal(&command, &reason, &run));
             Ok(Exit::Failed.into())
         }
     }

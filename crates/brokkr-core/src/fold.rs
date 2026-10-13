@@ -333,6 +333,22 @@ pub fn acceptance_refusal(state: &RunState, command: OperatorCommand) -> Option<
     }
 }
 
+/// The status a run's conclusion already reached, or `None` for a live
+/// run `conclude` would close. The one rule `conclude` refuses by and the
+/// view reads to say so before the verb is typed: a second `run/stopped`
+/// would fail the fold as an event after terminal.
+pub fn concluded(state: &RunState) -> Option<Status> {
+    terminal(state.status).then_some(state.status)
+}
+
+/// The words `conclude` refuses a concluded run with, the run named in them.
+pub fn concluded_text(run_id: &str, status: Status) -> String {
+    format!(
+        "run '{run_id}' is already concluded ({}); conclude appends nothing",
+        status.as_str()
+    )
+}
+
 fn payload_str(event: &EventEnvelope, field: &str) -> Result<String, FoldError> {
     event
         .payload

@@ -170,6 +170,21 @@ web cell from the adapter and the agent library.
 | `lanetally` | As `claude` | As `claude`, and the record carries `capture: lanetally` | Yes, the harness's list price | As `claude` | No at the default minimum: the adapter declares no egress, which reads `uncontracted` | Not switched off: LaneTally's native inventory is unmeasured, so no denial is composed, and whether Claude Code's controls hold through the wrapper is unmeasured |
 <!-- harness-behaviour:end -->
 
+## The DSH operator console
+
+The console plugin in `extensions/dsh/brokkr-console/` targets DSH
+`0.2.0-rc.2` and is installed by hand into a DSH profile
+([guide](guides/dsh-console.md)). It paints `brokkr runs`, `inspect`,
+`queue list`, `muninn list` and `analytics` from their `--json` output, and
+presses `brokkr operator retry` and `stop`, `brokkr resume` and
+`brokkr conclude`, after re-reading the run's head. It does not answer
+clarify questions, talk to a reviewer, dismiss findings on a parked run,
+hold a parked run or start a queued run; it shows those as not available
+yet, with Brokkr's reason. Its assistant panels are not connected to DSH's
+model, it does not open a spec in DSH's Files sidebar, and it does not tell
+a quiet run from a running one
+([#568](https://github.com/feedback-loop-ai/brokkr/issues/568)).
+
 ## Recipes that need a local route
 
 `night-shift` and `wager-harness-dsh` run only on a host serving the

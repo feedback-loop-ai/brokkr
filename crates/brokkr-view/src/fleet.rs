@@ -130,7 +130,7 @@ const STALE_AFTER_SECONDS: i64 = ATTEMPT_DEADLINE_SECONDS + STALE_MARGIN_SECONDS
 /// the policy table's hard stop. A run stopped anywhere else was stopped
 /// by an operator: the engine appends `run/stopped` only there and on an
 /// accepted operator stop.
-const STOP_PHASE: &str = "stop";
+pub(crate) const STOP_PHASE: &str = "stop";
 
 const ELLIPSIS: char = '…';
 
@@ -523,7 +523,7 @@ fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
     }
 }
 
-fn standing_of(state: &RunState) -> Standing {
+pub(crate) fn standing_of(state: &RunState) -> Standing {
     match state.status {
         Status::Running => Standing::Running,
         Status::AwaitingOperator => Standing::Parked,
@@ -535,7 +535,7 @@ fn standing_of(state: &RunState) -> Standing {
 
 /// The last ruling's rule id and the phase that ruled, when it names a
 /// rule at all.
-fn last_rule(state: &RunState) -> Option<(&str, Option<&str>)> {
+pub(crate) fn last_rule(state: &RunState) -> Option<(&str, Option<&str>)> {
     let decision = state.last_decision.as_ref()?;
     Some((decision.rule_id.present()?, Some(decision.from.as_str())))
 }
@@ -543,7 +543,7 @@ fn last_rule(state: &RunState) -> Option<(&str, Option<&str>)> {
 /// The last ruling routed nowhere, so it is what parked the run — the
 /// fold's own test for a rule-driven park. A park on an exhausted
 /// attempt limit or a lost attempt follows a ruling that routed on.
-fn ruling_parked(state: &RunState) -> bool {
+pub(crate) fn ruling_parked(state: &RunState) -> bool {
     ruled(state.last_decision.as_ref()).is_some_and(|decision| decision.next.present().is_none())
 }
 
@@ -677,4 +677,4 @@ pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

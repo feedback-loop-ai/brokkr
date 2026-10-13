@@ -288,6 +288,8 @@ pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMa
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
 pub fn brokkr_core::fold::acceptance_refusal(&brokkr_core::fold::RunState, brokkr_core::fold::OperatorCommand) -> core::option::Option<brokkr_core::fold::Refusal>
 pub fn brokkr_core::fold::computed_inputs(&brokkr_core::fold::RunState, &str, &str, bool) -> serde_json::map::Map<alloc::string::String, serde_json::value::Value>
+pub fn brokkr_core::fold::concluded(&brokkr_core::fold::RunState) -> core::option::Option<brokkr_core::fold::Status>
+pub fn brokkr_core::fold::concluded_text(&str, brokkr_core::fold::Status) -> alloc::string::String
 pub fn brokkr_core::fold::fold(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub fn brokkr_core::fold::fold_onto(brokkr_core::fold::RunState, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<brokkr_core::fold::RunState, brokkr_core::fold::FoldError>
 pub mod brokkr_core::gate_moved_head
@@ -753,6 +755,7 @@ pub brokkr_core::residual::ResidualPhase::Review
 pub brokkr_core::residual::ResidualPhase::Verify
 impl brokkr_core::residual::ResidualPhase
 pub fn brokkr_core::residual::ResidualPhase::as_str(self) -> &'static str
+pub fn brokkr_core::residual::ResidualPhase::named(&str) -> core::option::Option<brokkr_core::residual::ResidualPhase>
 pub struct brokkr_core::residual::Residual<'a>
 pub brokkr_core::residual::Residual::claim: brokkr_core::residual::Claim
 pub brokkr_core::residual::Residual::phase: brokkr_core::residual::ResidualPhase

@@ -1,0 +1,14 @@
+$ date -Is
+2026-10-13T07:56:42+03:00
+$ node browser/drive.mjs 'http://127.0.0.1:38117/?token=<launch token>' ~/snap/firefox/common/brokkr-probe-ffprofile shot
+2026-10-13T04:56:45.072Z goto http://127.0.0.1:38117/?token=<redacted>
+2026-10-13T04:56:46.584Z landed http://127.0.0.1:38117/
+2026-10-13T04:56:46.701Z sidebar.panellist icon present: true
+2026-10-13T04:56:46.707Z panel row element label/aria: "Brokkr probe"
+2026-10-13T04:56:48.315Z dismissed modal via button: "Continue"
+2026-10-13T04:56:49.294Z main panel mounted: true
+2026-10-13T04:56:49.356Z DOM brokkr-probe-icon[active=true]: B
+2026-10-13T04:56:49.356Z DOM brokkr-probe-page: Brokkr console probeping: {"probe":"brokkr-console-probe","route":"/brokkr-probe/ping","pid":231273,"at":"2026-10-13T04:56:49.187Z"}ws: hello from brokkr-console-probe | echo:from-main-panel
+2026-10-13T04:56:49.356Z DOM brokkr-probe-ping: ping: {"probe":"brokkr-console-probe","route":"/brokkr-probe/ping","pid":231273,"at":"2026-10-13T04:56:49.187Z"}
+2026-10-13T04:56:49.357Z DOM brokkr-probe-ws: ws: hello from brokkr-console-probe | echo:from-main-panel
+exit=0

@@ -1,6 +1,6 @@
 //! Why `conclude` refused a run, and the words each refusal prints.
 
-use brokkr_core::fold::{Refusal, Status};
+use brokkr_core::fold::{concluded_text, Refusal, Status};
 
 use super::EngineError;
 
@@ -23,10 +23,7 @@ impl ConcludeRefusal {
     /// The two that were once `engine:` errors keep that prefix.
     pub(in crate::engine) fn text(&self, run_id: &str) -> String {
         match self {
-            ConcludeRefusal::AlreadyConcluded { status } => format!(
-                "run '{run_id}' is already concluded ({}); conclude appends nothing",
-                status.as_str()
-            ),
+            ConcludeRefusal::AlreadyConcluded { status } => concluded_text(run_id, *status),
             ConcludeRefusal::StopRefused { refusal } => format!(
                 "engine: conclude: run '{run_id}' refused the stop ({}); the journal \
                  moved beneath the conclusion, so something may still be driving this run — \

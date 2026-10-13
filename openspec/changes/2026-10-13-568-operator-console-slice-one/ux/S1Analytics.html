@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Step 1 — Analytics</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F3EF}
+a{color:#1F5FAD}a:hover{color:#163F73}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:500;line-height:18px;white-space:nowrap}
+.later{background:#F1F0EB;color:#5B6070;border:1px dashed #C9C6BC}
+.cell{background:#FFFFFF;border:1px solid #E1DED5;border-radius:12px}
+.k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5B6070}
+.tile{padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+.num{font-size:28px;font-weight:600;line-height:34px;font-variant-numeric:tabular-nums}
+.d{font-size:12px;color:#5B6070}
+.up{color:#22502B}.dn{color:#8A3F06}
+.fchip{font:inherit;font-size:13px;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid #C9C6BC;background:#FFFFFF;color:#16181D;cursor:pointer}
+.fchip.on{background:#16181D;color:#FFFFFF;border-color:#16181D}
+.ax{font-size:11px;fill:#5B6070}
+.grid{stroke:#EEECE6;stroke-width:1}
+.lbl{font-size:11px;fill:#3D414B}
+td,th{padding:7px 10px;text-align:left;border-bottom:1px solid #EEECE6;font-size:13px;font-variant-numeric:tabular-nums}
+th{font-weight:500;color:#5B6070;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+td.n,th.n{text-align:right}
+.side a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;font-size:14px;text-decoration:none;color:#C3C7D0}
+.side a.on{background:#2C2F37;color:#FFFFFF}
+.ico{width:18px;height:18px;border-radius:5px;border:1.5px solid currentColor;box-sizing:border-box;position:relative;flex:0 0 18px}
+.dot{position:absolute;right:-7px;top:-7px;min-width:16px;height:16px;border-radius:8px;background:#D98A2B;color:#16181D;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 3px;box-sizing:border-box}
+</style>
+</helmet>
+<div style="font-family:'IBM Plex Sans',system-ui,sans-serif;color:#16181D;min-height:1000px;background:#F4F3EF;display:flex;flex-wrap:wrap">
+
+  <nav aria-label="dsh panels" class="side" style="flex:0 0 200px;background:#1B1D22;padding:16px 12px;box-sizing:border-box;display:flex;flex-direction:column;gap:4px">
+    <div style="font-weight:600;font-size:15px;color:#FFFFFF;padding:0 10px 14px">dsh</div>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Conversations</a>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Schedule</a>
+    <a href="#" class="on"><span class="ico" aria-hidden="true"><span class="dot">4</span></span>Brokkr</a>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Plugins</a>
+  </nav>
+
+  <div style="flex:999 1 900px;min-width:0;display:flex;flex-direction:column">
+    <nav aria-label="Brokkr views" style="background:#FFFFFF;border-bottom:1px solid #E4E2DB;padding:0 24px;display:flex;gap:18px;align-items:center;font-size:14px;flex-wrap:wrap;min-height:48px">
+      <span style="font-weight:600;font-size:16px;margin-right:8px">Brokkr</span>
+      <a href="#" style="text-decoration:none;color:#5B6070;padding:13px 2px">Realms</a>
+      <a href="#" style="text-decoration:none;color:#16181D;font-weight:600;border-bottom:2px solid #16181D;padding:13px 2px">Analytics</a>
+      <span style="color:#5B6070">· what the runs did, from their records</span>
+      <span style="margin-left:auto;font-size:12px;color:#5B6070">sample numbers</span>
+    </nav>
+
+    <div style="flex:1;width:100%;max-width:1200px;margin:0 auto;padding:20px 24px 28px;box-sizing:border-box;display:flex;flex-direction:column;gap:16px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span class="k" style="margin-right:4px">Range</span>
+        <button class="fchip" type="button">24h</button><button class="fchip on" type="button">7d</button><button class="fchip" type="button">30d</button>
+        <span class="k" style="margin:0 4px 0 14px">Realm</span>
+        <button class="fchip on" type="button">All</button><button class="fchip" type="button">brokkr</button><button class="fchip" type="button">lanetally</button><button class="fchip" type="button">looper</button><button class="fchip" type="button">xbox-inference</button>
+      </div>
+
+      <section aria-label="Headline numbers" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px">
+        <div class="cell tile"><span class="k">Shipped · 7d</span><span class="num">29</span><span class="d"><span class="up">▲ 6</span> vs previous 7d</span></div>
+        <div class="cell tile"><span class="k">Median start → end</span><span class="num">4h 12m</span><span class="d">includes time parked</span></div>
+        <div class="cell tile" style="border-color:#D98A2B"><span class="k">Waiting on you</span><span class="num" style="color:#8A3F06">19.4h</span><span class="d">61% of all parked time</span></div>
+        <div class="cell tile"><span class="k">Stopped by a rule</span><span class="num">4</span><span class="d">3 by ARCH-FAIL-TWICE</span></div>
+        <div class="cell tile"><span class="k">Reported cost</span><span class="num">$38.20</span><span class="d">Claude only · Codex and dsh report none</span></div>
+      </section>
+
+      <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px">
+        <figure class="cell" style="margin:0;padding:16px 18px;display:flex;flex-direction:column;gap:8px">
+          <figcaption style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><strong style="font-size:14px">Runs finished per day</strong><span class="d">shipped vs stopped</span>
+            <span style="margin-left:auto;display:flex;gap:10px;font-size:12px;color:#3D414B"><span><span aria-hidden="true" style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#1F5FAD"></span> shipped</span><span><span aria-hidden="true" style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#8E8B82"></span> stopped</span></span>
+          </figcaption>
+          <svg viewBox="0 0 520 170" width="100%" height="170" role="img" aria-label="Bar chart of runs shipped and stopped per day over 7 days">
+            <line class="grid" x1="36" y1="20" x2="510" y2="20"></line><text class="ax" x="30" y="24" text-anchor="end">8</text>
+            <line class="grid" x1="36" y1="80" x2="510" y2="80"></line><text class="ax" x="30" y="84" text-anchor="end">4</text>
+            <line x1="36" y1="140" x2="510" y2="140" stroke="#C9C6BC"></line><text class="ax" x="30" y="144" text-anchor="end">0</text>
+            <g fill="#1F5FAD"><rect x="54" y="80" width="26" height="60" rx="3"></rect><rect x="120" y="65" width="26" height="75" rx="3"></rect><rect x="186" y="95" width="26" height="45" rx="3"></rect><rect x="252" y="50" width="26" height="90" rx="3"></rect><rect x="318" y="50" width="26" height="90" rx="3"></rect><rect x="384" y="95" width="26" height="45" rx="3"></rect><rect x="450" y="65" width="26" height="75" rx="3"></rect></g>
+            <g fill="#8E8B82"><rect x="84" y="125" width="14" height="15" rx="3"></rect><rect x="216" y="110" width="14" height="30" rx="3"></rect><rect x="348" y="125" width="14" height="15" rx="3"></rect></g>
+            <g class="ax"><text x="73" y="160" text-anchor="middle">Tue</text><text x="139" y="160" text-anchor="middle">Wed</text><text x="205" y="160" text-anchor="middle">Thu</text><text x="271" y="160" text-anchor="middle">Fri</text><text x="337" y="160" text-anchor="middle">Sat</text><text x="403" y="160" text-anchor="middle">Sun</text><text x="469" y="160" text-anchor="middle">Mon</text></g>
+          </svg>
+        </figure>
+
+        <figure class="cell" style="margin:0;padding:16px 18px;display:flex;flex-direction:column;gap:8px">
+          <figcaption style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><strong style="font-size:14px">Where runs wait for you</strong><span class="d">hours parked, by step</span></figcaption>
+          <svg viewBox="0 0 520 170" width="100%" height="170" role="img" aria-label="Horizontal bars: security review 11.8 hours, clarify 4.1, design 2.2, implement 1.3">
+            <g class="lbl" text-anchor="end"><text x="106" y="26">security review</text><text x="106" y="60">clarify</text><text x="106" y="94">design</text><text x="106" y="128">implement</text></g>
+            <g fill="#1F5FAD"><rect x="116" y="14" width="320" height="18" rx="3"></rect><rect x="116" y="48" width="111" height="18" rx="3"></rect><rect x="116" y="82" width="60" height="18" rx="3"></rect><rect x="116" y="116" width="35" height="18" rx="3"></rect></g>
+            <g class="lbl"><text x="442" y="27">11.8h · 7 runs</text><text x="233" y="61">4.1h · 3</text><text x="182" y="95">2.2h · 2</text><text x="157" y="129">1.3h · 1</text></g>
+          </svg>
+        </figure>
+
+        <figure class="cell" style="margin:0;padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+          <figcaption style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><strong style="font-size:14px">Rework</strong><span class="d">how often work was sent back</span></figcaption>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+            <div><div class="num" style="font-size:22px">1.4</div><div class="d">implement visits per run</div></div>
+            <div><div class="num" style="font-size:22px">11 of 29</div><div class="d">sent back by review</div></div>
+            <div><div class="num" style="font-size:22px">82%</div><div class="d">pass review on the 2nd try</div></div>
+          </div>
+        </figure>
+
+        <figure class="cell" style="margin:0;padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+          <figcaption style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><strong style="font-size:14px">Who did the work</strong><span class="d">share of step attempts, by model</span></figcaption>
+          <div style="display:flex;height:22px;border-radius:6px;overflow:hidden" role="img" aria-label="Claude 46 percent, GPT flash 31 percent, local models 23 percent">
+            <span style="width:46%;background:#1F5FAD"></span><span style="width:31%;background:#5A8BC9"></span><span style="width:23%;background:#A9C3E3"></span>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#3D414B"><span>Claude 46%</span><span>GPT flash 31% · reviews</span><span>local (spark) 23% · research, triage</span></div>
+        </figure>
+      </section>
+
+      <section class="cell" style="padding:14px 18px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><strong style="font-size:14px">By realm</strong><span class="d">click a row to open the realm</span></div>
+        <div style="overflow-x:auto">
+          <table style="border-collapse:collapse;width:100%;min-width:680px">
+            <thead><tr><th scope="col">Realm</th><th scope="col" class="n">Shipped</th><th scope="col" class="n">Stopped</th><th scope="col" class="n">Median start → end</th><th scope="col" class="n">Waiting on you</th><th scope="col" class="n">Reported cost</th></tr></thead>
+            <tbody>
+              <tr><td><strong>brokkr</strong></td><td class="n">14</td><td class="n">2</td><td class="n">4h 40m</td><td class="n" style="color:#8A3F06">11.2h</td><td class="n">$21.40</td></tr>
+              <tr><td><strong>looper</strong></td><td class="n">6</td><td class="n">1</td><td class="n">3h 50m</td><td class="n">3.1h</td><td class="n">$9.10</td></tr>
+              <tr><td><strong>lanetally</strong></td><td class="n">4</td><td class="n">0</td><td class="n">2h 10m</td><td class="n">1.4h</td><td class="n">$7.70</td></tr>
+              <tr><td><strong>xbox-inference</strong></td><td class="n">5</td><td class="n">1</td><td class="n">5h 05m</td><td class="n">1.9h</td><td class="n">not reported</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:#FAFAF7;border:1px dashed #C9C6BC;border-radius:10px;font-size:13px;color:#3D414B">
+        <span class="chip later">not recorded yet</span>
+        machine capacity over time · cost limits · costs for Codex and dsh · reasons findings were dismissed
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

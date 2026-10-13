@@ -6,12 +6,14 @@
 //! The handlers are grouped by what they do to a run:
 //! - [`delivery`] starts, continues or ends one;
 //! - [`queue`] keeps the runs waiting to start (decision 0068);
-//! - [`readouts`] reads journals and the world, and writes nothing;
+//! - [`readouts`] reads journals and the world, and writes nothing, as
+//!   [`analytics`] does across every hearth;
 //! - [`exchange`] moves a run's evidence across a machine's edge: anchors,
 //!   exports, imports and the Looper bridge;
 //! - [`setup`] prepares the workspace, its libraries and its drivers;
 //! - [`probe`] measures an agent CLI outside every run.
 
+pub(super) mod analytics;
 pub(super) mod delivery;
 pub(super) mod exchange;
 pub(super) mod probe;

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Step 1 — One realm, one run</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F3EF}
+a{color:#1F5FAD}a:hover{color:#163F73}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:500;line-height:18px;white-space:nowrap}
+.park{background:#FDF0DC;color:#8A3F06}
+.run{background:#E3ECF8;color:#163F73}
+.ship{background:#E2F0E4;color:#22502B}
+.stop{background:#ECEAE3;color:#3D414B}
+.later{background:#F1F0EB;color:#5B6070;border:1px dashed #C9C6BC}
+.btn{font:inherit;font-size:14px;font-weight:500;min-height:44px;padding:0 14px;border-radius:8px;border:1px solid #C9C6BC;background:#FFFFFF;color:#16181D;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.btn.primary{background:#1F5FAD;border-color:#1F5FAD;color:#FFFFFF}
+.btn[disabled]{background:#F6F5F1;color:#8A8E98;border-style:dashed;cursor:not-allowed}
+.kbd{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;border:1px solid currentColor;border-radius:4px;padding:0 4px;opacity:.75}
+.q{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;border:1px solid transparent;background:transparent;text-align:left;font:inherit;color:#16181D;cursor:pointer;width:100%;box-sizing:border-box}
+.q.on{background:#FFFFFF;border-color:#1F5FAD;box-shadow:inset 3px 0 0 #1F5FAD}
+.q .t{font-size:14px;font-weight:500;line-height:20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.q .s{font-size:12px;color:#5B6070;line-height:16px}
+.grp{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#5B6070;padding:14px 12px 6px}
+.node{position:absolute;width:100px;height:52px;box-sizing:border-box;background:#FFFFFF;border:1px solid #CFCCC2;border-radius:10px;padding:7px 10px;display:flex;flex-direction:column;gap:2px;font-size:13px;line-height:16px}
+.node .e{font-size:11px;color:#5B6070;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node.done{border-color:#7FA887}
+.node.parked{border:2px solid #B45309;background:#FFF8EE}
+.node.todo{border-style:dashed;color:#5B6070}
+.cite{font-size:13px;background:#EEF2F8;color:#163F73;border-radius:4px;padding:1px 6px;text-decoration:none}
+.cell{background:#FFFFFF;border:1px solid #E1DED5;border-radius:12px}
+.k{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#5B6070}
+summary{cursor:pointer;font-size:12px;color:#5B6070}
+.side a{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;font-size:14px;text-decoration:none;color:#C3C7D0}
+.side a.on{background:#2C2F37;color:#FFFFFF}
+.ico{width:18px;height:18px;border-radius:5px;border:1.5px solid currentColor;box-sizing:border-box;position:relative;flex:0 0 18px}
+.dot{position:absolute;right:-7px;top:-7px;min-width:16px;height:16px;border-radius:8px;background:#D98A2B;color:#16181D;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 3px;box-sizing:border-box}
+</style>
+</helmet>
+<div style="font-family:'IBM Plex Sans',system-ui,sans-serif;color:#16181D;min-height:1400px;background:#F4F3EF;display:flex;flex-wrap:wrap">
+
+  <nav aria-label="dsh panels" class="side" style="flex:0 0 200px;background:#1B1D22;padding:16px 12px;box-sizing:border-box;display:flex;flex-direction:column;gap:4px">
+    <div style="font-weight:600;font-size:15px;color:#FFFFFF;padding:0 10px 14px">dsh</div>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Conversations</a>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Schedule</a>
+    <a href="#" class="on"><span class="ico" aria-hidden="true"><span class="dot">4</span></span>Brokkr</a>
+    <a href="#"><span class="ico" aria-hidden="true"></span>Plugins</a>
+  </nav>
+
+  <div style="flex:999 1 900px;min-width:0;display:flex;flex-direction:column">
+    <nav aria-label="Brokkr views" style="background:#FFFFFF;border-bottom:1px solid #E4E2DB;padding:0 24px;display:flex;gap:18px;align-items:center;font-size:14px;flex-wrap:wrap;min-height:48px">
+      <span style="font-weight:600;font-size:16px;margin-right:8px">Brokkr</span>
+      <a href="#" style="text-decoration:none;color:#16181D;font-weight:600;border-bottom:2px solid #16181D;padding:13px 2px">Realms</a>
+      <a href="#" style="text-decoration:none;color:#5B6070;padding:13px 2px">Analytics</a>
+    </nav>
+    <div style="background:#FAFAF7;border-bottom:1px solid #E4E2DB;padding:10px 24px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <a href="#" style="text-decoration:none;font-size:13px">← All realms</a>
+      <span style="font-size:17px;font-weight:600">brokkr</span>
+      <span style="font-size:13px;color:#5B6070">4 running · 1 queued</span>
+      <span class="chip park">3 need you</span>
+      <span style="margin-left:auto;font-size:12px;color:#5B6070"><span class="kbd">j</span><span class="kbd">k</span> move · <span class="kbd">esc</span> back</span>
+    </div>
+
+    <div style="flex:1;display:flex;flex-wrap:wrap;min-height:0">
+      <nav aria-label="Runs" style="flex:1 1 270px;max-width:290px;min-width:0;background:#FAFAF7;border-right:1px solid #E4E2DB;padding:12px 10px;box-sizing:border-box;display:flex;flex-direction:column">
+        <label for="flt" style="position:absolute;left:-9999px">Filter runs</label>
+        <input id="flt" placeholder="Filter by name or flow…" style="font:inherit;font-size:13px;border:1px solid #C9C6BC;border-radius:8px;padding:8px 10px;margin:0 2px">
+        <div class="grp" style="color:#8A3F06">Needs you · 3</div>
+        <button class="q on" type="button"><span class="t">Encrypt the token store <span class="chip park">review</span></span><span class="s">self-build · held by a rule · 5h</span></button>
+        <button class="q" type="button"><span class="t">Search latency targets <span class="chip park">clarify</span></span><span class="s">night shift · has questions · 2h</span></button>
+        <button class="q" type="button"><span class="t">Port the probe to ruzstd <span class="chip park">implement</span></span><span class="s">dsh trial · out of attempts · 40m</span></button>
+        <div class="grp" style="color:#163F73">Running · 4</div>
+        <button class="q" type="button"><span class="t">Doctor warns on missing routes <span class="chip run">verify</span></span><span class="s">fast · just now</span></button>
+        <button class="q" type="button"><span class="t">Weekly research sweep <span class="chip run">research</span></span><span class="s">research · 1m</span></button>
+        <button class="q" type="button"><span class="t">Retry budget per seat <span class="chip run">design</span></span><span class="s">self-build · 4m</span></button>
+        <button class="q" type="button"><span class="t">Speckit import <span class="chip stop">quiet 3h</span></span><span class="s">fast · last step: specify</span></button>
+        <div class="grp">Last 24 hours · 4</div>
+        <button class="q" type="button"><span class="t">Drop legacy session plugin <span class="chip stop">stopped</span></span><span class="s">ruled: architect failed twice</span></button>
+      </nav>
+
+      <main style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:18px;padding:22px 24px;box-sizing:border-box">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <h1 style="margin:0;font-size:22px;font-weight:600">Encrypt the token store</h1>
+          <span class="chip park">parked · waiting on you</span>
+          <span style="font-size:13px;color:#5B6070">self-build · started yesterday 14:10</span>
+          <span style="margin-left:auto;font-size:12px;color:#5B6070">updated just now</span>
+        </div>
+
+        <section aria-label="Run graph" class="cell" style="padding:18px 20px;display:flex;flex-direction:column;gap:12px;overflow-x:auto">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <span class="k" style="margin-right:6px">Graph</span>
+            <button class="btn" type="button" style="min-height:32px;font-size:13px;background:#16181D;color:#FFFFFF;border-color:#16181D">Steps + who</button>
+            <button class="btn" type="button" style="min-height:32px;font-size:13px">Decisions</button>
+            <span style="margin-left:auto;font-size:12px;color:#5B6070">click a step to see its session</span>
+          </div>
+          <div style="position:relative;width:860px;height:270px">
+            <svg aria-hidden="true" width="860" height="270" style="position:absolute;left:0;top:0" fill="none">
+              <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" fill="#9BA0AD"></path></marker>
+              <marker id="arw" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" fill="#B45309"></path></marker></defs>
+              <path d="M100 122H124" stroke="#9BA0AD" stroke-width="1.5" marker-end="url(#ar)"></path>
+              <path d="M224 122H248" stroke="#9BA0AD" stroke-width="1.5" marker-end="url(#ar)"></path>
+              <path d="M348 122H372" stroke="#9BA0AD" stroke-width="1.5" marker-end="url(#ar)"></path>
+              <path d="M472 122C494 122 494 50 516 50" stroke="#9BA0AD" stroke-width="1.5" marker-end="url(#ar)"></path>
+              <path d="M472 122C494 122 494 194 516 194" stroke="#9BA0AD" stroke-width="1.5" marker-end="url(#ar)"></path>
+              <path d="M616 50C638 50 638 122 660 122" stroke="#7FA887" stroke-width="1.5" marker-end="url(#ar)"></path>
+              <path d="M616 194C638 194 638 122 660 122" stroke="#B45309" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arw)"></path>
+              <path d="M760 122H784" stroke="#D1CEC4" stroke-width="1.5" stroke-dasharray="4 4"></path>
+              <path d="M566 220V252H422V150" stroke="#B45309" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arw)"></path>
+            </svg>
+            <div class="node done" style="left:0;top:96px"><strong>triage</strong><span class="e">feature</span></div>
+            <div class="node done" style="left:124px;top:96px"><strong>design</strong><span class="e">2 positions · chief</span></div>
+            <div class="node done" style="left:248px;top:96px"><strong>specify</strong><span class="e">validated</span></div>
+            <div class="node done" style="left:372px;top:96px"><strong>implement</strong><span class="e">Claude · 2nd visit</span></div>
+            <div class="node done" style="left:516px;top:24px"><strong>correctness</strong><span class="e">passed · GPT flash</span></div>
+            <div class="node parked" style="left:516px;top:168px;box-shadow:0 0 0 4px #FDE3C2"><strong>security</strong><span class="e" style="color:#8A3F06">serious · parked</span></div>
+            <div style="position:absolute;left:624px;top:198px;background:#B45309;color:#FFFFFF;font-size:12px;font-weight:600;padding:4px 9px;border-radius:6px;white-space:nowrap">waiting here · 5h</div>
+            <div class="node todo" style="left:660px;top:96px"><strong>verify</strong></div>
+            <div class="node todo" style="left:784px;top:96px;width:76px"><strong>ship</strong></div>
+            <div style="position:absolute;left:430px;top:238px;font-size:11px;color:#8A3F06;background:#FFF8EE;padding:1px 6px;border-radius:4px">sent back once · yesterday 16:40 · rule REVIEW-REFORGE</div>
+          </div>
+        </section>
+
+        <section aria-label="Decision" class="cell" style="border:2px solid #1F5FAD;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <span class="k">Waiting on you</span>
+            <span style="font-size:13px;color:#5B6070">parked at <strong style="color:#16181D">security review</strong> by rule <strong style="color:#16181D">REVIEW-SECURITY-RESIDUAL</strong></span>
+          </div>
+          <div style="background:#FFF8EE;border-radius:10px;padding:12px 14px;font-size:15px;line-height:22px">
+            “security review left a serious residual finding: token file is readable by every user on the host”
+            <div style="font-size:12px;color:#8A3F06;margin-top:4px">Brokkr's park reason, word for word</div>
+          </div>
+          <div style="font-size:13px;color:#5B6070;display:flex;gap:6px;flex-wrap:wrap;align-items:center">Evidence: <a class="cite" href="#">the ruling</a> <a class="cite" href="#">reviewer's session</a> <a class="cite" href="#">implement's changes</a></div>
+
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label for="why" style="font-size:13px;color:#3D414B;font-weight:500">Your reason (kept in the run's record)</label>
+            <textarea id="why" style="font:inherit;font-size:14px;border:1px solid #C9C6BC;border-radius:8px;padding:10px;min-height:48px;resize:vertical">Re-review: the owner-only change landed after the reviewer's snapshot.</textarea>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn primary" type="button"><span class="kbd">1</span> Retry security review</button>
+            <button class="btn" type="button"><span class="kbd">2</span> Stop the run</button>
+            <span style="font-size:12px;color:#5B6070">Retry runs the security review again, fresh, on the current code.</span>
+          </div>
+
+          <div style="border-top:1px dashed #C9C6BC;padding-top:12px;display:flex;flex-direction:column;gap:8px">
+            <span class="k">Not available yet</span>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn" type="button" disabled="">Dismiss the finding</button><span style="font-size:13px;color:#5B6070">Brokkr only lets you dismiss findings once a run has finished.</span></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn" type="button" disabled="">Talk to the reviewer</button><span style="font-size:13px;color:#5B6070">Reviews start fresh each time; your note can't reach the reviewer yet.</span></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn" type="button" disabled="">Hold</button><span style="font-size:13px;color:#5B6070">A parked run already waits for you; it holds nothing else back.</span></div>
+          </div>
+          <details><summary>Details for audit</summary><div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#5B6070;margin-top:6px;line-height:16px">run 41d0… · ruling seq 9031 · commands go through brokkr operator retry / stop</div></details>
+        </section>
+
+        <section aria-label="Timeline" class="cell" style="padding:14px 20px;display:flex;flex-direction:column;gap:8px;font-size:13px;line-height:19px">
+          <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap"><span class="k">Timeline</span><span style="color:#5B6070">newest first</span></div>
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:4px 12px">
+            <span style="color:#5B6070">5h ago</span><span><span class="chip park">parked</span> security review left a serious finding</span>
+            <span style="color:#5B6070">5h ago</span><span>correctness review passed</span>
+            <span style="color:#5B6070">7h ago</span><span>implement finished (Claude, 2nd visit) · 14 files changed</span>
+            <span style="color:#5B6070">16:40</span><span>security review sent it back to implement: “token path not configurable”</span>
+            <span style="color:#5B6070">14:10</span><span><span class="chip run">started</span> by valentin</span>
+          </div>
+        </section>
+      </main>
+
+      <aside aria-label="Ask about this run" style="flex:1 1 300px;max-width:350px;min-width:0;background:#FFFFFF;border-left:1px solid #E4E2DB;display:flex;flex-direction:column">
+        <div style="padding:14px 18px;border-bottom:1px solid #E4E2DB">
+          <div style="font-weight:600;font-size:15px">Ask about this run</div>
+          <div style="font-size:12px;color:#5B6070;line-height:17px;margin-top:2px">Reads this run's record and sessions. It can suggest one of the buttons; it can't press them.</div>
+        </div>
+        <div style="flex:1;padding:18px;display:flex;flex-direction:column;gap:14px;font-size:14px;line-height:21px">
+          <div style="align-self:flex-end;background:#F1F0EB;border-radius:12px;padding:10px 14px;max-width:260px">Is that finding real?</div>
+          <div>Probably not any more. The reviewer's session read the token file before the “store tokens owner-only” change was made in the second implement visit. <a class="cite" href="#">session, line 212</a> <a class="cite" href="#">the change</a></div>
+          <div>A fresh security review would see the current file.</div>
+          <div style="border:1px solid #D9D6CC;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px">
+            <span style="font-size:12px;color:#5B6070">Suggested</span>
+            <strong style="font-size:14px">Retry security review</strong>
+            <span style="font-size:12px;color:#5B6070">only if the run hasn't changed since you read this</span>
+            <button class="btn primary" type="button" style="min-height:36px;font-size:13px;align-self:flex-start">Use this</button>
+          </div>
+        </div>
+        <div style="padding:12px 18px 14px;border-top:1px solid #E4E2DB">
+          <label for="askrun" style="position:absolute;left:-9999px">Ask about this run</label>
+          <input id="askrun" placeholder="Ask about this run…" style="width:100%;box-sizing:border-box;font:inherit;font-size:14px;border:1px solid #C9C6BC;border-radius:10px;padding:11px 12px">
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

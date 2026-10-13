@@ -280,11 +280,7 @@ fn runs_fleet(hearths: &[Hearth], json: bool) -> Result<ExitCode> {
         .iter()
         .map(|hearth| hearth.runs.iter().map(fleet::ListedRun::entry).collect())
         .collect();
-    let labels: Vec<String> = hearths.iter().map(Hearth::label).collect();
-    let journals: Vec<String> = hearths
-        .iter()
-        .map(|hearth| hearth.journal.display().to_string())
-        .collect();
+    let (labels, journals) = fleet::names(hearths);
     let grouped: Vec<brokkr_view::HearthEntries> = (0..hearths.len())
         .map(|index| brokkr_view::HearthEntries {
             realm: &labels[index],
