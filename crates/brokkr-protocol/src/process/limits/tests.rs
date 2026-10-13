@@ -564,7 +564,8 @@ fn interrupted_reads_are_retried_and_a_failed_stderr_read_keeps_what_came_before
         read_frame(&mut stdout, 2).unwrap(),
         Frame::Line(b"x\n".to_vec())
     );
-    let (stdout, _) = crate::process::read_stdout(Reads(vec![failed(), Ok(b"unread"), Ok(b"")]), 2);
+    let (stdout, _) =
+        crate::process::read_stdout(Reads(vec![failed(), Ok(b"unread"), Ok(b"")]), framing(2));
     let Ok(crate::process::Stdout::Failed(error)) = stdout.recv() else {
         panic!("the failed read was not handed over")
     };

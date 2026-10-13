@@ -143,6 +143,31 @@ pub fn brokkr_view::transcript::select_reference(core::option::Option<&brokkr_vi
 pub fn brokkr_view::transcript::valid_codex_id(&str) -> bool
 pub fn brokkr_view::transcript::valid_dsh_locator(&str) -> bool
 pub fn brokkr_view::transcript::validate_common(&brokkr_view::Transcript) -> core::result::Result<brokkr_view::transcript::ValidReference, brokkr_view::transcript::Unavailable>
+pub enum brokkr_view::Admission
+pub brokkr_view::Admission::Admitted
+pub brokkr_view::Admission::Refused
+pub brokkr_view::Admission::Refused::refusal: brokkr_view::CommandRefusal
+pub brokkr_view::Admission::Refused::text: alloc::string::String
+pub enum brokkr_view::AnalyticsError
+pub brokkr_view::AnalyticsError::Clock(alloc::string::String)
+pub brokkr_view::AnalyticsError::UnknownRange(alloc::string::String)
+impl core::fmt::Display for brokkr_view::AnalyticsError
+pub fn brokkr_view::AnalyticsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_view::Command
+pub brokkr_view::Command::Conclude
+pub brokkr_view::Command::Resume
+pub brokkr_view::Command::Retry
+pub brokkr_view::Command::Retry::phase: core::option::Option<alloc::string::String>
+pub brokkr_view::Command::Stop
+pub enum brokkr_view::CommandRefusal
+pub brokkr_view::CommandRefusal::Concluded(brokkr_core::fold::Status)
+pub brokkr_view::CommandRefusal::Ended(brokkr_core::fold::Status)
+pub brokkr_view::CommandRefusal::Operator
+pub brokkr_view::CommandRefusal::Operator::command: brokkr_core::fold::OperatorCommand
+pub brokkr_view::CommandRefusal::Operator::refusal: brokkr_core::fold::Refusal
+pub brokkr_view::CommandRefusal::Parked
+impl serde_core::ser::Serialize for brokkr_view::CommandRefusal
+pub fn brokkr_view::CommandRefusal::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub enum brokkr_view::Need
 pub brokkr_view::Need::Parked
 pub brokkr_view::Need::Quarantined(brokkr_view::Quarantine)
@@ -164,6 +189,15 @@ pub brokkr_view::Quarantine::DoesNotFold
 pub brokkr_view::Quarantine::DoesNotLoad
 impl brokkr_view::Quarantine
 pub fn brokkr_view::Quarantine::in_words(self, &str) -> brokkr_view::Refusal<'_>
+pub enum brokkr_view::Range
+pub brokkr_view::Range::Day
+pub brokkr_view::Range::Month
+pub brokkr_view::Range::Week
+impl core::str::traits::FromStr for brokkr_view::Range
+pub type brokkr_view::Range::Err = brokkr_view::AnalyticsError
+pub fn brokkr_view::Range::from_str(&str) -> core::result::Result<brokkr_view::Range, brokkr_view::AnalyticsError>
+impl serde_core::ser::Serialize for brokkr_view::Range
+pub fn brokkr_view::Range::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub enum brokkr_view::Ruled
 pub brokkr_view::Ruled::Flagged
 pub brokkr_view::Ruled::Open
@@ -202,6 +236,11 @@ pub brokkr_view::Standing::Shipped
 pub brokkr_view::Standing::Stopped
 impl brokkr_view::Standing
 pub fn brokkr_view::Standing::label(self) -> &'static str
+pub enum brokkr_view::Unavailable
+pub brokkr_view::Unavailable::AnswerHere
+pub brokkr_view::Unavailable::DismissFinding
+pub brokkr_view::Unavailable::Hold
+pub brokkr_view::Unavailable::TalkToReviewer
 pub struct brokkr_view::Activity
 pub brokkr_view::Activity::absent: bool
 pub brokkr_view::Activity::note: core::option::Option<alloc::string::String>
@@ -209,6 +248,29 @@ pub brokkr_view::Activity::target_full: core::option::Option<alloc::string::Stri
 pub brokkr_view::Activity::target_short: core::option::Option<alloc::string::String>
 pub brokkr_view::Activity::text: alloc::string::String
 pub brokkr_view::Activity::tool: core::option::Option<alloc::string::String>
+pub struct brokkr_view::Analytics
+pub brokkr_view::Analytics::from: alloc::string::String
+pub brokkr_view::Analytics::headline: brokkr_view::analytics::Headline
+pub brokkr_view::Analytics::models: alloc::vec::Vec<brokkr_view::analytics::ModelShare>
+pub brokkr_view::Analytics::not_recorded: [&'static str; 4]
+pub brokkr_view::Analytics::per_day: alloc::vec::Vec<brokkr_view::analytics::Day>
+pub brokkr_view::Analytics::quarantined: alloc::vec::Vec<brokkr_view::analytics::QuarantinedHearth>
+pub brokkr_view::Analytics::range: brokkr_view::Range
+pub brokkr_view::Analytics::realm: core::option::Option<alloc::string::String>
+pub brokkr_view::Analytics::realms: alloc::vec::Vec<brokkr_view::analytics::RealmRow>
+pub brokkr_view::Analytics::rework: brokkr_view::analytics::Rework
+pub brokkr_view::Analytics::to: alloc::string::String
+pub brokkr_view::Analytics::view_version: u32
+pub brokkr_view::Analytics::waiting_by_step: alloc::vec::Vec<brokkr_view::analytics::StepWait>
+pub struct brokkr_view::AnalyticsHearth<'a>
+pub brokkr_view::AnalyticsHearth::journal: &'a str
+pub brokkr_view::AnalyticsHearth::label: &'a str
+pub brokkr_view::AnalyticsHearth::realms: &'a [alloc::string::String]
+pub brokkr_view::AnalyticsHearth::refusal: core::option::Option<&'a str>
+pub brokkr_view::AnalyticsHearth::runs: &'a [brokkr_view::AnalyticsRun<'a>]
+pub struct brokkr_view::AnalyticsRun<'a>
+pub brokkr_view::AnalyticsRun::events: &'a [brokkr_core::envelope::EventEnvelope]
+pub brokkr_view::AnalyticsRun::state: core::option::Option<&'a brokkr_core::fold::RunState>
 pub struct brokkr_view::Cell
 pub brokkr_view::Cell::absent: bool
 pub brokkr_view::Cell::note: core::option::Option<alloc::string::String>
@@ -223,6 +285,9 @@ pub brokkr_view::CheckpointRow::target: brokkr_view::Cell
 pub brokkr_view::CheckpointRow::target_full: core::option::Option<alloc::string::String>
 pub brokkr_view::CheckpointRow::turn: brokkr_view::Cell
 pub brokkr_view::CheckpointRow::usage: brokkr_view::Cell
+pub struct brokkr_view::Clarify
+pub brokkr_view::Clarify::questions: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::Clarify::seq: u64
 pub struct brokkr_view::Column
 pub brokkr_view::Column::label: core::option::Option<alloc::string::String>
 pub brokkr_view::Column::nodes: alloc::vec::Vec<brokkr_view::Node>
@@ -246,6 +311,9 @@ pub brokkr_view::Decision::residual: core::option::Option<brokkr_core::policy::S
 pub brokkr_view::Decision::result: core::option::Option<alloc::string::String>
 pub brokkr_view::Decision::rule: alloc::string::String
 pub brokkr_view::Decision::severity: core::option::Option<brokkr_core::policy::RuleSeverity>
+pub struct brokkr_view::Disabled
+pub brokkr_view::Disabled::action: brokkr_view::Unavailable
+pub brokkr_view::Disabled::reason: &'static str
 pub struct brokkr_view::FirstDivergence
 pub struct brokkr_view::FleetView
 pub brokkr_view::FleetView::count: usize
@@ -287,6 +355,9 @@ pub brokkr_view::Node::label: alloc::string::String
 pub brokkr_view::Node::served: brokkr_view::ModelAtBoundary
 pub brokkr_view::Node::state: alloc::string::String
 pub brokkr_view::Node::state_class: alloc::string::String
+pub struct brokkr_view::Offered
+pub brokkr_view::Offered::admission: brokkr_view::Admission
+pub brokkr_view::Offered::command: brokkr_view::Command
 pub struct brokkr_view::Participant
 pub brokkr_view::Participant::activity: brokkr_view::Activity
 pub brokkr_view::Participant::attempts: u64
@@ -335,6 +406,11 @@ pub brokkr_view::Provenance::fallback: bool
 pub brokkr_view::Provenance::line: alloc::string::String
 pub brokkr_view::Provenance::model: alloc::string::String
 pub brokkr_view::Provenance::provider: alloc::string::String
+pub struct brokkr_view::Query<'a>
+pub brokkr_view::Query::hearths: &'a [brokkr_view::AnalyticsHearth<'a>]
+pub brokkr_view::Query::now: &'a str
+pub brokkr_view::Query::range: brokkr_view::Range
+pub brokkr_view::Query::realm: core::option::Option<&'a str>
 pub struct brokkr_view::RealmRuns
 pub brokkr_view::RealmRuns::count: usize
 pub brokkr_view::RealmRuns::detail: core::option::Option<alloc::string::String>
@@ -395,6 +471,8 @@ pub brokkr_view::RunRow::title: alloc::string::String
 pub brokkr_view::RunRow::verdict: brokkr_view::Verdict
 pub struct brokkr_view::RunView
 pub brokkr_view::RunView::boundary: brokkr_view::RunBoundary
+pub brokkr_view::RunView::clarify: core::option::Option<brokkr_view::Clarify>
+pub brokkr_view::RunView::commands: alloc::vec::Vec<brokkr_view::Offered>
 pub brokkr_view::RunView::dashboard: brokkr_view::Dashboard
 pub brokkr_view::RunView::event_count: usize
 pub brokkr_view::RunView::journal: alloc::vec::Vec<brokkr_view::JournalRow>
@@ -405,7 +483,9 @@ pub brokkr_view::RunView::phases: alloc::vec::Vec<brokkr_view::Phase>
 pub brokkr_view::RunView::ruling: core::option::Option<brokkr_view::Ruling>
 pub brokkr_view::RunView::scopes: core::option::Option<brokkr_view::Scopes>
 pub brokkr_view::RunView::summary: core::option::Option<brokkr_view::Summary>
+pub brokkr_view::RunView::unavailable: alloc::vec::Vec<brokkr_view::Disabled>
 pub brokkr_view::RunView::view_version: u32
+pub brokkr_view::RunView::worktree: core::option::Option<alloc::string::String>
 impl brokkr_view::RunView
 pub fn brokkr_view::RunView::with_scopes(self) -> brokkr_view::RunView
 pub struct brokkr_view::RunsView
@@ -485,6 +565,7 @@ pub const brokkr_view::TITLE_COLUMNS: usize
 pub const brokkr_view::VERDICT_COLUMNS: usize
 pub const brokkr_view::VIEW_VERSION: u32
 pub fn brokkr_view::age(&str, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::analytics(&brokkr_view::Query<'_>) -> core::result::Result<brokkr_view::Analytics, brokkr_view::AnalyticsError>
 pub fn brokkr_view::at_work<'a>(&'a brokkr_view::RunRow, &str) -> core::option::Option<&'a brokkr_view::Hire>
 pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String
 pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
@@ -497,6 +578,7 @@ pub fn brokkr_view::keeps_row(core::option::Option<&brokkr_view::Lens>, &brokkr_
 pub fn brokkr_view::lens_for(&brokkr_view::RunView, core::option::Option<&brokkr_view::Scope>) -> core::result::Result<core::option::Option<brokkr_view::Lens>, brokkr_view::ScopeError>
 pub fn brokkr_view::need(&brokkr_view::RunRow, &str) -> core::option::Option<brokkr_view::Need>
 pub fn brokkr_view::operator_commands(&brokkr_core::fold::RunState) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_view::operator_refusal(&str, &str, &str) -> alloc::string::String
 pub fn brokkr_view::quarantine_finding(&str, u64, &str) -> brokkr_view::ResidualFinding
 pub fn brokkr_view::reported_cost(&serde_json::value::Value) -> core::option::Option<f64>
 pub fn brokkr_view::residual_findings(&str, &[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_view::ResidualFinding>

@@ -1,13 +1,16 @@
 //! What a refusal says of the driver bytes it refused (#433): their
 //! length, the class of their first byte and a prefix of their SHA-256,
 //! enough to correlate a refusal with what the driver sent, and none of
-//! its content. A refusal is journaled, append-only, and a secret a
-//! driver printed by accident must not be copied there (decision 0012).
+//! its content. A message out of turn is named by its wire type alone. A
+//! refusal is journaled, append-only, and a secret a driver printed by
+//! accident must not be copied there (decision 0012).
 
 use std::fmt;
 
 use serde_json::error::Category;
 use sha2::{Digest, Sha256};
+
+use crate::Body;
 
 /// Hex digits of the SHA-256 a refusal names: 64 bits.
 const DIGEST_HEX: usize = 16;
@@ -100,6 +103,29 @@ pub(super) fn unreadable(error: &serde_json::Error, line: &str) -> String {
         error.column(),
         Evidence::of(line.as_bytes())
     )
+}
+
+/// A driver's message named by its wire type alone, never by its fields:
+/// "message of type `accepted`".
+pub(super) fn of_type(body: &Body) -> String {
+    format!("message of type `{}`", wire_type(body))
+}
+
+/// The `type` tag `body` carries on the wire. The match is exhaustive, so
+/// a new message cannot compile without its name.
+fn wire_type(body: &Body) -> &'static str {
+    match body {
+        Body::Hello { .. } => "hello",
+        Body::Start { .. } => "start",
+        Body::Resume { .. } => "resume",
+        Body::Cancel { .. } => "cancel",
+        Body::Shutdown => "shutdown",
+        Body::Capabilities { .. } => "capabilities",
+        Body::Accepted { .. } => "accepted",
+        Body::Checkpoint { .. } => "checkpoint",
+        Body::Result { .. } => "result",
+        Body::Cancelled { .. } => "cancelled",
+    }
 }
 
 #[cfg(test)]

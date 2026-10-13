@@ -19,7 +19,7 @@ fn settled(status: Status, phase: &str, decision: Option<Value>) -> RunState {
     state
 }
 
-fn ruled(rule: &str, from: &str, next: Option<&str>) -> Option<Value> {
+pub(crate) fn ruled(rule: &str, from: &str, next: Option<&str>) -> Option<Value> {
     let mut decision = json!({"rule_id": rule, "from": from, "result": "ruled"});
     if let Some(next) = next {
         decision["next"] = json!(next);
@@ -27,7 +27,7 @@ fn ruled(rule: &str, from: &str, next: Option<&str>) -> Option<Value> {
     Some(decision)
 }
 
-fn finding(input: &str, value: &str, superseded: bool) -> ResidualFinding {
+pub(crate) fn finding(input: &str, value: &str, superseded: bool) -> ResidualFinding {
     ResidualFinding {
         run_id: "r1".to_string(),
         seq: 9,
@@ -456,7 +456,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 18);
+    assert_eq!(json["view_version"], 19);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
     assert_eq!(json["runs"][0]["title"], "fleet titles");

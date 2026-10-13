@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-10 (#433). The same day the operator ruled that the host configuration configures the limits (ruling 6).
 Date: 2026-10-10
 
-Built: partial (#433) — the host configuration does not carry the limits yet; they are constants
+Built: partial (#662) — the host configuration does not carry the limits yet; they are constants
 
 ## Context
 

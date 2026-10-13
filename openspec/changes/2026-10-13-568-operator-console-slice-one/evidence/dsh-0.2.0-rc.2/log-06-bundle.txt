@@ -1,0 +1,28 @@
+$ date -Is
+2026-10-13T07:55:22+03:00
+$ curl -sS -i 'http://127.0.0.1:38117/plugins/??brokkr-console-probe/client.js&rev=61fdd890c4d5' | head -20
+HTTP/1.1 200 OK
+content-type: text/javascript; charset=utf-8
+cache-control: public, max-age=31536000, immutable
+Vary: Accept-Encoding
+Date: Tue, 13 Oct 2026 04:55:22 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+// brokkr-console-probe, browser half. Hand-written in the shape dsh's tsdown
+// preset emits for every first-party client bundle (see
+// node_modules/@deepseek-ai/dsh-client-ui-schedule/lib/client.js): executing
+// the script only registers a lazy CJS factory with window.__ModuleLoader__;
+// `require` resolves against the shell's frozen platform table (react, ...).
+window.__ModuleLoader__.load({
+	id: "brokkr-console-probe",
+	factory: (require) => {
+		var module = { exports: {} };
+		var exports = module.exports;
+		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+		const React = require("react");
+		const { jsx, jsxs } = require("react/jsx-runtime");
+...
+$ ... | grep -c 'ctx.slots.register'
+2

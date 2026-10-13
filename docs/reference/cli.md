@@ -56,6 +56,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr bridge`](#brokkr-bridge): Synchronize a Looper-bound run over the authenticated producer API. The API key is read from an environment variable and is never stored
 - [`brokkr runs`](#brokkr-runs): List runs in the workspace database: one clamped line per run, newest first. `--json` emits the view model for scripts
 - [`brokkr realms`](#brokkr-realms): List the world (decision 0023): each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
+- [`brokkr analytics`](#brokkr-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
 - [`brokkr driver`](#brokkr-driver): Run a built-in forge-driver/v1 adapter (claude \| lanetally \| codex \| dsh \| exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
 - [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
 - [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
@@ -807,6 +808,22 @@ Usage: brokkr realms [OPTIONS]
 | `--realms <REALMS>` |  |  | The map to read (default .brokkr/realms.json, else ./realms.json) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--json` |  |  | Emit the view model verbatim — this is what scripts read |
+
+## brokkr analytics
+
+What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
+
+```text
+Usage: brokkr analytics [OPTIONS]
+```
+
+| Argument | Default | Selector | Description |
+| --- | --- | --- | --- |
+| `--realms <REALMS>` |  |  | The world's map — every hearth it names is read (default ./realms.json when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+| `--range <RANGE>` | `7d` |  | How far back from now: 24h, 7d or 30d |
+| `--realm <REALM>` |  |  | Only this realm's runs |
+| `--json` |  |  | Emit the view model verbatim — this is what the console reads |
 
 ## brokkr driver
 

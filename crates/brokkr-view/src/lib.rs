@@ -25,7 +25,10 @@
 
 #![forbid(unsafe_code)]
 
+mod analytics;
 pub mod capability_calls;
+mod clarify;
+mod commands;
 mod compare;
 mod dashboard;
 mod fleet;
@@ -35,7 +38,14 @@ mod participant;
 mod scope;
 pub mod transcript;
 
+pub use analytics::Range;
+pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query};
 pub use brokkr_core::policy::RuleSeverity;
+pub use clarify::Clarify;
+use clarify::{clarify, worktree};
+use commands::{commands, unavailable};
+pub use commands::{operator_commands, operator_refusal};
+pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
     first_divergence, resolution_divergence, resolutions, seat_costs, FirstDivergence, Resolution,
     SeatCost, Sides,
@@ -56,7 +66,7 @@ use std::collections::BTreeMap;
 
 // The core's ruling record; the dashboard's `Decision` holds this name.
 use brokkr_core::decision::Decision as Decided;
-use brokkr_core::fold::{acceptance_refusal, OperatorCommand, RunState, Status};
+use brokkr_core::fold::RunState;
 use brokkr_core::realms::Boundary;
 use brokkr_core::residual::{residuals, Residual, SUPERSEDE};
 use brokkr_core::{EventEnvelope, EventType};
@@ -99,7 +109,9 @@ use serde_json::Value;
 /// Bumped to 16 by decision 0065: a checkpoint gained its capability call.
 /// Bumped to 17 by #351: a participant gained its `working`.
 /// Bumped to 18 by #351's third slice: the run view gained its `scopes`.
-pub const VIEW_VERSION: u32 = 18;
+/// Bumped to 19 by #568: the run view gained `commands`, `unavailable`,
+/// `clarify` and `worktree`, and the analytics readout began.
+pub const VIEW_VERSION: u32 = 19;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -517,6 +529,15 @@ pub struct RunView {
     /// that serves the view decides it, by [`RunView::with_scopes`]: the
     /// terminal asks the predicates instead and never pays for it (#624).
     pub scopes: Option<Scopes>,
+    /// The four commands, each admitted or refused (#568); empty when the
+    /// journal does not fold.
+    pub commands: Vec<Offered>,
+    /// The actions a console shows disabled, with their reasons (#568).
+    pub unavailable: Vec<Disabled>,
+    /// The open questions of a run parked by clarify's ruling (#568).
+    pub clarify: Option<Clarify>,
+    /// The working tree the run was started in, when its pin names one.
+    pub worktree: Option<String>,
 }
 
 // --------------------------------------------------------------- helpers
@@ -685,23 +706,7 @@ pub fn clamp(text: &str, width: usize) -> String {
     out
 }
 
-// -------------------------------------- operator commands and residuals
-
-/// The operator commands this run admits: none unless it is parked, the
-/// only state the bridge's door takes one in, and then each command
-/// `fold` would accept ([`acceptance_refusal`]), so a run parked before
-/// any phase offers `stop` alone. Derived here, once, so a surface that
-/// suggests a command suggests one the engine will actually accept.
-pub fn operator_commands(state: &RunState) -> Vec<String> {
-    match state.status {
-        Status::AwaitingOperator => OperatorCommand::ALL
-            .into_iter()
-            .filter(|command| acceptance_refusal(state, *command).is_none())
-            .map(|command| command.as_str().to_string())
-            .collect(),
-        Status::Running | Status::Completed | Status::Stopped => Vec::new(),
-    }
-}
+// ------------------------------------------------------------ residuals
 
 /// The run and the ruling an operator's supersede names as having
 /// closed a finding (decision 0047 ruling 1). Keyed by realm the way
@@ -2704,6 +2709,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         .find(|event| event.event_type == EventType::TransitionDecided)
         .and_then(|event| marks.get(&event.seq))
         .cloned();
+    let clarify = state.and_then(|state| clarify(events, state));
     RunView {
         view_version: VIEW_VERSION,
         summary: state.map(summary),
@@ -2720,6 +2726,13 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         event_count: events.len(),
         dashboard: dashboard(events),
         scopes: None,
+        commands: state.map_or_else(Vec::new, commands),
+        unavailable: state.map_or_else(Vec::new, |state| {
+            let residuals = residual_findings(&state.run_id, events);
+            unavailable(state, &residuals, clarify.as_ref())
+        }),
+        clarify,
+        worktree: worktree(events),
     }
 }
 

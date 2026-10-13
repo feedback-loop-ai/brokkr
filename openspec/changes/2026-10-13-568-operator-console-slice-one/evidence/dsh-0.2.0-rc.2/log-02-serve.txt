@@ -1,0 +1,27 @@
+2026-10-13T07:54:57+03:00
+$ dsh web --no-open --host 127.0.0.1 --port 38117
+2026-10-13T04:54:58.441Z [brokkr-console-probe] apply: webServer listening on 127.0.0.1:38117
+dsh web: http://127.0.0.1:38117/?token=<launch token redacted>
+2026-10-13T04:55:05.593Z [brokkr-console-probe] GET /brokkr-probe/ping host=127.0.0.1:38117 origin=-
+2026-10-13T04:55:05.602Z [brokkr-console-probe] GET /brokkr-probe/ping host=127.0.0.1:38117 origin=-
+2026-10-13T04:55:05.608Z [brokkr-console-probe] GET /brokkr-probe/ping host=127.0.0.1:38117 origin=http://evil.example
+2026-10-13T04:55:05.615Z [brokkr-console-probe] GET /brokkr-probe/fenced host=127.0.0.1:38117 origin=- rejection=401
+2026-10-13T04:55:05.622Z [brokkr-console-probe] GET /brokkr-probe/fenced host=127.0.0.1:38117 origin=http://evil.example rejection=403
+2026-10-13T04:55:12.175Z [brokkr-console-probe] GET /brokkr-probe/fenced host=127.0.0.1:38117 origin=- rejection=none
+2026-10-13T04:55:32.716Z [brokkr-console-probe] UPGRADE /brokkr-probe/ws host=127.0.0.1:38117 origin=- upgrade=websocket key=present
+2026-10-13T04:55:34.776Z [brokkr-console-probe] UPGRADE /brokkr-probe/ws host=127.0.0.1:38117 origin=- upgrade=websocket key=present
+2026-10-13T04:55:34.783Z [brokkr-console-probe] ws message: ping-from-node-ws-client
+2026-10-13T04:55:34.784Z [brokkr-console-probe] ws close
+2026-10-13T04:56:10.577Z [brokkr-console-probe] client-report event=client-apply detail=-
+2026-10-13T04:56:10.579Z [brokkr-console-probe] client-report event=client-registered detail=main+sidebar.panellist
+2026-10-13T04:56:10.811Z [brokkr-console-probe] client-report event=sidebar-icon-mounted detail=size=16
+2026-10-13T04:56:45.618Z [brokkr-console-probe] client-report event=client-apply detail=-
+2026-10-13T04:56:45.619Z [brokkr-console-probe] client-report event=client-registered detail=main+sidebar.panellist
+2026-10-13T04:56:45.857Z [brokkr-console-probe] client-report event=sidebar-icon-mounted detail=size=16
+2026-10-13T04:56:49.186Z [brokkr-console-probe] client-report event=main-mounted detail=brokkr-probe
+2026-10-13T04:56:49.186Z [brokkr-console-probe] GET /brokkr-probe/ping host=127.0.0.1:38117 origin=-
+2026-10-13T04:56:49.188Z [brokkr-console-probe] UPGRADE /brokkr-probe/ws host=127.0.0.1:38117 origin=http://127.0.0.1:38117 upgrade=websocket key=present
+2026-10-13T04:56:49.241Z [brokkr-console-probe] ws message: from-main-panel
+2026-10-13T04:56:49.251Z [brokkr-console-probe] client-report event=main-ping-ok detail=/brokkr-probe/ping
+2026-10-13T04:56:49.252Z [brokkr-console-probe] ws close
+2026-10-13T04:56:49.261Z [brokkr-console-probe] client-report event=main-ws-echo detail=echo:from-main-panel

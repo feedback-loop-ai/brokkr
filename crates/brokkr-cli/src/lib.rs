@@ -187,6 +187,10 @@ enum Cmd {
     /// branch and current HEAD, and the journal the world writes.
     /// Read-only, like every other readout.
     Realms(RealmsArgs),
+    /// What the runs did across every hearth, for a range and an optional
+    /// realm: shipped, start to end, waiting on you, rework, cost and
+    /// served models. `--json` emits the view model.
+    Analytics(verbs::analytics::AnalyticsArgs),
     /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
     /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
     Driver(DriverArgs),
@@ -1877,6 +1881,7 @@ fn run_with(
         Cmd::Bridge(args) => exchange::bridge(workspace, args, bridge_iteration_limit),
         Cmd::Realms(args) => readouts::realms(workspace, args),
         Cmd::Runs(args) => readouts::runs(workspace, args),
+        Cmd::Analytics(args) => verbs::analytics::analytics(workspace, args),
         Cmd::Hands { command } => hands::run(command),
         Cmd::Probe { command } => probe::probe(workspace, command),
         Cmd::Broker { command } => broker::run(command),

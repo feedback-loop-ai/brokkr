@@ -1,0 +1,49 @@
+$ date -Is
+2026-10-13T07:55:05+03:00
+$ curl -sS -i http://127.0.0.1:38117/brokkr-probe/ping
+HTTP/1.1 200 OK
+content-type: application/json; charset=utf-8
+cache-control: no-store
+Vary: Accept-Encoding
+Date: Tue, 13 Oct 2026 04:55:05 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+{"probe":"brokkr-console-probe","route":"/brokkr-probe/ping","pid":231273,"at":"2026-10-13T04:55:05.593Z"}
+$ curl -sS -i -X POST http://127.0.0.1:38117/brokkr-probe/ping
+HTTP/1.1 405 Method Not Allowed
+allow: GET
+Date: Tue, 13 Oct 2026 04:55:05 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+
+$ curl -sS -i -H 'Origin: http://evil.example' http://127.0.0.1:38117/brokkr-probe/ping
+HTTP/1.1 200 OK
+content-type: application/json; charset=utf-8
+cache-control: no-store
+Vary: Accept-Encoding
+Date: Tue, 13 Oct 2026 04:55:05 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+{"probe":"brokkr-console-probe","route":"/brokkr-probe/ping","pid":231273,"at":"2026-10-13T04:55:05.608Z"}
+$ curl -sS -i http://127.0.0.1:38117/brokkr-probe/fenced   # no login cookie
+HTTP/1.1 401 Unauthorized
+Date: Tue, 13 Oct 2026 04:55:05 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+
+$ curl -sS -i -H 'Origin: http://evil.example' http://127.0.0.1:38117/brokkr-probe/fenced
+HTTP/1.1 403 Forbidden
+Date: Tue, 13 Oct 2026 04:55:05 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+

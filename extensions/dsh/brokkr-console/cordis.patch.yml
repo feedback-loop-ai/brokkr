@@ -1,0 +1,8 @@
+# The console's one Loader row. Its host half (lib/index.js) serves Brokkr's
+# readouts and verbs on fenced routes; its browser half (lib/client.js, named
+# under dsh.client in package.json) paints them in a `main` panel reached from
+# a `sidebar.panellist` entry. The name is the bare package name: DSH keys a
+# browser module by it, so the package is installed into the profile.
+- insert:
+    - id: brokkr-console
+      name: 'brokkr-console'

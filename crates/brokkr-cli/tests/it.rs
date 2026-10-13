@@ -25,6 +25,7 @@ mod workspace_root;
 
 mod agent_fallback;
 mod agent_readouts;
+mod analytics;
 mod binary_names;
 mod bootstrap_bench;
 mod boundary_readouts;

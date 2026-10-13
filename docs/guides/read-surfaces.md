@@ -3,7 +3,7 @@
 Every readout shares ONE derivation (decision 0013): `brokkr-view` turns
 a journal into view models, and each surface only renders them — so
 "what did this seat cost" has a single answer, tested once. `runs`,
-`inspect` and `seats` each take `--json` to emit that model
+`inspect`, `seats` and `analytics` each take `--json` to emit that model
 verbatim — `seats --json` is `inspect --json`'s own view model, byte for
 byte, under the same `view_version`.
 
@@ -217,6 +217,36 @@ beta · 1 run · ./b/.forge/forge.db
 the-other-slice-1a2b3c4d completed done seq 40 9m the other sli…
 ```
 
+### `brokkr analytics` — what the runs did
+
+The figures across every hearth the map names, for `--range` `24h`, `7d`
+(the default) or `30d` ending now, and for one realm with `--realm`
+(#568). It reads what the journals record and nothing else:
+
+- runs shipped, against the equal range before it, and runs finished per
+  day, shipped against stopped;
+- the median start to end of the runs that finished, parked time
+  included;
+- hours waiting on you, from a park to your next command, beside all
+  parked time (from a park until the run moves again), in total and by
+  the step the run parked in;
+- runs stopped by a rule, with the rule that stopped the most;
+- reported cost in USD, naming the harnesses whose seats reported none:
+  claude reports a cost, codex and dsh do not, so a realm whose seats are
+  all theirs reads `not reported`, never `$0.00`;
+- rework: implement visits per run, runs a review sent back, and how many
+  of those passed their second review;
+- the share of step attempts each served model took;
+- one row per realm: shipped, stopped, median start to end, hours
+  waiting and reported cost.
+
+A hearth whose journal will not open is listed under `quarantined` with
+its refusal, and a run whose journal does not fold is counted beside its
+realm and read by no figure. What no journal records — machine capacity
+over time, cost limits, costs for codex and dsh, and why findings were
+dismissed — is listed under `not_recorded` instead of a number. Reading
+writes nothing and creates no journal.
+
 ### `brokkr queue list` — what waits, and why
 
 The dispatcher's queue (decision 0068), in order: each waiting entry with
@@ -365,6 +395,25 @@ same pair appears wherever a model is named: a trail row that prints
 record (`not recorded` when no record names one), `compare` reporting a
 boundary difference between two runs as a divergence exactly as it
 reports a model difference.
+
+`inspect --json` also names the operator's choices for the run as folded
+(#568), so a client offers only what Brokkr would take:
+
+- `commands`: `retry` (with the phase it re-runs), `stop`, `resume` and
+  `conclude`, each `admitted` or `refused` with the refusal's word and
+  the words its verb gives. A parked run admits `retry`, `stop` and
+  `conclude`, and refuses `resume` until a command is accepted; a running
+  run refuses `retry` and admits the other three; a finished run refuses
+  all four.
+- `unavailable`: the actions a console shows disabled, each with its
+  fixed reason — dismissing an open finding on a live run, talking to the
+  reviewer of a run parked at review, holding a parked run, and answering
+  a clarify question in place.
+- `clarify`: for a run parked by clarify's ruling, the clarifier's open
+  questions in the order its record lists them, and the sequence number
+  of that record; `null` for every other run.
+- `worktree`: the working tree the run was started in, from the realm its
+  manifest pins; `null` when the run pinned none.
 
 ### `brokkr seats` — the seats, alone
 

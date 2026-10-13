@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Step 1 — Other decisions and outcomes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F3EF}
+a{color:#1F5FAD}a:hover{color:#163F73}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:500;line-height:18px;white-space:nowrap}
+.park{background:#FDF0DC;color:#8A3F06}
+.ship{background:#E2F0E4;color:#22502B}
+.stop{background:#ECEAE3;color:#3D414B}
+.bad{background:#FBE4E4;color:#8E1F1F}
+.btn{font:inherit;font-size:14px;font-weight:500;min-height:40px;padding:0 14px;border-radius:8px;border:1px solid #C9C6BC;background:#FFFFFF;color:#16181D;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.btn.primary{background:#1F5FAD;border-color:#1F5FAD;color:#FFFFFF}
+.btn[disabled]{background:#F6F5F1;color:#8A8E98;border-style:dashed;cursor:not-allowed}
+.card{background:#FFFFFF;border:1px solid #D9D6CC;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;font-size:14px;line-height:21px}
+.k{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#5B6070}
+.cite{font-size:13px;background:#EEF2F8;color:#163F73;border-radius:4px;padding:1px 6px;text-decoration:none}
+.note{font-size:12px;color:#5B6070;line-height:17px}
+</style>
+</helmet>
+<div style="font-family:'IBM Plex Sans',system-ui,sans-serif;color:#16181D;min-height:860px;background:#F4F3EF;padding:28px 32px;box-sizing:border-box;display:flex;flex-direction:column;gap:22px">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:1000px">
+    <h1 style="margin:0;font-size:24px;font-weight:600">The other things a run can wait for</h1>
+    <p style="margin:0;font-size:15px;line-height:23px;color:#3D414B">Each card shows only the buttons Brokkr accepts for that run right now. A reason is always required and kept in the run's record.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:18px;align-items:start">
+
+    <article class="card" style="border:2px solid #1F5FAD">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong style="font-size:16px">Search latency targets</strong><span class="chip park">has questions</span></div>
+      <div class="note">brokkr · night shift · clarify ran 5 times without settling these</div>
+      <div style="background:#FFF8EE;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+        <span class="k" style="color:#8A3F06">The clarifier asks</span>
+        <span>1. Which target counts: typical case (p50 under 80 ms) or worst case (p95 under 200 ms)?</span>
+        <span>2. Does “search” include the reindexing window?</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <span class="k">To answer</span>
+        <span>Write your answers into the spec, then retry clarify. The next round reads the spec.</span>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" type="button">Open the spec</button>
+          <button class="btn primary" type="button">Retry clarify</button>
+          <button class="btn" type="button">Stop</button>
+        </div>
+        <span class="note">“Open the spec” opens the file in dsh's Files sidebar, in this run's worktree.</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" type="button" disabled="">Answer here</button><span class="note">Not yet: Brokkr has no way to pass an answer to a run directly.</span></div>
+    </article>
+
+    <article class="card">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong style="font-size:16px">Port the probe to ruzstd</strong><span class="chip park">out of attempts</span></div>
+      <div class="note">brokkr · dsh trial · implement used all 3 attempts</div>
+      <div>The last attempt ended at the turn limit with tests failing in two files. <a class="cite" href="#">last session</a> <a class="cite" href="#">test output</a></div>
+      <div style="background:#FAFAF7;border:1px solid #E4E2DB;border-radius:10px;padding:10px 12px;font-size:13px;color:#3D414B;line-height:19px">
+        A retry starts implement over from scratch. dsh can't pick up where it stopped yet.<br>No cost on record for dsh runs, so no estimate.
+      </div>
+      <label for="r2" style="font-size:13px;color:#3D414B;font-weight:500">Your reason</label>
+      <textarea id="r2" style="font:inherit;font-size:14px;border:1px solid #C9C6BC;border-radius:8px;padding:10px;min-height:44px;resize:vertical"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn primary" type="button">Retry implement</button>
+        <button class="btn" type="button">Stop</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong style="font-size:16px">Speckit import</strong><span class="chip stop">quiet for 3h</span></div>
+      <div class="note">lanetally · fast · last step: specify</div>
+      <div>Nothing has happened in this run for 3 hours, longer than any step is allowed to take. Whatever was driving it has probably stopped.</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn primary" type="button">Resume</button><span class="note">Picks the run up again where its record ends.</span></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" type="button">Close it</button><span class="note">Ends the run as stopped by you. Refused if it turns out something is still driving it.</span></div>
+      </div>
+    </article>
+  </div>
+
+  <section aria-label="What happens after you press a button" style="display:flex;flex-direction:column;gap:12px">
+    <span class="k">After you press a button</span>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px">
+      <div class="card" style="border-color:#7FA887;gap:8px"><div style="display:flex;gap:8px;align-items:center"><strong>Retry security review</strong><span class="chip ship">done</span></div><div>The review is running again. This card follows the run until it next needs you.</div></div>
+      <div class="card" style="border-color:#B45309;gap:8px"><div style="display:flex;gap:8px;align-items:center"><strong>Retry security review</strong><span class="chip park">not sent</span></div><div>The run changed after you opened it. Nothing was done. Here is what it looks like now.</div><button class="btn" type="button" style="min-height:34px;font-size:13px;align-self:flex-start">See current state</button></div>
+      <div class="card" style="border-color:#C46A6A;gap:8px"><div style="display:flex;gap:8px;align-items:center"><strong>Close it</strong><span class="chip bad">refused</span></div><div>Brokkr said: <em>“the journal moved beneath the conclusion; something is still driving this run.”</em></div></div>
+      <div class="card" style="border-style:dashed;gap:8px"><div style="display:flex;gap:8px;align-items:center"><strong>Stop</strong><span class="chip stop">checking…</span></div><div>The connection dropped before Brokkr answered. Checking the run's record; it won't be sent twice.</div></div>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":860}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

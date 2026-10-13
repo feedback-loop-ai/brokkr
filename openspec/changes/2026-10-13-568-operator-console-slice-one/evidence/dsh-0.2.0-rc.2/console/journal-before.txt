@@ -1,0 +1,25 @@
+$ date -Is
+2026-10-13T10:15:29+03:00
+events          1554
+runs            6
+queue_entries   0
+queue_commands  0
+queue_latches   0
+queue_waits     0
+queue_pins      0
+meta            2
+-- per-run head (run_id | max seq | last type | last recorded_at)
+deliver-openspec-change-2026-10--38009879|735|run/stopped|2026-10-12T23:19:50Z
+deliver-the-dsh-side-of-openspec-6103b504|125|run/stopped|2026-10-13T04:51:14Z
+deliver-the-dsh-side-of-openspec-bd13f307|417|run/stopped|2026-10-13T06:54:06Z
+landing-pr-659-at-3ea3e23d-the-p-26b6f3d8|88|run/completed|2026-10-13T06:51:51Z
+landing-pr-659-at-its-new-head-t-624b0742|83|run/completed|2026-10-13T06:27:15Z
+landing-pr-659-the-program-resol-1efaea35|106|run/completed|2026-10-13T06:07:43Z
+-- operator/conclude events in whole journal
+0
+-- file digests (main db and WAL; -shm is SQLite's shared index, touched by any reader)
+59eb84677eb80dbd0adcdabc9c007b168bd58b3b881dd538a9faf20d52d6da73  forge.db
+0bfa0f1f47d1842e4d793d7350cd7d65a4b245d11d2c5cfcbac8375bbcb5218f  forge.db-wal
+forge.db 2789376 bytes mtime=2026-10-13 09:48:16.618063295 +0300
+forge.db-wal 4132392 bytes mtime=2026-10-13 09:54:06.088509342 +0300
+forge.db-shm 32768 bytes mtime=2026-10-13 10:15:29.626664859 +0300

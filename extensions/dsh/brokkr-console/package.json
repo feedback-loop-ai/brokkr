@@ -1,0 +1,25 @@
+{
+  "name": "brokkr-console",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Brokkr's operator console inside DSH: paints Brokkr's readouts and presses its four operator verbs",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test" },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-ui-sidebar", "@deepseek-ai/dsh-client-ui-layout"]
+    },
+    "bundle": { "patch": "./cordis.patch.yml" }
+  },
+  "main": "lib/index.js",
+  "files": ["cordis.patch.yml", "lib/"],
+  "exports": {
+    "./client": "./lib/client.js",
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  }
+}
