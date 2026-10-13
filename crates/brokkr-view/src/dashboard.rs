@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use brokkr_core::policy::Severity;
+use brokkr_core::policy::{RuleSeverity, Severity};
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -68,36 +68,6 @@ pub enum Ruled {
     Parked,
     /// Ruled with a hard severity.
     Stopped,
-}
-
-/// The ruling severity a `transition/decided` names: phase-event/v1's
-/// closed vocabulary.
-#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "snake_case")]
-pub enum RuleSeverity {
-    Normal,
-    Flagged,
-    Hard,
-}
-
-impl RuleSeverity {
-    fn named(name: &str) -> Option<RuleSeverity> {
-        match name {
-            "normal" => Some(RuleSeverity::Normal),
-            "flagged" => Some(RuleSeverity::Flagged),
-            "hard" => Some(RuleSeverity::Hard),
-            _ => None,
-        }
-    }
-
-    /// The word the journal writes for it.
-    pub fn label(self) -> &'static str {
-        match self {
-            RuleSeverity::Normal => "normal",
-            RuleSeverity::Flagged => "flagged",
-            RuleSeverity::Hard => "hard",
-        }
-    }
 }
 
 /// A `transition/decided`, read once.

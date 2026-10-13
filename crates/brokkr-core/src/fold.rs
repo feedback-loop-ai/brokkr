@@ -8,12 +8,14 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use serde::Deserialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
+use crate::decision::{Decision, PhaseResult, ReviewedHeads};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::gate_moved_head;
-use crate::policy::STRATEGIES;
+use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES};
 
 mod relation;
 use relation::{Arm, Position, Transition};
@@ -28,6 +30,19 @@ const STRATEGY_PHASE: &str = "triage";
 /// result such as SDD's `fail` counts only when its decision records that
 /// phase's engine-computed counter.
 pub const FAILURE_RESULTS: [&str; 2] = ["failed", "broken"];
+
+/// The strategy-local failure word (SDD's verify), which counts toward
+/// the consecutive-failure counter only where the counter is in play.
+const SCOPED_FAILURE: &str = "fail";
+
+/// The consecutive-failure rule, once (#345): does a decided `result`
+/// count toward its phase's counter? [`FAILURE_RESULTS`] always do; the
+/// strategy-local `fail` counts only when `counter_read` — at decide
+/// time, when the phase's rules read the counter; on replay, when the
+/// decision recorded it, which the engine does exactly then.
+pub(crate) fn counts_as_failure(result: &str, counter_read: bool) -> bool {
+    FAILURE_RESULTS.contains(&result) || (counter_read && result == SCOPED_FAILURE)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
@@ -142,9 +157,11 @@ pub struct RunState {
     pub last_result: Option<Value>,
     /// Typed forward handoff: the last ruled successful result per phase,
     /// reduced to its verdict and filtered inputs by transition/decided.
-    pub phase_results: BTreeMap<String, Value>,
-    pub reviewed_heads: Option<Value>,
-    pub last_decision: Option<Value>,
+    pub phase_results: BTreeMap<String, PhaseResult>,
+    /// The heads the last decision that recorded any recorded: what the
+    /// ship gate's drift check compares the tree against.
+    pub reviewed_heads: Option<ReviewedHeads>,
+    pub last_decision: Option<Decision>,
     pub park_reason: Option<String>,
     pub feature: Option<String>,
     /// Last operator command awaiting disposition: (command_id, command).
@@ -169,6 +186,10 @@ pub enum FoldError {
     },
     #[error("event {seq}: payload missing or mistyped '{field}'")]
     BadPayload { seq: u64, field: String },
+    /// A `transition/decided` payload outside its closed contract: a
+    /// field mistyped or not in the contract at all.
+    #[error("event {seq}: transition/decided payload does not read: {detail}")]
+    BadDecision { seq: u64, detail: String },
     #[error("event {seq}: event after terminal status")]
     AfterTerminal { seq: u64 },
     #[error("event {seq}: operator/accepted without a matching command")]
@@ -188,6 +209,7 @@ impl FoldError {
             FoldError::FirstEventNotRunStarted { seq }
             | FoldError::OutOfPlace { seq, .. }
             | FoldError::BadPayload { seq, .. }
+            | FoldError::BadDecision { seq, .. }
             | FoldError::AfterTerminal { seq }
             | FoldError::NoMatchingCommand { seq }
             | FoldError::UnknownCommand { seq, .. } => *seq,
@@ -578,58 +600,51 @@ fn close(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
 
 /// At `Decide`: the policy's ruling on the succeeded result.
 fn rule(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    let from = payload_str(event, "from")?;
-    let result = payload_str(event, "result")?;
-    state.phase_results.insert(
-        from.clone(),
-        serde_json::json!({
-            "result": result.clone(),
-            "inputs": event.payload.get("inputs").cloned().unwrap_or_else(|| serde_json::json!({})),
-        }),
-    );
+    payload_str(event, "from")?;
+    payload_str(event, "result")?;
+    let decision =
+        Decision::deserialize(&event.payload).map_err(|error| FoldError::BadDecision {
+            seq: event.seq,
+            detail: error.to_string(),
+        })?;
+    let (from, result) = (&decision.from, &decision.result);
+    state
+        .phase_results
+        .insert(from.clone(), PhaseResult::of(&decision));
     if from == STRATEGY_PHASE && STRATEGIES.contains(&result.as_str()) {
         state.strategy = Some(result.clone());
     }
-    let scoped_failure = result == "fail"
-        && event
-            .payload
-            .pointer("/inputs/consecutive_failures")
-            .is_some();
-    if FAILURE_RESULTS.contains(&result.as_str()) || scoped_failure {
-        *state.consecutive_failures.entry(from.clone()).or_insert(0) += 1;
-    } else {
-        state.consecutive_failures.insert(from.clone(), 0);
+    let counter_read = decision.input(CONSECUTIVE_FAILURES).is_some();
+    let failures = state.consecutive_failures.entry(from.clone()).or_insert(0);
+    *failures = match counts_as_failure(result, counter_read) {
+        true => *failures + 1,
+        false => 0,
+    };
+    if let Some(heads) = decision.input(REVIEWED_HEADS) {
+        state.reviewed_heads = Some(ReviewedHeads::read(heads));
     }
-    if let Some(inputs) = event.payload.get("inputs").and_then(Value::as_object) {
-        if let Some(heads) = inputs.get("reviewed_heads") {
-            state.reviewed_heads = Some(heads.clone());
-        }
-    }
-    state.last_decision = Some(event.payload.clone());
-    match event.payload.get("next").and_then(Value::as_str) {
-        Some(next) => {
-            state.cursor = Cursor::EnterPhase {
-                phase: next.to_string(),
-            };
-        }
+    state.cursor = match decision.next.present() {
+        Some(next) => Cursor::EnterPhase {
+            phase: next.clone(),
+        },
         None => {
-            let problem = event
-                .payload
-                .get("problem")
-                .and_then(Value::as_str)
-                .unwrap_or("no rule matched");
+            let problem = decision
+                .problem
+                .present()
+                .map_or("no rule matched", String::as_str);
             // A named rule reached this position on purpose — a
             // rule-driven park (decision 0022) or a rule whose
             // artifact gate blocked it. Saying "no ruling" there
             // would be the exact mislabeling the ruling forbids.
-            state.cursor = Cursor::Park {
-                reason: match event.payload.get("rule_id").and_then(Value::as_str) {
+            Cursor::Park {
+                reason: match decision.rule_id.present() {
                     Some(rule_id) => format!("{rule_id} for ({from}, {result}): {problem}"),
                     None => format!("no ruling for ({from}, {result}): {problem}"),
                 },
-            };
+            }
         }
-    }
+    };
+    state.last_decision = Some(decision);
     Ok(())
 }
 
@@ -712,12 +727,19 @@ fn conclude_run(state: &mut RunState, status: Status) -> Result<(), FoldError> {
 
 /// The evaluation inputs the ENGINE computes from the journal (never
 /// accepted from a seat): the consecutive-failure counter including the
-/// failure being decided, matching the referee's counting.
-pub fn computed_inputs(state: &RunState, phase: &str, result: &str) -> Map<String, Value> {
+/// failure being decided, matching the referee's counting, when the
+/// consecutive-failure rule (`counts_as_failure`) counts `result`.
+/// `counter_read` says whether the phase's rules read the counter.
+pub fn computed_inputs(
+    state: &RunState,
+    phase: &str,
+    result: &str,
+    counter_read: bool,
+) -> Map<String, Value> {
     let mut inputs = Map::new();
-    if FAILURE_RESULTS.contains(&result) {
+    if counts_as_failure(result, counter_read) {
         let prior = state.consecutive_failures.get(phase).copied().unwrap_or(0);
-        inputs.insert("consecutive_failures".to_string(), Value::from(prior + 1));
+        inputs.insert(CONSECUTIVE_FAILURES.to_string(), Value::from(prior + 1));
     }
     if let Some(strategy) = &state.strategy {
         inputs.insert("strategy".to_string(), Value::from(strategy.clone()));
