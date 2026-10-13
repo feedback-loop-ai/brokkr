@@ -11,20 +11,20 @@ today**.
 
 ## 1. Brokkr side: commands in the view model (operator-console-commands)
 
-- [ ] 1.1 `brokkr-view`: a closed enum of operator commands, each admitted or refused with the verb's reason, derived from the folded state.
-- [ ] 1.2 `brokkr-view`: unavailable actions, with the fixed reasons from design D2.
-- [ ] 1.3 `inspect --json` emits both. Tests per scenario, under the exact coverage gate.
+- [x] 1.1 `brokkr-view`: a closed enum of operator commands, each admitted or refused with the verb's reason, derived from the folded state. Landed in `bdc1b103` (`crates/brokkr-view/src/commands.rs`).
+- [x] 1.2 `brokkr-view`: unavailable actions, with the fixed reasons from design D2. Landed in `bdc1b103`.
+- [x] 1.3 `inspect --json` emits both. Tests per scenario, under the exact coverage gate. Landed in `bdc1b103` (`crates/brokkr-view/src/commands/tests.rs`).
 
 ## 2. Brokkr side: clarify questions and worktree (operator-console-read)
 
-- [ ] 2.1 `brokkr-view`: carry a clarify-exhausted park's open questions from the clarifier seat's result, plus the run's worktree path.
-- [ ] 2.2 Tests: present for a clarify-exhausted park, absent otherwise.
+- [x] 2.1 `brokkr-view`: carry a clarify-exhausted park's open questions from the clarifier seat's result, plus the run's worktree path. Landed in `bdc1b103` (`crates/brokkr-view/src/clarify.rs`).
+- [x] 2.2 Tests: present for a clarify-exhausted park, absent otherwise. Landed in `bdc1b103` (`crates/brokkr-view/src/clarify/tests.rs`).
 
 ## 3. Brokkr side: analytics (operator-console-analytics)
 
-- [ ] 3.1 `brokkr-view`: a pure cross-run aggregation, given events, hearths, range, optional realm and `now`.
-- [ ] 3.2 `brokkr-cli`: an `analytics --json` readout over every hearth in `realms.json`.
-- [ ] 3.3 Tests per metric and per scenario, including "not reported" cost.
+- [x] 3.1 `brokkr-view`: a pure cross-run aggregation, given events, hearths, range, optional realm and `now`. Landed in `bdc1b103` (`crates/brokkr-view/src/analytics.rs`).
+- [x] 3.2 `brokkr-cli`: an `analytics --json` readout over every hearth in `realms.json`. Landed in `bdc1b103` (`crates/brokkr-cli/src/verbs/analytics.rs`).
+- [x] 3.3 Tests per metric and per scenario, including "not reported" cost. Landed in `bdc1b103` (`crates/brokkr-view/src/analytics/tests.rs`, `crates/brokkr-cli/tests/analytics.rs`).
 
 ## 4. DSH side: plugin (`extensions/dsh/brokkr-console/`)
 

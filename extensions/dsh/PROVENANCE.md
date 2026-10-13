@@ -80,6 +80,35 @@ how the committed-bytes test proves the delta is that one expression.
 This note records no plugin component or composite value: the single Rust
 function design D6 places beside the DSH planner is their only producer.
 
+## `brokkr-console/` — the operator console, authored here
+
+Decision 0084 (proposed) places it. Nothing upstream: every byte is this
+repository's own, written for change
+`2026-10-13-568-operator-console-slice-one`, so no digest map stands here.
+Its `package.json` is `"private": true` and names no dependency; the operator
+installs the directory into a DSH profile (`docs/guides/dsh-console.md`), and
+it is never published.
+
+Target: DSH `0.2.0-rc.2`. The loading mechanism it is written to (a
+`dsh.bundle.patch` Loader row with a bare package name, a `dsh.client` web
+module registering a `main` panel and a `sidebar.panellist` entry, plugin
+HTTP routes and one WebSocket upgrade on DSH's web server) was observed on
+2026-10-13 on that version, by the probe plugin and logs in
+`openspec/changes/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/`.
+Routes and upgrades are open on that version until a plugin fences them;
+every handler here asks DSH's connection fence first.
+
+Not observed on DSH, and owned by this directory's own tests: the fence on
+an upgrade request, and the console's own panel and routes running inside a
+live DSH. Not built, because nothing observed documents the interface: the
+assistant's connection to DSH's model (design D6) and opening a worktree's
+spec in DSH's Files sidebar (design D7).
+
+Tests: `node --test` in this directory, offline, against a stub `brokkr`
+binary and a stub DSH host. They have not yet been run on a host; the run
+that ran them records its output here. CI job: pending (decision 0084
+ruling 5).
+
 ## `resume-policy/` — conditional `brokkr-dsh-resume-policy`
 
 Not authored. A thin Cordis extension is permitted only if 10.7 demonstrates a
