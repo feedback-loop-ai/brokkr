@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     default_map, folder, library, refuse_folder_base, run_local, state_of, unpinned_top_level,
-    Kind, Places, PlacesError,
+    Kind, Layout, Places, PlacesError,
 };
 
 /// Mark `dir` as a recipe library (decision 0083 ruling 4), so a launch
@@ -42,6 +42,46 @@ fn a_workspace_with_a_folder_reads_it() {
         }
     );
     assert_eq!(state_of(root).unwrap(), Some(root.join(".brokkr/state")));
+}
+
+/// The places are judged at the root the walk reaches (round 634i's
+/// first finding): from a subdirectory of a folder repository they are
+/// the root folder's, and a `.brokkr` below the root refuses in the
+/// CLI's words, as the state does.
+#[test]
+fn places_are_the_root_folders_from_a_subdirectory() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::create_dir_all(root.join(".brokkr")).unwrap();
+    let deep = root.join("src/deep");
+    std::fs::create_dir_all(&deep).unwrap();
+    assert_eq!(
+        Places::of(&deep).unwrap(),
+        Places {
+            agents: root.join(".brokkr/agents"),
+            adapters: root.join(".brokkr/adapters"),
+            map: root.join(".brokkr/realms.json"),
+        }
+    );
+    assert_eq!(default_map(&deep).unwrap(), None);
+
+    std::fs::create_dir(root.join("src/.brokkr")).unwrap();
+    let src = root.join("src");
+    let nested = |refused: &PlacesError| matches!(refused, PlacesError::Nested { path, root: at } if *path == src && *at == root);
+    assert!(nested(&state_of(&deep).unwrap_err()));
+    let refused = Places::of(&deep).unwrap_err();
+    assert!(nested(&refused), "{refused:?}");
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "{}/.brokkr is not at this repository's root {} (decision 0083); Brokkr reads only \
+             {}/.brokkr: move or remove it",
+            src.display(),
+            root.display(),
+            root.display()
+        )
+    );
 }
 
 /// A dispatch judges a workspace's state by the CLI's one rule (round
@@ -193,7 +233,9 @@ fn a_linked_or_file_folder_refuses() {
 }
 
 /// A `.brokkr` entry that cannot be looked up refuses with its path,
-/// never read as no folder.
+/// never read as no folder. Judged at the root itself, as `init`'s
+/// [`Layout::of_root`] does, because a walk meets the loop first at its
+/// `.git`.
 #[test]
 fn a_folder_that_cannot_be_read_refuses() {
     let dir = tempfile::tempdir().unwrap();
@@ -201,7 +243,7 @@ fn a_folder_that_cannot_be_read_refuses() {
     std::os::unix::fs::symlink(&looped, &looped).unwrap();
     let folder = looped.join(".brokkr");
     let unreadable = std::fs::symlink_metadata(&folder).unwrap_err();
-    let refused = Places::of(&looped).unwrap_err();
+    let refused = Layout::of_root(&looped).unwrap_err();
     assert!(matches!(refused, PlacesError::Unreadable { ref path, .. } if *path == folder));
     assert_eq!(
         refused.to_string(),

@@ -1092,6 +1092,86 @@ fn a_linked_forge_is_removed_as_a_link() {
     );
 }
 
+/// A `.forge/` shape the state moves list: its entries, each holding its
+/// own name as its bytes, whether `.forge` is a link to them, and whether
+/// git tracks its ignore file.
+struct Shape {
+    entries: &'static [&'static str],
+    linked: bool,
+    tracked_ignore: bool,
+}
+
+/// Every shape of `.forge/` this slice moves, its listed moves made as
+/// listed by `sh` (round 634i's third finding): `.forge` no longer
+/// stands, and every entry arrived under `.brokkr/state/` byte for byte,
+/// but the old ignore file, which the list removes.
+#[test]
+fn the_listed_moves_empty_every_forge() {
+    let shape = |entries, linked, tracked_ignore| Shape {
+        entries,
+        linked,
+        tracked_ignore,
+    };
+    let shapes = [
+        shape(
+            &["forge.db", "forge.db-wal", "forge.db-shm", "results/r.json"],
+            false,
+            false,
+        ),
+        shape(&["forge.db", "j.sqlite", "j.sqlite-wal"], false, false),
+        shape(
+            &["j.sqlite", "j.sqlite-wal", "j.sqlite-wal-wal"],
+            false,
+            false,
+        ),
+        shape(&["run history.sqlite", "it's", "it's-wal"], false, false),
+        shape(&["forge.db", ".gitignore", ".gitignore-wal"], false, true),
+        shape(&["forge.db", "forge.db-wal"], true, false),
+    ];
+    for Shape {
+        entries,
+        linked,
+        tracked_ignore,
+    } in shapes
+    {
+        let repo = Repo::new();
+        let forge = match linked {
+            true => repo.aside.join("linked"),
+            false => repo.path(".forge"),
+        };
+        for entry in entries {
+            let path = forge.join(entry);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, entry).unwrap();
+        }
+        if linked {
+            std::os::unix::fs::symlink(&forge, repo.path(".forge")).unwrap();
+        }
+        if tracked_ignore {
+            git(&repo.root, &["add", "-f", ".forge/.gitignore"]);
+            let author = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"];
+            let commit = ["-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"];
+            git(&repo.root, &[&author[..], &commit[..]].concat());
+        }
+        let ran = repo.brokkr("", &["runs"]);
+        assert_eq!(
+            (ran.code, ran.first_line()),
+            (Some(1), STATE_ONLY),
+            "{entries:?}"
+        );
+        make(&repo, &listed_moves(&ran));
+        let forge = std::fs::symlink_metadata(repo.path(".forge"));
+        let gone = forge.map(|_| ()).map_err(|error| error.kind());
+        assert_eq!(gone, Err(std::io::ErrorKind::NotFound), "{entries:?}");
+        let state = repo.path(".brokkr/state");
+        for entry in entries.iter().filter(|entry| **entry != ".gitignore") {
+            let moved = std::fs::read(state.join(entry)).unwrap();
+            assert_eq!(moved, entry.as_bytes(), "{entries:?}");
+        }
+        assert!(!state.join(".gitignore").exists(), "{entries:?}");
+    }
+}
+
 #[test]
 fn a_folder_bundle_composes_no_base() {
     let repo = Repo::new();

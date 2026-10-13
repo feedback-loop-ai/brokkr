@@ -1300,14 +1300,20 @@ pub enum brokkr_runtime::places::Kind
 pub brokkr_runtime::places::Kind::Bare
 pub brokkr_runtime::places::Kind::Folder
 pub brokkr_runtime::places::Kind::Library
-impl brokkr_runtime::places::Kind
-pub fn brokkr_runtime::places::Kind::of(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Kind, brokkr_runtime::places::PlacesError>
-pub fn brokkr_runtime::places::Kind::state(self, &std::path::Path, &std::path::Path, bool) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
+pub enum brokkr_runtime::places::Old
+pub brokkr_runtime::places::Old::HalfMoved
+pub brokkr_runtime::places::Old::HalfMoved::both_journals: bool
+pub brokkr_runtime::places::Old::HalfMoved::left: alloc::vec::Vec<std::path::PathBuf>
+pub brokkr_runtime::places::Old::Root
+pub brokkr_runtime::places::Old::StateOnly
 pub enum brokkr_runtime::places::PlacesError
 pub brokkr_runtime::places::PlacesError::MapDangling
 pub brokkr_runtime::places::PlacesError::MapDangling::path: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::MapNotAFile
 pub brokkr_runtime::places::PlacesError::MapNotAFile::path: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::Nested
+pub brokkr_runtime::places::PlacesError::Nested::path: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::Nested::root: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::NoPlace
 pub brokkr_runtime::places::PlacesError::NoPlace::cwd: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::NoPlace::root: std::path::PathBuf
@@ -1316,20 +1322,29 @@ pub brokkr_runtime::places::PlacesError::NotADirectory::root: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::Unreadable
 pub brokkr_runtime::places::PlacesError::Unreadable::path: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::Unreadable::source: core::io::error::Error
+pub struct brokkr_runtime::places::Layout
+impl brokkr_runtime::places::Layout
+pub fn brokkr_runtime::places::Layout::cwd(&self) -> &std::path::Path
+pub fn brokkr_runtime::places::Layout::discover(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Layout, brokkr_runtime::places::PlacesError>
+pub fn brokkr_runtime::places::Layout::kind(&self) -> brokkr_runtime::places::Kind
+pub fn brokkr_runtime::places::Layout::of_root(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Layout, brokkr_runtime::places::PlacesError>
+pub fn brokkr_runtime::places::Layout::old(&self) -> core::result::Result<core::option::Option<brokkr_runtime::places::Old>, brokkr_runtime::places::PlacesError>
+pub fn brokkr_runtime::places::Layout::places(&self) -> brokkr_runtime::places::Places
+pub fn brokkr_runtime::places::Layout::root(&self) -> &std::path::Path
+pub fn brokkr_runtime::places::Layout::state(&self, bool) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
+pub fn brokkr_runtime::places::Layout::workspace(&self) -> std::path::PathBuf
 pub struct brokkr_runtime::places::Places
 pub brokkr_runtime::places::Places::adapters: std::path::PathBuf
 pub brokkr_runtime::places::Places::agents: std::path::PathBuf
 impl brokkr_runtime::places::Places
-pub fn brokkr_runtime::places::Places::in_folder(&std::path::Path) -> brokkr_runtime::places::Places
 pub fn brokkr_runtime::places::Places::of(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Places, brokkr_runtime::places::PlacesError>
 pub const brokkr_runtime::places::BUNDLE: &str
 pub const brokkr_runtime::places::FOLDER: &str
+pub const brokkr_runtime::places::JOURNAL: &str
 pub const brokkr_runtime::places::LIBRARY_STATE: &str
 pub const brokkr_runtime::places::SECRETS: &str
 pub const brokkr_runtime::places::STATE: &str
 pub fn brokkr_runtime::places::entry(&std::path::Path) -> core::io::error::Result<core::option::Option<std::fs::Metadata>>
-pub fn brokkr_runtime::places::folder(&std::path::Path) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
-pub fn brokkr_runtime::places::library(&std::path::Path) -> core::result::Result<bool, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::root(&std::path::Path) -> core::result::Result<std::path::PathBuf, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::run_local(core::option::Option<&std::path::Path>, &std::path::Path) -> std::path::PathBuf
 pub fn brokkr_runtime::places::state_of(&std::path::Path) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>

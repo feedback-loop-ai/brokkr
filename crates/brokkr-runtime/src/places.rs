@@ -1,9 +1,11 @@
 //! Where a workspace keeps what Brokkr reads and writes (decision 0083):
-//! an adopter's `.brokkr/` folder, or a recipe library's own layout. The
-//! CLI discovers the folder and refuses what it cannot read; this module
-//! is the one derivation every reader shares once a workspace is known,
-//! so a launch, a queued launch, the engine and the map's default cannot
-//! disagree about a place (ruling 3).
+//! an adopter's `.brokkr/` folder, or a recipe library's own layout. This
+//! module is the one judgement of a workspace's layout ([`Layout`]): the
+//! walk to the repository's root, the nested folder's refusal, the root's
+//! `.brokkr` entry, the library mark, the old layouts, the no-place rule
+//! and the map's presence. The CLI's verbs, a launch, a queued launch,
+//! the engine and the map's default all take it from the same workspace,
+//! so none can admit what another refuses (ruling 3).
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -26,6 +28,15 @@ pub const STATE: &str = "state";
 /// be read).
 #[derive(Debug, Error)]
 pub enum PlacesError {
+    /// A `.brokkr` entry the walk met below the repository's root.
+    #[error(
+        "{}/{FOLDER} is not at this repository's root {} (decision 0083); Brokkr reads only \
+         {}/{FOLDER}: move or remove it",
+        .path.display(),
+        .root.display(),
+        .root.display()
+    )]
+    Nested { path: PathBuf, root: PathBuf },
     /// A root `.brokkr` that is not a directory, a link included.
     #[error(
         "{}/{FOLDER} is not a directory (decision 0083); Brokkr's folder must be one: move or \
@@ -86,6 +97,19 @@ pub const LIBRARY_STATE: &str = ".forge";
 /// threads it and where the CLI's secrets verbs default (decision 0012).
 pub const SECRETS: &str = "secrets.env";
 
+/// The journal's name in the run-local directory, which a command opens
+/// when neither a map nor `--db` names one (ruling 2).
+///
+/// It is a fallback, not the steady state. Same-realm parallel burns
+/// belong in the realm's one `journal` from `realms.json`, which several
+/// `brokkr` processes driving different runs can share safely — measured
+/// and fenced at the store layer, see `brokkr_store`'s module doc.
+/// Reaching for a journal per worktree to keep parallel burns apart is
+/// emergency isolation: it buys nothing the shared journal does not
+/// already give, and it scatters one realm's history across files that
+/// no single reader can fold together.
+pub const JOURNAL: &str = "forge.db";
+
 /// The top-level names every bundle's manifest walk skips (decisions 0042
 /// and 0065): workspace declarations pinned into the run manifest, and
 /// the operator's capability definitions.
@@ -111,8 +135,9 @@ fn folder_bundle(dir: &Path) -> Option<&Path> {
 }
 
 /// The agent library, the adapters and the default map a workspace's
-/// launches read. Where their run-local state stands is [`Kind::state`]'s
-/// to judge, because a workspace with no place for it refuses.
+/// launches read. Where their run-local state stands is
+/// [`Layout::state`]'s to judge, because a workspace with no place for it
+/// refuses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Places {
     pub agents: PathBuf,
@@ -122,29 +147,158 @@ pub struct Places {
 }
 
 impl Places {
-    /// The places of `workspace`: its folder's when [`folder`] finds one,
-    /// else the library layout relative to `workspace`. A root `.brokkr`
-    /// that is not a directory refuses, never falling back to the
-    /// library layout.
+    /// The places of `workspace`, by the walk every reader takes
+    /// ([`Layout::discover`]): the folder's at the root the walk reaches,
+    /// else the library layout relative to `workspace`. A nested
+    /// `.brokkr`, and a root `.brokkr` that is not a directory, refuse,
+    /// never falling back to the library layout.
     pub fn of(workspace: &Path) -> Result<Places, PlacesError> {
-        Ok(match folder(workspace)? {
-            Some(folder) => Places::in_folder(&folder),
-            None => Places {
-                agents: workspace.join(DEFAULT_AGENTS_DIR),
-                adapters: workspace.join(DEFAULT_ADAPTERS_DIR),
-                map: workspace.join(DEFAULT_MAP_FILE),
-            },
+        Ok(Layout::discover(workspace)?.places())
+    }
+
+    /// The places under `dir`: a folder, or a library's workspace.
+    fn under(dir: &Path) -> Places {
+        Places {
+            agents: dir.join(DEFAULT_AGENTS_DIR),
+            adapters: dir.join(DEFAULT_ADAPTERS_DIR),
+            map: dir.join(DEFAULT_MAP_FILE),
+        }
+    }
+}
+
+/// A workspace's layout (ruling 2): where the walk from it began, the
+/// repository root the walk reached, the workspace as it was handed, and
+/// what the root holds. The one judgement the CLI's verbs and every
+/// dispatch share, so a queued launch is never admitted where `brokkr
+/// run` refuses.
+#[derive(Debug, Clone)]
+pub struct Layout {
+    cwd: PathBuf,
+    root: PathBuf,
+    workspace: PathBuf,
+    kind: Kind,
+}
+
+impl Layout {
+    /// Walk up from `workspace` to the repository root ([`root`]); refuse
+    /// a `.brokkr` below the root, and a root `.brokkr` that is not a
+    /// directory, before anything is opened. The walk is over the
+    /// absolute path as the process names it, as git's own is.
+    pub fn discover(workspace: &Path) -> Result<Layout, PlacesError> {
+        let cwd = std::path::absolute(workspace).map_err(unreadable(workspace))?;
+        let root = root(&cwd)?;
+        for dir in cwd.ancestors().take_while(|dir| *dir != root) {
+            if stands(dir, FOLDER)? {
+                let path = dir.to_path_buf();
+                return Err(PlacesError::Nested { path, root });
+            }
+        }
+        Layout::at(cwd, root, workspace)
+    }
+
+    /// The layout of `root` itself, judged with no walk: what `init`
+    /// asks of the directory it writes into.
+    pub fn of_root(root: &Path) -> Result<Layout, PlacesError> {
+        let root = root.to_path_buf();
+        Layout::at(root.clone(), root.clone(), &root)
+    }
+
+    fn at(cwd: PathBuf, root: PathBuf, workspace: &Path) -> Result<Layout, PlacesError> {
+        // A library outranks a folder beside it, so its journal never
+        // moves to a fresh one under the folder.
+        let kind = Kind::of(&root)?;
+        Ok(Layout {
+            cwd,
+            root,
+            workspace: workspace.to_path_buf(),
+            kind,
         })
     }
 
-    /// The places of the folder at `folder`, already found.
-    pub fn in_folder(folder: &Path) -> Places {
-        Places {
-            agents: folder.join(DEFAULT_AGENTS_DIR),
-            adapters: folder.join(DEFAULT_ADAPTERS_DIR),
-            map: folder.join(DEFAULT_MAP_FILE),
+    /// What the root holds.
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    /// The absolute directory the walk began in.
+    pub fn cwd(&self) -> &Path {
+        &self.cwd
+    }
+
+    /// The repository root the walk reached.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// The tree a workspace's places resolve against: the root, where the
+    /// folder is, else the workspace as handed, which a library's facts
+    /// still resolve against exactly as they always did.
+    pub fn workspace(&self) -> PathBuf {
+        match self.kind {
+            Kind::Folder => self.root.clone(),
+            Kind::Library | Kind::Bare => self.workspace.clone(),
         }
     }
+
+    /// The agent library, the adapters and the default map: the folder's,
+    /// else the library layout relative to the workspace as handed.
+    pub fn places(&self) -> Places {
+        match self.kind {
+            Kind::Folder => Places::under(&self.root.join(FOLDER)),
+            Kind::Library | Kind::Bare => Places::under(&self.workspace),
+        }
+    }
+
+    /// The run-local state directory, by `Kind::state`'s one rule.
+    /// `escape` is a journal named outright, `--db` or a dispatch's.
+    pub fn state(&self, escape: bool) -> Result<Option<PathBuf>, PlacesError> {
+        self.kind.state(&self.cwd, &self.root, escape)
+    }
+
+    /// The old shape the root holds, if any (ruling 4). A recipe library
+    /// keeps its layout and holds none (the operator's ruling 1 of
+    /// 2026-10-13).
+    pub fn old(&self) -> Result<Option<Old>, PlacesError> {
+        let bundle = stands(&self.root, BUNDLE)?;
+        let forge = stands(&self.root, LIBRARY_STATE)?;
+        Ok(match self.kind {
+            Kind::Library => None,
+            Kind::Bare if bundle => Some(Old::Root),
+            Kind::Bare if forge => Some(Old::StateOnly),
+            Kind::Bare => None,
+            Kind::Folder => self.half_moved(bundle, forge)?,
+        })
+    }
+
+    /// The half-moved shape: each Brokkr entry left beside the folder.
+    fn half_moved(&self, bundle: bool, forge: bool) -> Result<Option<Old>, PlacesError> {
+        let left: Vec<PathBuf> = [(bundle, BUNDLE), (forge, LIBRARY_STATE)]
+            .into_iter()
+            .filter(|(stands, _)| *stands)
+            .map(|(_, name)| self.root.join(name))
+            .collect();
+        let both_journals = stands(&self.root, &format!("{LIBRARY_STATE}/{JOURNAL}"))?
+            && stands(&self.root, &format!("{FOLDER}/{STATE}/{JOURNAL}"))?;
+        Ok((!left.is_empty()).then_some(Old::HalfMoved {
+            left,
+            both_journals,
+        }))
+    }
+}
+
+/// The old shapes of ruling 4 a root can hold.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Old {
+    /// No folder, and a root `bundle.json`: `init`'s old output.
+    Root,
+    /// No folder, no root `bundle.json`, and a root `.forge` entry.
+    StateOnly,
+    /// A folder, and Brokkr entries still at its root: each one left, and
+    /// whether a journal stands both in `.forge/` and in the folder.
+    HalfMoved {
+        left: Vec<PathBuf>,
+        both_journals: bool,
+    },
 }
 
 /// What a repository root holds, as ruling 2 tells it: the one judgement
@@ -163,7 +317,7 @@ pub enum Kind {
 impl Kind {
     /// What `root` holds. A root `.brokkr` that is not a directory, and a
     /// `.brokkr` or a library mark that cannot be read, refuse by name.
-    pub fn of(root: &Path) -> Result<Kind, PlacesError> {
+    fn of(root: &Path) -> Result<Kind, PlacesError> {
         Ok(match folder(root)? {
             Some(_) => Kind::Folder,
             None if library(root)? => Kind::Library,
@@ -178,12 +332,7 @@ impl Kind {
     /// the state then takes the library column where an old layout's own
     /// entry stands at the root, and nowhere else. `cwd` is where the
     /// walk to `root` began, for the refusal's words.
-    pub fn state(
-        self,
-        cwd: &Path,
-        root: &Path,
-        escape: bool,
-    ) -> Result<Option<PathBuf>, PlacesError> {
+    fn state(self, cwd: &Path, root: &Path, escape: bool) -> Result<Option<PathBuf>, PlacesError> {
         match self {
             Kind::Folder => Ok(Some(root.join(FOLDER).join(STATE))),
             Kind::Library => Ok(None),
@@ -200,13 +349,15 @@ impl Kind {
 /// layout's `.forge`, link or not: what the `--db` escape reads as that
 /// layout's own.
 fn holds_old(root: &Path) -> Result<bool, PlacesError> {
-    for name in [BUNDLE, LIBRARY_STATE] {
-        let path = root.join(name);
-        if entry(&path).map_err(unreadable(&path))?.is_some() {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+    Ok(stands(root, BUNDLE)? || stands(root, LIBRARY_STATE)?)
+}
+
+/// Whether anything stands at `name` under `dir`, link or not. An entry
+/// that cannot be read refuses, never taken as absent.
+fn stands(dir: &Path, name: &str) -> Result<bool, PlacesError> {
+    let path = dir.join(name);
+    let found = entry(&path).map_err(unreadable(&path))?;
+    Ok(found.is_some())
 }
 
 /// The repository root above `cwd`, an absolute path: the first directory
@@ -224,25 +375,25 @@ pub fn root(cwd: &Path) -> Result<PathBuf, PlacesError> {
 }
 
 /// The run-local state a launch from `workspace` writes in, judged again
-/// at dispatch by the CLI's own rule ([`Kind::state`]) at the root the
-/// CLI's walk reaches: the journal a launch is handed is always named, so
-/// the escape is taken, and a workspace whose folder has gone since it
-/// was queued, with no library and no old layout standing, refuses rather
-/// than writing a `.forge/` into a bare repository.
+/// at dispatch by the CLI's own walk ([`Layout::discover`]) and rule
+/// ([`Layout::state`]): a `.brokkr` made below the root since the launch
+/// was queued refuses as `brokkr run` would; the journal a launch is
+/// handed is always named, so the escape is taken; and a workspace whose
+/// folder has gone since it was queued, with no library and no old layout
+/// standing, refuses rather than writing a `.forge/` into a bare
+/// repository.
 pub fn state_of(workspace: &Path) -> Result<Option<PathBuf>, PlacesError> {
-    let cwd = std::path::absolute(workspace).map_err(unreadable(workspace))?;
-    let root = root(&cwd)?;
-    Kind::of(&root)?.state(&cwd, &root, true)
+    Layout::discover(workspace)?.state(true)
 }
 
-/// The one judgement of a workspace's root `.brokkr` entry, which the
-/// CLI's discovery and every re-derivation at dispatch share: the folder
+/// The one judgement of a root's `.brokkr` entry, which every walk's
+/// [`Kind`] takes: the folder
 /// when the entry itself, never read through a link, is a directory and
 /// `workspace` is no recipe library (a library keeps its own layout, a
 /// `.brokkr` beside it included: the operator's ruling 1 of 2026-10-13 on
 /// #634); `None` when nothing stands there; and a refusal for anything
 /// else, or an entry that cannot be read.
-pub fn folder(workspace: &Path) -> Result<Option<PathBuf>, PlacesError> {
+fn folder(workspace: &Path) -> Result<Option<PathBuf>, PlacesError> {
     let folder = workspace.join(FOLDER);
     match entry(&folder).map_err(unreadable(&folder))? {
         Some(found) if !found.is_dir() => Err(PlacesError::NotADirectory {
@@ -299,7 +450,7 @@ pub(crate) fn default_map(workspace: &Path) -> Result<Option<PathBuf>, PlacesErr
 /// read, or a `bundle.json` whose presence cannot be read refuses by name
 /// rather than choosing a layout (the operator's ruling of 2026-09-26:
 /// fail closed on what cannot be read).
-pub fn library(root: &Path) -> Result<bool, PlacesError> {
+fn library(root: &Path) -> Result<bool, PlacesError> {
     let recipes = root.join("recipes");
     let listed = match std::fs::read_dir(&recipes) {
         Err(error) if absent(&error) => return Ok(false),

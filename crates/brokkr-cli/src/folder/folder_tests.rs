@@ -19,7 +19,8 @@ pub(crate) fn plant_library(dir: &Path) {
 #[test]
 fn a_workspace_that_cannot_be_made_absolute_is_unreadable() {
     let refused = Layout::discover(Path::new("")).unwrap_err();
-    assert!(matches!(refused, FolderError::Unreadable { ref path, .. } if path == Path::new("")));
+    let named = |refused: &PlacesError| matches!(refused, PlacesError::Unreadable { path, .. } if path == Path::new(""));
+    assert!(matches!(refused, FolderError::Places(ref refused) if named(refused)));
     assert_eq!(
         refused.to_string(),
         "reading : cannot make an empty path absolute"
@@ -78,7 +79,7 @@ fn doctor_reads_the_folder_or_else_reports_no_journal() {
     let flagged = Some(PathBuf::from("named.env"));
     let fallen = DoctorDefaults::of(root.join("sub/deep"), flagged);
     assert!(
-        matches!(fallen.journal, Err(FolderError::Nested { ref path, .. }) if *path == root.join("sub"))
+        matches!(fallen.journal, Err(FolderError::Places(PlacesError::Nested { ref path, .. })) if *path == root.join("sub"))
     );
     assert_eq!(
         (&fallen.workspace, &fallen.secrets),
@@ -179,6 +180,43 @@ fn a_journal_moves_whole_whatever_its_name_and_tracking() {
     );
 }
 
+/// A `.forge/` entry whose name is not UTF-8 refuses by name, with no
+/// moves, never listed under a name no shell could reach (round 634i's
+/// second finding); and git's tracked names are matched by their bytes,
+/// so an untracked name holding U+FFFD is never taken for a tracked one
+/// that is not UTF-8.
+#[test]
+fn a_name_that_is_not_utf8_refuses_and_tracking_matches_bytes() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = repository_with_a_forge();
+    let root = dir.path();
+    let odd = root
+        .join(".forge")
+        .join(std::ffi::OsStr::from_bytes(b"journal-\xff.db"));
+    if let Err(refused) = std::fs::write(&odd, "journal") {
+        eprintln!("skipped: this filesystem refuses a name that is not UTF-8: {refused}");
+        return;
+    }
+    let refusal = refused(root);
+    assert!(matches!(refusal, FolderError::NotUtf8 { ref path } if *path == odd));
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "{}/.forge/journal-\u{FFFD}.db is not named in UTF-8, so no listed move could name \
+             it (decision 0083); nothing was opened: rename it",
+            root.display()
+        )
+    );
+
+    git(root, &["add", ".forge"]);
+    std::fs::remove_file(&odd).unwrap();
+    std::fs::write(root.join(".forge/journal-\u{FFFD}.db"), "journal").unwrap();
+    assert_eq!(
+        state_moves(root).unwrap()[1],
+        "mv '.forge/journal-\u{FFFD}.db' '.brokkr/state/journal-\u{FFFD}.db'"
+    );
+}
+
 /// A name a shell would split or quote is listed as one quoted word.
 #[test]
 fn a_moved_name_is_one_shell_word() {
@@ -197,15 +235,22 @@ fn a_moved_name_is_one_shell_word() {
     );
 }
 
-/// The public defaults are a library's journal and secrets store, copies
-/// held to the names the folder's state uses (decision 0071 ruling 5).
+/// A library's journal, which a command there opens when neither a map
+/// nor `--db` names one.
+pub(crate) fn library_journal() -> PathBuf {
+    Path::new(super::LIBRARY_STATE).join(super::JOURNAL)
+}
+
+/// A library's journal and secrets store are the names the folder's
+/// state uses, in its own `.forge/`, as they always were (the public
+/// copies of them retired in round 634i).
 #[test]
 fn the_public_defaults_are_the_library_state_files() {
-    let library = Path::new(super::LIBRARY_STATE);
-    assert_eq!(Path::new(crate::DEFAULT_DB), library.join(super::JOURNAL));
+    assert_eq!(library_journal(), Path::new(".forge/forge.db"));
+    assert_eq!(super::in_state(None, super::JOURNAL), library_journal());
     assert_eq!(
-        Path::new(crate::DEFAULT_SECRETS),
-        library.join(super::SECRETS)
+        super::in_state(None, super::SECRETS),
+        Path::new(".forge/secrets.env")
     );
 }
 

@@ -58,32 +58,6 @@ use cli_args::*;
 use exit::Exit;
 use serde_json::{json, Value};
 
-/// A recipe library's journal, which a command there opens when neither
-/// a map nor `--db` says otherwise, as it has since the first release.
-/// Where discovery finds an adopter's folder the default is the folder's
-/// `.brokkr/state/forge.db` instead (decision 0083 ruling 2), and outside
-/// both a command refuses rather than default at all.
-///
-/// It is a fallback, not the steady state. Same-realm parallel burns
-/// belong in the realm's one `journal` from `realms.json`, which several
-/// `brokkr` processes driving different runs can share safely — measured
-/// and fenced at the store layer, see `brokkr_store`'s module doc. A
-/// worktree-local `.forge/forge.db` stays entirely legal and is what a
-/// mapless world still gets, but reaching for one per worktree to keep
-/// parallel burns apart is emergency isolation: it buys nothing the
-/// shared journal does not already give, and it scatters one realm's
-/// history across files that no single reader can fold together.
-pub const DEFAULT_DB: &str = ".forge/forge.db";
-
-/// A recipe library's operator-side secrets store, which the engine
-/// threads to seats with declared bindings (decision 0012) and whose
-/// NAMES `doctor` reads to tell a bound credential from an ambient one
-/// (decision 0036 ruling 5). Where discovery finds an adopter's folder the
-/// store is the folder's `.brokkr/state/secrets.env` instead (decision
-/// 0083 ruling 2); in a library a run resolves this path against its
-/// workdir.
-pub const DEFAULT_SECRETS: &str = ".forge/secrets.env";
-
 /// The command line. Its exit codes are [`exit::Exit`]'s.
 #[derive(Parser)]
 // `bin_name` is pinned, not inferred from argv[0]: a renamed or
@@ -1576,7 +1550,7 @@ impl Invocation {
         let mapped = world.as_ref().map(World::journal);
         // The default is asked only where `--db` names nothing, so it is
         // never the `--db` escape's.
-        let default = || layout.state_file(false, folder::JOURNAL);
+        let default = || layout.state_file(false, brokkr_runtime::places::JOURNAL);
         let journal = db.or_else(|| mapped.clone()).map_or_else(default, Ok)?;
         // A note is owed whenever a map nobody typed is adopted at all
         // (the run's own review caught the quiet arm: a map that keeps
