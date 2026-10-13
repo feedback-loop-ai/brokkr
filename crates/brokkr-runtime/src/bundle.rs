@@ -133,6 +133,10 @@ pub enum SeatBody {
         /// inline seat, which is what keeps the execute path — and
         /// therefore inline behaviour — exactly as it was.
         candidates: Vec<Candidate>,
+        /// The command as written, which 0031 reads; EMPTY for an agent.
+        written: Vec<String>,
+        /// Decision 0021 ruling 1's class of this driver-bearing site.
+        class: SeatClass,
     },
     Panel {
         members: Vec<PanelMember>,
@@ -148,8 +152,6 @@ pub enum SeatBody {
     Select {
         cases: BTreeMap<String, SeatBody>,
         default: Option<Box<SeatBody>>,
-        case_gates: BTreeMap<String, bool>,
-        default_gate: bool,
     },
 }
 
@@ -194,6 +196,7 @@ impl SeatBody {
                 role_path,
                 command,
                 candidates,
+                ..
             } => ExecutableBody::Single {
                 role_path,
                 command,
@@ -211,16 +214,33 @@ impl SeatBody {
 
     pub fn selected_is_gate(&self, strategy: Option<&str>, ordinary: bool) -> bool {
         match self {
-            SeatBody::Select {
-                case_gates,
-                default_gate,
-                ..
-            } => strategy
-                .and_then(|case| case_gates.get(case).copied())
-                .unwrap_or(*default_gate),
+            SeatBody::Select { cases, default } => strategy
+                .and_then(|case| cases.get(case))
+                .or(default.as_deref())
+                .is_some_and(SeatBody::is_gate),
             _ => ordinary,
         }
     }
+
+    /// True when every driver-bearing site of this body is a gate, by its
+    /// typed class; a top-level sequence's fact is [`parse_sequence`]'s.
+    pub(crate) fn is_gate(&self) -> bool {
+        let gate = |class: SeatClass| class == SeatClass::Gate;
+        match self {
+            SeatBody::Single { class, .. } => gate(*class),
+            SeatBody::Panel { members, .. } => every(members.iter().map(|m| gate(m.class))),
+            SeatBody::Sequence { steps } => every(steps.iter().map(|step| gate(step.class))),
+            SeatBody::Select { cases, default } => {
+                every(cases.values().chain(default.as_deref()).map(Self::is_gate))
+            }
+        }
+    }
+}
+
+/// At least one, and every one of them true.
+fn every(gates: impl Iterator<Item = bool>) -> bool {
+    let mut gates = gates.peekable();
+    gates.peek().is_some() && gates.all(|gate| gate)
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +267,7 @@ pub enum StepBody {
         role_path: PathBuf,
         command: Vec<String>,
         candidates: Vec<Candidate>,
+        written: Vec<String>,
     },
     Panel {
         members: Vec<PanelMember>,
@@ -262,6 +283,8 @@ pub struct PanelMember {
     pub role_path: PathBuf,
     pub command: Vec<String>,
     pub candidates: Vec<Candidate>,
+    pub written: Vec<String>,
+    pub class: SeatClass,
 }
 
 /// Deterministic, order-independent aggregation rules — a closed
@@ -311,38 +334,13 @@ impl SeatClass {
             _ => None,
         }
     }
-}
 
-/// Compilation has already validated every `class` occurrence. Preserve the
-/// whole-effect fact ruling 4 needs without mistaking a mixed sequence for a
-/// gate: its work steps may move HEAD before its gate step judges them.
-fn is_gate_class(value: &Value) -> bool {
-    if let Some(select) = value.get("select").and_then(Value::as_object) {
-        let cases = select.get("cases").and_then(Value::as_object);
-        let defaults = select.get("default").into_iter();
-        return cases.is_some_and(|cases| {
-            let mut bodies = cases.values().chain(defaults);
-            bodies
-                .next()
-                .is_some_and(|first| is_gate_class(first) && bodies.all(is_gate_class))
-        });
-    }
-    if let Some(members) = value.get("panel").and_then(Value::as_object) {
-        return !members.is_empty() && members.values().all(is_gate_class);
-    }
-    if let Some(steps) = value.get("sequence").and_then(Value::as_array) {
-        return !steps.is_empty() && steps.iter().all(is_gate_class);
-    }
-    value.get("class").and_then(Value::as_str) == Some("gate")
-}
-
-/// A sequence step's canonical class, read once for the step and for its
-/// capability record (GP1): a dialect step runs the realm dialect's own
-/// validator, which judges, so it is a gate though it writes no class.
-fn step_class(step: &Value) -> SeatClass {
-    match step.get("dialect").is_some() || is_gate_class(step) {
-        true => SeatClass::Gate,
-        false => SeatClass::Work,
+    /// The class of a whole that judges exactly when `gate` says it does.
+    fn of(gate: bool) -> SeatClass {
+        match gate {
+            true => SeatClass::Gate,
+            false => SeatClass::Work,
+        }
     }
 }
 
@@ -800,17 +798,16 @@ fn needs_adapters(value: &Value) -> bool {
     }
 }
 
-/// The model-bearing built-in named by one raw driver command. Custom
-/// drivers own their own contract; exec has no model to pin.
-fn built_in_model_driver(raw: &Value) -> Option<&str> {
-    let command = raw.pointer("/driver/command").and_then(Value::as_array)?;
-    if command.get(1).and_then(Value::as_str) != Some("driver") {
+/// The model-bearing built-in named by one written driver command
+/// ([`command_parts`]). Custom drivers own their own contract; exec has no
+/// model to pin.
+fn built_in_model_driver(command: &[String]) -> Option<&'static str> {
+    if command.get(1).map(String::as_str) != Some("driver") {
         return None;
     }
-    match command.get(2).and_then(Value::as_str) {
-        Some(kind @ ("claude" | "lanetally" | "codex" | "dsh")) => Some(kind),
-        _ => None,
-    }
+    ["claude", "lanetally", "codex", "dsh"]
+        .into_iter()
+        .find(|kind| command.get(2).map(String::as_str) == Some(*kind))
 }
 
 /// What one inline command's argv says about one pin — the model pin on
@@ -867,7 +864,7 @@ const MODEL_FLAG: &str = "--model";
 /// reader can no longer disagree about what a word means: a long
 /// neighbour is walked past by both, and a short flag's attached value
 /// is a pin to both.
-fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
+fn command_pin(command: &[String], flag: &str, limit: usize) -> ModelPin {
     let illegible = || ModelPin::Unreadable(vec![flag.to_string()]);
     let concrete = |value: &str| {
         !value.is_empty()
@@ -878,11 +875,8 @@ fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':' | '/'))
     };
     let attached = format!("{flag}=");
-    let Some(command) = raw.pointer("/driver/command").and_then(Value::as_array) else {
-        return ModelPin::Absent;
-    };
     let mut pin = None;
-    let mut parts = command.iter().filter_map(Value::as_str);
+    let mut parts = command.iter().map(String::as_str);
     while let Some(part) = parts.next() {
         if part == flag {
             match parts.next().filter(|value| concrete(value)) {
@@ -927,8 +921,8 @@ fn command_pin(raw: &Value, flag: &str, limit: usize) -> ModelPin {
 /// concrete id is stated; a neighbouring `--model…` flag is a different
 /// flag to it, not an illegible spelling of this one, because `--model`
 /// is long.
-fn route_pin(raw: &Value, flag: &str) -> ModelPin {
-    command_pin(raw, flag, 80)
+fn route_pin(command: &[String], flag: &str) -> ModelPin {
+    command_pin(command, flag, 80)
 }
 
 /// Decision 0040 ruling 1's read, and the whole of it: an inline site's
@@ -949,14 +943,14 @@ fn route_pin(raw: &Value, flag: &str) -> ModelPin {
 /// read. A provider that cannot be told a model has no route to name, so
 /// a pin found there is a site telling a binary something the adapter
 /// says it cannot hear: illegible, never the adapter's own class.
-fn inline_route_pin(raw: &Value, adapter: Option<&Adapter>) -> ModelPin {
+fn inline_route_pin(command: &[String], adapter: Option<&Adapter>) -> ModelPin {
     let declared = adapter.and_then(|adapter| adapter.model_flag.as_deref());
     let untellable = matches!(adapter, Some(adapter) if adapter.model_flag.is_none());
     let mut readings = Vec::new();
     if let Some(flag) = declared.filter(|flag| *flag != MODEL_FLAG) {
-        readings.push(route_pin(raw, flag));
+        readings.push(route_pin(command, flag));
     }
-    readings.push(match (route_pin(raw, MODEL_FLAG), untellable) {
+    readings.push(match (route_pin(command, MODEL_FLAG), untellable) {
         (ModelPin::Concrete(_), true) => ModelPin::Unreadable(vec![MODEL_FLAG.to_string()]),
         (pin, _) => pin,
     });
@@ -995,8 +989,13 @@ fn inline_route_pin(raw: &Value, adapter: Option<&Adapter>) -> ModelPin {
     }
 }
 
-fn command_pins_model(raw: &Value) -> bool {
-    matches!(route_pin(raw, MODEL_FLAG), ModelPin::Concrete(_))
+fn command_pins_model(command: &[String]) -> bool {
+    matches!(route_pin(command, MODEL_FLAG), ModelPin::Concrete(_))
+}
+
+/// Decision 0031 ruling 2: a model-bearing built-in with no concrete `--model`.
+fn model_unpinned(command: &[String]) -> bool {
+    built_in_model_driver(command).is_some() && !command_pins_model(command)
 }
 
 /// Issue #373: the dsh driver admits one spelling of its model pin, the
@@ -1006,19 +1005,16 @@ fn command_pins_model(raw: &Value) -> bool {
 /// `--model-fallback` that it walks past alike. A seat compile admitted
 /// would then park at spawn, after its run and journal exist, so compile
 /// refuses what spawn will.
-fn dsh_refuses_model_word(raw: &Value) -> bool {
-    raw.pointer("/driver/command")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
+fn dsh_refuses_model_word(command: &[String]) -> bool {
+    command
+        .iter()
         .any(|part| part != MODEL_FLAG && part.starts_with(MODEL_FLAG))
 }
 
 /// The effort pin bound, matching `seat-record/v2`'s own: a level is one
 /// bounded word, never a path and never a sentence.
-fn command_pins_effort(raw: &Value) -> bool {
-    matches!(command_pin(raw, "--effort", 40), ModelPin::Concrete(_))
+fn command_pins_effort(command: &[String]) -> bool {
+    matches!(command_pin(command, "--effort", 40), ModelPin::Concrete(_))
 }
 
 /// Every driver-bearing invocation site that states one of the two pins
@@ -1073,7 +1069,8 @@ fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Result<A
     fn has_inline_model_driver(value: &Value) -> bool {
         match value {
             Value::Object(map) => {
-                built_in_model_driver(value).is_some() || map.values().any(has_inline_model_driver)
+                built_in_model_driver(&command_parts(value)).is_some()
+                    || map.values().any(has_inline_model_driver)
             }
             Value::Array(items) => items.iter().any(has_inline_model_driver),
             _ => false,
@@ -1123,7 +1120,7 @@ impl<'a> CapabilityAdapters<'a> {
 /// unreadable pin is refused on the model axis first.
 fn effort_exempt(
     what: &str,
-    raw: &Value,
+    command: &[String],
     adapters: Option<&Adapters>,
     witnessed: &mut BTreeMap<String, DriverDigests>,
 ) -> bool {
@@ -1131,7 +1128,7 @@ fn effort_exempt(
         Some(adapters) => adapters,
         None => return false,
     };
-    let kind = match built_in_model_driver(raw) {
+    let kind = match built_in_model_driver(command) {
         Some(kind) => kind,
         None => return false,
     };
@@ -1139,7 +1136,7 @@ fn effort_exempt(
         Some(adapter) => adapter,
         None => return false,
     };
-    match inline_route_pin(raw, Some(adapter)) {
+    match inline_route_pin(command, Some(adapter)) {
         ModelPin::Concrete(id) if route_is_effortless(adapter, &id) => {
             let mut authorised = Map::new();
             authorised.insert(kind.to_string(), Value::String(adapter.digest.clone()));
@@ -1150,27 +1147,52 @@ fn effort_exempt(
     }
 }
 
-/// Inspect every driver-bearing invocation site in the already composed
-/// bundle. Agent references are pinned by their resolved candidate
-/// chains — a chain that names no effort for an effort-bearing provider
-/// is refused where the vocabulary is known, in the resolver — while
-/// inline built-ins must state both concrete pins in their argv.
-fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &mut Unpinned) {
-    if raw.get("agent").is_some() {
-        return;
+/// Every driver-bearing site of one PARSED body with the command it wrote,
+/// under its label, by an exhaustive match over the typed forms: a form
+/// this walk is not taught does not compile, so none is skipped silently.
+/// An agent reference writes none; the resolver pins its chain.
+fn written_sites<'a>(what: &str, body: &'a SeatBody) -> Vec<(String, &'a [String])> {
+    let members = |what: &str, members: &'a [PanelMember]| -> Vec<(String, &'a [String])> {
+        let site = |m: &'a PanelMember| (format!("{what}:{}", m.name), &m.written[..]);
+        members.iter().map(site).collect()
+    };
+    match body {
+        SeatBody::Single { written, .. } => vec![(what.to_string(), written)],
+        SeatBody::Panel { members: panel, .. } => members(what, panel),
+        SeatBody::Sequence { steps } => steps
+            .iter()
+            .flat_map(|step| {
+                let what = format!("{what}:{}", step.name);
+                match &step.body {
+                    StepBody::Single { written, .. } => vec![(what, &written[..])],
+                    StepBody::Panel { members: panel, .. } => members(&what, panel),
+                    StepBody::Dialect { .. } => Vec::new(),
+                }
+            })
+            .collect(),
+        SeatBody::Select { cases, default } => cases
+            .iter()
+            .map(|(case, body)| (case.as_str(), body))
+            .chain(default.as_deref().map(|body| ("default", body)))
+            .flat_map(|(case, body)| written_sites(&format!("{what}:{case}"), body))
+            .collect(),
     }
+}
+
+/// One site's written command: an inline built-in states both pins.
+fn collect_unpinned(what: &str, argv: &[String], adapters: Option<&Adapters>, out: &mut Unpinned) {
     // Both built-in lists are the same list: exec has neither a model to
     // pin nor an effort to pin, and a custom driver owns its own
     // contract. So a site is asked for both pins or for neither, and a
     // seat missing both is named in both halves of one refusal.
-    if let Some(kind) = built_in_model_driver(raw) {
-        if !command_pins_model(raw) {
+    if let Some(kind) = built_in_model_driver(argv) {
+        if model_unpinned(argv) {
             out.model.push(what.to_string());
         }
-        if !command_pins_effort(raw) && !effort_exempt(what, raw, adapters, &mut out.witnessed) {
+        if !command_pins_effort(argv) && !effort_exempt(what, argv, adapters, &mut out.witnessed) {
             out.effort.push(what.to_string());
         }
-        if kind == "dsh" && dsh_refuses_model_word(raw) {
+        if kind == "dsh" && dsh_refuses_model_word(argv) {
             out.dsh_model.push(what.to_string());
         }
         // The adapter a built-in model driver names answers for this
@@ -1201,28 +1223,6 @@ fn collect_unpinned(what: &str, raw: &Value, adapters: Option<&Adapters>, out: &
             if let Some(notice) = &adapter.hands_notice {
                 out.hands_notice.insert(what.to_string(), notice.clone());
             }
-        }
-        return;
-    }
-    if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
-        for (member, member_raw) in panel {
-            collect_unpinned(&format!("{what}:{member}"), member_raw, adapters, out);
-        }
-    }
-    if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
-        for (index, step) in sequence.iter().enumerate() {
-            let name = step_label(index, step);
-            collect_unpinned(&format!("{what}:{name}"), step, adapters, out);
-        }
-    }
-    if let Some(select) = raw.get("select").and_then(Value::as_object) {
-        if let Some(cases) = select.get("cases").and_then(Value::as_object) {
-            for (case, body) in cases {
-                collect_unpinned(&format!("{what}:{case}"), body, adapters, out);
-            }
-        }
-        if let Some(body) = select.get("default") {
-            collect_unpinned(&format!("{what}:default"), body, adapters, out);
         }
     }
 }
@@ -1260,12 +1260,14 @@ type PinWitness = (
 /// declares, for the engine's private start context, beside the digest of
 /// the declaration each assessment was read from, for the manifest.
 fn enforce_model_pins(
-    seats: &Map<String, Value>,
+    seats: &BTreeMap<String, Seat>,
     adapters: Option<&Adapters>,
 ) -> Result<PinWitness, CompileError> {
     let mut unpinned = Unpinned::default();
-    for (phase, raw) in seats {
-        collect_unpinned(phase, raw, adapters, &mut unpinned);
+    for (phase, seat) in seats {
+        for (what, argv) in written_sites(phase, &seat.body) {
+            collect_unpinned(&what, argv, adapters, &mut unpinned);
+        }
     }
     let mut refusals = Vec::new();
     if !unpinned.model.is_empty() {
@@ -1505,40 +1507,16 @@ impl Bundle {
             .unwrap_or_default()
             .to_string();
         let table = resolved.table.clone();
-        // One refusal names the complete repair set. Running this on the
-        // flattened seats also means inherited omissions cannot hide in
-        // a composition layer. The returned maps carry the adapter
-        // digests whose effortless listings exempted inline seats, for
-        // the manifest below, the resume assessment each inline
-        // built-in model driver's adapter declares, for the engine, and
-        // the digest of the declaration each assessment was read from,
-        // also for the manifest. The resume witnesses ride the same
-        // `drivers` pin the exemptions do: a site that already has an
-        // exemption names the same provider and digest, so extending
-        // the map leaves that fact unchanged rather than duplicating it.
-        // Kept for the capability pass below (decision 0065): an inline
-        // model seat in a bundle that seats no gate opens no agent
-        // context, and its adapter's native declaration is still what
-        // says how its search is switched off, as its model's tier is what
-        // says whether it may be seated (decision 0075 ruling 5).
+        // Read by the pin walk once the seats are parsed, and by the
+        // capability pass (decision 0065): an inline model seat in a bundle
+        // seating no gate opens no agent context, and its adapter still says
+        // how its search is switched off and its tier whether it may sit
+        // (decision 0075 ruling 5).
         let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
         let inline_adapters = pin_adapters.as_ref().and_then(|l| l.as_ref().ok());
-        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) =
-            enforce_model_pins(&resolved.seats, inline_adapters)?;
-        // The one canonical family table (design D10 F1). Seeded with the
-        // inline pins and assessments before any parse writes beside
-        // them; every later fact is written into an entrant of this same
-        // map, and a wrapper moves whole entrants.
+        // The one canonical family table (design D10 F1): every fact is
+        // written into an entrant of this map; a wrapper moves entrants.
         let mut sites: BTreeMap<String, SiteFacts> = BTreeMap::new();
-        for (label, value) in pin_drivers.into_iter().chain(resume_witness) {
-            site_facts(&mut sites, &label).pin_drivers = Some(value);
-        }
-        for (label, value) in inline_resume {
-            site_facts(&mut sites, &label).inline_resume = Some(value);
-        }
-        for (label, notice) in inline_hands_notice {
-            site_facts(&mut sites, &label).inline_hands_notice = Some(notice);
-        }
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
             .phases
@@ -1754,11 +1732,14 @@ impl Bundle {
                 agent_hands: agent_seat.as_ref().and_then(|seat| seat.hands.as_ref()),
                 ..law
             };
+            let mut sequence_gate = None;
             let body = if let Some(agent_seat) = &agent_seat {
                 SeatBody::Single {
                     role_path: agent_seat.role_path.clone(),
                     command: agent_seat.command.clone(),
                     candidates: agent_seat.candidates.clone(),
+                    written: Vec::new(),
+                    class: parse_class(phase, raw)?,
                 }
             } else if has_panel {
                 let (members, aggregate) = parse_panel(
@@ -1774,22 +1755,22 @@ impl Bundle {
                 )?;
                 SeatBody::Panel { members, aggregate }
             } else if has_sequence {
-                SeatBody::Sequence {
-                    steps: parse_sequence(
-                        dir,
-                        phase,
-                        raw,
-                        &mut agents,
-                        &mut sites,
-                        BodyCompile {
-                            results: &results,
-                            secrets: &secrets,
-                            dialect,
-                            boundary,
-                            charters: &charters,
-                        },
-                    )?,
-                }
+                let (steps, whole_gate) = parse_sequence(
+                    dir,
+                    phase,
+                    raw,
+                    &mut agents,
+                    &mut sites,
+                    BodyCompile {
+                        results: &results,
+                        secrets: &secrets,
+                        dialect,
+                        boundary,
+                        charters: &charters,
+                    },
+                )?;
+                sequence_gate = Some(whole_gate);
+                SeatBody::Sequence { steps }
             } else if has_select {
                 parse_select(
                     dir,
@@ -1808,12 +1789,13 @@ impl Bundle {
                     },
                 )?
             } else {
+                let written = command_parts(raw);
                 record_inline_tools(
                     dir,
                     phase,
                     raw,
                     true,
-                    &command_parts(raw),
+                    &written,
                     agents.as_ref().map(|context| &context.adapters),
                     &mut sites,
                 )?;
@@ -1821,6 +1803,8 @@ impl Bundle {
                     role_path: parse_role(dir, phase, raw, &charters, &mut sites)?,
                     command: parse_command(dir, phase, raw, &secrets)?,
                     candidates: Vec::new(),
+                    written,
+                    class: parse_class(phase, raw)?,
                 }
             };
             // The dialect wrapper is applied after this loop, once every
@@ -1930,7 +1914,7 @@ impl Bundle {
             seats.insert(
                 phase.clone(),
                 Seat {
-                    has_gate: is_gate_class(raw),
+                    has_gate: sequence_gate.unwrap_or_else(|| body.is_gate()),
                     results,
                     limits,
                     inputs,
@@ -1938,6 +1922,20 @@ impl Bundle {
                     body,
                 },
             );
+        }
+        // Decision 0031 over the TYPED, flattened seats before the wrapper
+        // moves an address: one refusal names the whole repair set, and the
+        // maps it returns seed the manifest's `drivers` pin and the resume.
+        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) =
+            enforce_model_pins(&seats, inline_adapters)?;
+        for (label, value) in pin_drivers.into_iter().chain(resume_witness) {
+            site_facts(&mut sites, &label).pin_drivers = Some(value);
+        }
+        for (label, value) in inline_resume {
+            site_facts(&mut sites, &label).inline_resume = Some(value);
+        }
+        for (label, notice) in inline_hands_notice {
+            site_facts(&mut sites, &label).inline_hands_notice = Some(notice);
         }
 
         phases::seated_and_ruled(&machine, &seats)?;
@@ -2032,10 +2030,13 @@ impl Bundle {
                                 role_path,
                                 command,
                                 candidates,
+                                written,
+                                ..
                             } => StepBody::Single {
                                 role_path: role_path.clone(),
                                 command: command.clone(),
                                 candidates: candidates.clone(),
+                                written: written.clone(),
                             },
                             SeatBody::Panel { members, aggregate } => StepBody::Panel {
                                 members: members.clone(),
@@ -2130,11 +2131,7 @@ impl Bundle {
             relocate_verify_facts(&mut sites, &moved);
             let prior = SequenceStep {
                 name: "checks".into(),
-                class: if is_gate_class(verify_raw) {
-                    SeatClass::Gate
-                } else {
-                    SeatClass::Work
-                },
+                class: SeatClass::of(seats["verify"].has_gate),
                 results: seats["verify"].results.clone(),
                 body: prior_body,
             };
@@ -4133,7 +4130,7 @@ fn unreadable_destination(flags: &[String]) -> String {
 /// whose declaration authorised it is pinned into the manifest, so the
 /// bundle's identity carries what let it judge. An agent site needs no
 /// entry here — its resolution record already pins every adapter its
-/// chain consulted.
+/// chain consulted. Returns the site's class, read where ruling 1 is.
 fn enforce_model_policy(
     what: &str,
     raw: &Value,
@@ -4142,7 +4139,7 @@ fn enforce_model_policy(
     agents: &mut Option<AgentContext>,
     law: SiteLaw<'_>,
     sites: &mut BTreeMap<String, SiteFacts>,
-) -> Result<(), CompileError> {
+) -> Result<SeatClass, CompileError> {
     // The hands law is the FIRST statement (decision 0046 ruling 4;
     // design DD22): it judges every site that declares hands whatever
     // its class, so the work-class early return below cannot bypass it,
@@ -4157,18 +4154,18 @@ fn enforce_model_policy(
         law,
         agents.as_ref().map(|context| &context.adapters),
     )?;
-    enforce_route_policy(what, raw, candidates, secrets, agents, sites)?;
+    let class = parse_class(what, raw)?;
+    // The route is read off the model pin, so a site the pin walk refuses by
+    // this `model_unpinned` over this argv has no route to judge here.
+    if !model_unpinned(&command_parts(raw)) {
+        enforce_route_policy(what, raw, candidates, secrets, agents, sites)?;
+    }
     // Design D5.3, LAST: a typed sandbox class is admitted only where an
     // existing engine fragment expresses it exactly, after every standing
     // refusal above has had its say, so none of them loses precedence.
-    admit_local_sandbox(
-        what,
-        raw,
-        candidates,
-        law,
-        agents.as_ref().map(|context| &context.adapters),
-        sites,
-    )
+    let adapters = agents.as_ref().map(|context| &context.adapters);
+    admit_local_sandbox(what, raw, candidates, law, adapters, sites)?;
+    Ok(class)
 }
 
 /// Decision 0021's two prohibitions proper — the gate tier, the judges
@@ -4215,9 +4212,10 @@ fn enforce_route_policy(
             // driver, the `(None, _)` arm below lands the site on
             // `Uncontracted` whatever this returns.
             true => {
-                let driver = dispatch_driver(&command_parts(raw));
+                let parts = command_parts(raw);
+                let driver = dispatch_driver(&parts);
                 let pin = inline_route_pin(
-                    raw,
+                    &parts,
                     driver
                         .as_deref()
                         .and_then(|provider| adapters.adapter(provider)),
@@ -5900,8 +5898,8 @@ fn record_hands(
     Ok(())
 }
 
-/// Walk one composed seat exactly as [`collect_unpinned`] does — same
-/// labels, so the facts land where the engine looks — and resolve every
+/// Walk one composed seat under the labels [`written_sites`] gives the pin
+/// walk, so the facts land where the engine looks, and resolve every
 /// executable site's capabilities. An agent-backed site's asks are its
 /// agent's minus what the site subtracts; an inline site's map is its own
 /// office's asks. A wanted capability a candidate lost is a notice in that
@@ -6016,7 +6014,8 @@ fn record_capabilities(
     // site at all, and none is invented for it here.
     if raw.get("dialect").is_some() {
         if sites.contains_key(what) {
-            let asks = crate::capabilities::SiteAsks::at(step_class(raw), what, None, None)
+            // The validator judges: a gate, as its compiled step's `class`.
+            let asks = crate::capabilities::SiteAsks::at(SeatClass::Gate, what, None, None)
                 .map_err(CompileError::Invalid)?;
             let facts = site_facts(sites, what);
             facts.inline_mcp = Some(McpIntent::inline(Some("exec"), facts.hands_spec()));
@@ -6094,10 +6093,8 @@ fn site_asks(
         .map_err(CompileError::Invalid)
 }
 
-/// The label a sequence step is recorded under: its `name`, or its
-/// one-based position where the step names itself nothing. One spelling,
-/// shared by the pin walk and the capability walk, so the two record the
-/// same step under the same label.
+/// The capability walk's label for a sequence step: its `name`, or else its
+/// one-based position (which the parse refuses), so it is the step's name.
 fn step_label(index: usize, step: &Value) -> String {
     step.get("name")
         .and_then(Value::as_str)
@@ -6255,12 +6252,15 @@ fn parse_selected_body(
             dir,
             agent_hands: resolved.hands.as_ref(),
         };
-        enforce_model_policy(what, raw, &resolved.candidates, secrets, agents, law, sites)?;
+        let class =
+            enforce_model_policy(what, raw, &resolved.candidates, secrets, agents, law, sites)?;
         record_hands(what, raw, resolved.hands, secrets, sites)?;
         let body = SeatBody::Single {
             role_path: resolved.role_path,
             command: resolved.command,
             candidates: resolved.candidates,
+            written: Vec::new(),
+            class,
         };
         Ok(body)
     } else if has_panel {
@@ -6270,16 +6270,18 @@ fn parse_selected_body(
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Panel { members, aggregate })
     } else if has_sequence {
-        let steps = parse_sequence(dir, what, raw, agents, sites, compile)?;
+        // Its steps say its fact: a_selected_sequence_holds_no_dialect_step.
+        let (steps, _) = parse_sequence(dir, what, raw, agents, sites, compile)?;
         refuse_class_without_a_driver(what, raw)?;
         Ok(SeatBody::Sequence { steps })
     } else {
+        let written = command_parts(raw);
         record_inline_tools(
             dir,
             what,
             raw,
             false,
-            &command_parts(raw),
+            &written,
             agents.as_ref().map(|context| &context.adapters),
             sites,
         )?;
@@ -6288,12 +6290,14 @@ fn parse_selected_body(
             dir,
             agent_hands: None,
         };
-        enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
+        let class = enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
         record_hands(what, raw, None, secrets, sites)?;
         let body = SeatBody::Single {
             role_path: parse_role(dir, what, raw, charters, sites)?,
             command: parse_command(dir, what, raw, secrets)?,
             candidates: Vec::new(),
+            written,
+            class,
         };
         Ok(body)
     }
@@ -6358,10 +6362,8 @@ fn parse_select(
         }
     }
     let mut cases = BTreeMap::new();
-    let mut case_gates = BTreeMap::new();
     for (case, body) in cases_raw {
         let label = format!("{phase}:{case}");
-        case_gates.insert(case.clone(), is_gate_class(body));
         let case_dir = &compile.roots[compile.case_origin.get(&label).copied().unwrap_or(0)];
         cases.insert(
             case.clone(),
@@ -6401,13 +6403,7 @@ fn parse_select(
             .map(Box::new)
         })
         .transpose()?;
-    let default_gate = select.get("default").is_some_and(is_gate_class);
-    Ok(SeatBody::Select {
-        cases,
-        default,
-        case_gates,
-        default_gate,
-    })
+    Ok(SeatBody::Select { cases, default })
 }
 
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
@@ -6483,6 +6479,7 @@ fn parse_panel(
             refuse_amendments(&site, member_raw)?;
         }
         refuse_unknown_keys(&site, member_raw, MEMBER_KEYS)?;
+        let written = command_parts(member_raw);
         let (role_path, command, candidates, agent_hands) = match member_raw.get("agent") {
             None => {
                 record_inline_tools(
@@ -6490,7 +6487,7 @@ fn parse_panel(
                     &site,
                     member_raw,
                     false,
-                    &command_parts(member_raw),
+                    &written,
                     agents.as_ref().map(|context| &context.adapters),
                     sites,
                 )?;
@@ -6526,13 +6523,16 @@ fn parse_panel(
             dir,
             agent_hands: agent_hands.as_ref(),
         };
-        enforce_model_policy(&site, member_raw, &candidates, secrets, agents, law, sites)?;
+        let class =
+            enforce_model_policy(&site, member_raw, &candidates, secrets, agents, law, sites)?;
         record_hands(&site, member_raw, agent_hands, secrets, sites)?;
         members.push(PanelMember {
             name: name.clone(),
             role_path,
             command,
             candidates,
+            written,
+            class,
         });
     }
     Ok((members, aggregate))
@@ -6540,7 +6540,8 @@ fn parse_panel(
 
 /// Parse a sequence body: named steps, each a single driver or a panel,
 /// run serially inside one effect. At least two steps (a one-step
-/// sequence is a single seat); names unique case-insensitively.
+/// sequence is a single seat); names unique case-insensitively. Beside them,
+/// `has_gate`: every step, a dialect one or an unsupplied check too, WROTE `gate`.
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 #[expect(
     clippy::excessive_nesting,
@@ -6553,7 +6554,7 @@ fn parse_sequence(
     agents: &mut Option<AgentContext>,
     sites: &mut BTreeMap<String, SiteFacts>,
     compile: BodyCompile<'_>,
-) -> Result<Vec<SequenceStep>, CompileError> {
+) -> Result<(Vec<SequenceStep>, bool), CompileError> {
     let BodyCompile {
         results,
         secrets,
@@ -6574,6 +6575,7 @@ fn parse_sequence(
         )));
     }
     let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
+    let mut whole_gate = true;
     for (index, step_raw) in steps_raw.iter().enumerate() {
         let name = step_raw
             .get("name")
@@ -6603,6 +6605,7 @@ fn parse_sequence(
             !has_agent && (step_raw.get("role").is_some() || step_raw.get("driver").is_some());
         let has_panel = step_raw.get("panel").is_some();
         let has_dialect = step_raw.get("dialect").is_some();
+        whole_gate &= !has_dialect | matches!(parse_class(&what, step_raw), Ok(SeatClass::Gate));
         if [has_single, has_panel, has_agent, has_dialect]
             .iter()
             .filter(|f| **f)
@@ -6747,6 +6750,7 @@ fn parse_sequence(
                 role_path: resolved.role_path,
                 command: resolved.command,
                 candidates: resolved.candidates,
+                written: Vec::new(),
             }
         } else if has_panel {
             let (members, aggregate) = parse_panel(
@@ -6762,12 +6766,13 @@ fn parse_sequence(
             )?;
             StepBody::Panel { members, aggregate }
         } else {
+            let written = command_parts(step_raw);
             record_inline_tools(
                 dir,
                 &what,
                 step_raw,
                 false,
-                &command_parts(step_raw),
+                &written,
                 agents.as_ref().map(|context| &context.adapters),
                 sites,
             )?;
@@ -6775,6 +6780,7 @@ fn parse_sequence(
                 role_path: parse_role(dir, &what, step_raw, charters, sites)?,
                 command: parse_command(dir, &what, step_raw, secrets)?,
                 candidates: Vec::new(),
+                written,
             }
         };
         // A final dialect step emits the deterministic adapter's two
@@ -6788,27 +6794,35 @@ fn parse_sequence(
                 .map(str::to_string)
                 .collect();
         }
-        match &body {
+        // The step's canonical class (GP1): a dialect step's validator
+        // judges, so it is a gate; a panel step is one when its members are.
+        let class = match &body {
             StepBody::Single { candidates, .. } => {
                 let law = SiteLaw {
                     boundary,
                     dir,
                     agent_hands: agent_hands.as_ref(),
                 };
-                enforce_model_policy(&what, step_raw, candidates, secrets, agents, law, sites)?;
+                let class =
+                    enforce_model_policy(&what, step_raw, candidates, secrets, agents, law, sites)?;
                 record_hands(&what, step_raw, agent_hands, secrets, sites)?;
+                class
             }
-            StepBody::Panel { .. } => refuse_class_without_a_driver(&what, step_raw)?,
-            StepBody::Dialect { .. } => {}
-        }
+            StepBody::Panel { members, .. } => {
+                refuse_class_without_a_driver(&what, step_raw)?;
+                SeatClass::of(every(members.iter().map(|m| m.class == SeatClass::Gate)))
+            }
+            StepBody::Dialect { .. } => SeatClass::Gate,
+        };
+        whole_gate &= class == SeatClass::Gate;
         steps.push(SequenceStep {
             name: name.to_string(),
-            class: step_class(step_raw),
+            class,
             results: step_results,
             body,
         });
     }
-    Ok(steps)
+    Ok((steps, whole_gate))
 }
 
 /// The charters a compile bound, each kept with the layer that declared it

@@ -6,7 +6,7 @@
 //! id of its own per invocation, and answers. What the engine offered is
 //! therefore read off the wire the driver actually saw, never inferred.
 
-use super::tests::templated;
+use super::tests::{step_body, templated};
 use super::*;
 use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::{Limits, Seat};
@@ -248,6 +248,8 @@ fn member(name: &str, command: Vec<String>) -> PanelMember {
         role_path: PathBuf::from("role.md"),
         command,
         candidates: Vec::new(),
+        written: Vec::new(),
+        class: SeatClass::Work,
     }
 }
 
@@ -263,6 +265,8 @@ fn single(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
         role_path: PathBuf::from("role.md"),
         command,
         candidates,
+        written: Vec::new(),
+        class: SeatClass::Work,
     }
 }
 
@@ -276,6 +280,8 @@ fn chartered(command: Vec<String>, candidates: Vec<Candidate>, charter: &Path) -
         role_path: charter.to_path_buf(),
         command,
         candidates,
+        written: Vec::new(),
+        class: SeatClass::Work,
     }
 }
 
@@ -742,21 +748,13 @@ fn a_sequence_offers_its_work_steps_and_members_and_nothing_to_a_validator() {
         name: "author".into(),
         class: SeatClass::Work,
         results: vec!["drafted".into()],
-        body: StepBody::Single {
-            role_path: PathBuf::from("role.md"),
-            command: model_driver(dir.path(), "author", &["drafted"]),
-            candidates: Vec::new(),
-        },
+        body: step_body(model_driver(dir.path(), "author", &["drafted"])),
     };
     let validator = SequenceStep {
         name: "validate".into(),
         class: SeatClass::Work,
         results: vec!["drafted".into()],
-        body: StepBody::Single {
-            role_path: PathBuf::from("role.md"),
-            command: driver(dir.path(), "validate", &["drafted"]),
-            candidates: Vec::new(),
-        },
+        body: step_body(driver(dir.path(), "validate", &["drafted"])),
     };
     let council = SequenceStep {
         name: "council".into(),
@@ -848,11 +846,7 @@ fn no_gate_topology_is_ever_offered_a_session() {
                         name: "judge".into(),
                         class: SeatClass::Gate,
                         results: vec!["pass".into()],
-                        body: StepBody::Single {
-                            role_path: PathBuf::from("role.md"),
-                            command: model_driver(dir.path(), "step-judge", &["pass"]),
-                            candidates: Vec::new(),
-                        },
+                        body: step_body(model_driver(dir.path(), "step-judge", &["pass"])),
                     },
                     SequenceStep {
                         name: "bench".into(),

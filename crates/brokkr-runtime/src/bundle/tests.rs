@@ -428,6 +428,15 @@ fn dialect_site_vocabulary_and_support_fail_closed() {
     ))
     .contains("validate unsupported"));
 
+    let (loop_config, loop_policy) = loop_config(json!([
+        {"name":"count","results":["clear"],"dialect":"check"},
+        {"name":"judge","role":"roles/role.md","driver":{"command":["driver"]}}
+    ]));
+    assert!(compile_dialect_fixture(&fixture, &loop_config, &loop_policy, Some(&dialect)).is_ok());
+}
+
+/// A clarify loop whose sequence is `steps`, before a plain review.
+fn loop_config(steps: Value) -> (Value, Value) {
     let loop_policy = json!({
         "phases":["clarify","review","done"], "initial":"clarify", "terminal":["done"],
         "rules":[
@@ -438,14 +447,38 @@ fn dialect_site_vocabulary_and_support_fail_closed() {
     });
     let loop_config = json!({
         "name":"loop", "policy":"policy.json", "protected_phase":"review", "seats":{
-            "clarify":{"results":["clear","ambiguous"],"sequence":[
-                {"name":"count","results":["clear"],"dialect":"check"},
-                {"name":"judge","role":"roles/role.md","driver":{"command":["driver"]}}
-            ]},
+            "clarify":{"results":["clear","ambiguous"],"sequence":steps},
             "review":{"results":["clean"],"role":"roles/role.md","driver":{"command":["driver"]}}
         }
     });
-    assert!(compile_dialect_fixture(&fixture, &loop_config, &loop_policy, Some(&dialect)).is_ok());
+    (loop_config, loop_policy)
+}
+
+/// A dialect step counts toward its seat's whole-effect fact by the `class`
+/// it WROTE (#349), which its compiled class, always a gate, cannot say.
+#[test]
+fn a_dialect_step_counts_toward_the_whole_gate_by_the_class_it_wrote() {
+    let fixture = Fixture::new();
+    let root = workspace_root();
+    let dialect = Dialect::load(&root.join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let count = json!({"name":"count","results":["clear"],"dialect":"check","class":"gate"});
+    let recount = json!({"name":"recount","dialect":"check"});
+    for (class, gate) in [
+        ("gate", true),
+        ("work", false),
+        ("judge", false),
+        ("", false),
+    ] {
+        let mut recount = recount.clone();
+        if !class.is_empty() {
+            recount["class"] = json!(class);
+        }
+        let (config, policy) = loop_config(json!([count, recount]));
+        let bundle = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
+        assert_eq!(bundle.seats["clarify"].has_gate, gate, "{recount}");
+    }
 }
 
 #[test]
@@ -627,18 +660,9 @@ fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
         .is_some());
     assert!(compiled.seats["work"].body.selected(None).is_none());
     assert!(!compiled.seats["work"].body.selected_is_gate(None, false));
-    assert!(!is_gate_class(
-        &json!({"select":{"on":"strategy", "cases":{}}})
-    ));
-    assert!(is_gate_class(
-        &json!({"select":{"on":"strategy", "cases":{},
-        "default":{"class":"gate", "role":"roles/role.md", "driver":{"command":["driver"]}}}})
-    ));
     let nested = SeatBody::Select {
         cases: BTreeMap::from([("chore".into(), compiled.seats["work"].body.clone())]),
         default: None,
-        case_gates: BTreeMap::new(),
-        default_gate: false,
     };
     assert!(nested.selected(Some("chore")).is_none());
 
@@ -876,7 +900,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
          "role":"roles/role.md", "driver":{"command":["driver"]}},
         {"name":"final", "role":"roles/role.md", "driver":{"command":["driver"]}}
     ]});
-    let steps = parse_sequence(
+    let (steps, _) = parse_sequence(
         dir,
         "review",
         &valid,

@@ -11,7 +11,8 @@ use serde_json::{Map, Value};
 
 use super::tier::FALLBACK_FLAG;
 use super::{
-    built_in_model_driver, inline_route_pin, route_pin, CapabilityAdapters, ModelPin, SiteFacts,
+    built_in_model_driver, command_parts, inline_route_pin, route_pin, CapabilityAdapters,
+    ModelPin, SiteFacts,
 };
 use crate::agents::Candidate;
 use crate::capabilities::manifest::{ModelPins, Served};
@@ -53,14 +54,18 @@ fn agent(adapters: CapabilityAdapters<'_>, provider: &str, model: &str) -> Model
 /// pin that cannot be read as one concrete id makes the whole unreadable,
 /// naming its flags. `exec` and a custom command take no model.
 pub(super) fn inline(raw: &Value, adapters: CapabilityAdapters<'_>) -> Vec<ModelPins> {
-    let Some(kind) = built_in_model_driver(raw) else {
+    let parts = command_parts(raw);
+    let Some(kind) = built_in_model_driver(&parts) else {
         return exec();
     };
     let own = adapters
         .adapters
         .and_then(|adapters| adapters.adapter(kind));
     let (mut read, mut flags) = (Vec::new(), Vec::new());
-    for pin in [inline_route_pin(raw, own), route_pin(raw, FALLBACK_FLAG)] {
+    for pin in [
+        inline_route_pin(&parts, own),
+        route_pin(&parts, FALLBACK_FLAG),
+    ] {
         match pin {
             ModelPin::Concrete(id) => read.push(Served::on(kind, id)),
             ModelPin::Unreadable(on) => flags.extend(on),

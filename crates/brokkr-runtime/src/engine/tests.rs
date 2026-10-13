@@ -79,7 +79,52 @@ pub(super) fn single_body(command: Vec<String>) -> SeatBody {
         role_path: PathBuf::from("role.md"),
         command,
         candidates: Vec::new(),
+        written: Vec::new(),
+        class: SeatClass::Work,
     }
+}
+
+/// The inline step every sequence fixture runs on `role.md`.
+pub(super) fn step_body(command: Vec<String>) -> StepBody {
+    StepBody::Single {
+        role_path: "role.md".into(),
+        command,
+        candidates: Vec::new(),
+        written: Vec::new(),
+    }
+}
+
+/// The two-step fixture sequence: an inline `draft` on `role` whose own
+/// vocabulary is `drafted`, then a unanimous `finish` panel of `members`.
+pub(super) fn draft_then_finish(
+    role: impl Into<PathBuf>,
+    draft: Vec<String>,
+    drafted: &[&str],
+    members: Vec<PanelMember>,
+) -> Vec<SequenceStep> {
+    let draft = StepBody::Single {
+        role_path: role.into(),
+        command: draft,
+        candidates: Vec::new(),
+        written: Vec::new(),
+    };
+    vec![
+        SequenceStep {
+            name: "draft".into(),
+            class: SeatClass::Work,
+            results: drafted.iter().map(|result| result.to_string()).collect(),
+            body: draft,
+        },
+        SequenceStep {
+            name: "finish".into(),
+            class: SeatClass::Work,
+            results: vec!["pass".into(), "fail".into()],
+            body: StepBody::Panel {
+                members,
+                aggregate: Aggregate::UnanimousPass,
+            },
+        },
+    ]
 }
 
 pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
@@ -204,8 +249,6 @@ fn selecting(default: bool) -> SeatBody {
     SeatBody::Select {
         cases,
         default: default.then(|| Box::new(single_body(vec!["default-driver".into()]))),
-        case_gates: BTreeMap::new(),
-        default_gate: false,
     }
 }
 
@@ -275,8 +318,6 @@ read -r done
     let body = SeatBody::Select {
         cases,
         default: Some(Box::new(single_body(vec!["missing-driver".into()]))),
-        case_gates: BTreeMap::new(),
-        default_gate: false,
     };
     let mut compiled = bundle(dir.path(), body);
     compiled.machine = Machine::from_table(&json!({
@@ -572,6 +613,7 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
                     role_path: "role".into(),
                     command: vec!["missing".into()],
                     candidates: Vec::new(),
+                    written: Vec::new(),
                 },
             });
         }
@@ -649,20 +691,16 @@ fn a_sequence_fences_a_malformed_change_before_the_dialect_tool_runs() {
         name: "author".into(),
         results: vec!["drafted".into()],
         class: SeatClass::Work,
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command: driver_command(
-                "effect",
-                "attempt",
-                AttemptOutcome::Succeeded {
-                    result: json!({
-                        "result":"drafted",
-                        "inputs":{"change":"--config=../../.."}
-                    }),
-                },
-            ),
-            candidates: Vec::new(),
-        },
+        body: step_body(driver_command(
+            "effect",
+            "attempt",
+            AttemptOutcome::Succeeded {
+                result: json!({
+                    "result":"drafted",
+                    "inputs":{"change":"--config=../../.."}
+                }),
+            },
+        )),
     };
     let validate = SequenceStep {
         name: "validate".into(),
@@ -1393,11 +1431,7 @@ fn an_all_gate_sequence_arms_no_observation_outside_its_steps() {
         name: name.into(),
         class: SeatClass::Gate,
         results: vec!["complete".into()],
-        body: StepBody::Single {
-            role_path: PathBuf::from("role.md"),
-            command: vec!["driver".into()],
-            candidates: Vec::new(),
-        },
+        body: step_body(vec!["driver".into()]),
     };
     let seat = |body: SeatBody| Seat {
         // Every site in it is a gate — which the compiler says of an
@@ -1451,20 +1485,13 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
     empty.seats.clear();
     assert_eq!(verify_dispatch_bundle_bounds(&base, &empty), Ok(()));
 
-    let members = vec![
-        PanelMember {
-            name: "one".into(),
+    let members: Vec<PanelMember> = ["one", "two"]
+        .into_iter()
+        .map(|name| PanelMember {
             role_path: "role".into(),
-            command: vec!["driver".into()],
-            candidates: Vec::new(),
-        },
-        PanelMember {
-            name: "two".into(),
-            role_path: "role".into(),
-            command: vec!["driver".into()],
-            candidates: Vec::new(),
-        },
-    ];
+            ..member(name, vec!["driver".into()])
+        })
+        .collect();
     let panel = bundle(
         dir.path(),
         SeatBody::Panel {
@@ -1486,6 +1513,7 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                         role_path: "role".into(),
                         command: vec!["driver".into()],
                         candidates: Vec::new(),
+                        written: Vec::new(),
                     },
                 },
                 SequenceStep {
@@ -1862,7 +1890,6 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     let outcomes = vec![
@@ -1911,57 +1938,44 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     ));
 
     assert_eq!(
-        aggregate_results(
-            Aggregate::UnanimousPass,
-            &[("bad".into(), json!({"notes":"missing result"}))]
-        )["result"],
+        Aggregate::UnanimousPass
+            .aggregate_results(&[("bad".into(), json!({"notes":"missing result"}))])["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        aggregate_results(
-            Aggregate::UnanimousPass,
-            &[("bad".into(), json!({"result":"invented"}))]
-        )["result"],
+        Aggregate::UnanimousPass.aggregate_results(&[("bad".into(), json!({"result":"invented"}))])
+            ["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        aggregate_results(
-            Aggregate::UnanimousPass,
-            &[
-                ("one".into(), json!({"result":"pass"})),
-                ("two".into(), json!({"result":"fail"}))
-            ]
-        )["result"],
+        Aggregate::UnanimousPass.aggregate_results(&[
+            ("one".into(), json!({"result":"pass"})),
+            ("two".into(), json!({"result":"fail"}))
+        ])["result"],
         "fail"
     );
-    let review = aggregate_results(
-        Aggregate::ReviewPanel,
-        &[
-            (
-                "clean".into(),
-                json!({"result":"clean", "inputs":{"spec_defect":true}}),
-            ),
-            (
-                "residual".into(),
-                json!({"result":"residual", "inputs":{
-                    "max_residual_severity":"high", "has_security_residual":true
-                }}),
-            ),
-            ("unknown".into(), json!({"result":"invented"})),
-        ],
-    );
+    let review = Aggregate::ReviewPanel.aggregate_results(&[
+        (
+            "clean".into(),
+            json!({"result":"clean", "inputs":{"spec_defect":true}}),
+        ),
+        (
+            "residual".into(),
+            json!({"result":"residual", "inputs":{
+                "max_residual_severity":"high", "has_security_residual":true
+            }}),
+        ),
+        ("unknown".into(), json!({"result":"invented"})),
+    ]);
     assert_eq!(review["result"], "invented");
     assert_eq!(review["inputs"]["max_residual_severity"], "high");
     assert_eq!(review["inputs"]["has_security_residual"], true);
     assert_eq!(review["inputs"]["fixes_applied"], false);
     assert_eq!(review["inputs"]["spec_defect"], true);
-    let unknown_severity = aggregate_results(
-        Aggregate::ReviewPanel,
-        &[(
-            "residual".into(),
-            json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
-        )],
-    );
+    let unknown_severity = Aggregate::ReviewPanel.aggregate_results(&[(
+        "residual".into(),
+        json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
+    )]);
     assert_eq!(unknown_severity["inputs"]["max_residual_severity"], "none");
 
     assert_eq!(
@@ -2017,6 +2031,8 @@ pub(super) fn member(name: &str, command: Vec<String>) -> PanelMember {
         role_path: "role.md".into(),
         command,
         candidates: Vec::new(),
+        written: Vec::new(),
+        class: SeatClass::Work,
     }
 }
 
@@ -2132,14 +2148,8 @@ fn step_input() -> Value {
 #[test]
 fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
     let failed_step = SequenceStep {
-        name: "failed".into(),
         results: vec!["failed-result".into()],
-        class: SeatClass::Work,
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command: vec!["missing-driver".into()],
-            candidates: Vec::new(),
-        },
+        ..step("failed", vec!["missing-driver".into()])
     };
     let (_dir, mut failed) = engine(single_body(vec!["driver".into()]));
     failed
@@ -2164,17 +2174,13 @@ fn sequence_execution_covers_spawn_failure_and_indeterminate_terminal_shapes() {
         name: "lost".into(),
         results: vec!["lost-result".into()],
         class: SeatClass::Work,
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command: driver_command(
-                "lost-effect",
-                "lost-attempt",
-                AttemptOutcome::Indeterminate {
-                    reason: "lost".into(),
-                },
-            ),
-            candidates: Vec::new(),
-        },
+        body: step_body(driver_command(
+            "lost-effect",
+            "lost-attempt",
+            AttemptOutcome::Indeterminate {
+                reason: "lost".into(),
+            },
+        )),
     };
     let (_dir, mut lost) = engine(single_body(vec!["driver".into()]));
     lost.execute_sequence(
@@ -3351,6 +3357,8 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
         role_path: PathBuf::from(format!("{name}.md")),
         command: vec!["driver".into()],
         candidates: Vec::new(),
+        written: Vec::new(),
+        class: SeatClass::Work,
     };
     let members = vec![member("security"), member("correctness")];
     let meta = json!({
@@ -3502,11 +3510,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
         .is_err());
 
     let command = two_checkpoint_command("effect", "attempt");
-    let (dir, mut checkpointed) = engine(SeatBody::Single {
-        role_path: "role.md".into(),
-        command,
-        candidates: Vec::new(),
-    });
+    let (dir, mut checkpointed) = engine(single_body(command));
     fail_event(&dir.path().join("forge.db"), "effect/checkpointed");
     let correct = requested(&checkpointed, "effect");
     assert!(checkpointed
@@ -3666,14 +3670,8 @@ fn panel_and_sequence_storage_failures_propagate() {
         .is_err());
 
     let failed_step = SequenceStep {
-        name: "failed".into(),
         results: vec!["failed-result".into()],
-        class: SeatClass::Work,
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command: vec!["missing-driver".into()],
-            candidates: Vec::new(),
-        },
+        ..step("failed", vec!["missing-driver".into()])
     };
     let (_kept, mut failed_sequence) = engine_failing("effect/failed");
     assert!(failed_sequence
@@ -3692,17 +3690,13 @@ fn panel_and_sequence_storage_failures_propagate() {
         name: "lost".into(),
         results: vec!["lost-result".into()],
         class: SeatClass::Work,
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command: driver_command(
-                "effect",
-                "attempt",
-                AttemptOutcome::Indeterminate {
-                    reason: "lost".into(),
-                },
-            ),
-            candidates: Vec::new(),
-        },
+        body: step_body(driver_command(
+            "effect",
+            "attempt",
+            AttemptOutcome::Indeterminate {
+                reason: "lost".into(),
+            },
+        )),
     };
     let (_kept, mut lost_sequence) = engine_failing("effect/indeterminate");
     assert!(lost_sequence
@@ -3721,17 +3715,13 @@ fn panel_and_sequence_storage_failures_propagate() {
         name: "ok".into(),
         results: vec!["ok-result".into()],
         class: SeatClass::Work,
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command: driver_command(
-                "effect",
-                "attempt",
-                AttemptOutcome::Succeeded {
-                    result: json!({"result":"complete"}),
-                },
-            ),
-            candidates: Vec::new(),
-        },
+        body: step_body(driver_command(
+            "effect",
+            "attempt",
+            AttemptOutcome::Succeeded {
+                result: json!({"result":"complete"}),
+            },
+        )),
     };
     let (_kept, mut ok_sequence) = engine_failing("effect/succeeded");
     assert!(ok_sequence
@@ -3750,11 +3740,7 @@ fn panel_and_sequence_storage_failures_propagate() {
         name: "checkpoint".into(),
         results: vec!["checkpoint-result".into()],
         class: SeatClass::Work,
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command: two_checkpoint_command("effect", "attempt"),
-            candidates: Vec::new(),
-        },
+        body: step_body(two_checkpoint_command("effect", "attempt")),
     };
     let (_kept, mut checkpoint_sequence) = engine_failing("effect/checkpointed");
     assert!(checkpoint_sequence
@@ -3774,27 +3760,19 @@ fn panel_and_sequence_storage_failures_propagate() {
             name: "first".into(),
             results: vec!["first-result".into()],
             class: SeatClass::Work,
-            body: StepBody::Single {
-                role_path: "role.md".into(),
-                command: driver_command(
-                    "effect",
-                    "attempt",
-                    AttemptOutcome::Succeeded {
-                        result: json!({"result":"first-result"}),
-                    },
-                ),
-                candidates: Vec::new(),
-            },
+            body: step_body(driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"first-result"}),
+                },
+            )),
         },
         SequenceStep {
             name: "second".into(),
             results: vec!["second-result".into()],
             class: SeatClass::Work,
-            body: StepBody::Single {
-                role_path: "role.md".into(),
-                command: vec!["missing-driver".into()],
-                candidates: Vec::new(),
-            },
+            body: step_body(vec!["missing-driver".into()]),
         },
     ];
     let input = json!({
@@ -3824,27 +3802,19 @@ fn panel_and_sequence_storage_failures_propagate() {
             name: "invalid".into(),
             results: vec!["declared".into()],
             class: SeatClass::Work,
-            body: StepBody::Single {
-                role_path: "role.md".into(),
-                command: driver_command(
-                    "effect",
-                    "attempt",
-                    AttemptOutcome::Succeeded {
-                        result: json!({"result":"invented"}),
-                    },
-                ),
-                candidates: Vec::new(),
-            },
+            body: step_body(driver_command(
+                "effect",
+                "attempt",
+                AttemptOutcome::Succeeded {
+                    result: json!({"result":"invented"}),
+                },
+            )),
         },
         SequenceStep {
             name: "never".into(),
             results: vec!["complete".into()],
             class: SeatClass::Work,
-            body: StepBody::Single {
-                role_path: "role.md".into(),
-                command: vec!["must-not-run".into()],
-                candidates: Vec::new(),
-            },
+            body: step_body(vec!["must-not-run".into()]),
         },
     ];
     let invalid_input = json!({
@@ -4614,7 +4584,6 @@ pub(super) fn capturing_driver_command(
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
     let captures = tempfile::tempdir().unwrap();
     let first_capture = captures.path().join("first.json");
@@ -4622,51 +4591,18 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
     let final_peer_capture = captures.path().join("final-peer.json");
     let step_result = json!({"result": "drafted", "notes": "first"});
     let final_result = json!({"result": "pass", "notes": "final"});
-    let steps = vec![
-        SequenceStep {
-            name: "draft".into(),
-            class: SeatClass::Work,
-            results: vec!["drafted".into(), "blocked".into()],
-            body: StepBody::Single {
-                role_path: "draft.md".into(),
-                command: capturing_driver_command(
-                    "vocabulary-effect",
-                    "vocabulary-attempt",
-                    &first_capture,
-                    step_result,
-                ),
-                candidates: Vec::new(),
-            },
-        },
-        SequenceStep {
-            name: "finish".into(),
-            class: SeatClass::Work,
-            results: vec!["pass".into(), "fail".into()],
-            body: StepBody::Panel {
-                members: vec![
-                    member(
-                        "final",
-                        capturing_driver_command(
-                            "vocabulary-effect",
-                            "vocabulary-attempt",
-                            &final_capture,
-                            final_result.clone(),
-                        ),
-                    ),
-                    member(
-                        "peer",
-                        capturing_driver_command(
-                            "vocabulary-effect",
-                            "vocabulary-attempt",
-                            &final_peer_capture,
-                            final_result,
-                        ),
-                    ),
-                ],
-                aggregate: Aggregate::UnanimousPass,
-            },
-        },
-    ];
+    let capture = |path: &Path, result: Value| {
+        capturing_driver_command("vocabulary-effect", "vocabulary-attempt", path, result)
+    };
+    let steps = draft_then_finish(
+        "draft.md",
+        capture(&first_capture, step_result),
+        &["drafted", "blocked"],
+        vec![
+            member("final", capture(&final_capture, final_result.clone())),
+            member("peer", capture(&final_peer_capture, final_result)),
+        ],
+    );
     let (dir, mut engine) = engine(SeatBody::Sequence {
         steps: steps.clone(),
     });
@@ -4748,6 +4684,7 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                         AttemptOutcome::Succeeded { result },
                     ),
                     candidates: Vec::new(),
+                    written: Vec::new(),
                 },
             },
             SequenceStep {
@@ -4758,6 +4695,7 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                     role_path: "finish.md".into(),
                     command: vec!["must-not-run".into()],
                     candidates: Vec::new(),
+                    written: Vec::new(),
                 },
             },
         ];
@@ -5098,6 +5036,7 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
                         json!({"result": chief_rules, "notes": "synthesised"}),
                     ),
                     candidates: Vec::new(),
+                    written: Vec::new(),
                 },
             },
         ];
@@ -6114,11 +6053,7 @@ fn step(name: &str, command: Vec<String>) -> SequenceStep {
         name: name.into(),
         class: SeatClass::Work,
         results: vec!["complete".into()],
-        body: StepBody::Single {
-            role_path: "role.md".into(),
-            command,
-            candidates: Vec::new(),
-        },
+        body: step_body(command),
     }
 }
 
