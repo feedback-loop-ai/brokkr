@@ -10,6 +10,8 @@ use std::process::{Command, Stdio};
 
 use serde_json::Value;
 
+use crate::engine::{brokkr_in, dead_pid};
+
 fn brokkr_bin() -> &'static str {
     env!("CARGO_BIN_EXE_brokkr")
 }
@@ -127,13 +129,6 @@ fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
     (server, trees[0].clone())
 }
 
-/// A pid no process holds: a child that has exited and been waited for.
-fn dead_pid() -> u32 {
-    let mut child = Command::new("true").spawn().unwrap();
-    child.wait().unwrap();
-    child.id()
-}
-
 /// A bundle a start admits, its seats' driver failing: the reap lines
 /// are said before any seat speaks, so a failing driver is enough.
 fn reap_bundle(tmp: &Path) -> PathBuf {
@@ -162,7 +157,7 @@ fn reap_bundle(tmp: &Path) -> PathBuf {
 /// A start whose temporary directory is `tmp`, so it reaps and holds
 /// `tmp`'s trees; its stderr names the run and says the reaping.
 fn start_run(tmp: &Path, bundle: &Path) -> std::process::Output {
-    Command::new(brokkr_bin())
+    brokkr_in(tmp)
         .args([
             "run",
             "--bundle",
@@ -172,8 +167,6 @@ fn start_run(tmp: &Path, bundle: &Path) -> std::process::Output {
         ])
         .args(["--db", tmp.join("j.db").to_str().unwrap()])
         .args(["--repo", tmp.to_str().unwrap()])
-        .current_dir(tmp)
-        .env("TMPDIR", tmp)
         .output()
         .unwrap()
 }

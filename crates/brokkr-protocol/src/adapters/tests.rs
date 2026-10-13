@@ -8333,9 +8333,9 @@ fn a_linked_worktree_needs_the_scoped_runner_and_a_primary_checkout_does_not() {
     };
     let scope = dsh_git_runner_scope("/work/wt", &shared_only, "workspace-write").unwrap();
     assert_eq!(scope.git_dir, scope.common_dir);
-    assert!(dsh_sandbox::scope_refusal(&scope)
-        .unwrap()
-        .contains("shared repository's own git directory"));
+    let git_dir = scope.git_dir.clone();
+    let shared = Some(dsh_sandbox::ScopeRefusal::SharedGitDir { git_dir });
+    assert_eq!(dsh_sandbox::scope_refusal(&scope), shared);
 }
 
 #[test]
