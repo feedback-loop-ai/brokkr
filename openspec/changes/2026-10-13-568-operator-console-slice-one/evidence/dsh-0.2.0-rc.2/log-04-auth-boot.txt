@@ -1,0 +1,27 @@
+$ date -Is
+2026-10-13T07:55:12+03:00
+$ curl -sS -i -c cookies.txt 'http://127.0.0.1:38117/?token=<launch token from serve log>'
+HTTP/1.1 303 See Other
+cache-control: no-store
+location: ./
+referrer-policy: no-referrer
+set-cookie: dsh-auth-<id>=<redacted>; Max-Age=2592000; Path=/; Expires=Thu, 12 Nov 2026 04:55:12 GMT; HttpOnly; SameSite=Strict
+Date: Tue, 13 Oct 2026 04:55:12 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+
+$ curl -sS -i -b cookies.txt http://127.0.0.1:38117/brokkr-probe/fenced
+HTTP/1.1 200 OK
+content-type: application/json; charset=utf-8
+cache-control: no-store
+Vary: Accept-Encoding
+Date: Tue, 13 Oct 2026 04:55:12 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+{"probe":"brokkr-console-probe","route":"/brokkr-probe/fenced","authenticated":true}
+$ curl -sS -b cookies.txt http://127.0.0.1:38117/ > index.html; extract window.__DSH_BOOT__ row for brokkr-console-probe
+35132 index.html

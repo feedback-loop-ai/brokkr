@@ -1,0 +1,6 @@
+# brokkr-console-probe: one Loader row whose node half registers web routes
+# and whose browser half (lib/client.js, declared under dsh.client) registers
+# a `main` panel and a `sidebar.panellist` row.
+- insert:
+    - id: brokkr-console-probe
+      name: 'brokkr-console-probe'

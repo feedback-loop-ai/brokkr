@@ -1,0 +1,21 @@
+$ date -Is
+2026-10-13T07:55:32+03:00
+$ node --version
+v22.23.2
+$ curl -sS -i --max-time 2 --no-buffer -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://127.0.0.1:38117/brokkr-probe/ws | cat -v
+HTTP/1.1 101 Switching Protocols^M
+Upgrade: websocket^M
+Connection: Upgrade^M
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=^M
+^M
+M-^A^_hello from brokkr-console-probecurl: (28) Operation timed out after 2002 milliseconds with 33 bytes received
+
+(curl reports error 28 because the upgraded socket stayed open until --max-time; the 101 and first server frame arrived)
+$ node ws-client.mjs ws://127.0.0.1:38117/brokkr-probe/ws
+open (+7ms) readyState=1
+message: hello from brokkr-console-probe
+sent: ping-from-node-ws-client
+message: echo:ping-from-node-ws-client
+close code=1000 reason=done
+$ node ws-client.mjs ws://127.0.0.1:38117/brokkr-probe/nope   # unregistered upgrade path
+error Received network error or non-101 status code.

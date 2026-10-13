@@ -6,8 +6,8 @@ today**.
 
 ## 0. Prerequisites
 
-- [ ] 0.1 Author a proposed decision: the console plugin lives under `extensions/dsh/brokkr-console/` with its own source and tests, outside every hashed runtime set. It is never built, loaded or executed by a Brokkr crate, and never published.
-- [ ] 0.2 Measure on DSH `0.2.0-rc.2` that a third-party client module registers a `main` panel and a `sidebar.panellist` entry, and that plugin web-server routes and a WebSocket upgrade reach it. Record the evidence beside the provenance note.
+- [x] 0.1 Author a proposed decision: the console plugin lives under `extensions/dsh/brokkr-console/` with its own source and tests, outside every hashed runtime set. It is never built, loaded or executed by a Brokkr crate, and never published.
+- [x] 0.2 Measure on DSH `0.2.0-rc.2` that a third-party client module registers a `main` panel and a `sidebar.panellist` entry, and that plugin web-server routes and a WebSocket upgrade reach it. Record the evidence beside the provenance note. Observed 2026-10-13, all four points, in `evidence/dsh-0.2.0-rc.2/`. Plugin HTTP routes and WebSocket upgrades are open by default: every route the plugin registers SHALL refuse through `ctx.connection.requestRejection(req)` first, and the upgrade fence is a test the plugin owns, unmeasured here.
 
 ## 1. Brokkr side: commands in the view model (operator-console-commands)
 

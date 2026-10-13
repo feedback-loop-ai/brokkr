@@ -1,0 +1,7 @@
+$ date -Is; kill -TERM -231270   # process group of the volta shim (231270) and node dsh (231273)
+2026-10-13T07:57:10+03:00
+dsh web exited
+$ ss -ltn | grep 38117 || echo 'port 38117 closed'
+port 38117 closed
+$ pgrep -af 'dsh web|brokkr-probe-ffprofile' || echo 'no dsh/firefox probe processes'
+no dsh/firefox probe processes
