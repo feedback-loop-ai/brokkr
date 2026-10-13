@@ -25,7 +25,7 @@ pub enum ResidualPhase {
 impl ResidualPhase {
     /// The phase a ruling's `from` names, or `None` for a phase that
     /// carries no residuals.
-    fn named(from: &str) -> Option<ResidualPhase> {
+    pub fn named(from: &str) -> Option<ResidualPhase> {
         match from {
             "verify" => Some(ResidualPhase::Verify),
             "review" => Some(ResidualPhase::Review),

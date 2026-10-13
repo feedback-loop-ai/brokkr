@@ -8,7 +8,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
-    acceptance_refusal, fold, Cursor, OperatorCommand, Refusal, RunState, Status,
+    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, RunState, Status,
 };
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Store, StoreError};
@@ -478,12 +478,8 @@ pub(super) fn conclude_racing(
     // so a broken chain refuses the whole conclusion here — before any
     // append. No second verification, and the error is never swallowed.
     let state = read_back(store, run_id)?;
-    match state.status {
-        Status::Completed | Status::Stopped => {
-            let status = state.status;
-            return Err(ConcludeRefusal::AlreadyConcluded { status }.of(run_id));
-        }
-        Status::Running | Status::AwaitingOperator => {}
+    if let Some(status) = concluded(&state) {
+        return Err(ConcludeRefusal::AlreadyConcluded { status }.of(run_id));
     }
 
     // A stop already in force is not re-commanded: the operator who
