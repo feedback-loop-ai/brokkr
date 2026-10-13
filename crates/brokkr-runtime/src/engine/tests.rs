@@ -1859,7 +1859,6 @@ fn single_conclusion_driver_and_checkpoint_failures_cover_every_outcome() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     let outcomes = vec![
@@ -1908,57 +1907,44 @@ fn panel_sequence_and_aggregation_cover_all_terminal_shapes() {
     ));
 
     assert_eq!(
-        aggregate_results(
-            Aggregate::UnanimousPass,
-            &[("bad".into(), json!({"notes":"missing result"}))]
-        )["result"],
+        Aggregate::UnanimousPass
+            .aggregate_results(&[("bad".into(), json!({"notes":"missing result"}))])["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        aggregate_results(
-            Aggregate::UnanimousPass,
-            &[("bad".into(), json!({"result":"invented"}))]
-        )["result"],
+        Aggregate::UnanimousPass.aggregate_results(&[("bad".into(), json!({"result":"invented"}))])
+            ["result"],
         "__member-schema-invalid__"
     );
     assert_eq!(
-        aggregate_results(
-            Aggregate::UnanimousPass,
-            &[
-                ("one".into(), json!({"result":"pass"})),
-                ("two".into(), json!({"result":"fail"}))
-            ]
-        )["result"],
+        Aggregate::UnanimousPass.aggregate_results(&[
+            ("one".into(), json!({"result":"pass"})),
+            ("two".into(), json!({"result":"fail"}))
+        ])["result"],
         "fail"
     );
-    let review = aggregate_results(
-        Aggregate::ReviewPanel,
-        &[
-            (
-                "clean".into(),
-                json!({"result":"clean", "inputs":{"spec_defect":true}}),
-            ),
-            (
-                "residual".into(),
-                json!({"result":"residual", "inputs":{
-                    "max_residual_severity":"high", "has_security_residual":true
-                }}),
-            ),
-            ("unknown".into(), json!({"result":"invented"})),
-        ],
-    );
+    let review = Aggregate::ReviewPanel.aggregate_results(&[
+        (
+            "clean".into(),
+            json!({"result":"clean", "inputs":{"spec_defect":true}}),
+        ),
+        (
+            "residual".into(),
+            json!({"result":"residual", "inputs":{
+                "max_residual_severity":"high", "has_security_residual":true
+            }}),
+        ),
+        ("unknown".into(), json!({"result":"invented"})),
+    ]);
     assert_eq!(review["result"], "invented");
     assert_eq!(review["inputs"]["max_residual_severity"], "high");
     assert_eq!(review["inputs"]["has_security_residual"], true);
     assert_eq!(review["inputs"]["fixes_applied"], false);
     assert_eq!(review["inputs"]["spec_defect"], true);
-    let unknown_severity = aggregate_results(
-        Aggregate::ReviewPanel,
-        &[(
-            "residual".into(),
-            json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
-        )],
-    );
+    let unknown_severity = Aggregate::ReviewPanel.aggregate_results(&[(
+        "residual".into(),
+        json!({"result":"residual","inputs":{"max_residual_severity":"invented"}}),
+    )]);
     assert_eq!(unknown_severity["inputs"]["max_residual_severity"], "none");
 
     assert_eq!(
