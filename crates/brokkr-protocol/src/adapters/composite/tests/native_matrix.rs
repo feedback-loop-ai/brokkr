@@ -2074,7 +2074,7 @@ fn child_controls() {
         );
         let resolved = resolve_executable(&overlong);
         match LIBRARY {
-            Library::Glibc => {
+            Library::Glibc if !glibc::bounds_name() => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 300-byte name: {native:?}");
                 };
@@ -2104,7 +2104,7 @@ fn child_controls() {
             );
             let resolved = resolve_executable_in(&overlong, Some(nowhere.clone().into_os_string()));
             match LIBRARY {
-                Library::Glibc => {
+                Library::Glibc if !glibc::bounds_name() => {
                     let Outcome::Failed(error) = &native else {
                         panic!(
                         "the native child ran a 300-byte name under a missing prefix: {native:?}"
@@ -2133,7 +2133,7 @@ fn child_controls() {
         );
         let resolved = resolve_executable_in(&overlong, Some(file.clone().into_os_string()));
         match LIBRARY {
-            Library::Glibc => {
+            Library::Glibc if !glibc::bounds_name() => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 300-byte name under a file prefix: {native:?}");
                 };
@@ -2164,14 +2164,14 @@ fn child_controls() {
             );
             let resolved = resolve_executable_in(&overlong, Some(missing_then_existing.clone()));
             match LIBRARY {
-                Library::Glibc => {
+                Library::Glibc if !glibc::bounds_name() => {
                     let Outcome::Failed(error) = &native else {
-                        panic!("the native child ran a 300-byte name: {native:?}");
+                        panic!("the native child ran a 300-byte name past a miss: {native:?}");
                     };
                     assert_eq!(
                         errno_of(error),
                         Some(rustix::io::Errno::NAMETOOLONG),
-                        "{error}"
+                        "past a miss: {error}"
                     );
                     assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
                 }
@@ -2194,7 +2194,7 @@ fn child_controls() {
         );
         let resolved = resolve_executable_in(&overlong, Some(OsString::new()));
         match LIBRARY {
-            Library::Glibc => {
+            Library::Glibc if !glibc::bounds_name() => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 300-byte name from cwd: {native:?}");
                 };
@@ -2242,7 +2242,7 @@ fn child_controls() {
             );
             let resolved = resolve_executable_in(&overlong, Some(skipped.clone()));
             match LIBRARY {
-                Library::Glibc => {
+                Library::Glibc if !glibc::bounds_name() => {
                     let Outcome::Failed(error) = &native else {
                         panic!("{what}: the native child ran a 300-byte name with no candidate: {native:?}");
                     };
@@ -2303,7 +2303,7 @@ fn child_controls() {
         );
         let resolved = resolve_executable(&boundary);
         match LIBRARY {
-            Library::Glibc => {
+            Library::Glibc if !glibc::bounds_name() => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 256-byte name: {native:?}");
                 };
