@@ -669,6 +669,24 @@ fn state_only_layout_refuses() {
     assert_eq!(repo.files(), before);
 }
 
+/// The moves an old-layout refusal lists, one per indented line.
+fn listed_moves(ran: &Ran) -> Vec<&str> {
+    let lines = ran.stderr.lines();
+    lines.filter_map(|line| line.strip_prefix("  ")).collect()
+}
+
+/// Each listed move run by `sh` at the root, as an operator pastes it.
+fn make(repo: &Repo, moves: &[&str]) {
+    for line in moves {
+        let status = Command::new("sh")
+            .args(["-c", line])
+            .current_dir(&repo.root)
+            .status()
+            .unwrap();
+        assert!(status.success(), "{line}");
+    }
+}
+
 #[test]
 fn secrets_only_layout_refuses() {
     let repo = Repo::new();
@@ -680,11 +698,7 @@ fn secrets_only_layout_refuses() {
 
     // The listed moves, made as listed, leave a folder the store is read
     // from. (`brokkr init .` writing the scaffold beside it is slice B's.)
-    let moves: Vec<&str> = ran
-        .stderr
-        .lines()
-        .filter_map(|line| line.strip_prefix("  "))
-        .collect();
+    let moves = listed_moves(&ran);
     assert_eq!(
         moves,
         [
@@ -694,14 +708,7 @@ fn secrets_only_layout_refuses() {
             "printf 'state/\\n' > .brokkr/.gitignore",
         ]
     );
-    for line in moves {
-        let status = Command::new("sh")
-            .args(["-c", line])
-            .current_dir(&repo.root)
-            .status()
-            .unwrap();
-        assert!(status.success(), "{line}");
-    }
+    make(&repo, &moves);
     let ran = repo.brokkr("", &["secrets", "list"]);
     assert_eq!(
         (ran.code, ran.stdout.as_str()),
@@ -811,15 +818,22 @@ fn half_moved_layout_refuses() {
     );
 }
 
-#[test]
-fn a_linked_entry_is_the_entry() {
-    let repo = Repo::new();
-    let elsewhere = repo.aside.join("state");
+/// A `.forge` linked to `name` beside the repository, holding a journal,
+/// and the state-only refusal `brokkr runs` gives it.
+fn linked_forge(repo: &Repo, name: &str) -> (PathBuf, Ran) {
+    let elsewhere = repo.aside.join(name);
     std::fs::create_dir_all(&elsewhere).unwrap();
     std::fs::write(elsewhere.join("forge.db"), "journal").unwrap();
     std::os::unix::fs::symlink(&elsewhere, repo.path(".forge")).unwrap();
     let ran = repo.brokkr("", &["runs"]);
     assert_eq!((ran.code, ran.first_line()), (Some(1), STATE_ONLY));
+    (elsewhere, ran)
+}
+
+#[test]
+fn a_linked_entry_is_the_entry() {
+    let repo = Repo::new();
+    let (elsewhere, _) = linked_forge(&repo, "state");
     assert_eq!(
         std::fs::read(elsewhere.join("forge.db")).unwrap(),
         b"journal"
@@ -883,6 +897,138 @@ fn state_never_moves_the_bundle() {
     assert_eq!(digest(), before);
     repo.write(".brokkr/roles/other.md", "a pinned file\n");
     assert_ne!(digest(), before);
+}
+
+/// Both seats of the bundle at `relative` hire a role under its `state/`.
+fn role_under_state(repo: &Repo, relative: &str) {
+    repo.write(&format!("{relative}/state/role.md"), "# role\n");
+    let path = repo.path(&format!("{relative}/bundle.json"));
+    let mut bundle: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    for seat in ["implement", "review"] {
+        bundle["seats"][seat]["role"] = json!("state/role.md");
+    }
+    std::fs::write(&path, bundle.to_string()).unwrap();
+}
+
+/// The digest `brokkr compile --bundle <relative>` prints.
+fn digest(repo: &Repo, relative: &str) -> String {
+    let ran = repo.brokkr("", &["compile", "--bundle", relative]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
+    compiled["digest"].as_str().unwrap().to_string()
+}
+
+/// Only a folder bundle skips its `state/`: a library's recipe pins a
+/// top-level `state/` and reads a role there exactly as before decision
+/// 0083 (round 634b's third finding).
+#[test]
+fn a_library_recipe_pins_its_state() {
+    let repo = Repo::new();
+    repo.library();
+    repo.write("recipes/x/state/data.txt", "one\n");
+    let before = digest(&repo, "recipes/x");
+    repo.write("recipes/x/state/data.txt", "two\n");
+    assert_ne!(digest(&repo, "recipes/x"), before);
+    role_under_state(&repo, "recipes/x");
+    let ran = repo.brokkr("", &["compile", "--bundle", "recipes/x"]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+}
+
+/// A folder bundle's role under `state/` is refused, by the folder's own
+/// reason rather than operator configuration's.
+#[test]
+fn a_folder_bundle_skips_its_state_by_its_own_reason() {
+    let repo = Repo::new();
+    repo.folder();
+    role_under_state(&repo, ".brokkr");
+    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    assert_eq!(ran.code, Some(1));
+    assert_eq!(
+        ran.stderr,
+        format!(
+            "error: bundle: {}/.brokkr/bundle.json: seat 'implement' names role 'state/role.md', \
+             which stands under 'state' — a top-level name the bundle's file walk does not pin, \
+             because it holds the folder's runtime state, which a run writes. A charter there \
+             could change what the seat is told without moving the bundle's identity, so it is \
+             refused; move it to a path the bundle pins, such as 'roles/' (decision 0066 ruling \
+             5)\n",
+            repo.root.display()
+        )
+    );
+}
+
+/// The default map's place holding no file refuses by name, for a launch
+/// and a queued one alike, before any journal is created (round 634b's
+/// first finding); a library's `./realms.json` is held to the same rule.
+#[test]
+fn a_default_map_that_is_no_file_refuses() {
+    let repo = Repo::new();
+    repo.folder();
+    let map = repo.path(".brokkr/realms.json");
+    let not_a_file = format!(
+        "error: {} is not a file (decision 0083): the default realms map is a file, or a link to \
+         one; move or remove it\n",
+        map.display()
+    );
+    let dangling = format!(
+        "error: {} is a link to nothing (decision 0083 ruling 4: a linked entry is the entry); \
+         mend or remove the link\n",
+        map.display()
+    );
+    let run = ["run", "--feature", "x", "--no-view"];
+    let queue = ["queue", "add", "--feature", "x", "--reason", "probe"];
+    std::fs::create_dir(&map).unwrap();
+    for args in [&run[..], &queue] {
+        let ran = repo.brokkr("src", args);
+        assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), &*not_a_file));
+    }
+    std::fs::remove_dir(&map).unwrap();
+    std::os::unix::fs::symlink(repo.aside.join("absent.json"), &map).unwrap();
+    for args in [&run[..], &queue] {
+        let ran = repo.brokkr("src", args);
+        assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), &*dangling));
+    }
+    assert!(!repo.path(".brokkr/state").exists());
+
+    let library = Repo::new();
+    library.library();
+    std::fs::create_dir(library.path("realms.json")).unwrap();
+    let ran = library.brokkr("", &["run", "--bundle", "recipes/x", "--feature", "x"]);
+    assert_eq!(
+        (ran.code, ran.stderr.as_str()),
+        (
+            Some(1),
+            "error: ./realms.json is not a file (decision 0083): the default realms map is a \
+             file, or a link to one; move or remove it\n"
+        )
+    );
+    assert!(!library.path(".forge").exists());
+}
+
+/// A `.forge` that is a link is emptied through it, then removed as the
+/// link it is: its target directory stays, and the moves made as listed
+/// leave nothing half-moved (round 634b's second finding).
+#[test]
+fn a_linked_forge_is_removed_as_a_link() {
+    let repo = Repo::new();
+    let (elsewhere, ran) = linked_forge(&repo, "ext");
+    let moves = listed_moves(&ran);
+    assert_eq!(
+        moves,
+        [
+            "mkdir -p .brokkr/state",
+            "mv .forge/forge.db .brokkr/state/forge.db",
+            "# .forge is a link: rm removes the link, and the directory it names stays",
+            "rm .forge",
+            "printf 'state/\\n' > .brokkr/.gitignore",
+        ]
+    );
+    make(&repo, &moves);
+    assert!(!repo.path(".forge").exists() && elsewhere.is_dir());
+    assert_eq!(
+        std::fs::read(repo.path(".brokkr/state/forge.db")).unwrap(),
+        b"journal"
+    );
 }
 
 #[test]

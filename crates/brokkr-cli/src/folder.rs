@@ -12,10 +12,9 @@
 //! dsh sandbox runner) never come here.
 
 use std::fmt;
-use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use brokkr_runtime::places::{library, Places, FOLDER, LIBRARY_STATE, SECRETS, STATE};
+use brokkr_runtime::places::{library, Places, PlacesError, FOLDER, LIBRARY_STATE, SECRETS, STATE};
 
 /// The old layout's signature at a repository root: `init`'s bundle.
 const BUNDLE: &str = "bundle.json";
@@ -28,8 +27,9 @@ pub(crate) const JOURNAL: &str = "forge.db";
 pub(crate) enum FolderError {
     /// A `.brokkr` entry the walk met below the root.
     Nested { path: PathBuf, root: PathBuf },
-    /// A root `.brokkr` that is not a directory.
-    NotADirectory { root: PathBuf },
+    /// A root `.brokkr` the runtime's one judgement refuses: not a
+    /// directory, or not readable.
+    Places(PlacesError),
     /// A state fact with no place: no folder, and no library.
     NoPlace { cwd: PathBuf, root: PathBuf },
     /// A run verb with no bundle named and no folder to supply one.
@@ -54,12 +54,7 @@ impl fmt::Display for FolderError {
                 root.display(),
                 root.display()
             ),
-            FolderError::NotADirectory { root } => write!(
-                f,
-                "{}/{FOLDER} is not a directory (decision 0083); Brokkr's folder must be one: \
-                 move or remove it",
-                root.display()
-            ),
+            FolderError::Places(refused) => write!(f, "{refused}"),
             FolderError::NoPlace { cwd, root } => write!(
                 f,
                 "no {FOLDER}/ folder from {} up to {}, and {} is not a recipe library (decision \
@@ -230,12 +225,14 @@ impl Layout {
     }
 
     fn at(cwd: PathBuf, root: PathBuf, workspace: &Path) -> Result<Layout, FolderError> {
-        // A library outranks a folder beside it, as `Places::of` judges
-        // it, so its journal never moves to a fresh one under the folder.
-        let kind = match entry(&root.join(FOLDER))? {
-            Some(folder) if !folder.is_dir() => return Err(FolderError::NotADirectory { root }),
-            _ if library(&root) => Kind::Library,
+        // The runtime's one judgement of the root's `.brokkr`, which the
+        // launch, the queue and the engine re-derive at dispatch: a
+        // library outranks a folder beside it, so its journal never moves
+        // to a fresh one under the folder.
+        let found = brokkr_runtime::places::folder(&root).map_err(FolderError::Places)?;
+        let kind = match found {
             Some(_) => Kind::Folder,
+            None if library(&root) => Kind::Library,
             None => Kind::Bare,
         };
         Ok(Layout {
@@ -318,7 +315,7 @@ impl Layout {
     /// column, which there is that layout's own `.forge/`.
     pub(crate) fn state(&self, escape: bool) -> Result<Option<PathBuf>, FolderError> {
         match self.kind {
-            Kind::Folder => Ok(Places::of(&self.root).state),
+            Kind::Folder => Ok(Places::in_folder(&self.root.join(FOLDER)).state),
             Kind::Library => Ok(None),
             Kind::Bare if escape && self.holds_old()? => Ok(None),
             Kind::Bare => Err(FolderError::NoPlace {
@@ -371,7 +368,7 @@ impl Layout {
     }
 
     fn folder_places(&self) -> Option<Places> {
-        (self.kind == Kind::Folder).then(|| Places::of(&self.root))
+        (self.kind == Kind::Folder).then(|| Places::in_folder(&self.root.join(FOLDER)))
     }
 }
 
@@ -440,19 +437,14 @@ pub(crate) fn run_local(repo: &Path) -> Result<PathBuf, FolderError> {
     Ok(brokkr_runtime::places::run_local(state.as_deref(), repo))
 }
 
-/// What stands at `path`, judged by the entry itself and never through a
-/// link: `None` when nothing does, or nothing can because a parent is a
-/// file. Anything that cannot be read refuses.
+/// What stands at `path`, by the runtime's one rule
+/// ([`brokkr_runtime::places::entry`]). Anything that cannot be read
+/// refuses.
 fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
-    let absent = |kind| matches!(kind, ErrorKind::NotFound | ErrorKind::NotADirectory);
-    match std::fs::symlink_metadata(path) {
-        Ok(found) => Ok(Some(found)),
-        Err(error) if absent(error.kind()) => Ok(None),
-        Err(source) => Err(FolderError::Unreadable {
-            path: path.to_path_buf(),
-            source,
-        }),
-    }
+    brokkr_runtime::places::entry(path).map_err(|source| FolderError::Unreadable {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 /// The state's moves (ruling 4's third group): every `.forge/` entry to
@@ -460,8 +452,11 @@ fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
 /// it whatever the journal is named, then the old ignore file out and the
 /// folder's own in. Each entry git tracks moves by `git mv` and goes by
 /// `git rm`, each untracked one by `mv` and `rm`, so a journal and its
-/// logs move whole however git holds them. The compile-derived moves are
-/// not listed (the operator's ruling of 2026-10-13).
+/// logs move whole however git holds them. A `.forge` that is a link is
+/// judged as the link (ruling 4): its entries move out through it, and
+/// the link itself goes by `rm`, never `rmdir`, leaving the directory it
+/// names. The compile-derived moves are not listed (the operator's ruling
+/// of 2026-10-13).
 fn state_moves(root: &Path, forge: bool) -> Vec<String> {
     let (names, tracked) = (forge_entries(root), tracked(root));
     let mut moves = vec![format!("mkdir -p {FOLDER}/{STATE}")];
@@ -479,12 +474,12 @@ fn state_moves(root: &Path, forge: bool) -> Vec<String> {
             moves.push(format!("{verb} {} {to}", word(&forged(member))));
         }
     }
-    let rmdir = format!("rmdir {LIBRARY_STATE}");
+    let rmdir = removal(root);
     let ignore = (IGNORE.to_string(), forged(IGNORE));
     match (tracked.contains(&ignore.0), names.contains(&ignore.0)) {
         (true, _) => moves.push(format!("git rm {}", ignore.1)),
-        (false, true) => moves.extend([format!("rm {}", ignore.1), rmdir]),
-        (false, false) if forge => moves.push(rmdir),
+        (false, true) => moves.extend([vec![format!("rm {}", ignore.1)], rmdir].concat()),
+        (false, false) if forge => moves.extend(rmdir),
         (false, false) => {}
     }
     moves.push(format!("printf '{STATE}/\\n' > {FOLDER}/{IGNORE}"));
@@ -493,6 +488,23 @@ fn state_moves(root: &Path, forge: bool) -> Vec<String> {
 
 /// The old layout's ignore file, and the folder's.
 const IGNORE: &str = ".gitignore";
+
+/// The emptied `.forge`'s removal: `rmdir`, or for a link, a note that
+/// the link goes and the directory it names stays, then `rm`.
+fn removal(root: &Path) -> Vec<String> {
+    let linked = std::fs::symlink_metadata(root.join(LIBRARY_STATE))
+        .is_ok_and(|entry| entry.file_type().is_symlink());
+    match linked {
+        true => vec![
+            format!(
+                "# {LIBRARY_STATE} is a link: rm removes the link, and the directory it names \
+                 stays"
+            ),
+            format!("rm {LIBRARY_STATE}"),
+        ],
+        false => vec![format!("rmdir {LIBRARY_STATE}")],
+    }
+}
 
 /// `path` as one shell word, so a listed move can be pasted as it reads:
 /// bare where every character is plain, else single-quoted.

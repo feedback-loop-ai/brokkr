@@ -319,40 +319,54 @@ fn a_map_path_that_cannot_be_resolved_holds_the_entry_queued_under_none() {
     let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
     let entry = add(&mut store, &launch(ws.path(), false), &[]);
     let path = ws.path().join("realms.json");
-    let held = vec![(
-        entry.0,
-        Standing::Held,
-        vec![Reason::MapUnreadable(format!(
-            "no realms map at {}",
-            path.display()
-        ))],
-    )];
+    // Each refused by the one presence rule `brokkr run` reads too
+    // (decision 0083; round 634b's first finding).
+    let held = |why: String| vec![(entry.0, Standing::Held, vec![Reason::MapUnreadable(why)])];
     let free = vec![(entry.0, Standing::Admissible, vec![])];
     assert_eq!(verdicts(&store), free);
-    /// What is planted at the map's path, how, and how it is cleared.
-    type Plant = (&'static str, fn(&Path), fn(&Path));
+    /// What is planted at the map's path, how, how it is cleared, and
+    /// why it holds the entry.
+    type Plant = (&'static str, fn(&Path), fn(&Path), fn(&Path) -> String);
     let link = |path: &Path| std::fs::remove_file(path).unwrap();
     let plants: [Plant; 3] = [
         (
             "a looping link",
             |path| std::os::unix::fs::symlink(path, path).unwrap(),
             link,
+            |path| {
+                let looped = std::fs::metadata(path).unwrap_err();
+                format!("reading {}: {looped}", path.display())
+            },
         ),
         (
             "a dangling link",
             |path| std::os::unix::fs::symlink(path.with_file_name("gone.json"), path).unwrap(),
             link,
+            |path| {
+                format!(
+                    "{} is a link to nothing (decision 0083 ruling 4: a linked entry is the \
+                     entry); mend or remove the link",
+                    path.display()
+                )
+            },
         ),
         (
             "a directory",
             |path| std::fs::create_dir(path).unwrap(),
             |path| std::fs::remove_dir(path).unwrap(),
+            |path| {
+                format!(
+                    "{} is not a file (decision 0083): the default realms map is a file, or a \
+                     link to one; move or remove it",
+                    path.display()
+                )
+            },
         ),
     ];
-    for (plant, at, clear) in plants {
+    for (plant, at, clear, why) in plants {
         at(&path);
         judge(&mut store, BY).unwrap();
-        assert_eq!(verdicts(&store), held, "{plant}");
+        assert_eq!(verdicts(&store), held(why(&path)), "{plant}");
         assert_eq!(store.queue_list().unwrap()[0].latch, None, "{plant}");
         clear(&path);
         assert_eq!(verdicts(&store), free, "{plant} cleared");
@@ -376,14 +390,16 @@ fn a_map_path_that_cannot_be_looked_up_holds_the_entry_queued_under_none() {
     );
     std::fs::remove_dir(&inner).unwrap();
     std::fs::write(&inner, "").unwrap();
+    let map = inner.join("realms.json");
+    let unreadable = std::fs::metadata(&map).unwrap_err();
     assert_eq!(
         verdicts(&store),
         vec![(
             entry.0,
             Standing::Held,
             vec![Reason::MapUnreadable(format!(
-                "no realms map at {}",
-                inner.join("realms.json").display()
+                "reading {}: {unreadable}",
+                map.display()
             ))],
         )]
     );

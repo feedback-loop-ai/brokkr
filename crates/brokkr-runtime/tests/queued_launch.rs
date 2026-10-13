@@ -13,6 +13,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use brokkr_core::realms::Boundary;
 use brokkr_runtime::launch::{self, BundleSource, LaunchError, LaunchRequest, NewRun, RunMap};
 use brokkr_runtime::launch::{Encoding, QueuedLaunch};
+use brokkr_runtime::places::PlacesError;
 use brokkr_runtime::{CompileError, Engine, World};
 use brokkr_store::Store;
 use serde_json::{json, Value};
@@ -152,6 +153,24 @@ impl Fleet {
         queued.encode().unwrap()
     }
 
+    /// The payload a launch of `bundle` from workspace `name` is queued
+    /// as, with no map and no repository or secrets store named.
+    fn unmapped(&self, name: &str) -> String {
+        let request = LaunchRequest {
+            workspace: self.workspace(name),
+            bundle: BundleSource::Dir("bundle".into()),
+            journal: self.journal(),
+            repo: None,
+            secrets: None,
+            host_path: Default::default(),
+        };
+        let run = NewRun {
+            feature: "queued".into(),
+            ..NewRun::default()
+        };
+        QueuedLaunch::of(&request, &run).unwrap().encode().unwrap()
+    }
+
     /// `payload` rebuilt and started where the process stands now.
     fn start(&self, payload: &str) -> Result<Engine, LaunchError> {
         let path = std::env::var_os("PATH").unwrap_or_default();
@@ -207,19 +226,7 @@ fn a_relative_payload_started_elsewhere_is_admitted_in_its_own_workspace() {
 fn an_unmapped_entry_queued_without_a_repository_operates_its_workspace() {
     let fleet = Fleet::new();
     let a = fleet.workspace("a");
-    let request = LaunchRequest {
-        workspace: a.clone(),
-        bundle: BundleSource::Dir("bundle".into()),
-        journal: fleet.journal(),
-        repo: None,
-        secrets: None,
-        host_path: Default::default(),
-    };
-    let run = NewRun {
-        feature: "queued".into(),
-        ..NewRun::default()
-    };
-    let payload = QueuedLaunch::of(&request, &run).unwrap().encode().unwrap();
+    let payload = fleet.unmapped("a");
     let (rebuilt, _) = QueuedLaunch::decode(&payload)
         .unwrap()
         .rebuild(fleet.journal(), Default::default())
@@ -264,4 +271,43 @@ fn a_requirement_refused_in_the_queued_realm_stays_refused_from_a_realm_that_gra
     assert_eq!(reason, said);
     assert_eq!(error.to_string(), format!("bundle: {said}"));
     assert_eq!(fleet.runs(), before);
+}
+
+/// A workspace's folder replaced by a file, or by a link to a directory,
+/// between queueing and dispatch refuses the start by name, before a
+/// journal is opened: the dispatcher never falls back to the library
+/// layout the workspace also holds (decision 0083; round 634b's fourth
+/// finding).
+#[test]
+fn a_folder_replaced_after_queueing_refuses_the_start() {
+    let fleet = Fleet::new();
+    let a = fleet.workspace("a");
+    let folder = a.join(".brokkr");
+    std::fs::create_dir(&folder).unwrap();
+    let payload = fleet.unmapped("a");
+    let _standing = Standing::in_dir(&fleet.workspace("b"));
+    let refused = || {
+        let Err(error) = fleet.start(&payload) else {
+            panic!("started under the library layout: {:?}", fleet.runs());
+        };
+        error
+    };
+    std::fs::remove_dir(&folder).unwrap();
+    std::fs::write(&folder, "").unwrap();
+    let error = refused();
+    let named = |error: &LaunchError| matches!(error, LaunchError::Places(PlacesError::NotADirectory { root }) if *root == a);
+    assert!(named(&error), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{}/.brokkr is not a directory (decision 0083); Brokkr's folder must be one: move or \
+             remove it",
+            a.display()
+        )
+    );
+    std::fs::remove_file(&folder).unwrap();
+    std::os::unix::fs::symlink(fleet.workspace("b"), &folder).unwrap();
+    let error = refused();
+    assert!(named(&error), "{error:?}");
+    assert!(!fleet.journal().exists());
 }

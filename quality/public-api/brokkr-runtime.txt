@@ -1239,6 +1239,7 @@ pub brokkr_runtime::launch::LaunchError::Engine(brokkr_runtime::engine::EngineEr
 pub brokkr_runtime::launch::LaunchError::NoFeature
 pub brokkr_runtime::launch::LaunchError::NoFeature::run: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::ParseDispatch(serde_json::error::Error)
+pub brokkr_runtime::launch::LaunchError::Places(brokkr_runtime::places::PlacesError)
 pub brokkr_runtime::launch::LaunchError::QueuedWorkspaceRelative(std::path::PathBuf)
 pub brokkr_runtime::launch::LaunchError::ReadDispatch
 pub brokkr_runtime::launch::LaunchError::ReadDispatch::path: std::path::PathBuf
@@ -1295,16 +1296,29 @@ pub fn brokkr_runtime::launch::rerun(brokkr_runtime::launch::LaunchRequest, &str
 pub fn brokkr_runtime::launch::resume(brokkr_runtime::launch::LaunchRequest, &str) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::start(brokkr_runtime::launch::LaunchRequest, brokkr_runtime::launch::NewRun, &mut dyn core::ops::function::FnMut(&str)) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub mod brokkr_runtime::places
+pub enum brokkr_runtime::places::PlacesError
+pub brokkr_runtime::places::PlacesError::MapDangling
+pub brokkr_runtime::places::PlacesError::MapDangling::path: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::MapNotAFile
+pub brokkr_runtime::places::PlacesError::MapNotAFile::path: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::NotADirectory
+pub brokkr_runtime::places::PlacesError::NotADirectory::root: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::Unreadable
+pub brokkr_runtime::places::PlacesError::Unreadable::path: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::Unreadable::source: core::io::error::Error
 pub struct brokkr_runtime::places::Places
 pub brokkr_runtime::places::Places::adapters: std::path::PathBuf
 pub brokkr_runtime::places::Places::agents: std::path::PathBuf
 pub brokkr_runtime::places::Places::state: core::option::Option<std::path::PathBuf>
 impl brokkr_runtime::places::Places
-pub fn brokkr_runtime::places::Places::of(&std::path::Path) -> brokkr_runtime::places::Places
+pub fn brokkr_runtime::places::Places::in_folder(&std::path::Path) -> brokkr_runtime::places::Places
+pub fn brokkr_runtime::places::Places::of(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Places, brokkr_runtime::places::PlacesError>
 pub const brokkr_runtime::places::FOLDER: &str
 pub const brokkr_runtime::places::LIBRARY_STATE: &str
 pub const brokkr_runtime::places::SECRETS: &str
 pub const brokkr_runtime::places::STATE: &str
+pub fn brokkr_runtime::places::entry(&std::path::Path) -> core::io::error::Result<core::option::Option<std::fs::Metadata>>
+pub fn brokkr_runtime::places::folder(&std::path::Path) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::library(&std::path::Path) -> bool
 pub fn brokkr_runtime::places::run_local(core::option::Option<&std::path::Path>, &std::path::Path) -> std::path::PathBuf
 pub mod brokkr_runtime::realms
@@ -1317,6 +1331,7 @@ pub brokkr_runtime::realms::WorldError::Crossing::realm: alloc::string::String
 pub brokkr_runtime::realms::WorldError::CrossingMoved(alloc::boxed::Box<brokkr_runtime::realms::MovedCrossing>)
 pub brokkr_runtime::realms::WorldError::Map(brokkr_core::realms::RealmsError)
 pub brokkr_runtime::realms::WorldError::Missing(alloc::string::String)
+pub brokkr_runtime::realms::WorldError::Places(brokkr_runtime::places::PlacesError)
 pub brokkr_runtime::realms::WorldError::RealmDialect
 pub brokkr_runtime::realms::WorldError::RealmDialect::detail: alloc::string::String
 pub brokkr_runtime::realms::WorldError::RealmDialect::realm: alloc::string::String
@@ -1557,6 +1572,7 @@ pub brokkr_runtime::WorldError::Crossing::realm: alloc::string::String
 pub brokkr_runtime::WorldError::CrossingMoved(alloc::boxed::Box<brokkr_runtime::realms::MovedCrossing>)
 pub brokkr_runtime::WorldError::Map(brokkr_core::realms::RealmsError)
 pub brokkr_runtime::WorldError::Missing(alloc::string::String)
+pub brokkr_runtime::WorldError::Places(brokkr_runtime::places::PlacesError)
 pub brokkr_runtime::WorldError::RealmDialect
 pub brokkr_runtime::WorldError::RealmDialect::detail: alloc::string::String
 pub brokkr_runtime::WorldError::RealmDialect::realm: alloc::string::String

@@ -4580,7 +4580,7 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
              never `..`, `.`, empty, a `\\` or a drive"
         ));
     }
-    if unpinned_top_level(components[0]) {
+    if unpinned_top_level(dir, components[0]) {
         return Err(format!(
             "'{token}' names a path the manifest walk does not pin ({} is workspace data, \
              never bundle bytes)",
@@ -4608,11 +4608,11 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
 ///
 /// Decision 0065 adds the operator's abstract capability definitions on
 /// the same terms, so an unconsulted definition is no second source of
-/// bundle identity; decision 0083 adds a folder's `state/`, so a run
-/// writing its journal never moves its bundle's. The list is
-/// [`crate::places::UNPINNED_TOP_LEVEL`].
-fn unpinned_top_level(name: &str) -> bool {
-    crate::places::UNPINNED_TOP_LEVEL.contains(&name)
+/// bundle identity; decision 0083 adds a folder bundle's `state/`, so a
+/// run writing its journal never moves its bundle's. `dir` is the layer's
+/// canonical directory; the rule is [`crate::places::unpinned_top_level`].
+fn unpinned_top_level(dir: &Path, name: &str) -> bool {
+    crate::places::unpinned_top_level(dir, name)
 }
 
 /// The top-level name an ACTIVE input stands under, where that name is one
@@ -4682,10 +4682,14 @@ fn unpinned_active_input(root: &Path, reference: &str) -> Option<String> {
 fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
     let first = path.strip_prefix(root).ok()?.components().next()?;
     let name = first.as_os_str().to_str()?;
-    unpinned_top_level(name).then(|| {
+    unpinned_top_level(root, name).then(|| {
+        let holds = match name {
+            crate::places::STATE => "the folder's runtime state, which a run writes",
+            _ => "operator configuration",
+        };
         format!(
             "which stands under '{name}' — a top-level name the bundle's file walk does not \
-             pin, because it holds operator configuration"
+             pin, because it holds {holds}"
         )
     })
 }
@@ -7162,8 +7166,8 @@ fn walk_files(
             // invoked. Its realm map and dialect library are workspace
             // declarations pinned into the RUN manifest, never bundle files:
             // changing either must not move the strategy's identity.
-            let skipped =
-                in_skipped || current == dir && name.to_str().is_some_and(unpinned_top_level);
+            let skipped = in_skipped
+                || current == dir && name.to_str().is_some_and(|n| unpinned_top_level(dir, n));
             if skipped && consumed.is_empty() {
                 continue;
             }

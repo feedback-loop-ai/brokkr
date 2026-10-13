@@ -199,6 +199,8 @@ pub enum LaunchError {
     #[error(transparent)]
     World(#[from] WorldError),
     #[error(transparent)]
+    Places(#[from] crate::places::PlacesError),
+    #[error(transparent)]
     Compile(#[from] CompileError),
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -232,6 +234,7 @@ pub fn start(
     // recipe is resolved, a bundle compiled, an envelope read or a
     // journal created.
     refuse_realms_with_dispatch(&run)?;
+    let state = Places::of(&request.workspace)?.state;
     let bundle = admit_new(&request, run.map.world())?;
     let envelope = match &run.dispatch {
         Some(path) => Some(read_dispatch(path, run.map.world(), &bundle, notice)?),
@@ -244,13 +247,14 @@ pub fn start(
         None => Engine::start_in_world(store, bundle, feature, repo, run.map.into_world())?,
     };
     engine.secrets_file = request.secrets;
-    engine.state = Places::of(&request.workspace).state;
+    engine.state = state;
     Ok(engine)
 }
 
 /// Continue `run` under its exact pinned bundle, compiled in the world
 /// and realm its own manifest pinned.
 pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> {
+    let state = Places::of(&request.workspace)?.state;
     let store = Store::open(&request.journal)?;
     let manifest = store.manifest(run)?;
     let dir = request.bundle.resolve()?;
@@ -268,7 +272,7 @@ pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> 
     // has nothing to fence.
     fence_crossings(engine.world.as_ref(), &request.workspace)?;
     engine.secrets_file = request.secrets;
-    engine.state = Places::of(&request.workspace).state;
+    engine.state = state;
     Ok(engine)
 }
 
@@ -281,12 +285,13 @@ pub fn rerun(
     run: &str,
     world: Option<World>,
 ) -> Result<Engine, LaunchError> {
+    let state = Places::of(&request.workspace)?.state;
     let store = Store::open(&request.journal)?;
     let feature = source_feature(&store, run)?;
     let bundle = admit_new(&request, world.as_ref())?;
     let mut engine = Engine::start_in_world(store, bundle, &feature, request.repo, world)?;
     engine.secrets_file = request.secrets;
-    engine.state = Places::of(&request.workspace).state;
+    engine.state = state;
     Ok(engine)
 }
 
@@ -422,7 +427,7 @@ fn compile_from_manifest(
         // Its definitions are re-read where they were read when it
         // started: under the operated repository, never the recipe's home
         // and never a map that has appeared in the workspace since.
-        let places = Places::of(workspace);
+        let places = Places::of(workspace)?;
         return Ok(Bundle::compile_unmapped(
             dir,
             &places.agents,
@@ -488,7 +493,7 @@ fn compile_in_realm(
         Some((world, realm)) => world.dialect_for_realm(realm)?,
         None => None,
     };
-    let places = Places::of(workspace);
+    let places = Places::of(workspace)?;
     Ok(Bundle::compile_with_capabilities(
         dir,
         &places.agents,

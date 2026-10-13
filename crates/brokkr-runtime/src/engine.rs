@@ -1259,7 +1259,8 @@ impl Engine {
     /// The repository this run drives, always spelled absolutely. Seat
     /// input is composed from it — `result_path` above all — and every
     /// seat script reads its result path by matching an absolute
-    /// `/*.json` line, so `--repo .` would compose
+    /// `/*.json` line, so `--repo .` in a recipe library, whose results
+    /// stand under the operated repository, would compose
     /// `./.forge/results/<effect>.json` and the seat would refuse its own
     /// result path in a fraction of a second, before running a gate,
     /// with no transcript to say why. `box_argv` resolves the same

@@ -13,12 +13,12 @@ use std::path::PathBuf;
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct JournalArgs {
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
 }
@@ -120,12 +120,12 @@ pub(super) struct TuiArgs {
     /// directly at that run's level.
     #[arg(long)]
     pub(super) run: Option<String>,
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
 }
@@ -137,12 +137,12 @@ pub(super) struct DoctorArgs {
     /// bundle is checked.
     #[arg(long)]
     pub(super) bundle: Option<PathBuf>,
-    /// The world's map whose realm house declarations doctor checks
-    /// (default ./realms.json when present).
+    /// The world's map whose realm house declarations doctor checks (default the found
+    /// folder's .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal whose database doctor opens. Outranks the
-    /// map's journal; without either, .brokkr/state/forge.db, or .forge/forge.db in a library.
+    /// The workspace journal whose database doctor opens. Outranks the map's journal; without
+    /// either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// Operator-side secrets store, so doctor can say which declared
@@ -210,8 +210,8 @@ pub(super) struct LaunchArgs {
     /// silent fallback.
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// The repository the run operates on: the bundle is compiled
@@ -331,12 +331,12 @@ pub(super) struct InspectArgs {
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// Emit the view model verbatim — this is what scripts read.
@@ -365,12 +365,12 @@ pub(super) struct TranscriptArgs {
     /// Emit the `brokkr.transcript/v1` document.
     #[arg(long)]
     pub(super) json: bool,
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
 }
@@ -381,12 +381,12 @@ pub(super) struct SeatsArgs {
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// Emit the view model verbatim — `inspect --json`'s own bytes.
@@ -400,12 +400,12 @@ pub(super) struct WatchArgs {
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// Print one frame and exit.
@@ -440,12 +440,12 @@ pub(super) struct ExportArgs {
     /// written into, created when absent.
     #[arg(long, default_value = ".")]
     pub(super) out: PathBuf,
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// Also write a sanitized copy for publishable fixtures —
@@ -465,12 +465,12 @@ pub(super) struct ImportArgs {
     /// sidecar is read from beside it and must be there.
     #[arg(long)]
     pub(super) from: PathBuf,
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The destination journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The destination journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
 }
@@ -509,12 +509,12 @@ pub(super) struct BridgeArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct RunsArgs {
-    /// The world's map — the journal it names is the one opened
-    /// (default ./realms.json when present).
+    /// The world's map — the journal it names is the one opened (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// Emit the view model verbatim — this is what scripts read.
@@ -528,8 +528,8 @@ pub(super) struct RealmsArgs {
     /// The map to read (default .brokkr/realms.json, else ./realms.json).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// Emit the view model verbatim — this is what scripts read.
