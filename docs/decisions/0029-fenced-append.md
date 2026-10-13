@@ -289,25 +289,27 @@ under contention match a run without it byte for byte.
 
 ### Erratum (#433 slice 4)
 
-Status: for the operator to accept on the pull request that carries it
-(#433 slice 4). Rule 4 above stands as it was accepted; this corrects
-its sum without rewriting it.
+Status: accepted — operator ruled in chat 2026-10-13 (#433 slice 4,
+#666), with the stdout queue's byte bound at 64 MiB. Rule 4 above stands
+as it was accepted; this corrects its sum without rewriting it.
 
 Rule 4's sum understated the transport and overstated a panel. The
 transport holds two lines in flight beside its queue: the one its reader
 has read and not yet queued, and the one the attempt loop parses, each
 at most `FRAME_BYTES` (16 MiB) and its newline. Its queue is now bounded
-in bytes too, by `STDOUT_BYTES` (16 MiB of lines before their newlines,
-one frame's worth) beside its 64 lines (`STDOUT_LINES`), so it holds at
-most 16 MiB and one newline for each of its lines, not 64 lines of
-16 MiB. `FRAME_BYTES` excludes the newline, so a row's line is at most
+in bytes too, by `STDOUT_BYTES` (64 MiB of lines before their newlines,
+four frames' worth) beside its 64 lines (`STDOUT_LINES`), so it holds at
+most 64 MiB and one newline for each of its lines, not 64 lines of
+16 MiB. That term holds while `STDOUT_BYTES` is at least `FRAME_BYTES`,
+since a line heavier than the queue's bound passes alone into an empty
+queue; #662 keeps the relation or restates the term. `FRAME_BYTES` excludes the newline, so a row's line is at most
 `FRAME_BYTES` and one byte. A panel's members feed one shared handoff of
 64 rows, and each member holds at most one more while it waits on a full
 handoff; the handoff does not multiply by members. The corrected sum for
 one site, in line bytes:
 
 - the transport's two lines in flight, at most `FRAME_BYTES` and a
-  newline each;
+  newline each, beside its reader's fixed 8 KiB read-ahead;
 - its stdout queue, at most `STDOUT_BYTES` and a newline for each of at
   most `STDOUT_LINES` lines;
 - the handoff, the row its driver holds while waiting on it, and the
@@ -325,5 +327,8 @@ of `engine/checkpoints.rs` states the same sum by the constants' names.
 The #464 addendum's rule 5 closes on what the sink has not yet taken
 never growing "beside the bounded hold". That clause cites the 16 MiB
 bound rule 1 above retired; the hold is bounded now by the transport's
-checkpoint limit alone, and the handoff is bounded with it. No contract,
-event type or frozen byte moves.
+checkpoint limit alone, and the handoff is bounded with it. The
+addendum's closing paragraph lists the stdout queue, bounded only by its
+count of lines, as open: this erratum's queue term closes it, and only
+host-configured limits remain open, in #662. No contract, event type or
+frozen byte moves.

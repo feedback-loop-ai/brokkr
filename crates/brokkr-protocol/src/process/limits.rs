@@ -37,11 +37,11 @@ use crate::AttemptOutcome;
 pub(super) const FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 /// The most bytes of stdout lines, each counted as [`FRAME_BYTES`] counts
-/// it, newline excluded, the engine holds unread: 16 MiB, one frame's
-/// worth. The reader waits while the next line would take the queue past
-/// it, and never while the queue is empty, so every line the frame limit
-/// admits still passes.
-pub(super) const STDOUT_BYTES: usize = 16 * 1024 * 1024;
+/// it, newline excluded, the engine holds unread: 64 MiB, four frames'
+/// worth (the operator's ruling of 2026-10-13 on #433). The reader waits
+/// while the next line would take the queue past it, and never while the
+/// queue is empty, so every line the frame limit admits still passes.
+pub(super) const STDOUT_BYTES: usize = 64 * 1024 * 1024;
 
 /// The most stdout lines the engine holds unread, beside
 /// [`STDOUT_BYTES`]: the reader waits while this many are queued.

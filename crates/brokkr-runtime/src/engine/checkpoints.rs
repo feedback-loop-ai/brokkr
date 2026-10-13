@@ -44,7 +44,8 @@
 //!
 //! - the transport's two lines in flight, the one its reader has not yet
 //!   queued and the one its attempt loop parses: at most `FRAME_BYTES`
-//!   and a newline each, since `FRAME_BYTES` excludes the newline;
+//!   and a newline each, since `FRAME_BYTES` excludes the newline, beside
+//!   its reader's fixed 8 KiB read-ahead;
 //! - the transport's stdout queue: at most `STDOUT_BYTES` of lines before
 //!   their newlines, and a newline for each of at most `STDOUT_LINES`
 //!   lines;
