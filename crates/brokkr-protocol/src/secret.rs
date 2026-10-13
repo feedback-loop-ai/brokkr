@@ -2,7 +2,8 @@
 //!
 //! Everything that touches a secret VALUE lives in this module — the
 //! `Secret` type, the operator-side store, the `{{secret:NAME}}`
-//! reference scanner, and the known-plaintext masker. Outside this
+//! reference scanner, the known-plaintext masker, and the broker's final
+//! guard, which reads a bound value by what a number is worth. Outside this
 //! module plaintext is reachable through exactly one method
 //! (`Secret::expose_for_spawn`) with exactly one production call site,
 //! this module included: the spawn injector [`bind_environment`] every
@@ -571,10 +572,13 @@ fn enc_json_string(bytes: &[u8]) -> Vec<u8> {
     quoted.as_bytes()[1..quoted.len() - 1].to_vec()
 }
 
-fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Encoder)]) -> Vec<u8> {
-    if bindings.is_empty() {
-        return bytes.to_vec();
-    }
+/// Every needle of every binding in `encodings`, each once, with the name
+/// of the first binding it is found for, longest first: what the masker
+/// replaces, and what the final guard finds.
+fn needles<'b>(
+    bindings: &'b [BoundSecret],
+    encodings: &[(&str, Encoder)],
+) -> Vec<(Vec<u8>, &'b str)> {
     let mut needles: Vec<(Vec<u8>, &str)> = Vec::new();
     for binding in bindings {
         for (_, encode) in encodings {
@@ -585,6 +589,14 @@ fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Enco
         }
     }
     needles.sort_by_key(|needle| std::cmp::Reverse(needle.0.len()));
+    needles
+}
+
+fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Encoder)]) -> Vec<u8> {
+    if bindings.is_empty() {
+        return bytes.to_vec();
+    }
+    let needles = needles(bindings, encodings);
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     'scan: while i < bytes.len() {
@@ -618,7 +630,7 @@ fn mask_needles(bytes: &[u8], bindings: &[BoundSecret], encodings: &[(&str, Enco
 pub fn mask_json(value: &mut serde_json::Value, bindings: &[BoundSecret]) {
     match value {
         serde_json::Value::String(text) => {
-            *text = mask_text(text, bindings);
+            *text = mask_text(text.as_bytes(), bindings);
         }
         serde_json::Value::Array(items) => {
             for item in items {
@@ -629,19 +641,24 @@ pub fn mask_json(value: &mut serde_json::Value, bindings: &[BoundSecret]) {
             let entries = std::mem::take(map);
             for (key, mut item) in entries {
                 mask_json(&mut item, bindings);
-                map.insert(mask_text(&key, bindings), item);
+                map.insert(mask_text(key.as_bytes(), bindings), item);
             }
         }
         _ => {}
     }
 }
 
-fn mask_text(text: &str, bindings: &[BoundSecret]) -> String {
-    String::from_utf8_lossy(&mask_bytes(text.as_bytes(), bindings)).into_owned()
+/// `bytes` masked by [`mask_bytes`] and only then decoded, lossily, as
+/// text: as [`mask_json`] writes a string, and as the broker's output edge
+/// writes free text and a server's standard error.
+pub fn mask_text(bytes: &[u8], bindings: &[BoundSecret]) -> String {
+    String::from_utf8_lossy(&mask_bytes(bytes, bindings)).into_owned()
 }
 
+pub use guard::{json_numbers, Guard};
 pub use handoff::{exec_confined, send_environment};
 
+mod guard;
 pub(crate) mod handoff;
 mod store;
 

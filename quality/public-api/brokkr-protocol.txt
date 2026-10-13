@@ -146,24 +146,26 @@ pub brokkr_protocol::broker::ledger::Outcome::Refused(brokkr_protocol::broker::l
 pub brokkr_protocol::broker::ledger::Outcome::Succeeded
 pub enum brokkr_protocol::broker::ledger::Unrecorded
 pub brokkr_protocol::broker::ledger::Unrecorded::Limit
+pub brokkr_protocol::broker::ledger::Unrecorded::Masking
 pub brokkr_protocol::broker::ledger::Unrecorded::Record
 pub brokkr_protocol::broker::ledger::Unrecorded::Reopened
 pub struct brokkr_protocol::broker::ledger::Call
-pub struct brokkr_protocol::broker::ledger::Ledger
-impl brokkr_protocol::broker::ledger::Ledger
-pub fn brokkr_protocol::broker::ledger::Ledger::close(self) -> core::result::Result<brokkr_protocol::broker::ledger::Disposition, brokkr_protocol::broker::ledger::Unrecorded>
-pub fn brokkr_protocol::broker::ledger::Ledger::end(&mut self, brokkr_protocol::broker::ledger::Call, brokkr_protocol::broker::ledger::Outcome) -> core::result::Result<(), brokkr_protocol::broker::ledger::Unrecorded>
-pub fn brokkr_protocol::broker::ledger::Ledger::fail(&mut self, brokkr_protocol::broker::ledger::Failure)
-pub fn brokkr_protocol::broker::ledger::Ledger::open(impl std::os::fd::owned::AsFd, &std::ffi::os_str::OsStr, &brokkr_protocol::broker::Owner, &str) -> core::result::Result<brokkr_protocol::broker::ledger::Ledger, brokkr_protocol::broker::ledger::Unrecorded>
-pub fn brokkr_protocol::broker::ledger::Ledger::open_with(impl core::ops::function::FnMut(&[u8]) -> core::io::error::Result<()> + 'static, &brokkr_protocol::broker::Owner, &str) -> core::result::Result<brokkr_protocol::broker::ledger::Ledger, brokkr_protocol::broker::ledger::Unrecorded>
-pub fn brokkr_protocol::broker::ledger::Ledger::room(&mut self) -> core::result::Result<brokkr_protocol::broker::ledger::Room<'_>, brokkr_protocol::broker::ledger::Failure>
+pub struct brokkr_protocol::broker::ledger::Ledger<'b>
+impl<'b> brokkr_protocol::broker::ledger::Ledger<'b>
+pub fn brokkr_protocol::broker::ledger::Ledger<'b>::bind(&mut self, &'b [brokkr_protocol::secret::BoundSecret]) -> core::result::Result<(), brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger<'b>::close(self) -> core::result::Result<brokkr_protocol::broker::ledger::Disposition, brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger<'b>::end(&mut self, brokkr_protocol::broker::ledger::Call, brokkr_protocol::broker::ledger::Outcome) -> core::result::Result<(), brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger<'b>::fail(&mut self, brokkr_protocol::broker::ledger::Failure)
+pub fn brokkr_protocol::broker::ledger::Ledger<'b>::open(impl std::os::fd::owned::AsFd, &std::ffi::os_str::OsStr, (&brokkr_protocol::broker::Owner, &str), &'b [brokkr_protocol::secret::BoundSecret]) -> core::result::Result<brokkr_protocol::broker::ledger::Ledger<'b>, brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger<'b>::open_with(impl core::ops::function::FnMut(&[u8]) -> core::io::error::Result<()> + 'static, (&brokkr_protocol::broker::Owner, &str), &'b [brokkr_protocol::secret::BoundSecret]) -> core::result::Result<brokkr_protocol::broker::ledger::Ledger<'b>, brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger<'b>::room(&mut self) -> core::result::Result<brokkr_protocol::broker::ledger::Room<'_, 'b>, brokkr_protocol::broker::ledger::Failure>
 pub struct brokkr_protocol::broker::ledger::Lifecycle
 impl brokkr_protocol::broker::ledger::Lifecycle
 pub fn brokkr_protocol::broker::ledger::Lifecycle::calls(&self) -> &[(alloc::string::String, core::option::Option<brokkr_protocol::broker::ledger::Outcome>)]
 pub fn brokkr_protocol::broker::ledger::Lifecycle::closed(&self) -> core::option::Option<&brokkr_protocol::broker::ledger::Disposition>
-pub struct brokkr_protocol::broker::ledger::Room<'l>(_)
-impl brokkr_protocol::broker::ledger::Room<'_>
-pub fn brokkr_protocol::broker::ledger::Room<'_>::begin(self, &str) -> core::result::Result<brokkr_protocol::broker::ledger::Call, brokkr_protocol::broker::ledger::Unrecorded>
+pub struct brokkr_protocol::broker::ledger::Room<'l, 'b>(_)
+impl brokkr_protocol::broker::ledger::Room<'_, '_>
+pub fn brokkr_protocol::broker::ledger::Room<'_, '_>::begin(self, &str) -> core::result::Result<brokkr_protocol::broker::ledger::Call, brokkr_protocol::broker::ledger::Unrecorded>
 pub fn brokkr_protocol::broker::ledger::recover(&[u8], &brokkr_protocol::broker::Owner, &str) -> (brokkr_protocol::broker::ledger::Lifecycle, core::option::Option<brokkr_protocol::broker::ledger::Invalid>)
 pub enum brokkr_protocol::broker::Network
 pub brokkr_protocol::broker::Network::Isolated
@@ -1005,6 +1007,14 @@ pub struct brokkr_protocol::secret::BoundSecret
 impl brokkr_protocol::secret::BoundSecret
 pub fn brokkr_protocol::secret::BoundSecret::name(&self) -> &str
 pub fn brokkr_protocol::secret::BoundSecret::secret(&self) -> &brokkr_protocol::secret::Secret
+pub struct brokkr_protocol::secret::Guard<'b>
+impl<'b> brokkr_protocol::secret::Guard<'b>
+pub fn brokkr_protocol::secret::Guard<'b>::json(&self, &[u8]) -> bool
+pub fn brokkr_protocol::secret::Guard<'b>::json_within<B>(&self, &[u8], impl core::ops::function::FnMut() -> core::result::Result<(), B>) -> core::result::Result<bool, B>
+pub fn brokkr_protocol::secret::Guard<'b>::new(&'b [brokkr_protocol::secret::BoundSecret]) -> brokkr_protocol::secret::Guard<'b>
+pub fn brokkr_protocol::secret::Guard<'b>::text(&self, &[u8]) -> bool
+impl core::ops::drop::Drop for brokkr_protocol::secret::Guard<'_>
+pub fn brokkr_protocol::secret::Guard<'_>::drop(&mut self)
 pub struct brokkr_protocol::secret::Secret
 impl brokkr_protocol::secret::Secret
 pub fn brokkr_protocol::secret::Secret::expose_for_spawn(&self) -> &[u8]
@@ -1020,12 +1030,14 @@ pub const brokkr_protocol::secret::NEEDLE_ENCODINGS: [(&str, brokkr_protocol::se
 pub const brokkr_protocol::secret::SHORT_VALUE_WARN_BYTES: usize
 pub fn brokkr_protocol::secret::denylisted(&str) -> bool
 pub fn brokkr_protocol::secret::exec_confined(impl alloc::io::read::Read, &[alloc::string::String], alloc::vec::Vec<(std::ffi::os_str::OsString, std::ffi::os_str::OsString)>, (&std::path::Path, &[alloc::string::String]), impl core::ops::function::FnOnce() -> bool) -> brokkr_protocol::broker::Refusal
+pub fn brokkr_protocol::secret::json_numbers(&[u8]) -> alloc::vec::Vec<&[u8]>
 pub fn brokkr_protocol::secret::mask_bytes(&[u8], &[brokkr_protocol::secret::BoundSecret]) -> alloc::vec::Vec<u8>
 pub fn brokkr_protocol::secret::mask_json(&mut serde_json::value::Value, &[brokkr_protocol::secret::BoundSecret])
 pub fn brokkr_protocol::secret::mask_projected(&str, &[brokkr_protocol::secret::BoundSecret]) -> alloc::string::String
+pub fn brokkr_protocol::secret::mask_text(&[u8], &[brokkr_protocol::secret::BoundSecret]) -> alloc::string::String
 pub fn brokkr_protocol::secret::resolve_bindings(&std::path::Path, &[alloc::string::String]) -> core::result::Result<alloc::vec::Vec<brokkr_protocol::secret::BoundSecret>, alloc::string::String>
 pub fn brokkr_protocol::secret::scan_secret_refs(&str) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
-pub fn brokkr_protocol::secret::send_environment(std::os::fd::owned::BorrowedFd<'_>, &std::path::Path, &[alloc::string::String], impl core::ops::function::FnOnce(&[u8]) -> core::result::Result<(), brokkr_protocol::broker::Refusal>) -> core::result::Result<(), brokkr_protocol::broker::Refusal>
+pub fn brokkr_protocol::secret::send_environment(std::os::fd::owned::BorrowedFd<'_>, &std::path::Path, &[alloc::string::String], impl core::ops::function::FnOnce(&[u8]) -> core::result::Result<(), brokkr_protocol::broker::Refusal>) -> (alloc::vec::Vec<brokkr_protocol::secret::BoundSecret>, core::result::Result<(), brokkr_protocol::broker::Refusal>)
 pub fn brokkr_protocol::secret::store_names(&std::path::Path) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::secret::store_remove(&std::path::Path, &str) -> core::result::Result<bool, alloc::string::String>
 pub fn brokkr_protocol::secret::store_set(&std::path::Path, &str, &str) -> core::result::Result<core::option::Option<alloc::string::String>, alloc::string::String>

@@ -33,7 +33,7 @@ use std::ffi::OsStr;
 use std::io::Read;
 use std::os::fd::OwnedFd;
 use std::path::{Component, Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use brokkr_core::canonical;
 use brokkr_protocol::broker::{BoxIntent, Inventory, Owner, Plan, Refusal, Tree};
@@ -43,11 +43,12 @@ use brokkr_protocol::{hands, secret};
 use rustix::fs::{fstat, openat, FileType, Mode, OFlags, Stat, CWD};
 use serde::{Deserialize, Serialize};
 
-pub(super) use lifetime::Ended;
+pub(super) use lifetime::{admit, Ended};
 pub(super) use readiness::{polled, timely, Admitted, Link, Pace, Startup};
 
 pub(super) mod lifetime;
 mod readiness;
+pub(super) mod stderr;
 
 /// The protected root's components below the host HOME (D6).
 const PROTECTED_ROOT: [&str; 4] = [".local", "state", "brokkr", "capabilities"];
@@ -64,32 +65,6 @@ const UNMAPPED_UIDS: [u32; 2] = [65_534, u32::MAX];
 /// MB3's absolute startup deadline, which admission's observation shares
 /// and never extends.
 const STARTUP: Duration = Duration::from_secs(30);
-
-/// The plan `locator` names, bound to this attempt at `digest` and checked
-/// in MB3's refusal order, its box's sources observed afresh by the
-/// private observer and compared with what the plan sealed, then the box
-/// launched on its waiting bootstrap, its readiness checked, its bindings
-/// looked up and handed over, its server's exec seen (U6c8) and the server
-/// initialized (U6e), all within the startup deadline unless the attempt is
-/// cancelled, which ends the broker's own starter; or the first cause. Once
-/// the plan is bound, all of it runs inside its ledger's one lifetime. The
-/// box is ended before this returns, before any message reaches the harness.
-pub(super) fn admit(locator: &Path, digest: &str) -> Result<Admitted, Ended> {
-    let deadline = Instant::now() + STARTUP;
-    let parent = rustix::process::getppid();
-    let cancelled = || rustix::process::getppid() != parent;
-    let startup: Startup<'_> = (deadline, &cancelled);
-    let (layout, plan, attempt) = bound(locator, digest)?;
-    let ledger = (&attempt, layout.named(0));
-    lifetime::lived(ledger, (&plan.owner, digest), |_| {
-        screened(&plan)?;
-        let (record, handles) = observed(&layout, &plan, (locator, digest), startup)?;
-        let admitted = readiness::compared(&plan.intent, record, handles)?;
-        let served = super::rpc::initialized(&plan, startup);
-        readiness::ready(&admitted, (&plan, digest), startup, served)?;
-        Ok(admitted)
-    })
-}
 
 /// `serve`'s private observer: the plan `locator` names rebound at
 /// `digest`, screened, its box prepared and checked, and the record handed

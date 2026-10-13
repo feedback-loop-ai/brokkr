@@ -16,15 +16,18 @@ use brokkr_protocol::broker::ledger::{
     recover, Denial, Disposition, Failure, Invalid, Ledger, Outcome, Unrecorded,
 };
 use brokkr_protocol::broker::{Plan, Refusal};
+use brokkr_protocol::secret::BoundSecret;
 use serde_json::{json, Value};
 
 use super::calls::{served, served_within};
+use super::output::Edge;
 use super::{started, Catalog, Fatal, Line, Lines, Refused};
 use super::{NOTICES_MAX, REQUEST_MAX, RESPONSE_MAX};
 use crate::broker::session::lifetime::settled;
 use crate::broker::session::{Ended, Startup};
 
 mod delivery;
+mod masking;
 
 /// The plan every test serves, `@` its digests: the capability
 /// `library-docs`, its dialect pinned at 1.4.2, granting `lookup` and
@@ -200,10 +203,7 @@ fn startup(script: Script, within: Duration) -> (Result<Vec<Value>, Fatal>, Vec<
     let plan = plan();
     let (mut input, mut output, server) = fake(script);
     let started = started((&mut input, &mut output), &plan, self::within(within));
-    let offered = started.map(|(_, Catalog(listing))| {
-        let listing: Value = serde_json::from_slice(&listing).unwrap();
-        listing["tools"].as_array().unwrap().clone()
-    });
+    let offered = started.map(|(_, Catalog(tools))| tools.iter().map(|tool| json!(tool)).collect());
     drop((input, output));
     (offered, server.join().unwrap().0)
 }
@@ -717,12 +717,18 @@ impl Harness {
 
     /// The broker's next frame to the harness, or none at its end.
     fn next(&mut self) -> Option<Value> {
+        self.line()
+            .map(|line| serde_json::from_slice(&line).unwrap())
+    }
+
+    /// The broker's next frame to the harness as its very bytes, its
+    /// newline included, or none at its end.
+    fn line(&mut self) -> Option<Vec<u8>> {
         let (until, mut searched) = (Instant::now() + Duration::from_secs(20), 0);
         loop {
             let newline = self.held[searched..].iter().position(|byte| *byte == b'\n');
             if let Some(at) = newline {
-                let line: Vec<u8> = self.held.drain(..=searched + at).collect();
-                return Some(serde_json::from_slice(&line).unwrap());
+                return Some(self.held.drain(..=searched + at).collect());
             }
             searched = self.held.len();
             let mut chunk = [0; 1 << 16];
@@ -740,13 +746,35 @@ impl Harness {
 }
 
 /// What one served session left: how it ended, what its settled ledger
-/// proves, when each of its records was made durable, and each frame its
-/// server read.
+/// proves, when each of its records was made durable, each frame its
+/// server read, the ledger's bytes, and the diagnostics it wrote.
 struct Ran {
     ended: Result<(), Ended>,
     proved: Proved,
     durable: Vec<Instant>,
     frames: Vec<Value>,
+    ledger: Vec<u8>,
+    diagnostics: Vec<u8>,
+}
+
+/// What a test session's output edge holds: the plan it serves, the
+/// secrets bound to it, and what its server writes on its standard error
+/// before ending it.
+struct Beside {
+    plan: Plan,
+    bindings: Vec<BoundSecret>,
+    stderr: Vec<u8>,
+}
+
+impl Beside {
+    /// The test plan, no secret bound and nothing on standard error.
+    fn plain() -> Beside {
+        Beside {
+            plan: plan(),
+            bindings: Vec::new(),
+            stderr: Vec::new(),
+        }
+    }
 }
 
 /// Each call's tool and outcome, the closure, and where verification
@@ -785,11 +813,33 @@ fn session(
 fn bounded(
     script: Script,
     failing: Option<usize>,
-    (attempt, call): (Startup<'static>, Option<Duration>),
+    bounds: (Startup<'static>, Option<Duration>),
     conversation: impl FnOnce(&mut Harness) + Send + 'static,
 ) -> Ran {
-    let plan = plan();
+    edged(script, (failing, bounds), Beside::plain(), conversation)
+}
+
+/// A [`bounded`] session beside `beside`'s edge: its plan, bindings and
+/// standard error, which a thread of its own writes and then ends.
+fn edged(
+    script: Script,
+    (failing, (attempt, call)): (Option<usize>, (Startup<'static>, Option<Duration>)),
+    Beside {
+        plan,
+        bindings,
+        stderr,
+    }: Beside,
+    conversation: impl FnOnce(&mut Harness) + Send + 'static,
+) -> Ran {
     let (mut input, mut output, server) = fake(script);
+    let (errors, mut writes) = pipe();
+    let writer = std::thread::spawn(move || writes.write_all(&stderr).ok());
+    let mut diagnostics = Vec::new();
+    let edge = Edge {
+        bindings: &bindings,
+        stderr: errors,
+        diagnostics: &mut diagnostics,
+    };
     let disk = Rc::new(RefCell::new(Disk {
         failing,
         ..Disk::default()
@@ -807,7 +857,8 @@ fn bounded(
             }
         }
     };
-    let mut ledger = Ledger::open_with(append, &plan.owner, DIGEST).unwrap();
+    // Opened before the session's bindings are known, as `serve` opens it.
+    let mut ledger = Ledger::open_with(append, (&plan.owner, DIGEST), &[]).unwrap();
     let ((asked, to), (from, answers)) = (pipe(), pipe());
     rustix::io::ioctl_fionbio(&from, true).unwrap();
     rustix::io::ioctl_fionbio(&to, true).unwrap();
@@ -823,12 +874,13 @@ fn bounded(
     let ended = started((&mut input, &mut output), &plan, attempt)
         .map_err(Ended::Failed)
         .and_then(|started| match call {
-            None => served(started, &plan, &mut ledger, harness, attempt),
-            Some(call) => served_within(call, started, &plan, &mut ledger, harness, attempt),
+            None => served(started, &plan, &mut ledger, harness, attempt, edge),
+            Some(call) => served_within(call, started, &plan, &mut ledger, harness, attempt, edge),
         });
-    settled(ledger, &ended);
+    let ended = settled(ledger, ended);
     drop((input, output));
     talk.join().unwrap();
+    writer.join().unwrap();
     let frames = server.join().unwrap().0;
     let (lifecycle, invalid) = recover(&disk.borrow().bytes, &plan.owner, DIGEST);
     let proved = (
@@ -837,11 +889,14 @@ fn bounded(
         invalid,
     );
     let durable = disk.borrow().at.clone();
+    let ledger = disk.borrow().bytes.clone();
     Ran {
         ended,
         proved,
         durable,
         frames,
+        ledger,
+        diagnostics,
     }
 }
 
@@ -1885,7 +1940,7 @@ fn a_cancellation_behind_an_answer_the_harness_leaves_untaken_settles_in_two_sec
     drop(to);
     let mut left = Vec::new();
     from.read_to_end(&mut left).unwrap();
-    let whole = format!("{}\n", result(&id, json!({})));
+    let whole = format!("{{\"jsonrpc\":\"2.0\",\"id\":{id},\"result\":{{}}}}\n");
     let blocked = (left.is_empty(), left.len() < whole.len());
     assert_eq!(blocked, (false, true));
     assert_eq!(left, whole.as_bytes()[..left.len()]);

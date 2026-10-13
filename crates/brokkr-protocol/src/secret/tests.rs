@@ -507,6 +507,159 @@ fn mask_json_masks_object_keys_and_leaves_numbers_as_numbers() {
     );
 }
 
+/// Whether `number` is any one of the `values`, each bound on its own.
+fn by_value(number: &str, values: &[&str]) -> bool {
+    let bindings: Vec<BoundSecret> = values
+        .iter()
+        .map(|value| bound("NUMBER", value.as_bytes()))
+        .collect();
+    let guard = Guard::new(&bindings);
+    guard.valued(number.as_bytes())
+}
+
+#[test]
+fn a_number_is_a_bound_value_by_what_it_is_worth_however_either_side_spells_it() {
+    // Each normalization alone: an exponent's case, sign and leading zeros,
+    // a point anywhere, trailing zeros past it, leading zeros before it,
+    // and every zero the one zero, its sign read as spelling.
+    let equal = [
+        ("1.0e20", "1e+20"),
+        ("1e+20", "100000000000000000000"),
+        ("1.50e3", "1500"),
+        ("1e020", "1E20"),
+        ("87.654321e7", "876543210"),
+        ("876543210.000000000", "876543210"),
+        ("000000000876543210", "876543210"),
+        ("8.7654321e08", "876543210"),
+        ("876543210", "0876543210"),
+        ("-876543210", "876543210"),
+        ("0.005", "5e-3"),
+        ("0.5", ".5"),
+        ("5", "5."),
+        ("0", "0000"),
+        ("-0", "0000"),
+        ("0.0e5", "-0000"),
+        ("0e99999999999999999999999999999999", "0000"),
+        (
+            "12345678901234567890123456789",
+            "12345678901234567890123456789.0",
+        ),
+    ];
+    for (number, value) in equal {
+        assert_eq!(
+            (number, value, by_value(number, &[value])),
+            (number, value, true)
+        );
+    }
+    let apart = [
+        ("876543211", "876543210"),
+        ("87654321", "876543210"),
+        ("8.7654321e9", "876543210"),
+        ("7", "0000"),
+        ("1e-20", "0000"),
+        ("1500", "1500x"),
+        ("1500", "15 00"),
+        ("1500", "1500e"),
+        ("1500", "1.5.0"),
+        ("1500", "e3"),
+        ("1500", "."),
+        ("1500", "-"),
+        ("1.5.0", "1500"),
+        ("1e", "1000"),
+        ("1e+", "1000"),
+        ("", "1000"),
+    ];
+    for (number, value) in apart {
+        assert_eq!(
+            (number, value, by_value(number, &[value])),
+            (number, value, false)
+        );
+    }
+}
+
+#[test]
+fn each_binding_is_read_on_its_own_and_a_vast_exponent_fails_closed() {
+    // PIN=0000 bound beside NUMBER=0876543210: the number is still found,
+    // the zeros pad nothing, and an unrelated number is neither.
+    let both = ["0000", "0876543210"];
+    assert!(by_value("876543210", &both));
+    assert!(by_value("0", &both));
+    assert!(!by_value("7", &both));
+    assert!(!by_value("876543210", &["text", "0000"]));
+    // An exponent past the number's reading is any bound number, and is
+    // none where no binding is a number; a vast binding is no exact number.
+    let vast = "1e10000000000000000000000000000";
+    assert!(by_value(vast, &["1234"]));
+    assert!(!by_value(vast, &["word"]));
+    assert!(!by_value("1e28", &["1e1000000000000000000000000000000"]));
+    assert!(by_value(
+        "1e1000000000000000000000000000",
+        &["1e1000000000000000000000000000"]
+    ));
+    assert!(!by_value("876543210", &[]));
+}
+
+#[test]
+fn the_guard_polls_its_caller_between_bounded_batches_and_stops_at_its_word() {
+    // 130 numbers, none bound, each read twice, as JSON writes it and as
+    // the text it decodes to: the poll is read before the first, the 65th,
+    // the 129th, the 193rd and the 257th of those 260 readings; an error it
+    // answers ends the scan there, before any number after it is compared,
+    // and is handed back as it was.
+    let bindings = vec![bound("NUMBER", b"876543210")];
+    let guard = Guard::new(&bindings);
+    let numbers: Vec<String> = (0..130).map(|n| n.to_string()).collect();
+    let frame = format!("[{}]", numbers.join(",")).into_bytes();
+    assert_eq!(polled(&guard, &frame, None), (Ok(true), 5));
+    // The bound value, spelled as no masker finds it, past the second
+    // batch is never compared once the poll answers before it.
+    let frame = format!("[{},8.7654321e8]", numbers.join(",")).into_bytes();
+    assert_eq!(polled(&guard, &frame, Some(2)), (Err("deadline"), 2));
+    assert_eq!(polled(&guard, &frame, None), (Ok(false), 3));
+}
+
+/// The guard's answer on the JSON `frame`, read through a poll that ends
+/// the scan at its `stop`th call where there is one, and how many times it
+/// was polled.
+fn polled(guard: &Guard, frame: &[u8], stop: Option<usize>) -> (Result<bool, &'static str>, usize) {
+    let mut polls = 0;
+    let answer = guard.json_within(frame, || {
+        polls += 1;
+        match Some(polls) == stop {
+            true => Err("deadline"),
+            false => Ok(()),
+        }
+    });
+    (answer, polls)
+}
+
+#[test]
+fn the_guard_polls_its_caller_through_a_long_reading_and_stops_at_its_word() {
+    // A string of letters three stretches long and one number: each of the
+    // two readings is polled at every stretch it passes, and the number
+    // once, before the first of the two times it is compared.
+    let bindings = vec![bound("NUMBER", b"876543210")];
+    let guard = Guard::new(&bindings);
+    let letters = vec![b'a'; 3 * guard::STRETCH];
+    let frame = [&b"[\""[..], &letters, b"\",1]"].concat();
+    assert_eq!(polled(&guard, &frame, None), (Ok(true), 7));
+    // A string that is a run of digits as long is polled as often: at each
+    // stretch the JSON reading passes, at each stretch the text it spells
+    // passes within the run, and once before the run is compared.
+    let digits = vec![b'7'; 3 * guard::STRETCH];
+    let spelled = [&b"[\""[..], &digits, b"\"]"].concat();
+    assert_eq!(polled(&guard, &spelled, None), (Ok(true), 7));
+    // The bound value, spelled as no masker finds it, after the letters,
+    // or after a run of digits as long, is never compared once a poll
+    // within the reading before it answers.
+    let after_letters = [&b"[\""[..], &letters, b"\",8.7654321e8]"].concat();
+    let after_digits = [&b"["[..], &digits, b",8.7654321e8]"].concat();
+    for frame in [after_letters, after_digits] {
+        assert_eq!(polled(&guard, &frame, Some(2)), (Err("deadline"), 2));
+        assert_eq!(polled(&guard, &frame, None).0, Ok(false));
+    }
+}
+
 // ------------------------------------------- layer 2: store reader
 
 /// A store file under a canonical temporary root, at `mode`.
@@ -826,7 +979,8 @@ fn sending(handle: &std::fs::File, path: &Path, names: &[&str]) -> Result<Vec<u8
         sent = Some(frame.to_vec());
         Ok(())
     };
-    send_environment(handle.as_fd(), path, &owned(names), send).map(|()| sent.unwrap())
+    let (_, answer) = send_environment(handle.as_fd(), path, &owned(names), send);
+    answer.map(|()| sent.unwrap())
 }
 
 /// [`sending`] from the store holding `bytes`.
@@ -848,11 +1002,32 @@ fn the_sender_frames_the_injectors_environment_of_the_declared_names_alone() {
     let broad = store_at(dir.path(), "broad.env", b"garbage", 0o644);
     let handle = std::fs::File::open(&broad).unwrap();
     assert_eq!(sending(&handle, &broad, &[]), Ok(handoff_frame(b"{}")));
-    // Whatever the transport answers is the sender's answer.
-    let refused = send_environment(std::os::fd::AsFd::as_fd(&handle), &broad, &[], |_| {
-        Err(Refusal::Exec)
-    });
-    assert_eq!(refused, Err(Refusal::Exec));
+    // Whatever the transport answers is the sender's answer, and the
+    // bindings it looked up are handed back beside it, sent or not; a
+    // lookup that refused hands back none.
+    let path = store_at(dir.path(), "secrets.env", store, 0o600);
+    let handle = std::fs::File::open(&path).unwrap();
+    let kept = |name: &str, send: fn(&[u8]) -> Result<(), Refusal>| {
+        let names = owned(&[name]);
+        let (kept, answer) =
+            send_environment(std::os::fd::AsFd::as_fd(&handle), &path, &names, send);
+        let kept: Vec<String> = kept.iter().map(|bound| bound.name().to_owned()).collect();
+        (kept, answer)
+    };
+    let token = owned(&["DOCS_TOKEN"]);
+    assert_eq!(
+        kept("DOCS_TOKEN", |_| Err(Refusal::Exec)),
+        (token.clone(), Err(Refusal::Exec))
+    );
+    assert_eq!(kept("DOCS_TOKEN", |_| Ok(())), (token, Ok(())));
+    let not_in = format!(
+        "secret 'MISSING' is not in the store at {} (brokkr secrets set MISSING)",
+        path.display()
+    );
+    assert_eq!(
+        kept("MISSING", |_| Ok(())),
+        (vec![], Err(Refusal::Name(not_in)))
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -925,9 +1100,9 @@ fn off_linux_the_sender_reads_no_store_for_a_declared_name() {
     let handle = std::fs::File::open(&path).unwrap();
     let send = |frame: &[u8]| -> Result<(), Refusal> { panic!("sent {} bytes", frame.len()) };
     let names = owned(&["DOCS_TOKEN"]);
-    let answer = send_environment(std::os::fd::AsFd::as_fd(&handle), &path, &names, send);
+    let (kept, answer) = send_environment(std::os::fd::AsFd::as_fd(&handle), &path, &names, send);
     let unread = format!("cannot read secrets store {}: unsupported", path.display());
-    assert_eq!(answer, Err(Refusal::Name(unread)));
+    assert_eq!((kept.len(), answer), (0, Err(Refusal::Name(unread))));
 }
 
 /// What the receiver does with `input` for the declared `names`, its fixed
