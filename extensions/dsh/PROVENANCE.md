@@ -98,16 +98,20 @@ HTTP routes and one WebSocket upgrade on DSH's web server) was observed on
 Routes and upgrades are open on that version until a plugin fences them;
 every handler here asks DSH's connection fence first.
 
-Not observed on DSH, and owned by this directory's own tests: the fence on
-an upgrade request, and the console's own panel and routes running inside a
-live DSH. Not built, because nothing observed documents the interface: the
-assistant's connection to DSH's model (design D6) and opening a worktree's
-spec in DSH's Files sidebar (design D7).
+The console itself was loaded into that version on 2026-10-13 against a
+real journal, read-only: its panel, routes and WebSocket ran inside a live
+DSH. The fence refused unauthenticated (401) and cross-origin (403) requests
+on every route and on the upgrade, and the journal was byte-identical before
+and after. That evidence is in
+`openspec/changes/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/console/`. Not built,
+because nothing observed documents the interface: the assistant's connection
+to DSH's model (design D6) and opening a worktree's spec in DSH's Files
+sidebar (design D7).
 
 Tests: `node --test` in this directory, offline, against a stub `brokkr`
-binary and a stub DSH host. They have not yet been run on a host; the run
-that ran them records its output here. CI job: pending (decision 0084
-ruling 5).
+binary and a stub DSH host. The output this change was proven with is
+`openspec/changes/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/console/plugin-tests.txt`. CI job: pending
+(decision 0084 ruling 5).
 
 ## `resume-policy/` — conditional `brokkr-dsh-resume-policy`
 

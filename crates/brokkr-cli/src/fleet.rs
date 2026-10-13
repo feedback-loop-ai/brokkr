@@ -13,6 +13,7 @@ use std::path::Path;
 
 use brokkr_core::fold::{fold, RunState};
 use brokkr_core::EventEnvelope;
+use brokkr_runtime::realms::Hearth;
 use brokkr_store::Store;
 
 /// Why a listed run carries no state, and where its citation points.
@@ -140,4 +141,15 @@ pub(crate) fn read_journal(journal: &Path) -> HearthRead {
         Ok(store) => read_hearth(&store),
         Err(error) => HearthRead::refused(error),
     }
+}
+
+/// Each hearth's realm label and journal path, in the hearths' order: the
+/// names every fleet readout gives its journals.
+pub(crate) fn names(hearths: &[Hearth]) -> (Vec<String>, Vec<String>) {
+    let labels = hearths.iter().map(Hearth::label).collect();
+    let journals = hearths
+        .iter()
+        .map(|hearth| hearth.journal.display().to_string())
+        .collect();
+    (labels, journals)
 }

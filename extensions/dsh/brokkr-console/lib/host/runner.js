@@ -3,7 +3,7 @@
 // and the call settles only once the process has exited, so whatever it wrote
 // to a journal is there to be read when the caller looks.
 import { spawn } from 'node:child_process'
-import { closeSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, constants, lstatSync, mkdirSync, openSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** How long a resumed run's verb is watched before the console reports on it. */
@@ -72,9 +72,17 @@ export function run(config, argv) {
  *   | {kind: 'unstarted', message: string}>}
  */
 export function launch(config, argv, name) {
-  mkdirSync(config.stateDir, { recursive: true, mode: 0o700 })
+  const refusal = privateDir(config.stateDir)
+  if (refusal !== null) return Promise.resolve({ kind: 'unstarted', message: refusal })
   const path = join(config.stateDir, `${name}.log`)
-  const fd = openSync(path, 'w', 0o600)
+  // The directory is the operator's own and closed to others, and the log is
+  // never written through a symlink, so a planted link cannot be truncated.
+  let fd
+  try {
+    fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600)
+  } catch (error) {
+    return Promise.resolve({ kind: 'unstarted', message: `the console could not open its log ${path}: ${error.message}` })
+  }
   const [command, ...prefix] = config.program
   return new Promise((settle) => {
     const child = spawn(command, [...prefix, ...argv], {
@@ -97,6 +105,21 @@ export function launch(config, argv, name) {
       settle({ kind: 'exited', code: code ?? -1, output: tail(path) })
     })
   })
+}
+
+/**
+ * Make `dir` if it is missing, then refuse it unless it is a real directory
+ * (not a symlink) owned by this user and closed to everyone else: the state
+ * directory sits under a shared temporary root by default, where another
+ * user could have made it first. `null` when it is fit to write into.
+ */
+export function privateDir(dir) {
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const found = lstatSync(dir)
+  if (!found.isDirectory()) return `the console's state directory ${dir} is not a directory`
+  if (found.uid !== process.getuid()) return `the console's state directory ${dir} belongs to another user`
+  if ((found.mode & 0o077) !== 0) return `the console's state directory ${dir} is open to other users`
+  return null
 }
 
 /** The last `LOG_TAIL_BYTES` of the file at `path`, as text. */

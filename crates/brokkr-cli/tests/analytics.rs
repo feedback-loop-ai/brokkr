@@ -179,3 +179,25 @@ fn a_range_outside_the_three_is_refused_in_the_views_words() {
         "{stderr}"
     );
 }
+
+#[test]
+fn analytics_without_json_paints_the_headline_and_the_quarantined_hearth() {
+    let ws = Workspace::new();
+    ws.fleet();
+    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .args(["analytics", "--range", "24h"])
+        .current_dir(ws.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout.contains("· all realms\n"), "{stdout}");
+    assert!(stdout.contains("shipped        2 ("), "{stdout}");
+    assert!(stdout.contains("quarantined    ghost: "), "{stdout}");
+    assert!(stdout.contains("not recorded yet: "), "{stdout}");
+}

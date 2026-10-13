@@ -1188,3 +1188,28 @@ fn a_malformed_event_out_of_place_is_refused_for_its_payload_first() {
         })
     );
 }
+
+/// `concluded` is the rule `conclude` refuses by and the view reads: a
+/// completed or stopped run is concluded, a live or parked one is not,
+/// and the refusal names the run and its status in one sentence.
+#[test]
+fn a_run_is_concluded_only_once_it_completed_or_stopped() {
+    for (status, expected) in [
+        (Status::Running, None),
+        (Status::AwaitingOperator, None),
+        (Status::Completed, Some(Status::Completed)),
+        (Status::Stopped, Some(Status::Stopped)),
+    ] {
+        let mut current = state(Cursor::Idle);
+        current.status = status;
+        assert_eq!(concluded(&current), expected, "{status:?}");
+    }
+    assert_eq!(
+        concluded_text("encrypt-the-token-store-41d0a9c2", Status::Stopped),
+        "run 'encrypt-the-token-store-41d0a9c2' is already concluded (stopped); conclude appends nothing"
+    );
+    assert_eq!(
+        concluded_text("r", Status::Completed),
+        "run 'r' is already concluded (completed); conclude appends nothing"
+    );
+}

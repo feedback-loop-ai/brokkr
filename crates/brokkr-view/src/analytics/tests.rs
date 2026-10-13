@@ -512,3 +512,122 @@ fn an_empty_fleet_states_its_absences() {
         "a 24h range ending at noon spans two dates"
     );
 }
+
+/// The readout over one hearth of `runs` for `range`, at [`NOW`].
+fn read_one(runs: &[AnalyticsRun], range: Range) -> Analytics {
+    let realms = vec!["edge".to_string()];
+    let hearths = [AnalyticsHearth {
+        label: "edge",
+        realms: &realms,
+        journal: "e.db",
+        runs,
+        refusal: None,
+    }];
+    analytics(&Query {
+        hearths: &hearths,
+        range,
+        realm: None,
+        now: NOW,
+    })
+    .unwrap()
+}
+
+/// What the journal can hold that the main fleet does not: a run its
+/// operator stopped, rules that tie and rules that do not, an event with no
+/// readable time, operator events that are not the answer, a second answer,
+/// a park outside the range, a refusal journaled after the stop, and seat
+/// records that name no provider, no model, no record or a member no start
+/// announced.
+#[test]
+fn the_edges_of_the_journal_are_read_as_the_readout_says() {
+    let stopped = |rule: &str, at: &str| {
+        (
+            Journal::started(None, "2026-10-10T00:00:00Z").then(
+                EventType::RunStopped,
+                json!({}),
+                at,
+            ),
+            Some(ended(Status::Stopped, "stop", Some(rule), 1)),
+        )
+    };
+    let attempt = |payload: Value| {
+        let mut payload = payload;
+        payload["effect_id"] = json!("e");
+        payload["attempt_id"] = json!("x1");
+        payload
+    };
+    let operator = Journal::started(None, "2026-10-10T00:00:00Z")
+        .entered("review", "2026-10-10T00:30:00Z")
+        .then(EventType::PhaseEntered, json!({"phase": "lost"}), "not a time")
+        .then(EventType::RunParked, json!({}), "2026-10-10T01:00:00Z")
+        .then(EventType::OperatorAccepted, json!({}), "2026-10-10T02:00:00Z")
+        .then(EventType::OperatorCommanded, json!({"command": "retry"}), "2026-10-10T03:00:00Z")
+        .then(EventType::OperatorCommanded, json!({"command": "stop"}), "2026-10-10T04:00:00Z")
+        .entered("review", "2026-10-10T05:00:00Z")
+        .then(
+            EventType::EffectStarted,
+            attempt(json!({"provenance": [{"agent": "a", "member": "m"}, {"agent": "a", "member": "s", "provider": "claude"}]})),
+            "2026-10-10T05:10:00Z",
+        )
+        .then(EventType::EffectCheckpointed, attempt(json!({})), "2026-10-10T05:20:00Z")
+        .then(EventType::EffectCheckpointed, attempt(json!({"checkpoint": {"member": "nobody", "model": "ghost"}})), "2026-10-10T05:30:00Z")
+        .then(EventType::EffectCheckpointed, attempt(json!({"checkpoint": {"member": "s"}})), "2026-10-10T05:40:00Z")
+        .then(EventType::EffectSucceeded, attempt(json!({"result": {"member": "s", "model": "m-succeeded"}})), "2026-10-10T05:50:00Z")
+        .then(EventType::EffectFailed, attempt(json!({})), "2026-10-10T05:55:00Z")
+        .then(EventType::RunStopped, json!({}), "2026-10-10T06:00:00Z")
+        // A command refused after the stop: the run still finished at its
+        // terminal event, not at the journal's last.
+        .then(EventType::OperatorRejected, json!({}), "2026-10-10T07:00:00Z");
+    let journals = [
+        (operator, Some(state(Some("review"), Status::Stopped, None))),
+        stopped("A-ONCE", "2026-10-10T01:00:00Z"),
+        stopped("B-TWICE", "2026-10-10T02:00:00Z"),
+        stopped("B-TWICE", "2026-10-10T03:00:00Z"),
+        stopped("C-ONCE", "2026-10-10T04:00:00Z"),
+    ];
+    let runs = runs(&journals);
+
+    let week = read_one(&runs, Range::Week);
+    // The operator's stop is not a rule's; the rules' leader beats an
+    // earlier and a later single.
+    assert_eq!(
+        week.headline.stopped_by_rule,
+        StoppedByRule {
+            count: 4,
+            top: Some(RuleCount {
+                rule_id: "B-TWICE".to_string(),
+                count: 2
+            }),
+            text: "2 by B-TWICE".to_string(),
+        }
+    );
+    // Waiting runs from the park to the first command: the acceptance
+    // before it and the second command after it answer nothing.
+    assert_eq!(week.waiting_by_step.len(), 1);
+    assert_eq!(week.waiting_by_step[0].phase.as_deref(), Some("review"));
+    assert_eq!(week.waiting_by_step[0].waiting_millis, 2 * 3_600_000);
+    // Only the seat a start announced with a provider is a site, and its
+    // model is the one its success named.
+    let models: Vec<&str> = week
+        .models
+        .iter()
+        .map(|share| share.model.as_str())
+        .collect();
+    assert_eq!(models, ["m-succeeded"]);
+
+    // A day that ends long after the park holds none of its wait.
+    assert!(read_one(&runs, Range::Day).waiting_by_step.is_empty());
+}
+
+/// January and February are the civil calendar's shifted months.
+#[test]
+fn a_stamp_reads_january_and_february_as_their_own_months() {
+    for text in [
+        "2026-01-31T23:59:59Z",
+        "2026-02-01T00:00:00Z",
+        "2024-02-29T12:00:00Z",
+        "2026-12-31T00:00:00Z",
+    ] {
+        assert_eq!(stamp(js::parse_millis(text).unwrap()), text);
+    }
+}

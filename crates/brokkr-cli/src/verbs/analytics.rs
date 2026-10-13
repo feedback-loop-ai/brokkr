@@ -82,11 +82,7 @@ fn derive(hearths: &[Hearth], range: Range, realm: Option<&str>, now: &str) -> R
             .collect()
         })
         .collect();
-    let labels: Vec<String> = hearths.iter().map(Hearth::label).collect();
-    let journals: Vec<String> = hearths
-        .iter()
-        .map(|hearth| hearth.journal.display().to_string())
-        .collect();
+    let (labels, journals) = fleet::names(hearths);
     let grouped: Vec<AnalyticsHearth> = (0..hearths.len())
         .map(|index| AnalyticsHearth {
             label: &labels[index],
