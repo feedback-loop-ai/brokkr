@@ -25,6 +25,10 @@ use std::path::{Component, Path};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+mod refusal;
+
+use refusal::{Field, Overlay, Part, Refused};
+
 /// A route overlay is a handful of block lines; a larger file is not the
 /// shipped shape and is refused before it is parsed.
 const MAX_BYTES: usize = 64 * 1024;
@@ -34,13 +38,13 @@ const MAX_LINES: usize = 4096;
 const ROUTE_ROW: &str = "llm-pi-ai";
 
 /// The closed set of provider fields the shipped route uses.
-const PROVIDER_FIELDS: [&str; 6] = [
-    "displayName",
-    "api",
-    "baseURL",
-    "compat",
-    "models",
-    "apiKeyEnv",
+const PROVIDER_FIELDS: [Field; 6] = [
+    Field::DisplayName,
+    Field::Api,
+    Field::BaseUrl,
+    Field::Compat,
+    Field::Models,
+    Field::ApiKeyEnv,
 ];
 
 /// Read the engine's route-overlay binding off the private start context
@@ -61,7 +65,7 @@ pub(super) fn claim(
     workdir: &str,
     model: Option<&str>,
     argv_value: Option<&str>,
-) -> Result<Option<Vec<u8>>, String> {
+) -> Result<Option<Vec<u8>>, Refused> {
     claim_with(input, workdir, model, argv_value, read_route_file, |path| {
         std::fs::metadata(path)
     })
@@ -86,36 +90,30 @@ fn claim_with(
     argv_value: Option<&str>,
     read: impl FnOnce(&Path) -> std::io::Result<Vec<u8>>,
     stat: impl FnOnce(&Path) -> std::io::Result<std::fs::Metadata>,
-) -> Result<Option<Vec<u8>>, String> {
+) -> Result<Option<Vec<u8>>, Refused> {
     let Some(binding) = input.pointer("/resume_context/route_overlay") else {
         if argv_value.is_some() {
-            return Err(refusal("a `--patch` with no bound route overlay"));
+            return Err(Overlay::PatchUnbound.into());
         }
         return Ok(None);
     };
-    let binding = binding
-        .as_object()
-        .ok_or_else(|| refusal("route_overlay is not an object"))?;
+    let binding = binding.as_object().ok_or(Overlay::BindingNotAnObject)?;
     let value = binding
         .get("value")
         .and_then(Value::as_str)
-        .ok_or_else(|| refusal("route_overlay carries no value"))?;
+        .ok_or(Overlay::NoValue)?;
     let digest = binding
         .get("digest")
         .and_then(Value::as_str)
-        .ok_or_else(|| refusal("route_overlay carries no digest"))?;
+        .ok_or(Overlay::NoDigest)?;
     if argv_value != Some(value) {
-        return Err(refusal(
-            "the route overlay binding disagrees with the `--patch` value",
-        ));
+        return Err(Overlay::Disagrees.into());
     }
     // A pin with no `/` is refused with the absent pin: `parse_dsh_model`
     // would supply its default provider, and a route keyed to that default
     // would then pass for a seat that named no provider at all.
     let Some(model) = model.filter(|model| model.contains('/')) else {
-        return Err(refusal(
-            "a route overlay needs a pinned `--model` with a provider segment",
-        ));
+        return Err(Overlay::NoProviderPin.into());
     };
     // Independent path discipline: the engine already resolved the value
     // against the compiled layer, but the adapter never trusts a private
@@ -123,54 +121,45 @@ fn claim_with(
     // canonicalizes inside the working directory to a regular file is the
     // only shape read.
     if value.is_empty() {
-        return Err(refusal("route_overlay value is empty"));
+        return Err(Overlay::EmptyValue.into());
     }
     let relative = Path::new(value);
     if relative.is_absolute() {
-        return Err(refusal("route_overlay value is an absolute path"));
+        return Err(Overlay::Absolute.into());
     }
     if relative
         .components()
         .any(|component| matches!(component, Component::ParentDir))
     {
-        return Err(refusal("route_overlay value contains a `..` component"));
+        return Err(Overlay::ParentComponent.into());
     }
     let base = std::fs::canonicalize(if workdir.is_empty() { "." } else { workdir })
-        .map_err(|_| refusal("route_overlay working directory is unreadable"))?;
-    let resolved = std::fs::canonicalize(base.join(relative))
-        .map_err(|_| refusal("route_overlay file is unreadable"))?;
+        .map_err(|_| Overlay::WorkdirUnreadable)?;
+    let resolved =
+        std::fs::canonicalize(base.join(relative)).map_err(|_| Overlay::FileUnreadable)?;
     if !resolved.starts_with(&base) {
-        return Err(refusal(
-            "route_overlay value resolves outside the working directory",
-        ));
+        return Err(Overlay::Outside.into());
     }
-    let meta = stat(&resolved).map_err(|_| refusal("route_overlay file is unreadable"))?;
+    let meta = stat(&resolved).map_err(|_| Overlay::FileUnreadable)?;
     if !meta.is_file() {
-        return Err(refusal("route_overlay value is not a regular file"));
+        return Err(Overlay::NotRegular.into());
     }
     if meta.len() as usize > MAX_BYTES {
-        return Err(refusal("route_overlay exceeds the reader's byte bound"));
+        return Err(Overlay::FileOverBound.into());
     }
     // Read the bytes exactly once; no later check re-reads the file.
-    let bytes = read(&resolved).map_err(|_| refusal("route_overlay file is unreadable"))?;
+    let bytes = read(&resolved).map_err(|_| Overlay::FileUnreadable)?;
     if bytes.len() > MAX_BYTES {
-        return Err(refusal("route_overlay exceeds the reader's byte bound"));
+        return Err(Overlay::FileOverBound.into());
     }
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let observed = hex::encode(hasher.finalize());
     if observed != digest {
-        return Err(refusal(
-            "route_overlay bytes do not hash to the bound manifest digest",
-        ));
+        return Err(Overlay::DigestMismatch.into());
     }
     validate(&bytes, model)?;
     Ok(Some(bytes))
-}
-
-/// A refusal names the field or depth, never a value.
-fn refusal(reason: &str) -> String {
-    format!("refusing to invoke the dsh driver: {reason}")
 }
 
 // ---------------------------------------------------------------------
@@ -197,67 +186,69 @@ enum Node {
 /// pinned model. `model` is `<id>` or `<provider>/<id>`; the route's single
 /// provider key must equal its provider segment and its model item, when
 /// named, its id segment.
-pub(super) fn validate(bytes: &[u8], model: &str) -> Result<(), String> {
-    let text = std::str::from_utf8(bytes).map_err(|_| refusal("route overlay is not UTF-8"))?;
+pub(super) fn validate(bytes: &[u8], model: &str) -> Result<(), Refused> {
+    let text = std::str::from_utf8(bytes).map_err(|_| Overlay::NotUtf8)?;
     let lines = lex(text)?;
     let node = parse(&lines)?;
     let entry = match node {
         Node::Sequence(mut items) if items.len() == 1 => items.remove(0),
-        Node::Sequence(_) => {
-            return Err(refusal(
-                "route overlay must hold exactly one top-level entry",
-            ))
-        }
-        _ => return Err(refusal("route overlay must be a sequence of one entry")),
+        Node::Sequence(_) => return Err(Overlay::EntryCount.into()),
+        _ => return Err(Overlay::NotASequence.into()),
     };
-    let entry = mapping(&entry, "the route entry")?;
-    expect_only(entry, &["id", "config"], "the route entry")?;
-    let id = scalar_field(entry, "id", "the route entry")?;
+    let route = Part::RouteEntry;
+    let entry = mapping(&entry, route)?;
+    expect_only(entry, &[Field::Id, Field::Config], route)?;
+    let id = scalar_field(entry, Field::Id, route)?;
     if id != ROUTE_ROW {
-        return Err(refusal("the route entry id is not the route row"));
+        return Err(Overlay::NotTheRouteRow.into());
     }
-    let config = mapping(field(entry, "config", "the route entry")?, "config")?;
-    expect_only(config, &["providers"], "config")?;
-    let providers = mapping(field(config, "providers", "config")?, "providers")?;
+    let config = Part::Named(Field::Config);
+    let config_pairs = mapping(field(entry, Field::Config, route)?, config)?;
+    expect_only(config_pairs, &[Field::Providers], config)?;
+    let providers = mapping(
+        field(config_pairs, Field::Providers, config)?,
+        Part::Named(Field::Providers),
+    )?;
     if providers.len() != 1 {
-        return Err(refusal("providers must define exactly one provider"));
+        return Err(Overlay::ProviderCount.into());
     }
-    let pinned = super::parse_dsh_model(model)
-        .map_err(|_| refusal("the pinned model is not `<id>` or `<provider>/<id>`"))?;
+    let pinned = super::parse_dsh_model(model).map_err(|_| Overlay::PinGrammar)?;
     let (provider_key, provider_node) = &providers[0];
     if provider_key != pinned.provider {
-        return Err(refusal("the route names a provider the seat did not pin"));
+        return Err(Overlay::UnpinnedProvider.into());
     }
-    let provider = mapping(provider_node, "the provider mapping")?;
-    expect_only(provider, &PROVIDER_FIELDS, "the provider mapping")?;
+    let mapped = Part::ProviderMapping;
+    let provider = mapping(provider_node, mapped)?;
+    expect_only(provider, &PROVIDER_FIELDS, mapped)?;
     for (key, _) in provider {
         if count(provider, key) > 1 {
-            return Err(refusal("the provider mapping repeats a field"));
+            return Err(Overlay::ProviderFieldRepeated.into());
         }
     }
-    let api_key_env = scalar_field(provider, "apiKeyEnv", "the provider mapping")?;
+    let api_key_env = scalar_field(provider, Field::ApiKeyEnv, mapped)?;
     if !environment_name(api_key_env) {
-        return Err(refusal("apiKeyEnv is not an environment-variable name"));
+        return Err(Overlay::ApiKeyEnv.into());
     }
-    if let Some(base_url) = optional_scalar(provider, "baseURL", "the provider mapping")? {
+    if let Some(base_url) = optional_scalar(provider, Field::BaseUrl, mapped)? {
         if !endpoint(base_url) {
-            return Err(refusal("baseURL leaves the closed endpoint grammar"));
+            return Err(Overlay::Endpoint.into());
         }
     }
     // `compat` is a mapping the reader already constrained to `<key>: <value>`
     // pairs; it names no credential position.
-    let _ = optional_mapping(provider, "compat", "the provider mapping")?;
-    let models = field(provider, "models", "the provider mapping")?;
+    let _ = optional_mapping(provider, Field::Compat, mapped)?;
+    let models = field(provider, Field::Models, mapped)?;
     let item = match models {
         Node::Sequence(items) if items.len() == 1 => &items[0],
-        Node::Sequence(_) => return Err(refusal("models must hold exactly one item")),
-        _ => return Err(refusal("models is not a sequence")),
+        Node::Sequence(_) => return Err(Overlay::ModelCount.into()),
+        _ => return Err(Overlay::ModelsNotASequence.into()),
     };
-    let item = mapping(item, "the model item")?;
-    expect_only(item, &["id", "reasoningEfforts"], "the model item")?;
-    let model_id = scalar_field(item, "id", "the model item")?;
+    let model_item = Part::ModelItem;
+    let item = mapping(item, model_item)?;
+    expect_only(item, &[Field::Id, Field::ReasoningEfforts], model_item)?;
+    let model_id = scalar_field(item, Field::Id, model_item)?;
     if model_id != pinned.model {
-        return Err(refusal("the route names a model the seat did not pin"));
+        return Err(Overlay::UnpinnedModel.into());
     }
     // Read for its shape alone. A mapping cannot be empty here: a block
     // with no lines and a bare `key:` are both refused while parsing, so
@@ -265,16 +256,16 @@ pub(super) fn validate(bytes: &[u8], model: &str) -> Result<(), String> {
     // reaches this point. The guard that used to restate it could not
     // fire, and a test proves the parser's refusal instead.
     let _ = mapping(
-        field(item, "reasoningEfforts", "the model item")?,
-        "reasoningEfforts",
+        field(item, Field::ReasoningEfforts, model_item)?,
+        Part::Named(Field::ReasoningEfforts),
     )?;
     Ok(())
 }
 
-fn lex(text: &str) -> Result<Vec<Line>, String> {
+fn lex(text: &str) -> Result<Vec<Line>, Overlay> {
     let bytes = text.as_bytes();
     if bytes.len() > MAX_BYTES {
-        return Err(refusal("route overlay exceeds the reader's byte bound"));
+        return Err(Overlay::TextOverBound);
     }
     let mut lines = Vec::new();
     for (index, raw) in text.lines().enumerate() {
@@ -285,23 +276,17 @@ fn lex(text: &str) -> Result<Vec<Line>, String> {
         // that a CR-tolerant YAML reader downstream would parse as its
         // own line, past this closed grammar (AS3).
         if raw.contains('\t') || raw.chars().any(char::is_control) {
-            return Err(refusal(&format!(
-                "route overlay line {number} carries a tab or control character"
-            )));
+            return Err(Overlay::Control(number));
         }
         if raw.is_empty() || raw.trim_start_matches(' ').starts_with('#') {
             continue;
         }
         if raw == "---" || raw == "..." {
-            return Err(refusal(&format!(
-                "route overlay line {number} is a document marker"
-            )));
+            return Err(Overlay::DocumentMarker(number));
         }
         let indent = raw.len() - raw.trim_start_matches(' ').len();
         if indent % 2 != 0 {
-            return Err(refusal(&format!(
-                "route overlay line {number} has an odd indentation"
-            )));
+            return Err(Overlay::OddIndentation(number));
         }
         let body = &raw[indent..];
         if body.is_empty() {
@@ -313,29 +298,26 @@ fn lex(text: &str) -> Result<Vec<Line>, String> {
             text: body.to_string(),
         });
         if lines.len() > MAX_LINES {
-            return Err(refusal("route overlay has too many lines"));
+            return Err(Overlay::TooManyLines);
         }
     }
     if lines.is_empty() {
-        return Err(refusal("route overlay is empty"));
+        return Err(Overlay::Empty);
     }
     Ok(lines)
 }
 
-fn parse(lines: &[Line]) -> Result<Node, String> {
+fn parse(lines: &[Line]) -> Result<Node, Overlay> {
     let (node, end) = parse_block(lines, 0, lines[0].depth)?;
     if end != lines.len() {
-        return Err(refusal(&format!(
-            "route overlay line {} has an unexpected indentation",
-            lines[end].number
-        )));
+        return Err(Overlay::UnexpectedIndentation(lines[end].number));
     }
     Ok(node)
 }
 
-fn parse_block(lines: &[Line], start: usize, depth: usize) -> Result<(Node, usize), String> {
+fn parse_block(lines: &[Line], start: usize, depth: usize) -> Result<(Node, usize), Overlay> {
     if start >= lines.len() || lines[start].depth != depth {
-        return Err(refusal("route overlay indentation is inconsistent"));
+        return Err(Overlay::Inconsistent);
     }
     if is_item(&lines[start].text) {
         parse_sequence(lines, start, depth)
@@ -344,7 +326,7 @@ fn parse_block(lines: &[Line], start: usize, depth: usize) -> Result<(Node, usiz
     }
 }
 
-fn parse_mapping(lines: &[Line], mut index: usize, depth: usize) -> Result<(Node, usize), String> {
+fn parse_mapping(lines: &[Line], mut index: usize, depth: usize) -> Result<(Node, usize), Overlay> {
     let mut pairs = Vec::new();
     while index < lines.len() && lines[index].depth == depth && !is_item(&lines[index].text) {
         let (key, value, next) = parse_member(&lines[index], lines, index + 1, depth)?;
@@ -352,20 +334,21 @@ fn parse_mapping(lines: &[Line], mut index: usize, depth: usize) -> Result<(Node
         index = next;
     }
     if pairs.is_empty() {
-        return Err(refusal("route overlay block has no lines"));
+        return Err(Overlay::EmptyBlock);
     }
     Ok((Node::Mapping(pairs), index))
 }
 
-fn parse_sequence(lines: &[Line], mut index: usize, depth: usize) -> Result<(Node, usize), String> {
+fn parse_sequence(
+    lines: &[Line],
+    mut index: usize,
+    depth: usize,
+) -> Result<(Node, usize), Overlay> {
     let mut items = Vec::new();
     while index < lines.len() && lines[index].depth == depth && is_item(&lines[index].text) {
         let rest = lines[index].text[1..].trim_start().to_string();
         if rest.is_empty() {
-            return Err(refusal(&format!(
-                "route overlay line {} is a bare sequence item",
-                lines[index].number
-            )));
+            return Err(Overlay::BareItem(lines[index].number));
         }
         let (key, value, mut next) =
             parse_member_text(&rest, lines[index].number, lines, index + 1, depth)?;
@@ -379,7 +362,7 @@ fn parse_sequence(lines: &[Line], mut index: usize, depth: usize) -> Result<(Nod
         index = next;
     }
     if items.is_empty() {
-        return Err(refusal("route overlay sequence is empty"));
+        return Err(Overlay::EmptySequence);
     }
     Ok((Node::Sequence(items), index))
 }
@@ -389,7 +372,7 @@ fn parse_member(
     lines: &[Line],
     next: usize,
     depth: usize,
-) -> Result<(String, Node, usize), String> {
+) -> Result<(String, Node, usize), Overlay> {
     parse_member_text(&line.text, line.number, lines, next, depth)
 }
 
@@ -399,7 +382,7 @@ fn parse_member_text(
     lines: &[Line],
     next: usize,
     depth: usize,
-) -> Result<(String, Node, usize), String> {
+) -> Result<(String, Node, usize), Overlay> {
     if let Some(colon) = text.find(": ") {
         let key = &text[..colon];
         let value = &text[colon + 2..];
@@ -411,61 +394,45 @@ fn parse_member_text(
         check_key(key, number)?;
         if next < lines.len() && lines[next].depth > depth {
             if lines[next].depth != depth + 1 {
-                return Err(refusal(&format!(
-                    "route overlay line {} jumps more than one depth",
-                    lines[next].number
-                )));
+                return Err(Overlay::DepthJump(lines[next].number));
             }
             let (child, after) = parse_block(lines, next, lines[next].depth)?;
             return Ok((key.to_string(), child, after));
         }
-        return Err(refusal(&format!(
-            "route overlay line {number} has an empty `{key}:` block"
-        )));
+        return Err(Overlay::EmptyKeyBlock {
+            line: number,
+            key: key.to_string(),
+        });
     }
-    Err(refusal(&format!(
-        "route overlay line {number} is not a recognized block line"
-    )))
+    Err(Overlay::Unrecognized(number))
 }
 
 fn is_item(text: &str) -> bool {
     text == "-" || text.starts_with("- ")
 }
 
-fn check_key(key: &str, number: usize) -> Result<(), String> {
+fn check_key(key: &str, number: usize) -> Result<(), Overlay> {
     let mut characters = key.chars();
     match characters.next() {
         Some(first) if first.is_ascii_alphabetic() => {}
-        _ => {
-            return Err(refusal(&format!(
-                "route overlay line {number} carries a key that is not a plain identifier"
-            )))
-        }
+        _ => return Err(Overlay::KeyNotIdentifier(number)),
     }
     if !characters.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-        return Err(refusal(&format!(
-            "route overlay line {number} carries a key that is not a plain identifier"
-        )));
+        return Err(Overlay::KeyNotIdentifier(number));
     }
     Ok(())
 }
 
-fn check_scalar(value: &str, number: usize) -> Result<(), String> {
+fn check_scalar(value: &str, number: usize) -> Result<(), Overlay> {
     if value.is_empty() {
-        return Err(refusal(&format!(
-            "route overlay line {number} carries an empty value"
-        )));
+        return Err(Overlay::EmptyScalar(number));
     }
     let first = value.chars().next().expect("non-empty");
     if "!&*{[|>%@`\"'?-:,".contains(first) {
-        return Err(refusal(&format!(
-            "route overlay line {number} carries a value beginning with a reserved character"
-        )));
+        return Err(Overlay::ReservedStart(number));
     }
     if value.contains(" #") || value.contains(": ") {
-        return Err(refusal(&format!(
-            "route overlay line {number} carries a value with a comment or an extra mapping"
-        )));
+        return Err(Overlay::CommentOrMapping(number));
     }
     Ok(())
 }
@@ -474,61 +441,59 @@ fn check_scalar(value: &str, number: usize) -> Result<(), String> {
 // Semantic helpers over the parsed tree.
 // ---------------------------------------------------------------------
 
-fn mapping<'a>(node: &'a Node, what: &str) -> Result<&'a Vec<(String, Node)>, String> {
+fn mapping(node: &Node, part: Part) -> Result<&Vec<(String, Node)>, Overlay> {
     match node {
         Node::Mapping(pairs) => Ok(pairs),
-        _ => Err(refusal(&format!("{what} is not a mapping"))),
+        _ => Err(Overlay::NotAMapping(part)),
     }
 }
 
-fn field<'a>(pairs: &'a [(String, Node)], key: &str, what: &str) -> Result<&'a Node, String> {
-    let mut found = pairs.iter().filter(|(name, _)| name == key);
+fn field(pairs: &[(String, Node)], key: Field, part: Part) -> Result<&Node, Overlay> {
+    let mut found = pairs.iter().filter(|(name, _)| name == key.spelling());
     let Some((_, value)) = found.next() else {
-        return Err(refusal(&format!("{what} is missing `{key}`")));
+        return Err(Overlay::Missing { part, field: key });
     };
     if found.next().is_some() {
-        return Err(refusal(&format!("{what} repeats `{key}`")));
+        return Err(Overlay::Repeats { part, field: key });
     }
     Ok(value)
 }
 
-fn scalar_field<'a>(pairs: &'a [(String, Node)], key: &str, what: &str) -> Result<&'a str, String> {
-    match field(pairs, key, what)? {
+fn scalar_field(pairs: &[(String, Node)], key: Field, part: Part) -> Result<&str, Overlay> {
+    match field(pairs, key, part)? {
         Node::Scalar(value) => Ok(value),
-        _ => Err(refusal(&format!("{what} nests a non-scalar `{key}`"))),
+        _ => Err(Overlay::NonScalar { part, field: key }),
     }
 }
 
-fn optional_scalar<'a>(
-    pairs: &'a [(String, Node)],
-    key: &str,
-    what: &str,
-) -> Result<Option<&'a str>, String> {
-    match pairs.iter().find(|(name, _)| name == key) {
+fn optional_scalar(
+    pairs: &[(String, Node)],
+    key: Field,
+    part: Part,
+) -> Result<Option<&str>, Overlay> {
+    match pairs.iter().find(|(name, _)| name == key.spelling()) {
         None => Ok(None),
         Some((_, Node::Scalar(value))) => Ok(Some(value)),
-        Some(_) => Err(refusal(&format!("{what} nests a non-scalar `{key}`"))),
+        Some(_) => Err(Overlay::NonScalar { part, field: key }),
     }
 }
 
-fn optional_mapping<'a>(
-    pairs: &'a [(String, Node)],
-    key: &str,
-    what: &str,
-) -> Result<Option<&'a Vec<(String, Node)>>, String> {
-    match pairs.iter().find(|(name, _)| name == key) {
+fn optional_mapping(
+    pairs: &[(String, Node)],
+    key: Field,
+    part: Part,
+) -> Result<Option<&Vec<(String, Node)>>, Overlay> {
+    match pairs.iter().find(|(name, _)| name == key.spelling()) {
         None => Ok(None),
         Some((_, Node::Mapping(inner))) => Ok(Some(inner)),
-        Some(_) => Err(refusal(&format!("{what} nests a non-mapping `{key}`"))),
+        Some(_) => Err(Overlay::NonMapping { part, field: key }),
     }
 }
 
-fn expect_only(pairs: &[(String, Node)], allowed: &[&str], what: &str) -> Result<(), String> {
+fn expect_only(pairs: &[(String, Node)], allowed: &[Field], part: Part) -> Result<(), Overlay> {
     for (key, _) in pairs {
-        if !allowed.contains(&key.as_str()) {
-            return Err(refusal(&format!(
-                "{what} carries a field outside the closed set"
-            )));
+        if !allowed.iter().any(|field| field.spelling() == key) {
+            return Err(Overlay::OutsideClosedSet(part));
         }
     }
     Ok(())

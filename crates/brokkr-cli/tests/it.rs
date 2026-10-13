@@ -6,6 +6,8 @@
 
 // Support shared by several files, declared once: a file reaches it as
 // `crate::<name>`.
+#[path = "support/engine.rs"]
+mod engine;
 #[path = "support/numbered.rs"]
 mod numbered;
 #[path = "support/rust_source.rs"]

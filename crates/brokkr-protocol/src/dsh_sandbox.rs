@@ -82,6 +82,12 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod errors;
+
+pub use errors::{
+    KeptStore, RowRefusal, RunnerFlag, RunnerRefusal, ScopeRefusal, StagedRefusal, StoreError,
+};
+
 /// The stderr prefix dsh classifies as a runner failure, so a refusal
 /// here reads "the command never ran", never "the command was denied".
 pub const RUNNER_FAILURE_SIGNATURE: &str = "brokkr-dsh-sandbox-runner: ";
@@ -138,15 +144,11 @@ pub struct GitScope {
 /// command. Only the profile prefix is read; the command is opaque. The
 /// program is the absolute bubblewrap named by `--bwrap`, never a `PATH`
 /// lookup.
-pub fn runner_argv(args: &[String]) -> Result<Vec<String>, String> {
+pub fn runner_argv(args: &[String]) -> Result<Vec<String>, RunnerRefusal> {
     let (scope, paths, rest) = parse_scope(args)?;
     let (profile, command) = split_profile(rest)?;
     if profile.len() < 3 || profile[0] != "--ro-bind" || profile[1] != "/" || profile[2] != "/" {
-        return Err(
-            "the dsh sandbox profile does not begin with `--ro-bind / /`; refusing to guess \
-             the boundary it stands for"
-                .to_string(),
-        );
+        return Err(RunnerRefusal::NotRootedReadOnly);
     }
     let binds = writable_binds(profile)?;
     let mut argv = vec![paths.bwrap.to_string_lossy().into_owned()];
@@ -188,7 +190,7 @@ impl RunnerPaths {
 /// `--trusted` must be absolute: the runner executes the binary and
 /// mounts the directories the driver staged, and a relative spelling
 /// would be resolved by a working directory the seat can move.
-fn parse_scope(args: &[String]) -> Result<(GitScope, RunnerPaths, &[String]), String> {
+fn parse_scope(args: &[String]) -> Result<(GitScope, RunnerPaths, &[String]), RunnerRefusal> {
     let mut workspace: Option<PathBuf> = None;
     let mut git_dir: Option<PathBuf> = None;
     let mut common_dir: Option<PathBuf> = None;
@@ -197,43 +199,38 @@ fn parse_scope(args: &[String]) -> Result<(GitScope, RunnerPaths, &[String]), St
     let mut trusted: Option<PathBuf> = None;
     let mut index = 0;
     while index < args.len() {
-        let slot = match args[index].as_str() {
-            "--workspace" => &mut workspace,
-            "--git-dir" => &mut git_dir,
-            "--common-dir" => &mut common_dir,
-            "--bwrap" => &mut bwrap,
-            "--store" => &mut store,
-            "--trusted" => &mut trusted,
-            _ => break,
+        let Some(flag) = RunnerFlag::parse(&args[index]) else {
+            break;
         };
-        let value = args
-            .get(index + 1)
-            .ok_or_else(|| format!("dsh sandbox runner: {} needs a path after it", args[index]))?;
+        let slot = match flag {
+            RunnerFlag::Workspace => &mut workspace,
+            RunnerFlag::GitDir => &mut git_dir,
+            RunnerFlag::CommonDir => &mut common_dir,
+            RunnerFlag::Bwrap => &mut bwrap,
+            RunnerFlag::Store => &mut store,
+            RunnerFlag::Trusted => &mut trusted,
+        };
+        let value = args.get(index + 1).ok_or(RunnerRefusal::NeedsPath(flag))?;
         if slot.replace(PathBuf::from(value)).is_some() {
-            return Err(format!("dsh sandbox runner: {} given twice", args[index]));
+            return Err(RunnerRefusal::GivenTwice(flag));
         }
         index += 2;
     }
-    let required = |value: Option<PathBuf>, flag: &str| {
-        value.ok_or_else(|| format!("dsh sandbox runner: {flag} is required"))
-    };
-    let workspace = required(workspace, "--workspace")?;
-    let git_dir = required(git_dir, "--git-dir")?;
-    let common_dir = required(common_dir, "--common-dir")?;
-    let bwrap = required(bwrap, "--bwrap")?;
-    let store = required(store, "--store")?;
-    let trusted = required(trusted, "--trusted")?;
+    let required = |value: Option<PathBuf>, flag| value.ok_or(RunnerRefusal::Required(flag));
+    let workspace = required(workspace, RunnerFlag::Workspace)?;
+    let git_dir = required(git_dir, RunnerFlag::GitDir)?;
+    let common_dir = required(common_dir, RunnerFlag::CommonDir)?;
+    let bwrap = required(bwrap, RunnerFlag::Bwrap)?;
+    let store = required(store, RunnerFlag::Store)?;
+    let trusted = required(trusted, RunnerFlag::Trusted)?;
     for (flag, path) in [
-        ("--bwrap", &bwrap),
-        ("--store", &store),
-        ("--trusted", &trusted),
+        (RunnerFlag::Bwrap, &bwrap),
+        (RunnerFlag::Store, &store),
+        (RunnerFlag::Trusted, &trusted),
     ] {
         if !path.is_absolute() {
-            return Err(format!(
-                "dsh sandbox runner: {flag} {} is not an absolute path; the runner uses the \
-                 host paths the driver staged and never a `PATH` or working-directory lookup",
-                path.display()
-            ));
+            let path = path.clone();
+            return Err(RunnerRefusal::NotAbsolute { flag, path });
         }
     }
     Ok((
@@ -252,10 +249,11 @@ fn parse_scope(args: &[String]) -> Result<(GitScope, RunnerPaths, &[String]), St
 }
 
 /// The profile before the bare `--`, and the command after it.
-fn split_profile(rest: &[String]) -> Result<(&[String], &[String]), String> {
-    let split = rest.iter().position(|token| token == "--").ok_or_else(|| {
-        "dsh sandbox runner: the profile has no `--` before the command".to_string()
-    })?;
+fn split_profile(rest: &[String]) -> Result<(&[String], &[String]), RunnerRefusal> {
+    let split = rest
+        .iter()
+        .position(|token| token == "--")
+        .ok_or(RunnerRefusal::NoSeparator)?;
     Ok((&rest[..split], &rest[split + 1..]))
 }
 
@@ -349,22 +347,16 @@ struct WritableBind<'a> {
 /// `workspace-write` seat — which needs the destination, because the
 /// grant is `--bind <workspace> <workspace>` — and which host paths the
 /// box can WRITE, which is every source here, mounted or not.
-fn writable_binds(profile: &[String]) -> Result<Vec<WritableBind<'_>>, String> {
+fn writable_binds(profile: &[String]) -> Result<Vec<WritableBind<'_>>, RunnerRefusal> {
     let mut binds = Vec::new();
     let mut index = 0;
     while index < profile.len() {
         let flag = &profile[index];
         let Some(shape) = profile_flag(flag) else {
-            return Err(format!(
-                "the dsh sandbox profile carries {flag}, which this runner does not read; it \
-                 refuses rather than guess how many arguments follow it, which host path the \
-                 box could write through it, or what further options it carries"
-            ));
+            return Err(RunnerRefusal::UnreadOption(flag.clone()));
         };
         if index + shape.arity >= profile.len() {
-            return Err(format!(
-                "the dsh sandbox profile ends inside {flag}'s arguments"
-            ));
+            return Err(RunnerRefusal::Truncated(flag.clone()));
         }
         for &(source, destination) in shape.writes {
             binds.push(WritableBind {
@@ -452,19 +444,13 @@ fn within(inner: &Path, outer: &Path) -> bool {
 ///    `<workspace>/.git` is refused outright as well: `git worktree`
 ///    never writes one, so its presence is evidence rather than a
 ///    spelling.
-pub fn scope_refusal(scope: &GitScope) -> Option<String> {
+pub fn scope_refusal(scope: &GitScope) -> Option<ScopeRefusal> {
     if scope.common_dir.starts_with(&scope.workspace) {
         return None;
     }
+    let git_dir = scope.git_dir.clone();
     if same_path(&scope.git_dir, &scope.common_dir) {
-        return Some(format!(
-            "the seat's git directory {} is the shared repository's own git directory, so a \
-             commit would need the whole shared .git writable; the scoped runner refuses that \
-             (a primary checkout reached through a subdirectory, a `--separate-git-dir` \
-             checkout, or a `.git` file redirected at the parent). Run the seat from the \
-             repository root, or from a linked `git worktree`",
-            scope.git_dir.display()
-        ));
+        return Some(ScopeRefusal::SharedGitDir { git_dir });
     }
     let administrative = scope.common_dir.join("worktrees");
     if !scope
@@ -472,15 +458,10 @@ pub fn scope_refusal(scope: &GitScope) -> Option<String> {
         .parent()
         .is_some_and(|parent| same_path(parent, &administrative))
     {
-        return Some(format!(
-            "the seat's git directory {} is not one of the linked-worktree administrative \
-             directories {} that its shared repository owns, so Git reached it through a \
-             `.git` file rather than through `git worktree`; the scoped runner refuses to \
-             bind a repository a workspace file pointed it at. Run the seat from the \
-             repository root, or from a linked `git worktree`",
-            scope.git_dir.display(),
-            administrative.join("<name>").display()
-        ));
+        return Some(ScopeRefusal::NotAdministrative {
+            git_dir,
+            administrative,
+        });
     }
     // A seat can write its own `.git`, and `git worktree` writes a plain
     // file there. A SYMLINK is a second name for a `.git` this seat does
@@ -489,23 +470,11 @@ pub fn scope_refusal(scope: &GitScope) -> Option<String> {
     // compared.
     let workspace_git = scope.workspace.join(".git");
     if std::fs::symlink_metadata(&workspace_git).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        return Some(format!(
-            "this seat's workspace has a symbolic link at {}, and `git worktree` writes a \
-             plain file there; the scoped runner refuses a `.git` that is a second name for \
-             another worktree's metadata. Run the seat from a linked `git worktree` git \
-             itself created",
-            workspace_git.display()
-        ));
+        return Some(ScopeRefusal::SymlinkedGit { workspace_git });
     }
+    let workspace = scope.workspace.clone();
     let Some(recorded) = recorded_worktree(scope) else {
-        return Some(format!(
-            "the per-worktree git directory {} carries no `gitdir` back-pointer, so nothing \
-             outside this seat's workspace ties it to {}; the scoped runner refuses to write \
-             git metadata it cannot tie to the seat. Run the seat from a linked `git \
-             worktree` git itself created",
-            scope.git_dir.display(),
-            scope.workspace.display()
-        ));
+        return Some(ScopeRefusal::NoBackPointer { git_dir, workspace });
     };
     // The DIRECTORY the back-pointer names is what must be this seat's
     // workspace. Comparing the pointer itself against
@@ -523,23 +492,15 @@ pub fn scope_refusal(scope: &GitScope) -> Option<String> {
     // misname the cause; the remedy is the worktree's own root.
     if let Some(root) = recorded_root {
         if within(&scope.workspace, root) {
-            return Some(format!(
-                "this seat's workspace {} is a subdirectory of the linked worktree at {}, and \
-                 the scoped runner serves a worktree at its own root: the writable root dsh \
-                 gives the seat would not cover the rest of the worktree. Run the seat from {}",
-                scope.workspace.display(),
-                root.display(),
-                root.display()
-            ));
+            let root = root.to_path_buf();
+            return Some(ScopeRefusal::Subdirectory { workspace, root });
         }
     }
-    Some(format!(
-        "the per-worktree git directory {} records {} as its worktree, not this seat's \
-         workspace {}; refusing to bind another worktree's metadata",
-        scope.git_dir.display(),
-        recorded.display(),
-        scope.workspace.display()
-    ))
+    Some(ScopeRefusal::OtherWorktree {
+        git_dir,
+        recorded,
+        workspace,
+    })
 }
 
 /// The worktree `.git` file a linked worktree's `gitdir` pointer names.
@@ -574,20 +535,17 @@ fn trusted_refusal(
     paths: &RunnerPaths,
     scope: &GitScope,
     binds: &[WritableBind<'_>],
-) -> Option<String> {
+) -> Option<StagedRefusal> {
     if let Some(root) = binds
         .iter()
         .map(|bind| bind.source)
         .chain([scope.git_dir.as_path(), paths.store.as_path()])
         .find(|root| within(&paths.trusted, root))
     {
-        return Some(format!(
-            "the files the dsh runner mounts read-only are staged in {}, which lies under {} — \
-             a path this seat's box can write, so a boxed command could rewrite the very files \
-             the mounts stand for",
-            paths.trusted.display(),
-            root.display()
-        ));
+        return Some(StagedRefusal::Writable {
+            trusted: paths.trusted.clone(),
+            root: root.to_path_buf(),
+        });
     }
     [
         (paths.mask(), true),
@@ -601,26 +559,25 @@ fn trusted_refusal(
 /// Why one staged file is not what the runner mounts, or `None`. The
 /// mask must be EMPTY, because it stands for a config nobody wrote; the
 /// two pointers must not be, because git reads each as a path.
-fn staged_file_refusal(path: &Path, empty: bool) -> Option<String> {
-    let problem = match std::fs::symlink_metadata(path) {
-        Err(error) => format!("cannot be read ({error})"),
-        Ok(meta) if !meta.file_type().is_file() => {
-            // `/dev/null` is the obvious wrong answer for the mask:
-            // bubblewrap mounts every bind source with `MS_NODEV`, so a
-            // bound character device cannot be opened inside the box and
-            // git calls an unreadable config file a fatal error.
-            "is not a regular file; bubblewrap mounts a bind source with MS_NODEV, so a device \
-             node masks the path with something the box cannot open and git calls an \
-             unreadable config file fatal"
-                .to_string()
-        }
-        Ok(meta) if empty && meta.len() != 0 => format!("is not empty ({} bytes)", meta.len()),
-        Ok(meta) if !empty && meta.len() == 0 => {
-            "is empty, and git reads it as a path rather than as an absence".to_string()
-        }
+fn staged_file_refusal(path: &Path, empty: bool) -> Option<StagedRefusal> {
+    let path = path.to_path_buf();
+    Some(match std::fs::symlink_metadata(&path) {
+        Err(error) => StagedRefusal::Unreadable {
+            path,
+            cause: error.to_string(),
+        },
+        // `/dev/null` is the obvious wrong answer for the mask:
+        // bubblewrap mounts every bind source with `MS_NODEV`, so a
+        // bound character device cannot be opened inside the box and
+        // git calls an unreadable config file a fatal error.
+        Ok(meta) if !meta.file_type().is_file() => StagedRefusal::NotAFile { path },
+        Ok(meta) if empty && meta.len() != 0 => StagedRefusal::NotEmpty {
+            path,
+            bytes: meta.len(),
+        },
+        Ok(meta) if !empty && meta.len() == 0 => StagedRefusal::Empty { path },
         Ok(_) => return None,
-    };
-    Some(format!("the staged file {} {problem}", path.display()))
+    })
 }
 
 /// The scoped write set, in mount order: later binds sit over earlier
@@ -637,17 +594,17 @@ fn scoped_git_binds(
     scope: &GitScope,
     paths: &RunnerPaths,
     binds: &[WritableBind<'_>],
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, RunnerRefusal> {
     // A primary checkout keeps its whole git directory under the
     // workspace the provider already made writable: nothing to add.
     if scope.common_dir.starts_with(&scope.workspace) {
         return Ok(Vec::new());
     }
     if let Some(problem) = scope_refusal(scope) {
-        return Err(problem);
+        return Err(RunnerRefusal::Scope(problem));
     }
     if let Some(problem) = trusted_refusal(paths, scope, binds) {
-        return Err(problem);
+        return Err(RunnerRefusal::Staged(problem));
     }
     let mut argv = Vec::new();
     let git = &scope.git_dir;
@@ -961,7 +918,7 @@ fn promotion_ref(store: &Path) -> String {
 /// `commondir` points at, with the `core.pager` that repository's
 /// configuration chose. So the refusal says what the directory is and
 /// what to strip out of it by hand, and offers no command against it.
-pub fn keep_store(store: SeatGitStore, problem: impl std::fmt::Display) -> String {
+pub fn keep_store<P: std::fmt::Display>(store: SeatGitStore, problem: P) -> KeptStore<P> {
     let reference = store.reference.clone();
     let alternates = alternates_line(&store.common_dir).trim_end().to_string();
     // The store is about to outlive the seat and be read by a human's
@@ -969,14 +926,12 @@ pub fn keep_store(store: SeatGitStore, problem: impl std::fmt::Display) -> Strin
     // must name a repository the DRIVER authored, not one the box did.
     let reclaimed = store.reclaim();
     let path = store.kept();
-    let path = path.display();
     match reclaimed {
-        Ok(()) => format!(
-            "dsh driver: {problem}. The seat's commits are not lost: its private git store is \
-             kept at {path}, and `git --git-dir={path} log {reference}` still reads them. \
-             Nothing removes that directory afterwards; it is the operator's to delete once the \
-             commits are safe"
-        ),
+        Ok(()) => KeptStore::Reclaimed {
+            problem,
+            path,
+            reference,
+        },
         // The sweep did not finish, so what git would resolve THERE is
         // still partly the box's: a `commondir` it left aims
         // `--git-dir={path}` at a repository the seat built, and the
@@ -985,19 +940,13 @@ pub fn keep_store(store: SeatGitStore, problem: impl std::fmt::Display) -> Strin
         // run the seat's choices on the host, outside every box. So the
         // path is named — the commits are in it and nowhere else — and
         // the reclaim is handed over in words instead.
-        Err(error) => format!(
-            "dsh driver: {problem}. The seat's commits are not lost: its private git store is \
-             kept at {path}. But the driver could not take that directory back from the box \
-             ({error}), so it is NOT a repository the driver authored and this refusal will not \
-             invite git to read it: a `commondir` the seat left redirects any `--git-dir` at a \
-             repository the seat built, whose configuration names the commands git then runs. \
-             Take the directory back by hand before reading it — delete every name in it except \
-             `objects`, `refs` and `packed-refs`; remove `objects/info` too and recreate it with \
-             only `alternates`, then write `{alternates}` into its \
-             `objects/info/alternates` and `ref: {reference}` into its `HEAD` — and it is a \
-             repository again, with {reference} at the seat's commit. Nothing removes that \
-             directory afterwards; it is the operator's to delete once the commits are safe"
-        ),
+        Err(error) => KeptStore::Unreclaimed {
+            problem,
+            path,
+            reference,
+            alternates,
+            cause: error.to_string(),
+        },
     }
 }
 
@@ -1035,7 +984,7 @@ fn oid_or_absent(value: &Option<String>) -> &str {
 
 /// Stage the private common directory and the read-only files one seat
 /// needs, or say why this worktree cannot be served.
-pub fn stage_seat_store(scope: &GitScope) -> Result<SeatGitStore, String> {
+pub fn stage_seat_store(scope: &GitScope) -> Result<SeatGitStore, StoreError> {
     stage_seat_store_with("git", scope, || {
         tempfile::Builder::new().prefix("brokkr-dsh-git-").tempdir()
     })
@@ -1048,7 +997,7 @@ fn stage_seat_store_with(
     program: &str,
     scope: &GitScope,
     mut make: impl FnMut() -> std::io::Result<tempfile::TempDir>,
-) -> Result<SeatGitStore, String> {
+) -> Result<SeatGitStore, StoreError> {
     reproducible_ref_backend(program, scope)?;
     let reference = checked_out_branch(program, scope)?;
     // Where the branch stands NOW, on the host, before the seat has run a
@@ -1088,7 +1037,7 @@ fn stage_seat_store_with(
 /// The backend is read from the repository's own config rather than from
 /// `git rev-parse --show-ref-format`, which older gits do not have; a
 /// repository with no `extensions.refstorage` at all is a `files` one.
-fn reproducible_ref_backend(program: &str, scope: &GitScope) -> Result<(), String> {
+fn reproducible_ref_backend(program: &str, scope: &GitScope) -> Result<(), StoreError> {
     let common = scope.common_dir.to_string_lossy().into_owned();
     let backend = run_git(
         program,
@@ -1103,18 +1052,14 @@ fn reproducible_ref_backend(program: &str, scope: &GitScope) -> Result<(), Strin
     if !backend.ok || backend.stdout == "files" {
         return Ok(());
     }
-    Err(format!(
-        "the repository at {common} stores its refs with git's `{}` backend, and the scoped dsh \
-         runner builds the seat's private common directory by copying the `files` backend's ref \
-         tree; it will not hand a seat a store whose branches are missing. Run the seat from a \
-         standalone checkout, or convert the repository with `git refs migrate \
-         --ref-format=files`",
-        backend.stdout
-    ))
+    Err(StoreError::RefBackend {
+        common_dir: scope.common_dir.clone(),
+        backend: backend.stdout,
+    })
 }
 
-fn staging_failed(error: std::io::Error) -> String {
-    format!("dsh driver: could not stage the seat's private git store: {error}")
+fn staging_failed(error: std::io::Error) -> StoreError {
+    StoreError::Staging(error.to_string())
 }
 
 /// The branch this worktree has checked out, read from the host's
@@ -1124,29 +1069,21 @@ fn staging_failed(error: std::io::Error) -> String {
 /// sibling's branch and have the NEXT seat's commits promoted there.
 /// A worktree with a detached HEAD owns no ref, and is refused before an
 /// implementation is spent rather than after it.
-fn checked_out_branch(program: &str, scope: &GitScope) -> Result<String, String> {
+fn checked_out_branch(program: &str, scope: &GitScope) -> Result<String, StoreError> {
+    let workspace = scope.workspace.clone();
     let Some(reference) = head_branch(&scope.git_dir) else {
-        return Err(format!(
-            "the worktree at {} has no branch checked out, so there is no ref the seat owns \
-             and nothing a commit could be promoted to; the scoped runner promotes exactly \
-             the branch a worktree has checked out, because git refuses to check one branch \
-             out in two worktrees. Run `git switch -c <branch>` in the worktree before the \
-             seat starts",
-            scope.workspace.display()
-        ));
+        return Err(StoreError::NoBranch { workspace });
     };
     // That git refuses one branch in two worktrees is the whole reason
     // this ref can be called this seat's, so it is VERIFIED rather than
     // assumed. The main checkout's `HEAD` and every sibling's lie outside
     // the seat's write set, so what they say is the host's answer.
     if let Some(other) = other_checkout_on(program, scope, &reference) {
-        return Err(format!(
-            "the worktree at {} has {reference} checked out, and so does {}; the scoped \
-             runner promotes the branch a worktree OWNS, and a branch two checkouts claim is \
-             owned by neither. Run `git worktree repair`, or give this seat a branch of its own",
-            scope.workspace.display(),
-            other.display()
-        ));
+        return Err(StoreError::BranchTaken {
+            workspace,
+            reference,
+            other,
+        });
     }
     Ok(reference)
 }
@@ -1274,11 +1211,12 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 /// seat committed nothing, or left its branch where the host had it.
 /// Everything else the seat wrote — a sibling's branch, a tag, a
 /// remote-tracking ref, an object nothing reaches — stays in the private
-/// store and is discarded with it.
+/// store and is discarded with it. The refusal is boxed: it carries the
+/// failure, the kept path and the reclaim's own words.
 pub fn promote_seat_commits(
     store: SeatGitStore,
     scope: &GitScope,
-) -> Result<Option<Promotion>, String> {
+) -> Result<Option<Promotion>, Box<KeptStore<StoreError>>> {
     promote_seat_commits_with("git", store, scope)
 }
 
@@ -1288,10 +1226,10 @@ fn promote_seat_commits_with(
     program: &str,
     store: SeatGitStore,
     scope: &GitScope,
-) -> Result<Option<Promotion>, String> {
+) -> Result<Option<Promotion>, Box<KeptStore<StoreError>>> {
     match promote(program, &store, scope) {
         Ok(promotion) => Ok(promotion),
-        Err(problem) => Err(keep_store(store, problem)),
+        Err(problem) => Err(Box::new(keep_store(store, problem))),
     }
 }
 
@@ -1299,17 +1237,14 @@ fn promote(
     program: &str,
     store: &SeatGitStore,
     scope: &GitScope,
-) -> Result<Option<Promotion>, String> {
+) -> Result<Option<Promotion>, StoreError> {
     // Before ANY trusted git touches the store. Everything below reads it
     // as a repository — `rev-parse` here, `upload-pack` inside the fetch —
     // and until this runs, what git resolves the store WITH is whatever
     // the box left there.
-    store.reclaim().map_err(|error| {
-        format!(
-            "could not take the seat's private git store back from the box before reading it as \
-             a repository: {error}"
-        )
-    })?;
+    store
+        .reclaim()
+        .map_err(|error| StoreError::Reclaim(error.to_string()))?;
     let private = store.store.path().to_string_lossy().into_owned();
     let common = scope.common_dir.to_string_lossy().into_owned();
     let reference = store.reference.clone();
@@ -1325,14 +1260,11 @@ fn promote(
     // that moved meanwhile refuses — with the store kept, so the seat's
     // commits are still there to rebase or cherry-pick.
     if from != store.baseline {
-        return Err(format!(
-            "{reference} moved on the host while the seat ran: it stood at {} when the seat \
-             started and stands at {} now. The driver promotes the seat's commits onto the \
-             value the branch had then, and will not overwrite work something else did \
-             meanwhile",
-            oid_or_absent(&store.baseline),
-            oid_or_absent(&from)
-        ));
+        return Err(StoreError::Moved {
+            reference,
+            baseline: store.baseline.clone(),
+            now: from,
+        });
     }
     if from.as_deref() == Some(to.as_str()) {
         return Ok(None);
@@ -1411,7 +1343,7 @@ fn promote(
 /// answers a missing ref with a non-zero exit and no output, which is an
 /// ANSWER; a git that could not be run at all is a failure, and travels
 /// as one rather than being read as "no such ref".
-fn ref_value(program: &str, git_dir: &str, reference: &str) -> Result<Option<String>, String> {
+fn ref_value(program: &str, git_dir: &str, reference: &str) -> Result<Option<String>, StoreError> {
     let peeled = format!("{reference}^{{commit}}");
     let run = run_git(
         program,
@@ -1435,12 +1367,16 @@ struct GitRun {
 }
 
 /// Run one git command outside every box.
-fn run_git(program: &str, args: &[&str]) -> Result<GitRun, String> {
+fn run_git(program: &str, args: &[&str]) -> Result<GitRun, StoreError> {
     let out = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("`{program} {}` could not run: {error}", args.join(" ")))?;
+        .map_err(|error| StoreError::CouldNotRun {
+            program: program.to_string(),
+            args: owned(args),
+            cause: error.to_string(),
+        })?;
     Ok(GitRun {
         ok: out.status.success(),
         stdout: String::from_utf8_lossy(&out.stdout).trim().to_string(),
@@ -1450,12 +1386,17 @@ fn run_git(program: &str, args: &[&str]) -> Result<GitRun, String> {
 
 /// One git command that must succeed: its trimmed stdout, or the refusal
 /// its own stderr names.
-fn git(program: &str, args: &[&str]) -> Result<String, String> {
+fn git(program: &str, args: &[&str]) -> Result<String, StoreError> {
     let run = run_git(program, args)?;
     if !run.ok {
-        return Err(format!("`git {}` failed: {}", args.join(" "), run.stderr));
+        let (args, stderr) = (owned(args), run.stderr);
+        return Err(StoreError::GitFailed { args, stderr });
     }
     Ok(run.stdout)
+}
+
+fn owned(args: &[&str]) -> Vec<String> {
+    args.iter().map(ToString::to_string).collect()
 }
 
 /// True when this bubblewrap can build the empty-root profile here. The
@@ -1471,15 +1412,11 @@ pub fn bwrap_usable(bwrap: &Path) -> bool {
 }
 
 /// Refuse a bubblewrap that is present but cannot build the namespace.
-pub fn require_usable_bwrap(bwrap: &Path) -> Result<(), String> {
+pub fn require_usable_bwrap(bwrap: &Path) -> Result<(), RowRefusal> {
     if bwrap_usable(bwrap) {
         return Ok(());
     }
-    Err(format!(
-        "bubblewrap at {} cannot build the empty-root namespace on this host; the dsh \
-         git-metadata runner cannot stand in for it",
-        bwrap.display()
-    ))
+    Err(RowRefusal::Unusable(bwrap.to_path_buf()))
 }
 
 /// The `--patch` row that points dsh's sandbox provider at the runner.
@@ -1494,7 +1431,7 @@ pub fn sandbox_row(
     bwrap: &Path,
     staged: &SeatGitStore,
     scope: &GitScope,
-) -> Result<String, String> {
+) -> Result<String, RowRefusal> {
     let mut row = format!(
         "# Written by `brokkr driver dsh` for one seat: the sandbox provider\n\
          # runs every command through this bwrap-compatible runner, which adds\n\
@@ -1507,12 +1444,12 @@ pub fn sandbox_row(
         yaml_scalar(program)?
     );
     for (flag, path) in [
-        ("--workspace", scope.workspace.as_path()),
-        ("--git-dir", scope.git_dir.as_path()),
-        ("--common-dir", scope.common_dir.as_path()),
-        ("--bwrap", bwrap),
-        ("--store", staged.store_path()),
-        ("--trusted", staged.trusted_path()),
+        (RunnerFlag::Workspace, scope.workspace.as_path()),
+        (RunnerFlag::GitDir, scope.git_dir.as_path()),
+        (RunnerFlag::CommonDir, scope.common_dir.as_path()),
+        (RunnerFlag::Bwrap, bwrap),
+        (RunnerFlag::Store, staged.store_path()),
+        (RunnerFlag::Trusted, staged.trusted_path()),
     ] {
         row.push_str(&format!(
             "\x20     - '{flag}'\n\x20     - '{}'\n",
@@ -1530,11 +1467,9 @@ pub fn sandbox_row(
 /// A single-quoted YAML scalar with its quotes doubled. A path that
 /// spans a line is refused rather than written, the same discipline the
 /// transcript and settings rows use.
-fn yaml_scalar(value: &str) -> Result<String, String> {
+fn yaml_scalar(value: &str) -> Result<String, RowRefusal> {
     if value.contains('\n') || value.contains('\r') {
-        return Err(format!(
-            "dsh sandbox runner: path {value:?} spans more than one line"
-        ));
+        return Err(RowRefusal::Multiline(value.to_string()));
     }
     Ok(value.replace('\'', "''"))
 }
