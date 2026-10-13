@@ -3,7 +3,7 @@
 //! measuring is `brokkr_protocol::probe`'s; this handler resolves the
 //! adapter and the credentials, and writes the report.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -108,18 +108,28 @@ fn identity(identity: &ResumeIdentity) -> String {
     }
 }
 
-/// `brokkr probe harness`: one report, to `--out` or stdout, with the
-/// drift since the report `--out` already held.
-fn harness(workspace: &Path, args: ProbeHarnessArgs) -> Result<ExitCode> {
-    // The adapters and the secrets store are the discovered folder's
-    // (decision 0083); the store is state, so an old layout is refused.
+/// The adapters directory and the secrets store a probe reads, each its
+/// flag or else the discovered folder's (decision 0083). The store is
+/// state, so an old layout is refused before either is read.
+fn read_places(
+    workspace: &Path,
+    adapters_dir: Option<PathBuf>,
+    secrets_file: Option<PathBuf>,
+) -> Result<(PathBuf, PathBuf)> {
     let layout = crate::folder::Layout::discover(workspace)?;
     layout.refuse_old()?;
-    let adapters_dir = layout.adapters(args.adapters_dir);
-    let secrets_file = match args.secrets_file {
+    let secrets_file = match secrets_file {
         Some(file) => file,
         None => layout.state_file(false, places::SECRETS)?,
     };
+    Ok((layout.adapters(adapters_dir), secrets_file))
+}
+
+/// `brokkr probe harness`: one report, to `--out` or stdout, with the
+/// drift since the report `--out` already held.
+fn harness(workspace: &Path, args: ProbeHarnessArgs) -> Result<ExitCode> {
+    let (adapters_dir, secrets_file) =
+        read_places(workspace, args.adapters_dir, args.secrets_file)?;
     let adapters = Adapters::load(&adapters_dir)?;
     let adapter = adapters.adapter(&args.adapter).ok_or_else(|| {
         anyhow!(

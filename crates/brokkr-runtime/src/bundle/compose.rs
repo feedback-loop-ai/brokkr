@@ -229,10 +229,6 @@ fn valid_recipe_name(name: &str) -> bool {
 /// own `bundle.json`. A repeated directory is a cycle and names the
 /// whole loop in order; a chain longer than [`MAX_LAYERS`] names the
 /// chain so far.
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
     let mut layers: Vec<Layer> = Vec::new();
     // Canonical from the leaf down, so every recorded dir is comparable
@@ -312,28 +308,14 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         let Some(extends) = extends else {
             return Ok(layers);
         };
-        let base = extends.as_str().ok_or_else(|| {
-            invalid(format!(
-                "{}: 'extends' must be the name of a recipe in the library",
-                file.display()
-            ))
-        })?;
-        crate::places::refuse_folder_base(&dir, base)?;
-        if !valid_recipe_name(base) {
-            return Err(invalid(format!(
-                "{}: 'extends' value '{base}' is not a recipe name; names match \
-                 ^[a-z0-9][a-z0-9-]*$ and are refused before any path is built",
-                file.display()
-            )));
-        }
-        // The library is the leaf directory's parent — which is what a recipe library already is
-        // (a `.brokkr` folder's is refused above), and what `brokkr recipes add` installs into
-        // before it compile-verifies the copy. `dir` is already canonical, so its parent IS the
-        // library, and asking for it directly avoids `..`, which Windows does NOT resolve inside
-        // the `\\?\` verbatim paths canonicalize returns. `pop` is total: a directory holding a
-        // bundle.json is never the filesystem root, and if it somehow were, `library` stays put
-        // and the "not a recipe in {library}" error below fires anyway. An `ok_or_else` here
-        // would be an arm no test can reach.
+        let base = base_of(&dir, &file, &extends)?;
+        // The library is the leaf directory's parent: what a recipe library already is (a
+        // `.brokkr` folder's base is refused by `base_of`), and what `brokkr recipes add` installs
+        // into before it compile-verifies the copy. `dir` is already canonical, so its parent IS
+        // the library, asked for directly rather than through `..`. `pop` is total: a directory
+        // holding a bundle.json is never the filesystem root, and if it somehow were, `library`
+        // stays put and the "not a recipe in {library}" error below fires anyway. An
+        // `ok_or_else` here would be an arm no test can reach.
         let mut library = dir.clone();
         library.pop();
         let candidate = library.join(base);
@@ -362,6 +344,25 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         reached_as = Some(base.to_string());
         dir = resolved;
     }
+}
+
+/// The recipe a layer's `extends` names, refused before any path is built: a non-string, any
+/// base of a `.brokkr` folder's bundle (decision 0083 ruling 1), or a name that is no recipe name.
+fn base_of<'a>(dir: &Path, file: &Path, extends: &'a Value) -> Result<&'a str, CompileError> {
+    let file = file.display();
+    let base = extends.as_str().ok_or_else(|| {
+        invalid(format!(
+            "{file}: 'extends' must be the name of a recipe in the library"
+        ))
+    })?;
+    crate::places::refuse_folder_base(dir, base)?;
+    if !valid_recipe_name(base) {
+        return Err(invalid(format!(
+            "{file}: 'extends' value '{base}' is not a recipe name; names match \
+             ^[a-z0-9][a-z0-9-]*$ and are refused before any path is built"
+        )));
+    }
+    Ok(base)
 }
 
 /// A layer's resolver-owned markers, validated on read: an unknown kind

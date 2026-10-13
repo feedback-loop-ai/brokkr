@@ -31,7 +31,6 @@
  110 crates/brokkr-runtime/src/bundle.rs:6436 parse_panel
  243 crates/brokkr-runtime/src/bundle.rs:6567 parse_sequence
  101 crates/brokkr-runtime/src/bundle.rs:7190 walk_files
- 101 crates/brokkr-runtime/src/bundle/compose.rs:234 read_layers
  368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
  240 crates/brokkr-runtime/src/capabilities.rs:1547 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:320 check
