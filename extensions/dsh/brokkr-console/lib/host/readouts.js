@@ -117,6 +117,7 @@ function runRow(value, path) {
   return {
     run_id: text(value.run_id, `${path}.run_id`),
     title: text(value.title, `${path}.title`),
+    feature: text(value.feature, `${path}.feature`),
     phase: optText(value.phase, `${path}.phase`),
     seq: maybe(value.seq, `${path}.seq`, count),
     created_at: text(value.created_at, `${path}.created_at`),

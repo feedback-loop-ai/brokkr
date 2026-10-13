@@ -7,7 +7,7 @@ import { test } from 'node:test'
 
 import { analyticsOf, fleetOf, runViewOf } from '../lib/host/readouts.js'
 import { buttons, findAll, mountClient, textOf } from './support/client.js'
-import { analyticsDoc, fleetDoc, offered, row, runViewDoc } from './support/world.js'
+import { analyticsDoc, fleetDoc, journalRow, offered, row, runViewDoc } from './support/world.js'
 
 const RUN = row().run_id
 const settled = () => new Promise((wake) => setTimeout(wake, 0))
@@ -146,4 +146,48 @@ test('Analytics ends with the readout’s "not recorded yet" list, and a realm w
   assert.equal(textOf(footer), 'not recorded yet: machine capacity over time · cost limits · costs for Codex and dsh · reasons findings were dismissed')
   const cells = findAll(main, (node) => node.type === 'td').map(textOf)
   assert.deepEqual(cells, ['lanetally', '3', '1', '4h 12m', '1.0h', 'not reported'])
+})
+
+test('two runs whose titles read alike are told apart by more of their feature, and the run header says the same', async () => {
+  const alike = (runId, tail) =>
+    row({ run_id: runId, title: 'Deliver the console…', feature: `Deliver the console plugin for the operator, ${tail}`, verdict: { standing: 'stopped', rule: 'IMPL-BLOCKED', reason: null, text: '' } })
+  const client = mountClient('main')
+  client.push({ type: 'snapshot', fleet: fleetOf(fleetDoc([['brokkr', [alike('first-try-0000aaaa', 'first try'), alike('second-try-0000bbbb', 'second try')]]])), overview: null, run: null })
+  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  const listed = findAll(client.tree(), (node) => node.props.className === 't').map(textOf)
+  assert.deepEqual(listed.map((text) => text.split('…')[0]), ['Deliver the console plugin for the operator, first', 'Deliver the console plugin for the operator, second'])
+  buttons(client.tree()).find((button) => textOf(button).startsWith('Deliver the console plugin for the operator, second')).props.onClick()
+  const header = findAll(client.tree(), (node) => node.type === 'h1')[0]
+  assert.equal(textOf(header), 'Deliver the console plugin for the operator, second…')
+})
+
+test('a timeline row does not repeat its badge’s words beside the badge', async () => {
+  const badged = (seq, badge, text) => ({ ...journalRow(seq, 'transition/decided', {}, text), what: { text, badge, badge_class: null, arrow: null, problem: null } })
+  const client = await onRun(runViewDoc({ journal: [badged(13, 'IMPL-BLOCKED', 'IMPL-BLOCKED implement → stop · blocked'), badged(14, 'stop', 'stop')] }))
+  const timeline = findAll(client.tree(), (node) => node.props['aria-label'] === 'Timeline')[0]
+  const text = textOf(timeline)
+  assert.ok(!text.includes('IMPL-BLOCKED IMPL-BLOCKED'), text)
+  assert.ok(!text.includes('stop stop'), text)
+  assert.ok(text.includes('implement → stop · blocked'), text)
+})
+
+test('"Where runs wait for you" says so when nothing waited, and the assistant panels offer no box to type in', async () => {
+  const client = mountClient('main', {}, { '/brokkr-console/api/analytics': analyticsOf(analyticsDoc({ waiting_by_step: [] })) })
+  client.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
+  assert.equal(findAll(client.tree(), (node) => node.type === 'input' && node.props.placeholder === 'Ask Brokkr…').length, 0)
+  buttons(client.tree()).find((button) => textOf(button) === 'Analytics').props.onClick()
+  for (let tick = 0; tick < 5; tick += 1) await settled()
+  assert.ok(textOf(client.tree()).includes('Nothing waited on you in this range.'))
+})
+
+test('runs alike for 20 words of their feature are told apart by the time each started, said once', () => {
+  const same = 'Deliver the console plugin for the operator with the same twenty words and then some more words that never differ early enough'
+  const alike = (runId, at) => row({ run_id: runId, title: 'Deliver the console…', feature: `${same} ${runId}`, created_at: at })
+  const client = mountClient('main')
+  client.push({ type: 'snapshot', fleet: fleetOf(fleetDoc([['brokkr', [alike('early-0000aaaa', '2026-10-13T07:45:00Z'), alike('late-0000bbbb', '2026-10-13T08:51:00Z')]]])), overview: null, run: null })
+  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  const listed = findAll(client.tree(), (node) => node.props.className === 't').map(textOf)
+  assert.equal(new Set(listed).size, 2, listed.join(' | '))
+  for (const label of listed) assert.match(label, /^Deliver the console… \(\d{2}:\d{2}( [AP]M)?\)/)
+  assert.ok(listed.every((label) => !label.includes('started')), listed.join(' | '))
 })

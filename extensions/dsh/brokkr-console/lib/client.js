@@ -108,6 +108,28 @@ window.__ModuleLoader__.load({
       return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`
     }
 
+    /**
+     * Each run's label within one hearth: Brokkr's title, and where titles
+     * read alike, as much more of the feature as tells them apart (up to 20
+     * words), else the local time each started, in brackets.
+     */
+    function labelsOf(runs) {
+      const labels = new Map(runs.map((row) => [row.run_id, row.title]))
+      const alike = new Map()
+      for (const row of runs) alike.set(row.title, [...(alike.get(row.title) ?? []), row])
+      for (const rows of alike.values()) {
+        if (rows.length < 2) continue
+        const words = rows.map((row) => row.feature.split(/\s+/).filter(Boolean))
+        const prefix = (index, k) => words[index].slice(0, k).join(' ') + (words[index].length > k ? '…' : '')
+        const tells = (k) => new Set(rows.map((_, index) => prefix(index, k))).size === rows.length
+        const k = Array.from({ length: 20 }, (_, n) => n + 1).find(tells)
+        rows.forEach((row, index) => labels.set(row.run_id, k === undefined
+          ? `${row.title} (${new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+          : prefix(index, k)))
+      }
+      return labels
+    }
+
     /** Why a row needs the operator, in Brokkr's words: the refusal, or the verdict. */
     const shortReason = (row) => (row.verdict.standing === 'quarantined' ? row.detail ?? row.verdict.text : row.verdict.text)
 
@@ -146,9 +168,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bk-aside-head' }, h('div', { className: 'bk-aside-title' }, title), h('div', { className: 'bk-note' }, scope)),
         h('div', { className: 'bk-aside-body' },
           h('div', { className: 'bk-coming' }, chip('coming later', 'bk-later'), 'Asking needs DSH’s model connected to Brokkr’s readouts, which this console does not do yet.')),
-        children,
-        h('div', { style: { padding: '12px 18px 14px', borderTop: '1px solid #E4E2DB' } },
-          h('input', { className: 'bk-input', 'aria-label': title, placeholder: `${title}…`, disabled: true })))
+        children)
     }
 
     function Muninn({ muninn }) {
@@ -166,6 +186,7 @@ window.__ModuleLoader__.load({
       const needs = hearth.runs.filter(needsYou)
       const running = runningIn(hearth.runs)
       const shown = [...needs, ...hearth.runs.filter((row) => row.verdict.standing === 'running')].slice(0, 4)
+      const labels = labelsOf(hearth.runs)
       const tone = needs.length > 0 ? chip(`${needs.length} need${needs.length === 1 ? 's' : ''} you`, 'bk-park') : chip(running > 0 ? 'all moving' : 'nothing running', running > 0 ? 'bk-run' : 'bk-stop')
       const counts = [`${running} running`]
       if (day !== null) counts.push(`shipped 24h: ${day.shipped}`, `stopped: ${day.stopped}`)
@@ -173,7 +194,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bk-row' }, h('span', { className: 'bk-name' }, hearth.realm), hearth.detail === null ? tone : chip('quarantined', 'bk-bad')),
         hearth.detail === null ? null : h('div', { className: 'bk-error' }, hearth.detail),
         h('div', { className: 'bk-mini' }, shown.map((row) =>
-          h('span', { key: row.run_id }, h('strong', null, row.title), ` · ${row.phase ?? 'not started'} · ${needsYou(row) ? shortReason(row) : 'running'} · ${ago(row.last_recorded_at ?? row.created_at)}`))),
+          h('span', { key: row.run_id }, h('strong', null, labels.get(row.run_id)), ` · ${row.phase ?? 'not started'} · ${needsYou(row) ? shortReason(row) : 'running'} · ${ago(row.last_recorded_at ?? row.created_at)}`))),
         h('div', { className: 'bk-d' }, `${counts.join(' · ')} · `, h('span', { className: 'bk-link' }, 'open →')))
     }
 
@@ -213,7 +234,8 @@ window.__ModuleLoader__.load({
 
     function RunList({ hearth, selected, select }) {
       const [filter, setFilter] = useState('')
-      const shown = hearth.runs.filter((row) => row.title.toLowerCase().includes(filter.toLowerCase()))
+      const labels = labelsOf(hearth.runs)
+      const shown = hearth.runs.filter((row) => `${labels.get(row.run_id)} ${row.feature}`.toLowerCase().includes(filter.toLowerCase()))
       const finished = (row) => !needsYou(row) && row.verdict.standing !== 'running' && Date.now() - Date.parse(row.last_recorded_at ?? row.created_at) < DAY_MS
       const groups = [['Needs you', needsYou], ['Running', (row) => row.verdict.standing === 'running'], ['Last 24 hours', finished]]
       return h('nav', { className: 'bk-runs', 'aria-label': 'Runs' },
@@ -221,8 +243,8 @@ window.__ModuleLoader__.load({
         groups.flatMap(([label, within]) => {
           const rows = shown.filter(within)
           return [h('div', { key: label, className: 'bk-grp' }, `${label} · ${rows.length}`), ...rows.map((row) =>
-            h('button', { key: row.run_id, type: 'button', className: `bk-q${row.run_id === selected ? ' on' : ''}`, onClick: () => select(row.run_id) },
-              h('span', { className: 't' }, row.title, chip(row.phase ?? STANDING[row.verdict.standing][0], STANDING[row.verdict.standing][1])),
+            h('button', { key: row.run_id, type: 'button', title: row.feature.slice(0, 400), className: `bk-q${row.run_id === selected ? ' on' : ''}`, onClick: () => select(row.run_id) },
+              h('span', { className: 't' }, labels.get(row.run_id), chip(row.phase ?? STANDING[row.verdict.standing][0], STANDING[row.verdict.standing][1])),
               h('span', { className: 's' }, `${needsYou(row) ? shortReason(row) : STANDING[row.verdict.standing][0]} · ${ago(row.last_recorded_at ?? row.created_at)}`)))]
         }))
     }
@@ -237,13 +259,19 @@ window.__ModuleLoader__.load({
         returns.map((phase) => h('div', { key: phase.name, className: 'bk-note' }, `sent back to ${phase.name} by ${phase.returns.join(', ')}`)))
     }
 
+    /** The timeline text with the badge's words not said twice beside it. */
+    function besideBadge({ badge, text }) {
+      if (badge === null || !text.startsWith(badge)) return text
+      return text.slice(badge.length).trim()
+    }
+
     function Timeline({ view }) {
       const rows = view.journal.filter((row) => row.in_trail).reverse().slice(0, 50)
       return h('section', { className: 'bk-cell bk-section', 'aria-label': 'Timeline' },
         h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Timeline'), h('span', { className: 'bk-note' }, 'newest first')),
         h('div', { className: 'bk-timeline' }, rows.flatMap((row) => [
           h('span', { key: `t${row.seq}`, className: 'bk-note' }, ago(row.recorded_at)),
-          h('span', { key: `w${row.seq}` }, row.what.badge === null ? null : chip(row.what.badge, 'bk-stop'), ' ', row.what.text)])))
+          h('span', { key: `w${row.seq}` }, row.what.badge === null ? null : chip(row.what.badge, 'bk-stop'), ' ', besideBadge(row.what))])))
     }
 
     /** What happened to a pressed command: done, not sent, refused or checking. */
@@ -338,7 +366,7 @@ window.__ModuleLoader__.load({
       const actionable = (view) => view.summary !== null &&
         (view.commands.some((offered) => offered.admission === 'admitted') || view.unavailable.length > 0 || view.clarify !== null)
       return h('main', { className: 'bk-main' },
-        h('div', { className: 'bk-row' }, h('h1', { style: { margin: 0, fontSize: 22 } }, row.title), chip(word, tone), h('span', { className: 'bk-note' }, `started ${ago(row.created_at)} ago`)),
+        h('div', { className: 'bk-row' }, h('h1', { style: { margin: 0, fontSize: 22 }, title: row.feature.slice(0, 400) }, labelsOf(hearth.runs).get(row.run_id)), chip(word, tone), h('span', { className: 'bk-note' }, `started ${ago(row.created_at)} ago`)),
         row.detail === null ? null : h('div', { className: 'bk-error' }, row.detail),
         view === null ? h('div', { className: 'bk-note' }, 'Reading the run…') : [
           h(Graph, { key: 'g', view }),
@@ -375,6 +403,7 @@ window.__ModuleLoader__.load({
     }
 
     function Waits({ steps }) {
+      if (steps.length === 0) return h('div', { className: 'bk-note' }, 'Nothing waited on you in this range.')
       const top = Math.max(1, ...steps.map((step) => step.waiting_millis))
       return h('svg', { viewBox: `0 0 520 ${Math.max(34 * steps.length, 34)}`, width: '100%', role: 'img', 'aria-label': 'Hours waiting on you, by step' },
         steps.map((step, index) => h('g', { key: index },
