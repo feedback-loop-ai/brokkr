@@ -2408,9 +2408,9 @@ const DARWIN_PATH_MAX: usize = 1024;
 
 /// What a library does with a program NAME before it searches at all.
 ///
-/// glibc bounds the name it copies — `file_len = __strnlen (file,
-/// NAME_MAX) + 1` (`posix/execvpe.c` 86–106, revision `glibc-2.42`) —
-/// and refuses nothing by that length: the `file_len - 1 > NAME_MAX`
+/// glibc through 2.42 bounds the name it copies — `file_len = __strnlen
+/// (file, NAME_MAX) + 1` (`posix/execvpe.c` 86–106, revision `glibc-2.42`)
+/// — and refuses nothing by that length: the `file_len - 1 > NAME_MAX`
 /// test beside it cannot be true of a length `__strnlen` already capped
 /// at `NAME_MAX`, and `__libc_alloca_cutoff (path_len + file_len + 1)`
 /// bounds at most 4,353 bytes, which no thread stack this resolver runs
@@ -2419,25 +2419,79 @@ const DARWIN_PATH_MAX: usize = 1024;
 /// missing directory, `ENOTDIR` under a file, `ENAMETOOLONG` under a
 /// directory that exists — each through the switch, none invented here
 /// (fourth hold, R4; the inherited unconditional `NAME_MAX` refusal was
-/// not that source's translation). musl refuses the name itself:
-/// `k = strnlen(file, NAME_MAX+1); if (k > NAME_MAX) { errno =
-/// ENAMETOOLONG; return -1; }` (`src/process/execvp.c`, `__execvpe`).
-/// Apple has no name check: a long name meets its per-candidate
-/// construction bound. An unestablished library refuses every search.
+/// not that source's translation). glibc 2.43 makes that test true:
+/// `file_len - 1 == NAME_MAX && file[NAME_MAX] != '\0'` refuses a name
+/// longer than `NAME_MAX` with `ENAMETOOLONG` before the search (commit
+/// `efc8642051e6`, BZ #33627, first released in 2.43 and not backported
+/// to the 2.39–2.42 release branches), so the running library's version
+/// decides which of the two rules the child meets (`glibc_bounds_name`).
+/// musl refuses the name itself: `k = strnlen(file, NAME_MAX+1); if (k >
+/// NAME_MAX) { errno = ENAMETOOLONG; return -1; }`
+/// (`src/process/execvp.c`, `__execvpe`). Apple has no name check: a
+/// long name meets its per-candidate construction bound. An
+/// unestablished library refuses every search.
 #[cfg(unix)]
 fn admit_program_name(library: Library, name: &str) -> Result<(), String> {
-    match library {
-        Library::Musl if name.len() > LINUX_NAME_MAX => Err(format!(
+    let bounded = match library {
+        Library::Musl => true,
+        Library::Glibc => glibc_bounds_name(),
+        Library::Apple => false,
+        Library::Unestablished => {
+            return Err(
+                "cannot be searched for: this target's native program lookup rule is not \
+                 established"
+                    .to_string(),
+            )
+        }
+    };
+    if bounded && name.len() > LINUX_NAME_MAX {
+        return Err(format!(
             "is {} bytes long, more than the {LINUX_NAME_MAX} bytes NAME_MAX allows a searched \
              name, which the platform's lookup refuses with ENAMETOOLONG before searching",
             name.len()
-        )),
-        Library::Glibc | Library::Musl | Library::Apple => Ok(()),
-        Library::Unestablished => Err(
-            "cannot be searched for: this target's native program lookup rule is not established"
-                .to_string(),
-        ),
+        ));
     }
+    Ok(())
+}
+
+/// Whether the glibc this process RUNS refuses a name longer than
+/// `NAME_MAX` before searching (2.43 and later, `admit_program_name`).
+/// glibc is linked dynamically, so the compiled target cannot answer
+/// this: the library is asked once, through `gnu_get_libc_version`.
+#[cfg(unix)]
+fn glibc_bounds_name() -> bool {
+    static BOUNDS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *BOUNDS.get_or_init(|| glibc_version_bounds_name(&running_glibc_version()))
+}
+
+/// `glibc_bounds_name` over a version string, so the boundary is a plain
+/// test. A version this does not read as `major.minor` is taken as the
+/// current rule: glibc has always answered `major.minor[.patch]`.
+#[cfg(unix)]
+fn glibc_version_bounds_name(version: &str) -> bool {
+    let mut parts = version.split('.').map(str::parse::<u32>);
+    match (parts.next(), parts.next()) {
+        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= (2, 43),
+        _ => true,
+    }
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn running_glibc_version() -> String {
+    extern "C" {
+        fn gnu_get_libc_version() -> *const std::os::raw::c_char;
+    }
+    // SAFETY: `gnu_get_libc_version` takes nothing and answers a pointer
+    // to a NUL-terminated string glibc holds for the life of the process.
+    unsafe { std::ffi::CStr::from_ptr(gnu_get_libc_version()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Only glibc targets ask; elsewhere `Library::Glibc` is never chosen.
+#[cfg(all(unix, not(all(target_os = "linux", target_env = "gnu"))))]
+fn running_glibc_version() -> String {
+    String::new()
 }
 
 /// Which of the platform's lookup operations the CHILD runs — the one
