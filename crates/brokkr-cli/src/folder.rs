@@ -100,34 +100,23 @@ pub(crate) enum OldLayout {
 impl fmt::Display for OldLayout {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            OldLayout::Root { moves } => {
-                write!(
-                    f,
-                    "this repository has Brokkr's old root layout and no {FOLDER}/ folder \
-                     (decision 0083); nothing was opened, and Brokkr moves nothing"
-                )?;
-                write_moves(f, moves)?;
-                write!(
-                    f,
-                    "\nthen move {BUNDLE} and every file it reads into {FOLDER}/ at the same \
-                     relative paths, and in {FOLDER}/realms.json name the journal \
-                     \"{STATE}/{JOURNAL}\" and the realm path \"..\"\nBrokkr reads no script or \
-                     charter: edit any path one names under {LIBRARY_STATE}/ to name the same \
-                     file after the move"
-                )
-            }
-            OldLayout::StateOnly { moves } => {
-                write!(
-                    f,
-                    "this repository has Brokkr state in {LIBRARY_STATE}/ and no {FOLDER}/ \
-                     folder (decision 0083); nothing was opened, and Brokkr moves nothing"
-                )?;
-                write_moves(f, moves)?;
-                write!(
-                    f,
-                    "\nthen brokkr init . writes the scaffold beside the moved state"
-                )
-            }
+            OldLayout::Root { moves } => write!(
+                f,
+                "this repository has Brokkr's old root layout and no {FOLDER}/ folder \
+                 (decision 0083); nothing was opened, and Brokkr moves nothing{}\nthen move \
+                 {BUNDLE} and every file it reads into {FOLDER}/ at the same relative paths, \
+                 and in {FOLDER}/realms.json name the journal \"{STATE}/{JOURNAL}\" and the \
+                 realm path \"..\"\nBrokkr reads no script or charter: edit any path one names \
+                 under {LIBRARY_STATE}/ to name the same file after the move",
+                listed(moves)
+            ),
+            OldLayout::StateOnly { moves } => write!(
+                f,
+                "this repository has Brokkr state in {LIBRARY_STATE}/ and no {FOLDER}/ folder \
+                 (decision 0083); nothing was opened, and Brokkr moves nothing{}\nthen brokkr \
+                 init . writes the scaffold beside the moved state",
+                listed(moves)
+            ),
             OldLayout::HalfMoved {
                 root,
                 left,
@@ -158,12 +147,11 @@ impl fmt::Display for OldLayout {
 }
 
 /// The list under a refusal's first line: advice, never a contract.
-fn write_moves(f: &mut fmt::Formatter<'_>, moves: &[String]) -> fmt::Result {
-    write!(
-        f,
-        "\nmake these moves, then run `brokkr doctor` to check the result:"
-    )?;
-    moves.iter().try_for_each(|line| write!(f, "\n  {line}"))
+fn listed(moves: &[String]) -> String {
+    let head = "\nmake these moves, then run `brokkr doctor` to check the result:";
+    moves
+        .iter()
+        .fold(head.to_string(), |list, line| list + "\n  " + line)
 }
 
 /// What the root holds, as ruling 2 tells it.
