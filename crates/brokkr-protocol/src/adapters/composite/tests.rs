@@ -5865,7 +5865,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     let native_spelled = std::process::Command::new(&spelled).status();
     let resolved_spelled = resolve_executable_in(spelled.to_str().unwrap(), None);
     match LIBRARY {
-        Library::Glibc => {
+        Library::Glibc if !glibc::bounds_name() => {
             assert_eq!(
                 errno_of(&native.unwrap_err()),
                 Some(rustix::io::Errno::NAMETOOLONG),
@@ -7086,18 +7086,17 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     );
 
     // The name, before any search: musl refuses more than NAME_MAX
-    // with ENAMETOOLONG (`src/process/execvp.c`); glibc does NOT — its
-    // `__strnlen (file, NAME_MAX)` caps what its own check measures, so
-    // the name meets the kernel under each entry (fourth hold, R4);
-    // Apple has no such check; an unestablished library searches for
-    // nothing.
+    // with ENAMETOOLONG (`src/process/execvp.c`); glibc through 2.42 does
+    // NOT — `__strnlen (file, NAME_MAX)` caps its own check (fourth hold,
+    // R4) — and from 2.43 does (`glibc::bounds_name`); Apple has no such
+    // check; an unestablished library searches for nothing.
     let long = "n".repeat(256);
     let refusal = "is 256 bytes long, more than the 255 bytes NAME_MAX allows a searched name, \
                    which the platform's lookup refuses with ENAMETOOLONG before searching"
         .to_string();
     assert_eq!(admit_program_name(Library::Musl, &long), Err(refusal));
     assert_eq!(admit_program_name(Library::Musl, &"n".repeat(255)), Ok(()));
-    assert_eq!(admit_program_name(Library::Glibc, &long), Ok(()));
+    assert!(admit_program_name(Library::Glibc, &long).is_err() == glibc::bounds_name());
     assert_eq!(admit_program_name(Library::Apple, &long), Ok(()));
     assert_eq!(
         admit_program_name(Library::Unestablished, "dsh"),

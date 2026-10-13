@@ -10,8 +10,9 @@
 //! module answers only the reading half of that — no git, no filesystem,
 //! no process (decision 0003, constitutional boundary 1).
 //!
-//! This is deliberately NOT [`crate::fold::fold`]'s `reviewed_heads`.
-//! State keeps the LATEST head, correctly: it is state, not history. A
+//! This is deliberately NOT [`crate::fold::fold`]'s `reviewed_heads`,
+//! though both read a decision's heads through [`ReviewedHeads`]. State
+//! keeps the LATEST head, correctly: it is state, not history. A
 //! reforged run (decision 0022) revisits the protected phase and can
 //! cite a different head each time, and every one of those commits is an
 //! exhibit the journal named. Keep-refs needs the whole set across the
@@ -26,9 +27,10 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
+use crate::decision::ReviewedHeads;
 use crate::envelope::{EventEnvelope, EventType};
 // Ship's per-realm record; each realm's facts may carry a `head`.
-use crate::policy::{REALM_FACTS, REVIEWED_HEADS};
+use crate::policy::REALM_FACTS;
 
 const HEAD: &str = "head";
 
@@ -47,8 +49,8 @@ fn is_object_name(value: &str) -> bool {
 /// Collect one candidate. Object names are canonically lowercase, so a
 /// head recorded in upper case is the SAME exhibit and must not plant a
 /// second ref for it.
-fn cite(kept: &mut BTreeSet<String>, candidate: Option<&Value>) {
-    if let Some(name) = candidate.and_then(Value::as_str) {
+fn cite(kept: &mut BTreeSet<String>, candidate: Option<&str>) {
+    if let Some(name) = candidate {
         if is_object_name(name) {
             kept.insert(name.to_ascii_lowercase());
         }
@@ -75,16 +77,17 @@ pub fn cited_shas(events: &[EventEnvelope]) -> BTreeSet<String> {
             };
             // Both shapes the contract names and no third one: keyed by
             // realm, or the single unkeyed head a pre-map journal wrote.
-            // Reading the object's VALUES covers both without asking
+            // Reading every recorded head covers both without asking
             // which world this run believed in.
-            if let Some(heads) = inputs.get(REVIEWED_HEADS).and_then(Value::as_object) {
-                for head in heads.values() {
-                    cite(&mut kept, Some(head));
-                }
+            for head in ReviewedHeads::recorded_in(&event.payload)
+                .iter()
+                .flat_map(ReviewedHeads::heads)
+            {
+                cite(&mut kept, Some(head));
             }
             if let Some(realms) = inputs.get(REALM_FACTS).and_then(Value::as_object) {
                 for facts in realms.values() {
-                    cite(&mut kept, facts.get(HEAD));
+                    cite(&mut kept, facts.get(HEAD).and_then(Value::as_str));
                 }
             }
             kept

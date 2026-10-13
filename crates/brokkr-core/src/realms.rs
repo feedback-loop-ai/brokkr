@@ -244,7 +244,8 @@ pub const DEFAULT_MAP_FILE: &str = "realms.json";
 
 /// The key repository facts were recorded under before any map existed.
 /// Every journal written that way keeps folding exactly as it did: the
-/// per-realm lookup falls back to this key, so an unkeyed head is still
+/// per-realm lookup ([`crate::decision::ReviewedHeads::head_for`]) falls
+/// back to this key, so an unkeyed head is still
 /// the head the ship gate compares against.
 pub const LEGACY_REALM_KEY: &str = "repo";
 
@@ -737,25 +738,6 @@ impl RealmMap {
     pub fn journal_of<'a>(&'a self, realm: &'a Realm) -> &'a str {
         realm.journal.as_deref().unwrap_or(&self.journal)
     }
-}
-
-/// The head recorded for one realm, in the TWO shapes the ruling names
-/// and no third one.
-///
-/// A journal written before any map recorded one unkeyed head under
-/// [`LEGACY_REALM_KEY`], and it is still read: the per-realm lookup falls
-/// back to that key. A mapped run records the head under the realm's own
-/// name, and it answers to that name alone — a reader that cannot name
-/// the realm is told nothing rather than handed whichever head happened
-/// to be recorded, because a head from another realm would be compared
-/// against this realm's tree. No reader has to guess: `brokkr resume`
-/// takes no map but rehydrates the world from the run's own manifest pin.
-pub fn recorded_head<'a>(recorded: &'a Value, realm: Option<&str>) -> Option<&'a str> {
-    let heads = recorded.as_object()?;
-    realm
-        .and_then(|name| heads.get(name))
-        .or_else(|| heads.get(LEGACY_REALM_KEY))?
-        .as_str()
 }
 
 mod grants;

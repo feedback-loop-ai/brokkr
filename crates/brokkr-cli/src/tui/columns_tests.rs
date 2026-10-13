@@ -668,7 +668,7 @@ fn many_older(count: usize) -> Views {
     let shipped = super::fleet_tests::ruled(
         Status::Completed,
         "done",
-        json!({"rule_id": "SHIP-COMPLETE", "from": "ship", "next": "done"}),
+        json!({"rule_id": "SHIP-COMPLETE", "from": "ship", "next": "done", "result": "shipped"}),
     );
     let ids: Vec<String> = (0..count)
         .map(|index| format!("an-older-run-{index:08}"))

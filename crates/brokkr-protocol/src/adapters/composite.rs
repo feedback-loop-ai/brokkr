@@ -2408,26 +2408,18 @@ const DARWIN_PATH_MAX: usize = 1024;
 
 /// What a library does with a program NAME before it searches at all.
 ///
-/// glibc bounds the name it copies — `file_len = __strnlen (file,
-/// NAME_MAX) + 1` (`posix/execvpe.c` 86–106, revision `glibc-2.42`) —
-/// and refuses nothing by that length: the `file_len - 1 > NAME_MAX`
-/// test beside it cannot be true of a length `__strnlen` already capped
-/// at `NAME_MAX`, and `__libc_alloca_cutoff (path_len + file_len + 1)`
-/// bounds at most 4,353 bytes, which no thread stack this resolver runs
-/// on refuses. A long name therefore MEETS THE KERNEL under each entry,
-/// and the kernel's answer is decided by the entry: `ENOENT` under a
-/// missing directory, `ENOTDIR` under a file, `ENAMETOOLONG` under a
-/// directory that exists — each through the switch, none invented here
-/// (fourth hold, R4; the inherited unconditional `NAME_MAX` refusal was
-/// not that source's translation). musl refuses the name itself:
-/// `k = strnlen(file, NAME_MAX+1); if (k > NAME_MAX) { errno =
+/// glibc's rule is its running version's (`glibc::bounds_name`): through
+/// 2.42 a long name MEETS THE KERNEL under each entry (fourth hold, R4),
+/// and from 2.43 it is refused before the search. musl refuses the name
+/// itself: `k = strnlen(file, NAME_MAX+1); if (k > NAME_MAX) { errno =
 /// ENAMETOOLONG; return -1; }` (`src/process/execvp.c`, `__execvpe`).
 /// Apple has no name check: a long name meets its per-candidate
 /// construction bound. An unestablished library refuses every search.
 #[cfg(unix)]
 fn admit_program_name(library: Library, name: &str) -> Result<(), String> {
+    let bounded = library == Library::Musl || (library == Library::Glibc && glibc::bounds_name());
     match library {
-        Library::Musl if name.len() > LINUX_NAME_MAX => Err(format!(
+        _ if bounded && name.len() > LINUX_NAME_MAX => Err(format!(
             "is {} bytes long, more than the {LINUX_NAME_MAX} bytes NAME_MAX allows a searched \
              name, which the platform's lookup refuses with ENAMETOOLONG before searching",
             name.len()
@@ -4660,6 +4652,8 @@ fn dsh_composite_observing(
     )
 }
 
+#[cfg(unix)]
+mod glibc;
 mod image;
 
 #[cfg(test)]

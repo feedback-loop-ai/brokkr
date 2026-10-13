@@ -61,6 +61,58 @@ fn a_severity_is_named_ranked_and_serialized_as_the_table_names_it() {
     assert_eq!(Severity::named("High"), None);
 }
 
+/// The typed ruling severity is phase-event/v1's vocabulary: each
+/// variant named, labelled, read and serialized by its one word.
+#[test]
+fn a_ruling_severity_is_named_and_serialized_as_the_journal_writes_it() {
+    for (place, severity) in RuleSeverity::ALL.into_iter().enumerate() {
+        let word = RULING_SEVERITIES[place];
+        assert_eq!(severity.label(), word);
+        assert_eq!(RuleSeverity::named(word), Some(severity));
+        assert_eq!(serde_json::to_value(severity).unwrap(), json!(word));
+        assert_eq!(
+            serde_json::from_value::<RuleSeverity>(json!(word)).unwrap(),
+            severity
+        );
+    }
+    assert_eq!(RuleSeverity::named("Hard"), None);
+    assert_eq!(RuleSeverity::named("severe"), None);
+}
+
+/// A ruling severity reads from its word alone (decision 0084
+/// ruling 1): serde's one-key map form of a variant, and every other
+/// JSON type, is refused rather than read as the word it wraps.
+#[test]
+fn a_ruling_severity_reads_only_as_its_word() {
+    let refusal = |recorded: Value| {
+        serde_json::from_value::<RuleSeverity>(recorded)
+            .unwrap_err()
+            .to_string()
+    };
+    for word in RULING_SEVERITIES {
+        assert_eq!(
+            refusal(json!({ word: null })),
+            "invalid type: map, expected a ruling severity string"
+        );
+    }
+    assert_eq!(
+        refusal(json!({"normal": {}})),
+        "invalid type: map, expected a ruling severity string"
+    );
+    assert_eq!(
+        refusal(json!(["hard"])),
+        "invalid type: sequence, expected a ruling severity string"
+    );
+    assert_eq!(
+        refusal(json!(2)),
+        "invalid type: integer `2`, expected a ruling severity string"
+    );
+    assert_eq!(
+        refusal(json!("urgent")),
+        "unknown variant `urgent`, expected one of `normal`, `flagged`, `hard`"
+    );
+}
+
 #[test]
 fn change_identifiers_are_typed_data_and_never_condition_keys() {
     for accepted in ["a", "0", "change-42", "a.b_c-9"] {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::decision::ReviewedHeads;
 use serde_json::json;
 
 const MAP: &str = r#"{
@@ -919,18 +920,30 @@ fn every_earlier_map_still_loads_and_v5_holds_every_earlier_rule() {
 #[test]
 fn a_head_recorded_before_any_map_is_still_the_head() {
     let legacy = json!({LEGACY_REALM_KEY: "abc"});
-    assert_eq!(recorded_head(&legacy, None), Some("abc"));
-    assert_eq!(recorded_head(&legacy, Some("brokkr")), Some("abc"));
+    assert_eq!(ReviewedHeads::read(&legacy).head_for(None), Some("abc"));
+    assert_eq!(
+        ReviewedHeads::read(&legacy).head_for(Some("brokkr")),
+        Some("abc")
+    );
 }
 
 #[test]
 fn a_head_recorded_under_a_realm_answers_to_that_realm() {
     let keyed = json!({"brokkr": "abc", "other": "def"});
-    assert_eq!(recorded_head(&keyed, Some("brokkr")), Some("abc"));
-    assert_eq!(recorded_head(&keyed, Some("other")), Some("def"));
+    assert_eq!(
+        ReviewedHeads::read(&keyed).head_for(Some("brokkr")),
+        Some("abc")
+    );
+    assert_eq!(
+        ReviewedHeads::read(&keyed).head_for(Some("other")),
+        Some("def")
+    );
     // Several realms and no name to ask by: nothing is guessed.
-    assert_eq!(recorded_head(&keyed, None), None);
-    assert_eq!(recorded_head(&keyed, Some("elsewhere")), None);
+    assert_eq!(ReviewedHeads::read(&keyed).head_for(None), None);
+    assert_eq!(
+        ReviewedHeads::read(&keyed).head_for(Some("elsewhere")),
+        None
+    );
 }
 
 /// Two shapes are ruled and two are read: a realm-keyed head answers to
@@ -942,17 +955,21 @@ fn a_head_recorded_under_a_realm_answers_to_that_realm() {
 #[test]
 fn a_realm_keyed_head_answers_to_its_realm_alone() {
     let one = json!({"brokkr": "abc"});
-    assert_eq!(recorded_head(&one, Some("brokkr")), Some("abc"));
-    assert_eq!(recorded_head(&one, None), None);
-    assert_eq!(recorded_head(&one, Some("elsewhere")), None);
+    assert_eq!(
+        ReviewedHeads::read(&one).head_for(Some("brokkr")),
+        Some("abc")
+    );
+    assert_eq!(ReviewedHeads::read(&one).head_for(None), None);
+    assert_eq!(ReviewedHeads::read(&one).head_for(Some("elsewhere")), None);
 }
 
 #[test]
 fn a_record_that_is_not_a_head_map_answers_nothing() {
-    assert_eq!(recorded_head(&json!("abc"), None), None);
-    assert_eq!(recorded_head(&json!({}), None), None);
-    assert_eq!(recorded_head(&json!({"brokkr": 7}), Some("brokkr")), None);
-    assert_eq!(recorded_head(&json!({"brokkr": 7}), None), None);
+    assert_eq!(ReviewedHeads::read(&json!("abc")).head_for(None), None);
+    assert_eq!(ReviewedHeads::read(&json!({})).head_for(None), None);
+    let not_a_head = ReviewedHeads::read(&json!({"brokkr": 7}));
+    assert_eq!(not_a_head.head_for(Some("brokkr")), None);
+    assert_eq!(not_a_head.head_for(None), None);
 }
 
 #[test]

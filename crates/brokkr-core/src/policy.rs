@@ -56,6 +56,37 @@ impl Severity {
 /// Ruling severity axis — the phase-event/v1 vocabulary.
 pub const RULING_SEVERITIES: [&str; 3] = ["normal", "flagged", "hard"];
 
+/// A ruling's severity, typed: the closed set [`RULING_SEVERITIES`]
+/// names, in its order. It reads and serializes as its name; the read is
+/// [`crate::decision`]'s, beside the record that holds it.
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleSeverity {
+    Normal,
+    Flagged,
+    Hard,
+}
+
+impl RuleSeverity {
+    /// Every ruling severity, at its [`RULING_SEVERITIES`] place.
+    const ALL: [RuleSeverity; 3] = [
+        RuleSeverity::Normal,
+        RuleSeverity::Flagged,
+        RuleSeverity::Hard,
+    ];
+
+    /// The severity `name` names, or `None` for a word outside the set.
+    pub fn named(name: &str) -> Option<RuleSeverity> {
+        let place = RULING_SEVERITIES.iter().position(|word| *word == name)?;
+        Some(RuleSeverity::ALL[place])
+    }
+
+    /// The word the journal writes for it.
+    pub fn label(self) -> &'static str {
+        RULING_SEVERITIES[self as usize]
+    }
+}
+
 /// Delivery classes ruled by the triage chief (decision 0041 ruling 6).
 /// This is both the result vocabulary of that office and the value
 /// vocabulary of the engine-owned `strategy` input.
@@ -75,45 +106,17 @@ pub const TABLE_SCHEMA_V2: &str = "forge.phase-machine/v2";
 /// visits, a seat never claims one.
 pub const VISIT_PREFIX: &str = "visits_";
 
-pub const BOOLEAN_INPUTS: [&str; 8] = [
-    "skip_verify",
-    "fixes_applied",
-    // Decision 0041: a review panel may return a defective specification
-    // to design. Seat-declarable; unlike visit counts, the judge observes it.
-    "spec_defect",
-    "has_security_residual",
-    "high_risk_uncovered",
-    "drift_detected",
-    "dirty_worktrees",
-    // Decision 0039: every commit the protected phase added since it
-    // was entered lies in the repository's docs class. Engine-owned,
-    // like the two above it.
-    "fixes_docs_only",
-];
-pub const COUNTER_INPUTS: [&str; 1] = ["consecutive_failures"];
-pub const SEVERITY_INPUTS: [&str; 1] = ["max_residual_severity"];
+/// The boolean inputs, each read by the condition keyed by its name.
+pub const BOOLEAN_INPUTS: [&str; count(Pick::Flags)] = names(Pick::Flags);
+pub const COUNTER_INPUTS: [&str; count(Pick::Counters)] = names(Pick::Counters);
+pub const SEVERITY_INPUTS: [&str; count(Pick::Severities)] = names(Pick::Severities);
 /// Typed handoff identifiers. Seats may declare these, but policy may never
 /// branch on them: identity is data passed to effects, not a control signal.
-pub const IDENTIFIER_INPUTS: [&str; 1] = ["change"];
+pub const IDENTIFIER_INPUTS: [&str; count(Pick::Identifiers)] = names(Pick::Identifiers);
 
 /// Inputs the engine owns. A seat may never supply or declare these:
 /// journal-computed truth is never accepted from a caller (README law 2).
-pub const ENGINE_OWNED_INPUTS: [&str; 7] = [
-    "consecutive_failures",
-    "drift_detected",
-    "dirty_worktrees",
-    REVIEWED_HEADS,
-    // The fold remembers the last successful triage result. A seat may
-    // neither declare nor overwrite the class that governs its run.
-    "strategy",
-    // Read from the tree at the protected phase's ruling (decision
-    // 0039): the review's own commits, classified by the repository's
-    // declared docs class.
-    "fixes_docs_only",
-    // The same repository facts, keyed by realm (decision 0023). Read
-    // from the tree by the engine, exactly like the two above it.
-    REALM_FACTS,
-];
+pub const ENGINE_OWNED_INPUTS: [&str; count(Pick::EngineOwned)] = names(Pick::EngineOwned);
 
 /// The protected phase's record: realm name (or the legacy unkeyed
 /// `repo`, per [`crate::realms::LEGACY_REALM_KEY`]) to observed head.
@@ -292,32 +295,49 @@ impl Machine {
     /// when it decides a result from `from`, and no others: a table that
     /// asks nothing about visits journals nothing about them.
     pub fn visit_phases(&self, from: &str) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
-        for rule in self.rules.iter().filter(|rule| rule.from == from) {
-            for condition in &rule.when {
-                let Condition::CounterGte { name, .. } = condition else {
-                    continue;
-                };
-                let Some(phase) = name.strip_prefix(VISIT_PREFIX) else {
-                    continue;
-                };
-                if !names.iter().any(|known| known == phase) {
-                    names.push(phase.to_string());
-                }
-            }
-        }
-        names
+        self.reads(from)
+            .into_iter()
+            .filter_map(|condition| condition.name().strip_prefix(VISIT_PREFIX))
+            .map(str::to_string)
+            .collect()
     }
 
     /// Whether rules leaving `from` read one engine-owned counter. Runtime
     /// uses this to compute strategy-local failure words without changing
     /// unrelated journals that happen to use the same word.
     pub fn reads_counter(&self, from: &str, counter: &str) -> bool {
-        self.rules.iter().filter(|rule| rule.from == from).any(|rule| {
-            rule.when.iter().any(
-                |condition| matches!(condition, Condition::CounterGte { name, .. } if name == counter),
-            )
-        })
+        self.reads(from).into_iter().any(
+            |condition| matches!(condition, Condition::CounterGte { name, .. } if name == counter),
+        )
+    }
+
+    /// The seat-supplied inputs the rules leaving `from` read, sorted: a
+    /// seat's default (and minimum) declaration (decision 0007).
+    pub fn seat_inputs(&self, from: &str) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .reads(from)
+            .into_iter()
+            .map(Condition::name)
+            .filter(|name| !is_engine_owned(name))
+            .map(str::to_string)
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// The first condition on each input the rules leaving `from` read,
+    /// in table order: the one projection the three above are read from.
+    /// The grammar binds a name to one kind, so the first is its kind.
+    fn reads(&self, from: &str) -> Vec<&Condition> {
+        let mut read: Vec<&Condition> = Vec::new();
+        for rule in self.rules.iter().filter(|rule| rule.from == from) {
+            for condition in &rule.when {
+                if !read.iter().any(|seen| seen.name() == condition.name()) {
+                    read.push(condition);
+                }
+            }
+        }
+        read
     }
 }
 
@@ -562,7 +582,7 @@ fn parse_condition(
             key: key_text,
         });
     }
-    if key == "strategy_in" || key == "drift_in" {
+    if let Some((name, vocabulary)) = choice_keyed(key) {
         let place = Place::Condition {
             rule: rule.clone(),
             key: key_text.clone(),
@@ -574,12 +594,6 @@ fn parse_condition(
                 key: key_text,
             });
         }
-        let name = if key == "strategy_in" {
-            "strategy"
-        } else {
-            "drift_in"
-        };
-        let vocabulary = vocabulary(name);
         for value in &allowed {
             if !vocabulary.contains(&value.as_str()) {
                 return Err(Malformed::OutsideVocabulary {
@@ -756,20 +770,13 @@ fn severity_of(name: &str, value: Option<&Value>) -> Result<Option<usize>, Unrea
     }
 }
 
-/// The closed vocabulary an enumeration input's value is drawn from:
-/// `strategy` or `drift_in`, the two names `parse_condition` gives one.
-fn vocabulary(name: &str) -> &'static [&'static str] {
-    if name == "strategy" {
-        &STRATEGIES
-    } else {
-        &DRIFT_PHASES
-    }
-}
-
 pub mod audit;
 mod errors;
+mod inputs;
 
 pub use errors::{Malformed, Place, RuleKey, TableKey, Unreadable};
+use inputs::{choice_keyed, count, names, vocabulary, Pick};
+pub use inputs::{is_declarable, CONSECUTIVE_FAILURES};
 
 #[cfg(test)]
 mod tests;

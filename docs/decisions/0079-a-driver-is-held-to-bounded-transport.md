@@ -63,9 +63,10 @@ loopback UI's limits, spill files and their cleanup, and the budget across
 the contention hold, the arrivals channel and the report remain with
 #433's later slices and #464.
 
-## Addendum — 2026-10-11, proposed: the loopback UI is held to the same rules
+## Addendum — 2026-10-11, accepted 2026-10-13: the loopback UI is held to the same rules
 
-Status: proposed (for the operator to accept; #433 slice 2). The rulings
+Status: accepted — operator ruled in chat 2026-10-13 (#433 slice 2,
+built in #635). The rulings
 above stand; this carries them to the one other surface that reads bytes
 it does not control, the `brokkr ui` loopback server
 (`crates/brokkr-cli/src/ui.rs`). It read the request line and headers
