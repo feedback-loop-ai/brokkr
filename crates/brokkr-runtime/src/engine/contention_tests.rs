@@ -343,9 +343,8 @@ fn in_flight(dir: &Path) -> Engine {
     engine
 }
 
-/// The attempt's sink, holding `limit` bytes and calling `between` before
-/// every append it tries.
-fn sink<B: FnMut(&mut Store)>(engine: &mut Engine, limit: usize, between: B) -> Checkpoints<'_, B> {
+/// The attempt's sink, calling `between` before every append it tries.
+fn sink<B: FnMut(&mut Store)>(engine: &mut Engine, between: B) -> Checkpoints<'_, B> {
     let attempt = checkpoints::Attempt {
         run_id: &engine.run_id,
         effect_id: "effect-1",
@@ -355,7 +354,6 @@ fn sink<B: FnMut(&mut Store)>(engine: &mut Engine, limit: usize, between: B) -> 
         &mut engine.store,
         &mut engine.current_cause,
         attempt,
-        limit,
         between,
     )
 }
@@ -410,7 +408,7 @@ fn checkpoints_held_behind_a_peers_lock_land_in_order_once_it_lets_go() {
         }
     };
     let let_go = || drop(peer.borrow_mut().take().unwrap());
-    let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, retake);
+    let mut checkpoints = sink(&mut engine, retake);
 
     for name in ["a", "b", "c"] {
         checkpoints.offer("", step(name), Ok(None));
@@ -453,7 +451,7 @@ fn two_held_then_settled(
             holder.take();
         }
     };
-    let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, between);
+    let mut checkpoints = sink(&mut engine, between);
     checkpoints.offer("", step("a"), Ok(None));
     checkpoints.offer("", step("b"), Ok(None));
     let settled = checkpoints.settle().expect("contention is not a failure");
@@ -512,7 +510,7 @@ fn a_burst_behind_a_held_lock_never_waits_on_the_reader() {
     let dir = tempfile::tempdir().unwrap();
     let (mut engine, patience) = patient_in_flight(dir.path());
     let holder = write_lock_on(&dir.path().join("realm.db"));
-    let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, |_| {});
+    let mut checkpoints = sink(&mut engine, |_| {});
     let burst = std::time::Instant::now();
     for name in ["a", "b", "c", "d", "e"] {
         checkpoints.offer("", step(name), Ok(None));
@@ -523,38 +521,40 @@ fn a_burst_behind_a_held_lock_never_waits_on_the_reader() {
     assert_eq!(landed(&engine), ["a", "b", "c", "d", "e"]);
 }
 
-/// The hold is bounded. A burst that meets a full hold is counted, not
-/// journaled, and the attempt it belonged to can never be read as a
-/// success; another site's outcome is its own. What was held still lands
-/// in order, and a freed hold takes checkpoints again.
+/// The transport's checkpoint limit bounds the hold, which keeps no limit
+/// of its own (decision 0029's #433 addendum). A flood past the 16 MiB the
+/// hold once kept, offered behind a peer's lock, stays held whole, and
+/// lands complete and in order once the lock lets go: the attempt keeps its
+/// driver's outcome.
 #[test]
-fn a_burst_past_a_full_hold_makes_the_attempt_indeterminate_and_says_how_many() {
+fn a_flood_past_the_old_hold_lands_complete_and_in_order_once_the_lock_lets_go() {
     let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("realm.db");
     let mut engine = in_flight(dir.path());
-    let limit = step("a").to_string().len();
-    let holder = write_lock_on(&db);
-    let mut checkpoints = sink(&mut engine, limit, |_| {});
-    for name in ["a", "b", "c"] {
-        checkpoints.offer("", step(name), Ok(None));
+    let field = "x".repeat(80);
+    let (mut flood, mut bytes) = (Vec::new(), 0);
+    while bytes <= 16 * 1024 * 1024 {
+        // As wide a row as the seat-record fence admits.
+        let row = json!({
+            "step": format!("{:0>80}", flood.len()),
+            "target": field, "session_id": field, "harness": field, "tool": field, "turn": 1,
+        });
+        bytes += row.to_string().len();
+        flood.push(row);
+    }
+    let names: Vec<&str> = flood
+        .iter()
+        .map(|row| row["step"].as_str().unwrap())
+        .collect();
+    let holder = write_lock_on(&dir.path().join("realm.db"));
+    let mut checkpoints = sink(&mut engine, |_| {});
+    for row in &flood {
+        checkpoints.offer("", row.clone(), Ok(None));
     }
     drop(holder);
-    checkpoints.offer("", step("d"), Ok(None));
     let settled = checkpoints.settle().expect("the lock was released");
 
-    assert_eq!(landed(&engine), ["a", "d"]);
-    let AttemptOutcome::Indeterminate { reason } = settled.outcome("", succeeded()) else {
-        panic!("an attempt with lost checkpoints was reported as its driver's");
-    };
-    assert_eq!(
-        reason,
-        "2 checkpoint(s) were not journaled: a peer held the journal's write lock past \
-         this attempt's 12-byte checkpoint hold"
-    );
-    assert!(matches!(
-        settled.outcome("another-member", succeeded()),
-        AttemptOutcome::Succeeded { .. }
-    ));
+    assert_eq!(landed(&engine), names);
+    assert_eq!(settled.outcome("", succeeded()), succeeded());
 }
 
 /// A quiet seat's held checkpoint does not wait for the seat's next one
@@ -600,8 +600,7 @@ fn a_quiet_seats_held_checkpoint_lands_on_the_retry_timer_without_waiting() {
             let _ = retried.send(());
         }
     };
-    let mut checkpoints =
-        sink(&mut engine, checkpoints::HELD_BYTES, between).retrying(std::time::Duration::ZERO);
+    let mut checkpoints = sink(&mut engine, between).retrying(std::time::Duration::ZERO);
     checkpoints.take(&arrivals, |sink, checkpoint| {
         sink.offer("", checkpoint, Ok(None));
     });
@@ -632,7 +631,7 @@ fn a_driver_that_outruns_its_sink_waits_on_the_handoff() {
     let (handed, progress) = std::sync::mpsc::channel::<()>();
     let mut ahead = None;
     let driven = names.clone();
-    let report = sink(&mut engine, checkpoints::HELD_BYTES, |_| {})
+    let report = sink(&mut engine, |_| {})
         .drive(
             move |forward| {
                 for name in &driven {
@@ -661,42 +660,6 @@ fn a_driver_that_outruns_its_sink_waits_on_the_handoff() {
     assert_eq!((report.outcome, report.refused), (succeeded(), None));
 }
 
-thread_local! {
-    static MEASURED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// The hold's measure, counting every checkpoint it serializes.
-fn counted(checkpoint: &Value) -> usize {
-    MEASURED.with(|measured| measured.set(measured.get() + 1));
-    checkpoint.to_string().len()
-}
-
-/// Only a checkpoint that joins a hold is measured, with the first one it
-/// joins (#464): an uncontended checkpoint, and one that finds the hold
-/// empty, is never serialized to be counted against the bound.
-#[test]
-fn only_a_checkpoint_that_joins_a_hold_is_measured() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut engine = in_flight(dir.path());
-    let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, |_| {}).measuring(counted);
-    for name in ["a", "b", "c"] {
-        checkpoints.offer("", step(name), Ok(None));
-    }
-    let uncontended = MEASURED.with(std::cell::Cell::get);
-    let holder = write_lock_on(&dir.path().join("realm.db"));
-    checkpoints.offer("", step("d"), Ok(None));
-    let alone = MEASURED.with(std::cell::Cell::get);
-    for name in ["e", "f"] {
-        checkpoints.offer("", step(name), Ok(None));
-    }
-    drop(holder);
-    checkpoints.settle().expect("the lock was released");
-
-    assert_eq!((uncontended, alone), (0, 0));
-    assert_eq!(MEASURED.with(std::cell::Cell::get), 3, "d and e, then f");
-    assert_eq!(landed(&engine), ["a", "b", "c", "d", "e", "f"]);
-}
-
 /// A checkpoint a member offers: the member, the record, and the engine's
 /// reading of the call observed on it.
 type Offer = (
@@ -721,7 +684,7 @@ fn ended_around_a_lock<R>(
     let mut engine = in_flight(dir.path());
     let holder = write_lock_on(&dir.path().join("realm.db"));
     let quiet: fn(&mut Store) = |_| {};
-    let mut checkpoints = sink(&mut engine, checkpoints::HELD_BYTES, quiet);
+    let mut checkpoints = sink(&mut engine, quiet);
     for (member, record, call) in held {
         checkpoints.offer(member, record, call);
     }
@@ -1484,7 +1447,7 @@ fn a_lock_that_outlasts_the_settlement_leaves_the_attempt_to_the_next_resume() {
     let mut engine = in_flight(dir.path());
     let run_id = engine.run_id.clone();
     let holder = write_lock_on(&dir.path().join("realm.db"));
-    sink(&mut engine, checkpoints::HELD_BYTES, |_| {}).offer("", step("a"), Ok(None));
+    sink(&mut engine, |_| {}).offer("", step("a"), Ok(None));
     let before = engine.store.load(&run_id).unwrap().len();
     let handed_back = engine
         .lawful_end_under_contention(contended("append"))
@@ -1563,44 +1526,43 @@ fn a_settlement_retries_contention_and_nothing_else() {
     assert_eq!(tries, 1);
 }
 
-/// A site that lost checkpoints to a full hold and then met the fence's
-/// refusal is indeterminate, and its reason names both: the refusal's
-/// text is not dropped behind the count.
+/// A site that lost a checkpoint to a lock that outlasted the settlement
+/// and met the engine's refusal of a call is indeterminate, and its reason
+/// names both: the refusal's text is not dropped behind the count.
 #[test]
 fn a_site_that_lost_checkpoints_and_met_a_refusal_names_both() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = in_flight(dir.path());
-    let settled = lost_then_refused(&mut engine, dir.path());
+    let settled = stranded_then_refused(&mut engine, dir.path());
 
     let AttemptOutcome::Indeterminate { reason } = settled.outcome("", succeeded()) else {
         panic!("a site with lost checkpoints was reported as its driver's");
     };
-    assert_eq!(reason, LOST_THEN_REFUSED);
-    assert_eq!(landed(&engine), ["a"]);
+    assert_eq!(reason, STRANDED_THEN_REFUSED);
+    assert!(landed(&engine).is_empty());
 }
 
-/// Why the site [`lost_then_refused`] settles is indeterminate.
-const LOST_THEN_REFUSED: &str = "1 checkpoint(s) were not journaled: a peer held the journal's \
-     write lock past this attempt's 12-byte checkpoint hold; seat record at journal seq 6 \
-     violates contracts/seat-record.v6.schema.json at /";
+/// Why the site [`stranded_then_refused`] settles is indeterminate.
+const STRANDED_THEN_REFUSED: &str = "1 checkpoint(s) were not journaled: a peer still held the \
+     journal's write lock 3 patiences after the seat stopped; capability telemetry cannot be \
+     attributed";
 
-/// The settlement of a site that lost a checkpoint to a full hold behind
-/// a peer's lock, then had one refused by the seat-record fence.
-fn lost_then_refused(engine: &mut Engine, dir: &Path) -> checkpoints::Settled {
-    let limit = step("a").to_string().len();
-    let holder = write_lock_on(&dir.join("realm.db"));
-    let mut checkpoints = sink(engine, limit, |_| {});
+/// The settlement of a site that held a checkpoint behind a peer's lock,
+/// then had a call refused by the engine, and stopped while the lock still
+/// held.
+fn stranded_then_refused(engine: &mut Engine, dir: &Path) -> checkpoints::Settled {
+    let _holder = write_lock_on(&dir.join("realm.db"));
+    let mut checkpoints = sink(engine, |_| {});
     checkpoints.offer("", step("a"), Ok(None));
-    checkpoints.offer("", step("b"), Ok(None));
-    drop(holder);
-    checkpoints.offer("", json!({"step": "seat-turn", "turn": "one"}), Ok(None));
+    let unattributable = Err(super::capability_calls::Refusal::Unattributable);
+    checkpoints.offer("", step("b"), unattributable);
     checkpoints
         .settle()
         .expect("a refusal is an outcome, not a failure")
 }
 
-/// #394 meets #403: a site that lost checkpoints and met the fence's
-/// refusal, on an attempt not proven over. The report keeps the result
+/// #394 meets #403: a site that lost checkpoints and met a refusal, on an
+/// attempt not proven over. The report keeps the result
 /// its driver sent, carries what the checkpoints left of it as its
 /// refusal, and keeps its unresolved cleanup; the outcome acted on parks
 /// and names both. A site whose checkpoints all landed carries no
@@ -1609,7 +1571,7 @@ fn lost_then_refused(engine: &mut Engine, dir: &Path) -> checkpoints::Settled {
 fn lost_and_refused_checkpoints_ride_beside_the_received_result_and_an_unresolved_cleanup() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = in_flight(dir.path());
-    let settled = lost_then_refused(&mut engine, dir.path());
+    let settled = stranded_then_refused(&mut engine, dir.path());
     let cleanup = Cleanup::Unresolved {
         reason: brokkr_protocol::process::Unsettled::Group { group: 7 },
     };
@@ -1620,7 +1582,7 @@ fn lost_and_refused_checkpoints_ride_beside_the_received_result_and_an_unresolve
     settled.carry("", &mut report);
 
     let refused = AttemptOutcome::Indeterminate {
-        reason: LOST_THEN_REFUSED.into(),
+        reason: STRANDED_THEN_REFUSED.into(),
     };
     assert_eq!(
         (&report.outcome, &report.refused, &report.cleanup),
@@ -1630,7 +1592,7 @@ fn lost_and_refused_checkpoints_ride_beside_the_received_result_and_an_unresolve
         report.settled_outcome(),
         AttemptOutcome::Indeterminate {
             reason: format!(
-                "{LOST_THEN_REFUSED}; the attempt is not proven over: its process group 7 \
+                "{STRANDED_THEN_REFUSED}; the attempt is not proven over: its process group 7 \
                  still had members after the kill"
             ),
         }

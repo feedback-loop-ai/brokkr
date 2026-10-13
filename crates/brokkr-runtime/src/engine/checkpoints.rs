@@ -21,12 +21,38 @@
 //! patiences. A checkpoint the lock outlasts even then is stranded, and
 //! the attempt it belonged to is never reported as a success:
 //! [`Settled::outcome`] makes it indeterminate, which parks for the
-//! operator, and says how many rows were not journaled.
+//! operator, and says how many rows were not journaled. A checkpoint held
+//! behind a refused checkpoint, or offered after it, is counted the same
+//! way when it belongs to another site than the refused one.
 //!
-//! The hold is bounded by [`HELD_BYTES`]. A checkpoint that meets a full
-//! hold is not journaled either, and is counted the same way. So is one
-//! held behind a refused checkpoint, or offered after it, when it belongs
-//! to another site than the refused one.
+//! The hold counts nothing of its own: the transport's checkpoint limit
+//! bounds it (decision 0029's #433 addendum). The transport counts each
+//! checkpoint by its stdout line, newline included, and hands one on only
+//! once that line fits within the attempt's `CHECKPOINTS` checkpoints and
+//! `CHECKPOINT_BYTES` of lines (`brokkr_protocol`'s `process::limits`,
+//! whose values decision 0079 states). Every row the hold keeps is one of
+//! those, kept until it lands, so in the transport's own unit the hold
+//! never passes `CHECKPOINT_BYTES`, and no row the transport admitted can
+//! meet a full hold. A driver past either limit is already cut off, and
+//! its attempt ends indeterminate there. Each held row also carries the
+//! engine's stamps (a panel member's tag, the boundary, the model context,
+//! a call's attribution), which the bundle and not the driver sizes.
+//!
+//! What one site holds of its driver's checkpoints, in line bytes, is the
+//! sum of four terms:
+//!
+//! - the transport's stdout queue: `STDOUT_LINES` lines of at most
+//!   `FRAME_BYTES` each;
+//! - the handoff to the sink: [`ARRIVALS`] checkpoints of at most
+//!   `FRAME_BYTES` each;
+//! - the hold: at most `CHECKPOINT_BYTES`, and with the handoff at most
+//!   that together, since no row is in both;
+//! - the report, which keeps every checkpoint up to `CHECKPOINT_BYTES`,
+//!   beside `STDERR_BYTES` of stderr.
+//!
+//! A panel runs one transport per member into one handoff and one hold,
+//! so it multiplies each term by its members. The heap a parsed row takes
+//! beside its line is #342's to measure.
 
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};
@@ -40,12 +66,6 @@ use serde_json::{json, Value};
 use super::capability_calls::{self, Stamp};
 use super::EngineError;
 
-/// The most serialized checkpoint bytes one attempt holds while a peer
-/// keeps the journal's write lock. A checkpoint that finds the hold empty
-/// is held whatever its size, so the hold never exceeds this by more than
-/// that one row. Spilling past it to a file is #433's.
-pub(super) const HELD_BYTES: usize = 16 * 1024 * 1024;
-
 /// How many of the store's patiences an attempt's settlement gets — its
 /// terminal event, the evidence journaled with it, and the checkpoints
 /// still held when its seat stops — before a peer's lock is handed up.
@@ -58,8 +78,8 @@ pub(super) const SETTLING_PATIENCES: u32 = 3;
 const RETRY_INTERVAL: Duration = Duration::from_secs(1);
 
 /// How many checkpoints a driver hands its sink before it waits for the
-/// sink to take one. Only the hold, which [`HELD_BYTES`] bounds, keeps
-/// what the sink has taken.
+/// sink to take one. Only the hold, which the transport's checkpoint limit
+/// bounds, keeps what the sink has taken.
 pub(super) const ARRIVALS: usize = 64;
 
 /// The handoff from a site's driver, or a panel's members, to the one
@@ -118,11 +138,6 @@ type Append = fn(
     Option<String>,
     Option<String>,
 ) -> Result<Chain, StoreError>;
-
-/// A checkpoint's size as the hold counts it: its serialized bytes.
-fn serialized_len(checkpoint: &Value) -> usize {
-    checkpoint.to_string().len()
-}
 
 /// An attempt's terminal event that a peer's lock kept out of the journal
 /// through all [`SETTLING_PATIENCES`]. The engine carries it to its lawful
@@ -221,18 +236,10 @@ pub(super) struct Checkpoints<'a, B: FnMut(&mut Store)> {
     cause: &'a mut Option<String>,
     attempt: Attempt<'a>,
     held: Vec<Held>,
-    /// The bytes of what is held, measured only once a second checkpoint
-    /// joins the first (#464): an uncontended checkpoint, which finds the
-    /// hold empty, is never serialized to be measured.
-    held_bytes: usize,
-    limit: usize,
     between: B,
-    measure: fn(&Value) -> usize,
     /// How long the seat may stay quiet before what is held is tried
     /// again: [`RETRY_INTERVAL`].
     retry: Duration,
-    /// Checkpoints that met a full hold, by site.
-    lost: BTreeMap<String, usize>,
     /// Checkpoints still held when settlement ran out, by site.
     stranded: BTreeMap<String, usize>,
     /// A checkpoint the seat-record fence refused (decision 0034, ruling
@@ -247,9 +254,7 @@ pub(super) struct Checkpoints<'a, B: FnMut(&mut Store)> {
 /// What an attempt's checkpoints came to once its seat stopped.
 pub(super) struct Settled {
     refusal: Option<Latched>,
-    lost: BTreeMap<String, usize>,
     stranded: BTreeMap<String, usize>,
-    limit: usize,
 }
 
 impl<'a> Checkpoints<'a, fn(&mut Store)> {
@@ -258,19 +263,18 @@ impl<'a> Checkpoints<'a, fn(&mut Store)> {
         cause: &'a mut Option<String>,
         attempt: Attempt<'a>,
     ) -> Self {
-        Checkpoints::holding(store, cause, attempt, HELD_BYTES, |_| {})
+        Checkpoints::holding(store, cause, attempt, |_| {})
     }
 }
 
 impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
-    /// A sink whose hold is `limit` bytes, calling `between` before each
-    /// append; `causation_id` chains through `cause`, so the terminal
-    /// event names the last checkpoint that landed.
+    /// A sink calling `between` before each append; `causation_id` chains
+    /// through `cause`, so the terminal event names the last checkpoint
+    /// that landed.
     pub(super) fn holding(
         store: &'a mut Store,
         cause: &'a mut Option<String>,
         attempt: Attempt<'a>,
-        limit: usize,
         between: B,
     ) -> Self {
         Checkpoints {
@@ -278,23 +282,12 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
             cause,
             attempt,
             held: Vec::new(),
-            held_bytes: 0,
-            limit,
             between,
-            measure: serialized_len,
             retry: RETRY_INTERVAL,
-            lost: BTreeMap::new(),
             stranded: BTreeMap::new(),
             refusal: None,
             failure: None,
         }
-    }
-
-    /// This sink, measuring a checkpoint by `measure`: the tests count
-    /// what the hold measures through it.
-    #[cfg(test)]
-    pub(super) fn measuring(self, measure: fn(&Value) -> usize) -> Self {
-        Checkpoints { measure, ..self }
     }
 
     /// This sink, trying what is held again whenever the seat stays quiet
@@ -346,8 +339,8 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
     }
 
     /// Take one checkpoint from a working seat. It rides behind what is
-    /// held, in one transaction; when that meets the lock, it joins the
-    /// hold, or is counted lost when the hold is full. Nothing here waits
+    /// held, in one transaction; when that meets the lock, it stays in the
+    /// hold with them. Nothing here waits
     /// on the lock and nothing here ever fails the seat. Both the
     /// single-site and the panel sink hand every driver checkpoint here,
     /// so this is where a driver's capability-call attribution is erased
@@ -387,31 +380,15 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
         self.hold(owner, checkpoint);
     }
 
-    /// Journal `checkpoint` behind what is held, in one transaction. A
-    /// checkpoint that finds the hold empty is never measured; one that
-    /// joins a hold measures it, and is lost when the lock keeps both and
-    /// the hold would pass its limit.
+    /// Journal `checkpoint` behind what is held, in one transaction. When
+    /// the lock keeps them, all of them stay held: the transport's
+    /// checkpoint limit, not the hold, bounds how many there can be.
     fn hold(&mut self, owner: &str, checkpoint: Value) {
-        let bytes = if self.held.is_empty() {
-            0
-        } else {
-            // The first held checkpoint is measured once another joins it.
-            if self.held.len() == 1 {
-                self.held_bytes = (self.measure)(&self.held[0].checkpoint);
-            }
-            (self.measure)(&checkpoint)
-        };
         self.held.push(Held {
             owner: owner.to_string(),
             checkpoint,
         });
-        self.held_bytes += bytes;
-        let contended = self.flush(Store::append_chain_without_waiting).is_some();
-        if contended && self.held_bytes > self.limit {
-            self.held.pop();
-            self.held_bytes -= bytes;
-            *self.lost.entry(owner.to_string()).or_default() += 1;
-        }
+        self.flush(Store::append_chain_without_waiting);
     }
 
     /// The seat has stopped: journal what is held, within
@@ -431,9 +408,7 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
         }
         Ok(Settled {
             refusal: self.refusal,
-            lost: self.lost,
             stranded: self.stranded,
-            limit: self.limit,
         })
     }
 
@@ -475,7 +450,6 @@ impl<'a, B: FnMut(&mut Store)> Checkpoints<'a, B> {
             Err(failure) => self.failure = Some(failure),
         }
         self.held.clear();
-        self.held_bytes = 0;
         None
     }
 
@@ -539,13 +513,6 @@ impl Settled {
     /// Why any of `owner`'s checkpoints were not journaled, one reason per
     /// cause.
     fn unjournaled(&self, owner: &str) -> Vec<String> {
-        let lost = self.lost.get(owner).map(|lost| {
-            format!(
-                "{lost} checkpoint(s) were not journaled: a peer held the journal's write \
-                 lock past this attempt's {}-byte checkpoint hold",
-                self.limit
-            )
-        });
         let stranded = self.stranded.get(owner).map(|stranded| {
             format!(
                 "{stranded} checkpoint(s) were not journaled: a peer still held the \
@@ -560,7 +527,7 @@ impl Settled {
                 latched.owner
             ))
         });
-        lost.into_iter().chain(stranded).chain(dropped).collect()
+        stranded.into_iter().chain(dropped).collect()
     }
 }
 
