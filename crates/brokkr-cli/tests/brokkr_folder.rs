@@ -992,17 +992,78 @@ fn a_default_map_that_is_no_file_refuses() {
 
     let library = Repo::new();
     library.library();
+    let refused = |said: &str| {
+        let ran = library.brokkr("", &["run", "--bundle", "recipes/x", "--feature", "x"]);
+        assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), said));
+        assert!(!library.path(".forge").exists());
+    };
     std::fs::create_dir(library.path("realms.json")).unwrap();
-    let ran = library.brokkr("", &["run", "--bundle", "recipes/x", "--feature", "x"]);
-    assert_eq!(
-        (ran.code, ran.stderr.as_str()),
-        (
-            Some(1),
-            "error: ./realms.json is not a file (decision 0083): the default realms map is a \
-             file, or a link to one; move or remove it\n"
-        )
+    refused(
+        "error: ./realms.json is not a file (decision 0083): the default realms map is a file, \
+         or a link to one; move or remove it\n",
     );
-    assert!(!library.path(".forge").exists());
+
+    // A link to nothing at a library's `./realms.json` refuses by name too.
+    std::fs::remove_dir(library.path("realms.json")).unwrap();
+    let absent = library.aside.join("absent.json");
+    std::os::unix::fs::symlink(absent, library.path("realms.json")).unwrap();
+    refused(
+        "error: ./realms.json is a link to nothing (decision 0083 ruling 4: a linked entry is the \
+         entry); mend or remove the link\n",
+    );
+}
+
+/// A library mark that cannot be read refuses by name, and nothing is
+/// created: the folder beside it is never chosen in its place (round
+/// 634c's first finding). A process that reads a mode-000 directory, as
+/// root does, skips the case.
+#[test]
+fn an_unreadable_library_mark_refuses() {
+    let repo = Repo::new();
+    repo.library();
+    std::fs::create_dir(repo.path(".brokkr")).unwrap();
+    let recipes = repo.path("recipes");
+    let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
+    std::fs::set_permissions(&recipes, mode(0o000)).unwrap();
+    if std::fs::read_dir(&recipes).is_ok() {
+        std::fs::set_permissions(&recipes, mode(0o755)).unwrap();
+        eprintln!("skipped: this process reads a mode-000 directory, as root does");
+        return;
+    }
+    let (runs, doctor) = (repo.brokkr("", &["runs"]), repo.brokkr("", &["doctor"]));
+    std::fs::set_permissions(&recipes, mode(0o755)).unwrap();
+    let denied = format!(
+        "reading {}: Permission denied (os error 13)",
+        recipes.display()
+    );
+    assert_eq!(
+        (runs.code, runs.stderr),
+        (Some(1), format!("error: {denied}\n"))
+    );
+    let database = doctor
+        .stdout
+        .lines()
+        .find(|line| line.contains(" database: "));
+    let reported = format!("warn     database: none: {denied}");
+    assert_eq!(database, Some(reported.as_str()), "{}", doctor.stdout);
+    assert!(!repo.path(".brokkr/state").exists() && !repo.path(".forge").exists());
+}
+
+/// The agents verb refuses an old layout as every other verb does, never
+/// reading the old layout's agents (round 634c's sixth finding).
+#[test]
+fn the_agents_verb_refuses_an_old_layout() {
+    let repo = Repo::new();
+    old_root_layout(&repo);
+    for verb in [&["agents", "list"][..], &["agents", "show", "implementer"]] {
+        let ran = repo.brokkr("", verb);
+        assert_eq!(
+            (ran.code, ran.first_line()),
+            (Some(1), ROOT_LAYOUT),
+            "{verb:?}"
+        );
+        assert_eq!(ran.stdout, "", "{verb:?}");
+    }
 }
 
 /// A `.forge` that is a link is emptied through it, then removed as the

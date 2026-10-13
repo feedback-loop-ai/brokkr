@@ -147,8 +147,10 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
 pub(crate) fn agents(workspace: &Path, command: AgentsCmd) -> Result<ExitCode> {
     // Semantic lint reads the OPERATOR's capability definitions
     // (decision 0065; design D2): beside the active map, else in
-    // the workspace — wherever `--agents-dir` points the library.
+    // the workspace — wherever `--agents-dir` points the library. An old
+    // layout is refused as every verb refuses it (decision 0083 ruling 4).
     let layout = Layout::discover(workspace)?;
+    layout.refuse_old()?;
     let workspace = &layout.workspace();
     let world = World::discover(workspace, None)?;
     let operator_root = launch::capability_context(workspace, world.as_ref(), None, workspace).root;

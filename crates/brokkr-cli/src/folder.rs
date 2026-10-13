@@ -14,10 +14,8 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use brokkr_runtime::places::{library, Places, PlacesError, FOLDER, LIBRARY_STATE, SECRETS, STATE};
-
-/// The old layout's signature at a repository root: `init`'s bundle.
-const BUNDLE: &str = "bundle.json";
+use brokkr_runtime::places::{Kind, Places, PlacesError, BUNDLE, FOLDER, LIBRARY_STATE};
+use brokkr_runtime::places::{SECRETS, STATE};
 
 /// The journal's name in the folder's state.
 pub(crate) const JOURNAL: &str = "forge.db";
@@ -27,11 +25,10 @@ pub(crate) const JOURNAL: &str = "forge.db";
 pub(crate) enum FolderError {
     /// A `.brokkr` entry the walk met below the root.
     Nested { path: PathBuf, root: PathBuf },
-    /// A root `.brokkr` the runtime's one judgement refuses: not a
-    /// directory, or not readable.
+    /// What the runtime's one judgement of a root refuses: a `.brokkr`
+    /// that is not a directory, a root or library mark that cannot be
+    /// read, or a state fact with no place.
     Places(PlacesError),
-    /// A state fact with no place: no folder, and no library.
-    NoPlace { cwd: PathBuf, root: PathBuf },
     /// A run verb with no bundle named and no folder to supply one.
     NoBundle { cwd: PathBuf, root: PathBuf },
     /// An old layout, with the moves it lists.
@@ -41,6 +38,20 @@ pub(crate) enum FolderError {
         path: PathBuf,
         source: std::io::Error,
     },
+    /// An old layout's `.forge` that is neither a directory nor a link,
+    /// whose entries no move could take.
+    ForgeNotADirectory { path: PathBuf },
+    /// A repository whose tracked `.forge/` entries git would not list,
+    /// so no move could say which go by `git mv`.
+    Untracked { root: PathBuf, said: String },
+}
+
+/// The refusal of the entry at `path`, which cannot be read.
+fn unreadable(path: &Path) -> impl FnOnce(std::io::Error) -> FolderError + '_ {
+    move |source| FolderError::Unreadable {
+        path: path.to_path_buf(),
+        source,
+    }
 }
 
 impl fmt::Display for FolderError {
@@ -55,15 +66,6 @@ impl fmt::Display for FolderError {
                 root.display()
             ),
             FolderError::Places(refused) => write!(f, "{refused}"),
-            FolderError::NoPlace { cwd, root } => write!(
-                f,
-                "no {FOLDER}/ folder from {} up to {}, and {} is not a recipe library (decision \
-                 0083); nothing was created: run `brokkr init .` from {}",
-                cwd.display(),
-                root.display(),
-                root.display(),
-                root.display()
-            ),
             FolderError::NoBundle { cwd, root } => write!(
                 f,
                 "no {FOLDER}/ folder from {} up to {} (decision 0083), so there is no default \
@@ -76,6 +78,17 @@ impl fmt::Display for FolderError {
             FolderError::Unreadable { path, source } => {
                 write!(f, "reading {}: {source}", path.display())
             }
+            FolderError::ForgeNotADirectory { path } => write!(
+                f,
+                "{} is a file, not Brokkr's state directory: move it aside",
+                path.display()
+            ),
+            FolderError::Untracked { root, said } => write!(
+                f,
+                "git ls-files in {} failed, so the moves cannot tell what git tracks (decision \
+                 0083); nothing was opened: {said}",
+                root.display()
+            ),
         }
     }
 }
@@ -154,18 +167,6 @@ fn listed(moves: &[String]) -> String {
         .fold(head.to_string(), |list, line| list + "\n  " + line)
 }
 
-/// What the root holds, as ruling 2 tells it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kind {
-    /// `<root>/.brokkr` is a directory, and the root is no library.
-    Folder,
-    /// A `recipes/<name>/bundle.json` at the root, which keeps its own
-    /// layout whatever else stands there (the operator's ruling 1).
-    Library,
-    /// Neither.
-    Bare,
-}
-
 /// A verb's discovered layout: its working directory, the repository
 /// root the walk reached, and what that root holds.
 #[derive(Debug)]
@@ -183,19 +184,12 @@ impl Layout {
     /// directory holding a `.git` entry, or `workspace` itself outside any
     /// repository; refuse a `.brokkr` below the root, and a root `.brokkr`
     /// that is not a directory, before anything is opened. The walk is
-    /// over the absolute path as the process names it, as git's own is.
+    /// over the absolute path as the process names it, as git's own is,
+    /// and is the runtime's ([`brokkr_runtime::places::root`]), which a
+    /// dispatch walks again.
     pub(crate) fn discover(workspace: &Path) -> Result<Layout, FolderError> {
-        let cwd = std::path::absolute(workspace).map_err(|source| FolderError::Unreadable {
-            path: workspace.to_path_buf(),
-            source,
-        })?;
-        let mut root = cwd.clone();
-        for dir in cwd.ancestors() {
-            if entry(&dir.join(".git"))?.is_some() {
-                root = dir.to_path_buf();
-                break;
-            }
-        }
+        let cwd = std::path::absolute(workspace).map_err(unreadable(workspace))?;
+        let root = brokkr_runtime::places::root(&cwd).map_err(FolderError::Places)?;
         for dir in cwd.ancestors().take_while(|dir| *dir != root) {
             if entry(&dir.join(FOLDER))?.is_some() {
                 let path = dir.to_path_buf();
@@ -213,16 +207,11 @@ impl Layout {
     }
 
     fn at(cwd: PathBuf, root: PathBuf, workspace: &Path) -> Result<Layout, FolderError> {
-        // The runtime's one judgement of the root's `.brokkr`, which the
-        // launch, the queue and the engine re-derive at dispatch: a
-        // library outranks a folder beside it, so its journal never moves
-        // to a fresh one under the folder.
-        let found = brokkr_runtime::places::folder(&root).map_err(FolderError::Places)?;
-        let kind = match found {
-            Some(_) => Kind::Folder,
-            None if library(&root) => Kind::Library,
-            None => Kind::Bare,
-        };
+        // The runtime's one judgement of the root, which the launch, the
+        // queue and the engine re-derive at dispatch: a library outranks a
+        // folder beside it, so its journal never moves to a fresh one
+        // under the folder.
+        let kind = Kind::of(&root).map_err(FolderError::Places)?;
         Ok(Layout {
             cwd,
             root,
@@ -271,10 +260,10 @@ impl Layout {
         Ok(match self.kind {
             Kind::Library => None,
             Kind::Bare if bundle => Some(OldLayout::Root {
-                moves: state_moves(&self.root, forge),
+                moves: state_moves(&self.root)?,
             }),
             Kind::Bare if forge => Some(OldLayout::StateOnly {
-                moves: state_moves(&self.root, forge),
+                moves: state_moves(&self.root)?,
             }),
             Kind::Bare => None,
             Kind::Folder => self.half_moved(bundle, forge)?,
@@ -298,25 +287,13 @@ impl Layout {
     }
 
     /// The run-local state directory: the folder's, `None` for a library's
-    /// own `.forge/`, or no place at all (ruling 2's step 4). `escape` is
-    /// `--db` given: in an old layout the state then takes the library
-    /// column, which there is that layout's own `.forge/`.
+    /// own `.forge/`, or no place at all (ruling 2's step 4), by the
+    /// runtime's one rule ([`Kind::state`]), which a dispatch asks again.
+    /// `escape` is `--db` given: in an old layout the state then takes the
+    /// library column, which there is that layout's own `.forge/`.
     pub(crate) fn state(&self, escape: bool) -> Result<Option<PathBuf>, FolderError> {
-        match self.kind {
-            Kind::Folder => Ok(Places::in_folder(&self.root.join(FOLDER)).state),
-            Kind::Library => Ok(None),
-            Kind::Bare if escape && self.holds_old()? => Ok(None),
-            Kind::Bare => Err(FolderError::NoPlace {
-                cwd: self.cwd.clone(),
-                root: self.root.clone(),
-            }),
-        }
-    }
-
-    /// Whether the root holds a root layout's or a state-only layout's
-    /// entry: what the `--db` escape reads as that layout's own.
-    fn holds_old(&self) -> Result<bool, FolderError> {
-        Ok(self.stands(BUNDLE)? || self.stands(LIBRARY_STATE)?)
+        let state = self.kind.state(&self.cwd, &self.root, escape);
+        state.map_err(FolderError::Places)
     }
 
     /// Whether anything stands at `name` under the root, link or not.
@@ -429,10 +406,7 @@ pub(crate) fn run_local(repo: &Path) -> Result<PathBuf, FolderError> {
 /// ([`brokkr_runtime::places::entry`]). Anything that cannot be read
 /// refuses.
 fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
-    brokkr_runtime::places::entry(path).map_err(|source| FolderError::Unreadable {
-        path: path.to_path_buf(),
-        source,
-    })
+    brokkr_runtime::places::entry(path).map_err(unreadable(path))
 }
 
 /// The state's moves (ruling 4's third group): every `.forge/` entry to
@@ -444,9 +418,12 @@ fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
 /// judged as the link (ruling 4): its entries move out through it, and
 /// the link itself goes by `rm`, never `rmdir`, leaving the directory it
 /// names. The compile-derived moves are not listed (the operator's ruling
-/// of 2026-10-13).
-fn state_moves(root: &Path, forge: bool) -> Vec<String> {
-    let (names, tracked) = (forge_entries(root), tracked(root));
+/// of 2026-10-13). A `.forge` that is neither, entries that cannot be
+/// listed, or a repository git will not list refuse by name, with no list
+/// at all.
+fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
+    let forge = Forge::at(root)?;
+    let (names, tracked) = (forge_entries(root, forge)?, tracked(root)?);
     let mut moves = vec![format!("mkdir -p {FOLDER}/{STATE}")];
     let bases = names
         .iter()
@@ -462,35 +439,67 @@ fn state_moves(root: &Path, forge: bool) -> Vec<String> {
             moves.push(format!("{verb} {} {to}", word(&forged(member))));
         }
     }
-    let rmdir = removal(root);
     let ignore = (IGNORE.to_string(), forged(IGNORE));
     match (tracked.contains(&ignore.0), names.contains(&ignore.0)) {
-        (true, _) => moves.push(format!("git rm {}", ignore.1)),
-        (false, true) => moves.extend([vec![format!("rm {}", ignore.1)], rmdir].concat()),
-        (false, false) if forge => moves.extend(rmdir),
-        (false, false) => {}
+        (true, _) => {
+            moves.extend([vec![format!("git rm {}", ignore.1)], forge.unlinked()].concat())
+        }
+        (false, true) => moves.extend([vec![format!("rm {}", ignore.1)], forge.removal()].concat()),
+        (false, false) => moves.extend(forge.removal()),
     }
     moves.push(format!("printf '{STATE}/\\n' > {FOLDER}/{IGNORE}"));
-    moves
+    Ok(moves)
 }
 
 /// The old layout's ignore file, and the folder's.
 const IGNORE: &str = ".gitignore";
 
-/// The emptied `.forge`'s removal: `rmdir`, or for a link, a note that
-/// the link goes and the directory it names stays, then `rm`.
-fn removal(root: &Path) -> Vec<String> {
-    let linked = std::fs::symlink_metadata(root.join(LIBRARY_STATE))
-        .is_ok_and(|entry| entry.file_type().is_symlink());
-    match linked {
-        true => vec![
-            format!(
-                "# {LIBRARY_STATE} is a link: rm removes the link, and the directory it names \
-                 stays"
-            ),
-            format!("rm {LIBRARY_STATE}"),
-        ],
-        false => vec![format!("rmdir {LIBRARY_STATE}")],
+/// What stands at the root's `.forge`, judged as the entry itself and
+/// never through a link (ruling 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Forge {
+    Absent,
+    Directory,
+    Link,
+}
+
+impl Forge {
+    /// The root's `.forge`; anything but a directory or a link refuses by
+    /// name, because no listed move could empty or remove it.
+    fn at(root: &Path) -> Result<Forge, FolderError> {
+        let path = root.join(LIBRARY_STATE);
+        match entry(&path)? {
+            None => Ok(Forge::Absent),
+            Some(found) if found.is_dir() => Ok(Forge::Directory),
+            Some(found) if found.is_symlink() => Ok(Forge::Link),
+            Some(_) => Err(FolderError::ForgeNotADirectory { path }),
+        }
+    }
+
+    /// The emptied `.forge`'s removal: nothing where none stands, `rmdir`,
+    /// or for a link, a note that the link goes and the directory it names
+    /// stays, then `rm`.
+    fn removal(self) -> Vec<String> {
+        match self {
+            Forge::Absent => Vec::new(),
+            Forge::Directory => vec![format!("rmdir {LIBRARY_STATE}")],
+            Forge::Link => vec![
+                format!(
+                    "# {LIBRARY_STATE} is a link: rm removes the link, and the directory it \
+                     names stays"
+                ),
+                format!("rm {LIBRARY_STATE}"),
+            ],
+        }
+    }
+
+    /// The removal after `git rm` takes the last entry: a directory git
+    /// emptied is gone with that entry, and a link still stands.
+    fn unlinked(self) -> Vec<String> {
+        match self {
+            Forge::Link => self.removal(),
+            Forge::Absent | Forge::Directory => Vec::new(),
+        }
     }
 }
 
@@ -518,36 +527,51 @@ fn journal_log(name: &str, names: &[String]) -> bool {
         .any(|journal| names.iter().any(|known| known == journal))
 }
 
-/// The names directly under the root's `.forge/`, sorted. A name that is
-/// not UTF-8 is listed lossily: the list is advice.
-fn forge_entries(root: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(root.join(LIBRARY_STATE))
-        .map(|entries| {
-            let names = entries.flatten().map(|entry| entry.file_name());
-            names
-                .map(|name| name.to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
+/// The names directly under the root's `.forge/`, `forge` what stands
+/// there, sorted. A `.forge` whose entries cannot be listed refuses by
+/// name, never read as empty. A name that is not UTF-8 is listed lossily,
+/// as [`tracked`] lists it: the list is advice.
+fn forge_entries(root: &Path, forge: Forge) -> Result<Vec<String>, FolderError> {
+    let path = root.join(LIBRARY_STATE);
+    let mut names = Vec::new();
+    if forge == Forge::Absent {
+        return Ok(names);
+    }
+    for listed in std::fs::read_dir(&path).map_err(unreadable(&path))? {
+        let name = listed.map_err(unreadable(&path))?.file_name();
+        names.push(name.to_string_lossy().into_owned());
+    }
     names.sort();
-    names
+    Ok(names)
 }
 
-/// The names directly under `.forge/` that git tracks. A root git cannot
-/// read tracks nothing: the list is advice, and `mv` is still a move.
-fn tracked(root: &Path) -> Vec<String> {
-    let listed = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["ls-files", "-z", "--", LIBRARY_STATE])
-        .output();
-    let stdout = listed.map(|out| out.stdout).unwrap_or_default();
+/// The names directly under `.forge/` that git tracks. Outside any
+/// repository git tracks nothing; inside one, a git that cannot be run or
+/// will not list refuses by name, because an entry it tracks moved by
+/// `mv` would leave git a deletion and a stranger.
+fn tracked(root: &Path) -> Result<Vec<String>, FolderError> {
+    let repository = brokkr_runtime::places::root(root).map_err(FolderError::Places)?;
+    if entry(&repository.join(".git"))?.is_none() {
+        return Ok(Vec::new());
+    }
+    let git = Path::new("git");
+    let mut list = std::process::Command::new(git);
+    list.arg("-C").arg(root);
+    let listed = list.args(["ls-files", "-z", "--", LIBRARY_STATE]).output();
+    let listed = listed.map_err(unreadable(git))?;
+    if !listed.status.success() {
+        let said = String::from_utf8_lossy(&listed.stderr)
+            .trim_end()
+            .to_string();
+        let root = root.to_path_buf();
+        return Err(FolderError::Untracked { root, said });
+    }
     let prefix = forged("");
-    String::from_utf8_lossy(&stdout)
+    Ok(String::from_utf8_lossy(&listed.stdout)
         .split('\0')
         .filter_map(|path| path.strip_prefix(&prefix))
         .map(|rest| rest.split('/').next().unwrap_or(rest).to_string())
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]

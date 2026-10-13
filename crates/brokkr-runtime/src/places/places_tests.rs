@@ -1,8 +1,18 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    default_map, folder, refuse_folder_base, run_local, unpinned_top_level, Places, PlacesError,
+    default_map, folder, library, refuse_folder_base, run_local, state_of, unpinned_top_level,
+    Kind, Places, PlacesError,
 };
+
+/// Mark `dir` as a recipe library (decision 0083 ruling 4), so a launch
+/// from it keeps the library's own `.forge/` layout: the one mark the
+/// runtime's launch fixtures plant in a bare temporary workspace.
+pub(crate) fn plant_library(dir: &Path) {
+    let mark = dir.join("recipes/mark").join(super::BUNDLE);
+    std::fs::create_dir_all(mark.parent().unwrap()).unwrap();
+    std::fs::write(mark, "{}").unwrap();
+}
 
 #[test]
 fn a_workspace_without_a_folder_keeps_the_library_layout() {
@@ -14,7 +24,6 @@ fn a_workspace_without_a_folder_keeps_the_library_layout() {
             agents: root.join("agents"),
             adapters: root.join("adapters"),
             map: root.join("realms.json"),
-            state: None,
         }
     );
 }
@@ -30,9 +39,116 @@ fn a_workspace_with_a_folder_reads_it() {
             agents: root.join(".brokkr/agents"),
             adapters: root.join(".brokkr/adapters"),
             map: root.join(".brokkr/realms.json"),
-            state: Some(root.join(".brokkr/state")),
         }
     );
+    assert_eq!(state_of(root).unwrap(), Some(root.join(".brokkr/state")));
+}
+
+/// A dispatch judges a workspace's state by the CLI's one rule (round
+/// 634c's second finding): no folder, no library mark and no old layout
+/// is no place, refused in the CLI's words rather than read as a
+/// library's `.forge/`; an old layout's own entry takes the library
+/// column, because a dispatch's journal is always named.
+#[test]
+fn a_workspace_with_no_place_refuses_its_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let refused = state_of(root).unwrap_err();
+    assert!(
+        matches!(refused, PlacesError::NoPlace { ref cwd, root: ref at } if cwd == root && at == root)
+    );
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "no .brokkr/ folder from {} up to {}, and {} is not a recipe library (decision \
+             0083); nothing was created: run `brokkr init .` from {}",
+            root.display(),
+            root.display(),
+            root.display(),
+            root.display()
+        )
+    );
+    for old in [".forge", "bundle.json"] {
+        std::fs::write(root.join(old), "").unwrap();
+        assert_eq!(state_of(root).unwrap(), None);
+        let unescaped = Kind::Bare.state(root, root, false).unwrap_err();
+        assert!(matches!(unescaped, PlacesError::NoPlace { .. }));
+        std::fs::remove_file(root.join(old)).unwrap();
+    }
+    plant_library(root);
+    assert_eq!(state_of(root).unwrap(), None);
+
+    // From below the repository's root, the walk reaches it as the CLI's
+    // does, and a workspace that cannot be made absolute is unreadable.
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    assert_eq!(state_of(&root.join("sub")).unwrap(), None);
+    let empty = state_of(Path::new("")).unwrap_err();
+    assert_eq!(
+        empty.to_string(),
+        "reading : cannot make an empty path absolute"
+    );
+}
+
+/// Whether this process reads what its mode bits forbid, as root does:
+/// a permission plant does not bite then.
+fn reads_anything(locked: &Path) -> bool {
+    std::fs::read_dir(locked).is_ok()
+}
+
+fn mode(path: &Path, bits: u32) {
+    let mode = std::os::unix::fs::PermissionsExt::from_mode(bits);
+    std::fs::set_permissions(path, mode).unwrap();
+}
+
+/// A library mark that cannot be read refuses by name, never read as no
+/// library (round 634c's first finding): an unlistable `recipes/`, and a
+/// `bundle.json` whose presence cannot be read or that links to nothing.
+#[test]
+fn an_unreadable_library_mark_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let (recipes, recipe) = (root.join("recipes"), root.join("recipes/x"));
+    std::fs::create_dir_all(root.join(".brokkr")).unwrap();
+    std::fs::create_dir_all(&recipe).unwrap();
+    std::fs::write(recipe.join("bundle.json"), "{}").unwrap();
+    assert_eq!(Kind::of(root).unwrap(), Kind::Library);
+    mode(&recipes, 0o000);
+    if reads_anything(&recipes) {
+        mode(&recipes, 0o755);
+        eprintln!("skipped: this process reads a mode-000 directory, as root does");
+        return;
+    }
+    let listed = Places::of(root).map(|_| ()).unwrap_err().to_string();
+    std::fs::remove_dir(root.join(".brokkr")).unwrap();
+    let marked = Kind::of(root).map(|_| ()).unwrap_err();
+    mode(&recipes, 0o755);
+    let denied = |path: &Path| {
+        format!(
+            "reading {}: Permission denied (os error 13)",
+            path.display()
+        )
+    };
+    assert_eq!(listed, denied(&recipes));
+    assert!(matches!(marked, PlacesError::Unreadable { ref path, .. } if *path == recipes));
+
+    let bundle = recipe.join("bundle.json");
+    mode(&recipe, 0o000);
+    let looked_up = library(root).unwrap_err().to_string();
+    mode(&recipe, 0o755);
+    assert_eq!(looked_up, denied(&bundle));
+
+    std::fs::remove_file(&bundle).unwrap();
+    std::os::unix::fs::symlink(root.join("absent.json"), &bundle).unwrap();
+    assert_eq!(
+        library(root).unwrap_err().to_string(),
+        format!(
+            "reading {}: No such file or directory (os error 2)",
+            bundle.display()
+        )
+    );
+    std::fs::remove_file(&bundle).unwrap();
+    assert!(!library(root).unwrap());
 }
 
 /// A recipe library keeps its own layout, a `.brokkr` directory beside
@@ -46,7 +162,7 @@ fn a_library_holding_a_folder_keeps_the_library_layout() {
     assert_eq!(folder(root).unwrap(), Some(root.join(".brokkr")));
     std::fs::write(root.join("recipes/x/bundle.json"), "{}").unwrap();
     assert_eq!(folder(root).unwrap(), None);
-    assert_eq!(Places::of(root).unwrap().state, None);
+    assert_eq!(state_of(root).unwrap(), None);
 }
 
 /// The entry is judged by what stands at its name: a link to a

@@ -334,9 +334,10 @@ impl QueuedLaunch {
 
     /// Where the seats of the run this entry starts make their scratch
     /// trees, as the engine places them: under its workspace's folder
-    /// state, else under the repository it operates (decision 0083).
+    /// state, else under the repository it operates (decision 0083); a
+    /// workspace with no place for them refuses ([`crate::places::state_of`]).
     pub(crate) fn scratch(&self) -> Result<PathBuf, LaunchError> {
-        let state = crate::places::Places::of(&self.workspace)?.state;
+        let state = crate::places::state_of(&self.workspace)?;
         let operated = self.operated(&self.workspace);
         Ok(crate::places::run_local(state.as_deref(), &operated).join(crate::engine::SEAT_SCRATCH))
     }

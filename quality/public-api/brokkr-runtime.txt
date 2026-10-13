@@ -1296,11 +1296,21 @@ pub fn brokkr_runtime::launch::rerun(brokkr_runtime::launch::LaunchRequest, &str
 pub fn brokkr_runtime::launch::resume(brokkr_runtime::launch::LaunchRequest, &str) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::start(brokkr_runtime::launch::LaunchRequest, brokkr_runtime::launch::NewRun, &mut dyn core::ops::function::FnMut(&str)) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub mod brokkr_runtime::places
+pub enum brokkr_runtime::places::Kind
+pub brokkr_runtime::places::Kind::Bare
+pub brokkr_runtime::places::Kind::Folder
+pub brokkr_runtime::places::Kind::Library
+impl brokkr_runtime::places::Kind
+pub fn brokkr_runtime::places::Kind::of(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Kind, brokkr_runtime::places::PlacesError>
+pub fn brokkr_runtime::places::Kind::state(self, &std::path::Path, &std::path::Path, bool) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
 pub enum brokkr_runtime::places::PlacesError
 pub brokkr_runtime::places::PlacesError::MapDangling
 pub brokkr_runtime::places::PlacesError::MapDangling::path: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::MapNotAFile
 pub brokkr_runtime::places::PlacesError::MapNotAFile::path: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::NoPlace
+pub brokkr_runtime::places::PlacesError::NoPlace::cwd: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::NoPlace::root: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::NotADirectory
 pub brokkr_runtime::places::PlacesError::NotADirectory::root: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::Unreadable
@@ -1309,18 +1319,20 @@ pub brokkr_runtime::places::PlacesError::Unreadable::source: core::io::error::Er
 pub struct brokkr_runtime::places::Places
 pub brokkr_runtime::places::Places::adapters: std::path::PathBuf
 pub brokkr_runtime::places::Places::agents: std::path::PathBuf
-pub brokkr_runtime::places::Places::state: core::option::Option<std::path::PathBuf>
 impl brokkr_runtime::places::Places
 pub fn brokkr_runtime::places::Places::in_folder(&std::path::Path) -> brokkr_runtime::places::Places
 pub fn brokkr_runtime::places::Places::of(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Places, brokkr_runtime::places::PlacesError>
+pub const brokkr_runtime::places::BUNDLE: &str
 pub const brokkr_runtime::places::FOLDER: &str
 pub const brokkr_runtime::places::LIBRARY_STATE: &str
 pub const brokkr_runtime::places::SECRETS: &str
 pub const brokkr_runtime::places::STATE: &str
 pub fn brokkr_runtime::places::entry(&std::path::Path) -> core::io::error::Result<core::option::Option<std::fs::Metadata>>
 pub fn brokkr_runtime::places::folder(&std::path::Path) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
-pub fn brokkr_runtime::places::library(&std::path::Path) -> bool
+pub fn brokkr_runtime::places::library(&std::path::Path) -> core::result::Result<bool, brokkr_runtime::places::PlacesError>
+pub fn brokkr_runtime::places::root(&std::path::Path) -> core::result::Result<std::path::PathBuf, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::run_local(core::option::Option<&std::path::Path>, &std::path::Path) -> std::path::PathBuf
+pub fn brokkr_runtime::places::state_of(&std::path::Path) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
 pub mod brokkr_runtime::realms
 pub enum brokkr_runtime::realms::WorldError
 pub brokkr_runtime::realms::WorldError::Crossing

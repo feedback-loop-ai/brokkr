@@ -20,6 +20,9 @@ use serde_json::{json, Value};
 
 static CWD: Mutex<()> = Mutex::new(());
 
+/// A recipe library's mark under a workspace (decision 0083 ruling 4).
+const LIBRARY_MARK: &str = "recipes/mark/bundle.json";
+
 /// The process standing in a directory until dropped, alone.
 struct Standing {
     _alone: MutexGuard<'static, ()>,
@@ -79,7 +82,8 @@ fn bundle(dir: &Path, name: &str, seat: Value) {
 /// nothing, and `b`, an `open` realm granting `web-search` through the
 /// shipped Codex dialect. Each holds the shipped adapters, an exec bundle
 /// `bundle` named for it, and a bundle `searcher` whose Codex seat
-/// requires `web-search`.
+/// requires `web-search`. Each is marked a recipe library, so a start
+/// keeps the library's `.forge/` layout (decision 0083 ruling 4).
 struct Fleet {
     _dir: tempfile::TempDir,
     root: PathBuf,
@@ -112,6 +116,7 @@ impl Fleet {
                 "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]}});
             bundle(&workspace.join("bundle"), &format!("bundle-{name}"), exec);
             bundle(&workspace.join("searcher"), "searcher", searcher.clone());
+            write(&workspace.join(LIBRARY_MARK), &json!({}));
         }
         Fleet { _dir: dir, root }
     }
@@ -277,11 +282,14 @@ fn a_requirement_refused_in_the_queued_realm_stays_refused_from_a_realm_that_gra
 /// between queueing and dispatch refuses the start by name, before a
 /// journal is opened: the dispatcher never falls back to the library
 /// layout the workspace also holds (decision 0083; round 634b's fourth
-/// finding).
+/// finding). And a folder removed outright leaves no place for the run's
+/// state, refused in the CLI's words rather than written to a `.forge/` in
+/// a bare repository (round 634c's second finding).
 #[test]
 fn a_folder_replaced_after_queueing_refuses_the_start() {
     let fleet = Fleet::new();
     let a = fleet.workspace("a");
+    std::fs::remove_file(a.join(LIBRARY_MARK)).unwrap();
     let folder = a.join(".brokkr");
     std::fs::create_dir(&folder).unwrap();
     let payload = fleet.unmapped("a");
@@ -309,5 +317,20 @@ fn a_folder_replaced_after_queueing_refuses_the_start() {
     std::os::unix::fs::symlink(fleet.workspace("b"), &folder).unwrap();
     let error = refused();
     assert!(named(&error), "{error:?}");
-    assert!(!fleet.journal().exists());
+    std::fs::remove_file(&folder).unwrap();
+    let error = refused();
+    let no_place = |error: &LaunchError| matches!(error, LaunchError::Places(PlacesError::NoPlace { cwd, root }) if *cwd == a && *root == a);
+    assert!(no_place(&error), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "no .brokkr/ folder from {} up to {}, and {} is not a recipe library (decision \
+             0083); nothing was created: run `brokkr init .` from {}",
+            a.display(),
+            a.display(),
+            a.display(),
+            a.display()
+        )
+    );
+    assert!(!fleet.journal().exists() && !a.join(".forge").exists());
 }

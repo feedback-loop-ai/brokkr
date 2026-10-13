@@ -36,7 +36,7 @@ use crate::boundary::{refuse_unboxable, Unboxable};
 use crate::bundle::{CompileError, RealmLaw};
 use crate::capabilities::{CapabilityContext, UNMAPPED};
 use crate::engine::verify_dispatch_bundle_bounds;
-use crate::places::Places;
+use crate::places::{state_of, Places};
 use crate::realms::{World, WorldError};
 use crate::{Bundle, Engine, EngineError};
 
@@ -234,7 +234,7 @@ pub fn start(
     // recipe is resolved, a bundle compiled, an envelope read or a
     // journal created.
     refuse_realms_with_dispatch(&run)?;
-    let state = Places::of(&request.workspace)?.state;
+    let state = state_of(&request.workspace)?;
     let bundle = admit_new(&request, run.map.world())?;
     let envelope = match &run.dispatch {
         Some(path) => Some(read_dispatch(path, run.map.world(), &bundle, notice)?),
@@ -254,7 +254,7 @@ pub fn start(
 /// Continue `run` under its exact pinned bundle, compiled in the world
 /// and realm its own manifest pinned.
 pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> {
-    let state = Places::of(&request.workspace)?.state;
+    let state = state_of(&request.workspace)?;
     let store = Store::open(&request.journal)?;
     let manifest = store.manifest(run)?;
     let dir = request.bundle.resolve()?;
@@ -285,7 +285,7 @@ pub fn rerun(
     run: &str,
     world: Option<World>,
 ) -> Result<Engine, LaunchError> {
-    let state = Places::of(&request.workspace)?.state;
+    let state = state_of(&request.workspace)?;
     let store = Store::open(&request.journal)?;
     let feature = source_feature(&store, run)?;
     let bundle = admit_new(&request, world.as_ref())?;
