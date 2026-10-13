@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -40,11 +40,12 @@ mod attempts;
 mod evidence;
 mod limits;
 mod own_engine;
+mod queue;
 mod table;
 mod tree;
 
 use attempts::{Attempt, Unspawned};
-use limits::{Exceeded, Frame, Limits, Retained};
+use limits::{Exceeded, Frame, Limits, Retained, STDOUT_LINES};
 // A test seam, hidden from documentation and outside the supported
 // surface: the probe's tests and the runtime engine's play a test whose
 // launches must see no other test's orphan through this one helper.
@@ -52,10 +53,6 @@ use limits::{Exceeded, Frame, Limits, Retained};
 pub use own_engine::in_its_own_engine;
 pub use tree::Unsettled;
 use tree::{Bounds, Host};
-
-/// How many unread stdout lines the engine holds before the driver's
-/// writes meet the pipe's backpressure again.
-const STDOUT_LINES: usize = 64;
 
 #[derive(Debug, Error)]
 pub enum SpawnError {
@@ -142,7 +139,7 @@ pub struct DriverProcess {
     /// The attempt among the engine's live ones (`attempts`).
     attempt: Attempt,
     stdin: Box<dyn Write + Send>,
-    stdout: mpsc::Receiver<Stdout>,
+    stdout: queue::Receiver<Stdout>,
     refused: Refused,
     stderr: mpsc::Receiver<String>,
     timed_out: Arc<AtomicBool>,
@@ -161,18 +158,20 @@ pub struct DriverProcess {
 /// would otherwise hold the attempt open. `Eof` is sent only at EOF.
 fn read_stdout(
     stdout: impl Read + Send + 'static,
-    frame_bytes: usize,
-) -> (mpsc::Receiver<Stdout>, Refused) {
-    let (tx, rx) = mpsc::sync_channel(STDOUT_LINES);
+    limits: Limits,
+) -> (queue::Receiver<Stdout>, Refused) {
+    let (tx, rx) = queue::bounded(STDOUT_LINES, limits.stdout_bytes);
     let refused = Refused::default();
     let slot = Arc::clone(&refused);
-    std::thread::spawn(move || forward(BufReader::new(stdout), frame_bytes, &tx, &slot));
+    std::thread::spawn(move || forward(BufReader::new(stdout), limits.frame_bytes, &tx, &slot));
     (rx, refused)
 }
 
-/// Hand each line over, waiting while `STDOUT_LINES` are unread, so a
-/// flooding driver meets backpressure, and each no longer than
-/// `frame_bytes`. Once the engine has stopped listening, nothing more is
+/// Hand each line over, waiting while `STDOUT_LINES` are unread or the
+/// next line would take what is unread past the byte bound, so a flooding
+/// driver meets backpressure, and each no longer than `frame_bytes`. A
+/// line weighs its bytes before its newline, as the frame limit counts
+/// them. Once the engine has stopped listening, nothing more is
 /// read: the pipe closes on the writer. A read that fails, a line that is
 /// not UTF-8 and a line past the limit are handed over as such, the last
 /// put in `refused` first, and the rest of the pipe is drained unread to
@@ -180,14 +179,15 @@ fn read_stdout(
 fn forward(
     mut reader: impl BufRead,
     frame_bytes: usize,
-    tx: &SyncSender<Stdout>,
+    tx: &queue::Sender<Stdout>,
     refused: &OnceLock<Exceeded>,
 ) {
     let refusal = loop {
         match limits::read_frame(&mut reader, frame_bytes) {
             Ok(Frame::Line(line)) => match String::from_utf8(line) {
                 Ok(line) => {
-                    if tx.send(Stdout::Line(line)).is_err() {
+                    let bytes = line.strip_suffix('\n').unwrap_or(&line).len();
+                    if tx.send(Stdout::Line(line), bytes).is_err() {
                         return;
                     }
                 }
@@ -211,10 +211,10 @@ fn forward(
         }
     };
     if !matches!(refusal, Stdout::Eof) {
-        drop(tx.send(refusal));
+        drop(tx.send(refusal, 0));
         let _ = std::io::copy(&mut reader, &mut std::io::sink());
     }
-    drop(tx.send(Stdout::Eof));
+    drop(tx.send(Stdout::Eof, 0));
 }
 
 fn write_message(stdin: &mut dyn Write, body: Body) -> std::io::Result<()> {
@@ -290,10 +290,7 @@ impl DriverProcess {
             }
         })?;
         let stdin = child.stdin.take().expect("piped stdin");
-        let (stdout, refused) = read_stdout(
-            child.stdout.take().expect("piped stdout"),
-            limits.frame_bytes,
-        );
+        let (stdout, refused) = read_stdout(child.stdout.take().expect("piped stdout"), limits);
         let stderr = read_stderr(
             child.stderr.take().expect("piped stderr"),
             limits.stderr_bytes,
@@ -573,7 +570,10 @@ impl DriverProcess {
                 },
                 _,
             )) => supports,
-            Ok((other, _)) => fail!("expected capabilities, got {:?}", other.body),
+            Ok((other, _)) => fail!(
+                "expected capabilities, got a {}",
+                evidence::of_type(&other.body)
+            ),
             Err(ended) => return self.end(ended, account),
         };
         if let Some(session_ref) =
@@ -656,7 +656,12 @@ impl DriverProcess {
                     }
                     return Ended::Reached(reached(status, result, error));
                 }
-                other => return Ended::Unread(format!("unexpected driver message {other:?}")),
+                other => {
+                    return Ended::Unread(format!(
+                        "unexpected driver {}",
+                        evidence::of_type(&other)
+                    ))
+                }
             }
         }
     }
@@ -760,5 +765,7 @@ impl From<Unspawned> for std::io::Error {
     }
 }
 
+#[cfg(test)]
+mod queue_tests;
 #[cfg(test)]
 mod tests;

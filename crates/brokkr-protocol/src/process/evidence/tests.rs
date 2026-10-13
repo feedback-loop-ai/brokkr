@@ -58,3 +58,62 @@ fn an_unreadable_line_names_the_error_kind_and_place_and_no_content() {
         );
     }
 }
+
+/// Each message is named by the `type` tag serde writes for it on the
+/// wire, and by nothing of its fields.
+#[test]
+fn a_message_is_named_by_its_wire_type_alone() {
+    use crate::{Body, Message, ResultStatus};
+    let (effect_id, attempt_id) = (String::from("effect"), String::from("attempt"));
+    let bodies = [
+        Body::Hello {
+            engine_version: "0".into(),
+        },
+        Body::Start {
+            effect_id: effect_id.clone(),
+            attempt_id: attempt_id.clone(),
+            seat: "seat".into(),
+            input: serde_json::json!({}),
+        },
+        Body::Resume {
+            effect_id: effect_id.clone(),
+            attempt_id: attempt_id.clone(),
+            session_ref: "session".into(),
+        },
+        Body::Cancel {
+            effect_id: effect_id.clone(),
+        },
+        Body::Shutdown,
+        Body::Capabilities {
+            driver: "driver".into(),
+            version: "1".into(),
+            supports: Vec::new(),
+        },
+        Body::Accepted {
+            effect_id: effect_id.clone(),
+            attempt_id: attempt_id.clone(),
+            session_ref: None,
+        },
+        Body::Checkpoint {
+            effect_id: effect_id.clone(),
+            attempt_id: attempt_id.clone(),
+            data: serde_json::json!({}),
+        },
+        Body::Result {
+            effect_id: effect_id.clone(),
+            attempt_id,
+            status: ResultStatus::Failed,
+            result: None,
+            error: None,
+        },
+        Body::Cancelled { effect_id },
+    ];
+    for body in bodies {
+        let wire = serde_json::to_value(Message::new(body.clone())).unwrap();
+        assert_eq!(
+            of_type(&body),
+            format!("message of type `{}`", wire["type"].as_str().unwrap())
+        );
+    }
+    assert_eq!(of_type(&Body::Shutdown), "message of type `shutdown`");
+}
