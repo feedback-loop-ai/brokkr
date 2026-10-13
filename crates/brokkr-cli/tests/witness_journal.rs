@@ -10,7 +10,6 @@
 //! run fails here, loudly, naming the event.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde_json::{json, Value};
 
@@ -151,37 +150,12 @@ impl Workspace {
     }
 
     fn brokkr(&self, args: &[&str]) -> (String, String) {
-        let out = Command::new(brokkr_bin())
-            .args(args)
-            .current_dir(self.path())
-            .output()
-            .unwrap();
-        (
-            String::from_utf8_lossy(&out.stdout).into_owned(),
-            String::from_utf8_lossy(&out.stderr).into_owned(),
-        )
+        crate::engine::printed_in(self.path(), args)
     }
 
     /// `brokkr run` over the bundle: the run id, and the whole stderr.
     fn run(&self) -> (String, String) {
-        let bundle = self.path().join("bundle");
-        let db = self.db();
-        let (_, stderr) = self.brokkr(&[
-            "run",
-            "--bundle",
-            bundle.to_str().unwrap(),
-            "--feature",
-            "witness",
-            "--db",
-            db.to_str().unwrap(),
-        ]);
-        let run_id = stderr
-            .lines()
-            .find_map(|line| line.strip_prefix("run started: "))
-            .expect("run id on stderr")
-            .trim()
-            .to_string();
-        (run_id, stderr)
+        crate::engine::run_in(self.path(), "witness", &self.db())
     }
 }
 
@@ -280,4 +254,79 @@ fn a_conclusions_gaps_reach_stderr() {
     let head = format!("run started: {run_id}\nanchor gap for {run_id}: git ");
     assert!(stderr.starts_with(&head), "{stderr}");
     assert_eq!(stderr.matches(" gap for ").count(), 1, "{stderr}");
+}
+
+/// Set, to anything, in this binary re-executed to play
+/// [`a_leaked_tree_stands_in_the_shared_tmpdir`].
+const LEAKED_ROLE: &str = "BROKKR_TEST_646_LEAKED";
+
+/// A dead server's tree in the TMPDIR this process shares, as a server
+/// killed before its session dropped leaves it: its owner's pid dead, its
+/// lock held by none. Built under a `.staging-` name no reaper reads, as
+/// the session module builds its own, and renamed into place whole.
+struct Leaked(PathBuf);
+
+impl Leaked {
+    fn plant() -> Leaked {
+        let uuid = "6460c0de-3b1e-4a4d-9e5f-000000000646";
+        let name = format!("brokkr-hands-server-{}-{uuid}", crate::engine::dead_pid());
+        let tmp = std::env::temp_dir();
+        let staged = tmp.join(format!(".staging-{name}"));
+        std::fs::create_dir_all(staged.join("etc")).unwrap();
+        std::fs::write(staged.join(".owner.lock"), "").unwrap();
+        let tree = tmp.join(name);
+        std::fs::rename(&staged, &tree).unwrap();
+        Leaked(tree)
+    }
+}
+
+/// #646: a tree another test left in the shared TMPDIR is not this run's
+/// to say. This binary is re-executed with a TMPDIR of its own standing
+/// as the shared one, so no other test's engine reaps the planted tree
+/// before the run this test asserts.
+#[test]
+fn a_tree_left_in_the_shared_tmpdir_does_not_reach_a_runs_stderr() {
+    let shared = tempfile::tempdir().unwrap();
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "witness_journal::a_leaked_tree_stands_in_the_shared_tmpdir",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("TMPDIR", shared.path())
+        .env(LEAKED_ROLE, "1")
+        .output()
+        .unwrap();
+    let said =
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && said.contains("1 passed"),
+        "the re-executed scenario passed: {said}"
+    );
+    // The scenario played, and planted where this test stood the shared
+    // TMPDIR: a role or a plant that stopped reaching it would pass empty.
+    let stands = format!(
+        "the planted tree stands: {}/brokkr-hands-server-",
+        shared.path().display()
+    );
+    assert!(said.contains(&stands), "{stands} in: {said}");
+}
+
+/// The scenario [`a_tree_left_in_the_shared_tmpdir_does_not_reach_a_runs_stderr`]
+/// plays in this binary re-executed. The engine's TMPDIR is its
+/// workspace's own ([`crate::engine::brokkr_in`]), so its start reaps
+/// nothing of the shared one: its stderr reads exactly as
+/// [`a_conclusions_gaps_reach_stderr`] pins, and the planted tree stands
+/// after it. Run on its own, it plays none.
+#[test]
+#[ignore = "played only when a test re-executes this binary"]
+fn a_leaked_tree_stands_in_the_shared_tmpdir() {
+    if std::env::var_os(LEAKED_ROLE).is_none() {
+        return;
+    }
+    let leaked = Leaked::plant();
+    a_conclusions_gaps_reach_stderr();
+    assert!(leaked.0.join(".owner.lock").is_file(), "{:?}", leaked.0);
+    println!("the planted tree stands: {}", leaked.0.display());
 }

@@ -285,6 +285,103 @@ pub brokkr_protocol::broker::Writers::uids: alloc::vec::Vec<u32>
 impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Writers
 pub fn brokkr_protocol::broker::Writers::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub mod brokkr_protocol::dsh_sandbox
+pub enum brokkr_protocol::dsh_sandbox::KeptStore<P>
+pub brokkr_protocol::dsh_sandbox::KeptStore::Reclaimed
+pub brokkr_protocol::dsh_sandbox::KeptStore::Reclaimed::path: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::KeptStore::Reclaimed::problem: P
+pub brokkr_protocol::dsh_sandbox::KeptStore::Reclaimed::reference: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::KeptStore::Unreclaimed
+pub brokkr_protocol::dsh_sandbox::KeptStore::Unreclaimed::alternates: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::KeptStore::Unreclaimed::cause: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::KeptStore::Unreclaimed::path: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::KeptStore::Unreclaimed::problem: P
+pub brokkr_protocol::dsh_sandbox::KeptStore::Unreclaimed::reference: alloc::string::String
+impl core::convert::From<alloc::boxed::Box<brokkr_protocol::dsh_sandbox::KeptStore<brokkr_protocol::dsh_sandbox::StoreError>>> for alloc::string::String
+pub fn alloc::string::String::from(alloc::boxed::Box<brokkr_protocol::dsh_sandbox::KeptStore<brokkr_protocol::dsh_sandbox::StoreError>>) -> Self
+pub enum brokkr_protocol::dsh_sandbox::RowRefusal
+pub brokkr_protocol::dsh_sandbox::RowRefusal::Multiline(alloc::string::String)
+pub brokkr_protocol::dsh_sandbox::RowRefusal::Unusable(std::path::PathBuf)
+impl core::convert::From<brokkr_protocol::dsh_sandbox::RowRefusal> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_protocol::dsh_sandbox::RowRefusal) -> Self
+pub enum brokkr_protocol::dsh_sandbox::RunnerFlag
+pub brokkr_protocol::dsh_sandbox::RunnerFlag::Bwrap
+pub brokkr_protocol::dsh_sandbox::RunnerFlag::CommonDir
+pub brokkr_protocol::dsh_sandbox::RunnerFlag::GitDir
+pub brokkr_protocol::dsh_sandbox::RunnerFlag::Store
+pub brokkr_protocol::dsh_sandbox::RunnerFlag::Trusted
+pub brokkr_protocol::dsh_sandbox::RunnerFlag::Workspace
+impl core::fmt::Display for brokkr_protocol::dsh_sandbox::RunnerFlag
+pub fn brokkr_protocol::dsh_sandbox::RunnerFlag::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_protocol::dsh_sandbox::RunnerRefusal
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::GivenTwice(brokkr_protocol::dsh_sandbox::RunnerFlag)
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::NeedsPath(brokkr_protocol::dsh_sandbox::RunnerFlag)
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::NoSeparator
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::NotAbsolute
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::NotAbsolute::flag: brokkr_protocol::dsh_sandbox::RunnerFlag
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::NotAbsolute::path: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::NotRootedReadOnly
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::Required(brokkr_protocol::dsh_sandbox::RunnerFlag)
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::Scope(brokkr_protocol::dsh_sandbox::ScopeRefusal)
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::Staged(brokkr_protocol::dsh_sandbox::StagedRefusal)
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::Truncated(alloc::string::String)
+pub brokkr_protocol::dsh_sandbox::RunnerRefusal::UnreadOption(alloc::string::String)
+pub enum brokkr_protocol::dsh_sandbox::ScopeRefusal
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::NoBackPointer
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::NoBackPointer::git_dir: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::NoBackPointer::workspace: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::NotAdministrative
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::NotAdministrative::administrative: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::NotAdministrative::git_dir: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::OtherWorktree
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::OtherWorktree::git_dir: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::OtherWorktree::recorded: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::OtherWorktree::workspace: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::SharedGitDir
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::SharedGitDir::git_dir: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::Subdirectory
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::Subdirectory::root: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::Subdirectory::workspace: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::SymlinkedGit
+pub brokkr_protocol::dsh_sandbox::ScopeRefusal::SymlinkedGit::workspace_git: std::path::PathBuf
+pub enum brokkr_protocol::dsh_sandbox::StagedRefusal
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::Empty
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::Empty::path: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::NotAFile
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::NotAFile::path: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::NotEmpty
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::NotEmpty::bytes: u64
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::NotEmpty::path: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::Unreadable
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::Unreadable::cause: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::Unreadable::path: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::Writable
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::Writable::root: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StagedRefusal::Writable::trusted: std::path::PathBuf
+pub enum brokkr_protocol::dsh_sandbox::StoreError
+pub brokkr_protocol::dsh_sandbox::StoreError::BranchTaken
+pub brokkr_protocol::dsh_sandbox::StoreError::BranchTaken::other: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StoreError::BranchTaken::reference: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::StoreError::BranchTaken::workspace: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StoreError::CouldNotRun
+pub brokkr_protocol::dsh_sandbox::StoreError::CouldNotRun::args: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::dsh_sandbox::StoreError::CouldNotRun::cause: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::StoreError::CouldNotRun::program: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::StoreError::GitFailed
+pub brokkr_protocol::dsh_sandbox::StoreError::GitFailed::args: alloc::vec::Vec<alloc::string::String>
+pub brokkr_protocol::dsh_sandbox::StoreError::GitFailed::stderr: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::StoreError::Moved
+pub brokkr_protocol::dsh_sandbox::StoreError::Moved::baseline: core::option::Option<alloc::string::String>
+pub brokkr_protocol::dsh_sandbox::StoreError::Moved::now: core::option::Option<alloc::string::String>
+pub brokkr_protocol::dsh_sandbox::StoreError::Moved::reference: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::StoreError::NoBranch
+pub brokkr_protocol::dsh_sandbox::StoreError::NoBranch::workspace: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StoreError::Reclaim(alloc::string::String)
+pub brokkr_protocol::dsh_sandbox::StoreError::RefBackend
+pub brokkr_protocol::dsh_sandbox::StoreError::RefBackend::backend: alloc::string::String
+pub brokkr_protocol::dsh_sandbox::StoreError::RefBackend::common_dir: std::path::PathBuf
+pub brokkr_protocol::dsh_sandbox::StoreError::Staging(alloc::string::String)
+impl core::convert::From<brokkr_protocol::dsh_sandbox::StoreError> for alloc::string::String
+pub fn alloc::string::String::from(brokkr_protocol::dsh_sandbox::StoreError) -> Self
 pub struct brokkr_protocol::dsh_sandbox::GitScope
 pub brokkr_protocol::dsh_sandbox::GitScope::common_dir: std::path::PathBuf
 pub brokkr_protocol::dsh_sandbox::GitScope::git_dir: std::path::PathBuf
@@ -304,13 +401,13 @@ pub fn brokkr_protocol::dsh_sandbox::SeatGitStore::trusted_path(&self) -> &std::
 pub const brokkr_protocol::dsh_sandbox::RUNNER_FAILURE_SIGNATURE: &str
 pub const brokkr_protocol::dsh_sandbox::RUNNER_VERB: &str
 pub fn brokkr_protocol::dsh_sandbox::bwrap_usable(&std::path::Path) -> bool
-pub fn brokkr_protocol::dsh_sandbox::keep_store(brokkr_protocol::dsh_sandbox::SeatGitStore, impl core::fmt::Display) -> alloc::string::String
-pub fn brokkr_protocol::dsh_sandbox::promote_seat_commits(brokkr_protocol::dsh_sandbox::SeatGitStore, &brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<core::option::Option<brokkr_protocol::dsh_sandbox::Promotion>, alloc::string::String>
-pub fn brokkr_protocol::dsh_sandbox::require_usable_bwrap(&std::path::Path) -> core::result::Result<(), alloc::string::String>
-pub fn brokkr_protocol::dsh_sandbox::runner_argv(&[alloc::string::String]) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
-pub fn brokkr_protocol::dsh_sandbox::sandbox_row(&str, &std::path::Path, &brokkr_protocol::dsh_sandbox::SeatGitStore, &brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<alloc::string::String, alloc::string::String>
-pub fn brokkr_protocol::dsh_sandbox::scope_refusal(&brokkr_protocol::dsh_sandbox::GitScope) -> core::option::Option<alloc::string::String>
-pub fn brokkr_protocol::dsh_sandbox::stage_seat_store(&brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<brokkr_protocol::dsh_sandbox::SeatGitStore, alloc::string::String>
+pub fn brokkr_protocol::dsh_sandbox::keep_store<P: core::fmt::Display>(brokkr_protocol::dsh_sandbox::SeatGitStore, P) -> brokkr_protocol::dsh_sandbox::KeptStore<P>
+pub fn brokkr_protocol::dsh_sandbox::promote_seat_commits(brokkr_protocol::dsh_sandbox::SeatGitStore, &brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<core::option::Option<brokkr_protocol::dsh_sandbox::Promotion>, alloc::boxed::Box<brokkr_protocol::dsh_sandbox::KeptStore<brokkr_protocol::dsh_sandbox::StoreError>>>
+pub fn brokkr_protocol::dsh_sandbox::require_usable_bwrap(&std::path::Path) -> core::result::Result<(), brokkr_protocol::dsh_sandbox::RowRefusal>
+pub fn brokkr_protocol::dsh_sandbox::runner_argv(&[alloc::string::String]) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_protocol::dsh_sandbox::RunnerRefusal>
+pub fn brokkr_protocol::dsh_sandbox::sandbox_row(&str, &std::path::Path, &brokkr_protocol::dsh_sandbox::SeatGitStore, &brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<alloc::string::String, brokkr_protocol::dsh_sandbox::RowRefusal>
+pub fn brokkr_protocol::dsh_sandbox::scope_refusal(&brokkr_protocol::dsh_sandbox::GitScope) -> core::option::Option<brokkr_protocol::dsh_sandbox::ScopeRefusal>
+pub fn brokkr_protocol::dsh_sandbox::stage_seat_store(&brokkr_protocol::dsh_sandbox::GitScope) -> core::result::Result<brokkr_protocol::dsh_sandbox::SeatGitStore, brokkr_protocol::dsh_sandbox::StoreError>
 pub mod brokkr_protocol::fake
 pub fn brokkr_protocol::fake::run_fake_driver(&std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&str>) -> core::io::error::Result<()>
 pub mod brokkr_protocol::hands

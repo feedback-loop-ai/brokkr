@@ -126,7 +126,7 @@ impl Layout {
         std::fs::write(self.scope.git_dir.join("gitdir"), target).unwrap();
     }
 
-    fn argv(&self, command: &[&str]) -> Result<Vec<String>, String> {
+    fn argv(&self, command: &[&str]) -> Result<Vec<String>, RunnerRefusal> {
         let profile = dsh_workspace_write_profile(&self.scope.workspace);
         runner_argv(&runner_args(self, &profile, command))
     }
@@ -435,7 +435,7 @@ fn a_profile_that_does_not_root_at_the_read_only_host_root_is_refused() {
     ] {
         let profile: Vec<String> = bad.iter().map(|part| part.to_string()).collect();
         let refused = runner_argv(&runner_args(&layout, &profile, &["true"])).unwrap_err();
-        assert!(refused.contains("--ro-bind / /"), "{bad:?}: {refused}");
+        assert_eq!(refused, RunnerRefusal::NotRootedReadOnly, "{bad:?}");
     }
 }
 
@@ -574,7 +574,8 @@ fn every_known_bubblewrap_option_is_stepped_over_by_its_own_arity() {
     // Descriptor-sourced options can hide writable binds from the scan.
     assert!(profile_flag("--args").is_none());
     let hidden_options = ["--args", "3", "--bind", "/w", "/w"].map(str::to_string);
-    assert!(writable_binds(&hidden_options).is_err());
+    let unread = |flag: &str| RunnerRefusal::UnreadOption(flag.to_string());
+    assert_eq!(writable_binds(&hidden_options), Err(unread("--args")));
 
     // A read-write option the old scan did not know is now read as one,
     // and an option outside the table refuses rather than being skipped.
@@ -605,16 +606,11 @@ fn every_known_bubblewrap_option_is_stepped_over_by_its_own_arity() {
         ]
     );
     let unknown = ["--future-option", "/src"].map(str::to_string);
-    let refused = writable_binds(&unknown).unwrap_err();
-    assert!(refused.contains("--future-option"), "{refused}");
-    assert!(refused.contains("does not read"), "{refused}");
+    assert_eq!(writable_binds(&unknown), Err(unread("--future-option")));
     // Truncated arguments are a malformed profile, not a shorter one.
     let truncated = ["--bind", "/src"].map(str::to_string);
     let refused = writable_binds(&truncated).unwrap_err();
-    assert!(
-        refused.contains("ends inside --bind's arguments"),
-        "{refused}"
-    );
+    assert_eq!(refused, RunnerRefusal::Truncated("--bind".into()));
     assert!(writable_binds(
         none.iter()
             .map(|f| f.to_string())
@@ -630,7 +626,7 @@ fn every_known_bubblewrap_option_is_stepped_over_by_its_own_arity() {
     let mut profile = dsh_workspace_write_profile(&layout.scope.workspace);
     profile.push("--future-option".to_string());
     let refused = runner_argv(&runner_args(&layout, &profile, &["true"])).unwrap_err();
-    assert!(refused.contains("--future-option"), "{refused}");
+    assert_eq!(refused, unread("--future-option"));
 }
 
 /// Decision 0054's threat model: Git resolves both directories by
@@ -665,11 +661,8 @@ fn only_a_genuine_linked_worktree_is_served() {
         common_dir: PathBuf::from("/repo/.git"),
     };
     let refused = scope_refusal(&subdir).unwrap();
-    assert!(
-        refused.contains("shared repository's own git directory"),
-        "{refused}"
-    );
-    assert!(refused.contains("linked `git worktree`"), "{refused}");
+    let git_dir = subdir.git_dir;
+    assert_eq!(refused, ScopeRefusal::SharedGitDir { git_dir });
 }
 
 /// The redirect the review measured: a seat writes a `.git` file and a
@@ -691,34 +684,43 @@ fn a_workspace_local_git_directory_never_redirects_the_write_set() {
         common_dir: victim.clone(),
     };
     let refused = scope_refusal(&scope).unwrap();
-    assert!(refused.contains("administrative directories"), "{refused}");
-    assert!(
-        refused.contains(&inside(&victim.join("worktrees"), "<name>")),
-        "{refused}"
-    );
+    let (git_dir, administrative) = (scope.git_dir.clone(), victim.join("worktrees"));
+    let expected = ScopeRefusal::NotAdministrative {
+        git_dir,
+        administrative,
+    };
+    assert_eq!(refused, expected);
     // A git directory with no parent at all is the same refusal, not a panic.
     let rootish = GitScope {
         git_dir: PathBuf::from("/"),
         ..scope.clone()
     };
-    assert!(scope_refusal(&rootish)
-        .unwrap()
-        .contains("administrative directories"));
+    assert!(matches!(
+        scope_refusal(&rootish),
+        Some(ScopeRefusal::NotAdministrative { .. })
+    ));
 
     // The runner is the last gate, and it refuses the same scope rather
     // than emitting a single bind for it.
     let profile = dsh_workspace_write_profile(&workspace);
     let layout = Layout::linked();
-    let refused = runner_argv(&runner_args_for(
+    let refused = scope_refused(runner_argv(&runner_args_for(
         Path::new(BWRAP),
         &scope,
         &layout.store,
         &layout.trusted,
         &profile,
         &["true"],
-    ))
-    .unwrap_err();
-    assert!(refused.contains("administrative directories"), "{refused}");
+    )));
+    assert_eq!(Some(refused), scope_refusal(&scope));
+}
+
+/// The scope refusal a runner answered with; anything else fails the test.
+fn scope_refused(argv: Result<Vec<String>, RunnerRefusal>) -> ScopeRefusal {
+    match argv {
+        Err(RunnerRefusal::Scope(refused)) => refused,
+        other => panic!("{other:?}"),
+    }
 }
 
 /// The topology check alone is not enough: a workspace `.git` file may
@@ -733,31 +735,29 @@ fn the_back_pointer_must_exist_and_name_this_seats_workspace() {
     // Another worktree's `.git` file: the redirect.
     let elsewhere = layout.dir.path().join("sib/.git");
     layout.point_back_at(&format!("{}\n", elsewhere.display()));
-    let refused = scope_refusal(&layout.scope).unwrap();
-    assert!(refused.contains("records"), "{refused}");
-    assert!(refused.contains("another worktree's metadata"), "{refused}");
+    let (git_dir, workspace) = (layout.scope.git_dir.clone(), layout.scope.workspace.clone());
+    let other = |recorded: PathBuf| ScopeRefusal::OtherWorktree {
+        git_dir: git_dir.clone(),
+        recorded,
+        workspace: workspace.clone(),
+    };
+    assert_eq!(scope_refusal(&layout.scope), Some(other(elsewhere)));
 
     // A back-pointer with no parent directory at all lands in the same
     // refusal rather than in the subdirectory arm.
     layout.point_back_at("/");
-    assert!(scope_refusal(&layout.scope)
-        .unwrap()
-        .contains("another worktree's metadata"));
+    assert_eq!(scope_refusal(&layout.scope), Some(other("/".into())));
 
     // An empty pointer is no pointer.
     layout.point_back_at("\n");
     let refused = scope_refusal(&layout.scope).unwrap();
-    assert!(refused.contains("no `gitdir` back-pointer"), "{refused}");
+    let none = ScopeRefusal::NoBackPointer { git_dir, workspace };
+    assert_eq!(refused, none);
 
     // And a missing one is refused too: git writes it for every worktree
     // it creates, so its absence is evidence, not silence.
     std::fs::remove_file(layout.scope.git_dir.join("gitdir")).unwrap();
-    let refused = scope_refusal(&layout.scope).unwrap();
-    assert!(refused.contains("no `gitdir` back-pointer"), "{refused}");
-    assert!(
-        refused.contains(&layout.scope.workspace.display().to_string()),
-        "{refused}"
-    );
+    assert_eq!(scope_refusal(&layout.scope), Some(none));
 }
 
 /// The alias the review measured: a seat replaces its own `.git` with a
@@ -787,8 +787,9 @@ fn a_symlinked_workspace_git_cannot_borrow_another_worktrees_back_pointer() {
         ..victim.scope.clone()
     };
     let refused = scope_refusal(&scope).unwrap();
-    assert!(refused.contains("symbolic link"), "{refused}");
-    assert!(refused.contains("linked `git worktree`"), "{refused}");
+    let workspace_git = seat.join(".git");
+    let symlinked = ScopeRefusal::SymlinkedGit { workspace_git };
+    assert_eq!(refused, symlinked);
 
     // The runner is the last gate and refuses the same scope rather than
     // binding the victim's metadata.
@@ -801,7 +802,7 @@ fn a_symlinked_workspace_git_cannot_borrow_another_worktrees_back_pointer() {
         &["true"],
     ))
     .unwrap_err();
-    assert!(refused.contains("symbolic link"), "{refused}");
+    assert_eq!(refused, RunnerRefusal::Scope(symlinked));
 
     // With the symlink gone the borrowed metadata is refused on
     // OWNERSHIP rather than on spelling: the back-pointer's parent is
@@ -811,11 +812,12 @@ fn a_symlinked_workspace_git_cannot_borrow_another_worktrees_back_pointer() {
     std::fs::remove_file(seat.join(".git")).unwrap();
     std::fs::copy(&victim_git_file, seat.join(".git")).unwrap();
     let refused = scope_refusal(&scope).unwrap();
-    assert!(refused.contains("another worktree's metadata"), "{refused}");
-    assert!(
-        refused.contains(&victim.scope.workspace.display().to_string()),
-        "{refused}"
-    );
+    let other = ScopeRefusal::OtherWorktree {
+        git_dir: scope.git_dir.clone(),
+        recorded: victim_git_file,
+        workspace: seat,
+    };
+    assert_eq!(refused, other);
 }
 
 /// A seat started in a SUBDIRECTORY of its linked worktree resolves the
@@ -833,18 +835,9 @@ fn a_subdirectory_of_a_linked_worktree_is_refused_by_its_own_name() {
         ..layout.scope.clone()
     };
     let refused = scope_refusal(&scope).unwrap();
-    assert!(
-        refused.contains("is a subdirectory of the linked worktree"),
-        "{refused}"
-    );
-    assert!(
-        refused.contains(&layout.scope.workspace.display().to_string()),
-        "{refused}"
-    );
-    assert!(
-        !refused.contains("another worktree's metadata"),
-        "{refused}"
-    );
+    let root = layout.scope.workspace.clone();
+    let workspace = nested;
+    assert_eq!(refused, ScopeRefusal::Subdirectory { workspace, root });
 }
 
 #[test]
@@ -865,10 +858,9 @@ fn the_runner_refuses_a_scope_that_would_need_the_whole_shared_git() {
         &["true"],
     ))
     .unwrap_err();
-    assert!(
-        refused.contains("shared repository's own git directory"),
-        "{refused}"
-    );
+    let git_dir = scope.git_dir;
+    let shared = ScopeRefusal::SharedGitDir { git_dir };
+    assert_eq!(refused, RunnerRefusal::Scope(shared));
 }
 
 /// The three staged files are only what they stand for while each is a
@@ -880,7 +872,10 @@ fn the_runner_refuses_a_scope_that_would_need_the_whole_shared_git() {
 fn a_staged_file_that_is_not_what_the_runner_mounts_is_refused() {
     let layout = Layout::linked();
     let profile = dsh_workspace_write_profile(&layout.scope.workspace);
-    let refuse = || runner_argv(&runner_args(&layout, &profile, &["true"])).unwrap_err();
+    let refuse = || match runner_argv(&runner_args(&layout, &profile, &["true"])) {
+        Err(RunnerRefusal::Staged(refused)) => refused,
+        other => panic!("{other:?}"),
+    };
 
     // The mask must exist. So must each pointer.
     for name in [MASK_FILE, COMMONDIR_FILE, ALTERNATES_FILE] {
@@ -888,8 +883,7 @@ fn a_staged_file_that_is_not_what_the_runner_mounts_is_refused() {
         let kept = std::fs::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         let refused = refuse();
-        assert!(refused.contains("cannot be read"), "{name}: {refused}");
-        assert!(refused.contains(name), "{name}: {refused}");
+        assert!(matches!(&refused, StagedRefusal::Unreadable { path: at, .. } if *at == path));
         std::fs::write(&path, kept).unwrap();
     }
     assert!(layout.argv(&["true"]).is_ok());
@@ -900,15 +894,14 @@ fn a_staged_file_that_is_not_what_the_runner_mounts_is_refused() {
     let mask = layout.trusted.join(MASK_FILE);
     std::fs::remove_file(&mask).unwrap();
     std::fs::create_dir(&mask).unwrap();
-    let refused = refuse();
-    assert!(refused.contains("is not a regular file"), "{refused}");
-    assert!(refused.contains("MS_NODEV"), "{refused}");
+    let path = mask.clone();
+    assert_eq!(refuse(), StagedRefusal::NotAFile { path });
     std::fs::remove_dir(&mask).unwrap();
 
     // The mask stands for a config nobody wrote, so content is a refusal.
     std::fs::write(&mask, "[core]\n").unwrap();
-    let refused = refuse();
-    assert!(refused.contains("is not empty"), "{refused}");
+    let (path, bytes) = (mask.clone(), 7);
+    assert_eq!(refuse(), StagedRefusal::NotEmpty { path, bytes });
     std::fs::write(&mask, "").unwrap();
 
     // The two pointers are the other way round: git reads each as a path,
@@ -917,8 +910,8 @@ fn a_staged_file_that_is_not_what_the_runner_mounts_is_refused() {
         let path = layout.trusted.join(name);
         let kept = std::fs::read(&path).unwrap();
         std::fs::write(&path, "").unwrap();
-        let refused = refuse();
-        assert!(refused.contains("is empty"), "{name}: {refused}");
+        let empty = StagedRefusal::Empty { path: path.clone() };
+        assert_eq!(refuse(), empty, "{name}");
         std::fs::write(&path, kept).unwrap();
     }
     assert!(layout.argv(&["true"]).is_ok());
@@ -947,6 +940,12 @@ fn staged_files_the_profile_would_let_the_box_write_are_refused() {
             &["true"],
         ))
     };
+    let writable = |trusted: &Path, root: &Path| {
+        RunnerRefusal::Staged(StagedRefusal::Writable {
+            trusted: trusted.to_path_buf(),
+            root: root.to_path_buf(),
+        })
+    };
 
     // The profile dsh composes today leaves them alone.
     assert!(refuse_with(&plain, &layout.trusted).is_ok());
@@ -967,11 +966,8 @@ fn staged_files_the_profile_would_let_the_box_write_are_refused() {
             destination.clone(),
         ]);
         let refused = refuse_with(&profile, &layout.trusted).unwrap_err();
-        assert!(refused.contains("this seat's box can write"), "{refused}");
-        assert!(
-            refused.contains(&layout.dir.path().display().to_string()),
-            "{flag} {destination}: {refused}"
-        );
+        let under = writable(&layout.trusted, layout.dir.path());
+        assert_eq!(refused, under, "{flag} {destination}");
     }
 
     // An overlay's WORKING directory is a host path the box fills too,
@@ -985,11 +981,7 @@ fn staged_files_the_profile_would_let_the_box_write_are_refused() {
         "/dst".to_string(),
     ]);
     let refused = refuse_with(&overlay, &layout.trusted).unwrap_err();
-    assert!(refused.contains("this seat's box can write"), "{refused}");
-    assert!(
-        refused.contains(&layout.dir.path().display().to_string()),
-        "{refused}"
-    );
+    assert_eq!(refused, writable(&layout.trusted, layout.dir.path()));
 
     // A read-only bind of the same directory is not a way to write it.
     let mut read_only = plain.clone();
@@ -1010,8 +1002,7 @@ fn staged_files_the_profile_would_let_the_box_write_are_refused() {
             std::fs::write(inside.join(name), "x").unwrap();
         }
         let refused = refuse_with(&plain, &inside).unwrap_err();
-        assert!(refused.contains("this seat's box can write"), "{refused}");
-        assert!(refused.contains(&root.display().to_string()), "{refused}");
+        assert_eq!(refused, writable(&inside, root));
     }
 }
 
@@ -1026,95 +1017,74 @@ fn the_runner_refuses_a_malformed_scope_or_profile() {
             .collect::<Vec<_>>()
     };
     let head = ["--workspace", "/w", "--git-dir", "/g", "--common-dir", "/c"];
+    let refused = |parts: &[&str]| runner_argv(&s(parts)).unwrap_err();
+    use RunnerFlag::{Bwrap, CommonDir, GitDir, Store, Trusted, Workspace};
 
-    assert!(runner_argv(&s(&["--workspace"]))
-        .unwrap_err()
-        .contains("--workspace needs a path"));
-    assert!(runner_argv(&s(&[
-        "--workspace",
-        "/w",
-        "--git-dir",
-        "/g",
-        "--common-dir",
-        "/c",
-        "--workspace",
-        "/x"
-    ]))
-    .unwrap_err()
-    .contains("--workspace given twice"));
-    assert!(runner_argv(&s(&["--git-dir", "/g"]))
-        .unwrap_err()
-        .contains("--workspace is required"));
-    assert!(runner_argv(&s(&["--workspace", "/w"]))
-        .unwrap_err()
-        .contains("--git-dir is required"));
-    assert!(runner_argv(&s(&["--workspace", "/w", "--git-dir", "/g"]))
-        .unwrap_err()
-        .contains("--common-dir is required"));
-    assert!(runner_argv(&s(&head))
-        .unwrap_err()
-        .contains("--bwrap is required"));
-    assert!(
-        runner_argv(&s(&[&head[..], &["--bwrap", "/bin/bwrap"][..]].concat()))
-            .unwrap_err()
-            .contains("--store is required")
+    assert_eq!(
+        refused(&["--workspace"]),
+        RunnerRefusal::NeedsPath(Workspace)
     );
-    assert!(runner_argv(&s(&[
-        &head[..],
-        &["--bwrap", "/bin/bwrap", "--store", "/tmp/store"][..]
-    ]
-    .concat()))
-    .unwrap_err()
-    .contains("--trusted is required"));
-    assert!(runner_argv(&s(&[
-        &head[..],
-        &["--bwrap", "/bin/bwrap", "--bwrap", "/other/bwrap"][..]
-    ]
-    .concat()))
-    .unwrap_err()
-    .contains("--bwrap given twice"));
+    assert_eq!(
+        refused(&[&head[..], &["--workspace", "/x"][..]].concat()),
+        RunnerRefusal::GivenTwice(Workspace)
+    );
+    let required = RunnerRefusal::Required;
+    assert_eq!(refused(&["--git-dir", "/g"]), required(Workspace));
+    assert_eq!(refused(&["--workspace", "/w"]), required(GitDir));
+    assert_eq!(refused(&head[..4]), required(CommonDir));
+    assert_eq!(refused(&head), required(Bwrap));
+    let bwrap = ["--bwrap", "/bin/bwrap"];
+    assert_eq!(refused(&[&head[..], &bwrap[..]].concat()), required(Store));
+    let store = ["--store", "/tmp/store"];
+    assert_eq!(
+        refused(&[&head[..], &bwrap[..], &store[..]].concat()),
+        required(Trusted)
+    );
+    let again = ["--bwrap", "/other/bwrap"];
+    assert_eq!(
+        refused(&[&head[..], &bwrap[..], &again[..]].concat()),
+        RunnerRefusal::GivenTwice(Bwrap)
+    );
 
     // The runner execs an absolute bubblewrap and mounts absolute staged
     // directories; a relative one would be resolved by a working
     // directory the seat can move.
-    for flag in ["--bwrap", "--store", "--trusted"] {
-        let pick = |name: &str, absolute: &'static str| {
+    for flag in [Bwrap, Store, Trusted] {
+        let pick = |name: RunnerFlag, absolute: &'static str| {
             if name == flag {
                 "relative"
             } else {
                 absolute
             }
         };
-        let refused = runner_argv(&s(&[
-            &head[..],
+        let refused = refused(
             &[
-                "--bwrap",
-                pick("--bwrap", "/bin/bwrap"),
-                "--store",
-                pick("--store", "/tmp/store"),
-                "--trusted",
-                pick("--trusted", "/tmp/trusted"),
-            ][..],
-        ]
-        .concat()))
-        .unwrap_err();
-        assert!(
-            refused.contains("is not an absolute path"),
-            "{flag}: {refused}"
+                &head[..],
+                &[
+                    "--bwrap",
+                    pick(Bwrap, "/bin/bwrap"),
+                    "--store",
+                    pick(Store, "/tmp/store"),
+                    "--trusted",
+                    pick(Trusted, "/tmp/trusted"),
+                ][..],
+            ]
+            .concat(),
         );
-        assert!(refused.contains(flag), "{flag}: {refused}");
+        let path = PathBuf::from("relative");
+        assert_eq!(refused, RunnerRefusal::NotAbsolute { flag, path });
     }
 
     // A profile with no command separator, and a profile that does not
     // stand for the boundary the runner knows.
     let mut no_separator = runner_args(&layout, &profile, &[]);
     no_separator.truncate(no_separator.len() - 1);
-    assert!(runner_argv(&no_separator)
-        .unwrap_err()
-        .contains("no `--` before the command"));
+    let no_command = runner_argv(&no_separator).unwrap_err();
+    assert_eq!(no_command, RunnerRefusal::NoSeparator);
     let bad_profile = vec!["--ro-bind".to_string(), "/tmp".to_string()];
     let bad = runner_args(&layout, &bad_profile, &["true"]);
-    assert!(runner_argv(&bad).unwrap_err().contains("--ro-bind / /"));
+    let unrooted = runner_argv(&bad).unwrap_err();
+    assert_eq!(unrooted, RunnerRefusal::NotRootedReadOnly);
 }
 
 #[test]
@@ -1183,33 +1153,28 @@ fn the_overlay_row_quotes_every_path_and_refuses_a_line_break() {
         workspace: PathBuf::from("/work\nline"),
         ..scope.clone()
     };
-    assert!(
-        sandbox_row("brokkr", Path::new("/opt/bwrap"), &staged, &broken)
-            .unwrap_err()
-            .contains("spans more than one line")
+    let multiline = |path: &str| Err(RowRefusal::Multiline(path.to_string()));
+    let bwrap = Path::new("/opt/bwrap");
+    assert_eq!(
+        sandbox_row("brokkr", bwrap, &staged, &broken),
+        multiline("/work\nline")
     );
     // The program itself is a scalar too, and gets the same refusal.
-    assert!(sandbox_row(
-        "/opt/brokkr\nline",
-        Path::new("/opt/bwrap"),
-        &staged,
-        &scope
-    )
-    .unwrap_err()
-    .contains("spans more than one line"));
-    assert!(sandbox_row(
-        "/opt/brokkr\rline",
-        Path::new("/opt/bwrap"),
-        &staged,
-        &scope
-    )
-    .unwrap_err()
-    .contains("spans more than one line"));
+    let program = "/opt/brokkr\nline";
+    assert_eq!(
+        sandbox_row(program, bwrap, &staged, &scope),
+        multiline(program)
+    );
+    let program = "/opt/brokkr\rline";
+    assert_eq!(
+        sandbox_row(program, bwrap, &staged, &scope),
+        multiline(program)
+    );
     // So is the bubblewrap.
-    assert!(
-        sandbox_row("brokkr", Path::new("/opt/bwrap\nline"), &staged, &scope)
-            .unwrap_err()
-            .contains("spans more than one line")
+    let bwrap = Path::new("/opt/bwrap\nline");
+    assert_eq!(
+        sandbox_row("brokkr", bwrap, &staged, &scope),
+        multiline("/opt/bwrap\nline")
     );
 }
 
@@ -1218,10 +1183,7 @@ fn a_bwrap_that_is_not_there_is_not_usable() {
     let missing = std::path::Path::new("/nonexistent/bwrap");
     assert!(!bwrap_usable(missing));
     let refusal = require_usable_bwrap(missing).unwrap_err();
-    assert!(
-        refusal.contains("cannot build the empty-root namespace"),
-        "{refusal}"
-    );
+    assert_eq!(refusal, RowRefusal::Unusable(missing.to_path_buf()));
 }
 
 /// The staged store is a real git common directory the seat can write
@@ -1313,7 +1275,7 @@ fn staging_refuses_a_host_or_a_worktree_that_cannot_carry_a_seat() {
         ))
     };
     let refused = stage_seat_store_with("git", &layout.scope, full).unwrap_err();
-    assert!(refused.contains("could not stage"), "{refused}");
+    assert_eq!(refused, StoreError::Staging("no room".into()));
 
     // A `git` that cannot be run at all is a failure and never an answer:
     // the staging asks git which ref backend the repository uses and where
@@ -1321,7 +1283,10 @@ fn staging_refuses_a_host_or_a_worktree_that_cannot_carry_a_seat() {
     // would start a seat on questions nobody answered.
     let refused =
         stage_seat_store_with("brokkr-no-such-git", &layout.scope, tempfile::tempdir).unwrap_err();
-    assert!(refused.contains("could not run"), "{refused}");
+    assert!(
+        matches!(refused, StoreError::CouldNotRun { .. }),
+        "{refused}"
+    );
     // The SECOND directory is staged too, and fails the same way.
     let mut made = 0;
     let refused = stage_seat_store_with("git", &layout.scope, || {
@@ -1333,7 +1298,7 @@ fn staging_refuses_a_host_or_a_worktree_that_cannot_carry_a_seat() {
         }
     })
     .unwrap_err();
-    assert!(refused.contains("could not stage"), "{refused}");
+    assert_eq!(refused, StoreError::Staging("no room".into()));
     // And so does writing into them.
     let mut made = 0;
     let refused = stage_seat_store_with("git", &layout.scope, || {
@@ -1345,7 +1310,7 @@ fn staging_refuses_a_host_or_a_worktree_that_cannot_carry_a_seat() {
         Ok(dir)
     })
     .unwrap_err();
-    assert!(refused.contains("could not stage"), "{refused}");
+    assert!(matches!(refused, StoreError::Staging(_)), "{refused}");
 
     // A shared directory with no `worktrees` tree at all is not a
     // conflict, and not a panic either.
@@ -1366,9 +1331,13 @@ fn staging_refuses_a_host_or_a_worktree_that_cannot_carry_a_seat() {
         "ref: refs/heads/slice\n",
     )
     .unwrap();
+    let taken = |other: &Path| StoreError::BranchTaken {
+        workspace: layout.scope.workspace.clone(),
+        reference: "refs/heads/slice".into(),
+        other: other.to_path_buf(),
+    };
     let refused = stage_seat_store(&layout.scope).unwrap_err();
-    assert!(refused.contains("and so does"), "{refused}");
-    assert!(refused.contains("owned by neither"), "{refused}");
+    assert_eq!(refused, taken(&layout.scope.common_dir));
     // A sibling worktree claiming it is the same refusal.
     std::fs::write(
         layout.scope.common_dir.join("HEAD"),
@@ -1382,29 +1351,22 @@ fn staging_refuses_a_host_or_a_worktree_that_cannot_carry_a_seat() {
     std::fs::create_dir_all(&sibling).unwrap();
     std::fs::write(sibling.join("HEAD"), "ref: refs/heads/slice\n").unwrap();
     let refused = stage_seat_store(&layout.scope).unwrap_err();
-    assert!(
-        refused.contains(&sibling.display().to_string()),
-        "{refused}"
-    );
+    assert_eq!(refused, taken(&sibling));
     std::fs::write(sibling.join("HEAD"), "ref: refs/heads/sibling\n").unwrap();
     assert!(stage_seat_store(&layout.scope).is_ok());
 
     // A detached HEAD owns no ref, so there is nothing a commit could be
     // promoted to, and the seat is told so before it starts.
     std::fs::write(layout.scope.git_dir.join("HEAD"), "a".repeat(40)).unwrap();
-    let refused = stage_seat_store(&layout.scope).unwrap_err();
-    assert!(refused.contains("no branch checked out"), "{refused}");
-    assert!(refused.contains("git switch"), "{refused}");
+    let workspace = layout.scope.workspace.clone();
+    let no_branch = StoreError::NoBranch { workspace };
+    assert_eq!(stage_seat_store(&layout.scope).unwrap_err(), no_branch);
     // So does a HEAD naming something that is not a branch, and a missing
     // one.
     std::fs::write(layout.scope.git_dir.join("HEAD"), "ref: refs/tags/v1\n").unwrap();
-    assert!(stage_seat_store(&layout.scope)
-        .unwrap_err()
-        .contains("no branch checked out"));
+    assert_eq!(stage_seat_store(&layout.scope).unwrap_err(), no_branch);
     std::fs::remove_file(layout.scope.git_dir.join("HEAD")).unwrap();
-    assert!(stage_seat_store(&layout.scope)
-        .unwrap_err()
-        .contains("no branch checked out"));
+    assert_eq!(stage_seat_store(&layout.scope).unwrap_err(), no_branch);
 }
 
 /// The copy that builds the private ref store: trees, files, absent
@@ -1670,13 +1632,15 @@ fn a_store_the_driver_could_not_take_back_is_not_offered_to_git() {
     let staged = stage_seat_store(&repo.scope).unwrap();
     let store = staged.store_path().to_path_buf();
     let kept = keep_store(staged, "the promotion refused");
-    assert!(kept.contains("the promotion refused"), "{kept}");
-    assert!(
-        kept.contains(&format!(
-            "git --git-dir={} log refs/heads/slice",
-            store.display()
-        )),
-        "{kept}"
+    let (problem, reference) = ("the promotion refused", "refs/heads/slice".to_string());
+    let path = store.clone();
+    assert_eq!(
+        kept,
+        KeptStore::Reclaimed {
+            problem,
+            path,
+            reference: reference.clone()
+        }
     );
     std::fs::remove_dir_all(&store).unwrap();
 
@@ -1686,22 +1650,20 @@ fn a_store_the_driver_could_not_take_back_is_not_offered_to_git() {
     let store = staged.store_path().to_path_buf();
     std::fs::remove_dir_all(&store).unwrap();
     let kept = keep_store(staged, "the promotion refused");
-    assert!(kept.contains(&store.display().to_string()), "{kept}");
+    let KeptStore::Unreclaimed {
+        path, alternates, ..
+    } = &kept
+    else {
+        panic!("{kept:?}");
+    };
+    assert_eq!(path, &store);
     // Not one command an operator could paste points git at this
     // directory: `--git-dir` appears only as the thing a surviving
     // `commondir` would redirect, never with a path bound to it.
-    assert!(!kept.contains("--git-dir="), "{kept}");
-    assert!(
-        kept.contains("NOT a repository the driver authored"),
-        "{kept}"
-    );
+    assert!(!kept.to_string().contains("--git-dir="), "{kept}");
     // And the reclaim in words is the reclaim the driver would have run.
-    assert!(
-        kept.contains(alternates_line(&repo.scope.common_dir).trim_end()),
-        "{kept}"
-    );
-    assert!(kept.contains("ref: refs/heads/slice"), "{kept}");
-    assert!(kept.contains("remove `objects/info` too"), "{kept}");
+    let line = alternates_line(&repo.scope.common_dir);
+    assert_eq!(alternates, line.trim_end());
 }
 
 /// A real repository, a real linked worktree, and a real private store:
@@ -1947,8 +1909,14 @@ fn a_promotion_that_cannot_happen_keeps_the_store_and_names_it() {
     commit(&staged);
     let store = staged.store_path().to_path_buf();
     let refused = promote_seat_commits_with("brokkr-no-such-git", staged, &repo.scope).unwrap_err();
-    assert!(refused.contains("could not run"), "{refused}");
-    assert!(refused.contains(&store.display().to_string()), "{refused}");
+    let KeptStore::Reclaimed { problem, path, .. } = *refused else {
+        panic!("{refused:?}");
+    };
+    assert!(
+        matches!(problem, StoreError::CouldNotRun { .. }),
+        "{problem}"
+    );
+    assert_eq!(path, store);
     assert!(store.exists(), "the store is kept, not discarded");
     std::fs::remove_dir_all(&store).unwrap();
 
@@ -1961,7 +1929,13 @@ fn a_promotion_that_cannot_happen_keeps_the_store_and_names_it() {
     std::fs::remove_dir_all(&store).unwrap();
     let refused = promote_seat_commits(staged, &repo.scope).unwrap_err();
     assert!(
-        refused.contains("take the seat's private git store back"),
+        matches!(
+            *refused,
+            KeptStore::Unreclaimed {
+                problem: StoreError::Reclaim(_),
+                ..
+            }
+        ),
         "{refused}"
     );
 
@@ -2038,18 +2012,22 @@ fn a_promotion_step_that_refuses_keeps_the_store_and_names_that_step() {
             let anchor = staged.promotion_ref.clone();
             let refused = promote_seat_commits_with(&shim.to_string_lossy(), staged, &repo.scope)
                 .unwrap_err();
-            if refused.contains("fake git refusing") {
-                assert!(refused.contains(&store.display().to_string()), "{refused}");
+            let KeptStore::Reclaimed { problem, path, .. } = &*refused else {
+                panic!("{refused:?}");
+            };
+            if let StoreError::GitFailed { args, stderr } = problem {
+                assert!(args.join(" ").contains(needle), "{needle}: {refused}");
+                assert!(stderr.contains("fake git refusing"), "{refused}");
+                assert_eq!(path, &store);
                 assert!(store.exists(), "{needle}: the store is kept");
                 std::fs::remove_dir_all(&store).unwrap();
                 repo.git(&repo.main, &["update-ref", "-d", &anchor, "--no-deref"]);
                 repo.git(&repo.main, &["update-ref", "refs/heads/slice", &repo.base]);
                 break;
             }
-            assert!(
-                refused.contains("Text file busy") && attempts < 3,
-                "{needle}: {refused}"
-            );
+            let busy = matches!(problem, StoreError::CouldNotRun { cause, .. }
+                if cause.contains("Text file busy"));
+            assert!(busy && attempts < 3, "{needle}: {refused}");
             // The busy spawn kept its store through the same keep path; sweep
             // it here so the retry starts clean, then back off briefly.
             std::fs::remove_dir_all(&store).unwrap_or(());
@@ -2097,10 +2075,21 @@ fn a_branch_the_host_moved_while_the_seat_ran_is_not_overwritten() {
     );
 
     let refused = promote_seat_commits(staged, &repo.scope).unwrap_err();
-    assert!(refused.contains("moved on the host"), "{refused}");
-    assert!(refused.contains(&repo.base), "{refused}");
-    assert!(refused.contains(&concurrent), "{refused}");
-    assert!(refused.contains(&store.display().to_string()), "{refused}");
+    let moved = StoreError::Moved {
+        reference: "refs/heads/slice".into(),
+        baseline: Some(repo.base.clone()),
+        now: Some(concurrent.clone()),
+    };
+    let (path, reference) = (store.clone(), "refs/heads/slice".into());
+    let problem = moved;
+    assert_eq!(
+        *refused,
+        KeptStore::Reclaimed {
+            problem,
+            path,
+            reference
+        }
+    );
     // The host keeps what the host wrote, and the seat keeps its commits.
     assert_eq!(repo.host_ref("refs/heads/slice"), concurrent);
     assert!(store.exists(), "the store is kept, not discarded");
@@ -2178,11 +2167,12 @@ fn a_bare_parent_is_not_a_second_checkout_on_the_branch() {
     )
     .unwrap();
     let refused = stage_seat_store(&repo.scope).unwrap_err();
-    assert!(refused.contains("owned by neither"), "{refused}");
-    assert!(
-        refused.contains(&repo.scope.common_dir.display().to_string()),
-        "{refused}"
-    );
+    let taken = StoreError::BranchTaken {
+        workspace: repo.scope.workspace.clone(),
+        reference: "refs/heads/slice".into(),
+        other: repo.scope.common_dir.clone(),
+    };
+    assert_eq!(refused, taken);
 }
 
 /// The private store reproduces the `files` ref backend, and only that
@@ -2204,11 +2194,14 @@ fn a_ref_backend_the_private_store_cannot_reproduce_refuses_at_staging() {
 
     Repo::run(&repo.main, &["config", "extensions.refstorage", "reftable"]);
     let refused = stage_seat_store(&repo.scope).unwrap_err();
-    assert!(refused.contains("reftable"), "{refused}");
-    assert!(refused.contains("git refs migrate"), "{refused}");
-    assert!(
-        refused.contains(&repo.scope.common_dir.display().to_string()),
-        "{refused}"
+    let common_dir = repo.scope.common_dir.clone();
+    let backend = "reftable".to_string();
+    assert_eq!(
+        refused,
+        StoreError::RefBackend {
+            common_dir,
+            backend
+        }
     );
 }
 
@@ -2927,17 +2920,17 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         std::fs::canonicalize(&common).unwrap()
     );
     let refuse = |scope: &GitScope, workspace: &Path| {
-        runner_argv(&runner_args_for(
+        scope_refused(runner_argv(&runner_args_for(
             &bwrap,
             scope,
             staged.store_path(),
             staged.trusted_path(),
             &dsh_workspace_write_profile(workspace),
             &["true"],
-        ))
-        .unwrap_err()
+        )))
     };
-    assert!(refuse(&hostile_scope, &hostile).contains("administrative directories"));
+    let refused = refuse(&hostile_scope, &hostile);
+    assert!(matches!(refused, ScopeRefusal::NotAdministrative { .. }));
 
     // The ALIAS variant, against the same real git: a seat whose own
     // `.git` is a symlink to this worktree's `.git` file. Git resolves a
@@ -2963,15 +2956,14 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         std::fs::canonicalize(&alias_scope.common_dir).unwrap(),
         std::fs::canonicalize(&common).unwrap()
     );
-    assert!(refuse(&alias_scope, &alias).contains("symbolic link"));
+    let symlink = refuse(&alias_scope, &alias);
+    assert!(matches!(symlink, ScopeRefusal::SymlinkedGit { .. }));
     std::fs::remove_file(alias.join(".git")).unwrap();
     std::fs::copy(worktree.join(".git"), alias.join(".git")).unwrap();
     let refused = refuse(&alias_scope, &alias);
-    assert!(refused.contains("another worktree's metadata"), "{refused}");
-    assert!(
-        refused.contains(&worktree.display().to_string()),
-        "the refusal names the worktree that owns the metadata: {refused}"
-    );
+    let own = |r: &Path| same_place(&r.to_string_lossy(), &worktree.join(".git"));
+    let ok = matches!(&refused, ScopeRefusal::OtherWorktree { recorded, .. } if own(recorded));
+    assert!(ok, "the refusal names the owning worktree: {refused}");
 
     // An ordinary standalone repository still works under the runner: no
     // scoped bind is added and the workspace bind covers its `.git`.

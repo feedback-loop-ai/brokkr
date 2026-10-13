@@ -5528,7 +5528,7 @@ fn dsh_failure_before_promotion(
     staged: Option<(String, dsh_sandbox::GitScope, dsh_sandbox::SeatGitStore)>,
 ) -> String {
     match staged {
-        Some((_, _, staged)) => dsh_sandbox::keep_store(staged, problem),
+        Some((_, _, staged)) => dsh_sandbox::keep_store(staged, problem).to_string(),
         None => problem,
     }
 }

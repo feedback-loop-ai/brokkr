@@ -14,6 +14,9 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+#[cfg(unix)]
+use brokkr_protocol::dsh_sandbox::{RunnerRefusal, ScopeRefusal, RUNNER_FAILURE_SIGNATURE};
+
 fn brokkr(args: &[&str], path: &Path, dump: Option<&Path>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
     command.args(args).env("PATH", path);
@@ -291,36 +294,34 @@ fn the_runner_refuses_a_malformed_profile_and_a_missing_bwrap_as_runner_failures
     args.extend(["--ro-bind", "/", "/"].map(str::to_string));
     let run = brokkr(&borrow(&args), layout.dir.path(), None);
     assert_eq!(run.status.code(), Some(127));
-    let stderr = String::from_utf8_lossy(&run.stderr);
-    assert!(stderr.contains("brokkr-dsh-sandbox-runner: "), "{stderr}");
-    assert!(stderr.contains("no `--` before the command"), "{stderr}");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stderr),
+        "brokkr-dsh-sandbox-runner: dsh sandbox runner: the profile has no `--` before the \
+         command\n"
+    );
 
     // The profile is well formed but the named bubblewrap is not there:
     // the exec refusal carries the same runner-failure signature.
     let empty = tempfile::tempdir().unwrap();
-    let args = runner_args(
-        &layout,
-        Path::new("/nonexistent/bwrap"),
-        &["--ro-bind", "/", "/", "--bind", &workspace, &workspace],
-        &["true"],
-    );
-    let run = brokkr(&borrow(&args), empty.path(), None);
-    assert_eq!(run.status.code(), Some(127));
-    let stderr = String::from_utf8_lossy(&run.stderr);
+    // The runner's stderr for a well-formed profile naming `bwrap`.
+    let failed_with = |bwrap: &str| {
+        let profile = ["--ro-bind", "/", "/", "--bind", &workspace, &workspace];
+        let args = runner_args(&layout, Path::new(bwrap), &profile, &["true"]);
+        let run = brokkr(&borrow(&args), empty.path(), None);
+        assert_eq!(run.status.code(), Some(127));
+        String::from_utf8_lossy(&run.stderr).into_owned()
+    };
+    let stderr = failed_with("/nonexistent/bwrap");
     assert!(stderr.contains("brokkr-dsh-sandbox-runner: "), "{stderr}");
 
     // A relative bubblewrap is refused before any exec: the runner never
     // resolves one through a working directory the seat can move.
-    let args = runner_args(
-        &layout,
-        Path::new("bwrap"),
-        &["--ro-bind", "/", "/", "--bind", &workspace, &workspace],
-        &["true"],
+    assert_eq!(
+        failed_with("bwrap"),
+        "brokkr-dsh-sandbox-runner: dsh sandbox runner: --bwrap bwrap is not an absolute path; \
+         the runner uses the host paths the driver staged and never a `PATH` or \
+         working-directory lookup\n"
     );
-    let run = brokkr(&borrow(&args), empty.path(), None);
-    assert_eq!(run.status.code(), Some(127));
-    let stderr = String::from_utf8_lossy(&run.stderr);
-    assert!(stderr.contains("is not an absolute path"), "{stderr}");
 }
 
 /// Decision 0054: the runner serves ONE layout, and refuses the rest with
@@ -382,18 +383,18 @@ fn the_runner_refuses_every_layout_that_is_not_a_linked_worktree() {
         Path::new("/repo/.git"),
         Path::new("/repo/.git"),
     );
-    assert!(
-        shared.contains("shared repository's own git directory"),
-        "{shared}"
-    );
+    let git_dir = PathBuf::from("/repo/.git");
+    let refusal = RunnerRefusal::Scope(ScopeRefusal::SharedGitDir { git_dir });
+    assert_eq!(shared, format!("{RUNNER_FAILURE_SIGNATURE}{refusal}\n"));
 
     // The redirect: a `.git` file and a fake administrative directory the
     // seat wrote inside its own workspace, naming another repository.
     let seat = layout.dir.path().join("seat");
     std::fs::create_dir_all(seat.join("fake")).unwrap();
     let redirected = refuse(&seat, &seat.join("fake"), &layout.common_dir);
-    assert!(
-        redirected.contains("administrative directories"),
-        "{redirected}"
-    );
+    let refusal = RunnerRefusal::Scope(ScopeRefusal::NotAdministrative {
+        git_dir: seat.join("fake"),
+        administrative: layout.common_dir.join("worktrees"),
+    });
+    assert_eq!(redirected, format!("{RUNNER_FAILURE_SIGNATURE}{refusal}\n"));
 }
