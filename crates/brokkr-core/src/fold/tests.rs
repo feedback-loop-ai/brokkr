@@ -484,13 +484,13 @@ fn a_decision_severity_in_map_form_fails_the_fold() {
             result: json!({}),
         });
         let decided = json!({"from": "verify", "result": "pass", "severity": { word: null }});
-        let refused = apply(&mut current, &event(EventType::TransitionDecided, decided))
-            .unwrap_err()
-            .to_string();
         assert_eq!(
-            refused,
-            "event 2: transition/decided payload does not read: \
-             invalid type: map, expected a ruling severity string"
+            apply(&mut current, &event(EventType::TransitionDecided, decided)),
+            Err(FoldError::BadDecision {
+                seq: 2,
+                detail: "invalid type: map, expected a ruling severity string".into(),
+            }),
+            "{word}"
         );
         assert_eq!(current.last_decision, None, "{word} folded");
     }
