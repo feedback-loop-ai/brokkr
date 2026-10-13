@@ -990,7 +990,7 @@ fn doctor_names_every_unpinned_model_seat_and_the_single_repair() {
         serde_json::from_str(&std::fs::read_to_string(&bundle_file).unwrap()).unwrap();
     for (phase, charter, kind) in [
         ("implement", "implementer", "claude"),
-        ("verify", "verifier", "codex"),
+        ("verify", "reviewer", "codex"),
     ] {
         let seat = &mut config["seats"][phase];
         seat.as_object_mut().unwrap().remove("agent");

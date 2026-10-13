@@ -347,7 +347,8 @@ fn inline_pins(
         adapter: declarer.to_string(),
         flags,
     };
-    let primary = match inline_route_pin(raw, own) {
+    let parts = command_parts(raw);
+    let primary = match inline_route_pin(&parts, own) {
         ModelPin::Concrete(concrete) => concrete,
         ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
         ModelPin::Absent => {
@@ -357,7 +358,7 @@ fn inline_pins(
             });
         }
     };
-    let fallback = match route_pin(raw, FALLBACK_FLAG) {
+    let fallback = match route_pin(&parts, FALLBACK_FLAG) {
         ModelPin::Concrete(concrete) => Some(concrete),
         ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
         ModelPin::Absent => None,

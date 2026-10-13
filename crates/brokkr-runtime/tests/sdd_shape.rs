@@ -212,8 +212,8 @@ fn loops_are_check_then_judge_and_only_zero_advances() {
     }
 }
 
-#[test]
-fn a_loop_check_is_skipped_only_when_the_dialect_declares_it_unsupported() {
+/// Openspec, but declaring its clarify check unsupported.
+fn unsupported_clarify_check() -> Dialect {
     let path = root().join("dialects/openspec.json");
     let mut value: serde_json::Value =
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
@@ -223,12 +223,51 @@ fn a_loop_check_is_skipped_only_when_the_dialect_declares_it_unsupported() {
         .unwrap()
         .0;
     dialect.render(&root().join("dialects")).unwrap();
-    let bundle = compile(Some(&dialect)).unwrap();
+    dialect
+}
+
+#[test]
+fn a_loop_check_is_skipped_only_when_the_dialect_declares_it_unsupported() {
+    let bundle = compile(Some(&unsupported_clarify_check())).unwrap();
     let SeatBody::Sequence { steps } = &bundle.seats["clarify"].body else {
         panic!("clarify remains an executable sequence");
     };
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].name, "judge");
+}
+
+/// The whole-effect fact `has_gate` counts each step a sequence WROTE by
+/// the class it wrote (#349): a loop's dialect check writes none, so
+/// clarify and analyze are no whole gate though the check compiles as one,
+/// and a check the dialect does not supply still counts though it compiles
+/// no step.
+#[test]
+fn a_dialect_step_makes_no_seat_a_whole_gate() {
+    let openspec = Dialect::load(&root().join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    let gates = |dialect: &Dialect| {
+        let bundle = compile(Some(dialect)).unwrap();
+        let phases = [
+            "triage",
+            "review",
+            "implement",
+            "specify",
+            "clarify",
+            "design",
+        ];
+        let phases = phases.into_iter().chain(["tasks", "analyze"]);
+        let gate = |phase| (phase, bundle.seats[phase].has_gate);
+        phases.map(gate).collect::<Vec<_>>()
+    };
+    let expected = [("triage", true), ("review", true), ("implement", false)];
+    let dialect_seats = ["specify", "clarify", "design", "tasks", "analyze"];
+    let expected: Vec<_> = expected
+        .into_iter()
+        .chain(dialect_seats.map(|phase| (phase, false)))
+        .collect();
+    assert_eq!(gates(&openspec), expected);
+    assert_eq!(gates(&unsupported_clarify_check()), expected);
 }
 
 #[test]

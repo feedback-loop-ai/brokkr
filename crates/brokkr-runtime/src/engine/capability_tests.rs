@@ -2,7 +2,8 @@
 //! the fence a run is started behind.
 
 use super::tests::{
-    bundle, capturing_driver_command, engine, member, single_body, state, templated,
+    bundle, capturing_driver_command, draft_then_finish, engine, member, single_body, state,
+    templated,
 };
 use super::*;
 use crate::capabilities::{Authority, NativeInventory, Serving, SiteAsks, SiteCapabilities};
@@ -233,30 +234,15 @@ fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
             json!({"result": result, "notes": name}),
         )
     };
-    let steps = vec![
-        SequenceStep {
-            name: "draft".into(),
-            class: SeatClass::Work,
-            results: vec!["drafted".into()],
-            body: StepBody::Single {
-                role_path: "draft.md".into(),
-                command: vec!["never-run: the selected link's argv replaces it".into()],
-                candidates: Vec::new(),
-            },
-        },
-        SequenceStep {
-            name: "finish".into(),
-            class: SeatClass::Work,
-            results: vec!["pass".into(), "fail".into()],
-            body: StepBody::Panel {
-                members: vec![
-                    member("final", vec!["never-run".into()]),
-                    member("peer", capturing("peer", "pass")),
-                ],
-                aggregate: Aggregate::UnanimousPass,
-            },
-        },
-    ];
+    let steps = draft_then_finish(
+        "draft.md",
+        vec!["never-run: the selected link's argv replaces it".into()],
+        &["drafted"],
+        vec![
+            member("final", vec!["never-run".into()]),
+            member("peer", capturing("peer", "pass")),
+        ],
+    );
     let (_dir, mut engine) = engine(SeatBody::Sequence {
         steps: steps.clone(),
     });
@@ -937,30 +923,15 @@ fn every_dispatch_composes_the_lowered_allow_of_its_own_site() {
     );
 
     // A sequence step and the two members of a panel step inside it.
-    let steps = vec![
-        SequenceStep {
-            name: "draft".into(),
-            class: SeatClass::Work,
-            results: vec!["drafted".into()],
-            body: StepBody::Single {
-                role_path: "draft.md".into(),
-                command: argv_capturing("draft", &captures, "drafted"),
-                candidates: Vec::new(),
-            },
-        },
-        SequenceStep {
-            name: "finish".into(),
-            class: SeatClass::Work,
-            results: vec!["pass".into(), "fail".into()],
-            body: StepBody::Panel {
-                members: vec![
-                    member("a", argv_capturing("a", &captures, "pass")),
-                    member("b", argv_capturing("b", &captures, "pass")),
-                ],
-                aggregate: Aggregate::UnanimousPass,
-            },
-        },
-    ];
+    let steps = draft_then_finish(
+        "draft.md",
+        argv_capturing("draft", &captures, "drafted"),
+        &["drafted"],
+        vec![
+            member("a", argv_capturing("a", &captures, "pass")),
+            member("b", argv_capturing("b", &captures, "pass")),
+        ],
+    );
     let (_dir, mut engine) = canonical_engine(SeatBody::Sequence {
         steps: steps.clone(),
     });
@@ -1568,6 +1539,8 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
         role_path: role,
         command: capturing("single", "complete"),
         candidates: Vec::new(),
+        written: Vec::new(),
+        class: SeatClass::Work,
     };
     engine.drive().unwrap();
     let single = handed("single");
@@ -1610,6 +1583,8 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
                 role_path: chore,
                 command: capturing("chore", "complete"),
                 candidates: Vec::new(),
+                written: Vec::new(),
+                class: SeatClass::Work,
             },
         )]
         .into_iter()
@@ -1618,9 +1593,9 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
             role_path: default,
             command: capturing("default", "complete"),
             candidates: Vec::new(),
+            written: Vec::new(),
+            class: SeatClass::Work,
         })),
-        case_gates: BTreeMap::new(),
-        default_gate: false,
     };
     engine.drive().unwrap();
     assert!(!captures.join("chore.json").exists());
@@ -1657,36 +1632,21 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
             )),
         );
         let peer = chartered(&mut engine, "work:finish:peer", "peer", None);
-        let steps = vec![
-            SequenceStep {
-                name: "draft".into(),
-                class: SeatClass::Work,
-                results: vec!["drafted".into()],
-                body: StepBody::Single {
-                    role_path: draft,
-                    command: vec!["never-run: the selected link's argv replaces it".into()],
-                    candidates: Vec::new(),
+        let steps = draft_then_finish(
+            draft,
+            vec!["never-run: the selected link's argv replaces it".into()],
+            &["drafted"],
+            vec![
+                PanelMember {
+                    role_path: last,
+                    ..member("final", vec!["never-run".into()])
                 },
-            },
-            SequenceStep {
-                name: "finish".into(),
-                class: SeatClass::Work,
-                results: vec!["pass".into(), "fail".into()],
-                body: StepBody::Panel {
-                    members: vec![
-                        PanelMember {
-                            role_path: last,
-                            ..member("final", vec!["never-run".into()])
-                        },
-                        PanelMember {
-                            role_path: peer,
-                            ..member("peer", capturing("peer", "pass"))
-                        },
-                    ],
-                    aggregate: Aggregate::UnanimousPass,
+                PanelMember {
+                    role_path: peer,
+                    ..member("peer", capturing("peer", "pass"))
                 },
-            },
-        ];
+            ],
+        );
         let seat = engine.bundle.seats.get_mut("work").unwrap();
         seat.body = SeatBody::Sequence {
             steps: steps.clone(),
