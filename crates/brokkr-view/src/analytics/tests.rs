@@ -557,8 +557,10 @@ fn the_edges_of_the_journal_are_read_as_the_readout_says() {
         payload
     };
     let operator = Journal::started(None, "2026-10-10T00:00:00Z")
-        // A ruling from a step other than review is no review's route.
-        .ruled("implement", Some("review"), "2026-10-10T00:20:00Z")
+        .entered("intake", "2026-10-10T00:10:00Z")
+        // A ruling from a step other than review is no review's route,
+        // even back to a step the run had entered.
+        .ruled("implement", Some("intake"), "2026-10-10T00:20:00Z")
         .entered("review", "2026-10-10T00:30:00Z")
         .then(EventType::PhaseEntered, json!({"phase": "lost"}), "not a time")
         .then(EventType::RunParked, json!({}), "2026-10-10T01:00:00Z")
@@ -608,6 +610,10 @@ fn the_edges_of_the_journal_are_read_as_the_readout_says() {
     assert_eq!(week.waiting_by_step.len(), 1);
     assert_eq!(week.waiting_by_step[0].phase.as_deref(), Some("review"));
     assert_eq!(week.waiting_by_step[0].waiting_millis, 2 * 3_600_000);
+    // The implement ruling back to intake is no review's: no review sent
+    // the run back, so no first review did either.
+    assert_eq!(week.rework.sent_back, 0);
+    assert_eq!(week.rework.second_try_of, 0);
     // Only the seat a start announced with a provider is a site, and its
     // model is the one its success named.
     let models: Vec<&str> = week
