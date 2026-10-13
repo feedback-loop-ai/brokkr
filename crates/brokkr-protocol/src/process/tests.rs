@@ -569,6 +569,30 @@ fn a_broken_pipe_at_the_offer_is_a_determinate_failure() {
     ));
 }
 
+/// A deadline kill that lands while `start` is still being written ends as
+/// every deadline kill does: the write it broke is no failure a retry may
+/// repeat (decision 0006's 2026-10-11 addendum, ruling 6).
+#[test]
+fn a_deadline_kill_during_the_start_write_is_the_deadlines_end() {
+    let dir = tempfile::tempdir().unwrap();
+    // A start larger than a pipe holds, of which the driver reads a little.
+    let driver = command(&format!(
+        "read -r hello; printf '%s\\n' '{}'; head -c 4096 >/dev/null; sleep 30",
+        capabilities()
+    ));
+    let input = json!({"blob": "x".repeat(1 << 20)});
+    let report = spawned(&driver, dir.path(), Some(Duration::from_secs(1))).run_attempt(
+        "test",
+        "effect",
+        "attempt",
+        "seat",
+        input,
+        |_| {},
+    );
+    deadline_failure(&report, 1);
+    assert!(!report.accepted);
+}
+
 #[test]
 fn a_driver_inherits_or_receives_exactly_the_selected_environment() {
     // No global environment mutation: a child test process reports the

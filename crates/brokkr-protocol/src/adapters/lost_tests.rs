@@ -185,6 +185,16 @@ const REFUSAL: &str = r#"printf '{"type":"error","message":"stream error: rate l
 /// one: every body it sent, whether it answered, and what the shim
 /// appended to its marker, once per run that reached it.
 fn codex(dir: &Path, script: &str, session: Option<&str>) -> (Vec<Body>, bool, String) {
+    codex_in(dir, dir, script, session)
+}
+
+/// [`codex`], the seat working in `workdir`.
+fn codex_in(
+    dir: &Path,
+    workdir: &Path,
+    script: &str,
+    session: Option<&str>,
+) -> (Vec<Body>, bool, String) {
     let mut env = EnvGuard::lock();
     let marker = dir.join("marker");
     std::fs::remove_file(&marker).ok();
@@ -201,6 +211,7 @@ fn codex(dir: &Path, script: &str, session: Option<&str>) -> (Vec<Body>, bool, S
     {
         input[key] = value.clone();
     }
+    input["workdir"] = json!(workdir);
     let start = json!({"effect_id": "effect", "attempt_id": "attempt", "input": input});
     let extra = ["--sandbox".to_string(), "read-only".into()];
     let mut bodies = Vec::new();
@@ -228,6 +239,22 @@ fn a_refusal_ended_by_a_signal_or_an_unsettled_rejoin_ends_lost() {
     let refused = "provider refused before the first turn: api_error: stream error: rate limit";
     let failed = Some((ResultStatus::Failed, None, Some(refused.into())));
     assert_eq!(ended(REFUSAL, None), (failed, true, "x".into()));
+}
+
+/// The version probe observes the harness, and is not the seat's spawn: a
+/// spawn refused after it, in a workdir that is not there, is the refusal
+/// before the session it always was, and a retry may repeat it.
+#[test]
+fn a_spawn_refused_after_the_version_probe_is_still_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    let absent = dir.path().join("absent");
+    let (bodies, answered, marked) = codex_in(dir.path(), &absent, "", None);
+    let refused = "could not invoke the agent CLI: No such file or directory (os error 2)";
+    let failed = Some((ResultStatus::Failed, None, Some(refused.into())));
+    assert_eq!(
+        (result(&bodies), answered, marked),
+        (failed, true, String::new())
+    );
 }
 
 /// A rejoin a signal ended is never replaced by a cold spawn within the

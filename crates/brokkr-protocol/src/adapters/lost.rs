@@ -30,6 +30,16 @@ pub(super) fn spawned() {
     SPAWNED.with(|spawned| spawned.set(true));
 }
 
+/// Run `probe`, which observes the harness and is not the seat's spawn: a
+/// version probe acts on nothing, so a spawn it made leaves the fact as
+/// it found it, and a refusal after it is still one before the session.
+pub(super) fn observing<T>(probe: impl FnOnce() -> T) -> T {
+    let before = SPAWNED.with(Cell::get);
+    let observed = probe();
+    SPAWNED.with(|spawned| spawned.set(before));
+    observed
+}
+
 /// An invocation's error. Before any spawn it is a refusal, sent as
 /// `failed`, which a retry may repeat because nothing ran. After one it
 /// is no result of the command's, so nothing is sent.

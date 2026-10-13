@@ -186,8 +186,10 @@ printf '{"type":"error","message":"stream error: rate limit"}\n'
 // dsh's headless profile makes no machine-readable refusal available: a
 // rejection reaches the driver as stderr prose plus a non-zero exit, and
 // the adapter must NOT sniff it (decision 0001). exec has no provider at
-// all. Both therefore accept and then fail, as decision 0006 has it.
+// all. Both therefore accept and then fail, as decision 0006 has it. The
+// prompt is read first: a write it refused would be no result at all.
 const REFUSING_STDERR_SHIM: &str = r#"#!/bin/sh
+cat > /dev/null
 echo "dsh: error: rate limit exceeded" >&2
 exit 1
 "#;

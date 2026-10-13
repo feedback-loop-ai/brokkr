@@ -308,6 +308,7 @@ exactly as it does for a driver the machine cannot reach.
 | You send `result` with `status: "failed"` | `failed` | A retry may follow, inside the seat's `max_attempts`; after `accepted` it is the SAME model, and the chain does not fall back. |
 | You violate the protocol in the handshake, before `start` | `failed` (driver defect) | A retry is a new attempt: nothing began. |
 | You violate the protocol after `start`: a foreign id, a message out of place, an unreadable line, a wrong `proto` | `indeterminate`, the violation's own words followed by `; no result was read after start, and what the attempt did is unknown` | The run **parks**: no result was read, so what the attempt did is unknown (decision 0006's 2026-10-11 addendum). |
+| You send `result` with `status: "succeeded"` and no `result` payload | `indeterminate`, reason `succeeded result carried no payload; no result was read after start, and what the attempt did is unknown` | The run **parks**, as for any end after `start` with no result read; a line the engine refused past a limit outranks it (decision 0079 ruling 3). |
 | The engine's deadline watchdog kills you | `indeterminate`, reason `attempt exceeded its Ns deadline and was killed; its process tree is gone, and what it did is unknown` | The run **parks**, whatever attempts are left and whether or not you had accepted: the kill proves your process tree gone, never what you did (decision 0006's 2026-10-11 addendum, ruling 6). |
 
 The reason indeterminacy always parks rather than retrying is decision
@@ -566,8 +567,10 @@ Exactly one `result` per `start`.
 ```
 
 - `status: "succeeded"` **must** carry a `result` object. A succeeded
-  result with a null payload is converted to a failure with the error
-  `succeeded result carried no payload`.
+  result with a null payload carries no result of the executor's, so it
+  ends `indeterminate`, reason `succeeded result carried no payload; no
+  result was read after start, and what the attempt did is unknown`, and
+  the run **parks** (decision 0006's 2026-10-11 addendum).
 - `status: "failed"` should carry an `error` string; the engine
   substitutes `driver reported failure` if you omit it.
 

@@ -486,6 +486,17 @@ impl DriverProcess {
         }
     }
 
+    /// A write to the driver that failed, `said` in its own words. A write
+    /// the watchdog's kill broke is the deadline's end, not a failure a
+    /// retry may repeat: `Lost`, which `eof_outcome` words (decision
+    /// 0006's 2026-10-11 addendum, ruling 6).
+    fn unsent(&self, said: String) -> Ended {
+        if self.timed_out.load(Ordering::SeqCst) {
+            return Ended::Lost;
+        }
+        Ended::Failed(said)
+    }
+
     /// Run one attempt to a terminal outcome. `on_checkpoint` is called
     /// with each checkpoint payload so the engine can journal it before
     /// the attempt concludes.
@@ -551,7 +562,8 @@ impl DriverProcess {
             if e.kind() == std::io::ErrorKind::BrokenPipe {
                 return self.end(Ended::Lost, account);
             }
-            fail!("could not greet driver: {e}");
+            let ended = self.unsent(format!("could not greet driver: {e}"));
+            return self.end(ended, account);
         }
         let supports = match self.recv() {
             Ok((
@@ -572,7 +584,8 @@ impl DriverProcess {
                 attempt_id: attempt_id.to_string(),
                 session_ref,
             }) {
-                fail!("could not send resume: {e}");
+                let ended = self.unsent(format!("could not send resume: {e}"));
+                return self.end(ended, account);
             }
         }
         if let Err(e) = self.send(Body::Start {
@@ -581,7 +594,8 @@ impl DriverProcess {
             seat: seat.to_string(),
             input,
         }) {
-            fail!("could not send start: {e}");
+            let ended = self.unsent(format!("could not send start: {e}"));
+            return self.end(ended, account);
         }
         let ended = self.converse(effect_id, &mut account, &mut on_checkpoint);
         self.end(ended, account)

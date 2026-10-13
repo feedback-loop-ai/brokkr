@@ -1237,7 +1237,7 @@ fn resume_gate(input: &Value, shape: &str) -> ResumeGate {
 /// cold invocation of an unmeasured shape spawns exactly what it spawned
 /// before this ruling.
 fn observed_version(command: &[String]) -> Option<String> {
-    let output = run_cli(command, None, "", &[]).ok()?;
+    let output = lost::observing(|| run_cli(command, None, "", &[])).ok()?;
     if !output.status.success() {
         return None;
     }
