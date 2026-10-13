@@ -2166,12 +2166,12 @@ fn child_controls() {
             match LIBRARY {
                 Library::Glibc if !glibc::bounds_name() => {
                     let Outcome::Failed(error) = &native else {
-                        panic!("the native child ran a 300-byte name: {native:?}");
+                        panic!("the native child ran a 300-byte name past a miss: {native:?}");
                     };
                     assert_eq!(
                         errno_of(error),
                         Some(rustix::io::Errno::NAMETOOLONG),
-                        "{error}"
+                        "past a miss: {error}"
                     );
                     assert_eq!(refused(resolved), terminal(&controls.join(&overlong)));
                 }
