@@ -83,11 +83,15 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
         role_path: PathBuf::from("role.md"),
         command: vec!["driver".into()],
         candidates,
+        written: Vec::new(),
+        class: SeatClass::Work,
     };
     let single = SeatBody::Single {
         role_path: PathBuf::from("role.md"),
         command: vec!["driver".into()],
         candidates: vec![candidate("worker", "opus")],
+        written: Vec::new(),
+        class: SeatClass::Work,
     };
     assert_eq!(
         invocation_sites(single.selected(None).unwrap().0)[0].0,
@@ -116,6 +120,7 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
                     role_path: PathBuf::from("role.md"),
                     command: vec!["driver".into()],
                     candidates: vec![candidate("worker", "opus")],
+                    written: Vec::new(),
                 },
             },
             SequenceStep {
@@ -142,6 +147,8 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
         role_path: PathBuf::from("role.md"),
         command: vec!["inline-driver".into()],
         candidates: Vec::new(),
+        written: vec!["inline-driver".into()],
+        class: SeatClass::Work,
     };
     let (selection, provenance, chains) =
         select_candidates(&[], "effect", inline.selected(None).unwrap().0);
@@ -160,6 +167,8 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
         role_path: PathBuf::from("role.md"),
         command: vec!["inline-driver".into()],
         candidates: vec![candidate("worker", "opus"), candidate("worker", "sonnet")],
+        written: Vec::new(),
+        class: SeatClass::Work,
     };
     let events = vec![failure("effect", json!([null]))];
     let (selection, provenance, chains) =
@@ -355,6 +364,8 @@ fn the_chain_index_survives_a_restart_because_nothing_holds_it() {
             candidate("worker", "second"),
             candidate("worker", "third"),
         ],
+        written: Vec::new(),
+        class: SeatClass::Work,
     };
     let events = vec![
         failure("effect", json!([null])),

@@ -620,16 +620,16 @@ pub brokkr_runtime::bundle::SeatBody::Panel
 pub brokkr_runtime::bundle::SeatBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
 pub brokkr_runtime::bundle::SeatBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
 pub brokkr_runtime::bundle::SeatBody::Select
-pub brokkr_runtime::bundle::SeatBody::Select::case_gates: alloc::collections::btree::map::BTreeMap<alloc::string::String, bool>
 pub brokkr_runtime::bundle::SeatBody::Select::cases: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SeatBody>
 pub brokkr_runtime::bundle::SeatBody::Select::default: core::option::Option<alloc::boxed::Box<brokkr_runtime::bundle::SeatBody>>
-pub brokkr_runtime::bundle::SeatBody::Select::default_gate: bool
 pub brokkr_runtime::bundle::SeatBody::Sequence
 pub brokkr_runtime::bundle::SeatBody::Sequence::steps: alloc::vec::Vec<brokkr_runtime::bundle::SequenceStep>
 pub brokkr_runtime::bundle::SeatBody::Single
 pub brokkr_runtime::bundle::SeatBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::bundle::SeatBody::Single::class: brokkr_runtime::bundle::SeatClass
 pub brokkr_runtime::bundle::SeatBody::Single::command: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::SeatBody::Single::role_path: std::path::PathBuf
+pub brokkr_runtime::bundle::SeatBody::Single::written: alloc::vec::Vec<alloc::string::String>
 impl brokkr_runtime::bundle::SeatBody
 pub fn brokkr_runtime::bundle::SeatBody::selected<'a>(&'a self, core::option::Option<&str>) -> core::option::Option<(brokkr_runtime::bundle::ExecutableBody<'a>, core::option::Option<&'a str>)>
 pub fn brokkr_runtime::bundle::SeatBody::selected_is_gate(&self, core::option::Option<&str>, bool) -> bool
@@ -646,6 +646,7 @@ pub brokkr_runtime::bundle::StepBody::Single
 pub brokkr_runtime::bundle::StepBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
 pub brokkr_runtime::bundle::StepBody::Single::command: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::StepBody::Single::role_path: std::path::PathBuf
+pub brokkr_runtime::bundle::StepBody::Single::written: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::bundle::Bundle
 pub brokkr_runtime::bundle::Bundle::boundary: brokkr_core::realms::Boundary
 pub brokkr_runtime::bundle::Bundle::chain: alloc::vec::Vec<brokkr_runtime::bundle::compose::Ancestor>
@@ -690,9 +691,11 @@ impl core::default::Default for brokkr_runtime::bundle::Limits
 pub fn brokkr_runtime::bundle::Limits::default() -> brokkr_runtime::bundle::Limits
 pub struct brokkr_runtime::bundle::PanelMember
 pub brokkr_runtime::bundle::PanelMember::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::bundle::PanelMember::class: brokkr_runtime::bundle::SeatClass
 pub brokkr_runtime::bundle::PanelMember::command: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::PanelMember::name: alloc::string::String
 pub brokkr_runtime::bundle::PanelMember::role_path: std::path::PathBuf
+pub brokkr_runtime::bundle::PanelMember::written: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::bundle::RealmLaw
 pub brokkr_runtime::bundle::RealmLaw::boundary: brokkr_core::realms::Boundary
 pub brokkr_runtime::bundle::RealmLaw::provisional_offices: alloc::vec::Vec<alloc::string::String>
@@ -1501,16 +1504,16 @@ pub brokkr_runtime::SeatBody::Panel
 pub brokkr_runtime::SeatBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
 pub brokkr_runtime::SeatBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
 pub brokkr_runtime::SeatBody::Select
-pub brokkr_runtime::SeatBody::Select::case_gates: alloc::collections::btree::map::BTreeMap<alloc::string::String, bool>
 pub brokkr_runtime::SeatBody::Select::cases: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SeatBody>
 pub brokkr_runtime::SeatBody::Select::default: core::option::Option<alloc::boxed::Box<brokkr_runtime::bundle::SeatBody>>
-pub brokkr_runtime::SeatBody::Select::default_gate: bool
 pub brokkr_runtime::SeatBody::Sequence
 pub brokkr_runtime::SeatBody::Sequence::steps: alloc::vec::Vec<brokkr_runtime::bundle::SequenceStep>
 pub brokkr_runtime::SeatBody::Single
 pub brokkr_runtime::SeatBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::SeatBody::Single::class: brokkr_runtime::bundle::SeatClass
 pub brokkr_runtime::SeatBody::Single::command: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::SeatBody::Single::role_path: std::path::PathBuf
+pub brokkr_runtime::SeatBody::Single::written: alloc::vec::Vec<alloc::string::String>
 impl brokkr_runtime::bundle::SeatBody
 pub fn brokkr_runtime::bundle::SeatBody::selected<'a>(&'a self, core::option::Option<&str>) -> core::option::Option<(brokkr_runtime::bundle::ExecutableBody<'a>, core::option::Option<&'a str>)>
 pub fn brokkr_runtime::bundle::SeatBody::selected_is_gate(&self, core::option::Option<&str>, bool) -> bool
@@ -1527,6 +1530,7 @@ pub brokkr_runtime::StepBody::Single
 pub brokkr_runtime::StepBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
 pub brokkr_runtime::StepBody::Single::command: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::StepBody::Single::role_path: std::path::PathBuf
+pub brokkr_runtime::StepBody::Single::written: alloc::vec::Vec<alloc::string::String>
 pub enum brokkr_runtime::TrustTier
 pub brokkr_runtime::TrustTier::Trusted
 pub brokkr_runtime::TrustTier::Untrusted
@@ -1651,9 +1655,11 @@ pub fn brokkr_runtime::Library::names(&self) -> alloc::vec::Vec<alloc::string::S
 pub fn brokkr_runtime::Library::scan(&std::path::Path) -> core::result::Result<(brokkr_runtime::Library, alloc::vec::Vec<alloc::string::String>), brokkr_runtime::LibraryError>
 pub struct brokkr_runtime::PanelMember
 pub brokkr_runtime::PanelMember::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
+pub brokkr_runtime::PanelMember::class: brokkr_runtime::bundle::SeatClass
 pub brokkr_runtime::PanelMember::command: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::PanelMember::name: alloc::string::String
 pub brokkr_runtime::PanelMember::role_path: std::path::PathBuf
+pub brokkr_runtime::PanelMember::written: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_runtime::Planted
 pub brokkr_runtime::Planted::absent: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::Planted::kept: alloc::vec::Vec<alloc::string::String>
