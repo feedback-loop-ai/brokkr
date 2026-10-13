@@ -929,13 +929,15 @@ compared is the same as before on every surface, and so are their order and
 `Guard::valued`'s reading of each, either sign and the vast-exponent rule
 included.
 
-Each reading also yields `Reading::Stretch` after every `STRETCH` (64 KiB) of
-bytes it reads. `passes` polls its caller on each one, as it already did
-before every `BATCH` of compared numbers. A long span with no number, or a
-long run of digits, is therefore never read unpolled from one end of the
-frame to the other. The needles are still searched before any number is
-read. `json_numbers`, which the precision check in `broker/output.rs`
-shares, reads through the same iterator and drops its stretches.
+Each reading also yields `Reading::Stretch` once its position passes the end
+of a `STRETCH` (64 KiB). `passes` polls its caller on each one, as it
+already did before every `BATCH` of compared numbers. As this run left it, a
+long span with no number was polled within, but a run of digits was counted
+whole before the next mark, so an 8 MiB run went unpolled. This section
+first claimed otherwise; the review found it wrong, and the ninth run below
+repairs it. The needles are still searched before any number is read.
+`json_numbers`, which the precision check in `broker/output.rs` shares,
+reads through the same iterator and drops its stretches.
 
 ### Equivalence with the seventh run's reader
 
@@ -1023,3 +1025,97 @@ This seat's sandbox refused to run `quality/ratchet.sh files` and `clones`,
 the API ratchet. The other workspace members' suites were not rerun, because
 none of them reads the guard. The exact-coverage gate, the controller's
 one-CPU timings, macOS and remote CI are also pending.
+
+## Ninth run: a run of digits is polled within (review of 6597de45)
+
+The chief review of the eighth run's head returned a medium finding (M1).
+`Runs::end` counted a whole run of digits before `Numbers::next` could mark
+a stretch, so an 8 MiB run was read with no poll inside it. The review also
+returned two new test clones in `secret/tests.rs` (I1). This run repairs
+both. The only production file it changes is
+`crates/brokkr-protocol/src/secret/guard.rs`, and no public item moves.
+
+### What changed
+
+`Runs::end` now takes the end of the current stretch as a limit. A run that
+is still going at that limit stops counting there, and `Runs` keeps where it
+began and how far it was counted (`counting`). `spelled`, `read` and `before`
+pass the limit down and return `None` through it. `before` then marks the
+stretch at the limit and yields `Reading::Stretch`, leaving its position on
+the number's first byte. On the next call, `spelled` starts again from that
+byte. The runs it has already counted come from `known`, and the run that
+stopped resumes from where its count stopped. So no byte past a stretch's
+end is read before that stretch is marked. The one exception is the byte
+the stop test itself examines. By construction a resumed run is not
+counted again from its start, though no test observes that. The number is
+still handed back whole, as one slice, after the stretch its last
+digit falls in. The set of numbers, their order and their slices are
+unchanged.
+
+The two poll tests in `secret/tests.rs` now share one helper, `polled`. It
+returns the guard's answer and its poll count, with an optional poll that
+fails, so the counting and stopping closure is written once.
+
+### Tests
+
+| Test | What it now asserts |
+| --- | --- |
+| `secret::guard::tests::a_long_reading_is_marked_every_stretch_and_its_numbers_read_whole` | Three stretches of letters are still marked three times in both modes. A run of digits three stretches long, followed by ` 2`, yields `[stretch, stretch, the whole run, stretch, 2]` in both modes. `1e` followed by a run of digits as long yields three stretches, then the whole number. Where not quoted, it then also yields the digits after the letter as a number of their own, as the reference reads them. |
+| `secret::tests::the_guard_polls_its_caller_through_a_long_reading_and_stops_at_its_word` | The frame `["<three stretches of 7>"]` passes with exactly 7 polls: 3 in the JSON reading, which passes over the string, 3 within the run in the reading of the text it spells, and 1 before the run is compared. The eighth run's assertions are kept: 7 polls for the letters frame, and a stop at the second poll before `8.7654321e8` after letters or after digits. |
+| `secret::tests::the_guard_polls_its_caller_between_bounded_batches_and_stops_at_its_word` | It keeps its 5 polls and its stop at the second poll. A refusal of the bound value is now pinned at exactly 3 polls, where the old test checked only the answer. |
+
+The equivalence tests (`the_reader_reads_every_number…` and
+`the_reader_agrees…`, 48 named cases and 4,000 generated inputs) are
+unchanged and pass. The run 7 reference is unchanged.
+
+### Removals
+
+Each removal below compiled, failed the named tests and was then restored.
+
+| Removal | Failed |
+| --- | --- |
+| A run of digits is counted whole: `if end >= limit && false` in `Runs::end`. | `a_long_reading_is_marked…` at guard/tests.rs:199, which read the run first with no stretch before it. `the_guard_polls_its_caller_through_a_long_reading…` at secret/tests.rs:651, `left: (Ok(true), 5)` against `right: (Ok(true), 7)`. |
+| The reader drops the numbers inside decoded strings: the quote arm in `Numbers::before` loses `if self.quoted`. This is rerun on this head as the controller asked. | `the_reader_agrees…` and `the_reader_reads_every_number…` at guard/tests.rs:77, `a_long_reading_is_marked…` at :190, and `the_guard_polls_its_caller_through_a_long_reading…` at secret/tests.rs:651. In the CLI, `broker::rpc::tests::masking::a_bound_number_a_string_spells_fails_its_forwarded_call_on_every_surface` failed at masking.rs:176 and `masking::the_final_guard_reads_the_very_bytes_and_every_form_they_decode_to` failed at :1163. The masking module had 31 passed and 2 failed. |
+
+A resume that is dropped, so every stretch counts its run again from the
+start, changes no reading, only the cost. No test can see it, so it is not
+claimed as bound.
+
+### Timings, ninth run
+
+Each test ran alone in a debug build, pinned to CPU 0, with the same
+command as the eighth run. "Guard off" means `Guard::passes` returned
+`Ok(true)` at once. That bypass was used only for this measurement, and it
+was removed before the suites below ran.
+
+| Test | Guard on | Guard off | Ratio |
+| --- | --- | --- | --- |
+| `an_answer_that_with_the_callers_own_id_passes_mb3s_bound_ends_the_session` | 2.39 s, 2.35 s | 2.02 s, 1.99 s | 1.18× |
+| `delivery::what_waits_for_the_harness_is_bounded_and_taken_whole_in_order` | 13.92 s, 13.90 s | 13.61 s | 1.02× |
+
+The tests' sources, sizes, bounds and deadlines are unchanged. The
+controller's own one-CPU measurement is pending.
+
+### Gates, ninth run
+
+| Gate | Observed |
+| --- | --- |
+| brokkr-protocol | `cargo test -p brokkr-protocol --all-features --locked`: lib 895 passed (3 ignored), the integration tests 6 and 1, and the doctest 1. |
+| brokkr-cli | The lib had 759 passed (1 ignored), and `it` had 598 passed (3 ignored). `driver_conformance` had 27, `transcript_surfaces` 13, and each `heap_*` 1. |
+| Ratchets | `quality/ratchet.sh clones`: duplication holds. It refused I1's two clones before this run. `files`: file size holds. `api`: public API holds. |
+| Records and lints | The format check, workspace clippy (all targets and features, locked, `-D warnings`), `typos --hidden` and `git diff --check` reported nothing. `openspec validate --all --strict` passed 19. `recipes/self` compiled, with 47 valuations over 11 groups and 0 unruled. |
+
+`wc -l` gives `secret/guard.rs` 565 lines, `secret/guard/tests.rs` 210 and
+`secret/tests.rs` 1,309. `quality/file-lines.txt` carries each count. No
+suppression was added.
+
+### Residuals and pending, ninth run
+
+The guard's other passes over a frame are still not polled within. These
+are the needle search (`holds`), the escape decoding (`unescaped`), and the
+reading of one compared number by `Magnitude::read`. Each is linear in the
+frame. The controller measured that skipping the needle search, or the
+escape decoding, changed nothing. They are named here as follow-ups, not
+repaired, because the finding and the directive concern the number scan.
+The exact-coverage gate, `cargo crap`, the controller's timings, macOS and
+remote CI are pending.

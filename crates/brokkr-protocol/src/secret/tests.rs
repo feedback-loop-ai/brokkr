@@ -610,25 +610,27 @@ fn the_guard_polls_its_caller_between_bounded_batches_and_stops_at_its_word() {
     let guard = Guard::new(&bindings);
     let numbers: Vec<String> = (0..130).map(|n| n.to_string()).collect();
     let frame = format!("[{}]", numbers.join(",")).into_bytes();
-    let mut polls = 0;
-    let passed = guard.json_within(&frame, || {
-        polls += 1;
-        Ok::<(), &str>(())
-    });
-    assert_eq!((passed, polls), (Ok(true), 5));
+    assert_eq!(polled(&guard, &frame, None), (Ok(true), 5));
     // The bound value, spelled as no masker finds it, past the second
     // batch is never compared once the poll answers before it.
     let frame = format!("[{},8.7654321e8]", numbers.join(",")).into_bytes();
+    assert_eq!(polled(&guard, &frame, Some(2)), (Err("deadline"), 2));
+    assert_eq!(polled(&guard, &frame, None), (Ok(false), 3));
+}
+
+/// The guard's answer on the JSON `frame`, read through a poll that ends
+/// the scan at its `stop`th call where there is one, and how many times it
+/// was polled.
+fn polled(guard: &Guard, frame: &[u8], stop: Option<usize>) -> (Result<bool, &'static str>, usize) {
     let mut polls = 0;
-    let stopped = guard.json_within(&frame, || {
+    let answer = guard.json_within(frame, || {
         polls += 1;
-        if polls == 2 {
-            return Err("deadline");
+        match Some(polls) == stop {
+            true => Err("deadline"),
+            false => Ok(()),
         }
-        Ok(())
     });
-    assert_eq!((stopped, polls), (Err("deadline"), 2));
-    assert_eq!(guard.json_within(&frame, || Ok::<(), &str>(())), Ok(false));
+    (answer, polls)
 }
 
 #[test]
@@ -640,29 +642,21 @@ fn the_guard_polls_its_caller_through_a_long_reading_and_stops_at_its_word() {
     let guard = Guard::new(&bindings);
     let letters = vec![b'a'; 3 * guard::STRETCH];
     let frame = [&b"[\""[..], &letters, b"\",1]"].concat();
-    let mut polls = 0;
-    let passed = guard.json_within(&frame, || {
-        polls += 1;
-        Ok::<(), &str>(())
-    });
-    assert_eq!((passed, polls), (Ok(true), 7));
+    assert_eq!(polled(&guard, &frame, None), (Ok(true), 7));
+    // A string that is a run of digits as long is polled as often: at each
+    // stretch the JSON reading passes, at each stretch the text it spells
+    // passes within the run, and once before the run is compared.
+    let digits = vec![b'7'; 3 * guard::STRETCH];
+    let spelled = [&b"[\""[..], &digits, b"\"]"].concat();
+    assert_eq!(polled(&guard, &spelled, None), (Ok(true), 7));
     // The bound value, spelled as no masker finds it, after the letters,
     // or after a run of digits as long, is never compared once a poll
     // within the reading before it answers.
-    let digits = vec![b'7'; 3 * guard::STRETCH];
     let after_letters = [&b"[\""[..], &letters, b"\",8.7654321e8]"].concat();
     let after_digits = [&b"["[..], &digits, b",8.7654321e8]"].concat();
     for frame in [after_letters, after_digits] {
-        let mut polls = 0;
-        let stopped = guard.json_within(&frame, || {
-            polls += 1;
-            if polls == 2 {
-                return Err("deadline");
-            }
-            Ok(())
-        });
-        assert_eq!((stopped, polls), (Err("deadline"), 2));
-        assert_eq!(guard.json_within(&frame, || Ok::<(), &str>(())), Ok(false));
+        assert_eq!(polled(&guard, &frame, Some(2)), (Err("deadline"), 2));
+        assert_eq!(polled(&guard, &frame, None).0, Ok(false));
     }
 }
 

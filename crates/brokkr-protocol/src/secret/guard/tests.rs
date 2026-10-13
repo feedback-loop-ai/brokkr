@@ -177,8 +177,7 @@ fn the_reader_agrees_with_the_reference_on_generated_inputs() {
 
 #[test]
 fn a_long_reading_is_marked_every_stretch_and_its_numbers_read_whole() {
-    // Letters past three stretches are marked three times; a run of digits
-    // as long is one number, read whole, the mark after it.
+    // Letters past three stretches are marked three times.
     let letters = [&b"\"1 "[..], &vec![b'a'; 3 * STRETCH], b"\" 2"].concat();
     for quoted in [true, false] {
         let read: Vec<_> = Numbers::new(&letters, quoted).map(yielded).collect();
@@ -190,8 +189,22 @@ fn a_long_reading_is_marked_every_stretch_and_its_numbers_read_whole() {
             .collect();
         assert_eq!((quoted, read), (quoted, expected));
     }
+    // A run of digits as long is marked within it, at each stretch it
+    // passes before its end, and is then one number, read whole.
     let digits = [vec![b'7'; 3 * STRETCH], b" 2".to_vec()].concat();
-    let read: Vec<_> = Numbers::new(&digits, true).map(yielded).collect();
-    let expected = vec![Some(&digits[..3 * STRETCH]), None, Some(&b"2"[..])];
-    assert_eq!(read, expected);
+    for quoted in [true, false] {
+        let read: Vec<_> = Numbers::new(&digits, quoted).map(yielded).collect();
+        let run = &digits[..3 * STRETCH];
+        let expected = vec![None, None, Some(run), None, Some(&b"2"[..])];
+        assert_eq!((quoted, read), (quoted, expected));
+    }
+    // So is an exponent's run, the count going on where it stopped; where
+    // not quoted, the digits after the letter are a number of their own.
+    let power = [&b"1e"[..], &vec![b'7'; 3 * STRETCH]].concat();
+    for quoted in [true, false] {
+        let read: Vec<_> = Numbers::new(&power, quoted).map(yielded).collect();
+        let mut expected = vec![None, None, None, Some(&power[..])];
+        expected.extend((!quoted).then_some(Some(&power[2..])));
+        assert_eq!((quoted, read), (quoted, expected));
+    }
 }

@@ -226,7 +226,10 @@ enum Reading<'a> {
 /// exponent is read as the number it spells, and a run of digits once, from
 /// its first (operator ruling 2026-10-13: refusing more is never a leak).
 /// Only a digit, a sign or a point can begin a number, so the bytes between
-/// them are passed over without reading one.
+/// them are passed over without reading one. No byte is read past the end
+/// of the `STRETCH` it is in before that stretch is marked, a run of digits'
+/// bytes included: a run longer than a stretch is counted a stretch at a
+/// time, and its number handed back whole once its last stretch is read.
 struct Numbers<'a> {
     bytes: &'a [u8],
     quoted: bool,
@@ -243,6 +246,7 @@ impl<'a> Numbers<'a> {
         let runs = Runs {
             known: [None; 3],
             next: 0,
+            counting: None,
         };
         Numbers {
             bytes,
@@ -254,11 +258,12 @@ impl<'a> Numbers<'a> {
         }
     }
 
-    /// The next number written before `end`, read up to it; none where
-    /// none is.
-    fn before(&mut self, end: usize) -> Option<&'a [u8]> {
+    /// The next number written before `end`, read up to it; the end of the
+    /// stretch where a run of digits passes `end` before its number is
+    /// read, the reading to go on from that number; none where none is.
+    fn before(&mut self, end: usize) -> Option<Reading<'a>> {
         let bytes = self.bytes;
-        while self.at < end {
+        while self.at < end.min(bytes.len()) {
             let at = self.at;
             match (self.text, bytes[at]) {
                 (true, b'\\') => self.at += 2,
@@ -266,12 +271,14 @@ impl<'a> Numbers<'a> {
                     self.text = !self.text;
                     self.at += 1;
                 }
-                (false, b'0'..=b'9' | b'+' | b'-' | b'.') => {
-                    let length = self.read(at);
-                    if length > 0 {
-                        return Some(&bytes[at..at + length]);
+                (false, b'0'..=b'9' | b'+' | b'-' | b'.') => match self.read(at, end) {
+                    Some(0) => {}
+                    Some(length) => return Some(Reading::Number(&bytes[at..at + length])),
+                    None => {
+                        self.marked = end;
+                        return Some(Reading::Stretch);
                     }
-                }
+                },
                 _ => self.at += 1,
             }
         }
@@ -279,43 +286,48 @@ impl<'a> Numbers<'a> {
     }
 
     /// How many bytes from `at`, where a number may begin, write one, the
-    /// reading moved on past it. Where `quoted`, past the whole of it, or
-    /// one byte. Where not, past the run of digits it begins with and the
-    /// byte after them, which a digit is written just before, or one byte.
-    fn read(&mut self, at: usize) -> usize {
-        let length = self.spelled(at);
+    /// reading moved on past it; none, the reading left at `at`, where a
+    /// run of digits passes `end` first. Where `quoted`, past the whole of
+    /// it, or one byte. Where not, past the run of digits it begins with
+    /// and the byte after them, which a digit is written just before, or
+    /// one byte.
+    fn read(&mut self, at: usize, end: usize) -> Option<usize> {
+        let length = self.spelled(at, end)?;
         self.at = match (self.quoted, self.bytes[at].is_ascii_digit()) {
             (true, _) => at + length.max(1),
-            (false, true) => self.runs.end(self.bytes, at) + 1,
+            (false, true) => self.runs.end(self.bytes, at, end)? + 1,
             (false, false) => at + 1,
         };
-        length
+        Some(length)
     }
 
     /// How many bytes from `at` write a number: a sign, digits with at most
     /// one point and one digit or more in all, and an exponent where a
     /// digit follows its letter and sign; none where they write none. Every
-    /// JSON number is read whole.
-    fn spelled(&mut self, at: usize) -> usize {
+    /// JSON number is read whole. `None` where a run of digits in it passes
+    /// `end` before it ends.
+    fn spelled(&mut self, at: usize, end: usize) -> Option<usize> {
         let bytes = self.bytes;
         let signed = at + usize::from(matches!(bytes[at], b'-' | b'+'));
-        let whole = self.runs.end(bytes, signed);
+        let whole = self.runs.end(bytes, signed, end)?;
         let pointed = whole + usize::from(bytes.get(whole) == Some(&b'.'));
-        let fraction = self.runs.end(bytes, pointed);
+        let fraction = self.runs.end(bytes, pointed, end)?;
         let letter = bytes
             .get(fraction)
             .is_some_and(|b| b.eq_ignore_ascii_case(&b'e'));
         let sign = letter & matches!(bytes.get(fraction + 1), Some(b'-' | b'+'));
         let exponent = fraction + 1 + usize::from(sign);
         let power = match letter {
-            true => self.runs.end(bytes, exponent),
+            true => self.runs.end(bytes, exponent, end)?,
             false => exponent,
         };
-        match (whole - signed + fraction - pointed, power - exponent) {
-            (0, _) => 0,
-            (_, 0) => fraction - at,
-            (_, _) => power - at,
-        }
+        Some(
+            match (whole - signed + fraction - pointed, power - exponent) {
+                (0, _) => 0,
+                (_, 0) => fraction - at,
+                (_, _) => power - at,
+            },
+        )
     }
 }
 
@@ -329,8 +341,8 @@ impl<'a> Iterator for Numbers<'a> {
                 self.marked = self.at;
                 return Some(Reading::Stretch);
             }
-            if let Some(number) = self.before(end.min(self.bytes.len())) {
-                return Some(Reading::Number(number));
+            if let Some(reading) = self.before(end) {
+                return Some(reading);
             }
         }
         None
@@ -340,30 +352,41 @@ impl<'a> Iterator for Numbers<'a> {
 /// The runs of digits a reading has counted most recently, each as where it
 /// begins and ends: a number and the numbers it overlaps share their runs,
 /// and every one they read is among the last three counted, so each run is
-/// counted once.
+/// counted once. A run whose count stopped at a stretch's end is held as
+/// where it begins and how far it was counted, and its count goes on from
+/// there.
 struct Runs {
     known: [Option<(usize, usize)>; 3],
     next: usize,
+    counting: Option<(usize, usize)>,
 }
 
 impl Runs {
     /// Where the run of digits `bytes` write from `from` ends: `from`
-    /// itself where they write none there.
-    fn end(&mut self, bytes: &[u8], from: usize) -> usize {
+    /// itself where they write none there; none where the run passes
+    /// `limit`, which its count stops at.
+    fn end(&mut self, bytes: &[u8], from: usize, limit: usize) -> Option<usize> {
         if !bytes.get(from).is_some_and(u8::is_ascii_digit) {
-            return from;
+            return Some(from);
         }
         let mut counted = self.known.iter().flatten();
         if let Some(&(_, end)) = counted.find(|(start, _)| *start == from) {
-            return end;
+            return Some(end);
         }
-        let mut end = from + 1;
+        let mut end = match self.counting {
+            Some((start, reached)) if start == from => reached,
+            _ => from + 1,
+        };
         while bytes.get(end).is_some_and(u8::is_ascii_digit) {
+            if end >= limit {
+                self.counting = Some((from, end));
+                return None;
+            }
             end += 1;
         }
         self.known[self.next % 3] = Some((from, end));
         self.next += 1;
-        end
+        Some(end)
     }
 }
 
