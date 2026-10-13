@@ -634,7 +634,10 @@ The adapters then:
    result as lost, and parks. Why is on the adapter's stderr, such as
    `seat wrote no result file (the result contract was not met), so no
    result is sent`. A refusal before anything was spawned is still a
-   `failed` result. An unparseable result file is
+   `failed` result. A signal or an unconfirmed rejoin is read before a
+   provider's refusal is, and a rejoin a signal ended is never replaced
+   by a cold spawn: either may have acted, so it ends lost too. An
+   unparseable result file is
    reported as a succeeded result whose payload is
    `{"__unparseable_result_file__": "<parse error>"}` — which then fails
    schema validation and parks with the evidence, because adapters

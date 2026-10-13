@@ -2492,7 +2492,7 @@ fn invoke_stream_json(
         status
     };
     Ok(Invocation {
-        exit_code: status.code().unwrap_or(-1),
+        exit_code: lost::exit_code(status),
         session_meta,
         stdout: String::new(),
         stderr: masked_text(&stderr_thread.join().unwrap_or_default(), bindings),
@@ -3769,7 +3769,7 @@ fn invoke_codex(
         hold.observe(data, emit)
     });
     Ok(Invocation {
-        exit_code: status.code().unwrap_or(-1),
+        exit_code: lost::exit_code(status),
         session_meta,
         stdout: String::new(),
         stderr,
@@ -3804,9 +3804,7 @@ fn invoke_dsh(
     let launch = dsh_launch(pinned.binary, pinned.extra, workdir, session, input)?;
     let command = dsh_served(pinned.binary, &launch, pinned.extra, prompt, workdir, input)?;
     let wait = |child: &mut std::process::Child| {
-        child
-            .try_wait()
-            .map(|status| status.map(|status| status.code().unwrap_or(-1)))
+        child.try_wait().map(|status| status.map(lost::exit_code))
     };
     invoke_dsh_launch_observed(launch, command, workdir, bindings, emit, wait, &mut |_| {})
         .map(|invocation| dsh_stderr::name_the_pin(invocation, pinned.extra))
@@ -5040,7 +5038,7 @@ fn invoke_dsh_stream_json(
     }
     finish_dsh(
         session_meta,
-        status.code().unwrap_or(-1),
+        lost::exit_code(status),
         stderr_thread,
         bindings,
     )
@@ -5597,10 +5595,12 @@ fn invoke_with_stager(
             // `thread.started` carrying the SAME thread id it was
             // handed, before any turn begins. So a rejoin that actually
             // ran can never reach this arm, whatever it exits with, and
-            // the seat is never charged twice for one attempt.
+            // the seat is never charged twice for one attempt. A signal is
+            // no non-zero exit: the killed rejoin may have acted, so it
+            // ends lost and is never replaced (`lost`).
             if hold.unconfirmed_rejoin()
                 && !hold.began_work
-                && invocation.exit_code != 0
+                && lost::exited_non_zero(invocation.exit_code)
                 && !delivered_result(input)
             {
                 // The rejected child's candidates go with it: a
@@ -5682,7 +5682,7 @@ fn invoke_with_stager(
                 })
                 .transpose()?;
             Ok(Invocation {
-                exit_code: out.status.code().unwrap_or(-1),
+                exit_code: lost::exit_code(out.status),
                 session_meta,
                 stdout: String::from_utf8_lossy(&stdout).into_owned(),
                 stderr: String::from_utf8_lossy(&stderr).into_owned(),
@@ -6746,23 +6746,25 @@ fn run_seat_with(
     // wall, and it is the one that keeps the single asserted shape
     // (`rate_limit_event`, which a newer CLI may yet emit as an advisory
     // rather than a rejection) from ever discarding a seat's work.
+    //
+    // A signal or an unsettled launch is read before any refusal is: either
+    // leaves no result, whatever the stream classified (`lost`).
     let delivered = exit_code == 0 && std::fs::metadata(&result_path).is_ok();
-    if let Some(reason) = refusal {
-        if !began_work && !delivered {
-            let stderr_tail_start = stderr_tail_start(&stderr);
-            eprint!("{}", &stderr[stderr_tail_start..]);
-            send(Body::Result {
-                effect_id,
-                attempt_id,
-                status: ResultStatus::Failed,
-                result: None,
-                error: Some(match transcript_locator(&session_meta) {
-                    Some(locator) => format!("{reason} [transcript {locator}]"),
-                    None => reason,
-                }),
-            });
-            return;
-        }
+    let worked = began_work || delivered;
+    if let Some(reason) = lost::refusal_to_start(refusal, worked, exit_code, launch) {
+        let stderr_tail_start = stderr_tail_start(&stderr);
+        eprint!("{}", &stderr[stderr_tail_start..]);
+        send(Body::Result {
+            effect_id,
+            attempt_id,
+            status: ResultStatus::Failed,
+            result: None,
+            error: Some(match transcript_locator(&session_meta) {
+                Some(locator) => format!("{reason} [transcript {locator}]"),
+                None => reason,
+            }),
+        });
+        return;
     }
     // Every non-refusal path reports `accepted` exactly as it always
     // did, flushing the pre-session rows buffered while the session was

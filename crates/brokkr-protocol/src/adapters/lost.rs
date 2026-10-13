@@ -52,10 +52,40 @@ pub(super) fn invocation_failed(
     });
 }
 
-/// Did the command end by a signal? It then returned no exit status, which
-/// the invocation reads as -1, and so no result of its own.
+/// The exit code an invocation reads for a command ended by a signal. It
+/// returned no exit status, and no command exits with a negative code.
+const SIGNALLED: i32 = -1;
+
+/// The code the command exited with, or [`SIGNALLED`] if a signal ended it.
+pub(super) fn exit_code(status: std::process::ExitStatus) -> i32 {
+    status.code().unwrap_or(SIGNALLED)
+}
+
+/// Did the command exit with a code of its own, other than 0? A signal is
+/// no such exit: the command may have acted before it, so it is never a
+/// reason to replace the command within the attempt.
+pub(super) fn exited_non_zero(exit_code: i32) -> bool {
+    exit_code != 0 && exit_code != SIGNALLED
+}
+
+/// The provider's refusal before the first turn, if it stands as one
+/// (decision 0053): no work began or was delivered, and the command
+/// exited with a code of its own from a settled launch. A command a
+/// signal ended, or a rejoin nobody confirmed, left no result whatever
+/// its stream said, so it ends lost and is never retried as a refusal.
+pub(super) fn refusal_to_start(
+    refusal: Option<String>,
+    worked: bool,
+    exit_code: i32,
+    launch: LaunchTerminal,
+) -> Option<String> {
+    refusal.filter(|_| !worked && exit_code != SIGNALLED && !launch.is_unsettled())
+}
+
+/// Did the command end by a signal? It then returned no exit status, and
+/// so no result of its own.
 pub(super) fn by_signal(exit_code: i32) -> bool {
-    let signalled = exit_code == -1;
+    let signalled = exit_code == SIGNALLED;
     if signalled {
         eprintln!("agent CLI ended by a signal, so no result is sent");
     }

@@ -110,7 +110,8 @@ enum Standing {
     /// The driver's result, or a checkpoint past a limit: what the
     /// driver sent after either is not protocol.
     Final(AttemptOutcome),
-    /// Every other end, which a refused line outranks.
+    /// Every other end, which a refused line outranks: a success with no
+    /// payload among them, which carried no result.
     Yielding(AttemptOutcome),
 }
 
@@ -123,7 +124,7 @@ enum Ended {
     Failed(String),
     Unread(String),
     Lost,
-    Reached(AttemptOutcome),
+    Reached(Standing),
     Exceeded(Exceeded),
 }
 
@@ -649,7 +650,8 @@ impl DriverProcess {
     /// End the attempt as it ended. A protocol violation or a failed
     /// write keeps nothing of the driver's account but whether it
     /// accepted. Any end short of the driver's result or a refused
-    /// checkpoint yields to the line the reader refused, if it refused
+    /// checkpoint, a success with no payload included, yields to the
+    /// line the reader refused, if it refused
     /// one: what the driver sent past a limit outranks how the engine
     /// stopped listening (#433, decision 0079 ruling 3).
     fn end(self, ended: Ended, account: Account) -> AttemptReport {
@@ -662,7 +664,7 @@ impl DriverProcess {
             Ended::Failed(error) => return self.broken(AttemptOutcome::Failed { error }, accepted),
             Ended::Unread(error) => return self.broken(unread(&error), accepted),
             Ended::Lost => Standing::Yielding(self.eof_outcome(accepted)),
-            Ended::Reached(outcome) => Standing::Final(outcome),
+            Ended::Reached(standing) => standing,
             Ended::Exceeded(exceeded) => Standing::Final(exceeded.outcome()),
         };
         self.finish(standing, session_ref, retained.checkpoints, accepted)
@@ -686,16 +688,17 @@ fn unread(error: &str) -> AttemptOutcome {
 }
 
 /// The outcome a driver's result reached. A success with no payload
-/// carries no result of the executor's, so it is an end with none read.
-fn reached(status: ResultStatus, result: Option<Value>, error: Option<String>) -> AttemptOutcome {
+/// carries no result of the executor's, so it is an end with none read,
+/// and a line the reader refused outranks it (decision 0079 ruling 3).
+fn reached(status: ResultStatus, result: Option<Value>, error: Option<String>) -> Standing {
     match status {
         ResultStatus::Succeeded => match result {
-            Some(result) => AttemptOutcome::Succeeded { result },
-            None => unread("succeeded result carried no payload"),
+            Some(result) => Standing::Final(AttemptOutcome::Succeeded { result }),
+            None => Standing::Yielding(unread("succeeded result carried no payload")),
         },
-        ResultStatus::Failed => AttemptOutcome::Failed {
+        ResultStatus::Failed => Standing::Final(AttemptOutcome::Failed {
             error: error.unwrap_or_else(|| "driver reported failure".into()),
-        },
+        }),
     }
 }
 

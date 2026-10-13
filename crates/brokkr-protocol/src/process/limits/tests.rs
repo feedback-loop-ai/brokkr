@@ -301,6 +301,37 @@ fn a_refused_line_outranks_a_protocol_violation_read_before_it() {
     );
 }
 
+/// A refused line outranks a success that carried no payload, which read
+/// no result (decision 0006's 2026-10-11 addendum). A result that carried
+/// one is the driver's, and keeps its place ahead of the refusal.
+#[test]
+fn a_refused_line_outranks_a_success_with_no_payload() {
+    let payloadless = line(Body::Result {
+        effect_id: "effect".into(),
+        attempt_id: "attempt".into(),
+        status: ResultStatus::Succeeded,
+        result: None,
+        error: None,
+    });
+    let flood = vec![b'x'; 513];
+    let driver = Driver::playing(vec![payloadless, flood.clone()]);
+
+    let (report, _) = driver.attempt(framing(513), b"");
+    assert_eq!(
+        report.outcome,
+        lost_after_start("succeeded result carried no payload")
+    );
+
+    let (report, _) = driver.attempt(framing(512), b"");
+    assert_eq!(
+        report.outcome,
+        frame_exceeded(512, "letter", "35ade0090e64e74d")
+    );
+
+    let (report, _) = Driver::playing(vec![the_result(), flood]).attempt(framing(512), b"");
+    assert_eq!(report.outcome, complete());
+}
+
 /// Zero admits nothing (decision 0079): a zero frame limit refuses the
 /// driver's first line, a zero stderr limit keeps none of its first byte,
 /// and a zero checkpoint count or byte limit refuses its first checkpoint.

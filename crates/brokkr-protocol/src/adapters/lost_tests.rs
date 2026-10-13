@@ -174,6 +174,93 @@ fn a_start_that_sent_no_result_ends_the_driver() {
     assert!(answered.contains(&"\"result\"".to_string()), "{answered:?}");
 }
 
+/// The thread a codex rejoin is offered.
+const OFFERED: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
+
+/// The refusal a codex stream reports before its first turn.
+const REFUSAL: &str = r#"printf '{"type":"error","message":"stream error: rate limit"}\n'"#;
+
+/// A codex seat in `dir` on an enabled work shape, whose shim answers
+/// its version and then runs `script`, rejoining `session` when it is
+/// one: every body it sent, whether it answered, and what the shim
+/// appended to its marker, once per run that reached it.
+fn codex(dir: &Path, script: &str, session: Option<&str>) -> (Vec<Body>, bool, String) {
+    let mut env = EnvGuard::lock();
+    let marker = dir.join("marker");
+    std::fs::remove_file(&marker).ok();
+    let version = tests::version_preamble(&format!("codex-cli {}", tests::CODEX_VERSION));
+    let script = format!(
+        "#!/bin/sh\n{version}cat >/dev/null\nprintf x >> '{}'\n{script}\n",
+        marker.display()
+    );
+    env.set("BROKKR_CODEX_BIN", tests::executable(dir, "codex", &script));
+    let mut input = tests::enabled_input(CODEX_SHAPE, tests::CODEX_VERSION, dir);
+    for (key, value) in exec_start(dir, "feature", None)["input"]
+        .as_object()
+        .unwrap()
+    {
+        input[key] = value.clone();
+    }
+    let start = json!({"effect_id": "effect", "attempt_id": "attempt", "input": input});
+    let extra = ["--sandbox".to_string(), "read-only".into()];
+    let mut bodies = Vec::new();
+    let answered = run_seat(AdapterKind::Codex, &extra, &start, session, &mut |body| {
+        bodies.push(body);
+    });
+    let marked = std::fs::read_to_string(&marker).unwrap_or_default();
+    (bodies, answered, marked)
+}
+
+/// A refusal read from a command that a signal then ended, or from a
+/// rejoin nobody confirmed, is no refusal to start: the command ran, so
+/// no `failed` is sent that a retry would repeat. The same stream from a
+/// cold launch that exited on its own is the refusal it always was.
+#[test]
+fn a_refusal_ended_by_a_signal_or_an_unsettled_rejoin_ends_lost() {
+    let dir = tempfile::tempdir().unwrap();
+    let ended = |script: &str, session| {
+        let (bodies, answered, marked) = codex(dir.path(), script, session);
+        (result(&bodies), answered, marked)
+    };
+    let lost = (None, false, "x".to_string());
+    assert_eq!(ended(&format!("{REFUSAL}\nkill -9 $$"), None), lost);
+    assert_eq!(ended(REFUSAL, Some(OFFERED)), lost);
+    let refused = "provider refused before the first turn: api_error: stream error: rate limit";
+    let failed = Some((ResultStatus::Failed, None, Some(refused.into())));
+    assert_eq!(ended(REFUSAL, None), (failed, true, "x".into()));
+}
+
+/// A rejoin a signal ended is never replaced by a cold spawn within the
+/// attempt: it may have acted, so the attempt ends lost with the command
+/// run once. A rejoin the harness refused with a code of its own is still
+/// replaced, once (proposed decision 0056 ruling 8).
+#[test]
+fn a_rejoin_ended_by_a_signal_is_never_replaced_cold() {
+    let dir = tempfile::tempdir().unwrap();
+    let rejoin = |refused: &str| {
+        let script = format!(
+            "case \"$*\" in *resume*) {refused} ;; esac\n\
+             printf '{{\"type\":\"thread.started\",\"thread_id\":\"{OFFERED}\"}}\\n'"
+        );
+        let (bodies, answered, marked) = codex(dir.path(), &script, Some(OFFERED));
+        let replaced: Vec<Value> = bodies
+            .iter()
+            .filter_map(|body| match body {
+                Body::Checkpoint { data, .. } if data["step"] == "harness-started" => {
+                    Some(data["resume_refusal"].clone())
+                }
+                _ => None,
+            })
+            .collect();
+        (result(&bodies), answered, marked, replaced)
+    };
+    assert_eq!(rejoin("kill -9 $$"), (None, false, "x".into(), Vec::new()));
+    assert_eq!(
+        rejoin("exit 1"),
+        (None, false, "xx".into(), vec![json!("harness-refused")])
+    );
+}
+
 /// An unsettled rejoin's reason, which now goes to stderr in place of a
 /// result, in the words it was always refused in.
 #[test]

@@ -2476,7 +2476,7 @@ const THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
 /// assessments below are qualified against. A shim that answers
 /// `--version` with anything else is a shim whose resume is disabled
 /// with `unverified-harness`, which is the point of the check.
-const CODEX_VERSION: &str = "0.154.0";
+pub(super) const CODEX_VERSION: &str = "0.154.0";
 
 /// The prompt a rejoin is asked to carry, deliberately several words
 /// long and unlike any path this suite creates. A one- or
