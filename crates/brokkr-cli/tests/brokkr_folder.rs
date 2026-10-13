@@ -1252,7 +1252,7 @@ fn unlisted(repo: &Repo) -> String {
     let out = Command::new("git")
         .arg("-C")
         .arg(&repo.root)
-        .args(["ls-files", "-z", "--", ".forge"])
+        .args(["ls-files", "-s", "-z", "--", ".forge"])
         .output()
         .unwrap();
     assert!(!out.status.success(), "{out:?}");
@@ -1261,6 +1261,34 @@ fn unlisted(repo: &Repo) -> String {
          0083); nothing was opened: {}\n",
         repo.root.display(),
         String::from_utf8_lossy(&out.stderr).trim_end()
+    )
+}
+
+/// A submodule committed at `.forge/z-cache`, then an edit to
+/// `.gitmodules` left unstaged, which `git mv` refuses to move it past
+/// and `git status -- .forge` never shows (round 634k's review).
+fn submodule(repo: &Repo) {
+    let sub = repo.aside.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    git(&sub, &["init", "-q"]);
+    std::fs::write(sub.join("cache.txt"), "cached").unwrap();
+    git(&sub, &["add", "cache.txt"]);
+    commit(&sub);
+    let add = ["-c", "protocol.file.allow=always", "submodule", "add", "-q"];
+    let from = sub.to_str().unwrap();
+    git(&repo.root, &[&add[..], &[from, ".forge/z-cache"]].concat());
+    commit(&repo.root);
+    let modules = std::fs::read_to_string(repo.path(".gitmodules")).unwrap();
+    repo.write(".gitmodules", &format!("{modules}# edited\n"));
+}
+
+/// The refusal [`submodule`]'s shape gives in place of its moves.
+fn submodule_refused(repo: &Repo) -> String {
+    format!(
+        "error: {} is a submodule git tracks, which `git mv` moves only together with \
+         .gitmodules, so no moves are listed (decision 0083); nothing was opened: move it out of \
+         .forge and commit, then run again\n",
+        repo.path(".forge/z-cache").display()
     )
 }
 
@@ -1348,6 +1376,12 @@ fn shapes() -> Vec<Shape> {
                     repo.root.display()
                 )
             },
+        ),
+        refusing(
+            "TrackedSubmodule",
+            listing("", &["forge.db"], &[], false),
+            submodule,
+            submodule_refused,
         ),
         refusing(
             "Untracked",

@@ -53,6 +53,8 @@ pub(crate) enum FolderError {
     /// A `.forge` that is a link, whose entries git tracks: `git mv` and
     /// `git rm` refuse a path beyond a symbolic link.
     LinkedTracked { path: PathBuf },
+    /// A submodule git tracks under `.forge`: `git mv` moves it only with `.gitmodules`.
+    TrackedSubmodule { path: PathBuf },
     /// A `.forge/` entry whose name is not UTF-8, which no listed move
     /// could name.
     NotUtf8 { path: PathBuf },
@@ -125,6 +127,13 @@ impl fmt::Display for FolderError {
                  to take beyond a symbolic link, so no moves are listed (decision 0083); nothing \
                  was opened: put the directory it names in its place, or untrack its entries, \
                  then run again",
+                path.display()
+            ),
+            FolderError::TrackedSubmodule { path } => write!(
+                f,
+                "{} is a submodule git tracks, which `git mv` moves only together with \
+                 .gitmodules, so no moves are listed (decision 0083); nothing was opened: move it \
+                 out of {LIBRARY_STATE} and commit, then run again",
                 path.display()
             ),
             FolderError::NotUtf8 { path } => write!(
@@ -423,8 +432,9 @@ fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
 /// names. The compile-derived moves are not listed (the operator's ruling
 /// of 2026-10-13). A `.forge` that is neither, entries that cannot be
 /// listed or named, an ignore entry no `rm` could remove, a repository
-/// git will not list or state, a tracked path git holds a change to, and
-/// a linked `.forge` whose entries git tracks refuse by name, with no list
+/// git will not list or state, a submodule git tracks, a tracked path git
+/// holds a change to, and a linked `.forge` whose entries git tracks
+/// refuse by name, with no list
 /// at all, so every list printed completes when executed (round 634k).
 fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
     let forge = Forge::at(root)?;
@@ -613,32 +623,75 @@ fn nameable(forge: &Path, name: std::ffi::OsString) -> Result<String, FolderErro
 /// tracks nothing; inside one, a git that cannot be run or will not list
 /// refuses by name, because an entry it tracks moved by `mv` would leave
 /// git a deletion and a stranger. So do the shapes no `git mv` or `git rm`
-/// could complete (round 634k's third finding): a linked `.forge` whose
-/// entries git tracks, and any tracked path under it git holds a change to
-/// ([`committed`]).
+/// could complete (round 634k's third finding): a submodule git tracks
+/// under `.forge` ([`held`]), a linked `.forge` whose entries git tracks,
+/// and any tracked path under it git holds a change to ([`committed`]).
 fn tracked(root: &Path, forge: Forge) -> Result<Vec<Vec<u8>>, FolderError> {
     let repository = brokkr_runtime::places::root(root).map_err(FolderError::Places)?;
     if entry(&repository.join(".git"))?.is_none() {
         return Ok(Vec::new());
     }
-    let listed = ask_git(root, "ls-files", &["-z", "--", LIBRARY_STATE])?;
-    let prefix = forged("");
-    let tracked: Vec<Vec<u8>> = listed
-        .split(|byte| *byte == 0)
-        .filter_map(|path| path.strip_prefix(prefix.as_bytes()))
-        .map(|rest| {
-            rest.split(|byte| *byte == b'/')
-                .next()
-                .unwrap_or(rest)
-                .to_vec()
-        })
-        .collect();
+    let listed = ask_git(root, "ls-files", &["-s", "-z", "--", LIBRARY_STATE])?;
+    let tracked = held(root, &listed)?;
     if forge == Forge::Link && !tracked.is_empty() {
         let path = root.join(LIBRARY_STATE);
         return Err(FolderError::LinkedTracked { path });
     }
     committed(root)?;
     Ok(tracked)
+}
+
+/// What git's index holds at a path: a file or a link ([`held`]), or a submodule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Held {
+    Blob,
+    Submodule,
+}
+
+/// One record of `git ls-files -s`, `MODE OBJECT STAGE<TAB>PATH`: what its
+/// mode says git holds, and its path. Any other mode is no record this reads.
+fn staged(record: &[u8]) -> Option<(Held, &[u8])> {
+    let tab = record.iter().position(|byte| *byte == b'\t')?;
+    let held = match record[..tab].split(|byte| *byte == b' ').next() {
+        Some(b"100644" | b"100755" | b"120000") => Held::Blob,
+        Some(b"160000") => Held::Submodule,
+        _ => return None,
+    };
+    Some((held, &record[tab + 1..]))
+}
+
+/// The names directly under `.forge/` that `git ls-files -s -z` printed in
+/// `root`, as git's bytes, read typed (decision 0071 ruling 3). A submodule
+/// there refuses by name: `git mv` moves one only together with
+/// `.gitmodules`, which a change outside `.forge` stops (round 634k's
+/// review). A record this cannot read is refused with its bytes.
+fn held(root: &Path, listed: &[u8]) -> Result<Vec<Vec<u8>>, FolderError> {
+    use std::os::unix::ffi::OsStrExt;
+    let prefix = forged("");
+    let mut names = Vec::new();
+    for record in listed.split(|byte| *byte == 0).filter(|r| !r.is_empty()) {
+        let (held, path) = staged(record).ok_or_else(|| unread(root, "ls-files", record))?;
+        if held == Held::Submodule {
+            let path = root.join(std::ffi::OsStr::from_bytes(path));
+            return Err(FolderError::TrackedSubmodule { path });
+        }
+        let under = path.strip_prefix(prefix.as_bytes());
+        let name = under.and_then(|rest| rest.split(|byte| *byte == b'/').next());
+        names.extend(name.map(<[u8]>::to_vec));
+    }
+    Ok(names)
+}
+
+/// The refusal of a record git's `verb` printed in `root`, with its bytes.
+fn unread(root: &Path, verb: &'static str, record: &[u8]) -> FolderError {
+    FolderError::Untracked {
+        verb,
+        root: root.to_path_buf(),
+        said: format!(
+            "it printed a record this cannot read: '{}'",
+            String::from_utf8_lossy(record).escape_debug()
+        ),
+    }
 }
 
 /// Refuse every tracked path under `.forge` whose index or work tree
@@ -727,14 +780,7 @@ impl fmt::Display for Change {
 /// copy's origin in the field after it. A record this cannot read is
 /// refused with its bytes, never skipped.
 fn changes(root: &Path, status: &[u8]) -> Result<Vec<Change>, FolderError> {
-    let unread = |record: &[u8]| FolderError::Untracked {
-        verb: "status",
-        root: root.to_path_buf(),
-        said: format!(
-            "it printed a record this cannot read: '{}'",
-            String::from_utf8_lossy(record).escape_debug()
-        ),
-    };
+    let unread = |record: &[u8]| unread(root, "status", record);
     let mut fields = status
         .split(|byte| *byte == 0)
         .filter(|field| !field.is_empty());

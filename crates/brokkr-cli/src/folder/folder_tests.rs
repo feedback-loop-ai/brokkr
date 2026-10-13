@@ -492,6 +492,55 @@ fn a_status_record_this_cannot_read_refuses() {
     }
 }
 
+/// Each record of `git ls-files -s -z` is read typed: a file's or a
+/// link's mode names the entry under `.forge/` it stands in, a path that
+/// is `.forge` itself names none, a submodule refuses by its path, and a
+/// record with no tab or an unknown mode refuses with its bytes (round
+/// 634k's review).
+#[test]
+fn an_index_record_this_cannot_read_refuses() {
+    let root = Path::new("/r");
+    let read = |listed: &[u8]| super::held(root, listed);
+    let object = "0".repeat(40);
+    let listed = format!(
+        "100644 {object} 0\t.forge/a\0100755 {object} 0\t.forge/r/x.json\0120000 {object} \
+         0\t.forge\0"
+    );
+    assert_eq!(
+        read(listed.as_bytes()).unwrap(),
+        [b"a".to_vec(), b"r".to_vec()]
+    );
+    let submodule = format!("100644 {object} 0\t.forge/a\0160000 {object} 0\t.forge/z\0");
+    let refusal = read(submodule.as_bytes()).unwrap_err();
+    assert!(
+        matches!(refusal, FolderError::TrackedSubmodule { ref path } if path == Path::new("/r/.forge/z"))
+    );
+    assert_eq!(
+        refusal.to_string(),
+        "/r/.forge/z is a submodule git tracks, which `git mv` moves only together with \
+         .gitmodules, so no moves are listed (decision 0083); nothing was opened: move it out of \
+         .forge and commit, then run again"
+    );
+    for record in ["100644 x 0 .forge/a", "040000 x 0\t.forge/d"] {
+        let refusal = read(format!("{record}\0").as_bytes()).unwrap_err();
+        assert!(matches!(
+            refusal,
+            FolderError::Untracked {
+                verb: "ls-files",
+                ..
+            }
+        ));
+        assert_eq!(
+            refusal.to_string(),
+            format!(
+                "git ls-files in /r failed, so the moves cannot tell what git tracks (decision \
+                 0083); nothing was opened: it printed a record this cannot read: '{}'",
+                record.escape_debug()
+            )
+        );
+    }
+}
+
 /// A repository git lists but cannot state, its HEAD naming a commit it
 /// does not hold, refuses as one git will not list does. A git that
 /// states such a repository after all skips the case.
