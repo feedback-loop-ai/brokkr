@@ -12,7 +12,7 @@ use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-use super::{bind_environment, store, wipe, Secret};
+use super::{bind_environment, store, wipe, BoundSecret, Secret};
 use crate::broker::Refusal;
 use crate::native_controls::bounded_line;
 
@@ -33,29 +33,53 @@ pub(super) const BINDINGS_MAX: usize = 256;
 /// decision 0012's own; a frame past MB4's bounds is the handoff cause, as
 /// is whatever `send` answers. The frame is reserved whole before a byte is
 /// written, and wiped once sent. Its caller bounds the whole of it, the
-/// store's open and read included, by the box's startup.
+/// store's open and read included, by the box's startup. The bindings it
+/// looked up are handed back beside the answer, whether or not anything was
+/// sent, so the caller's final guard holds them from the moment they are
+/// known (MB4, CR2; operator ruling 2026-10-13); none where the lookup
+/// itself refused.
 pub fn send_environment(
     store: std::os::fd::BorrowedFd<'_>,
     path: &Path,
     names: &[String],
     send: impl FnOnce(&[u8]) -> Result<(), Refusal>,
-) -> Result<(), Refusal> {
-    let binding = |error: &dyn fmt::Display| Refusal::Name(bounded_line(&error.to_string()));
+) -> (Vec<BoundSecret>, Result<(), Refusal>) {
     let io = |source| store::StoreError::Io {
         path: path.to_path_buf(),
         source,
     };
     let bindings = match names.is_empty() {
-        true => Vec::new(),
+        true => Ok(Vec::new()),
         false => reopened(store)
             .map_err(io)
             .and_then(|file| store::read_store_file(file, path))
             .and_then(|entries| store::bind_names(entries, names, path))
-            .map_err(|error| binding(&error))?,
+            .map_err(|error| named(&error)),
     };
+    match bindings {
+        Ok(bindings) => {
+            let sent = framed(&bindings, send);
+            (bindings, sent)
+        }
+        Err(refusal) => (Vec::new(), Err(refusal)),
+    }
+}
+
+/// The binding cause `error` reads as.
+fn named(error: &dyn fmt::Display) -> Refusal {
+    Refusal::Name(bounded_line(&error.to_string()))
+}
+
+/// Bind `bindings` with [`bind_environment`] on a cleared command that is
+/// never run, and hand `send` that command's environment as one binding
+/// frame ([`send_environment`]).
+fn framed(
+    bindings: &[BoundSecret],
+    send: impl FnOnce(&[u8]) -> Result<(), Refusal>,
+) -> Result<(), Refusal> {
     let mut prepared = std::process::Command::new("");
     prepared.env_clear();
-    bind_environment(&mut prepared, &bindings).map_err(|error| binding(&error))?;
+    bind_environment(&mut prepared, bindings).map_err(|error| named(&error))?;
     // The cleared command holds only what the injector set, each a UTF-8
     // name and value, so no entry is skipped here; one that were would
     // leave the frame short of a binding, which refuses below rather than

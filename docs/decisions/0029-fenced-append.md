@@ -246,3 +246,43 @@ member that checkpoints afterwards settles indeterminate. So the panel
 parks for the operator instead of failing retryable on the refused
 member alone. A ticket on the lock file to order contending writers was
 considered and not built. No contract, event type or frozen byte moves.
+
+## Addendum — 2026-10-13: the transport's checkpoint limit bounds the hold, and there is no spill file (#433)
+
+Status: accepted — operator ruling 2026-10-13 on #433: no spill file; the contention hold is bounded by the transport's own checkpoint limit.
+
+This amends the #394 addendum's rule 3, and the bound its rule 1 states.
+Decision 0079 has since held every driver to a bounded transport. The
+transport counts each checkpoint by its stdout line and hands one to
+the engine only within 100,000 checkpoints and 64 MiB of lines for the
+attempt (`CHECKPOINTS`, `CHECKPOINT_BYTES`). Every row the hold keeps is
+one the transport admitted, kept until it lands, so the hold is already
+bounded in the transport's own unit.
+
+1. The hold keeps no limit of its own, and measures nothing. The 16 MiB
+   bound (`HELD_BYTES`) is gone, and with it the #464 addendum's rule 4,
+   which measured a row only when it joined a non-empty hold. Below the
+   transport's limit no checkpoint is ever lost to a peer's lock. Past
+   it, the driver is already cut off and its attempt ends indeterminate
+   (decision 0079).
+2. Rule 3 now reads: evidence stranded when the lock outlasts the
+   settlement settles its site `effect/indeterminate` with the count
+   named, and is never read as the driver's success. A full hold no
+   longer exists to lose a row, so its reason text is retired.
+3. #433 owns no spill file. Nothing is written to disk beside the
+   journal, so there is no file to clean up and no reaper to run after a
+   killed owner.
+4. What one site holds of its driver's checkpoints, in line bytes, is
+   the sum of the transport's stdout queue (64 lines of at most 16 MiB),
+   the handoff to the sink (64 checkpoints), the hold, and the report,
+   which keeps every checkpoint up to 64 MiB beside 1 MiB of stderr. The
+   handoff and the hold together stay within 64 MiB, since no row is in
+   both. A panel multiplies each term by its members. The module
+   documentation of `engine/checkpoints.rs` states the same sum by the
+   constants' names.
+
+The hold is a second copy of rows the report keeps, and the heap a
+parsed row takes beside its line is #342's to measure. Host-configured
+limits and the stdout queue, bounded only by its count of lines, remain
+open. No contract, event type or frozen byte moves, and rows journaled
+under contention match a run without it byte for byte.

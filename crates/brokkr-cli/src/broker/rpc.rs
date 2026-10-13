@@ -9,8 +9,9 @@
 //! offered and no name listed twice. Every frame is read by its keys, an
 //! object, never by position. A member read through [`present`], such as a
 //! frame's id, method, result or error, is refused where it is an explicit
-//! null, never taken as absent; a frame's params, an error's data and a
-//! page's next cursor read a null as absent. A response must answer the
+//! null, never taken as absent; a frame's params and a page's next cursor
+//! read a null as absent, and an error's data keeps an explicit null apart
+//! from its absence, each relayed as it was (CR2). A response must answer the
 //! one request outstanding, by its exact typed id: a number and a string
 //! are never the same id, and any other response ends the session. A frame
 //! that answers nothing is never the harness's: the server's ping is
@@ -20,9 +21,10 @@
 //! server is queued, whole frames in order, and written as far as the
 //! server takes it whenever its output is read, so no write waits on it. A
 //! fatal ending is the session's first cause ([`Fatal`]), latched through
-//! the ledger's own catalogue. The harness-facing call path is
-//! [`calls`]'s; until U6f, `serve` refuses before any message reaches the
-//! harness.
+//! the ledger's own catalogue. A response is read strictly as well, at the
+//! output edge ([`output`], U6f1a): a key twice or a number read as another
+//! value ends the session too. The harness-facing call path is [`calls`]'s;
+//! until U6f1b, `serve` refuses before any message reaches the harness.
 
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
@@ -38,6 +40,8 @@ use serde_json::{json, Map, Value};
 use super::session::{ensure, polled, Ended, Link, Startup};
 
 mod calls;
+#[path = "output.rs"]
+pub(in crate::broker) mod output;
 
 #[cfg(test)]
 mod tests;
@@ -68,6 +72,7 @@ const CHUNK: usize = 64 << 10;
 const PROTOCOL: Fatal = Fatal::Failed(Failure::Protocol);
 const RESPONSE: Fatal = Fatal::Failed(Failure::Response);
 const TIMEOUT: Fatal = Fatal::Failed(Failure::Timeout);
+const MASKING: Fatal = Fatal::Failed(Failure::Masking);
 
 /// Why a served session ends (MB3, CR3), each latched as its closure's
 /// first cause through the ledger's own catalogue ([`Fatal::failure`]): a
@@ -209,13 +214,16 @@ struct Frame {
 }
 
 /// JSON-RPC's error object, its members and no other: what a server's
-/// error response carries, relayed to the harness as the data it is.
+/// error response carries, relayed to the harness as the data it is. Its
+/// data is absent, or present as whatever it holds, an explicit null
+/// included, never the one read as the other (CR2).
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Fault {
     code: i64,
     message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "present")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     data: Option<Value>,
     #[serde(flatten, skip_serializing)]
     _keyed: Keyed,
@@ -248,7 +256,7 @@ fn error(id: Option<&Id>, code: i64, message: &dyn Display) -> Value {
 
 /// What the next of a pipe's frames is.
 #[derive(Debug, PartialEq)]
-enum Line {
+pub(in crate::broker) enum Line {
     Frame(Vec<u8>),
     Quiet,
     Partial,
@@ -258,8 +266,9 @@ enum Line {
 
 /// A pipe read as newline-delimited frames without blocking: the bytes
 /// past the last whole frame, how many of them are known to hold no
-/// newline, and whether a frame over its bound is being passed over.
-struct Lines<R> {
+/// newline, and whether a frame over its bound is being passed over. The
+/// server's standard error is read as lines this way too.
+pub(in crate::broker) struct Lines<R> {
     pipe: R,
     held: Vec<u8>,
     searched: usize,
@@ -268,7 +277,7 @@ struct Lines<R> {
 
 impl<R: Read + AsFd> Lines<R> {
     /// `pipe` read without blocking, or none where it cannot be.
-    fn new(pipe: R) -> Option<Lines<R>> {
+    pub(in crate::broker) fn new(pipe: R) -> Option<Lines<R>> {
         rustix::io::ioctl_fionbio(pipe.as_fd(), true).ok()?;
         Some(Lines {
             pipe,
@@ -284,7 +293,7 @@ impl<R: Read + AsFd> Lines<R> {
     /// `Partial` where one read took bytes but no frame is whole, so its
     /// caller reads its deadline again before the next; `Ended` at the
     /// pipe's end or on its error.
-    fn next(&mut self, most: usize) -> Line {
+    pub(in crate::broker) fn next(&mut self, most: usize) -> Line {
         if let Some(line) = self.framed(most) {
             return line;
         }
@@ -336,6 +345,13 @@ impl<R: Read + AsFd> Lines<R> {
                 }
             }
         }
+    }
+
+    /// The bytes held past the last whole frame, taken: none where a
+    /// frame over its bound is being passed over.
+    pub(in crate::broker) fn rest(&mut self) -> Vec<u8> {
+        self.searched = 0;
+        std::mem::take(&mut self.held)
     }
 }
 
@@ -430,7 +446,8 @@ impl<'l> Server<'l> {
     /// is written as far as it takes it: a response, by its id; or a frame
     /// that answers nothing ([`Server::noticed`]). Taken, not quiet, where
     /// it took what was queued but said nothing. Its end, a frame over
-    /// MB3's bounds or one not JSON-RPC 2.0 ends the session.
+    /// MB3's bounds or one not JSON-RPC 2.0 ends the session, and so does a
+    /// response not read exactly ([`output::checked`]).
     fn heard(&mut self) -> Result<Heard, Fatal> {
         let took = self.flushed()?;
         let frame = match self.output.next(RESPONSE_MAX) {
@@ -443,11 +460,12 @@ impl<'l> Server<'l> {
         };
         ensure(shallow(&frame), RESPONSE)?;
         let parsed: Frame = serde_json::from_slice(&frame).or(Err(PROTOCOL))?;
+        let answer = |id, reply| output::checked(&frame).map(|()| Heard::Answer(id, reply));
         match (parsed.id, parsed.method, parsed.result, parsed.error) {
             (Some(id), None, Some(result), None) => {
-                Ok(Heard::Answer(id, Reply::Result(Value::Object(result))))
+                answer(id, Reply::Result(Value::Object(result)))
             }
-            (Some(id), None, None, Some(error)) => Ok(Heard::Answer(id, Reply::Error(error))),
+            (Some(id), None, None, Some(error)) => answer(id, Reply::Error(error)),
             (asked, Some(method), None, None) => self.noticed(frame.len(), asked, &method),
             _ => Err(PROTOCOL),
         }
@@ -528,20 +546,22 @@ struct Page {
     next: Option<String>,
 }
 
-/// A listed tool's name.
-#[derive(Deserialize)]
+/// A listed tool: its name, and whatever else the server says of it, which
+/// is the server's data.
+#[derive(Serialize, Deserialize)]
 struct Tool {
     name: String,
     #[serde(flatten)]
-    _keyed: Keyed,
+    described: Map<String, Value>,
 }
 
-/// What the server offers of the grant: the result a harness's listing is
-/// answered with, which holds the granted tools as the server describes
-/// them, in its order, and nothing else.
-pub(in crate::broker) struct Catalog(Vec<u8>);
+/// What the server offers of the grant: the tools a harness's listing is
+/// answered with, the granted ones as the server describes them, in its
+/// order, and nothing else; masked at the output edge, and each still the
+/// tool the grant offered, before any harness is answered with them.
+pub(in crate::broker) struct Catalog(Vec<Tool>);
 
-/// What `serve` does with an admitted box's stdio until U6f completes the
+/// What `serve` does with an admitted box's stdio until U6f1b completes the
 /// serving protections: its server [`started`] for the plan `plan` within
 /// `startup`, then let go, so the box is ended before any message reaches
 /// the harness; or the session's fatal ending.
@@ -601,10 +621,10 @@ fn listed(
             Fatal::Catalog,
         )?;
         for tool in page.tools {
-            let named = Tool::deserialize(&tool).or(Err(PROTOCOL))?.name;
-            ensure(names.insert(named.clone()), Fatal::Catalog)?;
-            if granted.contains(&named) {
-                offered.push((named, tool));
+            let tool = Tool::deserialize(tool).or(Err(PROTOCOL))?;
+            ensure(names.insert(tool.name.clone()), Fatal::Catalog)?;
+            if granted.contains(&tool.name) {
+                offered.push(tool);
             }
         }
         let Some(next) = page.next else {
@@ -619,13 +639,12 @@ fn listed(
 /// The catalog of the tools `offered`, where they are every `granted` one;
 /// the first granted tool they lack ends the session, and so does a
 /// listing over MB3's bound on a response, which is never delivered.
-fn offering(granted: &[String], offered: Vec<(String, Value)>) -> Result<Catalog, Fatal> {
+fn offering(granted: &[String], offered: Vec<Tool>) -> Result<Catalog, Fatal> {
     let lacked = granted
         .iter()
-        .find(|tool| !offered.iter().any(|(name, _)| name == *tool));
+        .find(|tool| !offered.iter().any(|offered| offered.name == **tool));
     lacked.map_or(Ok(()), |tool| Err(Fatal::Missing(tool.clone())))?;
-    let tools: Vec<Value> = offered.into_iter().map(|(_, tool)| tool).collect();
-    let listing = serde_json::to_vec(&json!({"tools": tools})).unwrap_or_default();
+    let listing = serde_json::to_vec(&json!({"tools": offered})).unwrap_or_default();
     ensure(listing.len() <= RESPONSE_MAX, RESPONSE)?;
-    Ok(Catalog(listing))
+    Ok(Catalog(offered))
 }

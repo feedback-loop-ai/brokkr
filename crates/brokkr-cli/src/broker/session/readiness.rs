@@ -163,6 +163,7 @@ pub(super) fn ready<T, E: From<Refusal>>(
     admitted: &Admitted,
     _: (&brokkr_protocol::broker::Plan, &str),
     _: Startup<'_>,
+    _: impl FnOnce(Vec<brokkr_protocol::secret::BoundSecret>) -> Result<(), E>,
     _: impl FnOnce(Link<'_>) -> Result<T, E>,
 ) -> Result<T, E> {
     let _ = (&admitted.handles, &admitted.store, &admitted.entry);
@@ -219,13 +220,16 @@ mod linux {
     /// its launcher cannot start, and not established where its start
     /// overruns, the started launcher names no first process, the intent
     /// cannot be sent or the readiness is not the owned bootstrap's, whole,
-    /// for this plan and these sources. Only then is the server's stdio
-    /// handed on, live, to `served` (U6e), whose answer this is. The box is
-    /// settled once this returns, either way, its server with it.
+    /// for this plan and these sources. The bindings looked up are given
+    /// to `bind` as soon as they are ([`delivered`]). Only then is the
+    /// server's stdio handed on, live, to `served` (U6e), whose answer this
+    /// is. The box is settled once this returns, either way, its server
+    /// with it.
     pub(in crate::broker) fn ready<T, E: From<Refusal>>(
         admitted: &Admitted,
         (plan, digest): (&Plan, &str),
         startup: Startup<'_>,
+        bind: impl FnOnce(Vec<secret::BoundSecret>) -> Result<(), E>,
         served: impl FnOnce(Link<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
         let handles = admitted.handles.iter().map(|(_, fd)| fd.as_fd());
@@ -253,8 +257,8 @@ mod linux {
         let end = || {
             child.kill().ok();
         };
-        decided(&ready, (digest, &intent.sources), launcher, &seen)
-            .and_then(|()| delivered(pipes, (admitted, plan), startup, end))?;
+        decided(&ready, (digest, &intent.sources), launcher, &seen)?;
+        delivered(pipes, (admitted, plan), startup, (end, bind))?;
         served((&mut launched.input, &mut launched.output))
     }
 
@@ -267,26 +271,36 @@ mod linux {
     /// send run on a thread of their own, on its own duplicates of the
     /// store's handle and the control pipe, which it closes after its one
     /// frame; this one supervises it by the same `startup` as every other
-    /// wait ([`handed`]).
-    pub(super) fn delivered(
+    /// wait ([`handed`]). The bindings the sender looked up are given to
+    /// `bind` as soon as it answers, before its answer or anything after it
+    /// is read, so no cause after their lookup ends the session unguarded
+    /// by them (MB4, CR2; operator ruling 2026-10-13); `bind`'s refusal is
+    /// the session's.
+    pub(super) fn delivered<E: From<Refusal>>(
         (control, status): (&mut Option<PipeWriter>, &mut PipeReader),
         (admitted, plan): (&Admitted, &Plan),
         startup: Startup<'_>,
-        end: impl FnOnce(),
-    ) -> Result<(), Refusal> {
+        (end, bind): (
+            impl FnOnce(),
+            impl FnOnce(Vec<secret::BoundSecret>) -> Result<(), E>,
+        ),
+    ) -> Result<(), E> {
         let open = control.as_ref().ok_or(Refusal::Handoff)?;
         let mut open = open.try_clone().or(Err(Refusal::Handoff))?;
         let store = admitted.store.try_clone().or(Err(Refusal::Handoff))?;
         let (path, names) = (plan.intent.excluded.store.clone(), plan.secrets.clone());
         let deadline = startup.0;
-        handed(std::thread::Builder::new(), startup, end, move |given_up| {
-            let given_up = || given_up.load(Ordering::SeqCst);
-            let sending: Startup<'_> = (deadline, &given_up);
-            let send = |frame: &[u8]| sent(&mut open, frame, sending).or(Err(Refusal::Handoff));
-            secret::send_environment(store.as_fd(), &path, &names, send)
-        })?;
+        let (bindings, sent) =
+            handed(std::thread::Builder::new(), startup, end, move |given_up| {
+                let given_up = || given_up.load(Ordering::SeqCst);
+                let sending: Startup<'_> = (deadline, &given_up);
+                let send = |frame: &[u8]| sent(&mut open, frame, sending).or(Err(Refusal::Handoff));
+                Ok(secret::send_environment(store.as_fd(), &path, &names, send))
+            })?;
+        bind(bindings)?;
+        sent?;
         drop(control.take());
-        exec_status(status, startup)
+        Ok(exec_status(status, startup)?)
     }
 
     /// `sender`'s answer, run on a detached thread of its own, made by
@@ -300,12 +314,12 @@ mod linux {
     /// refusal. It owns all it holds, so nothing the box's settling
     /// releases is borrowed, and it ends with `serve`'s own exit on that
     /// refusal (operator ruling 2026-10-11).
-    pub(super) fn handed(
+    pub(super) fn handed<T: Send + 'static>(
         thread: std::thread::Builder,
         startup: Startup<'_>,
         end: impl FnOnce(),
-        sender: impl FnOnce(&AtomicBool) -> Result<(), Refusal> + Send + 'static,
-    ) -> Result<(), Refusal> {
+        sender: impl FnOnce(&AtomicBool) -> Result<T, Refusal> + Send + 'static,
+    ) -> Result<T, Refusal> {
         let given_up = Arc::new(AtomicBool::new(false));
         let giving = Arc::clone(&given_up);
         let sending = thread.spawn(move || sender(&giving));
