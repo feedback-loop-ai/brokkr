@@ -175,7 +175,7 @@ fn a_start_that_sent_no_result_ends_the_driver() {
 }
 
 /// The thread a codex rejoin is offered.
-const OFFERED: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
+const OFFERED: &str = tests::THREAD;
 
 /// The refusal a codex stream reports before its first turn.
 const REFUSAL: &str = r#"printf '{"type":"error","message":"stream error: rate limit"}\n'"#;

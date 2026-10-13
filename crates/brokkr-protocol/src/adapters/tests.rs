@@ -2470,7 +2470,7 @@ fn dsh_model_overlay_reports_a_file_it_cannot_stage_or_write() {
 
 /// A codex thread id in the shape codex writes it, used wherever a test
 /// needs a plausible one.
-const THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
+pub(super) const THREAD: &str = "01a06183-5173-7aa2-8fd6-c2f4923a93a1";
 
 /// The version every codex shim here reports, and the one the enabled
 /// assessments below are qualified against. A shim that answers
