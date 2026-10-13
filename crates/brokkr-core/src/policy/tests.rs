@@ -79,7 +79,7 @@ fn a_ruling_severity_is_named_and_serialized_as_the_journal_writes_it() {
     assert_eq!(RuleSeverity::named("severe"), None);
 }
 
-/// A ruling severity reads from its word alone (proposed decision 0084
+/// A ruling severity reads from its word alone (decision 0084
 /// ruling 1): serde's one-key map form of a variant, and every other
 /// JSON type, is refused rather than read as the word it wraps.
 #[test]

@@ -53,8 +53,8 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Recorded<T> {
 
 /// By hand, not derived: serde's enum derive also reads a variant's
 /// one-key map form (`{"normal": null}`), which would fold a record
-/// that does not serialize back to its own bytes (proposed decision
-/// 0084 rulings 1 and 2). The word alone reads.
+/// that does not serialize back to its own bytes (decision 0084
+/// rulings 1 and 2). The word alone reads.
 impl<'de> Deserialize<'de> for RuleSeverity {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer.deserialize_str(RuleSeverityWord)
@@ -78,7 +78,7 @@ impl serde::de::Visitor<'_> for RuleSeverityWord {
 /// A `transition/decided` payload: the policy's ruling on one result.
 /// The v1 contract lists its seven fields, and no extension schema adds
 /// one, so a field outside them is refused rather than dropped
-/// (proposed decision 0084; a published extension lands here as an
+/// (decision 0084; a published extension lands here as an
 /// optional field the fold never reads). Fields are
 /// declared in key order, so the record prints as the map it replaced.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

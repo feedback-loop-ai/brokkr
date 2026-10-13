@@ -474,8 +474,8 @@ fn a_decision_outside_its_contract_fails_the_fold() {
 }
 
 /// A severity written as serde's one-key map form of a variant fails
-/// the fold at its seq, naming the field, rather than folding as the
-/// word it wraps (proposed decision 0084 rulings 1 and 2).
+/// the fold at its seq rather than folding as the word it wraps
+/// (decision 0084 rulings 1 and 2).
 #[test]
 fn a_decision_severity_in_map_form_fails_the_fold() {
     for word in crate::policy::RULING_SEVERITIES {

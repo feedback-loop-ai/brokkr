@@ -1,6 +1,6 @@
 # 0084 — The fold reads a ruling as its contract closes it
 
-Status: proposed
+Status: accepted (operator ruled in chat, 2026-10-13, on #657)
 Date: 2026-10-13
 
 Built: built
@@ -24,7 +24,8 @@ to keep the payload as a `serde_json::Value` and read it field by field:
   no one.
 
 The typed read refuses each of those payloads with
-`FoldError::BadDecision { seq, detail }`, the serde detail naming the field.
+`FoldError::BadDecision { seq, detail }`, naming the event's seq. serde's
+detail names an unknown field, and not a mistyped one.
 That narrows what the fold accepts, which is a semantic change, so it is ruled
 here rather than left in a refactor's commit message.
 
