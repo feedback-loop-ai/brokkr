@@ -3,7 +3,7 @@
 The console puts Brokkr's fleet inside a DSH web client: a **Brokkr** entry
 in DSH's left panel list, whose icon shows how many runs are waiting on you,
 and a panel with two views, **Realms** and **Analytics**. It is a DSH plugin
-kept in this repository at `extensions/dsh/brokkr-console/` (decision 0084,
+kept in this repository at `extensions/dsh/brokkr-console/` (decision 0085,
 proposed). It targets DSH `0.2.0-rc.2`.
 
 The console paints Brokkr's own readouts and presses Brokkr's own verbs. It

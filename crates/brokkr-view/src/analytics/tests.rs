@@ -535,9 +535,9 @@ fn read_one(runs: &[AnalyticsRun], range: Range) -> Analytics {
 /// What the journal can hold that the main fleet does not: a run its
 /// operator stopped, rules that tie and rules that do not, an event with no
 /// readable time, operator events that are not the answer, a second answer,
-/// a park outside the range, a refusal journaled after the stop, and seat
-/// records that name no provider, no model, no record or a member no start
-/// announced.
+/// a park outside the range, a refusal journaled after the stop, a ruling
+/// from a step other than review, and seat records that name no provider,
+/// no model, no record or a member no start announced.
 #[test]
 fn the_edges_of_the_journal_are_read_as_the_readout_says() {
     let stopped = |rule: &str, at: &str| {
@@ -557,6 +557,8 @@ fn the_edges_of_the_journal_are_read_as_the_readout_says() {
         payload
     };
     let operator = Journal::started(None, "2026-10-10T00:00:00Z")
+        // A ruling from a step other than review is no review's route.
+        .ruled("implement", Some("review"), "2026-10-10T00:20:00Z")
         .entered("review", "2026-10-10T00:30:00Z")
         .then(EventType::PhaseEntered, json!({"phase": "lost"}), "not a time")
         .then(EventType::RunParked, json!({}), "2026-10-10T01:00:00Z")

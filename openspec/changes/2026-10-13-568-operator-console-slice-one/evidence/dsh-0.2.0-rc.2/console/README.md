@@ -25,4 +25,4 @@ The host log had no errors or warnings. The browser had no console messages, pag
 
 ## Tests
 
-`plugin-tests.txt` is the output of `npm test` in `extensions/dsh/brokkr-console/` that this change was proven with, as decision 0084 ruling 5 asks until the Node CI job lands.
+`plugin-tests.txt` is the output of `npm test` in `extensions/dsh/brokkr-console/` that this change was proven with, as decision 0085 ruling 5 asks until the Node CI job lands.

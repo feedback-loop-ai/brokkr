@@ -1,6 +1,6 @@
 // The one WebSocket the console pushes on. DSH hands the upgrade over whole
 // (task 0.2): the handshake and RFC 6455 framing are the plugin's, written
-// against Node's standard library with no `ws` dependency (decision 0084
+// against Node's standard library with no `ws` dependency (decision 0085
 // ruling 4). The console's messages are small JSON texts; a client frame
 // larger than the bound closes the socket.
 import { createHash } from 'node:crypto'

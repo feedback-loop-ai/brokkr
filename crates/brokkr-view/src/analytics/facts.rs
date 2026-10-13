@@ -10,7 +10,7 @@ use brokkr_core::{EventEnvelope, EventType};
 use super::{AnalyticsRun, QuarantinedHearth, Query};
 use crate::clarify::pinned_realm;
 use crate::fleet::{last_rule, standing_of, STOP_PHASE};
-use crate::{decided, field, js, reported_cost, Standing};
+use crate::{field, js, reported_cost, Standing};
 
 /// The phase whose visits count a run's rework.
 const IMPLEMENT_PHASE: &str = "implement";
@@ -161,13 +161,12 @@ fn reviews(events: &[EventEnvelope]) -> Vec<Route> {
         if event.event_type == EventType::PhaseEntered {
             entered.extend(field(&event.payload, "phase"));
         }
-        let Some(ruled) = decided(&event.payload)
-            .filter(|_| event.event_type == EventType::TransitionDecided)
-            .filter(|ruled| ruled.from.and_then(|from| from.as_str()) == Some(review))
-        else {
+        if event.event_type != EventType::TransitionDecided
+            || field(&event.payload, "from") != Some(review)
+        {
             continue;
-        };
-        routes.push(match ruled.next.and_then(|next| next.as_str()) {
+        }
+        routes.push(match field(&event.payload, "next") {
             None | Some(STOP_PHASE) => Route::Held,
             Some(next) if entered.contains(next) => Route::Back,
             Some(_) => Route::On,

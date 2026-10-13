@@ -38,9 +38,9 @@ mod participant;
 mod scope;
 pub mod transcript;
 
-pub use brokkr_core::policy::RuleSeverity;
 pub use analytics::Range;
 pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query};
+pub use brokkr_core::policy::RuleSeverity;
 pub use clarify::Clarify;
 use clarify::{clarify, worktree};
 use commands::{commands, unavailable};
@@ -66,7 +66,7 @@ use std::collections::BTreeMap;
 
 // The core's ruling record; the dashboard's `Decision` holds this name.
 use brokkr_core::decision::Decision as Decided;
-use brokkr_core::fold::{acceptance_refusal, OperatorCommand, RunState, Status};
+use brokkr_core::fold::RunState;
 use brokkr_core::realms::Boundary;
 use brokkr_core::residual::{residuals, Residual, SUPERSEDE};
 use brokkr_core::{EventEnvelope, EventType};

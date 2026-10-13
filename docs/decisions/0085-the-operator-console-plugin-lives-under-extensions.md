@@ -1,4 +1,4 @@
-# 0084 — The DSH operator console plugin lives under `extensions/dsh/brokkr-console/`, with its own source and tests
+# 0085 — The DSH operator console plugin lives under `extensions/dsh/brokkr-console/`, with its own source and tests
 
 Status: proposed
 Date: 2026-10-13

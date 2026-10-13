@@ -82,7 +82,7 @@ function design D6 places beside the DSH planner is their only producer.
 
 ## `brokkr-console/` — the operator console, authored here
 
-Decision 0084 (proposed) places it. Nothing upstream: every byte is this
+Decision 0085 (proposed) places it. Nothing upstream: every byte is this
 repository's own, written for change
 `2026-10-13-568-operator-console-slice-one`, so no digest map stands here.
 Its `package.json` is `"private": true` and names no dependency; the operator
@@ -111,7 +111,7 @@ sidebar (design D7).
 Tests: `node --test` in this directory, offline, against a stub `brokkr`
 binary and a stub DSH host. The output this change was proven with is
 `openspec/changes/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/console/plugin-tests.txt`. CI job: pending
-(decision 0084 ruling 5).
+(decision 0085 ruling 5).
 
 ## `resume-policy/` — conditional `brokkr-dsh-resume-policy`
 
