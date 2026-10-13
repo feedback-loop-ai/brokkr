@@ -57,8 +57,9 @@ impl Severity {
 pub const RULING_SEVERITIES: [&str; 3] = ["normal", "flagged", "hard"];
 
 /// A ruling's severity, typed: the closed set [`RULING_SEVERITIES`]
-/// names, in its order. It reads and serializes as its name.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+/// names, in its order. It reads and serializes as its name; the read is
+/// [`crate::decision`]'s, beside the record that holds it.
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleSeverity {
     Normal,

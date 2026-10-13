@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{Map, Value};
 
-use crate::policy::{RuleSeverity, REVIEWED_HEADS};
+use crate::policy::{RuleSeverity, REVIEWED_HEADS, RULING_SEVERITIES};
 use crate::realms::LEGACY_REALM_KEY;
 
 /// A field the contract writes as a value or `null`, and which a
@@ -48,6 +48,30 @@ impl<T: Serialize> Serialize for Recorded<T> {
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Recorded<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         Ok(Option::<T>::deserialize(deserializer)?.map_or(Recorded::Null, Recorded::Present))
+    }
+}
+
+/// By hand, not derived: serde's enum derive also reads a variant's
+/// one-key map form (`{"normal": null}`), which would fold a record
+/// that does not serialize back to its own bytes (proposed decision
+/// 0084 rulings 1 and 2). The word alone reads.
+impl<'de> Deserialize<'de> for RuleSeverity {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_str(RuleSeverityWord)
+    }
+}
+
+struct RuleSeverityWord;
+
+impl serde::de::Visitor<'_> for RuleSeverityWord {
+    type Value = RuleSeverity;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a ruling severity string")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, word: &str) -> Result<RuleSeverity, E> {
+        RuleSeverity::named(word).ok_or_else(|| E::unknown_variant(word, &RULING_SEVERITIES))
     }
 }
 

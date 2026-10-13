@@ -79,6 +79,40 @@ fn a_ruling_severity_is_named_and_serialized_as_the_journal_writes_it() {
     assert_eq!(RuleSeverity::named("severe"), None);
 }
 
+/// A ruling severity reads from its word alone (proposed decision 0084
+/// ruling 1): serde's one-key map form of a variant, and every other
+/// JSON type, is refused rather than read as the word it wraps.
+#[test]
+fn a_ruling_severity_reads_only_as_its_word() {
+    let refusal = |recorded: Value| {
+        serde_json::from_value::<RuleSeverity>(recorded)
+            .unwrap_err()
+            .to_string()
+    };
+    for word in RULING_SEVERITIES {
+        assert_eq!(
+            refusal(json!({ word: null })),
+            "invalid type: map, expected a ruling severity string"
+        );
+    }
+    assert_eq!(
+        refusal(json!({"normal": {}})),
+        "invalid type: map, expected a ruling severity string"
+    );
+    assert_eq!(
+        refusal(json!(["hard"])),
+        "invalid type: sequence, expected a ruling severity string"
+    );
+    assert_eq!(
+        refusal(json!(2)),
+        "invalid type: integer `2`, expected a ruling severity string"
+    );
+    assert_eq!(
+        refusal(json!("urgent")),
+        "unknown variant `urgent`, expected one of `normal`, `flagged`, `hard`"
+    );
+}
+
 #[test]
 fn change_identifiers_are_typed_data_and_never_condition_keys() {
     for accepted in ["a", "0", "change-42", "a.b_c-9"] {

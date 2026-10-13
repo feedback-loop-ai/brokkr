@@ -470,6 +470,8 @@ pub brokkr_core::policy::RuleSeverity::Normal
 impl brokkr_core::policy::RuleSeverity
 pub fn brokkr_core::policy::RuleSeverity::label(self) -> &'static str
 pub fn brokkr_core::policy::RuleSeverity::named(&str) -> core::option::Option<brokkr_core::policy::RuleSeverity>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::policy::RuleSeverity
+pub fn brokkr_core::policy::RuleSeverity::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub enum brokkr_core::policy::Severity
 pub brokkr_core::policy::Severity::Critical
 pub brokkr_core::policy::Severity::High

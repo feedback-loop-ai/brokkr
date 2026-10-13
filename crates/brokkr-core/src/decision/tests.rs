@@ -98,6 +98,21 @@ fn a_phase_hands_forward_its_inputs_as_its_decision_recorded_them() {
     );
 }
 
+/// The verdict prints its keys in the order the map it replaced did:
+/// those bytes feed the journaled `input_digest`.
+#[test]
+fn a_phase_result_prints_its_keys_in_the_maps_order() {
+    let printed = |payload: Value| serde_json::to_string(&PhaseResult::of(&decision(payload)));
+    assert_eq!(
+        printed(json!({"from": "a", "result": "ok", "inputs": {"change": "c1"}})).unwrap(),
+        r#"{"inputs":{"change":"c1"},"result":"ok"}"#
+    );
+    assert_eq!(
+        printed(json!({"from": "a", "result": "ok", "inputs": null})).unwrap(),
+        r#"{"inputs":null,"result":"ok"}"#
+    );
+}
+
 #[test]
 fn reviewed_heads_count_every_realm_and_read_only_strings() {
     let mixed = ReviewedHeads::read(&json!({"alpha": "abc", "beta": 7, "gamma": "def"}));

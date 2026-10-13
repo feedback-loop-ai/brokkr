@@ -72,9 +72,13 @@ Two alternatives were weighed:
    `severity` is not one of `RULING_SEVERITIES` or `null`. A missing `from` or
    `result` still fails as `FoldError::BadPayload`, naming the field.
    *Enforced by* `deny_unknown_fields` and the field types on `Decision`
-   (`crates/brokkr-core/src/decision.rs`), and pinned by
-   `a_decision_outside_its_contract_is_refused` and
-   `a_decision_outside_its_contract_fails_the_fold`.
+   (`crates/brokkr-core/src/decision.rs`), and by `RuleSeverity`'s
+   hand-written read there, which takes the word alone and refuses serde's
+   one-key map form (`{"normal": null}`) and every other JSON type. Pinned by
+   `a_decision_outside_its_contract_is_refused`,
+   `a_decision_outside_its_contract_fails_the_fold`,
+   `a_ruling_severity_reads_only_as_its_word` and
+   `a_decision_severity_in_map_form_fails_the_fold`.
 2. A `Decision` serializes to the bytes it was read from. `null` and absent
    stay apart for every optional field. *Enforced by* `Recorded<T>`, and
    pinned by `every_decision_shape_round_trips_null_and_absent_apart` and
