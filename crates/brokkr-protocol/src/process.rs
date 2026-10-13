@@ -2,11 +2,13 @@
 //! handshake, offer the seat's prior session to a driver that declared
 //! it can rejoin one, send `start`, and drive the attempt to a terminal
 //! outcome.
-//! Every protocol violation degrades to `Failed` (driver defect, retry
-//! is a new attempt); a silent exit degrades to `Indeterminate`; a
-//! deadline expiry kills the driver and degrades to `Failed` — the kill
-//! makes non-completion determinate, so bounded retry stays safe
-//! (decision 0006). A driver past the transport's limits (`limits`,
+//! A protocol violation in the handshake, before `start`, degrades to
+//! `Failed` (the executor never began, so a retry is a new attempt).
+//! Every end after `start` with no result read degrades to
+//! `Indeterminate`: a protocol violation, a silent exit and a deadline
+//! expiry, which kills the driver. A kill proves the process tree gone,
+//! never what the attempt did, so it earns no retry (decision 0006's
+//! 2026-10-11 addendum, ruling 1). A driver past the transport's limits (`limits`,
 //! #433) degrades to `Indeterminate`, and a line the stdout reader
 //! refused outranks every ending but the driver's result and a refused
 //! checkpoint: a protocol violation read before it, a write to stdin
@@ -108,17 +110,21 @@ enum Standing {
     /// The driver's result, or a checkpoint past a limit: what the
     /// driver sent after either is not protocol.
     Final(AttemptOutcome),
-    /// Every other end, which a refused line outranks.
+    /// Every other end, which a refused line outranks: a success with no
+    /// payload among them, which carried no result.
     Yielding(AttemptOutcome),
 }
 
-/// How the attempt loop ended: a protocol violation, which fails the
-/// attempt; the driver gone; the outcome its result reached; or a limit
-/// it exceeded, which leaves the attempt indeterminate (#433).
+/// How the attempt loop ended: a protocol violation in the handshake,
+/// which fails the attempt; one after `start`, which leaves it
+/// indeterminate (decision 0006's 2026-10-11 addendum, ruling 1); the
+/// driver gone; the outcome its result reached; or a limit it exceeded,
+/// which leaves the attempt indeterminate (#433).
 enum Ended {
     Failed(String),
+    Unread(String),
     Lost,
-    Reached(AttemptOutcome),
+    Reached(Standing),
     Exceeded(Exceeded),
 }
 
@@ -232,7 +238,8 @@ impl DriverProcess {
     /// Spawn the driver as the leader of a session, and so a process
     /// group, of its own (`attempts`). With a
     /// deadline, a watchdog kills the group when it expires; the attempt
-    /// then reports Failed(timeout) rather than hanging the run forever.
+    /// then reports Indeterminate(timeout) rather than hanging the run
+    /// forever.
     pub fn spawn(
         command: &[String],
         workdir: &std::path::Path,
@@ -454,14 +461,18 @@ impl DriverProcess {
         }
     }
 
-    /// The outcome for an EOF: a deadline kill is a determinate failure
-    /// (we killed it before any result); anything else depends on
-    /// whether the attempt was accepted.
+    /// The outcome for an EOF, which is never a result: a deadline kill
+    /// ended the tree, and says nothing of what the attempt did (decision
+    /// 0006's 2026-10-11 addendum, ruling 6); anything else says whether
+    /// the attempt was accepted.
     fn eof_outcome(&self, accepted: bool) -> AttemptOutcome {
         if self.timed_out.load(Ordering::SeqCst) {
             let secs = self.deadline.map(|d| d.as_secs()).unwrap_or_default();
-            return AttemptOutcome::Failed {
-                error: format!("attempt exceeded its {secs}s deadline and was killed"),
+            return AttemptOutcome::Indeterminate {
+                reason: format!(
+                    "attempt exceeded its {secs}s deadline and was killed; its process \
+                     tree is gone, and what it did is unknown"
+                ),
             };
         }
         let reason = if accepted {
@@ -473,6 +484,17 @@ impl DriverProcess {
         AttemptOutcome::Indeterminate {
             reason: reason.into(),
         }
+    }
+
+    /// A write to the driver that failed, `said` in its own words. A write
+    /// the watchdog's kill broke is the deadline's end, not a failure a
+    /// retry may repeat: `Lost`, which `eof_outcome` words (decision
+    /// 0006's 2026-10-11 addendum, ruling 6).
+    fn unsent(&self, said: String) -> Ended {
+        if self.timed_out.load(Ordering::SeqCst) {
+            return Ended::Lost;
+        }
+        Ended::Failed(said)
     }
 
     /// Run one attempt to a terminal outcome. `on_checkpoint` is called
@@ -540,7 +562,8 @@ impl DriverProcess {
             if e.kind() == std::io::ErrorKind::BrokenPipe {
                 return self.end(Ended::Lost, account);
             }
-            fail!("could not greet driver: {e}");
+            let ended = self.unsent(format!("could not greet driver: {e}"));
+            return self.end(ended, account);
         }
         let supports = match self.recv() {
             Ok((
@@ -561,7 +584,8 @@ impl DriverProcess {
                 attempt_id: attempt_id.to_string(),
                 session_ref,
             }) {
-                fail!("could not send resume: {e}");
+                let ended = self.unsent(format!("could not send resume: {e}"));
+                return self.end(ended, account);
             }
         }
         if let Err(e) = self.send(Body::Start {
@@ -570,7 +594,8 @@ impl DriverProcess {
             seat: seat.to_string(),
             input,
         }) {
-            fail!("could not send start: {e}");
+            let ended = self.unsent(format!("could not send start: {e}"));
+            return self.end(ended, account);
         }
         let ended = self.converse(effect_id, &mut account, &mut on_checkpoint);
         self.end(ended, account)
@@ -578,7 +603,8 @@ impl DriverProcess {
 
     /// Read the driver's account of the attempt to its end. Each
     /// checkpoint is kept within the limits before `on_checkpoint`
-    /// journals it, so a checkpoint past them is neither.
+    /// journals it, so a checkpoint past them is neither. `start` has
+    /// been sent, so a violation here is `Unread`, whichever read found it.
     fn converse(
         &self,
         effect_id: &str,
@@ -588,6 +614,7 @@ impl DriverProcess {
         loop {
             let (message, bytes) = match self.recv() {
                 Ok(received) => received,
+                Err(Ended::Failed(error)) => return Ended::Unread(error),
                 Err(ended) => return ended,
             };
             match message.body {
@@ -597,7 +624,7 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Failed(format!(
+                        return Ended::Unread(format!(
                             "driver accepted a different effect '{eid}'"
                         ));
                     }
@@ -610,7 +637,7 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Failed(format!("checkpoint for foreign effect '{eid}'"));
+                        return Ended::Unread(format!("checkpoint for foreign effect '{eid}'"));
                     }
                     match account.retained.keep(data, bytes, &self.limits) {
                         Ok(kept) => on_checkpoint(kept),
@@ -625,11 +652,11 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Failed(format!("result for foreign effect '{eid}'"));
+                        return Ended::Unread(format!("result for foreign effect '{eid}'"));
                     }
                     return Ended::Reached(reached(status, result, error));
                 }
-                other => return Ended::Failed(format!("unexpected driver message {other:?}")),
+                other => return Ended::Unread(format!("unexpected driver message {other:?}")),
             }
         }
     }
@@ -637,7 +664,8 @@ impl DriverProcess {
     /// End the attempt as it ended. A protocol violation or a failed
     /// write keeps nothing of the driver's account but whether it
     /// accepted. Any end short of the driver's result or a refused
-    /// checkpoint yields to the line the reader refused, if it refused
+    /// checkpoint, a success with no payload included, yields to the
+    /// line the reader refused, if it refused
     /// one: what the driver sent past a limit outranks how the engine
     /// stopped listening (#433, decision 0079 ruling 3).
     fn end(self, ended: Ended, account: Account) -> AttemptReport {
@@ -647,30 +675,44 @@ impl DriverProcess {
             retained,
         } = account;
         let standing = match ended {
-            Ended::Failed(error) => {
-                let standing = Standing::Yielding(AttemptOutcome::Failed { error });
-                return self.finish(standing, None, Vec::new(), accepted);
-            }
+            Ended::Failed(error) => return self.broken(AttemptOutcome::Failed { error }, accepted),
+            Ended::Unread(error) => return self.broken(unread(&error), accepted),
             Ended::Lost => Standing::Yielding(self.eof_outcome(accepted)),
-            Ended::Reached(outcome) => Standing::Final(outcome),
+            Ended::Reached(standing) => standing,
             Ended::Exceeded(exceeded) => Standing::Final(exceeded.outcome()),
         };
         self.finish(standing, session_ref, retained.checkpoints, accepted)
     }
+
+    /// End an attempt the driver broke off with a protocol violation.
+    fn broken(self, outcome: AttemptOutcome, accepted: bool) -> AttemptReport {
+        self.finish(Standing::Yielding(outcome), None, Vec::new(), accepted)
+    }
 }
 
-/// The outcome a driver's result reached.
-fn reached(status: ResultStatus, result: Option<Value>, error: Option<String>) -> AttemptOutcome {
+/// An end after `start` that read no result: whatever the driver said
+/// instead, what the attempt did is unknown, so it parks rather than
+/// retries (decision 0006's 2026-10-11 addendum, ruling 1).
+fn unread(error: &str) -> AttemptOutcome {
+    AttemptOutcome::Indeterminate {
+        reason: format!(
+            "{error}; no result was read after start, and what the attempt did is unknown"
+        ),
+    }
+}
+
+/// The outcome a driver's result reached. A success with no payload
+/// carries no result of the executor's, so it is an end with none read,
+/// and a line the reader refused outranks it (decision 0079 ruling 3).
+fn reached(status: ResultStatus, result: Option<Value>, error: Option<String>) -> Standing {
     match status {
         ResultStatus::Succeeded => match result {
-            Some(result) => AttemptOutcome::Succeeded { result },
-            None => AttemptOutcome::Failed {
-                error: "succeeded result carried no payload".into(),
-            },
+            Some(result) => Standing::Final(AttemptOutcome::Succeeded { result }),
+            None => Standing::Yielding(unread("succeeded result carried no payload")),
         },
-        ResultStatus::Failed => AttemptOutcome::Failed {
+        ResultStatus::Failed => Standing::Final(AttemptOutcome::Failed {
             error: error.unwrap_or_else(|| "driver reported failure".into()),
-        },
+        }),
     }
 }
 

@@ -309,6 +309,54 @@ fn exhausting_the_bound_parks_with_the_last_error() {
     assert!(reason.contains("did not spawn"), "{reason}");
 }
 
+/// Decision 0006's 2026-10-11 addendum (#434): a refusal before the
+/// session, a handshake that never reached `start`, is known not to have
+/// begun, so it still descends the chain within the bound. A driver that
+/// hangs in the same handshake is killed at its deadline, and what it did
+/// is unknown: it parks after its one attempt, and descends nowhere.
+#[test]
+fn a_refusal_before_the_session_still_descends_within_its_bound() {
+    for (driver, completes) in [
+        (
+            "read -r hello; printf '%s\\n' 'not a protocol message'",
+            true,
+        ),
+        ("read -r hello; sleep 30", false),
+    ] {
+        let ws = Workspace::new();
+        let mut first = ws.fake_adapter("absent", "first");
+        first["driver"] = json!(["sh", "-c", driver]);
+        ws.write("adapters/absent.json", first);
+        let succeeds =
+            |result: &str| json!([{"behavior": "succeed", "result": {"result": result}}]);
+        let seats = json!({"implement": succeeds("complete"), "review": succeeds("clean")});
+        ws.script(json!({ "seats": seats }));
+        let limits = json!({"max_attempts": 2, "timeout_seconds": 1});
+        ws.agent("worker", json!(["first", "second"]), Some(limits));
+        let review = ws.inline_review();
+        ws.bundle(
+            json!({"implement": {"results": ["complete"], "agent": "worker"}, "review": review}),
+        );
+        let events = ws.events(&ws.run());
+        let started = of_type(&events, "effect/started");
+        let models: Vec<&Value> = started
+            .iter()
+            .map(|event| &event["payload"]["provenance"][0]["model"])
+            .collect();
+        if completes {
+            assert_eq!(models, [&json!("first"), &json!("second"), &Value::Null]);
+            let failed = of_type(&events, "effect/failed");
+            assert_eq!(failed.len(), 1);
+            assert_eq!(failed[0]["payload"]["start_failure"], json!(true));
+            assert_eq!(of_type(&events, "run/completed").len(), 1);
+        } else {
+            assert_eq!(models, [&json!("first")]);
+            assert_eq!(of_type(&events, "effect/indeterminate").len(), 1);
+            assert_eq!(of_type(&events, "run/parked").len(), 1);
+        }
+    }
+}
+
 /// AC-7 and AC-14: a driver that ACCEPTS and then fails has produced
 /// work and context a different model does not inherit. It retries on
 /// the SAME candidate — fallback is unreachable once `accepted` arrives,

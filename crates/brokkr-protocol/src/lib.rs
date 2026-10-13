@@ -163,12 +163,13 @@ pub struct AttemptReport {
     /// rather than described.
     pub accepted: bool,
     /// Did the ENGINE's own deadline watchdog end this attempt? A kill
-    /// makes non-completion determinate (decision 0006), which is why
-    /// the outcome is `Failed` rather than `Indeterminate` — but it says
-    /// nothing about whether a session ever opened, because the driver
-    /// is SIGKILLed with no chance to report. Decision 0053 ruling 5
-    /// therefore keeps a deadline kill off the fail-to-start side of the
-    /// boundary: the engine ended it, no provider refused it.
+    /// proves the process tree gone and nothing about what the attempt
+    /// did, so its outcome is `Indeterminate` and it parks (decision
+    /// 0006's 2026-10-11 addendum, ruling 1). Nor does it say whether a
+    /// session ever opened, because the driver is SIGKILLed with no
+    /// chance to report: decision 0053 ruling 5 keeps a deadline kill off
+    /// the fail-to-start side of the boundary, since the engine ended it
+    /// and no provider refused it.
     pub deadline_killed: bool,
 }
 
