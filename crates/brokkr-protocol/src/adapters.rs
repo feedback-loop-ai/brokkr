@@ -5,7 +5,8 @@
 //! protocol behavior, same prompt composition, same result-file
 //! contract, byte-for-byte compatible with the existing charters. The
 //! seat writes its typed result to the file named in the input; a
-//! missing file fails the attempt, an unparseable one is forwarded so
+//! missing file ends it with no result (`lost`), and an unparseable one
+//! is forwarded so
 //! the ENGINE parks with raw evidence (decision 0001). Adapters never
 //! repair anything.
 //!
@@ -21,6 +22,7 @@ use serde_json::{json, Map, Value};
 pub mod capability_calls;
 mod composite;
 mod dsh_stderr;
+mod lost;
 mod mcp;
 mod route_overlay;
 mod served_route;
@@ -733,7 +735,9 @@ fn spawn_harness(
         .stdout(stdout)
         .stderr(Stdio::piped());
     secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
-    io_context(builder.spawn(), "could not invoke the agent CLI")
+    let child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
+    lost::spawned();
+    Ok(child)
 }
 
 /// [`spawn_harness`] with stdin and stdout piped and no extra environment.
@@ -6430,13 +6434,14 @@ fn transcript_locator(session_meta: &Map<String, Value>) -> Option<String> {
 /// (decision 0030), or `None` for the cold start every attempt was
 /// before it. Only the codex arm knows what to do with one; the rest
 /// ignore it exactly as they ignored the message that carried it.
+/// Whether the start sent a result: one that did not ends the driver.
 fn run_seat(
     kind: AdapterKind,
     extra: &[String],
     start: &Value,
     session: Option<&str>,
     send: &mut impl FnMut(Body),
-) {
+) -> bool {
     // The driver's override is read once, here, and the launch runs what
     // was read. A refused read never reaches the closure: `run_seat_with`
     // fails the start before it invokes anything, so the empty default is
@@ -6444,22 +6449,30 @@ fn run_seat(
     let pin = crate::overrides::read(Override::of_driver(kind));
     let gate = pin.clone().map(drop);
     let binary = pin.unwrap_or_default();
-    run_seat_with(kind, gate, start, send, |prompt, input, bound, mut emit| {
-        let pinned = Pinned {
-            binary: &binary,
-            extra,
-        };
-        invoke_with_stager(
+    lost::answered(send, |mut send| {
+        run_seat_with(
             kind,
-            pinned,
-            prompt,
-            input,
-            session,
-            bound,
-            &mut emit,
-            stage_prompt,
-        )
-    });
+            gate,
+            start,
+            &mut send,
+            |prompt, input, bound, mut emit| {
+                let pinned = Pinned {
+                    binary: &binary,
+                    extra,
+                };
+                invoke_with_stager(
+                    kind,
+                    pinned,
+                    prompt,
+                    input,
+                    session,
+                    bound,
+                    &mut emit,
+                    stage_prompt,
+                )
+            },
+        );
+    })
 }
 
 /// `run_seat` over the ONE thing it delegates: the invocation itself.
@@ -6599,6 +6612,7 @@ fn run_seat_with(
     }
     // Streamed telemetry: each seat-turn the claude arm folds out of
     // stream-json becomes a live protocol checkpoint on this attempt.
+    lost::invoking();
     let invocation = match invoke(&prompt, &input, &bindings, &mut |data: &Value| {
         let mut data = data.clone();
         // Masking choke point for the model harnesses (decision 0012,
@@ -6691,13 +6705,7 @@ fn run_seat_with(
                     });
                 }
             }
-            send(Body::Result {
-                effect_id,
-                attempt_id,
-                status: ResultStatus::Failed,
-                result: None,
-                error: Some(error),
-            });
+            lost::invocation_failed(send, effect_id, attempt_id, error);
             return;
         }
     };
@@ -6779,25 +6787,10 @@ fn run_seat_with(
     // required exact-root confirmation makes the attempt failed, never a
     // successful guessed rejoin, and the adapter spends no cold
     // replacement on it. The delivered file, if any, is left on disk for
-    // diagnosis; it is not this attempt's accepted work.
+    // diagnosis; it is not this attempt's accepted work. The harness ran,
+    // so the attempt ends with no result (`lost`).
     if launch.is_unsettled() {
-        let reason = match launch {
-            LaunchTerminal::Mismatch => {
-                "provider named a different session than the offered root; \
-                 refusing to accept the invocation"
-            }
-            _ => {
-                "provider never confirmed the offered session; \
-                 refusing to accept the invocation"
-            }
-        };
-        send(Body::Result {
-            effect_id,
-            attempt_id,
-            status: ResultStatus::Failed,
-            result: None,
-            error: Some(reason.to_string()),
-        });
+        lost::unsettled(launch);
         return;
     }
     let served_model = if kind == AdapterKind::Exec {
@@ -6848,6 +6841,10 @@ fn run_seat_with(
         data: Value::Object(checkpoint),
     });
 
+    // A signal leaves no result, a dialect step's included (`lost`).
+    if lost::by_signal(exit_code) {
+        return;
+    }
     if let Some(dialect) = input.get("dialect_exec") {
         let success = dialect
             .get("success_result")
@@ -6893,13 +6890,7 @@ fn run_seat_with(
         return;
     }
     let Ok(raw) = std::fs::read(&result_path) else {
-        send(Body::Result {
-            effect_id,
-            attempt_id,
-            status: ResultStatus::Failed,
-            result: None,
-            error: Some("seat wrote no result file (the result contract was not met)".into()),
-        });
+        lost::no_result_file();
         return;
     };
     // Masking choke point, third surface (decision 0012, layer 5): the
@@ -7059,19 +7050,14 @@ fn serve_io(
                 let (effect_id, attempt_id) = (field("effect_id"), field("attempt_id"));
                 // The offer is consumed here whatever happens to it, so
                 // a handle can never reach a later start.
-                let session = match std::mem::replace(&mut offer, OfferState::None) {
-                    OfferState::None => Ok(None),
-                    OfferState::Poisoned(reason) => Err(reason),
-                    OfferState::Pending(pending) => {
-                        if pending.effect_id == effect_id && pending.attempt_id == attempt_id {
-                            Ok(Some(pending.handle))
-                        } else {
-                            Err("resume offer named a different effect or attempt")
+                let offered = std::mem::replace(&mut offer, OfferState::None);
+                match start::session(offered, &effect_id, &attempt_id) {
+                    // A start that sent no result ends the driver (`lost`).
+                    Ok(session) => {
+                        if !run_seat(kind, extra, &message, session.as_deref(), &mut send) {
+                            return Ok(());
                         }
                     }
-                };
-                match session {
-                    Ok(session) => run_seat(kind, extra, &message, session.as_deref(), &mut send),
                     // A poisoned exchange launches no provider. The
                     // failure is bounded and structural — no provider
                     // prose, no invented refusal token — and it is sent
@@ -7109,3 +7095,6 @@ pub(crate) mod tests;
 
 #[cfg(test)]
 mod notice_tests;
+
+#[cfg(test)]
+mod lost_tests;

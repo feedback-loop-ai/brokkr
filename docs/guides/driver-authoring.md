@@ -306,8 +306,9 @@ exactly as it does for a driver the machine cannot reach.
 | Your process exits **without** `accepted` and without a result | `indeterminate`, reason `driver exited before accepting the attempt` | The run **parks**. |
 | Your process exits **after** `accepted` and without a result | `indeterminate`, reason `driver exited after accepting, before a result — attempt cannot be established as complete` | The run **parks**. |
 | You send `result` with `status: "failed"` | `failed` | A retry may follow, inside the seat's `max_attempts`; after `accepted` it is the SAME model, and the chain does not fall back. |
-| You violate the protocol | `failed` (driver defect) | A retry is a new attempt. |
-| The engine's deadline watchdog kills you | `failed`, reason `attempt exceeded its Ns deadline and was killed` | The run **parks**, whether or not you had accepted: the kill made non-completion determinate, but you never got to say whether a session opened (decision 0053 ruling 5). |
+| You violate the protocol in the handshake, before `start` | `failed` (driver defect) | A retry is a new attempt: nothing began. |
+| You violate the protocol after `start`: a foreign id, a message out of place, an unreadable line, a wrong `proto` | `indeterminate`, the violation's own words followed by `; no result was read after start, and what the attempt did is unknown` | The run **parks**: no result was read, so what the attempt did is unknown (decision 0006's 2026-10-11 addendum). |
+| The engine's deadline watchdog kills you | `indeterminate`, reason `attempt exceeded its Ns deadline and was killed; its process tree is gone, and what it did is unknown` | The run **parks**, whatever attempts are left and whether or not you had accepted: the kill proves your process tree gone, never what you did (decision 0006's 2026-10-11 addendum, ruling 6). |
 
 The reason indeterminacy always parks rather than retrying is decision
 0003: the engine cannot distinguish "did nothing" from "already opened a
@@ -625,9 +626,15 @@ The adapters then:
    and passed as `{prompt_file}`).
 3. Enrich the parsed result object with the served `model` learned from
    the harness; the agent-authored file does not supply this field.
-4. On exit: a nonzero exit code is a `failed` result naming the code. A
-   missing result file is a `failed` result with `seat wrote no result
-   file (the result contract was not met)`. An unparseable one is
+4. On exit: a nonzero exit code is a `failed` result naming the code,
+   because the command reported it. A command that exits 0 with no
+   result file, ends by a signal, or meets an invocation error after it
+   was spawned (a prompt it never read, say) left no result of its own,
+   so the adapter sends **no** result and ends: the engine reads the
+   result as lost, and parks. Why is on the adapter's stderr, such as
+   `seat wrote no result file (the result contract was not met), so no
+   result is sent`. A refusal before anything was spawned is still a
+   `failed` result. An unparseable result file is
    reported as a succeeded result whose payload is
    `{"__unparseable_result_file__": "<parse error>"}` — which then fails
    schema validation and parks with the evidence, because adapters
@@ -653,14 +660,35 @@ run.
 The seat's `limits` in the bundle bound every attempt:
 
 - **`timeout_seconds`** (default 3600). The engine arms a watchdog at
-  spawn. On expiry it **kills your process** and reports the attempt as
-  a determinate `failed`: `attempt exceeded its <N>s deadline and was
-  killed`. The kill is what makes non-completion determinate, which is
-  what makes bounded retry safe (decision 0006). You will not receive a
-  `cancel` first.
-- **`max_attempts`** (default 1). A determinate failure may be retried,
-  with a fresh `attempt_id`, up to this limit. Exhausting it parks the
-  run.
+  spawn. On expiry it **kills your process tree** and reports the
+  attempt as `indeterminate`: `attempt exceeded its <N>s deadline and
+  was killed; its process tree is gone, and what it did is unknown`.
+  The kill proves that the processes ended, not what they did first, so
+  the run parks for the operator (decision 0006's 2026-10-11 addendum).
+  You will not receive a `cancel` first.
+- **`max_attempts`** (default 1). A failure known to precede your
+  executor's work, or one your executor reported, may be retried, with a
+  fresh `attempt_id`, up to this limit. Exhausting it parks the run.
+
+Brokkr does not promise exactly-once execution. It promises three
+things (decision 0006's 2026-10-11 addendum, ruling 6):
+
+- an attempt known not to have begun may be repeated;
+- an attempt whose result was not read is repeated only on an exec site
+  that is its effect's whole body, that the operator declared to
+  deduplicate on the effect's identity, and whose driver delivered that
+  identity; never after a transport-limit end or an engine restart. No
+  site can be declared so yet, so today every such attempt parks;
+- every other uncertain end is the operator's to judge.
+
+A settled cleanup proves that the local process tree ended. It is never
+a rollback of anything the attempt did, locally or remotely: an agent
+session's remote actions, a push made from inside a session and provider
+usage already paid for are outside what Brokkr can observe, and a retry
+may repeat them. So send `failed` only for a failure your executor
+reported, or for a refusal before it began, and end with no result when
+your executor left none: the engine reads that as a lost result and
+parks.
 
 What this asks of you: do your own cleanup on process exit, and do not
 assume you will be told the deadline is near. If your work has a natural

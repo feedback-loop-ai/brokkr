@@ -3,7 +3,7 @@
 **Status**: accepted (operator goal directive, 2026-08-23 — "fully
 autonomous, end-to-end"; enumeration by Claude under that directive)
 
-Built: partial (#434) — the 2026-10-11 addendum's retry matrix and effect identity are unbuilt
+Built: partial (#434) — slice 1 built the 2026-10-11 addendum's rulings 1 and 6 and ruling 2's timeout and lost-result rows, in the transport and the built-in driver; ruling 2's partial-side-effect row and rulings 3, 4, 5 and 7's effect identity are unbuilt
 Amended by: 0067
 
 ## Ruling

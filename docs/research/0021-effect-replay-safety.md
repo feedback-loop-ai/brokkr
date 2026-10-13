@@ -102,8 +102,9 @@ determinate, which is what makes bounded retry safe"
 (`docs/guides/driver-authoring.md`, "Deadlines and kills"). Its outcome
 table says a killed attempt parks, which holds only at a limit of 1: at
 2 it is retried once first (`engine.rs:900`). Decision
-0053 ruling 5 reached the same point from the other side: a killed attempt
-"answers neither yes nor no" to whether a session opened.
+0053 reached the same point from the other side: rejecting an alternative,
+it says a killed attempt "answers neither yes nor no" to whether a session
+opened, and its ruling 5 keeps a deadline kill off the fail-to-start side.
 
 `accepted` does not mark the first effect on every path. A driver
 withholds it until a checkpoint proves a turn began (0053 ruling 1,

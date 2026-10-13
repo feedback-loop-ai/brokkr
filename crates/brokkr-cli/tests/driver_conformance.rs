@@ -589,10 +589,13 @@ fn a_dsh_deadline_kill_flushes_no_held_launch_row_and_starts_no_replacement() {
     );
     let elapsed = started.elapsed();
 
-    assert!(
-        matches!(&report.outcome, AttemptOutcome::Failed { error } if error.contains("deadline")),
-        "{:?}",
-        report.outcome
+    assert_eq!(
+        report.outcome,
+        AttemptOutcome::Indeterminate {
+            reason: "attempt exceeded its 12s deadline and was killed; its process tree is \
+                     gone, and what it did is unknown"
+                .into()
+        }
     );
     assert!(
         report.deadline_killed,
@@ -1446,7 +1449,12 @@ fn conformance_across_all_builtin_adapters() {
                 &shim
             };
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
-            let out = drive(&args, shim, dir.path());
+            let mut out = drive(&args, shim, dir.path());
+            // A silent command exits 0 and writes no result file, so the
+            // driver sends no result (`lost`): a marker holds its place.
+            if case == "silent" && out.iter().all(|m| m["type"] != "result") {
+                out.push(json!({"proto": "forge-driver/v1", "type": "lost"}));
+            }
             let kinds: Vec<&str> = out.iter().map(|m| m["type"].as_str().unwrap()).collect();
             let expected: &[&str] = if (claude || lanetally) && case == "obedient" {
                 // Transcript, the launch row proposed decision 0056
@@ -1502,7 +1510,7 @@ fn conformance_across_all_builtin_adapters() {
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
-                    "result",
+                    if case == "obedient" { "result" } else { "lost" },
                 ]
             } else {
                 // A silent Claude-shaped stream still reports the common
@@ -1516,7 +1524,7 @@ fn conformance_across_all_builtin_adapters() {
                     "checkpoint",
                     "checkpoint",
                     "checkpoint",
-                    "result",
+                    "lost",
                 ]
             };
             assert_eq!(kinds, expected, "{label}/{case}: {kinds:?}");
@@ -1800,12 +1808,6 @@ fn conformance_across_all_builtin_adapters() {
                         "{label}: {result}"
                     );
                 }
-            } else {
-                assert_eq!(result["status"], "failed", "{label}: {result}");
-                assert!(
-                    result["error"].as_str().unwrap().contains("no result file"),
-                    "{label}: {result}"
-                );
             }
         }
     }
@@ -2202,15 +2204,10 @@ fn a_resumed_mismatch_is_never_an_accepted_success() {
             std::fs::metadata(&result).is_ok(),
             "{case}: the delivered file is retained for diagnosis"
         );
-        let result_message = parsed
-            .iter()
-            .find(|m| m["type"] == "result")
-            .unwrap_or_else(|| panic!("{case}: one result: {parsed:?}"));
-        assert_eq!(result_message["status"], "failed", "{case}: {parsed:?}");
+        // The harness ran on an unknown session, so no result is sent at
+        // all (`lost`), and so never an accepted successful seat.
         assert!(
-            !parsed
-                .iter()
-                .any(|m| m["type"] == "result" && m["status"] == "succeeded"),
+            !parsed.iter().any(|m| m["type"] == "result"),
             "{case}: never an accepted successful seat: {parsed:?}"
         );
         assert!(
@@ -3087,8 +3084,8 @@ fn shell_quote(value: &str) -> String {
 }
 
 /// The deterministic provider: it announces one fixed thread id on every
-/// invocation and writes no result file, so the attempt fails after the
-/// launch row is journaled and the engine parks with a retryable effect.
+/// invocation and writes no result file, so the attempt's result is lost
+/// after the launch row is journaled and the engine parks the effect.
 fn proof_shim_body(dir: &Path, offered: &str) -> String {
     format!(
         "#!/bin/sh\ncase \"$1\" in --version|-V|-v) printf 'codex-cli 0.154.0\\n'; exit 0 ;; esac\n\

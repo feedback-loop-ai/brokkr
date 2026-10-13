@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 
 use super::*;
-use crate::process::tests::{accepting, command, succeeded};
+use crate::process::tests::{accepting, command, lost_after_start, succeeded};
 use crate::process::{DriverProcess, Host, SpawnEnv};
 use crate::{AttemptReport, Body, Cleanup, Message, ResultStatus, PROTO};
 
@@ -278,7 +278,7 @@ fn a_refused_line_outranks_a_start_the_driver_never_read() {
 /// A refused line outranks a protocol violation read before it: a
 /// driver that accepts a foreign effect and then floods past the limit
 /// ends its attempt on the refusal. Within the limit, the violation is
-/// the driver defect it always was.
+/// a lost result, read after `start` (decision 0006's 2026-10-11 addendum).
 #[test]
 fn a_refused_line_outranks_a_protocol_violation_read_before_it() {
     let foreign = line(Body::Accepted {
@@ -291,9 +291,7 @@ fn a_refused_line_outranks_a_protocol_violation_read_before_it() {
     let (report, _) = driver.attempt(framing(513), b"");
     assert_eq!(
         report.outcome,
-        AttemptOutcome::Failed {
-            error: "driver accepted a different effect 'other'".into()
-        }
+        lost_after_start("driver accepted a different effect 'other'")
     );
 
     let (report, _) = driver.attempt(framing(512), b"");
@@ -364,16 +362,15 @@ fn a_zero_limit_admits_nothing() {
     );
 }
 
-/// A line that is not UTF-8 is a driver defect within the limit, as it
-/// always was, and past the limit is refused before it is decoded.
+/// A line that is not UTF-8 is a driver defect within the limit, read
+/// after `start` as a lost result, and past the limit is refused before
+/// it is decoded.
 #[test]
 fn invalid_utf8_is_a_failure_within_the_limit_and_refused_past_it() {
     let (report, _) = Driver::playing(vec![b"\xff\n".to_vec()]).attempt(framing(512), b"");
     assert_eq!(
         report.outcome,
-        AttemptOutcome::Failed {
-            error: "driver stdout read failed: stream did not contain valid UTF-8".into()
-        }
+        lost_after_start("driver stdout read failed: stream did not contain valid UTF-8")
     );
 
     let (report, _) = Driver::playing(vec![[0xff; 513].to_vec()]).attempt(framing(512), b"");
@@ -421,9 +418,7 @@ fn a_refused_line_discloses_none_of_its_content() {
     let quoted = format!(r#"{proto}"m","type":"{TOKEN}"}}"#);
     let quoting = serde_json::from_str::<Message>(&quoted).unwrap_err();
     assert!(quoting.to_string().contains(TOKEN), "{quoting}");
-    let unreadable = |error: &str| AttemptOutcome::Failed {
-        error: format!("unreadable driver message: {error}"),
-    };
+    let unreadable = |error: &str| lost_after_start(&format!("unreadable driver message: {error}"));
     let played = [
         format!(r#"{proto}"{TOKEN}","pad":"{pad}"}}"#),
         format!("{TOKEN} is not json"),

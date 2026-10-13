@@ -192,38 +192,49 @@ fn handshake_and_eof_defects_fail_closed() {
 
 #[test]
 fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
+    // Each is read after `start`, so it is a lost result, not a failure
+    // (decision 0006's 2026-10-11 addendum, ruling 1).
     let cases = [
-        Body::Accepted {
-            effect_id: "foreign".into(),
-            attempt_id: "attempt".into(),
-            session_ref: None,
-        },
-        Body::Checkpoint {
-            effect_id: "foreign".into(),
-            attempt_id: "attempt".into(),
-            data: json!({}),
-        },
-        Body::Result {
-            effect_id: "foreign".into(),
-            attempt_id: "attempt".into(),
-            status: ResultStatus::Succeeded,
-            result: Some(json!({})),
-            error: None,
-        },
-        Body::Cancelled {
-            effect_id: "effect".into(),
-        },
+        (
+            Body::Accepted {
+                effect_id: "foreign".into(),
+                attempt_id: "attempt".into(),
+                session_ref: None,
+            },
+            "driver accepted a different effect 'foreign'",
+        ),
+        (
+            Body::Checkpoint {
+                effect_id: "foreign".into(),
+                attempt_id: "attempt".into(),
+                data: json!({}),
+            },
+            "checkpoint for foreign effect 'foreign'",
+        ),
+        (
+            Body::Result {
+                effect_id: "foreign".into(),
+                attempt_id: "attempt".into(),
+                status: ResultStatus::Succeeded,
+                result: Some(json!({})),
+                error: None,
+            },
+            "result for foreign effect 'foreign'",
+        ),
+        (
+            Body::Cancelled {
+                effect_id: "effect".into(),
+            },
+            "unexpected driver message Cancelled { effect_id: \"effect\" }",
+        ),
     ];
-    for body in cases {
+    for (body, said) in cases {
         let script = format!(
             "read -r line; printf '%s\\n' '{}'; read -r line; printf '%s\\n' '{}'",
             capabilities(),
             wire(body)
         );
-        assert!(matches!(
-            run(&script).outcome,
-            AttemptOutcome::Failed { .. }
-        ));
+        assert_eq!(run(&script).outcome, lost_after_start(said));
     }
 
     let no_payload = Body::Result {
@@ -238,10 +249,10 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
         capabilities(),
         wire(no_payload)
     );
-    assert!(matches!(
+    assert_eq!(
         run(&script).outcome,
-        AttemptOutcome::Failed { .. }
-    ));
+        lost_after_start("succeeded result carried no payload")
+    );
 
     let failed = Body::Result {
         effect_id: "effect".into(),
@@ -318,6 +329,77 @@ fn pipe_and_stdout_failures_are_terminal_reports() {
     ));
 }
 
+/// Decision 0006's 2026-10-11 addendum, ruling 2's lost-result row: a
+/// protocol violation after `start` read no result, so what the attempt
+/// did is unknown and it parks. The same driver defect in the handshake,
+/// before `start`, is a failure a retry may repeat: nothing began.
+#[test]
+fn a_protocol_violation_after_start_is_indeterminate() {
+    let foreign = wire(Body::Result {
+        effect_id: "other".into(),
+        attempt_id: "attempt".into(),
+        status: ResultStatus::Succeeded,
+        result: Some(json!({})),
+        error: None,
+    });
+    let after_start = run(&format!(
+        "read -r hello; {}; printf '%s\\n' '{foreign}'",
+        accepting()
+    ));
+    assert_eq!(
+        after_start.outcome,
+        lost_after_start("result for foreign effect 'other'")
+    );
+    assert!(after_start.accepted);
+
+    let handshake = run(&format!("read -r hello; printf '%s\\n' '{}'", accepted()));
+    assert_eq!(
+        handshake.outcome,
+        AttemptOutcome::Failed {
+            error: "expected capabilities, got Accepted { effect_id: \"effect\", attempt_id: \
+                    \"attempt\", session_ref: None }"
+                .into()
+        }
+    );
+    assert!(!handshake.accepted);
+}
+
+/// `recv`'s arms, an unreadable line, a wrong `proto` and a failed read,
+/// decide a lost result after `start` (decision 0006's 2026-10-11
+/// addendum, ruling 1), and the same words fail a handshake before it.
+#[test]
+fn an_unreadable_line_after_start_is_indeterminate() {
+    let mut old = serde_json::to_value(Message::new(Body::Shutdown)).unwrap();
+    old["proto"] = json!("forge-driver/v0");
+    for (line, said) in [
+        (
+            "printf 'not json\\n'".to_string(),
+            "unreadable driver message: a JSON syntax error at line 1 column 2 of 9 bytes \
+             (first byte: letter; sha256: 3c48773b404d8500)"
+                .to_string(),
+        ),
+        (
+            format!("printf '%s\\n' '{old}'"),
+            format!("driver spoke 'forge-driver/v0', want '{PROTO}'"),
+        ),
+        (
+            "printf '\\377\\n'".to_string(),
+            "driver stdout read failed: stream did not contain valid UTF-8".to_string(),
+        ),
+    ] {
+        let after_start = run(&format!("read -r hello; {}; {line}", accepting()));
+        assert_eq!(after_start.outcome, lost_after_start(&said), "{said}");
+        let handshake = run(&format!("read -r hello; {line}"));
+        assert_eq!(
+            handshake.outcome,
+            AttemptOutcome::Failed {
+                error: said.clone()
+            },
+            "{said}"
+        );
+    }
+}
+
 /// A driver that stalls on a read that never comes and leaves a child
 /// of its own running behind it — the shape the deadline kill has to
 /// take down. The child's stdio is pointed away from the harness's
@@ -340,8 +422,8 @@ fn stalling_tree(born: &std::path::Path, survived: &std::path::Path) -> Vec<Stri
 }
 
 /// The deadline kill must unblock the harness, not merely signal the
-/// one process the harness holds a handle to. It has to come back with a
-/// determinate `Failed(deadline)` inside the deadline plus a bounded
+/// one process the harness holds a handle to. It has to come back with
+/// the deadline's `Indeterminate` inside the deadline plus a bounded
 /// margin, and the driver really did have a child of its own — the
 /// twenty-minute CI job timeout is the hang backstop, never the
 /// assertion.
@@ -361,11 +443,9 @@ fn the_deadline_kill_unblocks_a_stalled_driver_tree() {
         .run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {});
     let elapsed = started.elapsed();
 
-    assert!(
-        matches!(&report.outcome, AttemptOutcome::Failed { error } if error.contains("deadline")),
-        "{:?}",
-        report.outcome
-    );
+    // A hang before `capabilities` is killed the same way, and is as
+    // unknown (decision 0006's 2026-10-11 addendum, ruling 1).
+    assert_eq!(report.outcome, deadline_kill(2));
     assert!(
         elapsed < deadline + Duration::from_secs(10),
         "the kill must unblock the harness inside the deadline plus a \
@@ -555,15 +635,33 @@ fn attempt(process: DriverProcess) -> AttemptReport {
     process.run_attempt("test", "effect", "attempt", "seat", json!({}), |_| {})
 }
 
+/// A deadline kill: the tree is gone and what it did is unknown, so the
+/// attempt is indeterminate (decision 0006's 2026-10-11 addendum, ruling
+/// 6, whose words are pinned here once).
 fn deadline_failure(report: &AttemptReport, secs: u64) {
-    assert!(
-        matches!(&report.outcome, AttemptOutcome::Failed { error }
-            if *error == format!("attempt exceeded its {secs}s deadline and was killed")),
-        "{:?}",
-        report.outcome
-    );
+    assert_eq!(report.outcome, deadline_kill(secs));
     assert!(report.deadline_killed);
     assert_eq!(report.cleanup, Cleanup::Settled);
+}
+
+fn deadline_kill(secs: u64) -> AttemptOutcome {
+    AttemptOutcome::Indeterminate {
+        reason: format!(
+            "attempt exceeded its {secs}s deadline and was killed; its process tree is \
+             gone, and what it did is unknown"
+        ),
+    }
+}
+
+/// The end of an attempt that read no result after `start`, in place of
+/// the `said` it used to fail with (decision 0006's 2026-10-11 addendum,
+/// ruling 1).
+pub(super) fn lost_after_start(said: &str) -> AttemptOutcome {
+    AttemptOutcome::Indeterminate {
+        reason: format!(
+            "{said}; no result was read after start, and what the attempt did is unknown"
+        ),
+    }
 }
 
 /// Is `pid` gone? A zombie is: it has exited, whoever still holds its
@@ -778,7 +876,7 @@ fn a_driver_that_lingers_after_its_last_word_is_ended_within_the_grace() {
         assert_eq!(seats.pids("seat").map(gone), [true, true], "{case}");
         match (&report.outcome, &expected) {
             (AttemptOutcome::Succeeded { .. }, None) => {}
-            (AttemptOutcome::Failed { error }, Some(expected)) => assert_eq!(error, expected),
+            (outcome, Some(expected)) => assert_eq!(*outcome, lost_after_start(expected)),
             (outcome, _) => panic!("{case}: {outcome:?}"),
         }
     }
@@ -858,10 +956,7 @@ fn an_attempt_whose_end_cannot_be_proven_parks() {
     process.host.missing = missing;
     let alone = attempt(process);
 
-    assert!(
-        matches!(&stdout_held.outcome, AttemptOutcome::Failed { error }
-        if error == "attempt exceeded its 1s deadline and was killed")
-    );
+    assert_eq!(stdout_held.outcome, deadline_kill(1));
     assert_eq!(unresolved(&stdout_held), Some(&Unsettled::Stdout));
     assert!(
         matches!(&stderr_held.outcome, AttemptOutcome::Indeterminate { reason }

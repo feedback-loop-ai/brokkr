@@ -2,11 +2,13 @@
 //! handshake, offer the seat's prior session to a driver that declared
 //! it can rejoin one, send `start`, and drive the attempt to a terminal
 //! outcome.
-//! Every protocol violation degrades to `Failed` (driver defect, retry
-//! is a new attempt); a silent exit degrades to `Indeterminate`; a
-//! deadline expiry kills the driver and degrades to `Failed` — the kill
-//! makes non-completion determinate, so bounded retry stays safe
-//! (decision 0006). A driver past the transport's limits (`limits`,
+//! A protocol violation in the handshake, before `start`, degrades to
+//! `Failed` (the executor never began, so a retry is a new attempt).
+//! Every end after `start` with no result read degrades to
+//! `Indeterminate`: a protocol violation, a silent exit and a deadline
+//! expiry, which kills the driver. A kill proves the process tree gone,
+//! never what the attempt did, so it earns no retry (decision 0006's
+//! 2026-10-11 addendum, ruling 1). A driver past the transport's limits (`limits`,
 //! #433) degrades to `Indeterminate`, and a line the stdout reader
 //! refused outranks every ending but the driver's result and a refused
 //! checkpoint: a protocol violation read before it, a write to stdin
@@ -112,11 +114,14 @@ enum Standing {
     Yielding(AttemptOutcome),
 }
 
-/// How the attempt loop ended: a protocol violation, which fails the
-/// attempt; the driver gone; the outcome its result reached; or a limit
-/// it exceeded, which leaves the attempt indeterminate (#433).
+/// How the attempt loop ended: a protocol violation in the handshake,
+/// which fails the attempt; one after `start`, which leaves it
+/// indeterminate (decision 0006's 2026-10-11 addendum, ruling 1); the
+/// driver gone; the outcome its result reached; or a limit it exceeded,
+/// which leaves the attempt indeterminate (#433).
 enum Ended {
     Failed(String),
+    Unread(String),
     Lost,
     Reached(AttemptOutcome),
     Exceeded(Exceeded),
@@ -232,7 +237,8 @@ impl DriverProcess {
     /// Spawn the driver as the leader of a session, and so a process
     /// group, of its own (`attempts`). With a
     /// deadline, a watchdog kills the group when it expires; the attempt
-    /// then reports Failed(timeout) rather than hanging the run forever.
+    /// then reports Indeterminate(timeout) rather than hanging the run
+    /// forever.
     pub fn spawn(
         command: &[String],
         workdir: &std::path::Path,
@@ -454,14 +460,18 @@ impl DriverProcess {
         }
     }
 
-    /// The outcome for an EOF: a deadline kill is a determinate failure
-    /// (we killed it before any result); anything else depends on
-    /// whether the attempt was accepted.
+    /// The outcome for an EOF, which is never a result: a deadline kill
+    /// ended the tree, and says nothing of what the attempt did (decision
+    /// 0006's 2026-10-11 addendum, ruling 6); anything else says whether
+    /// the attempt was accepted.
     fn eof_outcome(&self, accepted: bool) -> AttemptOutcome {
         if self.timed_out.load(Ordering::SeqCst) {
             let secs = self.deadline.map(|d| d.as_secs()).unwrap_or_default();
-            return AttemptOutcome::Failed {
-                error: format!("attempt exceeded its {secs}s deadline and was killed"),
+            return AttemptOutcome::Indeterminate {
+                reason: format!(
+                    "attempt exceeded its {secs}s deadline and was killed; its process \
+                     tree is gone, and what it did is unknown"
+                ),
             };
         }
         let reason = if accepted {
@@ -578,7 +588,8 @@ impl DriverProcess {
 
     /// Read the driver's account of the attempt to its end. Each
     /// checkpoint is kept within the limits before `on_checkpoint`
-    /// journals it, so a checkpoint past them is neither.
+    /// journals it, so a checkpoint past them is neither. `start` has
+    /// been sent, so a violation here is `Unread`, whichever read found it.
     fn converse(
         &self,
         effect_id: &str,
@@ -588,6 +599,7 @@ impl DriverProcess {
         loop {
             let (message, bytes) = match self.recv() {
                 Ok(received) => received,
+                Err(Ended::Failed(error)) => return Ended::Unread(error),
                 Err(ended) => return ended,
             };
             match message.body {
@@ -597,7 +609,7 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Failed(format!(
+                        return Ended::Unread(format!(
                             "driver accepted a different effect '{eid}'"
                         ));
                     }
@@ -610,7 +622,7 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Failed(format!("checkpoint for foreign effect '{eid}'"));
+                        return Ended::Unread(format!("checkpoint for foreign effect '{eid}'"));
                     }
                     match account.retained.keep(data, bytes, &self.limits) {
                         Ok(kept) => on_checkpoint(kept),
@@ -625,11 +637,11 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Failed(format!("result for foreign effect '{eid}'"));
+                        return Ended::Unread(format!("result for foreign effect '{eid}'"));
                     }
                     return Ended::Reached(reached(status, result, error));
                 }
-                other => return Ended::Failed(format!("unexpected driver message {other:?}")),
+                other => return Ended::Unread(format!("unexpected driver message {other:?}")),
             }
         }
     }
@@ -647,26 +659,39 @@ impl DriverProcess {
             retained,
         } = account;
         let standing = match ended {
-            Ended::Failed(error) => {
-                let standing = Standing::Yielding(AttemptOutcome::Failed { error });
-                return self.finish(standing, None, Vec::new(), accepted);
-            }
+            Ended::Failed(error) => return self.broken(AttemptOutcome::Failed { error }, accepted),
+            Ended::Unread(error) => return self.broken(unread(&error), accepted),
             Ended::Lost => Standing::Yielding(self.eof_outcome(accepted)),
             Ended::Reached(outcome) => Standing::Final(outcome),
             Ended::Exceeded(exceeded) => Standing::Final(exceeded.outcome()),
         };
         self.finish(standing, session_ref, retained.checkpoints, accepted)
     }
+
+    /// End an attempt the driver broke off with a protocol violation.
+    fn broken(self, outcome: AttemptOutcome, accepted: bool) -> AttemptReport {
+        self.finish(Standing::Yielding(outcome), None, Vec::new(), accepted)
+    }
 }
 
-/// The outcome a driver's result reached.
+/// An end after `start` that read no result: whatever the driver said
+/// instead, what the attempt did is unknown, so it parks rather than
+/// retries (decision 0006's 2026-10-11 addendum, ruling 1).
+fn unread(error: &str) -> AttemptOutcome {
+    AttemptOutcome::Indeterminate {
+        reason: format!(
+            "{error}; no result was read after start, and what the attempt did is unknown"
+        ),
+    }
+}
+
+/// The outcome a driver's result reached. A success with no payload
+/// carries no result of the executor's, so it is an end with none read.
 fn reached(status: ResultStatus, result: Option<Value>, error: Option<String>) -> AttemptOutcome {
     match status {
         ResultStatus::Succeeded => match result {
             Some(result) => AttemptOutcome::Succeeded { result },
-            None => AttemptOutcome::Failed {
-                error: "succeeded result carried no payload".into(),
-            },
+            None => unread("succeeded result carried no payload"),
         },
         ResultStatus::Failed => AttemptOutcome::Failed {
             error: error.unwrap_or_else(|| "driver reported failure".into()),

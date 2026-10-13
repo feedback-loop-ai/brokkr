@@ -4670,27 +4670,12 @@ fn an_unsettled_codex_rejoin_is_never_accepted_even_when_it_delivers_a_result() 
             std::fs::metadata(&result).is_ok(),
             "{case}: the delivered file is retained for diagnosis"
         );
-        let (status, error) = messages
-            .iter()
-            .find_map(|body| match body {
-                Body::Result { status, error, .. } => Some((*status, error.clone())),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("{case}: one result: {messages:?}"));
-        assert_eq!(status, ResultStatus::Failed, "{case}: {messages:?}");
         assert!(
-            error.unwrap_or_default().contains("offered"),
-            "{case}: the bounded refusal names the missing confirmation"
-        );
-        assert!(
-            !messages.iter().any(|body| matches!(
-                body,
-                Body::Result {
-                    status: ResultStatus::Succeeded,
-                    ..
-                }
-            )),
-            "{case}: never an accepted successful seat: {messages:?}"
+            !messages
+                .iter()
+                .any(|body| matches!(body, Body::Result { .. })),
+            "{case}: the harness ran, so no result is sent (`lost`), and never an \
+             accepted successful seat: {messages:?}"
         );
         assert!(
             !messages.iter().any(|body| matches!(
@@ -4749,28 +4734,12 @@ fn an_unsettled_claude_rejoin_is_never_accepted_even_when_it_delivers_a_result()
             Some(offered),
             &mut |body| messages.push(body),
         );
-        let (status, error) = messages
+        // The harness ran, so no result is sent (`lost`), and so never an
+        // accepted successful seat.
+        let results = messages
             .iter()
-            .find_map(|body| match body {
-                Body::Result { status, error, .. } => Some((*status, error.clone())),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("{case}: one result: {messages:?}"));
-        assert_eq!(status, ResultStatus::Failed, "{case}: {messages:?}");
-        assert!(
-            error.unwrap_or_default().contains("offered"),
-            "{case}: bounded reason"
-        );
-        assert!(
-            !messages.iter().any(|body| matches!(
-                body,
-                Body::Result {
-                    status: ResultStatus::Succeeded,
-                    ..
-                }
-            )),
-            "{case}: never an accepted successful seat: {messages:?}"
-        );
+            .filter(|body| matches!(body, Body::Result { .. }));
+        assert_eq!(results.count(), 0, "{case}: {messages:?}");
     }
 }
 
@@ -6077,13 +6046,6 @@ fn a_dsh_root_mismatch_that_delivers_a_result_is_still_a_mismatch() {
     );
 }
 
-/// The exact terminal reason `run_seat` gives a rejoin that never
-/// confirmed. Asserted whole: a refusal is proved by its reason, never by
-/// `is_err()` or a non-success status.
-#[cfg(unix)]
-const DSH_NEVER_CONFIRMED: &str =
-    "provider never confirmed the offered session; refusing to accept the invocation";
-
 /// The vocabulary every latch child is written in. The store verbs write
 /// whole rows in ONE `printf`, so a reading that races the child sees the
 /// row or does not see it, never half of it — `row` without `newline` is
@@ -6197,20 +6159,18 @@ impl DshLatchRun {
     }
 
     /// The proof contract of every contrary-evidence exchange (design D7):
-    /// the named refusal, no payload, nothing published, one child, the
+    /// no result at all, since the harness ran on an unknown session
+    /// (`lost`), nothing published, one child, the
     /// delivered file retained, and a child that really passed each
     /// `await` on an acknowledged observation rather than timing out.
     fn assert_refused(&self, label: &str, delivers: bool, acks: usize) {
-        let (succeeded, result, error) = self.terminal();
-        assert_eq!(
-            error,
-            Some(DSH_NEVER_CONFIRMED),
-            "{label}: the named terminal refusal: {:?}",
-            self.bodies
-        );
         assert!(
-            !succeeded && result.is_none(),
-            "{label}: failed, with no payload"
+            !self
+                .bodies
+                .iter()
+                .any(|body| matches!(body, Body::Result { .. })),
+            "{label}: the harness ran, so no result is sent: {:?}",
+            self.bodies
         );
         for row in self.checkpoints() {
             assert!(
@@ -7116,16 +7076,12 @@ fn dsh_cold_noise_and_a_root_mismatch_keep_their_terminal_behaviour() {
             },
             delivers,
         );
-        let (succeeded, result, error) = run.terminal();
-        assert_eq!(
-            error,
-            Some(
-                "provider named a different session than the offered root; \
-                 refusing to accept the invocation"
-            ),
-            "the mismatch keeps its own reason"
+        assert!(
+            !run.bodies
+                .iter()
+                .any(|body| matches!(body, Body::Result { .. })),
+            "the mismatch ran its harness, so no result is sent (`lost`)"
         );
-        assert!(!succeeded && result.is_none());
         run.assert_one_child("root mismatch", 0);
         assert!(run.checkpoints().iter().all(|row| {
             row.get("root_session").is_none()
@@ -9866,17 +9822,13 @@ printf '{"type":"error","message":"stream error: rate limit"}\n'
             .any(|body| matches!(body, Body::Accepted { .. })),
         "work began, so the attempt accepted: {messages:?}"
     );
-    let Body::Result {
-        status: ResultStatus::Failed,
-        error: Some(error),
-        ..
-    } = messages.last().unwrap()
-    else {
-        panic!("expected one failed result: {messages:?}")
-    };
+    // Its command exited 0 with no result file, so no result is sent
+    // (`lost`), and so no refusal's `failed` either.
     assert!(
-        !error.contains("provider refused"),
-        "a refusal after work is a mid-session failure, not a fail-to-start: {error}"
+        !messages
+            .iter()
+            .any(|body| matches!(body, Body::Result { .. })),
+        "a refusal after work is a mid-session end, not a fail-to-start: {messages:?}"
     );
 }
 
