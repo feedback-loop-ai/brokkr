@@ -64,6 +64,13 @@ Git records no commits since the run began, and the journal records no explicit 
     );
 }
 
+/// A recipe library's root at `dir`, so a ledger written anywhere under
+/// it has the library's `.forge/` (decision 0083 ruling 3).
+fn library_root(dir: &std::path::Path) {
+    std::fs::create_dir(dir.join(".git")).unwrap();
+    crate::folder::folder_tests::plant_library(dir);
+}
+
 #[test]
 fn commits_absent_evidence_and_the_file_writer_are_all_literal() {
     let dir = tempfile::tempdir().unwrap();
@@ -152,6 +159,7 @@ fn commits_absent_evidence_and_the_file_writer_are_all_literal() {
         "{rendered}"
     );
 
+    crate::folder::folder_tests::plant_library(dir.path());
     let path = write("known-run", &events, dir.path()).unwrap();
     assert_eq!(std::fs::read_to_string(path).unwrap(), rendered);
 
@@ -160,6 +168,7 @@ fn commits_absent_evidence_and_the_file_writer_are_all_literal() {
     let empty = render("empty-run", &[], ordinary_directory.path()).unwrap();
     assert!(empty.contains("no delivery description recorded"));
 
+    library_root(ordinary_directory.path());
     let repo_file = ordinary_directory.path().join("not-a-directory");
     std::fs::write(&repo_file, "x").unwrap();
     let error = write("known-run", &events, &repo_file).unwrap_err();

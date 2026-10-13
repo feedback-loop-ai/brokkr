@@ -103,7 +103,7 @@ Usage: brokkr ledger [OPTIONS] --run <RUN>
 | `--run <RUN>` |  | yes | The run whose ledger is rendered: a full run id, a unique run-id prefix, or `latest` |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
-| `--repo <REPO>` |  |  | Write `.forge/ledger/<run>.md` here; without it, print the ledger |
+| `--repo <REPO>` |  |  | Write `<run>.md` under this repository's `.brokkr/state/ledger/`, or `.forge/ledger/` with no folder; without it, print the ledger |
 
 ## brokkr anchor
 
@@ -215,8 +215,8 @@ Usage: brokkr doctor [OPTIONS]
 | --- | --- | --- | --- |
 | `--bundle <BUNDLE>` |  |  | A bundle directory to compile and check as well; without it, no bundle is checked |
 | `--realms <REALMS>` |  |  | The world's map whose realm house declarations doctor checks (default ./realms.json when present) |
-| `--db <DB>` |  |  | The workspace journal whose database doctor opens. Outranks the map's journal; without either, .forge/forge.db as always |
-| `--secrets-file <SECRETS_FILE>` | `.forge/secrets.env` |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (decision 0036 ruling 5) |
+| `--db <DB>` |  |  | The workspace journal whose database doctor opens. Outranks the map's journal; without either, .brokkr/state/forge.db, or .forge/forge.db in a library |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (decision 0036 ruling 5; default .brokkr/state/secrets.env, else .forge/secrets.env) |
 
 ## brokkr compile
 
@@ -235,17 +235,17 @@ Usage: brokkr compile --bundle <BUNDLE>
 Start a new run and drive it until it parks or finishes
 
 ```text
-Usage: brokkr run [OPTIONS] --feature <FEATURE> <--bundle <BUNDLE>|--recipe <RECIPE>>
+Usage: brokkr run [OPTIONS] --feature <FEATURE>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; this or `--recipe` is required. `resume` compiles it to the run's pinned manifest and refuses any drift |
+| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
 | `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
-| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default &lt;workdir&gt;/.forge/secrets.env) |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--feature <FEATURE>` |  |  | The feature the run delivers, as text: recorded when the run starts and handed to its seats |
-| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to ./realms.json when there is one; a map named here and missing or malformed is a refusal, never a silent fallback |
+| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map named here and missing or malformed is a refusal, never a silent fallback |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
@@ -256,15 +256,15 @@ Usage: brokkr run [OPTIONS] --feature <FEATURE> <--bundle <BUNDLE>|--recipe <REC
 Resume an existing run under its exact pinned bundle
 
 ```text
-Usage: brokkr resume [OPTIONS] --run <RUN> <--bundle <BUNDLE>|--recipe <RECIPE>>
+Usage: brokkr resume [OPTIONS] --run <RUN>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; this or `--recipe` is required. `resume` compiles it to the run's pinned manifest and refuses any drift |
+| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
 | `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
-| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default &lt;workdir&gt;/.forge/secrets.env) |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
@@ -276,16 +276,16 @@ Usage: brokkr resume [OPTIONS] --run <RUN> <--bundle <BUNDLE>|--recipe <RECIPE>>
 Re-run a past run's feature as a NEW run under another bundle or recipe, so outcomes can be compared by run id. No stored linkage
 
 ```text
-Usage: brokkr rerun [OPTIONS] --run <RUN> <--bundle <BUNDLE>|--recipe <RECIPE>>
+Usage: brokkr rerun [OPTIONS] --run <RUN>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--run <RUN>` |  | yes | The source run whose feature is re-run |
-| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; this or `--recipe` is required. `resume` compiles it to the run's pinned manifest and refuses any drift |
+| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
 | `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
-| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default &lt;workdir&gt;/.forge/secrets.env) |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default ./realms.json when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 | `--repo <REPO>` |  |  | The repository the new run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
@@ -370,7 +370,7 @@ Usage: brokkr agents list [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--agents-dir <AGENTS_DIR>` | `agents` |  | The agent library directory |
+| `--agents-dir <AGENTS_DIR>` |  |  | The agent library directory (default .brokkr/agents, else agents) |
 
 ## brokkr agents show
 
@@ -383,8 +383,8 @@ Usage: brokkr agents show [OPTIONS] <NAME>
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `<NAME>` |  |  | The agent's name in the library |
-| `--agents-dir <AGENTS_DIR>` | `agents` |  | The agent library directory |
-| `--adapters-dir <ADAPTERS_DIR>` | `adapters` |  | The adapter library the chain's models are resolved against |
+| `--agents-dir <AGENTS_DIR>` |  |  | The agent library directory (default .brokkr/agents, else agents) |
+| `--adapters-dir <ADAPTERS_DIR>` |  |  | The adapter library the chain's models are resolved against (default .brokkr/adapters, else adapters) |
 
 ## brokkr muninn
 
@@ -404,11 +404,11 @@ Usage: brokkr muninn run [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--realms <REALMS>` |  |  | The world's map — the journal it names is the fleet this reading covers (default ./realms.json when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
-| `--agents-dir <AGENTS_DIR>` | `agents` |  | The agent library Muninn's own seat is hired from |
-| `--adapters-dir <ADAPTERS_DIR>` | `adapters` |  | The adapter library that seat's model is resolved against |
-| `--record <RECORD>` | `.forge/muninn.ndjson` |  | The append-only file each proposal is recorded in |
+| `--realms <REALMS>` |  |  | The world's map — the journal it names is the fleet this reading covers (default .brokkr/realms.json, else ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .brokkr/state/forge.db, or .forge/forge.db in a library |
+| `--agents-dir <AGENTS_DIR>` |  |  | The agent library Muninn's own seat is hired from (default .brokkr/agents, else agents) |
+| `--adapters-dir <ADAPTERS_DIR>` |  |  | The adapter library that seat's model is resolved against (default .brokkr/adapters, else adapters) |
+| `--record <RECORD>` |  |  | The append-only file each proposal is recorded in (default .brokkr/state/muninn.ndjson, or a library's .forge/muninn.ndjson) |
 
 ## brokkr muninn list
 
@@ -420,7 +420,7 @@ Usage: brokkr muninn list [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--record <RECORD>` | `.forge/muninn.ndjson` |  | The record file to read |
+| `--record <RECORD>` |  |  | The record file to read (default .brokkr/state/muninn.ndjson, or a library's .forge/muninn.ndjson) |
 | `--json` |  |  | Emit the recorded entries verbatim — this is what scripts read |
 
 ## brokkr secrets
@@ -442,7 +442,7 @@ Usage: brokkr secrets set [OPTIONS] <NAME>
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `<NAME>` |  |  | The name a seat's declared binding asks for |
-| `--secrets-file <SECRETS_FILE>` | `.forge/secrets.env` |  | The store file, created 0600 when absent |
+| `--secrets-file <SECRETS_FILE>` |  |  | The store file, created 0600 when absent (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
 
 ## brokkr secrets list
 
@@ -454,7 +454,7 @@ Usage: brokkr secrets list [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--secrets-file <SECRETS_FILE>` | `.forge/secrets.env` |  | The store file to read |
+| `--secrets-file <SECRETS_FILE>` |  |  | The store file to read (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
 
 ## brokkr secrets remove
 
@@ -467,7 +467,7 @@ Usage: brokkr secrets remove [OPTIONS] <NAME>
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `<NAME>` |  |  | The bound name to remove |
-| `--secrets-file <SECRETS_FILE>` | `.forge/secrets.env` |  | The store file to remove it from |
+| `--secrets-file <SECRETS_FILE>` |  |  | The store file to remove it from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
 
 ## brokkr conclude
 
@@ -517,17 +517,17 @@ Usage: brokkr queue <COMMAND>
 Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
 
 ```text
-Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON> <--bundle <BUNDLE>|--recipe <RECIPE>>
+Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; this or `--recipe` is required. `resume` compiles it to the run's pinned manifest and refuses any drift |
+| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
 | `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
-| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default &lt;workdir&gt;/.forge/secrets.env) |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--feature <FEATURE>` |  |  | The feature the run delivers, as text: recorded when the run starts and handed to its seats |
-| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to ./realms.json when there is one; a map named here and missing or malformed is a refusal, never a silent fallback |
+| `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map named here and missing or malformed is a refusal, never a silent fallback |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 | `--repo <REPO>` |  |  | The repository the run operates on: the bundle is compiled against its realm and the engine works in it. Without it, the workspace (the current directory) is compiled against, and the engine gets no repository override, so it works there too |
 | `--dispatch <DISPATCH>` |  |  | Canonical forge-dispatch/v2 JSON. When present the run id, Looper/grant correlation, recipe, repository, budget, and producer bounds are pinned into an immutable run-manifest/v2 |
@@ -804,7 +804,7 @@ Usage: brokkr realms [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--realms <REALMS>` |  |  | The map to read (default ./realms.json) |
+| `--realms <REALMS>` |  |  | The map to read (default .brokkr/realms.json, else ./realms.json) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
 | `--json` |  |  | Emit the view model verbatim — this is what scripts read |
 
@@ -879,8 +879,8 @@ Usage: brokkr probe harness [OPTIONS] --adapter <ADAPTER>
 | `--cli <CLI>` |  |  | The CLI to launch (default: the adapter's binary, found on PATH) |
 | `--out <OUT>` |  |  | Write the report here. A report already here is read first, and every reading that moved since it is reported as drift |
 | `--credential <CREDENTIALS>...` |  |  | A credential every credentialed launch is given, bound by name from the secrets store (decision 0012). Repeatable |
-| `--secrets-file <SECRETS_FILE>` | `.forge/secrets.env` |  | The secrets store each `--credential` is read from |
-| `--adapters-dir <ADAPTERS_DIR>` | `adapters` |  | The directory holding the adapter files `--adapter` names |
+| `--secrets-file <SECRETS_FILE>` |  |  | The secrets store each `--credential` is read from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env) |
+| `--adapters-dir <ADAPTERS_DIR>` |  |  | The directory holding the adapter files `--adapter` names (default .brokkr/adapters, else adapters) |
 
 ## Exit codes
 

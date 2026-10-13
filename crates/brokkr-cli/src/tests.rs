@@ -180,6 +180,7 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("journal.db");
     running_store(&db, "ledger-run");
+    crate::folder::folder_tests::plant_library(dir.path());
 
     assert_eq!(
         run(cli(Cmd::Ledger(LedgerArgs {
@@ -1012,6 +1013,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     // there. Copied from the tree rather than invented, for the same
     // reason the digest witnesses are recorded rather than asserted.
     stage_adapters(dir.path());
+    crate::folder::folder_tests::plant_library(dir.path());
     let bundle_path = stage_hands_free_fast(dir.path(), "fast-hands-free", false);
     let dispatched = |bundle: &std::path::Path, dispatch| {
         Cmd::Run(RunArgs {
@@ -1055,6 +1057,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let unmapped = dir.path().join("unmapped");
     std::fs::create_dir_all(&unmapped).unwrap();
     stage_adapters(&unmapped);
+    crate::folder::folder_tests::plant_library(&unmapped);
     let refusal = run_in(&unmapped, cli(base(Some(missing))))
         .unwrap_err()
         .to_string();
@@ -3382,6 +3385,7 @@ fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
     // it is said all the same. This is the case this repository's own
     // root map is in.
     let plain = tempfile::tempdir().unwrap();
+    crate::folder::folder_tests::plant_library(plain.path());
     let default_journal = std::path::absolute(DEFAULT_DB).unwrap();
     std::fs::write(
         plain.path().join("realms.json"),

@@ -18,6 +18,7 @@ use brokkr_runtime::agents::{Adapter, Adapters, ResumeIdentity};
 use brokkr_runtime::capabilities::{
     harness_of, Authority, Denial, NativeInventory, NativePlan, Requests, ADAPTER_SEAT, UNMAPPED,
 };
+use brokkr_runtime::places;
 
 use crate::cli_args::{ProbeCmd, ProbeHarnessArgs};
 use crate::now_rfc3339;
@@ -27,9 +28,9 @@ use crate::now_rfc3339;
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(300);
 
 /// `brokkr probe`.
-pub(crate) fn probe(command: ProbeCmd) -> Result<ExitCode> {
+pub(crate) fn probe(workspace: &Path, command: ProbeCmd) -> Result<ExitCode> {
     match command {
-        ProbeCmd::Harness(args) => harness(args),
+        ProbeCmd::Harness(args) => harness(workspace, args),
     }
 }
 
@@ -109,21 +110,30 @@ fn identity(identity: &ResumeIdentity) -> String {
 
 /// `brokkr probe harness`: one report, to `--out` or stdout, with the
 /// drift since the report `--out` already held.
-fn harness(args: ProbeHarnessArgs) -> Result<ExitCode> {
-    let adapters = Adapters::load(&args.adapters_dir)?;
+fn harness(workspace: &Path, args: ProbeHarnessArgs) -> Result<ExitCode> {
+    // The adapters and the secrets store are the discovered folder's
+    // (decision 0083); the store is state, so an old layout is refused.
+    let layout = crate::folder::Layout::discover(workspace)?;
+    layout.refuse_old()?;
+    let adapters_dir = layout.adapters(args.adapters_dir);
+    let secrets_file = match args.secrets_file {
+        Some(file) => file,
+        None => layout.state_file(false, places::SECRETS)?,
+    };
+    let adapters = Adapters::load(&adapters_dir)?;
     let adapter = adapters.adapter(&args.adapter).ok_or_else(|| {
         anyhow!(
             "no adapter '{}' under {}",
             args.adapter,
-            args.adapters_dir.display()
+            adapters_dir.display()
         )
     })?;
     // What the adapter declares is read as the engine reads it, whatever
     // launches it, so a driver the probe cannot launch is refused after.
     let declared = declared(adapter);
     let kind = launch_kind(adapter, &args.adapter)?;
-    let bindings = secret::resolve_bindings(&args.secrets_file, &args.credentials)
-        .map_err(anyhow::Error::msg)?;
+    let bindings =
+        secret::resolve_bindings(&secrets_file, &args.credentials).map_err(anyhow::Error::msg)?;
     let previous = previous_report(args.out.as_deref())?;
     let cli = args.cli.unwrap_or_else(|| adapter.binary.clone());
     let brokkr = std::env::current_exe()?;

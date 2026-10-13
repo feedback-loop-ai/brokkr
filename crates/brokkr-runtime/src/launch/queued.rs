@@ -20,7 +20,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical;
-use brokkr_core::realms::{Realm, DEFAULT_MAP_FILE};
+use brokkr_core::realms::Realm;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -196,7 +196,7 @@ impl MapSource {
     fn now(&self, workspace: &Path) -> Result<RunMap, WorldError> {
         Ok(match self {
             MapSource::Unmapped => {
-                let default = workspace.join(DEFAULT_MAP_FILE);
+                let default = crate::places::Places::of(workspace).map;
                 match std::fs::symlink_metadata(&default) {
                     Err(absent) if absent.kind() == ErrorKind::NotFound => RunMap::Unmapped,
                     _ => RunMap::Ambient(World::load(&default)?),
@@ -337,9 +337,11 @@ impl QueuedLaunch {
     }
 
     /// Where the seats of the run this entry starts make their scratch
-    /// trees: under the repository it operates, as the engine places them.
+    /// trees, as the engine places them: under its workspace's folder
+    /// state, else under the repository it operates (decision 0083).
     pub(crate) fn scratch(&self) -> PathBuf {
-        self.operated(&self.workspace)
+        let state = crate::places::Places::of(&self.workspace).state;
+        crate::places::run_local(state.as_deref(), &self.operated(&self.workspace))
             .join(crate::engine::SEAT_SCRATCH)
     }
 

@@ -318,6 +318,7 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
                 file.display()
             ))
         })?;
+        crate::places::refuse_folder_base(&dir, base)?;
         if !valid_recipe_name(base) {
             return Err(invalid(format!(
                 "{}: 'extends' value '{base}' is not a recipe name; names match \
@@ -325,16 +326,14 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
                 file.display()
             )));
         }
-        // The library is the leaf directory's parent — which is what a
-        // recipe library already is, and what `brokkr recipes add`
-        // installs into before it compile-verifies the copy.
-        // `dir` is already canonical, so its parent IS the library — and
-        // asking for it directly avoids `..`, which Windows does NOT
-        // resolve inside the `\\?\` verbatim paths canonicalize returns.
-        // `pop` is total: a directory holding a bundle.json is never the
-        // filesystem root, and if it somehow were, `library` stays put
-        // and the "not a recipe in {library}" error below fires anyway.
-        // An `ok_or_else` here would be an arm no test can reach.
+        // The library is the leaf directory's parent — which is what a recipe library already is
+        // (a `.brokkr` folder's is refused above), and what `brokkr recipes add` installs into
+        // before it compile-verifies the copy. `dir` is already canonical, so its parent IS the
+        // library, and asking for it directly avoids `..`, which Windows does NOT resolve inside
+        // the `\\?\` verbatim paths canonicalize returns. `pop` is total: a directory holding a
+        // bundle.json is never the filesystem root, and if it somehow were, `library` stays put
+        // and the "not a recipe in {library}" error below fires anyway. An `ok_or_else` here
+        // would be an arm no test can reach.
         let mut library = dir.clone();
         library.pop();
         let candidate = library.join(base);

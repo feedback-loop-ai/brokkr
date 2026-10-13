@@ -17,6 +17,13 @@ fn completed() -> ExitCode {
     ExitCode::from(Exit::Completed)
 }
 
+/// A temporary workspace a run's state has a place in, a recipe library
+/// keeping its `.forge/` layout (decision 0083), and its journal.
+fn library(dir: &tempfile::TempDir) -> (&Path, std::path::PathBuf) {
+    crate::folder::folder_tests::plant_library(dir.path());
+    (dir.path(), dir.path().join("forge.db"))
+}
+
 /// Parse `brokkr queue <words>` against `db` and run it in `workspace`.
 fn queue_in(workspace: &Path, db: &Path, words: &[&str]) -> Result<ExitCode> {
     let tail = ["--db", db.to_str().unwrap()];
@@ -47,7 +54,7 @@ fn listed(db: &Path) -> Vec<Judged> {
 #[test]
 fn the_queue_keeps_order_holds_and_runs_across_invocations() {
     let dir = tempfile::tempdir().unwrap();
-    let (ws, db) = (dir.path(), dir.path().join("forge.db"));
+    let (ws, db) = library(&dir);
     let commands: [&[&str]; 6] = [
         &[
             "add",
@@ -159,7 +166,7 @@ fn an_entry_names_the_workspace_it_was_queued_in_absolutely() {
 #[test]
 fn an_entry_held_for_a_changed_realm_is_released_by_repin() {
     let dir = tempfile::tempdir().unwrap();
-    let (ws, db) = (dir.path(), dir.path().join("forge.db"));
+    let (ws, db) = library(&dir);
     let map = |boundary: &str| {
         let map = json!({"schema": "forge.realms/v4", "journal": "forge.db",
             "realms": [{"name": "here", "path": ".", "default_branch": "main",
@@ -250,7 +257,7 @@ fn an_empty_queue_says_so() {
 #[test]
 fn each_refusal_leaves_with_its_own_words() {
     let dir = tempfile::tempdir().unwrap();
-    let (ws, db) = (dir.path(), dir.path().join("forge.db"));
+    let (ws, db) = library(&dir);
     let add = ["add", "--bundle", "b", "--feature", "f", "--reason", "r"];
     queue_in(ws, &db, &add).unwrap();
     queue_in(ws, &db, &["hold", "1", "--reason", "r"]).unwrap();

@@ -4,12 +4,11 @@
 //! stack before parsing or walking any bundle. Args delegates the finite
 //! command tree one verb at a time, without increasing the process stack.
 
-use super::DEFAULT_SECRETS;
 use std::path::PathBuf;
 
 /// Which journal a verb opens, asked the same way at every verb that
 /// takes one (#374): `--db` outranks the journal the map names, and
-/// with neither the default `.forge/forge.db` as always. Resolved once,
+/// with neither the discovered folder's (decision 0083). Resolved once,
 /// by `JournalArgs::journal`, before the verb opens anything.
 #[derive(clap::Args)]
 #[group(skip)]
@@ -39,23 +38,23 @@ pub(super) enum SecretsCmd {
     Set {
         /// The name a seat's declared binding asks for.
         name: String,
-        /// The store file, created 0600 when absent.
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
+        /// The store file, created 0600 when absent (default .brokkr/state/secrets.env, or a library's .forge/secrets.env).
+        #[arg(long)]
+        secrets_file: Option<PathBuf>,
     },
     /// Print bound names, one per line — names, never values.
     List {
-        /// The store file to read.
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
+        /// The store file to read (default .brokkr/state/secrets.env, or a library's .forge/secrets.env).
+        #[arg(long)]
+        secrets_file: Option<PathBuf>,
     },
     /// Remove NAME from the store.
     Remove {
         /// The bound name to remove.
         name: String,
-        /// The store file to remove it from.
-        #[arg(long, default_value = ".forge/secrets.env")]
-        secrets_file: PathBuf,
+        /// The store file to remove it from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env).
+        #[arg(long)]
+        secrets_file: Option<PathBuf>,
     },
 }
 
@@ -79,7 +78,8 @@ pub(super) struct LedgerArgs {
     pub(super) run: String,
     #[command(flatten)]
     pub(super) journal: JournalArgs,
-    /// Write `.forge/ledger/<run>.md` here; without it, print the ledger.
+    /// Write `<run>.md` under this repository's `.brokkr/state/ledger/`, or
+    /// `.forge/ledger/` with no folder; without it, print the ledger.
     #[arg(long)]
     pub(super) repo: Option<PathBuf>,
 }
@@ -142,14 +142,14 @@ pub(super) struct DoctorArgs {
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
     /// The workspace journal whose database doctor opens. Outranks the
-    /// map's journal; without either, .forge/forge.db as always.
+    /// map's journal; without either, .brokkr/state/forge.db, or .forge/forge.db in a library.
     #[arg(long)]
     pub(super) db: Option<PathBuf>,
     /// Operator-side secrets store, so doctor can say which declared
     /// credentials a route is taking from the ambient environment
-    /// instead (decision 0036 ruling 5).
-    #[arg(long, default_value = DEFAULT_SECRETS)]
-    pub(super) secrets_file: PathBuf,
+    /// instead (decision 0036 ruling 5; default .brokkr/state/secrets.env, else .forge/secrets.env).
+    #[arg(long)]
+    pub(super) secrets_file: Option<PathBuf>,
 }
 
 #[derive(clap::Args)]
@@ -165,9 +165,9 @@ pub(super) struct CompileArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct DeliveryArgs {
-    /// The bundle directory to deliver under; this or `--recipe` is
-    /// required. `resume` compiles it to the run's pinned manifest and
-    /// refuses any drift.
+    /// The bundle directory to deliver under; without it or `--recipe`,
+    /// the discovered .brokkr/ folder. `resume` compiles it to the run's
+    /// pinned manifest and refuses any drift.
     #[arg(long)]
     pub(super) bundle: Option<PathBuf>,
     /// Named recipe, resolved to <recipes-dir>/<name>.
@@ -177,7 +177,7 @@ pub(super) struct DeliveryArgs {
     #[arg(long, default_value = "recipes")]
     pub(super) recipes_dir: PathBuf,
     /// Operator-side secrets store for seats with declared bindings
-    /// (default <workdir>/.forge/secrets.env).
+    /// (default .brokkr/state/secrets.env, or <workdir>/.forge/secrets.env).
     #[arg(long)]
     pub(super) secrets_file: Option<PathBuf>,
 }
@@ -205,7 +205,7 @@ pub(super) struct LaunchArgs {
     #[arg(long)]
     pub(super) feature: String,
     /// The world's map: realms and the journal they share (decision
-    /// 0023). Defaults to ./realms.json when there is one; a map
+    /// 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map
     /// named here and missing or malformed is a refusal, never a
     /// silent fallback.
     #[arg(long)]
@@ -525,7 +525,7 @@ pub(super) struct RunsArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct RealmsArgs {
-    /// The map to read (default ./realms.json).
+    /// The map to read (default .brokkr/realms.json, else ./realms.json).
     #[arg(long)]
     pub(super) realms: Option<PathBuf>,
     /// The workspace journal. Outranks the map's journal; without
@@ -673,7 +673,7 @@ pub(super) struct BrokerServeArgs {
 pub(super) enum QueueCmd {
     /// Queue a new run, taking `brokkr run`'s arguments, at the end of
     /// the queue. Nothing starts: the entry waits for the dispatcher.
-    #[command(group(clap::ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
+    #[command(group(clap::ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Add(QueueAddArgs),
     /// The queue in order: each waiting entry's place, state, priority,
     /// waits, launch and admission (admissible, or why it waits or is
@@ -717,12 +717,12 @@ pub(super) struct ProbeHarnessArgs {
     /// from the secrets store (decision 0012). Repeatable.
     #[arg(long = "credential")]
     pub(super) credentials: Vec<String>,
-    /// The secrets store each `--credential` is read from.
-    #[arg(long, default_value = DEFAULT_SECRETS)]
-    pub(super) secrets_file: PathBuf,
-    /// The directory holding the adapter files `--adapter` names.
-    #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
-    pub(super) adapters_dir: PathBuf,
+    /// The secrets store each `--credential` is read from (default .brokkr/state/secrets.env, or a library's .forge/secrets.env).
+    #[arg(long)]
+    pub(super) secrets_file: Option<PathBuf>,
+    /// The directory holding the adapter files `--adapter` names (default .brokkr/adapters, else adapters).
+    #[arg(long)]
+    pub(super) adapters_dir: Option<PathBuf>,
 }
 
 #[derive(clap::Args)]

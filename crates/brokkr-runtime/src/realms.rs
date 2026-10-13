@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical;
-use brokkr_core::realms::{Boundary, Realm, RealmMap, RealmsError, DEFAULT_MAP_FILE};
+use brokkr_core::realms::{Boundary, Realm, RealmMap, RealmsError};
 use serde_json::{json, Value};
 use thiserror::Error;
 
@@ -441,7 +441,7 @@ impl World {
         match named {
             Some(path) => open(path).map(Some),
             None => {
-                let default = dir.join(DEFAULT_MAP_FILE);
+                let default = crate::places::Places::of(dir).map;
                 match default.is_file() {
                     true => open(&default).map(Some),
                     false => Ok(None),

@@ -64,15 +64,20 @@ fn bundle_with_sequence() -> Bundle {
 fn resolver_and_sequence_summary_cover_every_shape() {
     let dir = tempfile::tempdir().unwrap();
     let direct = dir.path().join("direct");
+    let implicit = dir.path().join("implicit");
     let resolve = |bundle, recipe, recipes_dir: &Path| {
-        source(bundle, recipe, recipes_dir.to_path_buf()).resolve()
+        let folder = || Ok::<_, std::io::Error>(implicit.clone());
+        source(bundle, recipe, recipes_dir.to_path_buf(), folder)
+            .unwrap()
+            .resolve()
     };
     assert_eq!(
         resolve(Some(direct.clone()), None, dir.path()).unwrap(),
         direct
     );
     assert!(resolve(None, Some("missing".into()), dir.path()).is_err());
-    assert!(std::panic::catch_unwind(|| resolve(None, None, dir.path())).is_err());
+    // Neither flag: the discovered folder's implicit bundle (decision 0083).
+    assert_eq!(resolve(None, None, dir.path()).unwrap(), implicit);
     assert_eq!(
         seat_summary(&bundle_with_sequence()),
         "review[draft>verify]"

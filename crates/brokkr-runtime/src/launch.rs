@@ -33,9 +33,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::boundary::{refuse_unboxable, Unboxable};
-use crate::bundle::{CompileError, RealmLaw, DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
+use crate::bundle::{CompileError, RealmLaw};
 use crate::capabilities::{CapabilityContext, UNMAPPED};
 use crate::engine::verify_dispatch_bundle_bounds;
+use crate::places::Places;
 use crate::realms::{World, WorldError};
 use crate::{Bundle, Engine, EngineError};
 
@@ -47,8 +48,9 @@ pub use queued::{Encoding, HeldWorld, MapSource, QueuedLaunch};
 /// What every launch is asked with.
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
-    /// The tree `agents/` and `adapters/` are read from and a map's
-    /// crossings are resolved against (decision 0023).
+    /// The tree a map's crossings are resolved against (decision 0023),
+    /// whose [`Places`] name the agents, the adapters and the run-local
+    /// state: a folder's root, or a library's working directory.
     pub workspace: PathBuf,
     /// The bundle to compile.
     pub bundle: BundleSource,
@@ -242,6 +244,7 @@ pub fn start(
         None => Engine::start_in_world(store, bundle, feature, repo, run.map.into_world())?,
     };
     engine.secrets_file = request.secrets;
+    engine.state = Places::of(&request.workspace).state;
     Ok(engine)
 }
 
@@ -265,6 +268,7 @@ pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> 
     // has nothing to fence.
     fence_crossings(engine.world.as_ref(), &request.workspace)?;
     engine.secrets_file = request.secrets;
+    engine.state = Places::of(&request.workspace).state;
     Ok(engine)
 }
 
@@ -282,6 +286,7 @@ pub fn rerun(
     let bundle = admit_new(&request, world.as_ref())?;
     let mut engine = Engine::start_in_world(store, bundle, &feature, request.repo, world)?;
     engine.secrets_file = request.secrets;
+    engine.state = Places::of(&request.workspace).state;
     Ok(engine)
 }
 
@@ -417,10 +422,11 @@ fn compile_from_manifest(
         // Its definitions are re-read where they were read when it
         // started: under the operated repository, never the recipe's home
         // and never a map that has appeared in the workspace since.
+        let places = Places::of(workspace);
         return Ok(Bundle::compile_unmapped(
             dir,
-            &workspace.join(DEFAULT_AGENTS_DIR),
-            &workspace.join(DEFAULT_ADAPTERS_DIR),
+            &places.agents,
+            &places.adapters,
             Boundary::Namespace,
             repo,
         )?);
@@ -482,10 +488,11 @@ fn compile_in_realm(
         Some((world, realm)) => world.dialect_for_realm(realm)?,
         None => None,
     };
+    let places = Places::of(workspace);
     Ok(Bundle::compile_with_capabilities(
         dir,
-        &workspace.join(DEFAULT_AGENTS_DIR),
-        &workspace.join(DEFAULT_ADAPTERS_DIR),
+        &places.agents,
+        &places.adapters,
         Some(name),
         dialect,
         RealmLaw::of(world, realm),

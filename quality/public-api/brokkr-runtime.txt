@@ -1295,6 +1295,19 @@ pub fn brokkr_runtime::launch::compile_for(&std::path::Path, &std::path::Path, c
 pub fn brokkr_runtime::launch::rerun(brokkr_runtime::launch::LaunchRequest, &str, core::option::Option<brokkr_runtime::realms::World>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::resume(brokkr_runtime::launch::LaunchRequest, &str) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::start(brokkr_runtime::launch::LaunchRequest, brokkr_runtime::launch::NewRun, &mut dyn core::ops::function::FnMut(&str)) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
+pub mod brokkr_runtime::places
+pub struct brokkr_runtime::places::Places
+pub brokkr_runtime::places::Places::adapters: std::path::PathBuf
+pub brokkr_runtime::places::Places::agents: std::path::PathBuf
+pub brokkr_runtime::places::Places::state: core::option::Option<std::path::PathBuf>
+impl brokkr_runtime::places::Places
+pub fn brokkr_runtime::places::Places::of(&std::path::Path) -> brokkr_runtime::places::Places
+pub const brokkr_runtime::places::FOLDER: &str
+pub const brokkr_runtime::places::LIBRARY_STATE: &str
+pub const brokkr_runtime::places::SECRETS: &str
+pub const brokkr_runtime::places::STATE: &str
+pub fn brokkr_runtime::places::library(&std::path::Path) -> bool
+pub fn brokkr_runtime::places::run_local(core::option::Option<&std::path::Path>, &std::path::Path) -> std::path::PathBuf
 pub mod brokkr_runtime::realms
 pub enum brokkr_runtime::realms::WorldError
 pub brokkr_runtime::realms::WorldError::Crossing

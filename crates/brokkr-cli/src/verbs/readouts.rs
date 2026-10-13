@@ -318,8 +318,9 @@ pub(crate) fn realms(
     let Invocation { world, journal, .. } = Invocation::inspect(workspace, realms, db)?.announce();
     let world = world.ok_or_else(|| {
         anyhow::anyhow!(
-            "no map: this workspace has no {} and none was named with --realms",
-            brokkr_core::realms::DEFAULT_MAP_FILE
+            "no map: this workspace has no {}/{map} or ./{map} and none was named with --realms",
+            brokkr_runtime::places::FOLDER,
+            map = brokkr_core::realms::DEFAULT_MAP_FILE
         )
     })?;
     let rows = realms::rows(&world);

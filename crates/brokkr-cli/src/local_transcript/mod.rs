@@ -131,7 +131,7 @@ pub fn read_local(subject: &Subject, projects_home: Option<&str>) -> TranscriptR
 
 /// The operator's secrets store a read surface masks against: the one
 /// beside the journal it reads, which is where the defaults put both
-/// (`.forge/forge.db` and `.forge/secrets.env`).
+/// (`.brokkr/state/`, or a library's `.forge/`; decision 0083).
 pub(crate) fn store_beside(journal: &Path) -> PathBuf {
     journal.with_file_name("secrets.env")
 }

@@ -21,11 +21,12 @@ use brokkr_runtime::capabilities::{
     ADAPTER_SEAT,
 };
 use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
-use brokkr_store::Store;
 
 use crate::boundary;
 use crate::render::Safe;
+use paths::Paths;
 
+mod paths;
 mod provisional;
 
 pub(crate) struct Report {
@@ -670,10 +671,10 @@ fn ambient_variable(name: &str) -> bool {
 pub(crate) fn doctor(
     bundle: Option<&Path>,
     db: Option<&Path>,
-    secrets_store: &Path,
+    defaults: &crate::folder::DoctorDefaults,
     realms: Option<&Path>,
 ) -> Report {
-    let workspace = std::env::current_dir().unwrap_or_default();
+    let workspace = defaults.workspace.clone();
     // The world is read once, before the bundle compiles: a bundle
     // doctor is asked about compiles in the discovered realm, under its
     // boundary (decision 0046 ruling 2), and the realm's own lines follow
@@ -693,16 +694,20 @@ pub(crate) fn doctor(
     // The database line checks the journal every other verb opens (#374):
     // `--db`, else the one the map names, else the default. A map that
     // will not load is its own line below, and names no journal here.
-    let db = db.map(Path::to_path_buf).unwrap_or_else(|| match &world {
-        Ok(Some(world)) => world.journal(),
-        _ => super::DEFAULT_DB.into(),
-    });
+    let db = db
+        .map(|db| Ok(db.to_path_buf()))
+        .unwrap_or_else(|| match &world {
+            Ok(Some(world)) => Ok(world.journal()),
+            _ => defaults.journal.as_ref().cloned(),
+        });
     let (mut report, availability) = doctor_observed(
         bundle,
-        &db,
-        Path::new(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
-        Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
-        secrets_store,
+        Paths {
+            db: db.as_deref().map_err(|none| *none),
+            library_root: &defaults.agents,
+            adapters_root: &defaults.adapters,
+            secrets_store: &defaults.secrets,
+        },
         tool_version,
         ambient_variable,
         boundary,
@@ -717,11 +722,11 @@ pub(crate) fn doctor(
         &mut report,
         &world,
         &workspace,
-        Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        &defaults.adapters,
         &availability,
     );
     let mapped = world.as_ref().ok().and_then(Option::as_ref);
-    let adapters = Path::new(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR);
+    let adapters = &defaults.adapters;
     provisional::report_provisional(&mut report, adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
     report
@@ -1407,10 +1412,12 @@ fn doctor_in(
 ) -> Report {
     doctor_observed(
         bundle,
-        db,
-        library_root,
-        adapters_root,
-        secrets_store,
+        Paths {
+            db: Ok(db),
+            library_root,
+            adapters_root,
+            secrets_store,
+        },
         probe,
         ambient,
         boundary,
@@ -1420,19 +1427,21 @@ fn doctor_in(
     .0
 }
 
-#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 fn doctor_observed(
     bundle: Option<&Path>,
-    db: &Path,
-    library_root: &Path,
-    adapters_root: &Path,
-    secrets_store: &Path,
+    paths: Paths<'_>,
     probe: fn(&str) -> Option<String>,
     ambient: fn(&str) -> bool,
     boundary: Boundary,
     compiled: Option<anyhow::Result<Bundle>>,
     composite: CompositeProbe,
 ) -> (Report, Availability) {
+    let Paths {
+        db,
+        library_root,
+        adapters_root,
+        secrets_store,
+    } = paths;
     let mut report = Report {
         healthy: true,
         lines: Vec::new(),
@@ -1533,17 +1542,7 @@ fn doctor_observed(
         (None, None) => Seats::NoBundleGiven,
     };
     report_ambient_credentials(&mut report, adapters_root, secrets_store, seats, ambient);
-
-    // Deliberately read-write, unlike every reading verb (#375): the
-    // probe asks whether a run could write here, so it opens the way
-    // `brokkr run` opens — creating, enabling WAL and migrating.
-    match Store::open(db) {
-        Ok(_) => report.ok(
-            "database",
-            format!("{} opens (WAL, append-only triggers)", db.display()),
-        ),
-        Err(e) => report.missing("database", format!("{}: {e}", db.display())),
-    }
+    paths::report_database(&mut report, db);
 
     if let Some((dir, result)) = compiled {
         match result {

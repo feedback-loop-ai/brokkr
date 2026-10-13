@@ -1110,7 +1110,7 @@ fn public_doctor_includes_the_workspace_house_check() {
     let report = doctor(
         None,
         Some(&dir.path().join("forge.db")),
-        &dir.path().join("secrets.env"),
+        &crate::folder::DoctorDefaults::of(dir.path().into(), None),
         None,
     );
     assert!(report.render().contains("house rules:"));

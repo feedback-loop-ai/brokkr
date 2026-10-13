@@ -4604,19 +4604,19 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
     }
 }
 
-/// The two top-level names the manifest walk skips (decision 0042): a
+/// The top-level names the manifest walk skips (decision 0042): a
 /// scaffold may also be the workspace brokkr is invoked from, and its
 /// realm map and dialect library are workspace declarations pinned into
 /// the RUN manifest, never bundle files. One function, shared by the walk
 /// and by the pinned-script lookup, so the two cannot drift.
 ///
 /// Decision 0065 adds the operator's abstract capability definitions on
-/// the same terms: the ones a compile CONSULTS are pinned by name and
-/// digest in the manifest's `capabilities` section, so walking the whole
-/// directory would make an unconsulted definition a second source of
-/// bundle identity.
+/// the same terms, so an unconsulted definition is no second source of
+/// bundle identity; decision 0083 adds a folder's `state/`, so a run
+/// writing its journal never moves its bundle's. The list is
+/// [`crate::places::UNPINNED_TOP_LEVEL`].
 fn unpinned_top_level(name: &str) -> bool {
-    name == "realms.json" || name == "dialects" || name == crate::capabilities::DEFINITIONS_DIR
+    crate::places::UNPINNED_TOP_LEVEL.contains(&name)
 }
 
 /// The top-level name an ACTIVE input stands under, where that name is one

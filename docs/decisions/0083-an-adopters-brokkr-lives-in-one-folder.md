@@ -3,7 +3,7 @@
 Status: accepted (operator ruled in chat, 2026-10-11, on #634)
 Date: 2026-10-11
 
-Built: unbuilt (#634) — the build changes CLI defaults in `cli_args.rs`, so it follows U6c8 (#625)
+Built: partial (#634) — slice A: discovery, the defaults that follow from it, and the old-layout refusals; slice B, `init` writing the folder and `doctor` checking it, remains
 
 ## Context
 

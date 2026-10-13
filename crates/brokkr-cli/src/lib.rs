@@ -19,6 +19,7 @@ mod compare;
 mod doctor;
 mod exit;
 mod fleet;
+mod folder;
 mod hands;
 mod init;
 mod ledger;
@@ -131,14 +132,14 @@ enum Cmd {
     /// Validate a bundle and print its pinned manifest and digest.
     Compile(CompileArgs),
     /// Start a new run and drive it until it parks or finishes.
-    #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
+    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Run(RunArgs),
     /// Resume an existing run under its exact pinned bundle.
-    #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
+    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Resume(ResumeArgs),
     /// Re-run a past run's feature as a NEW run under another bundle or
     /// recipe, so outcomes can be compared by run id. No stored linkage.
-    #[command(group(ArgGroup::new("delivery").required(true).args(["bundle", "recipe"])))]
+    #[command(group(ArgGroup::new("delivery").args(["bundle", "recipe"])))]
     Rerun(RerunArgs),
     /// Compare two runs' aligned outcomes: decision trails, first
     /// divergence, phases visited, per-seat costs. Read-only.
@@ -240,9 +241,9 @@ enum AgentsCmd {
     /// One line per agent — name, model chain, description. A broken
     /// definition prints a warning line and never aborts the listing.
     List {
-        /// The agent library directory.
-        #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
-        agents_dir: PathBuf,
+        /// The agent library directory (default .brokkr/agents, else agents).
+        #[arg(long)]
+        agents_dir: Option<PathBuf>,
     },
     /// The definition as written, plus the per-chain-entry resolution
     /// the compiler would compute. An unknown name errors naming the
@@ -250,12 +251,12 @@ enum AgentsCmd {
     Show {
         /// The agent's name in the library.
         name: String,
-        /// The agent library directory.
-        #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
-        agents_dir: PathBuf,
-        /// The adapter library the chain's models are resolved against.
-        #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
-        adapters_dir: PathBuf,
+        /// The agent library directory (default .brokkr/agents, else agents).
+        #[arg(long)]
+        agents_dir: Option<PathBuf>,
+        /// The adapter library the chain's models are resolved against (default .brokkr/adapters, else adapters).
+        #[arg(long)]
+        adapters_dir: Option<PathBuf>,
     },
 }
 
@@ -266,29 +267,29 @@ enum MuninnCmd {
     /// only when the operator issues the command themselves.
     Run {
         /// The world's map — the journal it names is the fleet this
-        /// reading covers (default ./realms.json when present).
+        /// reading covers (default .brokkr/realms.json, else ./realms.json, when present).
         #[arg(long)]
         realms: Option<PathBuf>,
         /// The workspace journal. Outranks the map's journal; without
-        /// either, .forge/forge.db as always.
+        /// either, .brokkr/state/forge.db, or .forge/forge.db in a library.
         #[arg(long)]
         db: Option<PathBuf>,
-        /// The agent library Muninn's own seat is hired from.
-        #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_AGENTS_DIR)]
-        agents_dir: PathBuf,
-        /// The adapter library that seat's model is resolved against.
-        #[arg(long, default_value = brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR)]
-        adapters_dir: PathBuf,
-        /// The append-only file each proposal is recorded in.
-        #[arg(long, default_value = muninn::DEFAULT_RECORD)]
-        record: PathBuf,
+        /// The agent library Muninn's own seat is hired from (default .brokkr/agents, else agents).
+        #[arg(long)]
+        agents_dir: Option<PathBuf>,
+        /// The adapter library that seat's model is resolved against (default .brokkr/adapters, else adapters).
+        #[arg(long)]
+        adapters_dir: Option<PathBuf>,
+        /// The append-only file each proposal is recorded in (default .brokkr/state/muninn.ndjson, or a library's .forge/muninn.ndjson).
+        #[arg(long)]
+        record: Option<PathBuf>,
     },
     /// Read the record back: every proposal, with the run ids and
     /// sequence numbers it cited.
     List {
-        /// The record file to read.
-        #[arg(long, default_value = muninn::DEFAULT_RECORD)]
-        record: PathBuf,
+        /// The record file to read (default .brokkr/state/muninn.ndjson, or a library's .forge/muninn.ndjson).
+        #[arg(long)]
+        record: Option<PathBuf>,
         /// Emit the recorded entries verbatim — this is what scripts read.
         #[arg(long)]
         json: bool,
@@ -1552,19 +1553,27 @@ impl Invocation {
         Invocation::open(workspace, realms, db, World::inspect)
     }
 
+    /// Decision 0083 first: the folder is discovered and an old layout
+    /// refused before any map or store opens, unless `--db` names the
+    /// journal; the folder's map and journal are then the defaults.
     fn open(
         workspace: &std::path::Path,
         realms: Option<PathBuf>,
         db: Option<PathBuf>,
         open: OpenWorld,
     ) -> Result<Invocation> {
-        let named = realms.is_some();
-        let overridden = db.is_some();
-        let world = open(workspace, realms.as_deref())?;
+        let (named, overridden) = (realms.is_some(), db.is_some());
+        let layout = folder::Layout::discover(workspace)?;
+        if !overridden {
+            layout.refuse_old()?;
+        }
+        let realms = realms.map(|path| layout.typed(path));
+        let world = open(&layout.workspace(), realms.as_deref())?;
         let mapped = world.as_ref().map(World::journal);
+        let default = |escape| layout.state_file(escape, folder::JOURNAL);
         let journal = db
             .or_else(|| mapped.clone())
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_DB));
+            .map_or_else(|| default(overridden), Ok)?;
         // A note is owed whenever a map nobody typed is adopted at all
         // (the run's own review caught the quiet arm: a map that keeps
         // the journal in place still decides realm paths and fact
@@ -1579,7 +1588,8 @@ impl Invocation {
             )
             .filter(|_| !named)
             .map(|(mapped, source)| {
-                if overridden || same_journal(&mapped, std::path::Path::new(DEFAULT_DB)) {
+                if overridden || default(false).is_ok_and(|default| same_journal(&mapped, &default))
+                {
                     format!(
                         "note: the map {source} found in this workspace is adopted \
                          (journal unchanged); --realms names it explicitly"
@@ -1825,10 +1835,11 @@ pub(crate) fn compile_in(
     dir: &std::path::Path,
     world: Option<&World>,
 ) -> Result<Bundle> {
+    let places = brokkr_runtime::places::Places::of(workspace);
     Ok(Bundle::compile_under(
         dir,
-        &workspace.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR),
-        &workspace.join(brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR),
+        &places.agents,
+        &places.adapters,
         brokkr_runtime::bundle::RealmLaw::of(world, None),
     )?)
 }
@@ -1890,7 +1901,7 @@ fn run_with(
         Cmd::Realms(args) => readouts::realms(workspace, args),
         Cmd::Runs(args) => readouts::runs(workspace, args),
         Cmd::Hands { command } => hands::run(command),
-        Cmd::Probe { command } => probe::probe(command),
+        Cmd::Probe { command } => probe::probe(workspace, command),
         Cmd::Broker { command } => broker::run(command),
         Cmd::Driver(args) => setup::driver(args),
         Cmd::Compare(args) => readouts::compare(workspace, args),
@@ -1906,7 +1917,7 @@ fn library(workspace: &std::path::Path, command: LibraryCmd) -> Result<ExitCode>
         LibraryCmd::Recipes { command } => setup::recipes(workspace, command),
         LibraryCmd::Agents { command } => setup::agents(workspace, command),
         LibraryCmd::Muninn { command } => setup::muninn(workspace, command),
-        LibraryCmd::Secrets { command } => setup::secrets(command),
+        LibraryCmd::Secrets { command } => setup::secrets(workspace, command),
     }
 }
 

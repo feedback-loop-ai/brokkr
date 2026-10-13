@@ -14,6 +14,7 @@ pub mod dialect;
 pub mod engine;
 pub mod keep_refs;
 pub mod launch;
+pub mod places;
 pub mod realms;
 
 pub use agents::{
