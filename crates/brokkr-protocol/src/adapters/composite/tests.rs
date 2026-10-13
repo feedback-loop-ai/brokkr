@@ -5844,9 +5844,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     // missing directory it answers ENOENT and under a file ENOTDIR, both
     // walked past, so a search of only those entries is exhausted with
     // that final cause and never ENAMETOOLONG. Each prefix has its own
-    // native oracle. glibc 2.43 refuses the NAME before the search
-    // (BZ #33627), so under it every entry answers the same refusal;
-    // the running library decides which rule is asserted.
+    // native oracle.
     let overlong = "x".repeat(300);
     let spelled = a.join(&overlong);
     let native = std::process::Command::new(&overlong)
@@ -5867,41 +5865,7 @@ fn the_candidate_classifier_stops_where_the_child_stops_and_refuses_the_unprovab
     let native_spelled = std::process::Command::new(&spelled).status();
     let resolved_spelled = resolve_executable_in(spelled.to_str().unwrap(), None);
     match LIBRARY {
-        Library::Glibc if glibc_bounds_name() => {
-            let name_refusal = CompositeError::Config(format!(
-                "'{overlong}' {}",
-                admit_program_name(Library::Glibc, &overlong).unwrap_err()
-            ))
-            .to_string();
-            for (prefix, native, resolved) in [
-                ("an existing directory", native, resolved),
-                ("a missing directory", native_missing, resolved_missing),
-                ("a file", native_file, resolved_file),
-            ] {
-                assert_eq!(
-                    errno_of(&native.unwrap_err()),
-                    Some(rustix::io::Errno::NAMETOOLONG),
-                    "under {prefix} glibc 2.43 refuses the name before the search"
-                );
-                assert_eq!(refused(resolved), name_refusal, "under {prefix}");
-            }
-            // A name spelled with a slash is not searched, so the
-            // kernel's own ENAMETOOLONG stays the cause.
-            assert_eq!(
-                errno_of(&native_spelled.unwrap_err()),
-                Some(rustix::io::Errno::NAMETOOLONG)
-            );
-            assert_eq!(
-                refused(resolved_spelled),
-                format!(
-                    "the DSH layout is unreadable: {}: metadata answers {}, on which the \
-                     platform's lookup stops",
-                    spelled.display(),
-                    fs::metadata(&spelled).unwrap_err()
-                )
-            );
-        }
-        Library::Glibc => {
+        Library::Glibc if !glibc::bounds_name() => {
             assert_eq!(
                 errno_of(&native.unwrap_err()),
                 Some(rustix::io::Errno::NAMETOOLONG),
@@ -7122,37 +7086,17 @@ fn the_lookup_rule_is_each_librarys_own_switch_arm_by_arm() {
     );
 
     // The name, before any search: musl refuses more than NAME_MAX
-    // with ENAMETOOLONG (`src/process/execvp.c`); glibc through 2.42
-    // does NOT — its `__strnlen (file, NAME_MAX)` caps what its own
-    // check measures, so the name meets the kernel under each entry
-    // (fourth hold, R4) — and glibc 2.43 does, as musl (BZ #33627);
-    // Apple has no such check; an unestablished library searches for
-    // nothing.
+    // with ENAMETOOLONG (`src/process/execvp.c`); glibc through 2.42 does
+    // NOT — `__strnlen (file, NAME_MAX)` caps its own check (fourth hold,
+    // R4) — and from 2.43 does (`glibc::bounds_name`); Apple has no such
+    // check; an unestablished library searches for nothing.
     let long = "n".repeat(256);
     let refusal = "is 256 bytes long, more than the 255 bytes NAME_MAX allows a searched name, \
                    which the platform's lookup refuses with ENAMETOOLONG before searching"
         .to_string();
-    assert_eq!(
-        admit_program_name(Library::Musl, &long),
-        Err(refusal.clone())
-    );
+    assert_eq!(admit_program_name(Library::Musl, &long), Err(refusal));
     assert_eq!(admit_program_name(Library::Musl, &"n".repeat(255)), Ok(()));
-    assert_eq!(
-        admit_program_name(Library::Glibc, &long),
-        if glibc_bounds_name() {
-            Err(refusal.clone())
-        } else {
-            Ok(())
-        }
-    );
-    assert_eq!(admit_program_name(Library::Glibc, &"n".repeat(255)), Ok(()));
-    // The version boundary: 2.43 is the first release with the check.
-    assert!(!glibc_version_bounds_name("2.42"));
-    assert!(!glibc_version_bounds_name("2.39"));
-    assert!(glibc_version_bounds_name("2.43"));
-    assert!(glibc_version_bounds_name("2.44.1"));
-    assert!(glibc_version_bounds_name("3.0"));
-    assert!(glibc_version_bounds_name("not a version"));
+    assert!(admit_program_name(Library::Glibc, &long).is_err() == glibc::bounds_name());
     assert_eq!(admit_program_name(Library::Apple, &long), Ok(()));
     assert_eq!(
         admit_program_name(Library::Unestablished, "dsh"),

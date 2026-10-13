@@ -2062,31 +2062,11 @@ fn child_controls() {
         )
     };
 
-    // Through glibc 2.42 an overlong bare program name is NOT refused
-    // before the search (fourth hold, R4): it meets the kernel under
-    // each entry, and the entry decides. Under the existing controls
-    // directory the kernel answers ENAMETOOLONG, on which glibc stops.
-    // glibc 2.43 refuses the name itself before searching (BZ #33627),
-    // so under it every prefix below answers that one refusal.
+    // An overlong bare program name is NOT refused before the search
+    // (fourth hold, R4): it meets the kernel under each entry, and the
+    // entry decides. Under the existing controls directory the kernel
+    // answers ENAMETOOLONG, on which glibc stops.
     let overlong = "x".repeat(300);
-    let name_refusal = |name: &str| {
-        CompositeError::Config(format!(
-            "'{name}' {}",
-            admit_program_name(Library::Glibc, name).unwrap_err()
-        ))
-        .to_string()
-    };
-    let bounded = |native: &Outcome, resolved: Result<PathBuf, CompositeError>, name: &str| {
-        let Outcome::Failed(error) = native else {
-            panic!("the native child ran a 300-byte name: {native:?}");
-        };
-        assert_eq!(
-            errno_of(error),
-            Some(rustix::io::Errno::NAMETOOLONG),
-            "{error}"
-        );
-        assert_eq!(refused(resolved), name_refusal(name));
-    };
     collecting(&mut failures, "control:overlong-bare-name", || {
         let native = oracle(
             Command::new(&overlong).arg("--list").stdin(Stdio::null()),
@@ -2094,8 +2074,7 @@ fn child_controls() {
         );
         let resolved = resolve_executable(&overlong);
         match LIBRARY {
-            Library::Glibc if glibc_bounds_name() => bounded(&native, resolved, &overlong),
-            Library::Glibc => {
+            Library::Glibc if !glibc::bounds_name() => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 300-byte name: {native:?}");
                 };
@@ -2125,8 +2104,7 @@ fn child_controls() {
             );
             let resolved = resolve_executable_in(&overlong, Some(nowhere.clone().into_os_string()));
             match LIBRARY {
-                Library::Glibc if glibc_bounds_name() => bounded(&native, resolved, &overlong),
-                Library::Glibc => {
+                Library::Glibc if !glibc::bounds_name() => {
                     let Outcome::Failed(error) = &native else {
                         panic!(
                         "the native child ran a 300-byte name under a missing prefix: {native:?}"
@@ -2155,8 +2133,7 @@ fn child_controls() {
         );
         let resolved = resolve_executable_in(&overlong, Some(file.clone().into_os_string()));
         match LIBRARY {
-            Library::Glibc if glibc_bounds_name() => bounded(&native, resolved, &overlong),
-            Library::Glibc => {
+            Library::Glibc if !glibc::bounds_name() => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 300-byte name under a file prefix: {native:?}");
                 };
@@ -2187,8 +2164,7 @@ fn child_controls() {
             );
             let resolved = resolve_executable_in(&overlong, Some(missing_then_existing.clone()));
             match LIBRARY {
-                Library::Glibc if glibc_bounds_name() => bounded(&native, resolved, &overlong),
-                Library::Glibc => {
+                Library::Glibc if !glibc::bounds_name() => {
                     let Outcome::Failed(error) = &native else {
                         panic!("the native child ran a 300-byte name: {native:?}");
                     };
@@ -2218,8 +2194,7 @@ fn child_controls() {
         );
         let resolved = resolve_executable_in(&overlong, Some(OsString::new()));
         match LIBRARY {
-            Library::Glibc if glibc_bounds_name() => bounded(&native, resolved, &overlong),
-            Library::Glibc => {
+            Library::Glibc if !glibc::bounds_name() => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 300-byte name from cwd: {native:?}");
                 };
@@ -2241,8 +2216,7 @@ fn child_controls() {
     // That is proved rather than described: the errno is planted by a
     // failing `metadata` call — ENOENT, then ENOTDIR — and the child
     // reports exactly the planted value each time, which no attempted
-    // `execve` would have left standing. glibc 2.43 refuses the name
-    // before the loop, so there the planted errno never stands.
+    // `execve` would have left standing.
     let skipped = OsString::from("x".repeat(5000));
     for (what, plant, planted) in [
         (
@@ -2268,8 +2242,7 @@ fn child_controls() {
             );
             let resolved = resolve_executable_in(&overlong, Some(skipped.clone()));
             match LIBRARY {
-                Library::Glibc if glibc_bounds_name() => bounded(&native, resolved, &overlong),
-                Library::Glibc => {
+                Library::Glibc if !glibc::bounds_name() => {
                     let Outcome::Failed(error) = &native else {
                         panic!("{what}: the native child ran a 300-byte name with no candidate: {native:?}");
                     };
@@ -2321,8 +2294,7 @@ fn child_controls() {
     // The NAME_MAX boundary itself: 256 bytes is one more than the
     // kernel takes for a component, refused by the kernel under the
     // existing controls directory even though nothing of that name is
-    // there — and never by a length rule of the resolver's own. Under
-    // glibc 2.43 the library's own name check refuses it first.
+    // there — and never by a length rule of the resolver's own.
     let boundary = "y".repeat(256);
     collecting(&mut failures, "control:name-max-boundary", || {
         let native = oracle(
@@ -2331,8 +2303,7 @@ fn child_controls() {
         );
         let resolved = resolve_executable(&boundary);
         match LIBRARY {
-            Library::Glibc if glibc_bounds_name() => bounded(&native, resolved, &boundary),
-            Library::Glibc => {
+            Library::Glibc if !glibc::bounds_name() => {
                 let Outcome::Failed(error) = &native else {
                     panic!("the native child ran a 256-byte name: {native:?}");
                 };
