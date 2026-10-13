@@ -1,5 +1,6 @@
 use super::*;
 use brokkr_core::fold::Cursor;
+use serde::Deserialize;
 use serde_json::json;
 
 #[path = "../../../tests/support/envelope.rs"]
@@ -42,7 +43,7 @@ pub(crate) fn state(phase: Option<&str>, status: Status, last_decision: Option<V
         last_result: None,
         phase_results: BTreeMap::new(),
         reviewed_heads: None,
-        last_decision,
+        last_decision: last_decision.map(|decision| Decided::deserialize(&decision).unwrap()),
         park_reason: Some("needs a human".to_string()),
         feature: Some("feat".to_string()),
         pending_command: None,
@@ -195,6 +196,7 @@ fn js_truthiness_and_the_fixed_tables_are_ported_whole() {
         "",
         "an unlisted severity is no class"
     );
+    assert_eq!(severity_class(&json!({"severity": "urgent"})), "");
 
     assert_eq!(
         result_token(&json!({"result": {"result": "ok"}})),
@@ -1901,17 +1903,17 @@ fn the_strategy_is_shown_beside_the_triage_phase_only() {
 
 #[test]
 fn a_decision_without_a_rule_id_is_not_a_ruling() {
+    // A decision is a typed record: one that is not an object, or names
+    // no ruling phase, is refused by the fold before a view reads it.
+    let decided = |payload: Value| Decided::deserialize(&payload).unwrap();
     assert!(ruling_of(None, None).is_none());
-    assert!(ruling_of(Some(&json!("a string")), None).is_none());
-    assert!(ruling_of(Some(&json!({"from": "a"})), None).is_none());
-    let bare = ruling_of(
-        Some(&json!({"rule_id": null, "result": "", "problem": null})),
-        None,
-    )
-    .unwrap();
+    let unruled = decided(json!({"from": "a", "result": "r"}));
+    assert!(ruling_of(Some(&unruled), None).is_none());
+    let bare = decided(json!({"from": "a", "rule_id": null, "result": "", "problem": null}));
+    let bare = ruling_of(Some(&bare), None).unwrap();
     assert!(bare.superseded.is_none(), "no annotation, no mark");
     assert_eq!(bare.rule_id, "?");
-    assert_eq!(bare.from, "?", "an absent from renders the mark");
+    assert_eq!(bare.from, "a", "the ruling phase is always recorded");
     assert_eq!(bare.next, "?");
     assert_eq!(bare.result, None, "an empty result is no result");
     assert_eq!(bare.problem, None);

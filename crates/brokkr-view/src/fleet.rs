@@ -7,11 +7,10 @@
 use brokkr_core::fold::{Cursor, RunState, Status};
 use brokkr_core::policy::Severity;
 use serde::Serialize;
-use serde_json::Value;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    decided, fmt_dur, js, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT,
+    fmt_dur, js, ruled, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT,
     KNOWN_STATUS, VIEW_VERSION,
 };
 
@@ -537,19 +536,15 @@ fn standing_of(state: &RunState) -> Standing {
 /// The last ruling's rule id and the phase that ruled, when it names a
 /// rule at all.
 fn last_rule(state: &RunState) -> Option<(&str, Option<&str>)> {
-    let ruled = decided(state.last_decision.as_ref()?)?;
-    Some((ruled.rule.as_str()?, ruled.from.and_then(Value::as_str)))
+    let decision = state.last_decision.as_ref()?;
+    Some((decision.rule_id.present()?, Some(decision.from.as_str())))
 }
 
 /// The last ruling routed nowhere, so it is what parked the run — the
 /// fold's own test for a rule-driven park. A park on an exhausted
 /// attempt limit or a lost attempt follows a ruling that routed on.
 fn ruling_parked(state: &RunState) -> bool {
-    state
-        .last_decision
-        .as_ref()
-        .and_then(decided)
-        .is_some_and(|ruled| ruled.next.and_then(Value::as_str).is_none())
+    ruled(state.last_decision.as_ref()).is_some_and(|decision| decision.next.present().is_none())
 }
 
 /// A rule id without the prefix naming the phase that ruled it —

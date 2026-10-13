@@ -35,14 +35,13 @@ mod participant;
 mod scope;
 pub mod transcript;
 
+pub use brokkr_core::policy::RuleSeverity;
 pub use compare::{
     first_divergence, resolution_divergence, resolutions, seat_costs, FirstDivergence, Resolution,
     SeatCost, Sides,
 };
 use dashboard::dashboard;
-pub use dashboard::{
-    working_checkpoints, Concluded, Dashboard, Decision, Outcome, RuleSeverity, Ruled, Visit,
-};
+pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
     at_work, fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire,
     Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
@@ -55,6 +54,8 @@ pub use scope::{
 
 use std::collections::BTreeMap;
 
+// The core's ruling record; the dashboard's `Decision` holds this name.
+use brokkr_core::decision::Decision as Decided;
 use brokkr_core::fold::{acceptance_refusal, OperatorCommand, RunState, Status};
 use brokkr_core::realms::Boundary;
 use brokkr_core::residual::{residuals, Residual, SUPERSEDE};
@@ -198,7 +199,7 @@ pub struct Summary {
     pub consecutive_failures: BTreeMap<String, u64>,
     pub cursor: String,
     pub feature: Option<String>,
-    pub last_decision: Option<Value>,
+    pub last_decision: Option<Decided>,
     pub park_reason: Option<String>,
     pub phase: Option<String>,
     pub run_id: String,
@@ -599,13 +600,18 @@ fn outcome_state(token: &str) -> Option<(&'static str, &'static str)> {
 const NODE_FINISHED: (&str, &str) = ("finished", "on-phosphor");
 const NODE_ACTIVE: (&str, &str) = ("active", "in-active");
 
-/// The fixed severity table. An unlisted severity falls back to the
-/// empty key — journal data never names a class.
+/// The severity class of a payload's `severity`.
 fn severity_class(payload: &Value) -> &'static str {
-    match field(payload, "severity") {
-        Some("flagged") => "awaiting_operator",
-        Some("hard") => "stopped",
-        _ => "",
+    class_of_severity(field(payload, "severity").and_then(RuleSeverity::named))
+}
+
+/// The fixed severity table. A severity outside the vocabulary, or none,
+/// falls back to the empty key — journal data never names a class.
+fn class_of_severity(severity: Option<RuleSeverity>) -> &'static str {
+    match severity {
+        Some(RuleSeverity::Flagged) => "awaiting_operator",
+        Some(RuleSeverity::Hard) => "stopped",
+        Some(RuleSeverity::Normal) | None => "",
     }
 }
 
@@ -2644,36 +2650,25 @@ pub fn summary(state: &RunState) -> Summary {
     }
 }
 
-/// A ruling's routing facts, read by key in this one place for every
-/// reader in this crate: the rule, the phase that ruled it, and where it
-/// routed, beside the object they were read from.
-pub(crate) struct Decided<'a> {
-    pub(crate) object: &'a serde_json::Map<String, Value>,
-    pub(crate) rule: &'a Value,
-    pub(crate) from: Option<&'a Value>,
-    pub(crate) next: Option<&'a Value>,
+/// The last decision read as a ruling, when it records a rule at all
+/// (`null` included): the one test both the run view and the fleet read.
+pub(crate) fn ruled(decision: Option<&Decided>) -> Option<&Decided> {
+    decision.filter(|decision| !decision.rule_id.is_absent())
 }
 
-/// `decision` read as a ruling, when it is an object that names a rule.
-pub(crate) fn decided(decision: &Value) -> Option<Decided<'_>> {
-    let object = decision.as_object()?;
-    Some(Decided {
-        object,
-        rule: object.get("rule_id")?,
-        from: object.get("from"),
-        next: object.get("next"),
-    })
+/// A recorded word as the console prints it, `?` where none is recorded.
+fn word_or_mark(word: Option<&String>) -> String {
+    word.map_or_else(|| "?".to_string(), String::clone)
 }
 
-fn ruling_of(decision: Option<&Value>, superseded: Option<Superseded>) -> Option<Ruling> {
-    let decision = decision?;
-    let Decided {
-        object,
-        rule,
-        from,
-        next,
-    } = decided(decision)?;
-    let inputs = match object.get("inputs").and_then(Value::as_object) {
+/// A recorded word the console prints only when it is not empty.
+fn nonempty(word: Option<&String>) -> Option<String> {
+    word.filter(|word| !word.is_empty()).cloned()
+}
+
+fn ruling_of(decision: Option<&Decided>, superseded: Option<Superseded>) -> Option<Ruling> {
+    let decision = ruled(decision)?;
+    let inputs = match decision.inputs.present() {
         Some(map) => map
             .iter()
             .map(|(key, value)| (key.clone(), value.to_string()))
@@ -2681,19 +2676,13 @@ fn ruling_of(decision: Option<&Value>, superseded: Option<Superseded>) -> Option
         None => Vec::new(),
     };
     Some(Ruling {
-        rule_id: display_or_mark(Some(rule)),
-        severity_class: severity_class(decision).to_string(),
-        from: display_or_mark(from),
-        next: display_or_mark(next),
-        result: match object.get("result") {
-            Some(result) if truthy(Some(result)) => Some(js::to_display(Some(result))),
-            _ => None,
-        },
+        rule_id: word_or_mark(decision.rule_id.present()),
+        severity_class: class_of_severity(decision.severity.present().copied()).to_string(),
+        from: decision.from.clone(),
+        next: word_or_mark(decision.next.present()),
+        result: nonempty(Some(&decision.result)),
         inputs,
-        problem: match object.get("problem") {
-            Some(problem) if truthy(Some(problem)) => Some(js::to_display(Some(problem))),
-            _ => None,
-        },
+        problem: nonempty(decision.problem.present()),
         superseded,
     })
 }

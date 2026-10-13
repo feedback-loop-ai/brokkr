@@ -970,8 +970,6 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
         assert!(refusal.contains("decision 0046 ruling 5"), "{refusal}");
     }
     refuse_confine("work", &json!({"driver":{"command":["x"]}})).unwrap();
-
-    assert!(referenced_seat_inputs(&json!({}), "work").is_empty());
 }
 
 /// Decision 0046 ruling 5, at the compiler's front door: an inline seat
@@ -1430,25 +1428,29 @@ fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
         brokkr_executable(Ok(PathBuf::from("/tmp/brokkr"))),
         "/tmp/brokkr"
     );
-    assert!(declarable_input("fixes_applied"));
-    assert!(declarable_input("max_residual_severity"));
-    assert!(!declarable_input("dirty_worktrees"));
-    assert!(!declarable_input("invented"));
+    assert!(is_declarable("fixes_applied"));
+    assert!(is_declarable("max_residual_severity"));
+    assert!(!is_declarable("dirty_worktrees"));
+    assert!(!is_declarable("invented"));
 
-    let table = json!({"rules": [
-        {"from":"work", "when": {
-            "max_residual_severity_gte":"low",
+    let table = json!({"phases": ["work", "review", "done"], "initial": "work",
+        "terminal": ["done"], "rules": [
+        {"id": "A", "from":"work", "result": "a", "next": "done", "reason": "a", "when": {
+            "max_residual_severity_at_most":"low",
             "max_residual_severity_above":"none",
             "fixes_applied":true,
             "dirty_worktrees":false
         }},
-        {"from":"review", "when":{"has_security_residual":false}},
-        {"from":"work"}
+        {"id": "B", "from":"review", "result": "b", "next": "done", "reason": "b",
+         "when":{"has_security_residual":false}},
+        {"id": "C", "from":"work", "result": "c", "next": "review", "reason": "c"}
     ]});
+    let machine = Machine::from_table(&table).unwrap();
     assert_eq!(
-        referenced_seat_inputs(&table, "work"),
+        machine.seat_inputs("work"),
         vec!["fixes_applied", "max_residual_severity"]
     );
+    assert_eq!(machine.seat_inputs("done"), Vec::<String>::new());
 
     let fixture = Fixture::new();
     let mut config = Fixture::config();

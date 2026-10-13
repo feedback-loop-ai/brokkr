@@ -36,11 +36,11 @@ fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunStat
         last_result: None,
         phase_results: BTreeMap::new(),
         reviewed_heads: None,
-        last_decision: decision,
         park_reason: park.map(str::to_string),
         feature: Some("one derivation, two surfaces".to_string()),
         pending_command: None,
         riding_stop: false,
+        last_decision: decision.map(|decision| serde_json::from_value(decision).unwrap()),
     }
 }
 
@@ -772,7 +772,7 @@ fn a_ruling_with_a_problem_prints_it_under_the_ruling_line() {
         None,
         Some(
             json!({"rule_id": "HARD-STOP", "severity": "hard", "from": "design",
-                    "problem": "the seat refused"}),
+                    "result": "", "problem": "the seat refused"}),
         ),
     );
     let view = brokkr_view::run_view(&events, Some(&stopped));

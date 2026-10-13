@@ -1,5 +1,6 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_view
+pub use brokkr_view::RuleSeverity
 pub mod brokkr_view::capability_calls
 pub enum brokkr_view::capability_calls::CallState
 pub brokkr_view::capability_calls::CallState::Failed
@@ -163,12 +164,6 @@ pub brokkr_view::Quarantine::DoesNotFold
 pub brokkr_view::Quarantine::DoesNotLoad
 impl brokkr_view::Quarantine
 pub fn brokkr_view::Quarantine::in_words(self, &str) -> brokkr_view::Refusal<'_>
-pub enum brokkr_view::RuleSeverity
-pub brokkr_view::RuleSeverity::Flagged
-pub brokkr_view::RuleSeverity::Hard
-pub brokkr_view::RuleSeverity::Normal
-impl brokkr_view::RuleSeverity
-pub fn brokkr_view::RuleSeverity::label(self) -> &'static str
 pub enum brokkr_view::Ruled
 pub brokkr_view::Ruled::Flagged
 pub brokkr_view::Ruled::Open
@@ -250,7 +245,7 @@ pub brokkr_view::Decision::problem: core::option::Option<alloc::string::String>
 pub brokkr_view::Decision::residual: core::option::Option<brokkr_core::policy::Severity>
 pub brokkr_view::Decision::result: core::option::Option<alloc::string::String>
 pub brokkr_view::Decision::rule: alloc::string::String
-pub brokkr_view::Decision::severity: core::option::Option<brokkr_view::RuleSeverity>
+pub brokkr_view::Decision::severity: core::option::Option<brokkr_core::policy::RuleSeverity>
 pub struct brokkr_view::FirstDivergence
 pub struct brokkr_view::FleetView
 pub brokkr_view::FleetView::count: usize
@@ -437,7 +432,7 @@ pub struct brokkr_view::Summary
 pub brokkr_view::Summary::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_view::Summary::cursor: alloc::string::String
 pub brokkr_view::Summary::feature: core::option::Option<alloc::string::String>
-pub brokkr_view::Summary::last_decision: core::option::Option<serde_json::value::Value>
+pub brokkr_view::Summary::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_view::Summary::park_reason: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::phase: core::option::Option<alloc::string::String>
 pub brokkr_view::Summary::run_id: alloc::string::String

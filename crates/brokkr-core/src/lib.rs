@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 pub mod canonical;
+pub mod decision;
 pub mod dispatch;
 pub mod envelope;
 pub mod fold;
