@@ -2,10 +2,12 @@
 //! determinism, and the crash-recovery cursor positions.
 
 use brokkr_core::canonical::ZERO_HASH;
+use brokkr_core::decision::{Decision, ReviewedHeads};
 use brokkr_core::envelope::{verify_chain, EventEnvelope, EventType};
 use brokkr_core::fold::{computed_inputs, fold, Cursor, FoldError, Status};
-use brokkr_core::realms::recorded_head;
+use serde::Deserialize;
 use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
 
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
@@ -92,7 +94,7 @@ fn the_last_successful_triage_result_is_the_engine_strategy() {
     let state = fold(&journal.events).unwrap();
     assert_eq!(state.strategy.as_deref(), Some("feature"));
     assert_eq!(
-        computed_inputs(&state, "implement", "complete").get("strategy"),
+        computed_inputs(&state, "implement", "complete", false).get("strategy"),
         Some(&Value::from("feature"))
     );
 }
@@ -109,7 +111,7 @@ fn consecutive_failures_count_and_reset() {
     let state = fold(&journal.events).unwrap();
     assert_eq!(state.consecutive_failures.get("implement"), Some(&1));
     // The engine-side input counts the failure being decided.
-    let inputs = computed_inputs(&state, "implement", "broken");
+    let inputs = computed_inputs(&state, "implement", "broken", false);
     assert_eq!(inputs.get("consecutive_failures"), Some(&Value::from(2)));
 
     effect_cycle(&mut journal, "implement", json!({"result": "complete"}));
@@ -120,7 +122,7 @@ fn consecutive_failures_count_and_reset() {
     );
     let state = fold(&journal.events).unwrap();
     assert_eq!(state.consecutive_failures.get("implement"), Some(&0));
-    assert!(computed_inputs(&state, "verify", "fail")
+    assert!(computed_inputs(&state, "verify", "fail", false)
         .get("consecutive_failures")
         .is_none());
 
@@ -250,23 +252,10 @@ fn replay_is_deterministic() {
 /// map existed folds to exactly the state it always folded to, its
 /// unkeyed facts still read, and it gained no realm key anywhere.
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test reads the committed fixture journal"
-)]
 fn the_committed_fixture_journal_folds_exactly_as_it_did() {
-    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson");
-    let ndjson = std::fs::read_to_string(&fixture).expect("the committed fixture journal");
-    let events: Vec<EventEnvelope> = ndjson
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| serde_json::from_str(line).expect("canonical NDJSON"))
-        .collect();
+    let fixture =
+        repository().join("fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson");
+    let events = committed_journal(&fixture);
     verify_chain(&events).expect("the fixture's chain still verifies");
 
     let state = fold(&events).expect("and it still folds");
@@ -290,14 +279,92 @@ fn the_committed_fixture_journal_folds_exactly_as_it_did() {
     for event in &events {
         if let Some(recorded) = event.payload.pointer("/inputs/reviewed_heads") {
             let unkeyed = recorded.get("repo").and_then(Value::as_str);
-            assert_eq!(recorded_head(recorded, None), unkeyed);
-            assert_eq!(recorded_head(recorded, Some("brokkr")), unkeyed);
+            let heads = ReviewedHeads::read(recorded);
+            assert_eq!(heads.head_for(None), unkeyed);
+            assert_eq!(heads.head_for(Some("brokkr")), unkeyed);
         }
     }
     let era = json!({"repo": "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"});
     assert_eq!(
-        recorded_head(&era, Some("brokkr")),
+        ReviewedHeads::read(&era).head_for(Some("brokkr")),
         era["repo"].as_str(),
         "an unkeyed head still answers for the realm the run works in"
     );
+}
+
+/// #345 slice 2: the fold keeps a decision, the verdict each phase hands
+/// forward and the reviewed heads as types, and each serializes to the
+/// bytes the journal holds. Measured over every committed journal, at
+/// every decision: the decision round-trips exactly, and the state folded
+/// to that decision hands forward exactly the payload it was folded from.
+#[test]
+fn every_committed_decision_folds_to_its_own_bytes() {
+    let mut decisions = 0;
+    for (path, events) in committed_journals() {
+        let mut heads = None;
+        for (at, event) in events.iter().enumerate() {
+            heads = ReviewedHeads::recorded_in(&event.payload).or(heads);
+            if event.event_type != EventType::TransitionDecided {
+                continue;
+            }
+            let place = format!("{} seq {}", path.display(), event.seq);
+            let decision = Decision::deserialize(&event.payload).expect(&place);
+            assert_eq!(json!(decision), event.payload, "{place}");
+            let state = fold(&events[..=at]).expect(&place);
+            assert_eq!(json!(state.last_decision), event.payload, "{place}");
+            assert_eq!(
+                json!(state.phase_results[&decision.from]),
+                json!({"inputs": event.payload["inputs"], "result": decision.result}),
+                "{place}"
+            );
+            assert_eq!(state.reviewed_heads, heads, "{place}");
+            decisions += 1;
+        }
+    }
+    assert_eq!(decisions, 68, "every committed decision was measured");
+}
+
+/// The repository root, where the committed journals live.
+fn repository() -> PathBuf {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    crates.parent().unwrap().to_path_buf()
+}
+
+/// Every committed journal, the fixtures and the evidence, in path order.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the committed journals"
+)]
+fn committed_journals() -> Vec<(PathBuf, Vec<EventEnvelope>)> {
+    let mut paths: Vec<PathBuf> = ["fixtures/journals", "docs/evidence"]
+        .into_iter()
+        .flat_map(|dir| std::fs::read_dir(repository().join(dir)).unwrap())
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "ndjson")
+        })
+        .collect();
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let ndjson = std::fs::read_to_string(&path).expect("a committed journal");
+            let events = ndjson
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| serde_json::from_str(line).expect("canonical NDJSON"))
+                .collect();
+            (path, events)
+        })
+        .collect()
+}
+
+/// One committed journal, by its path.
+fn committed_journal(path: &Path) -> Vec<EventEnvelope> {
+    let (_, events) = committed_journals()
+        .into_iter()
+        .find(|(listed, _)| listed == path)
+        .expect("a committed journal");
+    events
 }
