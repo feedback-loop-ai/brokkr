@@ -20,6 +20,17 @@
 //! precedes the broker's exit. Arguments, request identities, response
 //! bodies and child output are never recorded.
 //!
+//! Every record passes the final guard before it is appended (U6f1a; MB4,
+//! CR2, operator ruling 2026-10-13): its value is masked by the shared
+//! masker, which may change a call's tool and nothing else, and the very
+//! line appended passes `secret::Guard`, the one guard the broker's output
+//! edge shares. A record masking would change otherwise, or whose line the
+//! guard still refuses, as in a sequence number that is a bound value by
+//! what it is worth, is never appended, and the masking cause is latched as
+//! the session's. The bindings are the session's: a ledger opened before
+//! they are known is given them as soon as they are ([`Ledger::bind`]), its
+//! Opened then guarded by them too.
+//!
 //! [`Lifecycle`] is the one statement of D7's order: the writer admits
 //! each record through it before writing it, and [`recover`] reads a
 //! settled ledger through it, keeping only the prefix it verifies.
@@ -32,8 +43,10 @@ use std::os::fd::AsFd;
 use rustix::fs::{openat, Mode, OFlags};
 use rustix::io::Errno;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{Object, Owner, Refusal};
+use crate::secret::{self, BoundSecret, Guard};
 
 /// The most bytes one record holds, its newline included (CR3).
 const RECORD_MAX: usize = 4 << 10;
@@ -182,6 +195,11 @@ pub enum Unrecorded {
     /// accepted: the ledger's limit, latched as the session's cause.
     #[error("{}", Failure::Limit)]
     Limit,
+    /// A record masking would change past its tool, or whose line the
+    /// final guard still refuses, is never appended: the masking cause,
+    /// latched as the session's.
+    #[error("{}", Failure::Masking)]
+    Masking,
 }
 
 /// Why a ledger verifies no further (CR3, CR4): the first record out of
@@ -233,6 +251,17 @@ impl Lifecycle {
             unresolved: 0,
             local: BTreeSet::new(),
             closed: None,
+        }
+    }
+
+    /// The Opened the lifecycle admits first, its one record numbered one:
+    /// what the writer appends, and what binding re-reads (decision 0071
+    /// ruling 5).
+    fn opened(&self) -> Entry {
+        Entry::Opened {
+            seq: 1,
+            owner: self.owner.clone(),
+            plan: self.plan.clone(),
         }
     }
 
@@ -340,18 +369,20 @@ fn verified(lifecycle: &mut Lifecycle, line: &[u8]) -> Result<(), Invalid> {
 type Append = Box<dyn FnMut(&[u8]) -> std::io::Result<()>>;
 
 /// The writer of one plan's ledger: its records' lifecycle, how a line is
-/// appended and synced, and the first fatal cause, once one is latched.
-pub struct Ledger {
+/// appended and synced, the first fatal cause, once one is latched, and the
+/// final guard of the session's bindings, which every record passes.
+pub struct Ledger<'b> {
     append: Append,
     lifecycle: Lifecycle,
     latched: Option<Failure>,
     broken: bool,
+    guard: Guard<'b>,
 }
 
 /// Room for one more call, which holds the ledger until the call is begun
 /// or the room given up: the call bound not reached, and so the call's
 /// Terminal and the closure reserved.
-pub struct Room<'l>(&'l mut Ledger);
+pub struct Room<'l, 'b>(&'l mut Ledger<'b>);
 
 /// An accepted call: its Started durable, its Terminal not yet written.
 #[derive(Debug)]
@@ -360,17 +391,17 @@ pub struct Call {
     tool: String,
 }
 
-impl Ledger {
+impl<'b> Ledger<'b> {
     /// Create the ledger of the plan named `plan` in the attempt directory
     /// `dir`, beside the plan, exclusively and this user's alone, and open
-    /// it for the plan sealed at `digest` for `owner`. A ledger already
-    /// there is a second lifetime.
+    /// it for the plan sealed at `digest` for `owner`, every record guarded
+    /// by `bindings`. A ledger already there is a second lifetime.
     pub fn open(
         dir: impl AsFd,
         plan: &OsStr,
-        owner: &Owner,
-        digest: &str,
-    ) -> Result<Ledger, Unrecorded> {
+        (owner, digest): (&Owner, &str),
+        bindings: &'b [BoundSecret],
+    ) -> Result<Ledger<'b>, Unrecorded> {
         let mut name = OsString::from(plan);
         name.push(".ledger");
         let flags = OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW;
@@ -385,42 +416,44 @@ impl Ledger {
             _ => Unrecorded::Record,
         })?;
         rustix::fs::fsync(&dir).or(Err(Unrecorded::Record))?;
-        Ledger::durable(std::fs::File::from(created), owner, digest)
+        Ledger::durable(std::fs::File::from(created), (owner, digest), bindings)
     }
 
     /// Open the ledger created as `file`: each line written whole, then its
     /// data synced, before the writer answers.
-    fn durable(mut file: std::fs::File, owner: &Owner, digest: &str) -> Result<Ledger, Unrecorded> {
+    fn durable(
+        mut file: std::fs::File,
+        sealed: (&Owner, &str),
+        bindings: &'b [BoundSecret],
+    ) -> Result<Ledger<'b>, Unrecorded> {
         let append = move |line: &[u8]| file.write_all(line).and_then(|()| file.sync_data());
-        Ledger::open_with(append, owner, digest)
+        Ledger::open_with(append, sealed, bindings)
     }
 
-    /// Open a ledger whose lines `append` writes and syncs: its Opened
-    /// for the plan sealed at `digest` for `owner`, recorded.
+    /// Open a ledger whose lines `append` writes and syncs, every record
+    /// guarded by `bindings`: its Opened for the plan sealed at `digest`
+    /// for `owner`, recorded.
     pub fn open_with(
         append: impl FnMut(&[u8]) -> std::io::Result<()> + 'static,
-        owner: &Owner,
-        digest: &str,
-    ) -> Result<Ledger, Unrecorded> {
+        (owner, digest): (&Owner, &str),
+        bindings: &'b [BoundSecret],
+    ) -> Result<Ledger<'b>, Unrecorded> {
         let mut ledger = Ledger {
             append: Box::new(append),
             lifecycle: Lifecycle::new(owner, digest),
             latched: None,
             broken: false,
+            guard: Guard::new(bindings),
         };
-        let opened = |seq| Entry::Opened {
-            seq,
-            owner: owner.clone(),
-            plan: digest.to_owned(),
-        };
-        ledger.record(opened)?;
+        let opened = ledger.lifecycle.opened();
+        ledger.record(|_| opened)?;
         Ok(ledger)
     }
 
     /// Room for one more call, asked before the next request is read: at
     /// the call bound, none, and the ledger's limit latched, so the request
     /// stays unread and the closure says why.
-    pub fn room(&mut self) -> Result<Room<'_>, Failure> {
+    pub fn room(&mut self) -> Result<Room<'_, 'b>, Failure> {
         match (self.lifecycle.calls.len() as u64) < CALLS_MAX {
             true => Ok(Room(self)),
             false => {
@@ -441,6 +474,21 @@ impl Ledger {
             tool,
             outcome,
         })
+    }
+
+    /// Guard every record from now on by the session's `bindings`, given as
+    /// soon as they are known and before any call is begun (MB4, CR2). The
+    /// Opened, written before them, holds only the owner and the plan's
+    /// digest: its very line is passed by their guard now, and where it is
+    /// refused, the masking cause is latched, as for any record, and the
+    /// Opened stays as it was written.
+    pub fn bind(&mut self, bindings: &'b [BoundSecret]) -> Result<(), Unrecorded> {
+        self.guard = Guard::new(bindings);
+        let line = self.lifecycle.opened().line().ok_or(Unrecorded::Record)?;
+        match self.guard.json(&line) {
+            true => Ok(()),
+            false => Err(self.unmasked()),
+        }
     }
 
     /// Latch `failure` as the session's, unless a cause is latched already:
@@ -465,33 +513,77 @@ impl Ledger {
         Ok(disposition)
     }
 
-    /// The record `entry` makes, numbered next, admitted by the lifecycle
+    /// The record `entry` makes, numbered next, masked and guarded
+    /// ([`Ledger::masked`]), admitted by the lifecycle as it is written,
     /// and appended whole and synced. Once one append has failed, what it
     /// left is unknown, and nothing more is recorded.
     fn record(&mut self, entry: impl FnOnce(u64) -> Entry) -> Result<(), Unrecorded> {
         ensure(!self.broken, Unrecorded::Record)?;
         let entry = entry(self.lifecycle.records + 1);
-        let line = entry.line().ok_or(Unrecorded::Record)?;
+        let (entry, line) = self.masked(&entry)?;
         self.lifecycle.admit(entry).or(Err(Unrecorded::Record))?;
         self.broken = true;
         (self.append)(&line).or(Err(Unrecorded::Record))?;
         self.broken = false;
         Ok(())
     }
+
+    /// The record `entry` as it is written, and its line (MB4, CR2): its
+    /// value masked by the shared masker, read back as a record, and its
+    /// line passed by the final guard, those very bytes being what is
+    /// appended. Masking may change the call's tool and nothing else: a
+    /// record it would change otherwise, as in an outcome or a key, or
+    /// whose line the guard still refuses, is not written, and the masking
+    /// cause is latched as the session's. One over the record bound is not
+    /// recorded either.
+    fn masked(&mut self, entry: &Entry) -> Result<(Entry, Vec<u8>), Unrecorded> {
+        let written = serde_json::to_value(entry).or(Err(Unrecorded::Record))?;
+        let mut masked = written.clone();
+        secret::mask_json(&mut masked, self.guard.bindings());
+        let read = (but_tool(&masked) == but_tool(&written))
+            .then(|| Entry::read(&serde_json::to_vec(&masked).unwrap_or_default()))
+            .flatten();
+        let Some(read) = read else {
+            return Err(self.unmasked());
+        };
+        let line = read.line().ok_or(Unrecorded::Record)?;
+        match self.guard.json(&line) {
+            true => Ok((read, line)),
+            false => Err(self.unmasked()),
+        }
+    }
+
+    /// The masking cause latched as the session's, and the record refused
+    /// for it.
+    fn unmasked(&mut self) -> Unrecorded {
+        self.fail(Failure::Masking);
+        Unrecorded::Masking
+    }
 }
 
-impl Room<'_> {
+/// A record's `value`, an object, but for its tool, the one member masking
+/// may change.
+fn but_tool(value: &Value) -> Value {
+    let mut value = value.clone();
+    value.as_object_mut().into_iter().for_each(|members| {
+        members.remove("tool");
+    });
+    value
+}
+
+impl Room<'_, '_> {
     /// Accept a call to `tool`: its Started recorded, so it may be
     /// forwarded or refused locally, and nothing done where it is not. Its
-    /// Terminal is reserved first, with the longest outcome: where it would
-    /// not fit, the call is not accepted and the ledger's limit is latched.
-    /// A call begun while another is unresolved may only be refused.
+    /// Terminal is reserved first, with the longest outcome and the tool as
+    /// masking writes it: where it would not fit, the call is not accepted
+    /// and the ledger's limit is latched. A call begun while another is
+    /// unresolved may only be refused.
     pub fn begin(self, tool: &str) -> Result<Call, Unrecorded> {
         let ledger = self.0;
         let terminal = Entry::Terminal {
             seq: u64::MAX,
             call: u64::MAX,
-            tool: tool.to_owned(),
+            tool: secret::mask_text(tool.as_bytes(), ledger.guard.bindings()),
             outcome: Outcome::LONGEST,
         };
         if terminal.line().is_none() {

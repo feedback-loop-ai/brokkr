@@ -18,6 +18,7 @@ use brokkr_protocol::broker::ledger::{
     recover, Denial, Disposition, Failure, Invalid, Ledger, Lifecycle, Outcome, Unrecorded,
 };
 use brokkr_protocol::broker::Owner;
+use brokkr_protocol::secret::{self, BoundSecret};
 use serde_json::{json, Value};
 
 use super::{bindable, binds, past_prepare, refused, set, skip, unservable};
@@ -65,7 +66,17 @@ struct Disk {
 
 /// A ledger over memory for the plan [`PLAN`] of [`owner`], its `fault`
 /// at its append, and what it made durable.
-fn opened(fault: Option<(usize, Fault)>) -> (Result<Ledger, Unrecorded>, Rc<RefCell<Disk>>) {
+fn opened(
+    fault: Option<(usize, Fault)>,
+) -> (Result<Ledger<'static>, Unrecorded>, Rc<RefCell<Disk>>) {
+    opened_by(fault, &[])
+}
+
+/// [`opened`], every record guarded by `bindings`.
+fn opened_by(
+    fault: Option<(usize, Fault)>,
+    bindings: &[BoundSecret],
+) -> (Result<Ledger<'_>, Unrecorded>, Rc<RefCell<Disk>>) {
     let disk = Rc::new(RefCell::new(Disk::default()));
     let written = Rc::clone(&disk);
     let append = move |line: &[u8]| {
@@ -82,11 +93,11 @@ fn opened(fault: Option<(usize, Fault)>) -> (Result<Ledger, Unrecorded>, Rc<RefC
             false => Ok(()),
         }
     };
-    (Ledger::open_with(append, &owner(), PLAN), disk)
+    (Ledger::open_with(append, (&owner(), PLAN), bindings), disk)
 }
 
 /// A ledger over memory that records everything.
-fn healthy() -> (Ledger, Rc<RefCell<Disk>>) {
+fn healthy() -> (Ledger<'static>, Rc<RefCell<Disk>>) {
     let (ledger, disk) = opened(None);
     (ledger.unwrap(), disk)
 }
@@ -113,7 +124,7 @@ fn flat(lifecycle: &Lifecycle, invalid: Option<Invalid>) -> Proved {
 }
 
 /// One accepted call to `tool`, ended with `outcome`.
-fn call(ledger: &mut Ledger, tool: &str, outcome: Outcome) {
+fn call(ledger: &mut Ledger<'_>, tool: &str, outcome: Outcome) {
     let begun = ledger.room().unwrap().begin(tool).unwrap();
     ledger.end(begun, outcome).unwrap();
 }
@@ -125,13 +136,14 @@ fn ended(tool: &str, outcome: Outcome) -> (String, Option<Outcome>) {
 
 #[test]
 fn each_ledger_cause_reads_in_cr3s_words() {
-    let texts: [(&dyn std::error::Error, &str); 16] = [
+    let texts: [(&dyn std::error::Error, &str); 17] = [
         (&Unrecorded::Reopened, "broker plan has already been opened"),
         (&Unrecorded::Record, "broker call could not be recorded"),
         (
             &Unrecorded::Limit,
             "broker ledger exceeds the attempt limit",
         ),
+        (&Unrecorded::Masking, "MCP response cannot be safely masked"),
         (
             &Failure::Version,
             "MCP server version does not match the dialect's pinned version",
@@ -207,6 +219,116 @@ fn the_first_fatal_cause_survives_later_causes_and_the_end_of_input() {
     assert_eq!(proved(&disk.borrow().bytes), (calls, Some(failed), None));
 }
 
+/// `value` bound as `STATE`, from a store on a canonical temporary root.
+fn state(value: &str) -> Vec<BoundSecret> {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().canonicalize().unwrap().join("secrets.env");
+    secret::store_set(&store, "STATE", value).unwrap();
+    secret::resolve_bindings(&store, &["STATE".to_string()]).unwrap()
+}
+
+#[test]
+fn every_record_is_masked_and_guarded_before_it_is_appended() {
+    // STATE=succeeded: the Terminal saying so would be masked past its
+    // tool, so it is never appended and its call stays begun, while one
+    // saying otherwise is recorded; no record holds the value.
+    let bound = state("succeeded");
+    let (ledger, disk) = opened_by(None, &bound);
+    let mut ledger = ledger.unwrap();
+    call(&mut ledger, "resolve", Outcome::Failed);
+    let begun = ledger.room().unwrap().begin("read").unwrap();
+    let refused = ledger.end(begun, Outcome::Succeeded);
+    assert_eq!(refused, Err(Unrecorded::Masking));
+    assert_eq!(ledger.close(), Err(Unrecorded::Record));
+    let bytes = disk.borrow().bytes.clone();
+    let calls = vec![ended("resolve", Outcome::Failed), ("read".into(), None)];
+    assert_eq!(proved(&bytes), (calls, None, Some(Invalid::Lifecycle)));
+    let held = bytes.windows(9).any(|bytes| bytes == b"succeeded");
+    assert!(!held);
+    // STATE=started: no Started is appended, and the masking cause is
+    // latched as the session's, which the closure carries.
+    let bound = state("started");
+    let (ledger, disk) = opened_by(None, &bound);
+    let mut ledger = ledger.unwrap();
+    let begun = ledger.room().unwrap().begin("resolve").err();
+    assert_eq!(begun, Some(Unrecorded::Masking));
+    let failed = Disposition::Failed(Failure::Masking);
+    assert_eq!(ledger.close(), Ok(failed.clone()));
+    assert_eq!(proved(&disk.borrow().bytes), (vec![], Some(failed), None));
+    // A sequence number that is a bound value by what it is worth, which
+    // masking text leaves as it is, and that no record before it writes,
+    // its owner's every string decoded and read for numbers too (operator
+    // ruling 2026-10-13): the eleventh record, the fifth call's Terminal,
+    // is refused on its very bytes.
+    let bound = state("11.00");
+    let (ledger, disk) = opened_by(None, &bound);
+    let mut ledger = ledger.unwrap();
+    for _ in 0..4 {
+        call(&mut ledger, "resolve", Outcome::Succeeded);
+    }
+    let begun = ledger.room().unwrap().begin("resolve").unwrap();
+    let refused = ledger.end(begun, Outcome::Succeeded);
+    assert_eq!(refused, Err(Unrecorded::Masking));
+    let mut calls = vec![ended("resolve", Outcome::Succeeded); 4];
+    calls.push(("resolve".into(), None));
+    let lifecycle = Some(Invalid::Lifecycle);
+    assert_eq!(proved(&disk.borrow().bytes), (calls, None, lifecycle));
+    // The control: a tool holding a bound value is recorded masked, and
+    // a ledger of masked records recovers whole.
+    let bound = state("hidden-tool");
+    let (ledger, disk) = opened_by(None, &bound);
+    let mut ledger = ledger.unwrap();
+    call(&mut ledger, "get-hidden-tool", Outcome::Succeeded);
+    assert_eq!(ledger.close(), Ok(Disposition::Clean));
+    let calls = vec![ended("get-[secret:STATE]", Outcome::Succeeded)];
+    let recovered = proved(&disk.borrow().bytes);
+    assert_eq!(recovered, (calls, Some(Disposition::Clean), None));
+    // A call's Terminal is reserved as masking writes its tool: a name
+    // that fits the record bound as it is, but not masked, is the ledger's
+    // limit before anything of it is recorded.
+    let bound = state("wxyz");
+    let (ledger, disk) = opened_by(None, &bound);
+    let mut ledger = ledger.unwrap();
+    let begun = ledger.room().unwrap().begin(&"wxyz".repeat(975)).err();
+    assert_eq!(begun, Some(Unrecorded::Limit));
+    let limit = Disposition::Failed(Failure::Limit);
+    assert_eq!(ledger.close(), Ok(limit.clone()));
+    assert_eq!(proved(&disk.borrow().bytes), (vec![], Some(limit), None));
+}
+
+#[test]
+fn a_secret_is_found_in_a_record_and_bound_once_known() {
+    // STATE=[secret:STATE]: a tool holding it masks to the very same
+    // bytes, and is still found in the Started's line, never appended.
+    let bound = state("[secret:STATE]");
+    let (ledger, disk) = opened_by(None, &bound);
+    let mut ledger = ledger.unwrap();
+    let begun = ledger.room().unwrap().begin("get-[secret:STATE]").err();
+    assert_eq!(begun, Some(Unrecorded::Masking));
+    let failed = Disposition::Failed(Failure::Masking);
+    assert_eq!(ledger.close(), Ok(failed.clone()));
+    assert_eq!(
+        proved(&disk.borrow().bytes),
+        (vec![], Some(failed.clone()), None)
+    );
+    // A ledger opened before its bindings are known: bound to one inside
+    // the plan's digest, its Opened's line is refused then, and stays as
+    // it was written; bound to an unrelated one, the closure is guarded.
+    let inside = state(&PLAN[..8]);
+    let (ledger, disk) = healthy();
+    let mut ledger: Ledger<'_> = ledger;
+    assert_eq!(ledger.bind(&inside), Err(Unrecorded::Masking));
+    assert_eq!(ledger.close(), Ok(failed.clone()));
+    assert_eq!(proved(&disk.borrow().bytes), (vec![], Some(failed), None));
+    let closed = state("closed");
+    let (ledger, disk) = healthy();
+    let mut ledger: Ledger<'_> = ledger;
+    assert_eq!(ledger.bind(&closed), Ok(()));
+    assert_eq!(ledger.close(), Err(Unrecorded::Masking));
+    let unclosed = (vec![], None, Some(Invalid::Lifecycle));
+    assert_eq!(proved(&disk.borrow().bytes), unclosed);
+}
+
 #[test]
 fn each_served_cause_closes_a_durable_ledger_first_and_is_never_replaced() {
     let root = Root::new();
@@ -222,7 +344,7 @@ fn each_served_cause_closes_a_durable_ledger_first_and_is_never_replaced() {
         // writes: the later cause and the end of input do not replace it,
         // and the settled file proves exactly it.
         let plan = OsString::from(format!("{name}.json"));
-        let mut ledger = Ledger::open(&dir, &plan, &owner(), PLAN).unwrap();
+        let mut ledger = Ledger::open(&dir, &plan, (&owner(), PLAN), &[]).unwrap();
         call(&mut ledger, "resolve", Outcome::Failed);
         ledger.fail(cause.clone());
         ledger.fail(later.clone());
@@ -342,7 +464,7 @@ fn a_records_terminal_is_reserved_before_it_is_accepted() {
         *counted.borrow_mut() += 1;
         Ok(())
     };
-    let refused = Ledger::open_with(append, &long, PLAN).err();
+    let refused = Ledger::open_with(append, (&long, PLAN), &[]).err();
     assert_eq!((refused, *disk.borrow()), (Some(Unrecorded::Record), 0));
 }
 
@@ -713,7 +835,7 @@ fn a_plans_ledger_is_created_once_beside_it_and_this_users_alone() {
     let root = Root::new();
     let dir = std::fs::File::open(&root.path).unwrap();
     let plan = std::ffi::OsStr::new("cap-library-docs.json");
-    let ledger = Ledger::open(&dir, plan, &owner(), PLAN).unwrap();
+    let ledger = Ledger::open(&dir, plan, (&owner(), PLAN), &[]).unwrap();
     assert_eq!(ledger.close(), Ok(Disposition::Clean));
     let path = of(&root.path.join(plan));
     let held = std::fs::symlink_metadata(&path).unwrap();
@@ -724,19 +846,19 @@ fn a_plans_ledger_is_created_once_beside_it_and_this_users_alone() {
     let bytes = std::fs::read(&path).unwrap();
     assert_eq!(proved(&bytes), (vec![], Some(Disposition::Clean), None));
     // A second lifetime of the plan is refused, its ledger untouched.
-    let again = Ledger::open(&dir, plan, &owner(), PLAN).err();
+    let again = Ledger::open(&dir, plan, (&owner(), PLAN), &[]).err();
     assert_eq!(again, Some(Unrecorded::Reopened));
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
     // So is one whose ledger's name is a link, which is not followed.
     let target = root.path.join("elsewhere");
     std::os::unix::fs::symlink(&target, of(&root.path.join("linked.json"))).unwrap();
-    let linked = Ledger::open(&dir, "linked.json".as_ref(), &owner(), PLAN).err();
+    let linked = Ledger::open(&dir, "linked.json".as_ref(), (&owner(), PLAN), &[]).err();
     assert_eq!(
         (linked, target.exists()),
         (Some(Unrecorded::Reopened), false)
     );
     // A ledger that cannot be created is not recorded.
-    let missing = Ledger::open(&dir, "missing/plan.json".as_ref(), &owner(), PLAN).err();
+    let missing = Ledger::open(&dir, "missing/plan.json".as_ref(), (&owner(), PLAN), &[]).err();
     assert_eq!(missing, Some(Unrecorded::Record));
 }
 
@@ -750,7 +872,7 @@ fn a_ledger_whose_directory_cannot_be_synced_records_nothing() {
     let flags = OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC;
     let dir = rustix::fs::open(&root.path, flags, Mode::empty()).unwrap();
     let plan = std::ffi::OsStr::new("cap-library-docs.json");
-    let refused = Ledger::open(&dir, plan, &owner(), PLAN).err();
+    let refused = Ledger::open(&dir, plan, (&owner(), PLAN), &[]).err();
     // The ledger is created, and holds no Opened: the directory is synced
     // before any record, and nothing is recorded when it is not.
     let kept = std::fs::read_to_string(of(&root.path.join(plan))).unwrap();
@@ -759,7 +881,7 @@ fn a_ledger_whose_directory_cannot_be_synced_records_nothing() {
     assert_eq!(proved(kept.as_bytes()), unclosed);
     // It is still the plan's one lifetime.
     let synced = std::fs::File::open(&root.path).unwrap();
-    let again = Ledger::open(&synced, plan, &owner(), PLAN).err();
+    let again = Ledger::open(&synced, plan, (&owner(), PLAN), &[]).err();
     assert_eq!(again, Some(Unrecorded::Reopened));
 }
 

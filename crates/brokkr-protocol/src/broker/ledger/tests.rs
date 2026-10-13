@@ -75,7 +75,7 @@ fn session(nth: usize, medium: Medium) -> (Vec<Result<(), Unrecorded>>, String, 
     };
     let mut answers = Vec::new();
     at(1);
-    match Ledger::durable(file, &owner(), PLAN) {
+    match Ledger::durable(file, (&owner(), PLAN), &[]) {
         Err(refused) => answers.push(Err(refused)),
         Ok(mut ledger) => {
             at(2);
@@ -143,4 +143,47 @@ fn each_record_is_written_whole_then_synced_before_the_writer_answers() {
             assert_eq!((nth, medium, recovered), (nth, medium, unclosed));
         }
     }
+}
+
+/// `value` bound as `STATE`, from a store on a canonical temporary root.
+fn state(value: &str) -> Vec<crate::secret::BoundSecret> {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dir.path().canonicalize().unwrap().join("secrets.env");
+    crate::secret::store_set(&store, "STATE", value).unwrap();
+    crate::secret::resolve_bindings(&store, &["STATE".to_string()]).unwrap()
+}
+
+/// A ledger opened for the cases' plan with no binding, and every byte it
+/// appends.
+fn appending<'b>() -> (Ledger<'b>, std::rc::Rc<std::cell::RefCell<Vec<u8>>>) {
+    let appended = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = std::rc::Rc::clone(&appended);
+    let append = move |line: &[u8]| {
+        sink.borrow_mut().extend_from_slice(line);
+        Ok(())
+    };
+    let ledger = Ledger::open_with(append, (&owner(), PLAN), &[]).unwrap();
+    (ledger, appended)
+}
+
+#[test]
+fn binding_rereads_the_very_opened_the_ledger_appended() {
+    // Decision 0071 ruling 5: the Opened is derived once, so the line
+    // appended at open is the line binding re-reads, byte for byte. A
+    // binding that is that whole line, newline aside, is found in it, and
+    // refused; the Opened stays as it was written.
+    let owner = concat!(
+        r#"{"repo":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","#,
+        r#""run":"run-1","effect":"effect-1","attempt":"attempt-1","#,
+        r#""site":"research","instance":"research#0"}"#,
+    );
+    let opened = format!(r#"{{"record":"opened","seq":1,"owner":{owner},"plan":"{PLAN}"}}"#);
+    let (whole, unrelated) = (state(&opened), state("unrelated"));
+    let (mut ledger, appended) = appending();
+    assert_eq!(*appended.borrow(), format!("{opened}\n").into_bytes());
+    assert_eq!(ledger.bind(&whole), Err(Unrecorded::Masking));
+    assert_eq!(*appended.borrow(), format!("{opened}\n").into_bytes());
+    // The control: an unrelated binding guards the Opened it re-reads.
+    let (mut ledger, _) = appending();
+    assert_eq!(ledger.bind(&unrelated), Ok(()));
 }

@@ -12,7 +12,7 @@
 
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::broker::ledger::{Disposition, Failure};
+use brokkr_protocol::broker::ledger::{Disposition, Failure, Invalid};
 
 use super::ledger::{failed_with, sealed_ledger, Proved};
 use super::observer::within;
@@ -116,6 +116,29 @@ fn a_running_server_lacking_a_dependency_or_speaking_no_mcp_is_the_protocols_cau
         let protocol = (ended(Failure::Protocol), 1, failed(Failure::Protocol));
         assert_eq!((case, ran), (case, protocol));
     }
+}
+
+#[test]
+fn a_binding_the_startups_closure_would_hold_ends_the_session_masked_and_unclosed() {
+    // The store binds `closed`, and the server speaks no MCP: the ledger
+    // is given the binding as soon as the handoff looks it up, so the
+    // Closed the protocol cause would close with, which holds that word,
+    // is never appended, and `serve` ends with the masking cause (MB4,
+    // CR2; operator ruling 2026-10-13). Only the Opened verifies.
+    let corrupt = "read -r line\necho 'this is no frame'\nread -r line\n";
+    let Some((sealed, digest)) = speaking(corrupt) else {
+        return;
+    };
+    let store = sealed.path("store/secrets.env");
+    std::fs::write(&store, "DOCS_TOKEN=closed\n").unwrap();
+    let reads = Reads::on(store);
+    let answer = sealed.serve(&digest);
+    assert!(within(|| boxed(&sealed).is_empty()));
+    let unclosed = (vec![], None, Some(Invalid::Lifecycle));
+    assert_eq!(
+        (answer, reads.lookups(), sealed_ledger(&sealed)),
+        (ended(Failure::Masking), 1, unclosed)
+    );
 }
 
 #[test]

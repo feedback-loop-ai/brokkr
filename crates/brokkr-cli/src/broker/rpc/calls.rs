@@ -34,21 +34,29 @@
 //! its cause; a record that cannot be made ends it before anything acts on
 //! it.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
+use std::fmt::Display;
 use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::broker::ledger::{Call, Denial, Failure, Ledger, Outcome};
+use brokkr_protocol::broker::ledger::{Call, Denial, Failure, Ledger, Outcome, Unrecorded};
 use brokkr_protocol::broker::Plan;
+use brokkr_protocol::secret::{BoundSecret, Guard};
 use serde::de::IgnoredAny;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::{error, present, shallow, Catalog, Fatal, Heard, Id, Keyed, Line, Lines};
+use super::output::{self, Answered, Edge, Kind, Named};
+use super::{present, shallow, Catalog, Fatal, Fault, Heard, Id, Keyed, Line, Lines};
 use super::{Refused, Reply, Server, Two};
-use super::{PROTOCOL, REQUEST_MAX, RESPONSE, RESPONSE_MAX, TIMEOUT, VERSION};
+use super::{MASKING, PROTOCOL, REQUEST_MAX, RESPONSE, RESPONSE_MAX, TIMEOUT, VERSION};
+use crate::broker::session::stderr::Drain;
 use crate::broker::session::{ensure, polled, timely, Ended, Pace, Startup};
+
+pub(super) use outbox::{Delivery, Outbox};
+
+mod outbox;
 
 /// MB3's bound on one forwarded call.
 const CALL: Duration = Duration::from_secs(120);
@@ -70,6 +78,10 @@ const CLOSING: Duration = Duration::from_secs(1);
 /// that a cancellation behind it is still read, and no unbounded queue.
 const UNTAKEN_FRAMES: usize = 64;
 const UNTAKEN_MAX: usize = RESPONSE_MAX;
+
+/// The longest frame the harness is told: MB3's bound on a response, and
+/// the newline every frame ends with.
+const FRAME_MAX: usize = RESPONSE_MAX + 1;
 
 /// The longest tool name a call carries, in bytes (SC4).
 const TOOL_MAX: usize = 256;
@@ -131,21 +143,6 @@ struct Called {
     _keyed: Keyed,
 }
 
-/// A tools/call result in MCP's shape, as far as the broker reads it: its
-/// content blocks, each an object; its word on whether the tool failed;
-/// and its structured content and metadata, each an object where present.
-#[derive(Deserialize)]
-struct Answered {
-    #[serde(rename = "content")]
-    _content: Vec<Map<String, Value>>,
-    #[serde(rename = "isError", default, deserialize_with = "present")]
-    error: Option<bool>,
-    #[serde(rename = "structuredContent", default, deserialize_with = "present")]
-    _structured: Option<Map<String, Value>>,
-    #[serde(rename = "_meta", default, deserialize_with = "present")]
-    _meta: Option<BTreeMap<String, IgnoredAny>>,
-}
-
 /// A harness request, checked whole.
 enum Request {
     Initialize(Id, String),
@@ -155,6 +152,17 @@ enum Request {
     Cancel(Id),
     Told,
     Other(Id),
+}
+
+impl Request {
+    /// The id the harness would be answered by, none for a notification.
+    fn id(&self) -> Option<&Id> {
+        match self {
+            Request::Initialize(id, _) | Request::Ping(id) | Request::List(id) => Some(id),
+            Request::Call(id, _) | Request::Other(id) => Some(id),
+            Request::Cancel(_) | Request::Told => None,
+        }
+    }
 }
 
 /// The request the harness's frame `bytes` holds, or why it is refused
@@ -218,70 +226,30 @@ fn outcome(result: &Value) -> Option<Outcome> {
     })
 }
 
-/// What became of the harness's output: open; closed by the harness,
-/// which ends the session as its input's end does; or a frame not taken by
-/// its deadline, which ends it with a timeout. Nothing is written after
-/// either, so no frame is ever left unfinished and another begun.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum Delivery {
-    Open,
-    Gone,
-    Stalled,
+/// The server's `reply` prepared for the harness at the output edge
+/// ([`output::prepared`]), and the outcome it says: read before masking,
+/// where a result not in MCP's shape is the server's protocol fault and
+/// never a tool's outcome. Masking never touches what says it.
+pub(super) fn delivered(
+    reply: Reply,
+    bindings: &[BoundSecret],
+) -> Result<(Outcome, Vec<u8>), Fatal> {
+    let outcome = match &reply {
+        Reply::Result(result) => outcome(result).ok_or(PROTOCOL)?,
+        Reply::Error(_) => Outcome::Failed,
+    };
+    let prepared = output::prepared(reply, Kind::Call, bindings)?;
+    Ok((outcome, prepared))
 }
 
-/// What waits for the harness to take it: whole frames in order, each with
-/// the deadline by which it must be taken, and how many bytes of the first
-/// it has taken already.
-#[derive(Default)]
-pub(super) struct Outbox {
-    pub(super) frames: VecDeque<(Vec<u8>, Instant)>,
-    taken: usize,
-}
-
-impl Outbox {
-    /// Whether the harness's next frame may be read: fewer than
-    /// [`UNTAKEN_FRAMES`] frames, and fewer than [`UNTAKEN_MAX`] bytes,
-    /// wait for it.
-    fn room(&self) -> bool {
-        let bytes: usize = self.frames.iter().map(|(line, _)| line.len()).sum();
-        (self.frames.len() < UNTAKEN_FRAMES) & (bytes - self.taken < UNTAKEN_MAX)
-    }
-
-    /// Write as much of what waits to `output` as it takes now, never
-    /// waiting for it, and no frame begun before the one ahead of it is
-    /// whole: stalled, with nothing written, where a frame waiting is past
-    /// its deadline; gone where the output has ended or fails; open
-    /// otherwise.
-    pub(super) fn flushed(&mut self, output: &mut impl Write) -> Delivery {
-        let now = Instant::now();
-        if self.frames.iter().any(|(_, deadline)| now >= *deadline) {
-            return Delivery::Stalled;
-        }
-        while let Some((line, _)) = self.frames.front() {
-            let taken = match output.write(&line[self.taken..]) {
-                Ok(taken) => taken,
-                Err(error) if error.kind() == ErrorKind::WouldBlock => break,
-                Err(_) => return Delivery::Gone,
-            };
-            self.taken += taken;
-            if self.taken < line.len() {
-                break;
-            }
-            self.frames.pop_front();
-            self.taken = 0;
-        }
-        Delivery::Open
-    }
-}
-
-/// A response the harness is answered with: the server's body, as the
-/// answer to the harness's own id.
-#[derive(Serialize)]
-struct Answer<'a> {
-    jsonrpc: &'static str,
-    id: &'a Id,
-    #[serde(flatten)]
-    reply: &'a Reply,
+/// The broker's own JSON-RPC error: `code`, and `message`'s words.
+fn fault(code: i64, message: &dyn Display) -> Reply {
+    Reply::Error(Fault {
+        code,
+        message: message.to_string(),
+        data: None,
+        _keyed: Keyed {},
+    })
 }
 
 /// The one forwarded call: its acceptance, the harness's id for it and the
@@ -294,15 +262,20 @@ struct Active {
     cancelled: bool,
 }
 
-/// A session beside its server: the plan, its catalog, its ledger, the
-/// harness's output, what waits for it there, since when that has been
-/// at its bound, and what became of it, the attempt's deadline and
-/// cancellation, the bound on one call, and the one forwarded call.
-struct Session<'s, 'l, W> {
+/// A session beside its server: the plan, its catalog prepared at the
+/// output edge, the bound secrets every output is masked by and their final
+/// guard, the server's drained standard error, its ledger, the harness's
+/// output, what waits for it there, since when that has been at its bound,
+/// and what became of it, the attempt's deadline and cancellation, the
+/// bound on one call, and the one forwarded call.
+struct Session<'s, 'l, 'g, W, E> {
     plan: &'s Plan,
-    catalog: &'s Catalog,
+    catalog: Vec<u8>,
+    bindings: &'s [BoundSecret],
+    guard: Guard<'s>,
+    stderr: Drain<'s, E>,
     server: Server<'l>,
-    ledger: &'s mut Ledger,
+    ledger: &'s mut Ledger<'g>,
     output: W,
     outbox: Outbox,
     full: Option<Instant>,
@@ -322,36 +295,55 @@ struct Session<'s, 'l, W> {
 /// ended the session, within [`CLOSING`] and no longer, that cause staying
 /// the first; where none did, a frame not taken in time ends the session
 /// with the timeout cause. A call still active when the harness ends stays
-/// begun, which recovery reads as interrupted.
+/// begun, which recovery reads as interrupted. Everything the session says
+/// reaches the harness only through the output edge, masked by the `edge`'s
+/// bindings and guarded whole: the catalog before the harness's first frame
+/// is read, and each response before its Terminal is recorded. Those
+/// bindings guard the ledger first ([`Ledger::bind`]). The server's
+/// standard error is drained every turn, and its masked tail written to the
+/// edge's diagnostics once the session ends, line by guarded line.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "consumed when U6f removes the serving refusal")
 )]
-pub(in crate::broker) fn served(
+pub(in crate::broker) fn served<'b>(
     started: (Server<'_>, Catalog),
     plan: &Plan,
-    ledger: &mut Ledger,
+    ledger: &mut Ledger<'b>,
     harness: (impl Read + AsFd, impl Write + AsFd),
     attempt: Startup<'_>,
+    edge: Edge<'b, impl Read + AsFd, impl Write>,
 ) -> Result<(), Ended> {
-    served_within(CALL, started, plan, ledger, harness, attempt)
+    served_within(CALL, started, plan, ledger, harness, attempt, edge)
 }
 
 /// [`served`], each forwarded call bound by `call`, which only tests make
 /// shorter than MB3's.
-pub(super) fn served_within(
+pub(super) fn served_within<'b>(
     call: Duration,
     (server, catalog): (Server<'_>, Catalog),
     plan: &Plan,
-    ledger: &mut Ledger,
+    ledger: &mut Ledger<'b>,
     (input, output): (impl Read + AsFd, impl Write + AsFd),
     attempt: Startup<'_>,
+    edge: Edge<'b, impl Read + AsFd, impl Write>,
 ) -> Result<(), Ended> {
+    ledger.bind(edge.bindings)?;
     let mut harness = Lines::new(input).ok_or(Ended::Failed(PROTOCOL))?;
     rustix::io::ioctl_fionbio(output.as_fd(), true).or(Err(Ended::Failed(PROTOCOL)))?;
+    let stderr = Drain::new(edge.stderr, edge.bindings).ok_or(Ended::Failed(PROTOCOL))?;
+    let guard = Guard::new(edge.bindings);
+    let listing = Reply::Result(json!({"tools": catalog.0}));
+    let listing = output::prepared(listing, Kind::Listing, edge.bindings).and_then(|listing| {
+        let passed = guard.json_within(&listing, output::watched(attempt))?;
+        ensure(passed, MASKING).map(|()| listing)
+    });
     let mut session = Session {
         plan,
-        catalog: &catalog,
+        catalog: listing.map_err(Ended::Failed)?,
+        bindings: edge.bindings,
+        guard,
+        stderr,
         server,
         ledger,
         output,
@@ -362,23 +354,29 @@ pub(super) fn served_within(
         call,
         active: None,
     };
-    match session.serving(&mut harness) {
+    let ended = match session.serving(&mut harness) {
         Ok(()) => session.drained(attempt.0),
         Err(ended) => {
             session.drained(Instant::now() + CLOSING).ok();
             Err(ended)
         }
+    };
+    let mut diagnostics = edge.diagnostics;
+    for line in session.stderr.tail() {
+        diagnostics.write_all(line.as_bytes()).ok();
     }
+    ended
 }
 
-impl<'s, W: Write + AsFd> Session<'s, '_, W> {
+impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     /// Serve the frames `harness` sends until it ends its input or its
     /// output, or a cause ends the session first: its next frame read only
     /// while what waits for the harness has room, and only while the
-    /// ledger has room or a call is active; then the server heard, and what
-    /// waits for the harness written as far as it takes it, every turn. A
-    /// turn waits ([`Pace`]) only where nothing moved: no byte read from
-    /// the harness or the server, and none written to either.
+    /// ledger has room or a call is active; then the server heard, its
+    /// standard error drained, and what waits for the harness written as
+    /// far as it takes it, every turn. A turn waits ([`Pace`]) only where
+    /// nothing moved: no byte read from the harness or the server, and none
+    /// written to either.
     fn serving(&mut self, harness: &mut Lines<impl Read + AsFd>) -> Result<(), Ended> {
         let mut pace = Pace::new();
         while self.going()? {
@@ -390,17 +388,15 @@ impl<'s, W: Write + AsFd> Session<'s, '_, W> {
             };
             let quiet = match asked {
                 Line::Frame(frame) => self.requested(&frame).map(|()| false)?,
-                Line::Over => {
-                    self.refuse(None, &Refused::Limit);
-                    false
-                }
+                Line::Over => self.refuse(None, &Refused::Limit).map(|()| false)?,
                 Line::Quiet => true,
                 Line::Partial => false,
                 Line::Ended => return Ok(()),
             };
             let heard = self.heard()?;
+            let spoke = self.stderr.drained();
             let told = self.flush();
-            pace.after(!(heard & quiet) | told);
+            pace.after(!(heard & quiet) | spoke | told);
         }
         Ok(())
     }
@@ -447,16 +443,29 @@ impl<'s, W: Write + AsFd> Session<'s, '_, W> {
         deadline.min(self.attempt.0)
     }
 
-    /// Tell the harness `message` as one frame by [`Session::bound`].
-    fn tell(&mut self, message: &Value) {
-        let mut line = serde_json::to_vec(message).unwrap_or_default();
-        line.push(b'\n');
-        self.write(line, self.bound());
+    /// Tell the harness's request `id` the broker's own `reply` as one
+    /// frame by `deadline`, prepared and guarded at the output edge like
+    /// any other ([`output::framed`]); or nothing, and why.
+    fn told(&mut self, id: Option<&Id>, reply: Reply, deadline: Instant) -> Result<(), Fatal> {
+        let body = output::prepared(reply, Kind::Local, self.bindings)?;
+        let watch = output::watched((deadline, self.attempt.1));
+        let line = output::framed(id, &body, &self.guard, watch)?;
+        self.write(line, deadline);
+        Ok(())
     }
 
-    /// Queue `line` for the harness, to be taken whole by `deadline`, after
-    /// every frame queued before it; then write what it takes now, which is
-    /// nothing once its output is closed or stalled ([`Session::flush`]).
+    /// Tell the harness's request `id` `reply` by [`Session::bound`]; or,
+    /// where the edge refuses that frame, nothing, and end the session
+    /// with its cause.
+    fn tell(&mut self, id: Option<&Id>, reply: Reply) -> Result<(), Ended> {
+        let told = self.told(id, reply, self.bound());
+        told.or_else(|fatal| self.failed(fatal))
+    }
+
+    /// Queue the guarded frame `line` for the harness, its newline
+    /// included, to be taken whole by `deadline`, after every frame queued
+    /// before it; then write what it takes now, which is nothing once its
+    /// output is closed or stalled ([`Session::flush`]).
     fn write(&mut self, line: Vec<u8>, deadline: Instant) {
         self.outbox.frames.push_back((line, deadline));
         self.flush();
@@ -495,62 +504,71 @@ impl<'s, W: Write + AsFd> Session<'s, '_, W> {
     }
 
     /// Refuse the harness's request `id` with `refused`'s own words.
-    fn refuse(&mut self, id: Option<&Id>, refused: &Refused) {
-        self.tell(&error(id, refused.code(), refused));
+    fn refuse(&mut self, id: Option<&Id>, refused: &Refused) -> Result<(), Ended> {
+        self.tell(id, fault(refused.code(), refused))
     }
 
-    /// Take the harness's frame `bytes`: answered here, accepted as a
-    /// call, a cancellation passed on, taken as a notification, or
-    /// refused before anything is recorded.
+    /// Take the harness's frame `bytes`: its id first found safe to answer
+    /// by ([`output::correlated`]), before anything is forwarded, recorded
+    /// or answered, or the session ended with the masking cause and nothing
+    /// made of the frame; then answered here, accepted as a call, a
+    /// cancellation passed on, taken as a notification, or refused before
+    /// anything is recorded.
     fn requested(&mut self, bytes: &[u8]) -> Result<(), Ended> {
-        let request = match decoded(bytes) {
+        let request = decoded(bytes);
+        let id = match &request {
+            Ok(request) => request.id(),
+            Err((id, _)) => id.as_ref(),
+        };
+        let unsafe_id = id.map(|id| output::correlated(id, &self.guard));
+        if let Some(Err(fatal)) = unsafe_id {
+            return self.failed(fatal);
+        }
+        let request = match request {
             Ok(request) => request,
-            Err((id, refused)) => {
-                self.refuse(id.as_ref(), &refused);
-                return Ok(());
-            }
+            Err((id, refused)) => return self.refuse(id.as_ref(), &refused),
         };
         match request {
             Request::Initialize(id, version) if version == VERSION => self.greet(&id),
             Request::Initialize(id, _) => self.refuse(Some(&id), &Refused::Version),
-            Request::Ping(id) => self.tell(&json!({"jsonrpc": "2.0", "id": id, "result": {}})),
-            Request::List(id) => return self.listing(&id),
-            Request::Call(id, called) => return self.call(id, called),
-            Request::Cancel(id) => self.cancel(&id),
-            Request::Told => {}
+            Request::Ping(id) => self.tell(Some(&id), Reply::Result(json!({}))),
+            Request::List(id) => self.listing(&id),
+            Request::Call(id, called) => self.call(id, called),
+            Request::Cancel(id) => {
+                self.cancel(&id);
+                Ok(())
+            }
+            Request::Told => Ok(()),
             Request::Other(id) => self.refuse(Some(&id), &Refused::Method),
         }
-        Ok(())
     }
 
     /// Answer the harness's initialize `id` as the plan's server, at MB3's
     /// version and the dialect's pinned one, offering tools alone.
-    fn greet(&mut self, id: &Id) {
+    fn greet(&mut self, id: &Id) -> Result<(), Ended> {
         let server = json!({"name": self.plan.server, "version": self.plan.dialect.version});
         let tools = json!({"tools": {}});
         let result =
             json!({"protocolVersion": VERSION, "capabilities": tools, "serverInfo": server});
-        self.tell(&json!({"jsonrpc": "2.0", "id": id, "result": result}));
+        self.tell(Some(id), Reply::Result(result))
     }
 
     /// Answer the harness's listing `id` with the filtered catalog, the
     /// same whatever the server has since said of its tools; or, where
     /// that answer with its id would pass MB3's bound on a response, tell
-    /// it so, never a truncated listing, and end the session.
+    /// it so, never a truncated listing, and end the session; or, where
+    /// the edge refuses the frame, end it with that cause.
     fn listing(&mut self, id: &Id) -> Result<(), Ended> {
-        let named = serde_json::to_vec(id).unwrap_or_default();
-        let head = [
-            &b"{\"jsonrpc\":\"2.0\",\"id\":"[..],
-            &named,
-            b",\"result\":",
-        ]
-        .concat();
-        let line = [&head[..], &self.catalog.0, b"}"].concat();
-        if line.len() > RESPONSE_MAX {
-            self.tell(&error(Some(id), INTERNAL, &RESPONSE));
+        let watch = output::watched((self.bound(), self.attempt.1));
+        let line = match output::framed(Some(id), &self.catalog, &self.guard, watch) {
+            Ok(line) => line,
+            Err(fatal) => return self.failed(fatal),
+        };
+        if line.len() > FRAME_MAX {
+            self.tell(Some(id), fault(INTERNAL, &RESPONSE))?;
             return self.failed(RESPONSE);
         }
-        self.write([&line[..], b"\n"].concat(), self.bound());
+        self.write(line, self.bound());
         Ok(())
     }
 
@@ -559,17 +577,32 @@ impl<'s, W: Write + AsFd> Session<'s, '_, W> {
     /// call is active, with its refused Terminal recorded; otherwise
     /// forwarded. A call that cannot be recorded is neither refused nor
     /// forwarded, and ends the session; one made at the ledger's call
-    /// bound ends it with the ledger's limit, failing the active call.
+    /// bound ends it with the ledger's limit, failing the active call. A
+    /// tool name holding a bound secret is never recorded, refused by or
+    /// forwarded as itself ([`output::named`]): the call is recorded under
+    /// its masked name alone, refused as the ungranted tool it is, and the
+    /// session ends with the masking cause.
     fn call(&mut self, id: Id, called: Called) -> Result<(), Ended> {
-        let begun = self.ledger.room().map(|room| room.begin(&called.name));
+        let (recorded, masked) = match output::named(&called.name, self.bindings, &self.guard) {
+            Named::Safe => (called.name.clone(), false),
+            Named::Masked(name) => (name, true),
+        };
+        let begun = self.ledger.room().map(|room| room.begin(&recorded));
         let call = match begun {
             Ok(Ok(call)) => call,
             Ok(Err(unrecorded)) => {
-                self.tell(&error(Some(&id), INTERNAL, &unrecorded));
-                return Err(Ended::Unrecorded(unrecorded));
+                self.told(Some(&id), fault(INTERNAL, &unrecorded), self.bound())
+                    .ok();
+                return Err(unrecorded.into());
             }
             Err(_) => return self.failed(LIMIT),
         };
+        if masked {
+            self.ended(call, Outcome::Refused(Denial::Ungranted), &id)?;
+            self.told(Some(&id), fault(INTERNAL, &MASKING), self.bound())
+                .ok();
+            return self.failed(MASKING);
+        }
         let granted = self.plan.tools.contains(&called.name);
         let denied = match (granted, self.active.is_some()) {
             (false, _) => Some((
@@ -587,8 +620,7 @@ impl<'s, W: Write + AsFd> Session<'s, '_, W> {
             return Ok(());
         };
         self.ended(call, Outcome::Refused(denial), &id)?;
-        self.refuse(Some(&id), &refused);
-        Ok(())
+        self.refuse(Some(&id), &refused)
     }
 
     /// Forward the accepted `call` of `called` to the server under its own
@@ -650,71 +682,74 @@ impl<'s, W: Write + AsFd> Session<'s, '_, W> {
     }
 
     /// The server's response `reply` to the request `id`: the active
-    /// call's, its Terminal recorded first, then delivered as the answer to
-    /// the harness's own id within the call's own deadline unless the
-    /// harness cancelled the call. A response to anything else, a result
-    /// not in MCP's shape, or an answer that would pass MB3's bound on a
-    /// response ends the session, failing the call, and nothing of it is
-    /// delivered.
+    /// call's, its id first found safe to correlate by, and the reply
+    /// prepared at the output edge ([`delivered`]); its Terminal recorded,
+    /// then the prepared bytes delivered as the answer to the harness's own
+    /// id within the call's own deadline unless the harness cancelled the
+    /// call. An id of either side holding a bound secret, a response to
+    /// anything else, a reply the edge refuses or an answer that would pass
+    /// MB3's bound on a response ends the session, failing the call before
+    /// its Terminal is recorded, and nothing of it is delivered.
     fn answered(&mut self, id: Id, reply: Reply) -> Result<(), Ended> {
         let bound = self.bound();
+        let watch = output::watched((bound, self.attempt.1));
+        output::correlated(&id, &self.guard).or_else(|fatal| self.failed(fatal))?;
         let Some(active) = self.active.take_if(|active| active.asked == id) else {
             return self.failed(PROTOCOL);
         };
-        let outcome = match &reply {
-            Reply::Result(result) => outcome(result),
-            Reply::Error(_) => Some(Outcome::Failed),
-        };
-        let answer = Answer {
-            jsonrpc: "2.0",
-            id: &active.id,
-            reply: &reply,
-        };
-        let mut line = serde_json::to_vec(&answer).unwrap_or_default();
-        let fatal = match (outcome, line.len() > RESPONSE_MAX) {
-            (Some(outcome), false) => {
-                self.ended(active.call, outcome, &active.id)?;
-                line.push(b'\n');
-                if !active.cancelled {
-                    self.write(line, bound);
-                }
-                return Ok(());
+        let answer = delivered(reply, self.bindings).and_then(|(outcome, body)| {
+            let line = output::framed(Some(&active.id), &body, &self.guard, watch)?;
+            ensure(line.len() <= FRAME_MAX, RESPONSE).map(|()| (outcome, line))
+        });
+        let (outcome, line) = match answer {
+            Ok(answer) => answer,
+            Err(fatal) => {
+                self.active = Some(active);
+                return self.failed(fatal);
             }
-            (None, _) => PROTOCOL,
-            (Some(_), true) => RESPONSE,
         };
-        self.active = Some(active);
-        self.failed(fatal)
+        self.ended(active.call, outcome, &active.id)?;
+        if !active.cancelled {
+            self.write(line, bound);
+        }
+        Ok(())
     }
 
     /// `call`'s Terminal recorded with `outcome`; or the harness told its
     /// request `id` could not be, nothing else delivered, and the session
-    /// ended.
+    /// ended ([`Ended::from`]).
     fn ended(&mut self, call: Call, outcome: Outcome, id: &Id) -> Result<(), Ended> {
         let recorded = self.ledger.end(call, outcome);
         recorded.map_err(|unrecorded| {
-            self.tell(&error(Some(id), INTERNAL, &unrecorded));
-            Ended::Unrecorded(unrecorded)
+            self.told(Some(id), fault(INTERNAL, &unrecorded), self.bound())
+                .ok();
+            Ended::from(unrecorded)
         })
     }
 
     /// End the session with `fatal`, which stays its first cause: the
     /// active call, if any, failed and its Terminal recorded, and the
     /// harness, unless it cancelled the call, told why; or, where that
-    /// Terminal could not be recorded, told so instead. That last frame
-    /// has [`CLOSING`] to be taken, and no longer.
+    /// Terminal could not be recorded, told so instead, and where the
+    /// ledger's guard refused it, the session ended with the masking cause.
+    /// That last frame has [`CLOSING`] to be taken, and no longer, and is
+    /// never made where the edge refuses it ([`output::framed`]).
     fn failed<T>(&mut self, fatal: Fatal) -> Result<T, Ended> {
+        let mut ended = Ended::Failed(fatal);
         if let Some(active) = self.active.take() {
             let told = match self.ledger.end(active.call, Outcome::Failed) {
-                Ok(()) => error(Some(&active.id), INTERNAL, &fatal),
-                Err(unrecorded) => error(Some(&active.id), INTERNAL, &unrecorded),
+                Ok(()) => fault(INTERNAL, &ended),
+                Err(Unrecorded::Masking) => {
+                    ended = Unrecorded::Masking.into();
+                    fault(INTERNAL, &ended)
+                }
+                Err(unrecorded) => fault(INTERNAL, &unrecorded),
             };
-            let mut line = serde_json::to_vec(&told).unwrap_or_default();
-            line.push(b'\n');
             if !active.cancelled {
-                self.write(line, Instant::now() + CLOSING);
+                self.told(Some(&active.id), told, Instant::now() + CLOSING)
+                    .ok();
             }
         }
-        Err(Ended::Failed(fatal))
+        Err(ended)
     }
 }

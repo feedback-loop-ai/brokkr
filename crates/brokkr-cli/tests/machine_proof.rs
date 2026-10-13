@@ -3140,10 +3140,9 @@ mod journal_invariant {
 
 #[test]
 fn expose_for_spawn_has_exactly_one_production_call_site() {
-    // Layer 4's single-egress property, enforced by grep as decision
-    // 0012 prescribes: the plaintext accessor is CALLED exactly once in
-    // all production code, secret.rs included — inside the one spawn
-    // injector every harness shares. Its definition is not a call.
+    // Layer 4's single-egress property, enforced by grep as decision 0012 prescribes: the
+    // plaintext accessor is CALLED exactly once in all production code, secret.rs included —
+    // inside the one spawn injector every harness shares. Its definition is not a call.
     let injector = PathBuf::from("brokkr-protocol/src/secret.rs");
     let calls = egress::production_calls(&["expose_for", "_spawn("].concat());
     assert_eq!(calls, [(injector, "bind_environment".to_string())]);
@@ -3449,3 +3448,4 @@ fn brokkr_tui_is_a_listed_read_verb_that_refuses_a_pipe_and_writes_nothing() {
 }
 
 mod egress;
+mod output_edge;
