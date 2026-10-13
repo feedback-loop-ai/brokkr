@@ -103,6 +103,14 @@ fn git(root: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?}");
 }
 
+/// Commit what `root`'s index holds, so a tracked `.forge/` entry is
+/// clean and the moves list it (round 634k's third finding).
+fn commit(root: &Path) {
+    let author = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"];
+    let commit = ["-c", "commit.gpgsign=false", "commit", "-q", "-m", "x"];
+    git(root, &[&author[..], &commit[..]].concat());
+}
+
 /// Each `.forge/` entry moves: a journal with its `-wal` and `-shm`, a
 /// log whose journal is gone on its own, a tracked entry by `git mv`, and
 /// the ignore file out by `git rm` when git tracks it, else by `rm` and
@@ -125,6 +133,7 @@ fn the_state_moves_cover_every_entry() {
     }
     std::fs::write(root.join(".forge/notes.md"), "").unwrap();
     git(root, &["add", ".forge/notes.md"]);
+    commit(root);
     assert_eq!(
         state_moves(root).unwrap(),
         [
@@ -143,6 +152,7 @@ fn the_state_moves_cover_every_entry() {
     let untracked = state_moves(root).unwrap();
     assert_eq!(untracked[7..9], ["rm .forge/.gitignore", "rmdir .forge"]);
     git(root, &["add", "-f", ".forge/.gitignore"]);
+    commit(root);
     assert_eq!(state_moves(root).unwrap()[7], "git rm .forge/.gitignore");
 }
 
@@ -171,6 +181,7 @@ fn a_journal_moves_whole_whatever_its_name_and_tracking() {
         std::fs::write(root.join(".forge").join(name), "").unwrap();
     }
     git(root, &["add", ".forge/forge.db"]);
+    commit(root);
     assert_eq!(
         state_moves(root).unwrap()[1..6],
         [
@@ -185,9 +196,10 @@ fn a_journal_moves_whole_whatever_its_name_and_tracking() {
 
 /// A `.forge/` entry whose name is not UTF-8 refuses by name, with no
 /// moves, never listed under a name no shell could reach (round 634i's
-/// second finding); and git's tracked names are matched by their bytes,
-/// so an untracked name holding U+FFFD is never taken for a tracked one
-/// that is not UTF-8.
+/// second finding). Once git tracks it, an untracked name holding U+FFFD
+/// in its place is never taken for it: the tracked one gone from the work
+/// tree is a change git holds, and the moves are refused, naming it as
+/// the refusal can (round 634k's third finding).
 #[test]
 fn a_name_that_is_not_utf8_refuses_and_tracking_matches_bytes() {
     use std::os::unix::ffi::OsStrExt;
@@ -212,11 +224,14 @@ fn a_name_that_is_not_utf8_refuses_and_tracking_matches_bytes() {
     );
 
     git(root, &["add", ".forge"]);
+    commit(root);
     std::fs::remove_file(&odd).unwrap();
     std::fs::write(root.join(".forge/journal-\u{FFFD}.db"), "journal").unwrap();
+    let refusal = refused(root);
+    assert!(matches!(refusal, FolderError::Uncommitted { ref changes, .. } if changes.len() == 1));
     assert_eq!(
-        state_moves(root).unwrap()[1],
-        "mv '.forge/journal-\u{FFFD}.db' '.brokkr/state/journal-\u{FFFD}.db'"
+        refusal.to_string().lines().last(),
+        Some("   D .forge/journal-\u{FFFD}.db")
     );
 }
 
@@ -402,25 +417,127 @@ fn a_forge_that_is_a_file_refuses() {
     }
 }
 
-/// A linked `.forge` whose ignore file git tracks is still removed as the
-/// link it is, after `git rm` (round 634c's fifth finding).
+/// A linked `.forge` whose ignore file git tracks refuses by name, with no
+/// moves: git refuses `git rm` beyond a symbolic link, so the list it
+/// once gave here never completed (round 634k's third finding; round
+/// 634c's fifth finding listed it).
 #[test]
-fn a_linked_forge_with_a_tracked_ignore_file_is_removed_as_a_link() {
+fn a_linked_forge_whose_entries_git_tracks_refuses() {
     let dir = repository_with_a_forge();
-    let root = dir.path();
+    let root = &dir.path().canonicalize().unwrap();
     std::fs::write(root.join(".forge/.gitignore"), "*\n").unwrap();
     git(root, &["add", "-f", ".forge/.gitignore"]);
+    commit(root);
     std::fs::rename(root.join(".forge"), root.join("elsewhere")).unwrap();
     std::os::unix::fs::symlink(root.join("elsewhere"), root.join(".forge")).unwrap();
+    let refusal = refused(root);
+    let forge = root.join(".forge");
+    assert!(matches!(refusal, FolderError::LinkedTracked { ref path } if *path == forge));
     assert_eq!(
-        state_moves(root).unwrap(),
+        refusal.to_string(),
+        format!(
+            "{} is a link and git tracks entries under it, which `git mv` and `git rm` refuse to \
+             take beyond a symbolic link, so no moves are listed (decision 0083); nothing was \
+             opened: put the directory it names in its place, or untrack its entries, then run \
+             again",
+            forge.display()
+        )
+    );
+}
+
+/// Each record of `git status --porcelain=v1 -z` is read typed: two
+/// state letters git documents for a tracked path, a space and a path, a
+/// rename's origin after it. Anything else refuses with its bytes, never
+/// skipped (round 634k's third finding).
+#[test]
+fn a_status_record_this_cannot_read_refuses() {
+    let root = Path::new("/r");
+    let read = |status: &[u8]| super::changes(root, status);
+    let status = b"A  .forge/a\0 M .forge/b c\0R  .forge/d\0.forge/e\0MM .forge/\xff\n\0";
+    let listed = read(status).unwrap();
+    let lines: Vec<String> = listed.iter().map(ToString::to_string).collect();
+    assert_eq!(
+        lines,
         [
-            "mkdir -p .brokkr/state",
-            "git rm .forge/.gitignore",
-            "# .forge is a link: rm removes the link, and the directory it names stays",
-            "rm .forge",
-            "printf 'state/\\n' > .brokkr/.gitignore",
+            "A  .forge/a",
+            " M .forge/b c",
+            "R  .forge/d",
+            "MM .forge/\u{FFFD}\\n"
         ]
+    );
+    assert_eq!(read(b"").unwrap(), []);
+    for (status, record) in [
+        (&b"?? .forge/x\0"[..], "?? .forge/x"),
+        (b"A? .forge/x\0", "A? .forge/x"),
+        (b"AM.forge/x\0", "AM.forge/x"),
+        (b"A  \0", "A  "),
+        (b"A\0", "A"),
+        (b"R  .forge/d\0", "R  .forge/d"),
+        (b"\xff\n .forge/x\0", "\u{FFFD}\\n .forge/x"),
+    ] {
+        let refusal = read(status).unwrap_err();
+        let said = format!("it printed a record this cannot read: '{record}'");
+        assert!(
+            matches!(refusal, FolderError::Untracked { verb: "status", ref said, .. } if said.contains("cannot read")),
+            "{record}"
+        );
+        assert_eq!(
+            refusal.to_string(),
+            format!(
+                "git status in /r failed, so the moves cannot tell what git tracks (decision \
+                 0083); nothing was opened: {said}"
+            ),
+            "{record}"
+        );
+    }
+}
+
+/// A repository git lists but cannot state, its HEAD naming a commit it
+/// does not hold, refuses as one git will not list does. A git that
+/// states such a repository after all skips the case.
+#[test]
+fn a_repository_git_cannot_state_refuses_the_moves() {
+    let dir = repository_with_a_forge();
+    let root = &dir.path().canonicalize().unwrap();
+    std::fs::write(root.join(".forge/notes.md"), "").unwrap();
+    git(root, &["add", ".forge/notes.md"]);
+    commit(root);
+    let head = std::fs::read_to_string(root.join(".git/HEAD")).unwrap();
+    let branch = head.trim().strip_prefix("ref: ").unwrap();
+    std::fs::write(
+        root.join(".git").join(branch),
+        format!("{}\n", "1".repeat(40)),
+    )
+    .unwrap();
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=no",
+            "--",
+            ".forge",
+        ])
+        .output()
+        .unwrap();
+    if out.status.success() {
+        eprintln!("skipped: this git states a repository whose HEAD it does not hold");
+        return;
+    }
+    let said = String::from_utf8_lossy(&out.stderr).trim_end().to_string();
+    let refusal = refused(root);
+    assert!(
+        matches!(refusal, FolderError::Untracked { verb: "status", root: ref at, said: ref git } if at == root && *git == said)
+    );
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "git status in {} failed, so the moves cannot tell what git tracks (decision 0083); \
+             nothing was opened: {said}",
+            root.display()
+        )
     );
 }
 
@@ -442,7 +559,7 @@ fn a_repository_git_cannot_list_refuses_the_moves() {
     assert!(!out.status.success() && !said.is_empty(), "{out:?}");
     let refusal = refused(root);
     assert!(
-        matches!(refusal, FolderError::Untracked { root: ref at, said: ref git } if at == root && *git == said)
+        matches!(refusal, FolderError::Untracked { verb: "ls-files", root: ref at, said: ref git } if at == root && *git == said)
     );
     assert_eq!(
         refusal.to_string(),

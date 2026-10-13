@@ -63,6 +63,9 @@ pub brokkr_runtime::admission::Difference::GrantAdded(alloc::string::String)
 pub brokkr_runtime::admission::Difference::GrantChanged(alloc::string::String)
 pub brokkr_runtime::admission::Difference::GrantRemoved(alloc::string::String)
 pub brokkr_runtime::admission::Difference::House
+pub brokkr_runtime::admission::Difference::Map
+pub brokkr_runtime::admission::Difference::Map::now: core::option::Option<alloc::string::String>
+pub brokkr_runtime::admission::Difference::Map::was: alloc::string::String
 pub brokkr_runtime::admission::Difference::Realm
 pub brokkr_runtime::admission::Difference::Realm::now: core::option::Option<alloc::string::String>
 pub brokkr_runtime::admission::Difference::Realm::was: core::option::Option<alloc::string::String>

@@ -373,28 +373,88 @@ fn the_run_local_directory_is_the_state_handed_else_the_workdirs_forge() {
     assert_eq!(run_local(Some(state), workdir), state);
 }
 
+/// A repository root holding the folder, canonical, and the directory
+/// that keeps it.
+fn folder_root() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::create_dir(root.join(".brokkr")).unwrap();
+    (dir, root)
+}
+
 /// Only a folder bundle skips its top-level `state/`; every other bundle
-/// pins it, as before decision 0083.
+/// pins it, as before decision 0083. A `.brokkr` is the folder by the
+/// layout's judgement and never by its name (round 634k's second
+/// finding): one below the root, a library's recipe, and a library
+/// root's own `.brokkr` each pin their `state/`.
 #[test]
 fn only_a_folder_bundle_skips_its_state() {
-    let (folder, library) = (Path::new("/root/.brokkr"), Path::new("/root/recipes/state"));
-    assert!(unpinned_top_level(folder, "state"));
-    assert!(!unpinned_top_level(library, "state"));
-    assert!(unpinned_top_level(library, "dialects"));
-    assert!(!unpinned_top_level(folder, "roles"));
+    let (_dir, root) = folder_root();
+    let (folder, library) = (root.join(".brokkr"), root.join("recipes/state"));
+    assert!(unpinned_top_level(&folder, "state"));
+    assert!(!unpinned_top_level(&library, "state"));
+    assert!(unpinned_top_level(&library, "dialects"));
+    assert!(!unpinned_top_level(&folder, "roles"));
+    let (nested, recipe) = (root.join("sub/.brokkr"), root.join("recipes/.brokkr"));
+    std::fs::create_dir_all(&nested).unwrap();
+    assert!(!unpinned_top_level(&nested, "state"));
+    plant_library(&root);
+    std::fs::create_dir_all(&recipe).unwrap();
+    assert!(!unpinned_top_level(&recipe, "state"));
+    assert!(!unpinned_top_level(&folder, "state"));
 }
 
 #[test]
 fn only_a_folder_bundle_refuses_a_base() {
-    let refused = refuse_folder_base(Path::new("/root/.brokkr"), "shared").unwrap_err();
+    let (_dir, root) = folder_root();
+    let refused = refuse_folder_base(&root.join(".brokkr"), "shared").unwrap_err();
     assert_eq!(
         refused.to_string(),
-        "bundle: /root/.brokkr/bundle.json extends 'shared' (decision 0083); a bundle in \
-         .brokkr/ composes no base, because its library would be /root: remove extends"
+        format!(
+            "bundle: {}/.brokkr/bundle.json extends 'shared' (decision 0083); a bundle in \
+             .brokkr/ composes no base, because its library would be {}: remove extends",
+            root.display(),
+            root.display()
+        )
     );
     assert!(matches!(refused, crate::CompileError::Invalid(_)));
     assert_eq!(
-        refuse_folder_base(Path::new("/root/recipes/x"), "shared").ok(),
+        refuse_folder_base(&root.join("recipes/x"), "shared").ok(),
         Some(())
     );
+    plant_library(&root);
+    assert_eq!(
+        refuse_folder_base(&root.join(".brokkr"), "shared").ok(),
+        Some(())
+    );
+}
+
+/// A layer whose layout cannot be read composes no base, refused by name,
+/// and pins its `state/`. A process that reads a mode-000 directory, as
+/// root does, skips the case.
+#[test]
+fn a_folder_bundle_whose_layout_cannot_be_read_refuses_a_base() {
+    let (_dir, root) = folder_root();
+    plant_library(&root);
+    let (recipes, folder) = (root.join("recipes"), root.join(".brokkr"));
+    mode(&recipes, 0o000);
+    let judged = (!reads_anything(&recipes)).then(|| {
+        let refused = refuse_folder_base(&folder, "shared").unwrap_err();
+        (refused, !unpinned_top_level(&folder, "state"))
+    });
+    mode(&recipes, 0o755);
+    let Some((refused, pinned)) = judged else {
+        eprintln!("skipped: this process reads a mode-000 directory, as root does");
+        return;
+    };
+    assert!(matches!(refused, crate::CompileError::Invalid(_)));
+    assert_eq!(
+        refused.to_string(),
+        format!(
+            "bundle: reading {}: Permission denied (os error 13)",
+            recipes.display()
+        )
+    );
+    assert!(pinned);
 }

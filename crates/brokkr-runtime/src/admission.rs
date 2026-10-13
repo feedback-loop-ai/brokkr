@@ -32,7 +32,9 @@
 //! and queuing its launch afresh as a new one, ends it too. An entry queued
 //! under no map is
 //! compared like any other: a map that names its repository now is a
-//! change. A map that cannot be read is no finding, so its hold does not
+//! change. One queued under the map its workspace adopted is compared with
+//! the map its workspace adopts now, so that map moving or going is a
+//! change too. A map that cannot be read is no finding, so its hold does not
 //! latch; it holds for as long as it cannot be read.
 //!
 //! The machine's room for an entry nothing else stops is judged after
@@ -207,6 +209,13 @@ fn found(differences: &[Difference]) -> String {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum Difference {
+    /// The map that governs the entry now is not the file it was queued
+    /// with, as the paths name them: the workspace's default map moved,
+    /// or none stands now (the operator's ruling of 2026-10-04).
+    Map {
+        was: String,
+        now: Option<String>,
+    },
     /// The map names the operated repository as another realm, or none.
     Realm {
         was: Option<String>,
@@ -231,6 +240,9 @@ impl fmt::Display for Difference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let named = |realm: &Option<String>| realm.clone().unwrap_or_else(|| "none".into());
         match self {
+            Difference::Map { was, now } => {
+                write!(f, "the realms map {was} → {}", named(now))
+            }
             Difference::Realm { was, now } => {
                 write!(f, "the repository's realm {} → {}", named(was), named(now))
             }
@@ -710,10 +722,17 @@ fn seen(worlds: HeldAndNow) -> Result<Finding, WorldError> {
     let held = governing(worlds.held.as_ref().map(|held| held.selection()))?;
     let disk = worlds.now?;
     let now = governing(disk.world.as_ref().map(|now| now.selection()))?;
+    let moved = governing::moved(
+        worlds.held.as_ref().map(|held| &held.world),
+        disk.world.as_ref().map(|now| &now.world),
+    );
     Ok(Finding {
         encoding: FindingEncoding::V1,
         realm: held.realm.clone().or(now.realm.clone()).unwrap_or_default(),
-        differences: governing::differences(&held, &now),
+        differences: moved
+            .into_iter()
+            .chain(governing::differences(&held, &now))
+            .collect(),
         on_disk: disk.digest.clone(),
     })
 }

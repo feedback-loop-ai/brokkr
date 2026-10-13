@@ -92,7 +92,8 @@ impl HeldWorld {
         self.world(workspace)?.standing_on(workspace)
     }
 
-    /// The map file the entry's world was read from, as it is on disk now.
+    /// The map file the entry's world was read from, as it is on disk now:
+    /// what a map named outright is read as ([`MapSource::now`]).
     fn on_disk(&self, workspace: &Path) -> Result<World, WorldError> {
         World::load(&self.world(workspace)?.source)
     }
@@ -182,23 +183,29 @@ impl MapSource {
         }
     }
 
-    /// The map that would govern the entry now: the file its world was
-    /// read from, as it is on disk; and for an entry queued under no map,
-    /// the one `brokkr run` would find in its workspace now, or none (the
-    /// operator's ruling of 2026-10-04: no map to a map is a change).
+    /// The map that would govern the entry now. Two arms ask
+    /// [`crate::places::default_map`], the rule `brokkr run` reads too,
+    /// where its workspace's default map stands now: an entry queued under
+    /// no map, and one queued under the map its workspace adopted. Its
+    /// refusal holds the entry, and the map it finds, or none, is the map
+    /// now, so a map that appears, moves or goes is a change admission
+    /// names (the operator's ruling of 2026-10-04), never one an entry is
+    /// admitted past under the map it held. Only an entry queued under a
+    /// map named outright reads that file again, as it is on disk: a named
+    /// map is explicit and is never re-derived.
     ///
     /// Only a map path with nothing at it is no map. A path that holds
     /// anything else, a link that loops or dangles or a directory, is a
     /// map that cannot be read, never one that is absent, so the entry is
-    /// held rather than admitted (#430). The rule is
-    /// [`crate::places::default_map`]'s, which `brokkr run` reads too.
+    /// held rather than admitted (#430).
     fn now(&self, workspace: &Path) -> Result<RunMap, WorldError> {
         Ok(match self {
-            MapSource::Unmapped => match crate::places::default_map(workspace)? {
-                Some(map) => RunMap::Ambient(World::load(&map)?),
-                None => RunMap::Unmapped,
-            },
-            MapSource::Ambient(held) => RunMap::Ambient(held.on_disk(workspace)?),
+            MapSource::Unmapped | MapSource::Ambient(_) => {
+                match crate::places::default_map(workspace)? {
+                    Some(map) => RunMap::Ambient(World::load(&map)?),
+                    None => RunMap::Unmapped,
+                }
+            }
             MapSource::Named(held) => RunMap::Named(held.on_disk(workspace)?),
         })
     }

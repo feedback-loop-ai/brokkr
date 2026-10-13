@@ -60,6 +60,20 @@ fn unplaced(pin: &Value, key: &str) -> Value {
     text
 }
 
+/// The map's own move, where the file the entry's world was read from is
+/// not the one that governs it now, or none does (the operator's ruling
+/// of 2026-10-04: a map moving or going is a change). An entry queued
+/// under no map held no file, and the facts a map that appears brings are
+/// what differ for it.
+pub(super) fn moved(held: Option<&World>, now: Option<&World>) -> Option<Difference> {
+    let was = held?;
+    let same = now.is_some_and(|now| now.source == was.source);
+    (!same).then(|| Difference::Map {
+        was: was.source.display().to_string(),
+        now: now.map(|now| now.source.display().to_string()),
+    })
+}
+
 /// Every governing fact that is not the same, in the order the ruling
 /// names them. Grants compare as whole grants.
 pub(super) fn differences(held: &Governing, now: &Governing) -> Vec<Difference> {

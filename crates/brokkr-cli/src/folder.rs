@@ -39,8 +39,20 @@ pub(crate) enum FolderError {
     /// whose entries no move could take.
     ForgeNotADirectory { path: PathBuf },
     /// A repository whose tracked `.forge/` entries git would not list,
-    /// so no move could say which go by `git mv`.
-    Untracked { root: PathBuf, said: String },
+    /// or whose changes to them git would not state, so no move could say
+    /// which go by `git mv`. `verb` is what git was asked.
+    Untracked {
+        verb: &'static str,
+        root: PathBuf,
+        said: String,
+    },
+    /// Tracked paths under `.forge` whose index or work tree differs from
+    /// the last commit, which `git mv` or `git rm` would refuse or leave
+    /// half-moved, each with its two-letter state.
+    Uncommitted { root: PathBuf, changes: Vec<Change> },
+    /// A `.forge` that is a link, whose entries git tracks: `git mv` and
+    /// `git rm` refuse a path beyond a symbolic link.
+    LinkedTracked { path: PathBuf },
     /// A `.forge/` entry whose name is not UTF-8, which no listed move
     /// could name.
     NotUtf8 { path: PathBuf },
@@ -87,11 +99,33 @@ impl fmt::Display for FolderError {
                 "{} is a file, not Brokkr's state directory: move it aside",
                 path.display()
             ),
-            FolderError::Untracked { root, said } => write!(
+            FolderError::Untracked { verb, root, said } => write!(
                 f,
-                "git ls-files in {} failed, so the moves cannot tell what git tracks (decision \
+                "git {verb} in {} failed, so the moves cannot tell what git tracks (decision \
                  0083); nothing was opened: {said}",
                 root.display()
+            ),
+            FolderError::Uncommitted { root, changes } => {
+                let listed: String = changes
+                    .iter()
+                    .map(|change| format!("\n  {change}"))
+                    .collect();
+                write!(
+                    f,
+                    "{}/{LIBRARY_STATE} holds paths git tracks whose index or work tree differs \
+                     from the last commit, which `git mv` or `git rm` would refuse or leave \
+                     half-moved, so no moves are listed (decision 0083); nothing was opened: \
+                     commit or restore these, then run again{listed}",
+                    root.display()
+                )
+            }
+            FolderError::LinkedTracked { path } => write!(
+                f,
+                "{} is a link and git tracks entries under it, which `git mv` and `git rm` refuse \
+                 to take beyond a symbolic link, so no moves are listed (decision 0083); nothing \
+                 was opened: put the directory it names in its place, or untrack its entries, \
+                 then run again",
+                path.display()
             ),
             FolderError::NotUtf8 { path } => write!(
                 f,
@@ -388,35 +422,77 @@ fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
 /// the link itself goes by `rm`, never `rmdir`, leaving the directory it
 /// names. The compile-derived moves are not listed (the operator's ruling
 /// of 2026-10-13). A `.forge` that is neither, entries that cannot be
-/// listed or named, an ignore entry no `rm` could remove, or a repository
-/// git will not list refuse by name, with no list at all.
+/// listed or named, an ignore entry no `rm` could remove, a repository
+/// git will not list or state, a tracked path git holds a change to, and
+/// a linked `.forge` whose entries git tracks refuse by name, with no list
+/// at all, so every list printed completes when executed (round 634k).
 fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
     let forge = Forge::at(root)?;
-    let (names, tracked) = (forge_entries(root, forge)?, tracked(root)?);
+    let (names, tracked) = (forge_entries(root, forge)?, tracked(root, forge)?);
     let tracks = |name: &str| tracked.iter().any(|known| known == name.as_bytes());
-    let mut moves = vec![format!("mkdir -p {FOLDER}/{STATE}")];
+    let mut moves = vec![Move::Mkdir];
     let bases = names
         .iter()
         .filter(|name| *name != IGNORE && !journal_log(name, &names));
     for name in bases {
         let members = ["", "-wal", "-shm"].map(|suffix| format!("{name}{suffix}"));
-        for member in members.iter().filter(|member| names.contains(member)) {
-            let verb = match tracks(member) {
-                true => "git mv",
-                false => "mv",
-            };
-            let to = word(&format!("{FOLDER}/{STATE}/{member}"));
-            moves.push(format!("{verb} {} {to}", word(&forged(member))));
+        for member in members.into_iter().filter(|member| names.contains(member)) {
+            moves.push(match tracks(&member) {
+                true => Move::GitMv(member),
+                false => Move::Mv(member),
+            });
         }
     }
-    let ignore = forged(IGNORE);
+    // A tracked ignore file is clean in a `.forge` that is a directory
+    // ([`tracked`]), and `git rm` takes the directory it empties with it.
     match (tracks(IGNORE), ignore_stands(root, &names)?) {
-        (true, _) => moves.extend([vec![format!("git rm {ignore}")], forge.unlinked()].concat()),
-        (false, true) => moves.extend([vec![format!("rm {ignore}")], forge.removal()].concat()),
+        (true, _) => moves.push(Move::GitRm),
+        (false, true) => moves.extend([Move::Rm].into_iter().chain(forge.removal())),
         (false, false) => moves.extend(forge.removal()),
     }
-    moves.push(format!("printf '{STATE}/\\n' > {FOLDER}/{IGNORE}"));
-    Ok(moves)
+    moves.push(Move::Printf);
+    Ok(moves.iter().flat_map(Move::lines).collect())
+}
+
+/// Each arm the state moves' list has, by the line it lists:
+/// `brokkr_folder::the_listed_moves_empty_every_forge` reads this enum
+/// and executes a shape that reaches every arm (round 634k).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Move {
+    Mkdir,
+    GitMv(String),
+    Mv(String),
+    GitRm,
+    Rm,
+    Rmdir,
+    Unlink,
+    Printf,
+}
+
+impl Move {
+    /// The lines this move lists, each one shell command or a note.
+    fn lines(&self) -> Vec<String> {
+        let moved = |verb: &str, member: &str| {
+            let to = word(&format!("{FOLDER}/{STATE}/{member}"));
+            format!("{verb} {} {to}", word(&forged(member)))
+        };
+        match self {
+            Move::Mkdir => vec![format!("mkdir -p {FOLDER}/{STATE}")],
+            Move::GitMv(member) => vec![moved("git mv", member)],
+            Move::Mv(member) => vec![moved("mv", member)],
+            Move::GitRm => vec![format!("git rm {}", forged(IGNORE))],
+            Move::Rm => vec![format!("rm {}", forged(IGNORE))],
+            Move::Rmdir => vec![format!("rmdir {LIBRARY_STATE}")],
+            Move::Unlink => vec![
+                format!(
+                    "# {LIBRARY_STATE} is a link: rm removes the link, and the directory it \
+                     names stays"
+                ),
+                format!("rm {LIBRARY_STATE}"),
+            ],
+            Move::Printf => vec![format!("printf '{STATE}/\\n' > {FOLDER}/{IGNORE}")],
+        }
+    }
 }
 
 /// The old layout's ignore file, and the folder's.
@@ -463,26 +539,11 @@ impl Forge {
     /// The emptied `.forge`'s removal: nothing where none stands, `rmdir`,
     /// or for a link, a note that the link goes and the directory it names
     /// stays, then `rm`.
-    fn removal(self) -> Vec<String> {
+    fn removal(self) -> Option<Move> {
         match self {
-            Forge::Absent => Vec::new(),
-            Forge::Directory => vec![format!("rmdir {LIBRARY_STATE}")],
-            Forge::Link => vec![
-                format!(
-                    "# {LIBRARY_STATE} is a link: rm removes the link, and the directory it \
-                     names stays"
-                ),
-                format!("rm {LIBRARY_STATE}"),
-            ],
-        }
-    }
-
-    /// The removal after `git rm` takes the last entry: a directory git
-    /// emptied is gone with that entry, and a link still stands.
-    fn unlinked(self) -> Vec<String> {
-        match self {
-            Forge::Link => self.removal(),
-            Forge::Absent | Forge::Directory => Vec::new(),
+            Forge::Absent => None,
+            Forge::Directory => Some(Move::Rmdir),
+            Forge::Link => Some(Move::Unlink),
         }
     }
 }
@@ -547,30 +608,22 @@ fn nameable(forge: &Path, name: std::ffi::OsString) -> Result<String, FolderErro
     }
 }
 
-/// The names directly under `.forge/` that git tracks, as git's bytes.
-/// Outside any repository git tracks nothing; inside one, a git that
-/// cannot be run or will not list refuses by name, because an entry it
-/// tracks moved by `mv` would leave git a deletion and a stranger.
-fn tracked(root: &Path) -> Result<Vec<Vec<u8>>, FolderError> {
+/// The names directly under `.forge/` that git tracks, as git's bytes,
+/// `forge` what stands at the root's `.forge`. Outside any repository git
+/// tracks nothing; inside one, a git that cannot be run or will not list
+/// refuses by name, because an entry it tracks moved by `mv` would leave
+/// git a deletion and a stranger. So do the shapes no `git mv` or `git rm`
+/// could complete (round 634k's third finding): a linked `.forge` whose
+/// entries git tracks, and any tracked path under it git holds a change to
+/// ([`committed`]).
+fn tracked(root: &Path, forge: Forge) -> Result<Vec<Vec<u8>>, FolderError> {
     let repository = brokkr_runtime::places::root(root).map_err(FolderError::Places)?;
     if entry(&repository.join(".git"))?.is_none() {
         return Ok(Vec::new());
     }
-    let git = Path::new("git");
-    let mut list = std::process::Command::new(git);
-    list.arg("-C").arg(root);
-    let listed = list.args(["ls-files", "-z", "--", LIBRARY_STATE]).output();
-    let listed = listed.map_err(unreadable(git))?;
-    if !listed.status.success() {
-        let said = String::from_utf8_lossy(&listed.stderr)
-            .trim_end()
-            .to_string();
-        let root = root.to_path_buf();
-        return Err(FolderError::Untracked { root, said });
-    }
+    let listed = ask_git(root, "ls-files", &["-z", "--", LIBRARY_STATE])?;
     let prefix = forged("");
-    Ok(listed
-        .stdout
+    let tracked: Vec<Vec<u8>> = listed
         .split(|byte| *byte == 0)
         .filter_map(|path| path.strip_prefix(prefix.as_bytes()))
         .map(|rest| {
@@ -579,7 +632,121 @@ fn tracked(root: &Path) -> Result<Vec<Vec<u8>>, FolderError> {
                 .unwrap_or(rest)
                 .to_vec()
         })
-        .collect())
+        .collect();
+    if forge == Forge::Link && !tracked.is_empty() {
+        let path = root.join(LIBRARY_STATE);
+        return Err(FolderError::LinkedTracked { path });
+    }
+    committed(root)?;
+    Ok(tracked)
+}
+
+/// Refuse every tracked path under `.forge` whose index or work tree
+/// differs from the last commit, by git's own answer, asked once: an
+/// ignore file staged and never committed, or committed and edited since,
+/// which `git rm` refuses, and a tracked entry no longer the file it was,
+/// which `git mv` refuses. A status git will not give, or that this cannot
+/// read, refuses as an unlisted repository does.
+fn committed(root: &Path) -> Result<(), FolderError> {
+    let args = ["--porcelain=v1", "-z", "--untracked-files=no", "--"];
+    let status = ask_git(root, "status", &[&args[..], &[LIBRARY_STATE]].concat())?;
+    let changes = changes(root, &status)?;
+    match changes.is_empty() {
+        true => Ok(()),
+        false => Err(FolderError::Uncommitted {
+            root: root.to_path_buf(),
+            changes,
+        }),
+    }
+}
+
+/// What `git -C root <verb> <args>` prints. A git that cannot be run, or
+/// that fails, refuses by name, with what it said.
+fn ask_git(root: &Path, verb: &'static str, args: &[&str]) -> Result<Vec<u8>, FolderError> {
+    let git = Path::new("git");
+    let mut asked = std::process::Command::new(git);
+    asked.arg("-C").arg(root).arg(verb).args(args);
+    let asked = asked.output().map_err(unreadable(git))?;
+    match asked.status.success() {
+        true => Ok(asked.stdout),
+        false => Err(FolderError::Untracked {
+            verb,
+            root: root.to_path_buf(),
+            said: String::from_utf8_lossy(&asked.stderr)
+                .trim_end()
+                .to_string(),
+        }),
+    }
+}
+
+/// A tracked path git reports changed (`git status --porcelain=v1`): its
+/// two-letter state, index then work tree, and its path as the refusal
+/// names it on one line, a control character escaped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Change {
+    state: [char; 2],
+    path: String,
+}
+
+impl Change {
+    /// One record, `XY PATH`, each letter one git documents for a tracked
+    /// path; anything else is no record this reads.
+    fn read(record: &[u8]) -> Option<Change> {
+        let known = |letter: &u8| b" MTADRCU".contains(letter);
+        match record {
+            [x, y, b' ', path @ ..] if known(x) && known(y) && !path.is_empty() => Some(Change {
+                state: [char::from(*x), char::from(*y)],
+                path: String::from_utf8_lossy(path)
+                    .chars()
+                    .map(|c| match c.is_control() {
+                        true => c.escape_default().to_string(),
+                        false => c.to_string(),
+                    })
+                    .collect(),
+            }),
+            _ => None,
+        }
+    }
+
+    /// Whether git follows this record with the path it was renamed or
+    /// copied from.
+    fn renamed(&self) -> bool {
+        self.state.iter().any(|letter| matches!(letter, 'R' | 'C'))
+    }
+}
+
+impl fmt::Display for Change {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [index, tree] = self.state;
+        write!(f, "{index}{tree} {}", self.path)
+    }
+}
+
+/// The changes `git status --porcelain=v1 -z` printed in `root`, read
+/// typed (decision 0071 ruling 3): NUL-ended records, a rename's or a
+/// copy's origin in the field after it. A record this cannot read is
+/// refused with its bytes, never skipped.
+fn changes(root: &Path, status: &[u8]) -> Result<Vec<Change>, FolderError> {
+    let unread = |record: &[u8]| FolderError::Untracked {
+        verb: "status",
+        root: root.to_path_buf(),
+        said: format!(
+            "it printed a record this cannot read: '{}'",
+            String::from_utf8_lossy(record).escape_debug()
+        ),
+    };
+    let mut fields = status
+        .split(|byte| *byte == 0)
+        .filter(|field| !field.is_empty());
+    let mut found = Vec::new();
+    while let Some(record) = fields.next() {
+        let change = Change::read(record).ok_or_else(|| unread(record))?;
+        if change.renamed() && fields.next().is_none() {
+            return Err(unread(record));
+        }
+        found.push(change);
+    }
+    Ok(found)
 }
 
 #[cfg(test)]

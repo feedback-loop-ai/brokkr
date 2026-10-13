@@ -122,16 +122,25 @@ pub(crate) const UNPINNED_TOP_LEVEL: [&str; 3] = [
 /// Whether the walk of the layer at `dir`, its canonical directory, skips
 /// the top-level `name`: one of [`UNPINNED_TOP_LEVEL`], or a folder
 /// bundle's [`STATE`] (decision 0083). Every other bundle pins a
-/// top-level `state/` as it always did.
+/// top-level `state/` as it always did, and so does a layer whose layout
+/// cannot be read: pinning more never lets a file change unseen.
 pub(crate) fn unpinned_top_level(dir: &Path, name: &str) -> bool {
-    UNPINNED_TOP_LEVEL.contains(&name) || name == STATE && folder_bundle(dir).is_some()
+    UNPINNED_TOP_LEVEL.contains(&name) || name == STATE && matches!(folder_bundle(dir), Ok(Some(_)))
 }
 
-/// The repository root of a folder bundle: `dir`, a layer's canonical
-/// directory, is named `.brokkr` (ruling 1).
-fn folder_bundle(dir: &Path) -> Option<&Path> {
-    dir.parent()
-        .filter(|_| dir.file_name() == Some(FOLDER.as_ref()))
+/// The repository root of a folder bundle, by the one judgement of a
+/// layout (ruling 1): `dir`, a layer's canonical directory, is
+/// `<root>/.brokkr`, where `<root>` is its repository's root ([`root`])
+/// and holds the folder ([`Kind::Folder`]). Every other directory named
+/// `.brokkr`, a library's recipe or one below the root, is an ordinary
+/// bundle, never one by its name alone.
+fn folder_bundle(dir: &Path) -> Result<Option<&Path>, PlacesError> {
+    let named = dir.file_name() == Some(FOLDER.as_ref());
+    let Some(parent) = dir.parent().filter(|_| named) else {
+        return Ok(None);
+    };
+    let folder = root(parent)? == parent && Kind::of(parent)? == Kind::Folder;
+    Ok(folder.then_some(parent))
 }
 
 /// The agent library, the adapters and the default map a workspace's
@@ -299,7 +308,9 @@ pub enum Old {
     /// No folder, no root `bundle.json`, and a root `.forge` entry.
     StateOnly,
     /// A folder, and Brokkr entries still at its root: each one left, and
-    /// whether a journal stands both in `.forge/` and in the folder.
+    /// whether an entry stands at the journal's name both in `.forge/` and
+    /// in the folder's state, judged as the entry itself, so a link there
+    /// counts whatever it names, a link to nothing included.
     HalfMoved {
         left: Vec<PathBuf>,
         both_journals: bool,
@@ -491,12 +502,13 @@ pub fn run_local(state: Option<&Path>, workdir: &Path) -> PathBuf {
     state.map_or_else(|| workdir.join(LIBRARY_STATE), Path::to_path_buf)
 }
 
-/// A bundle whose directory is a `.brokkr` folder composes no base
-/// (ruling 1): its library would be the repository root, a directory
-/// the project owns. Refused before any base is read. `dir` is the
-/// layer's canonical directory.
+/// A folder bundle ([`folder_bundle`]) composes no base (ruling 1): its
+/// library would be the repository root, a directory the project owns.
+/// Refused before any base is read, and so is a layer whose layout cannot
+/// be read. `dir` is the layer's canonical directory.
 pub(crate) fn refuse_folder_base(dir: &Path, base: &str) -> Result<(), CompileError> {
-    match folder_bundle(dir) {
+    let judged = folder_bundle(dir).map_err(|refused| CompileError::Invalid(refused.to_string()));
+    match judged? {
         Some(root) => Err(CompileError::Invalid(format!(
             "{}/{FOLDER}/bundle.json extends '{base}' (decision 0083); a bundle in {FOLDER}/ \
              composes no base, because its library would be {}: remove extends",
