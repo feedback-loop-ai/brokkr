@@ -13,7 +13,10 @@
 //! failure a retry may safely repeat, and #403's teardown ends its tree.
 //! Stderr past [`STDERR_BYTES`] is no failure: it is still drained, so the
 //! driver never blocks on a full pipe, and what is kept is its first and
-//! last bytes around a marker that counts what was dropped.
+//! last bytes around a marker that counts what was dropped. Lines the
+//! engine has not yet read are held to [`STDOUT_LINES`] and
+//! [`STDOUT_BYTES`]: past either, the reader waits, as a pipe's writer
+//! does, and refuses nothing.
 //!
 //! Every limit is a count, compared without overflow, so no value of one
 //! means unlimited, and zero admits nothing. A refusal names what it
@@ -33,6 +36,17 @@ use crate::AttemptOutcome;
 /// 16 MiB.
 pub(super) const FRAME_BYTES: usize = 16 * 1024 * 1024;
 
+/// The most bytes of stdout lines, each counted as [`FRAME_BYTES`] counts
+/// it, newline excluded, the engine holds unread: 64 MiB, four frames'
+/// worth (the operator's ruling of 2026-10-13 on #433). The reader waits
+/// while the next line would take the queue past it, and never while the
+/// queue is empty, so every line the frame limit admits still passes.
+pub(super) const STDOUT_BYTES: usize = 64 * 1024 * 1024;
+
+/// The most stdout lines the engine holds unread, beside
+/// [`STDOUT_BYTES`]: the reader waits while this many are queued.
+pub(super) const STDOUT_LINES: usize = 64;
+
 /// The most bytes of the driver's stderr its report keeps: 1 MiB, half
 /// from the start and half from the end.
 pub(super) const STDERR_BYTES: usize = 1024 * 1024;
@@ -50,6 +64,8 @@ pub(super) const CHECKPOINT_BYTES: usize = 64 * 1024 * 1024;
 pub(super) struct Limits {
     /// Bytes of one stdout line: [`FRAME_BYTES`].
     pub(super) frame_bytes: usize,
+    /// Bytes of stdout lines queued unread: [`STDOUT_BYTES`].
+    pub(super) stdout_bytes: usize,
     /// Bytes of stderr kept: [`STDERR_BYTES`].
     pub(super) stderr_bytes: usize,
     /// Checkpoints kept: [`CHECKPOINTS`].
@@ -61,6 +77,7 @@ pub(super) struct Limits {
 impl Limits {
     pub(super) const DEFAULT: Limits = Limits {
         frame_bytes: FRAME_BYTES,
+        stdout_bytes: STDOUT_BYTES,
         stderr_bytes: STDERR_BYTES,
         checkpoints: CHECKPOINTS,
         checkpoint_bytes: CHECKPOINT_BYTES,

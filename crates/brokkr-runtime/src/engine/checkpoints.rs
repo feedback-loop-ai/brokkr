@@ -39,20 +39,30 @@
 //! a call's attribution), which the bundle and not the driver sizes.
 //!
 //! What one site holds of its driver's checkpoints, in line bytes, is the
-//! sum of four terms:
+//! sum of four terms (decision 0029's #433 addendum, rule 4, as its
+//! erratum corrects it):
 //!
-//! - the transport's stdout queue: `STDOUT_LINES` lines of at most
-//!   `FRAME_BYTES` each;
-//! - the handoff to the sink: [`ARRIVALS`] checkpoints of at most
-//!   `FRAME_BYTES` each;
-//! - the hold: at most `CHECKPOINT_BYTES`, and with the handoff at most
-//!   that together, since no row is in both;
+//! - the transport's two lines in flight, the one its reader has not yet
+//!   queued and the one its attempt loop parses: at most `FRAME_BYTES`
+//!   and a newline each, since `FRAME_BYTES` excludes the newline, beside
+//!   its reader's fixed 8 KiB read-ahead;
+//! - the transport's stdout queue: at most `STDOUT_BYTES` of lines before
+//!   their newlines, and a newline for each of at most `STDOUT_LINES`
+//!   lines;
+//! - the handoff to the sink, its [`ARRIVALS`] rows and the one row the
+//!   driver holds while it waits on a full handoff, and the hold: at most
+//!   `CHECKPOINT_BYTES` together, since each row in them is one the
+//!   transport admitted and no row is in two of them;
 //! - the report, which keeps every checkpoint up to `CHECKPOINT_BYTES`,
 //!   beside `STDERR_BYTES` of stderr.
 //!
-//! A panel runs one transport per member into one handoff and one hold,
-//! so it multiplies each term by its members. The heap a parsed row takes
-//! beside its line is #342's to measure.
+//! A panel runs one transport per member into one handoff and one hold.
+//! It multiplies the transport's terms, its lines in flight, its queue and
+//! its report, by its members. The handoff's [`ARRIVALS`] rows are shared:
+//! each member adds only the one row it holds while it waits, and the
+//! handoff, those rows and the hold stay within `CHECKPOINT_BYTES` for
+//! each member. The heap a parsed row takes beside its line is #342's to
+//! measure.
 
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};

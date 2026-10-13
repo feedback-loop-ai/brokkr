@@ -225,7 +225,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
             Body::Cancelled {
                 effect_id: "effect".into(),
             },
-            "unexpected driver message Cancelled { effect_id: \"effect\" }",
+            "unexpected driver message of type `cancelled`",
         ),
     ];
     for (body, said) in cases {
@@ -356,9 +356,7 @@ fn a_protocol_violation_after_start_is_indeterminate() {
     assert_eq!(
         handshake.outcome,
         AttemptOutcome::Failed {
-            error: "expected capabilities, got Accepted { effect_id: \"effect\", attempt_id: \
-                    \"attempt\", session_ref: None }"
-                .into()
+            error: "expected capabilities, got a message of type `accepted`".into()
         }
     );
     assert!(!handshake.accepted);
@@ -940,7 +938,7 @@ fn an_attempt_whose_end_cannot_be_proven_parks() {
         Some(Duration::from_secs(1)),
     );
     held(&mut process);
-    let (_stdout_holder, stdout) = mpsc::channel();
+    let (_stdout_holder, stdout) = queue::bounded(1, Limits::DEFAULT.stdout_bytes);
     process.stdout = stdout;
     let started = Instant::now();
     let stdout_held = attempt(process);
@@ -1808,10 +1806,10 @@ fn stdout_is_not_read_past_its_bound_whatever_is_ready() {
         std::path::Path::new("."),
         Some(Duration::from_secs(1)),
     );
-    let (lines, stdout) = mpsc::sync_channel(8);
+    let (lines, stdout) = queue::bounded(8, Limits::DEFAULT.stdout_bytes);
     process.stdout = stdout;
     for _ in 0..2 {
-        lines.send(Stdout::Line("x\n".into())).unwrap();
+        lines.send(Stdout::Line("x\n".into()), 1).unwrap();
     }
     process.started = Instant::now().checked_sub(Duration::from_secs(2)).unwrap();
     process.bounds.drain = Duration::ZERO;
@@ -1824,7 +1822,10 @@ fn stdout_is_not_read_past_its_bound_whatever_is_ready() {
         Err(Unsettled::Stdout)
     );
     assert!(
-        matches!(process.stdout.try_recv(), Ok(Stdout::Line(_))),
+        matches!(
+            process.stdout.recv_timeout(Duration::ZERO),
+            Ok(Stdout::Line(_))
+        ),
         "the drain read a ready line past its bound"
     );
     // Something outside the tree holding stdout open parks the attempt
@@ -1855,7 +1856,7 @@ fn a_flooding_driver_meets_backpressure() {
         }
     }
     let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let (stdout, _) = read_stdout(Flood(Arc::clone(&reads)), limits::FRAME_BYTES);
+    let (stdout, _) = read_stdout(Flood(Arc::clone(&reads)), Limits::DEFAULT);
     // The count once it stops moving, or after two seconds of moving.
     let still = || {
         let until = Instant::now() + Duration::from_secs(2);
