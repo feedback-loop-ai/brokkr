@@ -114,8 +114,13 @@ export function launch(config, argv, name) {
  * user could have made it first. `null` when it is fit to write into.
  */
 export function privateDir(dir) {
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const found = lstatSync(dir)
+  let found
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    found = lstatSync(dir)
+  } catch (error) {
+    return `the console's state directory ${dir} cannot be made: ${error.message}`
+  }
   if (!found.isDirectory()) return `the console's state directory ${dir} is not a directory`
   if (found.uid !== process.getuid()) return `the console's state directory ${dir} belongs to another user`
   if ((found.mode & 0o077) !== 0) return `the console's state directory ${dir} is open to other users`

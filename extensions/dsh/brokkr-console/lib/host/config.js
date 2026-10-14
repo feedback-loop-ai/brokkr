@@ -1,7 +1,7 @@
 // The console's configuration, read once from the environment DSH is started
-// in. Everything has a default except what `brokkr resume` needs: Brokkr's
-// readouts do not name the bundle a run was started under, so the operator
-// names the one runs are resumed under, and a retry is not sent without it.
+// in. Everything has a default: a run is resumed under the recipe its start
+// recorded (slice two, design D1), and the operator may name one bundle or
+// recipe that overrides it for every run.
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -11,8 +11,9 @@ const POLL_MS = 5000
 const POLL_FLOOR_MS = 1000
 
 /**
- * The bundle `brokkr resume` is given: `--bundle <path>` or `--recipe <name>`,
- * or `none` when the environment names neither or both.
+ * The override `brokkr resume` is given instead of the run's own recipe:
+ * `--bundle <path>` or `--recipe <name>`, or `none` when the environment
+ * names neither or both, and the run's recorded recipe is used.
  * @typedef {{kind: 'bundle', path: string} | {kind: 'recipe', name: string} | {kind: 'none'}} ResumeSource
  */
 

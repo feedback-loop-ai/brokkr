@@ -1,0 +1,27 @@
+== session-0893ca03-9fd4-4f70-8137-6871d8be3fab
+  brokkr_runs: view_version=20 realms=['brokkr', 'swarmail', 'lanetally', 'looper', 'xbox-inference'] runs=17
+    landing-pr-660-at-4f6a1931-the-d-08a428d4 | title='landing: PR #660 at 4f6a1931, the DSH operator console…'
+    landing-pr-660-at-d394d6a6-the-d-8cc94ba1 | title='landing: PR #660 at d394d6a6, the DSH operator console…'
+    landing-pr-660-at-9af8dfd3-the-d-f00112fc | title='landing: PR #660 at 9af8dfd3, the DSH operator console…'
+    landing-pr-660-at-4a472946-the-d-a0ea930e | title='landing: PR #660 at 4a472946, the DSH operator console…'
+  (recorded text is not whole JSON: 49932 chars, tail '/dsh-slice2-check/tmp/dsh-spill-Xp8i0G/session-565a12504352/7458447f103d-brokkr_inspect.txt. Use read with offset/limit, or grep this path to search within it.)')
+    source=brokkr inspect --run=landing-pr-660-at-4f6a1931-the-d-08a428d4 --json recipe=['landing'] worktree=['null']
+  brokkr_suggest (or refusal): {"suggested":false,"text":"refused operator stop (after_terminal): the run is not in a state this command can apply to; the refusal is journaled. Read it with: brokkr inspect --run landing-pr-660-at-4f6a1931-the-d-08a428d4"}
+== session-4d4c0048-d1cb-4d5f-84c7-2362db0a33dc
+  brokkr_runs: view_version=20 realms=['brokkr', 'swarmail', 'lanetally', 'looper', 'xbox-inference'] runs=17
+    landing-pr-660-at-4f6a1931-the-d-08a428d4 | title='landing: PR #660 at 4f6a1931, the DSH operator console…'
+    landing-pr-660-at-d394d6a6-the-d-8cc94ba1 | title='landing: PR #660 at d394d6a6, the DSH operator console…'
+    landing-pr-660-at-9af8dfd3-the-d-f00112fc | title='landing: PR #660 at 9af8dfd3, the DSH operator console…'
+    landing-pr-660-at-4a472946-the-d-a0ea930e | title='landing: PR #660 at 4a472946, the DSH operator console…'
+  (recorded text is not whole JSON: 49932 chars, tail '/dsh-slice2-check/tmp/dsh-spill-Xp8i0G/session-171db0490e2e/fe0b5813dccc-brokkr_inspect.txt. Use read with offset/limit, or grep this path to search within it.)')
+    source=brokkr inspect --run=landing-pr-660-at-4f6a1931-the-d-08a428d4 --json recipe=['landing'] worktree=['null']
+  brokkr_suggest (or refusal): {"suggested":false,"text":"refused operator stop (after_terminal): the run is not in a state this command can apply to; the refusal is journaled. Read it with: brokkr inspect --run landing-pr-660-at-4f6a1931-the-d-08a428d4"}
+== session-5226240b-1a48-44e2-a6b4-a5c26cce06e9
+  brokkr_runs: view_version=20 realms=['brokkr', 'swarmail', 'lanetally', 'looper', 'xbox-inference'] runs=17
+    landing-pr-660-at-4f6a1931-the-d-08a428d4 | title='landing: PR #660 at 4f6a1931, the DSH operator console…'
+    landing-pr-660-at-d394d6a6-the-d-8cc94ba1 | title='landing: PR #660 at d394d6a6, the DSH operator console…'
+    landing-pr-660-at-9af8dfd3-the-d-f00112fc | title='landing: PR #660 at 9af8dfd3, the DSH operator console…'
+    landing-pr-660-at-4a472946-the-d-a0ea930e | title='landing: PR #660 at 4a472946, the DSH operator console…'
+  (recorded text is not whole JSON: 49932 chars, tail '/dsh-slice2-check/tmp/dsh-spill-Xp8i0G/session-69e2f30f1048/e699583ca9cc-brokkr_inspect.txt. Use read with offset/limit, or grep this path to search within it.)')
+    source=brokkr inspect --run=landing-pr-660-at-4f6a1931-the-d-08a428d4 --json recipe=['landing'] worktree=['null']
+  brokkr_suggest (or refusal): {"suggested":false,"text":"refused operator stop (after_terminal): the run is not in a state this command can apply to; the refusal is journaled. Read it with: brokkr inspect --run landing-pr-660-at-4f6a1931-the-d-08a428d4"}

@@ -6,6 +6,7 @@
 // first answer. An answer lost to a timeout is reconciled from the run's
 // record, by the command id the console writes into the recorded reason, and
 // nothing is sent twice. Commands on one run are taken one at a time.
+import { resumeSource } from './brokkr.js'
 import { ReadoutRefused } from './readouts.js'
 
 const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
@@ -62,8 +63,8 @@ export function deskOf({ brokkr, resume, locate }) {
     return next
   }
 
-  async function resumed(request, target, worktree, stage) {
-    const started = await brokkr.resume(target, worktree, request.id)
+  async function resumed(request, target, view, stage) {
+    const started = await brokkr.resume(target, view, request.id)
     const base = { command: request.command, stage }
     switch (started.kind) {
       case 'running':
@@ -78,9 +79,9 @@ export function deskOf({ brokkr, resume, locate }) {
   }
 
   /** The command was accepted: a retry is followed by resume, the rest are done. */
-  function accepted(request, target, worktree) {
+  function accepted(request, target, view) {
     return request.command === 'retry'
-      ? resumed(request, target, worktree, 'resume')
+      ? resumed(request, target, view, 'resume')
       : { command: request.command, outcome: 'done' }
   }
 
@@ -96,7 +97,7 @@ export function deskOf({ brokkr, resume, locate }) {
     const after = view.journal.filter((row) => row.seq > request.expected_seq)
     const tag = tagOf(request.id)
     if (after.some((row) => row.event_type === 'operator/accepted' && row.reason?.endsWith(tag))) {
-      return accepted(request, target, view.worktree)
+      return accepted(request, target, view)
     }
     const rejected = after.find((row) => row.event_type === 'operator/rejected')
     if (rejected !== undefined) return { command: request.command, outcome: 'refused', text: rejected.what.text }
@@ -104,12 +105,12 @@ export function deskOf({ brokkr, resume, locate }) {
   }
 
   async function press(request, target, view) {
-    if (request.command === 'resume') return resumed(request, target, view.worktree, null)
+    if (request.command === 'resume') return resumed(request, target, view, null)
     const ran = await brokkr.command(target, request.command, request.reason + tagOf(request.id))
     switch (ran.kind) {
       case 'exited':
         return ran.code === 0
-          ? accepted(request, target, view.worktree)
+          ? accepted(request, target, view)
           : { command: request.command, outcome: 'refused', text: said(ran) }
       case 'unstarted':
         return { command: request.command, outcome: 'not_sent', why: 'unstarted', text: ran.message }
@@ -135,7 +136,7 @@ export function deskOf({ brokkr, resume, locate }) {
     const offered = view.commands.find((entry) => entry.command === request.command)
     if (offered.admission === 'refused') return { command: request.command, outcome: 'refused', text: offered.text, view }
     const drives = request.command === 'retry' || request.command === 'resume'
-    if (drives && resume.kind === 'none') {
+    if (drives && resumeSource(resume, view.recipe) === null) {
       return { command: request.command, outcome: 'not_sent', why: 'resume_unconfigured', view }
     }
     return press(request, target, view)

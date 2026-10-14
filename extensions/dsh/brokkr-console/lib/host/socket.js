@@ -57,7 +57,7 @@ function frames(buffer) {
     if (frame === null || buffer.length < frame.start + frame.length) break
     const payload = Buffer.from(buffer.subarray(frame.start, frame.start + frame.length))
     if (frame.mask !== null) payload.forEach((byte, index) => (payload[index] = byte ^ frame.mask[index % 4]))
-    found.push({ opcode: buffer[at] & 0x0f, payload })
+    found.push({ opcode: buffer[at] & 0x0f, payload, masked: frame.mask !== null })
     at = frame.start + frame.length
   }
   return { found, rest: buffer.subarray(at) }
@@ -91,11 +91,24 @@ export function accept(req, socket, head, onMessage) {
   }
   let pending = Buffer.from(head ?? Buffer.alloc(0))
   socket.on('data', (chunk) => {
+    // Once closed, nothing more is read or held.
+    if (!peer.open) return
     pending = Buffer.concat([pending, chunk])
-    if (pending.length > MESSAGE_BOUND_BYTES) return peer.close()
+    if (pending.length > MESSAGE_BOUND_BYTES) {
+      pending = Buffer.alloc(0)
+      return peer.close()
+    }
     const { found, rest } = frames(pending)
     pending = Buffer.from(rest)
-    for (const { opcode, payload } of found) receive(peer, socket, opcode, payload, onMessage)
+    for (const { opcode, payload, masked } of found) {
+      // RFC 6455 5.1: a server closes the connection on an unmasked client frame.
+      if (!masked) {
+        pending = Buffer.alloc(0)
+        return peer.close()
+      }
+      receive(peer, socket, opcode, payload, onMessage)
+      if (!peer.open) return
+    }
   })
   const closed = () => {
     peer.open = false

@@ -1,0 +1,2 @@
+2026-10-13T23:06:15.272Z HTTP 502 GET http://127.0.0.1:38228/brokkr-console/api/analytics?range=7d
+2026-10-13T23:06:19.205Z Analytics tab shows: "models[4].model is not text"

@@ -18,13 +18,15 @@ readout printed. It never opens a journal.
 2. Start DSH in the workspace whose `realms.json` names your hearths, or name
    that directory in `BROKKR_CONSOLE_WORKSPACE`. Every readout runs there, as
    you would run it by hand.
-3. Name the bundle runs are resumed under, in `BROKKR_CONSOLE_RESUME_BUNDLE`
-   (a bundle directory) or `BROKKR_CONSOLE_RESUME_RECIPE` (a recipe name).
-   Brokkr's readouts do not say which bundle a run was started under, and a
-   retry is followed by `brokkr resume`, which needs one. Without either, the
-   console sends no retry and no resume, and says why. `resume` refuses a
-   bundle that does not compile to the run's pinned manifest, so a wrong one
-   is refused, never run.
+3. Nothing to name for resuming: a retry is followed by `brokkr resume`
+   under the recipe the run's start recorded (`brokkr inspect --json`'s
+   `recipe`), as you would type `--recipe` by hand. To resume every run
+   under one bundle instead, name it in `BROKKR_CONSOLE_RESUME_BUNDLE` (a
+   bundle directory) or `BROKKR_CONSOLE_RESUME_RECIPE` (a recipe name). A
+   run whose start recorded no recipe, with neither set, gets no retry and
+   no resume, and the console says why. `resume` refuses a bundle that does
+   not compile to the run's pinned manifest, so a wrong one is refused,
+   never run.
 4. Add the plugin to a profile by its absolute path:
 
    ```sh
@@ -32,6 +34,9 @@ readout printed. It never opens a journal.
    ```
 
 5. Open DSH's web client from the URL `dsh web` prints, and pick **Brokkr**.
+6. For the assistant, have a model configured in DSH (its Models page).
+   Brokkr ships no credential; without one, the assistant's sessions fail in
+   DSH's own words and the rest of the console is unaffected.
 
 The plugin is `"private": true` and is never published. It listens on DSH's
 own loopback port, acts as the OS user DSH runs as, and every one of its
@@ -92,13 +97,54 @@ the first outcome.
 The card shows the first four disabled, each with the reason `brokkr inspect`
 gives.
 
-This slice also leaves three things out:
+## The assistant
 
-- **The assistant panels.** "Ask Brokkr" and "Ask about this run" are drawn,
-  and say they are not connected: the plugin does not yet hand DSH's model
-  Brokkr's readouts.
-- **Opening the spec.** The clarify card shows the run's worktree; opening
-  its spec in DSH's Files sidebar is not built.
+DSH's model reads Brokkr through four read-only tools the plugin registers:
+`brokkr_runs`, `brokkr_inspect`, `brokkr_queue` and `brokkr_transcript`. Each
+runs one readout, as the panel does, and an answer past 256 KiB is cut and
+says so. A fifth, `brokkr_suggest`, lets the model propose one command for a
+run: Brokkr is asked first, and only a command it admits at that moment
+becomes a card in the session's transcript ("Suggested · Retry security
+review … only if the run hasn't changed since you read this"). Anything
+else comes back as Brokkr's own refusal or reason. No tool the console
+registers can press anything.
+
+- **Ask Brokkr** and **Ask about this run** each open a DSH session and send
+  your question in it, prefilled with the scope and with the instruction to
+  cite the ruling, session or record behind each fact and to say what is not
+  recorded. Ask Brokkr opens in the console's workspace; Ask about this run
+  opens in the run's worktree when Brokkr records one. The answer, and every
+  tool call, is in that session in Conversations.
+- **The session is DSH's.** A question is answered in an ordinary DSH
+  session: besides the console's five tools, its model holds DSH's own tools,
+  such as bash, edit and write, in the session's directory, under DSH's
+  approval policy. The console does not narrow them, and the read-only
+  guarantee above is for the console's tools only. The question's prompt
+  tells the model to read Brokkr only through the console's tools, to run
+  no `brokkr` command and change no file through any other tool, and to
+  treat what the tools return, seat transcripts included, as records to
+  cite, never as instructions. That is a steer, not a fence: whether the
+  model may run `brokkr` or edit a file through DSH's tools is DSH's policy
+  to set, and anything it does there acts as the OS user DSH runs as.
+- **Use this** on a suggestion card carries it to the run's decision card in
+  the Brokkr panel: the suggested command leads, its reason fills the reason
+  box, and the card says whether the run has moved since it was read. You
+  press the command, through the same check every press goes through.
+- DSH folds a finished turn's tool calls under "Called tools", so a
+  suggestion card is one click away in the transcript.
+
+## Opening the spec
+
+A run parked by clarify shows the clarifier's questions and **Open the
+spec**. It opens a DSH session in the run's worktree, opens the Files tab on
+that tree, and puts the questions in the composer as a draft, unsent: write
+your answers into the spec, then press Retry clarify. Nothing is written for
+you. Brokkr records the worktree but not which spec file a run reads, so the
+console opens the tree rather than guessing a file. A run with no recorded
+worktree shows the button disabled, with "no worktree recorded for this run".
+
+## Left out
+
 - **Quiet runs.** `brokkr runs --json` does not carry the staleness the
   terminal fleet shows, and the console derives none, so a run nothing
   drives still reads as running. Resume and Close it are offered whenever

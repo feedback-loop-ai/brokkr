@@ -1,0 +1,48 @@
+$ date -Is; dsh --version
+2026-10-14T01:26:24+03:00
+0.2.0-rc.2
+$ dsh plugin --profile web add $S/probe
+dsh: initialized profile web at $S/home/profiles/web
+
+dependencies:
++ brokkr-slice2-probe link:$S/probe
+
+Already up to date
+Done in 396ms using pnpm v10.28.1
+
+   ╭──────────────────────────────────────────╮
+   │                                          │
+   │   Update available! 10.28.1 → 12.11.2.   │
+   │   Changelog: https://pnpm.io/v/12.11.2   │
+   │     To update, run: pnpm add -g pnpm     │
+   │                                          │
+   ╰──────────────────────────────────────────╯
+
+exit=0
+$ dsh plugin --profile web add $S/stub-model/bundle
+
+dependencies:
++ brokkr-stub-model link:$S/stub-model/bundle
+
+Already up to date
+Done in 321ms using pnpm v10.28.1
+exit=0
+$ cat $DSH_HOME/profiles/web/package.json
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "brokkr-slice2-probe": "link:$S/probe",
+    "brokkr-stub-model": "link:$S/stub-model/bundle"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "brokkr-slice2-probe",
+        "brokkr-stub-model"
+      ]
+    }
+  }
+}

@@ -9,10 +9,10 @@ import { runInNewContext } from 'node:vm'
 const SOURCE = readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
 const Fragment = Symbol('Fragment')
 
-/** A stand-in for React that renders one root into `{type, props, children}` nodes. */
+/** A stand-in for React that renders its roots into `{type, props, children}` nodes. */
 function reactStub() {
   const slots = new Map()
-  const run = { root: null, tree: null, flushing: false, dirty: false, effects: [], slot: null, hook: 0 }
+  const run = { roots: [], trees: [], flushing: false, dirty: false, effects: [], slot: null, hook: 0 }
   const createElement = (type, props, ...children) => ({
     type,
     props: { ...(props ?? {}), children: children.length === 0 ? props?.children : children.length === 1 ? children[0] : children },
@@ -57,14 +57,20 @@ function reactStub() {
     run.flushing = true
     do {
       run.dirty = false
-      run.tree = render(run.root, 'root')
+      run.trees = run.roots.map((root, index) => render(root, `root${index}`))
       const effects = run.effects.splice(0)
       for (const effect of effects) effect()
     } while (run.dirty)
     run.flushing = false
   }
   const React = { createElement, Fragment, useState, useEffect }
-  return { React, mount: (element) => ((run.root = element), flush(), () => run.tree) }
+  /** Mount one more root; its getter reads that root's tree. */
+  function mount(element) {
+    const index = run.roots.push(element) - 1
+    flush()
+    return () => run.trees[index]
+  }
+  return { React, mount }
 }
 
 /** The text a rendered node reads as. */
@@ -89,7 +95,7 @@ export const buttons = (tree) => findAll(tree, (node) => node.type === 'button')
  * Load the client in a sandbox and mount `component` ('main' or 'sidebar.panellist').
  * @returns the rendered tree's getter, the sockets the client opened, and the fetches it made.
  */
-export function mountClient(component, props = {}, answers = {}) {
+export function mountClient(component, props = {}, answers = {}, dsh = dshStub()) {
   const { React, mount } = reactStub()
   const sockets = []
   const fetches = []
@@ -125,13 +131,49 @@ export function mountClient(component, props = {}, answers = {}) {
   exports.apply({
     slots: {
       inject: (_name, register) => register(),
-      register: (slot, Component) => (registered[slot.name] = { slot, Component }),
+      register: (slot, Component) => (registered[slot.name === 'tool.call.toolview' ? `toolview:${slot.key}` : slot.name] = { slot, Component }),
     },
+    get: (name) => dsh.services[name],
   })
   const tree = mount(React.createElement(registered[component].Component, props))
-  sockets[0].readyState = 1
-  sockets[0].onopen()
+  if (sockets[0] !== undefined) {
+    sockets[0].readyState = 1
+    sockets[0].onopen()
+  }
   /** Deliver a message on the socket the client opened. */
   const push = (message) => sockets[0].onmessage({ data: JSON.stringify(message) })
-  return { tree, push, sockets, fetches, registered }
+  /** Mount another registered component beside the first, in the same client. */
+  const also = (name, extra = {}) => mount(React.createElement(registered[name].Component, extra))
+  return { tree, push, sockets, fetches, registered, also, dsh, inject: exports.inject }
+}
+
+/**
+ * Stand-ins for the DSH client services the assistant uses (slice two,
+ * evidence D6b and D7), each call recorded in `calls`.
+ */
+export function dshStub() {
+  const calls = []
+  const scopes = new Map()
+  const services = {
+    workspaces: { create: async ({ path }) => (calls.push(['workspaces.create', path]), { workspaceId: `ws:${path}`, path }) },
+    uiWorkspace: {
+      openWorkspace: async (workspaceId, beforeOpen) => {
+        const sessionId = `session:${workspaceId}`
+        scopes.set(sessionId, { sessionId })
+        calls.push(['openWorkspace', workspaceId])
+        beforeOpen?.(sessionId)
+      },
+    },
+    sessions: { scope: (sessionId) => scopes.get(sessionId) },
+    conversation: {
+      input: {
+        for: (scope) => ({
+          setDraft: (text) => calls.push(['setDraft', scope.sessionId, text]),
+          submit: () => calls.push(['submit', scope.sessionId]),
+        }),
+      },
+    },
+    sidebarRight: { openTab: (kind) => calls.push(['openTab', kind]) },
+  }
+  return { services, calls }
 }

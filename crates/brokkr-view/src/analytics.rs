@@ -198,7 +198,9 @@ pub struct StoppedByRule {
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct RuleCount {
-    pub rule_id: String,
+    /// The rule, or `None` when the stop recorded none (decision 0071
+    /// ruling 3: an absence is a variant, not a word).
+    pub rule_id: Option<String>,
     pub count: usize,
 }
 
@@ -273,7 +275,8 @@ pub struct Rework {
 /// The share of step attempts one served model took.
 #[derive(Serialize, Debug, PartialEq)]
 pub struct ModelShare {
-    pub model: String,
+    /// The served model, or `None` when its seat reported none.
+    pub model: Option<String>,
     pub attempts: usize,
     pub percent: i64,
     pub text: String,

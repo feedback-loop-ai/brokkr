@@ -1503,7 +1503,7 @@ const CONDITIONS: [(&str, InTheQueue); 6] = [
 
 /// Every job of the workflows the required checks live in, in file order,
 /// and what it does in a merge group.
-const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 20] = [
+const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 21] = [
     // It judges the run that the pull request's own description names for
     // its own head (decisions 0033, 0038), and a merge group carries no
     // description, labels or head repository. The queue lands that head's
@@ -1511,6 +1511,9 @@ const JOBS_IN_THE_QUEUE: [(&str, &str, InTheQueue); 20] = [
     ("ci.yml", "delivered-by-brokkr", InTheQueue::PullRequestOnly),
     ("ci.yml", "msrv", InTheQueue::Runs),
     ("ci.yml", "quality", InTheQueue::Runs),
+    // The console plugin's tests (decision 0085 ruling 5) test the landed
+    // bytes like the Rust suite does.
+    ("ci.yml", "plugin-tests", InTheQueue::Runs),
     ("ci.yml", "engine", InTheQueue::Runs),
     ("ci.yml", "seatbelt-lifetime", InTheQueue::Runs),
     ("ci.yml", "coverage", InTheQueue::Runs),

@@ -26,4 +26,6 @@ const response = responses[Math.min(used, responses.length - 1)]
 if (response.bytes) process.stdout.write('x'.repeat(response.bytes))
 if (response.stdout !== undefined) process.stdout.write(response.stdout)
 if (response.stderr !== undefined) process.stderr.write(response.stderr)
-setTimeout(() => process.exit(response.code ?? 0), response.sleep_ms ?? 0)
+// Exit by exit code, not process.exit: on macOS a pipe write is asynchronous,
+// and process.exit would drop stdout still buffered.
+setTimeout(() => (process.exitCode = response.code ?? 0), response.sleep_ms ?? 0)

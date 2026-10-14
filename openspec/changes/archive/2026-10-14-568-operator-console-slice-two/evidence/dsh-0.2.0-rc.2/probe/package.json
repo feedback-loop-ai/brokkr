@@ -1,0 +1,28 @@
+{
+  "name": "brokkr-slice2-probe",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Measures DSH 0.2.0-rc.2 plugin APIs for Brokkr console slice two (model tools, session prefill, transcript cards, Files sidebar)",
+  "type": "module",
+  "main": "lib/index.js",
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-tool"
+      ]
+    },
+    "bundle": { "patch": "./cordis.patch.yml" }
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  }
+}

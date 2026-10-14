@@ -1,0 +1,33 @@
+$ curl -b cookies $U/brokkr-console/api/analytics?range=24h
+{"error":"models[4].model is not text"}
+$ (cd $BROKKR_CONSOLE_WORKSPACE && $BROKKR_CONSOLE_BROKKR analytics --range=24h --json) | head -c 400; echo exit=$?
+note: the map ./realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
+{
+  "view_version": 20,
+  "range": "24h",
+  "realm": null,
+  "from": "2026-10-12T23:01:18Z",
+  "to": "2026-10-13T23:01:18.250638135Z",
+  "headline": {
+    "shipped": {
+      "count": 8,
+      "previous": 0,
+      "change": 8,
+      "change_text": "▲ 8 vs previous 24h"
+    },
+    "median": {
+      "millis": 3064000,
+      "text": "51m"
+    },
+    "waiting": {
+      "waiting_millis": 3382000,
+      "parked_millis": 3441000,
+      "text": "0.9h",
+      "share_percent": 98,
+      "sha
+$ brokkr analytics --range=24h --json | .models (python)
+0 {"model": "not reported", "attempts": 38, "percent": 53, "text": "not reported 53%"}
+1 {"model": "claude-fable-5-1", "attempts": 17, "percent": 24, "text": "claude-fable-5-1 24%"}
+2 {"model": "claude-opus-5-5", "attempts": 8, "percent": 11, "text": "claude-opus-5-5 11%"}
+3 {"model": "gpt-6-astra", "attempts": 6, "percent": 8, "text": "gpt-6-astra 8%"}
+4 {"model": null, "attempts": 3, "percent": 4, "text": "not reported 4%"}

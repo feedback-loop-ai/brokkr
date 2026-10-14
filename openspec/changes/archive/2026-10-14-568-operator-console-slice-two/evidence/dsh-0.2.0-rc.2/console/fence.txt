@@ -1,0 +1,20 @@
+$ date -Is
+2026-10-14T02:01:09+03:00
+# route | no cookie | cookie + Origin http://evil.example | cookie, same origin
+GET  /brokkr-console/console.css | 401 | 403 | 200
+GET  /brokkr-console/api/analytics?range=24h | 401 | 403 | 502
+POST /brokkr-console/api/command (body 'not-json', never a command) | 401 | 403 | (not sent with a cookie)
+$ curl -i <upgrade headers> $U/brokkr-console/ws   # no cookie
+HTTP/1.1 401 Unauthorized
+connection: close
+
+$ curl -i <upgrade headers> -b cookies -H 'Origin: http://evil.example' $U/brokkr-console/ws
+HTTP/1.1 403 Forbidden
+connection: close
+
+$ curl -i <upgrade headers> -b cookies $U/brokkr-console/ws   # admitted, for contrast
+curl: (28) Operation timed out after 3002 milliseconds with 0 bytes received
+HTTP/1.1 101 Switching Protocols
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=

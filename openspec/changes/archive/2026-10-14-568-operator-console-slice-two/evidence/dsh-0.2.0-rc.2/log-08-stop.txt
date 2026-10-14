@@ -1,0 +1,19 @@
+$ date -Is
+2026-10-14T01:36:19+03:00
+$ kill -TERM -<pgid of dsh web pid 3589684>
+$ kill -TERM <stub pid 3579623>
+$ ss -ltn | grep -E ':3821[89]'
+ports 38218 and 38219 closed
+$ ps -eo pid,cmd | grep -E 'dsh web|stub-model/server|brokkr-slice2-ffprofile' | grep -v grep
+no probe processes
+removed Firefox profile ~/snap/firefox/common/brokkr-slice2-ffprofile
+$ stat -c '%y' ~/.dsh
+2026-10-13 10:25:41.226776886 +0300
+$ ls $DSH_HOME
+.anonymous-user-id
+.credentials.yaml
+logs
+profiles
+sessions
+storages
+deleted $DSH_HOME/.credentials.yaml (holds only the browser-auth signing secret)
