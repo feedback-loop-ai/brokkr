@@ -340,6 +340,12 @@ fn ending_texts(row: &RunRow, view: Option<&RunView>, now: &str, columns: usize)
     }
     let facts = [
         ("journal", row.detail.clone()),
+        (
+            "operator",
+            row.acknowledgement
+                .as_ref()
+                .map(brokkr_view::Acknowledgement::line),
+        ),
         ("at work", hired(row, now)),
     ];
     for (label, fact) in facts {

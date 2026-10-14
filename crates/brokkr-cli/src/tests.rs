@@ -1,8 +1,9 @@
 use super::*;
+use crate::folder::folder_tests::library_journal;
 use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
 use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
-use brokkr_core::fold::{Cursor, Status};
+use brokkr_core::fold::{Cursor, Run, Status};
 use brokkr_core::EventType;
 use brokkr_store::test_support::plant_broken_link;
 use std::io::{Read, Write};
@@ -18,6 +19,8 @@ mod dispatch_fixture;
 pub(crate) mod env_guard;
 #[path = "../../../tests/support/envelope.rs"]
 pub(crate) mod envelope_builder;
+#[path = "../../../tests/support/run_state.rs"]
+pub(crate) mod run_state;
 use dispatch_fixture::dispatch_envelope;
 use env_guard::EnvGuard;
 
@@ -180,6 +183,7 @@ fn ledger_command_renders_to_stdout_or_the_repository() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("journal.db");
     running_store(&db, "ledger-run");
+    crate::folder::folder_tests::plant_library(dir.path());
 
     assert_eq!(
         run(cli(Cmd::Ledger(LedgerArgs {
@@ -337,8 +341,11 @@ fn run_tui_names_a_tab_per_hearth_in_a_many_hearth_world() {
 /// A workspace holding no `realms.json`. Named explicitly by the tests
 /// that turn on map DISCOVERY, so what they assert is a function of the
 /// arguments and not of the directory the harness happens to stand in.
+/// A directory that stands, in this library's checkout, because the walk
+/// resolves the real directory and refuses one that is not there (round
+/// 634j).
 fn unmapped() -> &'static std::path::Path {
-    std::path::Path::new("target/no-such-workspace")
+    std::path::Path::new("tests/support")
 }
 
 /// Drive one command from a named workspace — `run`, with the
@@ -1012,6 +1019,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     // there. Copied from the tree rather than invented, for the same
     // reason the digest witnesses are recorded rather than asserted.
     stage_adapters(dir.path());
+    crate::folder::folder_tests::plant_library(dir.path());
     let bundle_path = stage_hands_free_fast(dir.path(), "fast-hands-free", false);
     let dispatched = |bundle: &std::path::Path, dispatch| {
         Cmd::Run(RunArgs {
@@ -1055,6 +1063,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let unmapped = dir.path().join("unmapped");
     std::fs::create_dir_all(&unmapped).unwrap();
     stage_adapters(&unmapped);
+    crate::folder::folder_tests::plant_library(&unmapped);
     let refusal = run_in(&unmapped, cli(base(Some(missing))))
         .unwrap_err()
         .to_string();
@@ -1428,27 +1437,12 @@ fn the_driver_payload_keeps_every_argument_the_dsh_command_line_carried() {
 
 #[test]
 fn state_constructor_keeps_the_running_cursor_shape_explicit() {
-    let state = RunState {
-        run_id: "run".into(),
-        seq: 0,
-        last_hash: ZERO_HASH.into(),
-        status: Status::Running,
-        phase: None,
-        cursor: Cursor::EnterPhase {
-            phase: "work".into(),
-        },
-        consecutive_failures: Default::default(),
-        visits: Default::default(),
-        strategy: None,
-        last_result: None,
-        phase_results: Default::default(),
-        reviewed_heads: None,
-        last_decision: None,
-        park_reason: None,
-        feature: Some("feature".into()),
-        pending_command: None,
-        riding_stop: false,
-    };
+    let entering = Run::Running(Cursor::EnterPhase {
+        phase: "work".into(),
+    });
+    let mut state = run_state::run_state("run", 0, entering);
+    state.last_hash = ZERO_HASH.into();
+    state.feature = Some("feature".into());
     assert_eq!(summarize(&state)["status"], "running");
 }
 
@@ -2931,9 +2925,12 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
         .expect("the run is read");
     let state = listed.entry().state.expect("the live journal folds");
     assert_eq!(state.seq, 105);
-    assert_eq!(state.status, Status::Running);
     assert_eq!(state.phase.as_deref(), Some("verify"));
-    assert_eq!(state.cursor, Cursor::Stop, "concluded per the operator");
+    assert_eq!(
+        state.run,
+        Run::Running(Cursor::Stop),
+        "concluded per the operator"
+    );
 
     let entries = [
         listed.entry(),
@@ -3052,7 +3049,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
 
     // Round trip: the fold reads the tail the engine just wrote.
     let state = fold(&events).unwrap();
-    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(state.run, Run::Stopped);
     assert_eq!(finish(&state), ExitCode::from(3));
 }
 
@@ -3334,7 +3331,7 @@ fn the_map_names_the_journal_and_db_outranks_it() {
     // default it has always been.
     let bare = Invocation::resolve(unmapped(), None, None).unwrap();
     assert!(bare.world.is_none());
-    assert_eq!(bare.journal, PathBuf::from(DEFAULT_DB));
+    assert_eq!(bare.journal, library_journal());
     assert_eq!(bare.notice, None, "and nothing to announce");
     assert_eq!(
         journal_of(unmapped(), None, Some(elsewhere.clone())).unwrap(),
@@ -3382,7 +3379,8 @@ fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
     // it is said all the same. This is the case this repository's own
     // root map is in.
     let plain = tempfile::tempdir().unwrap();
-    let default_journal = std::path::absolute(DEFAULT_DB).unwrap();
+    crate::folder::folder_tests::plant_library(plain.path());
+    let default_journal = std::path::absolute(library_journal()).unwrap();
     std::fs::write(
         plain.path().join("realms.json"),
         json!({
@@ -3411,7 +3409,7 @@ fn an_ambient_map_says_which_journal_it_moved_the_run_to() {
     // One journal, however it is written — and a path that cannot be
     // located at all compares as written.
     let written = std::path::Path::new("./.forge/forge.db");
-    assert!(same_journal(written, std::path::Path::new(DEFAULT_DB)));
+    assert!(same_journal(written, &library_journal()));
     assert!(same_journal(
         std::path::Path::new(""),
         std::path::Path::new("")
@@ -3753,7 +3751,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
         "a concluded run exits stopped, like every other stop",
     );
     let state = fold(&Store::open(&db).unwrap().load("stranded").unwrap()).unwrap();
-    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(state.run, Run::Stopped);
 
     let refusal = run(cli(Cmd::Conclude(ConcludeArgs {
         run: "stranded".into(),
@@ -3838,7 +3836,7 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
         "closed\u{061c}\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
     let mut store = Store::open(&db).unwrap();
     let state = brokkr_runtime::conclude(&mut store, run_id, operator, reason).unwrap();
-    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(state.run, Run::Stopped);
 
     // Verbatim in the journal: the citation names the operator as given,
     // and the operator's own words are quoted, not laundered.

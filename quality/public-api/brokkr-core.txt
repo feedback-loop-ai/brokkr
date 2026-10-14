@@ -205,15 +205,15 @@ pub brokkr_core::fold::Cursor::EffectInFlight::attempt_id: alloc::string::String
 pub brokkr_core::fold::Cursor::EffectInFlight::effect_id: alloc::string::String
 pub brokkr_core::fold::Cursor::EffectInFlight::failed_attempts: u64
 pub brokkr_core::fold::Cursor::EffectInFlight::seat: alloc::string::String
+pub brokkr_core::fold::Cursor::EffectInFlight::stop_rides: bool
 pub brokkr_core::fold::Cursor::EnterPhase
 pub brokkr_core::fold::Cursor::EnterPhase::phase: alloc::string::String
 pub brokkr_core::fold::Cursor::ExecuteEffect
 pub brokkr_core::fold::Cursor::ExecuteEffect::effect_id: alloc::string::String
 pub brokkr_core::fold::Cursor::ExecuteEffect::failed_attempts: u64
 pub brokkr_core::fold::Cursor::ExecuteEffect::seat: alloc::string::String
-pub brokkr_core::fold::Cursor::Idle
 pub brokkr_core::fold::Cursor::Park
-pub brokkr_core::fold::Cursor::Park::reason: alloc::string::String
+pub brokkr_core::fold::Cursor::Park::reason: brokkr_core::fold::ParkReason
 pub brokkr_core::fold::Cursor::RequestEffect
 pub brokkr_core::fold::Cursor::Start
 pub brokkr_core::fold::Cursor::Stop
@@ -249,6 +249,12 @@ impl brokkr_core::fold::OperatorCommand
 pub const brokkr_core::fold::OperatorCommand::ALL: [brokkr_core::fold::OperatorCommand; 2]
 pub const fn brokkr_core::fold::OperatorCommand::as_str(self) -> &'static str
 pub fn brokkr_core::fold::OperatorCommand::parse(&str) -> core::option::Option<brokkr_core::fold::OperatorCommand>
+pub enum brokkr_core::fold::ParkReason
+pub brokkr_core::fold::ParkReason::GateMovedHead
+pub brokkr_core::fold::ParkReason::Stated(alloc::string::String)
+impl brokkr_core::fold::ParkReason
+pub fn brokkr_core::fold::ParkReason::as_str(&self) -> &str
+pub fn brokkr_core::fold::ParkReason::read(alloc::string::String) -> brokkr_core::fold::ParkReason
 pub enum brokkr_core::fold::Refusal
 pub brokkr_core::fold::Refusal::AfterTerminal
 pub brokkr_core::fold::Refusal::CommandNotAllowed
@@ -260,6 +266,18 @@ pub brokkr_core::fold::Refusal::RunNotAwaitingOperator
 pub brokkr_core::fold::Refusal::StaleCursor
 impl brokkr_core::fold::Refusal
 pub const fn brokkr_core::fold::Refusal::word(self) -> &'static str
+pub enum brokkr_core::fold::Run
+pub brokkr_core::fold::Run::AwaitingOperator
+pub brokkr_core::fold::Run::AwaitingOperator::reason: brokkr_core::fold::ParkReason
+pub brokkr_core::fold::Run::Completed
+pub brokkr_core::fold::Run::Running(brokkr_core::fold::Cursor)
+pub brokkr_core::fold::Run::Stopped
+impl brokkr_core::fold::Run
+pub fn brokkr_core::fold::Run::cursor(&self) -> core::option::Option<&brokkr_core::fold::Cursor>
+pub fn brokkr_core::fold::Run::park_reason(&self) -> core::option::Option<&brokkr_core::fold::ParkReason>
+pub const fn brokkr_core::fold::Run::status(&self) -> brokkr_core::fold::Status
+impl core::fmt::Display for brokkr_core::fold::Run
+pub fn brokkr_core::fold::Run::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::fold::Status
 pub brokkr_core::fold::Status::AwaitingOperator
 pub brokkr_core::fold::Status::Completed
@@ -269,20 +287,17 @@ impl brokkr_core::fold::Status
 pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
 pub struct brokkr_core::fold::RunState
 pub brokkr_core::fold::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
-pub brokkr_core::fold::RunState::cursor: brokkr_core::fold::Cursor
 pub brokkr_core::fold::RunState::feature: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::fold::RunState::last_hash: alloc::string::String
 pub brokkr_core::fold::RunState::last_result: core::option::Option<serde_json::value::Value>
-pub brokkr_core::fold::RunState::park_reason: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
 pub brokkr_core::fold::RunState::phase: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::decision::PhaseResult>
 pub brokkr_core::fold::RunState::reviewed_heads: core::option::Option<brokkr_core::decision::ReviewedHeads>
-pub brokkr_core::fold::RunState::riding_stop: bool
+pub brokkr_core::fold::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::fold::RunState::run_id: alloc::string::String
 pub brokkr_core::fold::RunState::seq: u64
-pub brokkr_core::fold::RunState::status: brokkr_core::fold::Status
 pub brokkr_core::fold::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::fold::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub const brokkr_core::fold::FAILURE_RESULTS: [&str; 2]
@@ -771,15 +786,15 @@ pub brokkr_core::Cursor::EffectInFlight::attempt_id: alloc::string::String
 pub brokkr_core::Cursor::EffectInFlight::effect_id: alloc::string::String
 pub brokkr_core::Cursor::EffectInFlight::failed_attempts: u64
 pub brokkr_core::Cursor::EffectInFlight::seat: alloc::string::String
+pub brokkr_core::Cursor::EffectInFlight::stop_rides: bool
 pub brokkr_core::Cursor::EnterPhase
 pub brokkr_core::Cursor::EnterPhase::phase: alloc::string::String
 pub brokkr_core::Cursor::ExecuteEffect
 pub brokkr_core::Cursor::ExecuteEffect::effect_id: alloc::string::String
 pub brokkr_core::Cursor::ExecuteEffect::failed_attempts: u64
 pub brokkr_core::Cursor::ExecuteEffect::seat: alloc::string::String
-pub brokkr_core::Cursor::Idle
 pub brokkr_core::Cursor::Park
-pub brokkr_core::Cursor::Park::reason: alloc::string::String
+pub brokkr_core::Cursor::Park::reason: brokkr_core::fold::ParkReason
 pub brokkr_core::Cursor::RequestEffect
 pub brokkr_core::Cursor::Start
 pub brokkr_core::Cursor::Stop
@@ -884,20 +899,17 @@ pub fn brokkr_core::policy::Machine::seat_inputs(&self, &str) -> alloc::vec::Vec
 pub fn brokkr_core::policy::Machine::visit_phases(&self, &str) -> alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_core::RunState
 pub brokkr_core::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
-pub brokkr_core::RunState::cursor: brokkr_core::fold::Cursor
 pub brokkr_core::RunState::feature: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::last_decision: core::option::Option<brokkr_core::decision::Decision>
 pub brokkr_core::RunState::last_hash: alloc::string::String
 pub brokkr_core::RunState::last_result: core::option::Option<serde_json::value::Value>
-pub brokkr_core::RunState::park_reason: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::pending_command: core::option::Option<(alloc::string::String, alloc::string::String)>
 pub brokkr_core::RunState::phase: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::phase_results: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_core::decision::PhaseResult>
 pub brokkr_core::RunState::reviewed_heads: core::option::Option<brokkr_core::decision::ReviewedHeads>
-pub brokkr_core::RunState::riding_stop: bool
+pub brokkr_core::RunState::run: brokkr_core::fold::Run
 pub brokkr_core::RunState::run_id: alloc::string::String
 pub brokkr_core::RunState::seq: u64
-pub brokkr_core::RunState::status: brokkr_core::fold::Status
 pub brokkr_core::RunState::strategy: core::option::Option<alloc::string::String>
 pub brokkr_core::RunState::visits: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub fn brokkr_core::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>

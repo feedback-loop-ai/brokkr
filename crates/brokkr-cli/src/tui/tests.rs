@@ -6,14 +6,14 @@ use super::view_tests::console;
 use super::*;
 use crate::local_transcript::tests::reference_subject;
 use crate::tests::envelope_builder::EnvelopeBuilder;
-use brokkr_core::fold::{Cursor, RunState, Status};
+use crate::tests::run_state::{run_state, standing};
+use brokkr_core::fold::{RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::Store;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -41,26 +41,12 @@ fn state() -> RunState {
 }
 
 pub(super) fn state_of(status: Status) -> RunState {
-    RunState {
-        run_id: "run-7".to_string(),
-        seq: 18,
-        last_hash: "hash".to_string(),
-        status,
-        phase: Some("design".to_string()),
-        cursor: Cursor::Idle,
-        consecutive_failures: BTreeMap::new(),
-        visits: BTreeMap::new(),
-        strategy: None,
-        last_result: None,
-        phase_results: BTreeMap::new(),
-        last_decision: Result::ok(serde_json::from_value(json!({"rule_id": "INTAKE-OK",
-                                   "from": "intake", "next": "design", "result": "intook"}))),
-        reviewed_heads: None,
-        park_reason: None,
-        feature: Some("one derivation, three surfaces".to_string()),
-        pending_command: None,
-        riding_stop: false,
-    }
+    let mut state = run_state("run-7", 18, standing(status, "needs a human"));
+    state.phase = Some("design".to_string());
+    state.last_decision = Result::ok(serde_json::from_value(json!({"rule_id": "INTAKE-OK",
+                                   "from": "intake", "next": "design", "result": "intook"})));
+    state.feature = Some("one derivation, three surfaces".to_string());
+    state
 }
 
 /// An intake seat that concluded, then a design sequence: a forked step

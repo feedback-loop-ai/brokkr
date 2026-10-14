@@ -1,19 +1,31 @@
-//! What the harness is told (decision 0065 slice two, U6e; MB3): whole
-//! frames in order, bounded while they wait, never begun past their
-//! deadlines, and written as fast as the harness takes them.
+//! What the harness is told (decision 0065 slice two, U6e, U6f1b; MB3,
+//! SD3): whole frames in order, bounded while they wait, never begun past
+//! their deadlines, and written as fast as the harness takes them; and for
+//! a retained plan nothing, nor anything to its server.
 
-use std::io::Read;
+use std::cell::RefCell;
+use std::io::{PipeReader, Read, Write};
+use std::os::fd::AsFd;
+use std::rc::Rc;
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::broker::ledger::{Failure, Outcome};
+use brokkr_protocol::broker::ledger::{recover, Disposition, Failure, Ledger, Outcome};
+use brokkr_protocol::broker::{Plan, Refusal};
+use rustix::io::Errno;
 use serde_json::{json, Value};
 
-use super::super::calls::{Delivery, Outbox};
-use super::super::{REQUEST_MAX, RESPONSE_MAX};
+use super::super::calls::{served, Delivery, Outbox};
+use super::super::output::Edge;
+use super::super::pieces::tests::{held, refusing, sink, Sink};
+use super::super::pieces::Pieces;
+use super::super::{initialized, started, Fatal, ATOMIC, REQUEST_MAX, RESPONSE_MAX, UNDELIVERED};
 use super::{admitted, answering_with, call, cancelled_behind, conversed, forwarded, idle_timeout};
-use super::{lookup_failed, mcp, passed, ping_sized, pipe, request, result, session, silent};
-use super::{tools, within, Harness, TURN};
+use super::{answer, mcp_but, tools, within, Harness, Script, Then, DIGEST, TURN};
+use super::{fake, lookup_failed, mcp, passed, ping_sized, pipe, request, result, session, silent};
+use crate::broker::session::lifetime::settled;
+use crate::broker::session::stderr::Drain;
 use crate::broker::session::Ended;
 
 #[test]
@@ -82,17 +94,358 @@ fn a_frame_past_its_deadline_is_never_begun_though_the_harness_would_take_it() {
     // either is written to an output that takes everything.
     let now = Instant::now();
     let later = now + Duration::from_secs(30);
+    let frame = |bytes: &[u8]| Pieces::new(bytes.to_vec()).unwrap();
     let mut outbox = Outbox::default();
-    outbox.frames.push_back((b"{}\n".to_vec(), later));
-    outbox.frames.push_back((b"[]\n".to_vec(), now));
-    let mut taken = Vec::new();
-    assert_eq!(outbox.flushed(&mut taken), Delivery::Stalled);
-    assert_eq!((taken.len(), outbox.frames.len()), (0, 2));
+    outbox.frames.push_back((frame(b"{}\n"), later));
+    outbox.frames.push_back((frame(b"[]\n"), now));
+    let (mut reader, mut output) = pipe();
+    rustix::io::ioctl_fionbio(&reader, true).unwrap();
+    let mut taken = || {
+        let mut chunk = [0; 64];
+        reader
+            .read(&mut chunk)
+            .map_or(Vec::new(), |read| chunk[..read].to_vec())
+    };
+    let going = &|| false;
+    assert_eq!(outbox.flushed(&mut output, going), Delivery::Stalled);
+    assert_eq!((taken(), outbox.frames.len()), (vec![], 2));
     // Each in time: both taken whole, in order.
     outbox.frames.pop_back();
-    outbox.frames.push_back((b"[]\n".to_vec(), later));
-    assert_eq!(outbox.flushed(&mut taken), Delivery::Open);
-    assert_eq!((&taken[..], outbox.frames.len()), (&b"{}\n[]\n"[..], 0));
+    outbox.frames.push_back((frame(b"[]\n"), later));
+    assert_eq!(outbox.flushed(&mut output, going), Delivery::Open);
+    assert_eq!((taken(), outbox.frames.len()), (b"{}\n[]\n".to_vec(), 0));
+}
+
+/// An outbox holding one frame of three pieces, `x`s cut before their
+/// last, to be taken within `left`, and that frame.
+fn three_pieces(left: Duration) -> (Outbox, Vec<u8>) {
+    let bytes = [vec![b'x'; 2 * ATOMIC + 9], b"\n".to_vec()].concat();
+    let mut outbox = Outbox::default();
+    let deadline = Instant::now() + left;
+    outbox
+        .frames
+        .push_back((Pieces::new(bytes.clone()).unwrap(), deadline));
+    (outbox, bytes)
+}
+
+#[test]
+fn a_frame_is_written_a_piece_at_a_time_and_nothing_more_past_a_cancellation_or_deadline() {
+    // Each piece once the harness's output is ready: cancelled once the
+    // first is taken, or past the frame's deadline, the one that applies
+    // to it, once its write returns, the second is never offered, and
+    // delivery has stalled; a write taken short ends delivery short, and
+    // nothing more is offered (U6f1b; MB3; operator ruling 2026-10-13).
+    let (long, going) = (Duration::from_secs(30), &|| false);
+    let (mut outbox, bytes) = three_pieces(long);
+    let (mut taking, reader) = sink(ATOMIC, usize::MAX, Duration::ZERO);
+    let at = Arc::clone(&taking.at);
+    let cancelled = move || !at.lock().unwrap().is_empty();
+    assert_eq!(outbox.flushed(&mut taking, &cancelled), Delivery::Stalled);
+    drop(taking);
+    assert_eq!(held(reader), bytes[..ATOMIC].to_vec());
+    let (mut outbox, bytes) = three_pieces(Duration::from_millis(100));
+    let (mut slow, reader) = sink(ATOMIC, usize::MAX, Duration::from_millis(300));
+    assert_eq!(outbox.flushed(&mut slow, going), Delivery::Stalled);
+    drop(slow);
+    assert_eq!(held(reader), bytes[..ATOMIC].to_vec());
+    let attempt = going;
+    let (mut outbox, _) = three_pieces(long);
+    let (mut partial, reader) = sink(ATOMIC - 1, usize::MAX, Duration::ZERO);
+    assert_eq!(outbox.flushed(&mut partial, attempt), Delivery::Undelivered);
+    let writes = partial.at.lock().unwrap().len();
+    drop(partial);
+    assert_eq!((held(reader).len(), writes), (ATOMIC - 1, 1));
+    // Taken whole, piece by piece.
+    let (mut outbox, bytes) = three_pieces(long);
+    let (mut whole, reader) = sink(ATOMIC, usize::MAX, Duration::ZERO);
+    assert_eq!(outbox.flushed(&mut whole, attempt), Delivery::Open);
+    let writes = whole.at.lock().unwrap().len();
+    drop(whole);
+    assert_eq!((held(reader), writes, outbox.frames.len()), (bytes, 3, 0));
+}
+
+#[test]
+fn an_output_that_takes_a_piece_short_ends_the_session_as_a_delivery_failure() {
+    // The harness pings, and its output takes three bytes of the answer's
+    // one piece, as a sink that is not a pipe may: nothing more is offered,
+    // the session ends as a delivery failure, and its ledger closes with
+    // that cause, in the broker's own words, never Clean and never the
+    // timeout cause (U6f1b; operator rulings 2026-10-13 and 2026-10-14).
+    // So while it serves, and so once the harness has ended its input with
+    // the answer still waiting for an output that was full until then.
+    let undelivered = || Err(Ended::Failed(Fatal::Failed(Failure::Undelivered)));
+    let failed = Some(Disposition::Failed(Failure::Undelivered));
+    for full in [false, true] {
+        let expected = (undelivered(), (Some(b"{\"j".to_vec()), 1), failed.clone());
+        let short = sink(3, usize::MAX, Duration::ZERO);
+        assert_eq!((full, pinged(full, short)), (full, expected));
+    }
+    let said = UNDELIVERED.to_string();
+    assert_eq!(said, "MCP broker output could not be delivered");
+}
+
+#[test]
+fn only_a_closed_harness_output_keeps_a_sessions_ending() {
+    // The harness pings, and its output refuses every write: a broken
+    // pipe, its reader gone, keeps the session's ending, served and Clean;
+    // a full device, an I/O error or a write that takes nothing is the
+    // delivery failure, never Clean and never the timeout cause (operator
+    // ruling 2026-10-14).
+    let undelivered = || Err(Ended::Failed(UNDELIVERED));
+    let failed = Some(Disposition::Failed(Failure::Undelivered));
+    for (case, output, expected) in [
+        (
+            "EPIPE",
+            refusing(Errno::PIPE),
+            (Ok(()), 0, Some(Disposition::Clean)),
+        ),
+        (
+            "ENOSPC",
+            refusing(Errno::NOSPC),
+            (undelivered(), 0, failed.clone()),
+        ),
+        (
+            "EIO",
+            refusing(Errno::IO),
+            (undelivered(), 0, failed.clone()),
+        ),
+        (
+            "zero",
+            sink(0, usize::MAX, Duration::ZERO),
+            (undelivered(), 1, failed.clone()),
+        ),
+    ] {
+        let (ended, (wrote, writes), closure) = pinged(false, output);
+        let expected = (case, expected.0, Some(vec![]), expected.1, expected.2);
+        assert_eq!((case, ended, wrote, writes, closure), expected);
+    }
+}
+
+#[test]
+fn a_harness_output_closed_before_its_calls_answer_keeps_the_sessions_ending() {
+    // The harness calls, and has closed its output by the time the server
+    // answers: the answer, heard after the turn's check of the harness's
+    // output, meets a broken pipe, and the session ends at the next turn's,
+    // served and Clean, its call's Terminal recorded before.
+    let body = json!({"content": []});
+    let output = refusing(Errno::PIPE);
+    let (ended, wrote, closure) =
+        delivered(answering_with(tools(), body), &call("1", "lookup"), output);
+    let expected = (Ok(()), (Some(vec![]), 0), Some(Disposition::Clean));
+    assert_eq!((ended, wrote, closure), expected);
+}
+
+#[test]
+fn an_earlier_cause_stands_where_the_harness_output_then_fails() {
+    // The server's answer cannot be cut safely, which ends the session
+    // with MB4's cause, and the harness's output then refuses the frame
+    // telling it so with a full device: the first cause stands, and is
+    // the ledger's closure (operator ruling 2026-10-14).
+    let digits = "1".repeat(ATOMIC + 1);
+    let body = json!({"content": [{"type": "text", "text": digits}]});
+    let output = refusing(Errno::NOSPC);
+    let (ended, wrote, closure) =
+        delivered(answering_with(tools(), body), &call("1", "lookup"), output);
+    let masking = Fatal::Failed(Failure::Masking);
+    let expected = (Err(Ended::Failed(masking)), (Some(vec![]), 0));
+    assert_eq!((ended, wrote), expected);
+    assert_eq!(closure, Some(Disposition::Failed(Failure::Masking)));
+}
+
+#[test]
+fn a_delivery_failure_found_answering_the_harness_stays_the_first_cause() {
+    // The harness pings, its output refuses the answer with a full device,
+    // and the server's stray response already waits to be heard in that
+    // turn: the delivery failure stays the first cause, and is the ledger's
+    // closure. Where the server's stray answer to a call is heard first,
+    // and the output then refuses the frame telling the harness so, the
+    // protocol's cause stands (operator ruling 2026-10-14).
+    let ping = request(json!("p"), "ping", json!({}));
+    for (case, early, frame, failure) in [
+        ("delivery first", true, ping, Failure::Undelivered),
+        (
+            "server first",
+            false,
+            call("1", "lookup"),
+            Failure::Protocol,
+        ),
+    ] {
+        let output = refusing(Errno::NOSPC);
+        let (ended, _, closure) = delivered(stray(early), &frame, output);
+        let fatal = Fatal::Failed(failure.clone());
+        let expected = (
+            Err(Ended::Failed(fatal)),
+            Some(Disposition::Failed(failure)),
+        );
+        assert_eq!((case, ended, closure), (case, expected.0, expected.1));
+    }
+}
+
+/// A well-behaved server that, `early`, follows its listing in the same
+/// write with a response to a request never made, so that it waits to be
+/// heard as soon as the session begins; otherwise, one that answers a call
+/// by an id it was never asked by.
+fn stray(early: bool) -> Script {
+    mcp_but(move |frame, output| {
+        let stray = result(&json!(99), json!({}));
+        let said = match (frame["method"].as_str(), early) {
+            (Some("tools/list"), true) => format!("{}\n{stray}\n", answer(frame)?),
+            (Some("tools/call"), false) => format!("{stray}\n"),
+            _ => return None,
+        };
+        output.as_mut()?.write_all(said.as_bytes()).unwrap();
+        Some(Then::Read)
+    })
+}
+
+#[test]
+fn a_harness_output_that_cannot_be_set_up_ends_the_session_undelivered() {
+    // Standard output the broker cannot hold apart, once its server is
+    // initialized: the delivery failure, its ledger closed with it; and
+    // standard input, the protocol's cause (operator ruling 2026-10-14).
+    let cases = [
+        ("output", true, UNDELIVERED, Failure::Undelivered),
+        (
+            "input",
+            false,
+            Fatal::Failed(Failure::Protocol),
+            Failure::Protocol,
+        ),
+    ];
+    for (case, input, fatal, failure) in cases {
+        let plan = super::plan();
+        let (mut to, mut from, server) = fake(mcp());
+        let mut stderr = Drain::new(pipe().0, &[]);
+        let (mut ledger, appended) = in_memory(&plan);
+        let edge = Edge {
+            bindings: &[],
+            stderr: &mut stderr,
+        };
+        let unheld = || Err(std::io::Error::from(Errno::MFILE));
+        let held = || std::fs::File::open("/dev/null");
+        let stdio = || match input {
+            true => (held(), unheld()),
+            false => (unheld(), held()),
+        };
+        let attempt = (&plan, within(Duration::from_secs(10)));
+        let ended = initialized((&mut to, &mut from), &mut ledger, edge, attempt, stdio);
+        let ended = settled(ledger, ended);
+        drop((to, from));
+        server.join().unwrap();
+        let (lifecycle, _) = recover(&appended.borrow(), &plan.owner, DIGEST);
+        let closed = lifecycle.closed().cloned();
+        let expected = (
+            case,
+            Err(Ended::Failed(fatal)),
+            Some(Disposition::Failed(failure)),
+        );
+        assert_eq!((case, ended, closed), expected);
+    }
+}
+
+/// A ledger for `plan` held in memory and bound by no binding, and what it
+/// has appended.
+fn in_memory(plan: &Plan) -> (Ledger<'static>, Rc<RefCell<Vec<u8>>>) {
+    let appended = Rc::new(RefCell::new(Vec::new()));
+    let disk = Rc::clone(&appended);
+    let append = move |line: &[u8]| {
+        disk.borrow_mut().extend_from_slice(line);
+        Ok(())
+    };
+    let mut ledger = Ledger::open_with(append, (&plan.owner, DIGEST), &[]).unwrap();
+    ledger.bind(&[]).unwrap();
+    (ledger, appended)
+}
+
+/// How a settled session ended, what its harness's output took past what
+/// filled it, if it took what filled it first, and in how many writes, and
+/// the closure its ledger proves.
+type Short = (
+    Result<(), Ended>,
+    (Option<Vec<u8>>, usize),
+    Option<Disposition>,
+);
+
+/// A session served to a harness that pings, its output `sink`, `full`
+/// until the harness has ended its input, after which it is read
+/// ([`Short`]).
+fn pinged(full: bool, sink: (Sink, PipeReader)) -> Short {
+    let ping = request(json!("p"), "ping", json!({}));
+    asked(mcp(), &ping, full, sink)
+}
+
+/// [`pinged`], its server's `script` asked `frame`, its output never full.
+fn delivered(script: Script, frame: &Value, sink: (Sink, PipeReader)) -> Short {
+    asked(script, frame, false, sink)
+}
+
+/// A session served by the server's `script` to a harness that sends
+/// `frame`, its output `sink` ([`pinged`]).
+fn asked(script: Script, frame: &Value, full: bool, (short, reader): (Sink, PipeReader)) -> Short {
+    let plan = super::plan();
+    let (mut input, mut output, server) = fake(script);
+    let mut stderr = Drain::new(pipe().0, &[]);
+    let (mut ledger, appended) = in_memory(&plan);
+    let attempt = within(Duration::from_secs(10));
+    let link = (&mut input, &mut output);
+    let started = started(link, &plan, attempt, &mut stderr).unwrap();
+    let (asked, mut to) = pipe();
+    writeln!(to, "{frame}").unwrap();
+    let filled = match full {
+        true => filled(&short),
+        false => Vec::new(),
+    };
+    let to = (!full).then_some(to);
+    let reading = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        held(reader)
+    });
+    let at = Arc::clone(&short.at);
+    let edge = Edge {
+        bindings: &[],
+        stderr: &mut stderr,
+    };
+    let ended = served(started, &plan, &mut ledger, (asked, short), attempt, edge);
+    let ended = settled(ledger, ended);
+    drop((input, output, to));
+    server.join().unwrap();
+    let writes = at.lock().unwrap().len();
+    let (lifecycle, invalid) = recover(&appended.borrow(), &plan.owner, DIGEST);
+    assert_eq!(invalid, None);
+    let wrote = reading.join().unwrap();
+    let past = wrote.strip_prefix(&filled[..]).map(<[u8]>::to_vec);
+    (ended, (past, writes), lifecycle.closed().cloned())
+}
+
+/// What fills the pipe `sink` writes to, a byte at a time, written through
+/// a descriptor of its own until the pipe takes no more.
+fn filled(sink: &impl AsFd) -> Vec<u8> {
+    let mut fill = std::io::PipeWriter::from(sink.as_fd().try_clone_to_owned().unwrap());
+    rustix::io::ioctl_fionbio(&fill, true).unwrap();
+    let mut filled = Vec::new();
+    while fill.write(b"x").is_ok() {
+        filled.push(b'x');
+    }
+    rustix::io::ioctl_fionbio(&fill, false).unwrap();
+    filled
+}
+
+#[test]
+fn an_answer_with_512_bytes_and_no_safe_point_ends_the_session_masked() {
+    // The server's answer holds a run of digits longer than one write:
+    // nowhere can it be cut safely, so it is never delivered, and the
+    // harness is told MB4's cause instead (U6f1b; operator ruling
+    // 2026-10-13).
+    let digits = "1".repeat(ATOMIC + 1);
+    let body = json!({"content": [{"type": "text", "text": digits}]});
+    let ran = conversed(answering_with(tools(), body), move |harness| {
+        harness.send(&call("1", "lookup"));
+        let cause = "MCP response cannot be safely masked";
+        let told =
+            json!({"jsonrpc": "2.0", "id": "1", "error": {"code": -32603, "message": cause}});
+        assert_eq!(harness.next(), Some(told));
+    });
+    lookup_failed("digits", ran, Failure::Masking);
 }
 
 #[test]
@@ -144,4 +497,28 @@ fn an_answer_is_written_as_fast_as_the_harness_takes_it() {
         (ran.ended, ran.proved),
         (Ok::<(), Ended>(()), admitted(succeeded))
     );
+}
+
+#[test]
+fn a_retained_plan_is_refused_before_its_server_or_its_harness_is_told_anything() {
+    // SD3's retention cause, before any MCP message is exchanged: the
+    // server reads no frame, initialize included, and the harness's stdio
+    // is never taken (U6f1b).
+    let mut plan = super::plan();
+    plan.retained = true;
+    let (mut input, mut output, server) = fake(mcp());
+    let mut stderr = Drain::new(pipe().0, &[]);
+    let opened = Ledger::open_with(|_: &[u8]| Ok(()), (&plan.owner, DIGEST), &[]);
+    let mut ledger = opened.unwrap();
+    let edge = Edge {
+        bindings: &[],
+        stderr: &mut stderr,
+    };
+    let link = (&mut input, &mut output);
+    let attempt = (&plan, within(Duration::from_secs(10)));
+    let untaken = || unreachable!("the harness's stdio is never taken");
+    let ended = initialized(link, &mut ledger, edge, attempt, untaken);
+    drop((input, output));
+    let refused = Err(Ended::Refused(Refusal::RetentionIncomplete));
+    assert_eq!((ended, server.join().unwrap().0), (refused, vec![]));
 }

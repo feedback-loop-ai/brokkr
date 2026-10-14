@@ -1,10 +1,10 @@
 //! Fold behavior: protocol-shape enforcement, counters, replay
 //! determinism, and the crash-recovery cursor positions.
 
-use brokkr_core::canonical::ZERO_HASH;
+use brokkr_core::canonical::{sha256_bytes, ZERO_HASH};
 use brokkr_core::decision::{Decision, ReviewedHeads};
 use brokkr_core::envelope::{verify_chain, EventEnvelope, EventType};
-use brokkr_core::fold::{computed_inputs, fold, Cursor, FoldError, Status};
+use brokkr_core::fold::{computed_inputs, fold, Cursor, FoldError, ParkReason, Run, Status};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -69,9 +69,9 @@ fn happy_path_reaches_decide_cursor() {
     effect_cycle(&mut journal, "implement", json!({"result": "complete"}));
     verify_chain(&journal.events).unwrap();
     let state = fold(&journal.events).unwrap();
-    assert_eq!(state.status, Status::Running);
+    assert_eq!(state.run.status(), Status::Running);
     assert_eq!(state.phase.as_deref(), Some("implement"));
-    assert!(matches!(state.cursor, Cursor::Decide { .. }));
+    assert!(matches!(state.run.cursor(), Some(Cursor::Decide { .. })));
 }
 
 #[test]
@@ -157,11 +157,11 @@ fn failed_effect_demands_park_and_operator_retry_reopens() {
     // A determinate failure returns to the executable position with the
     // attempt counted; the engine decides retry-or-park (decision 0006).
     assert!(matches!(
-        state.cursor,
-        Cursor::ExecuteEffect {
+        state.run.cursor(),
+        Some(Cursor::ExecuteEffect {
             failed_attempts: 1,
             ..
-        }
+        })
     ));
 
     journal.append(
@@ -169,8 +169,12 @@ fn failed_effect_demands_park_and_operator_retry_reopens() {
         json!({"reason": "effect fx failed", "evidence": {}}),
     );
     let state = fold(&journal.events).unwrap();
-    assert_eq!(state.status, Status::AwaitingOperator);
-    assert_eq!(state.cursor, Cursor::Idle);
+    assert_eq!(
+        state.run,
+        Run::AwaitingOperator {
+            reason: ParkReason::Stated("effect fx failed".into())
+        }
+    );
 
     journal.append(
         EventType::OperatorCommanded,
@@ -181,8 +185,7 @@ fn failed_effect_demands_park_and_operator_retry_reopens() {
         json!({"command_id": "c1", "operator": "valentin", "reason": "fixed env"}),
     );
     let state = fold(&journal.events).unwrap();
-    assert_eq!(state.status, Status::Running);
-    assert_eq!(state.cursor, Cursor::RequestEffect);
+    assert_eq!(state.run, Run::Running(Cursor::RequestEffect));
 }
 
 #[test]
@@ -199,7 +202,7 @@ fn requested_but_unstarted_effect_can_close_indeterminate() {
         json!({"effect_id": "fx", "reason": "process died before start was durable"}),
     );
     let state = fold(&journal.events).unwrap();
-    assert!(matches!(state.cursor, Cursor::Park { .. }));
+    assert!(matches!(state.run.cursor(), Some(Cursor::Park { .. })));
 }
 
 #[test]
@@ -261,9 +264,9 @@ fn the_committed_fixture_journal_folds_exactly_as_it_did() {
     let state = fold(&events).expect("and it still folds");
     assert_eq!(state.run_id, "tui-graph-the-selection-box-gets-80f98deb");
     assert_eq!(state.seq, 105);
-    assert_eq!(state.status, Status::Running);
+    assert_eq!(state.run.status(), Status::Running);
     assert_eq!(state.phase.as_deref(), Some("verify"));
-    assert_eq!(state.cursor, Cursor::Stop);
+    assert_eq!(state.run.cursor(), Some(&Cursor::Stop));
 
     // A journal written before the map gains nothing from it.
     for event in &events {
@@ -322,6 +325,43 @@ fn every_committed_decision_folds_to_its_own_bytes() {
         }
     }
     assert_eq!(decisions, 68, "every committed decision was measured");
+}
+
+/// #345 slice 3: a run is one of four states, and every prefix of every
+/// committed journal reads as it did before it was: the status word, the
+/// cursor's text, the park reason and whether a stop is in force, or the
+/// refusal's text, hashed and pinned as first measured on fe65a053.
+#[test]
+fn every_committed_journal_prefix_reads_as_it_always_did() {
+    let mut read = String::new();
+    for (_, events) in committed_journals() {
+        for at in 0..events.len() {
+            let line = match fold(&events[..=at]) {
+                Ok(state) => format!(
+                    "{} {} {} {}\n",
+                    state.run.status().as_str(),
+                    state.run,
+                    state.run.park_reason().map_or("-", ParkReason::as_str),
+                    matches!(
+                        state.run,
+                        Run::Running(
+                            Cursor::Stop
+                                | Cursor::EffectInFlight {
+                                    stop_rides: true,
+                                    ..
+                                }
+                        )
+                    )
+                ),
+                Err(error) => format!("{error}\n"),
+            };
+            read.push_str(&line);
+        }
+    }
+    assert_eq!(
+        sha256_bytes(read.as_bytes()),
+        "179dc754bcea8c692d1dcee4b47ab762524cbafbea1829d3bb1887724b0c83f1"
+    );
 }
 
 /// The repository root, where the committed journals live.

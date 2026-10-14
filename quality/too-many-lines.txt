@@ -28,11 +28,8 @@
  116 crates/brokkr-runtime/src/bundle.rs:3804 admit_local_sandbox
  112 crates/brokkr-runtime/src/bundle.rs:4197 enforce_route_policy
  133 crates/brokkr-runtime/src/bundle.rs:5934 record_capabilities
- 110 crates/brokkr-runtime/src/bundle.rs:6436 parse_panel
  243 crates/brokkr-runtime/src/bundle.rs:6567 parse_sequence
  101 crates/brokkr-runtime/src/bundle.rs:7190 walk_files
- 101 crates/brokkr-runtime/src/bundle/compose.rs:234 read_layers
- 368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
  240 crates/brokkr-runtime/src/capabilities.rs:1547 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:320 check
  159 crates/brokkr-runtime/src/engine.rs:1099 seat_input
@@ -213,7 +210,6 @@
  106 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3166 the_gate_law_reads_the_boundary_for_sites_that_declare_hands
  131 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3357 ruling_4s_own_binding_is_pinned_against_the_shipped_adapters
  130 crates/brokkr-runtime/src/bundle/model_policy_tests.rs:3855 every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured
- 176 crates/brokkr-runtime/src/bundle/tests.rs:702 panel_and_sequence_parsers_refuse_every_ambiguous_shape
  102 crates/brokkr-runtime/src/capabilities/tests.rs:1633 a_native_power_that_cannot_be_switched_off_refuses_the_seat_whatever_it_asks
  101 crates/brokkr-runtime/src/dialect/tests.rs:108 every_checked_dialect_boundary_is_named
  164 crates/brokkr-runtime/src/engine/boundary_tests.rs:336 every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands
@@ -249,7 +245,6 @@
  104 crates/brokkr-runtime/src/engine/tests.rs:1753 single_conclusion_driver_and_checkpoint_failures_cover_every_outcome
  111 crates/brokkr-runtime/src/engine/tests.rs:1864 panel_sequence_and_aggregation_cover_all_terminal_shapes
  108 crates/brokkr-runtime/src/engine/tests.rs:2930 an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it
- 120 crates/brokkr-runtime/src/engine/tests.rs:3076 start_append_and_running_cursor_storage_failures_propagate
  298 crates/brokkr-runtime/src/engine/tests.rs:3560 panel_and_sequence_storage_failures_propagate
  105 crates/brokkr-runtime/src/engine/tests.rs:4642 a_sequence_fake_driver_sees_step_results_then_the_seat_results
  111 crates/brokkr-runtime/src/engine/tests.rs:5182 chief_synthesis_carries_a_panel_security_hold_to_the_machine

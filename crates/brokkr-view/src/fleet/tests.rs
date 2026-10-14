@@ -4,6 +4,7 @@
 use super::*;
 use crate::tests::state;
 use crate::{Superseded, SupersededBy};
+use brokkr_core::fold::{ParkReason, Run};
 use serde_json::{json, Value};
 
 const NOW: &str = "2026-01-02T00:00:00Z";
@@ -12,10 +13,16 @@ const NOW: &str = "2026-01-02T00:00:00Z";
 const DAY_BEFORE: &str = "2026-01-01T00:00:00Z";
 const JUST_UNDER_A_DAY: &str = "2026-01-01T00:00:01Z";
 
-/// A run the fold has settled: no park reason unless the test gives one.
+/// A run the fold has settled, parked on `needs a human` when it parked.
 fn settled(status: Status, phase: &str, decision: Option<Value>) -> RunState {
-    let mut state = state(Some(phase), status, decision);
-    state.park_reason = None;
+    state(Some(phase), status, decision)
+}
+
+/// `state` parked for `reason`.
+fn parked_for(mut state: RunState, reason: &str) -> RunState {
+    state.run = Run::AwaitingOperator {
+        reason: ParkReason::read(reason.to_string()),
+    };
     state
 }
 
@@ -231,28 +238,32 @@ fn a_shipped_run_shows_its_ruling_and_its_worst_open_residual() {
 /// fold's reason; a quarantined run says its journal does not fold.
 #[test]
 fn a_run_that_needs_you_says_why() {
-    let mut held = settled(
-        Status::AwaitingOperator,
-        "review",
-        ruled("REVIEW-UNVERIFIED-SECURITY", "review", None),
+    let held = parked_for(
+        settled(
+            Status::AwaitingOperator,
+            "review",
+            ruled("REVIEW-UNVERIFIED-SECURITY", "review", None),
+        ),
+        "REVIEW-UNVERIFIED-SECURITY for (review, clean)",
     );
-    held.park_reason = Some("REVIEW-UNVERIFIED-SECURITY for (review, clean)".to_string());
     let mut wanted_held = wanted(
         Standing::Parked,
         Some("REVIEW-UNVERIFIED-SECURITY"),
         None,
         "UNVERIFIED-SE…",
     );
-    wanted_held.reason = held.park_reason.clone();
+    wanted_held.reason = Some("REVIEW-UNVERIFIED-SECURITY for (review, clean)".to_string());
     assert_eq!(verdict(Some(&held), &[]), wanted_held);
-    let mut spent = settled(
-        Status::AwaitingOperator,
-        "implement",
-        ruled("ARCH-OK", "architect", Some("implement")),
+    let spent = parked_for(
+        settled(
+            Status::AwaitingOperator,
+            "implement",
+            ruled("ARCH-OK", "architect", Some("implement")),
+        ),
+        "attempt limit exhausted",
     );
-    spent.park_reason = Some("attempt limit exhausted".to_string());
     let mut wanted_spent = wanted(Standing::Parked, None, None, ABSENT);
-    wanted_spent.reason = spent.park_reason.clone();
+    wanted_spent.reason = Some("attempt limit exhausted".to_string());
     assert_eq!(verdict(Some(&spent), &[]), wanted_spent);
     assert_eq!(
         verdict(None, &[]),
@@ -408,6 +419,73 @@ fn a_finished_run_is_dated_by_its_last_event() {
     );
 }
 
+/// #511: a quarantine the operator acknowledged needs nothing and lists
+/// under "older" however recent it is, keeping its `?`, its refusal and
+/// what refused it; the same quarantine unacknowledged still needs them.
+#[test]
+fn an_acknowledged_quarantine_needs_nothing_and_lists_under_older_even_when_recent() {
+    let acknowledgement = Acknowledgement {
+        seq: 539,
+        event_hash: "ab12".to_string(),
+        operator: "valentin".to_string(),
+        reason: "history from an engine since changed".to_string(),
+        recorded_at: JUST_UNDER_A_DAY.to_string(),
+    };
+    let refused = |run_id, quarantine: Quarantine, acknowledged| RunEntry {
+        detail: Some(Refusal {
+            acknowledgement: acknowledged,
+            ..quarantine.in_words("event 539: event after terminal status")
+        }),
+        ..crate::tests::listed(run_id, "a run", NOW, None)
+    };
+    let view = run_rows(&[
+        refused("fold", Quarantine::DoesNotFold, Some(&acknowledgement)),
+        refused("load", Quarantine::DoesNotLoad, Some(&acknowledgement)),
+        refused("open", Quarantine::DoesNotFold, None),
+    ]);
+    assert_eq!(
+        view.runs
+            .iter()
+            .map(|row| need(row, NOW))
+            .collect::<Vec<_>>(),
+        [Some(Need::Quarantined(Quarantine::DoesNotFold)), None, None]
+    );
+    assert_eq!(
+        ids(sections(&view.runs, NOW)),
+        [
+            (Section::NeedsYou, vec!["open"]),
+            (Section::Running, vec![]),
+            (Section::Recent, vec![]),
+            (Section::Older, vec!["load", "fold"]),
+        ]
+    );
+    let load = &view.runs[1];
+    assert_eq!(load.verdict.standing, Standing::Quarantined);
+    assert_eq!(
+        (load.status.as_deref(), load.quarantine),
+        (None, Some(Quarantine::DoesNotLoad))
+    );
+    assert_eq!(
+        load.detail.as_deref(),
+        Some("event 539: event after terminal status")
+    );
+    assert_eq!(load.acknowledgement.as_ref(), Some(&acknowledgement));
+    assert_eq!(view.runs[0].acknowledgement, None);
+    assert_eq!(
+        acknowledgement.line(),
+        "acknowledged by valentin at 2026-01-01T00:00:01Z, event 539: history from an engine \
+         since changed"
+    );
+    let json = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        json["runs"][2]["acknowledgement"],
+        json!({"seq": 539, "event_hash": "ab12", "operator": "valentin",
+               "reason": "history from an engine since changed",
+               "recorded_at": JUST_UNDER_A_DAY})
+    );
+    assert_eq!(json["runs"][2]["verdict"]["standing"], "quarantined");
+}
+
 // ------------------------------------------------------------- the wrap
 
 /// The detail pane's lines: broken at the last space that fits, by
@@ -456,8 +534,9 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 21);
+    assert_eq!(json["view_version"], 22);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
+    assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
     assert_eq!(json["runs"][0]["title"], "fleet titles");
     assert_eq!(json["runs"][0]["last_recorded_at"], JUST_UNDER_A_DAY);
@@ -551,10 +630,15 @@ fn each_need_says_what_the_operator_can_do() {
     );
     assert_eq!(Need::Parked.way_out("r1"), Vec::<String>::new());
     assert_eq!(Need::Parked.commands("r1"), Vec::<String>::new());
-    assert_eq!(unfolded.commands("r1"), ["brokkr export --run r1"]);
+    let acknowledge = "brokkr operator acknowledge --run r1 --reason <why>";
+    assert_eq!(
+        unfolded.commands("r1"),
+        ["brokkr export --run r1", acknowledge]
+    );
     // The store refuses a journal it does not load to every verb that
-    // reads it, export included: no command answers it (review M1).
-    assert_eq!(unloaded.commands("r1"), Vec::<String>::new());
+    // reads it, export included (review M1); an acknowledgement reads
+    // neither its events nor its fold (#511).
+    assert_eq!(unloaded.commands("r1"), [acknowledge]);
     assert_eq!(
         stale.commands("r1"),
         [
@@ -567,6 +651,8 @@ fn each_need_says_what_the_operator_can_do() {
         [
             "way out   brokkr export --run r1",
             "          and inspect the journal it writes",
+            "          then brokkr operator acknowledge --run r1 --reason <why> lists it under \
+             older",
         ]
     );
     assert_eq!(
@@ -574,6 +660,8 @@ fn each_need_says_what_the_operator_can_do() {
         [
             "way out   none in brokkr: the store refuses this journal, export included;",
             "          inspect the hearth's journal file by hand",
+            "          then brokkr operator acknowledge --run r1 --reason <why> lists it under \
+             older",
         ]
     );
     assert_eq!(
@@ -616,12 +704,13 @@ fn each_need_says_what_the_operator_can_do() {
 #[test]
 fn a_stale_run_has_no_seat_at_work() {
     let mut running = settled(Status::Running, "review", None);
-    running.cursor = Cursor::EffectInFlight {
+    running.run = Run::Running(Cursor::EffectInFlight {
         effect_id: "e1".to_string(),
         attempt_id: "a1".to_string(),
         seat: "reviewer".to_string(),
         failed_attempts: 0,
-    };
+        stop_rides: false,
+    });
     let live = silent_since(&running, Some(NOW));
     let hire = Hire {
         seat: "reviewer".to_string(),
@@ -638,27 +727,32 @@ fn a_stale_run_has_no_seat_at_work() {
 #[test]
 fn a_run_row_names_the_seat_at_work_and_its_attempt() {
     let mut running = settled(Status::Running, "review", None);
-    running.cursor = Cursor::EffectInFlight {
+    running.run = Run::Running(Cursor::EffectInFlight {
         effect_id: "e1".to_string(),
         attempt_id: "a2".to_string(),
         seat: "reviewer".to_string(),
         failed_attempts: 1,
-    };
+        stop_rides: false,
+    });
     let hire = |seat: &str, attempt| Hire {
         seat: seat.to_string(),
         attempt,
     };
     assert_eq!(silent_since(&running, None).hire, Some(hire("reviewer", 2)));
-    running.cursor = Cursor::ExecuteEffect {
+    running.run = Run::Running(Cursor::ExecuteEffect {
         effect_id: "e1".to_string(),
         seat: "reviewer".to_string(),
         failed_attempts: 0,
-    };
+    });
     assert_eq!(silent_since(&running, None).hire, Some(hire("reviewer", 1)));
     let json = serde_json::to_value(silent_since(&running, None)).unwrap();
     assert_eq!(json["hire"], json!({"seat": "reviewer", "attempt": 1}));
-    for cursor in [Cursor::Idle, Cursor::RequestEffect, Cursor::Stop] {
-        running.cursor = cursor;
+    for run in [
+        Run::Stopped,
+        Run::Running(Cursor::RequestEffect),
+        Run::Running(Cursor::Stop),
+    ] {
+        running.run = run;
         assert_eq!(silent_since(&running, None).hire, None);
     }
 }

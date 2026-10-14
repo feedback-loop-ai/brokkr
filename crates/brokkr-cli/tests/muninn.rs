@@ -226,6 +226,7 @@ impl Workspace {
     }
 
     fn brokkr(&self, args: &[&str]) -> Output {
+        crate::engine::library(self.path());
         Command::new(brokkr_bin())
             .args(args)
             .current_dir(self.path())
@@ -349,7 +350,7 @@ fn residual_seq(db: &Path, run_id: &str) -> u64 {
     let events = store.load(run_id).unwrap();
     let state = brokkr_core::fold(&events).unwrap();
     assert_eq!(
-        state.status.as_str(),
+        state.run.status().as_str(),
         "stopped",
         "the staged run reaches a hard stop on its residual"
     );

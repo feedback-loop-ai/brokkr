@@ -14,10 +14,10 @@
 //! one binding frame on the control pipe, which the broker then closes, and
 //! the bootstrap's status pipe read to its end: a tag is the handoff's or
 //! the exec's cause, and its end permits only the server's initialization
-//! (U6c8), which the box's live stdio is handed on to (U6e). The startup's
+//! (U6c8), which the box's live stdio is handed on to (U6e), and then its
+//! serving, beside its drained standard error (U6f1b). The startup's
 //! absolute deadline and the attempt's cancellation bound every wait. The
-//! box is settled once that has answered, either way, its server with it:
-//! serving still refuses before any message reaches the harness.
+//! box is settled once that has answered, either way, its server with it.
 
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, PipeReader, PipeWriter};
@@ -57,6 +57,18 @@ pub(in crate::broker) type Startup<'a> = (Instant, &'a (dyn Fn() -> bool + Sync)
 /// A launched box's server's standard input and output, its only stdio,
 /// as the protocol takes them over (U6e).
 pub(in crate::broker) type Link<'l> = (&'l mut PipeWriter, &'l mut PipeReader);
+
+/// What a binding sender's supervisor takes of what it looked up (MB4):
+/// nothing, where it began no lookup or its lookup refused; what it
+/// published; or, where it was given up on, or failed, after its lookup
+/// began and before it published, nothing known of what it holds, so that
+/// no later record can be guarded by it, and none is made.
+#[derive(Debug, PartialEq)]
+pub(in crate::broker) enum Handed<P> {
+    Nothing,
+    Published(P),
+    Uncertain,
+}
 
 /// The longest one wait on a pipe lasts before the deadline and the
 /// cancellation are read again.
@@ -159,12 +171,12 @@ pub(super) fn compared(
 
 /// Off Linux no box stands, so none is launched and nothing is served.
 #[cfg(not(target_os = "linux"))]
-pub(super) fn ready<T, E: From<Refusal>>(
+pub(super) fn ready<T, B, E: From<Refusal>>(
     admitted: &Admitted,
     _: (&brokkr_protocol::broker::Plan, &str),
     _: Startup<'_>,
-    _: impl FnOnce(Vec<brokkr_protocol::secret::BoundSecret>) -> Result<(), E>,
-    _: impl FnOnce(Link<'_>) -> Result<T, E>,
+    _: impl FnOnce(Handed<Vec<brokkr_protocol::secret::BoundSecret>>) -> Result<B, E>,
+    _: impl FnOnce(Link<'_>, &mut PipeReader, B) -> Result<T, E>,
 ) -> Result<T, E> {
     let _ = (&admitted.handles, &admitted.store, &admitted.entry);
     Err(Refusal::Unavailable.into())
@@ -179,14 +191,14 @@ mod linux {
     use std::os::unix::fs::MetadataExt;
     use std::os::unix::io::RawFd;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, PoisonError};
 
     use brokkr_protocol::broker::{Plan, Refusal};
     use brokkr_protocol::hands::ServerBox;
     use brokkr_protocol::secret;
     use serde::Deserialize;
 
-    use super::{polled, Admitted, Link, Startup};
+    use super::{polled, Admitted, Handed, Link, Startup};
     use crate::broker::bootstrap::handshake::Status;
     pub(super) use crate::broker::bootstrap::handshake::{
         Intent, Ready, Source, Spaces, FRAME_MAX,
@@ -222,15 +234,16 @@ mod linux {
     /// cannot be sent or the readiness is not the owned bootstrap's, whole,
     /// for this plan and these sources. The bindings looked up are given
     /// to `bind` as soon as they are ([`delivered`]). Only then is the
-    /// server's stdio handed on, live, to `served` (U6e), whose answer this
-    /// is. The box is settled once this returns, either way, its server
-    /// with it.
-    pub(in crate::broker) fn ready<T, E: From<Refusal>>(
+    /// server's stdio handed on, live, to `served` (U6e), with its standard
+    /// error and what `bind` answered (U6f1b), and its answer is this one.
+    /// The box is settled once this returns, either way, its server with
+    /// it.
+    pub(in crate::broker) fn ready<T, B, E: From<Refusal>>(
         admitted: &Admitted,
         (plan, digest): (&Plan, &str),
         startup: Startup<'_>,
-        bind: impl FnOnce(Vec<secret::BoundSecret>) -> Result<(), E>,
-        served: impl FnOnce(Link<'_>) -> Result<T, E>,
+        bind: impl FnOnce(Handed<Vec<secret::BoundSecret>>) -> Result<B, E>,
+        served: impl FnOnce(Link<'_>, &mut PipeReader, B) -> Result<T, E>,
     ) -> Result<T, E> {
         let handles = admitted.handles.iter().map(|(_, fd)| fd.as_fd());
         let handles: Vec<BorrowedFd<'_>> = handles.collect();
@@ -258,8 +271,9 @@ mod linux {
             child.kill().ok();
         };
         decided(&ready, (digest, &intent.sources), launcher, &seen)?;
-        delivered(pipes, (admitted, plan), startup, (end, bind))?;
-        served((&mut launched.input, &mut launched.output))
+        let bound = delivered(pipes, (admitted, plan), startup, (end, bind))?;
+        let link = (&mut launched.input, &mut launched.output);
+        served(link, &mut launched.errors, bound)
     }
 
     /// Hand the ready bootstrap its server's bindings on the box's
@@ -271,69 +285,144 @@ mod linux {
     /// send run on a thread of their own, on its own duplicates of the
     /// store's handle and the control pipe, which it closes after its one
     /// frame; this one supervises it by the same `startup` as every other
-    /// wait ([`handed`]). The bindings the sender looked up are given to
-    /// `bind` as soon as it answers, before its answer or anything after it
-    /// is read, so no cause after their lookup ends the session unguarded
-    /// by them (MB4, CR2; operator ruling 2026-10-13); `bind`'s refusal is
-    /// the session's.
-    pub(super) fn delivered<E: From<Refusal>>(
+    /// wait ([`handed`]). The sender marks its lookup begun, and publishes
+    /// the bindings it looked up before it writes a byte of their frame;
+    /// what it published is given to `bind` once the sender has answered
+    /// or been given up on, at its deadline, on the attempt's cancellation
+    /// or on its failure, before any of its answer is read: however long
+    /// the write stalls, no cause after their lookup ends the session
+    /// unguarded by them. One given up on after its lookup began and before
+    /// it published leaves what it holds unknown ([`Handed::Uncertain`]),
+    /// which `bind` records nothing more by, the closure included (MB4,
+    /// CR2; operator ruling 2026-10-13). None are given where none were
+    /// looked up. `bind`'s refusal is the session's, and what it answers is
+    /// this.
+    pub(super) fn delivered<B, E: From<Refusal>>(
         (control, status): (&mut Option<PipeWriter>, &mut PipeReader),
         (admitted, plan): (&Admitted, &Plan),
         startup: Startup<'_>,
         (end, bind): (
             impl FnOnce(),
-            impl FnOnce(Vec<secret::BoundSecret>) -> Result<(), E>,
+            impl FnOnce(Handed<Vec<secret::BoundSecret>>) -> Result<B, E>,
         ),
-    ) -> Result<(), E> {
+    ) -> Result<B, E> {
         let open = control.as_ref().ok_or(Refusal::Handoff)?;
         let mut open = open.try_clone().or(Err(Refusal::Handoff))?;
         let store = admitted.store.try_clone().or(Err(Refusal::Handoff))?;
         let (path, names) = (plan.intent.excluded.store.clone(), plan.secrets.clone());
         let deadline = startup.0;
-        let (bindings, sent) =
-            handed(std::thread::Builder::new(), startup, end, move |given_up| {
-                let given_up = || given_up.load(Ordering::SeqCst);
-                let sending: Startup<'_> = (deadline, &given_up);
-                let send = |frame: &[u8]| sent(&mut open, frame, sending).or(Err(Refusal::Handoff));
-                Ok(secret::send_environment(store.as_fd(), &path, &names, send))
-            })?;
-        bind(bindings)?;
+        let thread = std::thread::Builder::new();
+        let (bindings, sent) = handed(thread, startup, end, move |given_up, published| {
+            ensure(published.begin(), Refusal::Handoff)?;
+            let given_up = || given_up.load(Ordering::SeqCst);
+            let sending: Startup<'_> = (deadline, &given_up);
+            let send = |frame: &[u8]| sent(&mut open, frame, sending).or(Err(Refusal::Handoff));
+            let found = |found| published.publish(found);
+            secret::send_environment(store.as_fd(), &path, &names, found, send)
+        });
+        let bound = bind(bindings)?;
         sent?;
         drop(control.take());
-        Ok(exec_status(status, startup)?)
+        exec_status(status, startup)?;
+        Ok(bound)
+    }
+
+    /// Where a sender stands, as its supervisor takes it: no lookup begun;
+    /// one begun, nothing published; what it published; or taken by its
+    /// supervisor already.
+    enum Slot<P> {
+        Unbegun,
+        Begun,
+        Published(P),
+        Taken,
+    }
+
+    /// What a sender begins and publishes before it can stall, held behind
+    /// one lock with its supervisor's take: whatever is published before the
+    /// take is taken, a lookup begun and not published by then is known to
+    /// be, and a sender that begins or publishes after it begins nothing
+    /// and publishes nothing, and sees itself given up on.
+    pub(super) struct Published<P>(Arc<Mutex<Slot<P>>>);
+
+    impl<P> Published<P> {
+        /// Mark the lookup begun: whether it may be, which it may not once
+        /// the supervisor has taken what stands.
+        pub(super) fn begin(&self) -> bool {
+            let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            match *slot {
+                Slot::Unbegun => {
+                    *slot = Slot::Begun;
+                    true
+                }
+                Slot::Begun | Slot::Published(_) | Slot::Taken => false,
+            }
+        }
+
+        /// Publish `value`, in place of anything published before it,
+        /// unless the supervisor has taken what stands.
+        pub(super) fn publish(&self, value: P) {
+            let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            if !matches!(*slot, Slot::Taken) {
+                *slot = Slot::Published(value);
+            }
+        }
+
+        /// What stands, taken once: what was published; nothing where no
+        /// lookup began, or where the sender `returned` from one it began,
+        /// which publishes whatever it looked up before it returns; and
+        /// uncertain where it began one and neither published nor returned.
+        fn taken(&self, returned: bool) -> Handed<P> {
+            let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            match (std::mem::replace(&mut *slot, Slot::Taken), returned) {
+                (Slot::Published(value), _) => Handed::Published(value),
+                (Slot::Begun, false) => Handed::Uncertain,
+                (Slot::Unbegun | Slot::Begun | Slot::Taken, _) => Handed::Nothing,
+            }
+        }
     }
 
     /// `sender`'s answer, run on a detached thread of its own, made by
     /// `thread`, while this one waits within `startup`'s absolute deadline
-    /// unless the attempt is cancelled ([`polled`]). A thread that cannot
-    /// be made is the handoff cause, with nothing sent. A sender that has
-    /// not answered by then, a store read held or a frame not taken, is the
-    /// handoff cause at once:
-    /// `end` ends the box, the sender is told it was given up on, and it is
-    /// not waited for, so neither a held read nor a full pipe holds the
-    /// refusal. It owns all it holds, so nothing the box's settling
-    /// releases is borrowed, and it ends with `serve`'s own exit on that
-    /// refusal (operator ruling 2026-10-11).
-    pub(super) fn handed<T: Send + 'static>(
+    /// unless the attempt is cancelled ([`polled`]), and what it published
+    /// by then ([`Published`]). A thread that cannot be made is the handoff
+    /// cause, with nothing sent or published. A sender that has not
+    /// answered by then, a store read held or a frame not taken, is the
+    /// handoff cause at once: the sender is told it was given up on, `end`
+    /// ends the box, and it is not waited for, so neither a held read nor a
+    /// full pipe holds the refusal; what it published before it was given
+    /// up on is still taken, and so is what a sender that failed published,
+    /// and one that began its lookup and published nothing before either is
+    /// uncertain. The sender owns all it holds, so nothing the box's
+    /// settling releases is borrowed, and it ends with `serve`'s own exit on
+    /// that refusal (operator ruling 2026-10-11).
+    pub(super) fn handed<P: Send + 'static, T: Send + 'static>(
         thread: std::thread::Builder,
         startup: Startup<'_>,
         end: impl FnOnce(),
-        sender: impl FnOnce(&AtomicBool) -> Result<T, Refusal> + Send + 'static,
-    ) -> Result<T, Refusal> {
+        sender: impl FnOnce(&AtomicBool, &Published<P>) -> Result<T, Refusal> + Send + 'static,
+    ) -> (Handed<P>, Result<T, Refusal>) {
         let given_up = Arc::new(AtomicBool::new(false));
-        let giving = Arc::clone(&given_up);
-        let sending = thread.spawn(move || sender(&giving));
-        let sending = sending.or(Err(Refusal::Handoff))?;
+        let published = Published(Arc::new(Mutex::new(Slot::Unbegun)));
+        let (giving, publishing) = (Arc::clone(&given_up), Published(Arc::clone(&published.0)));
+        let sending = thread.spawn(move || sender(&giving, &publishing));
+        let Ok(sending) = sending else {
+            return (Handed::Nothing, Err(Refusal::Handoff));
+        };
         let answered = polled(startup, || match sending.is_finished() {
             true => Ok(true),
             false => Err(ErrorKind::WouldBlock.into()),
         });
         if !answered {
+            // Told first, so a sender that publishes after the take below
+            // sees itself given up on and writes nothing.
             given_up.store(true, Ordering::SeqCst);
             end();
-            return Err(Refusal::Handoff);
+            return (published.taken(false), Err(Refusal::Handoff));
         }
-        sending.join().unwrap_or(Err(Refusal::Handoff))
+        let answer = sending.join();
+        let returned = answer.is_ok();
+        let answer = answer.unwrap_or(Err(Refusal::Handoff));
+        (published.taken(returned), answer)
     }
 
     /// What the bootstrap's status pipe holds once each of its writers has

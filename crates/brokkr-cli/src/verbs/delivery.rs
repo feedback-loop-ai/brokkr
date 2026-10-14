@@ -16,6 +16,7 @@ use brokkr_runtime::{Engine, FencedCommandOutcome};
 use crate::cli_args::{
     ConcludeArgs, DeliveryArgs, LaunchArgs, OperatorArgs, RerunArgs, ResumeArgs, RunArgs,
 };
+use crate::folder::Layout;
 use crate::run_view::{self, Viewer};
 use crate::Invocation;
 use crate::{drive_to_end, finish, open_journal, recipes, selector, supersede, Access, Exit};
@@ -35,17 +36,19 @@ pub(crate) fn run(workspace: &Path, args: RunArgs, viewer: &Viewer) -> Result<Ex
 pub(super) fn new_run(workspace: &Path, args: LaunchArgs) -> Result<(LaunchRequest, NewRun)> {
     // The map is read BEFORE anything is compiled, opened or spawned: a
     // named map that is missing or malformed ends the invocation here.
+    let escape = args.db.is_some();
     let Invocation {
         world,
         named,
         journal,
         ..
     } = Invocation::resolve(workspace, args.realms, args.db)?.announce();
-    let request = request(workspace, args.delivery, journal, args.repo);
+    let layout = Layout::discover(workspace)?;
+    let request = request(&layout, args.delivery, (journal, escape), args.repo)?;
     let new = NewRun {
         feature: args.feature,
         map: run_map(world, named),
-        dispatch: args.dispatch,
+        dispatch: args.dispatch.map(|path| layout.typed(path)),
     };
     Ok((request, new))
 }
@@ -66,41 +69,62 @@ fn run_map(world: Option<World>, named: bool) -> RunMap {
 }
 
 /// The request a handler hands the launch: its arguments, and the host's
-/// search path for the boundary's tool.
+/// search path for the boundary's tool. The run's results need a place
+/// before anything is compiled (decision 0083 ruling 2), and where a
+/// folder is discovered its root is the workspace, its bundle the
+/// default and its repository the one operated, while a path a flag
+/// names is still read where it was typed ([`Layout::typed`]). `journal`
+/// comes with whether `--db` named it, the escape an old layout's state
+/// reads by.
 fn request(
-    workspace: &Path,
+    layout: &Layout,
     DeliveryArgs {
         bundle,
         recipe,
         recipes_dir,
         secrets_file,
     }: DeliveryArgs,
-    journal: PathBuf,
+    (journal, escape): (PathBuf, bool),
     repo: Option<PathBuf>,
-) -> LaunchRequest {
-    LaunchRequest {
-        workspace: workspace.to_path_buf(),
-        bundle: recipes::source(bundle, recipe, recipes_dir),
+) -> Result<LaunchRequest> {
+    layout.state(escape)?;
+    let typed = |path: Option<PathBuf>| path.map(|path| layout.typed(path));
+    let recipes_dir = layout.typed(recipes_dir);
+    Ok(LaunchRequest {
+        workspace: layout.workspace(),
+        bundle: recipes::source(typed(bundle), recipe, recipes_dir, || layout.bundle())?,
         journal,
-        repo,
-        secrets: secrets_file,
+        repo: typed(repo).or_else(|| layout.operated()),
+        secrets: typed(secrets_file),
         host_path: std::env::var_os("PATH").unwrap_or_default(),
-    }
+    })
 }
 
-/// The run `--run` names in `journal`, through decision 0015's selector.
-/// It is resolved here, before the launch, which is only ever handed an
-/// id (#350).
-fn resolve_run(journal: &Path, requested: &str) -> Result<String> {
-    selector::resolve_run(&open_journal(journal, Access::Append)?, requested)
+/// The run `--run` names in `journal`, through decision 0015's selector,
+/// and the request that continues it. The run's state needs a place
+/// before the journal opens (decision 0083); the run is resolved here,
+/// before the launch, which is only ever handed an id (#350), and before
+/// its bundle is named, as it always was.
+fn resolved(
+    workspace: &Path,
+    requested: &str,
+    delivery: DeliveryArgs,
+    (journal, escape): (PathBuf, bool),
+    repo: Option<PathBuf>,
+) -> Result<(String, LaunchRequest)> {
+    let layout = Layout::discover(workspace)?;
+    layout.state(escape)?;
+    let run = selector::resolve_run(&open_journal(&journal, Access::Append)?, requested)?;
+    Ok((run, request(&layout, delivery, (journal, escape), repo)?))
 }
 
 /// `brokkr resume`: continue a run under its exact pinned bundle, beside
 /// its run view on a terminal (#508).
 pub(crate) fn resume(workspace: &Path, args: ResumeArgs, viewer: &Viewer) -> Result<ExitCode> {
+    let escape = args.journal.db.is_some();
     let journal = args.journal.journal(workspace)?;
-    let run = resolve_run(&journal, &args.run)?;
-    let request = request(workspace, args.delivery, journal.clone(), args.repo);
+    let named = (journal.clone(), escape);
+    let (run, request) = resolved(workspace, &args.run, args.delivery, named, args.repo)?;
     let mut engine = launch::resume(request, &run)?;
     run_view::drive(&mut engine, &journal, args.no_view, viewer)
 }
@@ -110,10 +134,11 @@ pub(crate) fn resume(workspace: &Path, args: ResumeArgs, viewer: &Viewer) -> Res
 /// before anything opens, and the journal it names is the one the rerun
 /// is written to (#374).
 pub(crate) fn rerun(workspace: &Path, args: RerunArgs) -> Result<ExitCode> {
+    let escape = args.journal.db.is_some();
     let Invocation { world, journal, .. } =
         Invocation::resolve(workspace, args.journal.realms, args.journal.db)?.announce();
-    let run = resolve_run(&journal, &args.run)?;
-    let request = request(workspace, args.delivery, journal, args.repo);
+    let named = (journal, escape);
+    let (run, request) = resolved(workspace, &args.run, args.delivery, named, args.repo)?;
     let mut engine = launch::rerun(request, &run, world)?;
     let name = &engine.bundle.name;
     eprintln!("rerun of {run} as {} under {name}", engine.run_id);
@@ -135,7 +160,8 @@ pub(crate) fn conclude(
     Ok(finish(&state))
 }
 
-/// `brokkr operator`: record `retry`, `stop` or `supersede`.
+/// `brokkr operator`: record `retry`, `stop` or `supersede`, or
+/// acknowledge a quarantined run (#511).
 pub(crate) fn operator(
     workspace: &Path,
     OperatorArgs {
@@ -171,14 +197,17 @@ pub(crate) fn operator(
             journal.db,
         );
     }
-    let Some(verb) = OperatorCommand::parse(&command) else {
-        anyhow::bail!("operator command must be 'retry', 'stop' or 'supersede'");
-    };
     anyhow::ensure!(
         !cited,
         "--findings, --by-run, --by-seq and --by-realm belong to \
          'supersede'; '{command}' takes --run, --reason, --realms and --db"
     );
+    if command == "acknowledge" {
+        return super::acknowledge::acknowledge(workspace, &run, &reason, journal);
+    }
+    let Some(verb) = OperatorCommand::parse(&command) else {
+        anyhow::bail!("operator command must be 'retry', 'stop', 'supersede' or 'acknowledge'");
+    };
     // The journal `run` wrote (#374): the map's, unless `--db`
     // outranks it.
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;

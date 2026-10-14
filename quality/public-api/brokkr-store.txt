@@ -63,6 +63,9 @@ impl brokkr_store::SeatRecordVersion
 pub fn brokkr_store::SeatRecordVersion::contract(self) -> &'static str
 pub fn brokkr_store::SeatRecordVersion::of_engine(&str) -> brokkr_store::SeatRecordVersion
 pub enum brokkr_store::StoreError
+pub brokkr_store::StoreError::AlreadyAcknowledged
+pub brokkr_store::StoreError::AlreadyAcknowledged::run_id: alloc::string::String
+pub brokkr_store::StoreError::AlreadyAcknowledged::seq: u64
 pub brokkr_store::StoreError::AppendConflict
 pub brokkr_store::StoreError::AppendConflict::seq: u64
 pub brokkr_store::StoreError::Chain(brokkr_core::envelope::ChainError)
@@ -100,6 +103,12 @@ pub const brokkr_store::WaitOn::ALL: [brokkr_store::WaitOn; 2]
 pub fn brokkr_store::WaitOn::word(self) -> &'static str
 impl rusqlite::types::from_sql::FromSql for brokkr_store::WaitOn
 pub fn brokkr_store::WaitOn::column_result(rusqlite::types::value_ref::ValueRef<'_>) -> rusqlite::types::from_sql::FromSqlResult<Self>
+pub struct brokkr_store::Acknowledgement
+pub brokkr_store::Acknowledgement::event_hash: alloc::string::String
+pub brokkr_store::Acknowledgement::operator: alloc::string::String
+pub brokkr_store::Acknowledgement::reason: alloc::string::String
+pub brokkr_store::Acknowledgement::recorded_at: alloc::string::String
+pub brokkr_store::Acknowledgement::seq: u64
 pub struct brokkr_store::Adoption
 pub brokkr_store::Adoption::arrival: brokkr_store::Arrival
 pub brokkr_store::Adoption::events: usize
@@ -152,6 +161,9 @@ pub brokkr_store::SeatRecordError::path: alloc::string::String
 pub brokkr_store::SeatRecordError::seq: u64
 pub struct brokkr_store::Seen
 pub struct brokkr_store::Store
+impl brokkr_store::Store
+pub fn brokkr_store::Store::acknowledge_quarantine(&mut self, &str, (u64, &str), brokkr_store::Attribution<'_>) -> core::result::Result<brokkr_store::Acknowledgement, brokkr_store::StoreError>
+pub fn brokkr_store::Store::acknowledgement(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::Acknowledgement>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::append_chain<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>
 pub fn brokkr_store::Store::append_chain_without_waiting<T>(&mut self, &str, brokkr_core::envelope::EventType, brokkr_store::Rows<'_, T>, core::option::Option<alloc::string::String>, core::option::Option<alloc::string::String>) -> core::result::Result<brokkr_store::Chain, brokkr_store::StoreError>

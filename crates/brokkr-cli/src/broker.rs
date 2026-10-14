@@ -13,12 +13,20 @@
 //! server box runs (U6c6a, U6c8): it checks the box it stands in, reports
 //! ready on a private pipe, receives the declared bindings, which the
 //! broker looks up only then, and execs the server. The [`rpc`] protocol
-//! then initializes that server and lists its filtered catalog (U6e). The
-//! serving protections are a later unit's (slice two U6f), so the box of
-//! an admitted plan is ended once its server has initialized, before any
-//! message reaches the harness, and the plan still refused with SD3's
-//! incomplete-serving cause; decision 0065's compile fence still refuses
-//! every MCP grant.
+//! then initializes that server and lists its filtered catalog (U6e), and
+//! serves the harness on the broker's own standard input and output, every
+//! byte it lets out masked and guarded at the output edge, the server's
+//! standard error drained and masked beside it, and every call recorded
+//! in the plan's ledger (U6f1a, U6f1b). Everything the broker writes to its
+//! own standard error passes one display sanitizer, the shared masker and
+//! the final guard, while the bindings that guarded the ledger are held: a
+//! served session's server's masked tail before its ledger closes, Clean
+//! only once it was taken; a failed session's tail and the broker's own
+//! last line after, its first cause kept (`session::lifetime`, which holds
+//! the one description of that order). A plan that retains its responses is
+//! refused with SD3's retention cause before any MCP message is exchanged
+//! with its server, until U8b builds retention; decision 0065's compile
+//! fence still refuses every MCP grant.
 
 mod bootstrap;
 mod rpc;
@@ -28,7 +36,6 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 use brokkr_core::canonical;
-use brokkr_protocol::broker::Refusal;
 
 use crate::cli_args::{BrokerCmd, BrokerServeArgs};
 
@@ -91,20 +98,18 @@ pub(crate) fn plan_digest(text: &str) -> Result<String, BrokerError> {
 }
 
 /// Serve the plan `command` names: refuse before looking up a secret or
-/// starting anything where a check fails, and otherwise once its box has
-/// been launched, its server handed its bindings, started and initialized,
-/// and the box ended, before any message reaches the harness. Or, as
-/// `serve`'s private observer,
-/// observe it and hand back what was checked; or, as its waiting
-/// bootstrap, report the box ready and exec the server, returning only the
-/// cause of one that did not start.
+/// starting anything where a check fails; otherwise launch its box, hand
+/// its server its bindings, start and initialize it, and serve the harness
+/// until it ends, the box ended then, or end with the session's first
+/// cause, its line written by the session itself, masked and guarded,
+/// without waiting on a standard error nobody reads. Or, as `serve`'s
+/// private observer, observe it and hand back what was checked; or, as its
+/// waiting bootstrap, report the box ready and exec the server, returning
+/// only the cause of one that did not start.
 pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
     match command {
         BrokerCmd::Serve(BrokerServeArgs { plan, plan_digest }) => {
-            // The checked handles stay held until the refusal ends the
-            // broker: the launch mounted these very objects.
-            let _admitted = session::admit(&plan, &plan_digest)?;
-            Err(Refusal::ServingIncomplete.into())
+            Ok(session::serve(&plan, &plan_digest))
         }
         BrokerCmd::Observe(BrokerServeArgs { plan, plan_digest }) => {
             session::observe(&plan, &plan_digest)?;

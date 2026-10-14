@@ -9,8 +9,8 @@
 //! the broker answers. The launch runs the checked launcher through its
 //! own handle, and carries in the bootstrap's control, ready and status
 //! pipes and bubblewrap's info pipe beside the mounted handles, and the
-//! server's standard input and output pipes as its own (U6c8), and nothing
-//! else;
+//! server's standard input and output pipes as its own (U6c8), and its
+//! standard error's, which the broker drains (U6f1b), and nothing else;
 //! bubblewrap names the box's first process, by its host pid, on the info
 //! pipe (`--info-fd`). The launcher's own start is bounded by the startup's
 //! absolute deadline and cancellation, as every later wait is (MB3). The
@@ -27,7 +27,7 @@ use std::os::fd::{BorrowedFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "linux")]
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
 #[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(target_os = "linux")]
@@ -154,7 +154,8 @@ impl Drop for Identity {
 /// pipe's read end; the status pipe's read end, on which the bootstrap
 /// reports a failed handoff or exec, and which its exec closes; the
 /// server's standard input's write end and its standard output's read
-/// end, the box's only stdio; the info pipe's read end, on which
+/// end, the box's only protocol; its standard error's read end, which the
+/// broker drains and masks (U6f1b); the info pipe's read end, on which
 /// bubblewrap names the box's first process; and each mounted source, by
 /// the place of its handle and where it stands in the box. Dropping it
 /// settles the box: the launcher is killed and reaped, which the box it
@@ -170,6 +171,7 @@ pub struct Launched<'e> {
     pub status: PipeReader,
     pub input: PipeWriter,
     pub output: PipeReader,
+    pub errors: PipeReader,
     pub info: PipeReader,
     pub mounts: Vec<(usize, String)>,
     _entry: &'e ServerEntry,
@@ -242,8 +244,8 @@ impl ServerBox {
     /// Launch the box `entry` names on its bootstrap, with `handles`, the
     /// box's handles in the observer's order: the checked launcher run
     /// through its own handle, from `/` under a cleared environment, its
-    /// standard input and output the server's own pipes and no standard
-    /// error, in the broker's process group and session; the bootstrap
+    /// standard input, output and error the server's own pipes, in the
+    /// broker's process group and session; the bootstrap
     /// entered from the private HOME with the arguments `command` gives for
     /// its control, ready and status descriptors. Each descriptor the box
     /// takes, a mounted handle, a bootstrap pipe's end or the info pipe's,
@@ -271,6 +273,7 @@ impl ServerBox {
         let ((intent, control), (ready, readied)) = (pipe()?, pipe()?);
         let ((status, reporting), (info, informed)) = (pipe()?, pipe()?);
         let ((stdin, input), (output, stdout)) = (pipe()?, pipe()?);
+        let (errors, stderr) = pipe()?;
         let carried = [
             intent.as_raw_fd(),
             readied.as_raw_fd(),
@@ -306,7 +309,7 @@ impl ServerBox {
             .current_dir("/")
             .stdin(stdin)
             .stdout(stdout)
-            .stderr(Stdio::null());
+            .stderr(stderr);
         let started = started(launch, inheritor(carried), startup);
         drop((intent, readied, reporting, informed));
         let mounts = entry.mounts().collect();
@@ -317,6 +320,7 @@ impl ServerBox {
             status,
             input,
             output,
+            errors,
             info,
             mounts,
             _entry: entry,

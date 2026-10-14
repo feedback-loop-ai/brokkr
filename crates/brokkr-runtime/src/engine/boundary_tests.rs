@@ -5,8 +5,8 @@
 //! beside every model, the seat input's word and marker (ruling 3).
 
 use super::tests::{
-    bundle, checkpointing_command, composition, driver_command, member, single_body, state,
-    step_body, unlimited,
+    bundle, checkpointing_command, composition, driver_command, execute_work, member,
+    seat_input_of, single_body, state, step_body, unlimited,
 };
 use super::*;
 use crate::agents::{Adapters, Availability, HarnessHands, Library, ResultDoor};
@@ -3310,7 +3310,7 @@ fn effect_started_carries_the_boundary_beside_provenance() {
     driven
         .execute(
             std::slice::from_ref(&requested),
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "effect",
             "work",
         )
@@ -3700,9 +3700,7 @@ fn the_seat_input_names_the_boundary_and_the_marker_only_under_a_box() {
     // The requested input carries the word through `seat_input`, and a
     // panel member's derived input through `member_runs`.
     engine.boundary = Boundary::Harness;
-    let seat = engine
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
-        .unwrap();
+    let seat = seat_input_of(&engine, "work");
     assert_eq!(seat["boundary"], "harness");
     assert_eq!(seat["hands"], "none");
     super::tests::set_site_hands(&mut engine.bundle, "review:left", HandsSpec::default());
@@ -3833,9 +3831,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
     let (_bundle_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     engine.boundary = Boundary::Harness;
     super::tests::set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
-    let seat = engine
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
-        .unwrap();
+    let seat = seat_input_of(&engine, "work");
     assert_eq!(seat["boundary"], "harness");
     assert_eq!(seat["hands"], "none");
 
@@ -4208,14 +4204,7 @@ fn a_sequence_panel_cannot_continue_when_its_member_marker_cannot_be_journaled()
 fn a_plain_attempt_emits_the_original_started_payload() {
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["missing-driver".into()]));
     let requested = super::tests::requested(&engine, "effect");
-    engine
-        .execute(
-            &[requested],
-            &state(Some("work"), Cursor::Idle),
-            "effect",
-            "work",
-        )
-        .unwrap();
+    execute_work(&mut engine, &[requested]).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     let started = events
         .iter()
@@ -4241,9 +4230,7 @@ fn the_shipped_verify_input_and_prompt_name_no_workspace_tool_under_any_built_bo
     engine.bundle = compiled;
     for boundary in [Boundary::Namespace, Boundary::Harness, Boundary::Open] {
         engine.boundary = boundary;
-        let input = engine
-            .seat_input(&state(Some("verify"), Cursor::Idle), "verify", "effect")
-            .unwrap();
+        let input = seat_input_of(&engine, "verify");
         assert_eq!(input["boundary"], boundary.word());
         assert_eq!(
             input["hands"],

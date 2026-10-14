@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use super::*;
+use brokkr_core::fold::Status;
 
 /// A peer that writes to the store it is handed.
 type Peer = Box<dyn FnMut(&mut Store)>;
@@ -88,7 +89,7 @@ fn a_retry_with_no_phase_to_return_to_is_refused_at_both_doors() {
     }
     let state = fold(&store.load("start").unwrap()).unwrap();
     assert_eq!(
-        (state.status, state.phase),
+        (state.run.status(), state.phase),
         (Status::AwaitingOperator, None)
     );
 }
@@ -127,7 +128,7 @@ fn a_bridge_command_beaten_to_the_head_by_a_peer_is_refused_stale() {
     assert_eq!(tail, [commanded, accepted, EventType::OperatorRejected]);
     assert_eq!(rejected.payload["command_id"], "looper-command");
     assert_eq!(events[6].payload["operator"], "peer");
-    assert_eq!(fold(&events).unwrap().status, Status::Running);
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Running);
 
     // The refusal is the command's only record, so a redelivery of the
     // same wire answers with it and writes nothing.

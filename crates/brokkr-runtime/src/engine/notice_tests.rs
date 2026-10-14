@@ -604,7 +604,7 @@ fn the_carrier_follows_hands_boundary_and_the_selected_link_alone() {
     // The requested input never carries it: it is a spawn-time fact.
     let requested = engine
         .seat_input(
-            &super::tests::state(Some("work"), Cursor::Idle),
+            &super::tests::state(Some("work"), Cursor::RequestEffect),
             "work",
             "effect",
         )

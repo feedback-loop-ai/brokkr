@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use brokkr_core::fold::fold;
+use brokkr_core::fold::{fold, ParkReason};
 use brokkr_core::EventType;
 use brokkr_store::Store;
 use brokkr_view::{first_divergence, resolution_divergence, resolutions, seat_costs, Resolution};
@@ -107,14 +107,14 @@ fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
 
     let (seats, total_cost) = seat_costs(&events);
     let resolution = resolutions(&events);
-    let status = state.status.as_str();
+    let status = state.run.status().as_str();
     let summary = json!({
         "feature": feature,
         "bundle_name": manifest.get("bundle_name").cloned().unwrap_or(Value::Null),
         "manifest": {"sha256": digest},
         "status": status,
         "phase": state.phase,
-        "park_reason": state.park_reason,
+        "park_reason": state.run.park_reason().map(ParkReason::as_str),
         "decision_trail": trail,
         "phases_visited": phases,
         "seats": seats,

@@ -86,9 +86,7 @@ fn attempt_in_flight_at_restart_parks_indeterminate() {
         )
         .unwrap();
 
-    let end = engine.drive().unwrap();
-    assert_eq!(end.state.status, Status::AwaitingOperator);
-    let reason = end.state.park_reason.unwrap();
+    let reason = drive_to_park(&mut engine);
     assert!(
         reason.contains("completion cannot be established"),
         "park reason: {reason}"
@@ -126,11 +124,16 @@ fn requested_effect_with_stale_input_refuses_to_execute() {
         )
         .unwrap();
 
-    let end = engine.drive().unwrap();
-    assert_eq!(end.state.status, Status::AwaitingOperator);
-    let reason = end.state.park_reason.unwrap();
+    let reason = drive_to_park(&mut engine);
     assert!(
         reason.contains("refusing to execute"),
         "never run something other than what was requested; got: {reason}"
     );
+}
+
+/// Drive `engine` to its end, which must be a park, and name its reason.
+fn drive_to_park(engine: &mut Engine) -> String {
+    let end = engine.drive().unwrap();
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
+    end.state.run.park_reason().unwrap().as_str().to_string()
 }

@@ -92,6 +92,10 @@ impl RuleSeverity {
 /// vocabulary of the engine-owned `strategy` input.
 pub const STRATEGIES: [&str; 5] = ["chore", "feature", "design", "engine", "escalate"];
 
+/// The phase whose ruling, when it is one of [`STRATEGIES`], sets the
+/// run's `strategy`.
+pub(crate) const STRATEGY_PHASE: &str = "triage";
+
 /// The table format this evaluator reads. `v2` adds exactly one thing to
 /// `v1` (decision 0022): a rule may rule a PARK instead of a transition.
 /// A `v1` table is still read as it always was; a table that parks must

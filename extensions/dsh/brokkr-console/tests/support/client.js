@@ -9,6 +9,22 @@ import { runInNewContext } from 'node:vm'
 const SOURCE = readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
 const Fragment = Symbol('Fragment')
 
+/**
+ * The panel's clock: an hour after the fixtures' last row (support/world.js,
+ * 2026-10-13). The panel reads the time for "how long ago" and for the runs
+ * it lists as finished in the last 24 hours, so with the wall clock a test
+ * would pass or fail by the day it ran.
+ */
+export const NOW = Date.parse('2026-10-13T10:00:00Z')
+class PinnedDate extends Date {
+  constructor(...at) {
+    super(...(at.length === 0 ? [NOW] : at))
+  }
+  static now() {
+    return NOW
+  }
+}
+
 /** A stand-in for React that renders its roots into `{type, props, children}` nodes. */
 function reactStub() {
   const slots = new Map()
@@ -116,6 +132,7 @@ export function mountClient(component, props = {}, answers = {}, dsh = dshStub()
     location: { origin: 'http://127.0.0.1:3080' },
     document: { getElementById: () => ({}), createElement: () => ({}), head: { appendChild: () => {} } },
     crypto: { randomUUID: () => '0b6f1c2e-5d4a-4e8b-9f10-3c2d1e0f9a8b' },
+    Date: PinnedDate,
     URLSearchParams,
     setTimeout,
     // An answer is a body, or a function of the url that settles with one, so a test can hold a read back.

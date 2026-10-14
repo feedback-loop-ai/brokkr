@@ -166,7 +166,10 @@ pub(crate) fn write(
     repo: &Path,
 ) -> Result<std::path::PathBuf> {
     let ledger = render(run_id, events, repo)?;
-    let path = repo.join(".forge/ledger").join(format!("{run_id}.md"));
+    // In the repository's run-local state (decision 0083 ruling 3).
+    let path = crate::folder::run_local(repo)?
+        .join("ledger")
+        .join(format!("{run_id}.md"));
     std::fs::create_dir_all(path.parent().expect("ledger path has a parent"))
         .with_context(|| format!("creating ledger directory for {}", path.display()))?;
     std::fs::write(&path, ledger).with_context(|| format!("writing ledger {}", path.display()))?;

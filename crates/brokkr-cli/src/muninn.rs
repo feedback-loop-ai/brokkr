@@ -60,9 +60,9 @@ pub(crate) const DOSSIER_VERSION: u32 = 1;
 /// Wire version of one line in the record.
 pub(crate) const RECORD_VERSION: u32 = 1;
 
-/// The record's default location: beside the workspace journal, and
-/// deliberately not inside it.
-pub(crate) const DEFAULT_RECORD: &str = ".forge/muninn.ndjson";
+/// The record's name in the run-local state: beside the workspace
+/// journal, and deliberately not inside it.
+pub(crate) const RECORD: &str = "muninn.ndjson";
 
 /// The one-line task the seat's prompt carries.
 const TASK: &str = "Read the fleet dossier below and propose operator actions. \

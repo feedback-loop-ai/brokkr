@@ -488,10 +488,20 @@ fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     assert_ne!(code, Some(0));
     assert!(stderr.contains("cannot be used with"), "stderr: {stderr}");
 
-    // ...and neither is too.
+    // ...and neither, in this library with no `.brokkr/` folder to supply
+    // the implicit bundle, refuses naming init (decision 0083 ruling 3).
     let (code, _, stderr) = ws.brokkr(&["run", "--feature", "f", "--db", db.to_str().unwrap()]);
-    assert_ne!(code, Some(0));
-    assert!(stderr.contains("required"), "stderr: {stderr}");
+    let at = ws.path().canonicalize().unwrap();
+    let at = at.display();
+    assert_eq!(code, Some(1));
+    assert_eq!(
+        stderr,
+        format!(
+            "error: no .brokkr/ folder from {at} up to {at} (decision 0083), so there is no \
+             default bundle: name one with --bundle or --recipe, or run `brokkr init .` from \
+             {at}\n"
+        )
+    );
 }
 
 #[test]

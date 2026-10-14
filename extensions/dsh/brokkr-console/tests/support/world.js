@@ -22,6 +22,7 @@ export function row(over = {}) {
     feature: 'Encrypt the token store\n\nAt rest, owner-only.',
     detail: null,
     quarantine: null,
+    acknowledgement: null,
     residuals: [],
     title: 'Encrypt the token store',
     verdict: {
@@ -39,7 +40,7 @@ export function row(over = {}) {
 /** A world's `FleetView`: `[[realm, rows], ...]`. */
 export function fleetDoc(realms, over = {}) {
   return {
-    view_version: 21,
+    view_version: 22,
     realms: realms.map(([realm, runs]) => ({ realm, journal: `/hearths/${realm}/forge.db`, runs, count: runs.length, detail: null })),
     count: realms.reduce((sum, [, runs]) => sum + runs.length, 0),
     ...over,
@@ -118,7 +119,7 @@ export function seat(over = {}) {
 export function runViewDoc(over = {}) {
   const { seq = 12, ...rest } = over
   return {
-    view_version: 21,
+    view_version: 22,
     summary: {
       consecutive_failures: {},
       cursor: 'park',
@@ -157,7 +158,7 @@ export function runViewDoc(over = {}) {
 /** `brokkr analytics --json` for one realm whose seats reported no cost. */
 export function analyticsDoc(over = {}) {
   return {
-    view_version: 21,
+    view_version: 22,
     range: '7d',
     realm: null,
     from: '2026-10-06T09:00:00Z',

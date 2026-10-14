@@ -146,10 +146,10 @@ fn operator_rule(state: &RunState, command: OperatorCommand) -> Option<CommandRe
 /// `resume` drives a running run, and nothing else: a parked run moves
 /// only once a command is accepted, and a concluded one never.
 fn resume_rule(state: &RunState) -> Option<CommandRefusal> {
-    match state.status {
+    match state.run.status() {
         Status::Running => None,
         Status::AwaitingOperator => Some(CommandRefusal::Parked),
-        Status::Completed | Status::Stopped => Some(CommandRefusal::Ended(state.status)),
+        status @ (Status::Completed | Status::Stopped) => Some(CommandRefusal::Ended(status)),
     }
 }
 
@@ -183,7 +183,7 @@ pub(crate) fn commands(state: &RunState) -> Vec<Offered> {
 /// alone. A surface that suggests a command suggests one the engine will
 /// actually accept.
 pub fn operator_commands(state: &RunState) -> Vec<String> {
-    match state.status {
+    match state.run.status() {
         Status::AwaitingOperator => commands(state)
             .into_iter()
             .filter(|offered| offered.admission == Admission::Admitted)
@@ -235,7 +235,7 @@ impl Unavailable {
 
     /// Whether a console shows this action for a run.
     fn shown(self, state: &RunState, open_finding: bool, clarify: bool) -> bool {
-        let parked = state.status == Status::AwaitingOperator;
+        let parked = state.run.status() == Status::AwaitingOperator;
         match self {
             // On a finished run the finding can be dismissed, by supersede.
             Unavailable::DismissFinding => open_finding && concluded(state).is_none(),

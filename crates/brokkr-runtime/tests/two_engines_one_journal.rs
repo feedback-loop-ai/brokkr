@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::Status;
+use brokkr_core::fold::Run;
 use brokkr_protocol::{Body, Message, ResultStatus};
 use brokkr_runtime::{Bundle, Engine};
 use brokkr_store::Store;
@@ -220,11 +220,10 @@ fn two_engines_engine_child() {
     println!("run_id={}", engine.run_id);
     let end = engine.drive().expect("an engine never exits on Busy");
     assert_eq!(
-        end.state.status,
-        Status::Completed,
-        "{role} ended {:?}: {:?}",
-        end.state.status,
-        end.state.park_reason
+        end.state.run,
+        Run::Completed,
+        "{role} ended {:?}",
+        end.state.run
     );
 }
 
@@ -332,7 +331,7 @@ fn two_real_engines_share_one_journal_and_neither_exits_on_busy() {
         // `load` verifies the chain and refuses to return a partial one.
         let events = reader.load(run_id).unwrap();
         let state = brokkr_core::fold(&events).expect("both journals fold cleanly");
-        assert_eq!(state.status, Status::Completed, "{run_id} did not complete");
+        assert_eq!(state.run, Run::Completed, "{run_id} did not complete");
         assert_eq!(state.seq, events.len() as u64);
         let checkpoints = events
             .iter()

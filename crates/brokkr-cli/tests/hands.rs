@@ -883,6 +883,8 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
     )
     .unwrap();
     std::fs::write(work.path().join(".gitignore"), ".forge/\ntarget/\n").unwrap();
+    // Committed with the rest, so the ship gate meets a clean tree.
+    crate::engine::library(work.path());
     for args in [
         vec!["init", "-q"],
         vec!["config", "user.email", "proof@example.invalid"],

@@ -1,10 +1,9 @@
 use super::*;
 use crate::tests::envelope_builder::EnvelopeBuilder;
-use brokkr_core::fold::{Cursor, RunState, Status};
-use brokkr_core::{EventEnvelope, EventType};
+use crate::tests::run_state::{run_state, standing};
+use brokkr_core::{EventEnvelope, EventType, RunState, Status};
 use brokkr_view::{lens_for, Scope};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 
 const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
@@ -23,25 +22,11 @@ fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelop
 }
 
 fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunState {
-    RunState {
-        run_id: "run-7".to_string(),
-        seq: 14,
-        last_hash: "hash".to_string(),
-        status,
-        phase: Some("design".to_string()),
-        cursor: Cursor::Idle,
-        consecutive_failures: BTreeMap::new(),
-        visits: BTreeMap::new(),
-        strategy: None,
-        last_result: None,
-        phase_results: BTreeMap::new(),
-        reviewed_heads: None,
-        park_reason: park.map(str::to_string),
-        feature: Some("one derivation, two surfaces".to_string()),
-        pending_command: None,
-        riding_stop: false,
-        last_decision: decision.map(|decision| serde_json::from_value(decision).unwrap()),
-    }
+    let mut state = run_state("run-7", 14, standing(status, park.unwrap_or_default()));
+    state.phase = Some("design".to_string());
+    state.feature = Some("one derivation, two surfaces".to_string());
+    state.last_decision = decision.map(|decision| serde_json::from_value(decision).unwrap());
+    state
 }
 
 /// An intake seat that concluded, then a design sequence with a parallel
@@ -151,8 +136,12 @@ fn journal() -> Vec<EventEnvelope> {
 
 fn view(park: Option<&str>) -> brokkr_view::RunView {
     let events = journal();
+    let status = match park {
+        Some(_) => Status::AwaitingOperator,
+        None => Status::Running,
+    };
     let ruled = state(
-        Status::Running,
+        status,
         park,
         Some(
             json!({"rule_id": "INTAKE-OK", "severity": "normal", "from": "intake",
@@ -566,6 +555,44 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
         "  fold  event 93: OperatorAccepted is impossible at cursor EffectInFlight[2Jforged"
     );
     assert!(!out.contains('\x1b'), "{out:?}");
+}
+
+/// #511: an acknowledged quarantine keeps its `?` and its refusal, and
+/// says who answered it under the refusal, sanitized like the refusal.
+#[test]
+fn an_acknowledged_row_prints_its_acknowledgement_under_its_refusal() {
+    let acknowledgement = brokkr_view::Acknowledgement {
+        seq: 539,
+        event_hash: "ab12".to_string(),
+        operator: "valentin".to_string(),
+        reason: "history\x1b[2J from an old engine".to_string(),
+        recorded_at: T0.to_string(),
+    };
+    let entries = [brokkr_view::RunEntry {
+        run_id: "unit-12",
+        feature: "see the unit",
+        created_at: T0,
+        last_recorded_at: None,
+        state: None,
+        detail: Some(brokkr_view::Refusal {
+            acknowledgement: Some(&acknowledgement),
+            ..brokkr_view::Quarantine::DoesNotFold
+                .in_words("event 539: event after terminal status")
+        }),
+        residuals: &[],
+    }];
+    let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(120));
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines[0].starts_with("unit-12 ?"), "{out:?}");
+    assert_eq!(
+        lines[1..],
+        [
+            "  fold  event 539: event after terminal status",
+            &format!(
+                "  acknowledged by valentin at {T0}, event 539: history[2J from an old engine"
+            ),
+        ]
+    );
 }
 
 // ------------------------------------------------------------- AC-20

@@ -241,6 +241,14 @@ pub brokkr_view::Unavailable::AnswerHere
 pub brokkr_view::Unavailable::DismissFinding
 pub brokkr_view::Unavailable::Hold
 pub brokkr_view::Unavailable::TalkToReviewer
+pub struct brokkr_view::Acknowledgement
+pub brokkr_view::Acknowledgement::event_hash: alloc::string::String
+pub brokkr_view::Acknowledgement::operator: alloc::string::String
+pub brokkr_view::Acknowledgement::reason: alloc::string::String
+pub brokkr_view::Acknowledgement::recorded_at: alloc::string::String
+pub brokkr_view::Acknowledgement::seq: u64
+impl brokkr_view::Acknowledgement
+pub fn brokkr_view::Acknowledgement::line(&self) -> alloc::string::String
 pub struct brokkr_view::Activity
 pub brokkr_view::Activity::absent: bool
 pub brokkr_view::Activity::note: core::option::Option<alloc::string::String>
@@ -419,6 +427,7 @@ pub brokkr_view::RealmRuns::journal: alloc::string::String
 pub brokkr_view::RealmRuns::realm: alloc::string::String
 pub brokkr_view::RealmRuns::runs: alloc::vec::Vec<brokkr_view::RunRow>
 pub struct brokkr_view::Refusal<'a>
+pub brokkr_view::Refusal::acknowledgement: core::option::Option<&'a brokkr_view::Acknowledgement>
 pub brokkr_view::Refusal::quarantine: brokkr_view::Quarantine
 pub brokkr_view::Refusal::words: &'a str
 pub struct brokkr_view::ResidualFinding
@@ -456,6 +465,7 @@ pub struct brokkr_view::RunNotice
 pub brokkr_view::RunNotice::kind: alloc::string::String
 pub brokkr_view::RunNotice::text: alloc::string::String
 pub struct brokkr_view::RunRow
+pub brokkr_view::RunRow::acknowledgement: core::option::Option<brokkr_view::Acknowledgement>
 pub brokkr_view::RunRow::created_at: alloc::string::String
 pub brokkr_view::RunRow::detail: core::option::Option<alloc::string::String>
 pub brokkr_view::RunRow::feature: alloc::string::String

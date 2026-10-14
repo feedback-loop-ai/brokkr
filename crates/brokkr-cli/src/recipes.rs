@@ -24,18 +24,20 @@ use brokkr_runtime::{Bundle, SeatBody};
 
 use crate::compile_in;
 
-/// The run/resume bundle from the exactly-one-of `--bundle` / `--recipe`
-/// pair (clap's arg group enforces the arity). The launch resolves it,
-/// where each verb always did ([`BundleSource::resolve`]).
-pub(crate) fn source(
+/// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
+/// pair (clap's arg group enforces the arity), else the `implicit` one a
+/// discovered folder supplies (decision 0083 ruling 3). The launch
+/// resolves it, where each verb always did ([`BundleSource::resolve`]).
+pub(crate) fn source<E>(
     bundle: Option<PathBuf>,
     recipe: Option<String>,
     recipes_dir: PathBuf,
-) -> BundleSource {
+    implicit: impl FnOnce() -> Result<PathBuf, E>,
+) -> Result<BundleSource, E> {
     match (bundle, recipe) {
-        (Some(path), None) => BundleSource::Dir(path),
-        (None, Some(name)) => BundleSource::Recipe { name, recipes_dir },
-        _ => unreachable!("clap group requires exactly one of --bundle/--recipe"),
+        (Some(path), _) => Ok(BundleSource::Dir(path)),
+        (None, Some(name)) => Ok(BundleSource::Recipe { name, recipes_dir }),
+        (None, None) => implicit().map(BundleSource::Dir),
     }
 }
 

@@ -30,7 +30,7 @@ Seen in the operator's own DSH (dark theme):
 
 - **Picking.** A phase's label and every node are buttons. A phase picks all its nodes and outlines its segment; a node picks itself; again lets go.
 - **The seat, as the TUI reads it.** The pick shows each of its seats with Brokkr's cells: model (claimed) and boundary, tokens, cache hit, cost, turns and attempts, effort applied and pinned, and the note of any absent cell. The host now reads `RunView.participants`; a node's `key` is its participant's.
-- **Cache hit, in Brokkr.** `brokkr-view`'s participant gains `cache_hit_cell`, cache reads over input to one decimal (`99.9%`), absent with its reason when either is unreported or input is zero. The view's wire version moves 20 → 21; the console paints 21 only.
+- **Cache hit, in Brokkr.** `brokkr-view`'s participant gains `cache_hit_cell`, cache reads over input to one decimal (`99.9%`), absent with its reason when either is unreported or input is zero. The view's wire version moves 21 → 22 (#511 took 21 on main while this change was open); the console paints 22 only.
 - **Context, closest first.** The assistant panel names the pick, then the run, then the realm, and the prompt opens with the pick (a seat by its participant key, for `brokkr_transcript`) with the run as outer context. With no run picked, it asks about the realm.
 - **Live.** The open run's view was already re-read and pushed whenever its head moved; a pick now outlives each refresh, and is dropped when the view no longer holds it.
 - **The pulse.** ui.html's `forge-strike` and `forge-halo`: active nodes of a driven run strike and throw a halo; the console's mark and the left-panel icon strike while any run is running. Reduced motion stills them.

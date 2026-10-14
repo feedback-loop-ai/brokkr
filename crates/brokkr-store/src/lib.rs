@@ -71,6 +71,7 @@ use thiserror::Error;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+mod acknowledgement;
 mod chain;
 mod import;
 mod origin;
@@ -82,6 +83,7 @@ mod seat_record;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
+pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Rows};
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use queue::{
@@ -158,6 +160,10 @@ pub enum StoreError {
     /// The queue refused an operator command or a claim (decision 0068).
     #[error(transparent)]
     Queue(#[from] QueueRefusal),
+    /// The head an operator acknowledged a quarantined run at already
+    /// carries an acknowledgement (#511).
+    #[error("run '{run_id}' is already acknowledged at event {seq}; nothing was recorded")]
+    AlreadyAcknowledged { run_id: String, seq: u64 },
     /// A peer still held the journal's write lock when this operation's
     /// whole patience ran out. **Nothing was written.**
     ///

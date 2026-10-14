@@ -15,13 +15,13 @@ use brokkr_protocol::secret::{self, BoundSecret, Guard};
 use serde_json::{json, Value};
 
 use super::super::output::{checked, correlated, framed, named, prepared, watched, Kind, Named};
-use super::super::{Fatal, Fault, Id, Reply, TIMEOUT};
+use super::super::{Fatal, Fault, Id, Reply, ATOMIC, TIMEOUT};
 use super::PLAN;
 use super::{
     admitted, answering_with, call, edged, failed, initializing, mcp, mcp_but, pipe, plan,
 };
 use super::{request, result, slow, startup, tools, within, Beside, Harness, Ran, Script, Then};
-use crate::broker::session::stderr::Drain;
+use crate::broker::session::stderr::{Drain, Said};
 use crate::broker::session::Ended;
 
 /// A bound value holding a quote and a character of two bytes.
@@ -543,7 +543,7 @@ fn unlisted(script: Script, beside: Beside) {
 /// pipe ended after the last where `ends`.
 fn drained(bindings: &[BoundSecret], chunks: &[&[u8]], ends: bool) -> String {
     let (reader, mut writer) = pipe();
-    let mut drain = Drain::new(reader, bindings).unwrap();
+    let mut drain = Drain::new(reader, bindings);
     // A chunk is written a page at a time, so none waits on a full pipe.
     for piece in chunks.iter().flat_map(|chunk| chunk.chunks(4096)) {
         writer.write_all(piece).unwrap();
@@ -552,9 +552,9 @@ fn drained(bindings: &[BoundSecret], chunks: &[&[u8]], ends: bool) -> String {
     if ends {
         drop(writer);
         while drain.drained() {}
-        return drain.tail().into_iter().collect();
+        return drain.tail().iter().map(Said::as_str).collect();
     }
-    let tail = drain.tail().into_iter().collect();
+    let tail = drain.tail().iter().map(Said::as_str).collect();
     drop(writer);
     tail
 }
@@ -610,12 +610,17 @@ fn standard_error_is_proved_as_the_text_it_decodes_to() {
     let odd = bound_as(&[("ODD", "\u{fffd}x")]);
     assert_eq!(drained(&odd, &[b"\xffx\n"], true), "[secret:ODD]\n");
     // A line holding a bound value only by its value is kept as its
-    // marker; where the marker itself holds one, nothing of it is kept.
+    // marker, which passes the same masker and guard (U6f1b): one masking
+    // leaves holding a bound value by its value, as a name masking writes
+    // holds 2, keeps nothing of it.
     let marker = "[MCP server stderr line cannot be safely masked]\n";
     let lines: [&[u8]; 2] = [b"pin 8.7654321e8\n", b"next\n"];
     assert_eq!(drained(&bound(), &lines, true), format!("{marker}next\n"));
-    let marked = bound_as(&[("PIN", CANARY), ("WORD", "safely masked")]);
-    assert_eq!(drained(&marked, &lines, true), "next\n");
+    let word = bound_as(&[("PIN", CANARY), ("WORD", "safely masked")]);
+    let masked = "[MCP server stderr line cannot be [secret:WORD]]\nnext\n";
+    assert_eq!(drained(&word, &lines, true), masked);
+    let named = [("PIN", CANARY), ("WORD2", "safely masked"), ("TWO", "0002")];
+    assert_eq!(drained(&bound_as(&named), &lines, true), "next\n");
 }
 
 #[test]
@@ -623,11 +628,15 @@ fn a_line_past_its_bound_is_passed_over_and_the_tail_keeps_its_bound() {
     let long = [vec![b'x'; (64 << 10) + 1], b"\nnext\n".to_vec()].concat();
     let over = "[MCP server stderr line exceeds the broker limit]\n";
     assert_eq!(drained(&[], &[&long], true), format!("{over}next\n"));
-    // Seventy lines of a KiB each: the last sixty-four are kept.
-    let line = [vec![b'y'; 1023], b"\n".to_vec()].concat();
-    let lines = vec![&line[..]; 70];
+    // Lines one write takes whole, past the tail's 64 KiB: the last of them
+    // that fit are kept.
+    let line = [vec![b'y'; ATOMIC - 1], b"\n".to_vec()].concat();
+    let lines = vec![&line[..]; (64 << 10) / ATOMIC + 6];
     let tail = drained(&[], &lines, true);
-    assert_eq!(tail, String::from_utf8(line.repeat(64)).unwrap());
+    assert_eq!(
+        tail,
+        String::from_utf8(line.repeat((64 << 10) / ATOMIC)).unwrap()
+    );
 }
 
 #[test]
@@ -1209,7 +1218,7 @@ fn the_final_guard_ends_a_frames_scan_at_its_deadline_or_cancellation() {
     }
     let made = framed(Some(&id), &body, &guard, watched((later, &going)));
     let line = [&b"{\"jsonrpc\":\"2.0\",\"id\":7,"[..], &body[1..], b"\n"].concat();
-    assert_eq!(made, Ok(line));
+    assert_eq!(made.map(|made| made.bytes().to_vec()), Ok(line));
 }
 
 #[test]
@@ -1244,21 +1253,25 @@ fn every_whole_line_a_pipe_still_holds_is_kept_when_the_session_ends() {
     // whole lines without the one it has not finished.
     for (written, ends) in [(&b"first\nlast\n"[..], true), (b"first\nlast\nhal", false)] {
         let (reader, mut writer) = pipe();
-        let mut drain = Drain::new(reader, &[]).unwrap();
+        let mut drain = Drain::new(reader, &[]);
         writer.write_all(written).unwrap();
         let open = (!ends).then_some(writer);
         assert_eq!((ends, drain.drained()), (ends, true));
-        let tail: String = drain.tail().into_iter().collect();
+        let tail: String = drain.tail().iter().map(Said::as_str).collect();
         assert_eq!((ends, tail), (ends, "first\nlast\n".to_string()));
         drop(open);
     }
     // Within its bound alone: a closed pipe read for four bytes keeps the
     // line that passes them, and nothing past it, whole or not.
     let (reader, mut writer) = pipe();
-    let drain = Drain::new(reader, &[]).unwrap();
+    let drain = Drain::new(reader, &[]);
     writer.write_all(b"a\nb\nc\nd\ne").unwrap();
     drop(writer);
-    assert_eq!(drain.tail_within(4), ["a\n", "b\n", "c\n"]);
+    let kept = drain.tail_within(4);
+    assert_eq!(
+        kept.iter().map(Said::as_str).collect::<Vec<_>>(),
+        ["a\n", "b\n", "c\n"]
+    );
 }
 
 /// Each way the sweep writes a bound value, as JSON: TOKEN and CANARY in

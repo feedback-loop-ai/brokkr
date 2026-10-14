@@ -8,11 +8,23 @@ use std::path::Path;
 use std::process::Command;
 
 /// `brokkr` run in `dir`, which is its TMPDIR too: its start reaps only
-/// the trees of `dir`.
+/// the trees of `dir`. `dir` is marked a recipe library first ([`library`]).
 pub(crate) fn brokkr_in(dir: &Path) -> Command {
+    library(dir);
     let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
     command.current_dir(dir).env("TMPDIR", dir);
     command
+}
+
+/// Mark `dir` a recipe library (decision 0083 ruling 4), so a run verb
+/// standing in it keeps the library's own `.forge/` layout: a test's bare
+/// temporary directory has neither a `.brokkr/` folder nor the mark, and
+/// there a run's state has no place. `dir` comes back, to stand in.
+pub(crate) fn library(dir: &Path) -> &Path {
+    let mark = dir.join("recipes/mark");
+    std::fs::create_dir_all(&mark).unwrap();
+    std::fs::write(mark.join("bundle.json"), "{}").unwrap();
+    dir
 }
 
 /// [`brokkr_in`] `dir` given `args`, run to its end: what it printed on

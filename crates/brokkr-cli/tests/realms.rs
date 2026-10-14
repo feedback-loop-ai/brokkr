@@ -89,6 +89,7 @@ impl Workspace {
     /// Every invocation runs FROM the workspace, so `./realms.json` is
     /// discovered exactly as an operator standing there would find it.
     fn run(&self, args: &[&str]) -> (Option<i32>, String, String) {
+        crate::engine::library(self.path());
         let out = Command::new(brokkr())
             .args(args)
             .current_dir(self.path())

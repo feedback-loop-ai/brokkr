@@ -1,8 +1,9 @@
 //! The confined environment handoff through `serve` (decision 0065 slice
 //! two U6c8; MB3, MB4, MB5, SD3), on a real box: once the box is ready the
 //! store is read, its declared bindings cross to the bootstrap as one
-//! frame, and the bootstrap execs the sealed server directly, then the box
-//! is ended and serving still refuses before any MCP message. A tracer
+//! frame, and the bootstrap execs the sealed server directly, which is
+//! initialized and serves a harness that ends its input at once (U6f1b),
+//! and the box is ended. A tracer
 //! records each exec of the run, so the server's exact environment and
 //! every other process's argv and environment are observed at the exec
 //! itself, by no shell's account; or holds the server's exec at its entry,
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use brokkr_protocol::broker::ledger::Failure;
+use brokkr_protocol::broker::ledger::{Failure, Invalid};
 use brokkr_protocol::secret::NEEDLE_ENCODINGS;
 use serde_json::json;
 
@@ -21,11 +22,12 @@ use super::ledger::{failed_with, sealed_ledger};
 use super::observer::NO_TRACER;
 use super::observer::{awaited, processes, started_to, status, traced, tracer, within, Starter};
 use super::readiness::{bootstraps, boxed, Reads};
-use super::{admitted, ended, refused, skip, unservable, Refusal, Sealed, SPEAKS, TOKEN};
+use super::{ended, refused, skip, unservable, Refusal, Sealed, SPEAKS, TOKEN};
 
 /// A sealed fixture whose server is `script`, its store holding `store`
-/// and its plan declaring `names`; the plan's digest, and the tracer. None,
-/// declared skipped, where no box stands or no tracer traces.
+/// and its plan declaring `names` and retaining nothing, so that a server
+/// that starts is initialized (U6f1b); the plan's digest, and the tracer.
+/// None, declared skipped, where no box stands or no tracer traces.
 fn serving(
     script: impl AsRef<[u8]>,
     store: &[u8],
@@ -44,6 +46,7 @@ fn serving(
     std::fs::write(sealed.path("store/secrets.env"), store).unwrap();
     let mut plan = sealed.plan();
     plan["secrets"] = json!(names);
+    plan["retained"] = json!(false);
     let digest = sealed.seal_bytes(plan.to_string().as_bytes());
     Some((sealed, digest, tracer))
 }
@@ -55,9 +58,10 @@ fn server(sealed: &Sealed) -> String {
 
 /// The tracer's arguments when it records each exec of the run whole:
 /// every process followed, each to its own file so no call is split
-/// around another's, stopped by a seccomp filter at `execve` alone, no
-/// signal written, every string and environment in full, to files named
-/// by the prefix next.
+/// around another's, stopped by a seccomp filter at `execve` alone and at
+/// `set_tid_address`, which a program's C library makes once as it starts
+/// ([`exec_succeeded`]), no signal written, every string and environment
+/// in full, to files named by the prefix next.
 const EXECS: [&str; 11] = [
     "-ff",
     "--seccomp-bpf",
@@ -66,7 +70,7 @@ const EXECS: [&str; 11] = [
     "-s",
     "1048576",
     "-e",
-    "trace=execve",
+    "trace=execve,set_tid_address",
     "-e",
     "signal=none",
     "-o",
@@ -91,7 +95,7 @@ fn traces(prefix: &Path) -> Vec<Vec<String>> {
 
 /// The broker's exit and its own stderr for the plan sealed at `digest`,
 /// started as a harness starts it, all of it run by `tracer` given
-/// `tracing`.
+/// `tracing`, its harness ending its input at once.
 fn traced_serve(
     sealed: &Sealed,
     digest: &str,
@@ -101,13 +105,14 @@ fn traced_serve(
     let apart = sealed.path("broker.err");
     let command = traced(tracer, tracing);
     let mut command = started_to(command, sealed, digest, (Starter::Harness, Some(&apart)));
-    let ran = command.stderr(Stdio::null()).status().unwrap();
-    (ran.code(), std::fs::read_to_string(apart).unwrap())
+    command.stdin(Stdio::null()).stderr(Stdio::piped());
+    let ran = super::bounded_apart(command.spawn().unwrap(), b"", &apart);
+    (ran.status.code(), std::fs::read_to_string(apart).unwrap())
 }
 
 /// The broker's answer for `sealed`'s plan at `digest` with every exec of
-/// the run recorded, and each recorded exec's line.
-fn recorded(sealed: &Sealed, digest: &str, tracer: &Path) -> ((Option<i32>, String), Vec<String>) {
+/// the run recorded, each recorded exec's line, and each process's lines.
+fn recorded(sealed: &Sealed, digest: &str, tracer: &Path) -> Recorded {
     let log = sealed.path("execs.log");
     let tracing: Vec<&OsStr> = EXECS
         .iter()
@@ -115,11 +120,90 @@ fn recorded(sealed: &Sealed, digest: &str, tracer: &Path) -> ((Option<i32>, Stri
         .chain([log.as_os_str()])
         .collect();
     let answer = traced_serve(sealed, digest, tracer, &tracing);
-    let execs = traces(&log).into_iter().flatten();
-    (
-        answer,
-        execs.filter(|line| line.starts_with("execve(")).collect(),
-    )
+    let each = traces(&log);
+    let execs = each.iter().flatten();
+    let execs = execs.filter(|line| line.starts_with("execve("));
+    (answer, execs.cloned().collect(), each)
+}
+
+/// What [`recorded`] read.
+type Recorded = ((Option<i32>, String), Vec<String>, Vec<Vec<String>>);
+
+/// Whether the recorded exec `call` started its program, as the trace of
+/// each process, `each`, shows: its return is 0; or, where a tracer under
+/// load lost it as the box was torn down (`= ?`), the same process's trace
+/// goes on with `set_tid_address`, which a program's C library makes once
+/// as it starts and a process whose exec failed never makes after it, or
+/// the tracer lost that too, and `answered`: `call` is the server's one
+/// traced exec and the server's own MCP answer arrived, which only the
+/// program it ran can give (the controller's finding on U6f1b's fifth run).
+fn exec_succeeded(each: &[Vec<String>], call: &str, answered: bool) -> bool {
+    let after = each.iter().find_map(|lines| {
+        let at = lines.iter().position(|line| line == call)?;
+        Some(&lines[at + 1..])
+    });
+    let started = after.is_some_and(|after| {
+        after
+            .iter()
+            .any(|line| line.starts_with("set_tid_address("))
+    });
+    call.ends_with("]) = 0") | (call.ends_with("]) = ?") & (started | answered))
+}
+
+#[test]
+fn an_exec_whose_return_the_tracer_lost_succeeded_only_where_its_program_went_on() {
+    let exec =
+        |ending: &str| format!("execve(\"/server\", [\"/server\"], [\"HOME=/h\"]) = {ending}");
+    let started_line = || "set_tid_address(0x7f00) = 9".to_string();
+    let started = started_line();
+    let lost = exec("?");
+    let refused = exec("-1 ENOENT (No such file)");
+    let cases = [
+        ("returned", vec![exec("0")], exec("0"), false, true),
+        (
+            "lost, then started",
+            vec![lost.clone(), started.clone()],
+            lost.clone(),
+            false,
+            true,
+        ),
+        ("lost alone", vec![lost.clone()], lost.clone(), false, false),
+        (
+            "lost, answered",
+            vec![lost.clone()],
+            lost.clone(),
+            true,
+            true,
+        ),
+        (
+            "started first",
+            vec![started, lost.clone()],
+            lost,
+            false,
+            false,
+        ),
+        (
+            "refused",
+            vec![refused.clone()],
+            refused.clone(),
+            false,
+            false,
+        ),
+        (
+            "refused, answered",
+            vec![refused.clone()],
+            refused,
+            true,
+            false,
+        ),
+    ];
+    // Another process that started is no proof of this one.
+    let other = vec![exec("0").replace("/server", "/other"), started_line()];
+    for (case, lines, call, answered, succeeded) in cases {
+        let each = [other.clone(), lines];
+        let decided = exec_succeeded(&each, &call, answered);
+        assert_eq!((case, decided), (case, succeeded));
+    }
 }
 
 /// The recorded execs of `server`.
@@ -175,8 +259,11 @@ fn a_protected_installed_server_alone_receives_its_bindings_beside_its_fixed_env
     let Some((sealed, digest, tracer)) = serving(script, store.as_bytes(), &names) else {
         return;
     };
-    let (answer, execs) = recorded(&sealed, &digest, &tracer);
-    assert_eq!(answer, admitted());
+    let (answer, execs, each) = recorded(&sealed, &digest, &tracer);
+    // Initialized by the server's own MCP answer, and served to a harness
+    // that ended its input at once.
+    let initialized = answer == (Some(0), String::new());
+    assert!(initialized, "{answer:?}");
     // One exec of the server, the kernel running its valid shebang inside
     // the box, with the sealed argv and exactly MB4's fixed entries and the
     // declared bindings: no undeclared or ambient name.
@@ -184,8 +271,9 @@ fn a_protected_installed_server_alone_receives_its_bindings_beside_its_fixed_env
     let started = of(&execs, &server);
     let argv = format!("execve(\"{server}\", [\"{server}\", \"--stdio\"], [");
     assert_eq!(started.len(), 1, "{execs:#?}");
+    let answered = initialized & (started.len() == 1);
     assert!(
-        started[0].starts_with(&argv) & started[0].ends_with("]) = 0"),
+        started[0].starts_with(&argv) & exec_succeeded(&each, started[0], answered),
         "{started:?}"
     );
     // Every entry whole, name and value.
@@ -238,7 +326,7 @@ fn a_handoff_that_fails_after_the_lookup_starts_no_server() {
         else {
             return;
         };
-        let (answer, execs) = recorded(&sealed, &digest, &tracer);
+        let (answer, execs, _) = recorded(&sealed, &digest, &tracer);
         assert_eq!((case, answer), (case, refused(cause(case, &sealed))));
         assert_eq!(
             (case, of(&execs, &server(&sealed))),
@@ -302,13 +390,13 @@ fn the_kernel_alone_runs_a_script_in_the_box_and_nothing_retries_one_it_refuses(
         let Some((sealed, digest, tracer)) = serving(&script, b"", &[]) else {
             return;
         };
-        let (answer, execs) = recorded(&sealed, &digest, &tracer);
+        let (answer, execs, each) = recorded(&sealed, &digest, &tracer);
         assert_eq!((case, answer), (case, refused(Refusal::Exec)));
         let server = server(&sealed);
         let tried = of(&execs, &server);
         assert_eq!((case, tried.len()), (case, 1), "{execs:#?}");
         assert!(
-            tried[0].contains(&format!("= -1 {errno} ")),
+            tried[0].contains(&format!("= -1 {errno} ")) & !exec_succeeded(&each, tried[0], false),
             "{case}: {tried:?}"
         );
         let retried = execs
@@ -424,14 +512,14 @@ fn the_server_inherits_only_its_stdio_and_its_environment_from_the_private_home(
     let apart = sealed.path("broker.err");
     let command = traced(&tracer, HOLD_SERVER);
     let mut command = started_to(command, &sealed, &digest, (Starter::Harness, Some(&apart)));
-    let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
+    let attempt = command.stderr(Stdio::null()).spawn().unwrap();
     // Held as its exec returns, before its interpreter has run: the server
-    // holds its standard input and output pipes and no standard error, and
-    // nothing else, the status, control, store and source descriptors all
-    // gone; its environment is the confined one, its directory the private
-    // HOME.
+    // holds its standard input, output and error pipes, the last the
+    // broker's to drain (U6f1b), and nothing else, the status, control,
+    // store and source descriptors all gone; its environment is the
+    // confined one, its directory the private HOME.
     let (broker, server) = stopped(&sealed);
-    let stdio = [(0, "pipe"), (1, "pipe"), (2, "/dev/null")];
+    let stdio = [(0, "pipe"), (1, "pipe"), (2, "pipe")];
     assert_eq!(
         descriptors(server),
         stdio.map(|(number, kind)| (number, kind.to_string()))
@@ -451,7 +539,7 @@ fn the_server_inherits_only_its_stdio_and_its_environment_from_the_private_home(
     // follows it, and the broker ends with the protocol's cause.
     assert!(status(broker).is_some());
     signalled(server, rustix::process::Signal::KILL);
-    let ran = attempt.wait().unwrap();
+    let ran = super::bounded_apart(attempt, b"", &apart).status;
     let answer = (ran.code(), std::fs::read_to_string(apart).unwrap());
     assert_eq!(answer, ended(Failure::Protocol));
     assert!(within(|| boxed(&sealed).is_empty()));
@@ -599,9 +687,12 @@ impl Handing {
     /// The broker's exit and its own stderr, once it has ended; the
     /// store's reads and the server's since the hold; and whether nothing
     /// of the box is left.
-    fn ended(mut self) -> ((Option<i32>, String), (usize, usize), bool) {
-        let code = self.attempt.wait().unwrap().code();
-        let stderr = std::fs::read_to_string(self.sealed.path("broker.err")).unwrap();
+    fn ended(self) -> ((Option<i32>, String), (usize, usize), bool) {
+        let apart = self.sealed.path("broker.err");
+        let code = super::bounded_apart(self.attempt, b"", &apart)
+            .status
+            .code();
+        let stderr = std::fs::read_to_string(apart).unwrap();
         let reads = (self.store.1 + self.store.0.lookups(), self.server.lookups());
         let settled = within(|| boxed(&self.sealed).is_empty());
         ((code, stderr), reads, settled)
@@ -663,12 +754,18 @@ fn returned(handing: &Handing, (launcher, broker): (i32, i32), from: Instant) ->
     ended
 }
 
-/// Check that `handing`'s broker, once ended, refused with the handoff's
-/// cause after one lookup, no server read and nothing of its box left; its
-/// exit code.
+/// Check that `handing`'s broker, once ended, failed after one lookup, no
+/// server read and nothing of its box left, and that its ledger holds its
+/// Opened alone: given up on while its lookup was under way, it knew no
+/// bindings to guard a closure by, so it withheld that closure rather than
+/// append it unguarded, and recovery finds the lifetime unended, never a
+/// success; nor did it write a line those bindings could not guard, so its
+/// exit code alone says it failed (U6f1b; operator ruling 2026-10-13).
 fn refused_handoff(handing: Handing) -> Option<i32> {
+    let unclosed = (vec![], None, Some(Invalid::Lifecycle));
+    assert_eq!(sealed_ledger(&handing.sealed), unclosed);
     let ((code, stderr), reads, settled) = handing.ended();
-    assert_eq!(stderr, refused(Refusal::Handoff).1);
+    assert_eq!(stderr, "");
     assert_eq!(reads, (1, 0));
     assert!(settled);
     code
@@ -778,7 +875,7 @@ const NO_TERMINAL: &str = "no script(1) gives a broker a controlling terminal he
 /// observer's walk of the system set runs at its own pace.
 fn terminal_tracing(log: &Path) -> Vec<&OsStr> {
     let widened = |arg: &&'static str| match *arg {
-        "trace=execve" => "trace=execve,ioctl,kill",
+        "trace=execve,set_tid_address" => "trace=execve,set_tid_address,ioctl,kill",
         arg => arg,
     };
     let kept = ["-y", "-e", "inject=kill:retval=0:when=2"];
@@ -806,13 +903,13 @@ fn a_server_started_from_a_terminal_cannot_open_it() {
     let command = traced(&tracer, terminal_tracing(&log));
     let command = started_to(command, &sealed, &digest, (Starter::Harness, Some(&apart)));
     let mut terminal = on_a_terminal(&command);
-    let mut run = terminal
+    let run = terminal
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
     // The server's shell ends with no word of MCP: the protocol's cause.
-    let ran = run.wait().unwrap();
+    let ran = super::bounded_apart(run, b"", &apart).status;
     let answer = (ran.code(), std::fs::read_to_string(apart).unwrap());
     assert_eq!(answer, ended(Failure::Protocol));
     // One process of the run gives a terminal up: the bootstrap, which
@@ -840,7 +937,7 @@ fn a_server_started_from_a_terminal_cannot_open_it() {
     let server = server(&sealed);
     let argv = format!("execve(\"{server}\", [\"{server}\", \"--stdio\"], [");
     assert!(
-        served.starts_with(&argv) & served.ends_with("]) = 0"),
+        served.starts_with(&argv) & exec_succeeded(&each, served, false),
         "{served}"
     );
     let cause = opened.split_once("\"tty\", \"").map(|(_, rest)| rest);

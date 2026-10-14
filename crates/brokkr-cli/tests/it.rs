@@ -23,6 +23,7 @@ mod workflow;
 #[path = "support/workspace.rs"]
 mod workspace_root;
 
+mod acknowledge;
 mod agent_fallback;
 mod agent_readouts;
 mod analytics;
@@ -30,6 +31,7 @@ mod binary_names;
 mod bootstrap_bench;
 mod boundary_readouts;
 mod boundary_verbs;
+mod brokkr_folder;
 mod budget_frame;
 mod capability_artifacts;
 mod capability_broker;
