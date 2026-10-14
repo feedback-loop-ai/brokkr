@@ -197,7 +197,7 @@ fn driven(
     let seats = seats(&root);
     let bundle = bundle(&root, &world, &seats);
     let (engine, state) = drive(&root, world, bundle, "Feature: codex");
-    (dir, root, engine, state.status)
+    (dir, root, engine, state.run.status())
 }
 
 /// The checkpoints `seat`'s effect journaled, in order, with the

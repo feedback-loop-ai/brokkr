@@ -15,15 +15,12 @@ use thiserror::Error;
 use crate::decision::{Decision, PhaseResult, ReviewedHeads};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::gate_moved_head;
-use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES};
+use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY_PHASE};
 
 mod relation;
 use relation::{Arm, Position, Transition};
-
-/// The phase whose ruling, when it is one of [`STRATEGIES`], sets the
-/// run's `strategy`. It belongs beside `STRATEGIES` in `policy.rs`; it
-/// lives here, with its one reader, until that file is free to move.
-const STRATEGY_PHASE: &str = "triage";
+mod run;
+pub use run::{ParkReason, Run};
 
 /// Results that universally count toward the consecutive-failure counter,
 /// matching the production table's retry/hard-stop rules. A strategy-local
@@ -83,21 +80,23 @@ pub enum Cursor {
         failed_attempts: u64,
     },
     /// An attempt is in flight (or was, when the process last died).
+    /// `stop_rides` is an operator stop ACCEPTED while it flies: the
+    /// command rides — the attempt is untouched and keeps journaling —
+    /// and the effect's boundary concludes the run per the command.
     EffectInFlight {
         effect_id: String,
         attempt_id: String,
         seat: String,
         failed_attempts: u64,
+        stop_rides: bool,
     },
     /// A succeeded result awaits its policy decision.
     Decide { effect_id: String, result: Value },
     /// The engine must append run/parked (failed/indeterminate effect or
     /// a decision that produced no ruling).
-    Park { reason: String },
+    Park { reason: ParkReason },
     /// The engine must append run/stopped (operator stop accepted).
     Stop,
-    /// Parked or terminal: nothing to do without an operator event.
-    Idle,
 }
 
 /// The cursor as readouts and refusals name it: the variant and the ids
@@ -122,6 +121,7 @@ impl fmt::Display for Cursor {
                 attempt_id,
                 seat,
                 failed_attempts,
+                ..
             } => format!(
                 "EffectInFlight {{ effect_id: {effect_id:?}, attempt_id: {attempt_id:?}, \
                  seat: {seat:?}, failed_attempts: {failed_attempts} }}"
@@ -129,7 +129,6 @@ impl fmt::Display for Cursor {
             Cursor::Decide { effect_id, .. } => format!("Decide {{ effect_id: {effect_id:?} }}"),
             Cursor::Park { .. } => "Park".to_string(),
             Cursor::Stop => "Stop".to_string(),
-            Cursor::Idle => "Idle".to_string(),
         })
     }
 }
@@ -139,9 +138,9 @@ pub struct RunState {
     pub run_id: String,
     pub seq: u64,
     pub last_hash: String,
-    pub status: Status,
+    /// Where the run stands: its status, cursor and park reason, at once.
+    pub run: Run,
     pub phase: Option<String>,
-    pub cursor: Cursor,
     /// Journal-computed, never accepted from a caller (README law 2).
     pub consecutive_failures: BTreeMap<String, u64>,
     /// How many times the run has ENTERED each phase — the count the
@@ -162,14 +161,9 @@ pub struct RunState {
     /// ship gate's drift check compares the tree against.
     pub reviewed_heads: Option<ReviewedHeads>,
     pub last_decision: Option<Decision>,
-    pub park_reason: Option<String>,
     pub feature: Option<String>,
     /// Last operator command awaiting disposition: (command_id, command).
     pub pending_command: Option<(String, String)>,
-    /// An operator stop ACCEPTED while an attempt was in flight. The
-    /// command rides — the attempt is untouched and keeps journaling —
-    /// and the effect's boundary concludes the run per the command.
-    pub riding_stop: bool,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -321,11 +315,11 @@ fn terminal(status: Status) -> bool {
 ///   run still parked, and a phase to return to.
 /// - `stop` is a live kill switch and lands wherever a live run stands.
 pub fn acceptance_refusal(state: &RunState, command: OperatorCommand) -> Option<Refusal> {
-    if terminal(state.status) {
+    if terminal(state.run.status()) {
         return Some(Refusal::AfterTerminal);
     }
     match command {
-        OperatorCommand::Retry if state.status != Status::AwaitingOperator => {
+        OperatorCommand::Retry if state.run.status() != Status::AwaitingOperator => {
             Some(Refusal::RunNotAwaitingOperator)
         }
         OperatorCommand::Retry if state.phase.is_none() => Some(Refusal::NoPhaseToRetry),
@@ -338,7 +332,8 @@ pub fn acceptance_refusal(state: &RunState, command: OperatorCommand) -> Option<
 /// view reads to say so before the verb is typed: a second `run/stopped`
 /// would fail the fold as an event after terminal.
 pub fn concluded(state: &RunState) -> Option<Status> {
-    terminal(state.status).then_some(state.status)
+    let status = state.run.status();
+    terminal(status).then_some(status)
 }
 
 /// The words `conclude` refuses a concluded run with, the run named in them.
@@ -367,11 +362,17 @@ fn payload_str(event: &EventEnvelope, field: &str) -> Result<String, FoldError> 
 /// into run/stopped) instead of taking the boundary's normal next step.
 /// The riding command is spent once it is honoured.
 fn conclude(state: &mut RunState, normal: Cursor) {
-    state.cursor = match state.riding_stop {
+    let rides = matches!(
+        state.run,
+        Run::Running(Cursor::EffectInFlight {
+            stop_rides: true,
+            ..
+        })
+    );
+    state.run = Run::Running(match rides {
         true => Cursor::Stop,
         false => normal,
-    };
-    state.riding_stop = false;
+    });
 }
 
 /// Fold a verified journal into state. Callers verify the hash chain
@@ -389,9 +390,8 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         run_id: first.run_id.clone(),
         seq: 0,
         last_hash: String::new(),
-        status: Status::Running,
+        run: Run::Running(Cursor::Start),
         phase: None,
-        cursor: Cursor::Start,
         consecutive_failures: BTreeMap::new(),
         visits: BTreeMap::new(),
         strategy: None,
@@ -399,14 +399,12 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         phase_results: BTreeMap::new(),
         reviewed_heads: None,
         last_decision: None,
-        park_reason: None,
         feature: first
             .payload
             .get("feature")
             .and_then(Value::as_str)
             .map(str::to_string),
         pending_command: None,
-        riding_stop: false,
     };
     fold_onto(state, events)
 }
@@ -451,7 +449,7 @@ fn out_of_place(state: &RunState, event: &EventEnvelope) -> FoldError {
     FoldError::OutOfPlace {
         seq: event.seq,
         event: format!("{:?}", event.event_type),
-        cursor: state.cursor.to_string(),
+        cursor: state.run.to_string(),
     }
 }
 
@@ -476,8 +474,8 @@ fn take(
             Ok(())
         }
         Transition::Park => park(state, event),
-        Transition::Complete => conclude_run(state, Status::Completed),
-        Transition::Stop => conclude_run(state, Status::Stopped),
+        Transition::Complete => conclude_run(state, Run::Completed),
+        Transition::Stop => conclude_run(state, Run::Stopped),
     }
 }
 
@@ -485,30 +483,31 @@ fn take(
 /// flight? The relation has already placed the event at one of the two.
 fn names_the_open_effect(state: &RunState, effect_id: &str) -> bool {
     matches!(
-        &state.cursor,
-        Cursor::ExecuteEffect { effect_id: open, .. }
-            | Cursor::EffectInFlight { effect_id: open, .. } if open == effect_id
+        state.run.cursor(),
+        Some(Cursor::ExecuteEffect { effect_id: open, .. }
+            | Cursor::EffectInFlight { effect_id: open, .. }) if open == effect_id
     )
 }
 
 /// At `Start`, or at `EnterPhase` for the phase it names.
 fn enter(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     let phase = payload_str(event, "phase")?;
-    if matches!(&state.cursor, Cursor::EnterPhase { phase: expected } if *expected != phase) {
+    if matches!(state.run.cursor(), Some(Cursor::EnterPhase { phase: expected }) if *expected != phase)
+    {
         return Err(out_of_place(state, event));
     }
     *state.visits.entry(phase.clone()).or_insert(0) += 1;
     state.phase = Some(phase);
-    state.cursor = Cursor::RequestEffect;
+    state.run = Run::Running(Cursor::RequestEffect);
     Ok(())
 }
 
 fn request(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    state.cursor = Cursor::ExecuteEffect {
+    state.run = Run::Running(Cursor::ExecuteEffect {
         effect_id: payload_str(event, "effect_id")?,
         seat: payload_str(event, "seat")?,
         failed_attempts: 0,
-    };
+    });
     Ok(())
 }
 
@@ -516,18 +515,19 @@ fn request(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError>
 fn start(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     let effect_id = payload_str(event, "effect_id")?;
     let attempt_id = payload_str(event, "attempt_id")?;
-    match &state.cursor {
-        Cursor::ExecuteEffect {
+    match state.run.cursor() {
+        Some(Cursor::ExecuteEffect {
             effect_id: open,
             seat,
             failed_attempts,
-        } if *open == effect_id => {
-            state.cursor = Cursor::EffectInFlight {
+        }) if *open == effect_id => {
+            state.run = Run::Running(Cursor::EffectInFlight {
                 effect_id,
                 attempt_id,
                 seat: seat.clone(),
                 failed_attempts: *failed_attempts,
-            };
+                stop_rides: false,
+            });
             Ok(())
         }
         // Another effect's start: the relation placed the event here.
@@ -572,13 +572,13 @@ fn succeed(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError>
 /// 0006).
 fn fail(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     let effect_id = payload_str(event, "effect_id")?;
-    match &state.cursor {
-        Cursor::EffectInFlight {
+    match state.run.cursor() {
+        Some(Cursor::EffectInFlight {
             effect_id: open,
             seat,
             failed_attempts,
             ..
-        } if *open == effect_id => {
+        }) if *open == effect_id => {
             let normal = Cursor::ExecuteEffect {
                 effect_id,
                 seat: seat.clone(),
@@ -605,9 +605,9 @@ fn close(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
         .unwrap_or("no detail recorded");
     let normal = Cursor::Park {
         reason: if gate_moved_head::decode::<Value>(detail).is_some() {
-            gate_moved_head::PREFIX.to_string()
+            ParkReason::GateMovedHead
         } else {
-            format!("effect {effect_id} indeterminate: {detail}")
+            ParkReason::read(format!("effect {effect_id} indeterminate: {detail}"))
         },
     };
     conclude(state, normal);
@@ -639,7 +639,7 @@ fn rule(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     if let Some(heads) = decision.input(REVIEWED_HEADS) {
         state.reviewed_heads = Some(ReviewedHeads::read(heads));
     }
-    state.cursor = match decision.next.present() {
+    state.run = Run::Running(match decision.next.present() {
         Some(next) => Cursor::EnterPhase {
             phase: next.clone(),
         },
@@ -653,13 +653,13 @@ fn rule(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             // artifact gate blocked it. Saying "no ruling" there
             // would be the exact mislabeling the ruling forbids.
             Cursor::Park {
-                reason: match decision.rule_id.present() {
+                reason: ParkReason::read(match decision.rule_id.present() {
                     Some(rule_id) => format!("{rule_id} for ({from}, {result}): {problem}"),
                     None => format!("no ruling for ({from}, {result}): {problem}"),
-                },
+                }),
             }
         }
-    };
+    });
     state.last_decision = Some(decision);
     Ok(())
 }
@@ -693,11 +693,7 @@ fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> 
         return Err(out_of_place(state, event));
     }
     match command {
-        OperatorCommand::Retry => {
-            state.status = Status::Running;
-            state.park_reason = None;
-            state.cursor = Cursor::RequestEffect;
-        }
+        OperatorCommand::Retry => state.run = Run::Running(Cursor::RequestEffect),
         // `brokkr operator` is a live kill switch: it journals the
         // command AND its acceptance without reading the run's cursor
         // first, so a stop legitimately lands wherever the run stands.
@@ -711,12 +707,10 @@ fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> 
         // running between effects are the same sentence, finished at the
         // first position the journal offers.
         OperatorCommand::Stop => {
-            if matches!(state.cursor, Cursor::EffectInFlight { .. }) {
-                state.riding_stop = true;
+            if let Run::Running(Cursor::EffectInFlight { stop_rides, .. }) = &mut state.run {
+                *stop_rides = true;
             } else {
-                state.status = Status::Running;
-                state.park_reason = None;
-                state.cursor = Cursor::Stop;
+                state.run = Run::Running(Cursor::Stop);
             }
         }
     }
@@ -728,16 +722,15 @@ fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> 
 /// strategy and no default also parks while entering the phase, before
 /// an effect can be requested.
 fn park(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    state.status = Status::AwaitingOperator;
-    state.park_reason = Some(payload_str(event, "reason")?);
-    state.cursor = Cursor::Idle;
+    state.run = Run::AwaitingOperator {
+        reason: ParkReason::read(payload_str(event, "reason")?),
+    };
     Ok(())
 }
 
 /// `run/completed` or `run/stopped`, at any position of a running run.
-fn conclude_run(state: &mut RunState, status: Status) -> Result<(), FoldError> {
-    state.status = status;
-    state.cursor = Cursor::Idle;
+fn conclude_run(state: &mut RunState, run: Run) -> Result<(), FoldError> {
+    state.run = run;
     Ok(())
 }
 

@@ -436,7 +436,7 @@ impl Workspace {
     fn brokkr_raw(&self, args: &[&str]) -> (Option<i32>, String, String) {
         let out = Command::new(brokkr_bin())
             .args(args)
-            .current_dir(self.path())
+            .current_dir(crate::engine::library(self.path()))
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();

@@ -1,10 +1,9 @@
 use super::*;
 use crate::tests::envelope_builder::EnvelopeBuilder;
-use brokkr_core::fold::{Cursor, RunState, Status};
-use brokkr_core::{EventEnvelope, EventType};
+use crate::tests::run_state::{run_state, standing};
+use brokkr_core::{EventEnvelope, EventType, RunState, Status};
 use brokkr_view::{lens_for, Scope};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 
 const T0: &str = "2026-01-01T00:00:00Z";
 const T1: &str = "2026-01-01T00:00:05Z";
@@ -23,25 +22,11 @@ fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelop
 }
 
 fn state(status: Status, park: Option<&str>, decision: Option<Value>) -> RunState {
-    RunState {
-        run_id: "run-7".to_string(),
-        seq: 14,
-        last_hash: "hash".to_string(),
-        status,
-        phase: Some("design".to_string()),
-        cursor: Cursor::Idle,
-        consecutive_failures: BTreeMap::new(),
-        visits: BTreeMap::new(),
-        strategy: None,
-        last_result: None,
-        phase_results: BTreeMap::new(),
-        reviewed_heads: None,
-        park_reason: park.map(str::to_string),
-        feature: Some("one derivation, two surfaces".to_string()),
-        pending_command: None,
-        riding_stop: false,
-        last_decision: decision.map(|decision| serde_json::from_value(decision).unwrap()),
-    }
+    let mut state = run_state("run-7", 14, standing(status, park.unwrap_or_default()));
+    state.phase = Some("design".to_string());
+    state.feature = Some("one derivation, two surfaces".to_string());
+    state.last_decision = decision.map(|decision| serde_json::from_value(decision).unwrap());
+    state
 }
 
 /// An intake seat that concluded, then a design sequence with a parallel
@@ -151,8 +136,12 @@ fn journal() -> Vec<EventEnvelope> {
 
 fn view(park: Option<&str>) -> brokkr_view::RunView {
     let events = journal();
+    let status = match park {
+        Some(_) => Status::AwaitingOperator,
+        None => Status::Running,
+    };
     let ruled = state(
-        Status::Running,
+        status,
         park,
         Some(
             json!({"rule_id": "INTAKE-OK", "severity": "normal", "from": "intake",

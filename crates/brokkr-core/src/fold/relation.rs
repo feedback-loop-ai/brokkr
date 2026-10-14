@@ -4,13 +4,12 @@
 //! annotation it is. `apply` reads the answer before anything else, so no
 //! arm of the fold places an event by a wildcard.
 
-use super::{terminal, Cursor, RunState};
+use super::{Cursor, Run, RunState};
 use crate::envelope::EventType;
 
-/// Where a run stands, as the relation reads it: the cursor's variant, or
-/// `Terminal` once the run has completed or stopped, which the fold reads
-/// before the cursor. The fold reaches `Idle` only by parking or by
-/// concluding, so a run at `Idle` that is not terminal is parked.
+/// Where a run stands, as the relation reads it: a running run's cursor
+/// variant, `Idle` for a run parked awaiting the operator, or `Terminal`
+/// once the run has completed or stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Position {
     Start,
@@ -28,10 +27,12 @@ pub(super) enum Position {
 
 impl Position {
     pub(super) fn of(state: &RunState) -> Position {
-        if terminal(state.status) {
-            return Position::Terminal;
-        }
-        match state.cursor {
+        let cursor = match &state.run {
+            Run::Completed | Run::Stopped => return Position::Terminal,
+            Run::AwaitingOperator { .. } => return Position::Idle,
+            Run::Running(cursor) => cursor,
+        };
+        match cursor {
             Cursor::Start => Position::Start,
             Cursor::EnterPhase { .. } => Position::EnterPhase,
             Cursor::RequestEffect => Position::RequestEffect,
@@ -40,7 +41,6 @@ impl Position {
             Cursor::Decide { .. } => Position::Decide,
             Cursor::Park { .. } => Position::Park,
             Cursor::Stop => Position::Stop,
-            Cursor::Idle => Position::Idle,
         }
     }
 }

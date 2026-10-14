@@ -8,7 +8,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
-    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, RunState, Status,
+    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, Run, RunState, Status,
 };
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Store, StoreError};
@@ -488,7 +488,16 @@ pub(super) fn conclude_racing(
     // conclusion. Only a run with no stop pending gets one, naming the
     // operator invoking `conclude`.
     between(store);
-    if state.cursor != Cursor::Stop && !state.riding_stop {
+    if !matches!(
+        state.run,
+        Run::Running(
+            Cursor::Stop
+                | Cursor::EffectInFlight {
+                    stop_rides: true,
+                    ..
+                }
+        )
+    ) {
         command_stop(store, run_id, operator, reason)?;
     }
     let events = close_riding_attempt(store, run_id, &mut between)?;
@@ -592,18 +601,18 @@ pub(super) fn riding_attempt(
     run_id: &str,
     state: &RunState,
 ) -> Result<Option<(String, String)>, EngineError> {
-    match &state.cursor {
-        Cursor::Stop => Ok(None),
-        Cursor::EffectInFlight {
+    match &state.run {
+        Run::Running(Cursor::Stop) => Ok(None),
+        Run::Running(Cursor::EffectInFlight {
             effect_id,
             attempt_id,
+            stop_rides: true,
             ..
-        } if state.riding_stop => Ok(Some((effect_id.clone(), attempt_id.clone()))),
-        // The cursor prints by `Debug` until it has a `Display` (#345).
-        cursor => Err(EngineError::Invariant(
+        }) => Ok(Some((effect_id.clone(), attempt_id.clone()))),
+        run => Err(EngineError::Invariant(
             "stop rides or stands",
             format!(
-                "conclude: run '{run_id}' stands at {cursor:?} with an accepted stop; \
+                "conclude: run '{run_id}' stands at {run} with an accepted stop; \
                  a stop reaches Stop or rides an in-flight attempt and nothing else"
             ),
         )),
@@ -642,7 +651,7 @@ fn fenced_refusal(state: &RunState, command: CommandWord, cursor_holds: bool) ->
     if !cursor_holds {
         return Some(Refusal::StaleCursor);
     }
-    if state.status != Status::AwaitingOperator {
+    if state.run.status() != Status::AwaitingOperator {
         return Some(Refusal::RunNotAwaitingOperator);
     }
     acceptance_refusal(state, command)

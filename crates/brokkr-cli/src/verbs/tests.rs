@@ -120,7 +120,7 @@ fn conclude_resolves_latest_to_the_run_it_stops_and_refuses_an_empty_run() {
         run(cli(conclude("latest"))).unwrap(),
         ExitCode::from(Exit::Stopped)
     );
-    assert_eq!(fold(&events()).unwrap().status, Status::Stopped);
+    assert_eq!(fold(&events()).unwrap().run.status(), Status::Stopped);
 }
 
 /// `brokkr operator <command> --run latest` on `journal`, with no

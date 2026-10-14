@@ -42,6 +42,7 @@ impl Fixture {
         }
         std::fs::write(root.join("agents/charters/work.md"), "# work\n").unwrap();
         std::fs::write(root.join("bundle/roles/work.md"), "# work\n").unwrap();
+        crate::places::places_tests::plant_library(&root);
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters/exec.json");
         std::fs::copy(repo, root.join("adapters/exec.json")).unwrap();
         let adapter = |provider: &str, models: Value| {
