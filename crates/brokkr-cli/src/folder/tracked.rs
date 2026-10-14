@@ -18,7 +18,8 @@ use super::{entry, forged, unreadable, FolderError, Forge};
 /// could complete (round 634k's third finding): a submodule git tracks
 /// under `.forge`, a tracked path git does not read in the work tree
 /// ([`held`]), a linked `.forge` git tracks itself or tracks entries under,
-/// a sparse checkout beside tracked entries ([`sparse`]), and any tracked
+/// one whose target lies inside the repository, where git does not look
+/// ([`super::links::outside`]), a sparse checkout beside tracked entries ([`sparse`]), and any tracked
 /// path under it git holds a change to ([`committed`]).
 pub(super) fn tracked(root: &Path, forge: Forge) -> Result<Vec<Vec<u8>>, FolderError> {
     let repository = brokkr_runtime::places::root(root).map_err(FolderError::Places)?;
@@ -32,6 +33,9 @@ pub(super) fn tracked(root: &Path, forge: Forge) -> Result<Vec<Vec<u8>>, FolderE
     if forge == Forge::Link && (index.itself || !index.names.is_empty()) {
         let path = root.join(LIBRARY_STATE);
         return Err(FolderError::LinkedTracked { path });
+    }
+    if forge == Forge::Link {
+        super::links::outside(root, &repository)?;
     }
     if !index.names.is_empty() && sparse(root)? {
         let root = root.to_path_buf();

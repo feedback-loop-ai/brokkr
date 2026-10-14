@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_runtime::places::PlacesError;
 
-use super::{state_moves, DoctorDefaults, FolderError, Layout, OldLayout};
+use super::{state_moves, DoctorDefaults, FolderError, Layout, LinkRefusal, OldLayout};
 
 /// Mark `dir` as a recipe library (decision 0083 ruling 4), so a run verb
 /// standing in it keeps the library's own `.forge/` layout.
@@ -444,6 +444,46 @@ fn a_linked_forge_whose_entries_git_tracks_refuses() {
             forge.display()
         )
     );
+}
+
+/// A link the moves would carry out of `.forge` naming another path, and a
+/// `.forge` linked to a directory inside the repository, where git does
+/// not look, refuse by name; so does a directory under `.forge` the walk
+/// for links cannot read, never skipped (the fifth landing's review).
+#[test]
+fn a_link_the_moves_would_strand_refuses() {
+    let dir = repository_with_a_forge();
+    let root = &dir.path().canonicalize().unwrap();
+    let (forge, link) = (root.join(".forge"), root.join(".forge/forge.db"));
+    std::os::unix::fs::symlink("../journal.db", &link).unwrap();
+    let escaping = |refused: &FolderError| {
+        let target = Path::new("../journal.db");
+        matches!(refused, FolderError::Link(LinkRefusal::Escaping { path, target: named }) if *path == link && named == target)
+    };
+    assert!(escaping(&refused(root)), "{}", refused(root));
+
+    std::fs::remove_file(&link).unwrap();
+    std::fs::rename(&forge, root.join("state")).unwrap();
+    std::os::unix::fs::symlink("state", &forge).unwrap();
+    let inside = |refused: &FolderError| {
+        let state = root.join("state");
+        matches!(refused, FolderError::Link(LinkRefusal::InRepository { path, target }) if *path == forge && *target == state)
+    };
+    assert!(inside(&refused(root)), "{}", refused(root));
+
+    std::fs::remove_file(&forge).unwrap();
+    std::fs::create_dir_all(forge.join("runs")).unwrap();
+    let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
+    let runs = forge.join("runs");
+    std::fs::set_permissions(&runs, mode(0o000)).unwrap();
+    if std::fs::read_dir(&runs).is_ok() {
+        std::fs::set_permissions(&runs, mode(0o755)).unwrap();
+        eprintln!("skipped: this process reads a mode-000 directory, as root does");
+        return;
+    }
+    let refusal = refused(root);
+    std::fs::set_permissions(&runs, mode(0o755)).unwrap();
+    assert!(matches!(refusal, FolderError::Unreadable { ref path, .. } if *path == runs));
 }
 
 /// Each record of `git status --porcelain=v1 -z` is read typed: two

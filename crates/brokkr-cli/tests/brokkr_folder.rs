@@ -1327,6 +1327,16 @@ fn shapes() -> Vec<Shape> {
         listing("Rm", &["forge.db", ".gitignore"], &[], true),
         listing("Unlink", &["forge.db", "forge.db-wal"], &[], true),
         Shape {
+            then: |repo| {
+                let far = repo.aside.join("far");
+                std::fs::write(&far, "far").unwrap();
+                link(repo, Path::new("./forge.db"), ".forge/alias");
+                link(repo, Path::new("../forge.db"), ".forge/results/up");
+                link(repo, &far, ".forge/far");
+            },
+            ..listing("Mv", &["forge.db", "results/r.json"], &[], false)
+        },
+        Shape {
             then: |repo| drop(repo.write("bundle.json", "{}")),
             ..listing("Absent", &[], &[], false)
         },
@@ -1334,7 +1344,109 @@ fn shapes() -> Vec<Shape> {
     .into_iter()
     .chain(refusals())
     .chain(linked_refusals())
+    .chain(stranding_refusals())
     .collect()
+}
+
+/// The refusal a link at `link` under the root, naming `target`, gives:
+/// once moved into `.brokkr/state` it would name another path or none.
+fn escaping(repo: &Repo, link: &str, target: &Path) -> String {
+    format!(
+        "error: {} is a link to {}, which a listed move into .brokkr/state would leave naming \
+         another path or none, so no moves are listed (decision 0083); nothing was opened: put \
+         what it names in its place, or remove it, then run again\n",
+        repo.path(link).display(),
+        target.display()
+    )
+}
+
+/// `target` linked at `at` under the root.
+fn link(repo: &Repo, target: &Path, at: &str) {
+    std::os::unix::fs::symlink(target, repo.path(at)).unwrap();
+}
+
+/// The shapes of [`shapes`] a listed move would leave a link stranded in
+/// (the fifth landing's review): a `.forge` entry or a deeper link whose
+/// relative target leads out of `.forge` or to the ignore file the list
+/// removes, an absolute one into `.forge` by the root's name for it or by
+/// its real directory, and a `.forge` linked inside the repository, where
+/// git does not look, to a directory whose entries git tracks.
+fn stranding_refusals() -> Vec<Shape> {
+    vec![
+        refusing(
+            "Escaping",
+            listing("", &["notes.md"], &[], false),
+            |repo| {
+                repo.write("journal.db", "journal");
+                link(repo, Path::new("../journal.db"), ".forge/forge.db");
+            },
+            |repo| escaping(repo, ".forge/forge.db", Path::new("../journal.db")),
+        ),
+        refusing(
+            "Escaping",
+            listing("", &["results/r.json"], &[], false),
+            |repo| link(repo, Path::new("../../journal.db"), ".forge/results/back"),
+            |repo| escaping(repo, ".forge/results/back", Path::new("../../journal.db")),
+        ),
+        refusing(
+            "Escaping",
+            listing("", &["forge.db", ".gitignore"], &[], false),
+            |repo| link(repo, Path::new(".gitignore"), ".forge/alias"),
+            |repo| escaping(repo, ".forge/alias", Path::new(".gitignore")),
+        ),
+        refusing(
+            "Escaping",
+            listing("", &["notes.md"], &[], true),
+            |repo| link(repo, &repo.path(".forge/notes.md"), ".forge/alias"),
+            |repo| escaping(repo, ".forge/alias", &repo.path(".forge/notes.md")),
+        ),
+        refusing(
+            "Escaping",
+            listing("", &["notes.md"], &[], true),
+            |repo| link(repo, &repo.aside.join("linked/notes.md"), ".forge/alias"),
+            |repo| escaping(repo, ".forge/alias", &repo.aside.join("linked/notes.md")),
+        ),
+        refusing(
+            "InRepository",
+            listing("", &[], &[], false),
+            |repo| {
+                repo.write("state/notes.md", "notes.md");
+                git(&repo.root, &["add", "state/notes.md"]);
+                commit(&repo.root);
+                link(repo, Path::new("state"), ".forge");
+            },
+            |repo| {
+                format!(
+                    "error: {} is a link to {}, inside the repository, and git does not look \
+                     through a link, so the moves cannot tell which entries git tracks there; no \
+                     moves are listed (decision 0083); nothing was opened: move its entries into \
+                     .brokkr/state yourself, by `git mv` for each git tracks, then remove the link \
+                     and run again\n",
+                    repo.path(".forge").display(),
+                    repo.path("state").display()
+                )
+            },
+        ),
+    ]
+}
+
+/// What every link under `dir` reads as, by its path under `dir`, the old
+/// ignore file aside, which the list removes: a list that moves a link
+/// leaves it reading what it read (the fifth landing's review).
+fn links(dir: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
+    let mut links = BTreeMap::new();
+    let mut pending = vec![PathBuf::new()];
+    while let Some(inner) = pending.pop() {
+        for entry in std::fs::read_dir(dir.join(&inner)).unwrap().flatten() {
+            let (kind, inner) = (entry.file_type().unwrap(), inner.join(entry.file_name()));
+            if kind.is_symlink() && inner != Path::new(".gitignore") {
+                links.insert(inner, std::fs::read(entry.path()).ok());
+            } else if kind.is_dir() {
+                pending.push(inner);
+            }
+        }
+    }
+    links
 }
 
 /// A sparse checkout of `src` alone, which leaves every tracked path under
@@ -1515,9 +1627,10 @@ fn refusals() -> Vec<Shape> {
 
 /// Every shape of `.forge/` this slice moves, its listed moves made as
 /// listed by `sh` (round 634i's third finding): `.forge` no longer
-/// stands, git tracks nothing under it, and every entry arrived under
-/// `.brokkr/state/` byte for byte, but the old ignore file, which the
-/// list removes. A shape no listed move could complete refuses by name
+/// stands, git tracks nothing under it and states no tracked path deleted
+/// in the work tree, every entry arrived under `.brokkr/state/` byte for
+/// byte, but the old ignore file, which the list removes, and every link
+/// moved reads what it read (the fifth landing's review). A shape no listed move could complete refuses by name
 /// with no moves and moves nothing (rounds 634j and 634k). Every arm of
 /// the list builder is reached, read off its enum, so an arm no shape
 /// reaches fails here (round 634k's fourth finding).
@@ -1542,9 +1655,13 @@ fn the_listed_moves_empty_every_forge() {
         assert_eq!((ran.code, ran.first_line()), (Some(1), layout), "{arm}");
         let moves = listed_moves(&ran);
         let mut arms: Vec<&str> = moves.iter().map(|line| arm_of(line)).collect();
-        if std::fs::symlink_metadata(repo.path(".forge")).is_err() {
-            arms.push("Absent");
-        }
+        let carried = match std::fs::symlink_metadata(repo.path(".forge")) {
+            Ok(_) => links(&repo.path(".forge")),
+            Err(_) => {
+                arms.push("Absent");
+                BTreeMap::new()
+            }
+        };
         assert!(arms.contains(&arm), "{arm}: {moves:?}");
         reached.extend(arms);
         make(&repo, &moves);
@@ -1552,7 +1669,14 @@ fn the_listed_moves_empty_every_forge() {
         let gone = forge.map(|_| ()).map_err(|error| error.kind());
         assert_eq!(gone, Err(std::io::ErrorKind::NotFound), "{arm}");
         assert_eq!(git(&repo.root, &["ls-files", "--", ".forge"]), "", "{arm}");
+        let status = git(
+            &repo.root,
+            &["status", "--porcelain=v1", "--untracked-files=no"],
+        );
+        let deleted = status.lines().filter(|line| line.as_bytes()[1] == b'D');
+        assert_eq!(deleted.count(), 0, "{arm}: a tracked deletion: {status}");
         let state = repo.path(".brokkr/state");
+        assert_eq!(links(&state), carried, "{arm}");
         for entry in entries.iter().filter(|entry| **entry != ".gitignore") {
             let moved = std::fs::read(state.join(entry)).unwrap();
             assert_eq!(moved, entry.as_bytes(), "{arm}: {entries:?}");

@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_runtime::places::{self, Kind, Old, Places, PlacesError, BUNDLE, FOLDER, JOURNAL};
 use brokkr_runtime::places::{LIBRARY_STATE, SECRETS, STATE};
+use links::{links_stay, LinkRefusal};
 use tracked::{listed_paths, tracked, Change, Unwatched};
 
 /// Why a verb refused before it opened anything, in the operator's words.
@@ -80,6 +81,8 @@ pub(crate) enum FolderError {
     /// The old layout's ignore entry that is neither a file nor a link,
     /// which no listed `rm` could remove.
     IgnoreNotAFile { path: PathBuf },
+    /// A link no listed move could carry or look through.
+    Link(LinkRefusal),
 }
 
 impl From<PlacesError> for FolderError {
@@ -191,6 +194,7 @@ impl fmt::Display for FolderError {
                  0083); nothing was opened: move it aside",
                 path.display()
             ),
+            FolderError::Link(refused) => write!(f, "{refused}"),
         }
     }
 }
@@ -471,9 +475,11 @@ fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
 /// holds the root, entries that cannot be listed or named, an ignore entry
 /// no `rm` could remove, a repository git will not list or state, a
 /// submodule git tracks, a tracked path git holds a change to or does not
-/// read in the work tree, and a linked `.forge` git tracks itself or whose
-/// entries git tracks refuse by name, with no list at all,
-/// so every list printed completes when executed (round 634k).
+/// read in the work tree, a linked `.forge` git tracks itself, whose
+/// entries git tracks or whose target lies inside the repository, and a
+/// link under `.forge` a move would leave naming another path or none
+/// refuse by name, with no list at all, so every list printed completes
+/// when executed (round 634k; the fifth landing's review).
 fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
     let forge = Forge::at(root)?;
     let (names, tracked) = (forge_entries(root, forge)?, tracked(root, forge)?);
@@ -641,7 +647,8 @@ fn journal_log(name: &str, names: &[String]) -> bool {
 /// The names directly under the root's `.forge/`, `forge` what stands
 /// there, sorted. A `.forge` whose entries cannot be listed refuses by
 /// name, never read as empty, and so does an entry no listed move could
-/// name on one line ([`nameable`]).
+/// name on one line ([`nameable`]) and a link the moves would leave naming
+/// another path or none ([`links_stay`]).
 fn forge_entries(root: &Path, forge: Forge) -> Result<Vec<String>, FolderError> {
     let path = root.join(LIBRARY_STATE);
     let mut names = Vec::new();
@@ -653,6 +660,7 @@ fn forge_entries(root: &Path, forge: Forge) -> Result<Vec<String>, FolderError> 
         names.push(nameable(&path, name)?);
     }
     names.sort();
+    links_stay(root, &path, &names)?;
     Ok(names)
 }
 
@@ -671,6 +679,7 @@ fn nameable(forge: &Path, name: std::ffi::OsString) -> Result<String, FolderErro
     }
 }
 
+mod links;
 mod tracked;
 
 #[cfg(test)]
