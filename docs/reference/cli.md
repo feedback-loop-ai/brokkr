@@ -819,8 +819,8 @@ Usage: brokkr analytics [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--realms <REALMS>` |  |  | The world's map — every hearth it names is read (default ./realms.json when present) |
-| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, .forge/forge.db as always |
+| `--realms <REALMS>` |  |  | The world's map — every hearth it names is read (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
+| `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--range <RANGE>` | `7d` |  | How far back from now: 24h, 7d or 30d |
 | `--realm <REALM>` |  |  | Only this realm's runs |
 | `--json` |  |  | Emit the view model verbatim — this is what the console reads |
