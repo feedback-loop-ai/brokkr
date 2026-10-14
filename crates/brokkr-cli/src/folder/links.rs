@@ -5,6 +5,7 @@
 //! refused by name before a move is listed (the fifth landing's review).
 
 use std::fmt;
+use std::io::ErrorKind::{NotADirectory, NotFound};
 use std::path::{Component, Path, PathBuf};
 
 use brokkr_runtime::places::{FOLDER, LIBRARY_STATE, STATE};
@@ -75,14 +76,15 @@ pub(super) fn links_stay(root: &Path, forge: &Path, names: &[String]) -> Result<
 
 /// Whether the link at `path`, `inner` under `.forge/`, names the same
 /// thing once moved to `.brokkr/state/<inner>`: a relative target must
-/// resolve inside `.forge`, to no ignore file the list removes
-/// ([`escapes`]), and an absolute one must name no path under `.forge`,
-/// by the root's name for it or its real directory (`places`), whose
-/// entries the list moves away. Anything else refuses by name.
+/// resolve inside `.forge`, to no ignore file the list removes nor a path
+/// beneath it ([`escapes`]), and an absolute one must pass through no path
+/// under `.forge`, by the root's name for it or its real directory
+/// (`places`), whose entries the list moves away ([`enters`]). Anything
+/// else refuses by name.
 fn stays(places: &[PathBuf], path: &Path, inner: &Path) -> Result<(), FolderError> {
     let target = std::fs::read_link(path).map_err(unreadable(path))?;
     let leaves = match target.is_absolute() {
-        true => places.iter().any(|place| target.starts_with(place)),
+        true => enters(places, &target)?,
         false => escapes(inner, &target),
     };
     match leaves {
@@ -94,10 +96,38 @@ fn stays(places: &[PathBuf], path: &Path, inner: &Path) -> Result<(), FolderErro
     }
 }
 
+/// Whether the absolute `target`, resolved a component at a time as the
+/// kernel does, through every link and `..` on its way, reaches a path
+/// under `places` at any step: a spelling through a detour's `..` or a
+/// linked ancestor names `.forge` as surely as its plain name does (the
+/// sixth landing's review). A step nothing stands at, or can, is carried
+/// by its name; one that cannot be resolved otherwise refuses.
+fn enters(places: &[PathBuf], target: &Path) -> Result<bool, FolderError> {
+    let mut walked = PathBuf::new();
+    for part in target.components() {
+        // The root, then names: an absolute path holds no inner `.`.
+        if part == Component::ParentDir {
+            walked.pop();
+        } else {
+            walked.push(part);
+        }
+        walked = match std::fs::canonicalize(&walked) {
+            Ok(real) => real,
+            Err(error) if matches!(error.kind(), NotFound | NotADirectory) => walked,
+            Err(error) => return Err(unreadable(&walked)(error)),
+        };
+        if places.iter().any(|place| walked.starts_with(place)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Whether `target`, a relative link's, read lexically from `inner`'s
-/// directory under `.forge/`, leads above `.forge` or to its ignore file:
-/// every entry moves into `.brokkr/state/` one level deeper, so such a
-/// target would name another path once moved, or none.
+/// directory under `.forge/`, leads above `.forge`, to its ignore file or
+/// beneath it: every entry moves into `.brokkr/state/` one level deeper,
+/// and the list removes the ignore file, so such a target would name
+/// another path once moved, or none.
 fn escapes(inner: &Path, target: &Path) -> bool {
     let mut resolved: Vec<Component<'_>> = inner
         .parent()
@@ -113,7 +143,7 @@ fn escapes(inner: &Path, target: &Path) -> bool {
             Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
         }
     }
-    above || resolved == [Component::Normal(IGNORE.as_ref())]
+    above || resolved.first() == Some(&Component::Normal(IGNORE.as_ref()))
 }
 
 /// Refuse a `.forge` that is a link to a directory inside `repository`,

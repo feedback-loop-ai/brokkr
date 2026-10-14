@@ -1333,6 +1333,7 @@ fn shapes() -> Vec<Shape> {
                 link(repo, Path::new("./forge.db"), ".forge/alias");
                 link(repo, Path::new("../forge.db"), ".forge/results/up");
                 link(repo, &far, ".forge/far");
+                link(repo, &repo.aside.join("gone/far"), ".forge/gone");
             },
             ..listing("Mv", &["forge.db", "results/r.json"], &[], false)
         },
@@ -1367,10 +1368,12 @@ fn link(repo: &Repo, target: &Path, at: &str) {
 
 /// The shapes of [`shapes`] a listed move would leave a link stranded in
 /// (the fifth landing's review): a `.forge` entry or a deeper link whose
-/// relative target leads out of `.forge` or to the ignore file the list
-/// removes, an absolute one into `.forge` by the root's name for it or by
-/// its real directory, and a `.forge` linked inside the repository, where
-/// git does not look, to a directory whose entries git tracks.
+/// relative target leads out of `.forge`, to the ignore file the list
+/// removes or beneath it, an absolute one into `.forge` by the root's name
+/// for it, by its real directory, through a detour's `..` or through a
+/// linked ancestor (the sixth landing's review), and a `.forge` linked
+/// inside the repository, where git does not look, to a directory whose
+/// entries git tracks.
 fn stranding_refusals() -> Vec<Shape> {
     vec![
         refusing(
@@ -1405,6 +1408,35 @@ fn stranding_refusals() -> Vec<Shape> {
             listing("", &["notes.md"], &[], true),
             |repo| link(repo, &repo.aside.join("linked/notes.md"), ".forge/alias"),
             |repo| escaping(repo, ".forge/alias", &repo.aside.join("linked/notes.md")),
+        ),
+        refusing(
+            "Escaping",
+            listing("", &["notes.md"], &[], false),
+            |repo| {
+                std::fs::create_dir(repo.path("d")).unwrap();
+                link(repo, &repo.path("d/../.forge/notes.md"), ".forge/alias");
+            },
+            |repo| escaping(repo, ".forge/alias", &repo.path("d/../.forge/notes.md")),
+        ),
+        refusing(
+            "Escaping",
+            listing("", &["notes.md"], &[], false),
+            |repo| {
+                std::os::unix::fs::symlink(&repo.root, repo.aside.join("r")).unwrap();
+                link(repo, &repo.aside.join("r/.forge/notes.md"), ".forge/alias");
+            },
+            |repo| escaping(repo, ".forge/alias", &repo.aside.join("r/.forge/notes.md")),
+        ),
+        refusing(
+            "Escaping",
+            listing("", &["notes.md"], &[], false),
+            |repo| {
+                std::fs::create_dir(repo.aside.join("outside")).unwrap();
+                std::fs::write(repo.aside.join("outside/forge.db"), "journal").unwrap();
+                link(repo, &repo.aside.join("outside"), ".forge/.gitignore");
+                link(repo, Path::new(".gitignore/forge.db"), ".forge/alias.db");
+            },
+            |repo| escaping(repo, ".forge/alias.db", Path::new(".gitignore/forge.db")),
         ),
         refusing(
             "InRepository",

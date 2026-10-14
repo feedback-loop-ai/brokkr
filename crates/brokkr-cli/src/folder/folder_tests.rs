@@ -448,8 +448,9 @@ fn a_linked_forge_whose_entries_git_tracks_refuses() {
 
 /// A link the moves would carry out of `.forge` naming another path, and a
 /// `.forge` linked to a directory inside the repository, where git does
-/// not look, refuse by name; so does a directory under `.forge` the walk
-/// for links cannot read, never skipped (the fifth landing's review).
+/// not look, refuse by name; so do an absolute target that cannot be
+/// resolved and a directory under `.forge` the walk for links cannot read,
+/// never skipped (the fifth and sixth landings' reviews).
 #[test]
 fn a_link_the_moves_would_strand_refuses() {
     let dir = repository_with_a_forge();
@@ -472,6 +473,14 @@ fn a_link_the_moves_would_strand_refuses() {
     assert!(inside(&refused(root)), "{}", refused(root));
 
     std::fs::remove_file(&forge).unwrap();
+    std::fs::rename(root.join("state"), &forge).unwrap();
+    let ring = root.join("ring");
+    std::os::unix::fs::symlink(&ring, &ring).unwrap();
+    std::os::unix::fs::symlink(ring.join("x"), &link).unwrap();
+    let refusal = refused(root);
+    assert!(matches!(refusal, FolderError::Unreadable { ref path, .. } if *path == ring));
+    std::fs::remove_file(&link).unwrap();
+    std::fs::remove_dir_all(&forge).unwrap();
     std::fs::create_dir_all(forge.join("runs")).unwrap();
     let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
     let runs = forge.join("runs");
