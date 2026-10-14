@@ -22,9 +22,10 @@
 //! Cancellation or the deadline kills its group and reaps it. Then the box
 //! is launched on its waiting bootstrap and its readiness received under
 //! the same deadline ([`readiness`], U6c6b), and only then are its bindings
-//! looked up and handed over, and the server started (U6c8) and initialized
-//! (U6e). A bound plan's ledger is opened first, handed to the session and
-//! closed with its first cause ([`lifetime`], U6d); an unbound plan has none.
+//! looked up and handed over, and the server started (U6c8), initialized
+//! (U6e) and served (U6f1b). A bound plan's ledger is opened first, handed
+//! to the session and closed with its first cause, or Clean ([`lifetime`],
+//! U6d); an unbound plan has none.
 //! The plan and where it lies stay here; only the shared protocol types
 //! leave.
 
@@ -43,8 +44,8 @@ use brokkr_protocol::{hands, secret};
 use rustix::fs::{fstat, openat, FileType, Mode, OFlags, Stat, CWD};
 use serde::{Deserialize, Serialize};
 
-pub(super) use lifetime::{admit, Ended};
-pub(super) use readiness::{polled, timely, Admitted, Link, Pace, Startup};
+pub(super) use lifetime::{serve, Bound, Ended};
+pub(super) use readiness::{polled, timely, Link, Pace, Startup};
 
 pub(super) mod lifetime;
 mod readiness;
@@ -426,8 +427,9 @@ fn identity(intent: &BoxIntent, server: &ServerBox) -> Result<(), Refusal> {
 
 /// A cause the observer hands back, by its name on the socket: every
 /// refusal it can meet once the broker has screened the plan. A binding
-/// name's is the broker's own, and the serving cause comes after
-/// admission, so neither has one; a name not here is no record.
+/// name's is the broker's own, and the retention cause is the broker's
+/// once the bindings guard the ledger, before any MCP message reaches its
+/// server, so neither has one; a name not here is no record.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum Cause {

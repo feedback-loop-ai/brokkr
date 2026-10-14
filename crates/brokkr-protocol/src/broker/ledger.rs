@@ -28,8 +28,8 @@
 //! guard still refuses, as in a sequence number that is a bound value by
 //! what it is worth, is never appended, and the masking cause is latched as
 //! the session's. The bindings are the session's: a ledger opened before
-//! they are known is given them as soon as they are ([`Ledger::bind`]), its
-//! Opened then guarded by them too.
+//! they are known is given them once, as soon as they are ([`Ledger::bind`]),
+//! its Opened then guarded by them too.
 //!
 //! [`Lifecycle`] is the one statement of D7's order: the writer admits
 //! each record through it before writing it, and [`recover`] reads a
@@ -156,9 +156,10 @@ pub enum Disposition {
 /// order: MB3 and MB4's box admission, readiness, handoff and exec causes,
 /// which a plan refused after its ledger opened takes; the server's
 /// version, protocol, response limit or deadline; a response it cannot
-/// safely mask; or the ledger's own limit. A served cause reads in its
-/// shared refusal's words, and is latched as its own variant, never as a
-/// refused plan. An ordinary tool error or a local denial is a call's
+/// safely mask; the ledger's own limit; or output of the broker's that
+/// could not be delivered ([`Failure::Undelivered`]). A served cause reads
+/// in its shared refusal's words, and is latched as its own variant, never
+/// as a refused plan. An ordinary tool error or a local denial is a call's
 /// outcome, never one of these.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -177,6 +178,15 @@ pub enum Failure {
     Masking,
     #[error("broker ledger exceeds the attempt limit")]
     Limit,
+    /// Output of the broker's, on its standard output or its standard
+    /// error, not delivered whole for any reason but a closed reader: a
+    /// sink that took a piece short or took nothing, a write or poll error
+    /// such as a full device or an I/O error, or a stream that could not be
+    /// set up. A harness that has closed its end, seen as a broken pipe,
+    /// keeps its existing ending instead. Worded as the broker's own line
+    /// (operator rulings of 2026-10-14).
+    #[error("MCP broker output could not be delivered")]
+    Undelivered,
 }
 
 /// Why the broker could not make its record (CR3).
@@ -369,14 +379,16 @@ fn verified(lifecycle: &mut Lifecycle, line: &[u8]) -> Result<(), Invalid> {
 type Append = Box<dyn FnMut(&[u8]) -> std::io::Result<()>>;
 
 /// The writer of one plan's ledger: its records' lifecycle, how a line is
-/// appended and synced, the first fatal cause, once one is latched, and the
-/// final guard of the session's bindings, which every record passes.
+/// appended and synced, the first fatal cause, once one is latched, the
+/// final guard of the session's bindings, which every record passes, and
+/// whether those bindings have been given ([`Ledger::bind`]).
 pub struct Ledger<'b> {
     append: Append,
     lifecycle: Lifecycle,
     latched: Option<Failure>,
     broken: bool,
     guard: Guard<'b>,
+    bound: bool,
 }
 
 /// Room for one more call, which holds the ledger until the call is begun
@@ -444,6 +456,7 @@ impl<'b> Ledger<'b> {
             latched: None,
             broken: false,
             guard: Guard::new(bindings),
+            bound: !bindings.is_empty(),
         };
         let opened = ledger.lifecycle.opened();
         ledger.record(|_| opened)?;
@@ -481,8 +494,18 @@ impl<'b> Ledger<'b> {
     /// Opened, written before them, holds only the owner and the plan's
     /// digest: its very line is passed by their guard now, and where it is
     /// refused, the masking cause is latched, as for any record, and the
-    /// Opened stays as it was written.
+    /// Opened stays as it was written. A ledger is bound once: one opened
+    /// with bindings, or bound already, refuses another binding as a record
+    /// it cannot make and keeps the guard it has, so no later binding,
+    /// however few its values, weakens it (operator ruling 2026-10-13); and
+    /// since what the second binding was to guard is then guarded by
+    /// another, the masking cause is latched, so its closure is never Clean.
     pub fn bind(&mut self, bindings: &'b [BoundSecret]) -> Result<(), Unrecorded> {
+        if self.bound {
+            self.fail(Failure::Masking);
+            return Err(Unrecorded::Record);
+        }
+        self.bound = true;
         self.guard = Guard::new(bindings);
         let line = self.lifecycle.opened().line().ok_or(Unrecorded::Record)?;
         match self.guard.json(&line) {

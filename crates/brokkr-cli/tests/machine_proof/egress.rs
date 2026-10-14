@@ -42,7 +42,10 @@ fn the_binding_frame_has_one_sender_and_one_receiver() {
     // its exec: each side called once, from its own consumer.
     let sender = PathBuf::from("brokkr-cli/src/broker/session/readiness.rs");
     let sent = production_calls(&["send_", "environment("].concat());
-    assert_eq!(sent, [(sender, "delivered<E: From<Refusal>>".to_string())]);
+    assert_eq!(
+        sent,
+        [(sender, "delivered<B, E: From<Refusal>>".to_string())]
+    );
     let receiver = PathBuf::from("brokkr-cli/src/broker/bootstrap.rs");
     let received = production_calls(&["exec_", "confined("].concat());
     assert_eq!(received, [(receiver, "served".to_string())]);

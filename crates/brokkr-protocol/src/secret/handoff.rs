@@ -31,19 +31,21 @@ pub(super) const BINDINGS_MAX: usize = 256;
 /// be reopened through its handle, a name is the store's read cause. A
 /// store or binding cause is
 /// decision 0012's own; a frame past MB4's bounds is the handoff cause, as
-/// is whatever `send` answers. The frame is reserved whole before a byte is
-/// written, and wiped once sent. Its caller bounds the whole of it, the
-/// store's open and read included, by the box's startup. The bindings it
-/// looked up are handed back beside the answer, whether or not anything was
-/// sent, so the caller's final guard holds them from the moment they are
-/// known (MB4, CR2; operator ruling 2026-10-13); none where the lookup
-/// itself refused.
+/// is whatever `send` answers. The frame is reserved and made whole before
+/// a byte is written, and wiped once sent. Its caller bounds the whole of
+/// it, the store's open and read included, by the box's startup. The
+/// bindings it looked up are given to `found` as soon as the frame is made,
+/// before `send` is asked to write a byte of it, and whether or not it is
+/// made: a write the caller gives up on, however long it stalls, never
+/// holds them back from the caller's final guard (MB4, CR2; operator ruling
+/// 2026-10-13). None are given where the lookup itself refused.
 pub fn send_environment(
     store: std::os::fd::BorrowedFd<'_>,
     path: &Path,
     names: &[String],
+    found: impl FnOnce(Vec<BoundSecret>),
     send: impl FnOnce(&[u8]) -> Result<(), Refusal>,
-) -> (Vec<BoundSecret>, Result<(), Refusal>) {
+) -> Result<(), Refusal> {
     let io = |source| store::StoreError::Io {
         path: path.to_path_buf(),
         source,
@@ -55,14 +57,13 @@ pub fn send_environment(
             .and_then(|file| store::read_store_file(file, path))
             .and_then(|entries| store::bind_names(entries, names, path))
             .map_err(|error| named(&error)),
-    };
-    match bindings {
-        Ok(bindings) => {
-            let sent = framed(&bindings, send);
-            (bindings, sent)
-        }
-        Err(refusal) => (Vec::new(), Err(refusal)),
-    }
+    }?;
+    let frame = framed(&bindings);
+    found(bindings);
+    let mut frame = frame?;
+    let sent = send(&frame);
+    wipe(&mut frame);
+    sent
 }
 
 /// The binding cause `error` reads as.
@@ -70,13 +71,10 @@ fn named(error: &dyn fmt::Display) -> Refusal {
     Refusal::Name(bounded_line(&error.to_string()))
 }
 
-/// Bind `bindings` with [`bind_environment`] on a cleared command that is
-/// never run, and hand `send` that command's environment as one binding
-/// frame ([`send_environment`]).
-fn framed(
-    bindings: &[BoundSecret],
-    send: impl FnOnce(&[u8]) -> Result<(), Refusal>,
-) -> Result<(), Refusal> {
+/// `bindings` bound with [`bind_environment`] on a cleared command that is
+/// never run, and that command's environment made one binding frame
+/// ([`send_environment`]); the frame wiped where it is refused.
+fn framed(bindings: &[BoundSecret]) -> Result<Vec<u8>, Refusal> {
     let mut prepared = std::process::Command::new("");
     prepared.env_clear();
     bind_environment(&mut prepared, bindings).map_err(|error| named(&error))?;
@@ -96,12 +94,11 @@ fn framed(
     frame[..4].copy_from_slice(&length.to_be_bytes());
     let whole = environment.len() == bindings.len();
     let bounded = (length as usize <= HANDOFF_MAX) & (environment.len() <= BINDINGS_MAX);
-    let sent = match written.is_ok() & bounded & whole {
-        true => send(&frame),
-        false => Err(Refusal::Handoff),
-    };
+    if written.is_ok() & bounded & whole {
+        return Ok(frame);
+    }
     wipe(&mut frame);
-    sent
+    Err(Refusal::Handoff)
 }
 
 /// The store the admitted path handle `store` holds, opened for reading
