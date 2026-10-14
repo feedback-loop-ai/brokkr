@@ -10,6 +10,7 @@ import { brokkrOf } from './host/brokkr.js'
 import { deskOf, RequestRefused } from './host/commands.js'
 import { configFrom } from './host/config.js'
 import { fencedRoute, fencedUpgrade } from './host/fence.js'
+import { focusOf } from './host/focus.js'
 import { hereOf } from './host/here.js'
 import { pollerOf } from './host/poller.js'
 import { isRange, ReadoutRefused } from './host/readouts.js'
@@ -74,9 +75,11 @@ function handled(method, handle) {
 }
 
 /** The routes, each `[method, path, handler]`. */
-function routes({ brokkr, desk, here, locate }) {
+function routes({ brokkr, desk, here, locate, focus }) {
   return [
     ['POST', `${BASE}/api/command`, async (req, res) => send(res, 200, await desk.submit(await bodyOf(req)))],
+    // What a conversation's Brokkr tab shows, told to that conversation's model on its next turn.
+    ['POST', `${BASE}/api/focus`, async (req, res) => send(res, 200, focus.set(await bodyOf(req)))],
     [
       'GET',
       `${BASE}/api/here`,
@@ -124,7 +127,8 @@ export function apply(ctx) {
   const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd })
   const desk = deskOf({ brokkr, resume: config.resume, locate: poller.locate })
   const here = hereOf({ brokkr, workspace: config.cwd })
-  for (const [method, path, handle] of routes({ brokkr, desk, here, locate: poller.locate })) {
+  const focus = focusOf()
+  for (const [method, path, handle] of routes({ brokkr, desk, here, locate: poller.locate, focus })) {
     const handler = fencedRoute(ctx.connection, handled(method, handle))
     ctx.effect(() => ctx.webServer.register({ kind: 'exact', path, handler }), `${name}: ${method} ${path}`)
   }
@@ -134,6 +138,8 @@ export function apply(ctx) {
     if (peer !== null) receive = poller.attach(peer)
   })
   ctx.effect(() => ctx.webServer.registerUpgrade({ path: `${BASE}/ws`, handler: upgrade }), `${name}: UPGRADE ${BASE}/ws`)
+  // A conversation is told what its Brokkr tab shows before its next turn, never in its message box.
+  ctx.on('agent/pre-step', (payload, next) => focus.preStep(payload, next), { prepend: true })
   // The assistant's read-only tools (slice two, design D2 and D3).
   for (const definition of toolsOf({ config, brokkr })) {
     ctx.effect(() => ctx.tools.register(definition), `${name}: tool ${definition.name}`)

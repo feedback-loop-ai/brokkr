@@ -239,23 +239,23 @@ window.__ModuleLoader__.load({
 
     /**
      * The one place to ask, at the foot of the console: what a question is
-     * about, closest first, and how to ask it. In a conversation's tab, Ask
-     * puts that context in the conversation's own message box, unsent, so the
-     * question is written and sent in DSH's composer. In the left panel, where
-     * no conversation is open, a question opens a DSH session in `dir`.
+     * about, closest first. In a conversation's tab it is told to that
+     * conversation's model as context before its next turn (the host's focus,
+     * a `snapshot` from this plugin), so the operator just writes in DSH's own
+     * message box. In the left panel, where no conversation is open, a
+     * question opens a DSH session in `dir`.
      */
     function AskBar({ context, about, dir, sessionId = null }) {
       const [question, setQuestion] = useState('')
       const [status, setStatus] = useState(null)
-      async function prefill() {
-        try {
-          const input = store.ctx.get('conversation').input.for(await scopeOf(store.ctx.get('sessions'), sessionId))
-          input.setDraft(promptOf(about, ''))
-          setStatus('The context is in the message box below: write your question after “Question:” and send it there.')
-        } catch (error) {
-          setStatus(`Not put in the message box: ${error.message}`)
-        }
-      }
+      const crumbs = context.map((crumb) => `${crumb.kind} ${crumb.name}`).join(' › ')
+      useEffect(() => {
+        if (sessionId === null) return
+        const text = `The operator has this conversation's Brokkr tab open, on ${crumbs}. A question about "this" means that. ${about}\n\n${ASKING}`
+        fetch(`${BASE}/api/focus`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ session: sessionId, text }) })
+          .then((response) => setStatus(response.ok ? null : 'Brokkr’s context could not reach this conversation.'))
+          .catch(() => setStatus('Brokkr’s context could not reach this conversation.'))
+      }, [sessionId, about])
       async function ask() {
         if (question.trim() === '' || dir === null) return
         setStatus('Opening a session…')
@@ -267,11 +267,14 @@ window.__ModuleLoader__.load({
           setStatus(`Not asked: ${error.message}`)
         }
       }
+      const line = h('div', { className: 'bk-crumbs' }, context.map((crumb, index) => h('span', { key: index, className: index === 0 ? 'bk-crumb first' : 'bk-crumb' }, h('span', { className: 'bk-d' }, crumb.kind), ' ', crumb.name)))
+      if (sessionId !== null) {
+        return h('section', { className: 'bk-askbar in-conversation', 'aria-label': 'Asking about' },
+          h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Brokkr context'), line, h('span', { className: 'bk-d bk-ask-note' }, status ?? 'goes with your next message here')))
+      }
       return h('section', { className: 'bk-askbar', 'aria-label': 'Asking about' },
-        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Asking about'),
-          h('div', { className: 'bk-crumbs' }, context.map((crumb, index) => h('span', { key: index, className: index === 0 ? 'bk-crumb first' : 'bk-crumb' }, h('span', { className: 'bk-d' }, crumb.kind), ' ', crumb.name))),
-          sessionId === null ? null : h('button', { type: 'button', className: 'bk-btn primary bk-ask-here', title: `Ask about ${context[0].name}`, onClick: prefill }, context[0].kind === 'Brokkr' ? 'Ask about every realm' : `Ask about this ${context[0].kind === 'now' ? 'run' : context[0].kind}`)),
-        sessionId !== null ? null : h('div', { className: 'bk-row bk-ask-row' },
+        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Asking about'), line),
+        h('div', { className: 'bk-row bk-ask-row' },
           h('input', { className: 'bk-input', 'aria-label': 'Your question', placeholder: dir === null ? 'No directory to open a session in' : `Ask about ${context[0].name}…`, disabled: dir === null, value: question,
             onChange: (event) => setQuestion(event.target.value), onKeyDown: (event) => event.key === 'Enter' && ask() }),
           h('button', { type: 'button', className: 'bk-btn', disabled: dir === null || question.trim() === '', onClick: ask }, 'Ask')),
@@ -292,20 +295,32 @@ window.__ModuleLoader__.load({
     /** Whether `hearth` holds `realm`: a hearth shared by several realms is labelled `a+b`. */
     const holds = (hearth, realm) => realm !== null && (hearth.realm === realm || hearth.realm.split('+').includes(realm))
 
-    function RealmCard({ hearth, day, open, here }) {
+    /** One realm as a row of the realms pane, as the TUI's fleet lists it; a realm Brokkr cannot read is one quiet line. */
+    function RealmRow({ hearth, day, open, here }) {
       const needs = hearth.runs.filter(needsYou)
       const running = runningIn(hearth.runs)
-      const shown = [...needs, ...hearth.runs.filter((row) => row.verdict.standing === 'running')].slice(0, 4)
       const labels = labelsOf(hearth.runs)
-      const tone = needs.length > 0 ? chip(`${needs.length} need${needs.length === 1 ? 's' : ''} you`, 'bk-park') : chip(running > 0 ? 'all moving' : 'nothing running', running > 0 ? 'bk-run' : 'bk-stop')
-      const counts = [`${running} running`]
-      if (day !== null) counts.push(`shipped 24h: ${day.shipped}`, `stopped: ${day.stopped}`)
-      return h('button', { type: 'button', className: `bk-cell bk-realm${needs.length > 0 ? ' needs' : ''}${holds(hearth, here) ? ' here' : ''}`, onClick: () => open(hearth.realm) },
-        h('div', { className: 'bk-row' }, h('span', { className: 'bk-name' }, hearth.realm), hearth.detail === null ? tone : chip('quarantined', 'bk-bad'), holds(hearth, here) ? h('span', { className: 'bk-note' }, 'this conversation') : null),
-        hearth.detail === null ? null : h('div', { className: 'bk-error' }, hearth.detail),
-        h('div', { className: 'bk-mini' }, shown.map((row) =>
-          h('span', { key: row.run_id }, h('strong', null, labels.get(row.run_id)), ` · ${row.phase ?? 'not started'} · ${needsYou(row) ? shortReason(row) : 'running'} · ${ago(row.last_recorded_at ?? row.created_at)}`))),
-        h('div', { className: 'bk-d' }, `${counts.join(' · ')} · `, h('span', { className: 'bk-link' }, 'open →')))
+      const lead = needs[0] ?? hearth.runs.find((row) => row.verdict.standing === 'running') ?? null
+      const unreadable = hearth.detail !== null
+      const live = running > 0 && !unreadable
+      const tone = unreadable ? 'halt' : needs.length > 0 ? 'park' : running > 0 ? 'violet' : 'quiet'
+      const word = unreadable ? chip('cannot read', 'bk-bad')
+        : needs.length > 0 ? chip(`${needs.length} need${needs.length === 1 ? 's' : ''} you`, 'bk-park')
+          : chip(running > 0 ? 'all moving' : 'nothing running', running > 0 ? 'bk-run' : 'bk-stop')
+      const what = unreadable ? hearth.detail
+        : lead === null ? 'nothing needs you or is running'
+          : `${labels.get(lead.run_id)} · ${lead.phase ?? 'not started'} · ${needsYou(lead) ? shortReason(lead) : 'running'} · ${ago(lead.last_recorded_at ?? lead.created_at)}`
+      return h('button', { type: 'button', className: `bk-realm${needs.length > 0 ? ' needs' : ''}${unreadable ? ' unreadable' : ''}${holds(hearth, here) ? ' here' : ''}`, title: what, onClick: () => open(hearth.realm) },
+        h('span', { className: 'bk-realm-name' },
+          h('svg', { width: 12, height: 12, className: 'bk-realm-dot', 'aria-hidden': 'true' },
+            live ? h('circle', { cx: 6, cy: 6, r: 4, className: 'bk-dot-halo violet' }) : null,
+            h('circle', { cx: 6, cy: 6, r: 4, className: `bk-dot-fill ${tone}${live ? ' live' : ''}` })),
+          h('strong', null, hearth.realm), holds(hearth, here) ? h('span', { className: 'bk-note' }, 'this conversation') : null),
+        h('span', null, word),
+        h('span', { className: 'bk-muted' }, unreadable ? '—' : `${running} running`),
+        h('span', { className: 'bk-muted' }, day === null ? '—' : `${day.shipped} shipped · ${day.stopped} stopped today`),
+        h('span', { className: 'bk-realm-what' }, what),
+        h('span', { className: 'bk-link' }, 'open →'))
     }
 
     function Queue({ queue }) {
@@ -323,10 +338,16 @@ window.__ModuleLoader__.load({
                 h('span', { key: `s${entry.entry}` }, chip(word, tone), ' ', entry.admission.says.join(' · ')),
               ]
             }))
-      return h('section', { className: 'bk-cell bk-section', 'aria-label': 'Queue' },
-        h('div', { className: 'bk-row' }, h('h2', { style: { margin: 0, fontSize: 15 } }, 'Queued runs'), h('span', { className: 'bk-note' }, 'what’s waiting to start, and why Brokkr would hold it back right now')),
+      return pane('queue', 'Queue', '',
+        h('span', { className: 'bk-note' }, 'what’s waiting to start, and why Brokkr would hold it back right now'),
         body,
         h('div', { className: 'bk-coming' }, chip('coming later', 'bk-later'), 'Starting queued runs from here comes with Brokkr’s dispatcher. Today, start them with ', h('code', null, 'brokkr run'), '.'))
+    }
+
+    /** The realms in the order they want attention: needing you, running, quiet, then the ones Brokkr cannot read. */
+    const order = (hearths) => {
+      const rank = (hearth) => (hearth.detail !== null ? 3 : hearth.runs.some(needsYou) ? 0 : runningIn(hearth.runs) > 0 ? 1 : 2)
+      return [...hearths].sort((a, b) => rank(a) - rank(b))
     }
 
     function Realms({ state, open, here, folder, sessionId }) {
@@ -335,7 +356,7 @@ window.__ModuleLoader__.load({
       const dayOf = (hearth) => day.find((row) => row.realm === hearth.realm) ?? (hearths.length === 1 && day.length === 1 ? day[0] : null)
       return h(React.Fragment, null,
         h('main', { className: 'bk-main' },
-          h('section', { className: 'bk-cards', 'aria-label': 'Realms' }, hearths.map((hearth) => h(RealmCard, { key: hearth.realm, hearth, day: dayOf(hearth), open, here }))),
+          pane(`realms · ${hearths.length}`, 'Realms', '', h('div', { className: 'bk-realm-rows' }, order(hearths).map((hearth) => h(RealmRow, { key: hearth.realm, hearth, day: dayOf(hearth), open, here })))),
           h(Queue, { queue: state.overview?.queue }),
           h(Muninn, { muninn: state.overview?.muninn })),
         h(AskBar, { context: [{ kind: 'Brokkr', name: 'every realm' }], about: 'About Brokkr across every realm the console reads.', dir: folder ?? state.workspace, sessionId }))
@@ -343,21 +364,34 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------ one realm
 
+    /** A run's dot, as its realm row and the rail colour it: parked or quarantined amber or red, running violet and striking. */
+    const RUN_DOT = { parked: 'park', quarantined: 'halt', running: 'violet', shipped: 'phosphor', stopped: 'quiet', operator_stopped: 'quiet' }
+    const runDot = (standing) => h('svg', { width: 12, height: 12, className: 'bk-realm-dot', 'aria-hidden': 'true' },
+      standing === 'running' ? h('circle', { cx: 6, cy: 6, r: 4, className: 'bk-dot-halo violet' }) : null,
+      h('circle', { cx: 6, cy: 6, r: 4, className: `bk-dot-fill ${RUN_DOT[standing] ?? 'quiet'}${standing === 'running' ? ' live' : ''}` }))
+
+    /** A realm's runs as one pane of rows, as the TUI's run list reads them, with a small filter in its corner. */
     function RunList({ hearth, selected, select }) {
       const [filter, setFilter] = useState('')
       const labels = labelsOf(hearth.runs)
       const shown = hearth.runs.filter((row) => `${labels.get(row.run_id)} ${row.feature}`.toLowerCase().includes(filter.toLowerCase()))
       const finished = (row) => !needsYou(row) && row.verdict.standing !== 'running' && Date.now() - Date.parse(row.last_recorded_at ?? row.created_at) < DAY_MS
       const groups = [['Needs you', needsYou], ['Running', (row) => row.verdict.standing === 'running'], ['Last 24 hours', finished]]
-      return h('nav', { className: 'bk-runs', 'aria-label': 'Runs' },
-        h('input', { className: 'bk-input', 'aria-label': 'Filter runs', placeholder: 'Filter by name…', value: filter, onChange: (event) => setFilter(event.target.value) }),
-        groups.flatMap(([label, within]) => {
-          const rows = shown.filter(within)
-          return [h('div', { key: label, className: 'bk-grp' }, `${label} · ${rows.length}`), ...rows.map((row) =>
-            h('button', { key: row.run_id, type: 'button', title: row.feature.slice(0, 400), className: `bk-q${row.run_id === selected ? ' on' : ''}`, onClick: () => select(row.run_id) },
-              h('span', { className: 't' }, labels.get(row.run_id), chip(row.phase ?? STANDING[row.verdict.standing][0], STANDING[row.verdict.standing][1])),
-              h('span', { className: 's' }, `${needsYou(row) ? shortReason(row) : STANDING[row.verdict.standing][0]} · ${ago(row.last_recorded_at ?? row.created_at)}`)))]
-        }))
+        .map(([label, within]) => [label, shown.filter(within)]).filter(([, rows]) => rows.length > 0)
+      return pane(`runs · ${hearth.runs.length}`, 'Runs', 'bk-runs',
+        h('input', { className: 'bk-input bk-filter', 'aria-label': 'Filter runs', placeholder: 'Filter by name…', value: filter, onChange: (event) => setFilter(event.target.value) }),
+        groups.flatMap(([label, rows]) => {
+          return [h('div', { key: label, className: 'bk-grp' }, `${label} · ${rows.length}`), ...rows.map((row) => {
+            const [word, tone] = STANDING[row.verdict.standing]
+            return h('button', { key: row.run_id, type: 'button', title: row.feature.slice(0, 400), className: `bk-q${row.run_id === selected ? ' on' : ''}`, onClick: () => select(row.run_id) },
+              runDot(row.verdict.standing),
+              h('span', { className: 't' }, labels.get(row.run_id)),
+              h('span', null, chip(row.phase ?? word, tone)),
+              h('span', { className: 's' }, needsYou(row) ? shortReason(row) : word),
+              h('span', { className: 'bk-muted bk-ago' }, ago(row.last_recorded_at ?? row.created_at)))
+          })]
+        }),
+        groups.length > 0 ? null : h('div', { className: 'bk-note' }, filter === '' ? 'Nothing needs you, is running, or finished in the last 24 hours.' : 'No run’s name holds that.'))
     }
 
     // ----------------------------------------------------------- the rail
@@ -687,6 +721,10 @@ window.__ModuleLoader__.load({
       typeof value === 'string' || value.text === undefined ? h('span', { className: 'bk-fact' }, value) : h('span', { className: 'bk-fact' }, value.text),
       value.absent === true && value.note !== null ? h('span', { className: 'bk-d' }, value.note) : note === null ? null : h('span', { className: 'bk-d' }, note))
 
+    /** What the plan selected for a seat, as the TUI's "selected by" line names it, or `null` when Brokkr recorded no selection. */
+    const selectedOf = (seat) => (seat.selected === null || seat.selected.model === null ? null
+      : `selected ${seat.selected.model}${seat.selected.provider === null ? '' : ` via ${seat.selected.provider}`}${seat.selected.fallback ? ' (a fallback)' : ''}`)
+
     /** A seat as the TUI's participant pane reads it, with its tokens read apart. */
     function SeatFacts({ seat }) {
       return h('div', { className: 'bk-seat' },
@@ -694,6 +732,7 @@ window.__ModuleLoader__.load({
           h('span', { className: 'bk-note' }, `${seat.model.text} (claimed) · ${seat.boundary.text} · effort pinned ${seat.effort_pin.text}, applied ${seat.effort.text}`)),
         seat.activity.absent ? null : h('div', { className: 'bk-note' }, seat.activity.text),
         h('div', { className: 'bk-tiles' },
+          fact('Model', seat.model, selectedOf(seat) ?? `claimed · boundary ${seat.boundary.text}`),
           fact('Tokens', tokensOf(seat.tokens), seat.tokens.total.absent ? seat.tokens.total.note : null, true),
           fact('Cache hit', seat.tokens.cache_hit),
           fact('Cost', seat.cost),
@@ -830,7 +869,7 @@ window.__ModuleLoader__.load({
               h('span', { key: `t${seat.key}` }, tokensOf(seat.tokens)),
               h('span', { key: `c${seat.key}` }, seat.tokens.cache_hit.text),
               h('span', { key: `$${seat.key}` }, seat.cost.text),
-              h('span', { key: `m${seat.key}`, className: 'bk-muted' }, seat.model.text),
+              h('span', { key: `m${seat.key}`, className: 'bk-muted bk-model' }, seat.model.text, selectedOf(seat) === null ? null : h('span', { className: 'bk-d' }, selectedOf(seat))),
             ]
           })),
         h('div', { className: 'bk-d' }, '▸ the seat behind what you picked · click a seat to read it · click a phase name to show only its seats'))
@@ -1024,7 +1063,14 @@ window.__ModuleLoader__.load({
     function Page({ inTab = false, here = null, refused = null, looking = false, folder = null, sessionId = null }) {
       const state = useStore()
       const [route, setRoute] = useState({ view: 'realms', realm: null, run: null })
+      const [root] = useState({ element: null })
       useStyles()
+      // A new view opens at its top: DSH's scroller keeps the last view's place otherwise.
+      useEffect(() => {
+        let scroller = root.element
+        while (scroller !== null && scroller !== undefined && scroller.scrollHeight <= scroller.clientHeight) scroller = scroller.parentElement
+        if (scroller !== null && scroller !== undefined) scroller.scrollTop = 0
+      }, [route.view, route.realm, route.run])
       // A tab opens on its conversation's realm once Brokkr lists it.
       const home = state.fleet === null ? null : state.fleet.hearths.find((hearth) => holds(hearth, here))?.realm ?? null
       useEffect(() => {
@@ -1049,7 +1095,7 @@ window.__ModuleLoader__.load({
           : refused !== null ? `this conversation’s realm could not be read: ${refused}`
             : home !== null ? `this conversation is in ${home}`
               : 'this conversation’s folder is in no realm Brokkr lists'
-      return h('div', { className: `bk${inTab ? ' in-tab' : ''}`, 'data-testid': inTab ? 'brokkr-console-tab' : 'brokkr-console' },
+      return h('div', { className: `bk${inTab ? ' in-tab' : ''}`, 'data-testid': inTab ? 'brokkr-console-tab' : 'brokkr-console', ref: (element) => (root.element = element) },
         h('nav', { className: 'bk-nav', 'aria-label': 'Brokkr views' }, h('span', { className: 'bk-brand' }, h(Mark, { live: forging(state.fleet) }), 'Brokkr'), tab('realms', 'Realms'), tab('analytics', 'Analytics'),
           context === null ? null : h('span', { className: 'bk-note' }, context),
           state.fleet === null ? null : h('span', { className: 'bk-status' }, `${state.fleet.hearths.reduce((sum, hearth) => sum + runningIn(hearth.runs), 0)} running · `, h('strong', null, `${count} waiting on you`), state.live ? '' : ' · reconnecting')),

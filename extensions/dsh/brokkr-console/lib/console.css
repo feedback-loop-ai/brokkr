@@ -55,13 +55,19 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-cell{background:var(--bk-surface);border:1px solid var(--bk-line-cell);border-radius:12px;color:var(--bk-ink)}
 .bk-k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--bk-muted)}
 .bk-note{font-size:13px;color:var(--bk-muted)}
-.bk-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr));gap:14px}
-.bk-realm{display:flex;flex-direction:column;gap:10px;padding:16px 18px;text-align:left;font:inherit;cursor:pointer}
-.bk-realm.needs{border:2px solid var(--bk-warn)}
-.bk-realm.here{box-shadow:inset 0 0 0 2px var(--bk-accent)}
-.bk-realm .bk-name{font-size:18px;font-weight:600;color:var(--bk-ink)}
-.bk-mini{font-size:12px;color:var(--bk-muted);line-height:18px;display:flex;flex-direction:column;gap:3px}
-.bk-mini strong{color:var(--bk-ink);font-weight:500}
+.bk-realm-rows{display:flex;flex-direction:column}
+.bk-realm{display:grid;grid-template-columns:minmax(150px,1.1fr) minmax(110px,auto) minmax(80px,.5fr) minmax(170px,.9fr) minmax(0,2.4fr) auto;gap:14px;align-items:center;padding:10px 8px;border:0;border-bottom:1px solid var(--bk-line-soft);border-radius:0;background:none;text-align:left;font:inherit;font-size:13px;color:var(--bk-ink);cursor:pointer}
+.bk-realm:last-child{border-bottom:0}
+.bk-realm:hover{background:var(--bk-sunken)}
+.bk-realm.needs{box-shadow:inset 3px 0 0 var(--bk-warn)}
+.bk-realm.here{box-shadow:inset 3px 0 0 var(--bk-accent)}
+.bk-realm.unreadable{color:var(--bk-muted)}
+.bk-realm.unreadable strong{font-weight:500}
+.bk-realm-name{display:flex;align-items:center;gap:8px;min-width:0}
+.bk-realm-name strong{font-size:15px}
+.bk-realm-name .bk-note{white-space:nowrap;font-size:12px}
+.bk-realm-dot{flex:none;overflow:visible}
+.bk-realm-what{color:var(--bk-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .bk-section{padding:16px 20px;display:flex;flex-direction:column;gap:12px}
 .bk-queue{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,2.6fr);gap:10px 16px;align-items:center;font-size:14px}
 .bk-coming{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:var(--bk-sunken);border:1px dashed var(--bk-line-strong);border-radius:10px;font-size:13px;color:var(--bk-ink-2)}
@@ -69,12 +75,15 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-input{width:100%;box-sizing:border-box;font:inherit;font-size:14px;border:1px solid var(--bk-line-strong);border-radius:10px;padding:11px 12px;background:var(--bk-surface);color:var(--bk-ink)}
 .bk-bar{background:var(--bk-sunken);border-bottom:1px solid var(--bk-line);padding:10px 24px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .bk-realms{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
-.bk-runs{display:flex;flex-direction:column;max-width:900px}
-.bk-grp{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--bk-muted);padding:14px 12px 6px}
-.bk-q{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;border:1px solid transparent;background:transparent;text-align:left;font:inherit;color:var(--bk-ink);cursor:pointer;width:100%;box-sizing:border-box}
-.bk .bk-q.on{background:var(--bk-surface);border-color:var(--bk-accent);box-shadow:inset 3px 0 0 var(--bk-accent)}
-.bk-q .t{font-size:14px;font-weight:500;line-height:20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.bk-q .s{font-size:12px;color:var(--bk-muted);line-height:16px}
+.bk-grp{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--bk-muted);padding:12px 8px 4px;border-bottom:1px solid var(--bk-line-soft)}
+.bk-runs{gap:0}
+.bk-filter{position:absolute;top:-17px;right:12px;width:min(260px,50%);padding:5px 10px;font-size:13px;border-radius:8px;background:var(--bk-canvas)}
+.bk-q{display:grid;grid-template-columns:12px minmax(0,2.4fr) auto minmax(0,1.6fr) 48px;gap:12px;align-items:center;padding:9px 8px;border:0;border-bottom:1px solid var(--bk-line-soft);border-radius:0;background:transparent;text-align:left;font:inherit;font-size:13px;color:var(--bk-ink);cursor:pointer;width:100%;box-sizing:border-box}
+.bk-q:hover{background:var(--bk-sunken)}
+.bk-ago{text-align:right;font-variant-numeric:tabular-nums}
+.bk .bk-q.on{background:var(--bk-sunken);box-shadow:inset 3px 0 0 var(--bk-accent)}
+.bk-q .t{font-size:14px;font-weight:500;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bk-q .s{font-size:12px;color:var(--bk-muted);line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bk-graph{overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;scrollbar-color:var(--bk-line-strong) transparent}
 /* The rail, as brokkr tui draws it: dots on one line, members in a bracket, the current phase boxed. */
 .bk-rail{display:block;overflow:visible;font-family:'IBM Plex Sans',system-ui,sans-serif}
@@ -206,6 +215,10 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-askbar .bk-crumb{overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
 .bk-askbar .bk-crumb.first{flex:0 0 auto;max-width:45%}
 .bk.in-tab .bk-askbar{bottom:calc(var(--dsh-composer-height, 120px) + 12px)}
+.bk-askbar.in-conversation{padding:6px 14px;background:var(--bk-sunken)}
+.bk-askbar .bk-k{white-space:nowrap;flex:none}
+.bk-ask-note{margin-left:auto;flex:none;white-space:nowrap}
+.bk-model{display:flex;flex-direction:column;line-height:17px}
 .bk-ask-here{margin-left:auto;min-height:30px;font-size:13px;flex:none;white-space:nowrap}
 .bk-ask-row .bk-input{flex:1 1 260px;width:auto}
 .bk-error{padding:12px 14px;border:1px solid var(--bk-bad);border-radius:10px;background:var(--bk-bad-wash);color:var(--bk-bad-ink);font-size:13px}
@@ -219,6 +232,11 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
   .bk-seats{grid-template-columns:minmax(0,1.2fr) minmax(0,1.9fr) minmax(0,.8fr) minmax(0,.8fr)}
   .bk-seats>:nth-child(6n+2),.bk-seats>:nth-child(6n+6){display:none}
   .bk-askbar{margin:4px 16px 12px}
+  .bk-realm{grid-template-columns:minmax(0,1fr) auto auto;row-gap:4px}
+  .bk-realm>:nth-child(4){display:none}
+  .bk-realm-what{grid-column:1/-1}
+  .bk-q{grid-template-columns:12px minmax(0,1fr) auto 40px}
+  .bk-q .s{display:none}
   .bk-queue{grid-template-columns:minmax(0,1fr)}
   .bk-timeline{grid-template-columns:56px minmax(0,1fr)}
 }

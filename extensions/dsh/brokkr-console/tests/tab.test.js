@@ -43,7 +43,7 @@ test('the tab sits in the conversation view ring after Chat and Trajectory, labe
 
 test('the tab opens on the realm its conversation’s folder belongs to, and says so', async () => {
   const client = await tabIn('/home/op/source/swarmail/src', 'swarmail')
-  assert.deepEqual(client.fetches.map((fetched) => fetched.url), [`${HERE}?dir=%2Fhome%2Fop%2Fsource%2Fswarmail%2Fsrc`])
+  assert.deepEqual(client.fetches.filter((fetched) => fetched.url.startsWith(HERE)).map((fetched) => fetched.url), [`${HERE}?dir=%2Fhome%2Fop%2Fsource%2Fswarmail%2Fsrc`])
   const text = textOf(client.tree())
   assert.match(text, /this conversation is in swarmail/)
   assert.match(text, /← All realms/)
@@ -58,7 +58,7 @@ test('a conversation in no realm gets every realm, and says why', async () => {
   const client = await tabIn('/tmp/scratch', null)
   const text = textOf(client.tree())
   assert.match(text, /this conversation’s folder is in no realm Brokkr lists/)
-  assert.equal(findAll(client.tree(), (node) => (node.props.className ?? '').includes('bk-realm')).length, 2)
+  assert.equal(findAll(client.tree(), (node) => node.type === 'button' && String(node.props.className).startsWith('bk-realm')).length, 2)
 })
 
 test('a realm lookup Brokkr refuses is said, not painted as no realm', async () => {
@@ -69,11 +69,42 @@ test('a realm lookup Brokkr refuses is said, not painted as no realm', async () 
   assert.doesNotMatch(textOf(client.tree()), /in no realm Brokkr lists/)
 })
 
+test('the realms pane lists each realm as one row: needing you first, running next, and one Brokkr cannot read last', () => {
+  const client = mountClient('main')
+  const doc = fleetDoc([
+    ['lanetally', []],
+    ['swarmail', [row({ run_id: 'finalize-gates-1a2b3c4d', title: 'Finalize the gates', verdict: { standing: 'running', rule: null, reason: null, text: '' } })]],
+    ['brokkr', [row()]],
+  ])
+  doc.realms[0].detail = 'sqlite: unable to open database file: ./../lanetally/.forge/forge.db'
+  client.push({ type: 'snapshot', fleet: fleetOf(doc), overview: null, run: null })
+  const fleet = findAll(client.tree(), (node) => node.props['aria-label'] === 'Realms')[0]
+  // lanetally's journal does not open: the stub fleet names it with a detail.
+  const rows = buttons(fleet).filter((button) => String(button.props.className).startsWith('bk-realm'))
+  assert.deepEqual(rows.map((each) => textOf(findAll(each, (node) => node.type === 'strong')[0])), ['brokkr', 'swarmail', 'lanetally'])
+  assert.match(textOf(rows[2]), /^lanetallycannot read——sqlite: unable to open database file/)
+  assert.match(textOf(rows[0]), /^brokkr1 needs you0 running—Encrypt the token store · review/)
+  assert.match(textOf(rows[1]), /^swarmailall moving1 running—Finalize the gates · review · running/)
+  const dots = findAll(rows[1], (node) => node.type === 'circle').map((dot) => dot.props.className)
+  assert.deepEqual(dots, ['bk-dot-halo violet', 'bk-dot-fill violet live'], 'a realm with a running run pulses')
+})
+
+test('a new view opens at the top of whatever scrolls the console', () => {
+  const client = mountClient('main')
+  client.push({ type: 'snapshot', fleet: twoRealms(), overview: null, run: null })
+  const scroller = { scrollHeight: 2000, clientHeight: 600, scrollTop: 900, parentElement: null }
+  const console = { scrollHeight: 600, clientHeight: 600, parentElement: scroller }
+  client.tree().props.ref(console)
+  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  assert.equal(scroller.scrollTop, 0)
+})
+
 test('the realms view marks the conversation’s realm', async () => {
   const client = await tabIn('/home/op/source/brokkr', 'brokkr')
   buttons(client.tree()).find((button) => textOf(button) === '← All realms').props.onClick()
   const here = findAll(client.tree(), (node) => (node.props.className ?? '').includes(' here'))
-  assert.deepEqual(here.map((card) => textOf(card).split('nothing')[0].split('1 need')[0]), ['brokkr'])
+  assert.equal(here.length, 1)
+  assert.match(textOf(here[0]), /^brokkrthis conversation/)
   assert.match(textOf(here[0]), /this conversation/)
 })
 
@@ -110,4 +141,19 @@ test('every colour is a theme variable, with a dark set under DSH’s dark-theme
   assert.deepEqual(rules.match(/#[0-9A-Fa-f]{3,8}\b/g) ?? [], [])
   const client = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
   assert.deepEqual(client.match(/'#[0-9A-Fa-f]{3,8}'/g) ?? [], [])
+})
+
+test('a realm’s runs are one pane of rows: dot, title, step, Brokkr’s word and age; the filter sits in its corner', () => {
+  const client = mountClient('main')
+  client.push({ type: 'snapshot', fleet: twoRealms(), overview: null, run: null })
+  buttons(client.tree()).find((button) => textOf(button).startsWith('swarmail')).props.onClick()
+  const runs = findAll(client.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  assert.match(textOf(runs), /^runs · 1/)
+  const filter = findAll(runs, (node) => node.type === 'input')[0]
+  assert.equal(filter.props.className, 'bk-input bk-filter')
+  const [run] = buttons(runs)
+  assert.match(textOf(run), /^Finalize the gatesreviewrunning/)
+  assert.deepEqual(findAll(run, (node) => node.type === 'circle').map((dot) => dot.props.className), ['bk-dot-halo violet', 'bk-dot-fill violet live'])
+  filter.props.onChange({ target: { value: 'nothing like it' } })
+  assert.equal(buttons(findAll(client.tree(), (node) => node.props['aria-label'] === 'Runs')[0]).length, 0)
 })

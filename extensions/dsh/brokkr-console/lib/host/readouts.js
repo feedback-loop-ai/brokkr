@@ -304,6 +304,12 @@ function participant(value, path) {
     effort_pin: cell(value.effort_pin, `${path}.effort_pin`),
     activity: cell(value.activity, `${path}.activity`),
     transcript: cell(value.transcript_cell, `${path}.transcript_cell`),
+    // What the plan selected for the seat, beside what the harness reported serving (the TUI's "selected by").
+    selected: maybe(value.provenance, `${path}.provenance`, (provenance, at) => ({
+      model: optText(object(provenance, at).model, `${at}.model`),
+      provider: optText(provenance.provider, `${at}.provider`),
+      fallback: provenance.fallback === true,
+    })),
   }
 }
 

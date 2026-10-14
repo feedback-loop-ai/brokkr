@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { apply } from '../lib/index.js'
 import { fleetDoc, json, request, row, stubBrokkr, stubHost, withEnv } from './support/world.js'
 
-const ROUTES = ['/brokkr-console/api/command', '/brokkr-console/api/analytics', '/brokkr-console/api/here', '/brokkr-console/api/transcript', '/brokkr-console/console.css']
+const ROUTES = ['/brokkr-console/api/command', '/brokkr-console/api/focus', '/brokkr-console/api/analytics', '/brokkr-console/api/here', '/brokkr-console/api/transcript', '/brokkr-console/console.css']
 
 function applied(rejection) {
   const brokkr = stubBrokkr([{ match: ['runs'], responses: [json(fleetDoc([['brokkr', [row()]]]))] }])
@@ -23,7 +23,7 @@ for (const status of [401, 403]) {
     assert.deepEqual([...host.routes.keys()].sort(), [...ROUTES].sort())
     for (const [path, { handler }] of host.routes) {
       const body = { command_id: 'a1b2c3d4-0000', realm: 'brokkr', run_id: row().run_id, command: 'stop', reason: 'why', expected_seq: 12 }
-      const answer = await request(handler, { method: path.endsWith('command') ? 'POST' : 'GET', url: path, body })
+      const answer = await request(handler, { method: path.endsWith('command') || path.endsWith('focus') ? 'POST' : 'GET', url: path, body })
       assert.deepEqual([path, answer.status, answer.body], [path, status, ''])
     }
     assert.deepEqual(brokkr.calls(), [])

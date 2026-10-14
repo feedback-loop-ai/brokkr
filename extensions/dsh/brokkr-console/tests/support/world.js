@@ -232,9 +232,10 @@ export function clientFrame(text, masked = true) {
 
 /** A stub DSH host: the routes, upgrade and model tools a plugin registers, and its fence. */
 export function stubHost(rejection = undefined) {
-  const host = { routes: new Map(), upgrades: new Map(), tools: new Map(), rejection }
+  const host = { routes: new Map(), upgrades: new Map(), tools: new Map(), listeners: new Map(), rejection }
   host.ctx = {
     effect: (register, _label) => register(),
+    on: (event, listener) => host.listeners.set(event, listener),
     tools: { register: (definition) => host.tools.set(definition.name, definition) },
     webServer: {
       register: ({ kind, path, handler }) => host.routes.set(path, { kind, handler }),
