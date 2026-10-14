@@ -70,6 +70,12 @@ const texts = (value, path) => list(value, path, text)
 
 // --------------------------------------------------------------- the edge
 
+/**
+ * A failed readout's own words, without the `note:` lines Brokkr prints
+ * about how it found the workspace's map, which are not the refusal.
+ */
+const refusalOf = (stderr) => stderr.split('\n').filter((line) => !line.startsWith('note: ')).join('\n').trim()
+
 /** The text a finished call printed, parsed as JSON, or why it was not. */
 export function jsonOf(ran, what) {
   switch (ran.kind) {
@@ -80,7 +86,7 @@ export function jsonOf(ran, what) {
     case 'overflow':
       throw new ReadoutRefused('overflow', `${what} printed more than the console reads`)
     case 'exited':
-      if (ran.code !== 0) throw new ReadoutRefused('failed', ran.stderr.trim() || `${what} failed`)
+      if (ran.code !== 0) throw new ReadoutRefused('failed', refusalOf(ran.stderr) || `${what} failed`)
       try {
         return JSON.parse(ran.stdout)
       } catch {

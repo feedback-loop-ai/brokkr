@@ -163,7 +163,7 @@ test('in a conversation’s tab, Ask puts the context in that conversation’s m
   await settled()
   client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleet(), overview: null, run: null })
   assert.equal(findAll(bar(client.tree()), (node) => node.type === 'input').length, 0, 'the conversation’s own box is the one to type in')
-  byText(bar(client.tree()), 'Ask about brokkr').props.onClick()
+  byText(bar(client.tree()), 'Ask about this realm').props.onClick()
   await settled()
   const draft = client.dsh.calls.find((call) => call[0] === 'setDraft')
   assert.equal(draft[1], 's1')

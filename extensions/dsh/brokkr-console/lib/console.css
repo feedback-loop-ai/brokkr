@@ -32,7 +32,7 @@ body[data-ds-dark-theme]{
 body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk{font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--bk-ink);background:var(--bk-canvas);min-height:100%;display:flex;flex-direction:column;container:bk/inline-size}
 /* DSH floats its composer over a conversation's view and publishes its height; the tab leaves room for it. */
-.bk.in-tab{height:100%;overflow:auto;box-sizing:border-box;padding-bottom:calc(var(--dsh-composer-height, 120px) + 24px)}
+.bk.in-tab{box-sizing:border-box;min-height:auto;padding-bottom:calc(var(--dsh-composer-height, 120px) + 24px)}
 .bk a,.bk .bk-link{color:var(--bk-accent);background:none;border:0;padding:0;font:inherit;cursor:pointer;text-decoration:none}
 .bk-nav{background:var(--bk-surface);border-bottom:1px solid var(--bk-line);padding:0 24px;display:flex;gap:18px;align-items:center;font-size:14px;flex-wrap:wrap;min-height:48px}
 .bk-nav .bk-brand{font-weight:600;font-size:16px;margin-right:8px}
@@ -200,9 +200,13 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-muted{color:var(--bk-muted)}
 .bk-live-word{color:var(--bk-run-ink)}
 .bk-timeline-pane>summary{cursor:pointer;list-style:none}
-.bk-askbar{position:sticky;bottom:0;margin:4px 24px 12px;padding:10px 14px;border:1px solid var(--bk-line-strong);border-radius:12px;background:var(--bk-surface);display:flex;flex-direction:column;gap:8px;z-index:2}
+.bk-askbar{position:sticky;bottom:0;margin:4px 24px 12px;padding:6px 8px 6px 14px;border:1px solid var(--bk-line-strong);border-radius:12px;background:var(--bk-surface);display:flex;flex-direction:column;gap:6px;z-index:2}
+.bk-askbar>.bk-row{flex-wrap:nowrap;min-width:0}
+.bk-askbar .bk-crumbs{flex:1 1 auto;min-width:0;flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+.bk-askbar .bk-crumb{overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
+.bk-askbar .bk-crumb.first{flex:0 0 auto;max-width:45%}
 .bk.in-tab .bk-askbar{bottom:calc(var(--dsh-composer-height, 120px) + 12px)}
-.bk-ask-here{margin-left:auto;min-height:32px;font-size:13px}
+.bk-ask-here{margin-left:auto;min-height:30px;font-size:13px;flex:none;white-space:nowrap}
 .bk-ask-row .bk-input{flex:1 1 260px;width:auto}
 .bk-error{padding:12px 14px;border:1px solid var(--bk-bad);border-radius:10px;background:var(--bk-bad-wash);color:var(--bk-bad-ink);font-size:13px}
 /* The conversation's tab is narrower than the full panel: the run list, the

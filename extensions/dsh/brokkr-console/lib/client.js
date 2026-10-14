@@ -270,7 +270,7 @@ window.__ModuleLoader__.load({
       return h('section', { className: 'bk-askbar', 'aria-label': 'Asking about' },
         h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Asking about'),
           h('div', { className: 'bk-crumbs' }, context.map((crumb, index) => h('span', { key: index, className: index === 0 ? 'bk-crumb first' : 'bk-crumb' }, h('span', { className: 'bk-d' }, crumb.kind), ' ', crumb.name))),
-          sessionId === null ? null : h('button', { type: 'button', className: 'bk-btn primary bk-ask-here', onClick: prefill }, `Ask about ${context[0].name}`)),
+          sessionId === null ? null : h('button', { type: 'button', className: 'bk-btn primary bk-ask-here', title: `Ask about ${context[0].name}`, onClick: prefill }, context[0].kind === 'Brokkr' ? 'Ask about every realm' : `Ask about this ${context[0].kind === 'now' ? 'run' : context[0].kind}`)),
         sessionId !== null ? null : h('div', { className: 'bk-row bk-ask-row' },
           h('input', { className: 'bk-input', 'aria-label': 'Your question', placeholder: dir === null ? 'No directory to open a session in' : `Ask about ${context[0].name}…`, disabled: dir === null, value: question,
             onChange: (event) => setQuestion(event.target.value), onKeyDown: (event) => event.key === 'Enter' && ask() }),
