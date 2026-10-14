@@ -145,6 +145,11 @@ impl Workspace {
 
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String, String) {
         crate::engine::library(self.path());
+        self.unmarked(args)
+    }
+
+    /// `brokkr <args>` in the workspace as it stands, with no library mark.
+    fn unmarked(&self, args: &[&str]) -> (Option<i32>, String, String) {
         let out = Command::new(brokkr_bin())
             .args(args)
             .env("GH_TOKEN", FIXTURE_GH_TOKEN)
@@ -173,7 +178,12 @@ impl Workspace {
     }
 
     fn events(&self, run_id: &str) -> Vec<Value> {
-        let store = brokkr_store::Store::open(&self.db()).unwrap();
+        Workspace::events_in(&self.db(), run_id)
+    }
+
+    /// The events `db` journaled for `run_id`, by type and payload.
+    fn events_in(db: &Path, run_id: &str) -> Vec<Value> {
+        let store = brokkr_store::Store::open(db).unwrap();
         store
             .load(run_id)
             .unwrap()
@@ -284,28 +294,46 @@ fn the_gate_fixture_reads_windows_result_paths_from_its_prompt() {
     }
 }
 
+/// `init`'s folder in a fresh repository, its bundle rewritten to exec
+/// gates and its map to `boundary`, runs from the root with no flag at
+/// all (decision 0083): the gates run unboxed, the journal and results
+/// land in the folder's state, and the source writes land in the tree.
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes() {
     for boundary in ["harness", "open"] {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
         };
-        let (code, _, stderr) = ws.brokkr(&["init", "."]);
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(ws.path())
+                .output()
+                .unwrap();
+            let said = String::from_utf8_lossy(&output.stderr);
+            assert!(output.status.success(), "{said}");
+        };
+        git(&["init", "-q", "--initial-branch=main"]);
+        let (code, _, stderr) = ws.unmarked(&["init", "."]);
         assert_eq!(code, Some(0), "{stderr}");
-        ws.map(boundary);
+        let folder = ws.path().join(".brokkr");
+        let mut map: Value =
+            serde_json::from_slice(&std::fs::read(folder.join("realms.json")).unwrap()).unwrap();
+        map["schema"] = json!("forge.realms/v4");
+        map["realms"][0]["boundary"] = json!(boundary);
+        std::fs::write(folder.join("realms.json"), map.to_string()).unwrap();
         std::fs::create_dir_all(ws.path().join("src")).unwrap();
         std::fs::write(ws.path().join("src/implementation.txt"), "before\n").unwrap();
-        std::fs::write(ws.path().join("scripts/gate.sh"), GATE).unwrap();
+        std::fs::write(folder.join("scripts/gate.sh"), GATE).unwrap();
         std::fs::write(
-            ws.path().join("scripts/implement.sh"),
+            folder.join("scripts/implement.sh"),
             format!(
                 "printf 'after\\n' > src/implementation.txt\nprintf 'new\\n' > src/new.txt\n{GATE}"
             ),
         )
         .unwrap();
-        std::fs::create_dir_all(ws.path().join("roles")).unwrap();
-        std::fs::write(ws.path().join("roles/gate.md"), "# gate\n").unwrap();
+        std::fs::create_dir_all(folder.join("roles")).unwrap();
+        std::fs::write(folder.join("roles/gate.md"), "# gate\n").unwrap();
         let mut policy: Value = serde_json::from_str(POLICY).unwrap();
         policy["phases"]
             .as_array_mut()
@@ -316,12 +344,12 @@ fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes(
             "id": "IMPLEMENT-PASS", "from": "implement", "result": "pass",
             "next": "verify", "reason": "implementation concluded"
         }));
-        std::fs::write(ws.path().join("policy.json"), policy.to_string()).unwrap();
+        std::fs::write(folder.join("policy.json"), policy.to_string()).unwrap();
         let mut implement = gate_seat(&["pass"]);
         implement["class"] = json!("work");
         implement["driver"]["command"][5] = json!("./scripts/implement.sh");
         std::fs::write(
-            ws.path().join("bundle.json"),
+            folder.join("bundle.json"),
             json!({"name": "init-in-place", "policy": "policy.json", "seats": {
                 "implement": implement,
                 "verify": gate_seat(&["pass", "fail"]),
@@ -330,52 +358,25 @@ fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes(
             .to_string(),
         )
         .unwrap();
-        for args in [
-            vec!["init", "--initial-branch=main"],
-            vec![
-                "-c",
-                "user.name=Boundary Test",
-                "-c",
-                "user.email=boundary@example.invalid",
-                "add",
-                ".",
-            ],
-            vec![
-                "-c",
-                "user.name=Boundary Test",
-                "-c",
-                "user.email=boundary@example.invalid",
-                "-c",
-                "commit.gpgsign=false",
-                "commit",
-                "-m",
-                "initial",
-            ],
-        ] {
-            let output = Command::new("git")
-                .args(args)
-                .current_dir(ws.path())
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        let author = [
+            "-c",
+            "user.name=Boundary Test",
+            "-c",
+            "user.email=b@example.invalid",
+        ];
+        git(&[&author[..], &["add", "."]].concat());
+        git(&[
+            &author[..],
+            &["-c", "commit.gpgsign=false", "commit", "-qm", "initial"],
+        ]
+        .concat());
         // An existing journal is inside the bundle at compile, and every
         // attempt writes another result beneath that same root.
-        drop(brokkr_store::Store::open(&ws.db()).unwrap());
-        let (code, _, stderr) = ws.brokkr(&[
-            "run",
-            "--bundle",
-            ".",
-            "--repo",
-            ws.path().to_str().unwrap(),
-            "--feature",
-            "init in place",
-        ]);
-        let events = ws.events(&run_id(&stderr));
+        let db = folder.join("state/forge.db");
+        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
+        drop(brokkr_store::Store::open(&db).unwrap());
+        let (code, _, stderr) = ws.unmarked(&["run", "--feature", "init in place"]);
+        let events = Workspace::events_in(&db, &run_id(&stderr));
         assert_eq!(code, Some(0), "{boundary}: {stderr}\n{events:#?}");
         assert_eq!(events.last().unwrap()["type"], "run/completed");
         assert_eq!(
@@ -391,11 +392,12 @@ fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes(
         );
         assert!(ws.path().join("src/new.txt").is_file());
         assert!(
-            std::fs::read_dir(ws.path().join(".forge/results"))
+            std::fs::read_dir(folder.join("state/results"))
                 .unwrap()
                 .count()
                 >= 3
         );
+        assert!(!ws.path().join(".forge").exists());
     }
 }
 

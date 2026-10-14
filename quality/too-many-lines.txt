@@ -3,7 +3,6 @@
  111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
  184 crates/brokkr-cli/src/doctor.rs:875 report_capabilities
- 113 crates/brokkr-cli/src/init.rs:1455 init
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  113 crates/brokkr-core/src/policy.rs:339 parse_rule
@@ -58,7 +57,6 @@
  108 crates/brokkr-cli/src/tui/tests.rs:68 journal
  103 crates/brokkr-cli/src/tui/tests.rs:3146 enter_with_no_turn_selected_opens_the_whole_transcript
  120 crates/brokkr-cli/src/ui/tests.rs:798 the_console_serves_the_boundary_and_paints_the_pair
- 108 crates/brokkr-cli/tests/boundary_verbs.rs:288 init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes
  153 crates/brokkr-cli/tests/boundary_verbs.rs:593 a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word
  149 crates/brokkr-cli/tests/contributing.rs:1660 the_boundary_guides_keep_every_section_and_gained_the_rows
  143 crates/brokkr-cli/tests/delivered_by_brokkr.rs:441 the_gate_cuts_the_tier_by_the_delta_since_the_judgment

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_runtime::places::PlacesError;
 
+use super::admit::{self, Refused};
 use super::{state_moves, DoctorDefaults, FolderError, Layout, OldLayout};
 
 /// Mark `dir` as a recipe library (decision 0083 ruling 4), so a run verb
@@ -59,7 +60,7 @@ fn doctor_reads_the_folder_or_else_reports_no_journal() {
     assert_eq!(
         (
             &found.workspace,
-            found.journal.as_ref().ok(),
+            found.journal().ok().as_ref(),
             &found.secrets
         ),
         (
@@ -82,7 +83,7 @@ fn doctor_reads_the_folder_or_else_reports_no_journal() {
     let flagged = Some(PathBuf::from("named.env"));
     let fallen = DoctorDefaults::of(root.join("sub/deep"), flagged);
     assert!(
-        matches!(fallen.journal, Err(FolderError::Places(PlacesError::Nested { ref path, .. })) if *path == root.join("sub"))
+        matches!(fallen.journal(), Err(FolderError::Places(PlacesError::Nested { path, .. })) if *path == root.join("sub"))
     );
     assert_eq!(
         (&fallen.workspace, &fallen.secrets),
@@ -653,4 +654,122 @@ fn a_repository_git_cannot_list_refuses_the_moves() {
             root.display()
         )
     );
+}
+
+/// A fresh repository's canonical root, for `brokkr init`'s admission.
+fn init_root() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    git(&root, &["init", "-q"]);
+    (dir, root)
+}
+
+/// What `init` admits: a bare root, and a folder holding only moved
+/// state, a regular-file `.gitignore` and a `state/` directory.
+#[test]
+fn init_admits_a_bare_root_and_moved_state() {
+    let (_dir, root) = init_root();
+    assert_eq!(admit::root(&root).unwrap(), root);
+    std::fs::create_dir_all(root.join(".brokkr/state")).unwrap();
+    std::fs::write(root.join(".brokkr/.gitignore"), "state/\n").unwrap();
+    assert_eq!(admit::root(&root).unwrap(), root);
+}
+
+/// Each refusal of `init`'s admission, by its variant and its words: a
+/// `dir` that does not stand is never created (R7), one below its root
+/// names the root, a folder holding more than moved state names each
+/// entry, judged as the entry itself (R1), an old layout gives its own
+/// refusal, and a library writes nothing (R2).
+#[test]
+fn init_refuses_each_root_it_cannot_write() {
+    let (_dir, root) = init_root();
+    let absent = root.join("absent");
+    let refused = admit::root(&absent).unwrap_err();
+    let named = |refused: &PlacesError| matches!(refused, PlacesError::Unreadable { path, .. } if *path == absent);
+    assert!(matches!(refused, FolderError::Places(ref refused) if named(refused)));
+    let missing = format!(
+        "reading {}: No such file or directory (os error 2)",
+        absent.display()
+    );
+    assert_eq!((refused.to_string(), absent.exists()), (missing, false));
+
+    let src = root.join("src");
+    std::fs::create_dir(&src).unwrap();
+    let refused = admit::root(&src).unwrap_err();
+    let at = root.display();
+    assert!(
+        matches!(refused, FolderError::Init(Refused::NotRoot { ref dir, root: ref named }) if *dir == src && *named == root)
+    );
+    let below = format!(
+        "{} is inside the repository {at} but is not its root (decision 0083); a folder is read \
+         only at the root: run `brokkr init {at}`",
+        src.display()
+    );
+    assert_eq!(refused.to_string(), below);
+
+    std::fs::create_dir_all(root.join(".brokkr/.gitignore")).unwrap();
+    std::os::unix::fs::symlink(&src, root.join(".brokkr/state")).unwrap();
+    std::fs::write(root.join(".brokkr/notes.md"), "").unwrap();
+    let refused = admit::root(&root).unwrap_err();
+    let held = [".gitignore", "notes.md", "state"].map(String::from);
+    assert!(
+        matches!(refused, FolderError::Init(Refused::Occupied { root: ref at, held: ref listed }) if *at == root && *listed == held)
+    );
+    let occupied = format!(
+        "{at}/.brokkr already holds .gitignore, notes.md, state (decision 0083); init writes a \
+         folder only where none stands, or beside moved state (.gitignore and state/ alone): move \
+         or remove them"
+    );
+    assert_eq!(refused.to_string(), occupied);
+
+    std::fs::write(root.join("bundle.json"), "{}").unwrap();
+    let refused = admit::root(&root).unwrap_err();
+    assert!(matches!(
+        refused,
+        FolderError::Old(OldLayout::HalfMoved { .. })
+    ));
+    std::fs::remove_dir_all(root.join(".brokkr")).unwrap();
+    let refused = admit::root(&root).unwrap_err();
+    assert!(matches!(refused, FolderError::Old(OldLayout::Root { .. })));
+
+    plant_library(&root);
+    let refused = admit::root(&root).unwrap_err();
+    assert!(
+        matches!(refused, FolderError::Init(Refused::Library { root: ref named }) if *named == root)
+    );
+    let library = format!(
+        "{at} is a recipe library, which keeps its own layout and reads no .brokkr/ folder \
+         (decision 0083; the operator's ruling 1 of 2026-10-13): init writes nothing here"
+    );
+    assert_eq!(refused.to_string(), library);
+}
+
+/// A folder whose entries cannot be listed, or whose listed entry cannot
+/// be read, refuses by that path, never read as empty: mode 000 hides the
+/// listing, and mode 444 lists a name it will not stat. A process that
+/// reads a mode-000 directory, as root does, skips the cases.
+#[test]
+fn init_refuses_a_folder_it_cannot_list() {
+    for (bits, unread) in [(0o000, None), (0o444, Some("entry"))] {
+        let (_dir, root) = init_root();
+        let folder = root.join(".brokkr");
+        std::fs::create_dir(&folder).unwrap();
+        std::fs::write(folder.join("entry"), "").unwrap();
+        let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
+        std::fs::set_permissions(&folder, mode(bits)).unwrap();
+        let (readable, refused) = (std::fs::read_dir(&folder).is_ok(), admit::root(&root));
+        std::fs::set_permissions(&folder, mode(0o755)).unwrap();
+        if readable && bits == 0o000 {
+            eprintln!("skipped: this process reads a mode-000 directory, as root does");
+            return;
+        }
+        let unread = unread.map_or(folder.clone(), |entry| folder.join(entry));
+        let refused = refused.unwrap_err();
+        assert!(matches!(refused, FolderError::Unreadable { ref path, .. } if *path == unread));
+        let denied = format!(
+            "reading {}: Permission denied (os error 13)",
+            unread.display()
+        );
+        assert_eq!(refused.to_string(), denied);
+    }
 }

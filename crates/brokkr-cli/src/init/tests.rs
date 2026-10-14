@@ -8,9 +8,9 @@
 //! synthetic `Detected` can reach.
 
 use super::{
-    allowance, command_tools, detect, grants, host, leading_word, realms_json, relative_realm_path,
-    runner_tools, stack_readme, tools_for, verify_script, write_dialect, AgentSpec, Boundary,
-    Claims, Class, Cli, Detected, DialectDetection, Effort, Host, Tool, NO_TOOL_MAP, OPENSPEC,
+    allowance, command_tools, detect, dialect_files, grants, host, leading_word, realms_json,
+    runner_tools, stack_readme, tools_for, verify_script, write_files, AgentSpec, Boundary, Claims,
+    Class, Cli, Detected, DialectDetection, Effort, Host, Tool, NO_TOOL_MAP, OPENSPEC,
     PRE_APPROVAL, REVIEW_GATE, SEATS,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -49,38 +49,10 @@ fn dialect_detection_covers_each_marker_combination() {
 }
 
 #[test]
-fn a_realm_path_is_relative_when_roots_are_related_and_absolute_when_they_are_not() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    std::fs::create_dir(&bundle).unwrap();
-    assert_eq!(
-        relative_realm_path(&bundle, dir.path()),
-        std::path::Path::new("..")
-    );
-    assert_eq!(
-        relative_realm_path(dir.path(), dir.path()),
-        std::path::Path::new(".")
-    );
-    let child = dir.path().join("child");
-    std::fs::create_dir(&child).unwrap();
-    assert_eq!(
-        relative_realm_path(dir.path(), &child),
-        std::path::Path::new("child")
-    );
-    assert_eq!(
-        relative_realm_path(
-            std::path::Path::new("brokkr-certainly-absent-left"),
-            std::path::Path::new("brokkr-certainly-absent-right")
-        ),
-        std::path::Path::new("brokkr-certainly-absent-right")
-    );
-}
-
-#[test]
 fn dialect_writes_surface_a_target_that_becomes_unwritable() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("dialects/openspec.json")).unwrap();
-    assert!(write_dialect(dir.path(), OPENSPEC).is_err());
+    assert!(write_files(dir.path(), &dialect_files(OPENSPEC)).is_err());
 }
 
 /// The leading word is the binary that runs: whole command, flag-heavy
@@ -447,9 +419,6 @@ const CLAIM_WORDS: [&str; 5] = ["box", "network", "read-only", "sandbox", "restr
 fn every_host_arm_says_its_claims_and_no_other() {
     use super::claims::{CODEX, MACOS, NAMESPACE};
     let root = tempfile::tempdir().unwrap();
-    let repo = root.path().join("repo");
-    std::fs::create_dir(&repo).unwrap();
-    std::fs::write(repo.join("Cargo.toml"), "[workspace]\n").unwrap();
     let harness = Some(Boundary::Harness);
     let arms = [
         ("namespace", "claude", "linux", Cli::Claude, None, NAMESPACE),
@@ -463,12 +432,15 @@ fn every_host_arm_says_its_claims_and_no_other() {
         let bins = root.path().join(format!("{arm}-bin"));
         std::fs::create_dir(&bins).unwrap();
         std::fs::write(bins.join(binary), "").unwrap();
-        let dir = root.path().join(arm);
-        let scaffold = super::init(&dir, &repo, bins.as_os_str(), os).unwrap();
+        // Each arm's own repository root, a cargo workspace.
+        let repo = root.path().join(arm);
+        std::fs::create_dir(&repo).unwrap();
+        std::fs::write(repo.join("Cargo.toml"), "[workspace]\n").unwrap();
+        let scaffold = super::init(&repo, bins.as_os_str(), os).unwrap();
         if super::claims::claims(cli, boundary) != claims {
             wrong.push(format!("{arm}: claims() hands this host another set"));
         }
-        let read = |path: &str| std::fs::read_to_string(dir.join(path)).unwrap();
+        let read = |path: &str| std::fs::read_to_string(repo.join(".brokkr").join(path)).unwrap();
         let mut said = vec![claims.gates, claims.runs];
         if cli != Cli::Codex {
             said.extend([claims.scripts, PRE_APPROVAL, REVIEW_GATE]);
@@ -574,18 +546,29 @@ fn the_host_picks_the_cli_on_path_and_the_boundary_the_os_can_build() {
 }
 
 /// A declared boundary is v4's one addition; without one the map stays
-/// at v3, byte for byte what it was.
+/// at v3. Either way the map stands in the folder: its realm is the
+/// folder's parent and its journal in the folder's state (decision 0083
+/// ruling 1).
 #[test]
 fn a_declared_boundary_writes_a_v4_map() {
-    let path = std::path::Path::new(".");
     let absent = DialectDetection::Absent;
-    let v3: serde_json::Value = serde_json::from_str(&realms_json(&absent, path, None)).unwrap();
+    let v3: serde_json::Value = serde_json::from_str(&realms_json(&absent, None)).unwrap();
     assert_eq!(v3["schema"], "forge.realms/v3");
     assert!(v3["realms"][0].get("boundary").is_none(), "{v3}");
     let v4: serde_json::Value =
-        serde_json::from_str(&realms_json(&absent, path, Some(Boundary::Harness))).unwrap();
+        serde_json::from_str(&realms_json(&absent, Some(Boundary::Harness))).unwrap();
     assert_eq!(v4["schema"], "forge.realms/v4");
     assert_eq!(v4["realms"][0]["boundary"], "harness");
+    for map in [v3, v4] {
+        let placed = (&map["realms"][0]["path"], &map["journal"]);
+        assert_eq!(
+            placed,
+            (
+                &serde_json::json!(".."),
+                &serde_json::json!("state/forge.db")
+            )
+        );
+    }
 }
 
 /// A tiny `Detected` for the derivation's own tests: the identity fields

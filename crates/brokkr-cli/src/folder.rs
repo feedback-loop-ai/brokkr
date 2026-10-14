@@ -76,6 +76,8 @@ pub(crate) enum FolderError {
     /// The old layout's ignore entry that is not a file, which no listed
     /// `rm` could remove; a link there refuses as [`FolderError::Link`].
     IgnoreNotAFile { path: PathBuf },
+    /// A root `brokkr init` does not write a folder under (ruling 5).
+    Init(admit::Refused),
 }
 
 impl From<PlacesError> for FolderError {
@@ -178,6 +180,7 @@ impl fmt::Display for FolderError {
                  0083); nothing was opened: move it aside",
                 path.display()
             ),
+            FolderError::Init(refused) => write!(f, "{refused}"),
         }
     }
 }
@@ -199,24 +202,59 @@ pub(crate) enum OldLayout {
     },
 }
 
+/// The words an old shape opens with (ruling 4), in the one place both
+/// its refusal and doctor's folder line read them (ruling 5).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Opening<'a> {
+    Root,
+    StateOnly,
+    /// An entry left at the root beside the folder: the clause that
+    /// follows the words naming the folder.
+    Left(&'a Path),
+}
+
+impl fmt::Display for Opening<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (has, moves) = (
+            "this repository has Brokkr",
+            "nothing was opened, and Brokkr moves",
+        );
+        match self {
+            Opening::Root => write!(
+                f,
+                "{has}'s old root layout and no {FOLDER}/ folder (decision 0083); {moves} nothing"
+            ),
+            Opening::StateOnly => write!(
+                f,
+                "{has} state in {LIBRARY_STATE}/ and no {FOLDER}/ folder (decision 0083); {moves} \
+                 nothing"
+            ),
+            Opening::Left(path) => write!(
+                f,
+                "{} still stands at the root (decision 0083); move or remove it",
+                path.display()
+            ),
+        }
+    }
+}
+
 impl fmt::Display for OldLayout {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OldLayout::Root { moves } => write!(
                 f,
-                "this repository has Brokkr's old root layout and no {FOLDER}/ folder \
-                 (decision 0083); nothing was opened, and Brokkr moves nothing{}\nthen move \
-                 {BUNDLE} and every file it reads into {FOLDER}/ at the same relative paths, \
-                 and in {FOLDER}/realms.json name the journal \"{STATE}/{JOURNAL}\" and the \
-                 realm path \"..\"\nBrokkr reads no script or charter: edit any path one names \
-                 under {LIBRARY_STATE}/ to name the same file after the move",
+                "{}{}\nthen move {BUNDLE} and every file it reads into {FOLDER}/ at the same \
+                 relative paths, and in {FOLDER}/realms.json name the journal \
+                 \"{STATE}/{JOURNAL}\" and the realm path \"..\"\nBrokkr reads no script or \
+                 charter: edit any path one names under {LIBRARY_STATE}/ to name the same file \
+                 after the move",
+                Opening::Root,
                 listed(moves)
             ),
             OldLayout::StateOnly { moves } => write!(
                 f,
-                "this repository has Brokkr state in {LIBRARY_STATE}/ and no {FOLDER}/ folder \
-                 (decision 0083); nothing was opened, and Brokkr moves nothing{}\nthen brokkr \
-                 init . writes the scaffold beside the moved state",
+                "{}{}\nthen brokkr init . writes the scaffold beside the moved state",
+                Opening::StateOnly,
                 listed(moves)
             ),
             OldLayout::HalfMoved {
@@ -226,10 +264,9 @@ impl fmt::Display for OldLayout {
             } => {
                 let lines = left.iter().map(|path| {
                     format!(
-                        "{}/{FOLDER}/ is this repository's folder, but {} still stands at the \
-                         root (decision 0083); move or remove it",
+                        "{}/{FOLDER}/ is this repository's folder, but {}",
                         root.display(),
-                        path.display()
+                        Opening::Left(path)
                     )
                 });
                 write!(f, "{}", lines.collect::<Vec<String>>().join("\n"))?;
@@ -268,12 +305,6 @@ impl Layout {
     /// opened ([`places::Layout::discover`]).
     pub(crate) fn discover(workspace: &Path) -> Result<Layout, FolderError> {
         Ok(Layout(places::Layout::discover(workspace)?))
-    }
-
-    /// The layout of `root` itself, judged with no walk: what `init`
-    /// asks of the directory it writes into.
-    pub(crate) fn of_root(root: &Path) -> Result<Layout, FolderError> {
-        Ok(Layout(places::Layout::of_root(root)?))
     }
 
     /// The tree a verb's defaults resolve against: the root, where the
@@ -380,38 +411,54 @@ impl Layout {
 /// (decision 0046's Addendum): a journal with no place is reported as
 /// `none`, with the refusal a run would give, and nothing is created
 /// (ruling 5). The secrets store, which doctor only reads, and the
-/// read-only facts take the library column where discovery fails; the
-/// folder line that names why is slice B's (#634).
+/// read-only facts take the library column where discovery fails, and
+/// the folder line, the report's first, names why from `found`.
 pub(crate) struct DoctorDefaults {
     pub(crate) workspace: PathBuf,
-    pub(crate) journal: Result<PathBuf, FolderError>,
+    /// The layout discovery found, else its refusal.
+    pub(crate) found: Result<Found, FolderError>,
     pub(crate) agents: PathBuf,
     pub(crate) adapters: PathBuf,
     pub(crate) secrets: PathBuf,
 }
 
+/// A layout discovery found, as the runtime judged it, and its journal's
+/// place, or the refusal a run would give for having none.
+pub(crate) struct Found {
+    pub(crate) layout: places::Layout,
+    journal: Result<PathBuf, FolderError>,
+}
+
 impl DoctorDefaults {
     /// The defaults for a doctor run in `cwd`, `secrets` its flag.
     pub(crate) fn of(cwd: PathBuf, secrets: Option<PathBuf>) -> DoctorDefaults {
-        let (journal, layout) = match Layout::discover(&cwd) {
-            Ok(layout) => (layout.state_file(false, JOURNAL), Some(layout)),
-            Err(refused) => (Err(refused), None),
-        };
-        let state = layout
-            .as_ref()
-            .and_then(|layout| layout.state(false).ok().flatten());
+        let found = Layout::discover(&cwd);
+        let layout = found.as_ref().ok();
+        let state = layout.and_then(|layout| layout.state(false).ok().flatten());
         DoctorDefaults {
-            journal,
             secrets: secrets.unwrap_or_else(|| in_state(state, SECRETS)),
-            agents: layout.as_ref().map_or_else(
+            agents: layout.map_or_else(
                 || brokkr_runtime::bundle::DEFAULT_AGENTS_DIR.into(),
                 |layout| layout.agents(None),
             ),
-            adapters: layout.as_ref().map_or_else(
+            adapters: layout.map_or_else(
                 || brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR.into(),
                 |layout| layout.adapters(None),
             ),
-            workspace: layout.map_or(cwd, |layout| layout.workspace()),
+            workspace: layout.map_or(cwd, Layout::workspace),
+            found: found.map(|layout| Found {
+                journal: layout.state_file(false, JOURNAL),
+                layout: layout.0,
+            }),
+        }
+    }
+
+    /// The journal every other verb would open, or why it has none:
+    /// discovery's refusal, or the found layout's.
+    pub(crate) fn journal(&self) -> Result<PathBuf, &FolderError> {
+        match &self.found {
+            Ok(found) => found.journal.as_ref().cloned(),
+            Err(refused) => Err(refused),
         }
     }
 }
@@ -522,8 +569,9 @@ impl Move {
     }
 }
 
-/// The old layout's ignore file, and the folder's.
-const IGNORE: &str = ".gitignore";
+/// The old layout's ignore file, and the folder's, whose one line `init`
+/// writes.
+pub(crate) const IGNORE: &str = ".gitignore";
 
 /// Whether the old ignore file stands among `names`, the root's `.forge/`
 /// entries, judged as the entry itself, as the root's `.forge` is
@@ -659,6 +707,7 @@ fn nameable(forge: &Path, name: std::ffi::OsString) -> Result<String, FolderErro
     }
 }
 
+pub(crate) mod admit;
 mod tracked;
 
 #[cfg(test)]
