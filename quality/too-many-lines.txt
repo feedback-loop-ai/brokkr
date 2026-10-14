@@ -30,7 +30,6 @@
  133 crates/brokkr-runtime/src/bundle.rs:5934 record_capabilities
  243 crates/brokkr-runtime/src/bundle.rs:6567 parse_sequence
  101 crates/brokkr-runtime/src/bundle.rs:7190 walk_files
- 368 crates/brokkr-runtime/src/bundle/compose.rs:807 merge_layer
  240 crates/brokkr-runtime/src/capabilities.rs:1547 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:320 check
  159 crates/brokkr-runtime/src/engine.rs:1099 seat_input
