@@ -28,16 +28,16 @@ today**.
 
 ## 4. DSH side: plugin (`extensions/dsh/brokkr-console/`)
 
-- [ ] 4.1 Host: readout and verb runner with bounded output and timeouts; the head check, command ids and reconciliation (design D4); polling and push (D5).
-- [ ] 4.2 Client: the Brokkr panel-list entry with the waiting count in its icon; the Realms view (board S1Realms).
-- [ ] 4.3 Client: the run view and decision card (S1Run), the other decision cards and outcomes (S1Decisions).
-- [ ] 4.4 Client: the Analytics view (S1Analytics).
-- [ ] 4.5 Assistant: read tools, the two panels, suggestion cards (operator-console-assistant).
-- [ ] 4.6 Plugin tests for the host's fencing and idempotency, and a provenance note pinning DSH `0.2.0-rc.2`.
+- [x] 4.1 Host: readout and verb runner with bounded output and timeouts; the head check, command ids and reconciliation (design D4); polling and push (D5). Landed in #660 (`lib/host/runner.js`, `commands.js`, `poller.js`).
+- [x] 4.2 Client: the Brokkr panel-list entry with the waiting count in its icon; the Realms view (board S1Realms). Landed in #660 (`lib/client.js`).
+- [x] 4.3 Client: the run view and decision card (S1Run), the other decision cards and outcomes (S1Decisions). Landed in #660 (`lib/client.js`).
+- [x] 4.4 Client: the Analytics view (S1Analytics). Landed in #660 (`lib/client.js`).
+- [x] 4.5 Assistant: read tools, the two panels, suggestion cards (operator-console-assistant). Delivered by change `2026-10-14-568-operator-console-slice-two`.
+- [x] 4.6 Plugin tests for the host's fencing and idempotency, and a provenance note pinning DSH `0.2.0-rc.2`. Landed in #660 (`tests/`, `extensions/dsh/PROVENANCE.md`).
 
 ## 5. Docs
 
-- [ ] 5.1 A guide entry for installing the console into a DSH profile, and a `docs/status.md` row saying what it does and does not do.
+- [x] 5.1 A guide entry for installing the console into a DSH profile, and a `docs/status.md` row saying what it does and does not do. Landed in #660 (`docs/guides/dsh-console.md`, `docs/status.md`).
 
 ## Follow-ups (separate changes)
 

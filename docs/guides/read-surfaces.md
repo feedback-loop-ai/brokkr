@@ -230,13 +230,15 @@ The figures across every hearth the map names, for `--range` `24h`, `7d`
 - hours waiting on you, from a park to your next command, beside all
   parked time (from a park until the run moves again), in total and by
   the step the run parked in;
-- runs stopped by a rule, with the rule that stopped the most;
+- runs stopped by a rule, with the rule that stopped the most (its
+  `rule_id` is `null` when the stop recorded none);
 - reported cost in USD, naming the harnesses whose seats reported none:
   claude reports a cost, codex and dsh do not, so a realm whose seats are
   all theirs reads `not reported`, never `$0.00`;
 - rework: implement visits per run, runs a review sent back, and how many
   of those passed their second review;
-- the share of step attempts each served model took;
+- the share of step attempts each served model took (`model` is `null`
+  for a seat that reported none, and its text says `not reported`);
 - one row per realm: shipped, stopped, median start to end, hours
   waiting and reported cost.
 
@@ -414,6 +416,10 @@ reports a model difference.
   of that record; `null` for every other run.
 - `worktree`: the working tree the run was started in, from the realm its
   manifest pins; `null` when the run pinned none.
+- `recipe`: the recipe the run started under, the `bundle_name` its
+  `run/started` manifest recorded, so a client can resume it with
+  `--recipe` as the operator would; `null` when its first event is not a
+  start or names none.
 
 ### `brokkr seats` — the seats, alone
 

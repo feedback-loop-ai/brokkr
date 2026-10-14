@@ -1,0 +1,33 @@
+2026-10-13T22:32:07.059Z goto http://127.0.0.1:38218/?token=<redacted>
+2026-10-13T22:32:11.330Z probe main panel mounted
+2026-10-13T22:32:11.392Z screenshot shot-01-probe-panel.png
+2026-10-13T22:32:11.437Z openSpec with no Session on screen -> {"ok":false,"address":"(no session)","error":"no Session on screen"}
+2026-10-13T22:32:15.591Z after prefill: probe panel still mounted = false
+2026-10-13T22:32:15.596Z composer text after prefill: "div[ce=true]: About the Brokkr run \"Fix the login fence\" (realm brokkr, standing: running). Spec: openspec/changes/demo/spec.md. What is it waiting on?"
+2026-10-13T22:32:15.598Z header action present: false
+2026-10-13T22:32:15.679Z screenshot shot-02-session-prefilled.png
+2026-10-13T22:32:15.685Z sidebar after header open-spec: {"specTitle":null,"otherTitle":null,"readmeB":null,"failure":null}
+2026-10-13T22:32:15.777Z screenshot shot-03-open-spec-relative.png
+2026-10-13T22:32:15.827Z openSpec abs outside cwd -> {"ok":true,"address":"dsh-resource://<file>/session/session-1a866f01-9b9c-4f3e-9add-841a26425539/$S/worktree-b/specs/other.md"}
+2026-10-13T22:32:18.338Z sidebar after abs open-spec: {"specTitle":null,"otherTitle":"This file lives in worktree B, outside the Session cwd.","readmeB":null,"failure":null}
+2026-10-13T22:32:18.381Z screenshot shot-04-open-spec-outside-cwd.png
+2026-10-13T22:32:18.431Z openFiles -> {"ok":true}
+2026-10-13T22:32:20.939Z Files tab text hits: ["worktree-a","worktree-a","openspec","worktree-a","openspec","README.md"]
+2026-10-13T22:32:20.987Z screenshot shot-05-files-tab-worktree-a.png
+2026-10-13T22:32:21.083Z askAboutRun via=session cwd=worktreeB -> {"id":"session-26bcc658-fb97-4384-a778-4a6ac4689eea","steps":["created session-26bcc658-fb97-4384-a778-4a6ac4689eea","openSession called","scope present","setDraft done"]}
+2026-10-13T22:32:24.093Z composer text (via=session, no Workspace): "div[ce=false]: "
+2026-10-13T22:32:24.175Z screenshot shot-06-session-without-workspace.png
+2026-10-13T22:32:24.223Z openFiles (session B) -> {"ok":true}
+2026-10-13T22:32:26.731Z Files tab text hits (session B): ["worktree-b","specs","README.md"]
+2026-10-13T22:32:26.770Z screenshot shot-07-files-tab-worktree-b.png
+2026-10-13T22:32:26.923Z probe main panel mounted
+2026-10-13T22:32:27.086Z waiting for the suggestion card result phase
+2026-10-13T22:32:30.643Z DOM card brokkr-runs-card[result]: Brokkr runs (result): Fix the login fence — running; Teach the poller to back off — waiting for review
+2026-10-13T22:32:30.643Z DOM card brokkr-suggest-card[result]: Brokkr suggests: open-spec on “Fix the login fence”It is running; its spec says what it waits on.Press open-spec
+2026-10-13T22:32:30.647Z final assistant text in transcript: "Stub answer: the run \"Fix the login fence\" is running (I read it with brokkr_runs and suggested a button)."
+2026-10-13T22:32:30.695Z screenshot shot-08-transcript-collapsed.png
+2026-10-13T22:32:30.701Z expanded turn steps via "BUTTON:Completed in 1s"
+2026-10-13T22:32:32.204Z suggestion card visible: true
+2026-10-13T22:32:32.242Z screenshot shot-09-transcript-cards.png
+2026-10-13T22:32:42.277Z DRIVER ERROR Waiting for selector `[data-testid="brokkr-suggest-pressed"]` failed
+2026-10-13T22:32:42.906Z done in 39025ms

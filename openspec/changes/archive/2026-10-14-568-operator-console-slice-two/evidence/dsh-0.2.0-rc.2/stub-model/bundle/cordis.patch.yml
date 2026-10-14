@@ -1,0 +1,21 @@
+# Test harness only. Points a hand-declared pi-ai route at a loopback stub
+# that speaks OpenAI chat-completions, and makes it the default model, so a
+# Session can run a turn without any real provider or credential.
+- id: llm-pi-ai
+  config:
+    providers:
+      brokkr-stub:
+        displayName: Brokkr loopback stub
+        api: openai-completions
+        baseURL: http://127.0.0.1:38219/v1
+        apiKeyEnv: BROKKR_STUB_KEY
+        models:
+          - id: stub-model
+            name: Stub model
+            contextWindow: 65536
+            maxTokens: 4096
+            reasoningEfforts: false
+- id: agent-default-model
+  config:
+    provider: brokkr-stub
+    model: stub-model

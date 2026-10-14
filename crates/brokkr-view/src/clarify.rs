@@ -95,6 +95,8 @@ struct Started {
 #[derive(Deserialize)]
 struct Manifest {
     realms: Option<Pin>,
+    #[serde(default)]
+    bundle_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -116,11 +118,22 @@ struct PinnedRealm {
 }
 
 /// The world pin `run/started` carries, when it carries one whole.
-fn pin(events: &[EventEnvelope]) -> Option<Pin> {
+fn manifest(events: &[EventEnvelope]) -> Option<Manifest> {
     let first = events
         .first()
         .filter(|event| event.event_type == EventType::RunStarted)?;
-    Started::deserialize(&first.payload).ok()?.manifest.realms
+    Some(Started::deserialize(&first.payload).ok()?.manifest)
+}
+
+fn pin(events: &[EventEnvelope]) -> Option<Pin> {
+    manifest(events)?.realms
+}
+
+/// The recipe the run started under: the `bundle_name` its `run/started`
+/// manifest recorded (#568 slice two, design D1). `None` when the first
+/// event is not a start or names none; never guessed from anything else.
+pub(crate) fn recipe(events: &[EventEnvelope]) -> Option<String> {
+    manifest(events)?.bundle_name
 }
 
 /// The realm the run was started in, as its world pin names it.

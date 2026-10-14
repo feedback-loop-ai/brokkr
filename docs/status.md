@@ -176,14 +176,20 @@ The console plugin in `extensions/dsh/brokkr-console/` targets DSH
 `0.2.0-rc.2` and is installed by hand into a DSH profile
 ([guide](guides/dsh-console.md)). It paints `brokkr runs`, `inspect`,
 `queue list`, `muninn list` and `analytics` from their `--json` output, and
-presses `brokkr operator retry` and `stop`, `brokkr resume` and
-`brokkr conclude`, after re-reading the run's head. It does not answer
-clarify questions, talk to a reviewer, dismiss findings on a parked run,
-hold a parked run or start a queued run; it shows those as not available
-yet, with Brokkr's reason. Its assistant panels are not connected to DSH's
-model, it does not open a spec in DSH's Files sidebar, and it does not tell
-a quiet run from a running one
-([#568](https://github.com/feedback-loop-ai/brokkr/issues/568)).
+presses `brokkr operator retry` and `stop`, `brokkr resume` (under the
+recipe the run's start recorded) and `brokkr conclude`, after re-reading
+the run's head. DSH's model reads Brokkr through four read-only tools the
+console registers and may suggest one command Brokkr admits, as a card the
+operator carries to the decision card and presses; "Ask Brokkr" and "Ask
+about this run" open an ordinary DSH session with the question, whose model
+also holds DSH's own tools under DSH's approval policy, which the console
+does not narrow; "Open the spec" opens a clarify-parked run's worktree with
+the Files tab and the questions as a draft. It does not
+answer clarify questions itself, talk to a reviewer, dismiss findings on a
+parked run, hold a parked run or start a queued run; it shows those as not
+available yet, with Brokkr's reason. It does not open a named spec file,
+because Brokkr does not record one, and it does not tell a quiet run from a
+running one ([#568](https://github.com/feedback-loop-ai/brokkr/issues/568)).
 
 ## Recipes that need a local route
 

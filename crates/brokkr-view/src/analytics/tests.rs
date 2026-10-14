@@ -292,7 +292,7 @@ fn stopped_by_a_rule_names_the_most_frequent_rule() {
         StoppedByRule {
             count: 1,
             top: Some(RuleCount {
-                rule_id: "REVIEW-FAIL-TWICE".to_string(),
+                rule_id: Some("REVIEW-FAIL-TWICE".to_string()),
                 count: 1
             }),
             text: "1 by REVIEW-FAIL-TWICE".to_string(),
@@ -369,13 +369,13 @@ fn step_attempts_are_shared_by_the_model_that_served_them() {
         view.models,
         [
             ModelShare {
-                model: "claude-opus".into(),
+                model: Some("claude-opus".into()),
                 attempts: 1,
                 percent: 50,
                 text: "claude-opus 50%".into()
             },
             ModelShare {
-                model: "gpt-5".into(),
+                model: Some("gpt-5".into()),
                 attempts: 1,
                 percent: 50,
                 text: "gpt-5 50%".into()
@@ -599,7 +599,7 @@ fn the_edges_of_the_journal_are_read_as_the_readout_says() {
         StoppedByRule {
             count: 4,
             top: Some(RuleCount {
-                rule_id: "B-TWICE".to_string(),
+                rule_id: Some("B-TWICE".to_string()),
                 count: 2
             }),
             text: "2 by B-TWICE".to_string(),
@@ -619,7 +619,7 @@ fn the_edges_of_the_journal_are_read_as_the_readout_says() {
     let models: Vec<&str> = week
         .models
         .iter()
-        .map(|share| share.model.as_str())
+        .map(|share| share.model.as_deref().unwrap_or_default())
         .collect();
     assert_eq!(models, ["m-succeeded"]);
 
@@ -638,4 +638,36 @@ fn a_stamp_reads_january_and_february_as_their_own_months() {
     ] {
         assert_eq!(stamp(js::parse_millis(text).unwrap()), text);
     }
+}
+
+/// An absence is a variant on the wire, not a word (decision 0071 ruling
+/// 3): a stop no rule recorded and a seat that reported no model are
+/// `None`, and only their text says so.
+#[test]
+fn a_missing_rule_and_a_missing_model_are_absent_not_words() {
+    let journals = [(
+        Journal::started(None, "2026-10-10T00:00:00Z")
+            .then(
+                EventType::EffectStarted,
+                json!({"effect_id": "e", "attempt_id": "q1",
+                       "provenance": [{"agent": "a", "provider": "dsh"}]}),
+                "2026-10-10T00:10:00Z",
+            )
+            .then(EventType::RunStopped, json!({}), "2026-10-10T01:00:00Z"),
+        Some(ended(Status::Stopped, "stop", None, 1)),
+    )];
+    let runs = runs(&journals);
+    let week = read_one(&runs, Range::Week);
+    let top = week.headline.stopped_by_rule.top.as_ref().unwrap();
+    assert_eq!(top.rule_id, None);
+    assert_eq!(week.headline.stopped_by_rule.text, format!("1 by {ABSENT}"));
+    assert_eq!(week.models.len(), 1);
+    assert_eq!(week.models[0].model, None);
+    assert_eq!(week.models[0].text, "not reported 100%");
+    let wire = serde_json::to_value(&week).unwrap();
+    assert_eq!(wire["models"][0]["model"], Value::Null);
+    assert_eq!(
+        wire["headline"]["stopped_by_rule"]["top"]["rule_id"],
+        Value::Null
+    );
 }

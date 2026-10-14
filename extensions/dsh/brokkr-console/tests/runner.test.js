@@ -48,3 +48,14 @@ test('in a private directory the log is written and the run is started', async (
   const outcome = await launch(config(state), [], 'cmd-2')
   assert.ok(['exited', 'running'].includes(outcome.kind), JSON.stringify(outcome))
 })
+
+test('a state directory that cannot be made answers unstarted, and nothing is started', async () => {
+  const root = scratch()
+  const file = join(root, 'a-file')
+  writeFileSync(file, 'not a directory')
+  const state = join(file, 'state')
+  assert.match(privateDir(state), /cannot be made/)
+  const outcome = await launch(config(state), [], 'cmd-3')
+  assert.equal(outcome.kind, 'unstarted')
+  assert.match(outcome.message, /cannot be made/)
+})

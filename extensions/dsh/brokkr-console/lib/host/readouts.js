@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 19
+export const VIEW_VERSION = 20
 
 /** The Muninn record version this console reads. */
 const MUNINN_RECORD_VERSION = 1
@@ -241,6 +241,7 @@ export function runViewOf(doc) {
       questions: texts(value.questions, `${path}.questions`),
     })),
     worktree: optText(doc.worktree, 'worktree'),
+    recipe: optText(doc.recipe, 'recipe'),
   }
 }
 
@@ -343,7 +344,7 @@ export function analyticsOf(doc) {
     })),
     rework: rework(doc.rework, 'rework'),
     models: list(doc.models, 'models', (value, path) => ({
-      model: text(object(value, path).model, `${path}.model`),
+      model: optText(object(value, path).model, `${path}.model`),
       percent: count(value.percent, `${path}.percent`),
       text: text(value.text, `${path}.text`),
     })),

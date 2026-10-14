@@ -12,6 +12,16 @@ const OPERATOR = ['retry', 'stop']
 
 const flag = (name, value) => `--${name}=${value}`
 
+/**
+ * The bundle a run is resumed under: the operator's override when one is
+ * set, else the recipe its start recorded, else `null` and nothing is sent.
+ */
+export function resumeSource(override, recipe) {
+  if (override.kind === 'bundle') return flag('bundle', override.path)
+  if (override.kind === 'recipe') return flag('recipe', override.name)
+  return recipe === null || recipe === undefined ? null : flag('recipe', recipe)
+}
+
 /** `--run=<id>`, and `--db=<journal>` for a run in a many-hearth world. */
 function runOf(target) {
   const journal = target.journal === null ? [] : [flag('db', target.journal)]
@@ -38,10 +48,14 @@ export function brokkrOf(config) {
       const verb = OPERATOR.includes(command) ? ['operator', command] : ['conclude']
       return run(config, [...verb, ...runOf(target), flag('reason', reason)])
     },
-    /** `brokkr resume`, detached: it drives the run for as long as the run moves. */
-    resume(target, worktree, name) {
-      const source = config.resume.kind === 'bundle' ? flag('bundle', config.resume.path) : flag('recipe', config.resume.name)
-      const repo = worktree === null ? [] : [flag('repo', worktree)]
+    /**
+     * `brokkr resume`, detached: it drives the run for as long as the run
+     * moves, under the operator's override or else the recipe the run's
+     * start recorded (`view.recipe`).
+     */
+    resume(target, view, name) {
+      const source = resumeSource(config.resume, view.recipe)
+      const repo = view.worktree === null ? [] : [flag('repo', view.worktree)]
       return launch(config, ['resume', ...runOf(target), source, ...repo, '--no-view'], name)
     },
   }

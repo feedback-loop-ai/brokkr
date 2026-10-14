@@ -2,7 +2,8 @@
 // its four operator verbs to the console's browser half. It paints nothing
 // and decides nothing: every standing, admission, refusal, reason and figure
 // comes from a `brokkr ... --json` readout (design D1, decision 0013). Every
-// route and the one upgrade go through DSH's connection fence first.
+// route and the one upgrade go through DSH's connection fence first. DSH's
+// model gets read-only tools over the same readouts (`host/tools.js`).
 import { readFileSync } from 'node:fs'
 
 import { brokkrOf } from './host/brokkr.js'
@@ -12,9 +13,10 @@ import { fencedRoute, fencedUpgrade } from './host/fence.js'
 import { pollerOf } from './host/poller.js'
 import { isRange, ReadoutRefused } from './host/readouts.js'
 import { accept } from './host/socket.js'
+import { toolsOf } from './host/tools.js'
 
 export const name = 'brokkr-console'
-export const inject = ['webServer', 'connection']
+export const inject = ['webServer', 'connection', 'tools']
 
 const BASE = '/brokkr-console'
 const BODY_BOUND_BYTES = 64 * 1024
@@ -95,7 +97,7 @@ function routes({ brokkr, desk }) {
 export function apply(ctx) {
   const config = configFrom(process.env, process.cwd())
   const brokkr = brokkrOf(config)
-  const poller = pollerOf({ brokkr, pollMs: config.pollMs })
+  const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd })
   const desk = deskOf({ brokkr, resume: config.resume, locate: poller.locate })
   for (const [method, path, handle] of routes({ brokkr, desk })) {
     const handler = fencedRoute(ctx.connection, handled(method, handle))
@@ -107,4 +109,8 @@ export function apply(ctx) {
     if (peer !== null) receive = poller.attach(peer)
   })
   ctx.effect(() => ctx.webServer.registerUpgrade({ path: `${BASE}/ws`, handler: upgrade }), `${name}: UPGRADE ${BASE}/ws`)
+  // The assistant's read-only tools (slice two, design D2 and D3).
+  for (const definition of toolsOf({ config, brokkr })) {
+    ctx.effect(() => ctx.tools.register(definition), `${name}: tool ${definition.name}`)
+  }
 }

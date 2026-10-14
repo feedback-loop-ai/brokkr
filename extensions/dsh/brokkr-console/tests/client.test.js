@@ -73,7 +73,7 @@ test('only admitted commands are buttons, named for their effect; the rest is un
 
 test('clarify’s buttons read Retry clarify, and Retry implement for an implement park', async () => {
   const clarify = await onRun(runViewDoc({ commands: [offered('retry', 'admitted', { phase: 'clarify' }), offered('stop')], clarify: { seq: 9, questions: ['Which target counts?'] } }))
-  assert.deepEqual(buttons(decision(clarify.tree())).map(textOf).slice(0, 2), ['Retry clarify', 'Stop the run'])
+  assert.deepEqual(buttons(decision(clarify.tree())).map(textOf).filter((text) => text !== 'Open the spec').slice(0, 2), ['Retry clarify', 'Stop the run'])
   const implement = await onRun(runViewDoc({ commands: [offered('retry', 'admitted', { phase: 'implement' })] }))
   assert.deepEqual(buttons(decision(implement.tree())).map(textOf).slice(0, 1), ['Retry implement'])
 })
@@ -117,6 +117,19 @@ test('a press carries its command id and the head the operator saw, and paints "
   assert.equal(textOf(outcome), 'Stop the runnot sentthe run changed after you opened it. Nothing was done. Here is what it looks like now.See current state')
 })
 
+test('a retry on a run whose start recorded no recipe is "not sent", naming the missing recipe and the settings', async () => {
+  const client = await onRun(runViewDoc(), { '/brokkr-console/api/command': { command: 'retry', outcome: 'not_sent', why: 'resume_unconfigured', view: runViewOf(runViewDoc()) } })
+  findAll(client.tree(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'try again on the new code' } })
+  buttons(decision(client.tree())).find((button) => textOf(button) === 'Retry review').props.onClick()
+  for (let tick = 0; tick < 5; tick += 1) await settled()
+  const outcome = findAll(client.tree(), (node) => String(node.props.className).startsWith('bk-outcome'))[0]
+  assert.equal(
+    textOf(outcome),
+    'Retry reviewnot sentNothing was sent: this run’s start recorded no recipe to resume it under, and the console names none. ' +
+      'To resume every run under one bundle, set BROKKR_CONSOLE_RESUME_BUNDLE or BROKKR_CONSOLE_RESUME_RECIPE where DSH starts.See current state',
+  )
+})
+
 test('a refusal is painted as Brokkr’s own words', async () => {
   const words = 'the journal moved beneath the conclusion; something is still driving this run'
   const client = await onRun(runViewDoc(), { '/brokkr-console/api/command': { command: 'conclude', outcome: 'refused', text: words } })
@@ -146,6 +159,8 @@ test('Analytics ends with the readout’s "not recorded yet" list, and a realm w
   assert.equal(textOf(footer), 'not recorded yet: machine capacity over time · cost limits · costs for Codex and dsh · reasons findings were dismissed')
   const cells = findAll(main, (node) => node.type === 'td').map(textOf)
   assert.deepEqual(cells, ['lanetally', '3', '1', '4h 12m', '1.0h', 'not reported'])
+  // A seat that reported no model is `null` on the wire (view 20) and reads by its text.
+  assert.match(textOf(main), /gpt-5\.5 75%not reported 25%/)
 })
 
 test('two runs whose titles read alike are told apart by more of their feature, and the run header says the same', async () => {

@@ -1,0 +1,6 @@
+# One Loader row for the probe. Its host half registers two model tools and
+# fenced routes; its browser half (dsh.client) registers a main panel, a
+# conversation-header action and two keyed tool views.
+- insert:
+    - id: brokkr-slice2-probe
+      name: 'brokkr-slice2-probe'

@@ -1,0 +1,12 @@
+$ date -Is
+2026-10-14T02:06:29+03:00
+$ kill -TERM -<pgid of dsh web pid 3681025>
+$ kill -TERM <stub pid 3690136>
+$ ss -ltn | grep -E ':3822[89]'
+ports 38228 and 38229 closed
+$ ps -eo pid,cmd | grep -E 'dsh web|stub-model/server|brokkr-slice2-check-ff|release/brokkr' | grep -v grep
+no check processes
+removed Firefox profile ~/snap/firefox/common/brokkr-slice2-check-ff
+deleted $DSH_HOME/.credentials.yaml (browser-auth signing secret) and the curl cookie jar
+$ stat -c '%y' ~/.dsh
+2026-10-13 10:25:41.226776886 +0300

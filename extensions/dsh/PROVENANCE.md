@@ -94,7 +94,7 @@ Target: DSH `0.2.0-rc.2`. The loading mechanism it is written to (a
 module registering a `main` panel and a `sidebar.panellist` entry, plugin
 HTTP routes and one WebSocket upgrade on DSH's web server) was observed on
 2026-10-13 on that version, by the probe plugin and logs in
-`openspec/changes/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/`.
+`openspec/changes/archive/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/`.
 Routes and upgrades are open on that version until a plugin fences them;
 every handler here asks DSH's connection fence first.
 
@@ -103,15 +103,36 @@ real journal, read-only: its panel, routes and WebSocket ran inside a live
 DSH. The fence refused unauthenticated (401) and cross-origin (403) requests
 on every route and on the upgrade, and the journal was byte-identical before
 and after. That evidence is in
-`openspec/changes/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/console/`. Not built,
-because nothing observed documents the interface: the assistant's connection
-to DSH's model (design D6) and opening a worktree's spec in DSH's Files
-sidebar (design D7).
+`openspec/changes/archive/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/console/`. Not built,
+because nothing observed documented the interface in slice one: the
+assistant's connection to DSH's model (design D6) and opening a worktree's
+spec in DSH's Files sidebar (design D7).
+
+Slice two (change `2026-10-14-568-operator-console-slice-two`) builds both.
+The APIs it uses were observed on DSH `0.2.0-rc.2` against a loopback stub
+model, by the probe in
+`openspec/changes/archive/2026-10-14-568-operator-console-slice-two/evidence/dsh-0.2.0-rc.2/`:
+- model tools (`ctx.tools.register`);
+- a prefilled session in a registered workspace;
+- the `tool.call.toolview` card;
+- the Files tab.
+
+None is first-party-only. The console itself, with its five tools and both
+Ask flows, was then loaded against the operator's journal with the stub
+model, read-only. The journal was byte-identical, and the fence held. That
+evidence is in
+`openspec/changes/archive/2026-10-14-568-operator-console-slice-two/evidence/dsh-0.2.0-rc.2/console/`.
+"Open the spec" and a suggestion card for an admitted command were not
+observed live, because no run in that journal was parked. The probe observed
+both, and the plugin's tests cover them.
 
 Tests: `node --test` in this directory, offline, against a stub `brokkr`
 binary and a stub DSH host. The output this change was proven with is
-`openspec/changes/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/console/plugin-tests.txt`. CI job: pending
-(decision 0085 ruling 5).
+`openspec/changes/archive/2026-10-13-568-operator-console-slice-one/evidence/dsh-0.2.0-rc.2/console/plugin-tests.txt`
+for slice one, and
+`openspec/changes/archive/2026-10-14-568-operator-console-slice-two/evidence/dsh-0.2.0-rc.2/console/plugin-tests.txt`
+for slice two. CI job: `plugin tests` in `.github/workflows/ci.yml`, on
+Linux and macOS (decision 0085 ruling 5).
 
 ## `resume-policy/` — conditional `brokkr-dsh-resume-policy`
 

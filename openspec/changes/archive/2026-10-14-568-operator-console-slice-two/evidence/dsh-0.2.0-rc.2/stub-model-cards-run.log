@@ -1,0 +1,3 @@
+2026-10-13T22:34:01.858Z #10 POST /v1/chat/completions auth=present(redacted) model=stub-model stream=true roles=system,user tools(0)=
+2026-10-13T22:34:01.858Z #10 last user text="Which Brokkr run needs me?"
+2026-10-13T22:34:01.859Z #10 reply text "Stub answer: Fix the login fence is running."

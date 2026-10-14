@@ -1,0 +1,14 @@
+# Transcribed verbatim from the terminal capture of the cards run (drive-cards.mjs,
+# log-06-browser-cards.txt); the on-disk file was truncated by the next run before
+# it was copied. $S stands for the scratch folder.
+2026-10-13T22:33:51.908Z client-report event=client-apply detail={"services":"sessions=false workspaces=false uiWorkspace=false conversation=false sidebarRight=false layout=true uiSession=false"}
+2026-10-13T22:33:51.913Z client-report event=client-registered detail=main+sidebar.panellist+header.actions+toolview(brokkr_suggest,brokkr_runs)
+2026-10-13T22:33:55.392Z client-report event=toolview-mounted detail={"tool":"brokkr_runs","phase":"result","callId":"call_6","hasMeta":true}
+2026-10-13T22:33:55.396Z client-report event=toolview-mounted detail={"tool":"brokkr_suggest","phase":"result","callId":"call_8","hasMeta":true}
+2026-10-13T22:33:58.695Z press verb=open-spec run="Fix the login fence" from=suggestion-card
+2026-10-13T22:33:58.944Z client-report event=open-spec-ok detail={"address":"dsh-resource://<file>/session/session-1a866f01-9b9c-4f3e-9add-841a26425539/openspec/changes/demo/spec.md","onScreen":"session-1a866f01-9b9c-4f3e-9add-841a26425539"}
+2026-10-13T22:34:01.672Z client-report event=main-mounted detail=brokkr-slice2
+2026-10-13T22:34:01.846Z ask: llm=true defaultModel={"provider":"brokkr-stub","model":"stub-model"} question="Which Brokkr run needs me?"
+2026-10-13T22:34:01.864Z ask: terminal chunk {"type":"finish","reason":{"kind":"stop"},"replayState":{"response":{"kind":"pi-ai","version":2,"api":"openai-completions","provider":"brokkr-stub","model":"stub-model","responseId":"chatcmpl-stub-10","stopReason":"stop"},"blocks":[{"type":"text"}]}}
+2026-10-13T22:34:01.865Z ask: chunk types=block-start,text-delta,block-end,usage,finish text="Stub answer: Fix the login fence is running."
+2026-10-13T22:34:01.875Z client-report event=inline-answer detail={"status":200,"answer":"Stub answer: Fix the login fence is running."}
