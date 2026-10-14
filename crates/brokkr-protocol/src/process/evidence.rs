@@ -105,6 +105,17 @@ pub(super) fn unreadable(error: &serde_json::Error, line: &str) -> String {
     )
 }
 
+/// A field the driver chose that is not the one the engine wants, named
+/// by its wire name and its bytes as [`Evidence`], never by its content
+/// (decision 0079 ruling 5, #667). `want` is the engine's own value, which
+/// may be quoted: "{said}: its `{name}` field held 5 bytes (…), want '{want}'".
+pub(super) fn mismatch(said: &str, name: &str, held: &str, want: &str) -> String {
+    format!(
+        "{said}: its `{name}` field held {}, want '{want}'",
+        Evidence::of(held.as_bytes())
+    )
+}
+
 /// A driver's message named by its wire type alone, never by its fields:
 /// "message of type `accepted`".
 pub(super) fn of_type(body: &Body) -> String {
