@@ -193,7 +193,10 @@ fn handshake_and_eof_defects_fail_closed() {
 #[test]
 fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
     // Each is read after `start`, so it is a lost result, not a failure
-    // (decision 0006's 2026-10-11 addendum, ruling 1).
+    // (decision 0006's 2026-10-11 addendum, ruling 1). The driver's effect
+    // id is named by its evidence, never quoted (#667).
+    let held = "its `effect_id` field held 7 bytes (first byte: letter; \
+                sha256: 656771905e1ef731), want 'effect'";
     let cases = [
         (
             Body::Accepted {
@@ -201,7 +204,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
                 attempt_id: "attempt".into(),
                 session_ref: None,
             },
-            "driver accepted a different effect 'foreign'",
+            format!("driver accepted a different effect: {held}"),
         ),
         (
             Body::Checkpoint {
@@ -209,7 +212,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
                 attempt_id: "attempt".into(),
                 data: json!({}),
             },
-            "checkpoint for foreign effect 'foreign'",
+            format!("checkpoint for foreign effect: {held}"),
         ),
         (
             Body::Result {
@@ -219,13 +222,13 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
                 result: Some(json!({})),
                 error: None,
             },
-            "result for foreign effect 'foreign'",
+            format!("result for foreign effect: {held}"),
         ),
         (
             Body::Cancelled {
                 effect_id: "effect".into(),
             },
-            "unexpected driver message of type `cancelled`",
+            "unexpected driver message of type `cancelled`".into(),
         ),
     ];
     for (body, said) in cases {
@@ -234,7 +237,7 @@ fn attempt_loop_refuses_foreign_and_malformed_terminal_messages() {
             capabilities(),
             wire(body)
         );
-        assert_eq!(run(&script).outcome, lost_after_start(said));
+        assert_eq!(run(&script).outcome, lost_after_start(&said));
     }
 
     let no_payload = Body::Result {
@@ -348,7 +351,10 @@ fn a_protocol_violation_after_start_is_indeterminate() {
     ));
     assert_eq!(
         after_start.outcome,
-        lost_after_start("result for foreign effect 'other'")
+        lost_after_start(
+            "result for foreign effect: its `effect_id` field held 5 bytes \
+             (first byte: letter; sha256: d9298a10d1b07358), want 'effect'"
+        )
     );
     assert!(after_start.accepted);
 
@@ -378,7 +384,10 @@ fn an_unreadable_line_after_start_is_indeterminate() {
         ),
         (
             format!("printf '%s\\n' '{old}'"),
-            format!("driver spoke 'forge-driver/v0', want '{PROTO}'"),
+            format!(
+                "driver spoke another protocol: its `proto` field held 15 bytes \
+                 (first byte: letter; sha256: 84f28ded357316c8), want '{PROTO}'"
+            ),
         ),
         (
             "printf '\\377\\n'".to_string(),
@@ -395,6 +404,64 @@ fn an_unreadable_line_after_start_is_indeterminate() {
             },
             "{said}"
         );
+    }
+}
+
+/// Each of the four driver fields the engine refuses, planted with a
+/// secret the driver printed by accident, reaches the outcome only as
+/// evidence: the serialized outcome, which is what is journaled, holds
+/// none of its bytes (decision 0079 ruling 5, #667).
+#[test]
+fn a_refused_driver_field_is_never_copied_into_the_outcome() {
+    const MARKER: &str = "sk-ant-api03-planted-secret";
+    let held = "field held 27 bytes (first byte: letter; sha256: 90bb697bdad60c89)";
+    let mut proto = serde_json::to_value(Message::new(Body::Shutdown)).unwrap();
+    proto["proto"] = json!(MARKER);
+    let foreign = |said: &str, body| {
+        let want = format!("{said}: its `effect_id` {held}, want 'effect'");
+        (wire(body), want)
+    };
+    let cases = [
+        (
+            proto.to_string(),
+            format!("driver spoke another protocol: its `proto` {held}, want '{PROTO}'"),
+        ),
+        foreign(
+            "driver accepted a different effect",
+            Body::Accepted {
+                effect_id: MARKER.into(),
+                attempt_id: "attempt".into(),
+                session_ref: None,
+            },
+        ),
+        foreign(
+            "checkpoint for foreign effect",
+            Body::Checkpoint {
+                effect_id: MARKER.into(),
+                attempt_id: "attempt".into(),
+                data: json!({}),
+            },
+        ),
+        foreign(
+            "result for foreign effect",
+            Body::Result {
+                effect_id: MARKER.into(),
+                attempt_id: "attempt".into(),
+                status: ResultStatus::Succeeded,
+                result: Some(json!({})),
+                error: None,
+            },
+        ),
+    ];
+    for (line, said) in cases {
+        let outcome = run(&format!(
+            "read -r hello; {}; printf '%s\\n' '{line}'",
+            accepting()
+        ))
+        .outcome;
+        assert_eq!(outcome, lost_after_start(&said), "{said}");
+        let journaled = serde_json::to_string(&outcome).unwrap();
+        assert!(!journaled.contains(MARKER), "{journaled}");
     }
 }
 

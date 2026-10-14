@@ -291,7 +291,10 @@ fn a_refused_line_outranks_a_protocol_violation_read_before_it() {
     let (report, _) = driver.attempt(framing(513), b"");
     assert_eq!(
         report.outcome,
-        lost_after_start("driver accepted a different effect 'other'")
+        lost_after_start(
+            "driver accepted a different effect: its `effect_id` field held 5 bytes \
+             (first byte: letter; sha256: d9298a10d1b07358), want 'effect'"
+        )
     );
 
     let (report, _) = driver.attempt(framing(512), b"");
