@@ -61,6 +61,14 @@ test('a conversation in no realm gets every realm, and says why', async () => {
   assert.equal(findAll(client.tree(), (node) => (node.props.className ?? '').includes('bk-realm')).length, 2)
 })
 
+test('a realm lookup Brokkr refuses is said, not painted as no realm', async () => {
+  const client = mountClient('conversation.view', { sessionId: 's1' }, {}, inFolder('/home/op/source/brokkr'))
+  await settled()
+  client.push({ type: 'snapshot', fleet: twoRealms(), overview: null, run: null })
+  assert.match(textOf(client.tree()), /this conversation’s realm could not be read: no answer/)
+  assert.doesNotMatch(textOf(client.tree()), /in no realm Brokkr lists/)
+})
+
 test('the realms view marks the conversation’s realm', async () => {
   const client = await tabIn('/home/op/source/brokkr', 'brokkr')
   buttons(client.tree()).find((button) => textOf(button) === '← All realms').props.onClick()
@@ -93,7 +101,7 @@ test('the graph draws each step, the members of a step side by side, and the roa
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: row().run_id, view: runViewOf(view) } })
   const graph = findAll(client.tree(), (node) => node.props['aria-label'] === 'Run graph')[0]
   const nodes = findAll(graph, (node) => (node.props.className ?? '').startsWith('bk-node'))
-  assert.deepEqual(nodes.map((node) => node.children[0].children[0]), ['simplicity', 'robustness', 'chief', 'implement', 'review'])
+  assert.deepEqual(nodes.map((node) => textOf(node.children[0])), ['simplicity', 'robustness', 'chief', 'implement', 'review'])
   // The two positions share a column; chief follows them.
   const [simplicity, robustness, chief] = nodes.map((node) => node.props.style)
   assert.equal(simplicity.left, robustness.left)
@@ -120,7 +128,7 @@ test('a phase with no recorded steps is drawn as one node', async () => {
   buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: row().run_id, view: runViewOf(runViewDoc()) } })
   const graph = findAll(client.tree(), (node) => node.props['aria-label'] === 'Run graph')[0]
-  assert.deepEqual(findAll(graph, (node) => (node.props.className ?? '').startsWith('bk-node')).map((node) => node.children[0].children[0]), ['implement'])
+  assert.deepEqual(findAll(graph, (node) => (node.props.className ?? '').startsWith('bk-node')).map((node) => textOf(node.children[0])), ['implement'])
 })
 
 test('every colour is a theme variable, with a dark set under DSH’s dark-theme mark', () => {
@@ -128,9 +136,9 @@ test('every colour is a theme variable, with a dark set under DSH’s dark-theme
   const [light, dark] = [/body\{([^}]*)\}/.exec(css)[1], /body\[data-ds-dark-theme\]\{([^}]*)\}/.exec(css)[1]]
   const names = (block) => [...block.matchAll(/(--bk-[a-z0-9-]+):/g)].map((match) => match[1]).sort()
   assert.deepEqual(names(dark), names(light))
-  // Outside the two palettes, no rule names a colour of its own (the badge's ink reads on amber in both).
+  // Outside the two palettes, no rule names a colour of its own.
   const rules = css.replace(/body\{[^}]*\}/, '').replace(/body\[data-ds-dark-theme\]\{[^}]*\}/, '')
   assert.deepEqual(rules.match(/#[0-9A-Fa-f]{3,8}\b/g) ?? [], [])
   const client = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
-  assert.deepEqual(client.match(/'#[0-9A-Fa-f]{3,8}'/g), ["'#16181D'"])
+  assert.deepEqual(client.match(/'#[0-9A-Fa-f]{3,8}'/g) ?? [], [])
 })

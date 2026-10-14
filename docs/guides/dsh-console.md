@@ -83,9 +83,19 @@ back to the cards.
   an arrow into every member and out of it. Each node shows Brokkr's state
   and the model it served, and the last step of a phase shows the visit's
   duration and the rule that ruled it. A parked or flagged visit is outlined
-  amber, a failed one red. A dashed amber road runs back wherever Brokkr
-  recorded a return ("sent back to implement by review"). A wide graph
-  scrolls sideways.
+  amber, a failed one red. A road runs back below the steps wherever Brokkr
+  recorded a return ("sent back to implement by review"), solid, as Brokkr's
+  own dashboard draws a road that was taken. A wide graph scrolls sideways.
+  While the run is driven, its active steps wear Brokkr's pulse: the dot
+  strikes and a halo spreads, as in `brokkr ui`. The console's mark and the
+  left-panel icon strike while any run is running. Reduced motion stills
+  both.
+- **Picking.** Click a phase's name to pick every step in it, or a step to
+  pick it alone; click again to let go. The pick shows each of its seats as
+  the TUI's participant pane reads them: the model it claims and its
+  boundary, tokens, cache hit (cache reads over input, from `brokkr
+  inspect`), cost, turns and attempts, and effort applied and pinned. A
+  figure Brokkr did not record says why. The pick stays as the run moves.
 - **The decision card.** Brokkr's park reason, word for word, and the rule
   that parked the run. A clarify park lists the clarifier's open questions
   and the run's worktree. A button for each command `brokkr inspect` admits,
@@ -139,6 +149,11 @@ review … only if the run hasn't changed since you read this"). Anything
 else comes back as Brokkr's own refusal or reason. No tool the console
 registers can press anything.
 
+- **What a question is about.** Above the question box the panel names it,
+  closest first: what you picked on the graph, then the run, then the realm.
+  The question opens with the pick (a seat by its participant key, so the
+  model can read its transcript) and gives the run as the outer context.
+  With no run open, the panel asks about the realm.
 - **Ask Brokkr** and **Ask about this run** each open a DSH session and send
   your question in it, prefilled with the scope and with the instruction to
   cite the ruling, session or record behind each fact and to say what is not

@@ -46,3 +46,21 @@ In an isolated DSH (`DSH_HOME` and XDG folders in the session scratchpad; loopba
 - After choosing Dark in DSH's Settings, `body[data-ds-dark-theme]` was set and the console, in panel and tab, was dark. At 1100px the run list, the run and the assistant stacked, and the tab's bottom padding was 152px (the composer's height plus 24px).
 
 No command was pressed and no journal was written. The isolated processes were stopped, and their browser profiles deleted.
+
+## Second round
+
+### D5: a pick is a phase or a node, kept by name and key
+
+The realm keeps `{phase}` or `{phase, key}`, cleared when another run is opened. It is resolved against each new view: a phase by name, a node by `key` through `phases[].columns[].nodes[]`, its seat as the participant with that `key`. A phase's seats are the participants whose `phase` is its name, Brokkr's precomputed membership. When the view no longer holds the pick, nothing is shown and the context falls back to the run.
+
+### D6: a seat's figures are Brokkr's cells
+
+The pick shows `model`, `boundary`, `usage_cell`, `cache_hit_cell`, `cost_cell`, `turns_cell`, `attempts`, `effort` and `effort_pin` as they come. Brokkr had no cache-hit figure, so it gains one in `brokkr-view` beside `usage_text`: cache reads over input. `TokenUsage` already states that cache reads are a subset of input, so the share is at most a whole. The console derives nothing.
+
+### D7: the context is a chain, closest first
+
+`[pick, run, realm]`, shown above the question box and written into the prompt in that order: "About the seat “security” (participant key …). Its outer context is the Brokkr run “…” (…): read the run for it." The prompt's tool rules are unchanged.
+
+### D8: the pulse is ui.html's
+
+Same keyframes (`forge-strike` 1.8s, the halo 1.8s spreading to 3.2×), same gate: a node pulses only when its run's `summary.status` is `running` and its `state_class` is `in-active`, as ui.html gates on the selected run's status. The mark is ui.html's rail, two violet nodes and a phosphor one, and strikes in sequence while the fleet has a running run. `prefers-reduced-motion` stills both.

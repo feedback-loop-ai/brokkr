@@ -51,6 +51,9 @@ function bodyOf(req) {
   })
 }
 
+/** The request's query string. */
+const queryOf = (req) => new URLSearchParams(String(req.url).split('?')[1] ?? '')
+
 /** A handler for `method`, answering a refused request or readout with its text. */
 function handled(method, handle) {
   return async (req, res) => {
@@ -77,13 +80,13 @@ function routes({ brokkr, desk, here }) {
     [
       'GET',
       `${BASE}/api/here`,
-      async (req, res) => send(res, 200, await here(new URLSearchParams(String(req.url).split('?')[1] ?? '').get('dir'))),
+      async (req, res) => send(res, 200, await here(queryOf(req).get('dir'))),
     ],
     [
       'GET',
       `${BASE}/api/analytics`,
       async (req, res) => {
-        const query = new URLSearchParams(String(req.url).split('?')[1] ?? '')
+        const query = queryOf(req)
         const range = query.get('range') ?? '7d'
         if (!isRange(range)) throw new RequestRefused('the range is one of 24h, 7d or 30d')
         send(res, 200, await brokkr.analytics(range, query.get('realm')))

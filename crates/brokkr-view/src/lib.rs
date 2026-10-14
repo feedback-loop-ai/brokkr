@@ -111,7 +111,10 @@ use serde_json::Value;
 /// Bumped to 18 by #351's third slice: the run view gained its `scopes`.
 /// Bumped to 19 by #568: the run view gained `commands`, `unavailable`,
 /// `clarify` and `worktree`, and the analytics readout began.
-pub const VIEW_VERSION: u32 = 20;
+/// Bumped to 20 by #568's second slice: the run view gained its `recipe`.
+/// Bumped to 21 by #568's console tab: a participant gained its
+/// `cache_hit_cell`.
+pub const VIEW_VERSION: u32 = 21;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -401,6 +404,11 @@ pub struct Participant {
     pub usage: Option<TokenUsage>,
     pub usage_aggregated: bool,
     pub usage_cell: Cell,
+    /// The share of input served from cache, cache reads over input as
+    /// the harness reported them (`99.9%`): the one place it is worked
+    /// out, so no surface divides for itself (decision 0013). Absent
+    /// when either count is unreported or input is zero.
+    pub cache_hit_cell: Cell,
     /// The served model and its boundary, flattened: `model` and
     /// `boundary` are siblings on the wire.
     #[serde(flatten)]
@@ -1778,6 +1786,18 @@ fn usage_text(usage: &TokenUsage, prefix: &str) -> String {
     }
 }
 
+/// Cache reads over input, to one decimal: `99.9%`. Cache reads are a
+/// subset of input (the [`TokenUsage`] rule), so the share is at most a
+/// whole; `None` when either is unreported or input is zero.
+fn cache_hit_text(usage: &TokenUsage) -> Option<String> {
+    match (usage.cache_read_tokens, usage.input_tokens) {
+        (Some(read), Some(input)) if input > 0 => {
+            Some(format!("{:.1}%", read as f64 * 100.0 / input as f64))
+        }
+        _ => None,
+    }
+}
+
 /// A token count as a table cell: `842 tok`, `312k tok`, `3.99M tok`.
 ///
 /// Three tiers on powers of a thousand, rounded the way every other
@@ -1947,6 +1967,10 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             usage_cell: cell_of(
                 usage.as_ref().map(|usage| usage_text(usage, usage_prefix)),
                 Some("no token usage recorded"),
+            ),
+            cache_hit_cell: cell_of(
+                usage.as_ref().and_then(cache_hit_text),
+                Some("no cache reads and input reported to compare"),
             ),
             usage,
             usage_aggregated,

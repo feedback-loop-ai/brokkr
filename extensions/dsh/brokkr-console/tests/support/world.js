@@ -39,7 +39,7 @@ export function row(over = {}) {
 /** A world's `FleetView`: `[[realm, rows], ...]`. */
 export function fleetDoc(realms, over = {}) {
   return {
-    view_version: 20,
+    view_version: 21,
     realms: realms.map(([realm, runs]) => ({ realm, journal: `/hearths/${realm}/forge.db`, runs, count: runs.length, detail: null })),
     count: realms.reduce((sum, [, runs]) => sum + runs.length, 0),
     ...over,
@@ -69,11 +69,51 @@ export function journalRow(seq, eventType, payload = {}, text = eventType) {
   }
 }
 
+const cellOf = (text, note = null) => (text === null ? { text: '—', absent: true, note } : { text, absent: false, note: null })
+
+/** One participant as `brokkr inspect --json` prints it: the security review seat, finished, unless told otherwise. */
+export function seat(over = {}) {
+  return {
+    key: 'seat-security-1',
+    label: 'security',
+    member: null,
+    phase: 'review',
+    status: 'succeeded',
+    status_class: 'completed',
+    working: false,
+    attempts: 1,
+    turns: 54,
+    turns_aggregated: false,
+    turns_cell: cellOf('54'),
+    cost: 2.41794575,
+    last_attempt_cost: 2.41794575,
+    cost_aggregated: false,
+    cost_cell: cellOf('$2.4179'),
+    usage: { input_tokens: 3004371, output_tokens: 1181, cache_read_tokens: 3002733, cache_write_tokens: 267151, reasoning_output_tokens: null, total_tokens: 3005552 },
+    usage_aggregated: false,
+    usage_cell: cellOf('3.01M tok · in 3.00M tok · out 1k tok · cache read 3.00M tok · cache write 267k tok'),
+    cache_hit_cell: cellOf('99.9%'),
+    model: cellOf('gpt-5.5'),
+    boundary: cellOf('not applicable'),
+    effort: cellOf('high'),
+    effort_pin: cellOf(null, 'no effort pinned by this run’s resolution'),
+    activity: { ...cellOf(null, 'no activity recorded'), tool: null, target_short: null, target_full: null },
+    member_count: 0,
+    transcript: null,
+    transcript_cell: cellOf(null, 'no transcript'),
+    session_id: null,
+    terminal_line: cellOf(null),
+    checkpoints: [],
+    provenance: null,
+    ...over,
+  }
+}
+
 /** A `RunView` as `brokkr inspect --json` prints it: parked at review, head `seq`. */
 export function runViewDoc(over = {}) {
   const { seq = 12, ...rest } = over
   return {
-    view_version: 20,
+    view_version: 21,
     summary: {
       consecutive_failures: {},
       cursor: 'park',
@@ -112,7 +152,7 @@ export function runViewDoc(over = {}) {
 /** `brokkr analytics --json` for one realm whose seats reported no cost. */
 export function analyticsDoc(over = {}) {
   return {
-    view_version: 20,
+    view_version: 21,
     range: '7d',
     realm: null,
     from: '2026-10-06T09:00:00Z',

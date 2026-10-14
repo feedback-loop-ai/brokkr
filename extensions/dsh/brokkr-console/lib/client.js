@@ -170,11 +170,27 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------ the icon
 
+    /** Whether any run in the fleet is being driven: the mark strikes then, as ui.html's favicon flips. */
+    const forging = (fleet) => fleet !== null && fleet.hearths.some((hearth) => runningIn(hearth.runs) > 0)
+
+    /**
+     * Brokkr's mark, as ui.html and the TUI draw it: two struck rail nodes and
+     * the live one, which strikes and throws a halo while the fleet forges.
+     */
+    function Mark({ live, size = 14 }) {
+      return h('svg', { className: `bk-mark${live ? ' forging' : ''}`, viewBox: '0 0 36 22', width: Math.round((size * 36) / 22), height: size, 'aria-hidden': 'true' },
+        h('circle', { className: 'bk-rail-n', cx: 7, cy: 11, r: 2.6 }),
+        h('circle', { className: 'bk-rail-n n2', cx: 15, cy: 11, r: 2.6 }),
+        h('circle', { className: 'bk-rail-halo', cx: 26, cy: 11, r: 3.6 }),
+        h('circle', { className: 'bk-rail-t', cx: 26, cy: 11, r: 3.6 }))
+    }
+
     function Icon({ size, active }) {
-      const count = waiting(useStore().fleet)
-      const box = { position: 'relative', display: 'inline-block', width: size, height: size, boxSizing: 'border-box', border: '1.5px solid currentColor', borderRadius: 5, opacity: active ? 1 : 0.85 }
-      const dot = { position: 'absolute', right: -7, top: -7, minWidth: 16, height: 16, borderRadius: 8, background: 'var(--bk-badge, #D98A2B)', color: '#16181D', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', boxSizing: 'border-box' }
-      return h('span', { style: box, 'aria-label': `Brokkr: ${plural(count, 'run', 'runs')} waiting on you` }, count > 0 ? h('span', { style: dot }, String(count)) : null)
+      const fleet = useStore().fleet
+      useStyles()
+      const count = waiting(fleet)
+      return h('span', { className: `bk-icon${active ? ' on' : ''}`, style: { width: size, height: size }, 'aria-label': `Brokkr: ${plural(count, 'run', 'runs')} waiting on you` },
+        h(Mark, { live: forging(fleet), size: Math.round(size * 0.7) }), count > 0 ? h('span', { className: 'bk-badge' }, String(count)) : null)
     }
 
     // --------------------------------------------------------- the assistant
@@ -228,7 +244,11 @@ window.__ModuleLoader__.load({
     }
 
     /** An assistant panel: a question, sent in a DSH session opened in `dir`. */
-    function Ask({ title, scope, dir, about, children }) {
+    /**
+     * An assistant panel. `context` names what a question is about, closest
+     * first: the picked step or phase, then its run, then its realm.
+     */
+    function Ask({ title, scope, dir, about, context = [], children }) {
       const [question, setQuestion] = useState('')
       const [status, setStatus] = useState(null)
       async function ask() {
@@ -244,6 +264,8 @@ window.__ModuleLoader__.load({
       }
       return h('aside', { className: 'bk-aside', 'aria-label': title },
         h('div', { className: 'bk-aside-head' }, h('div', { className: 'bk-aside-title' }, title), h('div', { className: 'bk-note' }, scope)),
+        context.length === 0 ? null : h('nav', { className: 'bk-context', 'aria-label': 'Asking about' }, h('span', { className: 'bk-k' }, 'Asking about'),
+          h('div', { className: 'bk-crumbs' }, context.map((crumb, index) => h('span', { key: index, className: index === 0 ? 'bk-crumb first' : 'bk-crumb' }, h('span', { className: 'bk-d' }, crumb.kind), ' ', crumb.name)))),
         h('div', { className: 'bk-aside-body' }, status === null ? null : h('div', { className: 'bk-note' }, status)),
         children,
         h('div', { className: 'bk-aside-foot' },
@@ -333,22 +355,27 @@ window.__ModuleLoader__.load({
         }))
     }
 
-    const NODE = { w: 144, h: 66, gapX: 30, gapY: 12, top: 40, loop: 48 }
+    const NODE = { w: 144, h: 66, gapX: 30, gapY: 12, top: 40, loop: 44 }
     const NODE_TONE = { 'on-phosphor': 'ok', 'on-halt': 'bad', 'on-park': 'warn', 'in-active': 'live' }
     const VISIT_TONE = { parked: 'warn', flagged: 'warn', stopped: 'bad', returned: 'back' }
+    /** The dot each node wears, by Brokkr's closed state-class set (ui.html's allowlist). */
+    const DOT = { 'on-phosphor': 'phosphor', 'on-halt': 'halt', 'on-park': 'park', 'in-active': 'violet' }
+
+    /** Brokkr's live mark: a dot that strikes and a halo that spreads, as ui.html's forge pulse. */
+    const dot = (tone, live) => h('span', { className: `bk-dot ${tone}${live ? ' live' : ''}`, 'aria-hidden': 'true' }, live ? h('span', { className: 'bk-halo' }) : null)
 
     /**
-     * The run's graph as the boards draw it: Brokkr's phases left to right,
-     * each phase's steps (its columns) in order, the members of one step
-     * stacked side by side, and a dashed road back wherever Brokkr recorded
-     * a return. Every label and word is the view's own.
+     * The run's graph as the boards and ui.html draw it: Brokkr's phases left
+     * to right, each phase's steps (its columns) in order, the members of one
+     * step stacked side by side, and a road back wherever Brokkr recorded a
+     * return. Every label and word is the view's own.
      */
     function layoutOf(view) {
       const lastVisit = new Map(view.path.map((visit) => [visit.phase, visit]))
       const ranks = []
       const spans = []
       for (const phase of view.phases) {
-        const columns = phase.columns.length > 0 ? phase.columns : [{ label: null, nodes: [{ label: phase.name, state: phase.current ? 'current' : 'reached', state_class: phase.current ? 'in-active' : '', model: null }] }]
+        const columns = phase.columns.length > 0 ? phase.columns : [{ label: null, nodes: [{ key: null, label: phase.name, state: null, state_class: phase.current ? 'in-active' : '', model: null }] }]
         const first = ranks.length
         columns.forEach((column, index) => ranks.push({ phase, column, last: index === columns.length - 1 }))
         spans.push({ phase, first, last: ranks.length - 1 })
@@ -365,8 +392,28 @@ window.__ModuleLoader__.load({
       return { placed, spans, lastVisit, floor, roads, width: Math.max(x(ranks.length) - NODE.gapX, NODE.w), height: floor + (roads.length > 0 ? NODE.loop : 8) }
     }
 
-    function Graph({ view }) {
+    /**
+     * Scroll a graph wider than its column to the current phase once per run,
+     * so the live step is in view, and leave it where the operator scrolls it after.
+     */
+    function reveal(element, view, placed, spans) {
+      const run = view.summary?.run_id ?? ''
+      if (element === null || element.dataset.revealed === run) return
+      element.dataset.revealed = run
+      const current = spans.find((span) => span.phase.current) ?? null
+      if (current === null) return
+      const x = placed[current.last].x + NODE.w
+      if (x > element.clientWidth) element.scrollLeft = x - element.clientWidth + NODE.gapX
+    }
+
+    /** What is picked on the graph: a phase, `{phase}`, or one node in it, `{phase, key}`. */
+    const samePick = (a, b) => a !== null && b !== null && a.phase === b.phase && a.key === b.key
+
+    function Graph({ view, picked, pick }) {
       const { placed, spans, lastVisit, floor, roads, width, height } = layoutOf(view)
+      // The pulse is gated on the run being driven, as ui.html gates it on the selected run's status.
+      const driven = view.summary?.status === 'running'
+      const toggle = (next) => pick(samePick(picked, next) ? null : next)
       const edges = placed.slice(1).flatMap((rank, index) => {
         const before = placed[index]
         return before.ys.flatMap((y0) => rank.ys.map((y1) => {
@@ -375,42 +422,112 @@ window.__ModuleLoader__.load({
           return h('path', { key: `${index}:${y0}:${y1}`, d: ay === by ? `M${ax} ${ay}H${bx}` : `M${ax} ${ay}C${ax + bend} ${ay} ${bx - bend} ${by} ${bx} ${by}`, className: 'bk-edge', markerEnd: 'url(#bk-arrow)' })
         }))
       })
+      // The road back is solid, in the rail's own colour: it was taken (decision 0022, as ui.html draws it).
       const back = roads.map((road, index) => {
         const from = placed[road.from.last]
         const to = placed[road.to.first]
         const [ax, bx] = [from.x + NODE.w / 2 + 10, to.x + NODE.w / 2 - 10]
-        const dip = floor + NODE.loop - 22 - index * 6
+        const dip = floor + NODE.loop - 18 - index * 6
         const d = road.from === road.to
           ? `M${ax} ${floor}C${ax + 30} ${dip} ${bx - 30} ${dip} ${bx} ${floor + 4}`
           : `M${ax} ${floor}C${ax} ${dip} ${bx} ${dip} ${bx} ${floor + 4}`
-        return h('path', { key: `r${index}`, d, className: 'bk-edge back', markerEnd: 'url(#bk-arrow-back)' })
+        return h('path', { key: `r${index}`, d, className: 'bk-edge back', markerEnd: 'url(#bk-arrow)' })
       })
+      const segments = spans.filter((span) => picked !== null && picked.key === undefined && picked.phase === span.phase.name).map((span) =>
+        h('div', { key: `s${span.phase.name}`, className: 'bk-seg', style: { left: placed[span.first].x - 6, width: placed[span.last].x + NODE.w - placed[span.first].x + 12, top: NODE.top - 6, height: floor - NODE.top + 12 } }))
       const nodes = placed.flatMap((rank, index) => rank.column.nodes.map((node, at) => {
         const visit = rank.last ? lastVisit.get(rank.phase.name) ?? null : null
         const tone = (visit !== null && VISIT_TONE[visit.ruled]) || NODE_TONE[node.state_class] || ''
         const present = (parts) => parts.filter((part) => part !== null && part !== undefined)
         const [who, ruled] = [present([node.state, node.model]), present(visit === null ? [] : [visit.duration, visit.rule])]
-        return h('div', { key: `${index}:${at}`, className: `bk-node ${tone}`, title: [node.label, ...who, ...ruled].join(' · '), style: { left: rank.x, top: rank.ys[at], width: NODE.w, height: NODE.h } },
-          h('strong', null, node.label), h('span', { className: 'e' }, who.join(' · ')), ruled.length === 0 ? null : h('span', { className: 'e' }, ruled.join(' · ')))
+        const target = node.key === null ? { phase: rank.phase.name } : { phase: rank.phase.name, key: node.key }
+        const chosen = picked !== null && picked.phase === rank.phase.name && (picked.key === undefined || picked.key === node.key)
+        return h('button', { key: `${index}:${at}`, type: 'button', className: `bk-node ${tone}${chosen ? ' sel' : ''}`, 'aria-pressed': chosen, title: [node.label, ...who, ...ruled].join(' · '),
+          style: { left: rank.x, top: rank.ys[at], width: NODE.w, height: NODE.h }, onClick: () => toggle(target) },
+          h('strong', null, dot(DOT[node.state_class] ?? 'quiet', driven && node.state_class === 'in-active'), node.label),
+          h('span', { className: 'e' }, who.join(' · ')), ruled.length === 0 ? null : h('span', { className: 'e' }, ruled.join(' · ')))
       }))
       const labels = spans.map((span) => {
         const visits = span.phase.visits > 1 ? ` · ${span.phase.visits} visits` : ''
-        return h('div', { key: span.phase.name, className: `bk-phase${span.phase.current ? ' on' : ''}`, style: { left: placed[span.first].x, width: placed[span.last].x + NODE.w - placed[span.first].x } },
+        const chosen = picked !== null && picked.key === undefined && picked.phase === span.phase.name
+        return h('button', { key: span.phase.name, type: 'button', className: `bk-phase${span.phase.current ? ' on' : ''}${chosen ? ' sel' : ''}`, 'aria-pressed': chosen,
+          style: { left: placed[span.first].x, width: placed[span.last].x + NODE.w - placed[span.first].x }, onClick: () => toggle({ phase: span.phase.name }) },
           `${span.phase.name}${visits}${span.phase.strategy === null ? '' : ` · ${span.phase.strategy}`}`)
       })
       const steps = placed.filter((rank) => rank.column.label !== null).map((rank) =>
         h('div', { key: `c${rank.x}`, className: 'bk-step', style: { left: rank.x, width: NODE.w } }, rank.column.label))
       return h('section', { className: 'bk-cell bk-section', 'aria-label': 'Run graph' },
-        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Graph'), h('span', { className: 'bk-note' }, 'steps left to right; dashed: sent back')),
-        h('div', { className: 'bk-graph' },
+        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Graph'), h('span', { className: 'bk-note' }, 'click a phase or a step to see it, and to ask about it')),
+        h('div', { className: 'bk-graph', ref: (element) => reveal(element, view, placed, spans) },
           h('div', { className: 'bk-canvas', style: { width, height } },
+            segments,
             h('svg', { width, height, className: 'bk-wires', 'aria-hidden': 'true' },
               h('defs', null,
-                h('marker', { id: 'bk-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 8, markerHeight: 8, orient: 'auto' }, h('path', { d: 'M0 0L8 4L0 8z', className: 'bk-tip' })),
-                h('marker', { id: 'bk-arrow-back', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 8, markerHeight: 8, orient: 'auto' }, h('path', { d: 'M0 0L8 4L0 8z', className: 'bk-tip back' }))),
+                h('marker', { id: 'bk-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 8, markerHeight: 8, orient: 'auto' }, h('path', { d: 'M0 0L8 4L0 8z', className: 'bk-tip' }))),
               edges, back),
             labels, steps, nodes)),
         roads.map((road) => h('div', { key: `${road.to.phase.name}<${road.from.phase.name}`, className: 'bk-note' }, `sent back to ${road.to.phase.name} by ${road.from.phase.name}`)))
+    }
+
+    /** One fact of a seat: Brokkr's cell, its note shown when it is absent. */
+    const fact = (label, value, note = null, wide = false) => h('div', { className: `bk-cell bk-tile${wide ? ' wide' : ''}` }, h('span', { className: 'bk-k' }, label),
+      h('span', { className: 'bk-fact' }, value.text), value.absent && value.note !== null ? h('span', { className: 'bk-d' }, value.note) : note === null ? null : h('span', { className: 'bk-d' }, note))
+
+    /** A seat as the TUI's participant pane reads it: model, effort, work, tokens, cache hit, cost. */
+    function SeatFacts({ seat }) {
+      return h('div', { className: 'bk-seat' },
+        h('div', { className: 'bk-row' }, h('strong', null, seat.member === null ? seat.label : `${seat.label} · ${seat.member}`), chip(seat.status, seat.working ? 'bk-run' : 'bk-stop'),
+          seat.activity.absent ? null : h('span', { className: 'bk-note' }, seat.activity.text)),
+        h('div', { className: 'bk-tiles' },
+          fact('Model', seat.model, `claimed · boundary ${seat.boundary.text}`),
+          fact('Tokens', seat.usage, null, true),
+          fact('Cache hit', seat.cache_hit),
+          fact('Cost', seat.cost),
+          fact('Turns', seat.turns, `${plural(seat.attempts, 'attempt', 'attempts')}`),
+          fact('Effort applied', seat.effort, `pinned ${seat.effort_pin.text} · configuration, not a measurement`)))
+    }
+
+    /** The node of `view` keyed `key`, with its phase. */
+    function nodeOf(view, key) {
+      for (const phase of view.phases) for (const column of phase.columns) for (const node of column.nodes) if (node.key === key) return { phase, node }
+      return null
+    }
+
+    /**
+     * What is picked, resolved against the current view: `{name, about, seats}`,
+     * or `null` when nothing is picked or it is no longer in the view.
+     */
+    function focusOf(view, picked) {
+      if (picked === null) return null
+      const phase = view.phases.find((each) => each.name === picked.phase) ?? null
+      if (phase === null) return null
+      if (picked.key === undefined) {
+        const visits = plural(phase.visits, 'visit', 'visits')
+        return { kind: 'phase', name: phase.name, phase, seats: view.participants.filter((seat) => seat.phase === phase.name),
+          about: `the phase “${phase.name}” (${visits}${phase.strategy === null ? '' : `, ruled ${phase.strategy}`})` }
+      }
+      const found = nodeOf(view, picked.key)
+      if (found === null) return null
+      const seat = view.participants.find((each) => each.key === picked.key) ?? null
+      return { kind: 'node', name: found.node.label, phase, node: found.node, seats: seat === null ? [] : [seat],
+        about: seat === null
+          ? `the step “${found.node.label}” in phase ${phase.name} (${found.node.state})`
+          : `the seat “${seat.label}” (participant key ${seat.key}, phase ${phase.name}, ${seat.status}, model ${seat.model.text}; its transcript is brokkr_transcript with seat ${seat.key})` }
+    }
+
+    /** The picked phase or step, with every seat in it. */
+    function Picked({ view, focus, clear }) {
+      if (focus === null) return null
+      const visit = view.path.filter((each) => each.phase === focus.phase.name).at(-1) ?? null
+      const ruled = visit === null ? null : [visit.duration, visit.rule === null ? null : `ruled by ${visit.rule}`].filter((part) => part !== null).join(' · ')
+      return h('section', { className: 'bk-cell bk-section bk-picked', 'aria-label': 'Picked' },
+        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, focus.kind === 'phase' ? 'Phase' : 'Step'), h('strong', null, focus.name),
+          focus.kind === 'node' ? chip(focus.node.state, 'bk-stop') : h('span', { className: 'bk-note' }, plural(focus.phase.visits, 'visit', 'visits')),
+          ruled === null || ruled === '' ? null : h('span', { className: 'bk-note' }, ruled),
+          h('button', { type: 'button', className: 'bk-link', style: { marginLeft: 'auto' }, onClick: clear }, 'Clear')),
+        focus.seats.length === 0
+          ? h('div', { className: 'bk-note' }, focus.kind === 'phase' ? 'Brokkr recorded no seat in this phase.' : 'Brokkr recorded no seat for this step.')
+          : focus.seats.map((seat) => h(SeatFacts, { key: seat.key, seat })))
     }
 
     /** The timeline text with the badge's words not said twice beside it. */
@@ -544,7 +661,7 @@ window.__ModuleLoader__.load({
           h('div', null, `run ${row.run_id} · head seq ${seq}${view.ruling === null ? '' : ` · ruled by ${view.ruling.rule_id} from ${view.ruling.from}`}${view.clarify === null ? '' : ` · questions read at seq ${view.clarify.seq}`} · commands go through brokkr operator retry / stop, brokkr resume and brokkr conclude`)))
     }
 
-    function Run({ hearth, row, run, see }) {
+    function Run({ hearth, row, run, see, picked, pick }) {
       const [word, tone] = STANDING[row.verdict.standing]
       const view = run?.realm === hearth.realm && run?.run_id === row.run_id ? run.view : null
       const actionable = (view) => view.summary !== null &&
@@ -553,18 +670,33 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bk-row' }, h('h1', { style: { margin: 0, fontSize: 22 }, title: row.feature.slice(0, 400) }, labelsOf(hearth.runs).get(row.run_id)), chip(word, tone), h('span', { className: 'bk-note' }, `started ${ago(row.created_at)} ago`)),
         row.detail === null ? null : h('div', { className: 'bk-error' }, row.detail),
         view === null ? h('div', { className: 'bk-note' }, 'Reading the run…') : [
-          h(Graph, { key: 'g', view }),
+          h(Graph, { key: 'g', view, picked, pick }),
+          h(Picked, { key: 'p', view, focus: focusOf(view, picked), clear: () => pick(null) }),
           actionable(view) ? h(Decision, { key: `d${row.run_id}`, hearth, row, view, see }) : null,
           h(Timeline, { key: 't', view }),
         ])
     }
 
     function Realm({ state, realm, runId, select, back, see, open, folder }) {
+      const [picked, pick] = useState(null)
+      useEffect(() => pick(null), [runId])
       const hearth = state.fleet.hearths.find((each) => each.realm === realm)
       if (hearth === undefined) return h('main', { className: 'bk-main' }, h('div', { className: 'bk-note' }, `Brokkr no longer lists ${realm}.`))
       const row = hearth.runs.find((each) => each.run_id === runId) ?? null
       const runView = row !== null && state.run?.realm === hearth.realm && state.run?.run_id === row.run_id ? state.run.view : null
       const needs = hearth.runs.filter(needsYou).length
+      const label = row === null ? null : labelsOf(hearth.runs).get(row.run_id)
+      // What a question is about, closest first. A pick outlives the view's refreshes and ends with its run.
+      const focus = runView === null ? null : focusOf(runView, picked)
+      const context = [
+        ...(focus === null ? [] : [{ kind: focus.kind === 'phase' ? 'phase' : 'step', name: focus.name }]),
+        ...(row === null ? [] : [{ kind: 'run', name: label }]),
+        { kind: 'realm', name: hearth.realm },
+      ]
+      const runAbout = row === null ? null : `the Brokkr run “${label}” (realm ${hearth.realm}, run id ${row.run_id})`
+      const about = focus !== null ? `About ${focus.about}. Its outer context is ${runAbout}: read the run for it.`
+        : runAbout !== null ? `About ${runAbout}.`
+          : `About the Brokkr realm “${hearth.realm}” and its runs.`
       return h(React.Fragment, null,
         h('div', { className: 'bk-bar' }, h('button', { type: 'button', className: 'bk-link', onClick: back }, '← All realms'), h('span', { style: { fontSize: 17, fontWeight: 600 } }, hearth.realm),
           h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null,
@@ -574,10 +706,11 @@ window.__ModuleLoader__.load({
               waitingHere > 0 ? `${each.realm} · ${waitingHere}` : each.realm)
           }))),
         h('div', { className: 'bk-body' }, h(RunList, { hearth, selected: runId, select }),
-          row === null ? h('main', { className: 'bk-main' }, h('div', { className: 'bk-note' }, 'Pick a run on the left.')) : h(Run, { hearth, row, run: state.run, see }),
-          h(Ask, { title: 'Ask about this run', scope: 'Reads this run’s record and sessions. It can suggest one of the buttons; it can’t press them.',
-            dir: row === null ? null : (runView?.worktree ?? folder ?? state.workspace),
-            about: row === null ? '' : `About the Brokkr run “${labelsOf(hearth.runs).get(row.run_id)}” (realm ${hearth.realm}, run id ${row.run_id}).` })))
+          row === null ? h('main', { className: 'bk-main' }, h('div', { className: 'bk-note' }, 'Pick a run on the left.')) : h(Run, { hearth, row, run: state.run, see, picked, pick }),
+          h(Ask, { title: row === null ? 'Ask about this realm' : 'Ask about this run', context,
+            scope: row === null ? 'Reads this realm’s runs. It can explain and suggest; you press the buttons.' : 'Reads this run’s record and sessions. It can suggest one of the buttons; it can’t press them.',
+            dir: row === null ? (folder ?? state.workspace) : (runView?.worktree ?? folder ?? state.workspace),
+            about })))
     }
 
     // ------------------------------------------------------------ analytics
@@ -695,7 +828,7 @@ window.__ModuleLoader__.load({
      * `null`), `looking` is true while the host is still asked, and `folder`
      * is where Ask opens its session.
      */
-    function Page({ inTab = false, here = null, looking = false, folder = null }) {
+    function Page({ inTab = false, here = null, refused = null, looking = false, folder = null }) {
       const state = useStore()
       const [route, setRoute] = useState({ view: 'realms', realm: null, run: null })
       useStyles()
@@ -720,10 +853,11 @@ window.__ModuleLoader__.load({
             : h(Realms, { state, open, here: home, folder })
       const context = !inTab ? null
         : looking ? 'finding this conversation’s realm…'
-          : home !== null ? `this conversation is in ${home}`
-            : 'this conversation’s folder is in no realm Brokkr lists'
+          : refused !== null ? `this conversation’s realm could not be read: ${refused}`
+            : home !== null ? `this conversation is in ${home}`
+              : 'this conversation’s folder is in no realm Brokkr lists'
       return h('div', { className: `bk${inTab ? ' in-tab' : ''}`, 'data-testid': inTab ? 'brokkr-console-tab' : 'brokkr-console' },
-        h('nav', { className: 'bk-nav', 'aria-label': 'Brokkr views' }, h('span', { className: 'bk-brand' }, 'Brokkr'), tab('realms', 'Realms'), tab('analytics', 'Analytics'),
+        h('nav', { className: 'bk-nav', 'aria-label': 'Brokkr views' }, h('span', { className: 'bk-brand' }, h(Mark, { live: forging(state.fleet) }), 'Brokkr'), tab('realms', 'Realms'), tab('analytics', 'Analytics'),
           context === null ? null : h('span', { className: 'bk-note' }, context),
           state.fleet === null ? null : h('span', { className: 'bk-status' }, `${state.fleet.hearths.reduce((sum, hearth) => sum + runningIn(hearth.runs), 0)} running · `, h('strong', null, `${count} waiting on you`), state.live ? '' : ' · reconnecting')),
         state.error === null ? null : h('div', { className: 'bk-main' }, h('div', { className: 'bk-error' }, state.error)),
@@ -742,14 +876,15 @@ window.__ModuleLoader__.load({
     /** A conversation's Brokkr tab, beside Chat: the console, opened on the conversation's realm. */
     function Tab({ sessionId }) {
       const folder = useFolder(sessionId)
-      const [here, setHere] = useState({ folder: null, realm: null })
+      const [here, setHere] = useState({ folder: null, realm: null, refused: null })
       useEffect(() => {
         if (folder === null) return
         fetch(`${BASE}/api/here?${new URLSearchParams({ dir: folder })}`)
-          .then((response) => response.json().then((body) => setHere({ folder, realm: response.ok ? body.realm : null })))
-          .catch(() => setHere({ folder, realm: null }))
+          .then((response) => response.json().then((body) => setHere(response.ok ? { folder, realm: body.realm, refused: null } : { folder, realm: null, refused: body.error })))
+          .catch(() => setHere({ folder, realm: null, refused: 'the console could not be reached' }))
       }, [folder])
-      return h(Page, { inTab: true, folder, here: here.folder === folder ? here.realm : null, looking: folder !== null && here.folder !== folder })
+      const current = here.folder === folder
+      return h(Page, { inTab: true, folder, here: current ? here.realm : null, refused: current ? here.refused : null, looking: folder !== null && !current })
     }
 
     function apply(ctx) {

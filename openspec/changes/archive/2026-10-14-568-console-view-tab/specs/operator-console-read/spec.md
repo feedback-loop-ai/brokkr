@@ -41,9 +41,50 @@ The console SHALL draw in a light set of colours, and in a dark set whenever DSH
 
 ### Requirement: The run graph is Brokkr's phases, steps and roads back
 
-The graph SHALL draw the run view's phases left to right, each phase's steps in order, and the members of one step side by side, with an arrow from each node to every node of the next step. Each node SHALL show Brokkr's state and served model. The last step of a phase SHALL show the visit's duration and rule. A road back SHALL be drawn, dashed, for each phase `returns` names.
+The graph SHALL draw the run view's phases left to right, each phase's steps in order, and the members of one step side by side, with an arrow from each node to every node of the next step. Each node SHALL show Brokkr's state and served model, and no state word Brokkr did not give. The last step of a phase SHALL show the visit's duration and rule. A road back SHALL be drawn for each phase `returns` names, solid and in the rail's own colour, as ui.html draws a road that was taken.
 
 #### Scenario: Review positions
 
 - **WHEN** a design phase records two positions and then a chief
 - **THEN** the positions stand side by side, both arrows lead into the chief, and the chief's arrow leads on
+
+### Requirement: A pick on the graph shows its seats as the TUI reads them
+
+A phase's label and every node SHALL be pickable. Picking a phase SHALL pick every node in it; picking a node SHALL pick that node; picking either again SHALL let it go. The picked phase or step SHALL show each of its seats with Brokkr's own cells: model (claimed) and boundary, tokens, cache hit, cost, turns and attempts, and effort applied and pinned. An absent cell SHALL show Brokkr's note. A pick SHALL outlive the run view's live refreshes and SHALL be dropped once the view no longer holds it.
+
+#### Scenario: A review member
+
+- **WHEN** the operator picks the security member of a review step
+- **THEN** it reads model `gpt-5.5`, tokens `3.01M tok · in 3.00M tok · out 1k tok · …`, cache hit `99.9%` and cost `$2.4179`
+
+#### Scenario: A phase
+
+- **WHEN** the operator picks the review phase
+- **THEN** both review members are picked and both seats are shown
+
+### Requirement: A question is about the pick first and its run second
+
+The assistant panel SHALL name what a question is about, closest first: the picked step or phase, then its run, then its realm. The question's prompt SHALL open with the pick, naming a seat by its participant key so the model can read its transcript, and SHALL give the run as the outer context. With no run picked, the panel SHALL ask about the realm.
+
+#### Scenario: A picked seat
+
+- **WHEN** the security seat is picked and the operator asks "Is the finding real?"
+- **THEN** the prompt opens "About the seat “security” (participant key …)" and gives the run as its outer context
+
+### Requirement: Live work wears Brokkr's pulse
+
+While a run is driven, its active nodes SHALL strike and throw a halo, as ui.html's forge pulse does; a parked or finished run SHALL NOT pulse. The console's mark and the left-panel icon SHALL strike while any run in the fleet is running. With reduced motion asked for, nothing SHALL animate.
+
+#### Scenario: A running run
+
+- **WHEN** a running run's security member is active
+- **THEN** its dot strikes with a halo, and no other node does
+
+### Requirement: A participant names its cache hit
+
+`brokkr inspect --json`'s participants SHALL carry `cache_hit_cell`: cache reads over input, to one decimal, or absent with its reason when either is unreported or input is zero. The view's wire version SHALL be 21.
+
+#### Scenario: A review seat
+
+- **WHEN** a seat reports 3,002,733 cache-read tokens of 3,004,371 input
+- **THEN** its `cache_hit_cell` reads `99.9%`

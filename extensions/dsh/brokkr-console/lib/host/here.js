@@ -48,8 +48,9 @@ async function mainCheckoutOf(dir) {
 
 /**
  * `realmAt(dir)`: `{realm}`, the realm `dir` belongs to as the map names
- * it, or `null` when it belongs to none. In a world with no realms map, the
- * workspace's folder is the one hearth.
+ * it, or `null` when it belongs to none. In a workspace with no
+ * `realms.json`, where `brokkr realms` refuses, the workspace's folder is the
+ * one hearth; a refusal with a map is reported.
  * @param {{brokkr: object, workspace: string}} parts
  */
 export function hereOf({ brokkr, workspace }) {
@@ -61,7 +62,9 @@ export function hereOf({ brokkr, workspace }) {
     try {
       realms = await brokkr.realms()
     } catch (error) {
-      if (!(error instanceof ReadoutRefused) || error.kind !== 'failed') throw error
+      // Only a workspace with no realms map is one hearth; any other refusal is reported, never guessed around.
+      const mapped = await stat(join(workspace, 'realms.json')).then(() => true, () => false)
+      if (!(error instanceof ReadoutRefused) || error.kind !== 'failed' || mapped) throw error
       realms = [{ name: ONE_HEARTH, path: '.' }]
     }
     const roots = (await Promise.all(realms.map(async (realm) => ({ name: realm.name, root: await real(resolve(workspace, realm.path)) }))))

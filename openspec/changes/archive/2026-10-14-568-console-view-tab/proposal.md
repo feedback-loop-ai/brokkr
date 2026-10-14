@@ -1,6 +1,6 @@
 # Change: the operator console as a conversation tab, in DSH's theme, with the run graph the boards drew (#568)
 
-Status: proposed. Asked for by the operator on 2026-10-14: "make it a tab and keep the sidebar"; "opening it inside a workspace means contextualizing it"; "the appearance is light no matter what is selected in dsh, I want light / dark options"; "I don't see a selection of the realms, nor a graph".
+Status: proposed. Asked for by the operator on 2026-10-14: "make it a tab and keep the sidebar"; "opening it inside a workspace means contextualizing it"; "the appearance is light no matter what is selected in dsh, I want light / dark options"; "I don't see a selection of the realms, nor a graph". Then, in a second round: "I would like to be able to click on each phase (so it selects all nodes in the graph) and each node", with the TUI's model, tokens, cache hit and cost; questions about the pick first and the run as outer context; the graph live; "the PULSE is our trademark, so we need to have it here as well".
 Change: `2026-10-14-568-console-view-tab`.
 Builds on: slice one (`e91d881f`) and slice two (`f6429ec4`).
 Parent story: [#568](https://github.com/feedback-loop-ai/brokkr/issues/568).
@@ -26,7 +26,16 @@ Seen in the operator's own DSH (dark theme):
 - **The narrower tab.** Below 900px the run list, the run and the assistant stack. The tab leaves room for DSH's floating composer (`--dsh-composer-height`).
 - **A dated test fixture.** The run-list test dated its runs 2026-10-13 and broke once a day had passed; it now dates them by the clock.
 
-No Brokkr (Rust) change. The view stays at version 20.
+### Second round
+
+- **Picking.** A phase's label and every node are buttons. A phase picks all its nodes and outlines its segment; a node picks itself; again lets go.
+- **The seat, as the TUI reads it.** The pick shows each of its seats with Brokkr's cells: model (claimed) and boundary, tokens, cache hit, cost, turns and attempts, effort applied and pinned, and the note of any absent cell. The host now reads `RunView.participants`; a node's `key` is its participant's.
+- **Cache hit, in Brokkr.** `brokkr-view`'s participant gains `cache_hit_cell`, cache reads over input to one decimal (`99.9%`), absent with its reason when either is unreported or input is zero. The view's wire version moves 20 → 21; the console paints 21 only.
+- **Context, closest first.** The assistant panel names the pick, then the run, then the realm, and the prompt opens with the pick (a seat by its participant key, for `brokkr_transcript`) with the run as outer context. With no run picked, it asks about the realm.
+- **Live.** The open run's view was already re-read and pushed whenever its head moved; a pick now outlives each refresh, and is dropped when the view no longer holds it.
+- **The pulse.** ui.html's `forge-strike` and `forge-halo`: active nodes of a driven run strike and throw a halo; the console's mark and the left-panel icon strike while any run is running. Reduced motion stills them.
+- **The road back** is solid, in the rail's colour, as ui.html draws a road that was taken (decision 0022's grammar), not dashed.
+- **The first landing's findings** (`landing-the-dsh-operator-console-3ca873fd`, residual, low): the one-hearth fallback only without `realms.json`; a refused lookup shown, not painted as no realm; no state words Brokkr did not give; `columns` required; one query parse; the badge's colours in the sheet.
 
 ## Impact
 

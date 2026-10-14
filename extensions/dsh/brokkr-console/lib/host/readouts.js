@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 20
+export const VIEW_VERSION = 21
 
 /** The Muninn record version this console reads. */
 const MUNINN_RECORD_VERSION = 1
@@ -199,6 +199,7 @@ function journalRow(value, path) {
 function node(value, path) {
   object(value, path)
   return {
+    key: text(value.key, `${path}.key`),
     label: text(value.label, `${path}.label`),
     state: text(value.state, `${path}.state`),
     state_class: text(value.state_class, `${path}.state_class`),
@@ -219,7 +220,7 @@ function phase(value, path) {
     strategy: optText(value.strategy, `${path}.strategy`),
     visits: count(value.visits, `${path}.visits`),
     current: value.current === true,
-    columns: list(value.columns ?? [], `${path}.columns`, column),
+    columns: list(value.columns, `${path}.columns`, column),
     returns: texts(value.returns, `${path}.returns`),
   }
 }
@@ -232,6 +233,39 @@ function visit(value, path) {
     rule: optText(value.rule, `${path}.rule`),
     model: optText(value.model, `${path}.model`),
     duration: optText(value.duration, `${path}.duration`),
+  }
+}
+
+/** A cell as Brokkr words it: its text, and why it is absent when it is. */
+function cell(value, path) {
+  object(value, path)
+  return { text: text(value.text, `${path}.text`), absent: value.absent === true, note: optText(value.note, `${path}.note`) }
+}
+
+/**
+ * One seat of the run, with the figures the TUI's seat pane prints, each
+ * Brokkr's own cell: model (claimed) and boundary, effort pinned and
+ * applied, attempts, turns, cost, tokens and the cache-hit share.
+ */
+function participant(value, path) {
+  object(value, path)
+  return {
+    key: text(value.key, `${path}.key`),
+    label: text(value.label, `${path}.label`),
+    member: optText(value.member, `${path}.member`),
+    phase: optText(value.phase, `${path}.phase`),
+    status: text(value.status, `${path}.status`),
+    working: value.working === true,
+    attempts: count(value.attempts, `${path}.attempts`),
+    turns: cell(value.turns_cell, `${path}.turns_cell`),
+    cost: cell(value.cost_cell, `${path}.cost_cell`),
+    usage: cell(value.usage_cell, `${path}.usage_cell`),
+    cache_hit: cell(value.cache_hit_cell, `${path}.cache_hit_cell`),
+    model: cell(value.model, `${path}.model`),
+    boundary: cell(value.boundary, `${path}.boundary`),
+    effort: cell(value.effort, `${path}.effort`),
+    effort_pin: cell(value.effort_pin, `${path}.effort_pin`),
+    activity: cell(value.activity, `${path}.activity`),
   }
 }
 
@@ -257,6 +291,7 @@ export function runViewOf(doc) {
     summary: maybe(doc.summary, 'summary', summary),
     ruling,
     phases: list(doc.phases, 'phases', phase),
+    participants: list(doc.participants, 'participants', participant),
     path: list(object(doc.dashboard, 'dashboard').path, 'dashboard.path', visit),
     journal: list(doc.journal, 'journal', journalRow),
     commands: list(doc.commands, 'commands', offered),

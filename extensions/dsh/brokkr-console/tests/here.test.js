@@ -55,6 +55,13 @@ test('with no realms map, the workspace folder is the one hearth', async () => {
   assert.deepEqual(await here(join(brokkr, 'crates')), { realm: ONE_HEARTH })
 })
 
+test('a refusal in a workspace that has a realms map is reported, not taken for one hearth', async () => {
+  const { brokkr } = world()
+  writeFileSync(join(brokkr, 'realms.json'), '{"schema": "forge.realms/v3", "realms": [}')
+  const refused = { realms: async () => { throw new ReadoutRefused('failed', 'realms.json is not valid JSON') } }
+  await assert.rejects(hereOf({ brokkr: refused, workspace: brokkr })(brokkr), /realms\.json is not valid JSON/)
+})
+
 test('a readout that times out is not mistaken for a world with no map', async () => {
   const { brokkr } = world()
   const slow = { realms: async () => { throw new ReadoutRefused('timeout', 'brokkr realms took longer than the console waits') } }

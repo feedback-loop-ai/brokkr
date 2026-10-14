@@ -361,6 +361,7 @@ pub brokkr_view::Offered::command: brokkr_view::Command
 pub struct brokkr_view::Participant
 pub brokkr_view::Participant::activity: brokkr_view::Activity
 pub brokkr_view::Participant::attempts: u64
+pub brokkr_view::Participant::cache_hit_cell: brokkr_view::Cell
 pub brokkr_view::Participant::checkpoints: alloc::vec::Vec<brokkr_view::CheckpointRow>
 pub brokkr_view::Participant::cost: core::option::Option<f64>
 pub brokkr_view::Participant::cost_aggregated: bool
