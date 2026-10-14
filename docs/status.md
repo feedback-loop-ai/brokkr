@@ -178,11 +178,13 @@ The console plugin in `extensions/dsh/brokkr-console/` targets DSH
 `queue list`, `muninn list` and `analytics` from their `--json` output, and
 presses `brokkr operator retry` and `stop`, `brokkr resume` (under the
 recipe the run's start recorded) and `brokkr conclude`, after re-reading
-the run's head. DSH's model reads Brokkr through four read-only tools and
-may suggest one command Brokkr admits, as a card the operator carries to
-the decision card and presses; "Ask Brokkr" and "Ask about this run" open
-a DSH session with the question, and "Open the spec" opens a clarify-parked
-run's worktree with the Files tab and the questions as a draft. It does not
+the run's head. DSH's model reads Brokkr through four read-only tools the
+console registers and may suggest one command Brokkr admits, as a card the
+operator carries to the decision card and presses; "Ask Brokkr" and "Ask
+about this run" open an ordinary DSH session with the question, whose model
+also holds DSH's own tools under DSH's approval policy, which the console
+does not narrow; "Open the spec" opens a clarify-parked run's worktree with
+the Files tab and the questions as a draft. It does not
 answer clarify questions itself, talk to a reviewer, dismiss findings on a
 parked run, hold a parked run or start a queued run; it shows those as not
 available yet, with Brokkr's reason. It does not open a named spec file,

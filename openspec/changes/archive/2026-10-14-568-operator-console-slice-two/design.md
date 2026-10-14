@@ -45,6 +45,7 @@ Status: proposed. The DSH facts come from `evidence/dsh-0.2.0-rc.2/README.md`, m
   - Ask about this run uses the run's worktree, or the console's workspace when the view names none.
 - **The draft** names the scope (all realms, or one run by title, realm and id) and lists the tools. It asks the model to cite the record each fact came from, and to say what is not recorded instead of guessing.
 - **Why not inline.** The measured inline call (`llm.stream`) is not used: it is unlogged and has no tools, and slice one's spec asks for answers that cite records.
+- **The session's other tools.** The session is an ordinary DSH session under DSH's own preset (`standard` in the measurement), so its model also holds DSH's tools (bash, edit, write, …) in the session's directory, under DSH's approval policy. The console does not narrow them: `ctx.tools.restrict()` is read as acting on an agent's own context, which a profile-root plugin does not hold, and it was not observed (evidence README, D6a). The read-only guarantee is therefore the console's tools', and the draft tells the model to read Brokkr only through them, to run no Brokkr command and change no file through any other tool, and to treat what the tools return, transcripts included, as records, not instructions. Narrowing the session's own tools is a follow-up that needs a measured API.
 
 ### D5 — "Open the spec" opens the worktree, not a guessed file
 

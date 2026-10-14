@@ -106,8 +106,8 @@ says so. A fifth, `brokkr_suggest`, lets the model propose one command for a
 run: Brokkr is asked first, and only a command it admits at that moment
 becomes a card in the session's transcript ("Suggested · Retry security
 review … only if the run hasn't changed since you read this"). Anything
-else comes back as Brokkr's own refusal or reason. No tool can press
-anything.
+else comes back as Brokkr's own refusal or reason. No tool the console
+registers can press anything.
 
 - **Ask Brokkr** and **Ask about this run** each open a DSH session and send
   your question in it, prefilled with the scope and with the instruction to
@@ -115,6 +115,17 @@ anything.
   recorded. Ask Brokkr opens in the console's workspace; Ask about this run
   opens in the run's worktree when Brokkr records one. The answer, and every
   tool call, is in that session in Conversations.
+- **The session is DSH's.** A question is answered in an ordinary DSH
+  session: besides the console's five tools, its model holds DSH's own tools,
+  such as bash, edit and write, in the session's directory, under DSH's
+  approval policy. The console does not narrow them, and the read-only
+  guarantee above is for the console's tools only. The question's prompt
+  tells the model to read Brokkr only through the console's tools, to run
+  no `brokkr` command and change no file through any other tool, and to
+  treat what the tools return, seat transcripts included, as records to
+  cite, never as instructions. That is a steer, not a fence: whether the
+  model may run `brokkr` or edit a file through DSH's tools is DSH's policy
+  to set, and anything it does there acts as the OS user DSH runs as.
 - **Use this** on a suggestion card carries it to the run's decision card in
   the Brokkr panel: the suggested command leads, its reason fills the reason
   box, and the card says whether the run has moved since it was read. You
