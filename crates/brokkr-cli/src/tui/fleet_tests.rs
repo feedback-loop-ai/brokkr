@@ -713,8 +713,9 @@ fn a_dead_running_run_needs_you_as_stale_and_never_reads_as_live() {
 /// its placeholders are filled, and one the engine admits on a run that
 /// stands as that one does. A stale run folds to running, which
 /// `operator retry` refuses and `resume` and `conclude` admit. Review M1:
-/// a run whose journal the store does not load names none, since the
-/// store refuses it to `export` too.
+/// a run whose journal the store does not load names no `export`, since
+/// the store refuses it that too; either quarantine names `operator
+/// acknowledge` (#511).
 #[test]
 fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
     use clap::Parser;
@@ -748,7 +749,16 @@ fn every_way_out_names_a_command_brokkr_parses_and_the_run_admits() {
             named.push(need.label());
         }
     }
-    assert_eq!(named, ["stale", "stale", "quarantined"]);
+    assert_eq!(
+        named,
+        [
+            "stale",
+            "stale",
+            "quarantined",
+            "quarantined",
+            "quarantined"
+        ]
+    );
 }
 
 /// How the store and the fold read a run standing so: the status it
@@ -774,6 +784,8 @@ fn admits(read: Result<Status, Quarantine>, command: &crate::Cmd) -> bool {
     use brokkr_core::fold::{acceptance_refusal, OperatorCommand};
     let status = read.ok();
     match command {
+        // It reads no fold, and refuses a run whose journal folds (#511).
+        crate::Cmd::Operator(args) if args.command == "acknowledge" => status.is_none(),
         crate::Cmd::Operator(args) => match (status, OperatorCommand::parse(&args.command)) {
             (Some(status), Some(word)) => acceptance_refusal(&state_of(status), word).is_none(),
             _ => false,
@@ -841,8 +853,49 @@ fn a_quarantined_run_says_export_and_inspect_and_how() {
     let wanted = [
         format!("way out   brokkr export --run {run}"),
         "          and inspect the journal it writes".to_string(),
+        format!("          then brokkr operator acknowledge --run {run} --reason <why> lists it under older"),
     ];
     assert_eq!(under(&detail, "WAY OUT"), wanted, "{detail:#?}");
+}
+
+/// #511: an acknowledged quarantine leaves "needs you" for the older runs
+/// the list folds, keeping its `?` and its refusal, and says who answered
+/// it on its row and in its detail.
+#[test]
+fn an_acknowledged_quarantine_folds_into_older_keeping_its_mark_and_refusal() {
+    let mut views = fleet_to_act_on();
+    let run = "journal-that-broke-7f8e9d0c";
+    let broken = views.runs.runs.iter_mut().find(|row| row.run_id == run);
+    broken.unwrap().acknowledgement = Some(brokkr_view::Acknowledgement {
+        seq: 12,
+        event_hash: "ab12".to_string(),
+        operator: "valentin".to_string(),
+        reason: "history from an engine since changed".to_string(),
+        recorded_at: T0.to_string(),
+    });
+    let mut tui = Tui::new(None);
+    assert_eq!(listed(&tui, &views)[0], HELD, "it needs no one now");
+    assert!(!listed(&tui, &views).contains(&run.to_string()), "folded");
+    let frame = frame_of(&tui, &views, 160, 48);
+    assert!(frame.contains("3 older runs"), "{frame}");
+
+    apply(&mut tui, &views, Key::Char('a'));
+    let lines = lines_of(drawn(&tui, &views, 160, 48).backend().buffer());
+    let row = row_of(&lines, "journ…7f8e9d0c");
+    assert!(row > row_of(&lines, "│older"), "{}", lines.join("\n"));
+    assert!(lines[row].contains('?'), "{}", lines[row]);
+    let answered = "acknowledged by valentin at 2026-01-01T00:00:00Z, event 12: history";
+    assert!(lines[row + 1].contains(answered), "{}", lines[row + 1]);
+    let acknowledged = views.runs.runs.iter().find(|row| row.run_id == run);
+    let detail = dashboard_of(&views, acknowledged.unwrap());
+    let ended = under(&detail, "WHY IT ENDED");
+    for fact in [
+        "journal   event 12: event after terminal status".to_string(),
+        format!("operator  {answered} from an engine since changed"),
+    ] {
+        assert!(ended.contains(&fact), "{fact}: {detail:#?}");
+    }
+    assert_eq!(under(&detail, "WAY OUT"), ["—"], "{detail:#?}");
 }
 
 /// Item 6: `→`, `l` and Space open a running row in place — its phase,

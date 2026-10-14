@@ -35,7 +35,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr secrets list`](#brokkr-secrets-list): Print bound names, one per line — names, never values
 - [`brokkr secrets remove`](#brokkr-secrets-remove): Remove NAME from the store
 - [`brokkr conclude`](#brokkr-conclude): Close a stopped or parked run from its journal alone — no bundle, no recipe, no effect. `resume` compiles the exact pinned recipe and refuses on any drift, which is right for the branches that spend money but leaves a run from a moved engine with no lawful ending. This appends the operator stop conclusion and nothing else, so it needs no pinned recipe to be honest about what it wrote. It cannot retry: that re-enters the policy loop, and the policy loop needs the bundle by construction. For a run believed dead: every write is fenced, so a journal that moves beneath the conclusion — something still driving the run — refuses instead of being closed over (decision 0029). Check `brokkr runs` first
-- [`brokkr operator`](#brokkr-operator): Record an operator command (retry \| stop \| supersede) as journal events
+- [`brokkr operator`](#brokkr-operator): Record an operator command (retry \| stop \| supersede) as journal events, or acknowledge a quarantined run beside its journal
 - [`brokkr queue`](#brokkr-queue): The dispatcher's queue (decision 0068): runs waiting to start, in the journal's own database. Add, list, judge, move, hold, release, re-pin and drop entries; each change is journaled with its reason
 - [`brokkr queue add`](#brokkr-queue-add): Queue a new run, taking `brokkr run`'s arguments, at the end of the queue. Nothing starts: the entry waits for the dispatcher
 - [`brokkr queue list`](#brokkr-queue-list): The queue in order: each waiting entry's place, state, priority, waits, launch and admission (admissible, or why it waits or is held), then the entries that started a run, with it. `--json` emits the view model for scripts
@@ -487,7 +487,7 @@ Usage: brokkr conclude [OPTIONS] --run <RUN> --reason <REASON>
 
 ## brokkr operator
 
-Record an operator command (retry | stop | supersede) as journal events
+Record an operator command (retry | stop | supersede) as journal events, or acknowledge a quarantined run beside its journal
 
 ```text
 Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
@@ -496,7 +496,7 @@ Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
-| `<COMMAND>` |  |  | "retry" re-runs the current phase; "stop" ends the run; "supersede" records that residual findings on a run that has already finished are closed by another run (decision 0047) |
+| `<COMMAND>` |  |  | "retry" re-runs the current phase; "stop" ends the run; "supersede" records that residual findings on a run that has already finished are closed by another run (decision 0047); "acknowledge" lists a quarantined run under older until its journal moves (#511) |
 | `--reason <REASON>` |  |  | Why the operator issued the command, recorded with it |
 | `--findings <FINDINGS>...` |  |  | supersede only: the residual findings this closes, by the sequence number of the ruling each was read from. Repeatable, or one comma-separated list |
 | `--by-run <BY_RUN>` |  |  | supersede only: the run that closed them |

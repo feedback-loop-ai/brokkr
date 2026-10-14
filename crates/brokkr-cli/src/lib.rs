@@ -158,7 +158,7 @@ enum Cmd {
     /// of being closed over (decision 0029). Check `brokkr runs` first.
     Conclude(ConcludeArgs),
     /// Record an operator command (retry | stop | supersede) as journal
-    /// events.
+    /// events, or acknowledge a quarantined run beside its journal.
     Operator(OperatorArgs),
     /// The dispatcher's queue (decision 0068): runs waiting to start, in
     /// the journal's own database. Add, list, judge, move, hold, release,

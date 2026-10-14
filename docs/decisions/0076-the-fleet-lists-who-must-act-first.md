@@ -176,6 +176,32 @@ on, so this file names them.
     awaiting no key, and the panic carries on. `watch`'s view
     exits with the code its frames would have. The CLI's `rustix` edge gains its
     `process` feature, already built for the engine, to raise the signal.
+11. **An acknowledged quarantine lists under older (#511).** Accepted: the
+    operator ruled on 2026-10-14, recorded on #511, and this amends item 1,
+    under which a quarantined run stayed in *needs you* with no command able
+    to close it. `brokkr operator acknowledge --run <id> --reason <why>`
+    records who, when and why for a run whose journal does not load or does
+    not fold, in the store table `quarantine_acknowledgements`, keyed by the
+    run id and the hash of the run's last event. It is outside the run's
+    event chain: appending to a chain that does not fold would make a second
+    one, and nothing repairs the journal or folds past its defect (decision
+    0001). The write is fenced on the head read before the journal was
+    judged (decision 0029), so a journal that moved meanwhile records
+    nothing. A run that folds is refused, and the refusal names `brokkr
+    conclude`. An acknowledged quarantine needs nothing and lists under
+    *older* whatever its age, keeping its `?` and its refusal, on every
+    readout; `brokkr runs --json` reports the quarantine and the
+    acknowledgement both, as `RunRow::acknowledgement`, carried in through
+    `Refusal::acknowledgement`, and `VIEW_VERSION` moves 20 to 21,
+    additively. The DSH console's run list, which groups its rows by its
+    own clock, gains an *Older* group that holds them, so they stay in
+    reach there too. When the run's last event changes the acknowledgement
+    lapses, nothing written, and the run is back in *needs you*; the row
+    stays as history. A quarantine's way out names the verb. The table is
+    additive, as the queue's is: `DATABASE_SCHEMA` does not move, the first
+    writable open adds it, and a read-only open of an older journal reads no
+    acknowledgement. It is workspace state, not part of the run's journal,
+    so it does not travel with `export` or `adopt`, which carry events.
 
 ## Consequences
 

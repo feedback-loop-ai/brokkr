@@ -35,6 +35,10 @@ pub struct RunRow {
     /// What refused the journal, when the row carries no status (#503):
     /// a way out names `export` only for a journal the store loads.
     pub quarantine: Option<Quarantine>,
+    /// The operator's acknowledgement standing on a quarantined run
+    /// (#511): it lists under "older" while the journal stays where it was
+    /// acknowledged, keeping its `?` and its refusal.
+    pub acknowledgement: Option<Acknowledgement>,
     /// This run's residual findings, each carrying the operator's
     /// supersede annotation when one closes it (decision 0047 ruling
     /// 3): `brokkr runs --json` is a surface that prints a residual
@@ -80,11 +84,12 @@ pub enum Quarantine {
 }
 
 impl Quarantine {
-    /// This refusal, in `words`.
+    /// This refusal, in `words`, acknowledged by no one.
     pub fn in_words(self, words: &str) -> Refusal<'_> {
         Refusal {
             quarantine: self,
             words,
+            acknowledgement: None,
         }
     }
 }
@@ -95,6 +100,32 @@ impl Quarantine {
 pub struct Refusal<'a> {
     pub quarantine: Quarantine,
     pub words: &'a str,
+    /// The operator's acknowledgement standing at the journal's last
+    /// event, when one does (#511).
+    pub acknowledgement: Option<&'a Acknowledgement>,
+}
+
+/// An operator's acknowledgement of a quarantined run (#511): who, when
+/// and why, at the event that was the journal's last. The journal is not
+/// touched; the store keeps it beside the chain, and it lapses when the
+/// journal moves.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Acknowledgement {
+    pub seq: u64,
+    pub event_hash: String,
+    pub operator: String,
+    pub reason: String,
+    pub recorded_at: String,
+}
+
+impl Acknowledgement {
+    /// The line every surface prints under the refusal.
+    pub fn line(&self) -> String {
+        format!(
+            "acknowledged by {} at {}, event {}: {}",
+            self.operator, self.recorded_at, self.seq, self.reason
+        )
+    }
 }
 
 /// The widest a title may be, in display columns: a wide character
@@ -192,15 +223,17 @@ pub struct Verdict {
 /// Who must act on a run: the fleet's sections, listed in [`Section::ORDER`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Section {
-    /// Parked, quarantined because the journal does not load or fold, or stale:
-    /// whatever [`need`] names.
+    /// Parked, quarantined because the journal does not load or fold and
+    /// not acknowledged where it stands, or stale: whatever [`need`] names.
     NeedsYou,
     Running,
     /// Finished within the last 24 hours, by when its journal last
     /// moved: a run that waited days on a ruling and ended today is
     /// today's news.
     Recent,
-    /// Finished and older.
+    /// Finished and older, and every quarantined run the operator has
+    /// acknowledged (#511), however recent: it is answered until its
+    /// journal moves.
     Older,
 }
 
@@ -242,6 +275,9 @@ fn section_of(row: &RunRow, now: &str) -> Section {
     }
     if row.verdict.standing == Standing::Running {
         return Section::Running;
+    }
+    if row.acknowledgement.is_some() {
+        return Section::Older;
     }
     let moved = row.last_recorded_at.as_deref().unwrap_or(&row.created_at);
     match (js::parse_millis(moved), js::parse_millis(now)) {
@@ -301,12 +337,16 @@ impl Need {
     /// closes a run believed dead. `conclude` folds a journal before it
     /// appends, so it refuses a quarantined one. `export` writes one that
     /// loads and does not fold as it stands, and refuses one the store
-    /// does not load, as every verb that reads it does: that one names
-    /// no command.
+    /// does not load, as every verb that reads it does. `operator
+    /// acknowledge` answers either quarantine without folding or loading
+    /// past it (#511).
     pub fn commands(&self, run_id: &str) -> Vec<String> {
         match self {
-            Need::Parked | Need::Quarantined(Quarantine::DoesNotLoad) => Vec::new(),
-            Need::Quarantined(Quarantine::DoesNotFold) => vec![export(run_id)],
+            Need::Parked => Vec::new(),
+            Need::Quarantined(Quarantine::DoesNotLoad) => vec![acknowledge(run_id)],
+            Need::Quarantined(Quarantine::DoesNotFold) => {
+                vec![export(run_id), acknowledge(run_id)]
+            }
             Need::Stale { .. } => vec![resume(run_id), conclude(run_id)],
         }
     }
@@ -319,11 +359,13 @@ impl Need {
             Need::Quarantined(Quarantine::DoesNotFold) => vec![
                 format!("way out   {}", export(run_id)),
                 "          and inspect the journal it writes".to_string(),
+                acknowledged(run_id),
             ],
             Need::Quarantined(Quarantine::DoesNotLoad) => vec![
                 "way out   none in brokkr: the store refuses this journal, export included;"
                     .to_string(),
                 "          inspect the hearth's journal file by hand".to_string(),
+                acknowledged(run_id),
             ],
             Need::Stale { silent } => vec![
                 format!(
@@ -342,6 +384,18 @@ impl Need {
     }
 }
 
+fn acknowledge(run_id: &str) -> String {
+    format!("brokkr operator acknowledge --run {run_id} --reason <why>")
+}
+
+/// The way-out line a quarantine ends on (#511).
+fn acknowledged(run_id: &str) -> String {
+    format!(
+        "          then {} lists it under older",
+        acknowledge(run_id)
+    )
+}
+
 fn conclude(run_id: &str) -> String {
     format!("brokkr conclude --run {run_id} --reason <why>")
 }
@@ -355,13 +409,15 @@ fn resume(run_id: &str) -> String {
 }
 
 /// What run `row` needs of the operator at `now`, if anything: a park,
-/// a journal that does not load or fold, or a running journal silent for longer
+/// a journal that does not load or fold and that the operator has not
+/// acknowledged where it stands (#511), or a running journal silent for longer
 /// than the bound — the longest attempt deadline a shipped seat holds
 /// and a margin past it, against the time of the run's last event. A
 /// run is stale only on that evidence: a clock or a last event whose
 /// time does not read never makes one.
 pub fn need(row: &RunRow, now: &str) -> Option<Need> {
     match row.verdict.standing {
+        Standing::Quarantined if row.acknowledgement.is_some() => None,
         Standing::Quarantined => Some(Need::Quarantined(row.quarantine.unwrap_or_default())),
         Standing::Parked => Some(Need::Parked),
         Standing::Running => silence(row, now).map(|silent| Need::Stale { silent }),
@@ -595,6 +651,9 @@ fn run_row(entry: &RunEntry) -> RunRow {
                 .unwrap_or_default()
         }),
         residuals: entry.residuals.to_vec(),
+        acknowledgement: entry
+            .detail
+            .and_then(|refusal| refusal.acknowledgement.cloned()),
         title: title(entry.feature),
         verdict: verdict(entry.state, entry.residuals),
         hire: entry.state.and_then(hire),
