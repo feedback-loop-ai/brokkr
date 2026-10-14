@@ -37,6 +37,8 @@ use crate::bundle::{
     ExecutableBody, HandsState, McpIntent, PanelMember, Seat, SeatBody, SeatClass, SiteFacts,
     StepBody, ENGINE_VERSION, REALM_FACTS,
 };
+use crate::dialect::DialectPhase;
+use crate::phase_name;
 // The test modules reach these through `use super::*`.
 #[cfg(test)]
 use crate::bundle::{Aggregate, SequenceStep};
@@ -82,14 +84,20 @@ use operator::{
 };
 
 fn nearest_change(context: &Value) -> Option<String> {
-    ["tasks", "design", "specify", "triage", "intake"]
-        .iter()
-        .find_map(|phase| {
-            context
-                .pointer(&format!("/results/{phase}/inputs/change"))
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
+    [
+        DialectPhase::Tasks.as_str(),
+        DialectPhase::Design.as_str(),
+        DialectPhase::Specify.as_str(),
+        phase_name::TRIAGE,
+        phase_name::INTAKE,
+    ]
+    .iter()
+    .find_map(|phase| {
+        context
+            .pointer(&format!("/results/{phase}/inputs/change"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
 }
 
 fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
@@ -1125,7 +1133,7 @@ impl Engine {
         // Triage is the fresh-and-blind chief's office (decision 0041
         // ruling 6). Even on the bounded oversized return it receives
         // the commission and current tree, not journal history.
-        if phase != "triage" {
+        if phase != phase_name::TRIAGE {
             context.insert("last_decision".into(), json!(state.last_decision));
         }
         let current = self
@@ -1154,7 +1162,7 @@ impl Engine {
         // reads it. A seat on its FIRST visit of the run gets nothing
         // new, so a run that never revisits builds the input, and the
         // digest, it always built.
-        if phase != "triage" && state.visits.get(phase).copied().unwrap_or(0) > 1 {
+        if phase != phase_name::TRIAGE && state.visits.get(phase).copied().unwrap_or(0) > 1 {
             context.insert(
                 "returned_from".into(),
                 json!({
@@ -2202,7 +2210,7 @@ impl Engine {
         // the docs-only shortcut only when review sent this implement
         // visit back; verify failures and implement self-loops must still
         // pass through verify even when their delta happens to be prose.
-        let returned_from_review = phase == "implement"
+        let returned_from_review = phase == phase_name::IMPLEMENT
             && state
                 .last_decision
                 .as_ref()
@@ -2215,7 +2223,7 @@ impl Engine {
                 }
             }
         }
-        if phase == "ship" {
+        if phase == phase_name::SHIP {
             let dirty = git_dirty(repo);
             let head = git_head(repo);
             inputs.insert("dirty_worktrees".into(), Value::Bool(dirty));
@@ -2311,7 +2319,7 @@ impl Engine {
                 "next": null,
                 "severity": null,
                 "inputs": inputs,
-                "problem": if phase == "triage" && result == "escalate" {
+                "problem": if phase == phase_name::TRIAGE && result == "escalate" {
                     object.get("notes").and_then(Value::as_str)
                         .filter(|notes| !notes.is_empty())
                         .unwrap_or(&reason)
@@ -4123,8 +4131,13 @@ impl Engine {
         {
             payload["case"] = Value::String(case.to_string());
         }
-        let returning_implement =
-            phase == "implement" && state.visits.get("implement").copied().unwrap_or(0) > 0;
+        let returning_implement = phase == phase_name::IMPLEMENT
+            && state
+                .visits
+                .get(phase_name::IMPLEMENT)
+                .copied()
+                .unwrap_or(0)
+                > 0;
         if phase == self.bundle.protected_phase || returning_implement {
             if let Some(head) = git_head(&self.repo) {
                 payload["head"] = Value::String(head);

@@ -328,6 +328,87 @@ fn rendered_instructions_cover_every_seated_phase_and_ignore_no_phase() {
     );
 }
 
+/// The closed set spells the names the public lists always carried, in
+/// their order, and reads no other name as one of its own. Its loop test
+/// agrees with what each phase of a loaded dialect holds.
+#[test]
+fn every_dialect_phase_spells_the_name_it_always_did() {
+    let spelled: Vec<&str> = DialectPhase::ALL.map(DialectPhase::as_str).to_vec();
+    assert_eq!(spelled, DIALECT_PHASES);
+    let artifacts: Vec<&str> = DialectPhase::ALL
+        .into_iter()
+        .filter(|phase| !phase.is_loop())
+        .map(DialectPhase::as_str)
+        .collect();
+    assert_eq!(artifacts, ARTIFACT_PHASES);
+    let dialect = Dialect::load(&root().join("dialects/openspec.json"))
+        .unwrap()
+        .0;
+    for phase in DialectPhase::ALL {
+        assert_eq!(DialectPhase::parse(phase.as_str()), Some(phase));
+        let name = phase.as_str();
+        assert_eq!(dialect.phases.artifact(name).is_some(), !phase.is_loop());
+        assert_eq!(dialect.phases.loop_phase(name).is_some(), phase.is_loop());
+    }
+    for name in ["implement", "review", "ship", "verify", "", "Clarify"] {
+        assert_eq!(DialectPhase::parse(name), None, "{name}");
+    }
+}
+
+/// The two results a dialect exec synthesizes, row by row: the loop
+/// phases' own words, the wrapped verifier's, and `drafted` for every
+/// other phase, named or not.
+#[test]
+fn dialect_results_keeps_every_row() {
+    for (phase, results) in [
+        ("specify", ["drafted", "fail"]),
+        ("design", ["drafted", "fail"]),
+        ("tasks", ["drafted", "fail"]),
+        ("clarify", ["clear", "ambiguous"]),
+        ("analyze", ["consistent", "drift"]),
+        ("verify", ["pass", "fail"]),
+        ("implement", ["drafted", "fail"]),
+        ("review", ["drafted", "fail"]),
+        ("unknown", ["drafted", "fail"]),
+    ] {
+        assert_eq!(crate::bundle::dialect_results(phase), results, "{phase}");
+    }
+}
+
+/// #349 slice 5 moved the phase names into `DialectPhase` and named
+/// constants. Every rendered prompt is pinned into a run's manifest, so
+/// both shipped dialects must render exactly the bytes they rendered on
+/// the base that move was cut from (measured at ffcc72ab).
+#[test]
+fn every_shipped_dialect_renders_the_bytes_it_did() {
+    for (name, digest) in [
+        (
+            "openspec",
+            "f621db8e9e5732889a6c14b4ad8a74a40fedb605e9db6d2390f1b7f908f3f289",
+        ),
+        (
+            "speckit",
+            "4a79e05cc16b2aa1909b1185f1378ab131d90e896cf89b3e9051a08954159a41",
+        ),
+    ] {
+        let dialect = Dialect::load(&root().join(format!("dialects/{name}.json")))
+            .unwrap()
+            .0;
+        let rendered = serde_json::to_value(&dialect.rendered).unwrap();
+        assert_eq!(
+            brokkr_core::canonical::sha256_hex(&rendered),
+            digest,
+            "{name}"
+        );
+        assert_eq!(
+            dialect
+                .prompt_for(&root().join("dialects"), "ship")
+                .unwrap(),
+            ""
+        );
+    }
+}
+
 /// Decision 0042's addendum of 2026-09-06: the archive step appends one
 /// provenance line per capability it touched, so a dialect that promotes
 /// a living truth tree names the instruction that says how. A dialect

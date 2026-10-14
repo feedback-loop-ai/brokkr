@@ -9,8 +9,75 @@ use serde::Deserialize;
 use serde_json::Value;
 use thiserror::Error;
 
-pub const ARTIFACT_PHASES: [&str; 3] = ["specify", "design", "tasks"];
-pub const DIALECT_PHASES: [&str; 5] = ["specify", "design", "tasks", "clarify", "analyze"];
+use crate::phase_name;
+
+/// The five phases a dialect fills, a closed set (#349, ask 5): three
+/// draft artifacts and two loop back over them with a taxonomy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DialectPhase {
+    Specify,
+    Design,
+    Tasks,
+    Clarify,
+    Analyze,
+}
+
+impl DialectPhase {
+    /// In [`DIALECT_PHASES`]'s order, which is the artifact map's order.
+    pub(crate) const ALL: [DialectPhase; 5] = [
+        DialectPhase::Specify,
+        DialectPhase::Design,
+        DialectPhase::Tasks,
+        DialectPhase::Clarify,
+        DialectPhase::Analyze,
+    ];
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            DialectPhase::Specify => "specify",
+            DialectPhase::Design => "design",
+            DialectPhase::Tasks => "tasks",
+            DialectPhase::Clarify => "clarify",
+            DialectPhase::Analyze => "analyze",
+        }
+    }
+
+    pub(crate) fn parse(name: &str) -> Option<DialectPhase> {
+        DialectPhase::ALL
+            .into_iter()
+            .find(|phase| phase.as_str() == name)
+    }
+
+    /// A loop phase checks the artifacts against a taxonomy; every other
+    /// dialect phase drafts them and is validated.
+    pub(crate) const fn is_loop(self) -> bool {
+        match self {
+            DialectPhase::Specify | DialectPhase::Design | DialectPhase::Tasks => false,
+            DialectPhase::Clarify | DialectPhase::Analyze => true,
+        }
+    }
+}
+
+pub const ARTIFACT_PHASES: [&str; 3] = [
+    DialectPhase::Specify.as_str(),
+    DialectPhase::Design.as_str(),
+    DialectPhase::Tasks.as_str(),
+];
+pub const DIALECT_PHASES: [&str; 5] = [
+    DialectPhase::Specify.as_str(),
+    DialectPhase::Design.as_str(),
+    DialectPhase::Tasks.as_str(),
+    DialectPhase::Clarify.as_str(),
+    DialectPhase::Analyze.as_str(),
+];
+
+/// Every phase whose prompt a dialect renders and a bundle pins: the five
+/// it fills, and the two offices that read its prose.
+pub(crate) fn rendered_phases() -> impl Iterator<Item = &'static str> {
+    DIALECT_PHASES
+        .into_iter()
+        .chain([phase_name::IMPLEMENT, phase_name::REVIEW])
+}
 
 /// Decision 0042's first slice: the closed map, with no install identity
 /// and no archive instruction.
@@ -188,22 +255,69 @@ pub struct Phases {
     pub analyze: LoopPhase,
 }
 
+impl ArtifactPhase {
+    /// Each step's instruction and return instruction, in step order.
+    fn prose(&self) -> impl Iterator<Item = &str> {
+        self.steps.iter().flat_map(|step| {
+            [
+                step.instructions.as_str(),
+                step.return_instructions.as_str(),
+            ]
+        })
+    }
+}
+
+/// What one dialect phase holds.
+enum PhaseFill<'a> {
+    Artifact(&'a ArtifactPhase),
+    Loop(&'a LoopPhase),
+}
+
 impl Phases {
     pub fn artifact(&self, phase: &str) -> Option<&ArtifactPhase> {
-        match phase {
-            "specify" => Some(&self.specify),
-            "design" => Some(&self.design),
-            "tasks" => Some(&self.tasks),
-            _ => None,
-        }
+        self.artifact_of(DialectPhase::parse(phase)?)
     }
 
     pub fn loop_phase(&self, phase: &str) -> Option<&LoopPhase> {
+        self.loop_of(DialectPhase::parse(phase)?)
+    }
+
+    fn fill(&self, phase: DialectPhase) -> PhaseFill<'_> {
         match phase {
-            "clarify" => Some(&self.clarify),
-            "analyze" => Some(&self.analyze),
-            _ => None,
+            DialectPhase::Specify => PhaseFill::Artifact(&self.specify),
+            DialectPhase::Design => PhaseFill::Artifact(&self.design),
+            DialectPhase::Tasks => PhaseFill::Artifact(&self.tasks),
+            DialectPhase::Clarify => PhaseFill::Loop(&self.clarify),
+            DialectPhase::Analyze => PhaseFill::Loop(&self.analyze),
         }
+    }
+
+    fn artifact_of(&self, phase: DialectPhase) -> Option<&ArtifactPhase> {
+        match self.fill(phase) {
+            PhaseFill::Artifact(artifact) => Some(artifact),
+            PhaseFill::Loop(_) => None,
+        }
+    }
+
+    fn loop_of(&self, phase: DialectPhase) -> Option<&LoopPhase> {
+        match self.fill(phase) {
+            PhaseFill::Artifact(_) => None,
+            PhaseFill::Loop(loop_phase) => Some(loop_phase),
+        }
+    }
+
+    /// The artifact phases with what they hold, in [`DialectPhase::ALL`]'s
+    /// order.
+    fn artifacts(&self) -> impl Iterator<Item = (DialectPhase, &ArtifactPhase)> {
+        DialectPhase::ALL
+            .into_iter()
+            .filter_map(|phase| Some((phase, self.artifact_of(phase)?)))
+    }
+
+    fn loops(&self) -> impl Iterator<Item = (DialectPhase, &LoopPhase)> {
+        DialectPhase::ALL
+            .into_iter()
+            .filter_map(|phase| Some((phase, self.loop_of(phase)?)))
     }
 }
 
@@ -387,8 +501,8 @@ impl Dialect {
         let mut artifact_position = BTreeMap::new();
         let mut assigned = BTreeSet::new();
         let mut position = 0usize;
-        for phase_name in ARTIFACT_PHASES {
-            let phase = self.phases.artifact(phase_name).expect("closed phase name");
+        for (known, phase) in self.phases.artifacts() {
+            let phase_name = known.as_str();
             if phase.steps.is_empty() {
                 return Err(invalid(format!("phase '{phase_name}' is unfilled")));
             }
@@ -428,9 +542,9 @@ impl Dialect {
                 )));
             }
         }
-        for phase in ["clarify", "analyze"] {
-            let loop_phase = self.phases.loop_phase(phase).expect("closed phase name");
+        for (phase, loop_phase) in self.phases.loops() {
             if loop_phase.taxonomy.trim().is_empty() {
+                let phase = phase.as_str();
                 return Err(invalid(format!("phase '{phase}' has no taxonomy")));
             }
         }
@@ -462,21 +576,9 @@ impl Dialect {
     }
 
     fn instruction_paths(&self) -> Vec<&str> {
-        ARTIFACT_PHASES
-            .iter()
-            .flat_map(|name| {
-                self.phases
-                    .artifact(name)
-                    .expect("closed artifact phase")
-                    .steps
-                    .iter()
-                    .flat_map(|step| {
-                        [
-                            step.instructions.as_str(),
-                            step.return_instructions.as_str(),
-                        ]
-                    })
-            })
+        self.phases
+            .artifacts()
+            .flat_map(|(_, phase)| phase.prose())
             .chain([
                 self.phases.clarify.taxonomy.as_str(),
                 self.phases.analyze.taxonomy.as_str(),
@@ -489,16 +591,31 @@ impl Dialect {
     }
 
     pub fn validation(&self, phase: &str) -> Option<&Command> {
-        match phase {
-            "specify" | "design" | "tasks" => match &self.phases.artifact(phase)?.validate {
-                CommandOrUnsupported::Command(command) => Some(command),
-                CommandOrUnsupported::Unsupported(_) => None,
-            },
-            "clarify" | "analyze" => match &self.phases.loop_phase(phase)?.check {
-                CommandOrUnsupported::Command(command) => Some(command),
-                CommandOrUnsupported::Unsupported(_) => None,
-            },
-            _ => None,
+        let gate = match self.phases.fill(DialectPhase::parse(phase)?) {
+            PhaseFill::Artifact(artifact) => &artifact.validate,
+            PhaseFill::Loop(loop_phase) => &loop_phase.check,
+        };
+        match gate {
+            CommandOrUnsupported::Command(command) => Some(command),
+            CommandOrUnsupported::Unsupported(_) => None,
+        }
+    }
+
+    /// The instruction paths whose prose a phase's prompt splices, in
+    /// order: a dialect phase's own, the implementer's tasks prose, and
+    /// every artifact's instruction for review.
+    fn prompt_paths(&self, phase: &str) -> Vec<&str> {
+        match DialectPhase::parse(phase).map(|known| self.phases.fill(known)) {
+            Some(PhaseFill::Artifact(artifact)) => artifact.prose().collect(),
+            Some(PhaseFill::Loop(loop_phase)) => vec![loop_phase.taxonomy.as_str()],
+            None if phase == phase_name::IMPLEMENT => self.phases.tasks.prose().collect(),
+            None if phase == phase_name::REVIEW => self
+                .phases
+                .artifacts()
+                .flat_map(|(_, artifact)| artifact.steps.iter())
+                .map(|step| step.instructions.as_str())
+                .collect(),
+            None => Vec::new(),
         }
     }
 
@@ -507,51 +624,7 @@ impl Dialect {
     /// supplies that directory so a library name and realm path have exactly
     /// the same pinning semantics.
     pub fn prompt_for(&self, root: &Path, phase: &str) -> Result<String, DialectError> {
-        let paths: Vec<&str> = match phase {
-            "specify" | "design" | "tasks" => self
-                .phases
-                .artifact(phase)
-                .expect("closed artifact phase")
-                .steps
-                .iter()
-                .flat_map(|step| {
-                    [
-                        step.instructions.as_str(),
-                        step.return_instructions.as_str(),
-                    ]
-                })
-                .collect(),
-            "clarify" | "analyze" => vec![self
-                .phases
-                .loop_phase(phase)
-                .expect("closed loop phase")
-                .taxonomy
-                .as_str()],
-            "implement" => self
-                .phases
-                .tasks
-                .steps
-                .iter()
-                .flat_map(|step| {
-                    [
-                        step.instructions.as_str(),
-                        step.return_instructions.as_str(),
-                    ]
-                })
-                .collect(),
-            "review" => ARTIFACT_PHASES
-                .iter()
-                .flat_map(|name| {
-                    self.phases
-                        .artifact(name)
-                        .expect("closed artifact phase")
-                        .steps
-                        .iter()
-                        .map(|step| step.instructions.as_str())
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
+        let paths = self.prompt_paths(phase);
         let mut rendered = Vec::new();
         for relative in paths {
             let path = root.join(relative);
@@ -565,7 +638,7 @@ impl Dialect {
                 rendered.push(text.trim().to_string());
             }
         }
-        if phase == "implement" {
+        if phase == phase_name::IMPLEMENT {
             let (archive, instruction) = match &self.archive {
                 ArchiveOrUnsupported::Command(command) => (
                     serde_json::to_string(&command.argv).unwrap_or_default(),
@@ -597,7 +670,7 @@ impl Dialect {
 
     pub fn render(&mut self, root: &Path) -> Result<(), DialectError> {
         let mut rendered = BTreeMap::new();
-        for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
+        for phase in rendered_phases() {
             let prompt = self.prompt_for(root, phase)?;
             rendered.insert(phase.to_string(), prompt);
         }
@@ -608,7 +681,7 @@ impl Dialect {
 
 fn check_command_tokens(dialect: &Dialect, path: &str) -> Result<(), DialectError> {
     let mut commands: Vec<(&Vec<String>, Option<&Vec<String>>)> = Vec::new();
-    for phase in ARTIFACT_PHASES.iter().chain(["clarify", "analyze"].iter()) {
+    for phase in DIALECT_PHASES {
         if let Some(command) = dialect.validation(phase) {
             commands.push((&command.argv, command.state.as_ref()));
         }
