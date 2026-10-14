@@ -2231,10 +2231,18 @@ const DSH_TRANSCRIPT: &str = "session.v3.jsonl";
 /// below keeps naming `DSH_TRANSCRIPT` alone.
 const DSH_TRANSCRIPT_SHIPPED: &str = "session.jsonl";
 
-/// Both generations, newest first: a session directory holds one of them,
-/// and the selected core's name is the likelier answer, so it is asked
-/// first. This is a fixed two-name list and never a directory scan.
-const DSH_TRANSCRIPT_NAMES: [&str; 2] = [DSH_TRANSCRIPT, DSH_TRANSCRIPT_SHIPPED];
+/// The generation name a 0.2.0-rc.2 core writes under the overlay's
+/// `compression: none` (`sessionFormatLogFilename(4)`). A cold launch on
+/// a host whose installed core is that one tails it, so the seat's first
+/// turn is journaled while it works rather than only with its finishing
+/// row (#678; proposed decision 0086 ruling 5). The strict warm admission
+/// keeps naming `DSH_TRANSCRIPT` alone: no pin moves.
+const DSH_TRANSCRIPT_V4: &str = "session.v4.jsonl";
+
+/// Every generation, newest first: a session directory holds one of them
+/// (or, after a migrating open, an older one beside the newest), so the
+/// newest is asked first. A fixed name list, never a directory scan.
+const DSH_TRANSCRIPT_NAMES: [&str; 3] = [DSH_TRANSCRIPT_V4, DSH_TRANSCRIPT, DSH_TRANSCRIPT_SHIPPED];
 
 /// The existing transcript locator bound (Rust `chars`, not UTF-8 bytes),
 /// repeated here so the DSH planner can validate an OFFERED locator and the
@@ -7100,3 +7108,6 @@ mod notice_tests;
 
 #[cfg(test)]
 mod lost_tests;
+
+#[cfg(test)]
+mod dsh_v4_tests;

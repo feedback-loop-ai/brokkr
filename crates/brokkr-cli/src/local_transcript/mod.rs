@@ -82,12 +82,8 @@ pub fn read_local(subject: &Subject, projects_home: Option<&str>) -> TranscriptR
             if source.file.identity().ok() != Some(source.identity) {
                 return refused_source(&selection, source.path, hint);
             }
-            let (bytes, overflow, eof) = match source
-                .file
-                .read_bounded(brokkr_view::transcript::SOURCE_CAP)
-            {
-                Ok(read) => read,
-                Err(_) => return refused_source(&selection, source.path, hint),
+            let Some((bytes, overflow, eof)) = read_snapshot(&source) else {
+                return refused_source(&selection, source.path, hint);
             };
             let snapshot = Snapshot {
                 bytes: &bytes,
@@ -125,6 +121,28 @@ pub fn read_local(subject: &Subject, projects_home: Option<&str>) -> TranscriptR
             );
             read.source_identity = Some(source_identity);
             read
+        }
+    }
+}
+
+/// An admitted source's bounded body snapshot: its bytes, whether the
+/// source holds more than the cap, and whether the read reached its end.
+/// A compressed DSH session is decompressed first, in the realm's one
+/// decoder (proposed decision 0086 ruling 3): at most [`SOURCE_CAP`]
+/// compressed bytes are read and at most [`SOURCE_CAP`] decompressed bytes
+/// kept, and passing either bound is the same source truncation a plain
+/// source past the cap has. A failed read and a refused frame are `None`.
+///
+/// [`SOURCE_CAP`]: brokkr_view::transcript::SOURCE_CAP
+fn read_snapshot(source: &discover::AdmittedSource) -> Option<(Vec<u8>, bool, bool)> {
+    let cap = brokkr_view::transcript::SOURCE_CAP;
+    let read = source.file.read_bounded(cap).ok()?;
+    match source.encoding {
+        discover::Encoding::Plain => Some(read),
+        discover::Encoding::Zstd => {
+            let (packed, cut, _eof) = read;
+            let unpacked = brokkr_protocol::zstd::unpack(&packed, cut, cap).ok()?;
+            Some((unpacked.bytes, unpacked.past_bound, !unpacked.past_bound))
         }
     }
 }
@@ -212,3 +230,5 @@ fn refused_source(
 pub(crate) mod fault_tests;
 #[cfg(test)]
 pub(crate) mod tests;
+#[cfg(test)]
+mod v4_tests;

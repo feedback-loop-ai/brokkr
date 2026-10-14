@@ -18,6 +18,7 @@ pub mod probe;
 pub mod process;
 pub mod secret;
 mod transcript;
+pub mod zstd;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

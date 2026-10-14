@@ -1045,6 +1045,15 @@ pub fn brokkr_protocol::secret::valid_name(&str) -> bool
 pub fn brokkr_protocol::secret::validate_name(&str) -> core::result::Result<(), alloc::string::String>
 pub fn brokkr_protocol::secret::validate_value(&str) -> core::result::Result<core::option::Option<alloc::string::String>, alloc::string::String>
 pub type brokkr_protocol::secret::Encoder = fn(&[u8]) -> alloc::vec::Vec<u8>
+pub mod brokkr_protocol::zstd
+pub enum brokkr_protocol::zstd::Refused
+pub brokkr_protocol::zstd::Refused::Mismatch(u32)
+pub brokkr_protocol::zstd::Refused::Unchecksummed
+pub brokkr_protocol::zstd::Refused::Undecodable(core::io::error::Error)
+pub struct brokkr_protocol::zstd::Unpacked
+pub brokkr_protocol::zstd::Unpacked::bytes: alloc::vec::Vec<u8>
+pub brokkr_protocol::zstd::Unpacked::past_bound: bool
+pub fn brokkr_protocol::zstd::unpack(&[u8], bool, u64) -> core::result::Result<brokkr_protocol::zstd::Unpacked, brokkr_protocol::zstd::Refused>
 pub enum brokkr_protocol::AttemptOutcome
 pub brokkr_protocol::AttemptOutcome::Failed
 pub brokkr_protocol::AttemptOutcome::Failed::error: alloc::string::String
