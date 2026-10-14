@@ -418,9 +418,10 @@ fn a_forge_that_is_a_file_refuses() {
 }
 
 /// A linked `.forge` whose ignore file git tracks refuses by name, with no
-/// moves: git refuses `git rm` beyond a symbolic link, so the list it
-/// once gave here never completed (round 634k's third finding; round
-/// 634c's fifth finding listed it).
+/// moves: git refuses some paths beyond a symbolic link, so no move
+/// through one is listed (round 634k's third finding; its review found
+/// git 2.51 completes this shape's own list, so the reason names what git
+/// refuses only in part).
 #[test]
 fn a_linked_forge_whose_entries_git_tracks_refuses() {
     let dir = repository_with_a_forge();
@@ -436,10 +437,9 @@ fn a_linked_forge_whose_entries_git_tracks_refuses() {
     assert_eq!(
         refusal.to_string(),
         format!(
-            "{} is a link and git tracks entries under it, which `git mv` and `git rm` refuse to \
-             take beyond a symbolic link, so no moves are listed (decision 0083); nothing was \
-             opened: put the directory it names in its place, or untrack its entries, then run \
-             again",
+            "{} is a link and git tracks entries under it; git refuses some paths beyond a \
+             symbolic link, so no moves are listed (decision 0083); nothing was opened: put the \
+             directory it names in its place, or untrack its entries, then run again",
             forge.display()
         )
     );

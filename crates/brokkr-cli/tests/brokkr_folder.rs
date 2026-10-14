@@ -1338,7 +1338,9 @@ fn shapes() -> Vec<Shape> {
 
 /// A sparse checkout of `src` alone, which leaves every tracked path under
 /// `.forge` out of the work tree, so `git status -- .forge` states nothing
-/// and `git rm` refuses each (round 634k's chief).
+/// and `git rm` refuses each (round 634k's chief). A cone that holds
+/// `.forge` but not `.brokkr` is the `Sparse` row: its sources are read,
+/// and `git mv` refuses their destination (the third landing's review).
 fn sparse(repo: &Repo) {
     git(&repo.root, &["sparse-checkout", "set", "--cone", "src"]);
 }
@@ -1398,10 +1400,10 @@ fn refusals() -> Vec<Shape> {
             |_| {},
             |repo| {
                 format!(
-                    "error: {}/.forge is a link and git tracks entries under it, which `git mv` \
-                     and `git rm` refuse to take beyond a symbolic link, so no moves are listed \
-                     (decision 0083); nothing was opened: put the directory it names in its \
-                     place, or untrack its entries, then run again\n",
+                    "error: {}/.forge is a link and git tracks entries under it; git refuses \
+                     some paths beyond a symbolic link, so no moves are listed (decision 0083); \
+                     nothing was opened: put the directory it names in its place, or untrack \
+                     its entries, then run again\n",
                     repo.root.display()
                 )
             },
@@ -1411,6 +1413,26 @@ fn refusals() -> Vec<Shape> {
             listing("", &["forge.db", ".gitignore"], &[".gitignore"], false),
             sparse,
             sparse_refused,
+        ),
+        refusing(
+            "Sparse",
+            listing("", &["forge.db", "notes.md"], &["notes.md"], false),
+            |repo| {
+                drop(git(
+                    &repo.root,
+                    &["sparse-checkout", "set", "--cone", ".forge"],
+                ))
+            },
+            |repo| {
+                format!(
+                    "error: {} has a sparse checkout and git tracks entries under .forge, so a \
+                     listed `git mv` into .brokkr/state could fall outside its definition and \
+                     fail; no moves are listed (decision 0083); nothing was opened: run `git \
+                     sparse-checkout disable`, or move the tracked entries yourself, then run \
+                     again\n",
+                    repo.root.display()
+                )
+            },
         ),
         refusing(
             "TrackedSubmodule",

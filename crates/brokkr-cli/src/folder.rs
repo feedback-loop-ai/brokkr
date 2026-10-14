@@ -58,9 +58,12 @@ pub(crate) enum FolderError {
         root: PathBuf,
         paths: Vec<Unwatched>,
     },
-    /// A `.forge` that is a link, whose entries git tracks: `git mv` and
-    /// `git rm` refuse a path beyond a symbolic link.
+    /// A `.forge` that is a link, whose entries git tracks: git refuses
+    /// some paths beyond a symbolic link, so no move through one is listed.
     LinkedTracked { path: PathBuf },
+    /// A sparse checkout beside entries git tracks under `.forge`: a listed
+    /// `git mv` into `.brokkr/state` could fall outside its definition.
+    Sparse { root: PathBuf },
     /// A submodule git tracks under `.forge`: `git mv` moves it only with `.gitmodules`.
     TrackedSubmodule { path: PathBuf },
     /// A `.forge/` entry whose name is not UTF-8, which no listed move
@@ -136,11 +139,18 @@ impl fmt::Display for FolderError {
             ),
             FolderError::LinkedTracked { path } => write!(
                 f,
-                "{} is a link and git tracks entries under it, which `git mv` and `git rm` refuse \
-                 to take beyond a symbolic link, so no moves are listed (decision 0083); nothing \
-                 was opened: put the directory it names in its place, or untrack its entries, \
-                 then run again",
+                "{} is a link and git tracks entries under it; git refuses some paths beyond a \
+                 symbolic link, so no moves are listed (decision 0083); nothing was opened: put \
+                 the directory it names in its place, or untrack its entries, then run again",
                 path.display()
+            ),
+            FolderError::Sparse { root } => write!(
+                f,
+                "{} has a sparse checkout and git tracks entries under {LIBRARY_STATE}, so a listed \
+                 `git mv` into {FOLDER}/{STATE} could fall outside its definition and fail; no \
+                 moves are listed (decision 0083); nothing was opened: run `git sparse-checkout \
+                 disable`, or move the tracked entries yourself, then run again",
+                root.display()
             ),
             FolderError::TrackedSubmodule { path } => write!(
                 f,

@@ -17,8 +17,9 @@ use super::{entry, forged, unreadable, FolderError, Forge};
 /// git a deletion and a stranger. So do the shapes no `git mv` or `git rm`
 /// could complete (round 634k's third finding): a submodule git tracks
 /// under `.forge`, a tracked path git does not read in the work tree
-/// ([`held`]), a linked `.forge` whose entries git tracks, and any tracked
-/// path under it git holds a change to ([`committed`]).
+/// ([`held`]), a linked `.forge` whose entries git tracks, a sparse
+/// checkout beside tracked entries ([`sparse`]), and any tracked path under
+/// it git holds a change to ([`committed`]).
 pub(super) fn tracked(root: &Path, forge: Forge) -> Result<Vec<Vec<u8>>, FolderError> {
     let repository = brokkr_runtime::places::root(root).map_err(FolderError::Places)?;
     if entry(&repository.join(".git"))?.is_none() {
@@ -29,6 +30,10 @@ pub(super) fn tracked(root: &Path, forge: Forge) -> Result<Vec<Vec<u8>>, FolderE
     if forge == Forge::Link && !tracked.is_empty() {
         let path = root.join(LIBRARY_STATE);
         return Err(FolderError::LinkedTracked { path });
+    }
+    if !tracked.is_empty() && sparse(root)? {
+        let root = root.to_path_buf();
+        return Err(FolderError::Sparse { root });
     }
     committed(root)?;
     Ok(tracked)
@@ -124,6 +129,21 @@ fn committed(root: &Path) -> Result<(), FolderError> {
             changes,
         }),
     }
+}
+
+/// Whether `root`'s repository has a sparse checkout, by git's own typed
+/// answer (`core.sparseCheckout`, unset read as false). A tracked entry
+/// git reads in the work tree can still have a destination the sparse
+/// definition leaves out, and `git mv` refuses that (the third landing's
+/// review), so a sparse checkout beside tracked entries lists no moves.
+fn sparse(root: &Path) -> Result<bool, FolderError> {
+    let args = [
+        "--type=bool",
+        "--default=false",
+        "--get",
+        "core.sparseCheckout",
+    ];
+    Ok(ask_git(root, "config", &args)? == b"true\n")
 }
 
 /// What `git -C root <verb> <args>` prints. A git that cannot be run, or
