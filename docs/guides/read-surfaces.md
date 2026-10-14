@@ -593,7 +593,11 @@ The fleet lists what to act on first: the runs that need you (parked,
 quarantined because the journal does not fold, or stale: folding to
 running with no event for longer than an attempt's two-hour deadline
 and an hour's margin), then the running ones, then those that finished
-in the last 24 hours, dated by when their journal last moved. Each row
+in the last 24 hours, dated by when their journal last moved. A
+quarantined run the operator answered with `brokkr operator acknowledge`
+lists under *older* instead, keeping its `?` and its refusal with who
+acknowledged it under them, until its journal moves (decision 0076 item
+11); `brokkr runs` prints the same line under the refusal. Each row
 is how a run stands, the ruling that settled it, its worst open
 residual, its title (its feature's first line, as wide as the frame
 lets it be), its age and its id, shortened in the middle and never

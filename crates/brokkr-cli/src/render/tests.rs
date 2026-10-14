@@ -557,6 +557,44 @@ fn a_quarantined_row_prints_the_fold_error_under_itself() {
     assert!(!out.contains('\x1b'), "{out:?}");
 }
 
+/// #511: an acknowledged quarantine keeps its `?` and its refusal, and
+/// says who answered it under the refusal, sanitized like the refusal.
+#[test]
+fn an_acknowledged_row_prints_its_acknowledgement_under_its_refusal() {
+    let acknowledgement = brokkr_view::Acknowledgement {
+        seq: 539,
+        event_hash: "ab12".to_string(),
+        operator: "valentin".to_string(),
+        reason: "history\x1b[2J from an old engine".to_string(),
+        recorded_at: T0.to_string(),
+    };
+    let entries = [brokkr_view::RunEntry {
+        run_id: "unit-12",
+        feature: "see the unit",
+        created_at: T0,
+        last_recorded_at: None,
+        state: None,
+        detail: Some(brokkr_view::Refusal {
+            acknowledgement: Some(&acknowledgement),
+            ..brokkr_view::Quarantine::DoesNotFold
+                .in_words("event 539: event after terminal status")
+        }),
+        residuals: &[],
+    }];
+    let out = runs(&brokkr_view::run_rows(&entries), NOW, &Style::plain(120));
+    let lines: Vec<&str> = out.lines().collect();
+    assert!(lines[0].starts_with("unit-12 ?"), "{out:?}");
+    assert_eq!(
+        lines[1..],
+        [
+            "  fold  event 539: event after terminal status",
+            &format!(
+                "  acknowledged by valentin at {T0}, event 539: history[2J from an old engine"
+            ),
+        ]
+    );
+}
+
 // ------------------------------------------------------------- AC-20
 
 #[test]

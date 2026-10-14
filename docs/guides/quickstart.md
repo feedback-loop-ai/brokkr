@@ -536,20 +536,28 @@ Add `.forge/` to your `.gitignore`. It is evidence, not source.
 
 ### The escape hatches
 
-#### Operator commands — `retry`, `stop` and `supersede`
+#### Operator commands — `retry`, `stop`, `supersede` and `acknowledge`
 
 ```
 brokkr operator --run <id> retry --reason "the flaky test passes on re-run"
 brokkr operator --run <id> stop  --reason "requirements changed"
 brokkr operator --run <id> supersede --reason "fixed on main" \
   --findings 41 --by-run <other id> --by-seq 97
+brokkr operator --run <id> acknowledge --reason "history from an older engine"
 ```
 
 The command is a **positional argument** and `--reason` is **required**;
-`--db` defaults to `.forge/forge.db`. There are three commands:
-`retry` re-runs the current phase, `stop` ends the run, and `supersede`
+`--db` defaults to `.forge/forge.db`. There are four commands:
+`retry` re-runs the current phase, `stop` ends the run, `supersede`
 records that residual findings on a run that has already finished were
-closed by another run's ruling (decision 0047). `retry` and `stop` are
+closed by another run's ruling (decision 0047), and `acknowledge`
+answers a quarantined run, one whose journal does not load or does not
+fold, so the fleet lists it under *older* instead of *needs you*
+(decision 0076 item 11). `acknowledge` writes nothing to the run's
+journal: the store keeps who, when and why beside it, at the run's last
+event, and the acknowledgement lapses if the journal moves. It refuses a
+run that folds, which `brokkr conclude` closes, and it does not travel
+with `export` or `adopt`. `retry` and `stop` are
 recorded as `operator/commanded` plus the engine's disposition —
 `operator/accepted` when it lands, `operator/rejected` when it does not.
 Approval is an entry in the record, not a prose convention, and so is a

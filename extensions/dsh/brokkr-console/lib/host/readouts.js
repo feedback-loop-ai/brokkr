@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 20
+export const VIEW_VERSION = 21
 
 /** The Muninn record version this console reads. */
 const MUNINN_RECORD_VERSION = 1
@@ -123,7 +123,19 @@ function runRow(value, path) {
     created_at: text(value.created_at, `${path}.created_at`),
     last_recorded_at: optText(value.last_recorded_at, `${path}.last_recorded_at`),
     detail: optText(value.detail, `${path}.detail`),
+    acknowledgement: maybe(value.acknowledgement, `${path}.acknowledgement`, acknowledgement),
     verdict: verdict(value.verdict, `${path}.verdict`),
+  }
+}
+
+/** An operator's acknowledgement of a quarantined run (#511). */
+function acknowledgement(value, path) {
+  object(value, path)
+  return {
+    seq: count(value.seq, `${path}.seq`),
+    operator: text(value.operator, `${path}.operator`),
+    reason: text(value.reason, `${path}.reason`),
+    recorded_at: text(value.recorded_at, `${path}.recorded_at`),
   }
 }
 

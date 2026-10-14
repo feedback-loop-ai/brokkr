@@ -23,6 +23,7 @@ mod workflow;
 #[path = "support/workspace.rs"]
 mod workspace_root;
 
+mod acknowledge;
 mod agent_fallback;
 mod agent_readouts;
 mod analytics;

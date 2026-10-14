@@ -27,6 +27,9 @@ pub(crate) struct Quarantine {
     /// has no event this read can cite, so — like an empty journal — it
     /// cites the position before the first one.
     pub seq: u64,
+    /// The operator's acknowledgement standing at the journal's last
+    /// event (#511), when one does.
+    pub acknowledgement: Option<brokkr_view::Acknowledgement>,
 }
 
 /// One run of a fleet listing, read ONCE: its journal, what the fold says
@@ -55,7 +58,10 @@ impl ListedRun {
                 .state
                 .as_ref()
                 .err()
-                .map(|quarantine| quarantine.kind.in_words(&quarantine.detail)),
+                .map(|quarantine| brokkr_view::Refusal {
+                    acknowledgement: quarantine.acknowledgement.as_ref(),
+                    ..quarantine.kind.in_words(&quarantine.detail)
+                }),
             residuals: &self.residuals,
         }
     }
@@ -102,6 +108,7 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
                         kind: brokkr_view::Quarantine::DoesNotFold,
                         detail: error.to_string(),
                         seq: error.seq(),
+                        acknowledgement: acknowledged(store, &run_id),
                     });
                     (events, state)
                 }
@@ -111,6 +118,7 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
                         kind: brokkr_view::Quarantine::DoesNotLoad,
                         detail: error.to_string(),
                         seq: 0,
+                        acknowledgement: acknowledged(store, &run_id),
                     }),
                 ),
             };
@@ -126,6 +134,20 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
         })
         .collect();
     HearthRead { runs, detail: None }
+}
+
+/// The acknowledgement standing on quarantined run `run_id` (#511). A
+/// read that fails counts as none, so the run stays in "needs you": a
+/// quarantine is answered only on evidence that it was.
+fn acknowledged(store: &Store, run_id: &str) -> Option<brokkr_view::Acknowledgement> {
+    let standing = store.acknowledgement(run_id).ok().flatten()?;
+    Some(brokkr_view::Acknowledgement {
+        seq: standing.seq,
+        event_hash: standing.event_hash,
+        operator: standing.operator,
+        reason: standing.reason,
+        recorded_at: standing.recorded_at,
+    })
 }
 
 /// Read one hearth of a many-hearth world by its journal. A journal that

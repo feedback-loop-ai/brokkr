@@ -222,7 +222,7 @@ pub(crate) fn runs(view: &RunsView, now: &str, style: &Style) -> String {
 fn run_lines(view_runs: &[RunRow], now: &str, style: &Style) -> String {
     let mut rows: Vec<[Safe; 6]> = Vec::new();
     let mut codes: Vec<&'static str> = Vec::new();
-    let mut details: Vec<Option<Safe>> = Vec::new();
+    let mut details: Vec<Vec<String>> = Vec::new();
     for run in view_runs {
         let status = match &run.status {
             Some(status) => status.clone(),
@@ -241,7 +241,7 @@ fn run_lines(view_runs: &[RunRow], now: &str, style: &Style) -> String {
             None => brokkr_view::ABSENT.to_string(),
         };
         codes.push(status_code(&status));
-        details.push(run.detail.as_deref().map(Safe::new));
+        details.push(under_row(run));
         rows.push([
             Safe::new(&run.run_id),
             Safe::new(&status),
@@ -275,14 +275,27 @@ fn run_lines(view_runs: &[RunRow], now: &str, style: &Style) -> String {
             line.push_str(&brokkr_view::clamp(row[5].as_str(), remaining));
         }
         push_line(&mut out, &line);
-        // A quarantined row says why underneath itself, the way a park
-        // reason does on the run readout: `?` alone tells an operator
-        // nothing they can act on.
-        if let Some(detail) = detail {
-            push_line(&mut out, &format!("  fold  {}", detail.as_str()));
+        for under in detail {
+            push_line(&mut out, under);
         }
     }
     out
+}
+
+/// The lines a row prints underneath itself. A quarantined row says why,
+/// the way a park reason does on the run readout: `?` alone tells an
+/// operator nothing they can act on. An acknowledged one says who
+/// answered it, when and why, under the refusal it keeps (#511).
+fn under_row(run: &RunRow) -> Vec<String> {
+    let refusal = run
+        .detail
+        .as_deref()
+        .map(|detail| format!("  fold  {}", Safe::new(detail).as_str()));
+    let acknowledged = run
+        .acknowledgement
+        .as_ref()
+        .map(|acknowledgement| format!("  {}", Safe::new(&acknowledgement.line()).as_str()));
+    refusal.into_iter().chain(acknowledged).collect()
 }
 
 /// A many-hearth world's fleet: one section per realm, its runs listed

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { analyticsOf, fleetOf, runViewOf } from '../lib/host/readouts.js'
-import { buttons, findAll, mountClient, textOf } from './support/client.js'
+import { NOW, buttons, findAll, mountClient, textOf } from './support/client.js'
 import { analyticsDoc, fleetDoc, journalRow, offered, row, runViewDoc } from './support/world.js'
 
 const RUN = row().run_id
@@ -45,6 +45,36 @@ test('the Realms header reads the same count', () => {
   client.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
   const status = findAll(client.tree(), (node) => node.props.className === 'bk-status')[0]
   assert.equal(textOf(status), '1 running · 3 waiting on you')
+})
+
+test('an acknowledged quarantine is not counted as waiting on the operator (#511)', () => {
+  const answered = { seq: 4, event_hash: 'ab12', operator: 'valentin', reason: 'history', recorded_at: '2026-10-14T08:00:00Z' }
+  const quarantined = { standing: 'quarantined', rule: null, reason: null, text: 'does not fold' }
+  const doc = fleetDoc([['looper', [row({ run_id: 'journal-compaction-55aa55aa', verdict: quarantined, acknowledgement: answered }), row()]]])
+  const client = mountClient('sidebar.panellist', { size: 16, active: false })
+  client.push({ type: 'snapshot', fleet: fleetOf(doc), overview: null, run: null })
+  assert.equal(client.tree().props['aria-label'], 'Brokkr: 1 run waiting on you')
+})
+
+test('an acknowledged quarantine lists under Older whatever its age, keeping its mark and refusal (#511)', () => {
+  const since = (hours) => new Date(NOW - hours * 60 * 60 * 1000).toISOString()
+  const answered = { seq: 4, event_hash: 'ab12', operator: 'valentin', reason: 'history', recorded_at: since(1) }
+  const quarantined = { standing: 'quarantined', rule: null, reason: null, text: 'does not fold' }
+  const acknowledgedAt = (runId, title, hours) =>
+    row({ run_id: runId, title, feature: title, phase: null, last_recorded_at: since(hours), verdict: quarantined, detail: `${title}: event 9: event after terminal status`, acknowledgement: answered })
+  const doc = fleetDoc([['brokkr', [acknowledgedAt('rebuild-unit-12-c0c83ac6', 'Rebuild unit 12', 24 * 18), acknowledgedAt('slice-i-proofs-a4d1a721', 'Slice i proofs', 1)]]])
+  const client = mountClient('main')
+  client.push({ type: 'snapshot', fleet: fleetOf(doc), overview: null, run: null })
+  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  const runs = findAll(client.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  assert.deepEqual(findAll(runs, (node) => node.props.className === 'bk-grp').map(textOf), ['Needs you · 0', 'Running · 0', 'Last 24 hours · 0', 'Older · 2'])
+  assert.deepEqual(
+    buttons(runs).map((button) => [textOf(findAll(button, (node) => node.props.className === 't')[0]), textOf(findAll(button, (node) => node.props.className === 's')[0])]),
+    [
+      ['Rebuild unit 12quarantined', 'Rebuild unit 12: event 9: event after terminal status · 18d'],
+      ['Slice i proofsquarantined', 'Slice i proofs: event 9: event after terminal status · 1h'],
+    ],
+  )
 })
 
 test('only admitted commands are buttons, named for their effect; the rest is under "Not available yet" with its reason', async () => {

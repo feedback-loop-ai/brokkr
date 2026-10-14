@@ -298,7 +298,9 @@ pub(super) struct OperatorArgs {
     pub(super) run: String,
     /// "retry" re-runs the current phase; "stop" ends the run;
     /// "supersede" records that residual findings on a run that has
-    /// already finished are closed by another run (decision 0047).
+    /// already finished are closed by another run (decision 0047);
+    /// "acknowledge" lists a quarantined run under older until its
+    /// journal moves (#511).
     pub(super) command: String,
     /// Why the operator issued the command, recorded with it.
     #[arg(long)]

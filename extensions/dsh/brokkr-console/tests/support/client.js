@@ -15,7 +15,7 @@ const Fragment = Symbol('Fragment')
  * it lists as finished in the last 24 hours, so with the wall clock a test
  * would pass or fail by the day it ran.
  */
-const NOW = Date.parse('2026-10-13T10:00:00Z')
+export const NOW = Date.parse('2026-10-13T10:00:00Z')
 class PinnedDate extends Date {
   constructor(...at) {
     super(...(at.length === 0 ? [NOW] : at))

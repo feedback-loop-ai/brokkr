@@ -104,7 +104,7 @@
    580 crates/brokkr-runtime/src/agents/mcp.rs
    285 crates/brokkr-runtime/src/anchor.rs
    168 crates/brokkr-runtime/src/boundary.rs
-  7152 crates/brokkr-runtime/src/bundle.rs
+  6666 crates/brokkr-runtime/src/bundle.rs
    136 crates/brokkr-runtime/src/bundle/charters.rs
   1099 crates/brokkr-runtime/src/bundle/compose.rs
    440 crates/brokkr-runtime/src/bundle/mcp.rs
@@ -122,7 +122,7 @@
    739 crates/brokkr-runtime/src/engine/operator.rs
    155 crates/brokkr-runtime/src/engine/operator/supersede.rs
     58 crates/brokkr-runtime/src/engine/replay.rs
-   942 crates/brokkr-runtime/src/engine/resume.rs
+   765 crates/brokkr-runtime/src/engine/resume.rs
    708 crates/brokkr-runtime/src/engine/sequence.rs
    278 crates/brokkr-runtime/src/keep_refs.rs
    465 crates/brokkr-runtime/src/launch.rs

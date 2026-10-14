@@ -3,8 +3,9 @@
 //! connection shares. Opening reads it; only a journal missing something
 //! takes the write lock.
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 
+use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::queue::{migrate_queue, queue_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
 
@@ -163,7 +164,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Three additive repairs, each a READ in the steady state — the
+    // Four additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -181,6 +182,10 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // sidecar columns.
     let missing = !queue_intact(conn)?;
     repair_if(conn, missing, migrate_queue)?;
+    // Fourth: a journal from before quarantine acknowledgements (#511),
+    // or one that lost the table or a guard on it, gets them.
+    let missing = !acknowledgements_intact(conn)?;
+    repair_if(conn, missing, migrate_acknowledgements)?;
     let missing = !guards_intact(conn)?;
     repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
 }
@@ -209,6 +214,7 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     tx.execute_batch(MIGRATION_V1)?;
     migrate_sidecar_columns(&tx)?;
     migrate_queue(&tx)?;
+    migrate_acknowledgements(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
         [&DATABASE_SCHEMA.to_string()],
@@ -269,18 +275,24 @@ const GUARD_TRIGGERS: [&str; 4] = [
 /// Does this journal still carry every guard trigger? A pure read of
 /// `sqlite_master`, so an open that finds them all takes no write lock.
 pub(crate) fn guards_intact(conn: &Connection) -> Result<bool, StoreError> {
-    let present: i64 = conn.query_row(
-        "SELECT count(*) FROM sqlite_master WHERE type = 'trigger'
-         AND name IN (?1, ?2, ?3, ?4)",
-        params![
-            GUARD_TRIGGERS[0],
-            GUARD_TRIGGERS[1],
-            GUARD_TRIGGERS[2],
-            GUARD_TRIGGERS[3]
-        ],
-        |row| row.get(0),
-    )?;
-    Ok(present == GUARD_TRIGGERS.len() as i64)
+    all_present(conn, "trigger", &GUARD_TRIGGERS)
+}
+
+/// Does this journal carry every object of `kind` (`table`, `trigger`)
+/// that `names` lists? A pure read of `sqlite_master`: the one presence
+/// question every additive repair asks before it takes the write lock.
+pub(crate) fn all_present(
+    conn: &Connection,
+    kind: &str,
+    names: &[&str],
+) -> Result<bool, StoreError> {
+    let present: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = ?1")?
+        .query_map([kind], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(names
+        .iter()
+        .all(|name| present.iter().any(|found| found == name)))
 }
 
 /// The schema a journal records, or `None` for a file that has never
