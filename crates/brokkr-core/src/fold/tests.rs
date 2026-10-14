@@ -361,6 +361,18 @@ fn a_cursor_displays_its_variant_and_ids_never_a_result() {
             in_flight(stop_rides).to_string(),
             r#"EffectInFlight { effect_id: "e1", attempt_id: "a1", seat: "work", failed_attempts: 0 }"#
         );
+        // A nonzero count is shown as counted, whether a stop rides or not.
+        let mut retried = in_flight(stop_rides);
+        if let Cursor::EffectInFlight {
+            failed_attempts, ..
+        } = &mut retried
+        {
+            *failed_attempts = 2;
+        }
+        assert_eq!(
+            retried.to_string(),
+            r#"EffectInFlight { effect_id: "e1", attempt_id: "a1", seat: "work", failed_attempts: 2 }"#
+        );
     }
     let decide = Cursor::Decide {
         effect_id: "e1".into(),
