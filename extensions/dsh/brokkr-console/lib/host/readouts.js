@@ -169,6 +169,29 @@ function offered(value, path) {
   }
 }
 
+/**
+ * What a ruling decided, from the fields its payload records: the phase it
+ * ruled, the one it moved the run to, its rule, result and severity. `null`
+ * for any other event.
+ */
+function rulingOf(row, path) {
+  if (row.event_type !== 'transition/decided') return null
+  let payload
+  try {
+    payload = JSON.parse(text(row.payload_json, `${path}.payload_json`))
+  } catch {
+    refuse(`${path}.payload_json`, 'JSON')
+  }
+  object(payload, `${path}.payload_json`)
+  return {
+    from: optText(payload.from, `${path}.payload_json.from`),
+    next: optText(payload.next, `${path}.payload_json.next`),
+    rule: optText(payload.rule_id, `${path}.payload_json.rule_id`),
+    result: optText(payload.result, `${path}.payload_json.result`),
+    severity: optText(payload.severity, `${path}.payload_json.severity`),
+  }
+}
+
 /** The reason an operator event recorded, read from its payload. */
 function payloadReason(row, path) {
   if (!row.event_type.startsWith('operator/')) return null
@@ -192,7 +215,8 @@ function journalRow(value, path) {
     in_trail: value.in_trail === true,
     what: { text: text(what.text, `${path}.what.text`), badge: optText(what.badge, `${path}.what.badge`) },
   }
-  return { ...row, reason: payloadReason({ ...row, payload_json: value.payload_json }, path) }
+  const raw = { ...row, payload_json: value.payload_json }
+  return { ...row, reason: payloadReason(raw, path), ruling: rulingOf(raw, path) }
 }
 
 /** One seat or member the graph draws: its label, Brokkr's state word and class, and the model it served. */
@@ -245,7 +269,8 @@ function cell(value, path) {
 /**
  * One seat of the run, with the figures the TUI's seat pane prints, each
  * Brokkr's own cell: model (claimed) and boundary, effort pinned and
- * applied, attempts, turns, cost, tokens and the cache-hit share.
+ * applied, attempts, turns, cost, and tokens read apart (total, in, out,
+ * cache hit).
  */
 function participant(value, path) {
   object(value, path)
@@ -260,12 +285,18 @@ function participant(value, path) {
     turns: cell(value.turns_cell, `${path}.turns_cell`),
     cost: cell(value.cost_cell, `${path}.cost_cell`),
     usage: cell(value.usage_cell, `${path}.usage_cell`),
-    cache_hit: cell(value.cache_hit_cell, `${path}.cache_hit_cell`),
+    tokens: ((tokens, at) => ({
+      total: cell(tokens.total, `${at}.total`),
+      input: cell(tokens.input, `${at}.input`),
+      output: cell(tokens.output, `${at}.output`),
+      cache_hit: cell(tokens.cache_hit, `${at}.cache_hit`),
+    }))(object(value.tokens, `${path}.tokens`), `${path}.tokens`),
     model: cell(value.model, `${path}.model`),
     boundary: cell(value.boundary, `${path}.boundary`),
     effort: cell(value.effort, `${path}.effort`),
     effort_pin: cell(value.effort_pin, `${path}.effort_pin`),
     activity: cell(value.activity, `${path}.activity`),
+    transcript: cell(value.transcript_cell, `${path}.transcript_cell`),
   }
 }
 
@@ -430,4 +461,39 @@ export function analyticsOf(doc) {
 /** The range words `brokkr analytics --range` takes. */
 export function isRange(value) {
   return RANGES.includes(value)
+}
+
+// ------------------------------------------------------------- transcripts
+
+const TRANSCRIPT_SCHEMA = 'brokkr.transcript/v1'
+/** The most of a transcript the console paints: its last turns, each block cut to a bound. */
+const TRANSCRIPT_TURNS = 80
+const BLOCK_CHARS = 4000
+
+/**
+ * `brokkr transcript --json`: one seat's retained turns, newest last, as
+ * Brokkr's bounded derivation reads them; its last turns only, each block cut
+ * and marked when long. `unavailable` is Brokkr's word when there is none.
+ */
+export function transcriptOf(doc) {
+  object(doc, 'brokkr transcript')
+  if (doc.schema !== TRANSCRIPT_SCHEMA) {
+    throw new ReadoutRefused('version', `brokkr transcript is at ${doc.schema}; this console reads ${TRANSCRIPT_SCHEMA} only`)
+  }
+  const turns = list(doc.turns ?? [], 'turns', (value, path) => ({
+    role: text(object(value, path).role, `${path}.role`),
+    ts: optText(value.ts, `${path}.ts`),
+    blocks: list(value.blocks, `${path}.blocks`, (block, at) => {
+      const words = text(object(block, at).text, `${at}.text`)
+      return { kind: text(block.kind, `${at}.kind`), text: words.length > BLOCK_CHARS ? `${words.slice(0, BLOCK_CHARS)}… (cut; the seat's transcript has the rest)` : words }
+    }),
+  }))
+  return {
+    seat: text(doc.seat, 'seat'),
+    turns: turns.slice(-TRANSCRIPT_TURNS),
+    earlier: Math.max(0, turns.length - TRANSCRIPT_TURNS),
+    truncated: doc.truncated === true,
+    unavailable: optText(doc.unavailable, 'unavailable'),
+    full_session: optText(doc.full_session, 'full_session'),
+  }
 }

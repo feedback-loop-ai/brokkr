@@ -31,7 +31,6 @@ async function onRun(view = runViewDoc(), answers = {}) {
   return client
 }
 
-const decision = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Decision')[0]
 
 test('the panel-list icon counts the runs that need the operator across every hearth', () => {
   const client = mountClient('sidebar.panellist', { size: 16, active: false })
@@ -47,35 +46,45 @@ test('the Realms header reads the same count', () => {
   assert.equal(textOf(status), '1 running · 3 waiting on you')
 })
 
-test('only admitted commands are buttons, named for their effect; the rest is under "Not available yet" with its reason', async () => {
+const controls = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Commands')[0]
+const commandRow = (tree) => findAll(controls(tree), (node) => node.props.className === 'bk-row bk-commands')[0]
+/** Press `button` on the graph, give `reason`, and send it. */
+async function command(client, button, reason) {
+  buttons(controls(client.tree())).find((each) => textOf(each) === button).props.onClick()
+  const bar = findAll(client.tree(), (node) => node.props['aria-label'] === 'Your reason')[0]
+  findAll(bar, (node) => node.type === 'input')[0].props.onChange({ target: { value: reason } })
+  const send = buttons(findAll(client.tree(), (node) => node.props['aria-label'] === 'Your reason')[0]).find((each) => each.props.className === 'bk-btn primary')
+  send.props.onClick()
+  for (let tick = 0; tick < 5; tick += 1) await settled()
+}
+const outcomeOf = (tree) => textOf(findAll(tree, (node) => String(node.props.className).startsWith('bk-outcome'))[0])
+
+test('the graph carries Stop, Resume and Close, and Retry when Brokkr admits it; a refused one is disabled with Brokkr’s reason', async () => {
   const client = await onRun()
-  const card = decision(client.tree())
   assert.deepEqual(
-    buttons(card).map((button) => [textOf(button), button.props.disabled === true]),
+    buttons(commandRow(client.tree())).map((button) => [textOf(button), button.props.disabled === true, button.props.title]),
     [
-      ['Retry review', false],
-      ['Stop the run', false],
-      ['Close it', false],
-      ['Dismiss the finding', true],
-      ['Talk to the reviewer', true],
-      ['Hold', true],
+      ['↻ Retry review', false, 'Retry runs review again, fresh, on the current code.'],
+      ['■ Stop', false, 'Ends the run as stopped by you.'],
+      ['▶ Resume', true, 'refused operator resume'],
+      ['✓ Close', false, 'Ends the run as stopped by you. Refused if it turns out something is still driving it.'],
     ],
   )
-  const unavailable = findAll(card, (node) => node.props.className === 'bk-unavailable')[0]
+  const unavailable = findAll(controls(client.tree()), (node) => node.props.className === 'bk-unavailable')[0]
   assert.equal(
     textOf(unavailable),
-    'Not available yet' +
+    'Not available yet · 3' +
       'Dismiss the findingBrokkr only lets you dismiss findings once a run has finished.' +
       'Talk to the reviewerReviews start fresh each time; your note can’t reach the reviewer yet.' +
       'HoldA parked run already waits for you; it holds nothing else back.',
   )
 })
 
-test('clarify’s buttons read Retry clarify, and Retry implement for an implement park', async () => {
+test('Retry is named for its phase, and is not offered when Brokkr would refuse it', async () => {
   const clarify = await onRun(runViewDoc({ commands: [offered('retry', 'admitted', { phase: 'clarify' }), offered('stop')], clarify: { seq: 9, questions: ['Which target counts?'] } }))
-  assert.deepEqual(buttons(decision(clarify.tree())).map(textOf).filter((text) => text !== 'Open the spec').slice(0, 2), ['Retry clarify', 'Stop the run'])
-  const implement = await onRun(runViewDoc({ commands: [offered('retry', 'admitted', { phase: 'implement' })] }))
-  assert.deepEqual(buttons(decision(implement.tree())).map(textOf).slice(0, 1), ['Retry implement'])
+  assert.deepEqual(buttons(commandRow(clarify.tree())).map(textOf), ['↻ Retry clarify', '■ Stop'])
+  const refused = await onRun(runViewDoc({ commands: [offered('retry', 'refused'), offered('stop')] }))
+  assert.deepEqual(buttons(commandRow(refused.tree())).map(textOf), ['■ Stop'])
 })
 
 test('a run is led by its title, and its id appears only under "Details for audit"', async () => {
@@ -86,24 +95,28 @@ test('a run is led by its title, and its id appears only under "Details for audi
   assert.equal(textOf(audit[0]).includes(RUN), true)
   const outside = textOf(client.tree()).replace(textOf(audit[0]), '')
   assert.equal(outside.includes(RUN), false)
-  assert.equal(textOf(findAll(client.tree(), (node) => node.type === 'h1')[0]), 'Encrypt the token store')
+  const graph = findAll(client.tree(), (node) => node.props['aria-label'] === 'Graph')[0]
+  assert.equal(textOf(graph.children[0]), 'graph · Encrypt the token store')
 })
 
-test('a press with no reason sends nothing and asks for one', async () => {
+test('a press opens a reason bar; with no reason nothing is sent, and Cancel closes it', async () => {
   const client = await onRun()
-  buttons(decision(client.tree())).find((button) => textOf(button) === 'Stop the run').props.onClick()
+  buttons(controls(client.tree())).find((button) => textOf(button) === '■ Stop').props.onClick()
+  const bar = findAll(client.tree(), (node) => node.props['aria-label'] === 'Your reason')[0]
+  assert.match(textOf(bar), /^Stop the run/)
+  const send = buttons(bar).find((each) => each.props.className === 'bk-btn primary')
+  assert.equal(send.props.disabled, true)
+  send.props.onClick()
   await settled()
   assert.deepEqual(client.fetches.filter((call) => call.url.includes('/api/command')), [])
-  const reason = findAll(client.tree(), (node) => node.type === 'textarea')[0]
-  assert.deepEqual([reason.props.className, reason.props.placeholder], ['bk-reason missing', 'Say why first: a reason is required.'])
+  buttons(bar).find((each) => textOf(each) === 'Cancel').props.onClick()
+  assert.equal(findAll(client.tree(), (node) => node.props['aria-label'] === 'Your reason').length, 0)
 })
 
 test('a press carries its command id and the head the operator saw, and paints "not sent" when the run moved', async () => {
   const fresh = runViewOf(runViewDoc({ seq: 13 }))
   const client = await onRun(runViewDoc(), { '/brokkr-console/api/command': { command: 'stop', outcome: 'not_sent', why: 'head_moved', view: fresh } })
-  findAll(client.tree(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'the owner-only change landed' } })
-  buttons(decision(client.tree())).find((button) => textOf(button) === 'Stop the run').props.onClick()
-  for (let tick = 0; tick < 5; tick += 1) await settled()
+  await command(client, '■ Stop', 'the owner-only change landed')
   const [sent] = client.fetches.filter((call) => call.url.includes('/api/command'))
   assert.deepEqual(JSON.parse(sent.init.body), {
     command_id: '0b6f1c2e-5d4a-4e8b-9f10-3c2d1e0f9a8b',
@@ -113,18 +126,14 @@ test('a press carries its command id and the head the operator saw, and paints "
     reason: 'the owner-only change landed',
     expected_seq: 12,
   })
-  const outcome = findAll(client.tree(), (node) => String(node.props.className).startsWith('bk-outcome'))[0]
-  assert.equal(textOf(outcome), 'Stop the runnot sentthe run changed after you opened it. Nothing was done. Here is what it looks like now.See current state')
+  assert.equal(outcomeOf(client.tree()), 'Stop the runnot sentthe run changed after you opened it. Nothing was done. Here is what it looks like now.See current state')
 })
 
 test('a retry on a run whose start recorded no recipe is "not sent", naming the missing recipe and the settings', async () => {
   const client = await onRun(runViewDoc(), { '/brokkr-console/api/command': { command: 'retry', outcome: 'not_sent', why: 'resume_unconfigured', view: runViewOf(runViewDoc()) } })
-  findAll(client.tree(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'try again on the new code' } })
-  buttons(decision(client.tree())).find((button) => textOf(button) === 'Retry review').props.onClick()
-  for (let tick = 0; tick < 5; tick += 1) await settled()
-  const outcome = findAll(client.tree(), (node) => String(node.props.className).startsWith('bk-outcome'))[0]
+  await command(client, '↻ Retry review', 'try again on the new code')
   assert.equal(
-    textOf(outcome),
+    outcomeOf(client.tree()),
     'Retry reviewnot sentNothing was sent: this run’s start recorded no recipe to resume it under, and the console names none. ' +
       'To resume every run under one bundle, set BROKKR_CONSOLE_RESUME_BUNDLE or BROKKR_CONSOLE_RESUME_RECIPE where DSH starts.See current state',
   )
@@ -133,20 +142,33 @@ test('a retry on a run whose start recorded no recipe is "not sent", naming the 
 test('a refusal is painted as Brokkr’s own words', async () => {
   const words = 'the journal moved beneath the conclusion; something is still driving this run'
   const client = await onRun(runViewDoc(), { '/brokkr-console/api/command': { command: 'conclude', outcome: 'refused', text: words } })
-  findAll(client.tree(), (node) => node.type === 'textarea')[0].props.onChange({ target: { value: 'believed dead' } })
-  buttons(decision(client.tree())).find((button) => textOf(button) === 'Close it').props.onClick()
-  for (let tick = 0; tick < 5; tick += 1) await settled()
-  const outcome = findAll(client.tree(), (node) => String(node.props.className).startsWith('bk-outcome'))[0]
-  assert.equal(textOf(outcome), `Close itrefusedBrokkr said: “${words}”`)
+  await command(client, '✓ Close', 'believed dead')
+  assert.equal(outcomeOf(client.tree()), `Close itrefusedBrokkr said: “${words}”`)
 })
 
-test('the two assistant panels are titled Ask Brokkr and Ask about this run', async () => {
+test('the park reason is shown word for word, with its rule, beside the reader', async () => {
+  const client = await onRun()
+  const why = findAll(client.tree(), (node) => node.props['aria-label'] === 'Why it waits')[0]
+  assert.match(textOf(why), /^why it waitsPark reason, word for word“security review left a serious residual finding: token file is readable by every user”REVIEW-SECURITY-RESIDUAL · parked at review/)
+  const split = findAll(client.tree(), (node) => node.props.className === 'bk-split')[0]
+  assert.deepEqual(split.children.map((child) => child.props['aria-label']), ['Why it waits', 'Reader'])
+})
+
+test('a running run has nothing to wait on, and the reader takes the row', async () => {
+  const client = await onRun(runViewDoc({ summary: { ...runViewDoc().summary, status: 'running', park_reason: null } }))
+  const split = findAll(client.tree(), (node) => node.props.className === 'bk-split')[0]
+  assert.deepEqual(split.children.map((child) => child.props['aria-label']), ['Reader'])
+})
+
+test('one place asks: the Asking about bar, on the realms and on a run', async () => {
   const realms = mountClient('main')
   realms.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
-  const titles = (tree) => findAll(tree, (node) => node.props.className === 'bk-aside-title').map(textOf)
-  assert.deepEqual(titles(realms.tree()), ['Ask Brokkr'])
+  const bars = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Asking about')
+  assert.equal(bars(realms.tree()).length, 1)
+  assert.equal(findAll(realms.tree(), (node) => node.type === 'aside').length, 0)
   const run = await onRun()
-  assert.deepEqual(titles(run.tree()), ['Ask about this run'])
+  assert.equal(bars(run.tree()).length, 1)
+  assert.equal(findAll(run.tree(), (node) => node.type === 'aside').length, 0)
 })
 
 test('Analytics ends with the readout’s "not recorded yet" list, and a realm with no reporting seat reads "not reported"', async () => {

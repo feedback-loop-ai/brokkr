@@ -75,33 +75,40 @@ back to the cards.
   them, the queue from `brokkr queue list`, each entry with admission's word
   and reasons; starting a queued run waits for Brokkr's dispatcher. Muninn's
   last review, from `brokkr muninn list`, when one is recorded.
-- **One realm.** The run list (needs you, running, last 24 hours), filterable
-  by title. For the selected run: its header, its graph, the decision card,
-  and the timeline, newest first.
-- **The graph.** Brokkr's phases left to right, each phase's steps in order,
-  the members of one step (review positions, say) stacked side by side, with
-  an arrow into every member and out of it. Each node shows Brokkr's state
-  and the model it served, and the last step of a phase shows the visit's
-  duration and the rule that ruled it. A parked or flagged visit is outlined
-  amber, a failed one red. A road runs back below the steps wherever Brokkr
-  recorded a return ("sent back to implement by review"), solid, as Brokkr's
-  own dashboard draws a road that was taken. A wide graph scrolls sideways.
-  While the run is driven, its active steps wear Brokkr's pulse: the dot
-  strikes and a halo spreads, as in `brokkr ui`. The console's mark and the
-  left-panel icon strike while any run is running. Reduced motion stills
-  both.
-- **Picking.** Click a phase's name to pick every step in it, or a step to
-  pick it alone; click again to let go. The pick shows each of its seats as
-  the TUI's participant pane reads them: the model it claims and its
-  boundary, tokens, cache hit (cache reads over input, from `brokkr
-  inspect`), cost, turns and attempts, and effort applied and pinned. A
-  figure Brokkr did not record says why. The pick stays as the run moves.
-- **The decision card.** Brokkr's park reason, word for word, and the rule
-  that parked the run. A clarify park lists the clarifier's open questions
-  and the run's worktree. A button for each command `brokkr inspect` admits,
-  named for its effect: "Retry review", "Stop the run", "Resume", "Close it".
-  Each press needs a reason, recorded with the command. Run ids and sequence
-  numbers sit under "Details for audit".
+- **One realm.** Its runs: needs you, running, last 24 hours, filterable by
+  title. Pick one to open it.
+- **One run.** Laid out as panes, as `brokkr tui` lays them out: the graph
+  across the width with the control plane on it; why the run waits beside
+  the reader; every seat in one table beneath; the timeline, folded, at the
+  foot. The bar above names the run and lists every realm.
+- **The graph.** The rail `brokkr tui` draws: Brokkr's phases left to right,
+  each step a dot on the rail, the members of one step (review positions,
+  say) in a bracket above and below it, phase names under the rail, and the
+  current phase boxed in the colour of the run's status ("NOW · REVIEW"). A
+  road runs back beneath wherever Brokkr recorded a return ("sent back to
+  implement by review · REVIEW-REFORGE"), solid, as Brokkr's own dashboard
+  draws a road that was taken. A wide graph scrolls sideways and opens on
+  the current phase. While the run is driven its active step wears Brokkr's
+  pulse, the dot striking and a halo spreading as in `brokkr ui`; the
+  console's mark and the left-panel icon strike while any run is running.
+  Reduced motion stills both.
+- **Picking.** Click a step, an arrow between phases, or a phase's name;
+  click again to let go. A step shows its seat. An arrow shows the ruling
+  that moved the run (its rule, result and words) and the seat behind it. A
+  phase picks every step in it and narrows the seats table to its own. With
+  nothing picked the reader shows where the run is now, its latest seat. The
+  pick stays as the run moves.
+- **A seat.** As the TUI's participant pane reads it: the model it claims
+  and its boundary, effort pinned and applied, tokens as Σ total · ↑ in ·
+  ↓ out, the cache hit (cache reads over input, from `brokkr inspect`), cost,
+  turns and attempts, and its transcript, newest last, read again whenever
+  the run moves so a working seat's follows its tail. A figure Brokkr did
+  not record says why, and so does a seat with no transcript.
+- **Why it waits.** Beside the reader when the run waits: Brokkr's park
+  reason, word for word, with the rule, where and since when, and a link to
+  read that seat; a clarify park's questions and **Open the spec**; the rule
+  that stopped it; or a quarantine. Run ids and sequence numbers sit under
+  "Details for audit" in the timeline.
 - **Analytics.** `brokkr analytics` for 24 hours, 7 days or 30 days, all
   realms or one: the headline tiles, runs finished per day, where runs wait
   for you, rework, the share of step attempts by model, the by-realm table,
@@ -109,16 +116,20 @@ back to the cards.
 
 ## What a press does
 
-The card sends the command with a fresh command id and the run head you were
-looking at. The plugin reads the run again first. If the head moved, nothing
-is sent: the card says "not sent" and shows the run as it is now. If Brokkr
-no longer admits the command, the card shows Brokkr's refusal. Otherwise the
+The graph carries **Stop**, **Resume** and **Close**, and **Retry** (named for
+its phase) when Brokkr admits it. A command Brokkr refuses is shown disabled,
+with Brokkr's reason on hover; Brokkr has no pause. Pressing one opens a
+reason bar: your reason is kept in the run's record, and nothing is sent
+without one. The console sends the command with a fresh command id and the
+run head you were looking at. The plugin reads the run again first. If the head moved, nothing
+is sent: the outcome says "not sent" and shows the run as it is now. If
+Brokkr no longer admits the command, the outcome shows Brokkr's refusal. Otherwise the
 plugin runs `brokkr operator retry` or `stop`, or `brokkr conclude`, with
 your reason, followed by the console's command id so the record can be
 matched. A retry is followed by `brokkr resume`, which keeps driving the run
 after the panel is closed.
 
-The card ends in one of four outcomes: **done**; **not sent**; **refused**,
+A press ends in one of four outcomes: **done**; **not sent**; **refused**,
 with Brokkr's text verbatim; or **checking**, when Brokkr's answer was lost.
 A lost answer is settled from the run's record by the command id, and the
 command is never sent twice. Pressing again with the same command id returns
@@ -134,8 +145,8 @@ the first outcome.
 | Hold a parked run | `brokkr queue hold` acts on queue entries |
 | Start a queued run | The dispatcher is not built ([#430](https://github.com/feedback-loop-ai/brokkr/issues/430)) |
 
-The card shows the first four disabled, each with the reason `brokkr inspect`
-gives.
+The graph lists the first four under "Not available yet", disabled, each
+with the reason `brokkr inspect` gives.
 
 ## The assistant
 
@@ -149,17 +160,20 @@ review … only if the run hasn't changed since you read this"). Anything
 else comes back as Brokkr's own refusal or reason. No tool the console
 registers can press anything.
 
-- **What a question is about.** Above the question box the panel names it,
-  closest first: what you picked on the graph, then the run, then the realm.
-  The question opens with the pick (a seat by its participant key, so the
-  model can read its transcript) and gives the run as the outer context.
-  With no run open, the panel asks about the realm.
-- **Ask Brokkr** and **Ask about this run** each open a DSH session and send
-  your question in it, prefilled with the scope and with the instruction to
-  cite the ruling, session or record behind each fact and to say what is not
-  recorded. Ask Brokkr opens in the console's workspace; Ask about this run
-  opens in the run's worktree when Brokkr records one. The answer, and every
-  tool call, is in that session in Conversations.
+- **One place to ask.** The "Asking about" bar at the foot of the console
+  names what a question is about, closest first: what you picked on the
+  graph, then the run, then the realm (every realm on the realms view). The
+  question opens with the pick (a seat by its participant key, so the model
+  can read its transcript) and gives the run as the outer context, with the
+  instruction to cite the ruling, session or record behind each fact and to
+  say what is not recorded.
+- **In a conversation's tab,** "Ask about …" puts that context in the
+  conversation's own message box, unsent: write your question after
+  "Question:" and send it there. The answer is in the conversation's Chat.
+- **In the left-panel console,** where no conversation is open, the bar has
+  its own question box: a question opens a DSH session (in the run's
+  worktree when Brokkr records one, else the console's workspace) and is
+  sent there. The answer is in that session in Conversations.
 - **The session is DSH's.** A question is answered in an ordinary DSH
   session: besides the console's five tools, its model holds DSH's own tools,
   such as bash, edit and write, in the session's directory, under DSH's
@@ -171,10 +185,11 @@ registers can press anything.
   cite, never as instructions. That is a steer, not a fence: whether the
   model may run `brokkr` or edit a file through DSH's tools is DSH's policy
   to set, and anything it does there acts as the OS user DSH runs as.
-- **Use this** on a suggestion card carries it to the run's decision card in
-  the Brokkr panel: the suggested command leads, its reason fills the reason
-  box, and the card says whether the run has moved since it was read. You
-  press the command, through the same check every press goes through.
+- **Use this** on a suggestion card carries it to the run's graph in the
+  Brokkr console: the suggested command is marked, pressing it fills the
+  reason bar with the suggestion's reason, and the graph says whether the run
+  has moved since it was read. You press the command, through the same check
+  every press goes through.
 - DSH folds a finished turn's tool calls under "Called tools", so a
   suggestion card is one click away in the transcript.
 

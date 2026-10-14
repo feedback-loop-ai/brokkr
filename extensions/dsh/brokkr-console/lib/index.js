@@ -14,7 +14,7 @@ import { hereOf } from './host/here.js'
 import { pollerOf } from './host/poller.js'
 import { isRange, ReadoutRefused } from './host/readouts.js'
 import { accept } from './host/socket.js'
-import { toolsOf } from './host/tools.js'
+import { GRAMMAR, toolsOf } from './host/tools.js'
 
 export const name = 'brokkr-console'
 export const inject = ['webServer', 'connection', 'tools']
@@ -74,13 +74,26 @@ function handled(method, handle) {
 }
 
 /** The routes, each `[method, path, handler]`. */
-function routes({ brokkr, desk, here }) {
+function routes({ brokkr, desk, here, locate }) {
   return [
     ['POST', `${BASE}/api/command`, async (req, res) => send(res, 200, await desk.submit(await bodyOf(req)))],
     [
       'GET',
       `${BASE}/api/here`,
       async (req, res) => send(res, 200, await here(queryOf(req).get('dir'))),
+    ],
+    [
+      'GET',
+      `${BASE}/api/transcript`,
+      async (req, res) => {
+        const query = queryOf(req)
+        const [realm, run, seat] = ['realm', 'run', 'seat'].map((name) => query.get(name) ?? '')
+        if (!GRAMMAR.run.test(run) || !GRAMMAR.seat.test(seat) || realm.length > 256) throw new RequestRefused('a transcript is asked for by realm, run and seat')
+        // The journal is the listing's, never a path the browser sent.
+        const target = locate(realm, run)
+        if (target === null) throw new RequestRefused('Brokkr no longer lists this run')
+        send(res, 200, await brokkr.transcript(target, seat))
+      },
     ],
     [
       'GET',
@@ -111,7 +124,7 @@ export function apply(ctx) {
   const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd })
   const desk = deskOf({ brokkr, resume: config.resume, locate: poller.locate })
   const here = hereOf({ brokkr, workspace: config.cwd })
-  for (const [method, path, handle] of routes({ brokkr, desk, here })) {
+  for (const [method, path, handle] of routes({ brokkr, desk, here, locate: poller.locate })) {
     const handler = fencedRoute(ctx.connection, handled(method, handle))
     ctx.effect(() => ctx.webServer.register({ kind: 'exact', path, handler }), `${name}: ${method} ${path}`)
   }

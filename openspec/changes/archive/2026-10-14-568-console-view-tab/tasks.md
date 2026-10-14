@@ -29,3 +29,12 @@ Status: proposed. Asked for by the operator on 2026-10-14.
 - [x] 4.3 Client: picking phases and nodes, the picked seats, the context chain and prompt (D5–D7); tests. `lib/client.js` `Graph`, `focusOf`, `Picked`, `SeatFacts`, `Realm`, `Ask`; `tests/pick.test.js`.
 - [x] 4.4 The pulse and the mark (D8); the solid road back; tests. `lib/client.js` `dot`, `Mark`, `Icon`; `lib/console.css`; `tests/pick.test.js`.
 - [x] 4.5 The first landing's findings; tests. `lib/host/here.js`, `lib/index.js`, `lib/client.js`; `tests/here.test.js`, `tests/tab.test.js`.
+
+## 5. Third round: design D
+
+- [x] 5.1 `brokkr-view`: `Participant.tokens` (`TokenCells`) from one `usage_cells` helper, replacing `cache_hit_cell`; `fmt_count`; view-level test; the public-API snapshot, measured. `crates/brokkr-view/src/lib.rs`; `src/tests/cache_hit.rs`; `quality/public-api/brokkr-view.txt`.
+- [x] 5.2 Host: token cells and `transcript_cell` read; journal rows carry their ruling; `brokkr transcript` and the fenced transcript route; tests. `lib/host/readouts.js`, `brokkr.js`, `lib/index.js`; `tests/readouts.test.js`, `tests/fence.test.js`.
+- [x] 5.3 Client: the rail (D9, D10), the control plane on the graph (D11), why it waits, the reader and transcripts (D13), the seats table, the Asking about bar (D12); tests. `lib/client.js`; `tests/pick.test.js`, `tests/client.test.js`, `tests/assistant.test.js`, `tests/tab.test.js`.
+- [x] 5.4 The stylesheet for the rail and the panes, in both palettes. `lib/console.css`.
+- [x] 5.5 Specs `operator-console-read`, `-commands`, `-assistant`; the guide and status.
+- [x] 5.6 Observed in a browser (design, Observed, third round).

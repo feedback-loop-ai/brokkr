@@ -177,14 +177,16 @@ The console plugin in `extensions/dsh/brokkr-console/` targets DSH
 ([guide](guides/dsh-console.md)). It opens as a tab in each conversation,
 beside Chat and Trajectory, on the realm `brokkr realms` places the
 conversation's folder in, and from DSH's left panel; it follows DSH's light
-or dark theme. It paints `brokkr runs`, `inspect`,
+or dark theme. It paints `brokkr runs`, `inspect`, `transcript`, `realms`,
 `queue list`, `muninn list` and `analytics` from their `--json` output, and
 presses `brokkr operator retry` and `stop`, `brokkr resume` (under the
 recipe the run's start recorded) and `brokkr conclude`, after re-reading
 the run's head. DSH's model reads Brokkr through four read-only tools the
 console registers and may suggest one command Brokkr admits, as a card the
-operator carries to the decision card and presses; "Ask Brokkr" and "Ask
-about this run" open an ordinary DSH session with the question, whose model
+operator carries to the run's graph and presses there. One "Asking about"
+bar names the pick, the run and the realm; in a conversation's tab it puts
+that context in the conversation's message box, and in the left panel it
+opens an ordinary DSH session with the question, whose model
 also holds DSH's own tools under DSH's approval policy, which the console
 does not narrow; "Open the spec" opens a clarify-parked run's worktree with
 the Files tab and the questions as a draft. It does not

@@ -16,7 +16,7 @@ const settled = async () => {
 }
 const fleet = () => fleetOf(fleetDoc([['brokkr', [row()]]]))
 const byText = (tree, text) => buttons(tree).find((button) => textOf(button) === text)
-const panel = (tree, title) => findAll(tree, (node) => node.props['aria-label'] === title && node.type === 'aside')[0]
+const bar = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Asking about')[0]
 
 /** The panel, with the console's workspace `/w/console`, opened on the parked run with `view`. */
 function onRun(view = runViewDoc()) {
@@ -28,11 +28,10 @@ function onRun(view = runViewDoc()) {
   return client
 }
 
-/** Type `question` into the panel titled `title` and press Ask. */
-async function ask(client, title, question) {
-  const aside = panel(client.tree(), title)
-  findAll(aside, (node) => node.type === 'input')[0].props.onChange({ target: { value: question } })
-  byText(panel(client.tree(), title), 'Ask').props.onClick()
+/** Type `question` into the Asking about bar and press Ask. */
+async function ask(client, question) {
+  findAll(bar(client.tree()), (node) => node.type === 'input')[0].props.onChange({ target: { value: question } })
+  byText(bar(client.tree()), 'Ask').props.onClick()
   await settled()
 }
 
@@ -44,7 +43,8 @@ test('the client injects the DSH services the assistant uses', () => {
 test('Ask Brokkr opens a session in the console’s workspace and sends the question with the tools, the rule to use only them, and the evidence rule', async () => {
   const client = mountClient('main')
   client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleet(), overview: null, run: null })
-  await ask(client, 'Ask Brokkr', 'Where should I spend the next hour?')
+  assert.match(textOf(bar(client.tree())), /^Asking aboutBrokkr every realm/)
+  await ask(client, 'Where should I spend the next hour?')
   const [create, open, draft, submit] = client.dsh.calls
   assert.deepEqual(create, ['workspaces.create', '/w/console'])
   assert.deepEqual(open, ['openWorkspace', 'ws:/w/console'])
@@ -58,12 +58,13 @@ test('Ask Brokkr opens a session in the console’s workspace and sends the ques
   assert.match(draft[2], /say plainly what is not recorded/)
   assert.match(draft[2], /Question: Where should I spend the next hour\?$/)
   assert.deepEqual(submit, ['submit', 'session:ws:/w/console'])
-  assert.match(textOf(panel(client.tree(), 'Ask Brokkr')), /Asked in a DSH session/)
+  assert.match(textOf(bar(client.tree())), /Asked in a DSH session/)
 })
 
 test('Ask about this run opens the session in the run’s worktree, naming the run by title and id', async () => {
   const client = onRun()
-  await ask(client, 'Ask about this run', 'Is the finding real?')
+  assert.match(textOf(bar(client.tree())), /^Asking aboutnow security|^Asking aboutrun Encrypt the token store/)
+  await ask(client, 'Is the finding real?')
   assert.deepEqual(client.dsh.calls[0], ['workspaces.create', '/work/brokkr'])
   assert.match(client.dsh.calls[2][2], new RegExp(`^About the Brokkr run “Encrypt the token store” \\(realm brokkr, run id ${RUN}\\)\\.`))
   assert.deepEqual(client.dsh.calls.at(-1)[0], 'submit')
@@ -71,14 +72,14 @@ test('Ask about this run opens the session in the run’s worktree, naming the r
 
 test('a run with no worktree is asked about in the console’s workspace', async () => {
   const client = onRun(runViewDoc({ worktree: null }))
-  await ask(client, 'Ask about this run', 'Why is it waiting?')
+  await ask(client, 'Why is it waiting?')
   assert.deepEqual(client.dsh.calls[0], ['workspaces.create', '/w/console'])
 })
 
 test('with no directory to open a session in, the question box is disabled and nothing opens', async () => {
   const client = mountClient('main')
   client.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
-  const input = findAll(panel(client.tree(), 'Ask Brokkr'), (node) => node.type === 'input')[0]
+  const input = findAll(bar(client.tree()), (node) => node.type === 'input')[0]
   assert.equal(input.props.disabled, true)
   assert.equal(input.props.placeholder, 'No directory to open a session in')
   assert.deepEqual(client.dsh.calls, [])
@@ -87,8 +88,8 @@ test('with no directory to open a session in, the question box is disabled and n
 test('a DSH that offers no sessions to plugins says so and asks nothing', async () => {
   const client = mountClient('main', {}, {}, { services: {}, calls: [] })
   client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleet(), overview: null, run: null })
-  await ask(client, 'Ask Brokkr', 'Anything?')
-  assert.match(textOf(panel(client.tree(), 'Ask Brokkr')), /Not asked: this DSH does not offer sessions to plugins/)
+  await ask(client, 'Anything?')
+  assert.match(textOf(bar(client.tree())), /Not asked: this DSH does not offer sessions to plugins/)
 })
 
 test('Open the spec opens the worktree with the Files tab and the questions, and sends nothing', async () => {
@@ -129,26 +130,45 @@ test('a suggestion Brokkr would not take is shown as its reason, with no button'
   assert.match(textOf(pending.tree()), /checking whether it would take that/)
 })
 
-test('Use this fills the decision card: the suggested command leads, its reason is filled, and nothing is sent', async () => {
+test('Use this marks the suggested command on the graph and fills its reason; nothing is sent', async () => {
   const client = onRun()
   const card = client.also('toolview:brokkr_suggest', { phase: 'result', block: { meta: SUGGESTED } })
   byText(card(), 'Use this').props.onClick()
   assert.equal(textOf(byText(card(), 'In the Brokkr panel')), 'In the Brokkr panel')
-  const decision = findAll(client.tree(), (node) => node.props['aria-label'] === 'Decision')[0]
-  assert.match(textOf(decision), /Suggested by the assistantStop the run: the finding needs a design change first/)
-  assert.match(textOf(decision), /read at seq 12, which is still the run’s head/)
-  assert.equal(findAll(decision, (node) => node.type === 'textarea')[0].props.value, 'the finding needs a design change first')
-  const primary = buttons(decision).filter((button) => String(button.props.className).includes('primary')).map(textOf)
-  assert.deepEqual(primary, ['Stop the run'])
-  assert.deepEqual(client.fetches, [], 'nothing is sent until the operator presses')
+  const commands = () => findAll(client.tree(), (node) => node.props['aria-label'] === 'Commands')[0]
+  assert.match(textOf(commands()), /Suggested by the assistant: Stop the run — the finding needs a design change first \(read at the run’s current head\)/)
+  const stop = byText(commands(), '■ Stop')
+  assert.match(stop.props.className, /suggested/)
+  stop.props.onClick()
+  const reason = findAll(client.tree(), (node) => node.props['aria-label'] === 'Your reason (kept in the run’s record)')[0]
+  assert.equal(reason.props.value, 'the finding needs a design change first')
+  assert.deepEqual(client.fetches.filter((call) => call.url.includes('/api/command')), [], 'nothing is sent until the operator presses')
 })
 
 test('a suggestion read at an older head says the run has changed since, and Clear removes it', () => {
   const client = onRun(runViewDoc({ seq: 13 }))
   const card = client.also('toolview:brokkr_suggest', { phase: 'result', block: { meta: SUGGESTED } })
   byText(card(), 'Use this').props.onClick()
-  const decision = () => findAll(client.tree(), (node) => node.props['aria-label'] === 'Decision')[0]
-  assert.match(textOf(decision()), /read at seq 12; the run has changed since, so check it again/)
-  byText(decision(), 'Clear').props.onClick()
-  assert.doesNotMatch(textOf(decision()), /Suggested by the assistant/)
+  const commands = () => findAll(client.tree(), (node) => node.props['aria-label'] === 'Commands')[0]
+  assert.match(textOf(commands()), /\(read at seq 12; the run has changed since\)/)
+  byText(commands(), 'Clear').props.onClick()
+  assert.doesNotMatch(textOf(commands()), /Suggested by the assistant/)
+})
+
+test('in a conversation’s tab, Ask puts the context in that conversation’s message box and sends nothing', async () => {
+  const dsh = (await import('./support/client.js')).dshStub()
+  dsh.services.sessions.scope = (sessionId) => ({ sessionId })
+  dsh.services.sessions.list = { getSnapshot: () => ({ ids: ['s1'], byId: { s1: { sessionId: 's1', cwd: '/w/console' } } }), subscribe: () => () => {} }
+  const client = mountClient('conversation.view', { sessionId: 's1' }, { '/brokkr-console/api/here': { realm: 'brokkr' } }, dsh)
+  await settled()
+  client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleet(), overview: null, run: null })
+  assert.equal(findAll(bar(client.tree()), (node) => node.type === 'input').length, 0, 'the conversation’s own box is the one to type in')
+  byText(bar(client.tree()), 'Ask about brokkr').props.onClick()
+  await settled()
+  const draft = client.dsh.calls.find((call) => call[0] === 'setDraft')
+  assert.equal(draft[1], 's1')
+  assert.match(draft[2], /^About the Brokkr realm “brokkr” and its runs\./)
+  assert.match(draft[2], /Question: $/)
+  assert.ok(!client.dsh.calls.some((call) => call[0] === 'submit' || call[0] === 'workspaces.create'))
+  assert.match(textOf(bar(client.tree())), /The context is in the message box below/)
 })

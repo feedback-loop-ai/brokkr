@@ -5,9 +5,9 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
-import { fleetOf, runViewOf } from '../lib/host/readouts.js'
+import { fleetOf } from '../lib/host/readouts.js'
 import { buttons, dshStub, findAll, mountClient, textOf } from './support/client.js'
-import { fleetDoc, row, runViewDoc } from './support/world.js'
+import { fleetDoc, row } from './support/world.js'
 
 const settled = () => new Promise((wake) => setTimeout(wake, 0))
 const HERE = '/brokkr-console/api/here'
@@ -84,51 +84,20 @@ test('the full panel says nothing about a conversation', () => {
   assert.equal(client.tree().props['data-testid'], 'brokkr-console')
 })
 
-const member = (label, state = 'finished', stateClass = 'on-phosphor', model = 'claude-fable-5-1') => ({ label, key: label, state, state_class: stateClass, model: { text: model, absent: false, note: null }, boundary: { text: 'namespace', absent: false, note: null } })
-
-test('the graph draws each step, the members of a step side by side, and the road back', async () => {
-  const view = runViewDoc({
-    phases: [
-      { name: 'design', strategy: null, visits: 1, current: false, plain: false, columns: [{ label: 'positions', nodes: [member('simplicity'), member('robustness')] }, { label: null, nodes: [member('chief')] }], returns: [] },
-      { name: 'implement', strategy: 'code', visits: 2, current: false, plain: true, columns: [{ label: null, nodes: [member('implement')] }], returns: ['review'] },
-      { name: 'review', strategy: null, visits: 1, current: true, plain: true, columns: [{ label: null, nodes: [member('review', 'failed', 'on-halt', 'gpt-5.5')] }], returns: [] },
-    ],
-  })
-  const client = mountClient('main')
-  client.push({ type: 'snapshot', fleet: twoRealms(), overview: null, run: null })
-  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
-  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
-  client.push({ type: 'run', run: { realm: 'brokkr', run_id: row().run_id, view: runViewOf(view) } })
-  const graph = findAll(client.tree(), (node) => node.props['aria-label'] === 'Run graph')[0]
-  const nodes = findAll(graph, (node) => (node.props.className ?? '').startsWith('bk-node'))
-  assert.deepEqual(nodes.map((node) => textOf(node.children[0])), ['simplicity', 'robustness', 'chief', 'implement', 'review'])
-  // The two positions share a column; chief follows them.
-  const [simplicity, robustness, chief] = nodes.map((node) => node.props.style)
-  assert.equal(simplicity.left, robustness.left)
-  assert.notEqual(simplicity.top, robustness.top)
-  assert.ok(chief.left > simplicity.left)
-  // The visit Brokkr ruled parks the review node, with its rule beside the model.
-  assert.match(nodes[4].props.className, /warn/)
-  assert.match(textOf(nodes[4]), /failed · gpt-5\.5/)
-  assert.match(textOf(nodes[4]), /12m · REVIEW-SECURITY-RESIDUAL/)
-  // The two positions fan into chief, then one edge each: 2 + 1 + 1 forward edges, and one road back.
-  const edges = findAll(graph, (node) => node.type === 'path' && (node.props.className ?? '').startsWith('bk-edge'))
-  assert.equal(edges.filter((edge) => edge.props.className === 'bk-edge').length, 4)
-  assert.equal(edges.filter((edge) => edge.props.className === 'bk-edge back').length, 1)
-  const labels = findAll(graph, (node) => (node.props.className ?? '').startsWith('bk-phase')).map(textOf)
-  assert.deepEqual(labels, ['design', 'implement · 2 visits · code', 'review'])
-  assert.match(textOf(graph), /positions/)
-  assert.match(textOf(graph), /sent back to implement by review/)
-})
-
-test('a phase with no recorded steps is drawn as one node', async () => {
-  const client = mountClient('main')
-  client.push({ type: 'snapshot', fleet: twoRealms(), overview: null, run: null })
-  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
-  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
-  client.push({ type: 'run', run: { realm: 'brokkr', run_id: row().run_id, view: runViewOf(runViewDoc()) } })
-  const graph = findAll(client.tree(), (node) => node.props['aria-label'] === 'Run graph')[0]
-  assert.deepEqual(findAll(graph, (node) => (node.props.className ?? '').startsWith('bk-node')).map((node) => textOf(node.children[0])), ['implement'])
+test('the pulse is ui.html’s: the same strike and halo, at the same pace', () => {
+  const css = readFileSync(new URL('../lib/console.css', import.meta.url), 'utf8')
+  const html = readFileSync(new URL('../../../../crates/brokkr-cli/src/ui.html', import.meta.url), 'utf8')
+  const frames = (source, name) => {
+    const found = new RegExp(`@keyframes ${name}\\s*\\{([\\s\\S]*?\\})\\s*\\}`).exec(source)
+    assert.ok(found, `${name} is declared`)
+    return found[1].replace(/\s+/g, '').replace(/;\}/g, '}')
+  }
+  assert.equal(frames(css, 'bk-strike'), frames(html, 'forge-strike'))
+  assert.equal(frames(css, 'bk-halo'), frames(html, 'forge-halo'))
+  assert.match(css, /bk-strike 1\.8s ease-in-out infinite/)
+  assert.match(html, /forge-strike 1\.8s ease-in-out infinite/)
+  assert.match(css, /bk-halo 1\.8s ease-out infinite/)
+  assert.match(css, /prefers-reduced-motion:reduce/)
 })
 
 test('every colour is a theme variable, with a dark set under DSH’s dark-theme mark', () => {

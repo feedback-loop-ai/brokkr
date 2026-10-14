@@ -5,7 +5,7 @@
 // value is passed as `--flag=value`, so a value that opens with `-` (a reason
 // can) is never read as a flag.
 import { launch, run } from './runner.js'
-import { analyticsOf, fleetOf, jsonOf, muninnOf, queueOf, realmsOf, runViewOf } from './readouts.js'
+import { analyticsOf, fleetOf, jsonOf, muninnOf, queueOf, realmsOf, runViewOf, transcriptOf } from './readouts.js'
 
 /** The two `brokkr operator` commands the console presses. */
 const OPERATOR = ['retry', 'stop']
@@ -40,6 +40,8 @@ export function brokkrOf(config) {
     queue: () => read(['queue', 'list', '--json'], 'brokkr queue list', queueOf),
     muninn: () => read(['muninn', 'list', '--json'], 'brokkr muninn list', muninnOf),
     realms: () => read(['realms', '--json'], 'brokkr realms', realmsOf),
+    /** One seat's transcript, by the participant key the run view names. */
+    transcript: (target, seat) => read(['transcript', ...runOf(target), flag('seat', seat), '--json'], 'brokkr transcript', transcriptOf),
     analytics: (range, realm) => {
       const only = realm === null ? [] : [flag('realm', realm)]
       return read(['analytics', flag('range', range), ...only, '--json'], 'brokkr analytics', analyticsOf)

@@ -1,8 +1,9 @@
-//! #568's console tab: a participant's cache hit is worked out once, here,
-//! from cache reads over input. A child of the owning `tests.rs`, which sits
-//! at its line baseline.
+//! #568's console tab: a participant's tokens are read apart once, here —
+//! the total, input, output, and the cache hit as cache reads over input.
+//! A child of the owning `tests.rs`, which sits at its line baseline.
 
 use super::*;
+use crate::tokens::cache_hit_text;
 
 #[test]
 fn the_cache_hit_is_cache_reads_over_input_and_absent_without_both() {
@@ -28,4 +29,28 @@ fn the_cache_hit_is_cache_reads_over_input_and_absent_without_both() {
         };
         assert_eq!(cache_hit_text(&usage).as_deref(), hit);
     }
+}
+
+#[test]
+fn a_seats_token_cells_are_its_usage_read_apart() {
+    // The wager's crew-B seat: 3,830,272 of 3,975,322 input tokens were cache reads.
+    let events = codex_journal(vec![json!({
+        "input_tokens": 3_975_322, "cache_read_tokens": 3_830_272, "output_tokens": 14_051
+    })]);
+    let tokens = &run_view(&events, None).participants[0].tokens;
+    let cells = [
+        &tokens.total,
+        &tokens.input,
+        &tokens.output,
+        &tokens.cache_hit,
+    ];
+    assert_eq!(
+        cells.map(|cell| (cell.text.as_str(), cell.absent)),
+        [
+            ("3.99M tok", false),
+            ("3.98M", false),
+            ("14k", false),
+            ("96.4%", false)
+        ]
+    );
 }

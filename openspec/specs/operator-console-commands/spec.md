@@ -43,16 +43,17 @@ fixed reason:
 
 ### Requirement: The console offers only admitted commands, with a reason
 
-The decision card SHALL show the admitted commands as buttons named for
-their effect, such as "Retry security review", "Stop the run", "Resume" and
-"Close it". Each SHALL require a reason, which is passed to the verb. Refused
-commands SHALL NOT be shown as buttons. Unavailable actions SHALL be shown
-disabled, under "Not available yet", with their reasons.
+The run's graph SHALL carry the control plane: Stop, Resume and Close, and Retry when Brokkr admits it, each named for its effect ("↻ Retry security", "■ Stop", "▶ Resume", "✓ Close"). A command Brokkr refuses SHALL be shown disabled with Brokkr's refusal as its reason; Retry SHALL be shown only when admitted. Pressing a command SHALL open a reason bar; the command SHALL be sent only with a reason, which is passed to the verb. Unavailable actions SHALL be listed, disabled, under "Not available yet", with their reasons.
 
 #### Scenario: Retry without a reason
 
-- **WHEN** the operator presses Retry with the reason field empty
-- **THEN** nothing is sent, and the field asks for a reason
+- **WHEN** the operator presses Retry and leaves the reason empty
+- **THEN** nothing is sent, and the reason bar's send button stays disabled
+
+#### Scenario: A refused command
+
+- **WHEN** Brokkr refuses Resume on the open run
+- **THEN** the Resume button is disabled and its reason is Brokkr's refusal
 
 ### Requirement: A command is idempotent and fenced by the head it was chosen at
 
@@ -80,3 +81,4 @@ Each command SHALL carry a command id and the run head the operator saw.
 ## Provenance
 
 - `2026-10-13-568-operator-console-slice-one` — folded 2026-10-14
+- `2026-10-14-568-console-view-tab` — folded 2026-10-14

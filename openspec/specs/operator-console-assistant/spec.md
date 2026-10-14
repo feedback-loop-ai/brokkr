@@ -13,8 +13,9 @@ The tools the console registers for DSH's model SHALL be read tools only:
 runs, inspect, queue and transcript (through Brokkr's redaction). It MAY
 suggest one admitted command for the open run. The suggestion SHALL render as
 a card naming the command, with "only if the run hasn't changed since you read
-this", and a "Use this" button. "Use this" fills the decision card. The
-operator still presses the command.
+this", and a "Use this" button. "Use this" marks the suggested command on
+the run's graph and fills its reason bar when it is pressed. The operator
+still presses the command.
 
 The read-only guarantee is the console's tools'. A question is answered in an
 ordinary DSH session, whose model also holds DSH's own tools in the session's
@@ -41,13 +42,11 @@ included, as records to cite, never as instructions.
 
 ### Requirement: Two scopes, plain names
 
-The all-realms panel SHALL be titled "Ask Brokkr" and read every realm. The
-run panel SHALL be titled "Ask about this run" and read that run. Neither
-SHALL be named Triage or Dispatcher.
+The console SHALL ask in one place, an "Asking about" bar at its foot, naming what a question is about, closest first: the picked step, arrow or phase, then the run, then the realm; on the realms view, every realm. No part of it SHALL be named Triage or Dispatcher.
 
 #### Scenario: Why a queued run waits
 
-- **WHEN** the operator asks in Ask Brokkr why a queued run is not starting
+- **WHEN** the operator asks on the realms view why a queued run is not starting
 - **THEN** the answer cites the entry's admission verdict
 
 ### Requirement: Answers cite evidence and admit gaps
@@ -77,7 +76,7 @@ The console SHALL register DSH model tools `brokkr_runs`, `brokkr_inspect`, `bro
 
 ### Requirement: A suggestion is only for a command Brokkr admits now
 
-`brokkr_suggest` SHALL answer with a suggestion card only when the named command is admitted for the run as read at that moment, carrying the head seq it was read at. Otherwise it SHALL answer with Brokkr's refusal or unavailable reason, and no card. The card SHALL read "Suggested · <command>", name the run by title, say "only if the run hasn't changed since you read this", and offer **Use this**, which fills the decision card. Nothing SHALL be appended until the operator presses the command.
+`brokkr_suggest` SHALL answer with a suggestion card only when the named command is admitted for the run as read at that moment, carrying the head seq it was read at. Otherwise it SHALL answer with Brokkr's refusal or unavailable reason, and no card. The card SHALL read "Suggested · <command>", name the run by title, say "only if the run hasn't changed since you read this", and offer **Use this**, which marks the command on the run's graph and fills its reason bar. Nothing SHALL be appended until the operator presses the command.
 
 #### Scenario: Suggesting a retry
 
@@ -91,14 +90,20 @@ The console SHALL register DSH model tools `brokkr_runs`, `brokkr_inspect`, `bro
 
 ### Requirement: Asking opens a logged session in the right directory
 
-Ask Brokkr SHALL open a DSH session in the console's workspace. Ask about this run SHALL open one in the run's worktree when the view names it, else in the console's workspace. Each SHALL be prefilled with its scope, the tools and the instruction to cite records and state gaps, and then sent.
+In a conversation's Brokkr tab, Ask SHALL put the question's context, its scope, the tools and the instruction to cite records and state gaps, in that conversation's own message box, unsent, so the question is written and sent in DSH's composer. In the left-panel console, where no conversation is open, a question SHALL open a DSH session in the run's worktree when the view names it, else in the console's workspace, prefilled the same way, and send it.
 
 #### Scenario: Asking about a run
 
-- **WHEN** the operator asks "why is this waiting?" in Ask about this run on a run whose view names worktree `/w/brokkr`
+- **WHEN** the operator asks "why is this waiting?" in the left-panel console on a run whose view names worktree `/w/brokkr`
 - **THEN** a session opens in `/w/brokkr` with the run's title and id in its prompt, and the question is sent
+
+#### Scenario: Asking in a conversation
+
+- **WHEN** the operator presses "Ask about security" in a conversation's Brokkr tab
+- **THEN** that conversation's message box holds the context, opening with the security seat, and nothing is sent
 
 ## Provenance
 
 - `2026-10-13-568-operator-console-slice-one` — folded 2026-10-14
 - `2026-10-14-568-operator-console-slice-two` — folded 2026-10-14
+- `2026-10-14-568-console-view-tab` — folded 2026-10-14

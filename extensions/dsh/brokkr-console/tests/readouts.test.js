@@ -32,5 +32,14 @@ test('a field the console paints that is missing refuses the whole readout', () 
 
 test('an operator event’s recorded reason is read from its payload, and nothing else of it', () => {
   const view = runViewOf(runViewDoc())
-  assert.deepEqual(Object.keys(view.journal[0]).sort(), ['event_type', 'in_trail', 'reason', 'recorded_at', 'seq', 'what'])
+  assert.deepEqual(Object.keys(view.journal[0]).sort(), ['event_type', 'in_trail', 'reason', 'recorded_at', 'ruling', 'seq', 'what'])
+})
+
+test('a ruling is read from the fields its payload records, and only for a ruling', () => {
+  const doc = runViewDoc()
+  const decided = { ...doc.journal[0], seq: 17, payload_json: JSON.stringify({ from: 'implement', next: 'review', rule_id: 'IMPL-OK', result: 'ok', severity: 'normal', inputs: {}, problem: null }) }
+  const started = { ...doc.journal[0], seq: 18, event_type: 'effect/started', payload_json: '{}' }
+  const view = runViewOf({ ...doc, journal: [decided, started] })
+  assert.deepEqual(view.journal[0].ruling, { from: 'implement', next: 'review', rule: 'IMPL-OK', result: 'ok', severity: 'normal' })
+  assert.equal(view.journal[1].ruling, null)
 })

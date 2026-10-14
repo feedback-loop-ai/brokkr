@@ -16,7 +16,7 @@ or derive a standing, need, admissibility, reason or metric itself.
 #### Scenario: A parked run shows Brokkr's own reason
 
 - **WHEN** a run is parked by a rule
-- **THEN** the decision card shows the park reason as the readout gives it, word for word, with the rule id
+- **THEN** "why it waits" shows the park reason as the readout gives it, word for word, with the rule id
 - **AND** no text on the card is computed by the client from raw events
 
 ### Requirement: The Brokkr entry and panel
@@ -77,7 +77,7 @@ Selecting a run SHALL show:
 - the run header with Brokkr's standing;
 - the graph of steps with their members, the model that served each, visits
   and the return paths taken;
-- the decision card when the run needs the operator;
+- the control plane on the graph, and why the run waits when it does;
 - the timeline, newest first.
 
 The view SHALL use only Brokkr's standings and SHALL NOT show a
@@ -135,30 +135,35 @@ The console SHALL draw in a light set of colours, and in a dark set whenever DSH
 
 ### Requirement: The run graph is Brokkr's phases, steps and roads back
 
-The graph SHALL draw the run view's phases left to right, each phase's steps in order, and the members of one step side by side, with an arrow from each node to every node of the next step. Each node SHALL show Brokkr's state and served model, and no state word Brokkr did not give. The last step of a phase SHALL show the visit's duration and rule. A road back SHALL be drawn for each phase `returns` names, solid and in the rail's own colour, as ui.html draws a road that was taken.
+The graph SHALL draw the run as `brokkr tui` draws it: the run view's phases left to right on one rail, each phase's steps in order as dots, the members of one step in a bracket above and below the rail, phase names under it, and the current phase boxed in the colour of the run's status. A phase with no recorded steps SHALL be one dot coloured as the TUI's `class_for_phase` colours it, and no state word Brokkr did not give SHALL be shown. A road back SHALL be drawn beneath for each phase `returns` names, solid and in the rail's own colour, with the ruling that sent it back.
 
 #### Scenario: Review positions
 
 - **WHEN** a design phase records two positions and then a chief
-- **THEN** the positions stand side by side, both arrows lead into the chief, and the chief's arrow leads on
+- **THEN** the positions sit in a bracket either side of the rail, and the rail runs on to the chief
 
 ### Requirement: A pick on the graph shows its seats as the TUI reads them
 
-A phase's label and every node SHALL be pickable. Picking a phase SHALL pick every node in it; picking a node SHALL pick that node; picking either again SHALL let it go. The picked phase or step SHALL show each of its seats with Brokkr's own cells: model (claimed) and boundary, tokens, cache hit, cost, turns and attempts, and effort applied and pinned. An absent cell SHALL show Brokkr's note. A pick SHALL outlive the run view's live refreshes and SHALL be dropped once the view no longer holds it.
+A phase's name, every step and every arrow between phases SHALL be pickable; picking one again SHALL let it go. A phase SHALL pick every step in it; an arrow SHALL pick the ruling that moved the run from one phase to the next, found by the `from` and `next` its payload records. The reader SHALL show the pick, or with nothing picked the run's latest seat, and the seat behind it with Brokkr's own cells: model (claimed) and boundary, effort, tokens as Σ total · ↑ in · ↓ out, cache hit, cost, turns and attempts, and its transcript. An absent cell SHALL show Brokkr's note. A seats table SHALL compare every seat (a picked phase shows only its own), mark the seat behind the pick, and pick a seat when clicked. A pick SHALL outlive the run view's live refreshes and SHALL be dropped once the view no longer holds it.
 
 #### Scenario: A review member
 
 - **WHEN** the operator picks the security member of a review step
-- **THEN** it reads model `gpt-5.5`, tokens `3.01M tok · in 3.00M tok · out 1k tok · …`, cache hit `99.9%` and cost `$2.4179`
+- **THEN** the reader reads model `gpt-5.5`, tokens `Σ 3.01M tok · ↑ 3.00M · ↓ 1.2k`, cache hit `99.9%` and cost `$2.4179`
+
+#### Scenario: An arrow
+
+- **WHEN** the operator picks the arrow from implement to review
+- **THEN** the reader shows the ruling `IMPL-OK` with its words, and the implement seat behind it
 
 #### Scenario: A phase
 
 - **WHEN** the operator picks the review phase
-- **THEN** both review members are picked and both seats are shown
+- **THEN** both review members are picked and the seats table shows only them
 
 ### Requirement: A question is about the pick first and its run second
 
-The assistant panel SHALL name what a question is about, closest first: the picked step or phase, then its run, then its realm. The question's prompt SHALL open with the pick, naming a seat by its participant key so the model can read its transcript, and SHALL give the run as the outer context. With no run picked, the panel SHALL ask about the realm.
+The "Asking about" bar SHALL name what a question is about, closest first: the picked step, arrow or phase, then its run, then its realm. The question's prompt SHALL open with the pick, naming a seat by its participant key so the model can read its transcript, and SHALL give the run as the outer context. With no run picked, it SHALL ask about the realm.
 
 #### Scenario: A picked seat
 
@@ -174,14 +179,32 @@ While a run is driven, its active nodes SHALL strike and throw a halo, as ui.htm
 - **WHEN** a running run's security member is active
 - **THEN** its dot strikes with a halo, and no other node does
 
-### Requirement: A participant names its cache hit
+### Requirement: A participant's tokens are read apart
 
-`brokkr inspect --json`'s participants SHALL carry `cache_hit_cell`: cache reads over input, to one decimal, or absent with its reason when either is unreported or input is zero. The view's wire version SHALL be 21.
+`brokkr inspect --json`'s participants SHALL carry `tokens`: `total` (`3.99M tok`), `input` (`3.98M`), `output` (`14k`) and `cache_hit`, cache reads over input to one decimal; each a cell, absent with its reason when the harness reported nothing to read. The view's wire version SHALL be 21.
 
-#### Scenario: A review seat
+#### Scenario: A codex seat
 
-- **WHEN** a seat reports 3,002,733 cache-read tokens of 3,004,371 input
-- **THEN** its `cache_hit_cell` reads `99.9%`
+- **WHEN** a seat reports 3,975,322 input tokens, 3,830,272 of them cache reads, and 14,051 output
+- **THEN** its tokens read `3.99M tok`, `3.98M`, `14k` and `96.4%`
+
+### Requirement: Why the run waits, beside the reader
+
+When the run waits, "why it waits" SHALL stand beside the reader, the same height: the park reason word for word with its rule, where it parked and since when, and a way to read the seat it parked at; a clarify park's questions with Open the spec; the rule that stopped it; or the quarantine. A run with nothing to wait on SHALL give the reader the whole row.
+
+#### Scenario: A parked run
+
+- **WHEN** a run is parked by REVIEW-SECURITY-RESIDUAL
+- **THEN** "why it waits" quotes the park reason and names the rule, and the reader stands beside it
+
+### Requirement: A seat's transcript is read in the reader
+
+The reader SHALL show the seat's transcript through `brokkr transcript --json`, asked for by realm, run and participant key through a fenced route whose journal is the listing's, never a path the browser sent. It SHALL show the last turns, newest last, each block bounded, and SHALL read it again whenever the run's head moves, so a working seat's follows its tail. A seat whose view records no transcript SHALL show Brokkr's note and ask for nothing.
+
+#### Scenario: A seat with no transcript
+
+- **WHEN** a script seat's view records no transcript reference
+- **THEN** the reader shows "no transcript reference recorded" and no transcript is asked for
 
 ## Provenance
 

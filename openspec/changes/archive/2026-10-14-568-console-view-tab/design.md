@@ -64,3 +64,29 @@ The pick shows `model`, `boundary`, `usage_cell`, `cache_hit_cell`, `cost_cell`,
 ### D8: the pulse is ui.html's
 
 Same keyframes (`forge-strike` 1.8s, the halo 1.8s spreading to 3.2×), same gate: a node pulses only when its run's `summary.status` is `running` and its `state_class` is `in-active`, as ui.html gates on the selected run's status. The mark is ui.html's rail, two violet nodes and a phosphor one, and strikes in sequence while the fleet has a running run. `prefers-reduced-motion` stills both.
+
+## Third round: design D
+
+### D9: the rail is the TUI's
+
+Layout is computed from Brokkr's phases: ranks are phase columns, a rank of one node is a dot on the rail, a rank of several is a bracket with its members at ±50px. Labels are measured by character count and clipped at 22. Dot colours are the TUI's `class_for_node`; a phase with no columns uses `class_for_phase` (visited, or by the run's status when current). The current phase's box takes the run status's colour and is at least as wide as its label.
+
+### D10: an arrow is a ruling
+
+The arrow from phase A to phase B is the latest journal row whose ruling payload records `from: A, next: B`. The seat behind it is the last participant in A. Arrows within a phase join its steps and are not picked.
+
+### D11: the control plane sits on the graph
+
+`RunView.commands` in the order retry, stop, resume, conclude; retry only when admitted. A refused command is a disabled button titled with Brokkr's refusal text. The reason bar sends with the head seen when it was opened, through the same desk and outcomes as before.
+
+### D12: one chat, the conversation's own
+
+A tab knows its session; Ask sets that session's draft to the prompt (scope, tools, citing rule, "Question: ") through `conversation.input.for(sessions.scope(id))` and sends nothing. The left-panel console has no conversation, so it keeps a question box that opens a session as slice two did.
+
+### D13: transcripts through the host
+
+The client asks for a seat's transcript by realm, run and participant key; the host validates the run and seat against the tools' id grammar, resolves the journal from the fleet listing, runs `brokkr transcript --json`, and returns the last 80 turns with each block cut at 4000 characters. A seat whose `transcript_cell` is absent is not asked for.
+
+### Observed, third round
+
+In an isolated DSH in Dark on the operator's journal, with this branch's `brokkr`: the D page for a finished landing run (rail, the verify → review arrow's VERIFY-PASS ruling and seat, the review seat's Σ 5.40M tok · ↑ 5.39M · ↓ 1k, 100.0% cache hit, $4.0995 and transcript, a phase narrowing the seats); a stopped run's "why it waits"; swarmail's running implement step striking in its NOW box; and, in a conversation's Brokkr tab, "Ask about review" putting the context in that conversation's message box, unsent.
