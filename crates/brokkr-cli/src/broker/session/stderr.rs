@@ -42,6 +42,13 @@
 //! whole line the pipe still holds is, within a bound. A last line without
 //! its newline is kept once the pipe has ended, when nothing more can
 //! complete it, and never before.
+//!
+//! Every piece of every line kept of the server's standard error, a marker
+//! in a line's place included, begins with [`SERVER`], so that no line the
+//! server writes, `error: ` and all, reads as the broker's own: the label
+//! is fixed bytes, counted inside each piece's bound and guarded with it,
+//! and the broker's exit status, not its standard error, says how the
+//! session ended (U6f2; operator ruling 2026-10-14).
 
 use std::collections::VecDeque;
 use std::io::{Read, Write};
@@ -82,11 +89,16 @@ const UNSAFE: &str = "[MCP server stderr line cannot be safely masked]";
 /// refuses that line.
 const UNREPORTED: &str = "error: MCP broker session failed and its cause cannot be safely reported";
 
+/// What begins every piece of a line kept of the server's standard error.
+pub(in crate::broker) const SERVER: &str = "MCP server stderr: ";
+
 /// The one way a line reaches the broker's standard error: the bindings a
-/// session looked up, which it is masked by, and their final guard.
+/// session looked up, which it is masked by, their final guard, and the
+/// label each piece it passes begins with, none for the broker's own.
 pub(in crate::broker) struct Voice<'b> {
     bindings: &'b [BoundSecret],
     guard: Guard<'b>,
+    label: &'static str,
 }
 
 /// One line a [`Voice`] passed, its newline included: the only bytes
@@ -102,25 +114,27 @@ impl Said {
 }
 
 impl<'b> Voice<'b> {
-    /// The voice of `bindings`, none where none were looked up.
+    /// The broker's own voice of `bindings`, none where none were looked
+    /// up: its pieces unlabelled.
     pub(in crate::broker) fn new(bindings: &'b [BoundSecret]) -> Voice<'b> {
         Voice {
             bindings,
             guard: Guard::new(bindings),
+            label: "",
         }
     }
 
     /// `raw` as the broker shows it ([`Voice::shown`]) where the final guard
     /// finds those very bytes safe, and each piece it is cut into, a line
-    /// of at most [`ATOMIC`] bytes, its newline included, safe on its own,
-    /// cut before it is guarded, so that wherever its writes stop, what a
-    /// reader holds is whole pieces the guard passed; else `fixed` so
-    /// shown, where it does that; else nothing.
+    /// of at most [`ATOMIC`] bytes, its label and newline included, safe on
+    /// its own, cut before it is guarded, so that wherever its writes stop,
+    /// what a reader holds is whole pieces the guard passed; else `fixed`
+    /// so shown, where it does that; else nothing.
     pub(in crate::broker) fn said(&self, raw: &[u8], fixed: &str) -> Option<Said> {
         let safe = |text: &str| self.guard.text(text.as_bytes());
         [raw, fixed.as_bytes()].into_iter().find_map(|text| {
             let shown = self.shown(text);
-            let pieces = cut(&shown)?;
+            let pieces = cut(&shown, self.label)?;
             let passed = safe(&shown) && pieces.split_inclusive('\n').all(safe);
             passed.then_some(Said(pieces))
         })
@@ -141,16 +155,17 @@ impl<'b> Voice<'b> {
 }
 
 /// The lines of `shown`, each ending in its newline, cut at their safe
-/// points into lines of at most [`ATOMIC`] bytes, that newline included
-/// ([`pieces::cut`]), each on a character's boundary; none where a line
-/// cannot be cut safely.
-fn cut(shown: &str) -> Option<String> {
+/// points into lines of at most [`ATOMIC`] bytes, each beginning with
+/// `label`, that label and newline included ([`pieces::cut`]), each on a
+/// character's boundary; none where a line cannot be cut safely.
+fn cut(shown: &str, label: &str) -> Option<String> {
     let mut pieces = String::with_capacity(shown.len());
     for line in shown.split_inclusive('\n') {
         let line = line.strip_suffix('\n').unwrap_or(line);
-        let ends = pieces::cut(line.as_bytes(), ATOMIC - 1)?;
+        let ends = pieces::cut(line.as_bytes(), ATOMIC - 1 - label.len())?;
         let mut start = 0;
         for end in ends.iter().copied().chain(ends.is_empty().then_some(0)) {
+            pieces.push_str(label);
             pieces.push_str(&line[start..end]);
             pieces.push('\n');
             start = end;
@@ -171,12 +186,15 @@ pub(in crate::broker) struct Drain<'b, R> {
 }
 
 impl<'b, R: Read + AsFd> Drain<'b, R> {
-    /// `pipe` drained, read only once it is readable, and masked by
-    /// `bindings`.
+    /// `pipe` drained, read only once it is readable, masked by `bindings`
+    /// and each piece kept labelled the server's ([`SERVER`]).
     pub(in crate::broker) fn new(pipe: R, bindings: &'b [BoundSecret]) -> Drain<'b, R> {
         Drain {
             lines: Lines::new(pipe),
-            voice: Voice::new(bindings),
+            voice: Voice {
+                label: SERVER,
+                ..Voice::new(bindings)
+            },
             tail: VecDeque::new(),
             kept: 0,
             ended: false,
