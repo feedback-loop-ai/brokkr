@@ -44,7 +44,7 @@ The console SHALL ask in one place, an "Asking about" bar at its foot, naming wh
 
 ### Requirement: Asking opens a logged session in the right directory
 
-In a conversation's Brokkr tab, Ask SHALL put the question's context, its scope, the tools and the instruction to cite records and state gaps, in that conversation's own message box, unsent, so the question is written and sent in DSH's composer. In the left-panel console, where no conversation is open, a question SHALL open a DSH session in the run's worktree when the view names it, else in the console's workspace, prefilled the same way, and send it.
+In a conversation's Brokkr tab, what the tab shows (the pick, the run, the realm), with the tools and the instruction to cite records and state gaps, SHALL reach that conversation's model as context before its next turn: a `snapshot`-form message from the plugin's own source, framed as a `<system-reminder>` the text cannot close, told only when it changed. Nothing SHALL be typed into the operator's message box, and the tab SHALL offer no question box of its own. In the left-panel console, where no conversation is open, a question SHALL open a DSH session in the run's worktree when the view names it, else in the console's workspace, prefilled the same way, and send it.
 
 #### Scenario: Asking about a run
 
@@ -53,8 +53,8 @@ In a conversation's Brokkr tab, Ask SHALL put the question's context, its scope,
 
 #### Scenario: Asking in a conversation
 
-- **WHEN** the operator presses "Ask about security" in a conversation's Brokkr tab
-- **THEN** that conversation's message box holds the context, opening with the security seat, and nothing is sent
+- **WHEN** the operator has picked the security seat in a conversation's Brokkr tab and sends "Is the finding real?" in DSH's message box
+- **THEN** the model receives the Brokkr context, opening with the security seat, before that message, and Chat shows only the operator's message
 
 ### Requirement: A suggestion is only for a command Brokkr admits now
 

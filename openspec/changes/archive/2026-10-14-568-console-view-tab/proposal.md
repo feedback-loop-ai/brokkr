@@ -57,3 +57,14 @@ Seen in the operator's own DSH (dark theme):
 - **One chat.** The right-hand panels are gone. One "Asking about" bar names the pick, the run and the realm; in a conversation's tab it puts that context in the conversation's own message box, unsent; in the left panel it opens a session.
 - **Rulings are read structurally.** Journal rows carry `ruling` (`from`, `next`, `rule`, `result`, `severity`) from the payload Brokkr wrote, so an arrow finds its ruling without parsing words.
 - **The second landing's findings** (`landing-the-dsh-operator-console-3a87d008`, residual, low): the token cells are bound at view level; the console's pulse keyframes are held to ui.html's by a test; a plain current phase is coloured by the run's status as the TUI's `class_for_phase` does; `participants` is back at its baseline; the stale assistant comment is gone.
+
+### Fourth round: trying it
+
+From the operator's own use on 2026-10-14:
+- the tab scrolls in DSH's own scroller, with the bar held above the composer;
+- a script seat's missing transcript reads as Brokkr's answer, and Brokkr's notes never read as a refusal;
+- the realms and a realm's runs are panes of rows, with the filter in the corner;
+- the tab's context reaches the conversation's model as a reminder before its next turn (a `snapshot` from the plugin through `agent/pre-step`), instead of prefilling the message box;
+- each seat names the model and provider its plan selected.
+
+The third landing's four findings (`landing-the-dsh-operator-console-c88f01f3`: one medium, three low) were answered by its implementer and committed by the operator's session. Brokkr's reader for DSH 0.2 transcripts (format v4) is its own change, #678.

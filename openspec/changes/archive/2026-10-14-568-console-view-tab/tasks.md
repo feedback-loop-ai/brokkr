@@ -38,3 +38,11 @@ Status: proposed. Asked for by the operator on 2026-10-14.
 - [x] 5.4 The stylesheet for the rail and the panes, in both palettes. `lib/console.css`.
 - [x] 5.5 Specs `operator-console-read`, `-commands`, `-assistant`; the guide and status.
 - [x] 5.6 Observed in a browser (design, Observed, third round).
+
+## 6. Fourth round
+
+- [x] 6.1 The tab scrolls in DSH's scroller; a seat with no transcript answers in Brokkr's words; refusals drop Brokkr's notes; tests. `lib/console.css`, `lib/host/brokkr.js`, `lib/host/readouts.js`; `tests/transcript-refusal.test.js`.
+- [x] 6.2 The realms pane and a realm's runs pane; each view opens at its top; tests. `lib/client.js` `RealmRow`, `RunList`, `Page`; `tests/tab.test.js`.
+- [x] 6.3 The conversation's context through `POST /brokkr-console/api/focus` and an `agent/pre-step` snapshot; tests; observed against a stub model. `lib/host/focus.js`, `lib/index.js`, `lib/client.js` `AskBar`; `tests/focus.test.js`, `tests/assistant.test.js`.
+- [x] 6.4 A seat's selected model and provider. `lib/host/readouts.js`, `lib/client.js` `selectedOf`.
+- [x] 6.5 The third landing's findings. Commit 7101e9a9.

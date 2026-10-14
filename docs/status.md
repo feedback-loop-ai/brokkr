@@ -184,8 +184,9 @@ recipe the run's start recorded) and `brokkr conclude`, after re-reading
 the run's head. DSH's model reads Brokkr through four read-only tools the
 console registers and may suggest one command Brokkr admits, as a card the
 operator carries to the run's graph and presses there. One "Asking about"
-bar names the pick, the run and the realm; in a conversation's tab it puts
-that context in the conversation's message box, and in the left panel it
+bar names the pick, the run and the realm; in a conversation's tab that
+context reaches the conversation's model as a reminder before its next
+turn, and in the left panel it
 opens an ordinary DSH session with the question, whose model
 also holds DSH's own tools under DSH's approval policy, which the console
 does not narrow; "Open the spec" opens a clarify-parked run's worktree with

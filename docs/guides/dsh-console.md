@@ -75,8 +75,14 @@ back to the cards.
   them, the queue from `brokkr queue list`, each entry with admission's word
   and reasons; starting a queued run waits for Brokkr's dispatcher. Muninn's
   last review, from `brokkr muninn list`, when one is recorded.
-- **One realm.** Its runs: needs you, running, last 24 hours, filterable by
-  title. Pick one to open it.
+- **The realms.** One pane, a row per realm as the TUI's fleet lists them: a
+  status dot that strikes while a run runs, its state, running count, today's
+  shipped and stopped, and what is moving or needs you. Rows needing you come
+  first; a realm Brokkr cannot read is one quiet row, last, with Brokkr's
+  reason.
+- **One realm.** Its runs as a pane of rows (dot, title, step, Brokkr's word,
+  age), grouped needs you, running, last 24 hours, with a small filter in the
+  pane's corner. Pick one to open it.
 - **One run.** Laid out as panes, as `brokkr tui` lays them out: the graph
   across the width with the control plane on it; why the run waits beside
   the reader; every seat in one table beneath; the timeline, folded, at the
@@ -103,7 +109,10 @@ back to the cards.
   and its boundary, effort pinned and applied, tokens as Σ total · ↑ in ·
   ↓ out, the cache hit (cache reads over input, from `brokkr inspect`), cost,
   turns and attempts, and its transcript, newest last, read again whenever
-  the run moves so a working seat's follows its tail. A figure Brokkr did
+  the run moves so a working seat's follows its tail. Beside the model the
+  harness reported serving, the seat names what its plan selected ("selected
+  glm-flash via dsh"), as the TUI's "selected by" line does; a seat served
+  through DSH reports no model of its own. A figure Brokkr did
   not record says why, and so does a seat with no transcript.
 - **Why it waits.** Beside the reader when the run waits: Brokkr's park
   reason, word for word, with the rule, where and since when, and a link to
@@ -168,9 +177,12 @@ registers can press anything.
   can read its transcript) and gives the run as the outer context, with the
   instruction to cite the ruling, session or record behind each fact and to
   say what is not recorded.
-- **In a conversation's tab,** "Ask about …" puts that context in the
-  conversation's own message box, unsent: write your question after
-  "Question:" and send it there. The answer is in the conversation's Chat.
+- **In a conversation's tab,** the bar is a quiet line ("Brokkr context ·
+  … goes with your next message here") with no box of its own: you write in
+  DSH's message box as usual. The plugin tells that conversation's model
+  what the tab shows as context before your next turn, a `<system-reminder>`
+  the way DSH adds AGENTS.md and its runtime context, and only when it
+  changed. Chat shows your message, not the context.
 - **In the left-panel console,** where no conversation is open, the bar has
   its own question box: a question opens a DSH session (in the run's
   worktree when Brokkr records one, else the console's workspace) and is
