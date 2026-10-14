@@ -2,7 +2,7 @@ use super::*;
 use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
 use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
-use brokkr_core::fold::{Cursor, Status};
+use brokkr_core::fold::{Cursor, Run, Status};
 use brokkr_core::EventType;
 use brokkr_store::test_support::plant_broken_link;
 use std::io::{Read, Write};
@@ -18,6 +18,8 @@ mod dispatch_fixture;
 pub(crate) mod env_guard;
 #[path = "../../../tests/support/envelope.rs"]
 pub(crate) mod envelope_builder;
+#[path = "../../../tests/support/run_state.rs"]
+pub(crate) mod run_state;
 use dispatch_fixture::dispatch_envelope;
 use env_guard::EnvGuard;
 
@@ -1428,27 +1430,12 @@ fn the_driver_payload_keeps_every_argument_the_dsh_command_line_carried() {
 
 #[test]
 fn state_constructor_keeps_the_running_cursor_shape_explicit() {
-    let state = RunState {
-        run_id: "run".into(),
-        seq: 0,
-        last_hash: ZERO_HASH.into(),
-        status: Status::Running,
-        phase: None,
-        cursor: Cursor::EnterPhase {
-            phase: "work".into(),
-        },
-        consecutive_failures: Default::default(),
-        visits: Default::default(),
-        strategy: None,
-        last_result: None,
-        phase_results: Default::default(),
-        reviewed_heads: None,
-        last_decision: None,
-        park_reason: None,
-        feature: Some("feature".into()),
-        pending_command: None,
-        riding_stop: false,
-    };
+    let entering = Run::Running(Cursor::EnterPhase {
+        phase: "work".into(),
+    });
+    let mut state = run_state::run_state("run", 0, entering);
+    state.last_hash = ZERO_HASH.into();
+    state.feature = Some("feature".into());
     assert_eq!(summarize(&state)["status"], "running");
 }
 
@@ -2931,9 +2918,12 @@ fn an_operator_stop_mid_flight_lists_with_its_real_status() {
         .expect("the run is read");
     let state = listed.entry().state.expect("the live journal folds");
     assert_eq!(state.seq, 105);
-    assert_eq!(state.status, Status::Running);
     assert_eq!(state.phase.as_deref(), Some("verify"));
-    assert_eq!(state.cursor, Cursor::Stop, "concluded per the operator");
+    assert_eq!(
+        state.run,
+        Run::Running(Cursor::Stop),
+        "concluded per the operator"
+    );
 
     let entries = [
         listed.entry(),
@@ -3052,7 +3042,7 @@ fn resume_concludes_an_accepted_but_unconcluded_operator_stop_and_exits_three() 
 
     // Round trip: the fold reads the tail the engine just wrote.
     let state = fold(&events).unwrap();
-    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(state.run, Run::Stopped);
     assert_eq!(finish(&state), ExitCode::from(3));
 }
 
@@ -3753,7 +3743,7 @@ fn conclude_stops_a_stranded_run_and_refuses_a_concluded_one() {
         "a concluded run exits stopped, like every other stop",
     );
     let state = fold(&Store::open(&db).unwrap().load("stranded").unwrap()).unwrap();
-    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(state.run, Run::Stopped);
 
     let refusal = run(cli(Cmd::Conclude(ConcludeArgs {
         run: "stranded".into(),
@@ -3838,7 +3828,7 @@ fn a_hostile_conclude_reason_is_neutralized_where_it_is_drawn() {
         "closed\u{061c}\u{202e}drawrof\u{200b}\nOPERATOR-STOP: operator 'ci' commanded stop";
     let mut store = Store::open(&db).unwrap();
     let state = brokkr_runtime::conclude(&mut store, run_id, operator, reason).unwrap();
-    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(state.run, Run::Stopped);
 
     // Verbatim in the journal: the citation names the operator as given,
     // and the operator's own words are quoted, not laundered.

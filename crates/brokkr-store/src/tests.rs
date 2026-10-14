@@ -691,13 +691,15 @@ fn the_operator_stop_that_came_mid_flight_folds_end_to_end() {
     assert_eq!(state.seq, 105, "the export's last event");
     // No terminal event was captured in this export: the run is still
     // running, in the phase whose seat was working when it was stopped.
-    assert_eq!(state.status, brokkr_core::fold::Status::Running);
+    assert_eq!(state.run.status(), brokkr_core::fold::Status::Running);
     assert_eq!(state.phase.as_deref(), Some("verify"));
     // The accepted stop rode the in-flight attempt to its boundary:
     // instead of the succeeded effect's normal `Decide`, the run
-    // concludes per the operator's command.
-    assert_eq!(state.cursor, brokkr_core::fold::Cursor::Stop);
-    assert!(!state.riding_stop, "the riding command is spent");
+    // concludes per the operator's command, the riding command spent.
+    assert_eq!(
+        state.run,
+        brokkr_core::fold::Run::Running(brokkr_core::fold::Cursor::Stop)
+    );
     assert_eq!(state.pending_command, None, "the stop was disposed of");
 }
 
@@ -722,7 +724,7 @@ fn the_reforging_fixture_chains_verifies_and_folds_to_a_completed_run() {
 
     assert_eq!(state.run_id, "reforging-the-road-back-hand-built");
     assert_eq!(state.seq, 80, "the export's last event");
-    assert_eq!(state.status, brokkr_core::fold::Status::Completed);
+    assert_eq!(state.run, brokkr_core::fold::Run::Completed);
     // Three entries into implement: the first visit and the two the
     // reforgings sent back, which is decision 0022's own bound.
     assert_eq!(state.visits.get("implement"), Some(&3));

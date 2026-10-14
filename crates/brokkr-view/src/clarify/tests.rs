@@ -84,7 +84,7 @@ fn every_other_park_and_a_running_run_carry_no_questions() {
         "a park after a ruling that routed on is an attempt limit, not clarify's"
     );
     let mut running = parked("clarify", exhausted(), json!("Which?"));
-    running.status = Status::Running;
+    running.run = brokkr_core::fold::Run::Running(brokkr_core::Cursor::RequestEffect);
     assert_eq!(clarify(&judged(), &running), None);
 }
 

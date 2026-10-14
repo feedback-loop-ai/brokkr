@@ -483,7 +483,8 @@ fn census(store: &Store) -> Result<Vec<Live>, AdmissionError> {
                 run: run.clone(),
                 source,
             })?
-            .status;
+            .run
+            .status();
         if status == Status::Running {
             let seats = Seats::of(store.manifest(&run)?);
             live.push(Live { run, seats });

@@ -1,11 +1,14 @@
 use super::*;
-use brokkr_core::fold::{Cursor, Status};
+use brokkr_core::fold::Status;
 use serde::Deserialize;
 use serde_json::json;
 
 #[path = "../../../tests/support/envelope.rs"]
 pub(crate) mod envelope_builder;
 use envelope_builder::EnvelopeBuilder;
+#[path = "../../../tests/support/run_state.rs"]
+mod run_state;
+use run_state::{run_state, standing};
 mod capability_calls;
 
 const T0: &str = "2026-01-01T00:00:00Z";
@@ -30,25 +33,11 @@ fn caused(mut event: EventEnvelope, cause: &str) -> EventEnvelope {
 }
 
 pub(crate) fn state(phase: Option<&str>, status: Status, last_decision: Option<Value>) -> RunState {
-    RunState {
-        run_id: "r1".to_string(),
-        seq: 7,
-        last_hash: "hash".to_string(),
-        status,
-        phase: phase.map(str::to_string),
-        cursor: Cursor::Idle,
-        consecutive_failures: BTreeMap::new(),
-        visits: BTreeMap::new(),
-        strategy: None,
-        last_result: None,
-        phase_results: BTreeMap::new(),
-        reviewed_heads: None,
-        last_decision: last_decision.map(|decision| Decided::deserialize(&decision).unwrap()),
-        park_reason: Some("needs a human".to_string()),
-        feature: Some("feat".to_string()),
-        pending_command: None,
-        riding_stop: false,
-    }
+    let mut state = run_state("r1", 7, standing(status, "needs a human"));
+    state.phase = phase.map(str::to_string);
+    state.last_decision = last_decision.map(|decision| Decided::deserialize(&decision).unwrap());
+    state.feature = Some("feat".to_string());
+    state
 }
 
 /// A listed run with no refusal, no residual and a journal that states

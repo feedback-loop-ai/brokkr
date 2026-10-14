@@ -249,7 +249,6 @@
  104 crates/brokkr-runtime/src/engine/tests.rs:1753 single_conclusion_driver_and_checkpoint_failures_cover_every_outcome
  111 crates/brokkr-runtime/src/engine/tests.rs:1864 panel_sequence_and_aggregation_cover_all_terminal_shapes
  108 crates/brokkr-runtime/src/engine/tests.rs:2930 an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it
- 120 crates/brokkr-runtime/src/engine/tests.rs:3076 start_append_and_running_cursor_storage_failures_propagate
  298 crates/brokkr-runtime/src/engine/tests.rs:3560 panel_and_sequence_storage_failures_propagate
  105 crates/brokkr-runtime/src/engine/tests.rs:4642 a_sequence_fake_driver_sees_step_results_then_the_seat_results
  111 crates/brokkr-runtime/src/engine/tests.rs:5182 chief_synthesis_carries_a_panel_security_hold_to_the_machine

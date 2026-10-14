@@ -699,7 +699,7 @@ fn driven(observing: Option<&str>) -> (tempfile::TempDir, PathBuf, Engine) {
     let world = world(&root, "claude-native-search");
     let bundle = bundle(&root, &world);
     let (engine, state) = drive(&root, world, bundle, "Feature: legacy");
-    assert_eq!(state.status, Status::Completed, "{:?}", state.park_reason);
+    assert_eq!(state.run.status(), Status::Completed, "{:?}", state.run);
     (dir, root, engine)
 }
 
@@ -709,7 +709,10 @@ fn exports_and_verifies(store: &Store, run_id: &str, count: usize, status: Statu
     let exported = store.export_ndjson(run_id).unwrap();
     assert_eq!(exported.lines().count(), count);
     let verified = brokkr_store::verify_export(&exported).unwrap();
-    assert_eq!((verified.status, verified.seq), (status, count as u64));
+    assert_eq!(
+        (verified.run.status(), verified.seq),
+        (status, count as u64)
+    );
 }
 
 /// U4f2's activation at every site shape (CC1, CC3, SC4): the shipped

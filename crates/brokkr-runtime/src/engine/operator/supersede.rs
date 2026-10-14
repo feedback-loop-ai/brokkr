@@ -77,12 +77,12 @@ pub(in crate::engine) fn operator_supersede_racing(
     let refused = EngineError::SupersedeRefused;
     let events = store.load(run_id)?;
     let state = fold(&events)?;
-    if !matches!(state.status, Status::Completed | Status::Stopped) {
+    if !matches!(state.run.status(), Status::Completed | Status::Stopped) {
         return Err(refused(format!(
             "run '{run_id}' is {}, not completed or stopped; on a run that is still \
              going the fold would hold this as a PENDING command and the \
              operator/accepted that disposes of it would be refused as unknown",
-            state.status.as_str()
+            state.run.status().as_str()
         )));
     }
     if ask.by_run == run_id {

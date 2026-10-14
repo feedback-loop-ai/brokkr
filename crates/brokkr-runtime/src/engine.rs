@@ -12,7 +12,7 @@ use brokkr_core::dispatch::{
     build_run_manifest_v2, bundle_manifest_from_run, DispatchEnvelopeV2, DispatchError,
 };
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{computed_inputs, Cursor, RunState, Status};
+use brokkr_core::fold::{computed_inputs, Cursor, ParkReason, Run, RunState};
 use brokkr_core::gate_moved_head::{self, MovedHead};
 use brokkr_core::policy::Outcome;
 use brokkr_core::realms::{Boundary, LEGACY_REALM_KEY};
@@ -750,8 +750,8 @@ impl Engine {
         let mut replay = std::mem::take(&mut self.replay);
         let state = replay.caught_up(&self.store, &self.run_id)?;
         (self.current_cause, self.fence) = fence::tip_of(&replay.events);
-        match (&state.status, &state.cursor) {
-            (Status::Completed | Status::Stopped, _) | (Status::AwaitingOperator, _) => {
+        match &state.run {
+            Run::Completed | Run::Stopped | Run::AwaitingOperator { .. } => {
                 // Best-effort tamper-evidence: anchor the journal head
                 // in refs/forge/<run>. Gaps are reported, never fatal
                 // (the referee-era anchor-gap lore).
@@ -774,8 +774,8 @@ impl Engine {
                 ));
                 return Ok(Some(DriveEnd { state, gaps }));
             }
-            (Status::Running, _) => {
-                self.advance_running(&replay.events, state)?;
+            Run::Running(cursor) => {
+                self.advance_running(&replay.events, cursor.clone(), state)?;
             }
         }
         self.replay = replay;
@@ -823,11 +823,11 @@ impl Engine {
         let reason = format!("journal contention: {store_error}");
         let held = self.held_outcome.take();
         let mut state = self.replay.caught_up(&self.store, &self.run_id)?;
-        if let Cursor::EffectInFlight {
+        if let Run::Running(Cursor::EffectInFlight {
             effect_id,
             attempt_id,
             ..
-        } = state.cursor
+        }) = state.run
         {
             (self.current_cause, self.fence) = fence::tip_of(&self.replay.events);
             if let Some(held) = held.filter(|held| held.attempt_id.as_ref() == Some(&attempt_id)) {
@@ -840,8 +840,8 @@ impl Engine {
             state = self.replay.caught_up(&self.store, &self.run_id)?;
         }
         if !matches!(
-            state.cursor,
-            Cursor::Park { .. } | Cursor::ExecuteEffect { .. }
+            state.run,
+            Run::Running(Cursor::Park { .. } | Cursor::ExecuteEffect { .. })
         ) {
             return Err(error);
         }
@@ -882,9 +882,10 @@ impl Engine {
     fn advance_running(
         &mut self,
         events: &[EventEnvelope],
+        cursor: Cursor,
         state: RunState,
     ) -> Result<(), EngineError> {
-        match state.cursor.clone() {
+        match cursor {
             Cursor::Start => {
                 let initial = self.bundle.machine.initial.clone();
                 self.enter_phase(&initial, &state)?;
@@ -966,14 +967,13 @@ impl Engine {
             }
             Cursor::Decide { result, .. } => self.decide(&state, result)?,
             Cursor::Park { reason } => {
-                let evidence = if reason == gate_moved_head::PREFIX {
-                    gate_head_evidence(events)
-                } else {
-                    json!({})
+                let evidence = match reason {
+                    ParkReason::GateMovedHead => gate_head_evidence(events),
+                    ParkReason::Stated(_) => json!({}),
                 };
                 self.append(
                     EventType::RunParked,
-                    json!({"reason": reason, "evidence": evidence}),
+                    json!({"reason": reason.as_str(), "evidence": evidence}),
                     None,
                 )?;
             }
@@ -983,12 +983,6 @@ impl Engine {
                     json!({"reason": operator_stop_reason(events)}),
                     None,
                 )?;
-            }
-            Cursor::Idle => {
-                return Err(EngineError::Invariant(
-                    "running not idle",
-                    "running state reached the terminal idle cursor".into(),
-                ))
             }
         }
         Ok(())

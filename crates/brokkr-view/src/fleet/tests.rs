@@ -4,6 +4,7 @@
 use super::*;
 use crate::tests::state;
 use crate::{Superseded, SupersededBy};
+use brokkr_core::fold::{ParkReason, Run};
 use serde_json::{json, Value};
 
 const NOW: &str = "2026-01-02T00:00:00Z";
@@ -12,10 +13,16 @@ const NOW: &str = "2026-01-02T00:00:00Z";
 const DAY_BEFORE: &str = "2026-01-01T00:00:00Z";
 const JUST_UNDER_A_DAY: &str = "2026-01-01T00:00:01Z";
 
-/// A run the fold has settled: no park reason unless the test gives one.
+/// A run the fold has settled, parked on `needs a human` when it parked.
 fn settled(status: Status, phase: &str, decision: Option<Value>) -> RunState {
-    let mut state = state(Some(phase), status, decision);
-    state.park_reason = None;
+    state(Some(phase), status, decision)
+}
+
+/// `state` parked for `reason`.
+fn parked_for(mut state: RunState, reason: &str) -> RunState {
+    state.run = Run::AwaitingOperator {
+        reason: ParkReason::read(reason.to_string()),
+    };
     state
 }
 
@@ -231,28 +238,32 @@ fn a_shipped_run_shows_its_ruling_and_its_worst_open_residual() {
 /// fold's reason; a quarantined run says its journal does not fold.
 #[test]
 fn a_run_that_needs_you_says_why() {
-    let mut held = settled(
-        Status::AwaitingOperator,
-        "review",
-        ruled("REVIEW-UNVERIFIED-SECURITY", "review", None),
+    let held = parked_for(
+        settled(
+            Status::AwaitingOperator,
+            "review",
+            ruled("REVIEW-UNVERIFIED-SECURITY", "review", None),
+        ),
+        "REVIEW-UNVERIFIED-SECURITY for (review, clean)",
     );
-    held.park_reason = Some("REVIEW-UNVERIFIED-SECURITY for (review, clean)".to_string());
     let mut wanted_held = wanted(
         Standing::Parked,
         Some("REVIEW-UNVERIFIED-SECURITY"),
         None,
         "UNVERIFIED-SE…",
     );
-    wanted_held.reason = held.park_reason.clone();
+    wanted_held.reason = Some("REVIEW-UNVERIFIED-SECURITY for (review, clean)".to_string());
     assert_eq!(verdict(Some(&held), &[]), wanted_held);
-    let mut spent = settled(
-        Status::AwaitingOperator,
-        "implement",
-        ruled("ARCH-OK", "architect", Some("implement")),
+    let spent = parked_for(
+        settled(
+            Status::AwaitingOperator,
+            "implement",
+            ruled("ARCH-OK", "architect", Some("implement")),
+        ),
+        "attempt limit exhausted",
     );
-    spent.park_reason = Some("attempt limit exhausted".to_string());
     let mut wanted_spent = wanted(Standing::Parked, None, None, ABSENT);
-    wanted_spent.reason = spent.park_reason.clone();
+    wanted_spent.reason = Some("attempt limit exhausted".to_string());
     assert_eq!(verdict(Some(&spent), &[]), wanted_spent);
     assert_eq!(
         verdict(None, &[]),
@@ -616,12 +627,13 @@ fn each_need_says_what_the_operator_can_do() {
 #[test]
 fn a_stale_run_has_no_seat_at_work() {
     let mut running = settled(Status::Running, "review", None);
-    running.cursor = Cursor::EffectInFlight {
+    running.run = Run::Running(Cursor::EffectInFlight {
         effect_id: "e1".to_string(),
         attempt_id: "a1".to_string(),
         seat: "reviewer".to_string(),
         failed_attempts: 0,
-    };
+        stop_rides: false,
+    });
     let live = silent_since(&running, Some(NOW));
     let hire = Hire {
         seat: "reviewer".to_string(),
@@ -638,27 +650,32 @@ fn a_stale_run_has_no_seat_at_work() {
 #[test]
 fn a_run_row_names_the_seat_at_work_and_its_attempt() {
     let mut running = settled(Status::Running, "review", None);
-    running.cursor = Cursor::EffectInFlight {
+    running.run = Run::Running(Cursor::EffectInFlight {
         effect_id: "e1".to_string(),
         attempt_id: "a2".to_string(),
         seat: "reviewer".to_string(),
         failed_attempts: 1,
-    };
+        stop_rides: false,
+    });
     let hire = |seat: &str, attempt| Hire {
         seat: seat.to_string(),
         attempt,
     };
     assert_eq!(silent_since(&running, None).hire, Some(hire("reviewer", 2)));
-    running.cursor = Cursor::ExecuteEffect {
+    running.run = Run::Running(Cursor::ExecuteEffect {
         effect_id: "e1".to_string(),
         seat: "reviewer".to_string(),
         failed_attempts: 0,
-    };
+    });
     assert_eq!(silent_since(&running, None).hire, Some(hire("reviewer", 1)));
     let json = serde_json::to_value(silent_since(&running, None)).unwrap();
     assert_eq!(json["hire"], json!({"seat": "reviewer", "attempt": 1}));
-    for cursor in [Cursor::Idle, Cursor::RequestEffect, Cursor::Stop] {
-        running.cursor = cursor;
+    for run in [
+        Run::Stopped,
+        Run::Running(Cursor::RequestEffect),
+        Run::Running(Cursor::Stop),
+    ] {
+        running.run = run;
         assert_eq!(silent_since(&running, None).hire, None);
     }
 }

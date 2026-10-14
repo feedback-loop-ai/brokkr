@@ -1,5 +1,6 @@
 use super::*;
 use crate::envelope_builder::EnvelopeBuilder;
+use crate::run_state::{run_state, standing};
 use serde_json::json;
 
 fn event(event_type: EventType, payload: Value) -> EventEnvelope {
@@ -14,24 +15,44 @@ fn event(event_type: EventType, payload: Value) -> EventEnvelope {
 }
 
 fn state(cursor: Cursor) -> RunState {
-    RunState {
-        run_id: "r1".into(),
-        seq: 1,
-        last_hash: "hash".into(),
-        status: Status::Running,
-        phase: Some("work".into()),
-        cursor,
-        consecutive_failures: BTreeMap::new(),
-        visits: BTreeMap::new(),
-        strategy: None,
-        last_result: None,
-        phase_results: BTreeMap::new(),
-        reviewed_heads: None,
-        last_decision: None,
-        park_reason: None,
-        feature: Some("feature".into()),
-        pending_command: None,
-        riding_stop: false,
+    at(Run::Running(cursor))
+}
+
+/// A run standing in `run`, otherwise as [`state`] builds it.
+fn at(run: Run) -> RunState {
+    let mut state = run_state("r1", 1, run);
+    state.phase = Some("work".into());
+    state.feature = Some("feature".into());
+    state
+}
+
+/// A run parked for the operator.
+fn parked() -> Run {
+    with_status(Status::AwaitingOperator)
+}
+
+/// The run each status names, a parked one waiting on the operator.
+fn with_status(status: Status) -> Run {
+    standing(status, "waiting on the operator")
+}
+
+/// A run standing in `run` whose operator stop `c1` is accepted.
+fn stop_accepted(run: Run) -> RunState {
+    let mut current = at(run);
+    current.pending_command = Some(("c1".into(), "stop".into()));
+    let accepted = event(EventType::OperatorAccepted, json!({"command_id": "c1"}));
+    apply(&mut current, &accepted).unwrap();
+    current
+}
+
+/// An attempt `a1` of effect `e1` in flight for seat `work`.
+fn in_flight(stop_rides: bool) -> Cursor {
+    Cursor::EffectInFlight {
+        effect_id: "e1".into(),
+        attempt_id: "a1".into(),
+        seat: "work".into(),
+        failed_attempts: 0,
+        stop_rides,
     }
 }
 
@@ -103,8 +124,7 @@ fn fold_and_apply_refuse_malformed_or_out_of_place_events() {
 fn operator_and_terminal_refusals_are_explicit() {
     let accepted = |id| event(EventType::OperatorAccepted, json!({"command_id": id}));
 
-    let mut current = state(Cursor::Idle);
-    current.status = Status::AwaitingOperator;
+    let mut current = at(parked());
     assert_eq!(
         apply(&mut current, &accepted("c1")),
         Err(FoldError::NoMatchingCommand { seq: 2 })
@@ -133,16 +153,14 @@ fn operator_and_terminal_refusals_are_explicit() {
             "impossible",
         ),
     ] {
-        let mut current = state(Cursor::Idle);
+        let mut current = at(with_status(status));
         current.pending_command = pending;
-        current.status = status;
         current.phase = phase;
         let error = apply(&mut current, &accepted(command)).unwrap_err();
         assert!(format!("{error}").contains(expected));
     }
 
-    let mut current = state(Cursor::Idle);
-    current.status = Status::AwaitingOperator;
+    let mut current = at(parked());
     current.pending_command = Some(("c1".into(), "invented".into()));
     assert_eq!(
         apply(&mut current, &accepted("c1")),
@@ -152,9 +170,8 @@ fn operator_and_terminal_refusals_are_explicit() {
         })
     );
 
-    for status in [Status::Completed, Status::Stopped] {
-        let mut current = state(Cursor::Idle);
-        current.status = status;
+    for run in [Run::Completed, Run::Stopped] {
+        let mut current = at(run);
         assert_eq!(
             apply(&mut current, &event(EventType::OperatorRejected, json!({}))),
             Ok(())
@@ -166,8 +183,7 @@ fn operator_and_terminal_refusals_are_explicit() {
     }
 
     for event_type in [EventType::RunCompleted, EventType::RunStopped] {
-        let mut current = state(Cursor::Idle);
-        current.status = Status::AwaitingOperator;
+        let mut current = at(parked());
         assert!(matches!(
             apply(&mut current, &event(event_type, json!({}))),
             Err(FoldError::OutOfPlace { .. })
@@ -206,8 +222,7 @@ fn the_acceptance_rule_names_each_condition_and_pins_its_word() {
         (parked, None, Stop, None),
         (Status::Running, None, Stop, None),
     ] {
-        let mut current = state(Cursor::Idle);
-        current.status = status;
+        let mut current = at(with_status(status));
         current.phase = phase.map(str::to_string);
         let refusal = acceptance_refusal(&current, command);
         assert_eq!(refusal, expected, "{status:?} {phase:?} {command:?}");
@@ -266,8 +281,7 @@ fn a_refusal_cites_the_position_it_refused_at() {
         0,
         "nothing to cite but the start"
     );
-    let mut current = state(Cursor::Idle);
-    current.status = Status::AwaitingOperator;
+    let mut current = at(parked());
     let error = apply(
         &mut current,
         &event(EventType::OperatorAccepted, json!({"command_id": "c1"})),
@@ -302,7 +316,7 @@ fn a_refusal_cites_the_position_it_refused_at() {
 /// in the journal (#419).
 #[test]
 fn an_out_of_place_refusal_names_the_cursor_it_met() {
-    let mut current = state(Cursor::Idle);
+    let mut current = at(parked());
     assert_eq!(
         apply(
             &mut current,
@@ -317,16 +331,10 @@ fn an_out_of_place_refusal_names_the_cursor_it_met() {
 }
 
 /// A cursor displays its variant and the ids and count that place it,
-/// the bytes `Debug` showed for those, and never a seat's result or a
-/// park's free text (#345).
+/// the bytes `Debug` showed for those, and never a seat's result, a
+/// park's free text or a riding stop (#345).
 #[test]
 fn a_cursor_displays_its_variant_and_ids_never_a_result() {
-    let in_flight = Cursor::EffectInFlight {
-        effect_id: "e1".into(),
-        attempt_id: "a1".into(),
-        seat: "work".into(),
-        failed_attempts: 2,
-    };
     let execute = Cursor::ExecuteEffect {
         effect_id: "e1".into(),
         seat: "work".into(),
@@ -343,15 +351,16 @@ fn a_cursor_displays_its_variant_and_ids_never_a_result() {
             execute,
             r#"ExecuteEffect { effect_id: "e1", seat: "work", failed_attempts: 1 }"#,
         ),
-        (
-            in_flight,
-            r#"EffectInFlight { effect_id: "e1", attempt_id: "a1", seat: "work", failed_attempts: 2 }"#,
-        ),
         (Cursor::Stop, "Stop"),
-        (Cursor::Idle, "Idle"),
     ] {
         assert_eq!(cursor.to_string(), shown);
         assert_eq!(format!("{cursor:?}"), shown);
+    }
+    for stop_rides in [false, true] {
+        assert_eq!(
+            in_flight(stop_rides).to_string(),
+            r#"EffectInFlight { effect_id: "e1", attempt_id: "a1", seat: "work", failed_attempts: 0 }"#
+        );
     }
     let decide = Cursor::Decide {
         effect_id: "e1".into(),
@@ -359,9 +368,75 @@ fn a_cursor_displays_its_variant_and_ids_never_a_result() {
     };
     assert_eq!(decide.to_string(), r#"Decide { effect_id: "e1" }"#);
     let park = Cursor::Park {
-        reason: "effect e1 indeterminate: a seat's words".into(),
+        reason: ParkReason::read("effect e1 indeterminate: a seat's words".into()),
     };
     assert_eq!(park.to_string(), "Park");
+}
+
+/// A run is one of four states (#345): the status word is the state's,
+/// only a running run has a cursor, only a parked one a reason (a running
+/// run at `Park` has not parked yet), and every state but running shows
+/// as `Idle`, as readouts always printed it.
+#[test]
+fn a_run_is_one_of_four_states_and_names_its_status_cursor_and_reason() {
+    let reason = ParkReason::read("attempts exhausted".into());
+    let parking = Cursor::Park {
+        reason: reason.clone(),
+    };
+    for (run, status, cursor, park_reason, shown) in [
+        (
+            Run::Running(in_flight(true)),
+            Status::Running,
+            Some(in_flight(true)),
+            None,
+            r#"EffectInFlight { effect_id: "e1", attempt_id: "a1", seat: "work", failed_attempts: 0 }"#,
+        ),
+        (
+            Run::Running(parking.clone()),
+            Status::Running,
+            Some(parking),
+            None,
+            "Park",
+        ),
+        (
+            Run::AwaitingOperator {
+                reason: reason.clone(),
+            },
+            Status::AwaitingOperator,
+            None,
+            Some(&reason),
+            "Idle",
+        ),
+        (Run::Completed, Status::Completed, None, None, "Idle"),
+        (Run::Stopped, Status::Stopped, None, None, "Idle"),
+    ] {
+        assert_eq!(run.status(), status, "{run:?}");
+        assert_eq!(run.cursor(), cursor.as_ref(), "{run:?}");
+        assert_eq!(run.park_reason(), park_reason, "{run:?}");
+        assert_eq!(run.to_string(), shown, "{run:?}");
+    }
+}
+
+/// A park reason reads back the words it was read from, and only the
+/// marker alone, exactly, is the gate that moved HEAD (#345).
+#[test]
+fn a_park_reason_reads_back_its_own_words() {
+    assert_eq!(
+        ParkReason::read("GATE-MOVED-HEAD".into()),
+        ParkReason::GateMovedHead
+    );
+    assert_eq!(ParkReason::GateMovedHead.as_str(), "GATE-MOVED-HEAD");
+    for words in [
+        "GATE-MOVED-HEAD ",
+        "GATE-MOVED-HEAD {}",
+        "gate-moved-head",
+        "effect e1 indeterminate: engine restarted",
+        "",
+    ] {
+        let reason = ParkReason::read(words.into());
+        assert_eq!(reason, ParkReason::Stated(words.into()));
+        assert_eq!(reason.as_str(), words);
+    }
 }
 
 /// An indeterminate whose reason carries the GATE-MOVED-HEAD marker parks
@@ -371,19 +446,14 @@ fn a_cursor_displays_its_variant_and_ids_never_a_result() {
 #[test]
 fn a_marked_indeterminate_parks_on_the_marker() {
     let park_reason = |reason: &str| {
-        let mut current = state(Cursor::EffectInFlight {
-            effect_id: "e1".into(),
-            attempt_id: "a1".into(),
-            seat: "work".into(),
-            failed_attempts: 0,
-        });
+        let mut current = state(in_flight(false));
         let payload = json!({"effect_id": "e1", "attempt_id": "a1", "reason": reason});
         apply(
             &mut current,
             &event(EventType::EffectIndeterminate, payload),
         )
         .unwrap();
-        current.cursor
+        current.run
     };
     let marked = gate_moved_head::encode(&gate_moved_head::MovedHead {
         head_at_end: Some("bbb".into()),
@@ -392,16 +462,16 @@ fn a_marked_indeterminate_parks_on_the_marker() {
     for reason in [marked.as_str(), "GATE-MOVED-HEAD not json"] {
         assert_eq!(
             park_reason(reason),
-            Cursor::Park {
-                reason: "GATE-MOVED-HEAD".into()
-            }
+            Run::Running(Cursor::Park {
+                reason: ParkReason::GateMovedHead
+            })
         );
     }
     assert_eq!(
         park_reason("GATE-MOVED-HEAD{}"),
-        Cursor::Park {
-            reason: "effect e1 indeterminate: GATE-MOVED-HEAD{}".into()
-        }
+        Run::Running(Cursor::Park {
+            reason: ParkReason::Stated("effect e1 indeterminate: GATE-MOVED-HEAD{}".into())
+        })
     );
 }
 
@@ -556,9 +626,9 @@ fn decision_captures_reviewed_heads() {
 fn the_fold_counts_visits_keeps_the_last_result_and_names_the_rule_that_parked() {
     let mut current = state(Cursor::Start);
     for phase in ["work", "check", "work"] {
-        current.cursor = Cursor::EnterPhase {
+        current.run = Run::Running(Cursor::EnterPhase {
             phase: phase.into(),
-        };
+        });
         apply(
             &mut current,
             &event(EventType::PhaseEntered, json!({"phase": phase})),
@@ -570,17 +640,12 @@ fn the_fold_counts_visits_keeps_the_last_result_and_names_the_rule_that_parked()
     assert_eq!(current.visits.get("ship"), None);
 
     let finding = json!({"result": "residual", "notes": "the handle came out short"});
-    current.cursor = Cursor::EffectInFlight {
-        effect_id: "e".into(),
-        attempt_id: "a".into(),
-        seat: "work".into(),
-        failed_attempts: 0,
-    };
+    current.run = Run::Running(in_flight(false));
     apply(
         &mut current,
         &event(
             EventType::EffectSucceeded,
-            json!({"effect_id": "e", "attempt_id": "a", "result": finding}),
+            json!({"effect_id": "e1", "attempt_id": "a1", "result": finding}),
         ),
     )
     .unwrap();
@@ -594,8 +659,8 @@ fn the_fold_counts_visits_keeps_the_last_result_and_names_the_rule_that_parked()
             result: json!({}),
         });
         apply(&mut current, &event(EventType::TransitionDecided, payload)).unwrap();
-        match current.cursor {
-            Cursor::Park { reason } => reason,
+        match current.run {
+            Run::Running(Cursor::Park { reason }) => reason.as_str().to_string(),
             other => panic!("expected a park, got {other:?}"),
         }
     };
@@ -620,68 +685,52 @@ fn the_fold_counts_visits_keeps_the_last_result_and_names_the_rule_that_parked()
 /// concludes the run per the command.
 #[test]
 fn an_accepted_stop_rides_the_in_flight_attempt_to_the_effects_boundary() {
-    let in_flight = || Cursor::EffectInFlight {
-        effect_id: "open".into(),
-        attempt_id: "attempt".into(),
-        seat: "verify".into(),
-        failed_attempts: 0,
-    };
     let riding = || {
-        let mut current = state(in_flight());
-        current.pending_command = Some(("c1".into(), "stop".into()));
-        apply(
-            &mut current,
-            &event(EventType::OperatorAccepted, json!({"command_id": "c1"})),
-        )
-        .unwrap();
-        // Accepting it changes nothing about the attempt: same cursor,
+        let current = stop_accepted(Run::Running(in_flight(false)));
+        // Accepting it changes nothing about the attempt: same attempt,
         // still running, the command spent from pending and now riding.
-        assert_eq!(current.cursor, in_flight());
-        assert_eq!(current.status, Status::Running);
+        assert_eq!(current.run, Run::Running(in_flight(true)));
         assert_eq!(current.pending_command, None);
-        assert!(current.riding_stop);
         current
     };
 
     // The in-flight attempt keeps journaling — checkpoints for the same
-    // effect still apply normally after the acceptance.
+    // effect still apply normally after the acceptance, still riding.
     let mut current = riding();
     apply(
         &mut current,
-        &event(EventType::EffectCheckpointed, json!({"effect_id": "open"})),
+        &event(EventType::EffectCheckpointed, json!({"effect_id": "e1"})),
     )
     .unwrap();
-    assert_eq!(current.cursor, in_flight());
-    assert!(current.riding_stop, "still riding");
+    assert_eq!(current.run, Run::Running(in_flight(true)));
 
     // The evidenced boundary: the effect succeeds, and instead of its
-    // normal `Decide` the run concludes per the stop.
+    // normal `Decide` the run concludes per the stop, the riding
+    // command spent with the attempt.
     apply(
         &mut current,
         &event(
             EventType::EffectSucceeded,
-            json!({"effect_id": "open", "result": {"result": "complete"}}),
+            json!({"effect_id": "e1", "result": {"result": "complete"}}),
         ),
     )
     .unwrap();
-    assert_eq!(current.cursor, Cursor::Stop);
-    assert!(!current.riding_stop, "the riding command is spent");
+    assert_eq!(current.run, Run::Running(Cursor::Stop));
 
     // The same redirect at the other two boundaries of the same
     // attempt: a generalization of "the effect's boundary", not
     // separately evidenced. Neither retries nor parks past an accepted
     // stop — the operator's command is the run's conclusion.
     for (event_type, payload) in [
-        (EventType::EffectFailed, json!({"effect_id": "open"})),
+        (EventType::EffectFailed, json!({"effect_id": "e1"})),
         (
             EventType::EffectIndeterminate,
-            json!({"effect_id": "open", "reason": "engine restarted"}),
+            json!({"effect_id": "e1", "reason": "engine restarted"}),
         ),
     ] {
         let mut current = riding();
         apply(&mut current, &event(event_type, payload)).unwrap();
-        assert_eq!(current.cursor, Cursor::Stop, "{event_type:?}");
-        assert!(!current.riding_stop);
+        assert_eq!(current.run, Run::Running(Cursor::Stop), "{event_type:?}");
     }
 }
 
@@ -693,19 +742,6 @@ fn an_accepted_stop_rides_the_in_flight_attempt_to_the_effects_boundary() {
 /// journal it may refuse to read.
 #[test]
 fn a_stop_accepted_with_nothing_in_flight_concludes_where_it_stands() {
-    let concluded = |cursor: Cursor, status: Status| {
-        let mut current = state(cursor);
-        current.status = status;
-        current.park_reason = Some("waiting on the operator".into());
-        current.pending_command = Some(("c1".into(), "stop".into()));
-        apply(
-            &mut current,
-            &event(EventType::OperatorAccepted, json!({"command_id": "c1"})),
-        )
-        .unwrap();
-        current
-    };
-
     // Every running position the engine can be standing at when the
     // kill switch fires with no attempt of its own in flight.
     for cursor in [
@@ -724,26 +760,18 @@ fn a_stop_accepted_with_nothing_in_flight_concludes_where_it_stands() {
             result: json!({"result": "complete"}),
         },
         Cursor::Park {
-            reason: "no ruling".into(),
+            reason: ParkReason::read("no ruling".into()),
         },
     ] {
-        let current = concluded(cursor.clone(), Status::Running);
-        assert_eq!(current.cursor, Cursor::Stop, "{cursor:?}");
-        assert_eq!(current.status, Status::Running, "{cursor:?}");
-        assert!(
-            !current.riding_stop,
-            "nothing in flight to ride: {cursor:?}"
-        );
+        let current = stop_accepted(Run::Running(cursor.clone()));
+        assert_eq!(current.run, Run::Running(Cursor::Stop), "{cursor:?}");
         assert_eq!(current.pending_command, None, "{cursor:?}");
-        assert_eq!(current.park_reason, None, "{cursor:?}");
     }
 
     // The parked case, unchanged: still running until run/stopped is
     // journaled, and the park it answered is spent.
-    let parked = concluded(Cursor::Idle, Status::AwaitingOperator);
-    assert_eq!(parked.cursor, Cursor::Stop);
-    assert_eq!(parked.status, Status::Running);
-    assert_eq!(parked.park_reason, None);
+    let parked = stop_accepted(parked());
+    assert_eq!(parked.run, Run::Running(Cursor::Stop));
 }
 
 /// The stop arm is wide; the rest is as narrow as it was. Only a
@@ -752,30 +780,28 @@ fn a_stop_accepted_with_nothing_in_flight_concludes_where_it_stands() {
 /// decision 0001 admits no guessed transition.
 #[test]
 fn the_mid_flight_arm_refuses_everything_it_is_not() {
-    let in_flight = || Cursor::EffectInFlight {
-        effect_id: "open".into(),
-        attempt_id: "attempt".into(),
-        seat: "verify".into(),
-        failed_attempts: 0,
-    };
     let accepted = event(EventType::OperatorAccepted, json!({"command_id": "c1"}));
     let refusal = |cursor: Cursor, pending: (&str, &str)| {
-        let mut current = state(cursor);
+        let mut current = state(cursor.clone());
         current.pending_command = Some((pending.0.into(), pending.1.into()));
         let error = apply(&mut current, &accepted).unwrap_err();
-        assert!(!current.riding_stop, "a refused stop never rides");
+        assert_eq!(
+            current.run,
+            Run::Running(cursor),
+            "a refused stop never rides"
+        );
         error
     };
 
     // An acceptance that names a different command is not this run's
     // stop, wherever the cursor stands.
     assert_eq!(
-        refusal(in_flight(), ("other", "stop")),
+        refusal(in_flight(false), ("other", "stop")),
         FoldError::NoMatchingCommand { seq: 2 }
     );
     // A command the protocol does not know is named as such.
     assert_eq!(
-        refusal(in_flight(), ("c1", "invented")),
+        refusal(in_flight(false), ("c1", "invented")),
         FoldError::UnknownCommand {
             seq: 2,
             command: "invented".into(),
@@ -785,7 +811,7 @@ fn the_mid_flight_arm_refuses_everything_it_is_not() {
     // resuming an attempt that is already running has no meaning, and
     // unlike `stop` there is no conclusion the journal is owed.
     assert!(matches!(
-        refusal(in_flight(), ("c1", "retry")),
+        refusal(in_flight(false), ("c1", "retry")),
         FoldError::OutOfPlace { .. }
     ));
     // `retry` at a running cursor with nothing to retry is refused the
@@ -803,6 +829,7 @@ fn open_effect_guards_refuse_foreign_effects_in_the_same_cursor_shape() {
         attempt_id: "attempt".into(),
         seat: "work".into(),
         failed_attempts: 0,
+        stop_rides: false,
     };
     let executing = || Cursor::ExecuteEffect {
         effect_id: "open".into(),
@@ -927,7 +954,7 @@ fn a_supersede_annotation_folds_a_stopped_run_to_the_same_state() {
         derived(&after),
         "the fold derives nothing at all from a supersede annotation"
     );
-    assert_eq!(after.status, Status::Stopped, "a mark is not a conclusion");
+    assert_eq!(after.run, Run::Stopped, "a mark is not a conclusion");
     assert!(
         after.pending_command.is_none(),
         "an annotation on a terminal run is never held as pending"
@@ -976,38 +1003,35 @@ const POSITIONS: [Position; 10] = {
 /// A run standing at `position`, holding effect `e` and phase `work`,
 /// with an operator stop pending.
 fn standing_at(position: Position) -> RunState {
-    let mut current = state(match position {
-        Position::Start => Cursor::Start,
-        Position::EnterPhase => Cursor::EnterPhase {
+    let mut current = at(match position {
+        Position::Start => Run::Running(Cursor::Start),
+        Position::EnterPhase => Run::Running(Cursor::EnterPhase {
             phase: "work".into(),
-        },
-        Position::RequestEffect => Cursor::RequestEffect,
-        Position::ExecuteEffect => Cursor::ExecuteEffect {
+        }),
+        Position::RequestEffect => Run::Running(Cursor::RequestEffect),
+        Position::ExecuteEffect => Run::Running(Cursor::ExecuteEffect {
             effect_id: "e".into(),
             seat: "work".into(),
             failed_attempts: 0,
-        },
-        Position::EffectInFlight => Cursor::EffectInFlight {
+        }),
+        Position::EffectInFlight => Run::Running(Cursor::EffectInFlight {
             effect_id: "e".into(),
             attempt_id: "a".into(),
             seat: "work".into(),
             failed_attempts: 0,
-        },
-        Position::Decide => Cursor::Decide {
+            stop_rides: false,
+        }),
+        Position::Decide => Run::Running(Cursor::Decide {
             effect_id: "e".into(),
             result: json!({"result": "complete"}),
-        },
-        Position::Park => Cursor::Park {
-            reason: "no ruling".into(),
-        },
-        Position::Stop => Cursor::Stop,
-        Position::Idle | Position::Terminal => Cursor::Idle,
+        }),
+        Position::Park => Run::Running(Cursor::Park {
+            reason: ParkReason::read("no ruling".into()),
+        }),
+        Position::Stop => Run::Running(Cursor::Stop),
+        Position::Idle => parked(),
+        Position::Terminal => Run::Completed,
     });
-    current.status = match position {
-        Position::Idle => Status::AwaitingOperator,
-        Position::Terminal => Status::Completed,
-        _ => Status::Running,
-    };
     current.pending_command = Some(("c1".into(), "stop".into()));
     current
 }
@@ -1109,7 +1133,7 @@ fn the_relation_answers_every_pair_and_the_fold_answers_by_it() {
                     let refusal = FoldError::OutOfPlace {
                         seq: 2,
                         event: format!("{event_type:?}"),
-                        cursor: before.cursor.to_string(),
+                        cursor: before.run.to_string(),
                     };
                     assert_eq!(answer, Err(refusal), "{pair}");
                     "out of place"
@@ -1138,7 +1162,7 @@ fn the_relation_answers_every_pair_and_the_fold_answers_by_it() {
     );
 
     let mut stopped = standing_at(Terminal);
-    stopped.status = Status::Stopped;
+    stopped.run = Run::Stopped;
     assert_eq!(Position::of(&stopped), Terminal);
 }
 
@@ -1200,8 +1224,7 @@ fn a_run_is_concluded_only_once_it_completed_or_stopped() {
         (Status::Completed, Some(Status::Completed)),
         (Status::Stopped, Some(Status::Stopped)),
     ] {
-        let mut current = state(Cursor::Idle);
-        current.status = status;
+        let current = at(with_status(status));
         assert_eq!(concluded(&current), expected, "{status:?}");
     }
     assert_eq!(
