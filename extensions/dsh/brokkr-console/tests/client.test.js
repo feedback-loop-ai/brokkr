@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { analyticsOf, fleetOf, runViewOf } from '../lib/host/readouts.js'
-import { buttons, findAll, mountClient, textOf } from './support/client.js'
+import { NOW, buttons, findAll, mountClient, textOf } from './support/client.js'
 import { analyticsDoc, fleetDoc, journalRow, offered, row, runViewDoc } from './support/world.js'
 
 const RUN = row().run_id
@@ -57,7 +57,7 @@ test('an acknowledged quarantine is not counted as waiting on the operator (#511
 })
 
 test('an acknowledged quarantine lists under Older whatever its age, keeping its mark and refusal (#511)', () => {
-  const since = (hours) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+  const since = (hours) => new Date(NOW - hours * 60 * 60 * 1000).toISOString()
   const answered = { seq: 4, event_hash: 'ab12', operator: 'valentin', reason: 'history', recorded_at: since(1) }
   const quarantined = { standing: 'quarantined', rule: null, reason: null, text: 'does not fold' }
   const acknowledgedAt = (runId, title, hours) =>
