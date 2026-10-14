@@ -18943,3 +18943,39 @@ fn a_serving_command_is_built_in_its_harness_shape_from_the_whole_composition() 
         Ok(claude_serving("claude", &whole, None))
     );
 }
+
+/// U7a: a sealed broker set is a server set no driver carries yet, so the
+/// serving edge refuses it before any provider work, under the standing
+/// fence as past the lifted one, with the final-set cause; a broker read
+/// with a member beside its four makes the intent unreadable.
+#[test]
+fn a_sealed_broker_set_refuses_at_the_serving_edge() {
+    let broker = json!({"capability": "library-docs", "plan": "/state/plans/library-docs.json",
+        "plan_digest": "a".repeat(64), "removals": ["LIBRARY_DOCS_TOKEN"]});
+    let isolated = |broker: &Value, fence: &str| {
+        let mut sealed = crate::native_controls::SealedServing::default();
+        sealed.dialect.stands = Some(crate::native_controls::SealedBoundary::Namespace);
+        sealed.spec = Some(crate::hands::HandsSpec::default());
+        let mut inputs = sealed.value();
+        inputs["isolation"]["servers"] = json!({"brokered": [broker]});
+        inputs["isolation"]["cold"] = json!("measured");
+        inputs["isolation"]["fence"] = json!(fence);
+        let input = json!({"workdir": "/w", "serving_inputs": inputs});
+        mcp::isolated("claude", &mcp::Edge::new(&input), &[], false).map(|built| built.argv)
+    };
+    let not_sealed = mcp::McpRefusal::NotSealed { provider: "claude" };
+    for fence in ["standing", "lifted"] {
+        assert_eq!(isolated(&broker, fence), Err(not_sealed.clone()), "{fence}");
+    }
+    assert_eq!(
+        not_sealed.at_launch(),
+        "refusing to invoke the agent CLI: provider 'claude' final MCP configuration is not the \
+         engine's sealed server set"
+    );
+    let mut counterfeit = broker.clone();
+    counterfeit["command"] = json!("npx");
+    assert_eq!(
+        isolated(&counterfeit, "standing"),
+        Err(mcp::McpRefusal::Unreadable)
+    );
+}
