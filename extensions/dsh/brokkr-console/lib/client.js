@@ -173,7 +173,7 @@ window.__ModuleLoader__.load({
     function Icon({ size, active }) {
       const count = waiting(useStore().fleet)
       const box = { position: 'relative', display: 'inline-block', width: size, height: size, boxSizing: 'border-box', border: '1.5px solid currentColor', borderRadius: 5, opacity: active ? 1 : 0.85 }
-      const dot = { position: 'absolute', right: -7, top: -7, minWidth: 16, height: 16, borderRadius: 8, background: '#D98A2B', color: '#16181D', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', boxSizing: 'border-box' }
+      const dot = { position: 'absolute', right: -7, top: -7, minWidth: 16, height: 16, borderRadius: 8, background: 'var(--bk-badge, #D98A2B)', color: '#16181D', fontSize: 10, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', boxSizing: 'border-box' }
       return h('span', { style: box, 'aria-label': `Brokkr: ${plural(count, 'run', 'runs')} waiting on you` }, count > 0 ? h('span', { style: dot }, String(count)) : null)
     }
 
@@ -246,7 +246,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bk-aside-head' }, h('div', { className: 'bk-aside-title' }, title), h('div', { className: 'bk-note' }, scope)),
         h('div', { className: 'bk-aside-body' }, status === null ? null : h('div', { className: 'bk-note' }, status)),
         children,
-        h('div', { style: { padding: '12px 18px 14px', borderTop: '1px solid #E4E2DB', display: 'flex', gap: 8 } },
+        h('div', { className: 'bk-aside-foot' },
           h('input', { className: 'bk-input', 'aria-label': title, placeholder: dir === null ? 'No directory to open a session in' : `${title}…`, disabled: dir === null, value: question,
             onChange: (event) => setQuestion(event.target.value), onKeyDown: (event) => event.key === 'Enter' && ask() }),
           h('button', { type: 'button', className: 'bk-btn', disabled: dir === null || question.trim() === '', onClick: ask }, 'Ask')))
@@ -263,7 +263,10 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------- realms
 
-    function RealmCard({ hearth, day, open }) {
+    /** Whether `hearth` holds `realm`: a hearth shared by several realms is labelled `a+b`. */
+    const holds = (hearth, realm) => realm !== null && (hearth.realm === realm || hearth.realm.split('+').includes(realm))
+
+    function RealmCard({ hearth, day, open, here }) {
       const needs = hearth.runs.filter(needsYou)
       const running = runningIn(hearth.runs)
       const shown = [...needs, ...hearth.runs.filter((row) => row.verdict.standing === 'running')].slice(0, 4)
@@ -271,8 +274,8 @@ window.__ModuleLoader__.load({
       const tone = needs.length > 0 ? chip(`${needs.length} need${needs.length === 1 ? 's' : ''} you`, 'bk-park') : chip(running > 0 ? 'all moving' : 'nothing running', running > 0 ? 'bk-run' : 'bk-stop')
       const counts = [`${running} running`]
       if (day !== null) counts.push(`shipped 24h: ${day.shipped}`, `stopped: ${day.stopped}`)
-      return h('button', { type: 'button', className: `bk-cell bk-realm${needs.length > 0 ? ' needs' : ''}`, onClick: () => open(hearth.realm) },
-        h('div', { className: 'bk-row' }, h('span', { className: 'bk-name' }, hearth.realm), hearth.detail === null ? tone : chip('quarantined', 'bk-bad')),
+      return h('button', { type: 'button', className: `bk-cell bk-realm${needs.length > 0 ? ' needs' : ''}${holds(hearth, here) ? ' here' : ''}`, onClick: () => open(hearth.realm) },
+        h('div', { className: 'bk-row' }, h('span', { className: 'bk-name' }, hearth.realm), hearth.detail === null ? tone : chip('quarantined', 'bk-bad'), holds(hearth, here) ? h('span', { className: 'bk-note' }, 'this conversation') : null),
         hearth.detail === null ? null : h('div', { className: 'bk-error' }, hearth.detail),
         h('div', { className: 'bk-mini' }, shown.map((row) =>
           h('span', { key: row.run_id }, h('strong', null, labels.get(row.run_id)), ` · ${row.phase ?? 'not started'} · ${needsYou(row) ? shortReason(row) : 'running'} · ${ago(row.last_recorded_at ?? row.created_at)}`))),
@@ -300,15 +303,15 @@ window.__ModuleLoader__.load({
         h('div', { className: 'bk-coming' }, chip('coming later', 'bk-later'), 'Starting queued runs from here comes with Brokkr’s dispatcher. Today, start them with ', h('code', null, 'brokkr run'), '.'))
     }
 
-    function Realms({ state, open }) {
+    function Realms({ state, open, here, folder }) {
       const day = state.overview?.day?.value?.realms ?? []
       const hearths = state.fleet.hearths
       const dayOf = (hearth) => day.find((row) => row.realm === hearth.realm) ?? (hearths.length === 1 && day.length === 1 ? day[0] : null)
       return h('div', { className: 'bk-body' },
         h('main', { className: 'bk-main' },
-          h('section', { className: 'bk-cards', 'aria-label': 'Realms' }, hearths.map((hearth) => h(RealmCard, { key: hearth.realm, hearth, day: dayOf(hearth), open }))),
+          h('section', { className: 'bk-cards', 'aria-label': 'Realms' }, hearths.map((hearth) => h(RealmCard, { key: hearth.realm, hearth, day: dayOf(hearth), open, here }))),
           h(Queue, { queue: state.overview?.queue })),
-        h(Ask, { title: 'Ask Brokkr', scope: 'Reads every realm. It can explain and suggest; you press the buttons.', dir: state.workspace, about: 'About Brokkr across every realm the console reads.' }, h(Muninn, { muninn: state.overview?.muninn })))
+        h(Ask, { title: 'Ask Brokkr', scope: 'Reads every realm. It can explain and suggest; you press the buttons.', dir: folder ?? state.workspace, about: 'About Brokkr across every realm the console reads.' }, h(Muninn, { muninn: state.overview?.muninn })))
     }
 
     // ------------------------------------------------------------ one realm
@@ -330,14 +333,84 @@ window.__ModuleLoader__.load({
         }))
     }
 
+    const NODE = { w: 144, h: 66, gapX: 30, gapY: 12, top: 40, loop: 48 }
+    const NODE_TONE = { 'on-phosphor': 'ok', 'on-halt': 'bad', 'on-park': 'warn', 'in-active': 'live' }
+    const VISIT_TONE = { parked: 'warn', flagged: 'warn', stopped: 'bad', returned: 'back' }
+
+    /**
+     * The run's graph as the boards draw it: Brokkr's phases left to right,
+     * each phase's steps (its columns) in order, the members of one step
+     * stacked side by side, and a dashed road back wherever Brokkr recorded
+     * a return. Every label and word is the view's own.
+     */
+    function layoutOf(view) {
+      const lastVisit = new Map(view.path.map((visit) => [visit.phase, visit]))
+      const ranks = []
+      const spans = []
+      for (const phase of view.phases) {
+        const columns = phase.columns.length > 0 ? phase.columns : [{ label: null, nodes: [{ label: phase.name, state: phase.current ? 'current' : 'reached', state_class: phase.current ? 'in-active' : '', model: null }] }]
+        const first = ranks.length
+        columns.forEach((column, index) => ranks.push({ phase, column, last: index === columns.length - 1 }))
+        spans.push({ phase, first, last: ranks.length - 1 })
+      }
+      const tallest = Math.max(1, ...ranks.map((rank) => rank.column.nodes.length))
+      const middle = NODE.top + (tallest * (NODE.h + NODE.gapY) - NODE.gapY) / 2
+      const x = (index) => index * (NODE.w + NODE.gapX)
+      const placed = ranks.map((rank, index) => {
+        const height = rank.column.nodes.length * (NODE.h + NODE.gapY) - NODE.gapY
+        return { ...rank, x: x(index), ys: rank.column.nodes.map((_, at) => middle - height / 2 + at * (NODE.h + NODE.gapY)) }
+      })
+      const floor = NODE.top + tallest * (NODE.h + NODE.gapY) - NODE.gapY
+      const roads = spans.flatMap((span) => span.phase.returns.map((from) => ({ to: span, from: spans.find((each) => each.phase.name === from) ?? null }))).filter((road) => road.from !== null)
+      return { placed, spans, lastVisit, floor, roads, width: Math.max(x(ranks.length) - NODE.gapX, NODE.w), height: floor + (roads.length > 0 ? NODE.loop : 8) }
+    }
+
     function Graph({ view }) {
-      const returns = view.phases.filter((phase) => phase.returns.length > 0)
+      const { placed, spans, lastVisit, floor, roads, width, height } = layoutOf(view)
+      const edges = placed.slice(1).flatMap((rank, index) => {
+        const before = placed[index]
+        return before.ys.flatMap((y0) => rank.ys.map((y1) => {
+          const [ax, ay, bx, by] = [before.x + NODE.w, y0 + NODE.h / 2, rank.x - 4, y1 + NODE.h / 2]
+          const bend = (bx - ax) / 2
+          return h('path', { key: `${index}:${y0}:${y1}`, d: ay === by ? `M${ax} ${ay}H${bx}` : `M${ax} ${ay}C${ax + bend} ${ay} ${bx - bend} ${by} ${bx} ${by}`, className: 'bk-edge', markerEnd: 'url(#bk-arrow)' })
+        }))
+      })
+      const back = roads.map((road, index) => {
+        const from = placed[road.from.last]
+        const to = placed[road.to.first]
+        const [ax, bx] = [from.x + NODE.w / 2 + 10, to.x + NODE.w / 2 - 10]
+        const dip = floor + NODE.loop - 22 - index * 6
+        const d = road.from === road.to
+          ? `M${ax} ${floor}C${ax + 30} ${dip} ${bx - 30} ${dip} ${bx} ${floor + 4}`
+          : `M${ax} ${floor}C${ax} ${dip} ${bx} ${dip} ${bx} ${floor + 4}`
+        return h('path', { key: `r${index}`, d, className: 'bk-edge back', markerEnd: 'url(#bk-arrow-back)' })
+      })
+      const nodes = placed.flatMap((rank, index) => rank.column.nodes.map((node, at) => {
+        const visit = rank.last ? lastVisit.get(rank.phase.name) ?? null : null
+        const tone = (visit !== null && VISIT_TONE[visit.ruled]) || NODE_TONE[node.state_class] || ''
+        const present = (parts) => parts.filter((part) => part !== null && part !== undefined)
+        const [who, ruled] = [present([node.state, node.model]), present(visit === null ? [] : [visit.duration, visit.rule])]
+        return h('div', { key: `${index}:${at}`, className: `bk-node ${tone}`, title: [node.label, ...who, ...ruled].join(' · '), style: { left: rank.x, top: rank.ys[at], width: NODE.w, height: NODE.h } },
+          h('strong', null, node.label), h('span', { className: 'e' }, who.join(' · ')), ruled.length === 0 ? null : h('span', { className: 'e' }, ruled.join(' · ')))
+      }))
+      const labels = spans.map((span) => {
+        const visits = span.phase.visits > 1 ? ` · ${span.phase.visits} visits` : ''
+        return h('div', { key: span.phase.name, className: `bk-phase${span.phase.current ? ' on' : ''}`, style: { left: placed[span.first].x, width: placed[span.last].x + NODE.w - placed[span.first].x } },
+          `${span.phase.name}${visits}${span.phase.strategy === null ? '' : ` · ${span.phase.strategy}`}`)
+      })
+      const steps = placed.filter((rank) => rank.column.label !== null).map((rank) =>
+        h('div', { key: `c${rank.x}`, className: 'bk-step', style: { left: rank.x, width: NODE.w } }, rank.column.label))
       return h('section', { className: 'bk-cell bk-section', 'aria-label': 'Run graph' },
-        h('span', { className: 'bk-k' }, 'Steps'),
-        h('div', { className: 'bk-graph' }, view.path.map((visit, index) =>
-          h('div', { key: index, className: `bk-node ${visit.ruled}` }, h('strong', null, visit.phase),
-            [visit.model, visit.duration, visit.rule].filter((part) => part !== null).map((part) => h('span', { key: part, className: 'e' }, part))))),
-        returns.map((phase) => h('div', { key: phase.name, className: 'bk-note' }, `sent back to ${phase.name} by ${phase.returns.join(', ')}`)))
+        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Graph'), h('span', { className: 'bk-note' }, 'steps left to right; dashed: sent back')),
+        h('div', { className: 'bk-graph' },
+          h('div', { className: 'bk-canvas', style: { width, height } },
+            h('svg', { width, height, className: 'bk-wires', 'aria-hidden': 'true' },
+              h('defs', null,
+                h('marker', { id: 'bk-arrow', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 8, markerHeight: 8, orient: 'auto' }, h('path', { d: 'M0 0L8 4L0 8z', className: 'bk-tip' })),
+                h('marker', { id: 'bk-arrow-back', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 8, markerHeight: 8, orient: 'auto' }, h('path', { d: 'M0 0L8 4L0 8z', className: 'bk-tip back' }))),
+              edges, back),
+            labels, steps, nodes)),
+        roads.map((road) => h('div', { key: `${road.to.phase.name}<${road.from.phase.name}`, className: 'bk-note' }, `sent back to ${road.to.phase.name} by ${road.from.phase.name}`)))
     }
 
     /** The timeline text with the badge's words not said twice beside it. */
@@ -402,7 +475,7 @@ window.__ModuleLoader__.load({
         }
       }
       return [
-        h('div', { key: 'q', className: 'bk-quote' }, h('div', { className: 'bk-k', style: { color: '#8A3F06' } }, 'The clarifier asks'),
+        h('div', { key: 'q', className: 'bk-quote' }, h('div', { className: 'bk-k' }, 'The clarifier asks'),
           view.clarify.questions.map((question, index) => h('div', { key: index }, `${index + 1}. ${question}`))),
         h('div', { key: 'a', className: 'bk-note' }, 'To answer: write your answers into the spec, then retry clarify. The next round reads the spec.',
           view.worktree === null ? null : h('div', null, 'This run’s worktree: ', h('code', null, view.worktree))),
@@ -441,7 +514,7 @@ window.__ModuleLoader__.load({
       return h('section', { className: 'bk-cell bk-decision', 'aria-label': 'Decision' },
         h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, row.verdict.standing === 'parked' ? 'Waiting on you' : 'What Brokkr would take now'),
           row.verdict.standing !== 'parked' || row.verdict.rule === null ? null : h('span', { className: 'bk-note' }, 'parked at ', h('strong', null, row.phase), ' by rule ', h('strong', null, row.verdict.rule))),
-        view.summary.park_reason === null ? null : h('div', { className: 'bk-quote' }, `“${view.summary.park_reason}”`, h('div', { className: 'bk-d', style: { color: '#8A3F06' } }, 'Brokkr’s park reason, word for word')),
+        view.summary.park_reason === null ? null : h('div', { className: 'bk-quote' }, `“${view.summary.park_reason}”`, h('div', { className: 'bk-d' }, 'Brokkr’s park reason, word for word')),
         view.clarify === null ? null : h(Clarify, { view }),
         suggestion === null ? null : h('div', { className: 'bk-quote', 'aria-label': 'Suggested by the assistant' },
           h('div', { className: 'bk-k' }, 'Suggested by the assistant'),
@@ -486,7 +559,7 @@ window.__ModuleLoader__.load({
         ])
     }
 
-    function Realm({ state, realm, runId, select, back, see }) {
+    function Realm({ state, realm, runId, select, back, see, open, folder }) {
       const hearth = state.fleet.hearths.find((each) => each.realm === realm)
       if (hearth === undefined) return h('main', { className: 'bk-main' }, h('div', { className: 'bk-note' }, `Brokkr no longer lists ${realm}.`))
       const row = hearth.runs.find((each) => each.run_id === runId) ?? null
@@ -494,11 +567,16 @@ window.__ModuleLoader__.load({
       const needs = hearth.runs.filter(needsYou).length
       return h(React.Fragment, null,
         h('div', { className: 'bk-bar' }, h('button', { type: 'button', className: 'bk-link', onClick: back }, '← All realms'), h('span', { style: { fontSize: 17, fontWeight: 600 } }, hearth.realm),
-          h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null),
+          h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null,
+          state.fleet.hearths.length < 2 ? null : h('nav', { className: 'bk-realms', 'aria-label': 'Realms' }, state.fleet.hearths.map((each) => {
+            const waitingHere = each.runs.filter(needsYou).length
+            return h('button', { key: each.realm, type: 'button', className: `bk-fchip${each.realm === hearth.realm ? ' on' : ''}`, 'aria-pressed': each.realm === hearth.realm, onClick: () => open(each.realm) },
+              waitingHere > 0 ? `${each.realm} · ${waitingHere}` : each.realm)
+          }))),
         h('div', { className: 'bk-body' }, h(RunList, { hearth, selected: runId, select }),
           row === null ? h('main', { className: 'bk-main' }, h('div', { className: 'bk-note' }, 'Pick a run on the left.')) : h(Run, { hearth, row, run: state.run, see }),
           h(Ask, { title: 'Ask about this run', scope: 'Reads this run’s record and sessions. It can suggest one of the buttons; it can’t press them.',
-            dir: row === null ? null : (runView?.worktree ?? state.workspace),
+            dir: row === null ? null : (runView?.worktree ?? folder ?? state.workspace),
             about: row === null ? '' : `About the Brokkr run “${labelsOf(hearth.runs).get(row.run_id)}” (realm ${hearth.realm}, run id ${row.run_id}).` })))
     }
 
@@ -509,10 +587,10 @@ window.__ModuleLoader__.load({
       const step = 474 / Math.max(days.length, 1)
       const y = (n) => 140 - (n / top) * 120
       return h('svg', { viewBox: '0 0 520 170', width: '100%', height: 170, role: 'img', 'aria-label': 'Runs shipped and stopped per day' },
-        h('line', { x1: 36, y1: 140, x2: 510, y2: 140, stroke: '#C9C6BC' }), h('text', { className: 'bk-ax', x: 30, y: 24, textAnchor: 'end' }, String(top)),
+        h('line', { x1: 36, y1: 140, x2: 510, y2: 140, className: 'bk-axis' }), h('text', { className: 'bk-ax', x: 30, y: 24, textAnchor: 'end' }, String(top)),
         days.map((day, index) => h('g', { key: day.date },
-          h('rect', { x: 40 + index * step, y: y(day.shipped), width: step * 0.4, height: 140 - y(day.shipped), rx: 3, fill: '#1F5FAD' }, h('title', null, `${day.date}: ${day.shipped} shipped`)),
-          h('rect', { x: 42 + index * step + step * 0.4, y: y(day.stopped), width: step * 0.25, height: 140 - y(day.stopped), rx: 3, fill: '#8E8B82' }, h('title', null, `${day.date}: ${day.stopped} stopped`)),
+          h('rect', { x: 40 + index * step, y: y(day.shipped), width: step * 0.4, height: 140 - y(day.shipped), rx: 3, className: 'bk-bar-1' }, h('title', null, `${day.date}: ${day.shipped} shipped`)),
+          h('rect', { x: 42 + index * step + step * 0.4, y: y(day.stopped), width: step * 0.25, height: 140 - y(day.stopped), rx: 3, className: 'bk-bar-2' }, h('title', null, `${day.date}: ${day.stopped} stopped`)),
           h('text', { className: 'bk-ax', x: 40 + index * step + step * 0.35, y: 160, textAnchor: 'middle' }, day.date.slice(5)))))
     }
 
@@ -522,11 +600,11 @@ window.__ModuleLoader__.load({
       return h('svg', { viewBox: `0 0 520 ${Math.max(34 * steps.length, 34)}`, width: '100%', role: 'img', 'aria-label': 'Hours waiting on you, by step' },
         steps.map((step, index) => h('g', { key: index },
           h('text', { className: 'bk-ax', x: 106, y: 26 + index * 34, textAnchor: 'end' }, step.phase ?? 'no step'),
-          h('rect', { x: 116, y: 14 + index * 34, width: Math.max(2, (step.waiting_millis / top) * 300), height: 18, rx: 3, fill: '#1F5FAD' }),
+          h('rect', { x: 116, y: 14 + index * 34, width: Math.max(2, (step.waiting_millis / top) * 300), height: 18, rx: 3, className: 'bk-bar-1' }),
           h('text', { className: 'bk-ax', x: 122 + (step.waiting_millis / top) * 300, y: 27 + index * 34 }, step.text))))
     }
 
-    const MODEL_TONES = ['#1F5FAD', '#5A8BC9', '#A9C3E3', '#D1CEC4']
+    const MODEL_TONES = [1, 2, 3, 4].map((tone) => `var(--bk-model-${tone})`)
     const figure = (title, note, ...body) => h('figure', { className: 'bk-cell bk-figure' }, h('figcaption', { className: 'bk-row' }, h('strong', null, title), h('span', { className: 'bk-d' }, note)), ...body)
     const tile = (key, value, note) => h('div', { className: 'bk-cell bk-tile' }, h('span', { className: 'bk-k' }, key), h('span', { className: 'bk-num' }, value), h('span', { className: 'bk-d' }, note))
 
@@ -611,10 +689,21 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------ the panel
 
-    function Page() {
+    /**
+     * The console: the sidebar's full panel, or a conversation's Brokkr tab.
+     * In a tab, `here` is the realm the conversation's folder belongs to (or
+     * `null`), `looking` is true while the host is still asked, and `folder`
+     * is where Ask opens its session.
+     */
+    function Page({ inTab = false, here = null, looking = false, folder = null }) {
       const state = useStore()
       const [route, setRoute] = useState({ view: 'realms', realm: null, run: null })
       useStyles()
+      // A tab opens on its conversation's realm once Brokkr lists it.
+      const home = state.fleet === null ? null : state.fleet.hearths.find((hearth) => holds(hearth, here))?.realm ?? null
+      useEffect(() => {
+        if (home !== null) setRoute({ view: 'realm', realm: home, run: null })
+      }, [home])
       useEffect(() => {
         watch(route.view, route.run === null ? null : { realm: route.realm, run_id: route.run })
         return () => watch('none', null)
@@ -627,19 +716,48 @@ window.__ModuleLoader__.load({
       const body = state.fleet === null
         ? h('div', { className: 'bk-main' }, state.error === null ? h('div', { className: 'bk-note' }, state.live ? 'Reading Brokkr…' : 'Connecting…') : null)
         : route.view === 'analytics' ? h(Analytics, { open })
-          : route.view === 'realm' ? h(Realm, { state, realm: route.realm, runId: route.run, select, back: () => setRoute({ view: 'realms', realm: null, run: null }), see })
-            : h(Realms, { state, open })
-      return h('div', { className: 'bk', 'data-testid': 'brokkr-console' },
+          : route.view === 'realm' ? h(Realm, { state, realm: route.realm, runId: route.run, select, back: () => setRoute({ view: 'realms', realm: null, run: null }), see, open, folder })
+            : h(Realms, { state, open, here: home, folder })
+      const context = !inTab ? null
+        : looking ? 'finding this conversation’s realm…'
+          : home !== null ? `this conversation is in ${home}`
+            : 'this conversation’s folder is in no realm Brokkr lists'
+      return h('div', { className: `bk${inTab ? ' in-tab' : ''}`, 'data-testid': inTab ? 'brokkr-console-tab' : 'brokkr-console' },
         h('nav', { className: 'bk-nav', 'aria-label': 'Brokkr views' }, h('span', { className: 'bk-brand' }, 'Brokkr'), tab('realms', 'Realms'), tab('analytics', 'Analytics'),
+          context === null ? null : h('span', { className: 'bk-note' }, context),
           state.fleet === null ? null : h('span', { className: 'bk-status' }, `${state.fleet.hearths.reduce((sum, hearth) => sum + runningIn(hearth.runs), 0)} running · `, h('strong', null, `${count} waiting on you`), state.live ? '' : ' · reconnecting')),
         state.error === null ? null : h('div', { className: 'bk-main' }, h('div', { className: 'bk-error' }, state.error)),
         body)
+    }
+
+    /** The folder a DSH session runs in, as DSH's session list records it. */
+    function useFolder(sessionId) {
+      const sessions = store.ctx?.get('sessions')
+      const read = () => sessions?.list?.getSnapshot?.()?.byId?.[sessionId]?.cwd ?? null
+      const [folder, setFolder] = useState(read())
+      useEffect(() => sessions?.list?.subscribe?.(() => setFolder(read())), [sessionId])
+      return folder
+    }
+
+    /** A conversation's Brokkr tab, beside Chat: the console, opened on the conversation's realm. */
+    function Tab({ sessionId }) {
+      const folder = useFolder(sessionId)
+      const [here, setHere] = useState({ folder: null, realm: null })
+      useEffect(() => {
+        if (folder === null) return
+        fetch(`${BASE}/api/here?${new URLSearchParams({ dir: folder })}`)
+          .then((response) => response.json().then((body) => setHere({ folder, realm: response.ok ? body.realm : null })))
+          .catch(() => setHere({ folder, realm: null }))
+      }, [folder])
+      return h(Page, { inTab: true, folder, here: here.folder === folder ? here.realm : null, looking: folder !== null && here.folder !== folder })
     }
 
     function apply(ctx) {
       store.ctx = ctx
       ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: PANEL }, Page))
       ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: PANEL, order: 50, label: () => 'Brokkr' }, Icon))
+      // The same console as a tab in every conversation's view ring, after Chat (0) and Trajectory (10).
+      ctx.slots.inject('conversation.view', () => ctx.slots.register({ name: 'conversation.view', id: PANEL, order: 20, label: () => 'Brokkr', inject: (sessionId) => ({ sessionId }) }, Tab))
       ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({ name: 'tool.call.toolview', key: 'brokkr_suggest' }, SuggestionCard))
     }
 

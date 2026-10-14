@@ -174,7 +174,10 @@ web cell from the adapter and the agent library.
 
 The console plugin in `extensions/dsh/brokkr-console/` targets DSH
 `0.2.0-rc.2` and is installed by hand into a DSH profile
-([guide](guides/dsh-console.md)). It paints `brokkr runs`, `inspect`,
+([guide](guides/dsh-console.md)). It opens as a tab in each conversation,
+beside Chat and Trajectory, on the realm `brokkr realms` places the
+conversation's folder in, and from DSH's left panel; it follows DSH's light
+or dark theme. It paints `brokkr runs`, `inspect`,
 `queue list`, `muninn list` and `analytics` from their `--json` output, and
 presses `brokkr operator retry` and `stop`, `brokkr resume` (under the
 recipe the run's start recorded) and `brokkr conclude`, after re-reading

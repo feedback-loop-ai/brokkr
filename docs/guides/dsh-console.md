@@ -1,8 +1,14 @@
 # The DSH operator console
 
-The console puts Brokkr's fleet inside a DSH web client: a **Brokkr** entry
-in DSH's left panel list, whose icon shows how many runs are waiting on you,
-and a panel with two views, **Realms** and **Analytics**. It is a DSH plugin
+The console puts Brokkr's fleet inside a DSH web client, in two places:
+
+- a **Brokkr** tab in every conversation, beside Chat and Trajectory, that
+  opens on the realm the conversation's folder belongs to;
+- a **Brokkr** entry in DSH's left panel list, whose icon shows how many runs
+  are waiting on you, for when no conversation is open.
+
+Both show the same console, with two views, **Realms** and **Analytics**, in
+DSH's light or dark theme, whichever DSH's Settings has chosen. It is a DSH plugin
 kept in this repository at `extensions/dsh/brokkr-console/` (decision 0085,
 proposed). It targets DSH `0.2.0-rc.2`.
 
@@ -33,7 +39,9 @@ readout printed. It never opens a journal.
    dsh plugin --profile web add "$PWD/extensions/dsh/brokkr-console"
    ```
 
-5. Open DSH's web client from the URL `dsh web` prints, and pick **Brokkr**.
+5. Open DSH's web client from the URL `dsh web` prints. In a conversation,
+   pick the **Brokkr** tab beside Chat; with none open, pick **Brokkr** in the
+   left panel. DSH shows a conversation's tabs once it has a first message.
 6. For the assistant, have a model configured in DSH (its Models page).
    Brokkr ships no credential; without one, the assistant's sessions fail in
    DSH's own words and the rest of the console is unaffected.
@@ -42,6 +50,21 @@ The plugin is `"private": true` and is never published. It listens on DSH's
 own loopback port, acts as the OS user DSH runs as, and every one of its
 routes and its WebSocket first asks DSH's connection fence, so a request
 without DSH's login cookie, or from another origin, is refused.
+
+## Where it opens
+
+- **In a conversation.** The Brokkr tab asks the plugin which realm the
+  conversation's folder belongs to. The plugin answers from `brokkr realms
+  --json`: a folder inside a realm's folder belongs to that realm, and so
+  does a git worktree of one (its `.git` file points into the realm's
+  `.git/worktrees/`, read from the files, never by running git). The tab
+  opens on that realm and says "this conversation is in brokkr". A folder in
+  no realm gets every realm, and the tab says so. Ask Brokkr in a tab opens
+  its session in the conversation's folder.
+- **From the left panel.** The full-width console, on every realm.
+
+A realm's bar lists every realm, so you can move between them without going
+back to the cards.
 
 ## What it shows
 
@@ -53,9 +76,16 @@ without DSH's login cookie, or from another origin, is refused.
   and reasons; starting a queued run waits for Brokkr's dispatcher. Muninn's
   last review, from `brokkr muninn list`, when one is recorded.
 - **One realm.** The run list (needs you, running, last 24 hours), filterable
-  by title. For the selected run: its header, the steps it went through with
-  the model and rule of each visit, the decision card, and the timeline,
-  newest first.
+  by title. For the selected run: its header, its graph, the decision card,
+  and the timeline, newest first.
+- **The graph.** Brokkr's phases left to right, each phase's steps in order,
+  the members of one step (review positions, say) stacked side by side, with
+  an arrow into every member and out of it. Each node shows Brokkr's state
+  and the model it served, and the last step of a phase shows the visit's
+  duration and the rule that ruled it. A parked or flagged visit is outlined
+  amber, a failed one red. A dashed amber road runs back wherever Brokkr
+  recorded a return ("sent back to implement by review"). A wide graph
+  scrolls sideways.
 - **The decision card.** Brokkr's park reason, word for word, and the rule
   that parked the run. A clarify park lists the clarifier's open questions
   and the run's worktree. A button for each command `brokkr inspect` admits,

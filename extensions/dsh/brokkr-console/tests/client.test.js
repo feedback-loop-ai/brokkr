@@ -165,7 +165,8 @@ test('Analytics ends with the readout’s "not recorded yet" list, and a realm w
 
 test('two runs whose titles read alike are told apart by more of their feature, and the run header says the same', async () => {
   const alike = (runId, tail) =>
-    row({ run_id: runId, title: 'Deliver the console…', feature: `Deliver the console plugin for the operator, ${tail}`, verdict: { standing: 'stopped', rule: 'IMPL-BLOCKED', reason: null, text: '' } })
+    // Dated by the clock: the run list shows a finished run for 24 hours after it last moved.
+    row({ run_id: runId, title: 'Deliver the console…', feature: `Deliver the console plugin for the operator, ${tail}`, last_recorded_at: new Date().toISOString(), verdict: { standing: 'stopped', rule: 'IMPL-BLOCKED', reason: null, text: '' } })
   const client = mountClient('main')
   client.push({ type: 'snapshot', fleet: fleetOf(fleetDoc([['brokkr', [alike('first-try-0000aaaa', 'first try'), alike('second-try-0000bbbb', 'second try')]]])), overview: null, run: null })
   buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()

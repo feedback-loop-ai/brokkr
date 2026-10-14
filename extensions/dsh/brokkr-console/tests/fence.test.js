@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { apply } from '../lib/index.js'
 import { fleetDoc, json, request, row, stubBrokkr, stubHost, withEnv } from './support/world.js'
 
-const ROUTES = ['/brokkr-console/api/command', '/brokkr-console/api/analytics', '/brokkr-console/console.css']
+const ROUTES = ['/brokkr-console/api/command', '/brokkr-console/api/analytics', '/brokkr-console/api/here', '/brokkr-console/console.css']
 
 function applied(rejection) {
   const brokkr = stubBrokkr([{ match: ['runs'], responses: [json(fleetDoc([['brokkr', [row()]]]))] }])

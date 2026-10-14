@@ -147,6 +147,15 @@ export function fleetOf(doc) {
   }
 }
 
+/** `brokkr realms --json`: each realm's name and its folder, as the map names it (relative to the workspace). */
+export function realmsOf(doc) {
+  object(doc, 'realms')
+  return list(doc.realms, 'realms', (value, path) => ({
+    name: text(object(value, path).name, `${path}.name`),
+    path: text(value.path, `${path}.path`),
+  }))
+}
+
 // ---------------------------------------------------------------- one run
 
 function offered(value, path) {
@@ -186,12 +195,31 @@ function journalRow(value, path) {
   return { ...row, reason: payloadReason({ ...row, payload_json: value.payload_json }, path) }
 }
 
+/** One seat or member the graph draws: its label, Brokkr's state word and class, and the model it served. */
+function node(value, path) {
+  object(value, path)
+  return {
+    label: text(value.label, `${path}.label`),
+    state: text(value.state, `${path}.state`),
+    state_class: text(value.state_class, `${path}.state_class`),
+    model: maybe(value.model, `${path}.model`, (model, at) => optText(object(model, at).text, `${at}.text`)),
+  }
+}
+
+/** A phase's steps in order; the nodes of one column ran side by side. */
+function column(value, path) {
+  object(value, path)
+  return { label: optText(value.label, `${path}.label`), nodes: list(value.nodes, `${path}.nodes`, node) }
+}
+
 function phase(value, path) {
   object(value, path)
   return {
     name: text(value.name, `${path}.name`),
+    strategy: optText(value.strategy, `${path}.strategy`),
     visits: count(value.visits, `${path}.visits`),
     current: value.current === true,
+    columns: list(value.columns ?? [], `${path}.columns`, column),
     returns: texts(value.returns, `${path}.returns`),
   }
 }

@@ -10,6 +10,7 @@ import { brokkrOf } from './host/brokkr.js'
 import { deskOf, RequestRefused } from './host/commands.js'
 import { configFrom } from './host/config.js'
 import { fencedRoute, fencedUpgrade } from './host/fence.js'
+import { hereOf } from './host/here.js'
 import { pollerOf } from './host/poller.js'
 import { isRange, ReadoutRefused } from './host/readouts.js'
 import { accept } from './host/socket.js'
@@ -70,9 +71,14 @@ function handled(method, handle) {
 }
 
 /** The routes, each `[method, path, handler]`. */
-function routes({ brokkr, desk }) {
+function routes({ brokkr, desk, here }) {
   return [
     ['POST', `${BASE}/api/command`, async (req, res) => send(res, 200, await desk.submit(await bodyOf(req)))],
+    [
+      'GET',
+      `${BASE}/api/here`,
+      async (req, res) => send(res, 200, await here(new URLSearchParams(String(req.url).split('?')[1] ?? '').get('dir'))),
+    ],
     [
       'GET',
       `${BASE}/api/analytics`,
@@ -88,6 +94,8 @@ function routes({ brokkr, desk }) {
       `${BASE}/console.css`,
       async (_req, res) => {
         res.setHeader('content-type', 'text/css; charset=utf-8')
+        // Revalidated on every load, so an upgraded console never paints with the last version's sheet.
+        res.setHeader('cache-control', 'no-cache')
         res.end(STYLES)
       },
     ],
@@ -99,7 +107,8 @@ export function apply(ctx) {
   const brokkr = brokkrOf(config)
   const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd })
   const desk = deskOf({ brokkr, resume: config.resume, locate: poller.locate })
-  for (const [method, path, handle] of routes({ brokkr, desk })) {
+  const here = hereOf({ brokkr, workspace: config.cwd })
+  for (const [method, path, handle] of routes({ brokkr, desk, here })) {
     const handler = fencedRoute(ctx.connection, handled(method, handle))
     ctx.effect(() => ctx.webServer.register({ kind: 'exact', path, handler }), `${name}: ${method} ${path}`)
   }
