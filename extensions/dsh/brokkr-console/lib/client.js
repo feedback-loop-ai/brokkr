@@ -104,7 +104,10 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------- painting
 
-    const needsYou = (row) => row.verdict.standing === 'parked' || row.verdict.standing === 'quarantined'
+    // An acknowledged quarantine is answered until its journal moves (#511).
+    const needsYou = (row) => row.acknowledgement === null && (row.verdict.standing === 'parked' || row.verdict.standing === 'quarantined')
+    // It lists under Older whatever its age, keeping its mark and refusal.
+    const acknowledged = (row) => row.acknowledgement !== null
     const waiting = (fleet) => (fleet === null ? 0 : fleet.hearths.reduce((sum, hearth) => sum + hearth.runs.filter(needsYou).length, 0))
     const runningIn = (rows) => rows.filter((row) => row.verdict.standing === 'running').length
     const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
@@ -317,8 +320,8 @@ window.__ModuleLoader__.load({
       const [filter, setFilter] = useState('')
       const labels = labelsOf(hearth.runs)
       const shown = hearth.runs.filter((row) => `${labels.get(row.run_id)} ${row.feature}`.toLowerCase().includes(filter.toLowerCase()))
-      const finished = (row) => !needsYou(row) && row.verdict.standing !== 'running' && Date.now() - Date.parse(row.last_recorded_at ?? row.created_at) < DAY_MS
-      const groups = [['Needs you', needsYou], ['Running', (row) => row.verdict.standing === 'running'], ['Last 24 hours', finished]]
+      const finished = (row) => !needsYou(row) && !acknowledged(row) && row.verdict.standing !== 'running' && Date.now() - Date.parse(row.last_recorded_at ?? row.created_at) < DAY_MS
+      const groups = [['Needs you', needsYou], ['Running', (row) => row.verdict.standing === 'running'], ['Last 24 hours', finished], ['Older', acknowledged]]
       return h('nav', { className: 'bk-runs', 'aria-label': 'Runs' },
         h('input', { className: 'bk-input', 'aria-label': 'Filter runs', placeholder: 'Filter by name…', value: filter, onChange: (event) => setFilter(event.target.value) }),
         groups.flatMap(([label, within]) => {
@@ -326,7 +329,7 @@ window.__ModuleLoader__.load({
           return [h('div', { key: label, className: 'bk-grp' }, `${label} · ${rows.length}`), ...rows.map((row) =>
             h('button', { key: row.run_id, type: 'button', title: row.feature.slice(0, 400), className: `bk-q${row.run_id === selected ? ' on' : ''}`, onClick: () => select(row.run_id) },
               h('span', { className: 't' }, labels.get(row.run_id), chip(row.phase ?? STANDING[row.verdict.standing][0], STANDING[row.verdict.standing][1])),
-              h('span', { className: 's' }, `${needsYou(row) ? shortReason(row) : STANDING[row.verdict.standing][0]} · ${ago(row.last_recorded_at ?? row.created_at)}`)))]
+              h('span', { className: 's' }, `${needsYou(row) || acknowledged(row) ? shortReason(row) : STANDING[row.verdict.standing][0]} · ${ago(row.last_recorded_at ?? row.created_at)}`)))]
         }))
     }
 

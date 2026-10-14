@@ -263,11 +263,17 @@ fn fleet_widths(width: u16) -> [u16; 6] {
 }
 
 /// What a run's title cell draws, sanitized and whole, for the list to
-/// measure and clamp: its title, what it needs of the operator (#503),
-/// and, opened in place, where a running run stands.
+/// measure and clamp: its title, what it needs of the operator (#503) or
+/// the acknowledgement that answered its quarantine (#511), and, opened
+/// in place, where a running run stands.
 pub(super) fn title_lines(tui: &Tui, views: &Views, row: &RunRow) -> Vec<String> {
     let mut lines = Vec::new();
     lines.extend(brokkr_view::need(row, &views.now).and_then(|need| need.prompt()));
+    lines.extend(
+        row.acknowledgement
+            .as_ref()
+            .map(brokkr_view::Acknowledgement::line),
+    );
     if opened(tui, row) {
         lines.extend(opened_lines(row, &views.now));
     }

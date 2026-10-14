@@ -160,7 +160,8 @@ pub(crate) fn conclude(
     Ok(finish(&state))
 }
 
-/// `brokkr operator`: record `retry`, `stop` or `supersede`.
+/// `brokkr operator`: record `retry`, `stop` or `supersede`, or
+/// acknowledge a quarantined run (#511).
 pub(crate) fn operator(
     workspace: &Path,
     OperatorArgs {
@@ -196,14 +197,17 @@ pub(crate) fn operator(
             journal.db,
         );
     }
-    let Some(verb) = OperatorCommand::parse(&command) else {
-        anyhow::bail!("operator command must be 'retry', 'stop' or 'supersede'");
-    };
     anyhow::ensure!(
         !cited,
         "--findings, --by-run, --by-seq and --by-realm belong to \
          'supersede'; '{command}' takes --run, --reason, --realms and --db"
     );
+    if command == "acknowledge" {
+        return super::acknowledge::acknowledge(workspace, &run, &reason, journal);
+    }
+    let Some(verb) = OperatorCommand::parse(&command) else {
+        anyhow::bail!("operator command must be 'retry', 'stop', 'supersede' or 'acknowledge'");
+    };
     // The journal `run` wrote (#374): the map's, unless `--db`
     // outranks it.
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;

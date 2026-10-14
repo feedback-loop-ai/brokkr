@@ -4,7 +4,8 @@
 //! nothing in this module decides which verb runs.
 //!
 //! The handlers are grouped by what they do to a run:
-//! - [`delivery`] starts, continues or ends one;
+//! - [`delivery`] starts, continues or ends one, and [`acknowledge`]
+//!   answers one that is quarantined;
 //! - [`queue`] keeps the runs waiting to start (decision 0068);
 //! - [`readouts`] reads journals and the world, and writes nothing, as
 //!   [`analytics`] does across every hearth;
@@ -13,6 +14,7 @@
 //! - [`setup`] prepares the workspace, its libraries and its drivers;
 //! - [`probe`] measures an agent CLI outside every run.
 
+mod acknowledge;
 pub(super) mod analytics;
 pub(super) mod delivery;
 pub(super) mod exchange;

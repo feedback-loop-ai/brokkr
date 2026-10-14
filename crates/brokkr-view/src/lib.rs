@@ -53,8 +53,9 @@ pub use compare::{
 use dashboard::dashboard;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
-    at_work, fleet_rows, need, run_rows, sections, title, title_within, wrap, HearthEntries, Hire,
-    Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict, TITLE_COLUMNS, VERDICT_COLUMNS,
+    at_work, fleet_rows, need, run_rows, sections, title, title_within, wrap, Acknowledgement,
+    HearthEntries, Hire, Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict,
+    TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use participant::Subject;
 pub use scope::{
@@ -111,7 +112,8 @@ use serde_json::Value;
 /// Bumped to 18 by #351's third slice: the run view gained its `scopes`.
 /// Bumped to 19 by #568: the run view gained `commands`, `unavailable`,
 /// `clarify` and `worktree`, and the analytics readout began.
-pub const VIEW_VERSION: u32 = 20;
+/// Bumped to 21 by #511: a run row gained its `acknowledgement`.
+pub const VIEW_VERSION: u32 = 21;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
