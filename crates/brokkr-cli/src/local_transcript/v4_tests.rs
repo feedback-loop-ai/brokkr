@@ -164,6 +164,17 @@ fn the_admitted_names_are_asked_newest_first() {
 /// compressed input.
 #[test]
 fn a_compressed_header_is_bounded_by_what_it_decompresses_to() {
+    // The fixtures are the boundary: a header of exactly the cap, and one
+    // byte more, each up to its newline once decompressed.
+    let cap = brokkr_view::transcript::DSH_HEADER_CAP;
+    for (packed, header) in [(AT_CAP, cap), (PAST_CAP, cap + 1)] {
+        let plain = brokkr_protocol::zstd::unpack(packed, false, 1 << 20).unwrap();
+        assert!(!plain.past_bound);
+        assert_eq!(
+            plain.bytes.iter().position(|byte| *byte == b'\n'),
+            Some(header)
+        );
+    }
     let home = Home::new();
     let name = "session.v4.jsonl.zstd";
     home.session("at", &[(name, AT_CAP)]);
