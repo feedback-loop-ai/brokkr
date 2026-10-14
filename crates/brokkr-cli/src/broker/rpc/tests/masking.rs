@@ -21,7 +21,7 @@ use super::{
     admitted, answering_with, call, edged, failed, initializing, mcp, mcp_but, pipe, plan,
 };
 use super::{request, result, slow, startup, tools, within, Beside, Harness, Ran, Script, Then};
-use crate::broker::session::stderr::{Drain, Said};
+use crate::broker::session::stderr::{Drain, Said, SERVER};
 use crate::broker::session::Ended;
 
 /// A bound value holding a quote and a character of two bytes.
@@ -258,7 +258,7 @@ fn a_digits_only_canary_as_a_bare_number_fails_its_forwarded_call_unmasked() {
         let (ran, lines) = heard(script, beside, (pause, vec![call("1", "lookup")], 1));
         let cause = "MCP response cannot be safely masked";
         masking_failed(retained, &ran, &lines[0]);
-        let tail = "starting [secret:DOCS_PIN]\nlast [secret:DOCS_TOKEN]\n";
+        let tail = labelled("starting [secret:DOCS_PIN]\nlast [secret:DOCS_TOKEN]\n");
         assert_eq!(String::from_utf8(ran.diagnostics.clone()).unwrap(), tail);
         let surfaces = [
             &lines[0][..],
@@ -538,6 +538,14 @@ fn unlisted(script: Script, beside: Beside) {
     );
 }
 
+/// `lines` as the drain keeps them: each labelled the server's (U6f2).
+fn labelled(lines: &str) -> String {
+    let labelled = lines
+        .split_inclusive('\n')
+        .map(|line| format!("{SERVER}{line}"));
+    labelled.collect()
+}
+
 /// What a drain keeps of `chunks` written one after another to its pipe,
 /// each read as far as the pipe holds it before the next is written; the
 /// pipe ended after the last where `ends`.
@@ -587,7 +595,7 @@ fn standard_error_is_masked_across_reads_and_decoded_only_once_whole() {
     let tail = drained(&bindings, &chunks, true);
     let masked = "raw [secret:DOCS_TOKEN]\nhex [secret:DOCS_TOKEN] pin [secret:DOCS_PIN]\n";
     let last = "last [secret:DOCS_TOKEN]\n";
-    assert_eq!(tail, format!("{masked}{word}\n{last}"));
+    assert_eq!(tail, labelled(&format!("{masked}{word}\n{last}")));
     assert_eq!(leaks(&[tail.as_bytes()]), []);
 }
 
@@ -598,9 +606,11 @@ fn a_last_line_is_kept_only_once_nothing_can_complete_it() {
     // whole.
     let bindings = bound();
     let chunks: [&[u8]; 1] = [b"first\npin 8765"];
-    assert_eq!(drained(&bindings, &chunks, false), "first\n");
-    assert_eq!(drained(&bindings, &chunks, true), "first\npin 8765\n");
-    assert_eq!(drained(&bindings, &[b"first\n"], true), "first\n");
+    let first = labelled("first\n");
+    assert_eq!(drained(&bindings, &chunks, false), first);
+    let whole = labelled("first\npin 8765\n");
+    assert_eq!(drained(&bindings, &chunks, true), whole);
+    assert_eq!(drained(&bindings, &[b"first\n"], true), first);
 }
 
 #[test]
@@ -608,35 +618,36 @@ fn standard_error_is_proved_as_the_text_it_decodes_to() {
     // The review's line: a lone 0xFF before x, raw, decodes to U+FFFD and
     // x, a bound value the raw bytes never hold.
     let odd = bound_as(&[("ODD", "\u{fffd}x")]);
-    assert_eq!(drained(&odd, &[b"\xffx\n"], true), "[secret:ODD]\n");
+    let masked = labelled("[secret:ODD]\n");
+    assert_eq!(drained(&odd, &[b"\xffx\n"], true), masked);
     // A line holding a bound value only by its value is kept as its
     // marker, which passes the same masker and guard (U6f1b): one masking
     // leaves holding a bound value by its value, as a name masking writes
     // holds 2, keeps nothing of it.
     let marker = "[MCP server stderr line cannot be safely masked]\n";
     let lines: [&[u8]; 2] = [b"pin 8.7654321e8\n", b"next\n"];
-    assert_eq!(drained(&bound(), &lines, true), format!("{marker}next\n"));
+    let kept = labelled(&format!("{marker}next\n"));
+    assert_eq!(drained(&bound(), &lines, true), kept);
     let word = bound_as(&[("PIN", CANARY), ("WORD", "safely masked")]);
-    let masked = "[MCP server stderr line cannot be [secret:WORD]]\nnext\n";
+    let masked = labelled("[MCP server stderr line cannot be [secret:WORD]]\nnext\n");
     assert_eq!(drained(&word, &lines, true), masked);
     let named = [("PIN", CANARY), ("WORD2", "safely masked"), ("TWO", "0002")];
-    assert_eq!(drained(&bound_as(&named), &lines, true), "next\n");
+    assert_eq!(drained(&bound_as(&named), &lines, true), labelled("next\n"));
 }
 
 #[test]
 fn a_line_past_its_bound_is_passed_over_and_the_tail_keeps_its_bound() {
     let long = [vec![b'x'; (64 << 10) + 1], b"\nnext\n".to_vec()].concat();
     let over = "[MCP server stderr line exceeds the broker limit]\n";
-    assert_eq!(drained(&[], &[&long], true), format!("{over}next\n"));
-    // Lines one write takes whole, past the tail's 64 KiB: the last of them
-    // that fit are kept.
-    let line = [vec![b'y'; ATOMIC - 1], b"\n".to_vec()].concat();
+    let kept = labelled(&format!("{over}next\n"));
+    assert_eq!(drained(&[], &[&long], true), kept);
+    // Lines one write takes whole, labelled, past the tail's 64 KiB: the
+    // last of them that fit are kept.
+    let line = [vec![b'y'; ATOMIC - 1 - SERVER.len()], b"\n".to_vec()].concat();
     let lines = vec![&line[..]; (64 << 10) / ATOMIC + 6];
     let tail = drained(&[], &lines, true);
-    assert_eq!(
-        tail,
-        String::from_utf8(line.repeat((64 << 10) / ATOMIC)).unwrap()
-    );
+    let whole = labelled(&String::from_utf8(line).unwrap());
+    assert_eq!(tail, whole.repeat((64 << 10) / ATOMIC));
 }
 
 #[test]
@@ -1258,7 +1269,7 @@ fn every_whole_line_a_pipe_still_holds_is_kept_when_the_session_ends() {
         let open = (!ends).then_some(writer);
         assert_eq!((ends, drain.drained()), (ends, true));
         let tail: String = drain.tail().iter().map(Said::as_str).collect();
-        assert_eq!((ends, tail), (ends, "first\nlast\n".to_string()));
+        assert_eq!((ends, tail), (ends, labelled("first\nlast\n")));
         drop(open);
     }
     // Within its bound alone: a closed pipe read for four bytes keeps the
@@ -1269,8 +1280,8 @@ fn every_whole_line_a_pipe_still_holds_is_kept_when_the_session_ends() {
     drop(writer);
     let kept = drain.tail_within(4);
     assert_eq!(
-        kept.iter().map(Said::as_str).collect::<Vec<_>>(),
-        ["a\n", "b\n", "c\n"]
+        kept.iter().map(Said::as_str).collect::<String>(),
+        labelled("a\nb\nc\n")
     );
 }
 
@@ -1374,15 +1385,15 @@ fn a_secret_that_is_its_own_placeholder_is_found_where_it_occurs() {
         correlated(&id, &guard),
         kept.as_str(),
     );
-    let marker = "[MCP server stderr line cannot be safely masked]\n";
-    assert_eq!(each, (Err(MASKING), false, Err(MASKING), marker));
+    let marker = labelled("[MCP server stderr line cannot be safely masked]\n");
+    assert_eq!(each, (Err(MASKING), false, Err(MASKING), marker.as_str()));
     // The control: another value's placeholder is no value, and passes.
     let other = bound_as(&[("STATE", "succeeded")]);
     let guard = Guard::new(&other);
     assert!(guard.json(whole.as_bytes()));
     assert_eq!(correlated(&id, &guard), Ok(()));
     let kept = drained(&other, &[b"said [secret:STATE]\n"], true);
-    assert_eq!(kept, "said [secret:STATE]\n");
+    assert_eq!(kept, labelled("said [secret:STATE]\n"));
 }
 
 #[test]
@@ -1403,8 +1414,8 @@ fn a_number_glued_to_a_word_is_read_in_ids_names_and_standard_error() {
         assert_eq!((glued, named(glued, &bindings, &guard)), (glued, name));
         let line = format!("said {glued}\n");
         let kept = match passed {
-            true => line.clone(),
-            false => "[MCP server stderr line cannot be safely masked]\n".to_string(),
+            true => labelled(&line),
+            false => labelled("[MCP server stderr line cannot be safely masked]\n"),
         };
         let drained = drained(&bindings, &[line.as_bytes()], true);
         assert_eq!((glued, drained), (glued, kept));

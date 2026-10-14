@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use brokkr_protocol::broker::ledger::Failure;
 use brokkr_protocol::secret::Guard;
 
-use super::{last, told_to, Said, Voice, TOLD};
+use super::{last, told_to, Drain, Said, Voice, SERVER, TOLD};
 use crate::broker::rpc::pieces::tests::{bound, held, sink, within};
 use crate::broker::rpc::pieces::Put;
 use crate::broker::rpc::{Fatal, Line, Lines, ATOMIC};
@@ -64,6 +64,40 @@ fn the_last_line_is_rendered_whole_and_written_only_by_known_bindings() {
     assert_eq!((code, text(said)), (ExitCode::from(1), None));
     let (code, said) = last(Ok(()), Some(&error));
     assert_eq!((code, text(said)), (ExitCode::SUCCESS, None));
+}
+
+#[test]
+fn every_piece_of_a_servers_line_is_labelled_within_its_bound_and_the_brokers_own_never() {
+    // The label's one pin (U6f2; operator ruling 2026-10-14).
+    assert_eq!(SERVER, "MCP server stderr: ");
+    let bindings = bound("DOCS_TOKEN", "u6c8-canary-Qx7Zv");
+    let (reader, mut writer) = std::io::pipe().unwrap();
+    // A server's `error: `, and a line two pieces long: each piece begins
+    // with the label, which counts inside its 512 bytes.
+    let long = "y".repeat(2 * (ATOMIC - 1 - SERVER.len()) - 1) + "z";
+    writeln!(writer, "error: boom\n{long}").unwrap();
+    drop(writer);
+    let tail: Vec<String> = Drain::new(reader, &bindings)
+        .tail()
+        .iter()
+        .flat_map(|said| said.0.split_inclusive('\n').map(str::to_owned))
+        .collect();
+    let half = "y".repeat(ATOMIC - 1 - SERVER.len());
+    let rest = "y".repeat(ATOMIC - 2 - SERVER.len()) + "z";
+    let pieces = ["error: boom", &half, &rest].map(|piece| format!("{SERVER}{piece}\n"));
+    assert_eq!(tail, pieces);
+    assert_eq!(tail.iter().map(String::len).max(), Some(ATOMIC));
+    // A line no labelled piece can cut safely is refused for the labelled
+    // marker; the broker's own line is never labelled.
+    let digits = "1".repeat(ATOMIC - SERVER.len());
+    let server = Voice {
+        label: SERVER,
+        ..Voice::new(&bindings)
+    };
+    let marker = format!("{SERVER}fixed\n");
+    assert_eq!(text(server.said(digits.as_bytes(), "fixed")), Some(marker));
+    let own = Voice::new(&bindings).said(b"error: boom", "");
+    assert_eq!(text(own), Some("error: boom\n".to_owned()));
 }
 
 #[test]
