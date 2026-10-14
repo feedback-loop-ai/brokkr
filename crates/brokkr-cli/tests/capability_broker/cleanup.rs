@@ -347,23 +347,38 @@ fn a_server_that_exits_mid_call_ends_the_session_with_its_box_settled() {
 fn a_broker_killed_mid_call_takes_its_box_with_it_and_the_next_start_reaps_its_scratch() {
     // The broker itself is killed outright while its server waits on its
     // child: bubblewrap dies with its parent, and the box with it, every
-    // process, namespace and pipe. The broker says nothing: what its
-    // standard error holds is the harness shell's notice of its child's
-    // kill. The ledger keeps the call it accepted, never closed, as its
-    // prefix proves; the plan and inventory remain. The broker could not
-    // remove the server identity's tree it held in the host scratch: the
-    // next start reaps it (#415).
+    // process, namespace and pipe. The broker says nothing: its standard
+    // error holds only the harness shell's one notice of its child's kill.
+    // The ledger keeps the call it accepted, never closed, as its prefix
+    // proves; the plan and inventory remain. The broker could not remove
+    // the server identity's tree it held in the host scratch: the next
+    // start reaps it (#415).
     let dir = tempfile::tempdir().unwrap();
     let Some(live) = Live::started(&dir, &after("sleep 600"), 2) else {
         return;
     };
     kill(live.broker());
     let scratch = live.scratch.clone();
-    let (ran, mut left) = live.ended();
+    let ((code, answers, stderr), mut left) = live.ended();
     left.3 = left.3.iter().map(|name| shaped(name)).collect();
     let unclosed = settled(None, None, vec![SERVED.to_string()]);
-    assert_eq!((ran, left), ((Some(137), 2, "Killed\n".into()), unclosed));
+    let said = apart(&stderr);
+    assert_eq!(
+        ((code, answers, said), left),
+        ((Some(137), 2, (vec![], 1)), unclosed)
+    );
     assert_eq!(left_for_the_next_start(&scratch), (identity(1), true));
+}
+
+/// What a harness's standard error holds once the shell's broker was
+/// killed: the broker's own lines, and how many are the shell's notice of
+/// that kill, whose text is the shell's (`Killed` from dash; bash names
+/// its line, the pid and the command beside it) and which dash writes
+/// where the broker's standard error goes.
+fn apart(stderr: &str) -> (Vec<&str>, usize) {
+    let (notices, said): (Vec<&str>, Vec<&str>) =
+        stderr.lines().partition(|line| line.contains("Killed"));
+    (said, notices.len())
 }
 
 /// `trees` server identity trees, as [`left_for_the_next_start`] shapes

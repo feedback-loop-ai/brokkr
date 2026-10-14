@@ -191,7 +191,7 @@
    802 crates/brokkr-cli/tests/boundary_verbs.rs
     61 crates/brokkr-cli/tests/budget_frame.rs
   1984 crates/brokkr-cli/tests/capability_broker.rs
-   437 crates/brokkr-cli/tests/capability_broker/cleanup.rs
+   452 crates/brokkr-cli/tests/capability_broker/cleanup.rs
    951 crates/brokkr-cli/tests/capability_broker/handoff.rs
   1030 crates/brokkr-cli/tests/capability_broker/ledger.rs
    999 crates/brokkr-cli/tests/capability_broker/observer.rs
