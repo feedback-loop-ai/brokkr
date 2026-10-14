@@ -152,6 +152,29 @@ jobs:
           cargo run --locked -p brokkr-cli -- compile --bundle recipes/self
           cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
 
+  # The DSH operator console plugin's own tests (decision 0085 ruling 5,
+  # #568 slice two): Node's test runner in extensions/dsh/brokkr-console/,
+  # offline, with the Node the research sweep pins, on both supported hosts
+  # (decision 0063). The plugin has no dependencies, so nothing is installed.
+  plugin-tests:
+    name: plugin tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.3
+      - name: the console plugin's tests
+        working-directory: extensions/dsh/brokkr-console
+        run: npm test
+
   engine:
     name: test (${{ matrix.os }})
     strategy:

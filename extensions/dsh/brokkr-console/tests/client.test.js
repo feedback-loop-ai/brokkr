@@ -73,7 +73,7 @@ test('only admitted commands are buttons, named for their effect; the rest is un
 
 test('clarify’s buttons read Retry clarify, and Retry implement for an implement park', async () => {
   const clarify = await onRun(runViewDoc({ commands: [offered('retry', 'admitted', { phase: 'clarify' }), offered('stop')], clarify: { seq: 9, questions: ['Which target counts?'] } }))
-  assert.deepEqual(buttons(decision(clarify.tree())).map(textOf).slice(0, 2), ['Retry clarify', 'Stop the run'])
+  assert.deepEqual(buttons(decision(clarify.tree())).map(textOf).filter((text) => text !== 'Open the spec').slice(0, 2), ['Retry clarify', 'Stop the run'])
   const implement = await onRun(runViewDoc({ commands: [offered('retry', 'admitted', { phase: 'implement' })] }))
   assert.deepEqual(buttons(decision(implement.tree())).map(textOf).slice(0, 1), ['Retry implement'])
 })
@@ -146,6 +146,8 @@ test('Analytics ends with the readout’s "not recorded yet" list, and a realm w
   assert.equal(textOf(footer), 'not recorded yet: machine capacity over time · cost limits · costs for Codex and dsh · reasons findings were dismissed')
   const cells = findAll(main, (node) => node.type === 'td').map(textOf)
   assert.deepEqual(cells, ['lanetally', '3', '1', '4h 12m', '1.0h', 'not reported'])
+  // A seat that reported no model is `null` on the wire (view 20) and reads by its text.
+  assert.match(textOf(main), /gpt-5\.5 75%not reported 25%/)
 })
 
 test('two runs whose titles read alike are told apart by more of their feature, and the run header says the same', async () => {

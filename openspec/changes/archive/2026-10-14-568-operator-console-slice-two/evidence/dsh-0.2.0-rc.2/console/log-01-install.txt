@@ -1,0 +1,44 @@
+$ date -Is; dsh --version
+2026-10-14T02:00:29+03:00
+0.2.0-rc.2
+$ $BROKKR_CONSOLE_BROKKR --version
+brokkr 0.12.0
+$ (cd $BROKKR_CONSOLE_WORKSPACE && $BROKKR_CONSOLE_BROKKR runs --json) | python3 (print view_version, count, and each realm with its run count)
+note: the map ./realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
+{'view_version': 20, 'count': 17}
+[('brokkr', 11), ('swarmail', 6), ('lanetally', 0), ('looper', 0), ('xbox-inference', 0)]
+$ dsh plugin --profile web add ~/source/feedback-loop-ai/brokkr-568-s2/extensions/dsh/brokkr-console
+dsh: initialized profile web at $C/home/profiles/web
+
+dependencies:
++ brokkr-console link:~/source/feedback-loop-ai/brokkr-568-s2/extensions/dsh/brokkr-console
+
+Already up to date
+Done in 658ms using pnpm v10.28.1
+
+
+$ dsh plugin --profile web add $C/stub-model/bundle
+
+dependencies:
++ brokkr-stub-model link:$C/stub-model/bundle
+
+Already up to date
+Done in 477ms using pnpm v10.28.1
+{
+  "name": "dsh-profile-web",
+  "private": true,
+  "dependencies": {
+    "brokkr-console": "link:~/source/feedback-loop-ai/brokkr-568-s2/extensions/dsh/brokkr-console",
+    "brokkr-stub-model": "link:$C/stub-model/bundle"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "brokkr-console",
+        "brokkr-stub-model"
+      ]
+    }
+  }
+}

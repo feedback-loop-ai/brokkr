@@ -1,0 +1,9 @@
+{
+  "name": "brokkr-stub-model",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Test harness only: routes the default model to a loopback stub (no real provider, no credential)",
+  "type": "module",
+  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "exports": { "./cordis.patch.yml": "./cordis.patch.yml", "./package.json": "./package.json" }
+}

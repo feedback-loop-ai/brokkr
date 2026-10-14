@@ -1,0 +1,30 @@
+$ date -Is
+2026-10-14T01:59:47+03:00
+events          2468
+runs            11
+queue_entries   0
+queue_commands  0
+queue_latches   0
+queue_waits     0
+queue_pins      0
+meta            2
+-- per-run head (run_id | max seq | last type | last recorded_at)
+deliver-openspec-change-2026-10--38009879|735|run/stopped|2026-10-12T23:19:50Z
+deliver-the-dsh-side-of-openspec-6103b504|125|run/stopped|2026-10-13T04:51:14Z
+deliver-the-dsh-side-of-openspec-bd13f307|417|run/stopped|2026-10-13T06:54:06Z
+landing-pr-659-at-3ea3e23d-the-p-26b6f3d8|88|run/completed|2026-10-13T06:51:51Z
+landing-pr-659-at-its-new-head-t-624b0742|83|run/completed|2026-10-13T06:27:15Z
+landing-pr-659-the-program-resol-1efaea35|106|run/completed|2026-10-13T06:07:43Z
+landing-pr-660-at-4a472946-the-d-a0ea930e|294|run/completed|2026-10-13T09:55:24Z
+landing-pr-660-at-4f6a1931-the-d-08a428d4|62|run/completed|2026-10-13T21:06:49Z
+landing-pr-660-at-9af8dfd3-the-d-f00112fc|89|run/completed|2026-10-13T13:31:08Z
+landing-pr-660-at-d394d6a6-the-d-8cc94ba1|330|run/stopped|2026-10-13T15:30:27Z
+landing-the-dsh-operator-console-21ca663e|139|run/completed|2026-10-13T07:52:27Z
+-- operator/conclude events in whole journal
+0
+-- file digests (main db and WAL; -shm is SQLite shared index, touched by any reader)
+e298cc89b356fd975f948189db4b7edfc82493eb17e932c8120d292c7a499964  forge.db
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  forge.db-wal
+forge.db 4452352 bytes mtime=2026-10-14 00:06:49.830724780 +0300
+forge.db-wal 0 bytes mtime=2026-10-14 00:06:50.029727707 +0300
+forge.db-shm 32768 bytes mtime=2026-10-14 01:59:47.937156375 +0300

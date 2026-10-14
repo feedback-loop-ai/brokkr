@@ -1,0 +1,25 @@
+2026-10-13T22:27:43.386Z goto http://127.0.0.1:38218/?token=<redacted>
+2026-10-13T22:27:46.859Z dismissed modal via button: "Continue"
+2026-10-13T22:27:47.701Z probe main panel mounted
+2026-10-13T22:27:47.775Z screenshot shot-01-probe-panel.png
+2026-10-13T22:27:47.819Z openSpec with no Session on screen -> {"ok":false,"address":"(no session)","error":"no Session on screen"}
+2026-10-13T22:27:50.568Z after prefill: probe panel still mounted = false
+2026-10-13T22:27:50.573Z composer text after prefill: ""
+2026-10-13T22:27:50.578Z header action present: false
+2026-10-13T22:27:50.680Z screenshot shot-02-session-prefilled.png
+2026-10-13T22:27:50.686Z sidebar after header open-spec: {"specTitle":null,"otherTitle":null,"readmeB":null,"failure":null}
+2026-10-13T22:27:50.779Z screenshot shot-03-open-spec-relative.png
+2026-10-13T22:27:50.829Z openSpec abs outside cwd -> {"ok":true,"address":"dsh-resource://<file>/session/session-1ebc6e6d-7b17-4596-a974-c18468c3251c/$S/worktree-b/specs/other.md"}
+2026-10-13T22:27:53.336Z sidebar after abs open-spec: {"specTitle":null,"otherTitle":"This file lives in worktree B, outside the Session cwd.","readmeB":null,"failure":null}
+2026-10-13T22:27:53.401Z screenshot shot-04-open-spec-outside-cwd.png
+2026-10-13T22:27:53.447Z openFiles -> {"ok":true}
+2026-10-13T22:27:55.959Z Files tab text hits: ["worktree-a","openspec","README.md"]
+2026-10-13T22:27:56.044Z screenshot shot-05-files-tab-worktree-a.png
+2026-10-13T22:28:01.221Z askAboutRun cwd=worktreeB -> {"id":"session-50b31149-ac86-4480-bdfb-94ff600b577c","steps":["created session-50b31149-ac86-4480-bdfb-94ff600b577c","openSession called","scope present","setDraft done"]}
+2026-10-13T22:28:03.284Z openFiles (session B) -> {"ok":true}
+2026-10-13T22:28:05.790Z Files tab text hits (session B): ["worktree-b","specs","README.md"]
+2026-10-13T22:28:05.865Z screenshot shot-06-files-tab-worktree-b.png
+2026-10-13T22:28:06.060Z probe main panel mounted
+2026-10-13T22:28:06.188Z waiting for the suggestion card result phase
+2026-10-13T22:29:06.214Z DRIVER ERROR Waiting for selector `[data-testid="brokkr-suggest-card"][data-phase="result"]` failed
+2026-10-13T22:29:06.810Z done in 88112ms

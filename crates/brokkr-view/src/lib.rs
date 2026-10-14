@@ -42,7 +42,7 @@ pub use analytics::Range;
 pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query};
 pub use brokkr_core::policy::RuleSeverity;
 pub use clarify::Clarify;
-use clarify::{clarify, worktree};
+use clarify::{clarify, recipe, worktree};
 use commands::{commands, unavailable};
 pub use commands::{operator_commands, operator_refusal};
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
@@ -111,7 +111,7 @@ use serde_json::Value;
 /// Bumped to 18 by #351's third slice: the run view gained its `scopes`.
 /// Bumped to 19 by #568: the run view gained `commands`, `unavailable`,
 /// `clarify` and `worktree`, and the analytics readout began.
-pub const VIEW_VERSION: u32 = 19;
+pub const VIEW_VERSION: u32 = 20;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -538,6 +538,8 @@ pub struct RunView {
     pub clarify: Option<Clarify>,
     /// The working tree the run was started in, when its pin names one.
     pub worktree: Option<String>,
+    /// The recipe the run started under, as its start recorded it (#568).
+    pub recipe: Option<String>,
 }
 
 // --------------------------------------------------------------- helpers
@@ -2733,6 +2735,7 @@ pub fn run_view(events: &[EventEnvelope], state: Option<&RunState>) -> RunView {
         }),
         clarify,
         worktree: worktree(events),
+        recipe: recipe(events),
     }
 }
 

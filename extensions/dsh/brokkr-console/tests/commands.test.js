@@ -137,11 +137,38 @@ test('a timeout whose record cannot be read stays checking, and a repeat re-read
   assert.equal(calls().filter((argv) => argv.startsWith('operator')).length, 1)
 })
 
-test('a retry is not sent when no bundle names what to resume under', async () => {
-  const { desk, calls } = deskWith([{ match: ['inspect'], responses: [json(runViewDoc())] }], { resume: { kind: 'none' } })
+test('with no override, a retry resumes under the recipe the run’s start recorded', async () => {
+  const { desk, calls } = deskWith(
+    [
+      { match: ['inspect'], responses: [json(runViewDoc())] },
+      { match: ['operator', 'retry'], responses: [{ stdout: 'accepted' }] },
+      { match: ['resume'], responses: [{ sleep_ms: 2000 }] },
+    ],
+    { resume: { kind: 'none' } },
+  )
+  const outcome = await desk.submit(press('retry'))
+  assert.deepEqual(outcome, { command: 'retry', outcome: 'done', stage: 'resume' })
+  assert.equal(calls().at(-1), `resume --run=${RUN} ${DB} --recipe=triage --repo=/work/brokkr --no-view`)
+})
+
+test('a retry is not sent when neither an override nor the run’s start names a recipe', async () => {
+  const { desk, calls } = deskWith([{ match: ['inspect'], responses: [json(runViewDoc({ recipe: null }))] }], { resume: { kind: 'none' } })
   const outcome = await desk.submit(press('retry'))
   assert.deepEqual([outcome.outcome, outcome.why], ['not_sent', 'resume_unconfigured'])
   assert.deepEqual(calls(), [inspect])
+})
+
+test('an override names the bundle every run is resumed under, over the run’s own recipe', async () => {
+  const { desk, calls } = deskWith(
+    [
+      { match: ['inspect'], responses: [json(runViewDoc())] },
+      { match: ['operator', 'retry'], responses: [{ stdout: 'accepted' }] },
+      { match: ['resume'], responses: [{ sleep_ms: 2000 }] },
+    ],
+    { resume: { kind: 'bundle', path: '/bundles/night' } },
+  )
+  await desk.submit(press('retry'))
+  assert.equal(calls().at(-1), `resume --run=${RUN} ${DB} --bundle=/bundles/night --repo=/work/brokkr --no-view`)
 })
 
 test('a run the fleet does not list is not sent and nothing is read', async () => {

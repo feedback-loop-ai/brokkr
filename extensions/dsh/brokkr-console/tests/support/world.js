@@ -39,7 +39,7 @@ export function row(over = {}) {
 /** A world's `FleetView`: `[[realm, rows], ...]`. */
 export function fleetDoc(realms, over = {}) {
   return {
-    view_version: 19,
+    view_version: 20,
     realms: realms.map(([realm, runs]) => ({ realm, journal: `/hearths/${realm}/forge.db`, runs, count: runs.length, detail: null })),
     count: realms.reduce((sum, [, runs]) => sum + runs.length, 0),
     ...over,
@@ -73,7 +73,7 @@ export function journalRow(seq, eventType, payload = {}, text = eventType) {
 export function runViewDoc(over = {}) {
   const { seq = 12, ...rest } = over
   return {
-    view_version: 19,
+    view_version: 20,
     summary: {
       consecutive_failures: {},
       cursor: 'park',
@@ -104,6 +104,7 @@ export function runViewDoc(over = {}) {
     ],
     clarify: null,
     worktree: '/work/brokkr',
+    recipe: 'triage',
     ...rest,
   }
 }
@@ -111,7 +112,7 @@ export function runViewDoc(over = {}) {
 /** `brokkr analytics --json` for one realm whose seats reported no cost. */
 export function analyticsDoc(over = {}) {
   return {
-    view_version: 19,
+    view_version: 20,
     range: '7d',
     realm: null,
     from: '2026-10-06T09:00:00Z',
@@ -126,7 +127,10 @@ export function analyticsDoc(over = {}) {
     per_day: [{ date: '2026-10-12', shipped: 2, stopped: 1 }, { date: '2026-10-13', shipped: 1, stopped: 0 }],
     waiting_by_step: [{ phase: 'review', waiting_millis: 3_600_000, runs: 1, text: '1.0h · 1 run' }],
     rework: { runs: 3, implement_visits: 1.3, implement_visits_text: '1.3', sent_back: 1, second_try_passed: 1, second_try_of: 1, second_try_percent: 100, second_try_text: '100%' },
-    models: [{ model: 'gpt-5.5', attempts: 4, percent: 100, text: 'gpt-5.5 100%' }],
+    models: [
+      { model: 'gpt-5.5', attempts: 3, percent: 75, text: 'gpt-5.5 75%' },
+      { model: null, attempts: 1, percent: 25, text: 'not reported 25%' },
+    ],
     realms: [{ realm: 'lanetally', shipped: 3, stopped: 1, median: { millis: 15_120_000, text: '4h 12m' }, waiting_millis: 3_600_000, waiting_text: '1.0h', cost: { kind: 'not_reported' }, cost_text: 'not reported', unreadable_runs: 0 }],
     quarantined: [],
     not_recorded: ['machine capacity over time', 'cost limits', 'costs for Codex and dsh', 'reasons findings were dismissed'],
@@ -173,11 +177,12 @@ export function stubBrokkr(rules, over = {}) {
 
 // ------------------------------------------------------------ the host
 
-/** A stub DSH host: the routes and upgrade a plugin registers, and its fence. */
+/** A stub DSH host: the routes, upgrade and model tools a plugin registers, and its fence. */
 export function stubHost(rejection = undefined) {
-  const host = { routes: new Map(), upgrades: new Map(), rejection }
+  const host = { routes: new Map(), upgrades: new Map(), tools: new Map(), rejection }
   host.ctx = {
     effect: (register, _label) => register(),
+    tools: { register: (definition) => host.tools.set(definition.name, definition) },
     webServer: {
       register: ({ kind, path, handler }) => host.routes.set(path, { kind, handler }),
       registerUpgrade: ({ path, handler }) => host.upgrades.set(path, handler),

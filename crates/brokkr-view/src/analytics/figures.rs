@@ -82,11 +82,11 @@ fn waiting(runs: &[&RunFacts], window: Window) -> Waiting {
 
 fn stopped_by_rule(runs: &[&RunFacts], window: Window) -> StoppedByRule {
     let mut count = 0;
-    let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut tally: BTreeMap<Option<&str>, usize> = BTreeMap::new();
     for (_, _, ending) in finished_in(runs, window) {
         if let Ending::ByRule(rule) = ending {
             count += 1;
-            *tally.entry(rule.as_deref().unwrap_or(ABSENT)).or_default() += 1;
+            *tally.entry(rule.as_deref()).or_default() += 1;
         }
     }
     let top = tally
@@ -94,14 +94,18 @@ fn stopped_by_rule(runs: &[&RunFacts], window: Window) -> StoppedByRule {
         .fold(None::<RuleCount>, |best, (rule_id, count)| match best {
             Some(best) if best.count >= count => Some(best),
             Some(_) | None => Some(RuleCount {
-                rule_id: rule_id.to_string(),
+                rule_id: rule_id.map(str::to_string),
                 count,
             }),
         });
     StoppedByRule {
         count,
         text: top.as_ref().map_or_else(String::new, |top| {
-            format!("{} by {}", top.count, top.rule_id)
+            format!(
+                "{} by {}",
+                top.count,
+                top.rule_id.as_deref().unwrap_or(ABSENT)
+            )
         }),
         top,
     }
@@ -237,12 +241,10 @@ fn rework(runs: &[&RunFacts], window: Window) -> Rework {
 }
 
 fn models(runs: &[&RunFacts], window: Window) -> Vec<ModelShare> {
-    let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut tally: BTreeMap<Option<&str>, usize> = BTreeMap::new();
     let sites = runs.iter().flat_map(|run| &run.sites);
     for site in sites.filter(|site| window.holds(site.at)) {
-        *tally
-            .entry(site.model.as_deref().unwrap_or("not reported"))
-            .or_default() += 1;
+        *tally.entry(site.model.as_deref()).or_default() += 1;
     }
     let total: usize = tally.values().sum();
     let mut shares: Vec<ModelShare> = tally
@@ -250,8 +252,8 @@ fn models(runs: &[&RunFacts], window: Window) -> Vec<ModelShare> {
         .map(|(model, attempts)| {
             let percent = percent(attempts as i64, total as i64).unwrap_or(0);
             ModelShare {
-                text: format!("{model} {percent}%"),
-                model: model.to_string(),
+                text: format!("{} {percent}%", model.unwrap_or("not reported")),
+                model: model.map(str::to_string),
                 attempts,
                 percent,
             }

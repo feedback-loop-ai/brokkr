@@ -1,0 +1,14 @@
+$ curl -sS -i $U/brokkr-slice2/tools        # no cookie
+HTTP/1.1 401 Unauthorized
+Date: Tue, 13 Oct 2026 22:27:00 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Transfer-Encoding: chunked
+
+
+$ curl -sS -c cookies.txt "$U/?token=<launch token>" -o /dev/null -w "%{http_code}"
+303
+$ curl -sS -b cookies.txt $U/brokkr-slice2/tools
+{"global":["brokkr_runs","brokkr_suggest"]}
+$ curl -sS -b cookies.txt -X POST -H content-type:application/json -d {"question":"Which Brokkr run needs me?"} $U/brokkr-slice2/ask
+{"answer":"Stub answer: Fix the login fence is running.","chunkTypes":["block-start","text-delta","block-end","usage","finish"],"selection":{"provider":"brokkr-stub","model":"stub-model"}}

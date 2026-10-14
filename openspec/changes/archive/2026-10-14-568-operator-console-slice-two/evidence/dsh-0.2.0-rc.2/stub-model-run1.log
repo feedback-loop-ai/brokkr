@@ -1,0 +1,4 @@
+2026-10-13T22:26:40.640Z stub listening on 127.0.0.1:38219
+2026-10-13T22:27:00.879Z #1 POST /v1/chat/completions auth=present(redacted) model=stub-model stream=true roles=system,user tools(0)=
+2026-10-13T22:27:00.879Z #1 last user text="Which Brokkr run needs me?"
+2026-10-13T22:27:00.879Z #1 reply text "Stub answer: Fix the login fence is running."
