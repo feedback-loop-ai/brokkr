@@ -1,7 +1,8 @@
 //! The box admission launches on its waiting bootstrap (decision 0065
 //! slice two U6c6b, U6c8; MB3, MB5, SD3), driven through the real binary: a
-//! real owned box reports ready, its store is read once, and serving still
-//! refuses, with nothing of the box left; a box held at its entry by a
+//! real owned box reports ready, its store is read once, and the fixture's
+//! retained plan refuses, with nothing of the box left; a box held at its
+//! entry by a
 //! tracer, so that its bootstrap never reports, refuses at the startup's
 //! absolute deadline, or at once when the attempt is cancelled, with
 //! nothing of the box left running and nothing looked up; and a host with
@@ -98,7 +99,7 @@ fn sealed() -> Option<(Sealed, String)> {
 }
 
 #[test]
-fn a_real_box_reports_ready_and_serving_still_refuses_with_nothing_of_it_left() {
+fn a_real_box_reports_ready_and_its_retained_plan_refuses_with_nothing_of_it_left() {
     let Some((sealed, digest)) = sealed() else {
         return;
     };
@@ -244,13 +245,14 @@ impl Held {
     /// server was started; what the tracer wrote on its stderr; and what
     /// the plan's ledger proves.
     fn ended(self) -> ((Option<i32>, String), bool, String, Proved) {
-        let out = self.attempt.wait_with_output().unwrap();
+        let apart = self.sealed.path("broker.err");
+        let out = super::bounded_apart(self.attempt, b"", &apart);
         let ledger = sealed_ledger(&self.sealed);
         let [bootstrap, first, launcher, _] = self.chain;
         let started = self.sealed.path("started").exists();
         let left = !(gone(bootstrap) & gone(first) & gone(launcher)) | started;
         let looked = self.reads.lookups() != 0;
-        let broker = std::fs::read_to_string(self.sealed.path("broker.err")).unwrap();
+        let broker = std::fs::read_to_string(apart).unwrap();
         let tracer = String::from_utf8(out.stderr).unwrap();
         (
             (out.status.code(), broker),

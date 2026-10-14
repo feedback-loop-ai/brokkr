@@ -9,7 +9,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::mem::ManuallyDrop;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
 
-use super::{recover, Disposition, Invalid, Ledger, Outcome, Unrecorded};
+use super::{recover, Disposition, Failure, Invalid, Ledger, Outcome, Unrecorded};
 use crate::broker::Owner;
 
 /// The plan digest every case opens its ledger for.
@@ -36,13 +36,16 @@ enum Medium {
     Pipe,
 }
 
-/// From now on, the ledger file's descriptor `held` names `medium`.
+/// From now on, the ledger file's descriptor `held` names `medium`, closed
+/// by an exec, so no process another test starts meanwhile inherits it.
 fn swap(held: RawFd, medium: impl AsFd) {
+    use rustix::io::{dup3, fcntl_getfd, DupFlags, FdFlags};
     // SAFETY: `held` is the descriptor of the file the case or its open
     // ledger owns, open across this call; `ManuallyDrop` leaves closing it
     // to its owner.
     let mut held = ManuallyDrop::new(unsafe { OwnedFd::from_raw_fd(held) });
-    rustix::io::dup2(medium, &mut held).unwrap();
+    dup3(medium, &mut held, DupFlags::CLOEXEC).unwrap();
+    assert_eq!(fcntl_getfd(&*held), Ok(FdFlags::CLOEXEC));
 }
 
 /// What one session, one call to `resolve` that succeeded and then closure,
@@ -186,4 +189,37 @@ fn binding_rereads_the_very_opened_the_ledger_appended() {
     // The control: an unrelated binding guards the Opened it re-reads.
     let (mut ledger, _) = appending();
     assert_eq!(ledger.bind(&unrelated), Ok(()));
+}
+
+#[test]
+fn a_ledger_is_bound_once_and_a_second_binding_never_weakens_its_guard() {
+    // STATE=0002 is the Closed's sequence, 2, by what it is worth. A second
+    // binding, of no value or of fewer, is refused as a record the ledger
+    // cannot make, and the first guard stays: the Closed is refused and
+    // never appended (operator ruling 2026-10-13).
+    let (bound, unrelated) = (state("0002"), state("unrelated"));
+    let fewer: &[crate::secret::BoundSecret] = &[];
+    for second in [fewer, &unrelated] {
+        let (mut ledger, appended) = appending();
+        assert_eq!(ledger.bind(&bound), Ok(()));
+        assert_eq!(ledger.bind(second), Err(Unrecorded::Record));
+        let opened = appended.borrow().clone();
+        assert_eq!(ledger.close(), Err(Unrecorded::Masking));
+        assert_eq!(*appended.borrow(), opened);
+    }
+    // A ledger opened with its bindings is bound by them already.
+    let append = |_: &[u8]| Ok(());
+    let mut ledger = Ledger::open_with(append, (&owner(), PLAN), &bound).unwrap();
+    assert_eq!(ledger.bind(fewer), Err(Unrecorded::Record));
+    assert_eq!(ledger.close(), Err(Unrecorded::Masking));
+    // A second binding refused latches the masking cause: a guard the Closed
+    // passes closes it Failed, never Clean, however the session ends.
+    let (mut ledger, _) = appending();
+    assert_eq!(ledger.bind(&unrelated), Ok(()));
+    assert_eq!(ledger.bind(fewer), Err(Unrecorded::Record));
+    assert_eq!(ledger.close(), Ok(Disposition::Failed(Failure::Masking)));
+    // The control: bound once by an unrelated value, the Closed is written.
+    let (mut ledger, _) = appending();
+    assert_eq!(ledger.bind(&unrelated), Ok(()));
+    assert_eq!(ledger.close(), Ok(Disposition::Clean));
 }

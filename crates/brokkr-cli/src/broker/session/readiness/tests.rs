@@ -6,18 +6,24 @@
 use std::io::{PipeReader, PipeWriter, Read, Write};
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
+use brokkr_protocol::broker::ledger::{recover, Disposition, Failure, Invalid, Outcome};
 use brokkr_protocol::broker::{BoxIntent, Network, Plan, Refusal};
 use brokkr_protocol::secret::BoundSecret;
 use serde_json::json;
 
 use super::super::helper::{handed, received};
+use super::super::lifetime::{lived, Binder, Ended, Held};
 use super::linux::{
     decided, delivered, exec_status, first, framed, handed as supervised, message, read, sent,
-    Intent, Ready, Seen, Source, Spaces, FRAME_MAX,
+    Intent, Published, Ready, Seen, Source, Spaces, FRAME_MAX,
 };
-use super::{compared, ready, Admitted, Link, Record, Startup};
+use super::{compared, ready, Admitted, Handed, Link, Record, Startup};
+use crate::broker::rpc::pieces::Put;
+use crate::broker::rpc::Fatal;
+use crate::broker::session::ensure;
 
 /// The sealed plan's and source set's digests.
 const PLAN: &str = "1111111111111111111111111111111111111111111111111111111111111111";
@@ -373,7 +379,7 @@ fn plan_sealed(names: &[&str]) -> Plan {
 fn a_launcher_that_cannot_start_is_unavailable_and_one_that_stands_no_box_is_not_established() {
     let plan = plan_sealed(&[]);
     // Nothing stands to be served.
-    let served = || |_: Link<'_>| Ok::<(), Refusal>(());
+    let served = || |_: Link<'_>, _: &mut PipeReader, ()| Ok::<(), Refusal>(());
     // A launcher that cannot start at all: its handle a directory's.
     let directory = admitted(std::fs::File::open("/").unwrap().into());
     let answer = ready(&directory, (&plan, PLAN), startup(&live), unbound, served());
@@ -528,8 +534,21 @@ fn admitted_store(dir: &Path, store: &str) -> Admitted {
 }
 
 /// A session's binder that keeps nothing and refuses nothing.
-fn unbound(_: Vec<BoundSecret>) -> Result<(), Refusal> {
+fn unbound(_: Handed<Vec<BoundSecret>>) -> Result<(), Refusal> {
     Ok(())
+}
+
+/// The names of the bindings `handed`, none where nothing was looked up.
+fn named(handed: Handed<Vec<BoundSecret>>) -> Vec<String> {
+    let bindings = match handed {
+        Handed::Published(bindings) => bindings,
+        Handed::Nothing => Vec::new(),
+        Handed::Uncertain => panic!("a sender that answered left its bindings uncertain"),
+    };
+    bindings
+        .iter()
+        .map(|bound| bound.name().to_owned())
+        .collect()
 }
 
 /// A delivery's answer, whether it closed its control pipe, and what that
@@ -553,9 +572,8 @@ fn delivering(
     let mut reader = kept.then_some(reader);
     let mut control = Some(writer);
     let given = std::cell::RefCell::new(None);
-    let bind = |bindings: Vec<BoundSecret>| {
-        let named = bindings.iter().map(|bound| bound.name().to_owned());
-        given.replace(Some(named.collect()));
+    let bind = |handed| {
+        given.replace(Some(named(handed)));
         bound
     };
     let answer = delivered(
@@ -750,11 +768,11 @@ fn held_sender(startup: Startup<'_>, from: Instant) -> HeldSender {
     let (release, held) = std::sync::mpsc::channel::<()>();
     let (report, reported) = std::sync::mpsc::channel();
     let ended = std::cell::Cell::new(None);
-    let answer = supervised(
+    let (_, answer) = supervised(
         std::thread::Builder::new(),
         startup,
         || ended.set(Some(from.elapsed())),
-        move |given_up| {
+        move |given_up, _: &Published<()>| {
             held.recv_timeout(Duration::from_secs(2)).ok();
             report
                 .send(given_up.load(std::sync::atomic::Ordering::SeqCst))
@@ -818,11 +836,217 @@ fn a_sender_thread_that_cannot_be_made_is_the_handoff_cause() {
     // No stack this large can be mapped, so no thread is made: the handoff
     // cause, with no sender run and no box ended by the supervisor.
     let unmade = std::thread::Builder::new().stack_size(usize::MAX);
-    let answer: Result<(), Refusal> = supervised(
+    let answer: (Handed<()>, Result<(), Refusal>) = supervised(
         unmade,
         startup(&live),
         || panic!("a sender never made ended its box"),
-        |_| panic!("a sender never made ran"),
+        |_, _| panic!("a sender never made ran"),
     );
-    assert_eq!(answer, Err(Refusal::Handoff));
+    assert_eq!(answer, (Handed::Nothing, Err(Refusal::Handoff)));
+}
+
+/// What a bound plan's ledger proves: each call and its outcome, its
+/// closure and why verification stopped, if it did.
+type Proved = (
+    Vec<(String, Option<Outcome>)>,
+    Option<Disposition>,
+    Option<Invalid>,
+);
+
+/// A bound plan's lifetime whose session delivers `DOCS_TOKEN`, stored as
+/// `value`, on a control pipe that is full and that no one reads, within
+/// `startup`, its bindings given to the lifetime's binder: how the
+/// lifetime ended, and what its ledger proves.
+fn given_up(value: &str, startup: Startup<'_>) -> (Result<(), Ended>, Proved) {
+    let dir = tempfile::tempdir().unwrap();
+    let admitted = admitted_store(dir.path(), &format!("DOCS_TOKEN={value}\n"));
+    let attempt: OwnedFd = std::fs::File::open(dir.path()).unwrap().into();
+    let plan = plan_sealed(&["DOCS_TOKEN"]);
+    let (_reader, writer) = full();
+    let ended = plan_lived(&attempt, &plan, |binder| {
+        let pipes = (&mut Some(writer), &mut written(b""));
+        let bind = |found| binder.bind(found);
+        delivered(pipes, (&admitted, &plan), startup, (|| (), bind)).map(drop)
+    });
+    (ended, proved(dir.path(), &plan))
+}
+
+/// `session` run in the lifetime of the ledger `plan` opens in `attempt`,
+/// as `serve` runs it, its standard error taking whatever it is told.
+fn plan_lived(
+    attempt: &OwnedFd,
+    plan: &Plan,
+    session: impl FnOnce(Binder<'_, '_>) -> Result<(), Ended>,
+) -> Result<(), Ended> {
+    let ledger = (attempt, std::ffi::OsStr::new("plan"));
+    let held = Held::default();
+    lived(&held, ledger, (&plan.owner, PLAN), &|_| Put::Taken, session)
+}
+
+/// What the ledger `plan`'s lifetime left in `dir` proves.
+fn proved(dir: &Path, plan: &Plan) -> Proved {
+    let bytes = std::fs::read(dir.join("plan.ledger")).unwrap();
+    let (lifecycle, invalid) = recover(&bytes, &plan.owner, PLAN);
+    (
+        lifecycle.calls().to_vec(),
+        lifecycle.closed().cloned(),
+        invalid,
+    )
+}
+
+#[test]
+fn bindings_looked_up_before_a_stalled_write_still_guard_the_closure_given_up_on() {
+    // The frame is never taken, so the startup gives up on its write, at
+    // its deadline or on the attempt's cancellation, half a second in,
+    // long after the store was read. The binding looked up is still given
+    // to the ledger (operator ruling 2026-10-13): DOCS_TOKEN's 0002 is the
+    // Closed's sequence, 2, and `closed` its record's name, so the Closed
+    // the handoff cause would close with is refused and never appended,
+    // and the lifetime ends with the masking cause.
+    let soon = || Instant::now() + Duration::from_millis(500);
+    let unclosed = || (vec![], None, Some(Invalid::Lifecycle));
+    let masking = || Err(Ended::Failed(Fatal::Failed(Failure::Masking)));
+    for value in ["0002", "closed"] {
+        let ran = given_up(value, (soon(), &live));
+        let deadline = (value, "deadline", ran);
+        assert_eq!(deadline, (value, "deadline", (masking(), unclosed())));
+        let at = soon();
+        let late = move || Instant::now() >= at;
+        let ran = given_up(value, (at + Duration::from_secs(30), &late));
+        let cancelled = (value, "cancelled", ran);
+        assert_eq!(cancelled, (value, "cancelled", (masking(), unclosed())));
+    }
+    // The control: an unrelated binding leaves the handoff cause the
+    // session's, and its closure.
+    let handoff = Failure::Refused(Refusal::Handoff);
+    let closed = (vec![], Some(Disposition::Failed(handoff)), None);
+    let deadline = Instant::now() + Duration::from_millis(300);
+    let ran = given_up("unrelated", (deadline, &live));
+    assert_eq!(ran, (Err(Ended::Refused(Refusal::Handoff)), closed));
+}
+
+#[test]
+fn what_a_sender_published_before_it_failed_or_was_given_up_on_is_taken() {
+    // A sender that fails once it has published.
+    let failing = |_: &AtomicBool, published: &Published<u8>| {
+        published.publish(7);
+        panic!("the sender failed after publishing");
+    };
+    let ended = || panic!("a sender that answered ended its box");
+    let answer = supervised(std::thread::Builder::new(), startup(&live), ended, failing);
+    assert_eq!(
+        answer,
+        (Handed::Published(7), Err::<(), _>(Refusal::Handoff))
+    );
+    // One held past the deadline once it has published, and one held when
+    // the attempt is cancelled.
+    let held = |startup: Startup<'_>| {
+        let (release, held) = std::sync::mpsc::channel::<()>();
+        let answer = supervised(
+            std::thread::Builder::new(),
+            startup,
+            || (),
+            move |_, published: &Published<u8>| {
+                published.publish(7);
+                held.recv_timeout(Duration::from_secs(2)).ok();
+                Ok(())
+            },
+        );
+        drop(release);
+        answer
+    };
+    let soon = || Instant::now() + Duration::from_millis(200);
+    let given_up = (Handed::Published(7), Err(Refusal::Handoff));
+    assert_eq!(held((soon(), &live)), given_up);
+    let at = soon();
+    let late = move || Instant::now() >= at;
+    assert_eq!(held((at + Duration::from_secs(30), &late)), given_up);
+    // The control: one that answers in time having published nothing.
+    let quiet = |_: &AtomicBool, _: &Published<u8>| Ok(());
+    let ended = || panic!("a sender that answered ended its box");
+    let answer = supervised(std::thread::Builder::new(), startup(&live), ended, quiet);
+    assert_eq!(answer, (Handed::Nothing, Ok(())));
+}
+
+/// A bound plan's lifetime whose sender, if it `begins` its lookup, marks
+/// it begun, and is then held past a 200 ms deadline before it publishes,
+/// as one whose lookup resolved and whose publication had not yet come is:
+/// how the lifetime ended, and what its ledger proves.
+fn interleaved(begins: bool) -> (Result<(), Ended>, Proved) {
+    let dir = tempfile::tempdir().unwrap();
+    let attempt: OwnedFd = std::fs::File::open(dir.path()).unwrap().into();
+    let plan = plan_sealed(&["DOCS_TOKEN"]);
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let ended = plan_lived(&attempt, &plan, |binder| {
+        let deadline = Instant::now() + Duration::from_millis(200);
+        let sender = move |_: &AtomicBool, published: &Published<Vec<BoundSecret>>| {
+            let begun = begins && published.begin();
+            held.recv_timeout(Duration::from_secs(2)).ok();
+            published.publish(Vec::new());
+            ensure(begun, Refusal::Handoff)
+        };
+        let thread = std::thread::Builder::new();
+        let (handed, sent) = supervised(thread, (deadline, &live), || (), sender);
+        binder.bind(handed)?;
+        sent.map_err(Ended::from)
+    });
+    drop(release);
+    (ended, proved(dir.path(), &plan))
+}
+
+#[test]
+fn a_sender_given_up_on_between_its_lookup_and_its_publication_leaves_the_ledger_unclosed() {
+    // Its lookup begun and nothing published when the startup gives up on
+    // it: what it holds is unknown, so no guard can hold, and no closure is
+    // appended, however its bindings are spelled; the lifetime ends with
+    // the handoff cause, and recovery finds the Opened alone (operator
+    // ruling 2026-10-13). Its later publication is never taken.
+    let handoff = || Err(Ended::Refused(Refusal::Handoff));
+    let unclosed = (vec![], None, Some(Invalid::Lifecycle));
+    assert_eq!(interleaved(true), (handoff(), unclosed));
+    // The control: given up on before its lookup began, it held nothing,
+    // and the closure is appended with the handoff cause.
+    let closed = Some(Disposition::Failed(Failure::Refused(Refusal::Handoff)));
+    assert_eq!(interleaved(false), (handoff(), (vec![], closed, None)));
+}
+
+#[test]
+fn a_lookup_begun_and_never_published_is_uncertain_unless_its_sender_returned() {
+    type Sender = Box<dyn FnOnce(&AtomicBool, &Published<u8>) -> Result<(), Refusal> + Send>;
+    let take = |sender: Sender| {
+        let deadline = Instant::now() + Duration::from_millis(200);
+        supervised(
+            std::thread::Builder::new(),
+            (deadline, &live),
+            || (),
+            sender,
+        )
+    };
+    let handoff = || Err(Refusal::Handoff);
+    // One that failed once its lookup began holds what it held unknown.
+    let failed: Sender = Box::new(|_, published| {
+        published.begin();
+        panic!("the sender failed during its lookup");
+    });
+    assert_eq!(take(failed), (Handed::Uncertain, handoff()));
+    // One that returned from a lookup that refused publishes nothing, and
+    // holds nothing.
+    let refused: Sender = Box::new(|_, published| {
+        published.begin();
+        Err(Refusal::Handoff)
+    });
+    assert_eq!(take(refused), (Handed::Nothing, handoff()));
+    // One given up on before it began may not begin its lookup.
+    let (report, reported) = std::sync::mpsc::channel();
+    let late: Sender = Box::new(move |given_up, published| {
+        let until = Instant::now() + Duration::from_secs(2);
+        while !given_up.load(std::sync::atomic::Ordering::SeqCst) & (Instant::now() < until) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        report.send(published.begin()).ok();
+        Ok(())
+    });
+    assert_eq!(take(late), (Handed::Nothing, handoff()));
+    let begun = reported.recv_timeout(Duration::from_secs(5));
+    assert_eq!(begun, Ok(false));
 }

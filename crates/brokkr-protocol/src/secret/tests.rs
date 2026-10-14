@@ -979,8 +979,37 @@ fn sending(handle: &std::fs::File, path: &Path, names: &[&str]) -> Result<Vec<u8
         sent = Some(frame.to_vec());
         Ok(())
     };
-    let (_, answer) = send_environment(handle.as_fd(), path, &owned(names), send);
+    let answer = send_environment(handle.as_fd(), path, &owned(names), drop, send);
     answer.map(|()| sent.unwrap())
+}
+
+/// What the sender gives its caller for the declared `names` from the
+/// store `handle` holds, which `path` names, `send` answering for the
+/// transport: the names of the bindings it found, none where it gave none;
+/// whether they had been given when `send` was asked to write, where it
+/// was; and its answer.
+#[cfg(target_os = "linux")]
+type Handed = (Option<Vec<String>>, Option<bool>, Result<(), Refusal>);
+
+#[cfg(target_os = "linux")]
+fn handed_over(
+    handle: &std::fs::File,
+    path: &Path,
+    names: &[String],
+    send: impl FnOnce(&[u8]) -> Result<(), Refusal>,
+) -> Handed {
+    let found = std::cell::RefCell::new(None);
+    let given = |bindings: Vec<BoundSecret>| {
+        let named = bindings.iter().map(|bound| bound.name().to_owned());
+        found.replace(Some(named.collect()));
+    };
+    let before = std::cell::Cell::new(None);
+    let asked = |frame: &[u8]| {
+        before.set(Some(found.borrow().is_some()));
+        send(frame)
+    };
+    let answer = send_environment(std::os::fd::AsFd::as_fd(handle), path, names, given, asked);
+    (found.into_inner(), before.get(), answer)
 }
 
 /// [`sending`] from the store holding `bytes`.
@@ -1003,30 +1032,28 @@ fn the_sender_frames_the_injectors_environment_of_the_declared_names_alone() {
     let handle = std::fs::File::open(&broad).unwrap();
     assert_eq!(sending(&handle, &broad, &[]), Ok(handoff_frame(b"{}")));
     // Whatever the transport answers is the sender's answer, and the
-    // bindings it looked up are handed back beside it, sent or not; a
-    // lookup that refused hands back none.
+    // bindings it looked up are given to its caller before the transport
+    // is asked to write a byte, sent or not, so a write that stalls never
+    // holds them back (operator ruling 2026-10-13); a lookup that refused
+    // gives none, and asks for no write.
     let path = store_at(dir.path(), "secrets.env", store, 0o600);
     let handle = std::fs::File::open(&path).unwrap();
     let kept = |name: &str, send: fn(&[u8]) -> Result<(), Refusal>| {
-        let names = owned(&[name]);
-        let (kept, answer) =
-            send_environment(std::os::fd::AsFd::as_fd(&handle), &path, &names, send);
-        let kept: Vec<String> = kept.iter().map(|bound| bound.name().to_owned()).collect();
-        (kept, answer)
+        handed_over(&handle, &path, &owned(&[name]), send)
     };
-    let token = owned(&["DOCS_TOKEN"]);
+    let token = Some(owned(&["DOCS_TOKEN"]));
     assert_eq!(
         kept("DOCS_TOKEN", |_| Err(Refusal::Exec)),
-        (token.clone(), Err(Refusal::Exec))
+        (token.clone(), Some(true), Err(Refusal::Exec))
     );
-    assert_eq!(kept("DOCS_TOKEN", |_| Ok(())), (token, Ok(())));
+    assert_eq!(kept("DOCS_TOKEN", |_| Ok(())), (token, Some(true), Ok(())));
     let not_in = format!(
         "secret 'MISSING' is not in the store at {} (brokkr secrets set MISSING)",
         path.display()
     );
     assert_eq!(
         kept("MISSING", |_| Ok(())),
-        (vec![], Err(Refusal::Name(not_in)))
+        (None, None, Err(Refusal::Name(not_in)))
     );
 }
 
@@ -1084,6 +1111,18 @@ fn the_sender_refuses_a_frame_past_mb4s_bounds_and_sends_one_at_them() {
         sent_from(store.as_bytes(), &declared),
         Err(Refusal::Handoff)
     );
+    // A frame refused is never written, and the bindings it would carry
+    // are still given to the caller.
+    let dir = tempfile::tempdir().unwrap();
+    let path = store_at(dir.path(), "secrets.env", store.as_bytes(), 0o600);
+    let handle = std::fs::File::open(&path).unwrap();
+    let unsent = |frame: &[u8]| -> Result<(), Refusal> { panic!("sent {} bytes", frame.len()) };
+    let (given, asked, answer) = handed_over(&handle, &path, &names, unsent);
+    let given = given.map(|given| given.len());
+    assert_eq!(
+        (given, asked, answer),
+        (Some(BINDINGS_MAX + 1), None, Err(Refusal::Handoff))
+    );
     let fixed = br#"{"DOCS_TOKEN":""}"#.len();
     let value = |size: usize| format!("DOCS_TOKEN={}\n", "v".repeat(size));
     let at = sent_from(value(HANDOFF_MAX - fixed).as_bytes(), &["DOCS_TOKEN"]);
@@ -1100,9 +1139,16 @@ fn off_linux_the_sender_reads_no_store_for_a_declared_name() {
     let handle = std::fs::File::open(&path).unwrap();
     let send = |frame: &[u8]| -> Result<(), Refusal> { panic!("sent {} bytes", frame.len()) };
     let names = owned(&["DOCS_TOKEN"]);
-    let (kept, answer) = send_environment(std::os::fd::AsFd::as_fd(&handle), &path, &names, send);
+    let given = |_: Vec<BoundSecret>| panic!("a store never read gave a binding");
+    let answer = send_environment(
+        std::os::fd::AsFd::as_fd(&handle),
+        &path,
+        &names,
+        given,
+        send,
+    );
     let unread = format!("cannot read secrets store {}: unsupported", path.display());
-    assert_eq!((kept.len(), answer), (0, Err(Refusal::Name(unread))));
+    assert_eq!(answer, Err(Refusal::Name(unread)));
 }
 
 /// What the receiver does with `input` for the declared `names`, its fixed

@@ -448,7 +448,7 @@ fn an_observer_its_broker_did_not_start_hands_nothing_back() {
             .env("HOME", &sealed.home)
             .stdin(Stdio::null())
             .stderr(Stdio::null());
-        let status = command.stdout(theirs).status().unwrap();
+        let status = super::bounded(command.stdout(theirs).spawn().unwrap(), b"").status;
         drop(command);
         (status.code(), received(&ours).0)
     };
@@ -457,8 +457,9 @@ fn an_observer_its_broker_did_not_start_hands_nothing_back() {
     assert_eq!(observe(Some("\"$@\"; exit $?")), (Some(1), Value::Null));
     // A stdout that is no socket carries no record either.
     let mut piped = sealed.root.command(&args);
-    let out = piped.env("HOME", &sealed.home).output().unwrap();
-    assert_eq!((out.status.code(), out.stdout.len()), (Some(1), 0));
+    piped.env("HOME", &sealed.home);
+    let out = sealed.root.ran(piped);
+    assert_eq!((out.code, out.stdout.len()), (Some(1), 0));
 }
 
 #[test]
@@ -475,11 +476,8 @@ fn an_observer_leading_no_process_group_of_its_own_refuses_before_its_tether() {
     let mut command = Command::new(brokkr());
     command.args(args).args(["--plan-digest", super::DIGEST]);
     command.env("HOME", &sealed.home).stdin(Stdio::null());
-    let out = command
-        .stdout(theirs)
-        .stderr(Stdio::piped())
-        .output()
-        .unwrap();
+    let child = command.stdout(theirs).stderr(Stdio::piped()).spawn();
+    let out = super::bounded(child.unwrap(), b"");
     drop(command);
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     let answer = ((out.status.code(), stderr), received(&ours).0);
@@ -646,17 +644,21 @@ fn serving(sealed: &Sealed, digest: &str, block: &Block, starter: Starter) -> Co
         Block::Mount { .. } => Command::new(setpriv()),
         Block::Launcher { tracer } => traced(tracer, TRACED),
     };
-    let apart = sealed.path("broker.err");
-    let mut command = started_to(command, sealed, digest, (starter, Some(&apart)));
+    let mut command = started_to(command, sealed, digest, (starter, Some(&apart(sealed))));
     let tmp = sealed.path("tmp");
     std::fs::create_dir_all(&tmp).unwrap();
     command.env("TMPDIR", tmp);
     command
 }
 
+/// Where the broker [`serving`] `sealed` writes its own stderr.
+fn apart(sealed: &Sealed) -> PathBuf {
+    sealed.path("broker.err")
+}
+
 /// What the broker [`serving`] `sealed` wrote to its own stderr.
 fn broker_err(sealed: &Sealed) -> String {
-    std::fs::read_to_string(sealed.path("broker.err")).unwrap()
+    std::fs::read_to_string(apart(sealed)).unwrap()
 }
 
 /// `tracer`, given `args`, running `setpriv`.
@@ -838,7 +840,8 @@ fn the_admitted_launcher_runs_through_its_handle_with_no_environment() {
     let apart = sealed.path("broker.err");
     let starter = (Starter::Harness, Some(apart.as_path()));
     let mut command = started_to(traced(&tracer, args), &sealed, &digest, starter);
-    let ran = command.stderr(Stdio::null()).status().unwrap();
+    let attempt = command.stderr(Stdio::null()).spawn().unwrap();
+    let ran = super::bounded_apart(attempt, b"", &apart).status;
     assert_eq!((ran.code(), broker_err(&sealed)), admitted());
     // The one run the admission gave its launcher: the kept handle, by the
     // kernel's name for it, asked its version with an empty environment.
@@ -869,7 +872,7 @@ fn an_operation_blocked_to_the_deadline_refuses_with_nothing_left_running() {
         let store = Store::new(sealed.path("store/secrets.env"));
         let started = Instant::now();
         let mut command = adopted(&serving(&sealed, &digest, &block, Starter::Harness));
-        let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
+        let attempt = command.stderr(Stdio::null()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
         // The broker ends once the full deadline, never extended, has
@@ -877,7 +880,9 @@ fn an_operation_blocked_to_the_deadline_refuses_with_nothing_left_running() {
         // started and its whole group are gone by then.
         let elapsed = awaited(broker) - started;
         let ended = swept(pid);
-        let code = attempt.wait().unwrap().code();
+        let code = super::bounded_apart(attempt, b"", &apart(&sealed))
+            .status
+            .code();
         let ended_at = Instant::now();
         let answer = (code, broker_err(&sealed));
         assert_eq!((kind, answer), (kind, refused(Refusal::Identity)));
@@ -897,12 +902,12 @@ fn a_cancelled_attempt_ends_a_blocked_observation_with_nothing_left_running() {
         // The shell that started the broker, standing for the attempt's own
         // start, ends while the observer is blocked.
         let mut command = adopted(&serving(&sealed, &digest, &block, Starter::Attempt));
-        let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
+        let attempt = command.stderr(Stdio::null()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
         let taken = cancelled(broker);
         let ended = swept(pid);
-        attempt.wait().unwrap();
+        super::bounded_apart(attempt, b"", &apart(&sealed));
         let stderr = broker_err(&sealed);
         let ended_at = Instant::now();
         // The broker answered with the identity cause soon after and
@@ -920,7 +925,7 @@ fn a_cancelled_attempt_ends_a_blocked_observation_with_nothing_left_running() {
 fn a_broker_killed_outright_takes_its_blocked_observer_with_it() {
     each_block(|kind, sealed, digest, block| {
         let mut command = adopted(&serving(&sealed, &digest, &block, Starter::Harness));
-        let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
+        let attempt = command.stderr(Stdio::null()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
         kill(broker);
@@ -928,7 +933,7 @@ fn a_broker_killed_outright_takes_its_blocked_observer_with_it() {
         // kills it, the observer and whatever it started, the launcher's
         // version query included.
         let ended = swept(pid);
-        attempt.wait().unwrap();
+        super::bounded_apart(attempt, b"", &apart(&sealed));
         assert!(ended, "{kind:?}");
         assert!(!sealed.path("started").exists());
     });

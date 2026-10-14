@@ -1587,6 +1587,22 @@ fn program_and_bootstrap_links_refuse_and_the_launch_must_still_name_the_executa
     assert_eq!(answer(&named, &bootstrap), Err(Refusal::Identity));
 }
 
+/// `attempt`, its attempts counted from zero, made again until `holds`
+/// reads what it observed as the fixture's own doing, at most five times:
+/// a system set that moved meanwhile, as a hosted runner's or a parallel
+/// test's may, is observed afresh. One that never stood still is the last
+/// attempt's, which its caller's assertion then reports.
+fn retried<T>(mut attempt: impl FnMut(usize) -> T, holds: impl Fn(&T) -> bool) -> T {
+    let mut observed = attempt(0);
+    for nth in 1..5 {
+        if holds(&observed) {
+            break;
+        }
+        observed = attempt(nth);
+    }
+    observed
+}
+
 #[test]
 fn the_box_mounts_the_observed_object_and_carries_its_facts() {
     if unservable() {
@@ -1605,23 +1621,54 @@ fn the_box_mounts_the_observed_object_and_carries_its_facts() {
         (sources.entries, sources.mounts, sources.digest.clone())
     };
     let facts = || sealed(&prepared_on(&program, &bootstrap, &confined()).unwrap());
-    let server = prepared_on(&program, &bootstrap, &confined()).unwrap();
     // The box carries its observation's facts for admission to compare.
     // An unchanged tree, its identity generated afresh under another name,
     // is the same set; a file rewritten in place is the same entries and
     // another digest; a directory and a file added are two more entries.
-    let first = sealed(&server);
-    assert_eq!(facts(), first);
+    // The walk covers the whole confined system set, so each is a pair of
+    // observations taken across the fixture's own change alone, observed
+    // again where the set moved meanwhile ([`retried`]). The first pair's
+    // set moves by one record, as an unquiet host's may, so the retry is
+    // made every run.
+    let churn = fixture.path("opt/docs/churn");
+    let (server, first, again) = retried(
+        |nth| {
+            let server = prepared_on(&program, &bootstrap, &confined()).unwrap();
+            if nth == 0 {
+                std::fs::write(&churn, "").unwrap();
+            }
+            let again = facts();
+            std::fs::remove_file(&churn).ok();
+            let first = sealed(&server);
+            (server, first, again)
+        },
+        |(_, first, again)| first == again,
+    );
+    assert_eq!(again, first);
     let writers = confined().credentials.uids;
     assert_eq!(server.writers(), Some(&writers[..]));
-    std::fs::write(&module, "rewritten in place\n").unwrap();
-    let rewritten = facts();
-    assert_eq!(rewritten.0, first.0);
-    assert_ne!(rewritten.2, first.2);
-    fixture.file("opt/docs/share/b.txt", 0o644);
-    let grown = facts();
-    assert_eq!(grown.0, first.0 + 2);
-    assert_ne!(grown.2, rewritten.2);
+    let (before, rewritten) = retried(
+        |nth| {
+            let before = facts();
+            std::fs::write(&module, format!("rewritten in place {nth}\n")).unwrap();
+            (before, facts())
+        },
+        |(before, rewritten)| (rewritten.0 == before.0) & (rewritten.2 != before.2),
+    );
+    assert_eq!(rewritten.0, before.0);
+    assert_ne!(rewritten.2, before.2);
+    let (before, grown) = retried(
+        |_| {
+            let before = facts();
+            fixture.file("opt/docs/share/b.txt", 0o644);
+            let grown = facts();
+            std::fs::remove_dir_all(docs.join("share")).unwrap();
+            (before, grown)
+        },
+        |(before, grown)| (grown.0 == before.0 + 2) & (grown.2 != before.2),
+    );
+    assert_eq!(grown.0, before.0 + 2);
+    assert_ne!(grown.2, before.2);
     let identity = |held: &std::fs::Metadata| (held.dev(), held.ino());
     let observed = identity(&std::fs::metadata(&docs).unwrap());
     std::fs::rename(&docs, fixture.path("opt/old")).unwrap();

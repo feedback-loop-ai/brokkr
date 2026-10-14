@@ -806,9 +806,9 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
         let args = ["-c", &script, "sh", &numbers[0], &numbers[1], &numbers[2]];
         args.map(String::from).to_vec()
     };
-    let mut launched = ServerBox::launch(&entry, &handles, command, super::entry::soon()).unwrap();
-    let mut info = String::new();
-    launched.info.read_to_string(&mut info).unwrap();
+    let launch = || ServerBox::launch(&entry, &handles, command, super::entry::soon()).unwrap();
+    let (mut launched, stray) = holding_a_stray(launch);
+    let info = std::io::read_to_string(&mut launched.info).unwrap();
     let mut ready = [0; 5];
     if launched.ready.read_exact(&mut ready).is_err() {
         let mut rest = String::new();
@@ -823,7 +823,8 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
     // and the waiting process it started holds its standard input and
     // output on the server's own pipes and its error on nothing, and its
     // three control pipes at the very numbers it was given, and no other
-    // descriptor: no handle, no info pipe and nothing else of this process.
+    // descriptor: no handle, no info pipe and nothing else of this process,
+    // the inheritable stray it held across the launch included.
     let first: serde_json::Value = serde_json::from_str(&info).unwrap();
     let first = first["child-pid"].as_u64().unwrap();
     assert_eq!(parent_of(first), Some(u64::from(launched.child.id())));
@@ -839,7 +840,7 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
     expected.push((ready.unsigned_abs(), pipe(&launched.ready)));
     expected.push((status.unsigned_abs(), pipe(&launched.status)));
     expected.sort();
-    assert_eq!(descriptors(waiting), expected);
+    assert_eq!(settled(waiting), expected, "this process's stray: {stray}");
     // Settled when dropped, this process living on: the box's waiting
     // process is gone, and its generated identity with the entry.
     drop(launched);
@@ -897,6 +898,87 @@ fn waiting_child(pid: u64) -> u64 {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     panic!("no waiting child of {pid}");
+}
+
+/// [`descriptors`] of `pid` once it has settled, within ten seconds: asleep
+/// in its wait, as `/proc` shows its state, and holding the same
+/// descriptors across two reads a short interval apart. A process named
+/// by its exec may still be in its loader, holding the library it is
+/// mapping, on a busy host.
+#[cfg(target_os = "linux")]
+fn settled(pid: u64) -> Vec<(u32, String)> {
+    let asleep = || {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+        stat.rsplit_once(") ")
+            .is_some_and(|(_, rest)| rest.starts_with('S'))
+    };
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < until {
+        let held = asleep().then(|| descriptors(pid));
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        if held.is_some_and(|held| asleep() & (descriptors(pid) == held)) {
+            return descriptors(pid);
+        }
+    }
+    panic!("{pid} never settled");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_process_is_read_once_it_has_settled() {
+    // The removal control of [`settled`]: a process that holds a fourth
+    // descriptor while it runs, as a loader mapping a library does, and
+    // then closes it and sleeps, is read without it. It is started while
+    // this process holds an inheritable stray, as a concurrent test may,
+    // and sealed above its standard streams before its exec, so it holds
+    // only what it opens itself.
+    let script = "exec 3</dev/null; i=0; while [ $i -lt 2000000 ]; do i=$((i+1)); done; \
+                  exec 3<&-; exec sleep 600";
+    let nothing = std::process::Stdio::null;
+    let mut shell = std::process::Command::new("/bin/sh");
+    shell
+        .args(["-c", script])
+        .stdin(nothing())
+        .stdout(nothing())
+        .stderr(nothing());
+    // SAFETY: one `close_range` between the shell's fork and its exec,
+    // async-signal-safe; its close-on-exec form leaves the spawn's own
+    // status pipe working until the exec.
+    unsafe {
+        std::os::unix::process::CommandExt::pre_exec(&mut shell, || {
+            match crate::secret::handoff::close_on_exec_above_stdio() {
+                true => Ok(()),
+                false => Err(std::io::Error::last_os_error()),
+            }
+        });
+    }
+    let (mut child, stray) = holding_a_stray(|| shell.spawn().unwrap());
+    let pid = u64::from(child.id());
+    let running = |held: &[(u32, String)]| held.iter().any(|(number, _)| *number == 3);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !running(&descriptors(pid)) & (std::time::Instant::now() < until) {
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let read = settled(pid);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    let null = || "/dev/null".to_string();
+    let expected = [(0, null()), (1, null()), (2, null())];
+    assert_eq!(read, expected, "this process's stray: {stray}");
+}
+
+/// What `start` made while this process held an inheritable pipe, as one a
+/// concurrent test leaves without close-on-exec, and what `/proc` links
+/// that pipe's ends to. The pipe is closed once `start` has returned.
+#[cfg(target_os = "linux")]
+fn holding_a_stray<T>(start: impl FnOnce() -> T) -> (T, String) {
+    let (reader, writer) = std::io::pipe().unwrap();
+    let ends: [std::os::fd::OwnedFd; 2] = [reader.into(), writer.into()];
+    for end in &ends {
+        rustix::io::fcntl_setfd(end, rustix::io::FdFlags::empty()).unwrap();
+    }
+    let link = format!("pipe:[{}]", rustix::fs::fstat(&ends[0]).unwrap().st_ino);
+    (start(), link)
 }
 
 /// Each descriptor `pid` holds, by number, and what `/proc` links it to.

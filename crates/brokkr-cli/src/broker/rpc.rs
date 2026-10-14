@@ -23,25 +23,35 @@
 //! fatal ending is the session's first cause ([`Fatal`]), latched through
 //! the ledger's own catalogue. A response is read strictly as well, at the
 //! output edge ([`output`], U6f1a): a key twice or a number read as another
-//! value ends the session too. The harness-facing call path is [`calls`]'s;
-//! until U6f1b, `serve` refuses before any message reaches the harness.
+//! value ends the session too. The harness-facing call path is [`calls`]'s,
+//! which `serve` takes up once the server has initialized ([`serving`],
+//! U6f1b), under the attempt's cancellation and no longer the startup's
+//! deadline; a plan that retains its responses is refused before any MCP
+//! message is exchanged with its server, until U8b builds retention. The
+//! server's standard error is drained from its start, during its
+//! initialization as while it serves, and its masked tail is kept for the
+//! broker's own however the session ends.
 
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsFd;
+use std::time::Duration;
 
-use brokkr_protocol::broker::ledger::Failure;
-use brokkr_protocol::broker::Plan;
+use brokkr_protocol::broker::ledger::{Failure, Ledger};
+use brokkr_protocol::broker::{Plan, Refusal};
+use rustix::event::{PollFd, PollFlags, Timespec};
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
 
-use super::session::{ensure, polled, Ended, Link, Startup};
+use super::session::stderr::Drain;
+use super::session::{ensure, polled, Bound, Ended, Link, Startup};
 
 mod calls;
 #[path = "output.rs"]
 pub(in crate::broker) mod output;
+pub(in crate::broker) mod pieces;
 
 #[cfg(test)]
 mod tests;
@@ -74,12 +84,20 @@ const RESPONSE: Fatal = Fatal::Failed(Failure::Response);
 const TIMEOUT: Fatal = Fatal::Failed(Failure::Timeout);
 const MASKING: Fatal = Fatal::Failed(Failure::Masking);
 
+/// Output of the broker's not delivered on its standard output or its
+/// standard error for any reason but a closed reader
+/// ([`Failure::Undelivered`]): the delivery failure, latched as the
+/// ledger's own cause and said in its words (operator rulings of
+/// 2026-10-14).
+pub(in crate::broker) const UNDELIVERED: Fatal = Fatal::Failed(Failure::Undelivered);
+
 /// Why a served session ends (MB3, CR3), each latched as its closure's
 /// first cause through the ledger's own catalogue ([`Fatal::failure`]): a
-/// cause the catalogue names, or one of MB3's own that the operator ruled
-/// latched under it (2026-10-11): the server's protocol version, a granted
-/// tool its complete listing lacks, or a catalog past MB3's bounds. None
-/// names the server's output.
+/// cause the catalogue names, output the broker could not deliver
+/// ([`UNDELIVERED`]) among them, or one of MB3's own that the operator
+/// ruled latched under it (2026-10-11): the server's protocol version, a
+/// granted tool its complete listing lacks, or a catalog past MB3's bounds.
+/// None names the server's output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::broker) enum Fatal {
     Failed(Failure),
@@ -264,6 +282,57 @@ pub(in crate::broker) enum Line {
     Ended,
 }
 
+/// The most bytes one write takes once poll finds its descriptor writable:
+/// POSIX's `_POSIX_PIPE_BUF`, the least `PIPE_BUF` any POSIX platform
+/// sets, used on Linux and macOS alike (decision 0063; operator ruling
+/// 2026-10-13), so a pipe takes each such write whole, at once, or not at
+/// all.
+pub(in crate::broker) const ATOMIC: usize = 512;
+
+/// Whether `fd` is ready for `wanted` within `wait`, as poll finds it,
+/// which never changes the status flags every holder of the descriptor
+/// shares (U6f1b), and decided apart from the poll ([`pieces::readiness`]):
+/// its end, its error or its closing count as ready, so the read or write
+/// it allows meets them; a wait a signal interrupted, as not.
+pub(in crate::broker) fn ready(
+    fd: impl AsFd,
+    wanted: PollFlags,
+    wait: Duration,
+) -> std::io::Result<bool> {
+    let mut polled = [PollFd::new(&fd, wanted)];
+    let wait = Timespec::try_from(wait).unwrap_or(Timespec {
+        tv_sec: i64::MAX,
+        tv_nsec: 0,
+    });
+    let found = rustix::event::poll(&mut polled, Some(&wait));
+    pieces::readiness(found.map(|_| polled[0].revents()), wanted)
+}
+
+/// Write as much of `bytes` to `sink`, the server's input, as it takes now,
+/// never waiting for it and never changing its status flags: [`ATOMIC`]
+/// bytes at a time, each only once poll finds it writable. No guard reads
+/// what the server is sent, which [`pieces`] cuts only where the harness
+/// and the broker's standard error are written. How many it took;
+/// would-block where it took none and could take nothing now.
+pub(in crate::broker) fn offered(
+    sink: &mut (impl Write + AsFd),
+    bytes: &[u8],
+) -> std::io::Result<usize> {
+    let mut taken = 0;
+    while taken < bytes.len() && ready(sink.as_fd(), PollFlags::OUT, Duration::ZERO)? {
+        let end = bytes.len().min(taken + ATOMIC);
+        match sink.write(&bytes[taken..end]) {
+            Ok(written) => taken += written,
+            Err(_) if taken > 0 => break,
+            Err(error) => return Err(error),
+        }
+    }
+    match taken {
+        0 if !bytes.is_empty() => Err(ErrorKind::WouldBlock.into()),
+        _ => Ok(taken),
+    }
+}
+
 /// A pipe read as newline-delimited frames without blocking: the bytes
 /// past the last whole frame, how many of them are known to hold no
 /// newline, and whether a frame over its bound is being passed over. The
@@ -276,15 +345,16 @@ pub(in crate::broker) struct Lines<R> {
 }
 
 impl<R: Read + AsFd> Lines<R> {
-    /// `pipe` read without blocking, or none where it cannot be.
-    pub(in crate::broker) fn new(pipe: R) -> Option<Lines<R>> {
-        rustix::io::ioctl_fionbio(pipe.as_fd(), true).ok()?;
-        Some(Lines {
+    /// `pipe` read only once poll finds it readable ([`ready`]), so a read
+    /// takes what it holds and never waits, and its status flags, which
+    /// every holder of it shares, are never changed.
+    pub(in crate::broker) fn new(pipe: R) -> Lines<R> {
+        Lines {
             pipe,
             held: Vec::new(),
             searched: 0,
             over: false,
-        })
+        }
     }
 
     /// The next whole frame, its newline dropped, of at most `most` bytes:
@@ -292,17 +362,20 @@ impl<R: Read + AsFd> Lines<R> {
     /// passed over to its end; `Quiet` where the pipe has nothing yet;
     /// `Partial` where one read took bytes but no frame is whole, so its
     /// caller reads its deadline again before the next; `Ended` at the
-    /// pipe's end or on its error.
+    /// pipe's end or on its error, a poll's included.
     pub(in crate::broker) fn next(&mut self, most: usize) -> Line {
         if let Some(line) = self.framed(most) {
             return line;
         }
         let mut chunk = [0; CHUNK];
-        let read = self.pipe.read(&mut chunk);
-        let blocked = read
+        let read = match ready(self.pipe.as_fd(), PollFlags::IN, Duration::ZERO) {
+            Ok(false) => return Line::Quiet,
+            polled => polled.and_then(|_| self.pipe.read(&mut chunk)),
+        };
+        let interrupted = read
             .as_ref()
-            .is_err_and(|e| e.kind() == ErrorKind::WouldBlock);
-        match (read.unwrap_or(0), blocked) {
+            .is_err_and(|e| e.kind() == ErrorKind::Interrupted);
+        match (read.unwrap_or(0), interrupted) {
             (_, true) => Line::Quiet,
             (0, false) => Line::Ended,
             (read, false) => {
@@ -388,16 +461,14 @@ pub(in crate::broker) struct Server<'l> {
 }
 
 impl<'l> Server<'l> {
-    fn new((input, output): Link<'l>) -> Result<Server<'l>, Fatal> {
-        rustix::io::ioctl_fionbio(input.as_fd(), true).or(Err(PROTOCOL))?;
-        let output = Lines::new(output).ok_or(PROTOCOL)?;
-        Ok(Server {
+    fn new((input, output): Link<'l>) -> Server<'l> {
+        Server {
             input,
             queued: Vec::new(),
-            output,
+            output: Lines::new(output),
             next: 1,
             heard: 0,
-        })
+        }
     }
 
     /// The id the next request takes, never one taken before.
@@ -426,13 +497,10 @@ impl<'l> Server<'l> {
     }
 
     /// Write as much of what is queued as the server takes now, never
-    /// waiting for it: whether it took any. A server whose input has ended,
-    /// or fails, ends the session.
+    /// waiting for it ([`offered`]): whether it took any. A server whose
+    /// input has ended, or fails, ends the session.
     fn flushed(&mut self) -> Result<bool, Fatal> {
-        let written = match self.queued.is_empty() {
-            true => Ok(0),
-            false => self.input.write(&self.queued),
-        };
+        let written = offered(&mut self.input, &self.queued);
         match written {
             Ok(taken) => {
                 self.queued.drain(..taken);
@@ -490,23 +558,26 @@ impl<'l> Server<'l> {
 
     /// The result of the request `method` with `params`, read as `T`: the
     /// one response to it, heard within `startup`, which bounds the request's
-    /// write too. An error, a result not of that shape, a response to
+    /// write too, the server's standard error drained by `stderr` every
+    /// turn, so a server that says much there before it answers never
+    /// waits on it. An error, a result not of that shape, a response to
     /// anything else, or none in time ends the session.
     fn exchanged<T: DeserializeOwned>(
         &mut self,
         method: &str,
         params: Value,
-        startup: Startup<'_>,
+        (startup, stderr): (Startup<'_>, &mut Drain<'_, impl Read + AsFd>),
     ) -> Result<T, Fatal> {
         let asked = self.id();
         self.ask(&asked, method, params);
         let mut heard = Ok(Heard::Quiet);
         let answered = polled(startup, || {
+            let spoke = stderr.drained();
             heard = self.heard();
-            match &heard {
-                Ok(Heard::Quiet) => Err(ErrorKind::WouldBlock.into()),
-                Ok(Heard::Taken) => Ok(false),
-                Ok(Heard::Answer(..)) | Err(_) => Ok(true),
+            match (&heard, spoke) {
+                (Ok(Heard::Quiet), false) => Err(ErrorKind::WouldBlock.into()),
+                (Ok(Heard::Quiet | Heard::Taken), _) => Ok(false),
+                (Ok(Heard::Answer(..)) | Err(_), _) => Ok(true),
             }
         });
         match (answered, heard?) {
@@ -561,46 +632,112 @@ struct Tool {
 /// tool the grant offered, before any harness is answered with them.
 pub(in crate::broker) struct Catalog(Vec<Tool>);
 
-/// What `serve` does with an admitted box's stdio until U6f1b completes the
-/// serving protections: its server [`started`] for the plan `plan` within
-/// `startup`, then let go, so the box is ended before any message reaches
-/// the harness; or the session's fatal ending.
-pub(in crate::broker) fn initialized<'p>(
-    plan: &'p Plan,
-    startup: Startup<'p>,
-) -> impl FnOnce(Link<'_>) -> Result<(), Ended> + 'p {
-    move |link| {
-        started(link, plan, startup)
-            .map(drop)
-            .map_err(Ended::Failed)
-    }
+/// What `serve` does with an admitted box's stdio `link` and standard error
+/// `errors` once its `bound` ledger and bindings guard it (U6f1b): the
+/// server's standard error drained from the first, so a server that says
+/// much there never waits on it ([`Drain`]); the session [`initialized`]
+/// and served; and then, however it ended, the masked tail of that standard
+/// error left with the lifetime, which writes it to the broker's own while
+/// those bindings are held: before its ledger is closed where it ended
+/// served, after where it failed.
+pub(in crate::broker) fn serving(
+    link: Link<'_>,
+    errors: &mut std::io::PipeReader,
+    Bound {
+        ledger,
+        bindings,
+        said,
+    }: Bound<'_, '_>,
+    (plan, startup): (&Plan, Startup<'_>),
+) -> Result<(), Ended> {
+    let mut stderr = Drain::new(errors, bindings);
+    let edge = output::Edge {
+        bindings,
+        stderr: &mut stderr,
+    };
+    let ended = initialized(link, ledger, edge, (plan, startup), held_apart);
+    said.borrow_mut().extend(stderr.tail());
+    ended
+}
+
+/// The broker's own standard input and output, each through a descriptor
+/// of its own, or why that could not be set up.
+type Stdio = (
+    std::io::Result<std::fs::File>,
+    std::io::Result<std::fs::File>,
+);
+
+/// The broker's own [`Stdio`], held apart from every other holder's.
+fn held_apart() -> Stdio {
+    let held = |fd: std::os::fd::BorrowedFd<'_>| fd.try_clone_to_owned().map(std::fs::File::from);
+    (
+        held(std::io::stdin().as_fd()),
+        held(std::io::stdout().as_fd()),
+    )
+}
+
+/// Serving keeps no deadline of the broker's own (MB3): each call, and each
+/// frame the harness is told, keeps its own, and the attempt's reaches it as
+/// its cancellation, once the broker's starter ends. The startup's deadline
+/// bounds the startup alone. A century stands for none.
+const SERVING: std::time::Duration = std::time::Duration::from_secs(100 * 365 * 24 * 60 * 60);
+
+/// Where the plan retains its responses, which U8b builds, SD3's
+/// retention cause, before any MCP message is exchanged with its server or
+/// reaches the harness, never serving without it; else the session's
+/// server [`started`] for the plan `plan` within `startup`, its standard
+/// error drained beside it, and the harness served over the broker's own
+/// standard input and output ([`calls::served`]) until it ends, under the
+/// attempt's cancellation and no deadline of the startup's ([`SERVING`]).
+/// A fatal ending of the server's initialization stays the session's
+/// cause. Standard input this process cannot hold apart ([`Stdio`], set up
+/// by `stdio`) is the protocol's cause; standard output, a stream that
+/// cannot be set up, the delivery failure (operator ruling 2026-10-14).
+fn initialized<'b>(
+    link: Link<'_>,
+    ledger: &mut Ledger<'b>,
+    edge: output::Edge<'_, 'b, impl Read + AsFd>,
+    (plan, startup): (&Plan, Startup<'_>),
+    stdio: impl FnOnce() -> Stdio,
+) -> Result<(), Ended> {
+    ensure(!plan.retained, Ended::Refused(Refusal::RetentionIncomplete))?;
+    let started = started(link, plan, startup, &mut *edge.stderr).map_err(Ended::Failed)?;
+    let (input, output) = stdio();
+    let input = input.or(Err(Ended::Failed(PROTOCOL)))?;
+    let output = output.or(Err(Ended::Failed(UNDELIVERED)))?;
+    let attempt = (std::time::Instant::now() + SERVING, startup.1);
+    calls::served(started, plan, ledger, (input, output), attempt, edge)
 }
 
 /// The admitted box's server, over its stdio `link`, initialized within
 /// `startup`'s absolute deadline for the plan `plan` (MB3): asked to
 /// initialize at MB3's version, which it must answer with, and its server
 /// version the dialect's pinned one; told it is initialized; and its whole
-/// catalog listed and filtered to the plan's grant ([`listed`]). Nothing of
+/// catalog listed and filtered to the plan's grant ([`listed`]), its
+/// standard error drained by `stderr` every turn of each wait. Nothing of
 /// it reaches the harness.
 pub(in crate::broker) fn started<'l>(
     link: Link<'l>,
     plan: &Plan,
     startup: Startup<'_>,
+    stderr: &mut Drain<'_, impl Read + AsFd>,
 ) -> Result<(Server<'l>, Catalog), Fatal> {
-    let mut server = Server::new(link)?;
+    let mut server = Server::new(link);
     let client = json!({"name": "brokkr-broker", "version": env!("CARGO_PKG_VERSION")});
     let hello = json!({"protocolVersion": VERSION, "capabilities": {}, "clientInfo": client});
-    let initialized: Initialized = server.exchanged("initialize", hello, startup)?;
+    let initialized: Initialized =
+        server.exchanged("initialize", hello, (startup, &mut *stderr))?;
     ensure(initialized.version == VERSION, Fatal::Unsupported)?;
     let pinned = initialized.server.version == plan.dialect.version;
     ensure(pinned, Fatal::Failed(Failure::Version))?;
     server.queue(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
-    let catalog = listed(&mut server, &plan.tools, startup)?;
+    let catalog = listed(&mut server, &plan.tools, (startup, stderr))?;
     Ok((server, catalog))
 }
 
 /// The plan's `granted` tools as the server's complete catalog describes
-/// them (MB3), heard within `startup`: page by page, at most
+/// them (MB3), heard within `startup`, its standard error drained beside:
+/// page by page, at most
 /// [`PAGES_MAX`] pages of [`CATALOG_MAX`] tools in all, no cursor and no
 /// tool's name twice, and every page one operation, whose one budget of
 /// non-response bytes the pages share. What the catalog holds widens
@@ -609,13 +746,13 @@ pub(in crate::broker) fn started<'l>(
 fn listed(
     server: &mut Server<'_>,
     granted: &[String],
-    startup: Startup<'_>,
+    (startup, stderr): (Startup<'_>, &mut Drain<'_, impl Read + AsFd>),
 ) -> Result<Catalog, Fatal> {
     let (mut offered, mut names, mut cursors) = (Vec::new(), BTreeSet::new(), BTreeSet::new());
     let mut cursor = json!({});
     server.begin();
     for _ in 0..PAGES_MAX {
-        let page: Page = server.exchanged("tools/list", cursor, startup)?;
+        let page: Page = server.exchanged("tools/list", cursor, (startup, &mut *stderr))?;
         ensure(
             names.len() + page.tools.len() <= CATALOG_MAX,
             Fatal::Catalog,
