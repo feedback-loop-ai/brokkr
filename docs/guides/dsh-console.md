@@ -81,8 +81,9 @@ back to the cards.
   first; a realm Brokkr cannot read is one quiet row, last, with Brokkr's
   reason.
 - **One realm.** Its runs as a pane of rows (dot, title, step, Brokkr's word,
-  age), grouped needs you, running, last 24 hours, with a small filter in the
-  pane's corner. Pick one to open it.
+  age), grouped needs you, running, last 24 hours and older, with a small filter
+  in the pane's corner. Every run lists: older holds acknowledged quarantines
+  and every run that finished before the last day. Pick one to open it.
 - **One run.** Laid out as panes, as `brokkr tui` lays them out: the graph
   across the width with the control plane on it; why the run waits beside
   the reader; every seat in one table beneath; the timeline, folded, at the

@@ -72,8 +72,9 @@ that starting comes with Brokkr's dispatcher.
 
 Selecting a run SHALL show:
 
-- the run list grouped needs you / running / last 24 hours, with a text
-  filter;
+- the run list grouped needs you / running / last 24 hours / older, every run
+  in exactly one group (older holding acknowledged quarantines and every run
+  that finished before the last day), with a text filter;
 - the run header with Brokkr's standing;
 - the graph of steps with their members, the model that served each, visits
   and the return paths taken;
