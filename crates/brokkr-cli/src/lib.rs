@@ -499,7 +499,7 @@ fn finish(state: &RunState) -> ExitCode {
         "{}",
         serde_json::to_string_pretty(&summarize(state)).unwrap()
     );
-    Exit::of_status(&state.status).into()
+    Exit::of_status(&state.run.status()).into()
 }
 
 /// The one clock read that keeps the derivation pure: `brokkr-view` has
@@ -600,7 +600,9 @@ fn watch_loop(
                     // A park admits no further events until a human acts,
                     // so "keep watching" is an unbounded CI hang. The park
                     // reason printed first is the frame's own header.
-                    if let Some(exit) = Exit::of_settled(state.map(|state| state.status).as_ref()) {
+                    if let Some(exit) =
+                        Exit::of_settled(state.map(|state| state.run.status()).as_ref())
+                    {
                         return Ok(exit.into());
                     }
                 }

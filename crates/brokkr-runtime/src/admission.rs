@@ -633,7 +633,7 @@ fn observe(store: &Store, entry: EntryId) -> Result<Awaited, AdmissionError> {
         EntryState::Claimed { run } => {
             let events = store.load(&run)?;
             let status = match fold(&events) {
-                Ok(state) => state.status,
+                Ok(state) => state.run.status(),
                 Err(source) => return Err(AdmissionError::Fold { run, source }),
             };
             Awaited::Run { run, status }

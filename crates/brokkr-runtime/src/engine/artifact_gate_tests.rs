@@ -176,7 +176,7 @@ fn an_unruled_decision_journals_why_no_rule_ruled() {
     ] {
         engine
             .decide(
-                &state(Some("work"), super::Cursor::Idle),
+                &state(Some("work"), super::Cursor::RequestEffect),
                 json!({"result":"complete", "inputs":{"fixes_applied":written}}),
             )
             .unwrap();

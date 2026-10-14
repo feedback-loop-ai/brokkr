@@ -272,7 +272,7 @@ fn every_nested_dispatch_hands_its_driver_the_selected_links_own_controls() {
     );
     let mut seq_input = engine
         .seat_input(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "work",
             "capability-effect",
         )
@@ -945,7 +945,7 @@ fn every_dispatch_composes_the_lowered_allow_of_its_own_site() {
     }
     let input = engine
         .seat_input(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "work",
             "capability-effect",
         )
@@ -1672,7 +1672,7 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
     );
     let seq_input = engine
         .seat_input(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "work",
             "capability-effect",
         )
@@ -1773,7 +1773,7 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
     seat.results = vec!["pass".into(), "fail".into()];
     let panel_input = engine
         .seat_input(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "work",
             "capability-effect",
         )
@@ -1834,7 +1834,7 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
     let (_hostile_dir, mut engine, steps) = sequenced();
     let mut hostile = engine
         .seat_input(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "work",
             "capability-effect",
         )

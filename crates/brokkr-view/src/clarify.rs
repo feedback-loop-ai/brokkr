@@ -60,7 +60,7 @@ impl Notes {
 /// came from that phase and routed nowhere, which is how the fold parks
 /// on a rule (the triage recipe's `CLARIFY-AMBIGUOUS-EXHAUSTED`).
 fn parked_by_clarify(state: &RunState) -> bool {
-    state.status == Status::AwaitingOperator
+    state.run.status() == Status::AwaitingOperator
         && ruling_parked(state)
         && last_rule(state).and_then(|(_, from)| from) == Some(CLARIFY_PHASE)
 }

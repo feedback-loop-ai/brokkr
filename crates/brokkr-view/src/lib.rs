@@ -2645,14 +2645,17 @@ fn journal_rows(
 pub fn summary(state: &RunState) -> Summary {
     Summary {
         consecutive_failures: state.consecutive_failures.clone(),
-        cursor: state.cursor.to_string(),
+        cursor: state.run.to_string(),
         feature: state.feature.clone(),
         last_decision: state.last_decision.clone(),
-        park_reason: state.park_reason.clone(),
+        park_reason: state
+            .run
+            .park_reason()
+            .map(|reason| reason.as_str().to_string()),
         phase: state.phase.clone(),
         run_id: state.run_id.clone(),
         seq: state.seq,
-        status: state.status.as_str().to_string(),
+        status: state.run.status().as_str().to_string(),
         strategy: state.strategy.clone(),
     }
 }

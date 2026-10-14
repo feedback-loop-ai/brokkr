@@ -10,7 +10,7 @@ use super::tests::{step_body, templated};
 use super::*;
 use crate::agents::{Candidate, HarnessHands};
 use crate::bundle::{Limits, Seat};
-use brokkr_core::policy::Machine;
+use brokkr_core::{fold::Status, policy::Machine};
 use brokkr_protocol::{Body, Message};
 use std::collections::BTreeMap;
 
@@ -96,6 +96,11 @@ fn driver(dir: &Path, tag: &str, results: &[&str]) -> Vec<String> {
         script = script.replace(marker, &value);
     }
     vec!["sh".into(), "-c".into(), script]
+}
+
+/// The status run `run_id`'s journal in `store` folds to.
+fn status_of(store: &Store, run_id: &str) -> Status {
+    fold(&store.load(run_id).unwrap()).unwrap().run.status()
 }
 
 /// Every message one driver was sent, in order.
@@ -486,7 +491,7 @@ fn a_retry_and_a_re_entry_both_resume_the_thread_the_seat_last_held() {
         assert_eq!(keys, ["attempt_id", "driver", "effect_id"], "{payload}");
     }
     assert_eq!(
-        fold(&events).unwrap().status,
+        fold(&events).unwrap().run.status(),
         Status::Completed,
         "the run still reaches its own end"
     );
@@ -561,7 +566,7 @@ fn a_chain_fallback_is_handed_no_session_at_all() {
             .is_none(),
         "the thread the other link opened never reached this one, in any message"
     );
-    assert_eq!(fold(&events).unwrap().status, Status::Completed);
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Completed);
 }
 
 /// A run whose journal has moved to another machine is offered nothing,
@@ -605,7 +610,7 @@ fn a_journal_that_moved_is_offered_nothing_and_one_that_stayed_still_is() {
         let run_id = engine.run_id.clone();
         engine.drive().unwrap();
         assert_eq!(
-            fold(&engine.store.load(&run_id).unwrap()).unwrap().status,
+            status_of(&engine.store, &run_id),
             Status::AwaitingOperator,
             "the failed attempt parked the run"
         );
@@ -734,7 +739,7 @@ fn every_work_topology_is_offered_its_own_session_and_no_other() {
             "an aggregate never establishes a member's ownership: {aggregate}"
         );
     }
-    assert_eq!(fold(&events).unwrap().status, Status::Completed);
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Completed);
 }
 
 /// The same question of a sequence: a work-class model step and each
@@ -814,7 +819,7 @@ fn a_sequence_offers_its_work_steps_and_members_and_nothing_to_a_validator() {
             "{tag} was never offered the author's"
         );
     }
-    assert_eq!(fold(&events).unwrap().status, Status::Completed);
+    assert_eq!(fold(&events).unwrap().run.status(), Status::Completed);
 }
 
 /// Decision 0042 ruling 2, bounding decision 0030: every gate-class model
@@ -4020,7 +4025,7 @@ fn an_edited_inline_resume_declaration_moves_identity_and_refuses_the_old_root()
         let run_id = engine.run_id.clone();
         engine.drive().unwrap();
         assert_eq!(
-            fold(&engine.store.load(&run_id).unwrap()).unwrap().status,
+            status_of(&engine.store, &run_id),
             Status::AwaitingOperator,
             "the failing attempt parked the run with the root it opened"
         );

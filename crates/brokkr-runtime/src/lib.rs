@@ -45,3 +45,6 @@ mod dispatch_fixture;
 #[cfg(test)]
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
+#[cfg(test)]
+#[path = "../../../tests/support/run_state.rs"]
+mod run_state;
