@@ -76,8 +76,6 @@ pub(crate) enum FolderError {
     /// The old layout's ignore entry that is not a file, which no listed
     /// `rm` could remove; a link there refuses as [`FolderError::Link`].
     IgnoreNotAFile { path: PathBuf },
-    /// A root `brokkr init` does not write a folder under (ruling 5).
-    Init(admit::Refused),
 }
 
 impl From<PlacesError> for FolderError {
@@ -180,7 +178,6 @@ impl fmt::Display for FolderError {
                  0083); nothing was opened: move it aside",
                 path.display()
             ),
-            FolderError::Init(refused) => write!(f, "{refused}"),
         }
     }
 }

@@ -24,7 +24,18 @@ pub(crate) enum Refused {
     /// A folder holding more than moved state: each entry it holds beside
     /// a `.gitignore` and `state/`.
     Occupied { root: PathBuf, held: Vec<String> },
+    /// What discovery, an old layout or the folder's listing refuses
+    /// first, in its own words.
+    Folder(FolderError),
 }
+
+impl From<FolderError> for Refused {
+    fn from(refused: FolderError) -> Refused {
+        Refused::Folder(refused)
+    }
+}
+
+impl std::error::Error for Refused {}
 
 impl fmt::Display for Refused {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -51,6 +62,7 @@ impl fmt::Display for Refused {
                 root.display(),
                 held.join(", ")
             ),
+            Refused::Folder(refused) => write!(f, "{refused}"),
         }
     }
 }
@@ -59,20 +71,20 @@ impl fmt::Display for Refused {
 /// walked as discovery walks ([`Layout::discover`]), so a `dir` that is
 /// missing or unreadable, or a `.brokkr` below its root or one that is
 /// not a directory, refuses in discovery's words first.
-pub(crate) fn root(dir: &Path) -> Result<PathBuf, FolderError> {
+pub(crate) fn root(dir: &Path) -> Result<PathBuf, Refused> {
     let layout = Layout::discover(dir)?;
     let (cwd, root) = (layout.0.cwd(), layout.0.root().to_path_buf());
     if cwd != root {
         let dir = cwd.to_path_buf();
-        return Err(FolderError::Init(Refused::NotRoot { dir, root }));
+        return Err(Refused::NotRoot { dir, root });
     }
     layout.refuse_old()?;
     match layout.0.kind() {
-        Kind::Library => Err(FolderError::Init(Refused::Library { root })),
+        Kind::Library => Err(Refused::Library { root }),
         Kind::Bare => Ok(root),
         Kind::Folder => match held(&root.join(FOLDER))? {
             held if held.is_empty() => Ok(root),
-            held => Err(FolderError::Init(Refused::Occupied { root, held })),
+            held => Err(Refused::Occupied { root, held }),
         },
     }
 }
