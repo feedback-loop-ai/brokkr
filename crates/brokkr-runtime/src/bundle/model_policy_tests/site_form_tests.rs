@@ -39,6 +39,50 @@ fn each_site_meets_its_own_form() {
     }
 }
 
+/// A seat's form is read before its results are: a seat with no `results`
+/// is refused for its form's defect first, and once the defect goes, for
+/// the results it still lacks, so the results check stays armed.
+#[test]
+fn a_seat_meets_its_form_before_its_results() {
+    let mut tools = panel(exec());
+    tools["tools"] = json!({});
+    let seats = [
+        (
+            json!({"agent": "office", "role": "roles/role.md"}),
+            json!({"agent": "office"}),
+            "bundle: seat 'work' combines 'agent' with 'role'; an agent reference is total — \
+             'role' states what the agent IS, and a seat that could amend it would make \
+             `brokkr agents show` a lie for that seat",
+        ),
+        (
+            json!({"agent": "office", "panel": {}}),
+            json!({"agent": "office"}),
+            "bundle: seat 'work' must be exactly one of role+driver, agent, panel, sequence, \
+             or select",
+        ),
+        (
+            tools,
+            panel(exec()),
+            "bundle: seat 'work' declares 'tools' beside a panel, sequence or select; a local \
+             declaration belongs to the site that executes — the member, step or case body — \
+             and a container cannot own one, even an empty object, because it would either \
+             become a shared grant or be ignored (decision 0065 slice one, design D5)",
+        ),
+    ];
+    let fixture = Fixture::new();
+    for (defective, repaired, refusal) in seats {
+        for (work, expected) in [
+            (defective, refusal),
+            (repaired, "bundle: seat 'work' needs non-empty 'results'"),
+        ] {
+            let Err(error @ CompileError::Invalid(_)) = fixture.compile(work) else {
+                panic!("expected an Invalid refusal: {expected}");
+            };
+            assert_eq!(error.to_string(), expected);
+        }
+    }
+}
+
 #[test]
 fn an_unknown_aggregate_names_the_vocabulary() {
     let mut work = panel(exec());

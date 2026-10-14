@@ -560,3 +560,29 @@ fn typed_or_legacy_adapter_mcp_facts_grant_nothing_and_the_fence_holds() {
     ];
     each_row(rows);
 }
+
+/// A panel member, like a sequence step, is judged where it sits: it has
+/// no 0006 bounds of its own, so the agent `worker`, which declares them,
+/// cannot be referenced there (the member half of
+/// an_agent_with_limits_or_inputs_cannot_be_referenced_from_a_step).
+#[test]
+fn an_agent_with_limits_cannot_be_referenced_from_a_panel_member() {
+    let fixture = AgentFixture::new();
+    let inline = json!({"role": "roles/work.md", "driver": {"command": ["driver"]}});
+    let mut first = json!({"name": "first", "results": ["pass", "fail"]});
+    first["aggregate"] = json!("unanimous-pass");
+    first["panel"] = json!({"a": {"agent": "worker"}, "b": inline});
+    let mut second = inline.clone();
+    second["name"] = json!("second");
+    let mut config = fixture.config();
+    config["seats"]["work"] = json!({"results": ["complete"], "sequence": [first, second]});
+    let Err(refusal @ CompileError::Invalid(_)) = fixture.compile(config) else {
+        panic!("expected an Invalid refusal");
+    };
+    assert_eq!(
+        refusal.to_string(),
+        "bundle: seat 'work:first:a' references agent 'worker', which declares 'limits'; a \
+         panel member or sequence step has no limits of its own — the seat above it does — so \
+         the declaration could only be discarded silently"
+    );
+}
