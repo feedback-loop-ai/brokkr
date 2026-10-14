@@ -136,7 +136,7 @@ fn ended(tool: &str, outcome: Outcome) -> (String, Option<Outcome>) {
 
 #[test]
 fn each_ledger_cause_reads_in_cr3s_words() {
-    let texts: [(&dyn std::error::Error, &str); 17] = [
+    let texts: [(&dyn std::error::Error, &str); 18] = [
         (&Unrecorded::Reopened, "broker plan has already been opened"),
         (&Unrecorded::Record, "broker call could not be recorded"),
         (
@@ -156,6 +156,10 @@ fn each_ledger_cause_reads_in_cr3s_words() {
         (&Failure::Timeout, "MCP server call timed out"),
         (&Failure::Masking, "MCP response cannot be safely masked"),
         (&Failure::Limit, "broker ledger exceeds the attempt limit"),
+        (
+            &Failure::Undelivered,
+            "MCP broker output could not be delivered",
+        ),
         (
             &Failure::Refused(Refusal::Establishment),
             "MCP server box could not be established",
@@ -338,6 +342,7 @@ fn each_served_cause_closes_a_durable_ledger_first_and_is_never_replaced() {
         (Failure::Response, "response", Failure::Timeout),
         (Failure::Timeout, "timeout", Failure::Masking),
         (Failure::Masking, "masking", Failure::Response),
+        (Failure::Undelivered, "undelivered", Failure::Timeout),
     ];
     for (cause, name, later) in causes {
         // Latched after a call that ended, through the file the broker
@@ -964,10 +969,10 @@ fn a_bound_plan_refused_closes_failed_with_its_cause_and_no_call() {
     let expected = (refused(refusal.clone()), failed_with(refusal));
     assert_eq!(answered(&sealed, &fixed), expected);
     // Past the box's preparation: its own cause, admitted where a box
-    // stands, with serving's cause.
+    // stands, with the retained plan's cause.
     let (answer, proved) = answered(&sealed, &plan);
     let cause = match unservable() {
-        None => Refusal::ServingIncomplete,
+        None => Refusal::RetentionIncomplete,
         Some(_) => Refusal::Identity,
     };
     let cause = match cfg!(target_os = "linux") {

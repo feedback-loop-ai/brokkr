@@ -1,6 +1,6 @@
 //! The harness-facing call path (decision 0065 slice two, U6e; MB3, CC2,
-//! CR3, SC4), which `serve` takes up once U6f completes the serving
-//! protections; until then its tests are its only consumer. The harness's
+//! CR3, SC4), which `serve` takes up once its server has initialized
+//! (U6f1b). The harness's
 //! frames are read whole, at most 1 MiB and 64 deep, and each is checked
 //! before anything is recorded: initialize at MB3's version, ping and the
 //! filtered listing are answered here, a cancellation of the active call
@@ -20,8 +20,9 @@
 //! the response is delivered, within the call's own deadline, never past
 //! MB3's 8 MiB with the harness's own id, and a cancelled call's response
 //! is never delivered. What the harness is told is queued too, whole frames
-//! in order, each with the deadline that applies to it, and written as far
-//! as the harness takes it on every turn, so the harness is still read
+//! in order, each with the deadline that applies to it and cut at its safe
+//! points, and written a piece at a time as far as the harness takes it on
+//! every turn ([`outbox`]), so the harness is still read
 //! while it leaves its output full, and a cancellation behind an answer it
 //! has not taken still settles within MB3's two seconds. It is not read
 //! while 64 frames, or MB3's 8 MiB, wait for it, and an active call then
@@ -48,9 +49,11 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use super::output::{self, Answered, Edge, Kind, Named};
+use super::pieces::Pieces;
+use super::VERSION;
 use super::{present, shallow, Catalog, Fatal, Fault, Heard, Id, Keyed, Line, Lines};
 use super::{Refused, Reply, Server, Two};
-use super::{MASKING, PROTOCOL, REQUEST_MAX, RESPONSE, RESPONSE_MAX, TIMEOUT, VERSION};
+use super::{MASKING, PROTOCOL, REQUEST_MAX, RESPONSE, RESPONSE_MAX, TIMEOUT, UNDELIVERED};
 use crate::broker::session::stderr::Drain;
 use crate::broker::session::{ensure, polled, timely, Ended, Pace, Startup};
 
@@ -273,7 +276,7 @@ struct Session<'s, 'l, 'g, W, E> {
     catalog: Vec<u8>,
     bindings: &'s [BoundSecret],
     guard: Guard<'s>,
-    stderr: Drain<'s, E>,
+    stderr: &'s mut Drain<'g, E>,
     server: Server<'l>,
     ledger: &'s mut Ledger<'g>,
     output: W,
@@ -299,20 +302,17 @@ struct Session<'s, 'l, 'g, W, E> {
 /// reaches the harness only through the output edge, masked by the `edge`'s
 /// bindings and guarded whole: the catalog before the harness's first frame
 /// is read, and each response before its Terminal is recorded. Those
-/// bindings guard the ledger first ([`Ledger::bind`]). The server's
-/// standard error is drained every turn, and its masked tail written to the
-/// edge's diagnostics once the session ends, line by guarded line.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "consumed when U6f removes the serving refusal")
-)]
+/// bindings guard the ledger already, which was bound once, as soon as
+/// they were looked up ([`Ledger::bind`]), and is never bound again here.
+/// The server's standard error, drained since its startup, is drained every
+/// turn; its masked tail is the caller's to write once the session ends.
 pub(in crate::broker) fn served<'b>(
     started: (Server<'_>, Catalog),
     plan: &Plan,
     ledger: &mut Ledger<'b>,
     harness: (impl Read + AsFd, impl Write + AsFd),
     attempt: Startup<'_>,
-    edge: Edge<'b, impl Read + AsFd, impl Write>,
+    edge: Edge<'_, 'b, impl Read + AsFd>,
 ) -> Result<(), Ended> {
     served_within(CALL, started, plan, ledger, harness, attempt, edge)
 }
@@ -326,12 +326,9 @@ pub(super) fn served_within<'b>(
     ledger: &mut Ledger<'b>,
     (input, output): (impl Read + AsFd, impl Write + AsFd),
     attempt: Startup<'_>,
-    edge: Edge<'b, impl Read + AsFd, impl Write>,
+    edge: Edge<'_, 'b, impl Read + AsFd>,
 ) -> Result<(), Ended> {
-    ledger.bind(edge.bindings)?;
-    let mut harness = Lines::new(input).ok_or(Ended::Failed(PROTOCOL))?;
-    rustix::io::ioctl_fionbio(output.as_fd(), true).or(Err(Ended::Failed(PROTOCOL)))?;
-    let stderr = Drain::new(edge.stderr, edge.bindings).ok_or(Ended::Failed(PROTOCOL))?;
+    let mut harness = Lines::new(input);
     let guard = Guard::new(edge.bindings);
     let listing = Reply::Result(json!({"tools": catalog.0}));
     let listing = output::prepared(listing, Kind::Listing, edge.bindings).and_then(|listing| {
@@ -343,7 +340,7 @@ pub(super) fn served_within<'b>(
         catalog: listing.map_err(Ended::Failed)?,
         bindings: edge.bindings,
         guard,
-        stderr,
+        stderr: edge.stderr,
         server,
         ledger,
         output,
@@ -354,45 +351,36 @@ pub(super) fn served_within<'b>(
         call,
         active: None,
     };
-    let ended = match session.serving(&mut harness) {
+    match session.serving(&mut harness) {
         Ok(()) => session.drained(attempt.0),
         Err(ended) => {
             session.drained(Instant::now() + CLOSING).ok();
             Err(ended)
         }
-    };
-    let mut diagnostics = edge.diagnostics;
-    for line in session.stderr.tail() {
-        diagnostics.write_all(line.as_bytes()).ok();
     }
-    ended
 }
 
 impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     /// Serve the frames `harness` sends until it ends its input or its
     /// output, or a cause ends the session first: its next frame read only
     /// while what waits for the harness has room, and only while the
-    /// ledger has room or a call is active; then the server heard, its
-    /// standard error drained, and what waits for the harness written as
-    /// far as it takes it, every turn. A turn waits ([`Pace`]) only where
-    /// nothing moved: no byte read from the harness or the server, and none
-    /// written to either.
+    /// ledger has room or a call is active; then, unless answering it found
+    /// the harness's output failed or closed, whose cause stays the first
+    /// ([`Session::going`]), the server heard, its standard error drained,
+    /// and what waits for the harness written as far as it takes it, every
+    /// turn. A turn waits ([`Pace`]) only where nothing moved: no byte read
+    /// from the harness or the server, and none written to either.
     fn serving(&mut self, harness: &mut Lines<impl Read + AsFd>) -> Result<(), Ended> {
         let mut pace = Pace::new();
         while self.going()? {
             let room = self.ledger.room().is_ok();
             ensure(room | self.active.is_some(), Ended::Failed(LIMIT))?;
-            let asked = match self.untaken() {
-                false => harness.next(REQUEST_MAX),
-                true => Line::Quiet,
+            let Some(quiet) = self.asked(harness)? else {
+                return Ok(());
             };
-            let quiet = match asked {
-                Line::Frame(frame) => self.requested(&frame).map(|()| false)?,
-                Line::Over => self.refuse(None, &Refused::Limit).map(|()| false)?,
-                Line::Quiet => true,
-                Line::Partial => false,
-                Line::Ended => return Ok(()),
-            };
+            if !self.going()? {
+                return Ok(());
+            }
             let heard = self.heard()?;
             let spoke = self.stderr.drained();
             let told = self.flush();
@@ -401,12 +389,32 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
         Ok(())
     }
 
+    /// Read the harness's next frame from `harness`, unless what waits for
+    /// it has no room ([`Session::untaken`]), and take it: a request
+    /// handled, an oversized frame refused. Whether the turn read nothing;
+    /// or none once the harness has ended its input.
+    fn asked(&mut self, harness: &mut Lines<impl Read + AsFd>) -> Result<Option<bool>, Ended> {
+        let asked = match self.untaken() {
+            false => harness.next(REQUEST_MAX),
+            true => Line::Quiet,
+        };
+        match asked {
+            Line::Frame(frame) => self.requested(&frame).map(|()| Some(false)),
+            Line::Over => self.refuse(None, &Refused::Limit).map(|()| Some(false)),
+            Line::Quiet => Ok(Some(true)),
+            Line::Partial => Ok(Some(false)),
+            Line::Ended => Ok(None),
+        }
+    }
+
     /// Whether the session goes on: not once the harness has closed its
-    /// output; and, ending it with a timeout, not past the attempt's
-    /// deadline or its cancellation, nor once the harness has left an
-    /// answer untaken past its own.
+    /// output; not, ending it as a delivery failure, once its output took a
+    /// piece short or not at all, or failed otherwise; and, ending it with
+    /// a timeout, not past the attempt's deadline or its cancellation, nor
+    /// once the harness has left an answer untaken past its own.
     fn going(&mut self) -> Result<bool, Ended> {
         match (self.delivery, timely(self.attempt)) {
+            (Delivery::Undelivered, _) => self.failed(UNDELIVERED),
             (Delivery::Stalled, _) | (_, false) => self.failed(TIMEOUT),
             (Delivery::Gone, true) => Ok(false),
             (Delivery::Open, true) => Ok(true),
@@ -466,28 +474,31 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     /// included, to be taken whole by `deadline`, after every frame queued
     /// before it; then write what it takes now, which is nothing once its
     /// output is closed or stalled ([`Session::flush`]).
-    fn write(&mut self, line: Vec<u8>, deadline: Instant) {
+    fn write(&mut self, line: Pieces, deadline: Instant) {
         self.outbox.frames.push_back((line, deadline));
         self.flush();
     }
 
     /// Write what waits for the harness as far as it takes it now, unless
-    /// its output is already closed or stalled, or the attempt, whose
-    /// harness is then told nothing more, is cancelled
+    /// its output is already closed or stalled, a piece at a time, each
+    /// only while its frame's deadline is ahead and the attempt, whose
+    /// harness is then told nothing more, is not cancelled
     /// ([`Outbox::flushed`]): a frame it has not taken whole by its
     /// deadline is the last, and ends the session. Whether it took any.
     fn flush(&mut self) -> bool {
         let waiting = (self.outbox.frames.len(), self.outbox.taken);
-        if (self.delivery == Delivery::Open) & !(self.attempt.1)() {
-            self.delivery = self.outbox.flushed(&mut self.output);
+        if self.delivery == Delivery::Open {
+            self.delivery = self.outbox.flushed(&mut self.output, self.attempt.1);
         }
         waiting != (self.outbox.frames.len(), self.outbox.taken)
     }
 
     /// Wait, until `until` unless the attempt is cancelled, for the harness
     /// to take what waits for it, each frame by its own deadline, written
-    /// again at once while it takes some: the timeout cause where it has
-    /// not taken it all by then and has not closed its output.
+    /// again at once while it takes some: the delivery failure where it
+    /// took a piece short or not at all, or failed otherwise; the timeout
+    /// cause where it has not taken it all by then and has not closed its
+    /// output.
     fn drained(&mut self, until: Instant) -> Result<(), Ended> {
         let drained = polled((until, self.attempt.1), || {
             let told = self.flush();
@@ -499,6 +510,7 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
         });
         match (drained, self.delivery) {
             (true, Delivery::Open | Delivery::Gone) => Ok(()),
+            (_, Delivery::Undelivered) => Err(Ended::Failed(UNDELIVERED)),
             _ => Err(Ended::Failed(TIMEOUT)),
         }
     }
@@ -564,7 +576,7 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
             Ok(line) => line,
             Err(fatal) => return self.failed(fatal),
         };
-        if line.len() > FRAME_MAX {
+        if line.bytes().len() > FRAME_MAX {
             self.tell(Some(id), fault(INTERNAL, &RESPONSE))?;
             return self.failed(RESPONSE);
         }
@@ -699,7 +711,7 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
         };
         let answer = delivered(reply, self.bindings).and_then(|(outcome, body)| {
             let line = output::framed(Some(&active.id), &body, &self.guard, watch)?;
-            ensure(line.len() <= FRAME_MAX, RESPONSE).map(|()| (outcome, line))
+            ensure(line.bytes().len() <= FRAME_MAX, RESPONSE).map(|()| (outcome, line))
         });
         let (outcome, line) = match answer {
             Ok(answer) => answer,

@@ -5,15 +5,19 @@
 //! protected inventory pins it; a bound plan's every field and box intent
 //! is checked in MB3's order before any lookup or start. An admitted plan's
 //! box is made ready, its bindings handed over and its server started
-//! inside it (U6c8) and initialized (U6e), and serving still refuses before
-//! any message reaches the harness until the serving protections land. A
-//! bound plan's one lifetime has its private ledger (U6d). The compile
-//! fence still refuses every MCP grant.
+//! inside it (U6c8), initialized (U6e) and served (U6f1b); the fixture's
+//! plan retains its responses, so it is refused before any message
+//! reaches the harness until U8b builds retention. A bound plan's one
+//! lifetime has its private ledger (U6d). The compile fence still refuses
+//! every MCP grant.
 
+use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Instant;
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::Refusal;
 use serde_json::{json, Value};
@@ -27,6 +31,8 @@ mod observer;
 mod protocol;
 #[cfg(target_os = "linux")]
 mod readiness;
+#[cfg(target_os = "linux")]
+mod serving;
 
 const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -181,13 +187,121 @@ impl Root {
     }
 
     fn ran(&self, mut command: Command) -> Ran {
-        let out = command.output().unwrap();
+        command.stdin(Stdio::null()).stdout(Stdio::piped());
+        let out = bounded(command.stderr(Stdio::piped()).spawn().unwrap(), b"");
         Ran {
             code: out.status.code(),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         }
     }
+}
+
+/// How long a test waits for a broker it started, and for its output: past
+/// the startup's thirty seconds and the thirty-one one test idles for, with
+/// room on a loaded host.
+const TALK_MAX: Duration = Duration::from_secs(90);
+
+/// One of a child's standard streams, read on a thread of its own from its
+/// start, so that it never fills: what it has said so far, and word of its
+/// end.
+type Apart = (Arc<Mutex<Vec<u8>>>, Receiver<()>);
+
+/// `stream`, read apart ([`Apart`]).
+fn apart(mut stream: impl Read + Send + 'static) -> Apart {
+    let said = Arc::new(Mutex::new(Vec::new()));
+    let (into, (ended, ending)) = (Arc::clone(&said), std::sync::mpsc::channel());
+    std::thread::spawn(move || {
+        let mut chunk = [0; 4096];
+        while let Ok(read @ 1..) = stream.read(&mut chunk) {
+            into.lock().unwrap().extend_from_slice(&chunk[..read]);
+        }
+        ended.send(()).ok();
+    });
+    (said, ending)
+}
+
+/// What `child` said on its standard output and error, each read apart
+/// where it is piped, and its exit, once `said` is written to its input,
+/// where that is piped, which is held open until it ends. Every wait is
+/// bounded by [`TALK_MAX`]: a child that has not ended by then is killed
+/// with its children, and it, or one whose streams something it left behind
+/// holds open past then, fails the test, naming its status and its standard
+/// error as far as it was read (the review of U6f1b's sixth run).
+fn bounded(child: Child, said: &[u8]) -> Output {
+    bounded_by(child, said, (TALK_MAX, None))
+}
+
+/// [`bounded`], the broker's own standard error redirected by its starter
+/// to the file `apart`, which a failure names too (the review of U6f1b's
+/// seventh run).
+fn bounded_apart(child: Child, said: &[u8], apart: &Path) -> Output {
+    bounded_by(child, said, (TALK_MAX, Some(apart)))
+}
+
+/// [`bounded`] within `max`, a failure naming what `file`, where there is
+/// one, holds after the standard error.
+fn bounded_by(mut child: Child, said: &[u8], (max, file): (Duration, Option<&Path>)) -> Output {
+    let until = Instant::now() + max;
+    let told = || file.and_then(|file| std::fs::read_to_string(file).ok());
+    let mut input = child.stdin.take();
+    if let Some(input) = input.as_mut() {
+        input.write_all(said).unwrap();
+    }
+    let (stdout, stderr) = (
+        child.stdout.take().map(apart),
+        child.stderr.take().map(apart),
+    );
+    let held = |stream: &Option<Apart>| {
+        let said = stream
+            .as_ref()
+            .map(|(said, _)| said.lock().unwrap().clone());
+        said.unwrap_or_default()
+    };
+    let failed = |why: &str, status: std::process::ExitStatus| -> ! {
+        panic!(
+            "{why}: {status:?}\n{}{}",
+            String::from_utf8_lossy(&held(&stderr)),
+            told().unwrap_or_default()
+        )
+    };
+    let status = loop {
+        match child.try_wait().unwrap() {
+            Some(status) => break status,
+            None if Instant::now() >= until => {
+                killed(child.id());
+                failed("the broker did not end", child.wait().unwrap())
+            }
+            None => std::thread::sleep(Duration::from_millis(10)),
+        }
+    };
+    drop(input);
+    // Ended and reaped, its process id is no longer its own to kill.
+    for (_, ending) in [&stdout, &stderr].into_iter().flatten() {
+        if ending
+            .recv_timeout(until.saturating_duration_since(Instant::now()))
+            .is_err()
+        {
+            failed("the broker's output did not end", status);
+        }
+    }
+    let (stdout, stderr) = (held(&stdout), held(&stderr));
+    Output {
+        status,
+        stdout,
+        stderr,
+    }
+}
+
+/// Kill the process `pid`, a harness shell or the broker, and its
+/// children.
+fn killed(pid: u32) {
+    let pid = pid.to_string();
+    let run = |command: &str, args: &[&str]| {
+        Command::new(command).args(args).status().ok();
+    };
+    run("pkill", &["-KILL", "-P", &pid]);
+    run("kill", &["-KILL", &pid]);
 }
 
 /// The binary under test as a confined managed writer runs it: on Linux
@@ -501,7 +615,7 @@ fn the_compile_fence_still_refuses_an_unused_mcp_grant() {
 }
 
 /// Each refusal's text, pinned once: MB3 and MB4's exact causes and SD3's
-/// temporary serving cause, listed in MB3's precedence, which is their
+/// temporary retention cause, listed in MB3's precedence, which is their
 /// order.
 #[test]
 fn each_refusal_reads_in_mb3_and_mb4s_words() {
@@ -560,8 +674,8 @@ fn each_refusal_reads_in_mb3_and_mb4s_words() {
         (Refusal::Timeout, "MCP server call timed out"),
         (Refusal::Masking, "MCP response cannot be safely masked"),
         (
-            Refusal::ServingIncomplete,
-            "broker serving protections are incomplete",
+            Refusal::RetentionIncomplete,
+            "broker retained-response support is incomplete",
         ),
     ];
     let precedence: Vec<&Refusal> = texts.iter().map(|(refusal, _)| refusal).collect();
@@ -586,10 +700,11 @@ fn past_prepare(refusal: Refusal) -> (Option<i32>, String) {
     }
 }
 
-/// The answer to a plan the broker admits and whose server initializes,
-/// still refused before serving.
+/// The answer to the fixture's plan, which retains its responses, once the
+/// broker admits it: refused before any MCP message reaches its server,
+/// so before it initializes, until U8b builds retention.
 fn admitted() -> (Option<i32>, String) {
-    past_prepare(Refusal::ServingIncomplete)
+    past_prepare(Refusal::RetentionIncomplete)
 }
 
 /// The exit and stderr of a session that ends with `failure` once its
@@ -1607,7 +1722,9 @@ fn binding_names_are_checked_then_fixed_keys_refuse_before_lookup() {
 
 /// The plan's name is escaped first, then the cause is cut to the shared
 /// 512-scalar line bound, counted in scalars and not bytes, ending in `…`;
-/// the CLI's prefix and newline lie outside it.
+/// the CLI's prefix and newline lie outside it. The broker writes that
+/// line cut into lines one write of POSIX's 512 bytes takes whole, their
+/// newlines included, each on a character's boundary (U6f1b).
 #[test]
 fn a_long_binding_name_is_cut_to_one_bounded_line() {
     if !bindable() {
@@ -1618,7 +1735,10 @@ fn a_long_binding_name_is_cut_to_one_bounded_line() {
     let (code, stderr) = sealed.with("/secrets", json!([name]));
     let cause = format!("secret name '\\n{}…", "é".repeat(496));
     assert_eq!(cause.chars().count(), 512);
-    assert_eq!((code, stderr), (Some(1), format!("error: {cause}\n")));
+    let (first, rest) = cause.split_at(cause.char_indices().nth(259).unwrap().0);
+    assert_eq!(("error: ".len() + first.len(), rest.len()), (510, 507));
+    let written = format!("error: {first}\n{rest}\n");
+    assert_eq!((code, stderr), (Some(1), written));
 }
 
 /// An executable at `path` that speaks MCP's startup, its directories

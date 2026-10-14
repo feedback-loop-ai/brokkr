@@ -29,17 +29,18 @@ use serde::de::IgnoredAny;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
+use super::pieces::Pieces;
 use super::{present, Fatal, Id, Reply, MASKING, PROTOCOL, TIMEOUT};
+use crate::broker::session::stderr::Drain;
 use crate::broker::session::{ensure, timely, Startup};
 
 /// What a served session holds beside the harness: the server's bound
-/// secrets, which every output is masked by; its standard error, drained
-/// beside its output; and where the masked tail of that is written once the
-/// session ends.
-pub(in crate::broker) struct Edge<'b, E, D> {
+/// secrets, which every output is masked by; and its standard error,
+/// drained beside its output since its startup, whose masked tail its
+/// caller writes once the session ends.
+pub(in crate::broker) struct Edge<'e, 'b, E> {
     pub(in crate::broker) bindings: &'b [BoundSecret],
-    pub(in crate::broker) stderr: E,
-    pub(in crate::broker) diagnostics: D,
+    pub(in crate::broker) stderr: &'e mut Drain<'b, E>,
 }
 
 /// The response `frame` read exactly: every object in it names each key
@@ -378,18 +379,21 @@ pub(super) fn prepared(
 
 /// The frame answering the harness's request `id`, or none, with the
 /// prepared object `body`: JSON-RPC's version and that id, then the very
-/// bytes of its one member, and its newline; or MB4's cause where the final
-/// `guard` finds that whole line unsafe, or `watch`'s, where it ends the
-/// guard's scan first. Every frame the harness is told is made here.
+/// bytes of its one member, and its newline, cut at its safe points into
+/// the pieces it is written in ([`Pieces`]); or MB4's cause where the final
+/// `guard` finds that whole line unsafe, or where it cannot be cut safely,
+/// or `watch`'s, where it ends the guard's scan first. Every frame the
+/// harness is told is made here.
 pub(super) fn framed(
     id: Option<&Id>,
     body: &[u8],
     guard: &Guard<'_>,
     watch: impl FnMut() -> Result<(), Fatal>,
-) -> Result<Vec<u8>, Fatal> {
+) -> Result<Pieces, Fatal> {
     let named = serde_json::to_vec(&id).unwrap_or_default();
     let head = [&b"{\"jsonrpc\":\"2.0\",\"id\":"[..], &named, b","].concat();
     let line = [&head[..], &body[1..], b"\n"].concat();
     let passed = guard.json_within(&line, watch)?;
-    ensure(passed, MASKING).map(|()| line)
+    ensure(passed, MASKING)?;
+    Pieces::new(line).ok_or(MASKING)
 }

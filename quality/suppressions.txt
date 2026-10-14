@@ -6,7 +6,7 @@
     4 expect clippy::struct_excessive_bools
    25 expect clippy::too_many_arguments
    38 expect clippy::too_many_lines
-    2 expect dead_code
+    1 expect dead_code
 # test
     3 expect clippy::disallowed_macros
     6 expect clippy::disallowed_methods

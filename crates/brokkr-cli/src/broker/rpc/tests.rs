@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use brokkr_protocol::broker::ledger::{
     recover, Denial, Disposition, Failure, Invalid, Ledger, Outcome, Unrecorded,
 };
-use brokkr_protocol::broker::{Plan, Refusal};
+use brokkr_protocol::broker::Plan;
 use brokkr_protocol::secret::BoundSecret;
 use serde_json::{json, Value};
 
@@ -24,6 +24,7 @@ use super::output::Edge;
 use super::{started, Catalog, Fatal, Line, Lines, Refused};
 use super::{NOTICES_MAX, REQUEST_MAX, RESPONSE_MAX};
 use crate::broker::session::lifetime::settled;
+use crate::broker::session::stderr::Drain;
 use crate::broker::session::{Ended, Startup};
 
 mod delivery;
@@ -202,7 +203,13 @@ fn mcp() -> Script {
 fn startup(script: Script, within: Duration) -> (Result<Vec<Value>, Fatal>, Vec<Value>) {
     let plan = plan();
     let (mut input, mut output, server) = fake(script);
-    let started = started((&mut input, &mut output), &plan, self::within(within));
+    let mut stderr = Drain::new(pipe().0, &[]);
+    let started = started(
+        (&mut input, &mut output),
+        &plan,
+        self::within(within),
+        &mut stderr,
+    );
     let offered = started.map(|(_, Catalog(tools))| tools.iter().map(|tool| json!(tool)).collect());
     drop((input, output));
     (offered, server.join().unwrap().0)
@@ -688,10 +695,12 @@ fn no_traffic_extends_the_startup_deadline_and_a_server_that_takes_nothing_ends_
     while !server.is_finished() {
         std::thread::sleep(Duration::from_millis(5));
     }
+    let mut stderr = Drain::new(pipe().0, &[]);
     let started = started(
         (&mut input, &mut output),
         &plan,
         within(Duration::from_secs(5)),
+        &mut stderr,
     );
     assert_eq!(started.err(), Some(Fatal::Failed(Failure::Protocol)));
 }
@@ -834,12 +843,7 @@ fn edged(
     let (mut input, mut output, server) = fake(script);
     let (errors, mut writes) = pipe();
     let writer = std::thread::spawn(move || writes.write_all(&stderr).ok());
-    let mut diagnostics = Vec::new();
-    let edge = Edge {
-        bindings: &bindings,
-        stderr: errors,
-        diagnostics: &mut diagnostics,
-    };
+    let mut drain = Drain::new(errors, &bindings);
     let disk = Rc::new(RefCell::new(Disk {
         failing,
         ..Disk::default()
@@ -871,12 +875,33 @@ fn edged(
         conversation(&mut harness);
     });
     let harness = (asked, answers);
-    let ended = started((&mut input, &mut output), &plan, attempt)
-        .map_err(Ended::Failed)
-        .and_then(|started| match call {
-            None => served(started, &plan, &mut ledger, harness, attempt, edge),
-            Some(call) => served_within(call, started, &plan, &mut ledger, harness, attempt, edge),
+    // Bound once its bindings are looked up, before its server starts, as
+    // `serve`'s binder binds it; its standard error drained from its start,
+    // and its tail kept once it ends, as `serving` drains and keeps it.
+    let ended = ledger
+        .bind(&bindings)
+        .map_err(Ended::from)
+        .and_then(|()| {
+            let link = (&mut input, &mut output);
+            started(link, &plan, attempt, &mut drain).map_err(Ended::Failed)
+        })
+        .and_then(|started| {
+            let edge = Edge {
+                bindings: &bindings,
+                stderr: &mut drain,
+            };
+            match call {
+                None => served(started, &plan, &mut ledger, harness, attempt, edge),
+                Some(call) => {
+                    served_within(call, started, &plan, &mut ledger, harness, attempt, edge)
+                }
+            }
         });
+    let diagnostics: Vec<u8> = drain
+        .tail()
+        .iter()
+        .flat_map(|said| said.as_str().bytes())
+        .collect();
     let ended = settled(ledger, ended);
     drop((input, output));
     talk.join().unwrap();
@@ -938,10 +963,10 @@ fn echoed(id: &str, tool: &str) -> Value {
     )
 }
 
-/// A ledger closed as `serve` closes it until U6f, with `calls`.
+/// A ledger closed as `serve` closes a session served until the harness
+/// ended, with `calls`.
 fn admitted(calls: Vec<(&str, Option<Outcome>)>) -> Proved {
-    let served = Disposition::Failed(Failure::Refused(Refusal::ServingIncomplete));
-    (owned(calls), Some(served), None)
+    (owned(calls), Some(Disposition::Clean), None)
 }
 
 /// A ledger closed Failed with `failure`, with `calls`.
@@ -1612,7 +1637,7 @@ fn at_the_call_bound_every_accepted_call_is_kept_and_the_harness_still_read() {
 #[test]
 fn a_pipe_is_read_once_a_turn_and_frames_held_past_an_over_one_are_read_on() {
     let (reader, mut writer) = pipe();
-    let mut lines = Lines::new(reader).unwrap();
+    let mut lines = Lines::new(reader);
     // Bytes but no whole frame: one read, then its caller's turn, which
     // reads its deadline again; then nothing, which is quiet.
     writer.write_all(b"xxxx").unwrap();
