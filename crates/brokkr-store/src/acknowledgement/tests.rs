@@ -104,17 +104,21 @@ fn an_acknowledgement_on_a_moved_head_writes_nothing() {
     let (_dir, mut store) = store();
     let (seq, hash) = run_of_two(&mut store, "r1");
     move_journal(&mut store, "r1");
-    let refused = store.acknowledge_quarantine("r1", (seq, &hash), BY);
-    assert!(
-        matches!(
-            refused,
-            Err(StoreError::HeadMoved {
-                expected_seq: 2,
-                found_seq: 3
-            })
-        ),
-        "{refused:?}"
-    );
+    // The head the operator read, now behind; and the head's own seq with a
+    // hash it does not have.
+    for (stale, expected) in [((seq, hash.as_str()), 2), ((3, ZERO_HASH), 3)] {
+        let refused = store.acknowledge_quarantine("r1", stale, BY);
+        assert!(
+            matches!(
+                refused,
+                Err(StoreError::HeadMoved {
+                    expected_seq,
+                    found_seq: 3
+                }) if expected_seq == expected
+            ),
+            "{refused:?}"
+        );
+    }
     assert_eq!(rows(&store), 0);
     assert_eq!(store.acknowledgement("r1").unwrap(), None);
 }
