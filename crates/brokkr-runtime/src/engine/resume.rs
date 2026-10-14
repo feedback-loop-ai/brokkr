@@ -1,13 +1,13 @@
 //! Which session, if any, one model invocation site may rejoin
 //! (proposed decision 0056, generalising decision 0030).
 //!
-//! Three private values and one pure query. `SiteKey` says WHICH site
-//! this is — structurally, from the compiled body walk, never by
-//! splitting a display tag on `:`. `InstanceKey` says WHOSE it is — the
-//! adapter instance that would run it. `ConfirmedSession` is the
-//! provider-confirmed root a rejoin stands on, which is a different
-//! thing from decision 0032's retained transcript locator: a storage
-//! directory is not a provider handle.
+//! Two private values and one pure query, beside the bundle's `SiteKey`,
+//! which says WHICH site this is — structurally, from the compiled body
+//! walk, never by splitting a display tag on `:`. `InstanceKey` says
+//! WHOSE it is — the adapter instance that would run it.
+//! `ConfirmedSession` is the provider-confirmed root a rejoin stands on,
+//! which is a different thing from decision 0032's retained transcript
+//! locator: a storage directory is not a provider handle.
 //!
 //! The query reads this run's durable evidence and nothing else. It is a
 //! derivation of the journal, the pinned bundle and the local origin —
@@ -22,172 +22,13 @@ use serde_json::{json, Map, Value};
 use brokkr_core::realms::Boundary;
 
 use crate::agents::Candidate;
+pub(super) use crate::bundle::SiteKey;
 use crate::bundle::{ExecutableBody, SeatClass, StepBody};
 
-/// The domain separators. Two digests over two different structures must
-/// never collide into each other, and a domain string is the cheapest
-/// way to say so.
-const SITE_DOMAIN: &str = "brokkr.resume-site/v1";
+/// The domain separator. Two digests over two different structures must
+/// never collide into each other — the site's own is `SiteKey`'s — and a
+/// domain string is the cheapest way to say so.
 const INSTANCE_DOMAIN: &str = "brokkr.resume-instance/v1";
-
-/// Where inside its seat one invocation site sits. The ancestry is
-/// carried in distinct fields with their own indices, taken off the
-/// compiled walk: `a:b`/`c` and `a`/`b:c` are two different values here,
-/// which is exactly what the flattened display tag cannot say.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SitePath {
-    Single,
-    PanelMember {
-        member: String,
-        member_index: usize,
-    },
-    SequenceStep {
-        step: String,
-        step_index: usize,
-    },
-    SequencePanelMember {
-        step: String,
-        step_index: usize,
-        member: String,
-        member_index: usize,
-    },
-}
-
-impl SitePath {
-    fn value(&self) -> Value {
-        match self {
-            SitePath::Single => json!({"kind": "single"}),
-            SitePath::PanelMember {
-                member,
-                member_index,
-            } => json!({
-                "kind": "panel-member",
-                "member": member,
-                "member_index": member_index,
-            }),
-            SitePath::SequenceStep { step, step_index } => json!({
-                "kind": "sequence-step",
-                "step": step,
-                "step_index": step_index,
-            }),
-            SitePath::SequencePanelMember {
-                step,
-                step_index,
-                member,
-                member_index,
-            } => json!({
-                "kind": "sequence-panel-member",
-                "step": step,
-                "step_index": step_index,
-                "member": member,
-                "member_index": member_index,
-            }),
-        }
-    }
-}
-
-/// One structural invocation site: the outer seat, the selected case
-/// (explicitly absent for a body with no selector), the body kind and
-/// the full path. The run supplies its own scope — the journal this is
-/// asked of is one run's.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SiteKey {
-    seat: String,
-    /// `None` is an unselected body, and it is NOT the same key as a
-    /// case literally named "default": absence is its own value here.
-    case: Option<String>,
-    body: &'static str,
-    path: SitePath,
-}
-
-impl SiteKey {
-    pub(super) fn single(seat: &str, case: Option<&str>) -> SiteKey {
-        SiteKey {
-            seat: seat.to_string(),
-            case: case.map(str::to_string),
-            body: "single",
-            path: SitePath::Single,
-        }
-    }
-
-    pub(super) fn panel_member(
-        seat: &str,
-        case: Option<&str>,
-        member: &str,
-        member_index: usize,
-    ) -> SiteKey {
-        SiteKey {
-            seat: seat.to_string(),
-            case: case.map(str::to_string),
-            body: "panel",
-            path: SitePath::PanelMember {
-                member: member.to_string(),
-                member_index,
-            },
-        }
-    }
-
-    pub(super) fn sequence_step(
-        seat: &str,
-        case: Option<&str>,
-        step: &str,
-        step_index: usize,
-    ) -> SiteKey {
-        SiteKey {
-            seat: seat.to_string(),
-            case: case.map(str::to_string),
-            body: "sequence",
-            path: SitePath::SequenceStep {
-                step: step.to_string(),
-                step_index,
-            },
-        }
-    }
-
-    pub(super) fn sequence_panel_member(
-        seat: &str,
-        case: Option<&str>,
-        step: &str,
-        step_index: usize,
-        member: &str,
-        member_index: usize,
-    ) -> SiteKey {
-        SiteKey {
-            seat: seat.to_string(),
-            case: case.map(str::to_string),
-            body: "sequence",
-            path: SitePath::SequencePanelMember {
-                step: step.to_string(),
-                step_index,
-                member: member.to_string(),
-                member_index,
-            },
-        }
-    }
-
-    /// Whether this site is the seat's own single body — the one shape
-    /// decision 0030's legacy codex evidence can answer for, because a
-    /// composite row's ancestry was never journaled.
-    fn is_single(&self) -> bool {
-        matches!(self.path, SitePath::Single)
-    }
-
-    fn value(&self) -> Value {
-        json!({
-            "domain": SITE_DOMAIN,
-            "seat": self.seat,
-            "case": self.case,
-            "body": self.body,
-            "path": self.path.value(),
-        })
-    }
-
-    /// 64 lowercase hex, through the same canonical SHA-256 every other
-    /// digest in this realm goes through.
-    pub(super) fn digest(&self) -> String {
-        brokkr_core::canonical::sha256_hex(&self.value())
-    }
-}
 
 /// Everything about the adapter instance that would run this site, and
 /// nothing about the invocation that reconstructs its values.
@@ -720,78 +561,28 @@ pub(crate) fn structural_sites(
     } else {
         SeatClass::Work
     };
+    // The tag is the key's own rendering, so the two addresses cannot
+    // disagree.
+    let site = |key: SiteKey, class: SeatClass, command: Vec<String>| StructuralSite {
+        site: key.tag(),
+        key,
+        class,
+        command,
+    };
     match body {
-        ExecutableBody::Single { command, .. } => vec![StructuralSite {
-            site: None,
-            key: SiteKey::single(seat, case),
-            class: seat_class,
-            command: command.to_vec(),
-        }],
-        ExecutableBody::Panel { members, .. } => members
-            .iter()
-            .enumerate()
-            .map(|(index, member)| StructuralSite {
-                site: Some(member.name.clone()),
-                key: SiteKey::panel_member(seat, case, &member.name, index),
-                class: seat_class,
-                command: member.command.clone(),
-            })
-            .collect(),
-        ExecutableBody::Sequence { steps } => steps
-            .iter()
-            .enumerate()
-            .flat_map(|(step_index, step)| match &step.body {
-                StepBody::Single { command, .. } => vec![StructuralSite {
-                    site: Some(step.name.clone()),
-                    key: SiteKey::sequence_step(seat, case, &step.name, step_index),
-                    class: step.class,
-                    command: command.clone(),
-                }],
-                StepBody::Panel { members, .. } => members
-                    .iter()
-                    .enumerate()
-                    .map(|(member_index, member)| StructuralSite {
-                        site: Some(format!("{}:{}", step.name, member.name)),
-                        key: SiteKey::sequence_panel_member(
-                            seat,
-                            case,
-                            &step.name,
-                            step_index,
-                            &member.name,
-                            member_index,
-                        ),
-                        // A member inherits its enclosing panel's class,
-                        // and an office name decides nothing.
-                        class: step.class,
-                        command: member.command.clone(),
-                    })
-                    .collect(),
-                StepBody::Dialect { .. } => Vec::new(),
-            })
-            .collect(),
-    }
-}
-
-/// Every execution coordinate of one body as its relative tag and
-/// structural owner, INCLUDING deterministic dialect steps (design D10
-/// F2). `structural_sites` deliberately omits a dialect leaf because it
-/// receives no model offer; ownership must not, because a literal phase
-/// can flatten to the injected validator's label and one site would then
-/// answer for the other.
-pub(crate) fn owner_sites(
-    body: ExecutableBody<'_>,
-    seat: &str,
-    case: Option<&str>,
-) -> Vec<(Option<String>, SiteKey)> {
-    match body {
-        ExecutableBody::Single { .. } => vec![(None, SiteKey::single(seat, case))],
+        ExecutableBody::Single { command, .. } => vec![site(
+            SiteKey::single(seat, case),
+            seat_class,
+            command.to_vec(),
+        )],
         ExecutableBody::Panel { members, .. } => members
             .iter()
             .enumerate()
             .map(|(index, member)| {
-                (
-                    Some(member.name.clone()),
+                site(
                     SiteKey::panel_member(seat, case, &member.name, index),
+                    seat_class,
+                    member.command.clone(),
                 )
             })
             .collect(),
@@ -799,16 +590,16 @@ pub(crate) fn owner_sites(
             .iter()
             .enumerate()
             .flat_map(|(step_index, step)| match &step.body {
-                StepBody::Single { .. } => vec![(
-                    Some(step.name.clone()),
+                StepBody::Single { command, .. } => vec![site(
                     SiteKey::sequence_step(seat, case, &step.name, step_index),
+                    step.class,
+                    command.clone(),
                 )],
                 StepBody::Panel { members, .. } => members
                     .iter()
                     .enumerate()
                     .map(|(member_index, member)| {
-                        (
-                            Some(format!("{}:{}", step.name, member.name)),
+                        site(
                             SiteKey::sequence_panel_member(
                                 seat,
                                 case,
@@ -817,13 +608,58 @@ pub(crate) fn owner_sites(
                                 &member.name,
                                 member_index,
                             ),
+                            // A member inherits its enclosing panel's
+                            // class, and an office name decides nothing.
+                            step.class,
+                            member.command.clone(),
                         )
                     })
                     .collect(),
-                StepBody::Dialect { .. } => vec![(
-                    Some(step.name.clone()),
-                    SiteKey::sequence_step(seat, case, &step.name, step_index),
-                )],
+                StepBody::Dialect { .. } => Vec::new(),
+            })
+            .collect(),
+    }
+}
+
+/// Every execution coordinate of one body as its structural owner, whose
+/// `tag` and `label` are its addresses, INCLUDING deterministic dialect
+/// steps (design D10 F2). `structural_sites` deliberately omits a dialect
+/// leaf because it receives no model offer; ownership must not, because a
+/// literal phase can flatten to the injected validator's label and one
+/// site would then answer for the other.
+pub(crate) fn owner_sites(
+    body: ExecutableBody<'_>,
+    seat: &str,
+    case: Option<&str>,
+) -> Vec<SiteKey> {
+    match body {
+        ExecutableBody::Single { .. } => vec![SiteKey::single(seat, case)],
+        ExecutableBody::Panel { members, .. } => members
+            .iter()
+            .enumerate()
+            .map(|(index, member)| SiteKey::panel_member(seat, case, &member.name, index))
+            .collect(),
+        ExecutableBody::Sequence { steps } => steps
+            .iter()
+            .enumerate()
+            .flat_map(|(step_index, step)| match &step.body {
+                StepBody::Single { .. } | StepBody::Dialect { .. } => {
+                    vec![SiteKey::sequence_step(seat, case, &step.name, step_index)]
+                }
+                StepBody::Panel { members, .. } => members
+                    .iter()
+                    .enumerate()
+                    .map(|(member_index, member)| {
+                        SiteKey::sequence_panel_member(
+                            seat,
+                            case,
+                            &step.name,
+                            step_index,
+                            &member.name,
+                            member_index,
+                        )
+                    })
+                    .collect(),
             })
             .collect(),
     }
@@ -857,20 +693,7 @@ pub(crate) fn flat_address_collision(sites: &[StructuralSite]) -> Option<(String
 }
 
 fn describe_pair(first: &SiteKey, second: &SiteKey) -> String {
-    format!("{} and {}", describe(first), describe(second))
-}
-
-pub(crate) fn describe(key: &SiteKey) -> String {
-    match &key.path {
-        SitePath::Single => format!("the single body of seat '{}'", key.seat),
-        SitePath::PanelMember { member, .. } => {
-            format!("panel member '{member}' of seat '{}'", key.seat)
-        }
-        SitePath::SequenceStep { step, .. } => format!("step '{step}' of seat '{}'", key.seat),
-        SitePath::SequencePanelMember { step, member, .. } => {
-            format!("member '{member}' of step '{step}' of seat '{}'", key.seat)
-        }
-    }
+    format!("{} and {}", first.describe(), second.describe())
 }
 
 /// The engine's binding of a seat's single `--patch` value to the

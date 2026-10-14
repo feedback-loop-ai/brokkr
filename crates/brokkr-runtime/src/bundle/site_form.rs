@@ -58,9 +58,13 @@ impl Shape {
         }
     }
 
-    /// A form that holds other sites and executes nothing of its own.
+    /// A form that holds other sites and executes nothing of its own. The
+    /// match names every form, so a new one cannot skip the tools refusal.
     fn contains(self) -> bool {
-        matches!(self, Shape::Panel | Shape::Sequence | Shape::Select)
+        match self {
+            Shape::Panel | Shape::Sequence | Shape::Select => true,
+            Shape::Inline | Shape::Agent | Shape::Dialect => false,
+        }
     }
 }
 
