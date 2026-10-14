@@ -4262,7 +4262,7 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
              never `..`, `.`, empty, a `\\` or a drive"
         ));
     }
-    if unpinned_top_level(dir, components[0]) {
+    if crate::places::unpinned_top_level(dir, components[0]) {
         return Err(format!(
             "'{token}' names a path the manifest walk does not pin ({} is workspace data, \
              never bundle bytes)",
@@ -4280,21 +4280,6 @@ fn pinned_key(dir: &Path, token: &str, relative: &str) -> Result<String, String>
             dir.display()
         )),
     }
-}
-
-/// The top-level names the manifest walk skips (decision 0042): a
-/// scaffold may also be the workspace brokkr is invoked from, and its
-/// realm map and dialect library are workspace declarations pinned into
-/// the RUN manifest, never bundle files. One function, shared by the walk
-/// and by the pinned-script lookup, so the two cannot drift.
-///
-/// Decision 0065 adds the operator's abstract capability definitions on
-/// the same terms, so an unconsulted definition is no second source of
-/// bundle identity; decision 0083 adds a folder bundle's `state/`, so a
-/// run writing its journal never moves its bundle's. `dir` is the layer's
-/// canonical directory; the rule is [`crate::places::unpinned_top_level`].
-fn unpinned_top_level(dir: &Path, name: &str) -> bool {
-    crate::places::unpinned_top_level(dir, name)
 }
 
 /// The top-level name an ACTIVE input stands under, where that name is one
@@ -4364,7 +4349,7 @@ fn unpinned_active_input(root: &Path, reference: &str) -> Option<String> {
 fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
     let first = path.strip_prefix(root).ok()?.components().next()?;
     let name = first.as_os_str().to_str()?;
-    unpinned_top_level(root, name).then(|| {
+    crate::places::unpinned_top_level(root, name).then(|| {
         let holds = match name {
             crate::places::STATE => "the folder's runtime state, which a run writes",
             _ => "operator configuration",
@@ -6791,7 +6776,8 @@ fn walk_files(
             // declarations pinned into the RUN manifest, never bundle files:
             // changing either must not move the strategy's identity.
             let skipped = in_skipped
-                || current == dir && name.to_str().is_some_and(|n| unpinned_top_level(dir, n));
+                || current == dir
+                    && (name.to_str()).is_some_and(|n| crate::places::unpinned_top_level(dir, n));
             if skipped && consumed.is_empty() {
                 continue;
             }

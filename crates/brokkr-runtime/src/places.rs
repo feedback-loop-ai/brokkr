@@ -124,6 +124,13 @@ pub(crate) const UNPINNED_TOP_LEVEL: [&str; 3] = [
 /// bundle's [`STATE`] (decision 0083). Every other bundle pins a
 /// top-level `state/` as it always did, and so does a layer whose layout
 /// cannot be read: pinning more never lets a file change unseen.
+///
+/// A scaffold may also be the workspace brokkr is invoked from (decision
+/// 0042): its realm map and dialect library are workspace declarations
+/// pinned into the RUN manifest, never bundle files, and an unconsulted
+/// capability definition is no second source of bundle identity (decision
+/// 0065). The bundle's file walk, its pinned-script lookup and its skip
+/// reason all ask this one function, so they cannot drift.
 pub(crate) fn unpinned_top_level(dir: &Path, name: &str) -> bool {
     UNPINNED_TOP_LEVEL.contains(&name) || name == STATE && matches!(folder_bundle(dir), Ok(Some(_)))
 }
