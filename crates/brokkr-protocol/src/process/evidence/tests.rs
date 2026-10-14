@@ -117,3 +117,14 @@ fn a_message_is_named_by_its_wire_type_alone() {
     }
     assert_eq!(of_type(&Body::Shutdown), "message of type `shutdown`");
 }
+
+/// A field the driver chose is named by its wire name and its bytes as
+/// evidence, beside the value the engine wants (#667).
+#[test]
+fn a_mismatched_field_is_named_by_its_evidence_beside_the_wanted_value() {
+    assert_eq!(
+        mismatch("driver spoke another protocol", "proto", "not json\n", "v1"),
+        "driver spoke another protocol: its `proto` field held 9 bytes \
+         (first byte: letter; sha256: 3c48773b404d8500), want 'v1'"
+    );
+}
