@@ -17,26 +17,28 @@ use super::{entry, forged, unreadable, FolderError, Forge};
 /// git a deletion and a stranger. So do the shapes no `git mv` or `git rm`
 /// could complete (round 634k's third finding): a submodule git tracks
 /// under `.forge`, a tracked path git does not read in the work tree
-/// ([`held`]), a linked `.forge` whose entries git tracks, a sparse
-/// checkout beside tracked entries ([`sparse`]), and any tracked path under
-/// it git holds a change to ([`committed`]).
+/// ([`held`]), a linked `.forge` git tracks itself or tracks entries under,
+/// a sparse checkout beside tracked entries ([`sparse`]), and any tracked
+/// path under it git holds a change to ([`committed`]).
 pub(super) fn tracked(root: &Path, forge: Forge) -> Result<Vec<Vec<u8>>, FolderError> {
     let repository = brokkr_runtime::places::root(root).map_err(FolderError::Places)?;
     if entry(&repository.join(".git"))?.is_none() {
         return Ok(Vec::new());
     }
     let listed = ask_git(root, "ls-files", &["-s", "-v", "-z", "--", LIBRARY_STATE])?;
-    let tracked = held(root, &listed)?;
-    if forge == Forge::Link && !tracked.is_empty() {
+    let index = held(root, &listed)?;
+    // A `.forge` the index holds itself, where a directory stands or none
+    // does, is a change `committed` refuses by name (` D .forge`).
+    if forge == Forge::Link && (index.itself || !index.names.is_empty()) {
         let path = root.join(LIBRARY_STATE);
         return Err(FolderError::LinkedTracked { path });
     }
-    if !tracked.is_empty() && sparse(root)? {
+    if !index.names.is_empty() && sparse(root)? {
         let root = root.to_path_buf();
         return Err(FolderError::Sparse { root });
     }
     committed(root)?;
-    Ok(tracked)
+    Ok(index.names)
 }
 
 /// What git's index holds at a path: a file or a link ([`held`]), or a submodule.
@@ -63,18 +65,29 @@ fn staged(record: &[u8]) -> Option<(u8, Held, &[u8])> {
     Some((*tag, held, &record[tab + 1..]))
 }
 
-/// The names directly under `.forge/` that `git ls-files -s -v -z` printed
-/// in `root`, as git's bytes, read typed (decision 0071 ruling 3). A
+/// What git's index holds at and under `.forge` ([`held`]).
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Index {
+    /// The names directly under `.forge/` git tracks, as git's bytes.
+    pub(super) names: Vec<Vec<u8>>,
+    /// Whether git tracks `.forge` itself, a link committed as one, which
+    /// a listed `rm` would leave git a deletion of (the fourth landing's
+    /// review).
+    pub(super) itself: bool,
+}
+
+/// What `git ls-files -s -v -z` printed in `root` holds at and under
+/// `.forge`, as git's bytes, read typed (decision 0071 ruling 3). A
 /// submodule there refuses by name: `git mv` moves one only together with
 /// `.gitmodules`, which a change outside `.forge` stops (round 634k's
 /// review). So does every path git does not read in the work tree, tagged
 /// `S` or in lowercase: `git status` states no change to one, and `git rm`
 /// refuses one a sparse checkout leaves out (round 634k's chief). A record
 /// this cannot read is refused with its bytes.
-pub(super) fn held(root: &Path, listed: &[u8]) -> Result<Vec<Vec<u8>>, FolderError> {
+pub(super) fn held(root: &Path, listed: &[u8]) -> Result<Index, FolderError> {
     use std::os::unix::ffi::OsStrExt;
     let prefix = forged("");
-    let (mut names, mut unwatched) = (Vec::new(), Vec::new());
+    let (mut names, mut unwatched, mut itself) = (Vec::new(), Vec::new(), false);
     for record in listed.split(|byte| *byte == 0).filter(|r| !r.is_empty()) {
         let (tag, held, path) = staged(record).ok_or_else(|| unread(root, "ls-files", record))?;
         if held == Held::Submodule {
@@ -87,12 +100,13 @@ pub(super) fn held(root: &Path, listed: &[u8]) -> Result<Vec<Vec<u8>>, FolderErr
                 path: one_line(path),
             });
         }
+        itself |= path == LIBRARY_STATE.as_bytes();
         let under = path.strip_prefix(prefix.as_bytes());
         let name = under.and_then(|rest| rest.split(|byte| *byte == b'/').next());
         names.extend(name.map(<[u8]>::to_vec));
     }
     match unwatched.is_empty() {
-        true => Ok(names),
+        true => Ok(Index { names, itself }),
         false => Err(FolderError::Unwatched {
             root: root.to_path_buf(),
             paths: unwatched,

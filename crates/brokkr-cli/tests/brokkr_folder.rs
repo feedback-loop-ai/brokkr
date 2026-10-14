@@ -1333,6 +1333,7 @@ fn shapes() -> Vec<Shape> {
     ]
     .into_iter()
     .chain(refusals())
+    .chain(linked_refusals())
     .collect()
 }
 
@@ -1355,6 +1356,80 @@ fn sparse_refused(repo: &Repo) -> String {
          --no-assume-unchanged` on each, then run again\n  S .forge/.gitignore\n",
         repo.root.display()
     )
+}
+
+/// The refusal a linked `.forge` gives where git tracks it, a link
+/// committed as one, or entries under it.
+fn linked_tracked(repo: &Repo) -> String {
+    format!(
+        "error: {}/.forge is a link and git tracks it or entries under it; a listed `rm` would \
+         leave git a deletion of a tracked link, and git refuses some paths beyond a symbolic \
+         link, so no moves are listed (decision 0083); nothing was opened: put the directory it \
+         names in its place, or untrack it and its entries, then run again\n",
+        repo.root.display()
+    )
+}
+
+/// The refusal a `.forge` linked to `target`, the root or a directory
+/// holding it, gives: its entries would move into themselves, the link
+/// first among them (the fourth landing's review).
+fn holds_root(repo: &Repo, target: &Path) -> String {
+    format!(
+        "error: {}/.forge is a link to {}, which holds the repository's root, so a listed move \
+         would move it into itself; no moves are listed (decision 0083); nothing was opened: put \
+         the directory it should name in its place, then run again\n",
+        repo.root.display(),
+        target.display()
+    )
+}
+
+/// Commit the root's `.forge` link as the link it is.
+fn commit_link(repo: &Repo) {
+    git(&repo.root, &["add", ".forge"]);
+    commit(&repo.root);
+}
+
+/// The shapes of [`shapes`] refused where `.forge` is or was a link: one git
+/// tracks entries under, one committed as a link, one committed as a link
+/// and then made a directory, and links to the root and to its parent,
+/// which hold the root (the fourth landing's review).
+fn linked_refusals() -> Vec<Shape> {
+    vec![
+        refusing(
+            "LinkedTracked",
+            listing("", &["forge.db", "notes.md"], &["notes.md"], true),
+            |_| {},
+            linked_tracked,
+        ),
+        refusing(
+            "LinkedTracked",
+            listing("", &["forge.db"], &[], true),
+            commit_link,
+            linked_tracked,
+        ),
+        refusing(
+            "Uncommitted",
+            listing("", &["forge.db"], &[], true),
+            |repo| {
+                commit_link(repo);
+                std::fs::remove_file(repo.path(".forge")).unwrap();
+                repo.write(".forge/forge.db", "forge.db");
+            },
+            |repo| uncommitted(repo, "   D .forge"),
+        ),
+        refusing(
+            "ForgeHoldsRoot",
+            listing("", &[], &[], false),
+            |repo| std::os::unix::fs::symlink(".", repo.path(".forge")).unwrap(),
+            |repo| holds_root(repo, &repo.root),
+        ),
+        refusing(
+            "ForgeHoldsRoot",
+            listing("", &[], &[], false),
+            |repo| std::os::unix::fs::symlink("..", repo.path(".forge")).unwrap(),
+            |repo| holds_root(repo, repo.root.parent().unwrap()),
+        ),
+    ]
 }
 
 /// The shapes of [`shapes`] no listed move could complete, each refused
@@ -1393,20 +1468,6 @@ fn refusals() -> Vec<Shape> {
                 repo.write(".forge/notes.md/keep", "a directory now");
             },
             |repo| uncommitted(repo, "   D .forge/notes.md"),
-        ),
-        refusing(
-            "LinkedTracked",
-            listing("", &["forge.db", "notes.md"], &["notes.md"], true),
-            |_| {},
-            |repo| {
-                format!(
-                    "error: {}/.forge is a link and git tracks entries under it; git refuses \
-                     some paths beyond a symbolic link, so no moves are listed (decision 0083); \
-                     nothing was opened: put the directory it names in its place, or untrack \
-                     its entries, then run again\n",
-                    repo.root.display()
-                )
-            },
         ),
         refusing(
             "Unwatched",

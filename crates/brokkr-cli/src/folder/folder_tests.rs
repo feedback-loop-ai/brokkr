@@ -437,9 +437,10 @@ fn a_linked_forge_whose_entries_git_tracks_refuses() {
     assert_eq!(
         refusal.to_string(),
         format!(
-            "{} is a link and git tracks entries under it; git refuses some paths beyond a \
-             symbolic link, so no moves are listed (decision 0083); nothing was opened: put the \
-             directory it names in its place, or untrack its entries, then run again",
+            "{} is a link and git tracks it or entries under it; a listed `rm` would leave git a \
+             deletion of a tracked link, and git refuses some paths beyond a symbolic link, so no \
+             moves are listed (decision 0083); nothing was opened: put the directory it names in \
+             its place, or untrack it and its entries, then run again",
             forge.display()
         )
     );
@@ -494,7 +495,8 @@ fn a_status_record_this_cannot_read_refuses() {
 
 /// Each record of `git ls-files -s -v -z` is read typed: a file's or a
 /// link's mode names the entry under `.forge/` it stands in, a path that
-/// is `.forge` itself names none, a submodule refuses by its path, and a
+/// is `.forge` itself names none and is held as `.forge` tracked itself
+/// (the fourth landing's review), a submodule refuses by its path, and a
 /// record with no tab, an unknown mode or an unknown tag refuses with its
 /// bytes (round 634k's review).
 #[test]
@@ -506,9 +508,21 @@ fn an_index_record_this_cannot_read_refuses() {
         "H 100644 {object} 0\t.forge/a\0H 100755 {object} 0\t.forge/r/x.json\0M 120000 {object} \
          1\t.forge\0"
     );
+    let names = vec![b"a".to_vec(), b"r".to_vec()];
     assert_eq!(
         read(listed.as_bytes()).unwrap(),
-        [b"a".to_vec(), b"r".to_vec()]
+        super::tracked::Index {
+            names: names.clone(),
+            itself: true
+        }
+    );
+    let under = format!("H 100644 {object} 0\t.forge/a\0H 100755 {object} 0\t.forge/r/x.json\0");
+    assert_eq!(
+        read(under.as_bytes()).unwrap(),
+        super::tracked::Index {
+            names,
+            itself: false
+        }
     );
     let submodule = format!("H 100644 {object} 0\t.forge/a\0H 160000 {object} 0\t.forge/z\0");
     let refusal = read(submodule.as_bytes()).unwrap_err();
