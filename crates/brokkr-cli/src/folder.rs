@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 
 use brokkr_runtime::places::{self, Kind, Old, Places, PlacesError, BUNDLE, FOLDER, JOURNAL};
 use brokkr_runtime::places::{LIBRARY_STATE, SECRETS, STATE};
-use links::{links_stay, LinkRefusal};
 use tracked::{listed_paths, tracked, Change, Unwatched};
 
 /// Why a verb refused before it opened anything, in the operator's words.
@@ -37,9 +36,13 @@ pub(crate) enum FolderError {
         path: PathBuf,
         source: std::io::Error,
     },
-    /// An old layout's `.forge` that is neither a directory nor a link,
-    /// whose entries no move could take.
+    /// An old layout's `.forge` that is not a directory, whose entries no
+    /// move could take.
     ForgeNotADirectory { path: PathBuf },
+    /// A symbolic link at or under the old layout's `.forge`, the first in
+    /// sorted walk order: the moves list nothing through or for one (the
+    /// operator's ruling of 2026-10-14).
+    Link { path: PathBuf },
     /// A repository whose tracked `.forge/` entries git would not list,
     /// or whose changes to them git would not state, so no move could say
     /// which go by `git mv`. `verb` is what git was asked.
@@ -59,14 +62,6 @@ pub(crate) enum FolderError {
         root: PathBuf,
         paths: Vec<Unwatched>,
     },
-    /// A `.forge` that is a link git tracks, or one whose entries git
-    /// tracks: a listed `rm` would leave git a deletion of the one, and git
-    /// refuses some paths beyond a symbolic link, so no move through one
-    /// is listed.
-    LinkedTracked { path: PathBuf },
-    /// A `.forge` that is a link to the root or a directory holding it,
-    /// whose entries would move into themselves, the link first among them.
-    ForgeHoldsRoot { path: PathBuf, target: PathBuf },
     /// A sparse checkout beside entries git tracks under `.forge`: a listed
     /// `git mv` into `.brokkr/state` could fall outside its definition.
     Sparse { root: PathBuf },
@@ -78,11 +73,9 @@ pub(crate) enum FolderError {
     /// A `.forge/` entry whose name holds a control character, which no
     /// listed move could name on one line.
     ControlCharacter { path: PathBuf },
-    /// The old layout's ignore entry that is neither a file nor a link,
-    /// which no listed `rm` could remove.
+    /// The old layout's ignore entry that is not a file, which no listed
+    /// `rm` could remove; a link there refuses as [`FolderError::Link`].
     IgnoreNotAFile { path: PathBuf },
-    /// A link no listed move could carry or look through.
-    Link(LinkRefusal),
 }
 
 impl From<PlacesError> for FolderError {
@@ -120,6 +113,13 @@ impl fmt::Display for FolderError {
                 "{} is a file, not Brokkr's state directory: move it aside",
                 path.display()
             ),
+            FolderError::Link { path } => write!(
+                f,
+                "{} is a symbolic link, and Brokkr lists no moves through or for one (decision \
+                 0083; the operator's ruling of 2026-10-14); nothing was opened: move the state \
+                 into {FOLDER}/{STATE} yourself, then run again",
+                path.display()
+            ),
             FolderError::Untracked { verb, root, said } => write!(
                 f,
                 "git {verb} in {} failed, so the moves cannot tell what git tracks (decision \
@@ -144,22 +144,6 @@ impl fmt::Display for FolderError {
                  --no-skip-worktree --no-assume-unchanged` on each, then run again{}",
                 root.display(),
                 listed_paths(paths)
-            ),
-            FolderError::LinkedTracked { path } => write!(
-                f,
-                "{} is a link and git tracks it or entries under it; a listed `rm` would leave git \
-                 a deletion of a tracked link, and git refuses some paths beyond a symbolic link, \
-                 so no moves are listed (decision 0083); nothing was opened: put the directory it \
-                 names in its place, or untrack it and its entries, then run again",
-                path.display()
-            ),
-            FolderError::ForgeHoldsRoot { path, target } => write!(
-                f,
-                "{} is a link to {}, which holds the repository's root, so a listed move would \
-                 move it into itself; no moves are listed (decision 0083); nothing was opened: put \
-                 the directory it should name in its place, then run again",
-                path.display(),
-                target.display()
             ),
             FolderError::Sparse { root } => write!(
                 f,
@@ -194,7 +178,6 @@ impl fmt::Display for FolderError {
                  0083); nothing was opened: move it aside",
                 path.display()
             ),
-            FolderError::Link(refused) => write!(f, "{refused}"),
         }
     }
 }
@@ -467,22 +450,20 @@ fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
 /// beside it whatever the journal is named, then the old ignore file out
 /// and the folder's own in. Each entry git tracks moves by `git mv` and goes by
 /// `git rm`, each untracked one by `mv` and `rm`, so a journal and its
-/// logs move whole however git holds them. A `.forge` that is a link is
-/// judged as the link (ruling 4): its entries move out through it, and
-/// the link itself goes by `rm`, never `rmdir`, leaving the directory it
-/// names. The compile-derived moves are not listed (the operator's ruling
-/// of 2026-10-13). A `.forge` that is neither, a linked one whose target
-/// holds the root, entries that cannot be listed or named, an ignore entry
-/// no `rm` could remove, a repository git will not list or state, a
-/// submodule git tracks, a tracked path git holds a change to or does not
-/// read in the work tree, a linked `.forge` git tracks itself, whose
-/// entries git tracks or whose target lies inside the repository, and a
-/// link under `.forge` a move would leave naming another path or none
-/// refuse by name, with no list at all, so every list printed completes
-/// when executed (round 634k; the fifth landing's review).
+/// logs move whole however git holds them. The compile-derived moves are
+/// not listed (the operator's ruling of 2026-10-13). The first thing
+/// decided is the one link rule ([`no_link`]): a `.forge` that is a link,
+/// or any link under it, lists no moves at all (the operator's ruling of
+/// 2026-10-14). A `.forge` that is not a directory, entries that cannot
+/// be listed or named, an ignore entry no `rm` could remove, a repository
+/// git will not list or state, a submodule git tracks, and a tracked path
+/// git holds a change to or does not read in the work tree refuse by
+/// name, with no list at all, so every list printed completes when
+/// executed (round 634k).
 fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
+    no_link(&root.join(LIBRARY_STATE))?;
     let forge = Forge::at(root)?;
-    let (names, tracked) = (forge_entries(root, forge)?, tracked(root, forge)?);
+    let (names, tracked) = (forge_entries(root, forge)?, tracked(root)?);
     let tracks = |name: &str| tracked.iter().any(|known| known == name.as_bytes());
     let mut moves = vec![Move::Mkdir];
     let bases = names
@@ -497,8 +478,8 @@ fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
             });
         }
     }
-    // A tracked ignore file is clean in a `.forge` that is a directory
-    // ([`tracked`]), and `git rm` takes the directory it empties with it.
+    // A tracked ignore file is clean ([`tracked`]), and `git rm` takes the
+    // directory it empties with it.
     match (tracks(IGNORE), ignore_stands(root, &names)?) {
         (true, _) => moves.push(Move::GitRm),
         (false, true) => moves.extend([Move::Rm].into_iter().chain(forge.removal())),
@@ -519,7 +500,6 @@ enum Move {
     GitRm,
     Rm,
     Rmdir,
-    Unlink,
     Printf,
 }
 
@@ -537,13 +517,6 @@ impl Move {
             Move::GitRm => vec![format!("git rm {}", forged(IGNORE))],
             Move::Rm => vec![format!("rm {}", forged(IGNORE))],
             Move::Rmdir => vec![format!("rmdir {LIBRARY_STATE}")],
-            Move::Unlink => vec![
-                format!(
-                    "# {LIBRARY_STATE} is a link: rm removes the link, and the directory it \
-                     names stays"
-                ),
-                format!("rm {LIBRARY_STATE}"),
-            ],
             Move::Printf => vec![format!("printf '{STATE}/\\n' > {FOLDER}/{IGNORE}")],
         }
     }
@@ -554,65 +527,74 @@ const IGNORE: &str = ".gitignore";
 
 /// Whether the old ignore file stands among `names`, the root's `.forge/`
 /// entries, judged as the entry itself, as the root's `.forge` is
-/// (ruling 4): a file or a link goes by `rm` or `git rm`; anything else
-/// refuses by name, with no moves, because no listed `rm` could remove it.
+/// (ruling 4): a file goes by `rm` or `git rm`; a link has refused already
+/// ([`no_link`]); anything else refuses by name, with no moves, because no
+/// listed `rm` could remove it.
 fn ignore_stands(root: &Path, names: &[String]) -> Result<bool, FolderError> {
     if !names.iter().any(|name| name == IGNORE) {
         return Ok(false);
     }
     let path = root.join(forged(IGNORE));
     let found = std::fs::symlink_metadata(&path).map_err(unreadable(&path))?;
-    match found.is_file() || found.is_symlink() {
+    match found.is_file() {
         true => Ok(true),
         false => Err(FolderError::IgnoreNotAFile { path }),
     }
 }
 
+/// The one link rule (the operator's ruling of 2026-10-14): `forge`, the
+/// root's `.forge`, and every entry under it at any depth, each read as
+/// the entry itself and never through a link. A link anywhere refuses by
+/// name, the first in sorted walk order, so the moves never carry one or
+/// look through one. An entry or a directory that cannot be read refuses,
+/// never skipped.
+fn no_link(forge: &Path) -> Result<(), FolderError> {
+    let (mut links, mut left) = (Vec::new(), vec![forge.to_path_buf()]);
+    while let Some(path) = left.pop() {
+        let Some(found) = entry(&path)? else {
+            continue;
+        };
+        if found.is_symlink() {
+            links.push(path);
+        } else if found.is_dir() {
+            for listed in std::fs::read_dir(&path).map_err(unreadable(&path))? {
+                left.push(listed.map_err(unreadable(&path))?.path());
+            }
+        }
+    }
+    links
+        .into_iter()
+        .min()
+        .map_or(Ok(()), |path| Err(FolderError::Link { path }))
+}
+
 /// What stands at the root's `.forge`, judged as the entry itself and
-/// never through a link (ruling 4).
+/// never through a link (ruling 4); a link has refused already
+/// ([`no_link`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Forge {
     Absent,
     Directory,
-    Link,
 }
 
 impl Forge {
-    /// The root's `.forge`; anything but a directory or a link refuses by
-    /// name, because no listed move could empty or remove it, and so does
-    /// a link whose target holds the root.
+    /// The root's `.forge`; anything but a directory refuses by name,
+    /// because no listed move could empty or remove it.
     fn at(root: &Path) -> Result<Forge, FolderError> {
         let path = root.join(LIBRARY_STATE);
         match entry(&path)? {
             None => Ok(Forge::Absent),
             Some(found) if found.is_dir() => Ok(Forge::Directory),
-            Some(found) if found.is_symlink() => Forge::linked(root, path),
             Some(_) => Err(FolderError::ForgeNotADirectory { path }),
         }
     }
 
-    /// The link at `path`, the root's `.forge`, judged by where it leads:
-    /// a target that is the root or holds it would have its entries, the
-    /// link among them, moved into `.brokkr/state` inside it, so it refuses
-    /// by name (the fourth landing's review). A target that cannot be read
-    /// refuses, never judged as one apart.
-    fn linked(root: &Path, path: PathBuf) -> Result<Forge, FolderError> {
-        let target = std::fs::canonicalize(&path).map_err(unreadable(&path))?;
-        let real = std::fs::canonicalize(root).map_err(unreadable(root))?;
-        match real.starts_with(&target) {
-            true => Err(FolderError::ForgeHoldsRoot { path, target }),
-            false => Ok(Forge::Link),
-        }
-    }
-
-    /// The emptied `.forge`'s removal: nothing where none stands, `rmdir`,
-    /// or for a link, a note that the link goes and the directory it names
-    /// stays, then `rm`.
+    /// The emptied `.forge`'s removal: nothing where none stands, else
+    /// `rmdir`.
     fn removal(self) -> Option<Move> {
         match self {
             Forge::Absent => None,
             Forge::Directory => Some(Move::Rmdir),
-            Forge::Link => Some(Move::Unlink),
         }
     }
 }
@@ -647,8 +629,7 @@ fn journal_log(name: &str, names: &[String]) -> bool {
 /// The names directly under the root's `.forge/`, `forge` what stands
 /// there, sorted. A `.forge` whose entries cannot be listed refuses by
 /// name, never read as empty, and so does an entry no listed move could
-/// name on one line ([`nameable`]) and a link the moves would leave naming
-/// another path or none ([`links_stay`]).
+/// name on one line ([`nameable`]).
 fn forge_entries(root: &Path, forge: Forge) -> Result<Vec<String>, FolderError> {
     let path = root.join(LIBRARY_STATE);
     let mut names = Vec::new();
@@ -660,7 +641,6 @@ fn forge_entries(root: &Path, forge: Forge) -> Result<Vec<String>, FolderError> 
         names.push(nameable(&path, name)?);
     }
     names.sort();
-    links_stay(root, &path, &names)?;
     Ok(names)
 }
 
@@ -679,7 +659,6 @@ fn nameable(forge: &Path, name: std::ffi::OsString) -> Result<String, FolderErro
     }
 }
 
-mod links;
 mod tracked;
 
 #[cfg(test)]

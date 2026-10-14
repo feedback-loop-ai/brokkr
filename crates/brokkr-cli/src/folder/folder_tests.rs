@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_runtime::places::PlacesError;
 
-use super::{state_moves, DoctorDefaults, FolderError, Layout, LinkRefusal, OldLayout};
+use super::{state_moves, DoctorDefaults, FolderError, Layout, OldLayout};
 
 /// Mark `dir` as a recipe library (decision 0083 ruling 4), so a run verb
 /// standing in it keeps the library's own `.forge/` layout.
@@ -264,18 +264,17 @@ fn a_name_with_a_control_character_refuses() {
 }
 
 /// The old ignore entry is judged as the entry itself (round 634j's second
-/// finding): a link, even to nothing, goes by `rm`; a directory, which no
-/// `rm` removes, refuses by name with no moves.
+/// finding): a link, even to nothing, refuses by the one link rule (the
+/// operator's ruling of 2026-10-14); a directory, which no `rm` removes,
+/// refuses by name with no moves.
 #[test]
 fn an_ignore_entry_that_is_not_a_file_or_a_link_refuses() {
     let dir = repository_with_a_forge();
     let root = dir.path().canonicalize().unwrap();
     let ignore = root.join(".forge/.gitignore");
     std::os::unix::fs::symlink(root.join("absent"), &ignore).unwrap();
-    assert_eq!(
-        state_moves(&root).unwrap()[1..3],
-        ["rm .forge/.gitignore", "rmdir .forge"]
-    );
+    let refusal = state_moves(&root).unwrap_err();
+    assert!(matches!(refusal, FolderError::Link { ref path } if *path == ignore));
     std::fs::remove_file(&ignore).unwrap();
     std::fs::create_dir_all(ignore.join("keep")).unwrap();
     let refusal = refused(&root);
@@ -287,6 +286,28 @@ fn an_ignore_entry_that_is_not_a_file_or_a_link_refuses() {
              nothing was opened: move it aside",
             ignore.display()
         )
+    );
+}
+
+/// The one link rule names the first link in sorted walk order, whatever
+/// order a directory lists them in (the operator's ruling of 2026-10-14):
+/// the sorted first is made between the others, so a walk that names the
+/// link it meets first names another, whether the directory lists its
+/// entries as made, the newest first or sorted.
+#[test]
+fn the_first_link_in_sorted_walk_order_is_named() {
+    let dir = repository_with_a_forge();
+    let forge = dir.path().canonicalize().unwrap().join(".forge");
+    let link = |at: &str| std::os::unix::fs::symlink("elsewhere", forge.join(at)).unwrap();
+    link("z");
+    std::fs::create_dir(forge.join("a")).unwrap();
+    link("a/deep");
+    link("m");
+    let refusal = refused(forge.parent().unwrap());
+    let first = forge.join("a/deep");
+    assert!(
+        matches!(refusal, FolderError::Link { ref path } if *path == first),
+        "{refusal}"
     );
 }
 
@@ -367,12 +388,14 @@ fn refused(root: &Path) -> FolderError {
 }
 
 /// A `.forge` whose entries cannot be listed refuses by name, with no
-/// moves, never read as empty (round 634c's third finding).
+/// moves, never read as empty (round 634c's third finding), and so does a
+/// directory under it the walk for links cannot read, never skipped.
 #[test]
 fn a_forge_that_cannot_be_listed_refuses() {
     let dir = tempfile::tempdir().unwrap();
     let forge = dir.path().canonicalize().unwrap().join(".forge");
-    std::fs::create_dir(&forge).unwrap();
+    let runs = forge.join("runs");
+    std::fs::create_dir_all(&runs).unwrap();
     std::fs::write(forge.join("forge.db"), "journal").unwrap();
     let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
     std::fs::set_permissions(&forge, mode(0o000)).unwrap();
@@ -391,10 +414,14 @@ fn a_forge_that_cannot_be_listed_refuses() {
             forge.display()
         )
     );
+    std::fs::set_permissions(&runs, mode(0o000)).unwrap();
+    let refusal = refused(dir.path());
+    std::fs::set_permissions(&runs, mode(0o755)).unwrap();
+    assert!(matches!(refusal, FolderError::Unreadable { ref path, .. } if *path == runs));
 }
 
-/// A `.forge` that is neither a directory nor a link refuses by name, with
-/// no moves: no `rmdir` could remove it (round 634c's fourth finding).
+/// A `.forge` that is a file refuses by name, with no moves: no `rmdir`
+/// could remove it (round 634c's fourth finding).
 #[test]
 fn a_forge_that_is_a_file_refuses() {
     let dir = tempfile::tempdir().unwrap();
@@ -415,84 +442,6 @@ fn a_forge_that_is_a_file_refuses() {
         );
         std::fs::write(dir.path().join("bundle.json"), "{}").unwrap();
     }
-}
-
-/// A linked `.forge` whose ignore file git tracks refuses by name, with no
-/// moves: git refuses some paths beyond a symbolic link, so no move
-/// through one is listed (round 634k's third finding; its review found
-/// git 2.51 completes this shape's own list, so the reason names what git
-/// refuses only in part).
-#[test]
-fn a_linked_forge_whose_entries_git_tracks_refuses() {
-    let dir = repository_with_a_forge();
-    let root = &dir.path().canonicalize().unwrap();
-    std::fs::write(root.join(".forge/.gitignore"), "*\n").unwrap();
-    git(root, &["add", "-f", ".forge/.gitignore"]);
-    commit(root);
-    std::fs::rename(root.join(".forge"), root.join("elsewhere")).unwrap();
-    std::os::unix::fs::symlink(root.join("elsewhere"), root.join(".forge")).unwrap();
-    let refusal = refused(root);
-    let forge = root.join(".forge");
-    assert!(matches!(refusal, FolderError::LinkedTracked { ref path } if *path == forge));
-    assert_eq!(
-        refusal.to_string(),
-        format!(
-            "{} is a link and git tracks it or entries under it; a listed `rm` would leave git a \
-             deletion of a tracked link, and git refuses some paths beyond a symbolic link, so no \
-             moves are listed (decision 0083); nothing was opened: put the directory it names in \
-             its place, or untrack it and its entries, then run again",
-            forge.display()
-        )
-    );
-}
-
-/// A link the moves would carry out of `.forge` naming another path, and a
-/// `.forge` linked to a directory inside the repository, where git does
-/// not look, refuse by name; so do an absolute target that cannot be
-/// resolved and a directory under `.forge` the walk for links cannot read,
-/// never skipped (the fifth and sixth landings' reviews).
-#[test]
-fn a_link_the_moves_would_strand_refuses() {
-    let dir = repository_with_a_forge();
-    let root = &dir.path().canonicalize().unwrap();
-    let (forge, link) = (root.join(".forge"), root.join(".forge/forge.db"));
-    std::os::unix::fs::symlink("../journal.db", &link).unwrap();
-    let escaping = |refused: &FolderError| {
-        let target = Path::new("../journal.db");
-        matches!(refused, FolderError::Link(LinkRefusal::Escaping { path, target: named }) if *path == link && named == target)
-    };
-    assert!(escaping(&refused(root)), "{}", refused(root));
-
-    std::fs::remove_file(&link).unwrap();
-    std::fs::rename(&forge, root.join("state")).unwrap();
-    std::os::unix::fs::symlink("state", &forge).unwrap();
-    let inside = |refused: &FolderError| {
-        let state = root.join("state");
-        matches!(refused, FolderError::Link(LinkRefusal::InRepository { path, target }) if *path == forge && *target == state)
-    };
-    assert!(inside(&refused(root)), "{}", refused(root));
-
-    std::fs::remove_file(&forge).unwrap();
-    std::fs::rename(root.join("state"), &forge).unwrap();
-    let ring = root.join("ring");
-    std::os::unix::fs::symlink(&ring, &ring).unwrap();
-    std::os::unix::fs::symlink(ring.join("x"), &link).unwrap();
-    let refusal = refused(root);
-    assert!(matches!(refusal, FolderError::Unreadable { ref path, .. } if *path == ring));
-    std::fs::remove_file(&link).unwrap();
-    std::fs::remove_dir_all(&forge).unwrap();
-    std::fs::create_dir_all(forge.join("runs")).unwrap();
-    let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
-    let runs = forge.join("runs");
-    std::fs::set_permissions(&runs, mode(0o000)).unwrap();
-    if std::fs::read_dir(&runs).is_ok() {
-        std::fs::set_permissions(&runs, mode(0o755)).unwrap();
-        eprintln!("skipped: this process reads a mode-000 directory, as root does");
-        return;
-    }
-    let refusal = refused(root);
-    std::fs::set_permissions(&runs, mode(0o755)).unwrap();
-    assert!(matches!(refusal, FolderError::Unreadable { ref path, .. } if *path == runs));
 }
 
 /// Each record of `git status --porcelain=v1 -z` is read typed: two
@@ -544,8 +493,7 @@ fn a_status_record_this_cannot_read_refuses() {
 
 /// Each record of `git ls-files -s -v -z` is read typed: a file's or a
 /// link's mode names the entry under `.forge/` it stands in, a path that
-/// is `.forge` itself names none and is held as `.forge` tracked itself
-/// (the fourth landing's review), a submodule refuses by its path, and a
+/// is `.forge` itself names none, a submodule refuses by its path, and a
 /// record with no tab, an unknown mode or an unknown tag refuses with its
 /// bytes (round 634k's review).
 #[test]
@@ -557,21 +505,9 @@ fn an_index_record_this_cannot_read_refuses() {
         "H 100644 {object} 0\t.forge/a\0H 100755 {object} 0\t.forge/r/x.json\0M 120000 {object} \
          1\t.forge\0"
     );
-    let names = vec![b"a".to_vec(), b"r".to_vec()];
     assert_eq!(
         read(listed.as_bytes()).unwrap(),
-        super::tracked::Index {
-            names: names.clone(),
-            itself: true
-        }
-    );
-    let under = format!("H 100644 {object} 0\t.forge/a\0H 100755 {object} 0\t.forge/r/x.json\0");
-    assert_eq!(
-        read(under.as_bytes()).unwrap(),
-        super::tracked::Index {
-            names,
-            itself: false
-        }
+        [b"a".to_vec(), b"r".to_vec()]
     );
     let submodule = format!("H 100644 {object} 0\t.forge/a\0H 160000 {object} 0\t.forge/z\0");
     let refusal = read(submodule.as_bytes()).unwrap_err();
