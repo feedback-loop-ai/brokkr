@@ -33,9 +33,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::boundary::{refuse_unboxable, Unboxable};
-use crate::bundle::{CompileError, RealmLaw, DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
+use crate::bundle::{CompileError, RealmLaw};
 use crate::capabilities::{CapabilityContext, UNMAPPED};
 use crate::engine::verify_dispatch_bundle_bounds;
+use crate::places::{state_of, Places};
 use crate::realms::{World, WorldError};
 use crate::{Bundle, Engine, EngineError};
 
@@ -47,8 +48,9 @@ pub use queued::{Encoding, HeldWorld, MapSource, QueuedLaunch};
 /// What every launch is asked with.
 #[derive(Debug, Clone)]
 pub struct LaunchRequest {
-    /// The tree `agents/` and `adapters/` are read from and a map's
-    /// crossings are resolved against (decision 0023).
+    /// The tree a map's crossings are resolved against (decision 0023),
+    /// whose [`Places`] name the agents, the adapters and the run-local
+    /// state: a folder's root, or a library's working directory.
     pub workspace: PathBuf,
     /// The bundle to compile.
     pub bundle: BundleSource,
@@ -197,6 +199,8 @@ pub enum LaunchError {
     #[error(transparent)]
     World(#[from] WorldError),
     #[error(transparent)]
+    Places(#[from] crate::places::PlacesError),
+    #[error(transparent)]
     Compile(#[from] CompileError),
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -230,6 +234,7 @@ pub fn start(
     // recipe is resolved, a bundle compiled, an envelope read or a
     // journal created.
     refuse_realms_with_dispatch(&run)?;
+    let state = state_of(&request.workspace)?;
     let bundle = admit_new(&request, run.map.world())?;
     let envelope = match &run.dispatch {
         Some(path) => Some(read_dispatch(path, run.map.world(), &bundle, notice)?),
@@ -242,12 +247,14 @@ pub fn start(
         None => Engine::start_in_world(store, bundle, feature, repo, run.map.into_world())?,
     };
     engine.secrets_file = request.secrets;
+    engine.state = state;
     Ok(engine)
 }
 
 /// Continue `run` under its exact pinned bundle, compiled in the world
 /// and realm its own manifest pinned.
 pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> {
+    let state = state_of(&request.workspace)?;
     let store = Store::open(&request.journal)?;
     let manifest = store.manifest(run)?;
     let dir = request.bundle.resolve()?;
@@ -265,6 +272,7 @@ pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> 
     // has nothing to fence.
     fence_crossings(engine.world.as_ref(), &request.workspace)?;
     engine.secrets_file = request.secrets;
+    engine.state = state;
     Ok(engine)
 }
 
@@ -277,11 +285,13 @@ pub fn rerun(
     run: &str,
     world: Option<World>,
 ) -> Result<Engine, LaunchError> {
+    let state = state_of(&request.workspace)?;
     let store = Store::open(&request.journal)?;
     let feature = source_feature(&store, run)?;
     let bundle = admit_new(&request, world.as_ref())?;
     let mut engine = Engine::start_in_world(store, bundle, &feature, request.repo, world)?;
     engine.secrets_file = request.secrets;
+    engine.state = state;
     Ok(engine)
 }
 
@@ -417,10 +427,11 @@ fn compile_from_manifest(
         // Its definitions are re-read where they were read when it
         // started: under the operated repository, never the recipe's home
         // and never a map that has appeared in the workspace since.
+        let places = Places::of(workspace)?;
         return Ok(Bundle::compile_unmapped(
             dir,
-            &workspace.join(DEFAULT_AGENTS_DIR),
-            &workspace.join(DEFAULT_ADAPTERS_DIR),
+            &places.agents,
+            &places.adapters,
             Boundary::Namespace,
             repo,
         )?);
@@ -482,10 +493,11 @@ fn compile_in_realm(
         Some((world, realm)) => world.dialect_for_realm(realm)?,
         None => None,
     };
+    let places = Places::of(workspace)?;
     Ok(Bundle::compile_with_capabilities(
         dir,
-        &workspace.join(DEFAULT_AGENTS_DIR),
-        &workspace.join(DEFAULT_ADAPTERS_DIR),
+        &places.agents,
+        &places.adapters,
         Some(name),
         dialect,
         RealmLaw::of(world, realm),

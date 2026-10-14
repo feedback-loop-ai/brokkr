@@ -312,7 +312,7 @@ impl<'h> Measure<'h> {
             .iter()
             .filter(|bound| bound.class() == RouteClass::SharedLocal)
             .try_for_each(|bound| bound.below(&running, false))?;
-        floors(config, self.host, launch.scratch())?;
+        floors(config, self.host, entry.scratch)?;
         match (entry.boxed, config.boxed_builds.ceiling.get()) {
             (true, ceiling) if running.boxed >= ceiling as usize => Err(Capacity::BoxedFull {
                 running: running.boxed,
@@ -494,18 +494,24 @@ fn census(store: &Store) -> Result<Vec<Live>, AdmissionError> {
 }
 
 /// The entry as admission measures it: the lanes its compiled bundle
-/// seats, and whether it builds in a box.
+/// seats, whether it builds in a box, and where its seats make scratch.
 struct Entry {
     lanes: BTreeSet<Lane>,
     boxed: bool,
+    scratch: PathBuf,
 }
 
 impl Entry {
     fn measure(launch: &QueuedLaunch) -> Result<Entry, Unmeasurable> {
-        let bundle =
-            (launch.compiled()).map_err(|error| Unmeasurable::Compile(Shared(Arc::new(error))))?;
+        let unmeasured = |error| Unmeasurable::Compile(Shared(Arc::new(error)));
+        let bundle = launch.compiled().map_err(unmeasured)?;
+        let scratch = launch.scratch().map_err(unmeasured)?;
         let Seats { lanes, boxed } = Seats::of(bundle.manifest)?;
-        Ok(Entry { lanes, boxed })
+        Ok(Entry {
+            lanes,
+            boxed,
+            scratch,
+        })
     }
 }
 

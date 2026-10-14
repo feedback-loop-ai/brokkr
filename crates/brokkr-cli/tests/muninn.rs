@@ -226,6 +226,7 @@ impl Workspace {
     }
 
     fn brokkr(&self, args: &[&str]) -> Output {
+        crate::engine::library(self.path());
         Command::new(brokkr_bin())
             .args(args)
             .current_dir(self.path())

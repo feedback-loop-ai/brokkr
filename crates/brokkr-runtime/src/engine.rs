@@ -359,11 +359,14 @@ pub struct Engine {
     /// decision order (rendered by the UI timeline).
     current_cause: Option<String>,
     /// Operator-side secrets store override (decision 0012). Defaults to
-    /// `<workdir>/.forge/secrets.env`. The engine only ever threads this
+    /// `secrets.env` in the run-local directory. The engine only ever threads this
     /// PATH (plus declared names) into the driver start input — values
     /// are resolved by the exec driver at spawn time; no store read
     /// exists anywhere in brokkr-runtime.
     pub secrets_file: Option<PathBuf>,
+    /// The folder's `state/` the run's results, scratch and secrets stand
+    /// in (decision 0083), handed by the launch; `None` is `<workdir>/.forge`.
+    pub(crate) state: Option<PathBuf>,
     /// Present only while this process is executing a gate-bearing site,
     /// and it holds exactly one observation: the head as that site's own
     /// span began. The span is the gate STEP inside a sequence and the
@@ -593,6 +596,7 @@ impl Engine {
             world,
             current_cause: None,
             secrets_file: None,
+            state: None,
             active_gate_head: None,
             network_prefix: None,
             replay: Default::default(),
@@ -639,6 +643,7 @@ impl Engine {
             world: None,
             current_cause: None,
             secrets_file: None,
+            state: None,
             active_gate_head: None,
             network_prefix: None,
             replay: Default::default(),
@@ -703,6 +708,7 @@ impl Engine {
             world,
             current_cause: None,
             secrets_file: None,
+            state: None,
             active_gate_head: None,
             network_prefix: None,
             replay,
@@ -1096,6 +1102,24 @@ impl Engine {
                 EngineError::Invariant("selector has body", detail)
             })?;
         let workdir = self.workdir();
+        // Each result file the input names: `<effect><suffix>.json` in the
+        // run-local `results/`, and a panel's members each under theirs.
+        let result_dir = self.run_local().join(RESULTS);
+        let result = |suffix: String| {
+            let file = result_dir.join(format!("{effect_id}{suffix}.json"));
+            file.to_string_lossy().into_owned()
+        };
+        let panel = |members: &[PanelMember], prefix: String| -> Value {
+            let entry = |member: &PanelMember| {
+                let path = result(format!("{prefix}-{}", member.name));
+                let role = member.role_path.to_string_lossy();
+                (
+                    member.name.clone(),
+                    json!({"role_path": role, "result_path": path}),
+                )
+            };
+            Value::Object(members.iter().map(entry).collect())
+        };
         let mut context = Map::new();
         context.insert("run_id".into(), json!(self.run_id));
         // Triage is the fresh-and-blind chief's office (decision 0041
@@ -1148,38 +1172,20 @@ impl Engine {
                 "seat": phase,
                 "role_path": role_path.to_string_lossy(),
                 "workdir": workdir.to_string_lossy(),
-                "result_path": workdir
-                    .join(".forge/results")
-                    .join(format!("{effect_id}.json"))
-                    .to_string_lossy(),
+                "result_path": result(String::new()),
                 "allowed_results": seat.results,
                 "context": context,
             }),
-            ExecutableBody::Panel { members, aggregate } => {
-                let mut member_map = Map::new();
-                for member in members {
-                    member_map.insert(
-                        member.name.clone(),
-                        json!({
-                            "role_path": member.role_path.to_string_lossy(),
-                            "result_path": workdir
-                                .join(".forge/results")
-                                .join(format!("{effect_id}-{}.json", member.name))
-                                .to_string_lossy(),
-                        }),
-                    );
-                }
-                json!({
-                    "feature": self.feature,
-                    "phase": phase,
-                    "seat": phase,
-                    "aggregate": format!("{aggregate:?}"),
-                    "workdir": workdir.to_string_lossy(),
-                    "members": Value::Object(member_map),
-                    "allowed_results": seat.results,
-                    "context": context,
-                })
-            }
+            ExecutableBody::Panel { members, aggregate } => json!({
+                "feature": self.feature,
+                "phase": phase,
+                "seat": phase,
+                "aggregate": format!("{aggregate:?}"),
+                "workdir": workdir.to_string_lossy(),
+                "members": panel(members, String::new()),
+                "allowed_results": seat.results,
+                "context": context,
+            }),
             ExecutableBody::Sequence { steps } => {
                 // The requested-time input enumerates the WHOLE sequence;
                 // per-step driver inputs are derived from it
@@ -1194,43 +1200,19 @@ impl Engine {
                             "name": step.name,
                             "allowed_results": step.results,
                             "role_path": role_path.to_string_lossy(),
-                            "result_path": workdir
-                                .join(".forge/results")
-                                .join(format!("{effect_id}-{}.json", step.name))
-                                .to_string_lossy(),
+                            "result_path": result(format!("-{}", step.name)),
                         }),
-                        StepBody::Panel { members, aggregate } => {
-                            let mut member_map = Map::new();
-                            for member in members {
-                                member_map.insert(
-                                    member.name.clone(),
-                                    json!({
-                                        "role_path": member.role_path.to_string_lossy(),
-                                        "result_path": workdir
-                                            .join(".forge/results")
-                                            .join(format!(
-                                                "{effect_id}-{}-{}.json",
-                                                step.name, member.name
-                                            ))
-                                            .to_string_lossy(),
-                                    }),
-                                );
-                            }
-                            json!({
-                                "name": step.name,
-                                "allowed_results": step.results,
-                                "aggregate": format!("{aggregate:?}"),
-                                "members": Value::Object(member_map),
-                            })
-                        }
+                        StepBody::Panel { members, aggregate } => json!({
+                            "name": step.name,
+                            "allowed_results": step.results,
+                            "aggregate": format!("{aggregate:?}"),
+                            "members": panel(members, format!("-{}", step.name)),
+                        }),
                         StepBody::Dialect { execution } => json!({
                             "name": step.name,
                             "allowed_results": step.results,
                             "role_path": "",
-                            "result_path": workdir
-                                .join(".forge/results")
-                                .join(format!("{effect_id}-{}.json", step.name))
-                                .to_string_lossy(),
+                            "result_path": result(format!("-{}", step.name)),
                             "dialect": {"argv": execution.argv, "state": execution.state},
                         }),
                     })
@@ -1271,7 +1253,8 @@ impl Engine {
     /// The repository this run drives, always spelled absolutely. Seat
     /// input is composed from it — `result_path` above all — and every
     /// seat script reads its result path by matching an absolute
-    /// `/*.json` line, so `--repo .` would compose
+    /// `/*.json` line, so `--repo .` in a recipe library, whose results
+    /// stand under the operated repository, would compose
     /// `./.forge/results/<effect>.json` and the seat would refuse its own
     /// result path in a fraction of a second, before running a gate,
     /// with no transcript to say why. `box_argv` resolves the same
@@ -1283,11 +1266,17 @@ impl Engine {
     }
 
     /// The operator-side store path threaded to drivers: the CLI
-    /// override, or `<workdir>/.forge/secrets.env`.
+    /// override, or `secrets.env` in the run-local directory.
     fn secrets_store_path(&self) -> PathBuf {
         self.secrets_file
             .clone()
-            .unwrap_or_else(|| self.workdir().join(".forge/secrets.env"))
+            .unwrap_or_else(|| self.run_local().join(crate::places::SECRETS))
+    }
+
+    /// The directory a run's results, scratch and secrets stand in
+    /// (decision 0083 ruling 3): the folder's state, or `<workdir>/.forge`.
+    fn run_local(&self) -> PathBuf {
+        crate::places::run_local(self.state.as_deref(), &self.workdir())
     }
 
     #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
@@ -1372,7 +1361,6 @@ impl Engine {
         let gate = seat
             .body
             .selected_is_gate(state.strategy.as_deref(), seat.has_gate);
-        let workdir = self.workdir();
         // The single-driver argv is composed HERE, ahead of the durable
         // start, because the session question is asked of it: which
         // instance this attempt resolves to is part of what decides
@@ -1461,7 +1449,7 @@ impl Engine {
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
 
-        std::fs::create_dir_all(workdir.join(".forge/results")).ok();
+        std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
         let deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
 
         match body {
@@ -1845,7 +1833,7 @@ impl Engine {
     /// scratch, and the network prefix when the probe — run once per
     /// engine process, in that environment, on Linux only — passed.
     fn unboxed(&mut self, attempt_id: &str, spec: &HandsSpec) -> Unboxed {
-        let scratch = self.workdir().join(SEAT_SCRATCH).join(attempt_id);
+        let scratch = self.run_local().join(SEAT_SCRATCH).join(attempt_id);
         let private_home = scratch.join("home");
         let private_tmp = scratch.join("tmp");
         std::fs::create_dir_all(&private_home).ok();
@@ -4201,9 +4189,12 @@ fn is_commit_id(candidate: &str) -> bool {
 /// ruling 3) — the same file the contribution gate reads.
 const DELIVERY_CLASSES: &str = ".github/delivery-classes.json";
 
-/// Where, in the repository a run operates, each attempt's seat scratch
-/// tree is made: what admission's scratch floor measures by default (#430).
-pub(crate) const SEAT_SCRATCH: &str = ".forge/scratch";
+/// Where, in the run-local directory, each attempt's seat scratch tree is
+/// made: what admission's scratch floor measures by default (#430).
+pub(crate) const SEAT_SCRATCH: &str = "scratch";
+
+/// Where, in the run-local directory, each seat's result file is written.
+const RESULTS: &str = "results";
 
 /// The docs class the repository declared at `head`: `classes.docs.paths`
 /// of `.github/delivery-classes.json` as committed there, regular

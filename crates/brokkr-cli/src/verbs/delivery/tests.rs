@@ -19,6 +19,7 @@ use crate::{contention, failure_line, report, Exit};
 fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
     let dir = tempfile::tempdir().unwrap();
     let ws = dir.path();
+    crate::folder::folder_tests::plant_library(ws);
     let map = serde_json::json!({"schema": "forge.realms/v4", "journal": "forge.db",
         "realms": [{"name": "here", "path": ".", "default_branch": "main"}]});
     std::fs::write(ws.join("map.json"), map.to_string()).unwrap();

@@ -86,6 +86,24 @@ fn secrets_file_override_wins_over_the_default() {
 }
 
 #[test]
+fn a_folder_run_threads_the_store_in_its_state() {
+    // Decision 0083 ruling 3: handed the folder's state, the default
+    // store is the state's, and no `.forge` is joined.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("work")).unwrap();
+    let mut engine = engine_with(dir.path(), Some(vec!["GH_TOKEN"]));
+    engine.state = Some(dir.path().join(".brokkr/state"));
+    let input = work_input(&engine);
+    assert_eq!(
+        input["secrets_file"].as_str().unwrap(),
+        dir.path()
+            .join(".brokkr/state/secrets.env")
+            .to_str()
+            .unwrap()
+    );
+}
+
+#[test]
 fn seats_without_bindings_carry_no_secret_keys() {
     // Pre-0012 bundles must rebuild byte-identical seat inputs, or
     // resumed runs would refuse on a digest mismatch.

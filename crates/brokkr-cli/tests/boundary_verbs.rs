@@ -144,6 +144,7 @@ impl Workspace {
     }
 
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String, String) {
+        crate::engine::library(self.path());
         let out = Command::new(brokkr_bin())
             .args(args)
             .env("GH_TOKEN", FIXTURE_GH_TOKEN)

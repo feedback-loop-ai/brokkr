@@ -3,7 +3,7 @@
 //! measuring is `brokkr_protocol::probe`'s; this handler resolves the
 //! adapter and the credentials, and writes the report.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -18,6 +18,7 @@ use brokkr_runtime::agents::{Adapter, Adapters, ResumeIdentity};
 use brokkr_runtime::capabilities::{
     harness_of, Authority, Denial, NativeInventory, NativePlan, Requests, ADAPTER_SEAT, UNMAPPED,
 };
+use brokkr_runtime::places;
 
 use crate::cli_args::{ProbeCmd, ProbeHarnessArgs};
 use crate::now_rfc3339;
@@ -27,9 +28,9 @@ use crate::now_rfc3339;
 const LAUNCH_DEADLINE: Duration = Duration::from_secs(300);
 
 /// `brokkr probe`.
-pub(crate) fn probe(command: ProbeCmd) -> Result<ExitCode> {
+pub(crate) fn probe(workspace: &Path, command: ProbeCmd) -> Result<ExitCode> {
     match command {
-        ProbeCmd::Harness(args) => harness(args),
+        ProbeCmd::Harness(args) => harness(workspace, args),
     }
 }
 
@@ -107,23 +108,42 @@ fn identity(identity: &ResumeIdentity) -> String {
     }
 }
 
+/// The adapters directory and the secrets store a probe reads, each its
+/// flag or else the discovered folder's (decision 0083). The store is
+/// state, so an old layout is refused before either is read.
+fn read_places(
+    workspace: &Path,
+    adapters_dir: Option<PathBuf>,
+    secrets_file: Option<PathBuf>,
+) -> Result<(PathBuf, PathBuf)> {
+    let layout = crate::folder::Layout::discover(workspace)?;
+    layout.refuse_old()?;
+    let secrets_file = match secrets_file {
+        Some(file) => file,
+        None => layout.state_file(false, places::SECRETS)?,
+    };
+    Ok((layout.adapters(adapters_dir), secrets_file))
+}
+
 /// `brokkr probe harness`: one report, to `--out` or stdout, with the
 /// drift since the report `--out` already held.
-fn harness(args: ProbeHarnessArgs) -> Result<ExitCode> {
-    let adapters = Adapters::load(&args.adapters_dir)?;
+fn harness(workspace: &Path, args: ProbeHarnessArgs) -> Result<ExitCode> {
+    let (adapters_dir, secrets_file) =
+        read_places(workspace, args.adapters_dir, args.secrets_file)?;
+    let adapters = Adapters::load(&adapters_dir)?;
     let adapter = adapters.adapter(&args.adapter).ok_or_else(|| {
         anyhow!(
             "no adapter '{}' under {}",
             args.adapter,
-            args.adapters_dir.display()
+            adapters_dir.display()
         )
     })?;
     // What the adapter declares is read as the engine reads it, whatever
     // launches it, so a driver the probe cannot launch is refused after.
     let declared = declared(adapter);
     let kind = launch_kind(adapter, &args.adapter)?;
-    let bindings = secret::resolve_bindings(&args.secrets_file, &args.credentials)
-        .map_err(anyhow::Error::msg)?;
+    let bindings =
+        secret::resolve_bindings(&secrets_file, &args.credentials).map_err(anyhow::Error::msg)?;
     let previous = previous_report(args.out.as_deref())?;
     let cli = args.cli.unwrap_or_else(|| adapter.binary.clone());
     let brokkr = std::env::current_exe()?;
