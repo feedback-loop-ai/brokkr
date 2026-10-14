@@ -379,7 +379,9 @@ window.__ModuleLoader__.load({
       const labels = labelsOf(hearth.runs)
       const shown = hearth.runs.filter((row) => `${labels.get(row.run_id)} ${row.feature}`.toLowerCase().includes(filter.toLowerCase()))
       const finished = (row) => !needsYou(row) && !acknowledged(row) && row.verdict.standing !== 'running' && Date.now() - Date.parse(row.last_recorded_at ?? row.created_at) < DAY_MS
-      const groups = [['Needs you', needsYou], ['Running', (row) => row.verdict.standing === 'running'], ['Last 24 hours', finished], ['Older', acknowledged]]
+      // Every run lists somewhere: an acknowledged quarantine and a run that finished before the last day are Older.
+      const older = (row) => !needsYou(row) && row.verdict.standing !== 'running' && !finished(row)
+      const groups = [['Needs you', needsYou], ['Running', (row) => row.verdict.standing === 'running'], ['Last 24 hours', finished], ['Older', older]]
         .map(([label, within]) => [label, shown.filter(within)]).filter(([, rows]) => rows.length > 0)
       return pane(`runs · ${hearth.runs.length}`, 'Runs', 'bk-runs',
         h('input', { className: 'bk-input bk-filter', 'aria-label': 'Filter runs', placeholder: 'Filter by name…', value: filter, onChange: (event) => setFilter(event.target.value) }),
@@ -394,7 +396,7 @@ window.__ModuleLoader__.load({
               h('span', { className: 'bk-muted bk-ago' }, ago(row.last_recorded_at ?? row.created_at)))
           })]
         }),
-        groups.length > 0 ? null : h('div', { className: 'bk-note' }, filter === '' ? 'Nothing needs you, is running, or finished in the last 24 hours.' : 'No run’s name holds that.'))
+        groups.length > 0 ? null : h('div', { className: 'bk-note' }, filter === '' ? 'No run has started in this realm yet.' : 'No run’s name holds that.'))
     }
 
     // ----------------------------------------------------------- the rail

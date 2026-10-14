@@ -77,6 +77,32 @@ test('an acknowledged quarantine lists under Older whatever its age, keeping its
   )
 })
 
+test('every run of a realm lists, and one that finished before the last day lists under Older with its standing', () => {
+  const since = (hours) => new Date(NOW - hours * 60 * 60 * 1000).toISOString()
+  const finishedAt = (runId, title, standing, hours) =>
+    row({ run_id: runId, title, feature: title, phase: null, last_recorded_at: since(hours), verdict: { standing, rule: null, reason: null, text: standing } })
+  const doc = fleetDoc([['brokkr', [
+    row(),
+    row({ run_id: 'landing-today-0000aaaa', title: 'Landing today', feature: 'Landing today', verdict: { standing: 'running', rule: null, reason: null, text: 'running' } }),
+    finishedAt('shipped-an-hour-ago-0000bbbb', 'Shipped an hour ago', 'shipped', 1),
+    finishedAt('shipped-three-days-ago-0000cccc', 'Shipped three days ago', 'shipped', 72),
+    finishedAt('stopped-last-month-0000dddd', 'Stopped last month', 'stopped', 24 * 30),
+  ]]])
+  const client = mountClient('main')
+  client.push({ type: 'snapshot', fleet: fleetOf(doc), overview: null, run: null })
+  buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  const runs = findAll(client.tree(), (node) => node.props['aria-label'] === 'Runs')[0]
+  assert.deepEqual(findAll(runs, (node) => node.props.className === 'bk-grp').map(textOf), ['Needs you · 1', 'Running · 1', 'Last 24 hours · 1', 'Older · 2'])
+  const cell = (button, className) => textOf(findAll(button, (node) => node.props.className === className)[0])
+  assert.deepEqual(
+    buttons(runs).slice(-2).map((button) => [cell(button, 't'), cell(button, 's'), cell(button, 'bk-muted bk-ago')]),
+    [
+      ['Shipped three days ago', 'shipped', '3d'],
+      ['Stopped last month', 'stopped by a rule', '30d'],
+    ],
+  )
+})
+
 const controls = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Commands')[0]
 const commandRow = (tree) => findAll(controls(tree), (node) => node.props.className === 'bk-row bk-commands')[0]
 /** Press `button` on the graph, give `reason`, and send it. */
