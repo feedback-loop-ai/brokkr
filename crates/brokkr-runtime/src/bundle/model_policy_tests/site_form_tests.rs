@@ -71,11 +71,15 @@ fn a_seat_meets_its_form_before_its_results() {
     ];
     let fixture = Fixture::new();
     for (defective, repaired, refusal) in seats {
-        assert_eq!(fixture.refusal(defective), refusal);
-        assert_eq!(
-            fixture.refusal(repaired),
-            "bundle: seat 'work' needs non-empty 'results'"
-        );
+        for (work, expected) in [
+            (defective, refusal),
+            (repaired, "bundle: seat 'work' needs non-empty 'results'"),
+        ] {
+            let Err(error @ CompileError::Invalid(_)) = fixture.compile(work) else {
+                panic!("expected an Invalid refusal: {expected}");
+            };
+            assert_eq!(error.to_string(), expected);
+        }
     }
 }
 

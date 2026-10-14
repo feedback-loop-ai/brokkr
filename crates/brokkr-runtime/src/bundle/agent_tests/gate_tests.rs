@@ -576,8 +576,11 @@ fn an_agent_with_limits_cannot_be_referenced_from_a_panel_member() {
     second["name"] = json!("second");
     let mut config = fixture.config();
     config["seats"]["work"] = json!({"results": ["complete"], "sequence": [first, second]});
+    let Err(refusal @ CompileError::Invalid(_)) = fixture.compile(config) else {
+        panic!("expected an Invalid refusal");
+    };
     assert_eq!(
-        error(fixture.compile(config)),
+        refusal.to_string(),
         "bundle: seat 'work:first:a' references agent 'worker', which declares 'limits'; a \
          panel member or sequence step has no limits of its own — the seat above it does — so \
          the declaration could only be discarded silently"
