@@ -35,6 +35,16 @@ test('an operator event’s recorded reason is read from its payload, and nothin
   assert.deepEqual(Object.keys(view.journal[0]).sort(), ['event_type', 'in_trail', 'reason', 'recorded_at', 'ruling', 'seq', 'what'])
 })
 
+test('a payload that is not text, not JSON or not an object refuses the row by what it is not, for a ruling as for an operator event', () => {
+  const doc = runViewDoc()
+  for (const [payload_json, what] of [[null, 'text'], ['nope', 'JSON'], ['[]', 'an object']]) {
+    for (const event_type of ['transition/decided', 'operator/commanded']) {
+      const broken = { ...doc, journal: [{ ...doc.journal[0], event_type, payload_json }] }
+      assert.throws(() => runViewOf(broken), new ReadoutRefused('shape', `journal[0].payload_json is not ${what}`), `${event_type} with ${payload_json}`)
+    }
+  }
+})
+
 test('a ruling is read from the fields its payload records, and only for a ruling', () => {
   const doc = runViewDoc()
   const decided = { ...doc.journal[0], seq: 17, payload_json: JSON.stringify({ from: 'implement', next: 'review', rule_id: 'IMPL-OK', result: 'ok', severity: 'normal', inputs: {}, problem: null }) }

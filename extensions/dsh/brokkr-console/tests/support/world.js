@@ -217,6 +217,19 @@ export function stubBrokkr(rules, over = {}) {
 
 // ------------------------------------------------------------ the host
 
+/** The RFC 6455 sample nonce a test's upgrade request carries. */
+export const WS_KEY = 'dGhlIHNhbXBsZSBub25jZQ=='
+
+/** A client text frame carrying `text`, masked unless `masked` is false. */
+export function clientFrame(text, masked = true) {
+  const payload = Buffer.from(text)
+  const mask = Buffer.from([1, 2, 3, 4])
+  const head = Buffer.from([0x81, (masked ? 0x80 : 0) | payload.length])
+  if (!masked) return Buffer.concat([head, payload])
+  const body = Buffer.from(payload.map((byte, index) => byte ^ mask[index % 4]))
+  return Buffer.concat([head, mask, body])
+}
+
 /** A stub DSH host: the routes, upgrade and model tools a plugin registers, and its fence. */
 export function stubHost(rejection = undefined) {
   const host = { routes: new Map(), upgrades: new Map(), tools: new Map(), rejection }

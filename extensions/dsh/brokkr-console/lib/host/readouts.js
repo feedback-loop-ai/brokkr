@@ -169,6 +169,19 @@ function offered(value, path) {
   }
 }
 
+/** A journal row's payload, the JSON object Brokkr wrote in `payload_json`, parsed once; its path for the fields read from it. */
+function payloadOf(row, path) {
+  const at = `${path}.payload_json`
+  const written = text(row.payload_json, at)
+  let payload
+  try {
+    payload = JSON.parse(written)
+  } catch {
+    refuse(at, 'JSON')
+  }
+  return [object(payload, at), at]
+}
+
 /**
  * What a ruling decided, from the fields its payload records: the phase it
  * ruled, the one it moved the run to, its rule, result and severity. `null`
@@ -176,33 +189,21 @@ function offered(value, path) {
  */
 function rulingOf(row, path) {
   if (row.event_type !== 'transition/decided') return null
-  let payload
-  try {
-    payload = JSON.parse(text(row.payload_json, `${path}.payload_json`))
-  } catch {
-    refuse(`${path}.payload_json`, 'JSON')
-  }
-  object(payload, `${path}.payload_json`)
+  const [payload, at] = payloadOf(row, path)
   return {
-    from: optText(payload.from, `${path}.payload_json.from`),
-    next: optText(payload.next, `${path}.payload_json.next`),
-    rule: optText(payload.rule_id, `${path}.payload_json.rule_id`),
-    result: optText(payload.result, `${path}.payload_json.result`),
-    severity: optText(payload.severity, `${path}.payload_json.severity`),
+    from: optText(payload.from, `${at}.from`),
+    next: optText(payload.next, `${at}.next`),
+    rule: optText(payload.rule_id, `${at}.rule_id`),
+    result: optText(payload.result, `${at}.result`),
+    severity: optText(payload.severity, `${at}.severity`),
   }
 }
 
 /** The reason an operator event recorded, read from its payload. */
 function payloadReason(row, path) {
   if (!row.event_type.startsWith('operator/')) return null
-  let payload
-  try {
-    payload = JSON.parse(text(row.payload_json, `${path}.payload_json`))
-  } catch (error) {
-    if (error instanceof ReadoutRefused) throw error
-    refuse(`${path}.payload_json`, 'JSON')
-  }
-  return optText(object(payload, `${path}.payload_json`).reason, `${path}.payload_json.reason`)
+  const [payload, at] = payloadOf(row, path)
+  return optText(payload.reason, `${at}.reason`)
 }
 
 function journalRow(value, path) {

@@ -118,10 +118,12 @@ export function mountClient(component, props = {}, answers = {}, dsh = dshStub()
     crypto: { randomUUID: () => '0b6f1c2e-5d4a-4e8b-9f10-3c2d1e0f9a8b' },
     URLSearchParams,
     setTimeout,
+    // An answer is a body, or a function of the url that settles with one, so a test can hold a read back.
     fetch: async (url, init) => {
       fetches.push({ url, init })
       const path = String(url).split('?')[0]
-      const body = answers[path] ?? { error: 'no answer' }
+      const answer = answers[path] ?? { error: 'no answer' }
+      const body = typeof answer === 'function' ? await answer(String(url)) : answer
       return { ok: path in answers, json: async () => body }
     },
   }

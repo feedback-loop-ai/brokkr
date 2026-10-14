@@ -705,15 +705,22 @@ window.__ModuleLoader__.load({
 
     /**
      * A seat's transcript, newest last, read through `brokkr transcript` and
-     * read again whenever the run's head moves, so a working seat's follows its tail.
+     * read again whenever the run's head moves, so a working seat's follows
+     * its tail. A read the head has moved past is dropped when it lands, so
+     * an earlier read that lands late never paints over a later one.
      */
     function Transcript({ hearth, row, seat, head }) {
       const [read, setRead] = useState({ seat: null, head: null, value: null, error: null })
       useEffect(() => {
+        let wanted = true
+        const land = (next) => wanted && setRead(next)
         const query = new URLSearchParams({ realm: hearth.realm, run: row.run_id, seat: seat.key })
         fetch(`${BASE}/api/transcript?${query}`)
-          .then((response) => response.json().then((body) => setRead(response.ok ? { seat: seat.key, head, value: body, error: null } : { seat: seat.key, head, value: null, error: body.error })))
-          .catch(() => setRead({ seat: seat.key, head, value: null, error: 'the console could not be reached' }))
+          .then((response) => response.json().then((body) => land(response.ok ? { seat: seat.key, head, value: body, error: null } : { seat: seat.key, head, value: null, error: body.error })))
+          .catch(() => land({ seat: seat.key, head, value: null, error: 'the console could not be reached' }))
+        return () => {
+          wanted = false
+        }
       }, [seat.key, head])
       const mine = read.seat === seat.key
       const body = !mine ? h('div', { className: 'bk-note' }, 'Reading the transcript…')
@@ -767,11 +774,17 @@ window.__ModuleLoader__.load({
           : `the seat “${seat.label}” (participant key ${seat.key}, phase ${phase.name}, ${seat.status}, model ${seat.model.text}; its transcript is brokkr_transcript with seat ${seat.key})` }
     }
 
-    /** With nothing picked, the reader shows the run's latest seat: where the run is now. */
+    /**
+     * With nothing picked, the reader shows where the run is now: the phase
+     * the view marks current, and the latest seat Brokkr recorded in it. A
+     * current phase with no seat yet is shown as itself, not as the seat of
+     * the phase before it.
+     */
     function nowOf(view) {
-      const seat = view.participants.at(-1) ?? null
-      if (seat === null) return null
-      return { kind: 'now', name: seat.label, phase: view.phases.find((each) => each.name === seat.phase) ?? null, seats: [seat] }
+      const phase = view.phases.find((each) => each.current) ?? null
+      if (phase === null) return null
+      const seat = view.participants.filter((each) => each.phase === phase.name).at(-1) ?? null
+      return { kind: 'now', name: seat === null ? phase.name : seat.label, phase, seats: seat === null ? [] : [seat] }
     }
 
     /** The reader: the picked arrow, step or phase, and the transcript of the seat behind it. */
@@ -791,7 +804,7 @@ window.__ModuleLoader__.load({
           shown.kind === 'now' ? h('span', { className: 'bk-d' }, 'click a step, an arrow or a phase name to read it here') : h('button', { type: 'button', className: 'bk-link', style: { marginLeft: 'auto' }, onClick: clear }, 'Clear')),
         shown.kind === 'arrow' && ruled === null ? h('div', { className: 'bk-note' }, 'Brokkr recorded no ruling for this arrow.') : null,
         ruled === null ? null : h('div', { className: 'bk-note' }, ruled.what.text),
-        seat === null ? h('div', { className: 'bk-note' }, shown.kind === 'phase' ? 'Brokkr recorded no seat in this phase.' : 'Brokkr recorded no seat behind this.') : [
+        seat === null ? h('div', { className: 'bk-note' }, ['phase', 'now'].includes(shown.kind) ? 'Brokkr recorded no seat in this phase.' : 'Brokkr recorded no seat behind this.') : [
           shown.kind === 'arrow' ? h('span', { key: 'k', className: 'bk-k' }, 'The seat that moved it') : null,
           h(SeatFacts, { key: `f${seat.key}`, seat }),
           seat.transcript.absent

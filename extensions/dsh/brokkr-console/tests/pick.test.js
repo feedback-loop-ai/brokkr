@@ -134,11 +134,38 @@ test('the question is about the pick first and the run second', async () => {
   assert.match(prompt, /Question: Why did it move on\?$/)
 })
 
-test('with nothing picked, the reader shows where the run is now', async () => {
+test('with nothing picked, the reader shows where the run is now: the latest seat in the phase the view marks current', async () => {
   const client = onRun()
   await settled()
   assert.match(textOf(reader(client.tree())), /^now · securityWhere the run is now/)
   assert.deepEqual(crumbs(client.tree()), ['run Encrypt the token store', 'realm brokkr'])
+  // Sent back to implement: its seat is where the run is now, not the last seat listed.
+  const returned = reviewed()
+  returned.phases[0].current = true
+  returned.phases[1].current = false
+  assert.match(textOf(reader(onRun(returned).tree())), /^now · implementWhere the run is now/)
+  // Sent back with no seat recorded there yet: the phase itself, never the seat of the phase before.
+  returned.participants.shift()
+  assert.match(textOf(reader(onRun(returned).tree())), /^now · implementWhere the run is now.*Brokkr recorded no seat in this phase\./)
+})
+
+test('a transcript read the head has moved past is dropped when it lands late', async () => {
+  let release = null
+  const held = new Promise((settle) => {
+    release = settle
+  })
+  const said = (text) => ({ ...TURNS, turns: [{ role: 'assistant', ts: '2026-10-13T16:54:00Z', blocks: [{ kind: 'text', text }] }] })
+  let reads = 0
+  const client = onRun(reviewed(), { [TRANSCRIPT]: () => ((reads += 1) === 1 ? held : said('The later read.')) })
+  press(client.tree(), 'the step security')
+  await settled()
+  client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(reviewed({ seq: 13 })) } })
+  await settled()
+  assert.match(textOf(reader(client.tree())), /The later read\./)
+  release(said('The earlier read, landing late.'))
+  await settled()
+  assert.match(textOf(reader(client.tree())), /The later read\./)
+  assert.doesNotMatch(textOf(reader(client.tree())), /landing late/)
 })
 
 test('every seat is compared in one table; the seat behind the pick is marked, and a row picks it', () => {

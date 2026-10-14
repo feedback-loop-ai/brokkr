@@ -96,8 +96,9 @@ back to the cards.
   click again to let go. A step shows its seat. An arrow shows the ruling
   that moved the run (its rule, result and words) and the seat behind it. A
   phase picks every step in it and narrows the seats table to its own. With
-  nothing picked the reader shows where the run is now, its latest seat. The
-  pick stays as the run moves.
+  nothing picked the reader shows where the run is now: the phase Brokkr
+  marks current and the latest seat in it, or the phase alone while it has
+  no seat yet. The pick stays as the run moves.
 - **A seat.** As the TUI's participant pane reads it: the model it claims
   and its boundary, effort pinned and applied, tokens as Σ total · ↑ in ·
   ↓ out, the cache hit (cache reads over input, from `brokkr inspect`), cost,
