@@ -152,16 +152,16 @@ fn unpinned() -> Value {
 }
 
 /// An `exec` site, which takes neither pin.
-fn exec() -> Value {
+pub(super) fn exec() -> Value {
     json!({"role": "roles/role.md",
            "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]}})
 }
 
-fn panel(member: Value) -> Value {
+pub(super) fn panel(member: Value) -> Value {
     json!({"aggregate": "unanimous-pass", "panel": {"a": member, "b": exec()}})
 }
 
-fn sequence(mut last: Value) -> Value {
+pub(super) fn sequence(mut last: Value) -> Value {
     let mut first = exec();
     first["name"] = json!("first");
     first["results"] = json!(["pass", "fail"]);
@@ -169,7 +169,7 @@ fn sequence(mut last: Value) -> Value {
     json!({"sequence": [first, last]})
 }
 
-fn select(cases: Value, default: Value) -> Value {
+pub(super) fn select(cases: Value, default: Value) -> Value {
     json!({"select": {"on": "strategy", "cases": cases, "default": default}})
 }
 

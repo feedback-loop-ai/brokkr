@@ -582,7 +582,7 @@ pub brokkr_runtime::bundle::CompileError::Policy(brokkr_core::policy::PolicyErro
 pub brokkr_runtime::bundle::CompileError::Provisional(brokkr_runtime::bundle::ProvisionalRefusal)
 pub enum brokkr_runtime::bundle::ExecutableBody<'a>
 pub brokkr_runtime::bundle::ExecutableBody::Panel
-pub brokkr_runtime::bundle::ExecutableBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::bundle::ExecutableBody::Panel::aggregate: brokkr_runtime::Aggregate
 pub brokkr_runtime::bundle::ExecutableBody::Panel::members: &'a [brokkr_runtime::bundle::PanelMember]
 pub brokkr_runtime::bundle::ExecutableBody::Sequence
 pub brokkr_runtime::bundle::ExecutableBody::Sequence::steps: &'a [brokkr_runtime::bundle::SequenceStep]
@@ -620,7 +620,7 @@ pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable::flags: alloc::vec::V
 pub brokkr_runtime::bundle::ProvisionalRefusal::Unreadable::seat: alloc::string::String
 pub enum brokkr_runtime::bundle::SeatBody
 pub brokkr_runtime::bundle::SeatBody::Panel
-pub brokkr_runtime::bundle::SeatBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::bundle::SeatBody::Panel::aggregate: brokkr_runtime::Aggregate
 pub brokkr_runtime::bundle::SeatBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
 pub brokkr_runtime::bundle::SeatBody::Select
 pub brokkr_runtime::bundle::SeatBody::Select::cases: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SeatBody>
@@ -643,7 +643,7 @@ pub enum brokkr_runtime::bundle::StepBody
 pub brokkr_runtime::bundle::StepBody::Dialect
 pub brokkr_runtime::bundle::StepBody::Dialect::execution: brokkr_runtime::bundle::DialectExecution
 pub brokkr_runtime::bundle::StepBody::Panel
-pub brokkr_runtime::bundle::StepBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::bundle::StepBody::Panel::aggregate: brokkr_runtime::Aggregate
 pub brokkr_runtime::bundle::StepBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
 pub brokkr_runtime::bundle::StepBody::Single
 pub brokkr_runtime::bundle::StepBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>
@@ -1558,7 +1558,7 @@ impl brokkr_runtime::agents::ResultDoor
 pub fn brokkr_runtime::agents::ResultDoor::word(self) -> &'static str
 pub enum brokkr_runtime::SeatBody
 pub brokkr_runtime::SeatBody::Panel
-pub brokkr_runtime::SeatBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::SeatBody::Panel::aggregate: brokkr_runtime::Aggregate
 pub brokkr_runtime::SeatBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
 pub brokkr_runtime::SeatBody::Select
 pub brokkr_runtime::SeatBody::Select::cases: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::SeatBody>
@@ -1581,7 +1581,7 @@ pub enum brokkr_runtime::StepBody
 pub brokkr_runtime::StepBody::Dialect
 pub brokkr_runtime::StepBody::Dialect::execution: brokkr_runtime::bundle::DialectExecution
 pub brokkr_runtime::StepBody::Panel
-pub brokkr_runtime::StepBody::Panel::aggregate: brokkr_runtime::bundle::Aggregate
+pub brokkr_runtime::StepBody::Panel::aggregate: brokkr_runtime::Aggregate
 pub brokkr_runtime::StepBody::Panel::members: alloc::vec::Vec<brokkr_runtime::bundle::PanelMember>
 pub brokkr_runtime::StepBody::Single
 pub brokkr_runtime::StepBody::Single::candidates: alloc::vec::Vec<brokkr_runtime::agents::Candidate>

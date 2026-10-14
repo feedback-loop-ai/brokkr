@@ -378,9 +378,11 @@ impl DriverProcess {
             let message = serde_json::from_str::<Message>(&line)
                 .map_err(|e| Ended::Failed(evidence::unreadable(&e, &line)))?;
             if message.proto != PROTO {
-                return Err(Ended::Failed(format!(
-                    "driver spoke '{}', want '{PROTO}'",
-                    message.proto
+                return Err(Ended::Failed(evidence::mismatch(
+                    "driver spoke another protocol",
+                    "proto",
+                    &message.proto,
+                    PROTO,
                 )));
             }
             return Ok((message, line.len()));
@@ -611,6 +613,8 @@ impl DriverProcess {
         account: &mut Account,
         on_checkpoint: &mut impl FnMut(&Value),
     ) -> Ended {
+        let foreign =
+            |said, eid: &str| Ended::Unread(evidence::mismatch(said, "effect_id", eid, effect_id));
         loop {
             let (message, bytes) = match self.recv() {
                 Ok(received) => received,
@@ -624,9 +628,7 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Unread(format!(
-                            "driver accepted a different effect '{eid}'"
-                        ));
+                        return foreign("driver accepted a different effect", &eid);
                     }
                     account.accepted = true;
                     account.session_ref = session_ref;
@@ -637,7 +639,7 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Unread(format!("checkpoint for foreign effect '{eid}'"));
+                        return foreign("checkpoint for foreign effect", &eid);
                     }
                     match account.retained.keep(data, bytes, &self.limits) {
                         Ok(kept) => on_checkpoint(kept),
@@ -652,7 +654,7 @@ impl DriverProcess {
                     ..
                 } => {
                     if eid != effect_id {
-                        return Ended::Unread(format!("result for foreign effect '{eid}'"));
+                        return foreign("result for foreign effect", &eid);
                     }
                     return Ended::Reached(reached(status, result, error));
                 }
