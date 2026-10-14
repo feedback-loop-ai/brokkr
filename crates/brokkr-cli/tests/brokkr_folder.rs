@@ -1252,7 +1252,7 @@ fn unlisted(repo: &Repo) -> String {
     let out = Command::new("git")
         .arg("-C")
         .arg(&repo.root)
-        .args(["ls-files", "-s", "-z", "--", ".forge"])
+        .args(["ls-files", "-s", "-v", "-z", "--", ".forge"])
         .output()
         .unwrap();
     assert!(!out.status.success(), "{out:?}");
@@ -1330,6 +1330,35 @@ fn shapes() -> Vec<Shape> {
             then: |repo| drop(repo.write("bundle.json", "{}")),
             ..listing("Absent", &[], &[], false)
         },
+    ]
+    .into_iter()
+    .chain(refusals())
+    .collect()
+}
+
+/// A sparse checkout of `src` alone, which leaves every tracked path under
+/// `.forge` out of the work tree, so `git status -- .forge` states nothing
+/// and `git rm` refuses each (round 634k's chief).
+fn sparse(repo: &Repo) {
+    git(&repo.root, &["sparse-checkout", "set", "--cone", "src"]);
+}
+
+/// The refusal [`sparse`]'s shape gives in place of its moves.
+fn sparse_refused(repo: &Repo) -> String {
+    format!(
+        "error: {}/.forge holds paths git tracks but does not read in the work tree, so `git \
+         status` cannot say whether `git mv` or `git rm` would complete, and `git rm` refuses a \
+         path a sparse checkout leaves out; no moves are listed (decision 0083); nothing was \
+         opened: run `git sparse-checkout disable`, or `git update-index --no-skip-worktree \
+         --no-assume-unchanged` on each, then run again\n  S .forge/.gitignore\n",
+        repo.root.display()
+    )
+}
+
+/// The shapes of [`shapes`] no listed move could complete, each refused
+/// by name in place of its moves.
+fn refusals() -> Vec<Shape> {
+    vec![
         refusing(
             "IgnoreNotAFile",
             listing("", &["forge.db", ".gitignore/keep"], &[], false),
@@ -1376,6 +1405,12 @@ fn shapes() -> Vec<Shape> {
                     repo.root.display()
                 )
             },
+        ),
+        refusing(
+            "Unwatched",
+            listing("", &["forge.db", ".gitignore"], &[".gitignore"], false),
+            sparse,
+            sparse_refused,
         ),
         refusing(
             "TrackedSubmodule",

@@ -452,7 +452,7 @@ fn a_linked_forge_whose_entries_git_tracks_refuses() {
 #[test]
 fn a_status_record_this_cannot_read_refuses() {
     let root = Path::new("/r");
-    let read = |status: &[u8]| super::changes(root, status);
+    let read = |status: &[u8]| super::tracked::changes(root, status);
     let status = b"A  .forge/a\0 M .forge/b c\0R  .forge/d\0.forge/e\0MM .forge/\xff\n\0";
     let listed = read(status).unwrap();
     let lines: Vec<String> = listed.iter().map(ToString::to_string).collect();
@@ -492,25 +492,25 @@ fn a_status_record_this_cannot_read_refuses() {
     }
 }
 
-/// Each record of `git ls-files -s -z` is read typed: a file's or a
+/// Each record of `git ls-files -s -v -z` is read typed: a file's or a
 /// link's mode names the entry under `.forge/` it stands in, a path that
 /// is `.forge` itself names none, a submodule refuses by its path, and a
-/// record with no tab or an unknown mode refuses with its bytes (round
-/// 634k's review).
+/// record with no tab, an unknown mode or an unknown tag refuses with its
+/// bytes (round 634k's review).
 #[test]
 fn an_index_record_this_cannot_read_refuses() {
     let root = Path::new("/r");
-    let read = |listed: &[u8]| super::held(root, listed);
+    let read = |listed: &[u8]| super::tracked::held(root, listed);
     let object = "0".repeat(40);
     let listed = format!(
-        "100644 {object} 0\t.forge/a\0100755 {object} 0\t.forge/r/x.json\0120000 {object} \
-         0\t.forge\0"
+        "H 100644 {object} 0\t.forge/a\0H 100755 {object} 0\t.forge/r/x.json\0M 120000 {object} \
+         1\t.forge\0"
     );
     assert_eq!(
         read(listed.as_bytes()).unwrap(),
         [b"a".to_vec(), b"r".to_vec()]
     );
-    let submodule = format!("100644 {object} 0\t.forge/a\0160000 {object} 0\t.forge/z\0");
+    let submodule = format!("H 100644 {object} 0\t.forge/a\0H 160000 {object} 0\t.forge/z\0");
     let refusal = read(submodule.as_bytes()).unwrap_err();
     assert!(
         matches!(refusal, FolderError::TrackedSubmodule { ref path } if path == Path::new("/r/.forge/z"))
@@ -521,7 +521,13 @@ fn an_index_record_this_cannot_read_refuses() {
          .gitmodules, so no moves are listed (decision 0083); nothing was opened: move it out of \
          .forge and commit, then run again"
     );
-    for record in ["100644 x 0 .forge/a", "040000 x 0\t.forge/d"] {
+    for record in [
+        "H 100644 x 0 .forge/a",
+        "H 040000 x 0\t.forge/d",
+        "100644 x 0\t.forge/a",
+        "C 100644 x 0\t.forge/a",
+        "H100644 x 0\t.forge/a",
+    ] {
         let refusal = read(format!("{record}\0").as_bytes()).unwrap_err();
         assert!(matches!(
             refusal,
@@ -539,6 +545,36 @@ fn an_index_record_this_cannot_read_refuses() {
             )
         );
     }
+}
+
+/// Every tracked path git does not read in the work tree refuses by name
+/// with its tag, whatever its depth under `.forge`: `S`, as a sparse
+/// checkout sets it, and each lowercase, assume-unchanged tag. `git
+/// status` states no change to one, and `git rm` refuses one a sparse
+/// checkout leaves out (round 634k's chief).
+#[test]
+fn a_path_git_does_not_read_in_the_work_tree_refuses() {
+    let root = Path::new("/r");
+    let object = "0".repeat(40);
+    let listed = format!(
+        "H 100644 {object} 0\t.forge/a\0S 100644 {object} 0\t.forge/.gitignore\0h 100644 \
+         {object} 0\t.forge/r/x\ny\0s 120000 {object} 0\t.forge/l\0m 100644 {object} 2\t.forge/u\0"
+    );
+    let refusal = super::tracked::held(root, listed.as_bytes()).unwrap_err();
+    let lines = "\n  S .forge/.gitignore\n  h .forge/r/x\\ny\n  s .forge/l\n  m .forge/u";
+    assert!(
+        matches!(refusal, FolderError::Unwatched { root: ref at, ref paths } if at == root && paths.len() == 4)
+    );
+    assert_eq!(
+        refusal.to_string(),
+        format!(
+            "/r/.forge holds paths git tracks but does not read in the work tree, so `git status` \
+             cannot say whether `git mv` or `git rm` would complete, and `git rm` refuses a path a \
+             sparse checkout leaves out; no moves are listed (decision 0083); nothing was opened: \
+             run `git sparse-checkout disable`, or `git update-index --no-skip-worktree \
+             --no-assume-unchanged` on each, then run again{lines}"
+        )
+    );
 }
 
 /// A repository git lists but cannot state, its HEAD naming a commit it

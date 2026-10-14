@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_runtime::places::{self, Kind, Old, Places, PlacesError, BUNDLE, FOLDER, JOURNAL};
 use brokkr_runtime::places::{LIBRARY_STATE, SECRETS, STATE};
+use tracked::{listed_paths, tracked, Change, Unwatched};
 
 /// Why a verb refused before it opened anything, in the operator's words.
 #[derive(Debug)]
@@ -50,6 +51,13 @@ pub(crate) enum FolderError {
     /// the last commit, which `git mv` or `git rm` would refuse or leave
     /// half-moved, each with its two-letter state.
     Uncommitted { root: PathBuf, changes: Vec<Change> },
+    /// Tracked paths under `.forge` git does not read in the work tree, a
+    /// sparse checkout's or a skip-worktree or assume-unchanged bit's,
+    /// whose changes `git status` never states, each with its tag.
+    Unwatched {
+        root: PathBuf,
+        paths: Vec<Unwatched>,
+    },
     /// A `.forge` that is a link, whose entries git tracks: `git mv` and
     /// `git rm` refuse a path beyond a symbolic link.
     LinkedTracked { path: PathBuf },
@@ -107,20 +115,25 @@ impl fmt::Display for FolderError {
                  0083); nothing was opened: {said}",
                 root.display()
             ),
-            FolderError::Uncommitted { root, changes } => {
-                let listed: String = changes
-                    .iter()
-                    .map(|change| format!("\n  {change}"))
-                    .collect();
-                write!(
-                    f,
-                    "{}/{LIBRARY_STATE} holds paths git tracks whose index or work tree differs \
-                     from the last commit, which `git mv` or `git rm` would refuse or leave \
-                     half-moved, so no moves are listed (decision 0083); nothing was opened: \
-                     commit or restore these, then run again{listed}",
-                    root.display()
-                )
-            }
+            FolderError::Uncommitted { root, changes } => write!(
+                f,
+                "{}/{LIBRARY_STATE} holds paths git tracks whose index or work tree differs from \
+                 the last commit, which `git mv` or `git rm` would refuse or leave half-moved, so \
+                 no moves are listed (decision 0083); nothing was opened: commit or restore these, \
+                 then run again{}",
+                root.display(),
+                listed_paths(changes)
+            ),
+            FolderError::Unwatched { root, paths } => write!(
+                f,
+                "{}/{LIBRARY_STATE} holds paths git tracks but does not read in the work tree, so \
+                 `git status` cannot say whether `git mv` or `git rm` would complete, and `git rm` \
+                 refuses a path a sparse checkout leaves out; no moves are listed (decision 0083); \
+                 nothing was opened: run `git sparse-checkout disable`, or `git update-index \
+                 --no-skip-worktree --no-assume-unchanged` on each, then run again{}",
+                root.display(),
+                listed_paths(paths)
+            ),
             FolderError::LinkedTracked { path } => write!(
                 f,
                 "{} is a link and git tracks entries under it, which `git mv` and `git rm` refuse \
@@ -433,9 +446,9 @@ fn entry(path: &Path) -> Result<Option<std::fs::Metadata>, FolderError> {
 /// of 2026-10-13). A `.forge` that is neither, entries that cannot be
 /// listed or named, an ignore entry no `rm` could remove, a repository
 /// git will not list or state, a submodule git tracks, a tracked path git
-/// holds a change to, and a linked `.forge` whose entries git tracks
-/// refuse by name, with no list
-/// at all, so every list printed completes when executed (round 634k).
+/// holds a change to or does not read in the work tree, and a linked
+/// `.forge` whose entries git tracks refuse by name, with no list at all,
+/// so every list printed completes when executed (round 634k).
 fn state_moves(root: &Path) -> Result<Vec<String>, FolderError> {
     let forge = Forge::at(root)?;
     let (names, tracked) = (forge_entries(root, forge)?, tracked(root, forge)?);
@@ -618,182 +631,7 @@ fn nameable(forge: &Path, name: std::ffi::OsString) -> Result<String, FolderErro
     }
 }
 
-/// The names directly under `.forge/` that git tracks, as git's bytes,
-/// `forge` what stands at the root's `.forge`. Outside any repository git
-/// tracks nothing; inside one, a git that cannot be run or will not list
-/// refuses by name, because an entry it tracks moved by `mv` would leave
-/// git a deletion and a stranger. So do the shapes no `git mv` or `git rm`
-/// could complete (round 634k's third finding): a submodule git tracks
-/// under `.forge` ([`held`]), a linked `.forge` whose entries git tracks,
-/// and any tracked path under it git holds a change to ([`committed`]).
-fn tracked(root: &Path, forge: Forge) -> Result<Vec<Vec<u8>>, FolderError> {
-    let repository = brokkr_runtime::places::root(root).map_err(FolderError::Places)?;
-    if entry(&repository.join(".git"))?.is_none() {
-        return Ok(Vec::new());
-    }
-    let listed = ask_git(root, "ls-files", &["-s", "-z", "--", LIBRARY_STATE])?;
-    let tracked = held(root, &listed)?;
-    if forge == Forge::Link && !tracked.is_empty() {
-        let path = root.join(LIBRARY_STATE);
-        return Err(FolderError::LinkedTracked { path });
-    }
-    committed(root)?;
-    Ok(tracked)
-}
-
-/// What git's index holds at a path: a file or a link ([`held`]), or a submodule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Held {
-    Blob,
-    Submodule,
-}
-
-/// One record of `git ls-files -s`, `MODE OBJECT STAGE<TAB>PATH`: what its
-/// mode says git holds, and its path. Any other mode is no record this reads.
-fn staged(record: &[u8]) -> Option<(Held, &[u8])> {
-    let tab = record.iter().position(|byte| *byte == b'\t')?;
-    let held = match record[..tab].split(|byte| *byte == b' ').next() {
-        Some(b"100644" | b"100755" | b"120000") => Held::Blob,
-        Some(b"160000") => Held::Submodule,
-        _ => return None,
-    };
-    Some((held, &record[tab + 1..]))
-}
-
-/// The names directly under `.forge/` that `git ls-files -s -z` printed in
-/// `root`, as git's bytes, read typed (decision 0071 ruling 3). A submodule
-/// there refuses by name: `git mv` moves one only together with
-/// `.gitmodules`, which a change outside `.forge` stops (round 634k's
-/// review). A record this cannot read is refused with its bytes.
-fn held(root: &Path, listed: &[u8]) -> Result<Vec<Vec<u8>>, FolderError> {
-    use std::os::unix::ffi::OsStrExt;
-    let prefix = forged("");
-    let mut names = Vec::new();
-    for record in listed.split(|byte| *byte == 0).filter(|r| !r.is_empty()) {
-        let (held, path) = staged(record).ok_or_else(|| unread(root, "ls-files", record))?;
-        if held == Held::Submodule {
-            let path = root.join(std::ffi::OsStr::from_bytes(path));
-            return Err(FolderError::TrackedSubmodule { path });
-        }
-        let under = path.strip_prefix(prefix.as_bytes());
-        let name = under.and_then(|rest| rest.split(|byte| *byte == b'/').next());
-        names.extend(name.map(<[u8]>::to_vec));
-    }
-    Ok(names)
-}
-
-/// The refusal of a record git's `verb` printed in `root`, with its bytes.
-fn unread(root: &Path, verb: &'static str, record: &[u8]) -> FolderError {
-    FolderError::Untracked {
-        verb,
-        root: root.to_path_buf(),
-        said: format!(
-            "it printed a record this cannot read: '{}'",
-            String::from_utf8_lossy(record).escape_debug()
-        ),
-    }
-}
-
-/// Refuse every tracked path under `.forge` whose index or work tree
-/// differs from the last commit, by git's own answer, asked once: an
-/// ignore file staged and never committed, or committed and edited since,
-/// which `git rm` refuses, and a tracked entry no longer the file it was,
-/// which `git mv` refuses. A status git will not give, or that this cannot
-/// read, refuses as an unlisted repository does.
-fn committed(root: &Path) -> Result<(), FolderError> {
-    let args = ["--porcelain=v1", "-z", "--untracked-files=no", "--"];
-    let status = ask_git(root, "status", &[&args[..], &[LIBRARY_STATE]].concat())?;
-    let changes = changes(root, &status)?;
-    match changes.is_empty() {
-        true => Ok(()),
-        false => Err(FolderError::Uncommitted {
-            root: root.to_path_buf(),
-            changes,
-        }),
-    }
-}
-
-/// What `git -C root <verb> <args>` prints. A git that cannot be run, or
-/// that fails, refuses by name, with what it said.
-fn ask_git(root: &Path, verb: &'static str, args: &[&str]) -> Result<Vec<u8>, FolderError> {
-    let git = Path::new("git");
-    let mut asked = std::process::Command::new(git);
-    asked.arg("-C").arg(root).arg(verb).args(args);
-    let asked = asked.output().map_err(unreadable(git))?;
-    match asked.status.success() {
-        true => Ok(asked.stdout),
-        false => Err(FolderError::Untracked {
-            verb,
-            root: root.to_path_buf(),
-            said: String::from_utf8_lossy(&asked.stderr)
-                .trim_end()
-                .to_string(),
-        }),
-    }
-}
-
-/// A tracked path git reports changed (`git status --porcelain=v1`): its
-/// two-letter state, index then work tree, and its path as the refusal
-/// names it on one line, a control character escaped.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Change {
-    state: [char; 2],
-    path: String,
-}
-
-impl Change {
-    /// One record, `XY PATH`, each letter one git documents for a tracked
-    /// path; anything else is no record this reads.
-    fn read(record: &[u8]) -> Option<Change> {
-        let known = |letter: &u8| b" MTADRCU".contains(letter);
-        match record {
-            [x, y, b' ', path @ ..] if known(x) && known(y) && !path.is_empty() => Some(Change {
-                state: [char::from(*x), char::from(*y)],
-                path: String::from_utf8_lossy(path)
-                    .chars()
-                    .map(|c| match c.is_control() {
-                        true => c.escape_default().to_string(),
-                        false => c.to_string(),
-                    })
-                    .collect(),
-            }),
-            _ => None,
-        }
-    }
-
-    /// Whether git follows this record with the path it was renamed or
-    /// copied from.
-    fn renamed(&self) -> bool {
-        self.state.iter().any(|letter| matches!(letter, 'R' | 'C'))
-    }
-}
-
-impl fmt::Display for Change {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let [index, tree] = self.state;
-        write!(f, "{index}{tree} {}", self.path)
-    }
-}
-
-/// The changes `git status --porcelain=v1 -z` printed in `root`, read
-/// typed (decision 0071 ruling 3): NUL-ended records, a rename's or a
-/// copy's origin in the field after it. A record this cannot read is
-/// refused with its bytes, never skipped.
-fn changes(root: &Path, status: &[u8]) -> Result<Vec<Change>, FolderError> {
-    let unread = |record: &[u8]| unread(root, "status", record);
-    let mut fields = status
-        .split(|byte| *byte == 0)
-        .filter(|field| !field.is_empty());
-    let mut found = Vec::new();
-    while let Some(record) = fields.next() {
-        let change = Change::read(record).ok_or_else(|| unread(record))?;
-        if change.renamed() && fields.next().is_none() {
-            return Err(unread(record));
-        }
-        found.push(change);
-    }
-    Ok(found)
-}
+mod tracked;
 
 #[cfg(test)]
 pub(crate) mod folder_tests;
