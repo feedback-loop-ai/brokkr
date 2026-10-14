@@ -20,20 +20,22 @@ mod aggregate;
 mod charters;
 pub mod compose;
 mod mcp;
+mod parse;
 mod phases;
 mod pins;
 mod site_form;
+mod site_key;
 mod tier;
 
 pub use aggregate::Aggregate;
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
 pub(crate) use mcp::McpIntent;
-use site_form::{
-    classify, CaseShape, MemberShape, SeatShape, SiteRole, StepShape, CASE, MEMBER, SEAT, STEP,
-};
+use parse::{SeatScope, SiteCompiler};
+use site_form::{classify, SiteRole, StepShape, SEAT, STEP};
 #[cfg(test)]
 use site_form::{refuse_amendments, refuse_boundary_key, refuse_confine};
+pub(crate) use site_key::SiteKey;
 pub use tier::{ProvisionalRefusal, RealmLaw};
 
 use crate::agents::{
@@ -1494,9 +1496,6 @@ impl Bundle {
         // (decision 0075 ruling 5).
         let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
         let inline_adapters = pin_adapters.as_ref().and_then(|l| l.as_ref().ok());
-        // The one canonical family table (design D10 F1): every fact is
-        // written into an entrant of this map; a wrapper moves entrants.
-        let mut sites: BTreeMap<String, SiteFacts> = BTreeMap::new();
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
             .phases
@@ -1552,7 +1551,7 @@ impl Bundle {
         // make an in-flight run unresumable after an `apt install`. The
         // COMPOSED seats are what is scanned: a base may be what carries
         // the agent reference.
-        let mut agents = match uses_dialect || resolved.seats.values().any(needs_adapters) {
+        let agents = match uses_dialect || resolved.seats.values().any(needs_adapters) {
             false => tier::inline_context(inline_adapters, egress_minimum),
             true => Some(AgentContext {
                 library: match resolved.seats.values().any(mentions_agent) {
@@ -1617,6 +1616,17 @@ impl Bundle {
 
         let mut seats = BTreeMap::new();
         let charters = Charters::default();
+        // The one canonical family table (design D10 F1) is the compiler's
+        // until the loop ends: every fact is written into an entrant of its
+        // map; a wrapper moves entrants.
+        let mut compiler = SiteCompiler::new(
+            agents,
+            boundary,
+            dialect,
+            &charters,
+            &resolved.roots,
+            &resolved.case_origin,
+        );
         for (phase, raw) in &resolved.seats {
             // An inherited seat's `role` and `./`-prefixed argv resolve
             // against the layer that WROTE them, found by name — the
@@ -1628,11 +1638,6 @@ impl Bundle {
                 )));
             }
             let shape = classify(phase, raw, &SEAT)?;
-            let law = SiteLaw {
-                boundary,
-                dir,
-                agent_hands: None,
-            };
             let results = raw
                 .get("results")
                 .and_then(Value::as_array)
@@ -1667,105 +1672,13 @@ impl Bundle {
                 }
             }
             let secrets = parse_secrets(phase, raw)?;
-            let mut sequence_gate = None;
-            let (agent_seat, body) = match shape {
-                SeatShape::Agent => {
-                    let agent_seat = resolve_reference(
-                        &mut agents,
-                        &mut sites,
-                        dir,
-                        phase,
-                        phase,
-                        raw,
-                        &secrets,
-                        SEAT.role,
-                        boundary,
-                    )?;
-                    let body = SeatBody::Single {
-                        role_path: agent_seat.role_path.clone(),
-                        command: agent_seat.command.clone(),
-                        candidates: agent_seat.candidates.clone(),
-                        written: Vec::new(),
-                        class: parse_class(phase, raw)?,
-                    };
-                    (Some(agent_seat), body)
-                }
-                SeatShape::Panel => {
-                    let (members, aggregate) = parse_panel(
-                        dir,
-                        phase,
-                        raw,
-                        &results,
-                        &secrets,
-                        &mut agents,
-                        &mut sites,
-                        boundary,
-                        &charters,
-                    )?;
-                    (None, SeatBody::Panel { members, aggregate })
-                }
-                SeatShape::Sequence => {
-                    let (steps, whole_gate) = parse_sequence(
-                        dir,
-                        phase,
-                        raw,
-                        &mut agents,
-                        &mut sites,
-                        BodyCompile {
-                            results: &results,
-                            secrets: &secrets,
-                            dialect,
-                            boundary,
-                            charters: &charters,
-                        },
-                    )?;
-                    sequence_gate = Some(whole_gate);
-                    (None, SeatBody::Sequence { steps })
-                }
-                SeatShape::Select => {
-                    let body = parse_select(
-                        dir,
-                        phase,
-                        raw,
-                        &mut agents,
-                        &mut sites,
-                        SelectCompile {
-                            results: &results,
-                            secrets: &secrets,
-                            roots: &resolved.roots,
-                            case_origin: &resolved.case_origin,
-                            dialect,
-                            boundary,
-                            charters: &charters,
-                        },
-                    )?;
-                    (None, body)
-                }
-                SeatShape::Inline => {
-                    let written = command_parts(raw);
-                    record_inline_tools(
-                        dir,
-                        phase,
-                        raw,
-                        true,
-                        &written,
-                        agents.as_ref().map(|context| &context.adapters),
-                        &mut sites,
-                    )?;
-                    let body = SeatBody::Single {
-                        role_path: parse_role(dir, phase, raw, &charters, &mut sites)?,
-                        command: parse_command(dir, phase, raw, &secrets)?,
-                        candidates: Vec::new(),
-                        written,
-                        class: parse_class(phase, raw)?,
-                    };
-                    (None, body)
-                }
+            let at = SeatScope {
+                dir,
+                results: &results,
+                secrets: &secrets,
             };
-            let law = SiteLaw {
-                agent_hands: agent_seat.as_ref().and_then(|seat| seat.hands.as_ref()),
-                ..law
-            };
+            let (agent_seat, body, sequence_gate) =
+                compiler.parse_seat_body(at, phase, raw, shape)?;
             // The dialect wrapper is applied after this loop, once every
             // authoring owner is registered (design D10 F2). Record the
             // agent hands the wrapped seat resolved so the synthetic
@@ -1778,22 +1691,8 @@ impl Bundle {
             // each checked where they were built.
             match &body {
                 SeatBody::Single { candidates, .. } => {
-                    enforce_model_policy(
-                        phase,
-                        raw,
-                        candidates,
-                        &secrets,
-                        &mut agents,
-                        law,
-                        &mut sites,
-                    )?;
-                    record_hands(
-                        phase,
-                        raw,
-                        agent_seat.as_ref().and_then(resolved_hands),
-                        &secrets,
-                        &mut sites,
-                    )?;
+                    let hands = agent_seat.as_ref().and_then(resolved_hands);
+                    compiler.judge(at, phase, raw, candidates, hands)?;
                 }
                 SeatBody::Select { .. } => refuse_class_without_a_driver(phase, raw)?,
                 // A to-be-wrapped seat's class belongs to its members or
@@ -1882,6 +1781,11 @@ impl Bundle {
                 },
             );
         }
+        let SiteCompiler {
+            mut agents,
+            mut sites,
+            ..
+        } = compiler;
         // Decision 0031 over the TYPED, flattened seats before the wrapper
         // moves an address: one refusal names the whole repair set, and the
         // maps it returns seed the manifest's `drivers` pin and the resume.
@@ -1970,17 +1874,15 @@ impl Bundle {
                                     .into(),
                             )),
                         };
-                    let moved: Vec<(String, String, crate::engine::resume::SiteKey)> =
+                    let moved: Vec<(String, String, SiteKey)> =
                         crate::engine::resume::owner_sites(executable, "verify", None)
                             .into_iter()
-                            .map(|(tag, owner)| {
-                                let (source, destination) = match &tag {
-                                    None => ("verify".to_string(), "verify:checks".to_string()),
-                                    Some(tag) => {
-                                        (format!("verify:{tag}"), format!("verify:checks:{tag}"))
-                                    }
+                            .map(|owner| {
+                                let destination = match owner.tag() {
+                                    None => "verify:checks".to_string(),
+                                    Some(tag) => format!("verify:checks:{tag}"),
                                 };
-                                (source, destination, owner)
+                                (owner.label(), destination, owner)
                             })
                             .collect();
                     let prior_body =
@@ -2026,12 +1928,7 @@ impl Bundle {
                 remaining.remove(source);
             }
             for (_, destination, owner) in &moved {
-                claim_address(
-                    &remaining,
-                    "verify",
-                    destination,
-                    &crate::engine::resume::describe(owner),
-                )?;
+                claim_address(&remaining, "verify", destination, &owner.describe())?;
             }
             let dialect_site = "verify:dialect-verify";
             let synthetic = dialect_gate_site(dialect_site, boundary)?;
@@ -2244,21 +2141,7 @@ impl Bundle {
 /// meaning of a display tag moves.
 fn refuse_aliasing_sites(seats: &BTreeMap<String, Seat>) -> Result<(), CompileError> {
     for (phase, seat) in seats {
-        // Each selectable body, with the case that selects it. Selection
-        // never nests, so every entry here resolves — the `filter_map`
-        // carries that fact rather than a branch nothing can take.
-        let bodies: Vec<(Option<&str>, &SeatBody)> = match &seat.body {
-            SeatBody::Select { cases, default, .. } => cases
-                .iter()
-                .map(|(case, body)| (Some(case.as_str()), body))
-                .chain(default.as_deref().map(|body| (Some("default"), body)))
-                .collect(),
-            body => vec![(None, body)],
-        };
-        let executable = bodies
-            .into_iter()
-            .filter_map(|(case, body)| body.selected(None).map(|(body, _)| (case, body)));
-        for (case, executable) in executable {
+        for (case, executable) in selectable(seat) {
             let sites =
                 crate::engine::resume::structural_sites(executable, phase, case, seat.has_gate);
             if let Some((label, both)) = crate::engine::resume::flat_address_collision(&sites) {
@@ -2272,6 +2155,25 @@ fn refuse_aliasing_sites(seats: &BTreeMap<String, Seat>) -> Result<(), CompileEr
         }
     }
     Ok(())
+}
+
+/// Each selectable body of `seat`, with the case that selects it: the
+/// select default under the case `default`, and an unselected body under
+/// none. Selection never nests, so every entry here resolves — the
+/// `filter_map` carries that fact rather than a branch nothing can take.
+fn selectable(seat: &Seat) -> Vec<(Option<&str>, ExecutableBody<'_>)> {
+    let bodies: Vec<(Option<&str>, &SeatBody)> = match &seat.body {
+        SeatBody::Select { cases, default, .. } => cases
+            .iter()
+            .map(|(case, body)| (Some(case.as_str()), body))
+            .chain(default.as_deref().map(|body| (Some("default"), body)))
+            .collect(),
+        body => vec![(None, body)],
+    };
+    bodies
+        .into_iter()
+        .filter_map(|(case, body)| body.selected(None).map(|(body, _)| (case, body)))
+        .collect()
 }
 
 /// Every flattened address of `seats` mapped to its unique structural
@@ -2288,34 +2190,12 @@ fn refuse_aliasing_sites(seats: &BTreeMap<String, Seat>) -> Result<(), CompileEr
 /// Called twice: on the authoring bodies before the wrapper changes an
 /// address, and on the final bodies afterwards. The first call is the one
 /// that catches a collision wrapping would disguise or create.
-fn owner_index(
-    seats: &BTreeMap<String, Seat>,
-) -> Result<BTreeMap<String, crate::engine::resume::SiteKey>, CompileError> {
-    let mut seen: BTreeMap<String, crate::engine::resume::SiteKey> = BTreeMap::new();
+fn owner_index(seats: &BTreeMap<String, Seat>) -> Result<BTreeMap<String, SiteKey>, CompileError> {
+    let mut seen: BTreeMap<String, SiteKey> = BTreeMap::new();
     for (phase, seat) in seats {
-        // Each selectable body, with the case that selects it; selection
-        // never nests, so every case body resolves.
-        let bodies: Vec<(Option<&str>, &SeatBody)> = match &seat.body {
-            SeatBody::Select { cases, default, .. } => cases
-                .iter()
-                .map(|(case, body)| (Some(case.as_str()), body))
-                .chain(default.as_deref().map(|body| (Some("default"), body)))
-                .collect(),
-            body => vec![(None, body)],
-        };
-        let executable = bodies
-            .into_iter()
-            .filter_map(|(case, body)| body.selected(None).map(|(body, _)| (case, body)));
-        for (case, executable) in executable {
-            let site_name = match case {
-                Some(case) => format!("{phase}:{case}"),
-                None => phase.clone(),
-            };
-            for (tag, owner) in crate::engine::resume::owner_sites(executable, phase, case) {
-                let label = match &tag {
-                    None => site_name.clone(),
-                    Some(tag) => format!("{site_name}:{tag}"),
-                };
+        for (case, executable) in selectable(seat) {
+            for owner in crate::engine::resume::owner_sites(executable, phase, case) {
+                let label = owner.label();
                 // A flattened label this census has already registered is
                 // a collision, whether or not the two structural keys
                 // happen to name equal owners. The enumeration cannot
@@ -2335,8 +2215,8 @@ fn owner_index(
                          {}. The selection, the argv lookup, the hands map and the boundary \
                          map all key on that one string, so one site would answer for the \
                          other; rename one of them",
-                        crate::engine::resume::describe(first),
-                        crate::engine::resume::describe(&owner)
+                        first.describe(),
+                        owner.describe()
                     )));
                 }
                 seen.insert(label, owner);
@@ -2515,22 +2395,20 @@ fn dialect_gate_site(what: &str, boundary: Boundary) -> Result<Value, CompileErr
 
 /// Resolve `"agent": "<name>"` into an ordinary seat body, and record
 /// the resolution under this invocation site.
-#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 #[expect(
     clippy::too_many_lines,
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn resolve_reference(
-    agents: &mut Option<AgentContext>,
-    sites: &mut BTreeMap<String, SiteFacts>,
+    compiler: &mut SiteCompiler<'_>,
     dir: &Path,
     what: &str,
-    site_key: &str,
     raw: &Value,
     secrets: &[String],
     site: SiteRole,
-    boundary: Boundary,
 ) -> Result<ResolvedSeat, CompileError> {
+    let boundary = compiler.boundary;
+    let SiteCompiler { agents, sites, .. } = compiler;
     let name = raw
         .get("agent")
         .and_then(Value::as_str)
@@ -2639,7 +2517,7 @@ fn resolve_reference(
             lowering: expand_lowering(dir, &candidate.lowering),
         });
     }
-    site_facts(sites, site_key).record = Some(resolution.record.clone());
+    site_facts(sites, what).record = Some(resolution.record.clone());
     // Second council H6: the charter this site will be told, bound to the
     // digest its library record pins, so the dispatch door can compare the
     // bytes it is about to hand over against the bytes the compile read.
@@ -2668,7 +2546,7 @@ fn resolve_reference(
         root: source.library.clone(),
     };
     let pin = CharterPin::of(owner, &source.reference, resolution.charter.clone(), &bound);
-    site_facts(sites, site_key).charter = Some(pin);
+    site_facts(sites, what).charter = Some(pin);
     // Rebuild unit 18-fix-b return (F2): the read is held until the seal,
     // which checks it still stands, its owner included.
     context.reads.push(LibraryRead {
@@ -2680,10 +2558,10 @@ fn resolve_reference(
     });
     // The capability pass judges exactly the chain this site will run
     // (decision 0065): one outcome per candidate, never their union.
-    site_facts(sites, site_key).chain = candidates.clone();
+    site_facts(sites, what).chain = candidates.clone();
     // The effective local declaration, beside the site's other facts
     // (design D5.2): a checked value even where nothing was declared.
-    site_facts(sites, site_key).local = Some(effective);
+    site_facts(sites, what).local = Some(effective);
     Ok(ResolvedSeat {
         role_path: resolution.charter.clone(),
         command: candidates[0].argv.clone(),
@@ -5801,7 +5679,7 @@ fn site_facts<'a>(sites: &'a mut BTreeMap<String, SiteFacts>, label: &str) -> &'
 /// source label — cannot overwrite a still-needed source.
 fn relocate_verify_facts(
     sites: &mut BTreeMap<String, SiteFacts>,
-    moved: &[(String, String, crate::engine::resume::SiteKey)],
+    moved: &[(String, String, SiteKey)],
 ) {
     let staged: Vec<(String, SiteFacts)> = moved
         .iter()
@@ -5822,7 +5700,7 @@ fn relocate_verify_facts(
 /// distinct owner and the bundle is ambiguous. The refusal is worded
 /// exactly like the final walk's, naming the seat and both owners.
 fn claim_address(
-    census: &BTreeMap<String, crate::engine::resume::SiteKey>,
+    census: &BTreeMap<String, SiteKey>,
     phase: &str,
     label: &str,
     second: &str,
@@ -5832,7 +5710,7 @@ fn claim_address(
             "seat '{phase}' addresses two different sites as '{label}': {} and {second}. The \
              selection, the argv lookup, the hands map and the boundary map all key on that one \
              string, so one site would answer for the other; rename one of them",
-            crate::engine::resume::describe(occupant)
+            occupant.describe()
         ))),
         None => Ok(()),
     }
@@ -5866,332 +5744,6 @@ fn parse_limits(phase: &str, raw: &Value) -> Result<Limits, CompileError> {
     Ok(limits)
 }
 
-/// Parse one body inside a selector. The label includes the case name, so
-/// every existing refusal identifies both the seat and the bad case.
-#[derive(Clone, Copy)]
-struct BodyCompile<'a> {
-    results: &'a [String],
-    secrets: &'a [String],
-    dialect: Option<&'a Dialect>,
-    boundary: Boundary,
-    charters: &'a Charters,
-}
-
-fn parse_selected_body(
-    dir: &Path,
-    what: &str,
-    raw: &Value,
-    agents: &mut Option<AgentContext>,
-    sites: &mut BTreeMap<String, SiteFacts>,
-    compile: BodyCompile<'_>,
-) -> Result<SeatBody, CompileError> {
-    let BodyCompile {
-        results,
-        secrets,
-        boundary,
-        charters,
-        ..
-    } = compile;
-    match classify(what, raw, &CASE)? {
-        CaseShape::Agent => {
-            let resolved = resolve_reference(
-                agents, sites, dir, what, what, raw, secrets, CASE.role, boundary,
-            )?;
-            let law = SiteLaw {
-                boundary,
-                dir,
-                agent_hands: resolved.hands.as_ref(),
-            };
-            let class =
-                enforce_model_policy(what, raw, &resolved.candidates, secrets, agents, law, sites)?;
-            record_hands(what, raw, resolved.hands, secrets, sites)?;
-            let body = SeatBody::Single {
-                role_path: resolved.role_path,
-                command: resolved.command,
-                candidates: resolved.candidates,
-                written: Vec::new(),
-                class,
-            };
-            Ok(body)
-        }
-        CaseShape::Panel => {
-            let (members, aggregate) = parse_panel(
-                dir, what, raw, results, secrets, agents, sites, boundary, charters,
-            )?;
-            refuse_class_without_a_driver(what, raw)?;
-            Ok(SeatBody::Panel { members, aggregate })
-        }
-        CaseShape::Sequence => {
-            // Its steps say its fact: a_selected_sequence_holds_no_dialect_step.
-            let (steps, _) = parse_sequence(dir, what, raw, agents, sites, compile)?;
-            refuse_class_without_a_driver(what, raw)?;
-            Ok(SeatBody::Sequence { steps })
-        }
-        CaseShape::Inline => {
-            let written = command_parts(raw);
-            record_inline_tools(
-                dir,
-                what,
-                raw,
-                false,
-                &written,
-                agents.as_ref().map(|context| &context.adapters),
-                sites,
-            )?;
-            let law = SiteLaw {
-                boundary,
-                dir,
-                agent_hands: None,
-            };
-            let class = enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
-            record_hands(what, raw, None, secrets, sites)?;
-            let body = SeatBody::Single {
-                role_path: parse_role(dir, what, raw, charters, sites)?,
-                command: parse_command(dir, what, raw, secrets)?,
-                candidates: Vec::new(),
-                written,
-                class,
-            };
-            Ok(body)
-        }
-    }
-}
-
-struct SelectCompile<'a> {
-    results: &'a [String],
-    secrets: &'a [String],
-    roots: &'a [PathBuf],
-    case_origin: &'a BTreeMap<String, usize>,
-    dialect: Option<&'a Dialect>,
-    boundary: Boundary,
-    charters: &'a Charters,
-}
-
-fn parse_select(
-    dir: &Path,
-    phase: &str,
-    raw: &Value,
-    agents: &mut Option<AgentContext>,
-    sites: &mut BTreeMap<String, SiteFacts>,
-    compile: SelectCompile<'_>,
-) -> Result<SeatBody, CompileError> {
-    let select = raw
-        .get("select")
-        .and_then(Value::as_object)
-        .ok_or_else(|| CompileError::Invalid(format!("seat '{phase}' select must be an object")))?;
-    for key in select.keys() {
-        if !["on", "cases", "default"].contains(&key.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' select has unknown key '{key}'; known: on, cases, default"
-            )));
-        }
-    }
-    match select.get("on").and_then(Value::as_str) {
-        Some("strategy") => {}
-        other => return Err(CompileError::Invalid(format!(
-            "seat '{phase}' select has unknown 'on' {}; known: strategy — the selection vocabulary is closed",
-            other.unwrap_or("<missing>")
-        ))),
-    }
-    let cases_raw = select
-        .get("cases")
-        .and_then(Value::as_object)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{phase}' select.cases must be an object"))
-        })?;
-    for case in cases_raw.keys() {
-        if !SELECT_STRATEGIES.contains(&case.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' select has unknown strategy case '{case}'; known: {}",
-                SELECT_STRATEGIES.join(", ")
-            )));
-        }
-    }
-    let has_default = select.get("default").is_some();
-    for strategy in SELECT_STRATEGIES {
-        if !cases_raw.contains_key(strategy) && !has_default {
-            return Err(CompileError::Invalid(format!(
-                "strategy class '{strategy}' resolves to nothing in seat '{phase}'; add that case or a default"
-            )));
-        }
-    }
-    let mut cases = BTreeMap::new();
-    for (case, body) in cases_raw {
-        let label = format!("{phase}:{case}");
-        let case_dir = &compile.roots[compile.case_origin.get(&label).copied().unwrap_or(0)];
-        cases.insert(
-            case.clone(),
-            parse_selected_body(
-                case_dir,
-                &label,
-                body,
-                agents,
-                sites,
-                BodyCompile {
-                    results: compile.results,
-                    secrets: compile.secrets,
-                    dialect: compile.dialect,
-                    boundary: compile.boundary,
-                    charters: compile.charters,
-                },
-            )?,
-        );
-    }
-    let default = select
-        .get("default")
-        .map(|body| {
-            parse_selected_body(
-                dir,
-                &format!("{phase}:default"),
-                body,
-                agents,
-                sites,
-                BodyCompile {
-                    results: compile.results,
-                    secrets: compile.secrets,
-                    dialect: compile.dialect,
-                    boundary: compile.boundary,
-                    charters: compile.charters,
-                },
-            )
-            .map(Box::new)
-        })
-        .transpose()?;
-    Ok(SeatBody::Select { cases, default })
-}
-
-/// Parse a panel body (`"panel": {…members…}, "aggregate": "…"`) at
-/// `what` — a seat's phase or a sequence step's `<phase>:<step>` label.
-/// `declared_results` is checked to cover the aggregate's vocabulary
-/// when Some: always for a seat-level panel (its aggregate reaches
-/// decide()), but for a panel STEP only when it is the FINAL step — a
-/// non-final step's aggregate output never reaches decide(), it only
-/// feeds later steps as context.
-#[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
-fn parse_panel(
-    dir: &Path,
-    what: &str,
-    raw: &Value,
-    declared_results: &[String],
-    secrets: &[String],
-    agents: &mut Option<AgentContext>,
-    sites: &mut BTreeMap<String, SiteFacts>,
-    boundary: Boundary,
-    charters: &Charters,
-) -> Result<(Vec<PanelMember>, Aggregate), CompileError> {
-    let members_raw = raw
-        .get("panel")
-        .and_then(Value::as_object)
-        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' panel must be an object")))?;
-    if members_raw.len() < 2 {
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' panel needs at least two members; \
-             a one-member panel is a single seat"
-        )));
-    }
-    let gate_members: Vec<&str> = members_raw
-        .iter()
-        .filter(|(_, member)| member.get("class").and_then(Value::as_str) == Some("gate"))
-        .map(|(name, _)| name.as_str())
-        .collect();
-    let work_members: Vec<&str> = members_raw
-        .iter()
-        .filter(|(_, member)| member.get("class").and_then(Value::as_str) != Some("gate"))
-        .map(|(name, _)| name.as_str())
-        .collect();
-    if !gate_members.is_empty() && !work_members.is_empty() {
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' is a mixed panel: gate members [{}], work members [{}]; \
-             a panel may judge or work, never do both",
-            gate_members.join(", "),
-            work_members.join(", ")
-        )));
-    }
-    let aggregate_name = raw
-        .get("aggregate")
-        .and_then(Value::as_str)
-        .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' panel needs 'aggregate'")))?;
-    let aggregate = Aggregate::parse(aggregate_name).ok_or_else(|| {
-        CompileError::Invalid(format!(
-            "seat '{what}' unknown aggregate '{aggregate_name}'; known: {}",
-            Aggregate::known()
-        ))
-    })?;
-    for required in aggregate.required_results() {
-        if !declared_results.iter().any(|r| r == required) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' aggregate '{aggregate_name}' can emit \
-                 '{required}' but the seat does not declare it"
-            )));
-        }
-    }
-    let mut members = Vec::with_capacity(members_raw.len());
-    for (name, member_raw) in members_raw {
-        let site = format!("{what}:{name}");
-        let shape = classify(&site, member_raw, &MEMBER)?;
-        let written = command_parts(member_raw);
-        let (role_path, command, candidates, agent_hands) = match shape {
-            MemberShape::Inline => {
-                record_inline_tools(
-                    dir,
-                    &site,
-                    member_raw,
-                    false,
-                    &written,
-                    agents.as_ref().map(|context| &context.adapters),
-                    sites,
-                )?;
-                (
-                    parse_role(dir, &site, member_raw, charters, sites)?,
-                    parse_command(dir, &site, member_raw, secrets)?,
-                    Vec::new(),
-                    None,
-                )
-            }
-            MemberShape::Agent => {
-                let resolved = resolve_reference(
-                    agents,
-                    sites,
-                    dir,
-                    &site,
-                    &site,
-                    member_raw,
-                    secrets,
-                    MEMBER.role,
-                    boundary,
-                )?;
-                (
-                    resolved.role_path,
-                    resolved.command,
-                    resolved.candidates,
-                    resolved.hands,
-                )
-            }
-        };
-        let law = SiteLaw {
-            boundary,
-            dir,
-            agent_hands: agent_hands.as_ref(),
-        };
-        let class =
-            enforce_model_policy(&site, member_raw, &candidates, secrets, agents, law, sites)?;
-        record_hands(&site, member_raw, agent_hands, secrets, sites)?;
-        members.push(PanelMember {
-            name: name.clone(),
-            role_path,
-            command,
-            candidates,
-            written,
-            class,
-        });
-    }
-    Ok((members, aggregate))
-}
-
 /// Parse a sequence body: named steps, each a single driver or a panel,
 /// run serially inside one effect. At least two steps (a one-step
 /// sequence is a single seat); names unique case-insensitively. Beside them,
@@ -6202,20 +5754,11 @@ fn parse_panel(
     reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
 )]
 fn parse_sequence(
-    dir: &Path,
+    compiler: &mut SiteCompiler<'_>,
+    at: SeatScope<'_>,
     phase: &str,
     raw: &Value,
-    agents: &mut Option<AgentContext>,
-    sites: &mut BTreeMap<String, SiteFacts>,
-    compile: BodyCompile<'_>,
 ) -> Result<(Vec<SequenceStep>, bool), CompileError> {
-    let BodyCompile {
-        results,
-        secrets,
-        dialect,
-        boundary,
-        charters,
-    } = compile;
     let steps_raw = raw
         .get("sequence")
         .and_then(Value::as_array)
@@ -6255,7 +5798,7 @@ fn parse_sequence(
             )));
         }
         let mut step_results = if final_step {
-            results.to_vec()
+            at.results.to_vec()
         } else if step_raw.get("results").is_some() {
             step_raw
                 .get("results")
@@ -6311,7 +5854,7 @@ fn parse_sequence(
                     "sequence step '{what}' uses dialect operation '{operation}'; phase '{phase}' needs '{expected}'"
                 )));
                 }
-                let dialect = dialect.ok_or_else(|| {
+                let dialect = compiler.dialect.ok_or_else(|| {
                     CompileError::Invalid(format!(
                         "phase '{phase}' needs a realm dialect to resolve step '{name}'"
                     ))
@@ -6336,27 +5879,21 @@ fn parse_sequence(
                         dialect.name
                     )));
                 };
-                let synthetic = dialect_gate_site(&what, boundary)?;
+                let synthetic = dialect_gate_site(&what, compiler.boundary)?;
                 // The dialect's validator is an exec-generated check: it can
                 // own a checked empty declaration and represents no nonempty
                 // local field (design D5.2), judged against the command the
                 // validator actually runs.
                 record_inline_tools(
-                    dir,
+                    at.dir,
                     &what,
                     step_raw,
                     false,
                     &command_parts(&synthetic),
-                    agents.as_ref().map(|context| &context.adapters),
-                    sites,
+                    compiler.agents.as_ref().map(|context| &context.adapters),
+                    &mut compiler.sites,
                 )?;
-                let law = SiteLaw {
-                    boundary,
-                    dir,
-                    agent_hands: None,
-                };
-                enforce_model_policy(&what, &synthetic, &[], secrets, agents, law, sites)?;
-                record_hands(&what, &synthetic, None, secrets, sites)?;
+                compiler.judge(at, &what, &synthetic, &[], None)?;
                 // A final dialect step emits the deterministic adapter's two
                 // outcomes, not every result the enclosing seat accepts. Keeping
                 // that actual vocabulary on the compiled step lets the engine see
@@ -6374,9 +5911,8 @@ fn parse_sequence(
                 }
             }
             StepShape::Agent => {
-                let resolved = resolve_reference(
-                    agents, sites, dir, &what, &what, step_raw, secrets, STEP.role, boundary,
-                )?;
+                let resolved =
+                    resolve_reference(compiler, at.dir, &what, step_raw, at.secrets, STEP.role)?;
                 agent_hands = resolved.hands;
                 StepBody::Single {
                     role_path: resolved.role_path,
@@ -6386,33 +5922,19 @@ fn parse_sequence(
                 }
             }
             StepShape::Panel => {
-                let (members, aggregate) = parse_panel(
-                    dir,
-                    &what,
-                    step_raw,
-                    &step_results,
-                    secrets,
-                    agents,
-                    sites,
-                    boundary,
-                    charters,
-                )?;
+                let step_at = SeatScope {
+                    results: &step_results,
+                    ..at
+                };
+                let (members, aggregate) = compiler.parse_panel(step_at, &what, step_raw)?;
                 StepBody::Panel { members, aggregate }
             }
             StepShape::Inline => {
-                let written = command_parts(step_raw);
-                record_inline_tools(
-                    dir,
-                    &what,
-                    step_raw,
-                    false,
-                    &written,
-                    agents.as_ref().map(|context| &context.adapters),
-                    sites,
-                )?;
+                let written = compiler.inline_written(at, &what, step_raw, false)?;
+                let sites = &mut compiler.sites;
                 StepBody::Single {
-                    role_path: parse_role(dir, &what, step_raw, charters, sites)?,
-                    command: parse_command(dir, &what, step_raw, secrets)?,
+                    role_path: parse_role(at.dir, &what, step_raw, compiler.charters, sites)?,
+                    command: parse_command(at.dir, &what, step_raw, at.secrets)?,
                     candidates: Vec::new(),
                     written,
                 }
@@ -6422,15 +5944,7 @@ fn parse_sequence(
         // judges, so it is a gate; a panel step is one when its members are.
         let class = match &body {
             StepBody::Single { candidates, .. } => {
-                let law = SiteLaw {
-                    boundary,
-                    dir,
-                    agent_hands: agent_hands.as_ref(),
-                };
-                let class =
-                    enforce_model_policy(&what, step_raw, candidates, secrets, agents, law, sites)?;
-                record_hands(&what, step_raw, agent_hands, secrets, sites)?;
-                class
+                compiler.judge(at, &what, step_raw, candidates, agent_hands)?
             }
             StepBody::Panel { members, .. } => {
                 refuse_class_without_a_driver(&what, step_raw)?;

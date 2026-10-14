@@ -731,13 +731,19 @@ fn select_parses_every_case_and_refuses_closed_vocabulary_defects_by_case() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
     let fixture = Fixture::new();
     // The parsers stand below the compile's entry, which hands them its
     // canonical root (unit 27b; macOS's temporary root is a link).
     let dir = fixture.root.as_path();
     let results = vec!["pass".to_string(), "fail".to_string()];
+    let (charters, origin, ns) = (Charters::default(), BTreeMap::new(), Boundary::Namespace);
+    let compiler = || SiteCompiler::new(None, ns, None, &charters, &[], &origin);
+    let at = SeatScope {
+        dir,
+        results: &results,
+        secrets: &[],
+    };
 
     for raw in [
         json!({}),
@@ -745,18 +751,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         json!({"panel": {"a": {}, "b": {}}}),
         json!({"panel": {"a": {}, "b": {}}, "aggregate": "invented"}),
     ] {
-        assert!(parse_panel(
-            dir,
-            "review",
-            &raw,
-            &results,
-            &[],
-            &mut None,
-            &mut BTreeMap::new(),
-            Boundary::Namespace,
-            &Default::default(),
-        )
-        .is_err());
+        assert!(compiler().parse_panel(at, "review", &raw).is_err());
     }
     let panel = json!({
         "panel": {
@@ -765,50 +760,23 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
         },
         "aggregate": "unanimous-pass",
     });
-    assert!(error(parse_panel(
-        dir,
-        "review",
-        &panel,
-        &[],
-        &[],
-        &mut None,
-        &mut BTreeMap::new(),
-        Boundary::Namespace,
-        &Default::default(),
-    ))
-    .contains("does not declare"));
+    let undeclared = SeatScope { results: &[], ..at };
+    assert!(
+        error(compiler().parse_panel(undeclared, "review", &panel)).contains("does not declare")
+    );
     assert_eq!(
-        parse_panel(
-            dir,
-            "review",
-            &panel,
-            &results,
-            &[],
-            &mut None,
-            &mut BTreeMap::new(),
-            Boundary::Namespace,
-            &Default::default(),
-        )
-        .unwrap()
-        .0
-        .len(),
+        compiler()
+            .parse_panel(at, "review", &panel)
+            .unwrap()
+            .0
+            .len(),
         2
     );
     // A member that is not an object declares no tools, and is refused
     // for what it lacks (rebuild unit 26b).
     let members = json!({"panel": {"a": 1, "b": 1}, "aggregate": "unanimous-pass"});
     assert_eq!(
-        error(parse_panel(
-            dir,
-            "review",
-            &members,
-            &results,
-            &[],
-            &mut None,
-            &mut BTreeMap::new(),
-            Boundary::Namespace,
-            &Default::default(),
-        )),
+        error(compiler().parse_panel(at, "review", &members)),
         "bundle: seat 'review:a' missing 'role'"
     );
 
@@ -829,21 +797,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
             {"name":"two", "role":"roles/role.md", "driver":{"command":["driver"]}},
         ]}),
     ] {
-        assert!(parse_sequence(
-            dir,
-            "review",
-            &raw,
-            &mut None,
-            &mut BTreeMap::new(),
-            BodyCompile {
-                results: &results,
-                secrets: &[],
-                dialect: None,
-                boundary: Boundary::Namespace,
-                charters: &Default::default(),
-            }
-        )
-        .is_err());
+        assert!(parse_sequence(&mut compiler(), at, "review", &raw).is_err());
     }
 
     let mismatch = json!({"sequence": [
@@ -854,20 +808,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
          }},
         {"name":"final", "role":"roles/role.md", "driver":{"command":["driver"]}}
     ]});
-    let refusal = error(parse_sequence(
-        dir,
-        "review",
-        &mismatch,
-        &mut None,
-        &mut BTreeMap::new(),
-        BodyCompile {
-            results: &results,
-            secrets: &[],
-            dialect: None,
-            boundary: Boundary::Namespace,
-            charters: &Default::default(),
-        },
-    ));
+    let refusal = error(parse_sequence(&mut compiler(), at, "review", &mismatch));
     assert!(refusal.contains("can emit 'pass'"), "{refusal}");
 
     let final_vocabulary = json!({"sequence": [
@@ -877,18 +818,10 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
          "role":"roles/role.md", "driver":{"command":["driver"]}}
     ]});
     let refusal = error(parse_sequence(
-        dir,
+        &mut compiler(),
+        at,
         "review",
         &final_vocabulary,
-        &mut None,
-        &mut BTreeMap::new(),
-        BodyCompile {
-            results: &results,
-            secrets: &[],
-            dialect: None,
-            boundary: Boundary::Namespace,
-            charters: &Default::default(),
-        },
     ));
     assert!(
         refusal.contains("final and receives the seat's results"),
@@ -900,21 +833,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
          "role":"roles/role.md", "driver":{"command":["driver"]}},
         {"name":"final", "role":"roles/role.md", "driver":{"command":["driver"]}}
     ]});
-    let (steps, _) = parse_sequence(
-        dir,
-        "review",
-        &valid,
-        &mut None,
-        &mut BTreeMap::new(),
-        BodyCompile {
-            results: &results,
-            secrets: &[],
-            dialect: None,
-            boundary: Boundary::Namespace,
-            charters: &Default::default(),
-        },
-    )
-    .unwrap();
+    let (steps, _) = parse_sequence(&mut compiler(), at, "review", &valid).unwrap();
     let pinned = body_manifest(&SeatBody::Sequence { steps });
     assert_eq!(pinned["sequence"][0]["results"], json!(["drafted"]));
     assert_eq!(pinned["sequence"][1]["results"], json!(results));

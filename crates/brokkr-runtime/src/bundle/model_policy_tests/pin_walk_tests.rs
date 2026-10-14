@@ -105,7 +105,7 @@ fn whole_gate_class_rejects_empty_and_driverless_shapes() {
 }
 
 /// What lets a selected sequence's whole-effect fact be read off its
-/// compiled steps (`parse_selected_body`): it holds no dialect step, because
+/// compiled steps (`SiteCompiler::parse_case`): it holds no dialect step, because
 /// its `phase:case` label is no dialect phase, whichever operation it names.
 #[test]
 fn a_selected_sequence_holds_no_dialect_step() {
@@ -118,27 +118,26 @@ fn a_selected_sequence_holds_no_dialect_step() {
         ("check", "sequence step 'clarify:engine:count' uses dialect operation 'check'; phase 'clarify:engine' needs 'validate'"),
         ("validate", "dialect 'openspec' declares phase 'clarify:engine' validate unsupported"),
     ];
+    let (charters, case_origin) = (Charters::default(), BTreeMap::new());
     for (operation, expected) in refusals {
-        let compile = BodyCompile {
+        let compiler = &mut SiteCompiler::new(
+            None,
+            Boundary::Namespace,
+            Some(&dialect),
+            &charters,
+            &[],
+            &case_origin,
+        );
+        let at = SeatScope {
+            dir: dir.path(),
             results: &results,
             secrets: &[],
-            dialect: Some(&dialect),
-            boundary: Boundary::Namespace,
-            charters: &Default::default(),
         };
         let raw = json!({"sequence": [
             {"name": "count", "results": ["clear"], "dialect": operation},
             {"name": "judge", "role": "roles/role.md", "driver": {"command": ["driver"]}}
         ]});
-        let sites = &mut BTreeMap::new();
-        match parse_sequence(
-            dir.path(),
-            "clarify:engine",
-            &raw,
-            &mut None,
-            sites,
-            compile,
-        ) {
+        match parse_sequence(compiler, at, "clarify:engine", &raw) {
             Err(CompileError::Invalid(refusal)) => assert_eq!(refusal, expected),
             other => panic!("a selected dialect step must be refused: {other:?}"),
         }
