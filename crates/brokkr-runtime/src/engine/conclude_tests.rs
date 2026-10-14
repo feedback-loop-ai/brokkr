@@ -8,6 +8,8 @@
 //! what the store holds.
 
 use super::*;
+use crate::run_state::{run_state, standing};
+use brokkr_core::fold::Status;
 use brokkr_store::test_support::plant_event;
 use brokkr_store::StoreError;
 use std::fmt::Debug;
@@ -66,6 +68,24 @@ fn events(store: &Store, run_id: &str) -> Vec<EventEnvelope> {
     store.load(run_id).unwrap()
 }
 
+/// Conclude run `name` as `operator` for `reason`, see it stopped, and
+/// read back its journal and the event types appended past `seq`.
+fn concluded(
+    store: &mut Store,
+    name: &str,
+    (operator, reason): (&str, &str),
+    seq: u64,
+) -> (Vec<EventEnvelope>, Vec<EventType>) {
+    let state = conclude(store, name, operator, reason).unwrap();
+    assert_eq!(state.run, Run::Stopped);
+    let after = events(store, name);
+    let appended = after[seq as usize..]
+        .iter()
+        .map(|event| event.event_type)
+        .collect();
+    (after, appended)
+}
+
 /// The standing case: an operator stop accepted while an attempt was in
 /// flight, the journal ending there. The stop is already in force, so
 /// `conclude` issues no second command — it closes the attempt at the
@@ -79,19 +99,23 @@ fn a_stop_already_in_force_is_carried_to_run_stopped_without_a_second_command() 
     let mut store = store_for(&dir, name);
 
     let before = fold(&events(&store, name)).unwrap();
-    assert_eq!(before.status, Status::Running);
-    assert!(before.riding_stop, "the accepted stop is riding");
-    assert!(matches!(before.cursor, Cursor::EffectInFlight { .. }));
+    assert!(
+        matches!(
+            before.run,
+            Run::Running(Cursor::EffectInFlight {
+                stop_rides: true,
+                ..
+            })
+        ),
+        "the accepted stop is riding"
+    );
 
-    let state = conclude(&mut store, name, "someone-else", "closing the books").unwrap();
-    assert_eq!(state.status, Status::Stopped);
-    assert_eq!(state.cursor, Cursor::Idle);
-
-    let after = events(&store, name);
-    let appended: Vec<EventType> = after[before.seq as usize..]
-        .iter()
-        .map(|event| event.event_type)
-        .collect();
+    let (after, appended) = concluded(
+        &mut store,
+        name,
+        ("someone-else", "closing the books"),
+        before.seq,
+    );
     assert_eq!(
         appended,
         vec![EventType::EffectIndeterminate, EventType::RunStopped],
@@ -162,20 +186,24 @@ fn an_attempt_in_flight_under_no_stop_is_commanded_ridden_and_closed_in_one_conc
     let mut store = replay_upto(&dir.path().join("in-flight.db"), name, &pinned(name), 9);
 
     let before = fold(&events(&store, name)).unwrap();
-    assert_eq!(before.status, Status::Running);
     assert_eq!(before.pending_command, None);
-    assert!(!before.riding_stop, "nobody has commanded anything");
-    assert!(matches!(before.cursor, Cursor::EffectInFlight { .. }));
+    assert!(
+        matches!(
+            before.run,
+            Run::Running(Cursor::EffectInFlight {
+                stop_rides: false,
+                ..
+            })
+        ),
+        "nobody has commanded anything"
+    );
 
-    let state = conclude(&mut store, name, "someone-else", "the driver is gone").unwrap();
-    assert_eq!(state.status, Status::Stopped);
-    assert_eq!(state.cursor, Cursor::Idle);
-
-    let after = events(&store, name);
-    let appended: Vec<EventType> = after[before.seq as usize..]
-        .iter()
-        .map(|event| event.event_type)
-        .collect();
+    let (after, appended) = concluded(
+        &mut store,
+        name,
+        ("someone-else", "the driver is gone"),
+        before.seq,
+    );
     assert_eq!(
         appended,
         vec![
@@ -215,24 +243,15 @@ fn a_parked_run_is_stopped_under_the_name_of_the_operator_who_concluded_it() {
     let mut store = store_for(&dir, name);
 
     let before = fold(&events(&store, name)).unwrap();
-    assert_eq!(before.status, Status::AwaitingOperator);
-    assert_eq!(before.cursor, Cursor::Idle);
+    assert_eq!(before.run.status(), Status::AwaitingOperator);
     assert_eq!(before.pending_command, None);
 
-    let state = conclude(
+    let (after, appended) = concluded(
         &mut store,
         name,
-        "vyanakiev",
-        "the engine moved on without it",
-    )
-    .unwrap();
-    assert_eq!(state.status, Status::Stopped);
-
-    let after = events(&store, name);
-    let appended: Vec<EventType> = after[before.seq as usize..]
-        .iter()
-        .map(|event| event.event_type)
-        .collect();
+        ("vyanakiev", "the engine moved on without it"),
+        before.seq,
+    );
     assert_eq!(
         appended,
         vec![
@@ -295,14 +314,12 @@ fn a_command_left_without_a_disposition_is_outlived_by_the_conclusion() {
         Some(("orphaned".to_string(), "retry".to_string())),
     );
 
-    let state = conclude(&mut store, name, "vyanakiev", "closing the books").unwrap();
-    assert_eq!(state.status, Status::Stopped);
-
-    let after = events(&store, name);
-    let appended: Vec<EventType> = after[before.seq as usize..]
-        .iter()
-        .map(|event| event.event_type)
-        .collect();
+    let (after, appended) = concluded(
+        &mut store,
+        name,
+        ("vyanakiev", "closing the books"),
+        before.seq,
+    );
     assert_eq!(
         appended,
         vec![
@@ -337,7 +354,7 @@ fn a_command_left_without_a_disposition_is_outlived_by_the_conclusion() {
     assert!(cited.contains("vyanakiev"), "{cited}");
     assert!(cited.contains("commanded stop"), "{cited}");
     assert!(!cited.contains("someone-else"), "{cited}");
-    assert_eq!(fold(&after).unwrap().status, Status::Stopped);
+    assert_eq!(fold(&after).unwrap().run, Run::Stopped);
 }
 
 /// A run that already has its conclusion gets no second one. The refusal
@@ -349,7 +366,7 @@ fn an_already_concluded_run_is_refused_and_nothing_is_appended() {
     let name = "conclude-already-done-hand-built";
     let mut store = store_for(&dir, name);
     let before = events(&store, name);
-    assert_eq!(fold(&before).unwrap().status, Status::Completed);
+    assert_eq!(fold(&before).unwrap().run, Run::Completed);
 
     let refusal = conclude(&mut store, name, "vyanakiev", "again").unwrap_err();
     assert_eq!(
@@ -418,54 +435,58 @@ fn a_broken_chain_refuses_the_whole_conclusion() {
 /// that would need it does.
 #[test]
 fn a_cursor_no_accepted_stop_can_produce_refuses_instead_of_guessing() {
-    let riding = |cursor| {
-        let mut state = super::tests::state(Some("verify"), cursor);
-        state.riding_stop = true;
-        state
-    };
+    let in_state = |run| run_state("run", 1, run);
 
     assert_eq!(
-        riding_attempt("run", &super::tests::state(Some("verify"), Cursor::Stop)).unwrap(),
+        riding_attempt("run", &in_state(Run::Running(Cursor::Stop))).unwrap(),
         None,
         "Stop is where run/stopped belongs, and nothing is owed first",
     );
 
-    let in_flight = Cursor::EffectInFlight {
+    let in_flight = |stop_rides| Cursor::EffectInFlight {
         effect_id: "effect".into(),
         attempt_id: "attempt".into(),
         seat: "verify".into(),
         failed_attempts: 0,
+        stop_rides,
     };
     assert_eq!(
-        riding_attempt("run", &riding(in_flight.clone())).unwrap(),
+        riding_attempt("run", &in_state(Run::Running(in_flight(true)))).unwrap(),
         Some(("effect".to_string(), "attempt".to_string())),
     );
 
-    // The same cursor with nothing riding it: an attempt in flight under
-    // no accepted stop is not a conclusion to finish.
-    let unridden = riding_attempt(
-        "run",
-        &super::tests::state(Some("verify"), in_flight.clone()),
-    );
-    assert_eq!(invariant(unridden), unexpected(&in_flight));
-
-    for cursor in [
-        Cursor::Start,
-        Cursor::RequestEffect,
-        Cursor::Idle,
-        Cursor::Park {
-            reason: "parked".into(),
-        },
+    // The same attempt with nothing riding it: an attempt in flight under
+    // no accepted stop is not a conclusion to finish. Every refusal names
+    // the run's position as readouts do, never a result or a park's words.
+    let parked = standing(Status::AwaitingOperator, "parked");
+    let deciding = Cursor::Decide {
+        effect_id: "effect".into(),
+        result: json!({"result": "complete", "notes": "a seat's words"}),
+    };
+    let parking = Cursor::Park {
+        reason: ParkReason::read("parked".into()),
+    };
+    for (run, shown) in [
+        (
+            Run::Running(in_flight(false)),
+            r#"EffectInFlight { effect_id: "effect", attempt_id: "attempt", seat: "verify", failed_attempts: 0 }"#,
+        ),
+        (Run::Running(Cursor::Start), "Start"),
+        (Run::Running(Cursor::RequestEffect), "RequestEffect"),
+        (Run::Running(deciding), r#"Decide { effect_id: "effect" }"#),
+        (Run::Running(parking), "Park"),
+        (parked, "Idle"),
     ] {
-        let refusal = riding_attempt("run", &riding(cursor.clone()));
-        assert_eq!(invariant(refusal), unexpected(&cursor));
+        let refusal = riding_attempt("run", &in_state(run));
+        assert_eq!(invariant(refusal), unexpected(shown));
     }
 }
 
-/// The invariant `riding_attempt` breaks at `cursor`, named and worded.
-fn unexpected(cursor: &Cursor) -> (&'static str, String) {
+/// The invariant `riding_attempt` breaks where the run is `shown`, named
+/// and worded.
+fn unexpected(shown: &str) -> (&'static str, String) {
     let detail = format!(
-        "conclude: run 'run' stands at {cursor:?} with an accepted stop; a stop reaches \
+        "conclude: run 'run' stands at {shown} with an accepted stop; a stop reaches \
          Stop or rides an in-flight attempt and nothing else"
     );
     ("stop rides or stands", detail)
@@ -576,10 +597,9 @@ fn a_store_that_refuses_an_append_leaves_a_journal_that_can_still_be_concluded()
         "{refusal}",
     );
     let interrupted = fold(&events(&store, parked)).unwrap();
-    assert_eq!(interrupted.status, Status::Running);
     assert_eq!(
-        interrupted.cursor,
-        Cursor::Stop,
+        interrupted.run,
+        Run::Running(Cursor::Stop),
         "the commanded stop stands, waiting for the event that records it",
     );
 
@@ -588,7 +608,7 @@ fn a_store_that_refuses_an_append_leaves_a_journal_that_can_still_be_concluded()
         .execute_batch("DROP TRIGGER forced_event_failure;")
         .unwrap();
     let state = conclude(&mut store, parked, "someone-else", "again").unwrap();
-    assert_eq!(state.status, Status::Stopped);
+    assert_eq!(state.run, Run::Stopped);
     assert_eq!(
         events(&store, parked)
             .iter()
@@ -639,8 +659,8 @@ fn an_engine_version_that_moved_refuses_resume_and_concludes_anyway() {
 
     let state = conclude(&mut store, name, "vyanakiev", "the engine moved; close it").unwrap();
     assert_eq!(
-        state.status,
-        Status::Stopped,
+        state.run,
+        Run::Stopped,
         "the same journal the pinned bundle locked out reaches its conclusion",
     );
 }
@@ -699,7 +719,13 @@ fn a_result_landing_inside_the_fence_window_refuses_the_close() {
     let dir = tempfile::tempdir().unwrap();
     let name = "conclude-stopped-mid-effect-hand-built";
     let mut store = store_for(&dir, name);
-    assert!(fold(&events(&store, name)).unwrap().riding_stop);
+    assert!(matches!(
+        fold(&events(&store, name)).unwrap().run,
+        Run::Running(Cursor::EffectInFlight {
+            stop_rides: true,
+            ..
+        })
+    ));
 
     let mut calls = 0;
     let refused = conclude_racing(&mut store, name, "operator", "believed dead", |store| {

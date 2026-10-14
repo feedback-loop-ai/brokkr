@@ -30,6 +30,7 @@ mod binary_names;
 mod bootstrap_bench;
 mod boundary_readouts;
 mod boundary_verbs;
+mod brokkr_folder;
 mod budget_frame;
 mod capability_artifacts;
 mod capability_broker;

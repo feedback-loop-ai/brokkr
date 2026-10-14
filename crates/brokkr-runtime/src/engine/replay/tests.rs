@@ -1,6 +1,6 @@
 use super::*;
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::Cursor;
+use brokkr_core::fold::{Cursor, Run};
 use brokkr_store::StoreError;
 use serde_json::json;
 
@@ -48,12 +48,12 @@ fn a_turn_reads_only_what_landed_since_the_last() {
     let state = replay.caught_up(&store, "r1").unwrap();
     assert_eq!(state.seq, 3);
     assert_eq!(
-        state.cursor,
-        Cursor::ExecuteEffect {
+        state.run,
+        Run::Running(Cursor::ExecuteEffect {
             effect_id: "fx".into(),
             seat: "intake".into(),
             failed_attempts: 0,
-        }
+        })
     );
     assert_eq!(replay.events.len(), 3);
     let whole = store.load("r1").unwrap_err();
@@ -80,6 +80,6 @@ fn a_replay_asked_for_another_run_reads_it_whole() {
 
     let state = replay.caught_up(&store, "short").unwrap();
     assert_eq!((state.run_id.as_str(), state.seq), ("short", 2));
-    assert_eq!(state.cursor, Cursor::RequestEffect);
+    assert_eq!(state.run, Run::Running(Cursor::RequestEffect));
     assert_eq!(replay.events.len(), 2);
 }

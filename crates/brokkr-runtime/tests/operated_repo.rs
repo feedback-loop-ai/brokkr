@@ -7,7 +7,7 @@
 //! directory and no other test may run beside it while it does.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::Status;
+use brokkr_core::fold::{ParkReason, Status};
 use brokkr_runtime::{Bundle, Engine};
 use brokkr_store::Store;
 use serde_json::json;
@@ -115,7 +115,11 @@ fn run(dir: &Path, gate: &str, repo: Option<PathBuf>) -> (Status, Option<String>
         .rev()
         .find(|event| event.event_type == EventType::TransitionDecided)
         .map(|event| event.payload["rule_id"].as_str().unwrap_or("").to_string());
-    (end.state.status, end.state.park_reason.or(decided))
+    let reason = end.state.run.park_reason().map(ParkReason::as_str);
+    (
+        end.state.run.status(),
+        reason.map(str::to_string).or(decided),
+    )
 }
 
 fn uuid() -> String {

@@ -19,6 +19,7 @@
 
 use super::tests::{bundle, single_body};
 use super::*;
+use brokkr_core::fold::Status;
 use brokkr_store::StoreError;
 
 /// A driver that streams no checkpoint, then the outcome's terminal
@@ -109,7 +110,7 @@ fn an_engine_driving_into_a_held_lock_ends_typed_and_never_on_a_bare_sqlite_erro
     let events = engine.store.load(&run_id).unwrap();
     assert_eq!(events.len(), 1, "a contended turn wrote something anyway");
     let state = fold(&events).unwrap();
-    assert_eq!(state.status, Status::Running);
+    assert_eq!(state.run.status(), Status::Running);
 }
 
 /// Where the fold admits a park, contention is SAID. The journal carries
@@ -147,8 +148,8 @@ fn contention_where_a_park_is_lawful_parks_with_the_lock_it_lost_named() {
         .lawful_end_under_contention(contended("append"))
         .expect("a lawful park is an ending, not an error")
         .expect("a park ends the drive");
-    assert_eq!(end.state.status, Status::AwaitingOperator);
-    let reason = end.state.park_reason.clone().unwrap();
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
+    let reason = end.state.run.park_reason().unwrap().as_str();
     assert!(
         reason.contains("journal contention") && reason.contains("nothing was written"),
         "the park does not name the contention: {reason}"
@@ -195,7 +196,7 @@ fn a_drive_that_meets_the_lock_at_a_park_ends_in_the_lawful_ends_park() {
     })
     .expect("a park the lock lets go of in time is an ending");
 
-    let reason = end.state.park_reason.clone().unwrap();
+    let reason = end.state.run.park_reason().unwrap().as_str();
     let waited = reason
         .strip_prefix(
             "journal contention: contended: a peer still held the journal's write lock after ",
@@ -203,7 +204,7 @@ fn a_drive_that_meets_the_lock_at_a_park_ends_in_the_lawful_ends_park() {
         .and_then(|rest| rest.strip_suffix("ms of append; nothing was written"))
         .and_then(|ms| ms.parse::<u128>().ok());
     assert!(waited >= Some(patience.as_millis()), "{reason}");
-    assert_eq!(end.state.status, Status::AwaitingOperator);
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
     let events = engine.store.load(&run_id).unwrap();
     assert_eq!(events.len(), before + 1);
     let last = events.last().unwrap();
@@ -975,7 +976,7 @@ fn a_seat_working_through_a_peers_lock_keeps_its_attempt() {
         .iter()
         .any(|event| event.event_type == EventType::EffectIndeterminate));
     fold(&events).expect("the journal folds");
-    assert_eq!(ended.state.status, Status::AwaitingOperator);
+    assert_eq!(ended.state.run.status(), Status::AwaitingOperator);
 }
 
 /// The driver's line that writes more blank bytes than a pipe holds. The
@@ -1032,7 +1033,7 @@ fn a_seat_writing_behind_a_peers_lock_is_never_held_past_its_deadline() {
             EventType::EffectSucceeded,
         ]
     );
-    assert_eq!(ended.state.status, Status::AwaitingOperator);
+    assert_eq!(ended.state.run.status(), Status::AwaitingOperator);
 }
 
 /// A panel member's refusal, end to end: the other member checkpoints
@@ -1128,7 +1129,7 @@ fn a_finished_seats_terminal_event_waits_out_a_peers_lock_and_lands_its_real_out
             EventType::EffectSucceeded,
         ]
     );
-    assert_eq!(ended.state.status, Status::AwaitingOperator);
+    assert_eq!(ended.state.run.status(), Status::AwaitingOperator);
 }
 
 /// A seat that finishes behind a peer's lock: the peer takes the lock as
@@ -1184,7 +1185,7 @@ fn a_terminal_event_the_lock_outlasts_lands_its_real_outcome_in_the_lawful_end()
     assert!(!events
         .iter()
         .any(|event| event.payload.to_string().contains("journal contention")));
-    assert_eq!(ended.state.status, Status::AwaitingOperator);
+    assert_eq!(ended.state.run.status(), Status::AwaitingOperator);
 }
 
 /// A lock that outlasts both windows, end to end: nothing is writable, so
@@ -1231,7 +1232,7 @@ fn a_lock_that_outlasts_both_windows_hands_the_contention_back_with_the_attempt_
     let mut resumed = Engine::resume(store, bundle, &run_id, Some(dir.path().join("work")))
         .expect("the pinned bundle resumes");
     let again = resumed.drive().unwrap();
-    assert_eq!(again.state.status, Status::AwaitingOperator);
+    assert_eq!(again.state.run.status(), Status::AwaitingOperator);
     let events = resumed.store.load(&run_id).unwrap();
     let settled = &events[events.len() - 2];
     assert_eq!(
@@ -1262,8 +1263,11 @@ fn a_terminal_event_the_lock_outlasts_settles_the_attempt_and_parks() {
         .lawful_end_under_contention(contended("append"))
         .expect("a settled attempt parks lawfully")
         .expect("with no outcome held, the park ends the drive");
-    assert_eq!(end.state.status, Status::AwaitingOperator);
-    assert_eq!(end.state.park_reason.as_deref(), Some(expected));
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
+    assert_eq!(
+        end.state.run.park_reason().map(ParkReason::as_str),
+        Some(expected)
+    );
     let events = engine.store.load(&run_id).unwrap();
     let tail: Vec<_> = events[events.len() - 2..]
         .iter()
@@ -1290,7 +1294,10 @@ fn a_terminal_event_the_lock_outlasts_settles_the_attempt_and_parks() {
     let written = events.len();
     let mut resumed = resumed(dir.path(), &run_id);
     let again = resumed.drive().unwrap();
-    assert_eq!(again.state.park_reason.as_deref(), Some(expected));
+    assert_eq!(
+        again.state.run.park_reason().map(ParkReason::as_str),
+        Some(expected)
+    );
     assert_eq!(resumed.store.load(&run_id).unwrap().len(), written);
 }
 
@@ -1421,7 +1428,7 @@ fn an_outcome_held_for_another_attempt_is_never_journaled_for_this_one() {
         .lawful_end_under_contention(contended("append"))
         .expect("a settled attempt parks lawfully")
         .expect("with no outcome held for this attempt, the park ends the drive");
-    assert_eq!(end.state.status, Status::AwaitingOperator);
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
     assert!(engine.held_outcome.is_none());
     let events = engine.store.load(&engine.run_id).unwrap();
     let tail: Vec<_> = events[events.len() - 2..]
@@ -1467,7 +1474,7 @@ fn a_lock_that_outlasts_the_settlement_leaves_the_attempt_to_the_next_resume() {
     drop(holder);
     let mut resumed = resumed(dir.path(), &run_id);
     let again = resumed.drive().unwrap();
-    assert_eq!(again.state.status, Status::AwaitingOperator);
+    assert_eq!(again.state.run.status(), Status::AwaitingOperator);
     assert!(landed(&resumed).is_empty());
     let events = resumed.store.load(&run_id).unwrap();
     let tail: Vec<_> = events[events.len() - 2..]
@@ -1639,5 +1646,5 @@ fn a_riding_stop_keeps_its_ending_once_the_attempt_is_settled() {
         events.last().unwrap().event_type,
         EventType::EffectIndeterminate
     );
-    assert_eq!(fold(&events).unwrap().cursor, Cursor::Stop);
+    assert_eq!(fold(&events).unwrap().run, Run::Running(Cursor::Stop));
 }

@@ -518,13 +518,16 @@ fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
         standing,
         rule: rule.map(|(rule, _)| rule.to_string()),
         residual,
-        reason: state.park_reason.clone(),
+        reason: state
+            .run
+            .park_reason()
+            .map(|reason| reason.as_str().to_string()),
         text,
     }
 }
 
 pub(crate) fn standing_of(state: &RunState) -> Standing {
-    match state.status {
+    match state.run.status() {
         Status::Running => Standing::Running,
         Status::AwaitingOperator => Standing::Parked,
         Status::Completed => Standing::Shipped,
@@ -573,7 +576,9 @@ fn open_severity(residuals: &[ResidualFinding]) -> Option<Severity> {
 // ------------------------------------------------------------ run rows
 
 fn run_row(entry: &RunEntry) -> RunRow {
-    let status = entry.state.map(|state| state.status.as_str().to_string());
+    let status = entry
+        .state
+        .map(|state| state.run.status().as_str().to_string());
     let status_known = match &status {
         Some(status) => KNOWN_STATUS.contains(&status.as_str()),
         None => false,
@@ -603,7 +608,7 @@ fn run_row(entry: &RunEntry) -> RunRow {
 
 /// The seat the fold's cursor has hired for the current effect.
 fn hire(state: &RunState) -> Option<Hire> {
-    match &state.cursor {
+    match state.run.cursor()? {
         Cursor::ExecuteEffect {
             seat,
             failed_attempts,
@@ -622,8 +627,7 @@ fn hire(state: &RunState) -> Option<Hire> {
         | Cursor::RequestEffect
         | Cursor::Decide { .. }
         | Cursor::Park { .. }
-        | Cursor::Stop
-        | Cursor::Idle => None,
+        | Cursor::Stop => None,
     }
 }
 

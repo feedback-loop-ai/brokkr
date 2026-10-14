@@ -5,7 +5,7 @@
 
 use std::error::Error as _;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventType;
@@ -73,6 +73,11 @@ fn launch_in(ws: &Path, mapped: bool, repo: Option<&str>) -> String {
         true => RunMap::Named(World::load(&ws.join("realms.json")).unwrap()),
         false => RunMap::Unmapped,
     };
+    launch_under(ws, map, repo)
+}
+
+/// The launch `brokkr queue add --repo <repo>` makes in `ws` under `map`.
+fn launch_under(ws: &Path, map: RunMap, repo: Option<&str>) -> String {
     let request = LaunchRequest {
         workspace: ws.to_path_buf(),
         bundle: BundleSource::Dir("bundle".into()),
@@ -319,40 +324,54 @@ fn a_map_path_that_cannot_be_resolved_holds_the_entry_queued_under_none() {
     let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
     let entry = add(&mut store, &launch(ws.path(), false), &[]);
     let path = ws.path().join("realms.json");
-    let held = vec![(
-        entry.0,
-        Standing::Held,
-        vec![Reason::MapUnreadable(format!(
-            "no realms map at {}",
-            path.display()
-        ))],
-    )];
+    // Each refused by the one presence rule `brokkr run` reads too
+    // (decision 0083; round 634b's first finding).
+    let held = |why: String| vec![(entry.0, Standing::Held, vec![Reason::MapUnreadable(why)])];
     let free = vec![(entry.0, Standing::Admissible, vec![])];
     assert_eq!(verdicts(&store), free);
-    /// What is planted at the map's path, how, and how it is cleared.
-    type Plant = (&'static str, fn(&Path), fn(&Path));
+    /// What is planted at the map's path, how, how it is cleared, and
+    /// why it holds the entry.
+    type Plant = (&'static str, fn(&Path), fn(&Path), fn(&Path) -> String);
     let link = |path: &Path| std::fs::remove_file(path).unwrap();
     let plants: [Plant; 3] = [
         (
             "a looping link",
             |path| std::os::unix::fs::symlink(path, path).unwrap(),
             link,
+            |path| {
+                let looped = std::fs::metadata(path).unwrap_err();
+                format!("reading {}: {looped}", path.display())
+            },
         ),
         (
             "a dangling link",
             |path| std::os::unix::fs::symlink(path.with_file_name("gone.json"), path).unwrap(),
             link,
+            |path| {
+                format!(
+                    "{} is a link to nothing (decision 0083 ruling 4: a linked entry is the \
+                     entry); mend or remove the link",
+                    path.display()
+                )
+            },
         ),
         (
             "a directory",
             |path| std::fs::create_dir(path).unwrap(),
             |path| std::fs::remove_dir(path).unwrap(),
+            |path| {
+                format!(
+                    "{} is not a file (decision 0083): the default realms map is a file, or a \
+                     link to one; move or remove it",
+                    path.display()
+                )
+            },
         ),
     ];
-    for (plant, at, clear) in plants {
+    for (plant, at, clear, why) in plants {
         at(&path);
         judge(&mut store, BY).unwrap();
-        assert_eq!(verdicts(&store), held, "{plant}");
+        assert_eq!(verdicts(&store), held(why(&path)), "{plant}");
         assert_eq!(store.queue_list().unwrap()[0].latch, None, "{plant}");
         clear(&path);
         assert_eq!(verdicts(&store), free, "{plant} cleared");
@@ -376,14 +395,16 @@ fn a_map_path_that_cannot_be_looked_up_holds_the_entry_queued_under_none() {
     );
     std::fs::remove_dir(&inner).unwrap();
     std::fs::write(&inner, "").unwrap();
+    let map = inner.join("realms.json");
+    let unreadable = std::fs::metadata(&map).unwrap_err();
     assert_eq!(
         verdicts(&store),
         vec![(
             entry.0,
             Standing::Held,
             vec![Reason::MapUnreadable(format!(
-                "no realms map at {}",
-                inner.join("realms.json").display()
+                "reading {}: {unreadable}",
+                map.display()
             ))],
         )]
     );
@@ -725,6 +746,118 @@ fn an_entry_queued_under_no_map_is_held_when_a_map_names_its_repository() {
     assert_eq!(
         verdicts(&store),
         vec![(entry.0, Standing::Held, vec![held])]
+    );
+}
+
+/// A workspace whose map names realm `b` at it, a journal holding one
+/// entry queued under that map as the workspace adopted it, admissible,
+/// and the place a folder's map would take there.
+fn adopted() -> (tempfile::TempDir, Store, EntryId, PathBuf) {
+    let ws = workspace();
+    map(ws.path(), json!({}));
+    let adopted = World::load(&ws.path().join("realms.json")).unwrap();
+    let mut store = Store::open(&ws.path().join("forge.db")).unwrap();
+    let entry = add(
+        &mut store,
+        &launch_under(ws.path(), RunMap::Ambient(adopted), None),
+        &[],
+    );
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Admissible, vec![])]
+    );
+    let folder = ws
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join(".brokkr/realms.json");
+    std::fs::create_dir_all(folder.parent().unwrap()).unwrap();
+    (ws, store, entry, folder)
+}
+
+/// An entry queued under the map its workspace adopted asks where the
+/// workspace's default map stands now (round 634k's first finding): a
+/// folder planted since whose map's place is a directory holds it by the
+/// refusal `brokkr run` gives, unlatched.
+#[test]
+fn an_adopted_map_whose_place_is_no_file_now_holds_the_entry() {
+    let (_ws, mut store, entry, folder) = adopted();
+    std::fs::create_dir(&folder).unwrap();
+    let not_a_file = format!(
+        "{} is not a file (decision 0083): the default realms map is a file, or a link to one; \
+         move or remove it",
+        folder.display()
+    );
+    judge(&mut store, BY).unwrap();
+    assert_eq!(
+        verdicts(&store),
+        vec![(
+            entry.0,
+            Standing::Held,
+            vec![Reason::MapUnreadable(not_a_file)]
+        )]
+    );
+    assert_eq!(store.queue_list().unwrap()[0].latch, None);
+}
+
+/// The folder's own map planted beside the map an entry adopted, the same
+/// realm in it, is a change that latches (round 634k's first finding);
+/// and once the entry is re-pinned to it, that map gone is a change too.
+#[test]
+fn an_adopted_map_that_moved_or_went_is_a_change() {
+    let (ws, mut store, entry, folder) = adopted();
+    let moved = json!({"schema": "forge.realms/v7", "journal": "forge.db",
+                       "realms": [realm("b", "..", json!({}))]});
+    std::fs::write(&folder, moved.to_string()).unwrap();
+    let place = Difference::Map {
+        was: ws.path().join("realms.json").display().to_string(),
+        now: Some(folder.display().to_string()),
+    };
+    assert_eq!(
+        place.to_string(),
+        format!(
+            "the realms map {} → {}",
+            ws.path().join("realms.json").display(),
+            folder.display()
+        )
+    );
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Held, vec![changed(vec![place.clone()])])]
+    );
+    judge(&mut store, BY).unwrap();
+    assert_ne!(store.queue_list().unwrap()[0].latch, None);
+    assert_eq!(
+        release(&mut store, entry, BY).unwrap(),
+        Released(vec![place])
+    );
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Admissible, vec![])]
+    );
+
+    std::fs::remove_file(&folder).unwrap();
+    let gone = changed(vec![
+        Difference::Map {
+            was: folder.display().to_string(),
+            now: None,
+        },
+        Difference::Realm {
+            was: Some("b".into()),
+            now: None,
+        },
+    ]);
+    assert_eq!(
+        gone.to_string(),
+        format!(
+            "realm b changed since queued: the realms map {} → none; the repository's realm b \
+             → none",
+            folder.display()
+        )
+    );
+    assert_eq!(
+        verdicts(&store),
+        vec![(entry.0, Standing::Held, vec![gone])]
     );
 }
 

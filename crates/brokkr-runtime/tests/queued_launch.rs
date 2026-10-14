@@ -13,11 +13,15 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use brokkr_core::realms::Boundary;
 use brokkr_runtime::launch::{self, BundleSource, LaunchError, LaunchRequest, NewRun, RunMap};
 use brokkr_runtime::launch::{Encoding, QueuedLaunch};
+use brokkr_runtime::places::PlacesError;
 use brokkr_runtime::{CompileError, Engine, World};
 use brokkr_store::Store;
 use serde_json::{json, Value};
 
 static CWD: Mutex<()> = Mutex::new(());
+
+/// A recipe library's mark under a workspace (decision 0083 ruling 4).
+const LIBRARY_MARK: &str = "recipes/mark/bundle.json";
 
 /// The process standing in a directory until dropped, alone.
 struct Standing {
@@ -55,6 +59,13 @@ fn copy_shipped(root: &Path, relative: &str) {
     std::fs::copy(repository_root().join(relative), to).unwrap();
 }
 
+/// The shipped adapters, under `workspace`'s library layout.
+fn adapters(workspace: &Path) {
+    for adapter in ["claude", "codex", "dsh", "exec", "lanetally"] {
+        copy_shipped(workspace, &format!("adapters/{adapter}.json"));
+    }
+}
+
 /// A bundle `name` under `dir` whose two seats, `work` then `review`, are
 /// each `seat`, bound to a role that declares `web-search` as DATA (GP2).
 fn bundle(dir: &Path, name: &str, seat: Value) {
@@ -78,7 +89,8 @@ fn bundle(dir: &Path, name: &str, seat: Value) {
 /// nothing, and `b`, an `open` realm granting `web-search` through the
 /// shipped Codex dialect. Each holds the shipped adapters, an exec bundle
 /// `bundle` named for it, and a bundle `searcher` whose Codex seat
-/// requires `web-search`.
+/// requires `web-search`. Each is marked a recipe library, so a start
+/// keeps the library's `.forge/` layout (decision 0083 ruling 4).
 struct Fleet {
     _dir: tempfile::TempDir,
     root: PathBuf,
@@ -104,13 +116,12 @@ impl Fleet {
                                    "--model", "gpt-6-astra", "--effort", "high"]}});
         for name in ["a", "b"] {
             let workspace = root.join(name);
-            for adapter in ["claude", "codex", "dsh", "exec", "lanetally"] {
-                copy_shipped(&workspace, &format!("adapters/{adapter}.json"));
-            }
+            adapters(&workspace);
             let exec = json!({"role": "roles/seat.md", "results": ["complete"],
                 "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]}});
             bundle(&workspace.join("bundle"), &format!("bundle-{name}"), exec);
             bundle(&workspace.join("searcher"), "searcher", searcher.clone());
+            write(&workspace.join(LIBRARY_MARK), &json!({}));
         }
         Fleet { _dir: dir, root }
     }
@@ -150,6 +161,42 @@ impl Fleet {
         queued.repo = Some(".".into());
         queued.secrets = Some("secrets.env".into());
         queued.encode().unwrap()
+    }
+
+    /// The payload a launch of `bundle` from workspace `name` is queued
+    /// as, with no map and no repository or secrets store named.
+    fn unmapped(&self, name: &str) -> String {
+        self.queued_in(self.workspace(name), "bundle".into())
+    }
+
+    /// The payload a launch of the bundle at `bundle` from `workspace` is
+    /// queued as, with no map and no repository or secrets store named.
+    fn queued_in(&self, workspace: PathBuf, bundle: PathBuf) -> String {
+        let request = LaunchRequest {
+            workspace,
+            bundle: BundleSource::Dir(bundle),
+            journal: self.journal(),
+            repo: None,
+            secrets: None,
+            host_path: Default::default(),
+        };
+        let run = NewRun {
+            feature: "queued".into(),
+            ..NewRun::default()
+        };
+        QueuedLaunch::of(&request, &run).unwrap().encode().unwrap()
+    }
+
+    /// Workspace `a` made a git library's root, and the payload a launch of
+    /// its bundle from its `src/` is queued as: the library, `src` and the
+    /// payload.
+    fn queued_from_src(&self) -> (PathBuf, PathBuf, String) {
+        let library = self.workspace("a");
+        std::fs::create_dir(library.join(".git")).unwrap();
+        let src = library.join("src");
+        adapters(&src);
+        let payload = self.queued_in(src.clone(), library.join("bundle"));
+        (library, src, payload)
     }
 
     /// `payload` rebuilt and started where the process stands now.
@@ -207,19 +254,7 @@ fn a_relative_payload_started_elsewhere_is_admitted_in_its_own_workspace() {
 fn an_unmapped_entry_queued_without_a_repository_operates_its_workspace() {
     let fleet = Fleet::new();
     let a = fleet.workspace("a");
-    let request = LaunchRequest {
-        workspace: a.clone(),
-        bundle: BundleSource::Dir("bundle".into()),
-        journal: fleet.journal(),
-        repo: None,
-        secrets: None,
-        host_path: Default::default(),
-    };
-    let run = NewRun {
-        feature: "queued".into(),
-        ..NewRun::default()
-    };
-    let payload = QueuedLaunch::of(&request, &run).unwrap().encode().unwrap();
+    let payload = fleet.unmapped("a");
     let (rebuilt, _) = QueuedLaunch::decode(&payload)
         .unwrap()
         .rebuild(fleet.journal(), Default::default())
@@ -264,4 +299,121 @@ fn a_requirement_refused_in_the_queued_realm_stays_refused_from_a_realm_that_gra
     assert_eq!(reason, said);
     assert_eq!(error.to_string(), format!("bundle: {said}"));
     assert_eq!(fleet.runs(), before);
+}
+
+/// A workspace's folder replaced by a file, or by a link to a directory,
+/// between queueing and dispatch refuses the start by name, before a
+/// journal is opened: the dispatcher never falls back to the library
+/// layout the workspace also holds (decision 0083; round 634b's fourth
+/// finding). And a folder removed outright leaves no place for the run's
+/// state, refused in the CLI's words rather than written to a `.forge/` in
+/// a bare repository (round 634c's second finding).
+#[test]
+fn a_folder_replaced_after_queueing_refuses_the_start() {
+    let fleet = Fleet::new();
+    let a = fleet.workspace("a");
+    std::fs::remove_file(a.join(LIBRARY_MARK)).unwrap();
+    let folder = a.join(".brokkr");
+    std::fs::create_dir(&folder).unwrap();
+    let payload = fleet.unmapped("a");
+    let _standing = Standing::in_dir(&fleet.workspace("b"));
+    let refused = || {
+        let Err(error) = fleet.start(&payload) else {
+            panic!("started under the library layout: {:?}", fleet.runs());
+        };
+        error
+    };
+    std::fs::remove_dir(&folder).unwrap();
+    std::fs::write(&folder, "").unwrap();
+    let error = refused();
+    let named = |error: &LaunchError| matches!(error, LaunchError::Places(PlacesError::NotADirectory { root }) if *root == a);
+    assert!(named(&error), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{}/.brokkr is not a directory (decision 0083); Brokkr's folder must be one: move or \
+             remove it",
+            a.display()
+        )
+    );
+    std::fs::remove_file(&folder).unwrap();
+    std::os::unix::fs::symlink(fleet.workspace("b"), &folder).unwrap();
+    let error = refused();
+    assert!(named(&error), "{error:?}");
+    std::fs::remove_file(&folder).unwrap();
+    let error = refused();
+    let no_place = |error: &LaunchError| matches!(error, LaunchError::Places(PlacesError::NoPlace { cwd, root }) if *cwd == a && *root == a);
+    assert!(no_place(&error), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "no .brokkr/ folder from {} up to {}, and {} is not a recipe library (decision \
+             0083); nothing was created: run `brokkr init .` from {}",
+            a.display(),
+            a.display(),
+            a.display(),
+            a.display()
+        )
+    );
+    assert!(!fleet.journal().exists() && !a.join(".forge").exists());
+}
+
+/// A `.brokkr` made below a git library's root after its launch was
+/// queued refuses the start in `brokkr run`'s words, before a journal row
+/// is written (round 634i's first finding): the dispatch takes the CLI's
+/// own walk from the queued workspace, so its state and its places are
+/// never judged from the nested folder or from the library beside it.
+#[test]
+fn a_nested_folder_made_after_queueing_refuses_the_start() {
+    let fleet = Fleet::new();
+    let (library, src, payload) = fleet.queued_from_src();
+    let _standing = Standing::in_dir(&fleet.workspace("b"));
+    let admitted = fleet.start(&payload).unwrap();
+    let before = fleet.runs();
+    assert_eq!(before, std::slice::from_ref(&admitted.run_id));
+
+    std::fs::create_dir(src.join(".brokkr")).unwrap();
+    let Err(error) = fleet.start(&payload) else {
+        panic!("started beside a nested folder: {:?}", fleet.runs());
+    };
+    refused_as_nested(&error, &src, &library);
+    assert_eq!(fleet.runs(), before);
+}
+
+/// `error` is the nested folder's refusal, of the `.brokkr` in `path`
+/// below the repository root `root`, in `brokkr run`'s words.
+fn refused_as_nested(error: &LaunchError, path: &Path, root: &Path) {
+    let nested = |error: &LaunchError| matches!(error, LaunchError::Places(PlacesError::Nested { path: at, root: top }) if at == path && top == root);
+    assert!(nested(error), "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "{}/.brokkr is not at this repository's root {} (decision 0083); Brokkr reads only \
+             {}/.brokkr: move or remove it",
+            path.display(),
+            root.display(),
+            root.display()
+        )
+    );
+}
+
+/// A queued workspace moved and replaced by a link before dispatch is
+/// judged where it now stands, as `brokkr run` from it is (round 634j's
+/// first finding): a `.brokkr` above the real directory refuses the
+/// start in the nested folder's words before a journal is opened, though
+/// the link's own name has no `.brokkr` above it.
+#[test]
+fn a_workspace_linked_after_queueing_is_judged_where_it_stands() {
+    let fleet = Fleet::new();
+    let (library, src, payload) = fleet.queued_from_src();
+    let (other, real) = (library.join("other"), library.join("other/deep"));
+    std::fs::create_dir_all(other.join(".brokkr")).unwrap();
+    std::fs::rename(&src, &real).unwrap();
+    std::os::unix::fs::symlink(&real, &src).unwrap();
+    let _standing = Standing::in_dir(&fleet.workspace("b"));
+    let Err(error) = fleet.start(&payload) else {
+        panic!("started below a nested folder: {:?}", fleet.runs());
+    };
+    refused_as_nested(&error, &other, &library);
+    assert!(!fleet.journal().exists());
 }

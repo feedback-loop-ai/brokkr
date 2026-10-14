@@ -7,7 +7,7 @@ use super::tests::{
     cell_at, drawn, frame_of, lines_of, script, state_of, test_ops, NOW, T0, TERMINAL,
 };
 use super::*;
-use brokkr_core::fold::{Cursor, RunState, Status};
+use brokkr_core::fold::{Cursor, ParkReason, Run, RunState, Status};
 use brokkr_view::{Quarantine, ResidualFinding};
 use ratatui::backend::TestBackend;
 use serde_json::{json, Value};
@@ -53,12 +53,13 @@ What was asked:\n\
 /// the reviewer (#503).
 fn reviewing(decision: Value) -> RunState {
     let mut review = ruled(Status::Running, "review", decision);
-    review.cursor = Cursor::EffectInFlight {
+    review.run = Run::Running(Cursor::EffectInFlight {
         effect_id: "e9".to_string(),
         attempt_id: "a9".to_string(),
         seat: "reviewer".to_string(),
         failed_attempts: 1,
-    };
+        stop_rides: false,
+    });
     review
 }
 
@@ -94,7 +95,9 @@ pub(super) fn fleet_to_act_on() -> Views {
         "review",
         decided("REVIEW-UNVERIFIED-SECURITY", "review", None),
     );
-    held.park_reason = Some("REVIEW-UNVERIFIED-SECURITY for (review, clean)".to_string());
+    held.run = Run::AwaitingOperator {
+        reason: ParkReason::read("REVIEW-UNVERIFIED-SECURITY for (review, clean)".to_string()),
+    };
     let low = [finding("landing-4-of-the-fleet-2a3b4c5d", "low")];
     let high = [finding(HELD, "high")];
     let entry = |run_id, feature, created_at, state, residuals| brokkr_view::RunEntry {

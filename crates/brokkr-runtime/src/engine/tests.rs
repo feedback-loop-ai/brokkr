@@ -4,8 +4,10 @@ use crate::agents::HarnessHands;
 use crate::bundle::{Limits, Seat};
 use crate::dispatch_fixture::dispatch_envelope;
 use crate::envelope_builder::EnvelopeBuilder;
+use crate::run_state::run_state;
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::decision::{Decision, PhaseResult, ReviewedHeads};
+use brokkr_core::fold::Status;
 use brokkr_core::policy::Machine;
 // A test whose sites get real hands plays in an engine of its own (#403),
 // so no other test's orphan reads as a stray of its attempt.
@@ -266,10 +268,15 @@ fn selected_case_is_journal_derived_and_phase_entry_records_it_or_parks() {
 
     runtime.drive_once().unwrap();
     let parked = fold(&runtime.store.load(&runtime.run_id).unwrap()).unwrap();
-    assert_eq!(parked.status, Status::AwaitingOperator);
-    assert!(parked.park_reason.unwrap().contains("SELECT-NO-DEFAULT"));
+    assert_eq!(parked.run.status(), Status::AwaitingOperator);
+    assert!(parked
+        .run
+        .park_reason()
+        .unwrap()
+        .as_str()
+        .contains("SELECT-NO-DEFAULT"));
 
-    let unresolved = runtime.seat_input(&state(None, Cursor::Idle), "work", "effect");
+    let unresolved = runtime.seat_input(&state(None, Cursor::RequestEffect), "work", "effect");
     let detail = "seat 'work' selector has no resolved body".to_string();
     assert_eq!(invariant(unresolved), ("selector has body", detail));
 
@@ -371,7 +378,7 @@ read -r done
 fn forward_context_carries_only_typed_phase_facts() {
     let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
     runtime.bundle.machine.phases.insert(0, "specify".into());
-    let mut current = state(Some("work"), Cursor::Idle);
+    let mut current = state(Some("work"), Cursor::RequestEffect);
     drafted(&mut current, "0042-dialect");
     let input = runtime.seat_input(&current, "work", "effect").unwrap();
     assert_eq!(input["context"]["results"]["specify"]["result"], "drafted");
@@ -398,14 +405,14 @@ fn implement_receives_dialect_instructions_only_after_a_change_exists() {
 
     let without_change = runtime
         .seat_input(
-            &state(Some("implement"), Cursor::Idle),
+            &state(Some("implement"), Cursor::RequestEffect),
             "implement",
             "fast-effect",
         )
         .unwrap();
     assert!(without_change.get("spec_dialect").is_none());
 
-    let mut sdd = state(Some("implement"), Cursor::Idle);
+    let mut sdd = state(Some("implement"), Cursor::RequestEffect);
     drafted(&mut sdd, "decision-0042");
     let with_change = runtime.seat_input(&sdd, "implement", "sdd-effect").unwrap();
     assert_eq!(with_change["spec_dialect"], "Archive the dialect change.");
@@ -416,7 +423,7 @@ fn an_undeclared_change_claim_is_dropped() {
     let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
     runtime
         .decide(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             json!({"result":"complete", "inputs":{"change":"must-not-pass"}}),
         )
         .unwrap();
@@ -429,7 +436,7 @@ fn an_undeclared_change_claim_is_dropped() {
     declared.bundle.seats.get_mut("work").unwrap().inputs = vec!["change".into()];
     declared
         .decide(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             json!({"result":"complete", "inputs":{"change":"Not/a/change"}}),
         )
         .unwrap();
@@ -566,7 +573,11 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
         steps: vec![metadata_step],
     });
     let rendered = metadata
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .seat_input(
+            &state(Some("work"), Cursor::RequestEffect),
+            "work",
+            "effect",
+        )
         .unwrap();
     assert_eq!(rendered["steps"][0]["dialect"]["argv"][0], "validator");
 
@@ -856,7 +867,7 @@ read -r done
     let before = fold(&runtime.store.load(&run_id).unwrap()).unwrap();
     assert_eq!(before.phase.as_deref(), Some("work"));
     assert_eq!(before.strategy.as_deref(), Some("feature"));
-    assert_eq!(before.cursor, Cursor::RequestEffect);
+    assert_eq!(before.run, Run::Running(Cursor::RequestEffect));
     drop(runtime);
 
     let resumed = Engine::resume(
@@ -883,25 +894,35 @@ read -r done
 }
 
 pub(super) fn state(phase: Option<&str>, cursor: Cursor) -> RunState {
-    RunState {
-        run_id: "run".into(),
-        seq: 1,
-        last_hash: ZERO_HASH.into(),
-        status: Status::Running,
-        phase: phase.map(str::to_string),
-        cursor,
-        consecutive_failures: BTreeMap::new(),
-        visits: BTreeMap::new(),
-        strategy: None,
-        last_result: None,
-        phase_results: BTreeMap::new(),
-        reviewed_heads: None,
-        last_decision: None,
-        park_reason: None,
-        feature: Some("feature".into()),
-        pending_command: None,
-        riding_stop: false,
-    }
+    let mut state = run_state("run", 1, Run::Running(cursor));
+    state.last_hash = ZERO_HASH.into();
+    state.phase = phase.map(str::to_string);
+    state.feature = Some("feature".into());
+    state
+}
+
+/// The input `seat` is handed for effect `effect`, in the phase it names.
+pub(super) fn seat_input_of(engine: &Engine, seat: &str) -> Value {
+    let current = state(Some(seat), Cursor::RequestEffect);
+    engine.seat_input(&current, seat, "effect").unwrap()
+}
+
+/// `execute` effect `effect` for seat `work` over `events`, in phase `work`.
+pub(super) fn execute_work(
+    engine: &mut Engine,
+    events: &[EventEnvelope],
+) -> Result<(), EngineError> {
+    let current = state(Some("work"), Cursor::RequestEffect);
+    engine.execute(events, &current, "effect", "work")
+}
+
+/// `advance_running` at `cursor` in phase `work`, over `events`.
+fn advance_at(
+    engine: &mut Engine,
+    events: &[EventEnvelope],
+    cursor: Cursor,
+) -> Result<(), EngineError> {
+    engine.advance_running(events, cursor.clone(), state(Some("work"), cursor))
 }
 
 /// A recorded `transition/decided` payload, as the fold keeps it.
@@ -940,7 +961,7 @@ fn sequence_journal(
 /// Ship decided over the heads review `recorded`: the inputs of the
 /// decision journaled at `at`.
 fn ship_inputs(engine: &mut Engine, recorded: Value, at: usize) -> Value {
-    let mut ship = state(Some("ship"), Cursor::Idle);
+    let mut ship = state(Some("ship"), Cursor::RequestEffect);
     ship.reviewed_heads = Some(ReviewedHeads::read(&recorded));
     engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     engine.store.load(&engine.run_id).unwrap()[at].payload["inputs"].clone()
@@ -1034,8 +1055,8 @@ read -r done
     compiled.seats.get_mut("work").unwrap().has_gate = true;
     let mut engine = Engine::start(store, compiled, "gate moves", Some(repo)).unwrap();
     let end = engine.drive().unwrap();
-    assert_eq!(end.state.status, Status::AwaitingOperator);
-    assert_eq!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
+    assert!(parked_on_moved_head(&end.state));
     let events = engine.store.load(&engine.run_id).unwrap();
     let parked = events
         .iter()
@@ -1075,14 +1096,15 @@ read -r done
     compiled.seats.get_mut("work").unwrap().has_gate = true;
     let mut engine = Engine::start(store, compiled, "gate stays", Some(repo)).unwrap();
     let end = engine.drive().unwrap();
-    assert_eq!(end.state.status, Status::AwaitingOperator);
+    assert_eq!(end.state.run.status(), Status::AwaitingOperator);
     assert_eq!(end.state.phase.as_deref(), Some("work"));
-    assert_ne!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+    assert!(!parked_on_moved_head(&end.state));
     assert!(end
         .state
-        .park_reason
-        .as_deref()
+        .run
+        .park_reason()
         .unwrap()
+        .as_str()
         .contains("failed 2 of 2"));
 }
 
@@ -1260,12 +1282,12 @@ fn a_compiled_mixed_sequence_guards_the_gate_step_not_the_work_step() {
             "the work chief commits"
         );
         if gate_commits {
-            assert_eq!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+            assert!(parked_on_moved_head(&end.state));
             assert!(!events
                 .iter()
                 .any(|event| event.event_type == EventType::EffectSucceeded));
         } else {
-            assert_ne!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+            assert!(!parked_on_moved_head(&end.state));
             assert!(
                 events
                     .iter()
@@ -1291,6 +1313,11 @@ fn commit_subjects(repo: &Path) -> Vec<String> {
         .collect()
 }
 
+/// Did the run park on the gate that moved the operated repo's HEAD?
+fn parked_on_moved_head(state: &RunState) -> bool {
+    state.run.park_reason() == Some(&ParkReason::GateMovedHead)
+}
+
 #[test]
 fn a_work_step_that_commits_after_a_gate_step_is_not_the_gate_s_doing() {
     let dir = tempfile::tempdir().unwrap();
@@ -1311,7 +1338,7 @@ fn a_work_step_that_commits_after_a_gate_step_is_not_the_gate_s_doing() {
         "the work step commits after the gate"
     );
     assert!(commit_subjects(&repo).contains(&"work-moved-head".to_string()));
-    assert_ne!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+    assert!(!parked_on_moved_head(&end.state));
     assert!(
         events
             .iter()
@@ -1332,7 +1359,7 @@ fn a_gate_step_that_commits_parks_on_its_own_span_before_the_work_step_runs() {
     let end = engine.drive().unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
 
-    assert_eq!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+    assert!(parked_on_moved_head(&end.state));
     let parked = events
         .iter()
         .find(|event| event.event_type == EventType::RunParked)
@@ -1404,15 +1431,15 @@ read -r done
     // recovery, and it answers for itself: nothing armed survives to be
     // spent on it, though the head has moved since the gate started.
     let end = engine.drive().unwrap();
-    assert_ne!(end.state.park_reason.as_deref(), Some("GATE-MOVED-HEAD"));
+    assert!(!parked_on_moved_head(&end.state));
     assert!(
         end.state
-            .park_reason
-            .as_deref()
-            .unwrap_or_default()
+            .run
+            .park_reason()
+            .map_or("", ParkReason::as_str)
             .contains("engine restarted while the attempt was in flight"),
         "{:?}",
-        end.state.park_reason
+        end.state.run
     );
     let events = engine.store.load(&engine.run_id).unwrap();
     assert!(
@@ -1743,16 +1770,25 @@ fn request_finish_input_and_execute_refusals_are_journaled() {
         .unwrap();
     let missing = "no seat for phase 'missing' (compile enforces this)";
     assert_eq!(
-        invariant(engine.seat_input(&state(Some("work"), Cursor::Idle), "missing", "effect")),
+        invariant(engine.seat_input(
+            &state(Some("work"), Cursor::RequestEffect),
+            "missing",
+            "effect"
+        )),
         ("phase has seat", missing.into())
     );
 
     assert_eq!(
-        invariant(engine.execute(&[], &state(None, Cursor::Idle), "effect", "work")),
+        invariant(engine.execute(&[], &state(None, Cursor::RequestEffect), "effect", "work")),
         ("cursor has phase", "effect without a phase".into())
     );
     assert_eq!(
-        invariant(engine.execute(&[], &state(Some("work"), Cursor::Idle), "effect", "work")),
+        invariant(engine.execute(
+            &[],
+            &state(Some("work"), Cursor::RequestEffect),
+            "effect",
+            "work"
+        )),
         ("effect requested", "no requested event for effect".into())
     );
 
@@ -1760,14 +1796,7 @@ fn request_finish_input_and_execute_refusals_are_journaled() {
         EventType::EffectRequested,
         json!({"effect_id":"effect", "input_digest":"wrong"}),
     );
-    engine
-        .execute(
-            &[requested],
-            &state(Some("work"), Cursor::Idle),
-            "effect",
-            "work",
-        )
-        .unwrap();
+    execute_work(&mut engine, &[requested]).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     assert!(events.iter().any(|event| {
         event.event_type == EventType::EffectFailed
@@ -2249,15 +2278,18 @@ fn git_commit(repo: &Path, message: &str) -> String {
 fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
     assert_eq!(
-        invariant(engine.decide(&state(None, Cursor::Idle), json!({"result":"complete"}))),
+        invariant(engine.decide(
+            &state(None, Cursor::RequestEffect),
+            json!({"result":"complete"})
+        )),
         ("cursor has phase", "decide without a phase".into())
     );
     engine
-        .decide(&state(Some("work"), Cursor::Idle), json!(2))
+        .decide(&state(Some("work"), Cursor::RequestEffect), json!(2))
         .unwrap();
     engine
         .decide(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             json!({"notes":"missing result"}),
         )
         .unwrap();
@@ -2271,7 +2303,7 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
         .push("unruled".into());
     engine
         .decide(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             json!({"result":"unruled"}),
         )
         .unwrap();
@@ -2282,12 +2314,12 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     engine.repo = repo.clone();
     engine
         .decide(
-            &state(Some("review"), Cursor::Idle),
+            &state(Some("review"), Cursor::RequestEffect),
             json!({"result":"clean"}),
         )
         .unwrap();
     git_commit(&repo, "moved");
-    let mut ship = state(Some("ship"), Cursor::Idle);
+    let mut ship = state(Some("ship"), Cursor::RequestEffect);
     ship.reviewed_heads = Some(ReviewedHeads::read(&json!({"repo":reviewed})));
     engine.decide(&ship, json!({"result":"shipped"})).unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
@@ -2317,7 +2349,7 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     engine.bundle.seats.insert("triage".into(), triage_seat);
     engine
         .decide(
-            &state(Some("triage"), Cursor::Idle),
+            &state(Some("triage"), Cursor::RequestEffect),
             json!({"result":"chore", "notes":"seat reason"}),
         )
         .unwrap();
@@ -2437,7 +2469,7 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
 
     let events = store.load("raced").unwrap();
     // The journal still folds — three refusals later.
-    assert_eq!(fold(&events).unwrap().status, Status::Stopped);
+    assert_eq!(fold(&events).unwrap().run, Run::Stopped);
     let counted = |event_type| {
         events
             .iter()
@@ -2722,8 +2754,8 @@ fn an_operator_command_that_lost_its_fence_is_refused_never_accepted() {
         "the engine's conclusion landed INSIDE the window, which is the race being proved",
     );
     assert_eq!(
-        fold(&events).unwrap().status,
-        Status::Completed,
+        fold(&events).unwrap().run,
+        Run::Completed,
         "the run reached the conclusion the engine wrote, undisturbed",
     );
     assert!(
@@ -2784,7 +2816,13 @@ fn a_command_still_legal_after_the_head_moved_is_decided_again_and_accepted() {
     );
     // A stop accepted mid-flight rides: the attempt is untouched and the
     // effect's own boundary concludes the run. Unchanged by the retry.
-    assert!(fold(&events).unwrap().riding_stop);
+    assert!(matches!(
+        fold(&events).unwrap().run,
+        Run::Running(Cursor::EffectInFlight {
+            stop_rides: true,
+            ..
+        })
+    ));
     assert_eq!(
         events
             .iter()
@@ -2960,9 +2998,8 @@ fn an_accepted_operator_stop_is_carried_to_a_conclusion_that_cites_it() {
         // Round trip: the fold reads back every journal the engine
         // writes, and reads it as the conclusion it is.
         let folded = fold(&events).unwrap();
-        assert_eq!(folded.status, Status::Stopped);
-        assert_eq!(folded.cursor, Cursor::Idle);
-        assert_eq!(end.state.status, Status::Stopped);
+        assert_eq!(folded.run, Run::Stopped);
+        assert_eq!(end.state.run.status(), Status::Stopped);
         events
     };
     let reason = |events: &[EventEnvelope]| {
@@ -3079,7 +3116,6 @@ fn engine_failing(event_type: &str) -> (tempfile::TempDir, Engine) {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn start_append_and_running_cursor_storage_failures_propagate() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("start.db");
@@ -3117,50 +3153,34 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
         .is_err());
 
     let (_kept, mut exhausted) = engine_failing("run/parked");
-    let exhausted_state = state(
-        Some("work"),
-        Cursor::ExecuteEffect {
-            effect_id: "effect".into(),
-            seat: "work".into(),
-            failed_attempts: 2,
-        },
-    );
-    assert!(exhausted.advance_running(&[], exhausted_state).is_err());
+    let exhausted_at = Cursor::ExecuteEffect {
+        effect_id: "effect".into(),
+        seat: "work".into(),
+        failed_attempts: 2,
+    };
+    assert!(advance_at(&mut exhausted, &[], exhausted_at).is_err());
 
     let (_kept, mut in_flight) = engine_failing("effect/indeterminate");
-    let in_flight_state = state(
-        Some("work"),
-        Cursor::EffectInFlight {
-            effect_id: "effect".into(),
-            attempt_id: "attempt".into(),
-            seat: "work".into(),
-            failed_attempts: 0,
-        },
-    );
-    assert!(in_flight.advance_running(&[], in_flight_state).is_err());
+    let in_flight_at = Cursor::EffectInFlight {
+        effect_id: "effect".into(),
+        attempt_id: "attempt".into(),
+        seat: "work".into(),
+        failed_attempts: 0,
+        stop_rides: false,
+    };
+    assert!(advance_at(&mut in_flight, &[], in_flight_at).is_err());
 
     let (_kept, mut parked) = engine_failing("run/parked");
-    assert!(parked
-        .advance_running(
-            &[],
-            state(
-                Some("work"),
-                Cursor::Park {
-                    reason: "park".into(),
-                },
-            ),
-        )
-        .is_err());
+    let parking = Cursor::Park {
+        reason: ParkReason::read("park".into()),
+    };
+    assert!(advance_at(&mut parked, &[], parking).is_err());
 
     let (_kept, mut stopped) = engine_failing("run/stopped");
-    assert!(stopped
-        .advance_running(&[], state(Some("work"), Cursor::Stop))
-        .is_err());
+    assert!(advance_at(&mut stopped, &[], Cursor::Stop).is_err());
 
     let (_kept, mut cursor_shapes) = engine(single_body(vec!["driver".into()]));
-    cursor_shapes
-        .advance_running(&[], state(Some("work"), Cursor::Stop))
-        .unwrap();
+    advance_at(&mut cursor_shapes, &[], Cursor::Stop).unwrap();
     // No operator events to cite (only reachable with a journal the
     // cursor did not come from): the conclusion is still named as one,
     // never a silent or missing event.
@@ -3177,11 +3197,6 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
             "OPERATOR-STOP: operator 'unrecorded' commanded stop (unrecorded): \
                no reason recorded"
         )
-    );
-    let idle = "running state reached the terminal idle cursor";
-    assert_eq!(
-        invariant(cursor_shapes.advance_running(&[], state(Some("work"), Cursor::Idle))),
-        ("running not idle", idle.into())
     );
 
     for events in [
@@ -3200,19 +3215,12 @@ fn start_append_and_running_cursor_storage_failures_propagate() {
         )],
     ] {
         let (_kept, mut engine) = engine(single_body(vec!["driver".into()]));
-        engine
-            .advance_running(
-                &events,
-                state(
-                    Some("work"),
-                    Cursor::ExecuteEffect {
-                        effect_id: "effect".into(),
-                        seat: "work".into(),
-                        failed_attempts: 2,
-                    },
-                ),
-            )
-            .unwrap();
+        let exhausted_at = Cursor::ExecuteEffect {
+            effect_id: "effect".into(),
+            seat: "work".into(),
+            failed_attempts: 2,
+        };
+        advance_at(&mut engine, &events, exhausted_at).unwrap();
     }
 }
 
@@ -3249,7 +3257,7 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
         missing.append(event_type, payload, None).unwrap();
     }
     let end = missing.drive().unwrap();
-    assert_eq!(end.state.status, Status::Completed);
+    assert_eq!(end.state.run.status(), Status::Completed);
     // Returned to the caller, never printed by the engine (#355): one
     // line per gap, in the order the acts ran.
     let run = missing.run_id.clone();
@@ -3297,7 +3305,7 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
         anchored.append(event_type, payload, None).unwrap();
     }
     let end = anchored.drive().unwrap();
-    assert_eq!(end.state.status, Status::Completed);
+    assert_eq!(end.state.run.status(), Status::Completed);
     assert_eq!(end.gaps, Vec::<String>::new());
     let verify = |name: String| {
         Command::new("git")
@@ -3315,7 +3323,7 @@ fn terminal_drive_anchors_keeps_the_exhibits_and_reports_gaps() {
 }
 
 pub(super) fn requested(engine: &Engine, effect_id: &str) -> EventEnvelope {
-    let current = state(Some("work"), Cursor::Idle);
+    let current = state(Some("work"), Cursor::RequestEffect);
     let input = engine.seat_input(&current, "work", effect_id).unwrap();
     event(
         EventType::EffectRequested,
@@ -3337,7 +3345,11 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
 
     let (_dir, mut engine) = engine(single_body(vec!["driver".into()]));
     let plain = engine
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .seat_input(
+            &state(Some("work"), Cursor::RequestEffect),
+            "work",
+            "effect",
+        )
         .unwrap();
     // An unregistered site's confinement is unknown, and unknown publishes
     // no affirmative marker (design D10 F1).
@@ -3346,7 +3358,11 @@ fn a_boxed_site_is_told_so_in_its_driver_input_and_an_unboxed_one_is_not() {
 
     set_site_hands(&mut engine.bundle, "work", HandsSpec::default());
     let boxed = engine
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .seat_input(
+            &state(Some("work"), Cursor::RequestEffect),
+            "work",
+            "effect",
+        )
         .unwrap();
     assert_eq!(boxed["hands"], "boxed");
 
@@ -3391,7 +3407,11 @@ fn ship_journal_is_a_runtime_read_only_bind_not_a_digested_input() {
     let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
     set_site_hands(&mut engine.bundle, "ship", HandsSpec::default());
     let input = engine
-        .seat_input(&state(Some("ship"), Cursor::Idle), "ship", "effect")
+        .seat_input(
+            &state(Some("ship"), Cursor::RequestEffect),
+            "ship",
+            "effect",
+        )
         .unwrap();
     assert!(input["context"].get("journal").is_none());
 
@@ -3491,7 +3511,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
         assert!(engine
             .execute(
                 std::slice::from_ref(&wrong),
-                &state(Some("work"), Cursor::Idle),
+                &state(Some("work"), Cursor::RequestEffect),
                 "effect",
                 "work",
             )
@@ -3503,7 +3523,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
     assert!(started
         .execute(
             &[correct],
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "effect",
             "work",
         )
@@ -3516,7 +3536,7 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
     assert!(checkpointed
         .execute(
             &[correct],
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "effect",
             "work",
         )
@@ -3843,7 +3863,7 @@ fn panel_and_sequence_storage_failures_propagate() {
 fn decision_and_operator_storage_failures_propagate() {
     let (_kept, mut decision) = engine_failing("transition/decided");
     assert!(decision
-        .decide(&state(Some("work"), Cursor::Idle), json!(2))
+        .decide(&state(Some("work"), Cursor::RequestEffect), json!(2))
         .is_err());
 
     let dir = tempfile::tempdir().unwrap();
@@ -3981,7 +4001,11 @@ fn every_seat_input_carries_the_realms_house_and_an_unhoused_realm_carries_nothi
     let housed = world_with_house(dir.path(), &repo, "One realm rule.\n");
     let engine = engine_in(dir.path(), Some(housed), &repo);
     let input = engine
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .seat_input(
+            &state(Some("work"), Cursor::RequestEffect),
+            "work",
+            "effect",
+        )
         .unwrap();
     assert_eq!(input["house_rules"], "One realm rule.\n");
 
@@ -3990,7 +4014,11 @@ fn every_seat_input_carries_the_realms_house_and_an_unhoused_realm_carries_nothi
     std::fs::create_dir(&plain_repo).unwrap();
     let plain_world = world_over(plain_dir.path(), &plain_repo, "brokkr");
     let plain = engine_in(plain_dir.path(), Some(plain_world), &plain_repo)
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .seat_input(
+            &state(Some("work"), Cursor::RequestEffect),
+            "work",
+            "effect",
+        )
         .unwrap();
     assert!(plain.get("house_rules").is_none());
 }
@@ -4007,7 +4035,11 @@ fn seat_input_spells_the_workdir_and_result_path_absolutely() {
     let mut engine = engine_in(dir.path(), None, std::path::Path::new("."));
 
     let input = engine
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .seat_input(
+            &state(Some("work"), Cursor::RequestEffect),
+            "work",
+            "effect",
+        )
         .unwrap();
     // Absoluteness is asserted through `Path`, not through a leading
     // slash: on Windows an absolute path is `C:\...` and the separator
@@ -4028,7 +4060,11 @@ fn seat_input_spells_the_workdir_and_result_path_absolutely() {
     // refusal belongs to the driver rather than to this composition.
     engine.repo = std::path::PathBuf::new();
     let unresolvable = engine
-        .seat_input(&state(Some("work"), Cursor::Idle), "work", "effect")
+        .seat_input(
+            &state(Some("work"), Cursor::RequestEffect),
+            "work",
+            "effect",
+        )
         .unwrap();
     assert_eq!(unresolvable["workdir"], json!(""));
 }
@@ -4218,7 +4254,7 @@ fn repository_facts_are_recorded_under_the_realm_name() {
     let reviewed = git_commit(&repo, "reviewed");
     engine
         .decide(
-            &state(Some("review"), Cursor::Idle),
+            &state(Some("review"), Cursor::RequestEffect),
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4297,7 +4333,7 @@ fn a_repository_the_map_does_not_name_keeps_the_unkeyed_facts() {
     let reviewed = git_commit(&stranger, "reviewed");
     engine
         .decide(
-            &state(Some("review"), Cursor::Idle),
+            &state(Some("review"), Cursor::RequestEffect),
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4318,7 +4354,7 @@ fn realm_facts_state_only_what_the_tree_answers() {
     let mut engine = engine_in(dir.path(), Some(world), &repo);
     engine
         .decide(
-            &state(Some("ship"), Cursor::Idle),
+            &state(Some("ship"), Cursor::RequestEffect),
             json!({"result":"shipped"}),
         )
         .unwrap();
@@ -4392,7 +4428,7 @@ fn realm_facts_key_two_repositories_by_their_own_realm_and_never_cross() {
     assert_ne!(moved, beta_head);
     engine
         .decide(
-            &state(Some("review"), Cursor::Idle),
+            &state(Some("review"), Cursor::RequestEffect),
             json!({"result":"clean"}),
         )
         .unwrap();
@@ -4489,7 +4525,7 @@ fn a_resumed_run_keeps_the_world_its_manifest_pinned() {
     let reviewed = git_commit(&repo, "reviewed");
     resumed
         .decide(
-            &state(Some("review"), Cursor::Idle),
+            &state(Some("review"), Cursor::RequestEffect),
             json!({"result": "clean"}),
         )
         .unwrap();
@@ -4611,7 +4647,7 @@ fn a_sequence_fake_driver_sees_step_results_then_the_seat_results() {
     engine.bundle.seats.get_mut("work").unwrap().results = vec!["pass".into(), "fail".into()];
     let seq_input = engine
         .seat_input(
-            &state(Some("work"), Cursor::Idle),
+            &state(Some("work"), Cursor::RequestEffect),
             "work",
             "vocabulary-effect",
         )
@@ -4704,7 +4740,7 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
         });
         let input = engine
             .seat_input(
-                &state(Some("work"), Cursor::Idle),
+                &state(Some("work"), Cursor::RequestEffect),
                 "work",
                 "vocabulary-effect",
             )
@@ -4825,7 +4861,7 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
                 _ => {}
             }
         }
-        let mut current = state(Some("design"), Cursor::Idle);
+        let mut current = state(Some("design"), Cursor::RequestEffect);
         current.visits.insert("specify".into(), visits);
         let input = engine
             .seat_input(&current, "design", "upstream-effect")
@@ -4923,7 +4959,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
         clear.clone(),
         json!({"result":"ambiguous"}),
     );
-    let mut current = state(Some("clarify"), Cursor::Idle);
+    let mut current = state(Some("clarify"), Cursor::RequestEffect);
     drafted(&mut current, "proof-change");
     let events = sequence_journal(&mut engine, &current, "check", &steps, &selection);
     let contradiction = events
@@ -4937,7 +4973,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
 
     let (_dir, mut engine, steps, selection) =
         judged_sequence("clarify", "clean", clear.clone(), clear);
-    let mut current = state(Some("clarify"), Cursor::Idle);
+    let mut current = state(Some("clarify"), Cursor::RequestEffect);
     drafted(&mut current, "proof-change");
     let events = sequence_journal(&mut engine, &current, "clean", &steps, &selection);
     assert!(events.iter().any(|event| {
@@ -4948,7 +4984,7 @@ fn compiled_loop_check_failure_cannot_be_judged_away() {
     let judged = json!({"result":"drift", "inputs":{"drift_in":"design"}});
     let (_dir, mut engine, steps, selection) =
         judged_sequence("analyze", "analyze", judged, json!({"result":"drift"}));
-    let mut current = state(Some("analyze"), Cursor::Idle);
+    let mut current = state(Some("analyze"), Cursor::RequestEffect);
     current.visits.insert("analyze".into(), 1);
     drafted(&mut current, "proof-change");
     let events = sequence_journal(&mut engine, &current, "analyze", &steps, &selection);
@@ -5156,7 +5192,7 @@ fn enter_review_at(engine: &mut Engine, head: &str) {
 fn review_inputs(engine: &mut Engine, claim: Value) -> Map<String, Value> {
     engine
         .decide(
-            &state(Some("review"), Cursor::Idle),
+            &state(Some("review"), Cursor::RequestEffect),
             json!({"result": "clean", "inputs": claim}),
         )
         .unwrap();
@@ -5195,7 +5231,7 @@ fn a_returning_implement_exposes_its_docs_delta_and_takes_review_directly() {
         )
         .unwrap();
     commit_file(&repo, "docs/answer.md", "# answer\n", "answer finding");
-    let mut returned = state(Some("implement"), Cursor::Idle);
+    let mut returned = state(Some("implement"), Cursor::RequestEffect);
     returned.visits.insert("implement".into(), 2);
     returned.last_decision = Some(decided(json!({"from": "review", "result": "ruled"})));
     engine
@@ -5243,7 +5279,7 @@ fn a_verify_fail_return_with_a_docs_delta_still_goes_through_verify() {
         "# answer\n",
         "answer verify failure",
     );
-    let mut returned = state(Some("implement"), Cursor::Idle);
+    let mut returned = state(Some("implement"), Cursor::RequestEffect);
     returned.visits.insert("implement".into(), 2);
     returned.last_decision = Some(decided(json!({"from": "verify", "result": "ruled"})));
     engine
@@ -5272,7 +5308,7 @@ fn a_review_return_exposes_no_docs_fact_without_both_heads() {
     .unwrap();
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
     let mut engine = Engine::start(store, compiled, "review return", Some(repo.clone())).unwrap();
-    let mut returned = state(Some("implement"), Cursor::Idle);
+    let mut returned = state(Some("implement"), Cursor::RequestEffect);
     returned.last_decision = Some(decided(json!({"from": "review", "result": "ruled"})));
 
     // Without both heads, then without a repository at all.
@@ -5296,7 +5332,7 @@ fn the_protected_phase_is_entered_at_a_recorded_head() {
     let repo = dir.path().join("repo");
     std::fs::create_dir(&repo).unwrap();
     let probe = engine_in(dir.path(), None, &repo);
-    let first_visit = state(None, Cursor::Idle);
+    let first_visit = state(None, Cursor::RequestEffect);
     // Not a git repository yet: no head to record.
     assert_eq!(
         probe.phase_entered_payload("review", &first_visit),
@@ -6285,8 +6321,8 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
         "no acceptance follows a supersede",
     );
     let after = fold(&events).unwrap();
-    assert_eq!(after.status, Status::Stopped, "a mark is not a conclusion");
-    assert_eq!(after.park_reason, before.park_reason);
+    assert_eq!(after.run, Run::Stopped, "a mark is not a conclusion");
+    assert_eq!(after.run, before.run);
     assert_eq!(after.last_decision, before.last_decision);
     assert!(after.pending_command.is_none());
 
@@ -6306,8 +6342,8 @@ fn an_operator_supersede_closes_a_finding_by_name_and_changes_nothing_else() {
     let mut later = Store::open(&db).unwrap();
     conclude(&mut later, "later", "operator", "closing it by hand").unwrap();
     assert_eq!(
-        fold(&later.load("later").unwrap()).unwrap().status,
-        Status::Stopped,
+        fold(&later.load("later").unwrap()).unwrap().run,
+        Run::Stopped,
         "the superseding run has moved on",
     );
     let again = brokkr_view::residual_findings("held", &store.load("held").unwrap());

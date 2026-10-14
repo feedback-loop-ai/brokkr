@@ -215,6 +215,7 @@ fn deliver_in(
         args.push("--realms".to_string());
         args.push(realms.to_str().unwrap().to_string());
     }
+    crate::engine::library(side);
     let out = Command::new(brokkr_bin())
         .args(&args)
         .current_dir(side)

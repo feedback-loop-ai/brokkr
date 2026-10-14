@@ -16,12 +16,12 @@ use crate::{fleet, hearths_of, now_rfc3339, Exit};
 #[derive(clap::Args)]
 #[group(skip)]
 pub(crate) struct AnalyticsArgs {
-    /// The world's map — every hearth it names is read (default
-    /// ./realms.json when present).
+    /// The world's map — every hearth it names is read (default the found folder's
+    /// .brokkr/realms.json, or a library's ./realms.json, when present).
     #[arg(long)]
     pub(crate) realms: Option<PathBuf>,
-    /// The workspace journal. Outranks the map's journal; without
-    /// either, .forge/forge.db as always.
+    /// The workspace journal. Outranks the map's journal; without either, the found folder's
+    /// .brokkr/state/forge.db, or a library's .forge/forge.db.
     #[arg(long)]
     pub(crate) db: Option<PathBuf>,
     /// How far back from now: 24h, 7d or 30d.

@@ -2,16 +2,18 @@
 //! `init`, `doctor`, `compile`, `recipes`, `agents`, `muninn`, `secrets`,
 //! `driver` and the hidden `fake-driver`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use brokkr_core::policy::audit::SWEEP_BUDGET;
 use brokkr_runtime::bundle::is_engine_owned;
 use brokkr_runtime::launch::{self, BundleSource};
+use brokkr_runtime::places::SECRETS;
 use brokkr_runtime::realms::World;
 
 use crate::cli_args::{CompileArgs, DoctorArgs, DriverArgs, FakeDriverArgs, InitArgs};
+use crate::folder::{DoctorDefaults, FolderError, Layout, OldLayout};
 use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
@@ -25,6 +27,12 @@ pub(crate) fn init(workspace: &Path, InitArgs { dir }: InitArgs) -> Result<ExitC
     // for the same reason: what a command produces is a function
     // of its arguments, not of where the caller happens to stand.
     let path = std::env::var_os("PATH").unwrap_or_default();
+    // Decision 0083 ruling 4: a directory holding Brokkr state and no
+    // scaffold is refused with its moves. Writing the folder, and the
+    // rest of ruling 5's refusals, are slice B's (#634).
+    if let Some(old @ OldLayout::StateOnly { .. }) = Layout::of_root(&dir)?.old()? {
+        return Err(FolderError::Old(old).into());
+    }
     let scaffold = init::init(&dir, workspace, &path, std::env::consts::OS)?;
     eprintln!(
         "initialized reviewable bundle at {} (digest {})",
@@ -75,10 +83,11 @@ pub(crate) fn doctor(
         secrets_file,
     }: DoctorArgs,
 ) -> Result<ExitCode> {
+    let cwd = std::env::current_dir().unwrap_or_default();
     let report = doctor::doctor(
         bundle.as_deref(),
         db.as_deref(),
-        &secrets_file,
+        &DoctorDefaults::of(cwd, secrets_file),
         realms.as_deref(),
     );
     println!("{}", report.render());
@@ -97,8 +106,10 @@ pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> 
 
 /// What `compile` and `recipes show` both print: the bundle compiled on
 /// the one path a run starts on, in the workspace's realm
-/// ([`launch::compile_for`]), so the two cannot drift apart (#350).
+/// ([`launch::compile_for`]), so the two cannot drift apart (#350). The
+/// workspace is the discovered folder's root, where there is one.
 fn print_compiled(workspace: &Path, dir: &Path) -> Result<ExitCode> {
+    let workspace = &Layout::discover(workspace)?.workspace();
     let world = World::discover(workspace, None)?;
     let bundle = launch::compile_for(workspace, dir, world.as_ref(), workspace)?;
     println!(
@@ -117,9 +128,10 @@ fn print_compiled(workspace: &Path, dir: &Path) -> Result<ExitCode> {
 
 /// `brokkr recipes`: list, add or show a recipe.
 pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode> {
+    let found = &Layout::discover(workspace)?.workspace();
     match command {
-        RecipesCmd::List { dir } => recipes::list(workspace, &dir)?,
-        RecipesCmd::Add { source, name, dir } => recipes::add(workspace, &source, &name, &dir)?,
+        RecipesCmd::List { dir } => recipes::list(found, &dir)?,
+        RecipesCmd::Add { source, name, dir } => recipes::add(found, &source, &name, &dir)?,
         RecipesCmd::Show { name, dir } => {
             let recipe = BundleSource::Recipe {
                 name,
@@ -135,16 +147,23 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
 pub(crate) fn agents(workspace: &Path, command: AgentsCmd) -> Result<ExitCode> {
     // Semantic lint reads the OPERATOR's capability definitions
     // (decision 0065; design D2): beside the active map, else in
-    // the workspace — wherever `--agents-dir` points the library.
+    // the workspace — wherever `--agents-dir` points the library. An old
+    // layout is refused as every verb refuses it (decision 0083 ruling 4).
+    let layout = Layout::discover(workspace)?;
+    layout.refuse_old()?;
+    let workspace = &layout.workspace();
     let world = World::discover(workspace, None)?;
     let operator_root = launch::capability_context(workspace, world.as_ref(), None, workspace).root;
     match command {
-        AgentsCmd::List { agents_dir } => agents::list(&agents_dir, &operator_root)?,
+        AgentsCmd::List { agents_dir } => agents::list(&layout.agents(agents_dir), &operator_root)?,
         AgentsCmd::Show {
             name,
             agents_dir,
             adapters_dir,
-        } => agents::show(&name, &agents_dir, &adapters_dir, &operator_root)?,
+        } => {
+            let (agents, adapters) = (layout.agents(agents_dir), layout.adapters(adapters_dir));
+            agents::show(&name, &agents, &adapters, &operator_root)?
+        }
     }
     Ok(Exit::Completed.into())
 }
@@ -163,28 +182,45 @@ pub(crate) fn muninn(workspace: &Path, command: MuninnCmd) -> Result<ExitCode> {
             // a moved crossing as a finding, so it reads the world
             // with `inspect` and keeps the resolved map beside the
             // journals it names (decision 0057).
+            let escape = db.is_some();
             let (world, hearths) = world_and_hearths(workspace, realms, db)?;
+            let layout = Layout::discover(workspace)?;
             muninn::run(
                 &hearths,
                 world.as_ref(),
-                &agents_dir,
-                &adapters_dir,
-                &record,
+                &layout.agents(agents_dir),
+                &layout.adapters(adapters_dir),
+                &record_of(&layout, escape, record)?,
                 &now_rfc3339(),
             )
         }
         MuninnCmd::List { record, json } => {
-            muninn::list(&record, json)?;
+            let layout = Layout::discover(workspace)?;
+            layout.refuse_old()?;
+            muninn::list(&record_of(&layout, false, record)?, json)?;
             Ok(Exit::Completed.into())
         }
     }
 }
 
-/// `brokkr secrets`: set, list or remove a name in the secrets store.
-pub(crate) fn secrets(command: SecretsCmd) -> Result<ExitCode> {
+/// Muninn's record: the flag, else its place in the run-local state.
+fn record_of(layout: &Layout, escape: bool, flag: Option<PathBuf>) -> Result<PathBuf> {
+    let place = || layout.state_file(escape, muninn::RECORD);
+    Ok(flag.map_or_else(place, Ok)?)
+}
+
+/// `brokkr secrets`: set, list or remove a name in the secrets store,
+/// the flag's, else the run-local state's (decision 0083).
+pub(crate) fn secrets(workspace: &Path, command: SecretsCmd) -> Result<ExitCode> {
     use brokkr_protocol::secret;
+    let layout = Layout::discover(workspace)?;
+    layout.refuse_old()?;
+    let store = |flag: Option<PathBuf>| -> Result<PathBuf> {
+        Ok(flag.map_or_else(|| layout.state_file(false, SECRETS), Ok)?)
+    };
     match command {
         SecretsCmd::Set { name, secrets_file } => {
+            let secrets_file = store(secrets_file)?;
             let value = std::io::read_to_string(std::io::stdin())
                 .context("reading the secret value from stdin")?;
             // stdin values arrive newline-terminated; the value
@@ -199,11 +235,12 @@ pub(crate) fn secrets(command: SecretsCmd) -> Result<ExitCode> {
             eprintln!("set {name} in {}", secrets_file.display());
         }
         SecretsCmd::List { secrets_file } => {
-            for name in secret::store_names(&secrets_file).map_err(anyhow::Error::msg)? {
+            for name in secret::store_names(&store(secrets_file)?).map_err(anyhow::Error::msg)? {
                 println!("{name}");
             }
         }
         SecretsCmd::Remove { name, secrets_file } => {
+            let secrets_file = store(secrets_file)?;
             let removed = secret::store_remove(&secrets_file, &name).map_err(anyhow::Error::msg)?;
             anyhow::ensure!(
                 removed,

@@ -1,4 +1,4 @@
-use brokkr_core::fold::{fold, Cursor, Status};
+use brokkr_core::fold::{fold, Cursor, Run};
 use brokkr_core::EventType;
 use brokkr_runtime::{
     apply_fenced_operator_command, CommandWord, FencedCommand, FencedCommandOutcome,
@@ -48,8 +48,7 @@ fn stale_command_is_durably_rejected_without_changing_control_state() {
     let events = store.load("run-1").unwrap();
     assert_eq!(events.len(), 3);
     let state = fold(&events).unwrap();
-    assert_eq!(state.status, Status::Running);
-    assert_eq!(state.cursor, Cursor::Start);
+    assert_eq!(state.run, Run::Running(Cursor::Start));
 }
 
 #[test]
@@ -99,6 +98,5 @@ fn correctly_fenced_stop_is_accepted_only_from_a_safe_parked_boundary() {
     let outcome = apply_fenced_operator_command(&mut store, "run-1", &command).unwrap();
     assert!(matches!(outcome, FencedCommandOutcome::Accepted { .. }));
     let state = fold(&store.load("run-1").unwrap()).unwrap();
-    assert_eq!(state.status, Status::Running);
-    assert_eq!(state.cursor, Cursor::Stop);
+    assert_eq!(state.run, Run::Running(Cursor::Stop));
 }

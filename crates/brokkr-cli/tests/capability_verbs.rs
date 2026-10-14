@@ -137,6 +137,7 @@ impl Workspace {
     }
 
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String) {
+        crate::engine::library(self.path());
         let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
             .args(args)
             .current_dir(self.path())

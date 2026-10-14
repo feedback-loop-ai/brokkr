@@ -229,7 +229,7 @@ pub(crate) fn watch(journal: &Path, run: &str, viewer: &Viewer) -> Result<ExitCo
     let watched = Watched::Journal(run.to_string());
     (viewer.console)(sole(journal), Some(run.to_string()), 0, watched)?;
     let events = open_journal(journal, Access::Read)?.load(run)?;
-    let status = fold(&events).ok().map(|state| state.status);
+    let status = fold(&events).ok().map(|state| state.run.status());
     Ok(Exit::of_settled(status.as_ref())
         .unwrap_or(Exit::Running)
         .into())

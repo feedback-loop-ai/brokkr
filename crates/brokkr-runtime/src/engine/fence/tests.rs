@@ -162,7 +162,7 @@ fn a_step_between_effects_does_not_land_over_an_operator_stop() {
     let accepted = EventType::OperatorAccepted;
     assert_eq!(events.last().unwrap().event_type, accepted);
     let end = engine.drive().unwrap();
-    assert_eq!(end.state.status, Status::Stopped);
+    assert_eq!(end.state.run, Run::Stopped);
 }
 
 /// The lawful end decides on a fold of its own (#394): it settles the
