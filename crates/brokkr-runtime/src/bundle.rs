@@ -16,16 +16,24 @@ use brokkr_core::realms::Boundary;
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
+mod aggregate;
 mod charters;
 pub mod compose;
 mod mcp;
 mod phases;
 mod pins;
+mod site_form;
 mod tier;
 
+pub use aggregate::Aggregate;
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
 pub(crate) use mcp::McpIntent;
+use site_form::{
+    classify, CaseShape, MemberShape, SeatShape, SiteRole, StepShape, CASE, MEMBER, SEAT, STEP,
+};
+#[cfg(test)]
+use site_form::{refuse_amendments, refuse_boundary_key, refuse_confine};
 pub use tier::{ProvisionalRefusal, RealmLaw};
 
 use crate::agents::{
@@ -123,7 +131,7 @@ pub struct Seat {
 /// Decision 0008's `driver.confine` no longer rides here: decision 0046
 /// ruling 5 retired it into the `container` boundary the realm declares,
 /// and the field is refused by name until slice (iii) measures that
-/// boundary (see [`refuse_confine`]).
+/// boundary (see [`site_form::refuse_confine`]).
 #[derive(Debug, Clone)]
 pub enum SeatBody {
     Single {
@@ -285,34 +293,6 @@ pub struct PanelMember {
     pub candidates: Vec<Candidate>,
     pub written: Vec<String>,
     pub class: SeatClass,
-}
-
-/// Deterministic, order-independent aggregation rules — a closed
-/// vocabulary, like conditions: named in data, implemented in the
-/// engine, never arbitrary code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Aggregate {
-    /// "pass" only when every member reports "pass"; otherwise "fail".
-    UnanimousPass,
-    /// Worst-member-wins over clean < residual < security-hold; severity
-    /// is the max, security and fixes flags are OR-ed.
-    ReviewPanel,
-}
-
-impl Aggregate {
-    fn parse(name: &str) -> Option<Aggregate> {
-        match name {
-            "unanimous-pass" => Some(Aggregate::UnanimousPass),
-            "review-panel" => Some(Aggregate::ReviewPanel),
-            _ => None,
-        }
-    }
-    fn required_results(&self) -> &'static [&'static str] {
-        match self {
-            Aggregate::UnanimousPass => &["pass", "fail"],
-            Aggregate::ReviewPanel => &["clean", "residual", "security-hold"],
-        }
-    }
 }
 
 /// Which side of decision 0021 ruling 1 a driver-bearing site sits on.
@@ -1647,11 +1627,7 @@ impl Bundle {
                     "seat '{phase}' names a phase the policy does not have"
                 )));
             }
-            refuse_boundary_key(phase, raw)?;
-            refuse_crossing_keys(phase, raw)?;
-            refuse_unknown_keys(phase, raw, SEAT_KEYS)?;
-            refuse_confine(phase, raw)?;
-            refuse_driver_keys(phase, raw)?;
+            let shape = classify(phase, raw, &SEAT)?;
             let law = SiteLaw {
                 boundary,
                 dir,
@@ -1690,122 +1666,105 @@ impl Bundle {
                     )));
                 }
             }
-            let has_agent = raw.get("agent").is_some();
-            if has_agent {
-                refuse_amendments(phase, raw)?;
-            }
-            let has_single =
-                !has_agent && (raw.get("role").is_some() || raw.get("driver").is_some());
-            let has_panel = raw.get("panel").is_some();
-            let has_sequence = raw.get("sequence").is_some();
-            let has_select = raw.get("select").is_some();
-            if [has_single, has_panel, has_sequence, has_agent, has_select]
-                .iter()
-                .filter(|f| **f)
-                .count()
-                > 1
-            {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{phase}' must be exactly one of role+driver, agent, \
-                     panel, sequence, or select"
-                )));
-            }
-            if has_panel || has_sequence || has_select {
-                refuse_tools_on_container(phase, raw)?;
-            }
             let secrets = parse_secrets(phase, raw)?;
-            let agent_seat = match has_agent {
-                false => None,
-                true => Some(resolve_reference(
-                    &mut agents,
-                    &mut sites,
-                    dir,
-                    phase,
-                    phase,
-                    raw,
-                    &secrets,
-                    Site::Seat,
-                    boundary,
-                )?),
+            let mut sequence_gate = None;
+            let (agent_seat, body) = match shape {
+                SeatShape::Agent => {
+                    let agent_seat = resolve_reference(
+                        &mut agents,
+                        &mut sites,
+                        dir,
+                        phase,
+                        phase,
+                        raw,
+                        &secrets,
+                        SEAT.role,
+                        boundary,
+                    )?;
+                    let body = SeatBody::Single {
+                        role_path: agent_seat.role_path.clone(),
+                        command: agent_seat.command.clone(),
+                        candidates: agent_seat.candidates.clone(),
+                        written: Vec::new(),
+                        class: parse_class(phase, raw)?,
+                    };
+                    (Some(agent_seat), body)
+                }
+                SeatShape::Panel => {
+                    let (members, aggregate) = parse_panel(
+                        dir,
+                        phase,
+                        raw,
+                        &results,
+                        &secrets,
+                        &mut agents,
+                        &mut sites,
+                        boundary,
+                        &charters,
+                    )?;
+                    (None, SeatBody::Panel { members, aggregate })
+                }
+                SeatShape::Sequence => {
+                    let (steps, whole_gate) = parse_sequence(
+                        dir,
+                        phase,
+                        raw,
+                        &mut agents,
+                        &mut sites,
+                        BodyCompile {
+                            results: &results,
+                            secrets: &secrets,
+                            dialect,
+                            boundary,
+                            charters: &charters,
+                        },
+                    )?;
+                    sequence_gate = Some(whole_gate);
+                    (None, SeatBody::Sequence { steps })
+                }
+                SeatShape::Select => {
+                    let body = parse_select(
+                        dir,
+                        phase,
+                        raw,
+                        &mut agents,
+                        &mut sites,
+                        SelectCompile {
+                            results: &results,
+                            secrets: &secrets,
+                            roots: &resolved.roots,
+                            case_origin: &resolved.case_origin,
+                            dialect,
+                            boundary,
+                            charters: &charters,
+                        },
+                    )?;
+                    (None, body)
+                }
+                SeatShape::Inline => {
+                    let written = command_parts(raw);
+                    record_inline_tools(
+                        dir,
+                        phase,
+                        raw,
+                        true,
+                        &written,
+                        agents.as_ref().map(|context| &context.adapters),
+                        &mut sites,
+                    )?;
+                    let body = SeatBody::Single {
+                        role_path: parse_role(dir, phase, raw, &charters, &mut sites)?,
+                        command: parse_command(dir, phase, raw, &secrets)?,
+                        candidates: Vec::new(),
+                        written,
+                        class: parse_class(phase, raw)?,
+                    };
+                    (None, body)
+                }
             };
             let law = SiteLaw {
                 agent_hands: agent_seat.as_ref().and_then(|seat| seat.hands.as_ref()),
                 ..law
-            };
-            let mut sequence_gate = None;
-            let body = if let Some(agent_seat) = &agent_seat {
-                SeatBody::Single {
-                    role_path: agent_seat.role_path.clone(),
-                    command: agent_seat.command.clone(),
-                    candidates: agent_seat.candidates.clone(),
-                    written: Vec::new(),
-                    class: parse_class(phase, raw)?,
-                }
-            } else if has_panel {
-                let (members, aggregate) = parse_panel(
-                    dir,
-                    phase,
-                    raw,
-                    &results,
-                    &secrets,
-                    &mut agents,
-                    &mut sites,
-                    boundary,
-                    &charters,
-                )?;
-                SeatBody::Panel { members, aggregate }
-            } else if has_sequence {
-                let (steps, whole_gate) = parse_sequence(
-                    dir,
-                    phase,
-                    raw,
-                    &mut agents,
-                    &mut sites,
-                    BodyCompile {
-                        results: &results,
-                        secrets: &secrets,
-                        dialect,
-                        boundary,
-                        charters: &charters,
-                    },
-                )?;
-                sequence_gate = Some(whole_gate);
-                SeatBody::Sequence { steps }
-            } else if has_select {
-                parse_select(
-                    dir,
-                    phase,
-                    raw,
-                    &mut agents,
-                    &mut sites,
-                    SelectCompile {
-                        results: &results,
-                        secrets: &secrets,
-                        roots: &resolved.roots,
-                        case_origin: &resolved.case_origin,
-                        dialect,
-                        boundary,
-                        charters: &charters,
-                    },
-                )?
-            } else {
-                let written = command_parts(raw);
-                record_inline_tools(
-                    dir,
-                    phase,
-                    raw,
-                    true,
-                    &written,
-                    agents.as_ref().map(|context| &context.adapters),
-                    &mut sites,
-                )?;
-                SeatBody::Single {
-                    role_path: parse_role(dir, phase, raw, &charters, &mut sites)?,
-                    command: parse_command(dir, phase, raw, &secrets)?,
-                    candidates: Vec::new(),
-                    written,
-                    class: parse_class(phase, raw)?,
-                }
             };
             // The dialect wrapper is applied after this loop, once every
             // authoring owner is registered (design D10 F2). Record the
@@ -2414,14 +2373,14 @@ fn body_manifest(body: &SeatBody) -> Value {
         SeatBody::Single { candidates, .. } => single(candidates),
         SeatBody::Panel { members, aggregate } => json!({
             "panel": members.iter().map(|member| (member.name.clone(), single(&member.candidates))).collect::<Map<_, _>>(),
-            "aggregate": match aggregate { Aggregate::UnanimousPass => "unanimous-pass", Aggregate::ReviewPanel => "review-panel" },
+            "aggregate": aggregate.word(),
         }),
         SeatBody::Sequence { steps } => json!({"sequence": steps.iter().map(|step| {
             let body = match &step.body {
                 StepBody::Single { candidates, .. } => single(candidates),
                 StepBody::Panel { members, aggregate } => json!({
                     "panel": members.iter().map(|member| (member.name.clone(), single(&member.candidates))).collect::<Map<_, _>>(),
-                    "aggregate": match aggregate { Aggregate::UnanimousPass => "unanimous-pass", Aggregate::ReviewPanel => "review-panel" },
+                    "aggregate": aggregate.word(),
                 }),
                 StepBody::Dialect { execution } => json!({
                     "dialect": {"argv": execution.argv, "state": execution.state},
@@ -2486,132 +2445,6 @@ fn assert_phase_unavoidable(
     Ok(())
 }
 
-/// Parse a panel body (`"panel": {…members…}, "aggregate": "…"`) at
-/// `what` — a seat's phase or a sequence step's `<phase>:<step>` label.
-/// `declared_results` is checked to cover the aggregate's vocabulary
-/// when Some: always for a seat-level panel (its aggregate reaches
-/// decide()), but for a panel STEP only when it is the FINAL step — a
-/// non-final step's aggregate output never reaches decide(), it only
-/// feeds later steps as context.
-/// Where an agent reference sits. A seat OWNS its 0006 bounds and its
-/// 0007 declaration; a panel member or sequence step has neither — the
-/// seat above it does. So an agent carrying `limits` or `inputs` cannot
-/// be referenced from a member or a step: silently discarding them would
-/// make `brokkr agents show` a lie for that site.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Site {
-    Seat,
-    Member,
-}
-
-/// An agent reference is TOTAL: a seat that could amend the agent it
-/// names would make `agent: implementer` stop being a complete statement
-/// about what ran — inlining with extra steps, and drift with a name on
-/// it. `results`, `secrets` and `class` stay legal beside it, because
-/// they are bindings the SEAT provides rather than statements about what
-/// the agent is, and `brokkr agents show` never claims to show them.
-/// `limits` is likewise a strategy bound on the invocation, not part of
-/// the office. `class` in particular is the seat's authority, never the
-/// agent's: one charter may sit in a work seat here and a gate seat
-/// there, which is why decision 0021 ruling 1 puts the division in bundle
-/// data. `driver.confine` was the one `driver` key legal here until
-/// decision 0046 ruling 5 retired it; [`refuse_confine`] now refuses it
-/// by name before this lint reads the driver at all.
-fn refuse_amendments(what: &str, raw: &Value) -> Result<(), CompileError> {
-    let refuse = |key: &str| {
-        Err(CompileError::Invalid(format!(
-            "seat '{what}' combines 'agent' with '{key}'; an agent reference is \
-             total — '{key}' states what the agent IS, and a seat that could \
-             amend it would make `brokkr agents show` a lie for that seat"
-        )))
-    };
-    for key in ["role", "inputs", "hands"] {
-        if raw.get(key).is_some() {
-            return refuse(key);
-        }
-    }
-    if let Some(driver) = raw.get("driver") {
-        let object = driver.as_object().ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{what}' driver must be an object"))
-        })?;
-        if let Some(key) = object.keys().next() {
-            return refuse(&format!("driver.{key}"));
-        }
-    }
-    Ok(())
-}
-
-/// Decision 0046 ruling 5: decision 0008's `driver.confine` retired into
-/// the `container` boundary the realm declares, and until slice (iii)
-/// measures that boundary the field is refused wherever it is written —
-/// in a bundle and beside `agent:` alike — so a bundle that still carries
-/// it fails loudly rather than running a wrapper nobody exercised. No
-/// shipped bundle declares it, so nothing shipped moves for this reason.
-fn refuse_confine(what: &str, raw: &Value) -> Result<(), CompileError> {
-    match raw.pointer("/driver/confine") {
-        None => Ok(()),
-        Some(_) => Err(CompileError::Invalid(format!(
-            "seat '{what}' declares driver.confine; decision 0008's container \
-             confinement retired into the `container` boundary a realm declares \
-             (realms.json, forge.realms/v4), and the field is refused until that \
-             boundary is measured in decision 0046's slice (iii) (decision 0046 \
-             ruling 5)"
-        ))),
-    }
-}
-
-/// The keys a site's `driver` object may write. Closed, like the site's
-/// own vocabulary ([`refuse_unknown_keys`]): the compiler reads only
-/// `command` there (and refuses `confine` by name first, in
-/// [`refuse_confine`]), so before rebuild unit 5e a `tools` object placed
-/// under `driver` compiled, delivered nothing and ran the seat at its
-/// harness default.
-const DRIVER_KEYS: &[&str] = &["command"];
-
-/// Decision 0004's closed input semantics, applied to the `driver`
-/// object (decision 0065 slice one, rebuild unit 5e): an unknown key is
-/// refused where it is written, never ignored. The reason names the key
-/// and the object, and never the value; a key that is not a short name is
-/// described rather than echoed, so the reason stays bounded. A
-/// capability key gets the place it belongs.
-fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
-    let Some(driver) = raw.get("driver").and_then(Value::as_object) else {
-        return Ok(());
-    };
-    let Some(key) = driver
-        .keys()
-        .find(|key| !DRIVER_KEYS.contains(&key.as_str()))
-    else {
-        return Ok(());
-    };
-    let named = if key.len() <= 64
-        && key
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
-    {
-        format!("'{key}'")
-    } else {
-        "one that is not a short name and is not echoed".to_string()
-    };
-    let place = match key.as_str() {
-        "tools" | "hands" | "capabilities" => {
-            format!(" '{key}' is a site declaration, written on the seat beside its driver.")
-        }
-        "sandbox" => {
-            " 'sandbox' is a typed tool field, written as 'tools.sandbox' on the seat.".to_string()
-        }
-        _ => String::new(),
-    };
-    Err(CompileError::Invalid(format!(
-        "seat {} driver has an unknown key, {named}; known: {}.{place} A key the compiler \
-         does not read is a declaration that was never made — a capability placed there would \
-         compile, deliver nothing and run the seat at its harness default — so it is refused \
-         rather than ignored (decision 0004; decision 0065 slice one, rebuild unit 5e)",
-        bounded_site(what),
-        DRIVER_KEYS.join(", ")
-    )))
-}
-
 /// A site identity rendered for a refusal, bounded and safe (decision
 /// 0065 slice one, rebuild unit 5e-fix). A site label is built from
 /// author-written phase, member, step, case and recipe names, and nothing
@@ -2644,49 +2477,6 @@ fn plain_label(label: &str) -> bool {
 fn safe_label_byte(byte: &u8) -> bool {
     byte.is_ascii_alphanumeric() || b"_-.:".contains(byte)
 }
-
-/// Decision 0046 ruling 1: the boundary is the realm's fact, declared in
-/// `realms.json` under `forge.realms/v4`, and a bundle never names it. A
-/// site that writes the key is told where the word lives rather than
-/// that the key is unknown.
-fn refuse_boundary_key(what: &str, raw: &Value) -> Result<(), CompileError> {
-    match raw.get("boundary") {
-        None => Ok(()),
-        Some(_) => Err(CompileError::Invalid(format!(
-            "seat '{what}' declares boundary; {}",
-            brokkr_protocol::hands::BOUNDARY_IS_THE_REALMS
-        ))),
-    }
-}
-
-/// Decision 0057 ruling 1: a crossing is the REALM's — a file one realm
-/// publishes and another realm pins by its bytes — declared in
-/// `realms.json` under `forge.realms/v5`, and a bundle never names one.
-///
-/// The same refusal `boundary` gets one function above, on the same terms
-/// and for the same reason: a site that writes the word is told where the
-/// word lives rather than that its key is unknown. Per seat, like
-/// `boundary`, because a seat is the site that would claim the fact;
-/// there is no root-level unknown-key check for either.
-fn refuse_crossing_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
-    let Some(key) = CROSSING_KEYS.iter().find(|key| raw.get(*key).is_some()) else {
-        return Ok(());
-    };
-    Err(CompileError::Invalid(format!(
-        "seat '{what}' declares {key}; {CROSSING_IS_THE_REALMS}"
-    )))
-}
-
-/// The two words `forge.realms/v5` adds, refused wherever a bundle writes
-/// one.
-const CROSSING_KEYS: [&str; 2] = ["publishes", "consumes"];
-
-/// Where a crossing lives (decision 0057 ruling 1), said once for the
-/// site that tries to write it into a bundle.
-const CROSSING_IS_THE_REALMS: &str = "a crossing is declared by the realm \
-    (realms.json, forge.realms/v5) and never by a bundle, because the file one realm \
-    publishes and the digest another pins it at is the realm's fact and not a \
-    recipe's (decision 0057 ruling 1)";
 
 /// The box the compiler builds for every dialect `validate`/`check` step
 /// (decision 0042 ruling 4). Public so `brokkr doctor` probes the
@@ -2738,7 +2528,7 @@ fn resolve_reference(
     site_key: &str,
     raw: &Value,
     secrets: &[String],
-    site: Site,
+    site: SiteRole,
     boundary: Boundary,
 ) -> Result<ResolvedSeat, CompileError> {
     let name = raw
@@ -2814,7 +2604,7 @@ fn resolve_reference(
     let context = agents.as_mut().expect("agent context opened above");
     let resolution = crate::agents::resolve_report(report, &context.adapters)
         .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
-    if site == Site::Member {
+    if site == SiteRole::Member {
         for (key, present) in [
             ("limits", resolution.limits.is_some()),
             ("inputs", resolution.inputs.is_some()),
@@ -3004,70 +2794,6 @@ fn parse_egress_minimum(config: &Value) -> Result<EgressClass, CompileError> {
         })
 }
 
-/// The keys a SEAT may write. Closed, like the class vocabulary itself
-/// and for the same reason — see [`refuse_unknown_keys`].
-const SEAT_KEYS: &[&str] = &[
-    "results",
-    "inputs",
-    "limits",
-    "secrets",
-    "class",
-    "agent",
-    "role",
-    "driver",
-    "hands",
-    "capabilities",
-    "tools",
-    "panel",
-    "aggregate",
-    "sequence",
-    "select",
-];
-
-const BODY_KEYS: &[&str] = &[
-    "class",
-    "agent",
-    "role",
-    "driver",
-    "hands",
-    "capabilities",
-    "tools",
-    "panel",
-    "aggregate",
-    "sequence",
-];
-
-/// The keys a PANEL MEMBER may write. Narrower than a seat's: a member
-/// has no `results`, `limits`, `inputs` or `secrets` of its own — the
-/// seat above it does — which is why an agent declaring them at a member
-/// site is already refused rather than silently discarded.
-const MEMBER_KEYS: &[&str] = &[
-    "class",
-    "agent",
-    "role",
-    "driver",
-    "hands",
-    "capabilities",
-    "tools",
-];
-
-/// The keys a SEQUENCE STEP may write: a member's, plus its name, plus
-/// the two a step needs to be a panel of its own.
-const STEP_KEYS: &[&str] = &[
-    "name",
-    "results",
-    "class",
-    "agent",
-    "role",
-    "driver",
-    "hands",
-    "capabilities",
-    "tools",
-    "panel",
-    "aggregate",
-    "dialect",
-];
-
 /// Decode one site's typed `tools` (decision 0065 slice one, design D5.2)
 /// through the agents' strict decoder, naming the site as every other
 /// refusal of it does. A site that writes no `tools` requests nothing.
@@ -3076,22 +2802,6 @@ fn decode_site_tools(what: &str, raw: &Value) -> Result<crate::agents::LocalTool
         Some(site) => crate::agents::decode_local_tools(&format!("seat '{what}'"), site)
             .map_err(CompileError::Invalid),
         None => Ok(crate::agents::LocalTools::unspecified()),
-    }
-}
-
-/// A `tools` declaration beside a panel, sequence or select is refused
-/// (design D5.2): a local declaration belongs to the site that executes,
-/// and a container that carried one could only share it as a grant or
-/// drop it — so even an empty object is refused here.
-fn refuse_tools_on_container(what: &str, raw: &Value) -> Result<(), CompileError> {
-    match raw.get("tools") {
-        None => Ok(()),
-        Some(_) => Err(CompileError::Invalid(format!(
-            "seat '{what}' declares 'tools' beside a panel, sequence or select; a local \
-             declaration belongs to the site that executes — the member, step or case body — \
-             and a container cannot own one, even an empty object, because it would either \
-             become a shared grant or be ignored (decision 0065 slice one, design D5)"
-        ))),
     }
 }
 
@@ -4011,34 +3721,6 @@ fn admit_inline_launch(
                 ))
             },
         )?;
-    }
-    Ok(())
-}
-
-/// The vocabulary of a site object is CLOSED, because since decision
-/// 0021 a dropped key is a dropped refusal. `class` is read by absence —
-/// an undeclared site is work — so `"clas": "gate"` would leave a
-/// judging site classed work, and every gate refusal below it unarmed,
-/// with nothing anywhere to say so. The same silence would swallow a
-/// misspelled `secrets`. So a key this compiler does not read is refused
-/// where it is written, in the manner of an unknown class or an unknown
-/// aggregate: the fail-closed reading of an absent declaration is only
-/// honest if an absence cannot be manufactured by a typo.
-fn refuse_unknown_keys(what: &str, raw: &Value, known: &[&str]) -> Result<(), CompileError> {
-    let Some(object) = raw.as_object() else {
-        return Ok(());
-    };
-    for key in object.keys() {
-        if !known.contains(&key.as_str()) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' has unknown key '{key}'; known: {}. The site \
-                 vocabulary is closed because a declaration this compiler \
-                 cannot see is a declaration that was never made — a \
-                 misspelled 'class' would leave a gate reading as work \
-                 (decision 0021 ruling 1)",
-                known.join(", ")
-            )));
-        }
     }
     Ok(())
 }
@@ -6210,96 +5892,68 @@ fn parse_selected_body(
         charters,
         ..
     } = compile;
-    refuse_boundary_key(what, raw)?;
-    refuse_crossing_keys(what, raw)?;
-    refuse_unknown_keys(what, raw, BODY_KEYS)?;
-    refuse_confine(what, raw)?;
-    refuse_driver_keys(what, raw)?;
-    let has_agent = raw.get("agent").is_some();
-    if has_agent {
-        refuse_amendments(what, raw)?;
-    }
-    let has_single = !has_agent && (raw.get("role").is_some() || raw.get("driver").is_some());
-    let has_panel = raw.get("panel").is_some();
-    let has_sequence = raw.get("sequence").is_some();
-    if [has_single, has_panel, has_sequence, has_agent]
-        .iter()
-        .filter(|present| **present)
-        .count()
-        != 1
-    {
-        return Err(CompileError::Invalid(format!(
-            "seat '{what}' must be exactly one of role+driver, agent, panel, or sequence"
-        )));
-    }
-    if has_panel || has_sequence {
-        refuse_tools_on_container(what, raw)?;
-    }
-    if has_agent {
-        let resolved = resolve_reference(
-            agents,
-            sites,
-            dir,
-            what,
-            what,
-            raw,
-            secrets,
-            Site::Seat,
-            boundary,
-        )?;
-        let law = SiteLaw {
-            boundary,
-            dir,
-            agent_hands: resolved.hands.as_ref(),
-        };
-        let class =
-            enforce_model_policy(what, raw, &resolved.candidates, secrets, agents, law, sites)?;
-        record_hands(what, raw, resolved.hands, secrets, sites)?;
-        let body = SeatBody::Single {
-            role_path: resolved.role_path,
-            command: resolved.command,
-            candidates: resolved.candidates,
-            written: Vec::new(),
-            class,
-        };
-        Ok(body)
-    } else if has_panel {
-        let (members, aggregate) = parse_panel(
-            dir, what, raw, results, secrets, agents, sites, boundary, charters,
-        )?;
-        refuse_class_without_a_driver(what, raw)?;
-        Ok(SeatBody::Panel { members, aggregate })
-    } else if has_sequence {
-        // Its steps say its fact: a_selected_sequence_holds_no_dialect_step.
-        let (steps, _) = parse_sequence(dir, what, raw, agents, sites, compile)?;
-        refuse_class_without_a_driver(what, raw)?;
-        Ok(SeatBody::Sequence { steps })
-    } else {
-        let written = command_parts(raw);
-        record_inline_tools(
-            dir,
-            what,
-            raw,
-            false,
-            &written,
-            agents.as_ref().map(|context| &context.adapters),
-            sites,
-        )?;
-        let law = SiteLaw {
-            boundary,
-            dir,
-            agent_hands: None,
-        };
-        let class = enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
-        record_hands(what, raw, None, secrets, sites)?;
-        let body = SeatBody::Single {
-            role_path: parse_role(dir, what, raw, charters, sites)?,
-            command: parse_command(dir, what, raw, secrets)?,
-            candidates: Vec::new(),
-            written,
-            class,
-        };
-        Ok(body)
+    match classify(what, raw, &CASE)? {
+        CaseShape::Agent => {
+            let resolved = resolve_reference(
+                agents, sites, dir, what, what, raw, secrets, CASE.role, boundary,
+            )?;
+            let law = SiteLaw {
+                boundary,
+                dir,
+                agent_hands: resolved.hands.as_ref(),
+            };
+            let class =
+                enforce_model_policy(what, raw, &resolved.candidates, secrets, agents, law, sites)?;
+            record_hands(what, raw, resolved.hands, secrets, sites)?;
+            let body = SeatBody::Single {
+                role_path: resolved.role_path,
+                command: resolved.command,
+                candidates: resolved.candidates,
+                written: Vec::new(),
+                class,
+            };
+            Ok(body)
+        }
+        CaseShape::Panel => {
+            let (members, aggregate) = parse_panel(
+                dir, what, raw, results, secrets, agents, sites, boundary, charters,
+            )?;
+            refuse_class_without_a_driver(what, raw)?;
+            Ok(SeatBody::Panel { members, aggregate })
+        }
+        CaseShape::Sequence => {
+            // Its steps say its fact: a_selected_sequence_holds_no_dialect_step.
+            let (steps, _) = parse_sequence(dir, what, raw, agents, sites, compile)?;
+            refuse_class_without_a_driver(what, raw)?;
+            Ok(SeatBody::Sequence { steps })
+        }
+        CaseShape::Inline => {
+            let written = command_parts(raw);
+            record_inline_tools(
+                dir,
+                what,
+                raw,
+                false,
+                &written,
+                agents.as_ref().map(|context| &context.adapters),
+                sites,
+            )?;
+            let law = SiteLaw {
+                boundary,
+                dir,
+                agent_hands: None,
+            };
+            let class = enforce_model_policy(what, raw, &[], secrets, agents, law, sites)?;
+            record_hands(what, raw, None, secrets, sites)?;
+            let body = SeatBody::Single {
+                role_path: parse_role(dir, what, raw, charters, sites)?,
+                command: parse_command(dir, what, raw, secrets)?,
+                candidates: Vec::new(),
+                written,
+                class,
+            };
+            Ok(body)
+        }
     }
 }
 
@@ -6406,6 +6060,13 @@ fn parse_select(
     Ok(SeatBody::Select { cases, default })
 }
 
+/// Parse a panel body (`"panel": {…members…}, "aggregate": "…"`) at
+/// `what` — a seat's phase or a sequence step's `<phase>:<step>` label.
+/// `declared_results` is checked to cover the aggregate's vocabulary
+/// when Some: always for a seat-level panel (its aggregate reaches
+/// decide()), but for a panel STEP only when it is the FINAL step — a
+/// non-final step's aggregate output never reaches decide(), it only
+/// feeds later steps as context.
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 #[expect(
     clippy::too_many_lines,
@@ -6456,8 +6117,8 @@ fn parse_panel(
         .ok_or_else(|| CompileError::Invalid(format!("seat '{what}' panel needs 'aggregate'")))?;
     let aggregate = Aggregate::parse(aggregate_name).ok_or_else(|| {
         CompileError::Invalid(format!(
-            "seat '{what}' unknown aggregate '{aggregate_name}'; known: \
-             unanimous-pass, review-panel"
+            "seat '{what}' unknown aggregate '{aggregate_name}'; known: {}",
+            Aggregate::known()
         ))
     })?;
     for required in aggregate.required_results() {
@@ -6471,17 +6132,10 @@ fn parse_panel(
     let mut members = Vec::with_capacity(members_raw.len());
     for (name, member_raw) in members_raw {
         let site = format!("{what}:{name}");
-        refuse_boundary_key(&site, member_raw)?;
-        refuse_crossing_keys(&site, member_raw)?;
-        refuse_confine(&site, member_raw)?;
-        refuse_driver_keys(&site, member_raw)?;
-        if member_raw.get("agent").is_some() {
-            refuse_amendments(&site, member_raw)?;
-        }
-        refuse_unknown_keys(&site, member_raw, MEMBER_KEYS)?;
+        let shape = classify(&site, member_raw, &MEMBER)?;
         let written = command_parts(member_raw);
-        let (role_path, command, candidates, agent_hands) = match member_raw.get("agent") {
-            None => {
+        let (role_path, command, candidates, agent_hands) = match shape {
+            MemberShape::Inline => {
                 record_inline_tools(
                     dir,
                     &site,
@@ -6498,7 +6152,7 @@ fn parse_panel(
                     None,
                 )
             }
-            Some(_) => {
+            MemberShape::Agent => {
                 let resolved = resolve_reference(
                     agents,
                     sites,
@@ -6507,7 +6161,7 @@ fn parse_panel(
                     &site,
                     member_raw,
                     secrets,
-                    Site::Member,
+                    MEMBER.role,
                     boundary,
                 )?;
                 (
@@ -6593,34 +6247,7 @@ fn parse_sequence(
             )));
         }
         let what = format!("{phase}:{name}");
-        refuse_boundary_key(&what, step_raw)?;
-        refuse_crossing_keys(&what, step_raw)?;
-        refuse_confine(&what, step_raw)?;
-        refuse_driver_keys(&what, step_raw)?;
-        let has_agent = step_raw.get("agent").is_some();
-        if has_agent {
-            refuse_amendments(&what, step_raw)?;
-        }
-        let has_single =
-            !has_agent && (step_raw.get("role").is_some() || step_raw.get("driver").is_some());
-        let has_panel = step_raw.get("panel").is_some();
-        let has_dialect = step_raw.get("dialect").is_some();
-        whole_gate &= !has_dialect | matches!(parse_class(&what, step_raw), Ok(SeatClass::Gate));
-        if [has_single, has_panel, has_agent, has_dialect]
-            .iter()
-            .filter(|f| **f)
-            .count()
-            > 1
-        {
-            return Err(CompileError::Invalid(format!(
-                "sequence step '{what}' must be exactly one of role+driver, agent, \
-                 panel, or dialect"
-            )));
-        }
-        refuse_unknown_keys(&what, step_raw, STEP_KEYS)?;
-        if has_panel {
-            refuse_tools_on_container(&what, step_raw)?;
-        }
+        let shape = classify(&what, step_raw, &STEP)?;
         let final_step = index + 1 == steps_raw.len();
         if final_step && step_raw.get("results").is_some() {
             return Err(CompileError::Invalid(format!(
@@ -6662,138 +6289,135 @@ fn parse_sequence(
             )));
         };
         let mut agent_hands = None;
-        let body = if has_dialect {
-            let operation = step_raw
-                .get("dialect")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    CompileError::Invalid(format!(
-                        "sequence step '{what}' dialect must be 'validate' or 'check'"
-                    ))
-                })?;
-            let expected = if ["clarify", "analyze"].contains(&phase) {
-                "check"
-            } else {
-                "validate"
-            };
-            if operation != expected {
-                return Err(CompileError::Invalid(format!(
+        let body = match shape {
+            StepShape::Dialect => {
+                whole_gate &= matches!(parse_class(&what, step_raw), Ok(SeatClass::Gate));
+                let operation =
+                    step_raw
+                        .get("dialect")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| {
+                            CompileError::Invalid(format!(
+                                "sequence step '{what}' dialect must be 'validate' or 'check'"
+                            ))
+                        })?;
+                let expected = if ["clarify", "analyze"].contains(&phase) {
+                    "check"
+                } else {
+                    "validate"
+                };
+                if operation != expected {
+                    return Err(CompileError::Invalid(format!(
                     "sequence step '{what}' uses dialect operation '{operation}'; phase '{phase}' needs '{expected}'"
                 )));
-            }
-            let dialect = dialect.ok_or_else(|| {
-                CompileError::Invalid(format!(
-                    "phase '{phase}' needs a realm dialect to resolve step '{name}'"
-                ))
-            })?;
-            let Some(command) = dialect.validation(phase) else {
-                if operation == "check" {
-                    // No executable site is compiled for an unsupported
-                    // check, so a `tools` declaration here would have no
-                    // owner and could only be discarded (design D5.2).
-                    if step_raw.get("tools").is_some() {
-                        return Err(CompileError::Invalid(format!(
-                            "sequence step '{what}' declares 'tools' on a dialect step whose \
+                }
+                let dialect = dialect.ok_or_else(|| {
+                    CompileError::Invalid(format!(
+                        "phase '{phase}' needs a realm dialect to resolve step '{name}'"
+                    ))
+                })?;
+                let Some(command) = dialect.validation(phase) else {
+                    if operation == "check" {
+                        // No executable site is compiled for an unsupported
+                        // check, so a `tools` declaration here would have no
+                        // owner and could only be discarded (design D5.2).
+                        if step_raw.get("tools").is_some() {
+                            return Err(CompileError::Invalid(format!(
+                                "sequence step '{what}' declares 'tools' on a dialect step whose \
                              '{operation}' the dialect does not supply; no executable site \
                              exists to own the declaration, so it could only be discarded — \
                              refused (decision 0065 slice one, design D5)"
-                        )));
+                            )));
+                        }
+                        continue;
                     }
-                    continue;
+                    return Err(CompileError::Invalid(format!(
+                        "dialect '{}' declares phase '{phase}' {operation} unsupported",
+                        dialect.name
+                    )));
+                };
+                let synthetic = dialect_gate_site(&what, boundary)?;
+                // The dialect's validator is an exec-generated check: it can
+                // own a checked empty declaration and represents no nonempty
+                // local field (design D5.2), judged against the command the
+                // validator actually runs.
+                record_inline_tools(
+                    dir,
+                    &what,
+                    step_raw,
+                    false,
+                    &command_parts(&synthetic),
+                    agents.as_ref().map(|context| &context.adapters),
+                    sites,
+                )?;
+                let law = SiteLaw {
+                    boundary,
+                    dir,
+                    agent_hands: None,
+                };
+                enforce_model_policy(&what, &synthetic, &[], secrets, agents, law, sites)?;
+                record_hands(&what, &synthetic, None, secrets, sites)?;
+                // A final dialect step emits the deterministic adapter's two
+                // outcomes, not every result the enclosing seat accepts. Keeping
+                // that actual vocabulary on the compiled step lets the engine see
+                // an earlier author result which no remaining step can produce
+                // (notably `upstream`) and end the sequence at that boundary.
+                step_results = dialect_results(phase)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect();
+                StepBody::Dialect {
+                    execution: DialectExecution {
+                        argv: command.argv.clone(),
+                        state: command.state.clone(),
+                    },
                 }
-                return Err(CompileError::Invalid(format!(
-                    "dialect '{}' declares phase '{phase}' {operation} unsupported",
-                    dialect.name
-                )));
-            };
-            let synthetic = dialect_gate_site(&what, boundary)?;
-            // The dialect's validator is an exec-generated check: it can
-            // own a checked empty declaration and represents no nonempty
-            // local field (design D5.2), judged against the command the
-            // validator actually runs.
-            record_inline_tools(
-                dir,
-                &what,
-                step_raw,
-                false,
-                &command_parts(&synthetic),
-                agents.as_ref().map(|context| &context.adapters),
-                sites,
-            )?;
-            let law = SiteLaw {
-                boundary,
-                dir,
-                agent_hands: None,
-            };
-            enforce_model_policy(&what, &synthetic, &[], secrets, agents, law, sites)?;
-            record_hands(&what, &synthetic, None, secrets, sites)?;
-            StepBody::Dialect {
-                execution: DialectExecution {
-                    argv: command.argv.clone(),
-                    state: command.state.clone(),
-                },
             }
-        } else if has_agent {
-            let resolved = resolve_reference(
-                agents,
-                sites,
-                dir,
-                &what,
-                &what,
-                step_raw,
-                secrets,
-                Site::Member,
-                boundary,
-            )?;
-            agent_hands = resolved.hands;
-            StepBody::Single {
-                role_path: resolved.role_path,
-                command: resolved.command,
-                candidates: resolved.candidates,
-                written: Vec::new(),
+            StepShape::Agent => {
+                let resolved = resolve_reference(
+                    agents, sites, dir, &what, &what, step_raw, secrets, STEP.role, boundary,
+                )?;
+                agent_hands = resolved.hands;
+                StepBody::Single {
+                    role_path: resolved.role_path,
+                    command: resolved.command,
+                    candidates: resolved.candidates,
+                    written: Vec::new(),
+                }
             }
-        } else if has_panel {
-            let (members, aggregate) = parse_panel(
-                dir,
-                &what,
-                step_raw,
-                &step_results,
-                secrets,
-                agents,
-                sites,
-                boundary,
-                charters,
-            )?;
-            StepBody::Panel { members, aggregate }
-        } else {
-            let written = command_parts(step_raw);
-            record_inline_tools(
-                dir,
-                &what,
-                step_raw,
-                false,
-                &written,
-                agents.as_ref().map(|context| &context.adapters),
-                sites,
-            )?;
-            StepBody::Single {
-                role_path: parse_role(dir, &what, step_raw, charters, sites)?,
-                command: parse_command(dir, &what, step_raw, secrets)?,
-                candidates: Vec::new(),
-                written,
+            StepShape::Panel => {
+                let (members, aggregate) = parse_panel(
+                    dir,
+                    &what,
+                    step_raw,
+                    &step_results,
+                    secrets,
+                    agents,
+                    sites,
+                    boundary,
+                    charters,
+                )?;
+                StepBody::Panel { members, aggregate }
+            }
+            StepShape::Inline => {
+                let written = command_parts(step_raw);
+                record_inline_tools(
+                    dir,
+                    &what,
+                    step_raw,
+                    false,
+                    &written,
+                    agents.as_ref().map(|context| &context.adapters),
+                    sites,
+                )?;
+                StepBody::Single {
+                    role_path: parse_role(dir, &what, step_raw, charters, sites)?,
+                    command: parse_command(dir, &what, step_raw, secrets)?,
+                    candidates: Vec::new(),
+                    written,
+                }
             }
         };
-        // A final dialect step emits the deterministic adapter's two
-        // outcomes, not every result the enclosing seat accepts. Keeping
-        // that actual vocabulary on the compiled step lets the engine see
-        // an earlier author result which no remaining step can produce
-        // (notably `upstream`) and end the sequence at that boundary.
-        if has_dialect {
-            step_results = dialect_results(phase)
-                .into_iter()
-                .map(str::to_string)
-                .collect();
-        }
         // The step's canonical class (GP1): a dialect step's validator
         // judges, so it is a gate; a panel step is one when its members are.
         let class = match &body {
