@@ -21,9 +21,16 @@ function frozen(value) {
   return value
 }
 
+/**
+ * Anything a model could read as closing the frame: `</system-reminder` in
+ * any case, with any whitespace around the slash. The text is built from run
+ * titles, labels and seat names, which an operator can paste anything into.
+ */
+const CLOSING = /<\s*\/\s*system-reminder/gi
+
 /** The model-facing message: the focus in a `<system-reminder>` frame the text cannot close. */
 export function messageOf(text) {
-  const framed = `<system-reminder>\n${text.replaceAll('</system-reminder>', '<\\/system-reminder>')}\n</system-reminder>`
+  const framed = `<system-reminder>\n${text.replace(CLOSING, '<\\/system-reminder')}\n</system-reminder>`
   return frozen({
     id: randomUUID(),
     role: 'user',
@@ -48,7 +55,6 @@ export function focusOf() {
         latest.delete(oldest)
         told.delete(oldest)
       }
-      return { told: told.get(session) === text }
     },
     /**
      * The `agent/pre-step` listener: on a turn's first step, a conversation
@@ -62,7 +68,8 @@ export function focusOf() {
       const text = latest.get(session)
       if (text === undefined || told.get(session) === text) return decision
       told.set(session, text)
-      return { ...decision, messages: [messageOf(text), ...decision.messages] }
+      // An accepted step may carry no messages of its own; the focus is still told.
+      return { ...decision, messages: [messageOf(text), ...(decision.messages ?? [])] }
     },
   }
 }

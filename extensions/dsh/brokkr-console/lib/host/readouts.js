@@ -304,12 +304,10 @@ function participant(value, path) {
     effort_pin: cell(value.effort_pin, `${path}.effort_pin`),
     activity: cell(value.activity, `${path}.activity`),
     transcript: cell(value.transcript_cell, `${path}.transcript_cell`),
-    // What the plan selected for the seat, beside what the harness reported serving (the TUI's "selected by").
-    selected: maybe(value.provenance, `${path}.provenance`, (provenance, at) => ({
-      model: optText(object(provenance, at).model, `${at}.model`),
-      provider: optText(provenance.provider, `${at}.provider`),
-      fallback: provenance.fallback === true,
-    })),
+    // What the plan selected for the seat, beside what the harness reported serving: brokkr-view's
+    // one provenance sentence (the TUI's "selected by" line), carried whole so no surface drops
+    // the "not the agent's first choice" half (decision 0071 ruling 7).
+    selected: maybe(value.provenance, `${path}.provenance`, (provenance, at) => text(object(provenance, at).line, `${at}.line`)),
   }
 }
 
@@ -483,12 +481,38 @@ const TRANSCRIPT_SCHEMA = 'brokkr.transcript/v1'
 const TRANSCRIPT_TURNS = 80
 const BLOCK_CHARS = 4000
 
+/** `stdout` parsed as a JSON object, or `null` when it is not one. */
+function objectOf(stdout) {
+  try {
+    const value = JSON.parse(stdout)
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * `brokkr transcript --json` as it ran. The CLI prints the document on stdout
+ * in both outcomes; for a seat that keeps no transcript it exits non-zero with
+ * the document's `unavailable` naming why, and the sanitized explanation on
+ * stderr. The document decides that this is the seat's answer and not the
+ * console failing; stderr's words are what the operator reads.
+ */
+export function transcriptReadOf(ran, what) {
+  if (ran.kind === 'exited' && ran.code !== 0) {
+    const doc = objectOf(ran.stdout)
+    if (doc !== null && typeof doc.unavailable === 'string') return transcriptOf(doc, refusalOf(ran.stderr) || null)
+  }
+  return transcriptOf(jsonOf(ran, what))
+}
+
 /**
  * `brokkr transcript --json`: one seat's retained turns, newest last, as
  * Brokkr's bounded derivation reads them; its last turns only, each block cut
- * and marked when long. `unavailable` is Brokkr's word when there is none.
+ * and marked when long. `unavailable` is Brokkr's word when there is none:
+ * the `explanation` it printed when it gave one, else the reason it typed.
  */
-export function transcriptOf(doc) {
+export function transcriptOf(doc, explanation = null) {
   object(doc, 'brokkr transcript')
   if (doc.schema !== TRANSCRIPT_SCHEMA) {
     throw new ReadoutRefused('version', `brokkr transcript is at ${doc.schema}; this console reads ${TRANSCRIPT_SCHEMA} only`)
@@ -506,7 +530,7 @@ export function transcriptOf(doc) {
     turns: turns.slice(-TRANSCRIPT_TURNS),
     earlier: Math.max(0, turns.length - TRANSCRIPT_TURNS),
     truncated: doc.truncated === true,
-    unavailable: optText(doc.unavailable, 'unavailable'),
+    unavailable: maybe(doc.unavailable, 'unavailable', (reason, path) => explanation ?? text(reason, path)),
     full_session: optText(doc.full_session, 'full_session'),
   }
 }

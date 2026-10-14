@@ -255,7 +255,7 @@ window.__ModuleLoader__.load({
         fetch(`${BASE}/api/focus`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ session: sessionId, text }) })
           .then((response) => setStatus(response.ok ? null : 'Brokkr’s context could not reach this conversation.'))
           .catch(() => setStatus('Brokkr’s context could not reach this conversation.'))
-      }, [sessionId, about])
+      }, [sessionId, about, crumbs])
       async function ask() {
         if (question.trim() === '' || dir === null) return
         setStatus('Opening a session…')
@@ -721,18 +721,18 @@ window.__ModuleLoader__.load({
       typeof value === 'string' || value.text === undefined ? h('span', { className: 'bk-fact' }, value) : h('span', { className: 'bk-fact' }, value.text),
       value.absent === true && value.note !== null ? h('span', { className: 'bk-d' }, value.note) : note === null ? null : h('span', { className: 'bk-d' }, note))
 
-    /** What the plan selected for a seat, as the TUI's "selected by" line names it, or `null` when Brokkr recorded no selection. */
-    const selectedOf = (seat) => (seat.selected === null || seat.selected.model === null ? null
-      : `selected ${seat.selected.model}${seat.selected.provider === null ? '' : ` via ${seat.selected.provider}`}${seat.selected.fallback ? ' (a fallback)' : ''}`)
-
-    /** A seat as the TUI's participant pane reads it, with its tokens read apart. */
+    /**
+     * A seat as the TUI's participant pane reads it, with its tokens read
+     * apart. What its plan selected is Brokkr's own provenance line
+     * (`seat.selected`), painted as the TUI paints it, never recomposed here.
+     */
     function SeatFacts({ seat }) {
       return h('div', { className: 'bk-seat' },
         h('div', { className: 'bk-row' }, h('strong', null, seat.label), chip(seat.status, seat.working ? 'bk-run' : 'bk-stop'),
           h('span', { className: 'bk-note' }, `${seat.model.text} (claimed) · ${seat.boundary.text} · effort pinned ${seat.effort_pin.text}, applied ${seat.effort.text}`)),
         seat.activity.absent ? null : h('div', { className: 'bk-note' }, seat.activity.text),
         h('div', { className: 'bk-tiles' },
-          fact('Model', seat.model, selectedOf(seat) ?? `claimed · boundary ${seat.boundary.text}`),
+          fact('Model', seat.model, seat.selected ?? `claimed · boundary ${seat.boundary.text}`),
           fact('Tokens', tokensOf(seat.tokens), seat.tokens.total.absent ? seat.tokens.total.note : null, true),
           fact('Cache hit', seat.tokens.cache_hit),
           fact('Cost', seat.cost),
@@ -869,7 +869,7 @@ window.__ModuleLoader__.load({
               h('span', { key: `t${seat.key}` }, tokensOf(seat.tokens)),
               h('span', { key: `c${seat.key}` }, seat.tokens.cache_hit.text),
               h('span', { key: `$${seat.key}` }, seat.cost.text),
-              h('span', { key: `m${seat.key}`, className: 'bk-muted bk-model' }, seat.model.text, selectedOf(seat) === null ? null : h('span', { className: 'bk-d' }, selectedOf(seat))),
+              h('span', { key: `m${seat.key}`, className: 'bk-muted bk-model' }, seat.model.text, seat.selected === null ? null : h('span', { className: 'bk-d' }, seat.selected)),
             ]
           })),
         h('div', { className: 'bk-d' }, '▸ the seat behind what you picked · click a seat to read it · click a phase name to show only its seats'))

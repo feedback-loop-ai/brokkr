@@ -79,7 +79,15 @@ function routes({ brokkr, desk, here, locate, focus }) {
   return [
     ['POST', `${BASE}/api/command`, async (req, res) => send(res, 200, await desk.submit(await bodyOf(req)))],
     // What a conversation's Brokkr tab shows, told to that conversation's model on its next turn.
-    ['POST', `${BASE}/api/focus`, async (req, res) => send(res, 200, focus.set(await bodyOf(req)))],
+    // The tab reads only that it was taken; there is nothing else to say.
+    [
+      'POST',
+      `${BASE}/api/focus`,
+      async (req, res) => {
+        focus.set(await bodyOf(req))
+        send(res, 200, {})
+      },
+    ],
     [
       'GET',
       `${BASE}/api/here`,

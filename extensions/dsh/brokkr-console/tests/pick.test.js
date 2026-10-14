@@ -8,7 +8,7 @@ import { test } from 'node:test'
 
 import { fleetOf, runViewOf } from '../lib/host/readouts.js'
 import { buttons, findAll, mountClient, textOf } from './support/client.js'
-import { fleetDoc, journalRow, row, runViewDoc, seat } from './support/world.js'
+import { fleetDoc, journalRow, provenance, row, runViewDoc, seat } from './support/world.js'
 
 const RUN = row().run_id
 const TRANSCRIPT = '/brokkr-console/api/transcript'
@@ -210,6 +210,20 @@ test('the transcript is read again when the run moves, and says why when Brokkr 
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(reviewed({ seq: 13 })) } })
   await settled()
   assert.equal(reads(), before + 1)
+})
+
+test('a seat says what its plan selected in Brokkr’s own line, in the seats table and the reader, and nothing when Brokkr recorded none', () => {
+  const line = 'security · selected glm-flash via dsh (fallback #1; not the agent\'s first choice)'
+  const view = reviewed()
+  view.participants[2].provenance = provenance({ chain_index: 1, fallback: true, line })
+  const client = onRun(view)
+  assert.equal(textOf(seats(client.tree())).split(line).length, 2, 'once, under the security seat')
+  assert.doesNotMatch(textOf(seats(client.tree())), /a fallback/)
+  press(client.tree(), 'the step security')
+  assert.match(textOf(reader(client.tree())), /Modelgpt-5\.5security · selected glm-flash via dsh \(fallback #1; not the agent's first choice\)/)
+  press(client.tree(), 'the step security')
+  press(client.tree(), 'the step implement')
+  assert.match(textOf(reader(client.tree())), /Modelgpt-5\.5claimed · boundary not applicable/)
 })
 
 test('a live step wears the pulse while the run is driven, and only then', () => {

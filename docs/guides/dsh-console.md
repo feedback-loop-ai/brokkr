@@ -110,10 +110,12 @@ back to the cards.
   ↓ out, the cache hit (cache reads over input, from `brokkr inspect`), cost,
   turns and attempts, and its transcript, newest last, read again whenever
   the run moves so a working seat's follows its tail. Beside the model the
-  harness reported serving, the seat names what its plan selected ("selected
-  glm-flash via dsh"), as the TUI's "selected by" line does; a seat served
-  through DSH reports no model of its own. A figure Brokkr did
-  not record says why, and so does a seat with no transcript.
+  harness reported serving, the seat carries what its plan selected in
+  `brokkr inspect`'s own provenance line, the one the TUI prints after
+  "selected by" ("security · selected glm-flash via dsh", and a fallback
+  says it was not the agent's first choice); a seat served through DSH
+  reports no model of its own. A figure Brokkr did not record says why, and
+  so does a seat with no transcript, in the words `brokkr transcript` prints.
 - **Why it waits.** Beside the reader when the run waits: Brokkr's park
   reason, word for word, with the rule, where and since when, and a link to
   read that seat; a clarify park's questions and **Open the spec**; the rule

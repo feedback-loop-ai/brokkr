@@ -71,6 +71,11 @@ export function journalRow(seq, eventType, payload = {}, text = eventType) {
 
 const cellOf = (text, note = null) => (text === null ? { text: '—', absent: true, note } : { text, absent: false, note: null })
 
+/** A seat's plan provenance as `brokkr inspect --json` prints it: the security agent's first choice, served through dsh, unless told otherwise. */
+export function provenance(over = {}) {
+  return { agent: 'security', model: 'glm-flash', effort: 'high', provider: 'dsh', chain_index: 0, fallback: false, line: 'security · selected glm-flash via dsh', ...over }
+}
+
 /** One participant as `brokkr inspect --json` prints it: the security review seat, finished, unless told otherwise. */
 export function seat(over = {}) {
   return {
@@ -230,12 +235,12 @@ export function clientFrame(text, masked = true) {
   return Buffer.concat([head, mask, body])
 }
 
-/** A stub DSH host: the routes, upgrade and model tools a plugin registers, and its fence. */
+/** A stub DSH host: the routes, upgrade, model tools and event listeners (each `{listener, options}`) a plugin registers, and its fence. */
 export function stubHost(rejection = undefined) {
   const host = { routes: new Map(), upgrades: new Map(), tools: new Map(), listeners: new Map(), rejection }
   host.ctx = {
     effect: (register, _label) => register(),
-    on: (event, listener) => host.listeners.set(event, listener),
+    on: (event, listener, options = {}) => host.listeners.set(event, { listener, options }),
     tools: { register: (definition) => host.tools.set(definition.name, definition) },
     webServer: {
       register: ({ kind, path, handler }) => host.routes.set(path, { kind, handler }),

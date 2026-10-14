@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { analyticsOf, fleetOf, ONE_HEARTH, ReadoutRefused, runViewOf } from '../lib/host/readouts.js'
-import { analyticsDoc, fleetDoc, row, runViewDoc } from './support/world.js'
+import { analyticsDoc, fleetDoc, provenance, row, runViewDoc, seat } from './support/world.js'
 
 for (const [what, parse, doc] of [
   ['brokkr runs', fleetOf, fleetDoc([['brokkr', [row()]]])],
@@ -43,6 +43,14 @@ test('a payload that is not text, not JSON or not an object refuses the row by w
       assert.throws(() => runViewOf(broken), new ReadoutRefused('shape', `journal[0].payload_json is not ${what}`), `${event_type} with ${payload_json}`)
     }
   }
+})
+
+test('what a seat’s plan selected is Brokkr’s provenance line, whole; a provenance without one refuses the readout', () => {
+  const selected = (over) => runViewOf(runViewDoc({ participants: [seat({ provenance: over })] })).participants[0].selected
+  assert.equal(selected(null), null)
+  const fallback = 'security · selected glm-flash via dsh (fallback #1; not the agent\'s first choice)'
+  assert.equal(selected(provenance({ chain_index: 1, fallback: true, line: fallback })), fallback)
+  assert.throws(() => selected(provenance({ line: undefined })), new ReadoutRefused('shape', 'participants[0].provenance.line is not text'))
 })
 
 test('a ruling is read from the fields its payload records, and only for a ruling', () => {
