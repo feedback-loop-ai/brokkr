@@ -19,6 +19,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::launch::BundleSource;
+use brokkr_runtime::places::{self, Kind, PlacesError, FOLDER};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, SeatBody};
 
@@ -323,12 +324,78 @@ impl std::fmt::Display for Refused {
 
 impl std::error::Error for Refused {}
 
+/// An `add` refused in a folder repository (decision 0083; #675): a
+/// `recipes/<name>/bundle.json` is a recipe library's mark, and a library
+/// outranks a folder beside it (the operator's ruling 1 of 2026-10-13 on
+/// #634), so the install would move every default out of the folder
+/// unannounced. `root` is the folder repository's. A caller matches the
+/// type, never the text (decision 0071 ruling 8).
+#[derive(Debug, PartialEq, Eq)]
+struct InFolder {
+    root: PathBuf,
+}
+
+impl std::fmt::Display for InFolder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let root = self.root.display();
+        write!(
+            formatter,
+            "{root} keeps its Brokkr in {root}/{FOLDER} (decision 0083): recipes add would \
+             install a recipe library there, which outranks the folder and moves every default \
+             out of it (#675); a folder repository's bundle is {FOLDER}/ itself, so nothing was \
+             written"
+        )
+    }
+}
+
+impl std::error::Error for InFolder {}
+
+/// Refuse an `add` that would make a folder repository a recipe library
+/// (#675, the operator's option A), before anything is cloned, copied or
+/// created: one run from a workspace whose layout is the folder's, or one
+/// into a `dir` inside a folder repository, judged by the one walk
+/// ([`places::Layout::discover`]) from the nearest entry standing at `dir`
+/// or above it, since `add` creates the rest. A layout or an entry that
+/// cannot be read refuses in its own words (fail closed).
+fn refuse_folder(workspace: &Path, dir: &Path) -> Result<()> {
+    let target = std::path::absolute(dir).map_err(unreadable(dir))?;
+    for start in [workspace, standing(&target)?] {
+        let layout = places::Layout::discover(start)?;
+        if layout.kind() == Kind::Folder {
+            let root = layout.root().to_path_buf();
+            return Err(InFolder { root }.into());
+        }
+    }
+    Ok(())
+}
+
+/// The nearest of `path`, an absolute path, and its ancestors at which an
+/// entry stands, judged as the entry itself ([`places::entry`]); the root
+/// directory always stands. One that cannot be read refuses.
+fn standing(path: &Path) -> Result<&Path, PlacesError> {
+    let found = path.ancestors().find_map(|at| match places::entry(at) {
+        Ok(entry) => entry.map(|_| Ok(at)),
+        Err(source) => Some(Err(unreadable(at)(source))),
+    });
+    found.unwrap_or(Ok(path))
+}
+
+/// The refusal of the entry at `path`, which cannot be read.
+fn unreadable(path: &Path) -> impl FnOnce(std::io::Error) -> PlacesError + '_ {
+    move |source| PlacesError::Unreadable {
+        path: path.to_path_buf(),
+        source,
+    }
+}
+
 /// Install a recipe: clone or copy into `<dir>/<name>`, with the bases it
 /// extends that the library lacks, then compile-verify every copy. If any
 /// fails to compile all are removed — the library only ever holds recipes
 /// the compiler accepted or nothing. The library is held from the first
-/// copy to the last compile ([`hold`]); a clone happens before, unheld.
+/// copy to the last compile ([`hold`]); a clone happens before, unheld. A
+/// folder repository is refused first ([`refuse_folder`]).
 pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
+    refuse_folder(workspace, dir)?;
     let world = World::discover(workspace, None)?;
     let dest = dir.join(name);
     if std::fs::symlink_metadata(&dest).is_ok() {

@@ -400,3 +400,62 @@ fn copy_skips_nested_git_metadata() {
     assert!(destination.join("kept").is_file());
     assert!(!destination.join(".git").exists());
 }
+
+/// A folder repository planted by hand: a `.git` and a `.brokkr` directory
+/// at its root (decision 0083), resolved as the walk resolves it.
+fn folder_repository() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    for entry in [".git", FOLDER] {
+        std::fs::create_dir(root.join(entry)).unwrap();
+    }
+    (dir, root)
+}
+
+/// `add` refuses in a folder repository, from its workspace or into a
+/// `dir` inside it that does not stand yet, by the type and with nothing
+/// created (#675).
+#[test]
+fn add_refuses_a_folder_repository_by_type() {
+    let (_dir, root) = folder_repository();
+    let node = workspace().join("recipes/node");
+    let outside = tempfile::tempdir().unwrap();
+    let cases = [
+        (root.clone(), outside.path().join("recipes")),
+        (outside.path().to_path_buf(), root.join("deep/recipes")),
+    ];
+    for (from, dir) in cases {
+        let refusal = add(&from, node.to_str().unwrap(), "node", &dir).unwrap_err();
+        let refused = refusal.downcast_ref::<InFolder>();
+        let expected = InFolder { root: root.clone() };
+        assert_eq!(refused, Some(&expected), "{refusal}");
+        assert!(!dir.exists(), "{}", dir.display());
+    }
+}
+
+/// An entry on the walk from `dir` that cannot be read refuses by name,
+/// never taken as absent (fail closed); so does a `dir` that cannot be
+/// made absolute.
+#[test]
+fn add_refuses_a_dir_it_cannot_read_the_way_to() {
+    use std::os::unix::fs::PermissionsExt;
+    let refused = |dir: &Path| {
+        let refusal = add(&workspace(), "unused", "node", dir).unwrap_err();
+        match refusal.downcast::<PlacesError>() {
+            Ok(PlacesError::Unreadable { path, .. }) => path,
+            other => panic!("an unreadable refusal: {other:?}"),
+        }
+    };
+    assert_eq!(refused(Path::new("")), PathBuf::new());
+    if rustix::process::geteuid().is_root() {
+        return;
+    }
+    let outside = tempfile::tempdir().unwrap();
+    let locked = outside.path().join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let dir = locked.join("in/recipes");
+    let path = refused(&dir);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(path, dir);
+}

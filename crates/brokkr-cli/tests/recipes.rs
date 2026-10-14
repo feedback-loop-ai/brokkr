@@ -439,6 +439,66 @@ fn add_refuses_symlinks_and_removes_the_partial_copy() {
     assert!(!rdir.join("sneaky").exists(), "the partial copy is removed");
 }
 
+/// What `recipes add` prints when it refuses in the folder repository at
+/// `root` (#675), its one pin.
+pub(crate) fn in_folder(root: &Path) -> String {
+    format!(
+        "error: {root} keeps its Brokkr in {root}/.brokkr (decision 0083): recipes add would \
+         install a recipe library there, which outranks the folder and moves every default out \
+         of it (#675); a folder repository's bundle is .brokkr/ itself, so nothing was written\n",
+        root = root.display()
+    )
+}
+
+/// `recipes add` in a folder repository (decision 0083; #675) refuses by
+/// name and writes nothing: from its root, from a subdirectory, into its
+/// folder, and from a bare directory outside it into its `recipes/`. No
+/// library mark appears to outrank the folder, so the next verb still
+/// reads the folder's journal.
+#[test]
+fn add_refuses_in_a_folder_repository_and_writes_nothing() {
+    let repo = crate::brokkr_folder::Repo::new();
+    let init = repo.init_with_only(&["claude"]);
+    assert_eq!(init.code, Some(0), "{}", init.stderr);
+    let ws = Ws::new();
+    let src = ws.path().join("src-bundle");
+    ws.write_recipe(&src);
+    let add = ["recipes", "add", src.to_str().unwrap(), "--name", "x"];
+    let refusal = in_folder(&repo.root);
+    let before = repo.files();
+    for (from, dir) in [
+        ("", &[][..]),
+        ("src", &[]),
+        ("", &["--dir", ".brokkr/recipes"]),
+    ] {
+        let ran = repo.brokkr(from, &[&add[..], dir].concat());
+        assert_eq!(
+            (ran.code, ran.stderr.as_str()),
+            (Some(1), &*refusal),
+            "{from} {dir:?}"
+        );
+    }
+    let into = repo.path("recipes");
+    let (code, _, stderr) = ws.brokkr(&[&add[..], &["--dir", into.to_str().unwrap()]].concat());
+    assert_eq!((code, stderr), (Some(1), refusal));
+
+    assert_eq!(repo.files(), before);
+    for left in ["recipes", "src/recipes", ".brokkr/recipes", ".forge"] {
+        assert!(!repo.path(left).exists(), "{left}");
+    }
+    // No run has opened the journal yet: the read names where it looks.
+    let runs = repo.brokkr("", &["runs"]);
+    let journal = repo.path(".brokkr/state/forge.db");
+    let read = format!(
+        "error: journal does not exist: {}; a read never creates one",
+        journal.display()
+    );
+    assert_eq!(
+        (runs.code, runs.stderr.lines().last()),
+        (Some(1), Some(&*read))
+    );
+}
+
 #[test]
 fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let ws = Ws::new();
