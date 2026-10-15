@@ -160,7 +160,7 @@ impl Held {
     /// Whether, within a while, every process seen is gone, and nothing
     /// holds the server's mount namespace, and so its tmpfs, or its pipes.
     fn settled(&self) -> bool {
-        let gone = |pid: &i32| stat(*pid).is_none_or(|(state, ..)| state == 'Z');
+        let gone = |pid: &i32| gone(*pid);
         within(|| self.members.iter().all(gone) && !holding(&self.namespace, &self.pipes))
     }
 }
@@ -269,6 +269,11 @@ fn settled(outcome: Option<Outcome>, ending: Option<Disposition>, scratch: Vec<S
     (true, (call, ending, invalid), true, scratch)
 }
 
+/// Whether `pid` is gone, or ended and not yet reaped.
+fn gone(pid: i32) -> bool {
+    stat(pid).is_none_or(|(state, ..)| state == 'Z')
+}
+
 /// Kill `pid` outright.
 fn kill(pid: i32) {
     let pid = rustix::process::Pid::from_raw(pid).unwrap();
@@ -302,7 +307,10 @@ fn an_attempt_cancelled_during_initialization_or_a_call_settles_the_server_and_i
     // with no call or with the one it accepted failed, and every process
     // below the harness, the broker and the server's child among them, is
     // gone with its namespace and pipes; the evidence remains, and the
-    // scratch is left empty (MB5).
+    // scratch is left empty (MB5). The harness's input, which this test and
+    // not the harness holds, ends only once the broker has: ended first, it
+    // could reach the broker before the harness's death does, and end the
+    // session with the call still begun.
     let timeout = Some(Disposition::Failed(Failure::Timeout));
     let initializing = (true, (vec![], timeout.clone(), None), true, vec![]);
     let called = settled(Some(Outcome::Failed), timeout, vec![]);
@@ -315,8 +323,10 @@ fn an_attempt_cancelled_during_initialization_or_a_call_settles_the_server_and_i
         let Some(live) = Live::started(&dir, &said, answers) else {
             return;
         };
+        let broker = live.broker();
         kill(live.harness);
         let cancelled = Instant::now();
+        assert!(within(|| gone(broker)), "{case}: the broker did not end");
         let ending = live.ended();
         let taken = cancelled.elapsed();
         assert!(taken < Duration::from_secs(5), "{case}: {taken:?}");
