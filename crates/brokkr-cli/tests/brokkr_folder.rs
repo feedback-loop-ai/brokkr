@@ -1,8 +1,9 @@
-//! Decision 0083, slice A (#634): an adopter's Brokkr lives in one
-//! `.brokkr/` folder at its repository's root. Discovery from anywhere in
-//! the repository, the defaults that follow from it, and the old layouts
-//! refused with the moves to make. `init` writing the folder and doctor's
-//! folder line are slice B's; these tests plant the folder by hand.
+//! Decision 0083 (#634): an adopter's Brokkr lives in one `.brokkr/`
+//! folder at its repository's root. Discovery from anywhere in the
+//! repository, the defaults that follow from it, the old layouts refused
+//! with the moves to make, `init` writing the folder and nothing else,
+//! and doctor's folder line checking a hand move. Most tests plant the
+//! folder by hand; `init_doctor` reaches [`Repo`] for its own.
 //!
 //! Every repository here is a fresh `git init` in a temporary directory
 //! that sits in no checkout, so discovery reads that repository alone.
@@ -31,15 +32,26 @@ fn policy() -> String {
 }
 
 /// What one invocation left: its exit code, stdout and stderr.
-struct Ran {
-    code: Option<i32>,
-    stdout: String,
-    stderr: String,
+pub(crate) struct Ran {
+    pub(crate) code: Option<i32>,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
 }
 
 impl Ran {
-    fn first_line(&self) -> &str {
+    pub(crate) fn first_line(&self) -> &str {
         self.stderr.lines().next().unwrap_or_default()
+    }
+
+    fn of(out: std::process::Output) -> Ran {
+        let text = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
+        let code = out.status.code();
+        let (stdout, stderr) = (text(out.stdout), text(out.stderr));
+        Ran {
+            code,
+            stdout,
+            stderr,
+        }
     }
 }
 
@@ -47,15 +59,15 @@ impl Ran {
 /// repository: the fake driver's script and state, and every engine's
 /// TMPDIR, so nothing a run writes outside `.brokkr/state/` lands in the
 /// repository.
-struct Repo {
+pub(crate) struct Repo {
     _dir: tempfile::TempDir,
     _aside: tempfile::TempDir,
-    root: PathBuf,
+    pub(crate) root: PathBuf,
     aside: PathBuf,
 }
 
 impl Repo {
-    fn new() -> Repo {
+    pub(crate) fn new() -> Repo {
         let dir = tempfile::tempdir().unwrap();
         let aside = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap().join("repo");
@@ -69,11 +81,11 @@ impl Repo {
         }
     }
 
-    fn path(&self, relative: &str) -> PathBuf {
+    pub(crate) fn path(&self, relative: &str) -> PathBuf {
         self.root.join(relative)
     }
 
-    fn write(&self, relative: &str, text: &str) -> PathBuf {
+    pub(crate) fn write(&self, relative: &str, text: &str) -> PathBuf {
         let path = self.path(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, text).unwrap();
@@ -105,19 +117,25 @@ impl Repo {
             .unwrap()
             .write_all(stdin.as_bytes())
             .unwrap();
-        let out = child.wait_with_output().unwrap();
-        let text = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
-        let code = out.status.code();
-        let (stdout, stderr) = (text(out.stdout), text(out.stderr));
-        Ran {
-            code,
-            stdout,
-            stderr,
-        }
+        Ran::of(child.wait_with_output().unwrap())
     }
 
-    fn brokkr(&self, dir: &str, args: &[&str]) -> Ran {
+    pub(crate) fn brokkr(&self, dir: &str, args: &[&str]) -> Ran {
         self.brokkr_with(dir, args, "")
+    }
+
+    /// `brokkr init .` at the root under a PATH holding only the agent
+    /// CLIs `present`, made beside the repository, so it scaffolds for the
+    /// first of them whatever this host carries.
+    pub(crate) fn init_with_only(&self, present: &[&str]) -> Ran {
+        let bins = self.aside.join("bins");
+        std::fs::create_dir_all(&bins).unwrap();
+        for binary in present {
+            std::fs::write(bins.join(binary), "").unwrap();
+        }
+        let mut init = self.command("");
+        init.args(["init", "."]).env("PATH", &bins);
+        Ran::of(init.output().unwrap())
     }
 
     /// A fake-driver bundle named `name` at `relative`, its implementer
@@ -160,12 +178,12 @@ impl Repo {
     }
 
     /// A recipe library's mark: a bundle under `recipes/`.
-    fn library(&self) {
+    pub(crate) fn library(&self) {
         self.bundle("recipes/x", "library", completes());
     }
 
     /// Every file under the root but `.git`, with its bytes.
-    fn files(&self) -> BTreeMap<PathBuf, Vec<u8>> {
+    pub(crate) fn files(&self) -> BTreeMap<PathBuf, Vec<u8>> {
         let mut files = BTreeMap::new();
         let mut pending = vec![self.root.clone()];
         while let Some(dir) = pending.pop() {
@@ -192,7 +210,7 @@ fn completes() -> Value {
     json!([{"behavior": "succeed", "result": {"result": "complete"}}])
 }
 
-fn git(dir: &Path, args: &[&str]) -> String {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(args)
         .current_dir(dir)
@@ -202,8 +220,17 @@ fn git(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
+/// A fresh repository in a temporary directory, so a verb run from inside
+/// its `.brokkr/` walks up to it rather than taking the folder for a root
+/// (ruling 2).
+pub(crate) fn repository() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    git(dir.path(), &["init", "-q"]);
+    dir
+}
+
 /// Commit what `root`'s index holds.
-fn commit(root: &Path) {
+pub(crate) fn commit(root: &Path) {
     let author = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"];
     let commit = ["-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"];
     git(root, &[&author[..], &commit[..]].concat());
@@ -241,13 +268,15 @@ fn no_place(cwd: &Path, root: &Path) -> String {
     )
 }
 
-const ROOT_LAYOUT: &str = "error: this repository has Brokkr's old root layout and no .brokkr/ \
-                           folder (decision 0083); nothing was opened, and Brokkr moves nothing";
+pub(crate) const ROOT_LAYOUT: &str = "error: this repository has Brokkr's old root layout and no \
+                                      .brokkr/ folder (decision 0083); nothing was opened, and \
+                                      Brokkr moves nothing";
 
-const STATE_ONLY: &str = "error: this repository has Brokkr state in .forge/ and no .brokkr/ \
-                          folder (decision 0083); nothing was opened, and Brokkr moves nothing";
+pub(crate) const STATE_ONLY: &str = "error: this repository has Brokkr state in .forge/ and no \
+                                     .brokkr/ folder (decision 0083); nothing was opened, and \
+                                     Brokkr moves nothing";
 
-fn half_moved(root: &Path, left: &str) -> String {
+pub(crate) fn half_moved(root: &Path, left: &str) -> String {
     format!(
         "{}/.brokkr/ is this repository's folder, but {}/{left} still stands at the root \
          (decision 0083); move or remove it",
@@ -304,6 +333,125 @@ fn discovery_finds_the_folder_from_a_subdirectory() {
     for line in lines {
         assert!(printed.contains(&line), "{line} in {printed}");
     }
+    // Its first line names the folder and where it was found from.
+    let root = repo.root.display();
+    let found = format!("ok       folder: {root}/.brokkr (found from {root}/src/deep)");
+    assert_eq!(printed.lines().next(), Some(found.as_str()), "{printed}");
+}
+
+/// Ruling 1's tracked scaffold, under the folder.
+const SCAFFOLD: [&str; 15] = [
+    ".gitignore",
+    "adapters/claude.json",
+    "adapters/exec.json",
+    "agents/README.md",
+    "agents/charters/implementer.md",
+    "agents/charters/intake.md",
+    "agents/charters/reviewer.md",
+    "agents/implementer.json",
+    "agents/intake.json",
+    "agents/reviewer.json",
+    "bundle.json",
+    "policy.json",
+    "realms.json",
+    "scripts/ship-seat.sh",
+    "scripts/verify-seat.sh",
+];
+
+/// `init` in a fresh repository, a plain one and then an OpenSpec one,
+/// which adds the dialect's library: the paths the tree gained, the paths
+/// `init` printed and ruling 1's tracked scaffold are one list; nothing
+/// else moved or appeared, and no file the claude scaffold holds names
+/// `.forge/` (the codex declaration's evidence citation is R6's).
+#[test]
+fn init_writes_only_under_the_folder() {
+    let instructions = [
+        "analyze", "archive", "clarify", "design", "return", "specify", "tasks",
+    ];
+    let mut openspec: Vec<String> = instructions
+        .map(|name| format!("dialects/openspec/{name}.md"))
+        .into();
+    openspec.push("dialects/openspec.json".to_string());
+    for (spec, added) in [(false, Vec::new()), (true, openspec)] {
+        let repo = Repo::new();
+        if spec {
+            repo.write("openspec/config.yaml", "schema: spec-driven\n");
+        }
+        let before = repo.files();
+        let ran = repo.init_with_only(&["claude"]);
+        assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+        let after = repo.files();
+        let gained: Vec<&PathBuf> = after
+            .keys()
+            .filter(|path| !before.contains_key(*path))
+            .collect();
+        let named = SCAFFOLD
+            .iter()
+            .copied()
+            .chain(added.iter().map(String::as_str));
+        let mut expected: Vec<PathBuf> =
+            named.map(|path| Path::new(".brokkr").join(path)).collect();
+        expected.sort();
+        assert_eq!(gained, expected.iter().collect::<Vec<_>>());
+        let lines = ran.stderr.lines().skip(1);
+        let printed: Vec<PathBuf> = lines
+            .map_while(|line| line.strip_prefix("  "))
+            .map(PathBuf::from)
+            .collect();
+        assert_eq!(printed, expected);
+        assert!(before
+            .iter()
+            .all(|(path, bytes)| after.get(path) == Some(bytes)));
+        assert!(!repo.path(".forge").exists());
+        let forged = gained
+            .iter()
+            .filter(|path| String::from_utf8_lossy(&after[**path]).contains(".forge/"));
+        assert_eq!(forged.collect::<Vec<_>>(), Vec::<&&PathBuf>::new());
+    }
+}
+
+/// `init`'s old output, journaled by its run through the `--db` escape,
+/// moved by hand exactly as the refusal says: its listed moves, then its
+/// prose. Doctor's folder line is the clean one, and the run journaled
+/// before the move is listed from the folder's journal.
+#[test]
+fn a_hand_moved_layout_runs() {
+    let repo = Repo::new();
+    repo.bundle("", "old", completes());
+    let map = |journal: &str, path: &str| {
+        json!({"schema": "forge.realms/v1", "journal": journal,
+               "realms": [{"name": "old", "path": path, "default_branch": "main"}]})
+        .to_string()
+    };
+    repo.write("realms.json", &map(".forge/forge.db", "."));
+    repo.write(".forge/.gitignore", "*\n!.gitignore\n");
+    git(&repo.root, &["add", "."]);
+    commit(&repo.root);
+    let old = ["run", "--bundle", ".", "--feature", "x", "--no-view"];
+    let ran = repo.brokkr("", &[&old[..], &["--db", ".forge/forge.db"]].concat());
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let run = started(&ran);
+    let refused = repo.brokkr("", &["runs"]);
+    assert_eq!((refused.code, refused.first_line()), (Some(1), ROOT_LAYOUT));
+    make(&repo, &listed_moves(&refused));
+    std::fs::create_dir_all(repo.path(".brokkr/roles")).unwrap();
+    for read in ["bundle.json", "policy.json", "roles/role.md"] {
+        std::fs::rename(repo.path(read), repo.path(&format!(".brokkr/{read}"))).unwrap();
+    }
+    std::fs::remove_file(repo.path("realms.json")).unwrap();
+    repo.write(".brokkr/realms.json", &map("state/forge.db", ".."));
+
+    let doctor = repo.brokkr("", &["doctor"]);
+    let root = repo.root.display();
+    let clean = format!("ok       folder: {root}/.brokkr (found from {root})");
+    assert_eq!(
+        doctor.stdout.lines().next(),
+        Some(clean.as_str()),
+        "{}",
+        doctor.stdout
+    );
+    let runs = repo.brokkr("src", &["runs", "--json"]);
+    assert_eq!(listed(&runs), [run], "{}", runs.stderr);
 }
 
 #[test]
@@ -704,8 +852,8 @@ fn secrets_only_layout_refuses() {
     assert_eq!((ran.code, ran.first_line()), (Some(1), STATE_ONLY));
     assert!(!repo.path(".brokkr").exists());
 
-    // The listed moves, made as listed, leave a folder the store is read
-    // from. (`brokkr init .` writing the scaffold beside it is slice B's.)
+    // The listed moves, made as listed, leave a folder `brokkr init .`
+    // writes the scaffold beside, and the store is read from it.
     let moves = listed_moves(&ran);
     assert_eq!(
         moves,
@@ -717,6 +865,8 @@ fn secrets_only_layout_refuses() {
         ]
     );
     make(&repo, &moves);
+    let ran = repo.brokkr("", &["init", "."]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let ran = repo.brokkr("", &["secrets", "list"]);
     assert_eq!(
         (ran.code, ran.stdout.as_str()),
@@ -1089,13 +1239,21 @@ fn an_unreadable_library_mark_refuses() {
     assert!(!repo.path(".brokkr/state").exists() && !repo.path(".forge").exists());
 }
 
-/// The agents verb refuses an old layout as every other verb does, never
-/// reading the old layout's agents (round 634c's sixth finding).
+/// The library verbs refuse an old layout as every other verb does, never
+/// reading the old layout's agents (round 634c's sixth finding), its
+/// bundle or its recipes.
 #[test]
-fn the_agents_verb_refuses_an_old_layout() {
+fn the_library_verbs_refuse_an_old_layout() {
     let repo = Repo::new();
     old_root_layout(&repo);
-    for verb in [&["agents", "list"][..], &["agents", "show", "implementer"]] {
+    let verbs: [&[&str]; 5] = [
+        &["agents", "list"],
+        &["agents", "show", "implementer"],
+        &["compile", "--bundle", "."],
+        &["recipes", "list"],
+        &["recipes", "show", "x"],
+    ];
+    for verb in verbs {
         let ran = repo.brokkr("", verb);
         assert_eq!(
             (ran.code, ran.first_line()),

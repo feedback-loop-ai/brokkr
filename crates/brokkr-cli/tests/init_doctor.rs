@@ -2,12 +2,15 @@
 //! constitutional lint; `brokkr doctor` reports health without executing
 //! any agent.
 //!
-//! Every verb below is run FROM INSIDE the scaffold, because that is what
-//! the scaffold is: a workspace carrying its own `adapters/`, where the
-//! trust tier its gate seats judge on is declared (decision 0021), read
-//! from the workspace like every other root (decision 0023).
+//! `init` writes the `.brokkr/` folder at a repository's root (decision
+//! 0083), so every scaffold here is made in a fresh `git init`: a verb run
+//! from the root or from inside the folder finds the folder's
+//! `adapters/`, where the trust tier its gate seats judge on is declared
+//! (decision 0021), as discovery reads every other default (ruling 2).
 
 use std::process::Command;
+
+use crate::brokkr_folder::{git, repository, Repo, ROOT_LAYOUT, STATE_ONLY};
 
 /// Run `brokkr`. An `init` runs with a `claude` first on PATH: it
 /// scaffolds for the first of claude, codex or dsh it finds, and these
@@ -39,22 +42,24 @@ fn brokkr(args: &[&str], cwd: &std::path::Path) -> (Option<i32>, String, String)
 #[test]
 fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    git(dir.path(), &["init", "-q"]);
+    let (code, _, stderr) = brokkr(&["init", "."], dir.path());
     assert_eq!(code, Some(0), "stderr: {stderr}");
     assert!(stderr.contains("digest"), "stderr: {stderr}");
-    // The scaffold says where to stand, once, on stderr, and says what
-    // decides an unboxed seat rather than that its tool list does — and
-    // then that the operator's MCP servers are not a seat's (SI2).
+    // Discovery serves the whole repository, so the scaffold no longer
+    // says where to stand: it says, on a line of its own, that the
+    // operator's MCP servers are not a seat's (SI2), and last, how to
+    // commit the folder.
+    assert!(!stderr.contains("run brokkr from inside"), "{stderr}");
     assert!(
-        stderr.contains(&format!(
-            "run brokkr from inside {} — its adapters/ and agents/ declare the trust tier \
-             and the tools its seats are pre-approved for; an unboxed seat is still decided \
-             by the harness's permission model and your own settings\n{AMBIENT_MCP}\n",
-            bundle.display()
-        )),
+        stderr.contains(&format!("\n{AMBIENT_MCP}\n")),
         "stderr: {stderr}"
     );
+    assert!(
+        stderr.ends_with("\ncommit the folder: git add .brokkr && git commit\n"),
+        "stderr: {stderr}"
+    );
+    let bundle = dir.path().join(".brokkr");
     let notes = std::fs::read_to_string(bundle.join("agents/README.md")).unwrap();
     assert!(
         notes.contains(&format!("\n\n{AMBIENT_MCP}\n\n## Specification dialect\n")),
@@ -98,34 +103,29 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
     );
     assert!(!reviewer.contains("commit them"), "{reviewer}");
 
-    // Refuses to clobber an existing bundle.
-    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
-    assert_eq!(code, Some(1));
-    assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
+    // Refuses to write over the folder it wrote, naming what it holds.
+    let (code, _, stderr) = brokkr(&["init", "."], dir.path());
+    let refused = format!(
+        "error: {}/.brokkr already holds adapters, agents, bundle.json, policy.json, realms.json, \
+         scripts (decision 0083); init writes a folder only where none stands, or beside moved \
+         state (.gitignore and state/ alone): move or remove them\n",
+        dir.path().canonicalize().unwrap().display()
+    );
+    assert_eq!((code, stderr), (Some(1), refused));
 }
 
-/// `init` under a PATH holding only the named agent CLIs: the scaffold
-/// directory, its stderr, and the compile run from inside it.
-fn init_with_only(present: &[&str]) -> (tempfile::TempDir, std::path::PathBuf, String) {
-    let dir = tempfile::tempdir().unwrap();
-    let bins = dir.path().join("bins");
-    std::fs::create_dir(&bins).unwrap();
-    for binary in present {
-        std::fs::write(bins.join(binary), "").unwrap();
-    }
-    let bundle = dir.path().join("bundle");
-    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["init", bundle.to_str().unwrap()])
-        .env("PATH", &bins)
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-    assert_eq!(out.status.code(), Some(0), "{stderr}");
+/// `init` under a PATH holding only the named agent CLIs: the repository,
+/// its folder, `init`'s stderr, and the compile run from inside the
+/// folder.
+fn init_with_only(present: &[&str]) -> (Repo, std::path::PathBuf, String) {
+    let repo = Repo::new();
+    let ran = repo.init_with_only(present);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let bundle = repo.path(".brokkr");
     let (code, stdout, error) = brokkr(&["compile", "--bundle", "."], &bundle);
     assert_eq!(code, Some(0), "{error}");
     assert!(stdout.contains("\"starter\""), "{stdout}");
-    (dir, bundle, stderr)
+    (repo, bundle, ran.stderr)
 }
 
 fn json_at(path: &std::path::Path) -> serde_json::Value {
@@ -478,66 +478,27 @@ fn a_harness_scaffolds_verify_note_claims_no_denied_network() {
     assert!(!script.contains("network denied"), "{script}");
 }
 
-/// A run writes its journal, results and ledger under `.forge/`, and the
-/// ship gate closes out only on a clean tree: `init` ignores `.forge/`
-/// from inside, beside the map and in the repository, and keeps an
-/// ignore file the operator already has there.
+/// A run writes its journal, results and ledger under `.brokkr/state/`,
+/// and the ship gate closes out only on a clean tree: `init` ignores the
+/// folder's state from inside, with the one line `state/`, and the commit
+/// carries that ignore file to every clone (decision 0083 ruling 1).
 #[test]
-fn init_ignores_the_runs_own_forge_directory() {
-    let git = |repo: &std::path::Path, args: &[&str]| {
-        let out = Command::new("git")
-            .args([
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@t",
-                "-c",
-                "commit.gpgSign=false",
-            ])
-            .args(args)
-            .current_dir(repo)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "{}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        String::from_utf8(out.stdout).unwrap()
-    };
-    let repo = tempfile::tempdir().unwrap();
-    git(repo.path(), &["init", "-q"]);
-    let (code, _, stderr) = brokkr(&["init", "."], repo.path());
-    assert_eq!(code, Some(0), "{stderr}");
-    assert_eq!(
-        std::fs::read_to_string(repo.path().join(".forge/.gitignore")).unwrap(),
-        "*\n!.gitignore\n"
+fn init_ignores_the_folders_own_state() {
+    let repo = Repo::new();
+    let ran = repo.brokkr("", &["init", "."]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let ignore = std::fs::read_to_string(repo.path(".brokkr/.gitignore")).unwrap();
+    assert_eq!(ignore, "state/\n");
+    git(&repo.root, &["add", "-A"]);
+    crate::brokkr_folder::commit(&repo.root);
+    let tracked = git(
+        &repo.root,
+        &["ls-files", ".brokkr/.gitignore", ".brokkr/state"],
     );
-    git(repo.path(), &["add", "-A"]);
-    git(repo.path(), &["commit", "-q", "-m", "brokkr starter"]);
-    // The commit carries the ignore file, so a clone ignores `.forge/` too.
-    assert_eq!(
-        git(repo.path(), &["ls-files", ".forge"]),
-        ".forge/.gitignore\n"
-    );
-    std::fs::create_dir_all(repo.path().join(".forge/results")).unwrap();
-    std::fs::write(repo.path().join(".forge/forge.db"), "").unwrap();
-    std::fs::write(repo.path().join(".forge/results/seat.json"), "{}").unwrap();
-    assert_eq!(git(repo.path(), &["status", "--porcelain"]), "");
-
-    let repo = tempfile::tempdir().unwrap();
-    std::fs::create_dir(repo.path().join(".forge")).unwrap();
-    std::fs::write(repo.path().join(".forge/.gitignore"), "theirs\n").unwrap();
-    let (code, _, stderr) = brokkr(&["init", "my-bundle"], repo.path());
-    assert_eq!(code, Some(0), "{stderr}");
-    assert_eq!(
-        std::fs::read_to_string(repo.path().join(".forge/.gitignore")).unwrap(),
-        "theirs\n"
-    );
-    assert_eq!(
-        std::fs::read_to_string(repo.path().join("my-bundle/.forge/.gitignore")).unwrap(),
-        "*\n!.gitignore\n"
-    );
+    assert_eq!(tracked, ".brokkr/.gitignore\n");
+    repo.write(".brokkr/state/forge.db", "");
+    repo.write(".brokkr/state/results/seat.json", "{}");
+    assert_eq!(git(&repo.root, &["status", "--porcelain"]), "");
 }
 
 /// A dsh-only host: dsh holds intake and implement, and the review gate —
@@ -580,42 +541,37 @@ fn a_dsh_only_host_names_the_gate_dsh_cannot_hold() {
 #[cfg(target_os = "macos")]
 #[test]
 fn a_macos_scaffold_declares_harness_and_asks_nothing_of_bubblewrap() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    let empty_path = dir.path().join("empty-path");
-    std::fs::create_dir(&empty_path).unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["init", bundle.to_str().unwrap()])
-        .env("PATH", &empty_path)
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    let (dir, stderr) = init_on_an_empty_path();
     assert!(!stderr.contains("hands need bubblewrap"), "{stderr}");
     assert!(
         stderr.contains("`realms.json` declares the `harness` boundary"),
         "{stderr}"
     );
-    let map = std::fs::read_to_string(bundle.join("realms.json")).unwrap();
+    let map = std::fs::read_to_string(dir.path().join(".brokkr/realms.json")).unwrap();
     assert!(map.contains("\"boundary\": \"harness\""), "{map}");
+}
+
+/// `init .` in a fresh repository under a PATH that holds nothing: the
+/// repository, and what `init` printed.
+fn init_on_an_empty_path() -> (tempfile::TempDir, String) {
+    let dir = repository();
+    let empty_path = dir.path().join("empty-path");
+    std::fs::create_dir(&empty_path).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .args(["init", "."])
+        .env("PATH", &empty_path)
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    (dir, stderr)
 }
 
 #[cfg(target_os = "linux")]
 #[test]
 fn init_names_the_scaffolded_seats_that_need_missing_bubblewrap() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    let empty_path = dir.path().join("empty-path");
-    std::fs::create_dir(&empty_path).unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["init", bundle.to_str().unwrap()])
-        .env("PATH", &empty_path)
-        .current_dir(dir.path())
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    let (_dir, stderr) = init_on_an_empty_path();
     assert!(
         stderr.contains(
             "hands need bubblewrap: no `bwrap` on PATH, and the boundary is never simulated"
@@ -666,7 +622,7 @@ fn doctor_checks_the_map_named_by_realms() {
 
 #[test]
 fn doctor_prints_scaffolded_dialect_absence_and_missing_tool_warning() {
-    let absent = tempfile::tempdir().unwrap();
+    let absent = repository();
     let (code, _, stderr) = brokkr(&["init", "."], absent.path());
     assert_eq!(code, Some(0), "{stderr}");
     let (_, stdout, _) = brokkr(&["doctor"], absent.path());
@@ -675,7 +631,7 @@ fn doctor_prints_scaffolded_dialect_absence_and_missing_tool_warning() {
         "{stdout}"
     );
 
-    let openspec = tempfile::tempdir().unwrap();
+    let openspec = repository();
     std::fs::create_dir(openspec.path().join("openspec")).unwrap();
     std::fs::write(
         openspec.path().join("openspec/config.yaml"),
@@ -711,97 +667,248 @@ fn doctor_prints_scaffolded_dialect_absence_and_missing_tool_warning() {
     );
 }
 
-/// The other half of that: the scaffold WRITES a trust declaration, and
-/// a tier is an operator's ruling (decision 0021 ruling 3). `init` guards
-/// its bundle against clobbering; the declaration is workspace data and
-/// is guarded on the same terms, so scaffolding into a tree that already
-/// declares one cannot silently re-promote what the operator demoted.
+/// `init` writes a folder only where none stands, or beside moved state
+/// (decision 0083 ruling 5), so nothing an operator holds in one is ever
+/// written over: a prior scaffold's bundle, a trust tier they demoted
+/// (decision 0021 ruling 3), a seat script, a map, dialect data, or a
+/// third entry beside moved state. Each is refused naming what the folder
+/// holds, kept byte for byte, and nothing else is written (R1).
 #[test]
-fn init_refuses_to_overwrite_an_operators_trust_declaration() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    std::fs::create_dir_all(bundle.join("adapters")).unwrap();
-    let declaration = bundle.join("adapters/claude.json");
-    std::fs::write(&declaration, "{\"trust_tier\": \"untrusted\"}\n").unwrap();
-
-    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
-    assert_eq!(code, Some(1), "stderr: {stderr}");
-    assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
-    // The demotion is still the operator's, and nothing else was written.
-    let kept = std::fs::read_to_string(&declaration).unwrap();
-    assert!(kept.contains("untrusted"), "{kept}");
-    assert!(!bundle.join("bundle.json").exists());
-}
-
-#[test]
-fn init_refuses_an_existing_realm_map_and_operator_owned_dialect_data() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("realm-map");
-    std::fs::create_dir(&bundle).unwrap();
-    let map = bundle.join("realms.json");
-    std::fs::write(&map, "operator-owned\n").unwrap();
-    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
-    assert_eq!(code, Some(1), "{stderr}");
-    assert!(stderr.contains("realms.json") && stderr.contains("refusing to overwrite"));
-    assert_eq!(std::fs::read_to_string(map).unwrap(), "operator-owned\n");
-
-    let openspec = tempfile::tempdir().unwrap();
-    std::fs::create_dir(openspec.path().join("openspec")).unwrap();
-    std::fs::write(
-        openspec.path().join("openspec/config.yaml"),
-        "schema: spec-driven\n",
-    )
-    .unwrap();
-    let bundle = openspec.path().join("bundle");
-    std::fs::create_dir_all(bundle.join("dialects")).unwrap();
-    let dialect = bundle.join("dialects/openspec.json");
-    std::fs::write(&dialect, "operator-owned\n").unwrap();
-    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], openspec.path());
-    assert_eq!(code, Some(1), "{stderr}");
-    assert!(stderr.contains("dialect data") && stderr.contains("refusing to overwrite"));
-    assert_eq!(
-        std::fs::read_to_string(dialect).unwrap(),
-        "operator-owned\n"
-    );
-    assert!(!bundle.join("bundle.json").exists());
-
-    std::fs::remove_file(bundle.join("dialects/openspec.json")).unwrap();
-    std::fs::create_dir(bundle.join("dialects/openspec")).unwrap();
-    let instruction = bundle.join("dialects/openspec/specify.md");
-    std::fs::write(&instruction, "operator-owned instruction\n").unwrap();
-    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], openspec.path());
-    assert_eq!(code, Some(1), "{stderr}");
-    assert!(stderr.contains("specify.md") && stderr.contains("refusing to overwrite"));
-    assert_eq!(
-        std::fs::read_to_string(instruction).unwrap(),
-        "operator-owned instruction\n"
-    );
-    assert!(!bundle.join("bundle.json").exists());
-}
-
-#[test]
-fn init_refuses_to_overwrite_exec_trust_or_deterministic_seat_scripts() {
-    let dir = tempfile::tempdir().unwrap();
-
-    let exec_bundle = dir.path().join("exec-bundle");
-    std::fs::create_dir_all(exec_bundle.join("adapters")).unwrap();
-    let exec = exec_bundle.join("adapters").join("exec.json");
-    std::fs::write(&exec, "operator-owned\n").unwrap();
-    let (code, _, stderr) = brokkr(&["init", exec_bundle.to_str().unwrap()], dir.path());
-    assert_eq!(code, Some(1), "stderr: {stderr}");
-    assert!(stderr.contains(&exec.display().to_string()), "{stderr}");
-    assert_eq!(std::fs::read_to_string(exec).unwrap(), "operator-owned\n");
-
-    for script in ["verify-seat.sh", "ship-seat.sh"] {
-        let bundle = dir.path().join(script);
-        std::fs::create_dir_all(bundle.join("scripts")).unwrap();
-        let path = bundle.join("scripts").join(script);
-        std::fs::write(&path, "operator-owned\n").unwrap();
-        let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], dir.path());
-        assert_eq!(code, Some(1), "stderr: {stderr}");
-        assert!(stderr.contains(&path.display().to_string()), "{stderr}");
-        assert_eq!(std::fs::read_to_string(path).unwrap(), "operator-owned\n");
+fn init_refuses_an_existing_folder() {
+    let cases = [
+        ("bundle.json", "{\"seats\": {}}\n", "bundle.json"),
+        (
+            "adapters/claude.json",
+            "{\"trust_tier\": \"untrusted\"}\n",
+            "adapters",
+        ),
+        ("adapters/exec.json", "operator-owned\n", "adapters"),
+        ("scripts/verify-seat.sh", "operator-owned\n", "scripts"),
+        ("scripts/ship-seat.sh", "operator-owned\n", "scripts"),
+        ("realms.json", "operator-owned\n", "realms.json"),
+        ("dialects/openspec.json", "operator-owned\n", "dialects"),
+        (
+            "dialects/openspec/specify.md",
+            "operator-owned instruction\n",
+            "dialects",
+        ),
+        ("notes.md", "operator-owned\n", "notes.md"),
+    ];
+    for (planted, theirs, held) in cases {
+        let repo = Repo::new();
+        repo.write("openspec/config.yaml", "schema: spec-driven\n");
+        repo.write(".brokkr/.gitignore", "state/\n");
+        repo.write(".brokkr/state/forge.db", "");
+        let path = repo.write(&format!(".brokkr/{planted}"), theirs);
+        let before = repo.files();
+        let ran = repo.brokkr("", &["init", "."]);
+        let refused = format!(
+            "error: {}/.brokkr already holds {held} (decision 0083); init writes a folder only \
+             where none stands, or beside moved state (.gitignore and state/ alone): move or \
+             remove them\n",
+            repo.root.display()
+        );
+        assert_eq!((ran.code, ran.stderr), (Some(1), refused), "{planted}");
+        assert_eq!(std::fs::read_to_string(path).unwrap(), theirs, "{planted}");
+        assert_eq!(repo.files(), before, "{planted}");
     }
+}
+
+/// The one folder `init` writes beside: the moved state the state-only
+/// refusal's moves leave, its ignore file kept byte for byte and left off
+/// the list of what was written, and its `state/` untouched.
+#[test]
+fn init_writes_beside_moved_state() {
+    let repo = Repo::new();
+    let theirs = "state/\n# the operator's\n";
+    repo.write(".brokkr/.gitignore", theirs);
+    repo.write(".brokkr/state/forge.db", "journal");
+    let ran = repo.brokkr("", &["init", "."]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let read = |path: &str| std::fs::read_to_string(repo.path(path)).unwrap();
+    assert_eq!(read(".brokkr/.gitignore"), theirs);
+    assert_eq!(read(".brokkr/state/forge.db"), "journal");
+    assert!(repo.path(".brokkr/bundle.json").is_file());
+    let listed = ran
+        .stderr
+        .lines()
+        .any(|line| line.ends_with(".brokkr/.gitignore"));
+    assert!(!listed, "{}", ran.stderr);
+}
+
+/// A folder is read only at the root (ruling 2), so `init` of a directory
+/// below it refuses, whichever way it is named, and writes no folder in
+/// either place: it never moves the target up on its own.
+#[test]
+fn init_from_a_subdirectory_refuses() {
+    let repo = Repo::new();
+    let root = repo.root.display();
+    let refused = format!(
+        "error: {} is inside the repository {root} but is not its root (decision 0083); a folder \
+         is read only at the root: run `brokkr init {root}`\n",
+        repo.path("src").display()
+    );
+    for (cwd, dir) in [("src", "."), ("", "src")] {
+        let ran = repo.brokkr(cwd, &["init", dir]);
+        assert_eq!(
+            (ran.code, ran.stderr.as_str()),
+            (Some(1), refused.as_str()),
+            "{dir}"
+        );
+    }
+    assert!(!repo.path("src/.brokkr").exists() && !repo.path(".brokkr").exists());
+}
+
+/// A recipe library keeps its own layout and reads no folder (the
+/// operator's ruling 1 of 2026-10-13), so `init` writes nothing there (R2).
+#[test]
+fn init_refuses_in_a_library() {
+    let repo = Repo::new();
+    repo.library();
+    let before = repo.files();
+    let ran = repo.brokkr("", &["init", "."]);
+    let refused = format!(
+        "error: {} is a recipe library, which keeps its own layout and reads no .brokkr/ folder \
+         (decision 0083; the operator's ruling 1 of 2026-10-13): init writes nothing here\n",
+        repo.root.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), refused));
+    assert_eq!(repo.files(), before);
+    assert!(!repo.path(".brokkr").exists());
+}
+
+/// One form of the folder line: where doctor runs, what the repository
+/// holds, and the line it earns, given the root.
+type Form = (&'static str, fn(&Repo), fn(&str) -> String);
+
+/// Doctor's first line is the folder, in its status column (decision 0083
+/// ruling 5): found and from where, none, a library's own layout, and an
+/// old shape or a discovery refusal in its refusal's first words, each of
+/// which leaves the report unhealthy (R4).
+#[test]
+fn doctor_names_the_folder() {
+    let rows: [Form; 7] = [
+        (
+            "",
+            |repo| assert_eq!(repo.brokkr("", &["init", "."]).code, Some(0)),
+            |root| format!("ok       folder: {root}/.brokkr (found from {root})"),
+        ),
+        (
+            "",
+            |_| {},
+            |root| {
+                format!("warn     folder: none from {root} up to {root} — brokkr init . writes one")
+            },
+        ),
+        ("", Repo::library, |root| {
+            format!(
+                "ok       folder: none: {root} is a recipe library, which keeps its own layout \
+                     (decision 0083)"
+            )
+        }),
+        (
+            "",
+            |repo| drop(repo.write("bundle.json", "{}")),
+            |_| missing(ROOT_LAYOUT),
+        ),
+        (
+            "",
+            |repo| drop(repo.write(".forge/secrets.env", "")),
+            |_| missing(STATE_ONLY),
+        ),
+        (
+            "",
+            |repo| drop(repo.write(".brokkr", "a file")),
+            |root| {
+                format!(
+                    "MISSING  folder: {root}/.brokkr is not a directory (decision 0083); Brokkr's \
+                     folder must be one: move or remove it"
+                )
+            },
+        ),
+        (
+            "src/deep",
+            |repo| std::fs::create_dir_all(repo.path("src/.brokkr")).unwrap(),
+            |root| {
+                format!(
+                    "MISSING  folder: {root}/src/.brokkr is not at this repository's root {root} \
+                     (decision 0083); Brokkr reads only {root}/.brokkr: move or remove it"
+                )
+            },
+        ),
+    ];
+    for (cwd, plant, expected) in rows {
+        let repo = Repo::new();
+        plant(&repo);
+        let doctor = repo.brokkr(cwd, &["doctor"]);
+        let expected = expected(&repo.root.display().to_string());
+        assert_eq!(doctor.stdout.lines().next(), Some(expected.as_str()));
+        if expected.starts_with("MISSING") {
+            assert_eq!(doctor.code, Some(1), "{expected}");
+        }
+    }
+}
+
+/// Doctor's folder line for an old shape: its refusal's first line.
+fn missing(refusal: &str) -> String {
+    format!("MISSING  folder: {}", refusal.trim_start_matches("error: "))
+}
+
+/// Doctor checks a hand move (decision 0083 ruling 5): with `init`'s new
+/// output and a root `bundle.json` left beside it, the folder line names
+/// the entry left; with that gone and a charter left behind at the root,
+/// it carries the error `brokkr compile --bundle .brokkr` prints for the
+/// folder, and so with the charter back and a folder map that will not
+/// read. Each leaves the report unhealthy.
+#[test]
+fn doctor_checks_a_moved_folder() {
+    let repo = Repo::new();
+    let ran = repo.brokkr("", &["init", "."]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    repo.write("bundle.json", "{}");
+    let found = format!(
+        "{}/.brokkr (found from {})",
+        repo.root.display(),
+        repo.root.display()
+    );
+    let left = format!(
+        "MISSING  folder: {found}, but {} still stands at the root (decision 0083); move or \
+         remove it\n",
+        repo.path("bundle.json").display()
+    );
+    let doctor = repo.brokkr("", &["doctor"]);
+    assert_eq!(doctor.code, Some(1));
+    assert!(doctor.stdout.starts_with(&left), "{}", doctor.stdout);
+
+    std::fs::remove_file(repo.path("bundle.json")).unwrap();
+    let charter = "agents/charters/implementer.md";
+    std::fs::create_dir_all(repo.path("agents/charters")).unwrap();
+    std::fs::rename(repo.path(&format!(".brokkr/{charter}")), repo.path(charter)).unwrap();
+    let refuses_as_compile = || {
+        let compile = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+        assert_eq!(compile.code, Some(1));
+        let refused = compile.stderr.strip_prefix("error: ").unwrap();
+        let clause =
+            format!("MISSING  folder: {found}, but its compile refuses (decision 0083): {refused}");
+        let doctor = repo.brokkr("", &["doctor"]);
+        assert_eq!(doctor.code, Some(1));
+        assert!(
+            doctor.stdout.starts_with(&clause),
+            "{clause}\n{}",
+            doctor.stdout
+        );
+    };
+    refuses_as_compile();
+
+    std::fs::rename(repo.path(charter), repo.path(&format!(".brokkr/{charter}"))).unwrap();
+    repo.write(".brokkr/realms.json", "{invalid json");
+    let map = format!(
+        "{} is not a readable realms map: key must be a string at line 1 column 2",
+        repo.path(".brokkr/realms.json").display()
+    );
+    let compile = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    assert_eq!(compile.stderr, format!("error: {map}\n"));
+    refuses_as_compile();
 }
 
 /// Decision 0021, from the operator's side: the scaffold's gate seats
@@ -810,9 +917,9 @@ fn init_refuses_to_overwrite_exec_trust_or_deterministic_seat_scripts() {
 /// driver — rather than quietly leaving three judges unbacked.
 #[test]
 fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    let dir = repository();
+    let bundle = dir.path().join(".brokkr");
+    brokkr(&["init", "."], dir.path());
 
     let adapter = bundle.join("adapters/claude.json");
     let declared = std::fs::read_to_string(&adapter).unwrap();
@@ -839,9 +946,9 @@ fn demoting_the_scaffolded_tier_refuses_the_scaffolded_gates() {
 /// the compile from `realms.json`, and doctor names what it may hold.
 #[test]
 fn a_provisional_model_compiles_only_in_the_offices_the_map_lists() {
-    let (dir, bundle, _) = init_with_only(&["claude"]);
+    let (repo, bundle, _) = init_with_only(&["claude"]);
     mark_sonnet_provisional(&bundle);
-    let db = dir.path().join("forge.db");
+    let db = repo.path("forge.db");
     let doctor = || {
         brokkr(
             &["doctor", "--bundle", ".", "--db", db.to_str().unwrap()],
@@ -889,10 +996,10 @@ fn a_provisional_model_compiles_only_in_the_offices_the_map_lists() {
 /// lists none — the refusal printed once, on the one error line.
 #[test]
 fn the_recipe_verbs_read_the_provisional_offices_the_map_lists() {
-    let (dir, bundle, _) = init_with_only(&["claude"]);
+    let (repo, bundle, _) = init_with_only(&["claude"]);
     mark_sonnet_provisional(&bundle);
     list_provisional_offices(&bundle, serde_json::json!(["implementer", "intake"]));
-    let library = dir.path().join("library");
+    let library = repo.path("library");
     let library = library.to_str().unwrap();
     let verb = |args: &[&str]| brokkr(&[&["recipes"], args].concat(), &bundle);
 
@@ -947,15 +1054,11 @@ fn list_provisional_offices(bundle: &std::path::Path, offices: serde_json::Value
 
 #[test]
 fn doctor_reports_health_and_validates_a_bundle() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    let dir = repository();
+    let bundle = dir.path().join(".brokkr");
+    brokkr(&["init", "."], dir.path());
 
-    let db = dir.path().join("forge.db");
-    let (code, stdout, _) = brokkr(
-        &["doctor", "--bundle", ".", "--db", db.to_str().unwrap()],
-        &bundle,
-    );
+    let (code, stdout) = doctor_of(&bundle);
     // git and python3 exist on dev and CI machines; claude may only warn.
     assert_eq!(code, Some(0), "doctor output: {stdout}");
     assert!(stdout.contains("git"));
@@ -972,19 +1075,25 @@ fn doctor_reports_health_and_validates_a_bundle() {
 
     // A broken bundle turns the report unhealthy.
     std::fs::write(bundle.join("policy.json"), "{}").unwrap();
-    let (code, stdout, _) = brokkr(
-        &["doctor", "--bundle", ".", "--db", db.to_str().unwrap()],
-        &bundle,
-    );
+    let (code, stdout) = doctor_of(&bundle);
     assert_eq!(code, Some(1), "doctor output: {stdout}");
     assert!(stdout.contains("MISSING  bundle"));
 }
 
+/// `brokkr doctor` of the folder `bundle`, run from inside it, with a
+/// journal named beside it: the exit code and the report.
+fn doctor_of(bundle: &std::path::Path) -> (Option<i32>, String) {
+    let db = bundle.with_file_name("forge.db");
+    let doctor = ["doctor", "--bundle", ".", "--db", db.to_str().unwrap()];
+    let (code, stdout, _) = brokkr(&doctor, bundle);
+    (code, stdout)
+}
+
 #[test]
 fn doctor_names_every_unpinned_model_seat_and_the_single_repair() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = dir.path().join("bundle");
-    brokkr(&["init", bundle.to_str().unwrap()], dir.path());
+    let dir = repository();
+    let bundle = dir.path().join(".brokkr");
+    brokkr(&["init", "."], dir.path());
     let bundle_file = bundle.join("bundle.json");
     let mut config: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&bundle_file).unwrap()).unwrap();
@@ -993,18 +1102,20 @@ fn doctor_names_every_unpinned_model_seat_and_the_single_repair() {
         ("verify", "reviewer", "codex"),
     ] {
         let seat = &mut config["seats"][phase];
-        seat.as_object_mut().unwrap().remove("agent");
+        // The scaffold's verify seat has hands. On macOS, init declares
+        // the `harness` boundary, which refuses an inline site with hands
+        // before the model pins are read (decision 0046 ruling 4), so the
+        // inline sites here hold none.
+        let seat_map = seat.as_object_mut().unwrap();
+        seat_map.remove("agent");
+        seat_map.remove("hands");
         seat["role"] = serde_json::json!(format!("agents/charters/{charter}.md"));
         seat["driver"] = serde_json::json!({
             "command": ["{brokkr}", "driver", kind, "--"]
         });
     }
     std::fs::write(&bundle_file, serde_json::to_string_pretty(&config).unwrap()).unwrap();
-    let db = dir.path().join("forge.db");
-    let (code, stdout, _) = brokkr(
-        &["doctor", "--bundle", ".", "--db", db.to_str().unwrap()],
-        &bundle,
-    );
+    let (code, stdout) = doctor_of(&bundle);
     assert_eq!(code, Some(1), "{stdout}");
     assert!(stdout.contains("'implement'"), "{stdout}");
     assert!(stdout.contains("'verify'"), "{stdout}");
@@ -1077,12 +1188,12 @@ fn scaffolded_claude_denials(workspace: &std::path::Path) -> Vec<String> {
 #[cfg(unix)]
 #[test]
 fn doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = repository();
     let (code, _, stderr) = brokkr(&["init", "."], dir.path());
     assert_eq!(code, Some(0), "{stderr}");
     let path = path_with_a_stand_in(dir.path(), "claude");
     let lines = doctor_lines(dir.path(), &path);
-    let expected = scaffolded_claude_denials(dir.path());
+    let expected = scaffolded_claude_denials(&dir.path().join(".brokkr"));
     assert!(
         expected[1].contains("no live denial or enablement of WebSearch has been measured")
             && expected[1].contains("are both unmeasured live"),
@@ -1116,7 +1227,7 @@ fn doctor_reads_the_scaffold_as_granting_nothing_and_names_claudes_native_tools(
 /// generated `tools` and doctor's capability lines for the starter realm.
 #[cfg(unix)]
 fn scaffolded_capabilities(fixture: Option<&str>) -> (serde_json::Value, Vec<String>) {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = repository();
     let root = std::fs::canonicalize(dir.path()).unwrap();
     if let Some(fixture) = fixture {
         let markers = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1129,9 +1240,10 @@ fn scaffolded_capabilities(fixture: Option<&str>) -> (serde_json::Value, Vec<Str
     }
     let (code, _, stderr) = brokkr(&["init", "."], &root);
     assert_eq!(code, Some(0), "{fixture:?}: {stderr}");
-    let implementer: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(root.join("agents/implementer.json")).unwrap())
-            .unwrap();
+    let implementer: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join(".brokkr/agents/implementer.json")).unwrap(),
+    )
+    .unwrap();
     let path = path_with_a_stand_in(&root, "claude");
     let capabilities = doctor_lines(&root, &path)
         .into_iter()
@@ -1187,10 +1299,11 @@ fn doctor_reads_a_stacks_typed_restrictions_as_granting_nothing() {
 #[cfg(unix)]
 #[test]
 fn a_broken_agent_library_takes_no_native_capability_line_with_it() {
-    let dir = tempfile::tempdir().unwrap();
+    let dir = repository();
     let (code, _, stderr) = brokkr(&["init", "."], dir.path());
     assert_eq!(code, Some(0), "{stderr}");
-    std::fs::write(dir.path().join("agents/implementer.json"), "not json").unwrap();
+    let folder = dir.path().join(".brokkr");
+    std::fs::write(folder.join("agents/implementer.json"), "not json").unwrap();
     let path = path_with_a_stand_in(dir.path(), "claude");
     let lines = doctor_lines(dir.path(), &path);
     assert!(
@@ -1202,7 +1315,7 @@ fn a_broken_agent_library_takes_no_native_capability_line_with_it() {
     // The scaffolded exec adapter declares no assessment of its own, so
     // doctor reads it as every pre-ruling adapter is read: unmeasured,
     // with the absence as the reason — never as an empty inventory.
-    let mut expected = scaffolded_claude_denials(dir.path());
+    let mut expected = scaffolded_claude_denials(&folder);
     expected.push(
         "warn     capabilities starter native exec: native inventory unmeasured: the adapter \
          declares no native_capabilities assessment. Nothing is granted through it and no \
@@ -1217,17 +1330,17 @@ fn a_broken_agent_library_takes_no_native_capability_line_with_it() {
 #[test]
 fn doctor_judges_each_boundary_and_compiles_the_discovered_dialect() {
     use serde_json::{json, Value};
-    let dir = tempfile::tempdir().unwrap();
+    let dir = repository();
     let (code, _, error) = brokkr(&["init", "."], dir.path());
     assert_eq!(code, Some(0), "{error}");
     let empty = dir.path().join("empty-path");
     std::fs::create_dir(&empty).unwrap();
-    let map_path = dir.path().join("realms.json");
+    let map_path = dir.path().join(".brokkr/realms.json");
     let mut map: Value = serde_json::from_slice(&std::fs::read(&map_path).unwrap()).unwrap();
     map["schema"] = json!("forge.realms/v4");
     let doctor = || {
         let output = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args(["doctor", "--bundle", "."])
+            .args(["doctor", "--bundle", ".brokkr"])
             .env("PATH", &empty)
             .current_dir(dir.path())
             .output()

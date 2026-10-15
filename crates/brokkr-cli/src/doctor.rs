@@ -26,6 +26,7 @@ use crate::boundary;
 use crate::render::Safe;
 use paths::Paths;
 
+mod folder;
 mod paths;
 mod provisional;
 
@@ -678,14 +679,11 @@ pub(crate) fn doctor(
     // The world is read once, before the bundle compiles: a bundle
     // doctor is asked about compiles in the discovered realm, under its
     // boundary (decision 0046 ruling 2), and the realm's own lines follow
-    // the machine's.
-    //
-    // `inspect`, not `discover`: a doctor line reports and never refuses
-    // (decision 0046's Addendum), so a crossing that has moved is one
-    // realm's line here rather than the `Err` that would replace every
-    // house, dialect and boundary line in this report with a single
-    // "realms map" one and tell an operator their world is broken when
-    // one contract moved (decision 0057).
+    // the machine's. `inspect`, not `discover`: a doctor line reports and
+    // never refuses (decision 0046's Addendum), so a crossing that has
+    // moved is one realm's line here rather than the `Err` that would
+    // replace every house, dialect and boundary line in this report with
+    // a single "realms map" one (decision 0057).
     let world = brokkr_runtime::realms::World::inspect(&workspace, realms);
     let boundary = match &world {
         Ok(Some(world)) => world.boundary_for(&workspace),
@@ -698,7 +696,7 @@ pub(crate) fn doctor(
         .map(|db| Ok(db.to_path_buf()))
         .unwrap_or_else(|| match &world {
             Ok(Some(world)) => Ok(world.journal()),
-            _ => defaults.journal.as_ref().cloned(),
+            _ => defaults.journal(),
         });
     let (mut report, availability) = doctor_observed(
         bundle,
@@ -726,6 +724,7 @@ pub(crate) fn doctor(
         &availability,
     );
     let mapped = world.as_ref().ok().and_then(Option::as_ref);
+    folder::report_folder(&mut report, defaults, realms);
     let adapters = &defaults.adapters;
     provisional::report_provisional(&mut report, adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);

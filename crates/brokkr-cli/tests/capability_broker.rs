@@ -577,23 +577,25 @@ fn the_grouped_library_verbs_still_dispatch() {
     assert_eq!((ran.code, ran.stdout.as_str()), (Some(0), "DOCS_TOKEN\n"));
 }
 
-/// `brokkr init`'s workspace, whose map grants its one realm
-/// `library-docs` through an MCP dialect that no seat asks for.
+/// `brokkr init`'s folder, in a repository of its own whatever checkout
+/// the root sits in, whose map grants its one realm `library-docs`
+/// through an MCP dialect that no seat asks for.
 fn granting_mcp(root: &Root) {
+    crate::brokkr_folder::git(&root.path, &["init", "-q"]);
     assert_eq!(root.brokkr(&["init", "."]).code, Some(0));
-    let map = root.path.join("realms.json");
+    let map = root.path.join(".brokkr/realms.json");
     let mut realms: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&map).unwrap()).unwrap();
     realms["schema"] = json!("forge.realms/v6");
     realms["realms"][0]["capabilities"] =
         json!({"library-docs": {"dialect": "docs-mcp", "offices": []}});
-    root.write("realms.json", &realms.to_string());
+    root.write(".brokkr/realms.json", &realms.to_string());
     root.write(
-        "capabilities/library-docs.json",
+        ".brokkr/capabilities/library-docs.json",
         &json!({"name": "library-docs", "classes": ["reads", "egress"]}).to_string(),
     );
     root.write(
-        "dialects/tools/docs-mcp.json",
+        ".brokkr/dialects/tools/docs-mcp.json",
         &json!({"schema": "brokkr.tool-dialect/v1", "name": "docs-mcp",
                 "serves": "library-docs", "kind": "mcp",
                 "connection": {"argv": ["/nonexistent/docs-mcp"]}, "version": "1.4.2",
@@ -607,7 +609,7 @@ fn granting_mcp(root: &Root) {
 fn the_compile_fence_still_refuses_an_unused_mcp_grant() {
     let root = Root::new();
     granting_mcp(&root);
-    let ran = root.brokkr(&["compile", "--bundle", "."]);
+    let ran = root.brokkr(&["compile", "--bundle", ".brokkr"]);
     assert_eq!(ran.code, Some(1));
     assert_eq!(
         ran.stderr,

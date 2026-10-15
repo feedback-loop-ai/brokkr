@@ -26,8 +26,8 @@ pub(super) struct JournalArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct InitArgs {
-    /// The directory the bundle is written into; one that already holds
-    /// a bundle.json or a realms.json is refused, never overwritten.
+    /// The repository root whose .brokkr/ folder is written; a folder that
+    /// already holds more than moved state is refused, never overwritten.
     pub(super) dir: PathBuf,
 }
 
@@ -133,8 +133,8 @@ pub(super) struct TuiArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct DoctorArgs {
-    /// A bundle directory to compile and check as well; without it, no
-    /// bundle is checked.
+    /// A bundle directory to compile and check as well; without it, only a
+    /// found .brokkr/ folder is compiled, for the folder line.
     #[arg(long)]
     pub(super) bundle: Option<PathBuf>,
     /// The world's map whose realm house declarations doctor checks (default the found

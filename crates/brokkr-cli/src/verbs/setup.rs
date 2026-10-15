@@ -9,55 +9,39 @@ use anyhow::{Context, Result};
 use brokkr_core::policy::audit::SWEEP_BUDGET;
 use brokkr_runtime::bundle::is_engine_owned;
 use brokkr_runtime::launch::{self, BundleSource};
-use brokkr_runtime::places::SECRETS;
+use brokkr_runtime::places::{FOLDER, SECRETS};
 use brokkr_runtime::realms::World;
 
 use crate::cli_args::{CompileArgs, DoctorArgs, DriverArgs, FakeDriverArgs, InitArgs};
-use crate::folder::{DoctorDefaults, FolderError, Layout, OldLayout};
+use crate::folder::{DoctorDefaults, Layout};
 use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
 
-/// `brokkr init`: scaffold a reviewable bundle for the workspace.
-pub(crate) fn init(workspace: &Path, InitArgs { dir }: InitArgs) -> Result<ExitCode> {
-    // The recipe lands in `dir`; the repository it describes is
-    // the WORKSPACE, read for its manifests so the implement and
-    // verify seats are told commands that would actually run
-    // there. Same tree every other verb resolves (decision 0023),
-    // for the same reason: what a command produces is a function
-    // of its arguments, not of where the caller happens to stand.
+/// `brokkr init`: write the `.brokkr/` folder at the repository root
+/// `dir`, read for its own manifests so the implement and verify seats
+/// are told commands that would actually run there (decision 0083 ruling
+/// 5; the operator's ruling 2 of 2026-10-13: one path).
+pub(crate) fn init(InitArgs { dir }: InitArgs) -> Result<ExitCode> {
     let path = std::env::var_os("PATH").unwrap_or_default();
-    // Decision 0083 ruling 4: a directory holding Brokkr state and no
-    // scaffold is refused with its moves. Writing the folder, and the
-    // rest of ruling 5's refusals, are slice B's (#634).
-    if let Some(old @ OldLayout::StateOnly { .. }) = Layout::of_root(&dir)?.old()? {
-        return Err(FolderError::Old(old).into());
-    }
-    let scaffold = init::init(&dir, workspace, &path, std::env::consts::OS)?;
+    let root = crate::folder::admit::root(&dir)?;
+    let scaffold = init::init(&root, &path, std::env::consts::OS)?;
+    let folder = root.join(FOLDER);
     eprintln!(
-        "initialized reviewable bundle at {} (digest {})",
-        dir.display(),
+        "initialized {} (digest {}), writing:",
+        folder.display(),
         scaffold.digest
     );
+    for written in &scaffold.written {
+        eprintln!("  {}", written.display());
+    }
     // Which agent CLI the seats are hired from, and which boundary
-    // the realm declares — the two facts read off this machine.
+    // the realm declares — the two facts read off this machine. Then
+    // what SI2 rules on the operator's MCP servers, in the words the
+    // scaffold's README uses.
     for note in &scaffold.notes {
         eprintln!("{note}");
     }
-    // The scaffold carries its own `adapters/` and `agents/`,
-    // where the trust tier its gate seats compile against and the
-    // tools its seats are pre-approved for are declared (decisions
-    // 0021 and 0016). Every other verb reads those trees from the
-    // workspace, which is the directory brokkr is run in — so say
-    // once, here, where to stand. Then what SI2 rules on the operator's
-    // MCP servers, in the words the scaffold's README uses.
-    eprintln!(
-        "run brokkr from inside {} — its adapters/ and agents/ declare \
-         the trust tier and the tools its seats are pre-approved for; an \
-         unboxed seat is still decided by the harness's permission model \
-         and your own settings",
-        dir.display()
-    );
     eprintln!("{}", init::AMBIENT_MCP);
     // Decision 0046: the scaffolded seats run under the realm's
     // boundary, and `namespace` — the default — is the one that
@@ -71,6 +55,9 @@ pub(crate) fn init(workspace: &Path, InitArgs { dir }: InitArgs) -> Result<ExitC
              `harness` instead (decision 0046)"
         );
     }
+    // Discovery reads the folder from anywhere in the repository once it
+    // is committed, and the ship gate closes out only on a clean tree.
+    eprintln!("commit the folder: git add {FOLDER} && git commit");
     Ok(Exit::Completed.into())
 }
 
@@ -109,7 +96,10 @@ pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> 
 /// ([`launch::compile_for`]), so the two cannot drift apart (#350). The
 /// workspace is the discovered folder's root, where there is one.
 fn print_compiled(workspace: &Path, dir: &Path) -> Result<ExitCode> {
-    let workspace = &Layout::discover(workspace)?.workspace();
+    // An old layout is refused as every verb refuses it (ruling 4).
+    let layout = Layout::discover(workspace)?;
+    layout.refuse_old()?;
+    let workspace = &layout.workspace();
     let world = World::discover(workspace, None)?;
     let bundle = launch::compile_for(workspace, dir, world.as_ref(), workspace)?;
     println!(
@@ -128,7 +118,9 @@ fn print_compiled(workspace: &Path, dir: &Path) -> Result<ExitCode> {
 
 /// `brokkr recipes`: list, add or show a recipe.
 pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode> {
-    let found = &Layout::discover(workspace)?.workspace();
+    let layout = Layout::discover(workspace)?;
+    layout.refuse_old()?;
+    let found = &layout.workspace();
     match command {
         RecipesCmd::List { dir } => recipes::list(found, &dir)?,
         RecipesCmd::Add { source, name, dir } => recipes::add(found, &source, &name, &dir)?,

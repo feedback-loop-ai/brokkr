@@ -215,8 +215,8 @@ git -C "$trial" config user.name 'bootstrap bench'
 git -C "$trial" config commit.gpgSign false
 # The fixture's suite: `init` reads the Makefile as the make stack, and
 # the real verify gate runs `make test` and `make lint`.
-# No `.gitignore`: the README asks for none, and `init` ignores the run's
-# own `.forge/` itself.
+# No `.gitignore`: the README asks for none, and `init`'s folder ignores
+# its own `state/` itself.
 printf 'build:\n\t@true\ntest:\n\t@true\nlint:\n\t@true\n' >"$trial/Makefile"
 git -C "$trial" add -A
 git -C "$trial" commit -qm 'bench fixture'
@@ -230,8 +230,11 @@ set +e
   export PATH="$stub_dir:$PATH"
   "$install_dir/brokkr" init .
   git add -A && git commit -qm 'brokkr starter'
-  "$install_dir/brokkr" run --bundle . --repo . --db .forge/forge.db \
-    --feature 'bootstrap benchmark: reach a completed run'
+  # From a subdirectory, with no flag at all, the folder is discovered and
+  # supplies the bundle, the repository, the map and the journal (decision
+  # 0083). An empty directory, which git does not track.
+  mkdir src && cd src
+  "$install_dir/brokkr" run --feature 'bootstrap benchmark: reach a completed run'
 ) >"$workdir/run.log" 2>&1
 run_exit=$?
 set -e
@@ -248,7 +251,7 @@ fi
 # the run closed out by the table's own ruling. (These are the
 # assertions `crates/brokkr-cli/tests/bootstrap_bench.rs` makes, so the
 # mechanism is under the workspace suite and not only under this script.)
-( cd "$trial" && "$install_dir/brokkr" inspect --run latest --db .forge/forge.db --json ) \
+( cd "$trial/src" && "$install_dir/brokkr" inspect --run latest --json ) \
   >"$workdir/inspect.json" 2>&1 || true
 for expected in 'effect/succeeded' 'VERIFY-PASS' 'REVIEW-CLEAN-NO-FIXES' 'SHIP-COMPLETE'; do
   if ! grep -q "$expected" "$workdir/inspect.json"; then

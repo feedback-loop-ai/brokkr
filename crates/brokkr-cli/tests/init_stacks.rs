@@ -1,5 +1,5 @@
-//! `brokkr init` looks before it scaffolds: the repository it is invoked
-//! from is read for the manifests and lockfiles at its root, and the two
+//! `brokkr init` looks before it scaffolds: the repository it writes its
+//! folder into is read for the manifests and lockfiles at its root, and the two
 //! charter and verifier script that tell seats to build and prove name that
 //! stack's own commands. What is asserted here is what an operator would
 //! read in the generated files — and, for a repository carrying no marker
@@ -25,6 +25,8 @@ use std::process::Command;
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::{Bundle, SeatBody};
 use serde_json::Value;
+
+use crate::brokkr_folder::{repository, Repo};
 
 /// Fixture, the name the charters call the stack, then build, test, lint.
 /// The same shape as the table in `init.rs`, written out again rather
@@ -249,19 +251,43 @@ fn brokkr(args: &[&str], cwd: &Path) -> (Option<i32>, String, String) {
 }
 
 /// Copy one fixture's marker files into a fresh repository and scaffold
-/// from inside it — which is how `init` is used: the recipe lands in a
-/// subdirectory, the repository it describes is the one you stand in.
-/// The `TempDir` comes back with the path so the tree outlives the call.
+/// it — which is how `init` is used: the folder lands at the root of the
+/// repository it describes (decision 0083). The `TempDir` comes back with
+/// the folder's path so the tree outlives the call.
 fn scaffold_from(fixture: &str) -> (tempfile::TempDir, PathBuf) {
-    let repo = tempfile::tempdir().unwrap();
+    let repo = repository();
     for entry in std::fs::read_dir(fixtures().join(fixture)).unwrap() {
         let marker = entry.unwrap().path();
         std::fs::copy(&marker, repo.path().join(marker.file_name().unwrap())).unwrap();
     }
-    let bundle = repo.path().join("bundle");
-    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], repo.path());
+    let (code, _, stderr) = brokkr(&["init", "."], repo.path());
     assert_eq!(code, Some(0), "{fixture}: {stderr}");
+    let bundle = repo.path().join(".brokkr");
     (repo, bundle)
+}
+
+/// `init <dir>` reads the repository it writes, never the directory it
+/// was invoked from (the operator's ruling 2 of 2026-10-13): run from a
+/// go module, it scaffolds a cargo repository as the cargo one it is.
+#[test]
+fn init_reads_the_repository_it_writes() {
+    let (invoked, written) = (tempfile::tempdir().unwrap(), repository());
+    for (fixture, into) in [("go", invoked.path()), ("rust", written.path())] {
+        for entry in std::fs::read_dir(fixtures().join(fixture)).unwrap() {
+            let marker = entry.unwrap().path();
+            std::fs::copy(&marker, into.join(marker.file_name().unwrap())).unwrap();
+        }
+    }
+    let (code, _, stderr) = brokkr(&["init", written.path().to_str().unwrap()], invoked.path());
+    assert_eq!(code, Some(0), "{stderr}");
+    let implementer = charter(&written.path().join(".brokkr"), "implementer.md");
+    let named = commands(&implementer);
+    assert_eq!(
+        named,
+        ["cargo build --workspace", "cargo test --workspace"],
+        "{implementer}"
+    );
+    assert!(!invoked.path().join(".brokkr").exists());
 }
 
 /// A charter is the agent of the same name's text, scaffolded under
@@ -597,7 +623,7 @@ fn an_unrecognized_repository_gets_a_charter_that_says_so() {
         "{implementer}"
     );
     assert!(
-        verifier.contains("no stack was recognized; fill in scripts/verify-seat.sh"),
+        verifier.contains("no stack was recognized; fill in .brokkr/scripts/verify-seat.sh"),
         "{verifier}"
     );
     for (_, _, build, test, lint) in RECOGNIZED.iter().chain(MONOREPOS) {
@@ -1134,20 +1160,23 @@ fn an_allowance_the_adapter_cannot_express_refuses_the_scaffolds_compile() {
 /// written.
 #[test]
 fn init_refuses_to_overwrite_an_operators_agent_definition() {
-    let repo = tempfile::tempdir().unwrap();
-    let bundle = repo.path().join("bundle");
-    std::fs::create_dir_all(bundle.join(DEFAULT_AGENTS_DIR)).unwrap();
-    let definition = bundle.join(DEFAULT_AGENTS_DIR).join("implementer.json");
-    std::fs::write(&definition, "{\"description\": \"the operator's\"}\n").unwrap();
+    let repo = Repo::new();
+    let definition = repo.write(
+        ".brokkr/agents/implementer.json",
+        "{\"description\": \"the operator's\"}\n",
+    );
 
-    let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], repo.path());
-    assert_eq!(code, Some(1), "stderr: {stderr}");
-    assert!(stderr.contains("refusing to overwrite"), "stderr: {stderr}");
-    assert!(stderr.contains("implementer.json"), "stderr: {stderr}");
+    let ran = repo.brokkr("", &["init", "."]);
+    let refused = format!(
+        "error: {}/.brokkr already holds agents (decision 0083); init writes a folder only where \
+         none stands, or beside moved state (.gitignore and state/ alone): move or remove them\n",
+        repo.root.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), refused));
     let kept = std::fs::read_to_string(&definition).unwrap();
     assert!(kept.contains("the operator's"), "{kept}");
-    assert!(!bundle.join("bundle.json").exists());
-    assert!(!bundle.join(DEFAULT_ADAPTERS_DIR).exists());
+    assert!(!repo.path(".brokkr/bundle.json").exists());
+    assert!(!repo.path(".brokkr").join(DEFAULT_ADAPTERS_DIR).exists());
 }
 
 /// The documented primary flow is `brokkr init .` at a project's root,
@@ -1156,7 +1185,7 @@ fn init_refuses_to_overwrite_an_operators_agent_definition() {
 /// caught at review of the wager's arms, both of which wrote over it.
 #[test]
 fn init_at_a_projects_root_leaves_its_own_readme_untouched() {
-    let repo = tempfile::tempdir().unwrap();
+    let repo = repository();
     for entry in std::fs::read_dir(fixtures().join("rust")).unwrap() {
         let marker = entry.unwrap().path();
         std::fs::copy(&marker, repo.path().join(marker.file_name().unwrap())).unwrap();
@@ -1172,8 +1201,8 @@ fn init_at_a_projects_root_leaves_its_own_readme_untouched() {
         theirs,
         "init wrote over the project's README"
     );
-    let notes =
-        std::fs::read_to_string(repo.path().join(DEFAULT_AGENTS_DIR).join("README.md")).unwrap();
+    let notes = repo.path().join(".brokkr").join(DEFAULT_AGENTS_DIR);
+    let notes = std::fs::read_to_string(notes.join("README.md")).unwrap();
     assert!(
         notes.contains("cargo"),
         "the scaffold's notes moved under agents/: {notes}"
@@ -1215,7 +1244,7 @@ fn init_scaffolds_each_dialect_detection_outcome() {
             "An artifact phase will need one",
         ),
     ] {
-        let repo = tempfile::tempdir().unwrap();
+        let repo = repository();
         if speckit {
             std::fs::create_dir(repo.path().join(".specify")).unwrap();
         }
@@ -1227,8 +1256,8 @@ fn init_scaffolds_each_dialect_detection_outcome() {
             )
             .unwrap();
         }
-        let bundle = repo.path().join("bundle");
-        let (code, _, stderr) = brokkr(&["init", bundle.to_str().unwrap()], repo.path());
+        let bundle = repo.path().join(".brokkr");
+        let (code, _, stderr) = brokkr(&["init", "."], repo.path());
         assert_eq!(code, Some(0), "{case}: {stderr}");
 
         let map = read_json(&bundle.join("realms.json"));
