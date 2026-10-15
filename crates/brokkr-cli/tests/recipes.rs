@@ -457,12 +457,7 @@ pub(crate) fn in_folder(root: &Path) -> String {
 /// reads the folder's journal.
 #[test]
 fn add_refuses_in_a_folder_repository_and_writes_nothing() {
-    let repo = crate::brokkr_folder::Repo::new();
-    let init = repo.init_with_only(&["claude"]);
-    assert_eq!(init.code, Some(0), "{}", init.stderr);
-    let ws = Ws::new();
-    let src = ws.path().join("src-bundle");
-    ws.write_recipe(&src);
+    let (repo, ws, src) = folder_and_source();
     let add = ["recipes", "add", src.to_str().unwrap(), "--name", "x"];
     let refusal = in_folder(&repo.root);
     let before = repo.files();
@@ -486,7 +481,25 @@ fn add_refuses_in_a_folder_repository_and_writes_nothing() {
     for left in ["recipes", "src/recipes", ".brokkr/recipes", ".forge"] {
         assert!(!repo.path(left).exists(), "{left}");
     }
-    // No run has opened the journal yet: the read names where it looks.
+    reads_the_folder_journal(&repo);
+}
+
+/// A folder repository made by `brokkr init .`, and a workspace beside it
+/// holding a compiling recipe source at the path returned.
+fn folder_and_source() -> (crate::brokkr_folder::Repo, Ws, PathBuf) {
+    let repo = crate::brokkr_folder::Repo::new();
+    let init = repo.init_with_only(&["claude"]);
+    assert_eq!(init.code, Some(0), "{}", init.stderr);
+    let ws = Ws::new();
+    let src = ws.path().join("src-bundle");
+    ws.write_recipe(&src);
+    (repo, ws, src)
+}
+
+/// `brokkr runs` in `repo` still reads the folder's journal: no library
+/// mark has appeared to outrank it. No run has opened the journal yet, so
+/// the read names where it looks.
+fn reads_the_folder_journal(repo: &crate::brokkr_folder::Repo) {
     let runs = repo.brokkr("", &["runs"]);
     let journal = repo.path(".brokkr/state/forge.db");
     let read = format!(
@@ -497,6 +510,41 @@ fn add_refuses_in_a_folder_repository_and_writes_nothing() {
         (runs.code, runs.stderr.lines().last()),
         (Some(1), Some(&*read))
     );
+}
+
+/// `recipes add` writes only where it judged (#675): from a bare directory
+/// beside a folder repository, a `--dir` that climbs with `..` where
+/// nothing stands yet, and from a sibling library a `--name` that climbs
+/// into the repository's `recipes/`, both refuse by name and write nothing.
+#[test]
+fn add_refuses_a_dir_or_name_that_would_write_where_it_did_not_judge() {
+    let (repo, ws, src) = folder_and_source();
+    let add = ["recipes", "add", src.to_str().unwrap(), "--name"];
+    let before = repo.files();
+
+    let into = ["x", "--dir", "missing/../repo/recipes"];
+    let ran = repo.brokkr("..", &[&add[..], &into].concat());
+    let outside = repo.root.parent().unwrap();
+    let refusal = format!(
+        "error: --dir missing/../repo/recipes holds a part that is not a plain name below {}, \
+         the nearest entry on it that stands, so recipes add cannot judge where it would write \
+         (#675); nothing was written\n",
+        outside.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), refusal));
+    assert!(!outside.join("missing").exists());
+    assert!(!repo.path("recipes").exists());
+    assert_eq!(repo.files(), before);
+    reads_the_folder_journal(&repo);
+
+    ws.write_recipe(&outside.join("lib/recipes/base"));
+    std::fs::create_dir(repo.path("recipes")).unwrap();
+    let ran = repo.brokkr("../lib", &[&add[..], &["../../repo/recipes/x"]].concat());
+    let refusal = "error: --name '../../repo/recipes/x' is not one plain path component, so the \
+                   recipe would not be one directory of recipes (#675); nothing was written\n";
+    assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), refusal));
+    assert_eq!(std::fs::read_dir(repo.path("recipes")).unwrap().count(), 0);
+    assert!(!outside.join("lib/recipes/x").exists());
 }
 
 #[test]

@@ -433,6 +433,36 @@ fn add_refuses_a_folder_repository_by_type() {
     }
 }
 
+/// A `dir` that climbs with `..` where nothing stands yet, and a `name`
+/// that is not one plain component, refuse by the variant before anything
+/// is created: either would write somewhere other than the place judged
+/// (#675).
+#[test]
+fn add_refuses_a_path_it_cannot_judge_by_type() {
+    let outside = tempfile::tempdir().unwrap();
+    let at = outside.path().to_path_buf();
+    let node = workspace().join("recipes/node");
+    let node = node.to_str().unwrap();
+    let dir = at.join("missing/../recipes");
+    let refusal = add(&at, node, "node", &dir).unwrap_err();
+    let expected = Unplain::Dir {
+        dir: dir.clone(),
+        standing: at.clone(),
+    };
+    assert_eq!(refusal.downcast_ref::<Unplain>(), Some(&expected));
+    let dir = at.join("recipes");
+    for name in ["../node", "a/b", "", ".", "..", "/node"] {
+        let refusal = add(&at, node, name, &dir).unwrap_err();
+        let expected = Unplain::Name {
+            name: name.into(),
+            dir: dir.clone(),
+        };
+        assert_eq!(refusal.downcast_ref::<Unplain>(), Some(&expected), "{name}");
+    }
+    let left = std::fs::read_dir(&at).unwrap().count();
+    assert_eq!(left, 0, "nothing is created");
+}
+
 /// An entry on the walk from `dir` that cannot be read refuses by name,
 /// never taken as absent (fail closed); so does a `dir` that cannot be
 /// made absolute.
