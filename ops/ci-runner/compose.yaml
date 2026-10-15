@@ -39,6 +39,13 @@ services:
       - engine-root:/ci-root
       - engine-runner:/runner
       - engine-home:/home/runner
+      # Preserve devtmpfs identities required by broker bootstrap proofs.
+      - &null /dev/null:/dev/null
+      - &zero /dev/zero:/dev/zero
+      - &full /dev/full:/dev/full
+      - &random /dev/random:/dev/random
+      - &urandom /dev/urandom:/dev/urandom
+      - &tty /dev/tty:/dev/tty
   coverage:
     <<: *runner
     container_name: brokkr-ci-coverage
@@ -54,6 +61,12 @@ services:
       - coverage-root:/ci-root
       - coverage-runner:/runner
       - coverage-home:/home/runner
+      - *null
+      - *zero
+      - *full
+      - *random
+      - *urandom
+      - *tty
   build:
     <<: *runner
     container_name: brokkr-ci-build
@@ -69,6 +82,12 @@ services:
       - build-root:/ci-root
       - build-runner:/runner
       - build-home:/home/runner
+      - *null
+      - *zero
+      - *full
+      - *random
+      - *urandom
+      - *tty
 
 volumes:
   engine-root:

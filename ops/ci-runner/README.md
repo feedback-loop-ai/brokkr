@@ -27,6 +27,11 @@ becomes the container root: the broker refuses overlay filesystem identities.
 Startup mounts the container's own proc/dev/sys into it, then drops SYS_ADMIN
 from the capability bounding set before starting the unprivileged runner.
 Each worker has a stable generated machine ID and Git 2.55.0 for reftable tests.
+The copy preserves installed hard links. Six standard host device nodes
+(`/dev/null`, `zero`, `full`, `random`, `urandom`, and `tty`) are bound into
+each container to preserve the devtmpfs identities the broker proves.
+Each container runs its own systemd-resolved stub, forwarding upstream to
+Docker DNS; this supplies the same resolver boundary exercised on hosted CI.
 Disposable test journals and repositories use bounded RAM filesystems at
 `/tmp` and `/var/tmp` (2 GiB each) to avoid disk journal waits. They count
 toward the worker's memory ceiling. Compiler outputs and coverage caches
