@@ -8,12 +8,15 @@ administration.
 | Worker | Jobs | Default CPU set | Memory ceiling |
 | --- | --- | --- | --- |
 | engine | Linux workspace tests | 0-7,16-17 | 12 GiB |
-| coverage | Exact coverage and its ratchets | 8-15,18-19 | 14 GiB |
-| build | Clippy/contracts and the Linux release binary | 20-23 | 6 GiB |
+| coverage | Exact coverage and its ratchets | 8-15 | 14 GiB |
+| build | Clippy/contracts and the Linux release binary | 18-23 | 6 GiB |
 
 The CPU sets match this workstation's i7-13700: the two long jobs each get
-four performance cores, their siblings, and two efficiency cores. The build
-worker uses four efficiency cores. Set `ENGINE_CPUS`, `COVERAGE_CPUS`, and
+four performance cores and their siblings. Engine also gets two efficiency
+cores; build uses the other six. Coverage runs four test threads on its
+performance cores: instrumentation brings a large-response RPC proof close
+to its fixed deadline even alone, so extra concurrency makes retries slower.
+Set `ENGINE_CPUS`, `COVERAGE_CPUS`, and
 `BUILD_CPUS` before starting on another machine. A worker executes one job
 at a time. Separate volumes prevent cross-worker Cargo locks and coverage
 profile collisions. CPU sets keep the boundary proofs from competing with
