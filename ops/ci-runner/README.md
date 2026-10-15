@@ -24,8 +24,9 @@ Rust toolchains and bubblewrap are installed once. The small Ubuntu image
 also reduces the system tree inspected by the real broker boundary tests.
 The runner's whole filesystem is copied to a native disk volume, which
 becomes the container root: the broker refuses overlay filesystem identities.
-Startup mounts the container's own proc/dev/sys into it, then drops SYS_ADMIN
-from the capability bounding set before starting the unprivileged runner.
+Startup mounts the container's own proc/dev/sys into it, then starts the
+unprivileged runner. SYS_ADMIN remains available to the setuid fusermount3
+helper, with `/dev/fuse` exposed for real blocked-filesystem boundary proofs.
 Each worker has a stable generated machine ID and Git 2.55.0 for reftable tests.
 The copy preserves installed hard links. Six standard host device nodes
 (`/dev/null`, `zero`, `full`, `random`, `urandom`, and `tty`) are bound into

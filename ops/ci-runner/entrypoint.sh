@@ -55,6 +55,6 @@ for _attempt in {1..100}; do
 done
 getent ahostsv4 _localdnsstub >/dev/null
 if [[ $# -eq 0 ]]; then set -- /runner/run.sh; fi
-# SYS_ADMIN is used only for the mounts above. Drop it from the bounding
-# set before the runner starts; even sudo inside a job cannot regain it.
-exec setpriv --bounding-set=-sys_admin --reuid=1001 --regid=1001 --init-groups "$@"
+# Jobs run unprivileged. The setuid fusermount3 helper needs SYS_ADMIN in
+# the bounding set for the suite's real blocked-filesystem boundary proofs.
+exec setpriv --reuid=1001 --regid=1001 --init-groups "$@"

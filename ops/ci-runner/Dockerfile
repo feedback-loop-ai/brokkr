@@ -54,7 +54,7 @@ RUN export RUSTUP_HOME=/home/runner/.rustup CARGO_HOME=/home/runner/.cargo; \
     && make -C /tmp/git-2.55.0 prefix=/usr NO_TCLTK=YesPlease install \
     && rm -rf /tmp/git.tar.xz /tmp/git-2.55.0 \
     && chown -R runner:runner /home/runner/.cargo
-RUN apt-get update && apt-get install -y --no-install-recommends dbus systemd-resolved \
+RUN apt-get update && apt-get install -y --no-install-recommends dbus fuse3 systemd-resolved \
     && rm -rf /var/lib/apt/lists/*
 COPY --chmod=755 ops/ci-runner/entrypoint.sh ops/ci-runner/job-started.sh /opt/brokkr-ci/
 ENV ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/brokkr-ci/job-started.sh
