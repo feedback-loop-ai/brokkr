@@ -581,8 +581,9 @@ fn path_of(filter: &str, exact: bool) -> Option<(&str, &str)> {
 
 /// A file's lines as its format makes them: a script's, a text's or an
 /// extensionless file's as they are, a workflow's, a guide's and a JSON
-/// file's as their formats read them. A file in any other format is read
-/// as a form the reader does not know.
+/// file's as their formats read them. Python only admits literal selections
+/// of other targets; it never supplies a filtered integration command. A file
+/// in any other format is read as a form the reader does not know.
 fn lines_of(file: &str, text: &str) -> Result<Vec<Line>, Refusal> {
     let numbered = || (text.lines().enumerate()).map(|(index, line)| (index + 1, line.to_string()));
     match Path::new(file)
@@ -592,6 +593,17 @@ fn lines_of(file: &str, text: &str) -> Result<Vec<Line>, Refusal> {
         Some("yml" | "yaml") => yaml_lines(file, text),
         Some("md") => Ok(markdown_lines(text)),
         Some("json") => json_lines(file, text),
+        Some("py") => {
+            // Python is not read as shell. Only literal selections that
+            // plainly name another target are outside this gate's scope;
+            // an integration target or a dynamic selection still refuses.
+            for (number, line) in numbered() {
+                if may_pass_it(&line) {
+                    return Err(unread_filter(&format!("{file}:{number}"), "--test", &line));
+                }
+            }
+            Ok(Vec::new())
+        }
         Some("sh" | "txt") | None => Ok(numbered().collect()),
         Some(_) => unread(file, 1, &text.lines().collect::<Vec<_>>()).map(|()| Vec::new()),
     }
@@ -1841,4 +1853,27 @@ pub(super) fn fixture_lists() -> Lists {
             BTreeSet::from(["witness_digests::a_test_the_binary_carries".to_string()]),
         ),
     ])
+}
+
+/// The Python heap launcher names only its own-process targets. Python
+/// filters and targets assembled from expressions remain unreadable.
+#[test]
+fn python_accepts_only_explicit_non_integration_targets() {
+    let lists = fixture_lists();
+    let source =
+        r#"command += "--test=heap_claude --test=heap_codex --test=heap_dsh --no-run".split()"#;
+    assert_eq!(filters_in("scripts/heaps.py", source, &lists), Ok(vec![]));
+    for source in [
+        r#"command += ["--test", name]"#,
+        r#"command += "--test=it --no-run".split()"#,
+        r#"command += "--test it packaging::".split()"#,
+        r#"command += "--test=heap_claude --test=it --no-run".split()"#,
+        r#"command += ["--test=" + name]"#,
+    ] {
+        assert_eq!(
+            filters_in("scripts/heaps.py", source, &lists),
+            Err(unread_filter("scripts/heaps.py:1", "--test", source)),
+            "{source}"
+        );
+    }
 }
