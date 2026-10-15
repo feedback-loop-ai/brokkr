@@ -1,8 +1,8 @@
-name: heap parallelism evaluation
+name: parallel heap coverage validation
 
 on:
   push:
-    branches: [eval/parallel-heap-binaries]
+    branches: [eval/heap-coverage-validation]
   workflow_dispatch:
 
 permissions:
@@ -19,15 +19,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: linux
-            runner: '["self-hosted", "Linux", "X64", "brokkr-engine"]'
-            mode: test
           - name: coverage
             runner: '["self-hosted", "Linux", "X64", "brokkr-coverage"]'
             mode: coverage
-          - name: macos
-            runner: '["macos-latest"]'
-            mode: test
     runs-on: ${{ fromJSON(matrix.runner) }}
     timeout-minutes: 90
     env:
@@ -68,16 +62,14 @@ jobs:
       - name: retain the local engine's normal compilation policy
         if: runner.environment == 'self-hosted' && matrix.mode == 'test'
         run: echo 'CARGO_INCREMENTAL=1' >> "$GITHUB_ENV"
-      - name: full suites and same-binary ABBA measurements
-        run: python3 ops/heap-evaluation/evaluate.py evaluate --mode "$EVALUATION_MODE"
-      - name: retain raw measurements and full-suite logs
+      - name: the complete exact gate with parallel heap binaries
+        run: bash scripts/coverage-exact.sh --parallel-heaps
+      - name: retain the fresh coverage report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: heap-evaluation-${{ matrix.name }}
+          name: parallel-heap-coverage-validation
           path: |
-            target/heap-evaluation/**/*.json
-            target/heap-evaluation/**/*.log
             target/coverage/coverage-exact.json
             target/coverage/lcov.info
           if-no-files-found: error
