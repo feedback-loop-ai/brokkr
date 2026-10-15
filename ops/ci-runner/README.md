@@ -27,6 +27,10 @@ becomes the container root: the broker refuses overlay filesystem identities.
 Startup mounts the container's own proc/dev/sys into it, then drops SYS_ADMIN
 from the capability bounding set before starting the unprivileged runner.
 Each worker has a stable generated machine ID and Git 2.55.0 for reftable tests.
+Disposable test journals and repositories use bounded RAM filesystems at
+`/tmp` and `/var/tmp` (2 GiB each) to avoid disk journal waits. They count
+toward the worker's memory ceiling. Compiler outputs and coverage caches
+remain on NVMe across jobs and restarts.
 Each worker's registry, toolchains, workspace artifacts and incremental
 compilation state persist on local disk. Checkout replaces tracked source files; `local-runner` cleans untracked
 files while preserving only the real workspace `target` directory. Keeping
@@ -62,8 +66,8 @@ trusted repository contributors; their state is reusable by later jobs.
 Containers do not mount the host home, working checkouts, Docker socket or
 host network. Nested bubblewrap and ptrace require unconfined seccomp and
 unmasked container system paths, and the named `brokkr-ci` AppArmor profile,
-which allows user namespaces only
-for these containers without changing the host's user-namespace sysctl.
+which allows user namespaces for these containers without changing the
+host's user-namespace sysctl.
 The `profile` command installs this one profile using a temporary Docker
 helper with MAC_ADMIN. This is not a VM security boundary.
 

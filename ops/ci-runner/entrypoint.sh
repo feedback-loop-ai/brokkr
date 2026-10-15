@@ -19,6 +19,12 @@ done
 for path in resolv.conf hosts hostname; do
   mount --bind "/etc/$path" "/ci-root/etc/$path"
 done
+# Test journals and disposable repositories need real filesystem semantics
+# but no durability across jobs. Avoid making their fsyncs wait for NVMe's
+# journal; compiler outputs and coverage caches stay on persistent volumes.
+for path in tmp var/tmp; do
+  mount -t tmpfs -o size=2g,mode=1777,nosuid,nodev tmpfs "/ci-root/$path"
+done
 if [[ ! -s /runner/.machine-id ]]; then
   tr -d '-' < /proc/sys/kernel/random/uuid > /runner/.machine-id
 fi
