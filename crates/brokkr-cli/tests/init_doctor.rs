@@ -990,28 +990,28 @@ fn a_provisional_model_compiles_only_in_the_offices_the_map_lists() {
     );
 }
 
-/// The recipe verbs judge a recipe under the list the run reads: `add`,
-/// `list` and `show` admit the scaffold's provisional `sonnet` in the
-/// offices the workspace map lists, and `show` refuses it once the map
-/// lists none — the refusal printed once, on the one error line.
+/// The recipe verbs judge a recipe under the list the run reads: `list`
+/// and `show` admit the scaffold's provisional `sonnet` in the offices the
+/// workspace map lists, and `show` refuses it once the map lists none —
+/// the refusal printed once, on the one error line. `add` refuses in a
+/// folder repository (#675), so the library is planted as it copied one.
 #[test]
 fn the_recipe_verbs_read_the_provisional_offices_the_map_lists() {
     let (repo, bundle, _) = init_with_only(&["claude"]);
     mark_sonnet_provisional(&bundle);
     list_provisional_offices(&bundle, serde_json::json!(["implementer", "intake"]));
     let library = repo.path("library");
-    let library = library.to_str().unwrap();
     let verb = |args: &[&str]| brokkr(&[&["recipes"], args].concat(), &bundle);
 
-    let (code, _, stderr) = verb(&[
-        "add",
-        bundle.to_str().unwrap(),
-        "--name",
-        "starter",
-        "--dir",
-        library,
-    ]);
-    assert_eq!(code, Some(0), "{stderr}");
+    let starter = ["add", bundle.to_str().unwrap(), "--name", "starter"];
+    let (code, _, stderr) = verb(&[&starter[..], &["--dir", library.to_str().unwrap()]].concat());
+    assert_eq!(
+        (code, stderr),
+        (Some(1), crate::recipes::in_folder(&repo.root))
+    );
+    assert!(!library.exists());
+    crate::machine_proof::copy_dir(&bundle, &library.join("starter"));
+    let library = library.to_str().unwrap();
     let (code, stdout, stderr) = verb(&["list", "--dir", library]);
     assert_eq!(code, Some(0), "{stderr}");
     assert!(

@@ -2252,7 +2252,7 @@ fn compile_rejects_provenance_violations() {
 }
 
 /// Plain recursive copy for building variant bundles in tests.
-fn copy_dir(from: &Path, to: &Path) {
+pub(crate) fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
     for entry in std::fs::read_dir(from).unwrap() {
         let entry = entry.unwrap();

@@ -19,6 +19,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::launch::BundleSource;
+use brokkr_runtime::places::{self, Kind, PlacesError, FOLDER};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, SeatBody};
 
@@ -252,12 +253,19 @@ fn base_of(layer: &Path) -> Option<String> {
     }
     let text = std::fs::read_to_string(layer.join("bundle.json")).ok()?;
     let base = serde_json::from_str::<Layer>(&text).ok()?.extends?;
-    let mut parts = Path::new(&base).components();
-    matches!(
-        (parts.next(), parts.next()),
-        (Some(std::path::Component::Normal(_)), None)
-    )
-    .then_some(base)
+    plain(Path::new(&base)).then_some(base)
+}
+
+/// Whether `part` is a single plain path component: no separator, `..`,
+/// `.`, root or prefix, and not empty. A name joined under a directory
+/// lands in it only when this holds. The spelling itself is judged, since
+/// [`Path::components`] drops a trailing separator and a trailing `.`.
+fn plain(part: &Path) -> bool {
+    let spelling = part.as_os_str().as_encoded_bytes();
+    let separated = spelling
+        .iter()
+        .any(|&byte| std::path::is_separator(byte.into()));
+    !separated && !matches!(spelling, b"" | b"." | b"..")
 }
 
 /// Copy the recipe at `root` into `<dir>/<name>`, and with it each base
@@ -323,12 +331,166 @@ impl std::fmt::Display for Refused {
 
 impl std::error::Error for Refused {}
 
+/// An `add` refused in a folder repository (decision 0083; #675): a
+/// `recipes/<name>/bundle.json` is a recipe library's mark, and a library
+/// outranks a folder beside it (the operator's ruling 1 of 2026-10-13 on
+/// #634), so the install would move every default out of the folder
+/// unannounced. `root` is the folder repository's. A caller matches the
+/// type, never the text (decision 0071 ruling 8).
+#[derive(Debug, PartialEq, Eq)]
+struct InFolder {
+    root: PathBuf,
+}
+
+impl std::fmt::Display for InFolder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let root = self.root.display();
+        write!(
+            formatter,
+            "{root} keeps its Brokkr in {root}/{FOLDER} (decision 0083): recipes add would \
+             install a recipe library there, which outranks the folder and moves every default \
+             out of it (#675); a folder repository's bundle is {FOLDER}/ itself, so nothing was \
+             written"
+        )
+    }
+}
+
+impl std::error::Error for InFolder {}
+
+/// An `add` refused because a path it would write is not one it can judge
+/// before writing it (#675): the place judged must be the place written.
+/// A caller matches the variant, never the text (decision 0071 ruling 8).
+#[derive(Debug, PartialEq, Eq)]
+enum Unplain {
+    /// `dir` holds a part that is not a plain name below `standing`, the
+    /// nearest entry on it that stands: a `..` there is resolved by the
+    /// directories `add` would make, never by the walk that judges it.
+    Dir { dir: PathBuf, standing: PathBuf },
+    /// `name` is not one plain path component ([`plain`]), so
+    /// `<dir>/<name>` could land outside `dir`.
+    Name { name: String, dir: PathBuf },
+}
+
+impl std::fmt::Display for Unplain {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unplain::Dir { dir, standing } => write!(
+                formatter,
+                "--dir {} holds a part that is not a plain name below {}, the nearest entry on \
+                 it that stands, so recipes add cannot judge where it would write (#675); \
+                 nothing was written",
+                dir.display(),
+                standing.display()
+            ),
+            Unplain::Name { name, dir } => write!(
+                formatter,
+                "--name '{name}' is not one plain path component, so the recipe would not be one \
+                 directory of {} (#675); nothing was written",
+                dir.display()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Unplain {}
+
+/// Refuse an `add` that would make a folder repository a recipe library
+/// (#675, the operator's option A), before anything is cloned, copied or
+/// created: one run from a workspace whose layout is the folder's, or one
+/// into a `dir` inside a folder repository, judged by the one walk
+/// ([`places::Layout::discover`]) from the nearest entry standing at `dir`
+/// or above it, since `add` creates the rest. That rest is made as named,
+/// so it must hold plain names only ([`Unplain::Dir`]). The walk resolves
+/// links and stops at the nearest `.git`, so it is taken from every
+/// ancestor of that entry as `dir` spells it, and from every ancestor of
+/// the real directory it resolves to: a folder repository a link or a
+/// nested repository stands below still refuses, and so does one a link
+/// from outside it resolves into. A layout or an entry that cannot be read
+/// refuses in its own words (fail closed).
+fn refuse_folder(workspace: &Path, dir: &Path) -> Result<()> {
+    let target = std::path::absolute(dir).map_err(|source| PlacesError::Unreadable {
+        path: dir.to_path_buf(),
+        source,
+    })?;
+    let at = standing(&target)?;
+    let rest = target
+        .strip_prefix(at)
+        .expect("an ancestor prefixes its path");
+    if !rest.iter().all(|part| plain(Path::new(part))) {
+        let (dir, standing) = (dir.to_path_buf(), at.to_path_buf());
+        return Err(Unplain::Dir { dir, standing }.into());
+    }
+    refuse_any(std::iter::once(workspace).chain(at.ancestors()))?;
+    // The walk from `at` above has resolved it already, so this one stands.
+    let resolved = places::Layout::discover(at)?;
+    let real = resolved.cwd().ancestors();
+    refuse_any(real.filter(|real| !at.ancestors().any(|spelled| spelled == *real)))
+}
+
+/// Refuse [`InFolder`] when the layout discovered from any of `starts`
+/// ([`places::Layout::discover`], the one judgement) is a folder; a walk
+/// that refuses refuses in its own words.
+fn refuse_any<'a>(starts: impl IntoIterator<Item = &'a Path>) -> Result<()> {
+    for start in starts {
+        let layout = places::Layout::discover(start)?;
+        if layout.kind() == Kind::Folder {
+            let root = layout.root().to_path_buf();
+            return Err(InFolder { root }.into());
+        }
+    }
+    Ok(())
+}
+
+/// The nearest of `path`, an absolute path, and its ancestors at which an
+/// entry stands, judged as the entry itself ([`places::entry`]); the root
+/// directory always stands. One that cannot be read refuses.
+fn standing(path: &Path) -> Result<&Path, PlacesError> {
+    let found = path.ancestors().find_map(|at| match places::entry(at) {
+        Ok(entry) => entry.map(|_| Ok(at)),
+        Err(source) => Some(Err(PlacesError::Unreadable {
+            path: at.to_path_buf(),
+            source,
+        })),
+    });
+    found.unwrap_or(Ok(path))
+}
+
+/// Clone the git `source` into `<tmp>/clone`, and the bundle root inside
+/// it ([`bundle_root`]).
+fn clone(source: &str, tmp: &Path) -> Result<PathBuf> {
+    let clone = tmp.join("clone");
+    // `--` stops option injection; `protocol.ext.allow=never` stops
+    // the ext transport, which would otherwise execute an arbitrary
+    // command from a source like `ext::sh -c ... x.git`.
+    let out = Command::new("git")
+        .args(["-c", "protocol.ext.allow=never"])
+        .args(["clone", "--depth", "1", "--"])
+        .arg(source)
+        .arg(&clone)
+        .output()
+        .context("running git clone")?;
+    if !out.status.success() {
+        bail!(
+            "git clone {source} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    bundle_root(&clone)
+}
+
 /// Install a recipe: clone or copy into `<dir>/<name>`, with the bases it
 /// extends that the library lacks, then compile-verify every copy. If any
 /// fails to compile all are removed — the library only ever holds recipes
 /// the compiler accepted or nothing. The library is held from the first
-/// copy to the last compile ([`hold`]); a clone happens before, unheld.
+/// copy to the last compile ([`hold`]); a clone happens before, unheld. A
+/// name that is not one plain component ([`Unplain::Name`]) and a folder
+/// repository ([`refuse_folder`]) are refused first.
 pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
+    if !plain(Path::new(name)) {
+        let (name, dir) = (name.to_string(), dir.to_path_buf());
+        return Err(Unplain::Name { name, dir }.into());
+    }
+    refuse_folder(workspace, dir)?;
     let world = World::discover(workspace, None)?;
     let dest = dir.join(name);
     if std::fs::symlink_metadata(&dest).is_ok() {
@@ -342,24 +504,7 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
     let tmp;
     let root = if is_git_source(source) {
         tmp = tempfile::tempdir().context("creating temp dir for clone")?;
-        let clone = tmp.path().join("clone");
-        // `--` stops option injection; `protocol.ext.allow=never` stops
-        // the ext transport, which would otherwise execute an arbitrary
-        // command from a source like `ext::sh -c ... x.git`.
-        let out = Command::new("git")
-            .args(["-c", "protocol.ext.allow=never"])
-            .args(["clone", "--depth", "1", "--"])
-            .arg(source)
-            .arg(&clone)
-            .output()
-            .context("running git clone")?;
-        if !out.status.success() {
-            bail!(
-                "git clone {source} failed: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            );
-        }
-        bundle_root(&clone)?
+        clone(source, tmp.path())?
     } else {
         let src = Path::new(source);
         anyhow::ensure!(src.is_dir(), "source {source} is not a directory");

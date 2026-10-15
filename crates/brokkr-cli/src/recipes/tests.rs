@@ -400,3 +400,150 @@ fn copy_skips_nested_git_metadata() {
     assert!(destination.join("kept").is_file());
     assert!(!destination.join(".git").exists());
 }
+
+/// A folder repository planted by hand: a `.git` and a `.brokkr` directory
+/// at its root (decision 0083), resolved as the walk resolves it.
+fn folder_repository() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    for entry in [".git", FOLDER] {
+        std::fs::create_dir(root.join(entry)).unwrap();
+    }
+    (dir, root)
+}
+
+/// `add` refuses in a folder repository, from its workspace or into a
+/// `dir` inside it that does not stand yet, by the type and with nothing
+/// created (#675).
+#[test]
+fn add_refuses_a_folder_repository_by_type() {
+    let (_dir, root) = folder_repository();
+    let node = workspace().join("recipes/node");
+    let outside = tempfile::tempdir().unwrap();
+    let cases = [
+        (root.clone(), outside.path().join("recipes")),
+        (outside.path().to_path_buf(), root.join("deep/recipes")),
+    ];
+    for (from, dir) in cases {
+        let refusal = add(&from, node.to_str().unwrap(), "node", &dir).unwrap_err();
+        let refused = refusal.downcast_ref::<InFolder>();
+        let expected = InFolder { root: root.clone() };
+        assert_eq!(refused, Some(&expected), "{refusal}");
+        assert!(!dir.exists(), "{}", dir.display());
+    }
+}
+
+/// `add` refuses a `dir` in a folder repository whose `recipes/` is a link
+/// to a directory outside it or a nested repository, from outside it, by
+/// the type: the folder repository is judged where `dir` spells it, not
+/// only where the walk from `dir` resolves to (#675).
+#[test]
+fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
+    let (_dir, root) = folder_repository();
+    let outside = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let dir = root.join("recipes");
+    let plant_link = |dir: &Path| std::os::unix::fs::symlink(external.path(), dir).unwrap();
+    let plant_repository = |dir: &Path| std::fs::create_dir_all(dir.join(".git")).unwrap();
+    for plant in [&plant_link as &dyn Fn(&Path), &plant_repository] {
+        plant(&dir);
+        refuses_in_folder(outside.path(), &dir, &root);
+        assert!(!dir.join("node").exists());
+        std::fs::remove_file(&dir)
+            .or_else(|_| std::fs::remove_dir_all(&dir))
+            .unwrap();
+    }
+    assert_eq!(std::fs::read_dir(external.path()).unwrap().count(), 0);
+}
+
+/// `add` refuses a `dir` that a link outside a folder repository resolves
+/// into a nested repository at its `recipes/`, at the link and below it,
+/// by the type: the folder repository is judged where `dir` resolves to,
+/// not only where it is spelled (#675).
+#[test]
+fn add_refuses_a_folder_repository_a_link_from_outside_resolves_into() {
+    let (_dir, root) = folder_repository();
+    let outside = tempfile::tempdir().unwrap();
+    let nested = root.join("recipes");
+    std::fs::create_dir_all(nested.join(".git")).unwrap();
+    let alias = outside.path().join("alias");
+    std::os::unix::fs::symlink(&nested, &alias).unwrap();
+    for dir in [alias.clone(), alias.join("sub")] {
+        refuses_in_folder(outside.path(), &dir, &root);
+    }
+    assert_eq!(std::fs::read_dir(&nested).unwrap().count(), 1, ".git only");
+}
+
+/// `add` of a compiling recipe from `from` into `dir` refuses by the type,
+/// naming the folder repository at `root` (#675).
+fn refuses_in_folder(from: &Path, dir: &Path, root: &Path) {
+    let node = workspace().join("recipes/node");
+    let refusal = add(from, node.to_str().unwrap(), "node", dir).unwrap_err();
+    let expected = InFolder {
+        root: root.to_path_buf(),
+    };
+    assert_eq!(
+        refusal.downcast_ref::<InFolder>(),
+        Some(&expected),
+        "{refusal}"
+    );
+}
+
+/// A `dir` that climbs with `..` where nothing stands yet, and a `name`
+/// that is not one plain component, refuse by the variant before anything
+/// is created: either would write somewhere other than the place judged
+/// (#675).
+#[test]
+fn add_refuses_a_path_it_cannot_judge_by_type() {
+    let outside = tempfile::tempdir().unwrap();
+    let at = outside.path().to_path_buf();
+    let node = workspace().join("recipes/node");
+    let node = node.to_str().unwrap();
+    let dir = at.join("missing/../recipes");
+    let refusal = add(&at, node, "node", &dir).unwrap_err();
+    let expected = Unplain::Dir {
+        dir: dir.clone(),
+        standing: at.clone(),
+    };
+    assert_eq!(refusal.downcast_ref::<Unplain>(), Some(&expected));
+    let dir = at.join("recipes");
+    for name in [
+        "../node", "a/b", "", ".", "..", "/node", "x/", "x//", "x/.", "x/./",
+    ] {
+        let refusal = add(&at, node, name, &dir).unwrap_err();
+        let expected = Unplain::Name {
+            name: name.into(),
+            dir: dir.clone(),
+        };
+        assert_eq!(refusal.downcast_ref::<Unplain>(), Some(&expected), "{name}");
+    }
+    let left = std::fs::read_dir(&at).unwrap().count();
+    assert_eq!(left, 0, "nothing is created");
+}
+
+/// An entry on the walk from `dir` that cannot be read refuses by name,
+/// never taken as absent (fail closed); so does a `dir` that cannot be
+/// made absolute.
+#[test]
+fn add_refuses_a_dir_it_cannot_read_the_way_to() {
+    use std::os::unix::fs::PermissionsExt;
+    let refused = |dir: &Path| {
+        let refusal = add(&workspace(), "unused", "node", dir).unwrap_err();
+        match refusal.downcast::<PlacesError>() {
+            Ok(PlacesError::Unreadable { path, .. }) => path,
+            other => panic!("an unreadable refusal: {other:?}"),
+        }
+    };
+    assert_eq!(refused(Path::new("")), PathBuf::new());
+    if rustix::process::geteuid().is_root() {
+        return;
+    }
+    let outside = tempfile::tempdir().unwrap();
+    let locked = outside.path().join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let dir = locked.join("in/recipes");
+    let path = refused(&dir);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(path, dir);
+}

@@ -439,6 +439,206 @@ fn add_refuses_symlinks_and_removes_the_partial_copy() {
     assert!(!rdir.join("sneaky").exists(), "the partial copy is removed");
 }
 
+/// What `recipes add` prints when it refuses in the folder repository at
+/// `root` (#675), its one pin.
+pub(crate) fn in_folder(root: &Path) -> String {
+    format!(
+        "error: {root} keeps its Brokkr in {root}/.brokkr (decision 0083): recipes add would \
+         install a recipe library there, which outranks the folder and moves every default out \
+         of it (#675); a folder repository's bundle is .brokkr/ itself, so nothing was written\n",
+        root = root.display()
+    )
+}
+
+/// `recipes add` in a folder repository (decision 0083; #675) refuses by
+/// name and writes nothing: from its root, from a subdirectory, into its
+/// folder, and from a bare directory outside it into its `recipes/`. No
+/// library mark appears to outrank the folder, so the next verb still
+/// reads the folder's journal.
+#[test]
+fn add_refuses_in_a_folder_repository_and_writes_nothing() {
+    let (repo, ws, src) = folder_and_source();
+    let add = ["recipes", "add", src.to_str().unwrap(), "--name", "x"];
+    let refusal = in_folder(&repo.root);
+    let before = repo.files();
+    for (from, dir) in [
+        ("", &[][..]),
+        ("src", &[]),
+        ("", &["--dir", ".brokkr/recipes"]),
+    ] {
+        let ran = repo.brokkr(from, &[&add[..], dir].concat());
+        assert_eq!(
+            (ran.code, ran.stderr.as_str()),
+            (Some(1), &*refusal),
+            "{from} {dir:?}"
+        );
+    }
+    let into = repo.path("recipes");
+    let (code, _, stderr) = ws.brokkr(&[&add[..], &["--dir", into.to_str().unwrap()]].concat());
+    assert_eq!((code, stderr), (Some(1), refusal));
+
+    assert_eq!(repo.files(), before);
+    for left in ["recipes", "src/recipes", ".brokkr/recipes", ".forge"] {
+        assert!(!repo.path(left).exists(), "{left}");
+    }
+    reads_the_folder_journal(&repo);
+}
+
+/// A folder repository made by `brokkr init .`, and a workspace beside it
+/// holding a compiling recipe source at the path returned.
+fn folder_and_source() -> (crate::brokkr_folder::Repo, Ws, PathBuf) {
+    let repo = crate::brokkr_folder::Repo::new();
+    let init = repo.init_with_only(&["claude"]);
+    assert_eq!(init.code, Some(0), "{}", init.stderr);
+    let ws = Ws::new();
+    let src = ws.path().join("src-bundle");
+    ws.write_recipe(&src);
+    (repo, ws, src)
+}
+
+/// `brokkr runs` in `repo` still reads the folder's journal: no library
+/// mark has appeared to outrank it. No run has opened the journal yet, so
+/// the read names where it looks.
+fn reads_the_folder_journal(repo: &crate::brokkr_folder::Repo) {
+    let runs = repo.brokkr("", &["runs"]);
+    let journal = repo.path(".brokkr/state/forge.db");
+    let read = format!(
+        "error: journal does not exist: {}; a read never creates one",
+        journal.display()
+    );
+    assert_eq!(
+        (runs.code, runs.stderr.lines().last()),
+        (Some(1), Some(&*read))
+    );
+}
+
+/// `recipes add` writes only where it judged (#675): from a bare directory
+/// beside a folder repository, a `--dir` that climbs with `..` where
+/// nothing stands yet, and from a sibling library a `--name` that climbs
+/// into the repository's `recipes/`, both refuse by name and write nothing.
+#[test]
+fn add_refuses_a_dir_or_name_that_would_write_where_it_did_not_judge() {
+    let (repo, ws, src) = folder_and_source();
+    let add = ["recipes", "add", src.to_str().unwrap(), "--name"];
+    let before = repo.files();
+
+    let into = ["x", "--dir", "missing/../repo/recipes"];
+    let ran = repo.brokkr("..", &[&add[..], &into].concat());
+    let outside = repo.root.parent().unwrap();
+    let refusal = format!(
+        "error: --dir missing/../repo/recipes holds a part that is not a plain name below {}, \
+         the nearest entry on it that stands, so recipes add cannot judge where it would write \
+         (#675); nothing was written\n",
+        outside.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), refusal));
+    assert!(!outside.join("missing").exists());
+    assert!(!repo.path("recipes").exists());
+    assert_eq!(repo.files(), before);
+    reads_the_folder_journal(&repo);
+
+    ws.write_recipe(&outside.join("lib/recipes/base"));
+    std::fs::create_dir(repo.path("recipes")).unwrap();
+    let ran = repo.brokkr("../lib", &[&add[..], &["../../repo/recipes/x"]].concat());
+    let refusal = "error: --name '../../repo/recipes/x' is not one plain path component, so the \
+                   recipe would not be one directory of recipes (#675); nothing was written\n";
+    assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), refusal));
+    assert_eq!(std::fs::read_dir(repo.path("recipes")).unwrap().count(), 0);
+    assert!(!outside.join("lib/recipes/x").exists());
+}
+
+/// `recipes add` from a bare directory beside a folder repository, into
+/// its `recipes/` as a plain directory, a link to a bare directory outside
+/// it, or a nested repository, refuses by name and writes nothing through
+/// the link or into the nested repository: the folder repository is judged
+/// where `--dir` spells it (#675), so no library mark appears to outrank
+/// the folder.
+#[test]
+fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
+    let (repo, _ws, src) = folder_and_source();
+    let outside = repo.root.parent().unwrap();
+    let external = outside.join("external");
+    std::fs::create_dir(&external).unwrap();
+    let into = repo.path("recipes");
+    let plant_link = |at: &Path| std::os::unix::fs::symlink(&external, at).unwrap();
+    let plant_directory = |at: &Path| std::fs::create_dir(at).unwrap();
+    let plant_repository = |at: &Path| {
+        plant_directory(at);
+        crate::brokkr_folder::git(at, &["init", "-q"]);
+    };
+    let add = ["recipes", "add", src.to_str().unwrap(), "--name", "x"];
+    let add = [&add[..], &["--dir", "repo/recipes"]].concat();
+    for plant in [
+        &plant_directory as &dyn Fn(&Path),
+        &plant_link,
+        &plant_repository,
+    ] {
+        plant(&into);
+        let before = repo.files();
+        let ran = repo.brokkr("..", &add);
+        assert_eq!(
+            (ran.code, ran.stderr),
+            (Some(1), in_folder(&repo.root)),
+            "{}",
+            ran.stdout
+        );
+        assert_eq!(repo.files(), before);
+        assert!(!into.join("x").exists());
+        reads_the_folder_journal(&repo);
+        std::fs::remove_file(&into)
+            .or_else(|_| std::fs::remove_dir_all(&into))
+            .unwrap();
+    }
+    assert_eq!(std::fs::read_dir(&external).unwrap().count(), 0);
+}
+
+/// `recipes add` into a link beside a folder repository that resolves into
+/// a nested repository at its `recipes/` refuses by name and writes nothing
+/// there: absolute or relative, below the link, and from a sibling bare
+/// repository. The folder repository is judged where `--dir` resolves to
+/// as well as where it is spelled (#675).
+#[test]
+fn add_refuses_a_folder_repository_a_link_from_outside_resolves_into() {
+    let (repo, _ws, src) = folder_and_source();
+    let into = repo.path("recipes");
+    std::fs::create_dir(&into).unwrap();
+    crate::brokkr_folder::git(&into, &["init", "-q"]);
+    let outside = repo.root.parent().unwrap();
+    std::fs::create_dir(outside.join("sibling")).unwrap();
+    crate::brokkr_folder::git(&outside.join("sibling"), &["init", "-q"]);
+    let alias = outside.join("alias");
+    let add = [
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "x",
+        "--dir",
+    ];
+    for (from, target, dir) in [
+        ("..", into.as_path(), "alias"),
+        ("..", Path::new("repo/recipes"), "alias/sub"),
+        ("../sibling", into.as_path(), "../alias"),
+    ] {
+        std::os::unix::fs::symlink(target, &alias).unwrap();
+        let before = repo.files();
+        let ran = repo.brokkr(from, &[&add[..], &[dir]].concat());
+        assert_eq!(
+            (ran.code, ran.stderr),
+            (Some(1), in_folder(&repo.root)),
+            "{dir}"
+        );
+        assert_eq!(repo.files(), before);
+        let left: Vec<_> = std::fs::read_dir(&into)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left, [".git"]);
+        reads_the_folder_journal(&repo);
+        std::fs::remove_file(&alias).unwrap();
+    }
+}
+
 #[test]
 fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let ws = Ws::new();
