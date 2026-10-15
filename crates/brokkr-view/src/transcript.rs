@@ -2019,15 +2019,7 @@ fn dsh_header(value: &Value, raw: &str) -> Option<DshHeader> {
         RawToken::None | RawToken::Many => return None,
     };
     let signature = digit_signature(token)?;
-    let version = if parsed == 0.0 && signature.is_empty() {
-        DshVersion::Zero
-    } else if parsed == 3.0 && signature == "3" {
-        DshVersion::Three
-    } else if parsed == 4.0 && signature == "4" {
-        DshVersion::Four
-    } else {
-        return None;
-    };
+    let version = DshVersion::admitted(parsed, &signature)?;
     let is_seeded = object.get("isSeeded").and_then(Value::as_bool);
     Some(DshHeader { version, is_seeded })
 }

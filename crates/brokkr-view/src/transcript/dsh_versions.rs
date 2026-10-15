@@ -23,6 +23,23 @@ pub(super) enum DshVersion {
     Four,
 }
 
+impl DshVersion {
+    /// The version a header's `version` member names, read from its parsed
+    /// value and its recorded token's digit signature together (design
+    /// D3): zero with an empty signature, three or four with that one
+    /// digit. Any other pair names no admitted version.
+    pub(super) fn admitted(parsed: f64, signature: &str) -> Option<DshVersion> {
+        [
+            (0.0, "", DshVersion::Zero),
+            (3.0, "3", DshVersion::Three),
+            (4.0, "4", DshVersion::Four),
+        ]
+        .into_iter()
+        .find(|&(value, digits, _)| parsed == value && signature == digits)
+        .map(|(_, _, version)| version)
+    }
+}
+
 /// The names version four adds to version three's quiet vocabulary
 /// (design D4): `developer/message`, native to version four, whose
 /// tool-addition and tool-removal blocks are the writer's notices of a
