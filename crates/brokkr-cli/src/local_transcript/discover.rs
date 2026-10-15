@@ -16,6 +16,17 @@ pub(crate) struct AdmittedSource {
     /// The leaf's lossless identity, recorded at discovery and rechecked
     /// through the same held handle at the read boundary.
     pub identity: safe_fs::Identity,
+    /// How the admitted name says the file is stored.
+    pub encoding: Encoding,
+}
+
+/// How a source file is stored: as written, or in the checksummed zstd
+/// frames DSH's persistence backend writes by default, which only its
+/// `.jsonl.zstd` name admits (proposed decision 0086 ruling 3).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Encoding {
+    Plain,
+    Zstd,
 }
 
 /// The outcome of safe discovery, before any body byte is interpreted.
@@ -195,6 +206,7 @@ fn discover_claude(
                     path: join_path(&join_path(home, name), &file_name),
                     identity,
                     file,
+                    encoding: Encoding::Plain,
                 }),
                 Err(_) => lookup.io_seen = true,
             },
@@ -286,6 +298,7 @@ fn walk_codex(
                             path: join_path(path, name_str),
                             identity,
                             file,
+                            encoding: Encoding::Plain,
                         }),
                         Err(_) => lookup.io_seen = true,
                     }
@@ -318,18 +331,37 @@ enum HeaderCheck {
     Io,
 }
 
+/// The bytes a DSH header check measures and whether the source holds
+/// more. The header budget is DSH_HEADER_CAP bytes; one further byte is
+/// read so a newline that immediately follows a header of exactly the cap
+/// is seen instead of being discarded as the overflow probe. A compressed
+/// candidate's budget is of decompressed bytes, decoded from at most
+/// twice the budget of compressed input, so a header check never reads a
+/// body (proposed decision 0086 ruling 3). `None` is a failed read or a
+/// refused frame.
+fn header_bytes(file: &safe_fs::OpenedFile, encoding: Encoding) -> Option<(Vec<u8>, bool)> {
+    let budget = brokkr_view::transcript::DSH_HEADER_CAP as u64 + 1;
+    match encoding {
+        Encoding::Plain => {
+            let (bytes, overflow, _eof) = file.read_bounded(budget).ok()?;
+            Some((bytes, overflow))
+        }
+        Encoding::Zstd => {
+            let input = 2 * brokkr_view::transcript::DSH_HEADER_CAP as u64;
+            let (packed, cut, _eof) = file.read_bounded(input).ok()?;
+            let unpacked = brokkr_protocol::zstd::unpack(&packed, cut, budget).ok()?;
+            Some((unpacked.bytes, unpacked.past_bound))
+        }
+    }
+}
+
 /// Read at most the bounded first record from a DSH candidate and admit
 /// it only as an opening `session` object with absent or unsigned-zero
 /// depth. The version field neither qualifies nor vetoes ownership.
-fn dsh_header(file: &safe_fs::OpenedFile) -> HeaderCheck {
-    // The header budget is DSH_HEADER_CAP bytes; read one further byte so
-    // a newline that immediately follows a header of exactly the cap is
-    // seen instead of being discarded as the overflow probe.
-    let (bytes, overflow, _eof) =
-        match file.read_bounded(brokkr_view::transcript::DSH_HEADER_CAP as u64 + 1) {
-            Ok(read) => read,
-            Err(_) => return HeaderCheck::Io,
-        };
+fn dsh_header(file: &safe_fs::OpenedFile, encoding: Encoding) -> HeaderCheck {
+    let Some((bytes, overflow)) = header_bytes(file, encoding) else {
+        return HeaderCheck::Io;
+    };
     let header = match bytes.iter().position(|byte| *byte == b'\n') {
         Some(end) => &bytes[..end],
         None => {
@@ -467,15 +499,16 @@ fn dsh_project(project: &safe_fs::Dir, project_path: &str, lookup: &mut Lookup) 
 /// absent file or a row that is not a session header moves on to the next
 /// name; every other outcome is decisive for this directory.
 fn dsh_session(session: &safe_fs::Dir, session_path: &str, lookup: &mut Lookup) {
-    for session_file in DSH_SESSION_FILES {
+    for (session_file, encoding) in DSH_SESSION_FILES {
         let mut decided = true;
         match session.child(std::ffi::OsStr::new(session_file)) {
-            Ok(safe_fs::Child::File(file)) => match dsh_header(&file) {
+            Ok(safe_fs::Child::File(file)) => match dsh_header(&file, encoding) {
                 HeaderCheck::Valid => match file.identity() {
                     Ok(identity) => lookup.candidates.push(AdmittedSource {
                         path: join_path(session_path, session_file),
                         identity,
                         file,
+                        encoding,
                     }),
                     Err(_) => lookup.io_seen = true,
                 },
@@ -494,14 +527,24 @@ fn dsh_session(session: &safe_fs::Dir, session_path: &str, lookup: &mut Lookup) 
     }
 }
 
-/// The session filenames DSH discovery admits, newest first. The core
-/// versions this file: 0.1.5-rc.1 writes `session.v3.jsonl` where earlier
-/// cores wrote `session.jsonl`, and a reader that knows only one name loses
-/// exactly the newest evidence. The set is closed rather than a glob so
-/// that admitting a name stays a decision with evidence behind it, and
-/// ordered so the choice between two present files is stated rather than
-/// incidental.
-const DSH_SESSION_FILES: [&str; 2] = ["session.v3.jsonl", "session.jsonl"];
+/// The session filenames DSH discovery admits, newest first, each with
+/// the encoding its name states. The core versions this file: 0.2.0-rc.2
+/// writes `session.v4.jsonl`, or `session.v4.jsonl.zstd` under its
+/// persistence backend's default encoding, where 0.1.5-rc.1 wrote
+/// `session.v3.jsonl` and earlier cores `session.jsonl`; a reader that
+/// knows only the older names loses exactly the newest evidence. The set
+/// is closed rather than a glob so that admitting a name stays a decision
+/// with evidence behind it, and ordered so the choice between two present
+/// files is stated rather than incidental: of the two version-four
+/// encodings, which DSH never writes into one root together, the plain
+/// one is asked first, being the one a Brokkr-launched seat writes
+/// (proposed decision 0086 ruling 2).
+const DSH_SESSION_FILES: [(&str, Encoding); 4] = [
+    ("session.v4.jsonl", Encoding::Plain),
+    ("session.v4.jsonl.zstd", Encoding::Zstd),
+    ("session.v3.jsonl", Encoding::Plain),
+    ("session.jsonl", Encoding::Plain),
+];
 
 /// The current size of the unique safely discovered source for a validated
 /// reference, or `None` when discovery admits nothing. The size event

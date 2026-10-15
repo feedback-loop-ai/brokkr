@@ -403,14 +403,22 @@ file contents independently authenticate a session.
 
 DSH discovery SHALL search only the retained root at
 `<recorded-home>/<locator>`, using its project/session directory layout and
-a closed, ordered set of session filenames: `session.v3.jsonl`, then
-`session.jsonl`. A session directory SHALL yield at most one candidate, the
-first name in that order carrying a valid header, so a directory holding
-both admits the newer and never becomes ambiguous with itself. A name
-outside the set SHALL NOT be read. The set is versioned because the DSH core
-versions the file: 0.1.5-rc.1 writes `session.v3.jsonl` where earlier cores
-wrote `session.jsonl`, and a reader that knows only one name loses exactly
-the newest evidence. Its first JSONL record SHALL be a `session` header
+a closed, ordered set of session filenames: `session.v4.jsonl`, then
+`session.v4.jsonl.zstd`, then `session.v3.jsonl`, then `session.jsonl`. A
+session directory SHALL yield at most one candidate, the first name in that
+order carrying a valid header, so a directory holding several admits the
+newest and never becomes ambiguous with itself. A name outside the set SHALL
+NOT be read, including any other compression suffix or spelling and the
+compressed twins of the older names. The set is versioned because the DSH
+core versions the file: 0.2.0-rc.2 writes `session.v4.jsonl`, or
+`session.v4.jsonl.zstd` under its persistence backend's default encoding,
+where 0.1.5-rc.1 wrote `session.v3.jsonl` and earlier cores
+`session.jsonl`, and a reader that knows only the older names loses exactly
+the newest evidence. Of the two version-four encodings, which DSH never
+writes into one root together, the plain one SHALL be asked first, being the
+one a Brokkr-launched seat writes. The `.jsonl.zstd` name states the
+encoding: such a candidate SHALL be read as DSH's concatenated zstd frames,
+by the requirement for compressed sources below. Its first JSONL record SHALL be a `session` header
 with `delegationDepth` equal to zero; an omitted depth SHALL retain the
 existing legacy meaning of zero. An invalid depth or a positive delegation
 depth SHALL not match. Valid zero means a JSON unsigned-integer zero;
@@ -423,7 +431,7 @@ at least one session header has invalid depth, the reader SHALL return
 `no valid depth-zero DSH session header`, without echoing the invalid value,
 showing its prose or fabricating a full-session path. A separate qualifying
 root session remains eligible; invalid/delegated candidates do not displace it.
-Other roots, compressed files and delegated sessions SHALL not be substitutes for the seat's plain JSONL file.
+Other roots, compressed files under any other name and delegated sessions SHALL not be substitutes for the seat's session file.
 
 DSH ownership discovery and content-format admission SHALL be separate.
 For ownership, the entire header shape SHALL be a first-record JSON object
@@ -448,7 +456,10 @@ SHALL only detect a newline or overflow, never become admitted header content.
 The same limit SHALL hold at true EOF without a newline: 65,537 header bytes
 SHALL return `discovery-limit` even if those bytes form valid JSON and no
 further source byte exists. This enforces the existing limit, not a new
-header-format restriction.
+header-format restriction. For a compressed candidate the 65,536 bytes are
+decompressed header bytes, decoded from at most 131,072 compressed bytes; a
+header not decoded within either bound SHALL return `discovery-limit`, so a
+header check never decodes a body.
 Claude and Codex discovery SHALL read no transcript content; their selected
 source reads use the separate 32 MiB budget below, with no 65,536-byte
 opening-record gate. Exhausting discovery limits SHALL return
@@ -466,14 +477,17 @@ changes proposed for 0055, not implied compatibility with the old reader.
 After safe unique DSH ownership and a usable bounded UTF-8 source snapshot
 are established, content admission SHALL require an opening header whose
 top-level `version` is a JSON number in the admitted version set. That set
-is closed and is exactly `{0, 3}`. Admission SHALL be judged on the
-recorded `version` token and its parsed value together, for zero and for
-three alike. A recorded number token spells an admitted integer exactly
+is closed and is exactly `{0, 3, 4}`. Admission SHALL be judged on the
+recorded `version` token and its parsed value together, for zero, three
+and four alike. A recorded number token spells an admitted integer exactly
 when its parsed value is that integer and its digit signature, the
 mantissa digits with the decimal point and every leading and trailing zero
-removed, is that integer's digits: empty for zero, `3` for three. So `0`,
-`0.0`, `0e0`, `0.000` and `-0` SHALL denote version zero, and `3`, `3.0`,
-`3e0`, `30e-1` and `0.3e1` SHALL denote version three. `-3` and `3e1`
+removed, is that integer's digits: empty for zero, `3` for three, `4` for
+four. So `0`, `0.0`, `0e0`, `0.000` and `-0` SHALL denote version zero,
+`3`, `3.0`, `3e0`, `30e-1` and `0.3e1` SHALL denote version three, and `4`,
+`4.0`, `4e0`, `40e-1`, `0.4e1` and `4.000` SHALL denote version four; `-4`,
+`4e1`, `4.1`, `3.9999999999999999` and `4.0000000000000001` SHALL refuse
+as their version-three counterparts do. `-3` and `3e1`
 share the signature `3` and SHALL refuse on their parsed value; `3.1`, the
 rounding artefacts `2.9999999999999999` and `3.0000000000000001`, whose
 parsed value is three, and every token whose mantissa carries a nonzero
@@ -495,8 +509,8 @@ even two exact and equal spellings, is an ambiguous recording and SHALL
 return `unsupported-format`. A header whose parsed `version` is a number
 but whose recorded token cannot be established SHALL likewise refuse: the
 recorded-token check SHALL never fall open to the parsed value alone.
-Admitting three widens the recorded-token version check from one admitted
-integer to two and touches no other field: an ordinary event's `time` and
+Admitting three and four widens the recorded-token version check from one
+admitted integer to three and touches no other field: an ordinary event's `time` and
 a packed row's `time0` keep the exactness the content rules below already
 require of them under either version, their parsed value a signed safe
 integer, a parsed zero a zero spelling only when its token's digit
@@ -505,7 +519,7 @@ and every judged token established by the same one-member binding; no
 citation, marker or other event field is judged on its recorded token
 under either version. Strings,
 booleans and null SHALL not be coerced. Missing `version`, any nonnumeric
-value and any numeric value outside the set, including 1, 2 and 4, SHALL
+value and any numeric value outside the set, including 1, 2 and 5, SHALL
 return `unsupported-format` with `DSH transcript format is not supported`.
 There is no legacy default version or automatic migration. An omitted
 depth still means zero under the settled ownership rule; a missing version
@@ -543,7 +557,22 @@ project by the content rules below; a replace-marked row projects by its
 type at its recorded position because the reader parses no marker; and the
 one rule that rests on inherited identities, the dedicated-tool
 association, runs only for a session whose header records `isSeeded`
-exactly `false`. Versions 1 and 2 are not admitted:
+exactly `false`. Version four: the 0.2.0-rc.2 packages
+`@deepseek-ai/dsh-session-format`, `dsh-session-format-v2-to-v3`,
+`dsh-session-format-v3-to-v4` and `dsh-session-persistence-jsonl`, their
+READMEs and typed declarations, read for #678 and cited by file, digest
+and section in that change. That read reached the V3-to-V4 edge's named
+conversions and preservation, the native version-four header, envelope,
+tool-result, message-source and developer-message admission, the retired
+syntax, the sequence-reference remapping, the generation filenames and the
+compressed physical encoding. It did not reach the version-four event
+catalogue or the message and block definitions, which live in packages
+the read did not include; that change names the reads that lift them.
+Under version four every
+released version-three type therefore keeps its version-three
+disposition, because the edge renames none, every name outside that
+vocabulary and the one the read added stays a required unknown, and the
+blocks the edge carries over project as under version three. Versions 1 and 2 are not admitted:
 no core of this fleet wrote them to disk under an admitted name and their
 codecs were not read. A version SHALL join the set only through a change
 that reads the writer's own source and records, cited by package, file,
@@ -569,8 +598,10 @@ resemblance of sampled rows to admitted shapes are not admission
 evidence. The filename and the header
 version are independent facts: `session.v3.jsonl` carrying a version-zero
 header is readable under the version-zero rules, `session.jsonl` carrying
-version three is readable under the version-three rules, and either name
-carrying a version outside the set is refused; neither infers the other.
+version three is readable under the version-three rules,
+`session.v4.jsonl` carrying version three under the version-three rules,
+and any admitted name carrying a version outside the set is refused;
+neither infers the other.
 
 Other header fields, including `id`, `createdAt`, `cwd`, `parentSession`,
 `seedLength`, `isSeeded`, `origin`, `agentPreset` and old execution-policy
@@ -691,7 +722,7 @@ response. SSE remains a growth notification, not a new transcript body API.
 - **THEN** ownership resolves its path, but content admission returns `unsupported-format`, `DSH transcript format is not supported`, the unchanged reference and confirmed path/hint, no turns, zero counts, `truncated: false` and no notices; no version is synthesized and an ignorable marker cannot make the header readable
 
 #### Scenario: A foreign-version DSH root alone keeps its confirmed location
-- **WHEN** the unique safe candidate's opening `session` object has depth zero and version 1, 2, 4, -1, -3, 0.5, 3.1, 3e1, `2.9999999999999999` or `3.0000000000000001`, with a usable bounded source below the source cap, including if unused current-version header metadata is missing or malformed
+- **WHEN** the unique safe candidate's opening `session` object has depth zero and version 1, 2, 5, -1, -3, 0.5, 3.1, 3e1, `2.9999999999999999` or `3.0000000000000001`, with a usable bounded source below the source cap, including if unused current-version header metadata is missing or malformed
 - **THEN** the reader returns `unsupported-format` with its unchanged reference, `legacy: false`, confirmed path and DSH path hint, no turns, zero diagnostic counts, `truncated: false` and no notices; it neither returns `not-found` nor decodes the apparently familiar later events, and a token whose parsed value rounds to an admitted integer is refused on its recorded digits
 
 #### Scenario: A zero digit inside an underflowing token is not a zero spelling
@@ -712,11 +743,11 @@ response. SSE remains a growth notification, not a new transcript body API.
 - **AND** CLI text, CLI JSON and the TUI show that same projection, and a `--turn` request reaches each of those four turns
 
 #### Scenario: The filename and the header version are independent facts
-- **WHEN** one recorded root's only session directory holds `session.jsonl` whose opening header has version 3 and depth zero followed by a readable `user/message`, another's holds `session.v3.jsonl` whose opening header has version 0 and depth zero followed by a readable `user/message`, and a third's holds `session.v3.jsonl` whose opening header has version 4 and depth zero
+- **WHEN** one recorded root's only session directory holds `session.jsonl` whose opening header has version 3 and depth zero followed by a readable `user/message`, another's holds `session.v3.jsonl` whose opening header has version 0 and depth zero followed by a readable `user/message`, and a third's holds `session.v3.jsonl` whose opening header has version 5 and depth zero
 - **THEN** the first projects its message under the version-three vocabulary and the second its message under the version-zero vocabulary, each with zero counts and no notice, and the third returns `unsupported-format` with its confirmed path and zero counts; neither name infers a version and neither version infers a name
 
 #### Scenario: The versioned name beside the plain name is decisive, whatever its version
-- **WHEN** one session directory holds `session.v3.jsonl` with a version-3 header followed by a readable `user/message` and `session.jsonl` with a version-zero header followed by a readable `user/message` with different text, and another directory holds `session.v3.jsonl` with a version-4 header beside `session.jsonl` with a version-zero header and a readable `user/message`
+- **WHEN** one session directory holds `session.v3.jsonl` with a version-3 header followed by a readable `user/message` and `session.jsonl` with a version-zero header followed by a readable `user/message` with different text, and another directory holds `session.v3.jsonl` with a version-5 header beside `session.jsonl` with a version-zero header and a readable `user/message`
 - **THEN** the first directory reads `session.v3.jsonl` and projects the versioned file's message under the version-three vocabulary, never the plain name's, and the second returns `unsupported-format` with the confirmed `session.v3.jsonl` path, zero counts and no turns; neither directory is ambiguous with itself, and the plain name is never read once the versioned name carries a valid session header, because falling through would present superseded evidence as the seat's newest transcript
 
 #### Scenario: A seeded header changes neither ownership nor admission
@@ -751,7 +782,7 @@ response. SSE remains a growth notification, not a new transcript body API.
 - **THEN** discovery reports `discovery-limit` and performs no unbounded scan or header allocation
 
 #### Scenario: A newline-less DSH header fits exactly at the discovery limit
-- **WHEN** an otherwise unique safe DSH candidate has a valid depth-zero version-zero or version-three opening session header of exactly 65,536 UTF-8 bytes and ends there without a newline
+- **WHEN** an otherwise unique safe DSH candidate has a valid depth-zero version-zero, version-three or version-four opening session header of exactly 65,536 UTF-8 bytes and ends there without a newline
 - **THEN** discovery admits that candidate and the read succeeds with zero turns, zero diagnostic counts, no truncation and its confirmed path/hint
 - **AND** the identical header followed by a newline also fits; that delimiter is not a header byte
 
@@ -759,6 +790,30 @@ response. SSE remains a growth notification, not a new transcript body API.
 - **WHEN** the same otherwise valid candidate's header is 65,537 UTF-8 bytes, with no newline and no byte after it
 - **THEN** discovery returns exactly `discovery-limit`, null path and DSH full-session hint, no turns, zero counts, `truncated: false` and no notices, rather than success, `not-found`, `unreadable` or body-stage truncation
 - **AND** the over-limit header with a terminating newline has the same refusal
+
+#### Scenario: DSH admits only the declared version-four header shapes
+- **WHEN** a DSH source's opening header records version `4`, `4.0`, `4e0`, `40e-1`, `0.4e1` or `4.000`, and otherwise identical sources record `-4`, `4e1`, `4.1`, `"4"`, `5`, `3.9999999999999999` or `4.0000000000000001`
+- **THEN** each of the first six is admitted under the version-four vocabulary, a header alone being a readable zero-turn source with zero counts; each of the others returns `unsupported-format` with no turns and zero counts, its rows never classified
+
+#### Scenario: Both version-four names are read into the same turns
+- **WHEN** one root's only session directory holds the synthetic version-four session as `session.v4.jsonl`, and another root's holds the same rows as `session.v4.jsonl.zstd`, one checksummed zstd frame per line
+- **THEN** each read confirms its own path and projects the same user, assistant, call, tool-role result and assistant turns in order, with zero counts, no truncation and no notice
+
+#### Scenario: The admitted names are asked newest first
+- **WHEN** one session directory holds valid session headers under all four admitted names, each followed by a user message naming its file, and the names are removed one at a time, newest first
+- **THEN** the reads admit `session.v4.jsonl`, then `session.v4.jsonl.zstd`, then `session.v3.jsonl`, then `session.jsonl`, each projecting its own file's message and none ambiguous with another
+
+#### Scenario: A compressed header is bounded by what it decompresses to
+- **WHEN** a `session.v4.jsonl.zstd` candidate's one frame decompresses to a valid header of exactly 65,536 bytes and a newline, another's to 65,537 bytes and a newline, and a third's frame carries no header byte within its first 131,072 compressed bytes before a valid header
+- **THEN** the first is admitted as a readable zero-turn source, and the second and third return `discovery-limit` with null path and hint, no turns and zero counts
+
+#### Scenario: A compressed candidate whose frame fails is unreadable at discovery
+- **WHEN** a `session.v4.jsonl.zstd` candidate's frame fails its content checksum, states no checksum, or is not zstd at all, each beside a valid `session.v3.jsonl`
+- **THEN** each returns `unreadable` with null path and hint, no turns and zero counts, and the version-three file is never read
+
+#### Scenario: No other compressed name is a candidate
+- **WHEN** a session directory's only file is the compressed version-four session named `session.v4.jsonl.zst`, `session.v3.jsonl.zstd`, `session.jsonl.zstd`, `session.v4.jsonl.ZSTD` or `session.v04.jsonl.zstd`
+- **THEN** each read returns `not-found`
 
 ### Requirement: Local lookup rejects paths that escape ownership
 
@@ -1964,6 +2019,99 @@ removed, then pass after restoration; a compile failure is not that proof.
 - **WHEN** the implementation reports the bound repaired
 - **THEN** its evidence includes actual before and after measurements from identical ordinary token-stream input, named measurement scope and method, and relevant failing/passing removal-test results for merging, charging and transient retention independently
 
+### Requirement: DSH version four reads as version three, save its named conversions
+
+Under an admitted version-four header every rule the content requirements
+state for version three SHALL apply, except the conversions this
+requirement names, because the 0.2.0-rc.2 writer's V3-to-V4 edge renames no
+event type and keeps every field outside its named conversions. Every
+released version-three event type SHALL keep its version-three
+disposition. `developer/message`, native to version four, SHALL be a quiet
+record: its tool-addition and tool-removal blocks are the writer's notices
+of a changed tool set, not a turn. Version-zero storage rows,
+`assistant/chunk`, `tool/code-dispatch` and `tool/code-dispatch-start`
+SHALL be required unknowns under version four, as under version three, and
+`assistant/attempt` a counted omission. A namespaced unknown event type,
+`plugin:<original-name>`, SHALL be a name outside the vocabulary: a counted
+omission with top-level `ignorable: true` and a required unknown without
+it, by the existing marker rule.
+
+A version-four `tool/result` SHALL project its tool-role message: the
+message's `toolCallId` names the call the result settles and its own
+`content` is the result's output, rendered as version three renders the
+retired wrapper's `content`, so a version-three wrapper row and its
+version-four lift project the same turn. `isError`, `data.error`, the
+message `role`, `id` and `source` SHALL supply no content. The retired
+`tool-result` wrapper block SHALL be a counted unrecognized member wherever
+version four reads a content list; inside a tool-role result such a member
+SHALL make the row a counted record that supplies no result. No `source`
+SHALL be read under any version, so a producer's renamed source kind, a
+`plugin:` kind or the retired plugin wrapper changes no projection.
+`sourceEventSeqs` SHALL be validated exactly as under version three; a log
+whose references the historical conversion remapped projects as any log
+does.
+
+#### Scenario: A version-four session projects its turns in order
+- **WHEN** a version-four session with `isSeeded: false` holds, in order, rows typed `turn/start`, `request/header`, `request/context`, `permission/preset`, `sandbox/mode`, `approval/policy`, `step/start`, `system/message`, a readable `user/message`, an `assistant/message` whose content holds a text block and an embedded `tool-call`, the dedicated `tool/call` for that call, its tool-role `tool/result`, `step/end`, `agent/inbox/spliced`, `compaction/prune`, a second readable `assistant/message`, `turn/end` and `session/title`
+- **THEN** the read projects the user message, the assistant text, the call, the tool-role result and the second assistant message in order, the embedded call shown once beside its dedicated row, with zero counts and no notice
+
+#### Scenario: Each quiet version-four name supplies no turn
+- **WHEN** a version-four session holds one row of `developer/message`, or of any of `turn/start`, `turn/end`, `step/start`, `step/end`, `request/header`, `request/context`, `permission/preset`, `sandbox/mode`, `approval/policy`, `system/message`, `agent/inbox/spliced`, `compaction/prune`, `session/title`, `subagent/catalog` or `tool/ptc-dispatch`
+- **THEN** the read is a readable zero-turn source with zero counts
+- **AND** the same `developer/message` row under a version-three header refuses with one unrecognized record
+
+#### Scenario: A namespaced unknown is omitted only with its marker
+- **WHEN** a version-four session holds a readable `user/message` and a `plugin:acme/note` row with `ignorable: true`, and other sessions hold one row of `plugin:acme/note`, `assistant/chunk`, `text-chunks` or `tool/code-dispatch` without the marker, and one of `assistant/attempt`
+- **THEN** the first projects the user message with one unrecognized record; each unmarked row returns `unsupported-format` with one unrecognized record; `assistant/attempt` is a readable source with one unrecognized record
+
+#### Scenario: The tool-role result maps field by field
+- **WHEN** version-four tool-role results carry `toolCallId` `c1` with a text member and an image member, `toolCallId` `c2` with empty content and `isError: true`, and an empty `toolCallId` with a text member
+- **THEN** they project the results `out [image omitted] [c1]`, `[c2]` and `who`, role `tool`
+- **AND** the version-three wrapper row for `c1` with the same content projects the same turn under a version-three header
+
+#### Scenario: The retired wrapper is counted, never a result
+- **WHEN** a version-four tool-role result's content holds a `tool-result` wrapper, and a `user/message` holds a text block beside a `tool-result` wrapper
+- **THEN** the read projects the user text alone with two unrecognized records
+- **AND** the same rows under a version-three header project both results as today with zero counts
+
+#### Scenario: Producer sources change no projection
+- **WHEN** a version-four `user/message` carries source `{kind: "cli"}`, `{kind: "compact-checkpoint"}`, `{kind: "runtime-context"}`, `{kind: "plugin:acme"}`, the retired `{kind: "plugin", plugin: "acme"}` or a non-object source
+- **THEN** each projects the same user turn with zero counts
+
+#### Scenario: A remapped reference log projects as today
+- **WHEN** a version-four session holds a user message, an inserted interrupted `turn/end`, an `agent/inbox/spliced`, a `turn/start`, a `session/title` citing the first message, a `compaction/prune` with `shadowedRange` and `shadowedSeqs`, and a user message citing `[[0, 2], 4]`
+- **THEN** the read projects both user messages with zero counts
+- **AND** a citation of the citing row's own sequence, or a range reaching past it, refuses the read under version four exactly as under version three
+
+#### Scenario: A version-four session reaches every surface
+- **WHEN** the synthetic version-four session is read as `session.v4.jsonl` and, in another root, as `session.v4.jsonl.zstd`
+- **THEN** CLI text, CLI JSON, `--turn` selection, the TUI pane, both doors and the browser body route show the same five turns for both, the fourth the tool-role result
+
+### Requirement: A compressed DSH session reads within the plain source's bounds
+
+A `session.v4.jsonl.zstd` candidate SHALL be decompressed by
+`brokkr-protocol`'s one zstd decoder before any byte is interpreted; the
+pure view decompresses nothing. Its frames SHALL be decoded in turn, and a
+frame read to its end SHALL be kept only when it states a content checksum
+and its bytes match it. A frame that does not, and bytes that are no zstd
+frame, SHALL be `unreadable` at the stage that read them: at discovery with
+null path, closing admission; at the body with the confirmed path. The body
+read SHALL read at most 32 MiB of compressed bytes and keep at most 32 MiB
+of decompressed bytes; passing either bound SHALL be the source truncation
+a plain source past the cap has, with the same notice, the same
+participating rows and the same counts. A frame the input bound cuts SHALL
+contribute nothing; the one frame the output bound stops is not read to its
+end, so its checksum is never reached, as a plain source's bytes past the
+cap are never read.
+
+#### Scenario: A compressed body past the source cap truncates as a plain one
+- **WHEN** a `session.v4.jsonl.zstd` decompresses to a header, a readable user message and a row of more than 32 MiB, and another root holds the same decompressed bytes as `session.v4.jsonl`
+- **THEN** both reads project the one user message with `truncated: true`, the same notice and zero counts
+
+#### Scenario: A body frame that fails is unreadable with its path
+- **WHEN** a `session.v4.jsonl.zstd` whose first frames hold a valid header and more than 65,536 decompressed bytes ends in a frame that fails its content checksum
+- **THEN** discovery admits it and the read returns `unreadable` with the confirmed path, no turns and zero counts
+
 ## Provenance
 
 - `2026-09-10-read-every-transcript-kind` — folded 2026-09-10
@@ -1973,3 +2121,4 @@ removed, then pass after restoration; a compile failure is not that proof.
 - `2026-09-27-352-browser-reads-by-participant` — folded 2026-09-27
 - `2026-09-27-356-windows-is-not-a-host` — folded 2026-09-27
 - `2026-09-17-bound-transcript-projector` — folded 2026-10-11
+- `2026-10-14-678-admit-dsh-session-v4` — folded 2026-10-14

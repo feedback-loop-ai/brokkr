@@ -543,7 +543,7 @@ fn dsh_required_unknown_refuses_but_ignorable_omits() {
 
 // ------------------------------------------------------ test fixtures
 
-fn row(value: serde_json::Value) -> String {
+pub(super) fn row(value: serde_json::Value) -> String {
     let mut out = value.to_string();
     out.push('\n');
     out
@@ -564,7 +564,7 @@ fn codex(text: &str) -> Projection {
     project_text(TranscriptKind::CodexThread, text)
 }
 
-fn dsh(text: &str) -> Projection {
+pub(super) fn dsh(text: &str) -> Projection {
     project_text(TranscriptKind::DshSession, text)
 }
 
@@ -1042,7 +1042,7 @@ fn dsh_header_version_matrix_admits_only_numeric_zero() {
         "{}",
         "1",
         "2",
-        "4",
+        "5",
         "-1",
         "-3",
         "0.5",

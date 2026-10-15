@@ -16,7 +16,6 @@ use std::process::{Command, Stdio};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use ruzstd::decoding::{FrameDecoder, StreamingDecoder};
 use sha2::{Digest, Sha256};
 
 use super::plan::{Step, Transcripts, UserConfig, PROMPT};
@@ -25,6 +24,7 @@ use crate::hands::{mcp_config, serve_args, HandsSpec};
 use crate::process::Launched;
 use crate::secret::bind_environment;
 use crate::secret::{mask_bytes, BoundSecret};
+use crate::zstd;
 
 /// The scratch directory's name prefix. A path a CLI derives from its
 /// working directory carries it, which is how `measure` finds the part of
@@ -466,42 +466,24 @@ fn marked(path: &Path) -> bool {
     })
 }
 
-/// `packed`, each zstd frame of it decompressed in turn, refused once
-/// what it decompresses to passes `bound` bytes. A frame the decoder does
-/// not read whole, a skippable frame among them, is an error, never read
-/// as nothing, and so is one whose bytes its content checksum does not
-/// vouch for.
-pub(super) fn unpacked(mut packed: &[u8], bound: u64) -> std::io::Result<Vec<u8>> {
-    let mut unpacked = Vec::new();
-    while !packed.is_empty() {
-        let mut frame = StreamingDecoder::new(&mut packed).map_err(std::io::Error::other)?;
-        // Within the bound so far, so one byte past what it leaves.
-        let room = bound - unpacked.len() as u64 + 1;
-        (&mut frame).take(room).read_to_end(&mut unpacked)?;
-        if unpacked.len() as u64 > bound {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::FileTooLarge,
-                format!("it decompresses past {bound} bytes"),
-            ));
-        }
-        checksummed(&frame.into_frame_decoder())?;
-    }
-    Ok(unpacked)
-}
-
-/// Whether `frame`, read to its end, carries the content checksum of the
-/// bytes it decompressed to. The streaming decoder compares nothing, and
-/// most single-bit corruption decodes to changed bytes without an error,
-/// so a frame is trusted only when its checksum is stated and matches,
-/// and one stating none cannot be verified and is refused too (#484, the
-/// operator's ruling of 2026-10-04).
-fn checksummed(frame: &FrameDecoder) -> std::io::Result<()> {
-    let refused = |why: String| Err(std::io::Error::new(std::io::ErrorKind::InvalidData, why));
-    match frame.get_checksum_from_data() {
-        None => refused("a frame carries no content checksum to verify it by".to_string()),
-        Some(stated) if frame.get_calculated_checksum() == Some(stated) => Ok(()),
-        Some(stated) => refused(format!(
-            "a frame's bytes do not match its content checksum {stated:#010x}"
+/// `packed`, each zstd frame of it decompressed in turn by the realm's one
+/// decoder, refused once what it decompresses to passes `bound` bytes. A
+/// frame the decoder does not read whole, a skippable frame among them, is
+/// an error, never read as nothing, and so is one whose bytes its content
+/// checksum does not vouch for.
+pub(super) fn unpacked(packed: &[u8], bound: u64) -> std::io::Result<Vec<u8>> {
+    match zstd::unpack(packed, false, bound) {
+        Ok(zstd::Unpacked {
+            past_bound: true, ..
+        }) => Err(std::io::Error::new(
+            std::io::ErrorKind::FileTooLarge,
+            format!("it decompresses past {bound} bytes"),
+        )),
+        Ok(unpacked) => Ok(unpacked.bytes),
+        Err(zstd::Refused::Undecodable(error)) => Err(error),
+        Err(refused) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            refused.to_string(),
         )),
     }
 }
