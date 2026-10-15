@@ -101,9 +101,9 @@ each local command is the job's own, and the sections below explain them:
 | 1 | `delivered by brokkr` | `delivered-by-brokkr` | — (a shipped run at your head; see [the landing](#the-landing-let-the-machine-finish-what-you-wrote-by-hand)) |
 | 2 | `MSRV (1.88)` | `msrv` | [`cargo +1.88.0 check --workspace --all-targets --all-features --locked`](#the-msrv) |
 | 3 | `format, clippy, contracts` | `quality` | [`cargo fmt --all -- --check`](#formatting), [`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`](#clippy-warnings-as-errors), [the suppression check](#an-added-suppression-names-a-ruling), then both [bundle compiles](#the-bundles-compile) |
-| 4 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
-| 5 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
-| 6 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
+| 4 | `test (ubuntu-latest)` | `engine` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps`](#the-workspace-suite) with bubblewrap installed, then both [bundle compiles](#the-bundles-compile) |
+| 5 | `test (macos-latest)` | `engine` | on a Mac, `bash scripts/test-shards.sh test --parallel-heaps`, then [the startup gate](#the-macos-startup-gate), then both [bundle compiles](#the-bundles-compile) |
+| 6 | `exact coverage gate` | `coverage` | [`BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps`](#exact-coverage), then `quality/ratchet.sh crap` and `quality/ratchet.sh api` |
 | 7 | `dependency licenses (cargo-deny)` | `license-compliance` | [`cargo deny check licenses bans sources`](#dependency-licences) |
 | 8 | `non-Rust lints` | `lint-non-rust` | [`bash scripts/lint-non-rust.sh`](#the-non-rust-lints), then [the diagram render and Renovate's validator](#the-non-rust-lints) |
 | 9 | `baseline ratchets` | `ratchets` | `quality/ratchet.sh files`, `quality/ratchet.sh clones`, `cargo shear --deny-warnings --locked`, `PR_BODY="<your pull request's body>" quality/ratchet.sh baselines origin/main` |
@@ -195,15 +195,26 @@ the refusal lists each one that does not.
 ### The workspace suite
 
 ```
-BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test
+BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/test-shards.sh test --parallel-heaps
 ```
 
 The full suite, untruncated: the tests a plain cargo test of the whole
 workspace with every feature runs, each exactly once, built once and run
-as shards (#633). The shards run one after another, never at once, each
+as shards (#633). The shards run one after another, each
 with its own output and exit status, and capability_broker's real-box
 tests, which are bound to the broker's startup deadline, are the last
-shard. A failing shard stops nothing: the run fails once every shard has
+shard. CI passes `--parallel-heaps`: within the heap shard, the Claude,
+Codex and DSH heap-budget binaries run together, each in its own process.
+Cargo resolves all three with the whole workspace's features before they
+start. Each must pass its single measurement, and all three are joined
+before the next shard, even on failure. Coverage preserves this run's
+process-specific profile paths and merges only after the join. Without
+the flag the heap binaries also run sequentially. The [same-binary evaluation](https://github.com/feedback-loop-ai/brokkr/actions/runs/38803569350)
+measured mean heap-stage times of 109.5 to 46.3 seconds on local Linux,
+106.2 to 52.4 seconds for local coverage, and 351.2 to 179.4 seconds on
+hosted macOS, with unchanged heap bytes. A [fresh parallel coverage run](https://github.com/feedback-loop-ai/brokkr/actions/runs/38808759663/attempts/2)
+preserved every exact coverage identity and hit.
+A failing shard stops nothing: the run fails once every shard has
 run, naming each failure. The script first holds its shards to Cargo's
 metadata: a test target no shard runs, or one two shards run, is refused
 by name, so a new `[[test]]` is placed in a shard in the script before it
@@ -320,7 +331,7 @@ and expect a witness digest to move — see
 ### Exact coverage
 
 ```
-BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh
+BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps
 ```
 
 Literal 100% of lines, branches and functions across the workspace, or
@@ -362,7 +373,7 @@ The tests themselves still create ordinary temporary directories under
 any Git worktree:
 
 ```
-TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh
+TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps
 ```
 
 The directory must be outside a Git worktree: tests that create ordinary

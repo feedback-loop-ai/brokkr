@@ -723,7 +723,7 @@ const LOCAL_ONLY: [&str; 3] = [
     // the section names, not a command.
     "${BROKKR_COVERAGE_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}}/brokkr-coverage-cache",
     // The same gate with its temporary directories moved off a small tmpfs.
-    "TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh",
+    "TMPDIR=/var/tmp BROKKR_REQUIRE_BOUNDARY_EVIDENCE=1 bash scripts/coverage-exact.sh --parallel-heaps",
 ];
 
 /// The anchor GitHub gives the heading a section starts with.
