@@ -29,6 +29,7 @@ services:
     mem_limit: 12g
     memswap_limit: 12g
     environment:
+      RUNNER_MANUALLY_TRAP_SIG: '1'
       RUNNER_NAME: brokkr-workstation-engine
       RUNNER_LABELS: brokkr-local,brokkr-engine
       CARGO_BUILD_JOBS: '10'
@@ -42,6 +43,7 @@ services:
     mem_limit: 14g
     memswap_limit: 14g
     environment:
+      RUNNER_MANUALLY_TRAP_SIG: '1'
       RUNNER_NAME: brokkr-workstation-coverage
       RUNNER_LABELS: brokkr-local,brokkr-coverage
       CARGO_BUILD_JOBS: '10'
@@ -55,6 +57,7 @@ services:
     mem_limit: 6g
     memswap_limit: 6g
     environment:
+      RUNNER_MANUALLY_TRAP_SIG: '1'
       RUNNER_NAME: brokkr-workstation-build
       RUNNER_LABELS: brokkr-local,brokkr-build
       CARGO_BUILD_JOBS: '4'

@@ -1084,12 +1084,10 @@ const JOB_LINES: [(&str, &str); 11] = [
         "quality",
         r#"
     name: format, clippy, contracts
-    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}
+<local build runner>
     timeout-minutes: 20
     steps:
-<checkout>
-      - uses: ./.github/actions/setup-local-runner
-        if: runner.environment == 'self-hosted'
+<local checkout>
 <stable toolchain>
           components: rustfmt, clippy
 <rust-cache>
@@ -1118,9 +1116,7 @@ const JOB_LINES: [(&str, &str); 11] = [
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
     timeout-minutes: 30
     steps:
-<checkout>
-      - uses: ./.github/actions/setup-local-runner
-        if: runner.environment == 'self-hosted'
+<local checkout>
 <stable toolchain>
 <rust-cache>
         if: runner.environment != 'self-hosted'
@@ -1158,9 +1154,7 @@ const JOB_LINES: [(&str, &str); 11] = [
     runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
     timeout-minutes: 45
     steps:
-<checkout>
-      - uses: ./.github/actions/setup-local-runner
-        if: runner.environment == 'self-hosted'
+<local checkout>
       - name: the pinned coverage toolchain and its measuring tool
         id: nightly
         run:
@@ -1305,12 +1299,10 @@ const JOB_LINES: [(&str, &str); 11] = [
         "release-binary",
         r#"
     name: release binary artifact
-    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}
+<local build runner>
     timeout-minutes: 20
     steps:
-<checkout>
-      - uses: ./.github/actions/setup-local-runner
-        if: runner.environment == 'self-hosted'
+<local checkout>
 <stable toolchain>
 <rust-cache>
         if: runner.environment != 'self-hosted'
@@ -1369,7 +1361,19 @@ fn keys_at<'a>(lines: &[&'a str], indent: &str) -> Vec<(&'a str, &'a str)> {
 }
 
 /// The steps several required jobs take word for word, held once.
-const SHARED_STEPS: [(&str, &str); 3] = [
+const SHARED_STEPS: [(&str, &str); 5] = [
+    (
+        "<local build runner>",
+        r#"    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}"#,
+    ),
+    (
+        "<local checkout>",
+        "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-local-runner
+        if: runner.environment == 'self-hosted'",
+    ),
     (
         "<checkout>",
         "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
