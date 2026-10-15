@@ -29,6 +29,13 @@ def prepare(nightly):
     if nightly:
         if not env.get("CARGO_LLVM_COV_TARGET_DIR") or not env.get("LLVM_PROFILE_FILE_NAME"):
             raise RuntimeError("coverage requires the exact gate's target and profile name")
+        target = env["CARGO_LLVM_COV_TARGET_DIR"]
+        profile_name = env["LLVM_PROFILE_FILE_NAME"]
+        # show-env derives its exported target/build directories from Cargo
+        # metadata, even when the coverage target was supplied separately.
+        # Set Cargo's target before that read so profiles and executables
+        # stay in the exact gate's one cache.
+        env["CARGO_TARGET_DIR"] = target
         output = subprocess.check_output(
             ["cargo", *toolchain, "llvm-cov", "show-env", "--sh", "--branch"],
             env=env, text=True,
@@ -40,10 +47,12 @@ def prepare(nightly):
             key, value = words[1].split("=", 1)
             env[key] = value
         profile = env.get("LLVM_PROFILE_FILE", "")
-        expected = Path(env["CARGO_LLVM_COV_TARGET_DIR"]) / env["LLVM_PROFILE_FILE_NAME"]
+        expected = Path(target) / profile_name
         if profile != str(expected) or "%p" not in profile or "%m" not in profile:
             raise RuntimeError("coverage must preserve the gate's process-specific profile path")
-        env["CARGO_TARGET_DIR"] = env["CARGO_LLVM_COV_TARGET_DIR"]
+        if (env.get("CARGO_LLVM_COV_TARGET_DIR") != target
+                or env.get("CARGO_LLVM_COV_BUILD_DIR") != target):
+            raise RuntimeError("coverage must preserve the gate's target and build directories")
     command = ["cargo", *toolchain, "test", "--workspace", "--all-features", "--locked",
                "--no-fail-fast", "--message-format=json"]
     # Literal selectors also let the repository's command scanner verify

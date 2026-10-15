@@ -25,7 +25,8 @@ args = sys.argv[1:]
 if 'show-env' in args:
     profile = str(pathlib.Path(os.environ['CARGO_LLVM_COV_TARGET_DIR']) / os.environ['LLVM_PROFILE_FILE_NAME'])
     if os.environ.get('BAD_PROFILE'): profile = '/tmp/stale-%p-%m.profraw'
-    for key, value in [('LLVM_PROFILE_FILE', profile), ('RUSTFLAGS', '-C instrument-coverage'), ('CARGO_LLVM_COV', '1')]:
+    target = os.environ.get('CARGO_TARGET_DIR', str(root / 'default target'))
+    for key, value in [('LLVM_PROFILE_FILE', profile), ('CARGO_LLVM_COV_TARGET_DIR', target), ('CARGO_LLVM_COV_BUILD_DIR', target), ('RUSTFLAGS', '-C instrument-coverage'), ('CARGO_LLVM_COV', '1')]:
         print('export ' + shlex.quote(key + '=' + value))
     sys.exit(0)
 (root / 'cargo-args').write_text(json.dumps(args))
@@ -128,6 +129,8 @@ class Launcher(unittest.TestCase):
             env = json.loads((self.root / file).read_text())
             self.assertEqual(env['LLVM_PROFILE_FILE'], str(target / 'current-run-%p-%m.profraw'))
             self.assertEqual(env['CARGO_TARGET_DIR'], str(target))
+            self.assertEqual(env['CARGO_LLVM_COV_TARGET_DIR'], str(target))
+            self.assertEqual(env['CARGO_LLVM_COV_BUILD_DIR'], str(target))
             self.assertEqual(env['RUSTFLAGS'], '-C instrument-coverage')
 
     def test_coverage_without_the_gate_or_with_a_stale_profile_refuses(self):
