@@ -1085,16 +1085,12 @@ fn only_a_measured_carriage_carries_and_each_other_fact_is_its_own_reason() {
         claude(json!("unsupported")),
         exec,
     ]
-    .map(|body| {
-        support(&body)
-            .carries("test-provider")
-            .map_err(|e| e.to_string())
-    });
-    let cannot = |reason: &str| {
-        Err(format!(
-            "provider 'test-provider' cannot carry MCP ({reason})"
-        ))
+    .map(|body| support(&body).carries("test-provider"));
+    let uncarried = |reason: &str| Uncarried {
+        provider: "test-provider".to_string(),
+        reason: reason.to_string(),
     };
+    let cannot = |reason: &str| Err(uncarried(reason));
     assert_eq!(
         observed,
         [
@@ -1105,5 +1101,9 @@ fn only_a_measured_carriage_carries_and_each_other_fact_is_its_own_reason() {
             cannot("its adapter declares no measured carriage"),
             cannot("no model MCP surface"),
         ]
+    );
+    assert_eq!(
+        uncarried("not probed").to_string(),
+        "provider 'test-provider' cannot carry MCP (not probed)"
     );
 }

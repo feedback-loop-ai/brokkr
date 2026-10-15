@@ -427,13 +427,23 @@ pub(super) fn candidate_capabilities(
     chain: &[Candidate],
     class: Option<SeatClass>,
 ) -> Result<SiteCapabilities, CompileError> {
-    let resolve = |asks: &SiteAsks, serving: &Serving<'_>| authority.resolve(asks, serving);
-    candidate_capabilities_with(authority, adapters, asks, (chain, class), &resolve)
+    let resolve: Resolve<'_> = &|asks, serving| resolve(authority, asks, serving);
+    candidate_capabilities_with(authority, adapters, asks, (chain, class), resolve)
 }
 
-/// How one serving's outcome is resolved: [`Authority::resolve`], the one
-/// resolver every compile uses, as a closure seam (decision 0071 ruling 2).
-pub(super) type Resolve<'r> = &'r dyn Fn(&SiteAsks, &Serving<'_>) -> Result<Outcome, String>;
+/// How one serving's outcome is resolved: [`resolve`], the one resolver
+/// every compile uses, as a closure seam (decision 0071 ruling 2).
+pub(super) type Resolve<'r> = &'r dyn Fn(&SiteAsks, &Serving<'_>) -> Result<Outcome, CompileError>;
+
+/// [`Authority::resolve`], whose refusal is typed at this seam as the
+/// capability refusal it is (decision 0071 ruling 8).
+pub(super) fn resolve(
+    authority: &Authority,
+    asks: &SiteAsks,
+    serving: &Serving<'_>,
+) -> Result<Outcome, CompileError> {
+    (authority.resolve(asks, serving)).map_err(CompileError::Capability)
+}
 
 /// [`candidate_capabilities`] with each candidate's outcome resolved by
 /// `resolve` before its MCP contribution and SI2 record are judged.
@@ -572,9 +582,9 @@ pub(super) fn inline_capabilities(
         adapter,
         strict: strictness(inline.intent, false, asks.class, adapter),
     };
-    let resolve = |asks: &SiteAsks, serving: &Serving<'_>| authority.resolve(asks, serving);
     let servings = std::slice::from_ref(&serving);
-    resolved(authority, (asks, &resolve), servings, vec![site])
+    let resolve: Resolve<'_> = &|asks, serving| resolve(authority, asks, serving);
+    resolved(authority, (asks, resolve), servings, vec![site])
 }
 
 /// `asks` resolved by `resolve` against each serving in order, each outcome
@@ -593,7 +603,7 @@ fn resolved(
     let mut outcomes = Vec::with_capacity(servings.len());
     let mut strict = Vec::with_capacity(sites.len());
     for (serving, site) in servings.iter().zip(sites) {
-        let mut outcome = resolve(&asks, serving).map_err(CompileError::Capability)?;
+        let mut outcome = resolve(&asks, serving)?;
         (site.contribute(who, &asks.asks, &mut outcome)).map_err(|cause| refused(&cause))?;
         outcomes.push(outcome);
         let cause = (site.strict.iter())

@@ -1278,14 +1278,22 @@ fn unsupported_carriage_refuses_requires_and_a_dead_server_map_gives_no_authorit
             &[&[], &["library-docs", "issue-tracker"]],
         );
         let (_, judgment, _, _) = &row[1];
-        judgment.clone().map_err(|cause| cause.to_string())
+        judgment.clone()
     });
-    let refused = |reason: &str| {
-        Err(format!(
-            "requires capability 'library-docs' through dialect 'library-docs-mcp', but provider \
-             'codex' cannot carry MCP ({reason})"
-        ))
+    let uncarried = |reason: &str| mcp::Unservable::Uncarried {
+        capability: "library-docs".to_string(),
+        dialect: "library-docs-mcp".to_string(),
+        cause: crate::agents::Uncarried {
+            provider: "codex".to_string(),
+            reason: reason.to_string(),
+        },
     };
+    let refused = |reason: &str| Err(uncarried(reason));
+    assert_eq!(
+        uncarried("not probed").to_string(),
+        "requires capability 'library-docs' through dialect 'library-docs-mcp', but provider \
+         'codex' cannot carry MCP (not probed)"
+    );
     assert_eq!(
         refusals,
         [
@@ -1470,7 +1478,7 @@ fn the_pass_judges_each_resolved_candidate_and_refuses_in_the_sites_words() {
     let authority = Authority::load(context).unwrap();
     let unasked = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
     let resolve = |_: &SiteAsks, serving: &crate::capabilities::Serving<'_>| {
-        let mut outcome: Outcome = authority.resolve(&unasked, serving)?;
+        let mut outcome: Outcome = mcp::resolve(&authority, &unasked, serving)?;
         let holding = mcp_holding("library-docs");
         outcome.held.insert("library-docs".to_string(), holding);
         Ok(outcome)
@@ -1501,11 +1509,14 @@ fn the_pass_judges_each_resolved_candidate_and_refuses_in_the_sites_words() {
         ]
     );
     assert_eq!(site.strict.len(), 2);
+    let Err(CompileError::Capability(refusal)) = pass("requires") else {
+        panic!("a requires the fallback cannot carry is a capability refusal");
+    };
     assert_eq!(
-        pass("requires").unwrap_err().to_string(),
+        refusal,
         format!(
-            "bundle: {RESEARCH}: requires capability 'library-docs' through dialect \
-             'library-docs-mcp', but {cause}"
+            "{RESEARCH}: requires capability 'library-docs' through dialect 'library-docs-mcp', \
+             but {cause}"
         )
     );
 }
