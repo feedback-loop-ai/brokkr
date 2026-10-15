@@ -592,6 +592,53 @@ fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
     assert_eq!(std::fs::read_dir(&external).unwrap().count(), 0);
 }
 
+/// `recipes add` into a link beside a folder repository that resolves into
+/// a nested repository at its `recipes/` refuses by name and writes nothing
+/// there: absolute or relative, below the link, and from a sibling bare
+/// repository. The folder repository is judged where `--dir` resolves to
+/// as well as where it is spelled (#675).
+#[test]
+fn add_refuses_a_folder_repository_a_link_from_outside_resolves_into() {
+    let (repo, _ws, src) = folder_and_source();
+    let into = repo.path("recipes");
+    std::fs::create_dir(&into).unwrap();
+    crate::brokkr_folder::git(&into, &["init", "-q"]);
+    let outside = repo.root.parent().unwrap();
+    std::fs::create_dir(outside.join("sibling")).unwrap();
+    crate::brokkr_folder::git(&outside.join("sibling"), &["init", "-q"]);
+    let alias = outside.join("alias");
+    let add = [
+        "recipes",
+        "add",
+        src.to_str().unwrap(),
+        "--name",
+        "x",
+        "--dir",
+    ];
+    for (from, target, dir) in [
+        ("..", into.as_path(), "alias"),
+        ("..", Path::new("repo/recipes"), "alias/sub"),
+        ("../sibling", into.as_path(), "../alias"),
+    ] {
+        std::os::unix::fs::symlink(target, &alias).unwrap();
+        let before = repo.files();
+        let ran = repo.brokkr(from, &[&add[..], &[dir]].concat());
+        assert_eq!(
+            (ran.code, ran.stderr),
+            (Some(1), in_folder(&repo.root)),
+            "{dir}"
+        );
+        assert_eq!(repo.files(), before);
+        let left: Vec<_> = std::fs::read_dir(&into)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left, [".git"]);
+        reads_the_folder_journal(&repo);
+        std::fs::remove_file(&alias).unwrap();
+    }
+}
+
 #[test]
 fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let ws = Ws::new();

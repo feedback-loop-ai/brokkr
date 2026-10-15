@@ -402,9 +402,11 @@ impl std::error::Error for Unplain {}
 /// or above it, since `add` creates the rest. That rest is made as named,
 /// so it must hold plain names only ([`Unplain::Dir`]). The walk resolves
 /// links and stops at the nearest `.git`, so it is taken from every
-/// ancestor of that entry as `dir` spells it as well: a folder repository
-/// a link or a nested repository stands below still refuses. A layout or
-/// an entry that cannot be read refuses in its own words (fail closed).
+/// ancestor of that entry as `dir` spells it, and from every ancestor of
+/// the real directory it resolves to: a folder repository a link or a
+/// nested repository stands below still refuses, and so does one a link
+/// from outside it resolves into. A layout or an entry that cannot be read
+/// refuses in its own words (fail closed).
 fn refuse_folder(workspace: &Path, dir: &Path) -> Result<()> {
     let target = std::path::absolute(dir).map_err(|source| PlacesError::Unreadable {
         path: dir.to_path_buf(),
@@ -418,7 +420,18 @@ fn refuse_folder(workspace: &Path, dir: &Path) -> Result<()> {
         let (dir, standing) = (dir.to_path_buf(), at.to_path_buf());
         return Err(Unplain::Dir { dir, standing }.into());
     }
-    for start in std::iter::once(workspace).chain(at.ancestors()) {
+    refuse_any(std::iter::once(workspace).chain(at.ancestors()))?;
+    // The walk from `at` above has resolved it already, so this one stands.
+    let resolved = places::Layout::discover(at)?;
+    let real = resolved.cwd().ancestors();
+    refuse_any(real.filter(|real| !at.ancestors().any(|spelled| spelled == *real)))
+}
+
+/// Refuse [`InFolder`] when the layout discovered from any of `starts`
+/// ([`places::Layout::discover`], the one judgement) is a folder; a walk
+/// that refuses refuses in its own words.
+fn refuse_any<'a>(starts: impl IntoIterator<Item = &'a Path>) -> Result<()> {
+    for start in starts {
         let layout = places::Layout::discover(start)?;
         if layout.kind() == Kind::Folder {
             let root = layout.root().to_path_buf();

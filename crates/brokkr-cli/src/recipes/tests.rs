@@ -440,7 +440,6 @@ fn add_refuses_a_folder_repository_by_type() {
 #[test]
 fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
     let (_dir, root) = folder_repository();
-    let node = workspace().join("recipes/node");
     let outside = tempfile::tempdir().unwrap();
     let external = tempfile::tempdir().unwrap();
     let dir = root.join("recipes");
@@ -448,19 +447,46 @@ fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
     let plant_repository = |dir: &Path| std::fs::create_dir_all(dir.join(".git")).unwrap();
     for plant in [&plant_link as &dyn Fn(&Path), &plant_repository] {
         plant(&dir);
-        let refusal = add(outside.path(), node.to_str().unwrap(), "node", &dir).unwrap_err();
-        let expected = InFolder { root: root.clone() };
-        assert_eq!(
-            refusal.downcast_ref::<InFolder>(),
-            Some(&expected),
-            "{refusal}"
-        );
+        refuses_in_folder(outside.path(), &dir, &root);
         assert!(!dir.join("node").exists());
         std::fs::remove_file(&dir)
             .or_else(|_| std::fs::remove_dir_all(&dir))
             .unwrap();
     }
     assert_eq!(std::fs::read_dir(external.path()).unwrap().count(), 0);
+}
+
+/// `add` refuses a `dir` that a link outside a folder repository resolves
+/// into a nested repository at its `recipes/`, at the link and below it,
+/// by the type: the folder repository is judged where `dir` resolves to,
+/// not only where it is spelled (#675).
+#[test]
+fn add_refuses_a_folder_repository_a_link_from_outside_resolves_into() {
+    let (_dir, root) = folder_repository();
+    let outside = tempfile::tempdir().unwrap();
+    let nested = root.join("recipes");
+    std::fs::create_dir_all(nested.join(".git")).unwrap();
+    let alias = outside.path().join("alias");
+    std::os::unix::fs::symlink(&nested, &alias).unwrap();
+    for dir in [alias.clone(), alias.join("sub")] {
+        refuses_in_folder(outside.path(), &dir, &root);
+    }
+    assert_eq!(std::fs::read_dir(&nested).unwrap().count(), 1, ".git only");
+}
+
+/// `add` of a compiling recipe from `from` into `dir` refuses by the type,
+/// naming the folder repository at `root` (#675).
+fn refuses_in_folder(from: &Path, dir: &Path, root: &Path) {
+    let node = workspace().join("recipes/node");
+    let refusal = add(from, node.to_str().unwrap(), "node", dir).unwrap_err();
+    let expected = InFolder {
+        root: root.to_path_buf(),
+    };
+    assert_eq!(
+        refusal.downcast_ref::<InFolder>(),
+        Some(&expected),
+        "{refusal}"
+    );
 }
 
 /// A `dir` that climbs with `..` where nothing stands yet, and a `name`
