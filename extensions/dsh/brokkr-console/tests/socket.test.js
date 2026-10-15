@@ -5,18 +5,7 @@ import { EventEmitter } from 'node:events'
 import { test } from 'node:test'
 
 import { accept } from '../lib/host/socket.js'
-
-const KEY = 'dGhlIHNhbXBsZSBub25jZQ=='
-
-/** A client text frame carrying `text`, masked unless `masked` is false. */
-function clientFrame(text, masked = true) {
-  const payload = Buffer.from(text)
-  const mask = Buffer.from([1, 2, 3, 4])
-  const head = Buffer.from([0x81, (masked ? 0x80 : 0) | payload.length])
-  if (!masked) return Buffer.concat([head, payload])
-  const body = Buffer.from(payload.map((byte, index) => byte ^ mask[index % 4]))
-  return Buffer.concat([head, mask, body])
-}
+import { clientFrame, WS_KEY as KEY } from './support/world.js'
 
 /** An accepted peer on a fake socket, with what it wrote and what it heard. */
 function opened() {

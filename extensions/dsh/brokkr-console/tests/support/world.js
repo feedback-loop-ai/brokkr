@@ -40,7 +40,7 @@ export function row(over = {}) {
 /** A world's `FleetView`: `[[realm, rows], ...]`. */
 export function fleetDoc(realms, over = {}) {
   return {
-    view_version: 21,
+    view_version: 22,
     realms: realms.map(([realm, runs]) => ({ realm, journal: `/hearths/${realm}/forge.db`, runs, count: runs.length, detail: null })),
     count: realms.reduce((sum, [, runs]) => sum + runs.length, 0),
     ...over,
@@ -70,11 +70,56 @@ export function journalRow(seq, eventType, payload = {}, text = eventType) {
   }
 }
 
+const cellOf = (text, note = null) => (text === null ? { text: '—', absent: true, note } : { text, absent: false, note: null })
+
+/** A seat's plan provenance as `brokkr inspect --json` prints it: the security agent's first choice, served through dsh, unless told otherwise. */
+export function provenance(over = {}) {
+  return { agent: 'security', model: 'glm-flash', effort: 'high', provider: 'dsh', chain_index: 0, fallback: false, line: 'security · selected glm-flash via dsh', ...over }
+}
+
+/** One participant as `brokkr inspect --json` prints it: the security review seat, finished, unless told otherwise. */
+export function seat(over = {}) {
+  return {
+    key: 'seat-security-1',
+    label: 'security',
+    member: null,
+    phase: 'review',
+    status: 'succeeded',
+    status_class: 'completed',
+    working: false,
+    attempts: 1,
+    turns: 54,
+    turns_aggregated: false,
+    turns_cell: cellOf('54'),
+    cost: 2.41794575,
+    last_attempt_cost: 2.41794575,
+    cost_aggregated: false,
+    cost_cell: cellOf('$2.4179'),
+    usage: { input_tokens: 3004371, output_tokens: 1181, cache_read_tokens: 3002733, cache_write_tokens: 267151, reasoning_output_tokens: null, total_tokens: 3005552 },
+    usage_aggregated: false,
+    usage_cell: cellOf('3.01M tok · in 3.00M tok · out 1k tok · cache read 3.00M tok · cache write 267k tok'),
+    tokens: { total: cellOf('3.01M tok'), input: cellOf('3.00M'), output: cellOf('1.2k'), cache_hit: cellOf('99.9%') },
+    model: cellOf('gpt-5.5'),
+    boundary: cellOf('not applicable'),
+    effort: cellOf('high'),
+    effort_pin: cellOf(null, 'no effort pinned by this run’s resolution'),
+    activity: { ...cellOf(null, 'no activity recorded'), tool: null, target_short: null, target_full: null },
+    member_count: 0,
+    transcript: null,
+    transcript_cell: cellOf('claude-session'),
+    session_id: null,
+    terminal_line: cellOf(null),
+    checkpoints: [],
+    provenance: null,
+    ...over,
+  }
+}
+
 /** A `RunView` as `brokkr inspect --json` prints it: parked at review, head `seq`. */
 export function runViewDoc(over = {}) {
   const { seq = 12, ...rest } = over
   return {
-    view_version: 21,
+    view_version: 22,
     summary: {
       consecutive_failures: {},
       cursor: 'park',
@@ -113,7 +158,7 @@ export function runViewDoc(over = {}) {
 /** `brokkr analytics --json` for one realm whose seats reported no cost. */
 export function analyticsDoc(over = {}) {
   return {
-    view_version: 21,
+    view_version: 22,
     range: '7d',
     realm: null,
     from: '2026-10-06T09:00:00Z',
@@ -178,11 +223,25 @@ export function stubBrokkr(rules, over = {}) {
 
 // ------------------------------------------------------------ the host
 
-/** A stub DSH host: the routes, upgrade and model tools a plugin registers, and its fence. */
+/** The RFC 6455 sample nonce a test's upgrade request carries. */
+export const WS_KEY = 'dGhlIHNhbXBsZSBub25jZQ=='
+
+/** A client text frame carrying `text`, masked unless `masked` is false. */
+export function clientFrame(text, masked = true) {
+  const payload = Buffer.from(text)
+  const mask = Buffer.from([1, 2, 3, 4])
+  const head = Buffer.from([0x81, (masked ? 0x80 : 0) | payload.length])
+  if (!masked) return Buffer.concat([head, payload])
+  const body = Buffer.from(payload.map((byte, index) => byte ^ mask[index % 4]))
+  return Buffer.concat([head, mask, body])
+}
+
+/** A stub DSH host: the routes, upgrade, model tools and event listeners (each `{listener, options}`) a plugin registers, and its fence. */
 export function stubHost(rejection = undefined) {
-  const host = { routes: new Map(), upgrades: new Map(), tools: new Map(), rejection }
+  const host = { routes: new Map(), upgrades: new Map(), tools: new Map(), listeners: new Map(), rejection }
   host.ctx = {
     effect: (register, _label) => register(),
+    on: (event, listener, options = {}) => host.listeners.set(event, { listener, options }),
     tools: { register: (definition) => host.tools.set(definition.name, definition) },
     webServer: {
       register: ({ kind, path, handler }) => host.routes.set(path, { kind, handler }),

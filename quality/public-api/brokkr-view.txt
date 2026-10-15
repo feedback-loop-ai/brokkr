@@ -387,6 +387,7 @@ pub brokkr_view::Participant::session_id: core::option::Option<alloc::string::St
 pub brokkr_view::Participant::status: alloc::string::String
 pub brokkr_view::Participant::status_class: alloc::string::String
 pub brokkr_view::Participant::terminal_line: brokkr_view::Cell
+pub brokkr_view::Participant::tokens: brokkr_view::TokenCells
 pub brokkr_view::Participant::transcript: core::option::Option<brokkr_view::Transcript>
 pub brokkr_view::Participant::transcript_cell: brokkr_view::Cell
 pub brokkr_view::Participant::turns: core::option::Option<u64>
@@ -540,6 +541,11 @@ pub struct brokkr_view::SupersededBy
 pub brokkr_view::SupersededBy::realm: core::option::Option<alloc::string::String>
 pub brokkr_view::SupersededBy::run_id: alloc::string::String
 pub brokkr_view::SupersededBy::seq: u64
+pub struct brokkr_view::TokenCells
+pub brokkr_view::TokenCells::cache_hit: brokkr_view::Cell
+pub brokkr_view::TokenCells::input: brokkr_view::Cell
+pub brokkr_view::TokenCells::output: brokkr_view::Cell
+pub brokkr_view::TokenCells::total: brokkr_view::Cell
 pub struct brokkr_view::TokenUsage
 pub brokkr_view::TokenUsage::cache_read_tokens: core::option::Option<u64>
 pub brokkr_view::TokenUsage::cache_write_tokens: core::option::Option<u64>

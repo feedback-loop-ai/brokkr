@@ -36,7 +36,10 @@ mod items;
 pub mod js;
 mod participant;
 mod scope;
+mod tokens;
 pub mod transcript;
+use tokens::usage_cells;
+pub use tokens::TokenCells;
 
 pub use analytics::Range;
 pub use analytics::{analytics, Analytics, AnalyticsError, AnalyticsHearth, AnalyticsRun, Query};
@@ -112,8 +115,11 @@ use serde_json::Value;
 /// Bumped to 18 by #351's third slice: the run view gained its `scopes`.
 /// Bumped to 19 by #568: the run view gained `commands`, `unavailable`,
 /// `clarify` and `worktree`, and the analytics readout began.
+/// Bumped to 20 by #568's second slice: the run view gained its `recipe`.
 /// Bumped to 21 by #511: a run row gained its `acknowledgement`.
-pub const VIEW_VERSION: u32 = 21;
+/// Bumped to 22 by #568's console tab: a participant gained its
+/// `tokens`, the total, input, output and cache-hit cells.
+pub const VIEW_VERSION: u32 = 22;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -403,6 +409,9 @@ pub struct Participant {
     pub usage: Option<TokenUsage>,
     pub usage_aggregated: bool,
     pub usage_cell: Cell,
+    /// The figures a console's seat row reads apart: total, input,
+    /// output and the cache hit (#568).
+    pub tokens: TokenCells,
     /// The served model and its boundary, flattened: `model` and
     /// `boundary` are siblings on the wire.
     #[serde(flatten)]
@@ -1788,17 +1797,23 @@ fn usage_text(usage: &TokenUsage, prefix: &str) -> String {
 /// to a `$0.0313` invites reading it as money — which is the one thing
 /// this cell must never say.
 fn fmt_tokens(total: u64) -> String {
+    format!("{} tok", fmt_count(total))
+}
+
+/// The count alone, for a cell whose label already says tokens: `842`,
+/// `312k`, `3.99M`.
+fn fmt_count(total: u64) -> String {
     if total < 1_000 {
-        return format!("{total} tok");
+        return total.to_string();
     }
     let thousands = js::round_half_up(total as f64 / 1_000.0);
     if thousands < 1_000 {
-        return format!("{thousands}k tok");
+        return format!("{thousands}k");
     }
     // Hundredths of a million, placed with integer arithmetic: rounding
     // once here keeps the printed digits from rounding a second time.
     let hundredths = js::round_half_up(total as f64 / 10_000.0);
-    format!("{}.{:02}M tok", hundredths / 100, hundredths % 100)
+    format!("{}.{:02}M", hundredths / 100, hundredths % 100)
 }
 
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
@@ -1927,6 +1942,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                     .and_then(Value::as_str)
                     .map(str::to_string)
             });
+        let (usage_cell, tokens) = usage_cells(usage.as_ref(), usage_prefix);
         out.push(Participant {
             key: part.key.clone(),
             label: part.label.clone(),
@@ -1946,10 +1962,8 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             last_attempt_cost: last_cost,
             cost_aggregated,
             cost_cell: cell_of(cost_text, Some("no session cost or token usage recorded")),
-            usage_cell: cell_of(
-                usage.as_ref().map(|usage| usage_text(usage, usage_prefix)),
-                Some("no token usage recorded"),
-            ),
+            usage_cell,
+            tokens,
             usage,
             usage_aggregated,
             served: ModelAtBoundary {

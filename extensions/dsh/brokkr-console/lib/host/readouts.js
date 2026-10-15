@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 21
+export const VIEW_VERSION = 22
 
 /** The Muninn record version this console reads. */
 const MUNINN_RECORD_VERSION = 1
@@ -70,6 +70,12 @@ const texts = (value, path) => list(value, path, text)
 
 // --------------------------------------------------------------- the edge
 
+/**
+ * A failed readout's own words, without the `note:` lines Brokkr prints
+ * about how it found the workspace's map, which are not the refusal.
+ */
+const refusalOf = (stderr) => stderr.split('\n').filter((line) => !line.startsWith('note: ')).join('\n').trim()
+
 /** The text a finished call printed, parsed as JSON, or why it was not. */
 export function jsonOf(ran, what) {
   switch (ran.kind) {
@@ -80,7 +86,7 @@ export function jsonOf(ran, what) {
     case 'overflow':
       throw new ReadoutRefused('overflow', `${what} printed more than the console reads`)
     case 'exited':
-      if (ran.code !== 0) throw new ReadoutRefused('failed', ran.stderr.trim() || `${what} failed`)
+      if (ran.code !== 0) throw new ReadoutRefused('failed', refusalOf(ran.stderr) || `${what} failed`)
       try {
         return JSON.parse(ran.stdout)
       } catch {
@@ -159,6 +165,15 @@ export function fleetOf(doc) {
   }
 }
 
+/** `brokkr realms --json`: each realm's name and its folder, as the map names it (relative to the workspace). */
+export function realmsOf(doc) {
+  object(doc, 'realms')
+  return list(doc.realms, 'realms', (value, path) => ({
+    name: text(object(value, path).name, `${path}.name`),
+    path: text(value.path, `${path}.path`),
+  }))
+}
+
 // ---------------------------------------------------------------- one run
 
 function offered(value, path) {
@@ -172,17 +187,41 @@ function offered(value, path) {
   }
 }
 
+/** A journal row's payload, the JSON object Brokkr wrote in `payload_json`, parsed once; its path for the fields read from it. */
+function payloadOf(row, path) {
+  const at = `${path}.payload_json`
+  const written = text(row.payload_json, at)
+  let payload
+  try {
+    payload = JSON.parse(written)
+  } catch {
+    refuse(at, 'JSON')
+  }
+  return [object(payload, at), at]
+}
+
+/**
+ * What a ruling decided, from the fields its payload records: the phase it
+ * ruled, the one it moved the run to, its rule, result and severity. `null`
+ * for any other event.
+ */
+function rulingOf(row, path) {
+  if (row.event_type !== 'transition/decided') return null
+  const [payload, at] = payloadOf(row, path)
+  return {
+    from: optText(payload.from, `${at}.from`),
+    next: optText(payload.next, `${at}.next`),
+    rule: optText(payload.rule_id, `${at}.rule_id`),
+    result: optText(payload.result, `${at}.result`),
+    severity: optText(payload.severity, `${at}.severity`),
+  }
+}
+
 /** The reason an operator event recorded, read from its payload. */
 function payloadReason(row, path) {
   if (!row.event_type.startsWith('operator/')) return null
-  let payload
-  try {
-    payload = JSON.parse(text(row.payload_json, `${path}.payload_json`))
-  } catch (error) {
-    if (error instanceof ReadoutRefused) throw error
-    refuse(`${path}.payload_json`, 'JSON')
-  }
-  return optText(object(payload, `${path}.payload_json`).reason, `${path}.payload_json.reason`)
+  const [payload, at] = payloadOf(row, path)
+  return optText(payload.reason, `${at}.reason`)
 }
 
 function journalRow(value, path) {
@@ -195,15 +234,36 @@ function journalRow(value, path) {
     in_trail: value.in_trail === true,
     what: { text: text(what.text, `${path}.what.text`), badge: optText(what.badge, `${path}.what.badge`) },
   }
-  return { ...row, reason: payloadReason({ ...row, payload_json: value.payload_json }, path) }
+  const raw = { ...row, payload_json: value.payload_json }
+  return { ...row, reason: payloadReason(raw, path), ruling: rulingOf(raw, path) }
+}
+
+/** One seat or member the graph draws: its label, Brokkr's state word and class, and the model it served. */
+function node(value, path) {
+  object(value, path)
+  return {
+    key: text(value.key, `${path}.key`),
+    label: text(value.label, `${path}.label`),
+    state: text(value.state, `${path}.state`),
+    state_class: text(value.state_class, `${path}.state_class`),
+    model: maybe(value.model, `${path}.model`, (model, at) => optText(object(model, at).text, `${at}.text`)),
+  }
+}
+
+/** A phase's steps in order; the nodes of one column ran side by side. */
+function column(value, path) {
+  object(value, path)
+  return { label: optText(value.label, `${path}.label`), nodes: list(value.nodes, `${path}.nodes`, node) }
 }
 
 function phase(value, path) {
   object(value, path)
   return {
     name: text(value.name, `${path}.name`),
+    strategy: optText(value.strategy, `${path}.strategy`),
     visits: count(value.visits, `${path}.visits`),
     current: value.current === true,
+    columns: list(value.columns, `${path}.columns`, column),
     returns: texts(value.returns, `${path}.returns`),
   }
 }
@@ -216,6 +276,50 @@ function visit(value, path) {
     rule: optText(value.rule, `${path}.rule`),
     model: optText(value.model, `${path}.model`),
     duration: optText(value.duration, `${path}.duration`),
+  }
+}
+
+/** A cell as Brokkr words it: its text, and why it is absent when it is. */
+function cell(value, path) {
+  object(value, path)
+  return { text: text(value.text, `${path}.text`), absent: value.absent === true, note: optText(value.note, `${path}.note`) }
+}
+
+/**
+ * One seat of the run, with the figures the TUI's seat pane prints, each
+ * Brokkr's own cell: model (claimed) and boundary, effort pinned and
+ * applied, attempts, turns, cost, and tokens read apart (total, in, out,
+ * cache hit).
+ */
+function participant(value, path) {
+  object(value, path)
+  return {
+    key: text(value.key, `${path}.key`),
+    label: text(value.label, `${path}.label`),
+    member: optText(value.member, `${path}.member`),
+    phase: optText(value.phase, `${path}.phase`),
+    status: text(value.status, `${path}.status`),
+    working: value.working === true,
+    attempts: count(value.attempts, `${path}.attempts`),
+    turns: cell(value.turns_cell, `${path}.turns_cell`),
+    cost: cell(value.cost_cell, `${path}.cost_cell`),
+    usage: cell(value.usage_cell, `${path}.usage_cell`),
+    tokens: ((tokens, at) => ({
+      total: cell(tokens.total, `${at}.total`),
+      input: cell(tokens.input, `${at}.input`),
+      output: cell(tokens.output, `${at}.output`),
+      cache_hit: cell(tokens.cache_hit, `${at}.cache_hit`),
+    }))(object(value.tokens, `${path}.tokens`), `${path}.tokens`),
+    model: cell(value.model, `${path}.model`),
+    boundary: cell(value.boundary, `${path}.boundary`),
+    effort: cell(value.effort, `${path}.effort`),
+    effort_pin: cell(value.effort_pin, `${path}.effort_pin`),
+    activity: cell(value.activity, `${path}.activity`),
+    transcript: cell(value.transcript_cell, `${path}.transcript_cell`),
+    // What the plan selected for the seat, beside what the harness reported serving: brokkr-view's
+    // one provenance sentence (the TUI's "selected by" line), carried whole so no surface drops
+    // the "not the agent's first choice" half (decision 0071 ruling 7).
+    selected: maybe(value.provenance, `${path}.provenance`, (provenance, at) => text(object(provenance, at).line, `${at}.line`)),
   }
 }
 
@@ -241,6 +345,7 @@ export function runViewOf(doc) {
     summary: maybe(doc.summary, 'summary', summary),
     ruling,
     phases: list(doc.phases, 'phases', phase),
+    participants: list(doc.participants, 'participants', participant),
     path: list(object(doc.dashboard, 'dashboard').path, 'dashboard.path', visit),
     journal: list(doc.journal, 'journal', journalRow),
     commands: list(doc.commands, 'commands', offered),
@@ -379,4 +484,65 @@ export function analyticsOf(doc) {
 /** The range words `brokkr analytics --range` takes. */
 export function isRange(value) {
   return RANGES.includes(value)
+}
+
+// ------------------------------------------------------------- transcripts
+
+const TRANSCRIPT_SCHEMA = 'brokkr.transcript/v1'
+/** The most of a transcript the console paints: its last turns, each block cut to a bound. */
+const TRANSCRIPT_TURNS = 80
+const BLOCK_CHARS = 4000
+
+/** `stdout` parsed as a JSON object, or `null` when it is not one. */
+function objectOf(stdout) {
+  try {
+    const value = JSON.parse(stdout)
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * `brokkr transcript --json` as it ran. The CLI prints the document on stdout
+ * in both outcomes; for a seat that keeps no transcript it exits non-zero with
+ * the document's `unavailable` naming why, and the sanitized explanation on
+ * stderr. The document decides that this is the seat's answer and not the
+ * console failing; stderr's words are what the operator reads.
+ */
+export function transcriptReadOf(ran, what) {
+  if (ran.kind === 'exited' && ran.code !== 0) {
+    const doc = objectOf(ran.stdout)
+    if (doc !== null && typeof doc.unavailable === 'string') return transcriptOf(doc, refusalOf(ran.stderr) || null)
+  }
+  return transcriptOf(jsonOf(ran, what))
+}
+
+/**
+ * `brokkr transcript --json`: one seat's retained turns, newest last, as
+ * Brokkr's bounded derivation reads them; its last turns only, each block cut
+ * and marked when long. `unavailable` is Brokkr's word when there is none:
+ * the `explanation` it printed when it gave one, else the reason it typed.
+ */
+export function transcriptOf(doc, explanation = null) {
+  object(doc, 'brokkr transcript')
+  if (doc.schema !== TRANSCRIPT_SCHEMA) {
+    throw new ReadoutRefused('version', `brokkr transcript is at ${doc.schema}; this console reads ${TRANSCRIPT_SCHEMA} only`)
+  }
+  const turns = list(doc.turns ?? [], 'turns', (value, path) => ({
+    role: text(object(value, path).role, `${path}.role`),
+    ts: optText(value.ts, `${path}.ts`),
+    blocks: list(value.blocks, `${path}.blocks`, (block, at) => {
+      const words = text(object(block, at).text, `${at}.text`)
+      return { kind: text(block.kind, `${at}.kind`), text: words.length > BLOCK_CHARS ? `${words.slice(0, BLOCK_CHARS)}… (cut; the seat's transcript has the rest)` : words }
+    }),
+  }))
+  return {
+    seat: text(doc.seat, 'seat'),
+    turns: turns.slice(-TRANSCRIPT_TURNS),
+    earlier: Math.max(0, turns.length - TRANSCRIPT_TURNS),
+    truncated: doc.truncated === true,
+    unavailable: maybe(doc.unavailable, 'unavailable', (reason, path) => explanation ?? text(reason, path)),
+    full_session: optText(doc.full_session, 'full_session'),
+  }
 }

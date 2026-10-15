@@ -14,7 +14,7 @@ const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
 const ACTIONS = ['dismiss_finding', 'talk_to_reviewer', 'hold', 'answer_here']
 
 /** The id grammar the command desk reads, and those of a realm and a seat. */
-const GRAMMAR = {
+export const GRAMMAR = {
   run: /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/,
   realm: /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/,
   seat: /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/,

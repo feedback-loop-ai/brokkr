@@ -10,10 +10,12 @@ import { brokkrOf } from './host/brokkr.js'
 import { deskOf, RequestRefused } from './host/commands.js'
 import { configFrom } from './host/config.js'
 import { fencedRoute, fencedUpgrade } from './host/fence.js'
+import { focusOf } from './host/focus.js'
+import { hereOf } from './host/here.js'
 import { pollerOf } from './host/poller.js'
 import { isRange, ReadoutRefused } from './host/readouts.js'
 import { accept } from './host/socket.js'
-import { toolsOf } from './host/tools.js'
+import { GRAMMAR, toolsOf } from './host/tools.js'
 
 export const name = 'brokkr-console'
 export const inject = ['webServer', 'connection', 'tools']
@@ -50,6 +52,9 @@ function bodyOf(req) {
   })
 }
 
+/** The request's query string. */
+const queryOf = (req) => new URLSearchParams(String(req.url).split('?')[1] ?? '')
+
 /** A handler for `method`, answering a refused request or readout with its text. */
 function handled(method, handle) {
   return async (req, res) => {
@@ -70,14 +75,42 @@ function handled(method, handle) {
 }
 
 /** The routes, each `[method, path, handler]`. */
-function routes({ brokkr, desk }) {
+function routes({ brokkr, desk, here, locate, focus }) {
   return [
     ['POST', `${BASE}/api/command`, async (req, res) => send(res, 200, await desk.submit(await bodyOf(req)))],
+    // What a conversation's Brokkr tab shows, told to that conversation's model on its next turn.
+    // The tab reads only that it was taken; there is nothing else to say.
+    [
+      'POST',
+      `${BASE}/api/focus`,
+      async (req, res) => {
+        focus.set(await bodyOf(req))
+        send(res, 200, {})
+      },
+    ],
+    [
+      'GET',
+      `${BASE}/api/here`,
+      async (req, res) => send(res, 200, await here(queryOf(req).get('dir'))),
+    ],
+    [
+      'GET',
+      `${BASE}/api/transcript`,
+      async (req, res) => {
+        const query = queryOf(req)
+        const [realm, run, seat] = ['realm', 'run', 'seat'].map((name) => query.get(name) ?? '')
+        if (!GRAMMAR.run.test(run) || !GRAMMAR.seat.test(seat) || realm.length > 256) throw new RequestRefused('a transcript is asked for by realm, run and seat')
+        // The journal is the listing's, never a path the browser sent.
+        const target = locate(realm, run)
+        if (target === null) throw new RequestRefused('Brokkr no longer lists this run')
+        send(res, 200, await brokkr.transcript(target, seat))
+      },
+    ],
     [
       'GET',
       `${BASE}/api/analytics`,
       async (req, res) => {
-        const query = new URLSearchParams(String(req.url).split('?')[1] ?? '')
+        const query = queryOf(req)
         const range = query.get('range') ?? '7d'
         if (!isRange(range)) throw new RequestRefused('the range is one of 24h, 7d or 30d')
         send(res, 200, await brokkr.analytics(range, query.get('realm')))
@@ -88,6 +121,8 @@ function routes({ brokkr, desk }) {
       `${BASE}/console.css`,
       async (_req, res) => {
         res.setHeader('content-type', 'text/css; charset=utf-8')
+        // Revalidated on every load, so an upgraded console never paints with the last version's sheet.
+        res.setHeader('cache-control', 'no-cache')
         res.end(STYLES)
       },
     ],
@@ -99,7 +134,9 @@ export function apply(ctx) {
   const brokkr = brokkrOf(config)
   const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd })
   const desk = deskOf({ brokkr, resume: config.resume, locate: poller.locate })
-  for (const [method, path, handle] of routes({ brokkr, desk })) {
+  const here = hereOf({ brokkr, workspace: config.cwd })
+  const focus = focusOf()
+  for (const [method, path, handle] of routes({ brokkr, desk, here, locate: poller.locate, focus })) {
     const handler = fencedRoute(ctx.connection, handled(method, handle))
     ctx.effect(() => ctx.webServer.register({ kind: 'exact', path, handler }), `${name}: ${method} ${path}`)
   }
@@ -109,6 +146,8 @@ export function apply(ctx) {
     if (peer !== null) receive = poller.attach(peer)
   })
   ctx.effect(() => ctx.webServer.registerUpgrade({ path: `${BASE}/ws`, handler: upgrade }), `${name}: UPGRADE ${BASE}/ws`)
+  // A conversation is told what its Brokkr tab shows before its next turn, never in its message box.
+  ctx.on('agent/pre-step', (payload, next) => focus.preStep(payload, next), { prepend: true })
   // The assistant's read-only tools (slice two, design D2 and D3).
   for (const definition of toolsOf({ config, brokkr })) {
     ctx.effect(() => ctx.tools.register(definition), `${name}: tool ${definition.name}`)
