@@ -24,8 +24,14 @@ if [[ ! -s /runner/.machine-id ]]; then
 fi
 install -m 0444 /runner/.machine-id /ci-root/etc/machine-id
 export HOME=/home/runner USER=runner LOGNAME=runner RUNNER_MANUALLY_TRAP_SIG=1
-cd /ci-root/runner
+mount --make-rprivate /
+cd /ci-root
+mkdir -p .old-root
+pivot_root . .old-root
+umount -l /.old-root
+rmdir /.old-root
+cd /runner
 if [[ $# -eq 0 ]]; then set -- /runner/run.sh; fi
 # SYS_ADMIN is used only for the mounts above. Drop it from the bounding
 # set before the runner starts; even sudo inside a job cannot regain it.
-exec setpriv --bounding-set=-sys_admin chroot --userspec=1001:1001 /ci-root "$@"
+exec setpriv --bounding-set=-sys_admin --reuid=1001 --regid=1001 --init-groups "$@"

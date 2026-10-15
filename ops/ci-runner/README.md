@@ -22,8 +22,8 @@ a measured optimum.
 
 Rust toolchains and bubblewrap are installed once. The small Ubuntu image
 also reduces the system tree inspected by the real broker boundary tests.
-The runner's whole filesystem is copied to a native disk volume and entered
-with chroot: the broker intentionally refuses overlay filesystem identities.
+The runner's whole filesystem is copied to a native disk volume, which
+becomes the container root: the broker refuses overlay filesystem identities.
 Startup mounts the container's own proc/dev/sys into it, then drops SYS_ADMIN
 from the capability bounding set before starting the unprivileged runner.
 Each worker has a stable generated machine ID and Git 2.55.0 for reftable tests.
