@@ -392,6 +392,19 @@ fn forward_context_carries_only_typed_phase_facts() {
 }
 
 #[test]
+fn the_nearest_change_is_the_latest_drafting_phases() {
+    let mut context = json!({"results": {}});
+    for phase in ["intake", "triage", "specify", "design", "tasks"] {
+        context["results"][phase] = json!({"inputs": {"change": format!("{phase}-change")}});
+    }
+    for expected in ["tasks", "design", "specify", "triage", "intake"] {
+        assert_eq!(nearest_change(&context), Some(format!("{expected}-change")));
+        context["results"].as_object_mut().unwrap().remove(expected);
+    }
+    assert_eq!(nearest_change(&context), None);
+}
+
+#[test]
 fn implement_receives_dialect_instructions_only_after_a_change_exists() {
     let (_dir, mut runtime) = engine(single_body(vec!["driver".into()]));
     let implement = runtime.bundle.seats.remove("work").unwrap();
