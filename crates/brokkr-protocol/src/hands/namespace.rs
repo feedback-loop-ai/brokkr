@@ -16,6 +16,7 @@ use super::{ids, Session, HANDS_BOX_ENV, HOST_TOOLCHAIN_BINDS, SANDBOX_HOME};
 use crate::broker::{Network, Reach, Refusal, Sources, Tree};
 
 pub(super) mod entry;
+mod provision;
 #[cfg(target_os = "linux")]
 pub(super) mod sources;
 

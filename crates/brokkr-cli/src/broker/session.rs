@@ -170,14 +170,13 @@ fn same(one: &Stat, other: &Stat) -> bool {
 }
 
 /// The engine's host HOME: `hands::home_dir` over the environment this
-/// process inherited from the engine, absolute and canonical.
+/// process inherited from the engine, absolute and canonical
+/// ([`super::canonical_home`]).
 fn trusted_home() -> Option<PathBuf> {
     let environment: BTreeMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();
-    let home = hands::home_dir(&environment);
-    home.is_absolute().then_some(())?;
-    std::fs::canonicalize(home).ok()
+    super::canonical_home(&hands::home_dir(&environment))
 }
 
 /// The trusted protected root under `home`, reached without following a

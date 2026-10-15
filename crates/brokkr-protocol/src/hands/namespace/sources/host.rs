@@ -92,6 +92,15 @@ impl Credentials {
         all.uids.dedup();
         all
     }
+
+    /// No writer known, so no linked support file passes.
+    fn unknown() -> Credentials {
+        Credentials {
+            uids: Vec::new(),
+            overflow: u32::MAX,
+            confinement: Confinement::Unproved,
+        }
+    }
 }
 
 /// Whether no writer is root or holds any capability, nor can gain either
@@ -398,9 +407,22 @@ impl Host<'static> {
     /// names, glibc's loader files, the launcher run through its handle
     /// ([`version`]), and no launcher until one is checked.
     pub(in crate::hands) fn live() -> Host<'static> {
+        Host::with(credentials())
+    }
+
+    /// This host as provisioning observes it (U7c0b): [`Host::live`] but
+    /// for its writers, the plan's `sealed` ones taken as confined
+    /// ([`provisioned`]), never the observing process chain.
+    pub(in crate::hands) fn provisioning(sealed: &[u32]) -> Host<'static> {
+        let overflow = std::fs::read_to_string("/proc/sys/fs/overflowuid").ok();
+        Host::with(provisioned(overflow.as_deref(), sealed))
+    }
+
+    /// This host with `credentials` for its writers.
+    fn with(credentials: Credentials) -> Host<'static> {
         Host {
             limits: LIMITS,
-            credentials: credentials(),
+            credentials,
             mountinfo: &mount_table,
             launcher: None,
             found: &|| crate::hands::require_bwrap().ok(),
@@ -477,17 +499,13 @@ pub(in crate::hands) fn parent(
 /// memory, a device node, BPF), so any at all, like anything else unread or
 /// not, leaves them unconfined.
 pub(in crate::hands) fn credited(overflow: Option<&str>, statuses: &[Option<&str>]) -> Credentials {
-    let overflow: Option<u32> = overflow.and_then(|text| text.strip_suffix('\n')?.parse().ok());
     let writers: Option<Vec<(Vec<u32>, bool)>> = statuses
         .iter()
         .map(|status| status.and_then(writer))
         .collect();
-    let (Some(writers), Some(overflow)) = (writers.filter(|all| !all.is_empty()), overflow) else {
-        return Credentials {
-            uids: Vec::new(),
-            overflow: u32::MAX,
-            confinement: Confinement::Unproved,
-        };
+    let writers = writers.filter(|all| !all.is_empty());
+    let (Some(writers), Some(overflow)) = (writers, overflowed(overflow)) else {
+        return Credentials::unknown();
     };
     let confinement = match writers.iter().all(|(_, confined)| *confined) {
         true => Confinement::Proved,
@@ -500,6 +518,31 @@ pub(in crate::hands) fn credited(overflow: Option<&str>, statuses: &[Option<&str
         overflow,
         confinement,
     }
+}
+
+/// The credentials provisioning holds its write-exclusion proof against
+/// (U7c0b): the plan's `sealed` writers, each uid once, confined as the
+/// plan seals them (`Privilege::Confined`), beside the kernel's
+/// `overflow` uid. The broker's admission proves that confinement of the
+/// writers it observes; provisioning only seals. No writer sealed, or an
+/// overflow uid that does not read, leaves no writer known, as
+/// [`credited`] does.
+pub(in crate::hands) fn provisioned(overflow: Option<&str>, sealed: &[u32]) -> Credentials {
+    let (false, Some(overflow)) = (sealed.is_empty(), overflowed(overflow)) else {
+        return Credentials::unknown();
+    };
+    let uids: std::collections::BTreeSet<u32> = sealed.iter().copied().collect();
+    Credentials {
+        uids: uids.into_iter().collect(),
+        overflow,
+        confinement: Confinement::Proved,
+    }
+}
+
+/// The overflow uid the kernel's `overflowuid` file `text` holds: one
+/// decimal line.
+fn overflowed(text: Option<&str>) -> Option<u32> {
+    text.and_then(|text| text.strip_suffix('\n')?.parse().ok())
 }
 
 /// One writer's uids from its `status`, and whether its privilege is

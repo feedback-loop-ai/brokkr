@@ -173,3 +173,154 @@ fn a_written_plan_missing_a_field_or_misnaming_one_refuses() {
          `connection`, `tools`, `restrictions`, `retained`, `secrets`, `clearance`, `box`"
     );
 }
+
+/// One survey request, every field a distinct value, and its wire form.
+fn survey() -> (Survey, Value) {
+    let survey = Survey {
+        launch: "docs-mcp".into(),
+        home: "/home/op".into(),
+        reach: Reach {
+            writable: vec!["/work/repo".into()],
+            readable: vec!["/work/ro".into()],
+        },
+        network: Network::Shared,
+        writers: vec![1000, 1001],
+    };
+    let wire = json!({
+        "launch": "docs-mcp",
+        "home": "/home/op",
+        "reach": {"writable": ["/work/repo"], "readable": ["/work/ro"]},
+        "network": "shared",
+        "writers": [1000, 1001]
+    });
+    (survey, wire)
+}
+
+/// U7c0b: the survey request and its reply, either way, write exactly
+/// their pinned wire form and read back equal.
+#[test]
+fn the_survey_request_and_reply_write_the_wire_names_their_readers_read() {
+    let (request, wire) = survey();
+    assert_eq!(serde_json::to_value(&request).unwrap(), wire);
+    assert_eq!(serde_json::from_value::<Survey>(wire).unwrap(), request);
+    let provisioned = Surveyed::Provisioned(Provisioned {
+        executable: "/opt/docs/bin/docs-mcp".into(),
+        tree: Tree::Package {
+            root: "/opt/docs".into(),
+        },
+        bootstrap: Bootstrap {
+            path: "/usr/bin/brokkr".into(),
+            digest: "b".repeat(64),
+        },
+        sources: Sources {
+            entries: 7,
+            mounts: 3,
+            digest: "s".repeat(64),
+        },
+    });
+    let replies = [
+        (
+            provisioned,
+            json!({"provisioned": {
+                "executable": "/opt/docs/bin/docs-mcp",
+                "tree": {"kind": "package", "root": "/opt/docs"},
+                "bootstrap": {"path": "/usr/bin/brokkr", "digest": "b".repeat(64)},
+                "sources": {"entries": 7, "mounts": 3, "digest": "s".repeat(64)}
+            }}),
+        ),
+        (
+            Surveyed::Refused(Refusal::Identity),
+            json!({"refused": "identity"}),
+        ),
+        (
+            Surveyed::Refused(Refusal::ProgramTree),
+            json!({"refused": "program-tree"}),
+        ),
+        (
+            Surveyed::Unread(Unread::Oversized),
+            json!({"unread": "oversized"}),
+        ),
+        (
+            Surveyed::Unread(Unread::Truncated),
+            json!({"unread": "truncated"}),
+        ),
+        (Surveyed::Unread(Unread::Input), json!({"unread": "input"})),
+        (
+            Surveyed::Unread(Unread::Malformed),
+            json!({"unread": "malformed"}),
+        ),
+    ];
+    for (reply, wire) in replies {
+        assert_eq!(serde_json::to_value(&reply).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Surveyed>(wire).unwrap(), reply);
+    }
+}
+
+/// U7c0b: why the survey read no request, in its one operator text.
+#[test]
+fn an_unread_survey_request_says_why_in_its_own_words() {
+    let said = [
+        Unread::Oversized,
+        Unread::Truncated,
+        Unread::Input,
+        Unread::Malformed,
+    ]
+    .map(|cause| cause.to_string());
+    assert_eq!(
+        said,
+        [
+            "MCP server survey request exceeds its bound",
+            "MCP server survey request is truncated",
+            "MCP server survey request could not be read",
+            "MCP server survey request is not one closed record",
+        ]
+    );
+}
+
+/// A request missing, repeating or adding a field, or written by position,
+/// and a reply naming another variant, or one twice, refuses as it is read.
+#[test]
+fn a_survey_request_or_reply_parses_closed_and_defaults_nothing() {
+    let (_, wire) = survey();
+    let refused = |wire: Value| {
+        serde_json::from_value::<Survey>(wire)
+            .unwrap_err()
+            .to_string()
+    };
+    let mut lost = wire.clone();
+    lost.as_object_mut().unwrap().remove("writers");
+    assert_eq!(refused(lost), "missing field `writers`");
+    let mut unknown = wire.clone();
+    unknown["plan"] = json!("/p");
+    assert_eq!(
+        refused(unknown),
+        "unknown field `plan`, expected one of `launch`, `home`, `reach`, `network`, `writers`"
+    );
+    let positional =
+        json!(["docs-mcp", "/home/op", {"writable": [], "readable": []}, "shared", [1000]]);
+    assert_eq!(
+        refused(positional),
+        "invalid type: sequence, expected struct Fields"
+    );
+    let twice = wire.to_string().replacen('{', r#"{"launch":"sh","#, 1);
+    assert_eq!(
+        serde_json::from_str::<Survey>(&twice)
+            .unwrap_err()
+            .to_string(),
+        "duplicate field `launch` at line 1 column 41"
+    );
+    let reply = |text: &str| {
+        serde_json::from_str::<Surveyed>(text)
+            .unwrap_err()
+            .to_string()
+    };
+    assert_eq!(
+        reply(r#"{"admitted":{}}"#),
+        "unknown variant `admitted`, expected one of `provisioned`, `refused`, `unread` \
+         at line 1 column 11"
+    );
+    assert_eq!(
+        reply(r#"{"refused":"identity","refused":"linked"}"#),
+        "expected value at line 1 column 21"
+    );
+}
