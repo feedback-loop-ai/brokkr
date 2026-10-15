@@ -3,7 +3,9 @@
 //! its bytes and says there is more, and a read the caller cut reads its
 //! last frame as the edge of that read, never as a frame cut short.
 
-use super::{unpack, Refused, Unpacked};
+use std::io::Read;
+
+use super::{unpack, Edge, Refused, Unpacked};
 
 /// The controller's dsh skeleton and its zstd CLI 1.5.7 twin, one
 /// checksummed frame (the probe's fixture).
@@ -91,4 +93,18 @@ fn a_cut_read_still_refuses_what_it_read_whole() {
         ],
         ["mismatch", "unchecksummed", "undecodable"]
     );
+}
+
+/// Only a read that asks for bytes the spent source no longer holds
+/// reaches its edge; a read into no room asks for nothing.
+#[test]
+fn an_empty_read_never_reaches_the_edge() {
+    let mut edge = Edge {
+        rest: &[],
+        reached: false,
+    };
+    let empty = edge.read(&mut []).unwrap();
+    let before = edge.reached;
+    let asked = edge.read(&mut [0; 1]).unwrap();
+    assert_eq!((empty, before, asked, edge.reached), (0, false, 0, true));
 }

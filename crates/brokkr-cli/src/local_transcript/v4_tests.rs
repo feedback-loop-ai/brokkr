@@ -305,7 +305,12 @@ fn no_other_compressed_name_is_read() {
         "session.v4.jsonl.ZSTD",
         "session.v04.jsonl.zstd",
     ] {
-        home.session(name, &[(name, PACKED)]);
+        let session = home.session(name, &[(name, PACKED)]);
+        // A filesystem that folds case, macOS's by default, holds an
+        // upper-case spelling as the admitted name itself.
+        if name != name.to_lowercase() && session.join(name.to_lowercase()).exists() {
+            continue;
+        }
         assert_eq!(
             home.read(name).unavailable,
             Some(Unavailable::NotFound),
