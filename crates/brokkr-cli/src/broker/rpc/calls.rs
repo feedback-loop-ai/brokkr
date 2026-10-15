@@ -775,6 +775,7 @@ pub(in crate::broker::rpc) fn waited(
     match (delivery, empty, told) {
         (Delivery::Open, false, false) => Err(ErrorKind::WouldBlock.into()),
         (Delivery::Open, false, true) => Ok(false),
-        _ => Ok(true),
+        (Delivery::Open, true, _)
+        | (Delivery::Gone | Delivery::Stalled | Delivery::Undelivered, _, _) => Ok(true),
     }
 }
