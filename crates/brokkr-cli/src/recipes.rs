@@ -400,10 +400,16 @@ impl std::error::Error for Unplain {}
 /// into a `dir` inside a folder repository, judged by the one walk
 /// ([`places::Layout::discover`]) from the nearest entry standing at `dir`
 /// or above it, since `add` creates the rest. That rest is made as named,
-/// so it must hold plain names only ([`Unplain::Dir`]). A layout or an
-/// entry that cannot be read refuses in its own words (fail closed).
+/// so it must hold plain names only ([`Unplain::Dir`]). The walk resolves
+/// links and stops at the nearest `.git`, so it is taken from every
+/// ancestor of that entry as `dir` spells it as well: a folder repository
+/// a link or a nested repository stands below still refuses. A layout or
+/// an entry that cannot be read refuses in its own words (fail closed).
 fn refuse_folder(workspace: &Path, dir: &Path) -> Result<()> {
-    let target = std::path::absolute(dir).map_err(unreadable(dir))?;
+    let target = std::path::absolute(dir).map_err(|source| PlacesError::Unreadable {
+        path: dir.to_path_buf(),
+        source,
+    })?;
     let at = standing(&target)?;
     let rest = target
         .strip_prefix(at)
@@ -412,7 +418,7 @@ fn refuse_folder(workspace: &Path, dir: &Path) -> Result<()> {
         let (dir, standing) = (dir.to_path_buf(), at.to_path_buf());
         return Err(Unplain::Dir { dir, standing }.into());
     }
-    for start in [workspace, at] {
+    for start in std::iter::once(workspace).chain(at.ancestors()) {
         let layout = places::Layout::discover(start)?;
         if layout.kind() == Kind::Folder {
             let root = layout.root().to_path_buf();
@@ -428,17 +434,12 @@ fn refuse_folder(workspace: &Path, dir: &Path) -> Result<()> {
 fn standing(path: &Path) -> Result<&Path, PlacesError> {
     let found = path.ancestors().find_map(|at| match places::entry(at) {
         Ok(entry) => entry.map(|_| Ok(at)),
-        Err(source) => Some(Err(unreadable(at)(source))),
+        Err(source) => Some(Err(PlacesError::Unreadable {
+            path: at.to_path_buf(),
+            source,
+        })),
     });
     found.unwrap_or(Ok(path))
-}
-
-/// The refusal of the entry at `path`, which cannot be read.
-fn unreadable(path: &Path) -> impl FnOnce(std::io::Error) -> PlacesError + '_ {
-    move |source| PlacesError::Unreadable {
-        path: path.to_path_buf(),
-        source,
-    }
 }
 
 /// Clone the git `source` into `<tmp>/clone`, and the bundle root inside

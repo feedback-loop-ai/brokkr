@@ -547,6 +547,51 @@ fn add_refuses_a_dir_or_name_that_would_write_where_it_did_not_judge() {
     assert!(!outside.join("lib/recipes/x").exists());
 }
 
+/// `recipes add` from a bare directory beside a folder repository, into
+/// its `recipes/` as a plain directory, a link to a bare directory outside
+/// it, or a nested repository, refuses by name and writes nothing through
+/// the link or into the nested repository: the folder repository is judged
+/// where `--dir` spells it (#675), so no library mark appears to outrank
+/// the folder.
+#[test]
+fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
+    let (repo, _ws, src) = folder_and_source();
+    let outside = repo.root.parent().unwrap();
+    let external = outside.join("external");
+    std::fs::create_dir(&external).unwrap();
+    let into = repo.path("recipes");
+    let plant_link = |at: &Path| std::os::unix::fs::symlink(&external, at).unwrap();
+    let plant_directory = |at: &Path| std::fs::create_dir(at).unwrap();
+    let plant_repository = |at: &Path| {
+        plant_directory(at);
+        crate::brokkr_folder::git(at, &["init", "-q"]);
+    };
+    let add = ["recipes", "add", src.to_str().unwrap(), "--name", "x"];
+    let add = [&add[..], &["--dir", "repo/recipes"]].concat();
+    for plant in [
+        &plant_directory as &dyn Fn(&Path),
+        &plant_link,
+        &plant_repository,
+    ] {
+        plant(&into);
+        let before = repo.files();
+        let ran = repo.brokkr("..", &add);
+        assert_eq!(
+            (ran.code, ran.stderr),
+            (Some(1), in_folder(&repo.root)),
+            "{}",
+            ran.stdout
+        );
+        assert_eq!(repo.files(), before);
+        assert!(!into.join("x").exists());
+        reads_the_folder_journal(&repo);
+        std::fs::remove_file(&into)
+            .or_else(|_| std::fs::remove_dir_all(&into))
+            .unwrap();
+    }
+    assert_eq!(std::fs::read_dir(&external).unwrap().count(), 0);
+}
+
 #[test]
 fn run_recipe_completes_a_delivery_and_arg_group_holds() {
     let ws = Ws::new();

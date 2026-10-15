@@ -433,6 +433,36 @@ fn add_refuses_a_folder_repository_by_type() {
     }
 }
 
+/// `add` refuses a `dir` in a folder repository whose `recipes/` is a link
+/// to a directory outside it or a nested repository, from outside it, by
+/// the type: the folder repository is judged where `dir` spells it, not
+/// only where the walk from `dir` resolves to (#675).
+#[test]
+fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
+    let (_dir, root) = folder_repository();
+    let node = workspace().join("recipes/node");
+    let outside = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let dir = root.join("recipes");
+    let plant_link = |dir: &Path| std::os::unix::fs::symlink(external.path(), dir).unwrap();
+    let plant_repository = |dir: &Path| std::fs::create_dir_all(dir.join(".git")).unwrap();
+    for plant in [&plant_link as &dyn Fn(&Path), &plant_repository] {
+        plant(&dir);
+        let refusal = add(outside.path(), node.to_str().unwrap(), "node", &dir).unwrap_err();
+        let expected = InFolder { root: root.clone() };
+        assert_eq!(
+            refusal.downcast_ref::<InFolder>(),
+            Some(&expected),
+            "{refusal}"
+        );
+        assert!(!dir.join("node").exists());
+        std::fs::remove_file(&dir)
+            .or_else(|_| std::fs::remove_dir_all(&dir))
+            .unwrap();
+    }
+    assert_eq!(std::fs::read_dir(external.path()).unwrap().count(), 0);
+}
+
 /// A `dir` that climbs with `..` where nothing stands yet, and a `name`
 /// that is not one plain component, refuse by the variant before anything
 /// is created: either would write somewhere other than the place judged
