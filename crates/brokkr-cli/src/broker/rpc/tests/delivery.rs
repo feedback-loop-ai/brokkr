@@ -469,6 +469,29 @@ fn an_answer_left_untaken_once_the_harness_ends_its_input_ends_the_session_timed
 }
 
 #[test]
+fn an_answer_the_harness_takes_a_little_at_a_time_once_its_input_ends_is_taken_whole() {
+    // The harness pings with an id of 8 KiB, which its input pipe holds
+    // whole, and ends its input while its output is full, then takes the
+    // answer a piece at a time, its output unready after each: the session,
+    // its input ended, writes again at once each time the harness takes
+    // some of what waits but not all, and ends served and Clean once the
+    // harness has taken the answer whole, past what filled its pipe. Every
+    // such turn takes a part and leaves the rest, however the harness's
+    // reads are scheduled, where a harness reading all it can may take the
+    // rest in the turn's one write.
+    let (ping, id) = ping_sized(8 << 10);
+    let (mut output, reader) = sink(ATOMIC, usize::MAX, Duration::ZERO);
+    output.stutter = 1;
+    let (ended, (wrote, _), closure) = asked(mcp(), &ping, true, (output, reader));
+    let wrote = wrote.unwrap();
+    let (frame, end) = wrote.split_at(wrote.len() - 1);
+    let answer: Value = serde_json::from_slice(frame).unwrap();
+    let expected = (Ok(()), result(&id, json!({})), &b"\n"[..]);
+    assert_eq!((ended, answer, end), expected);
+    assert_eq!(closure, Some(Disposition::Clean));
+}
+
+#[test]
 fn an_answer_is_written_as_fast_as_the_harness_takes_it() {
     // MB3's largest answer but 64 KiB, to a harness that reads all the
     // while. A turn that wrote some of it waits for nothing, so it is not
