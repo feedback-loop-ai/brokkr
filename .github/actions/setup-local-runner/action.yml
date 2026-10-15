@@ -1,0 +1,22 @@
+name: setup-local-runner
+description: Keep compiled workspace artifacts on the local runner's NVMe volume.
+runs:
+  using: composite
+  steps:
+    - name: persistent compilation directory and real namespace probe
+      shell: bash
+      run: |
+        set -euo pipefail
+        cache="$HOME/.cache/brokkr-targets/$GITHUB_JOB"
+        mkdir -p "$cache"
+        # checkout cleans the source tree each job. Build artifacts live
+        # outside it and survive, including workspace incremental state.
+        if [ -e target ] || [ -L target ]; then
+          echo 'local runner: checkout must leave no target directory' >&2
+          exit 1
+        fi
+        ln -s "$cache" target
+        expected="$(sed -n 's/^ *BWRAP_VERSION: //p' .github/actions/setup-bubblewrap/action.yml)"
+        test "$(bwrap --version)" = "bubblewrap $expected"
+        command -v strace
+        bwrap --unshare-all --ro-bind / / --proc /proc --dev /dev /bin/true

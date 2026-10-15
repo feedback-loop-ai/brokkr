@@ -1,0 +1,71 @@
+name: brokkr-ci
+
+x-runner: &runner
+  image: brokkr-ci:local
+  build:
+    context: ../..
+    dockerfile: ops/ci-runner/Dockerfile
+  restart: unless-stopped
+  init: true
+  # Bubblewrap needs nested user/mount/network namespaces and ptrace tests.
+  # No privileged mode, host Docker socket, host home or host network.
+  security_opt:
+    - seccomp=unconfined
+    - apparmor=brokkr-ci
+    # A masked outer /proc prevents mounting /proc in a nested PID namespace.
+    - systempaths=unconfined
+  stop_grace_period: 2m
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+
+services:
+  engine:
+    <<: *runner
+    container_name: brokkr-ci-engine
+    cpuset: ${ENGINE_CPUS:-0-7,16-17}
+    mem_limit: 12g
+    memswap_limit: 12g
+    environment:
+      RUNNER_NAME: brokkr-workstation-engine
+      RUNNER_LABELS: brokkr-local,brokkr-engine
+      CARGO_BUILD_JOBS: '10'
+    volumes:
+      - engine-runner:/runner
+      - engine-home:/home/runner
+  coverage:
+    <<: *runner
+    container_name: brokkr-ci-coverage
+    cpuset: ${COVERAGE_CPUS:-8-15,18-19}
+    mem_limit: 14g
+    memswap_limit: 14g
+    environment:
+      RUNNER_NAME: brokkr-workstation-coverage
+      RUNNER_LABELS: brokkr-local,brokkr-coverage
+      CARGO_BUILD_JOBS: '10'
+    volumes:
+      - coverage-runner:/runner
+      - coverage-home:/home/runner
+  build:
+    <<: *runner
+    container_name: brokkr-ci-build
+    cpuset: ${BUILD_CPUS:-20-23}
+    mem_limit: 6g
+    memswap_limit: 6g
+    environment:
+      RUNNER_NAME: brokkr-workstation-build
+      RUNNER_LABELS: brokkr-local,brokkr-build
+      CARGO_BUILD_JOBS: '4'
+    volumes:
+      - build-runner:/runner
+      - build-home:/home/runner
+
+volumes:
+  engine-runner:
+  engine-home:
+  coverage-runner:
+  coverage-home:
+  build-runner:
+  build-home:

@@ -1084,13 +1084,16 @@ const JOB_LINES: [(&str, &str); 11] = [
         "quality",
         r#"
     name: format, clippy, contracts
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}
     timeout-minutes: 20
     steps:
 <checkout>
+      - uses: ./.github/actions/setup-local-runner
+        if: runner.environment == 'self-hosted'
 <stable toolchain>
           components: rustfmt, clippy
 <rust-cache>
+        if: runner.environment != 'self-hosted'
       - name: formatting is canonical
         run:
       - name: clippy is warning-free across every target
@@ -1112,15 +1115,18 @@ const JOB_LINES: [(&str, &str); 11] = [
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
     timeout-minutes: 30
     steps:
 <checkout>
+      - uses: ./.github/actions/setup-local-runner
+        if: runner.environment == 'self-hosted'
 <stable toolchain>
 <rust-cache>
+        if: runner.environment != 'self-hosted'
       - name: bubblewrap for the hands tests
         id: bubblewrap
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && runner.environment != 'self-hosted'
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'background'
@@ -1149,10 +1155,12 @@ const JOB_LINES: [(&str, &str); 11] = [
         "coverage",
         r#"
     name: exact coverage gate
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
     timeout-minutes: 45
     steps:
 <checkout>
+      - uses: ./.github/actions/setup-local-runner
+        if: runner.environment == 'self-hosted'
       - name: the pinned coverage toolchain and its measuring tool
         id: nightly
         run:
@@ -1165,12 +1173,15 @@ const JOB_LINES: [(&str, &str); 11] = [
           tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
           fallback: none
 <rust-cache>
+        if: runner.environment != 'self-hosted'
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: runner.environment != 'self-hosted'
         with:
           path: ~/.cache/brokkr-coverage-cache
           key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
       - name: bubblewrap for the hands tests
         id: bubblewrap
+        if: runner.environment != 'self-hosted'
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'background'
@@ -1294,12 +1305,15 @@ const JOB_LINES: [(&str, &str); 11] = [
         "release-binary",
         r#"
     name: release binary artifact
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}
     timeout-minutes: 20
     steps:
 <checkout>
+      - uses: ./.github/actions/setup-local-runner
+        if: runner.environment == 'self-hosted'
 <stable toolchain>
 <rust-cache>
+        if: runner.environment != 'self-hosted'
       - run:
       - run:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
