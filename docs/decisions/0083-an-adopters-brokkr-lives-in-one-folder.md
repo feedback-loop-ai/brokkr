@@ -660,10 +660,17 @@ holds only where no link stands in or under `.forge`.
   its agents, provider, capability and bundle lines read it as
   `doctor --bundle .brokkr` reads it. Ruled 2026-10-14 and placed in
   the third slice on 2026-10-15. As built, the folder is compiled once,
-  under the map a run loads, and that one compile is both the folder
-  line's and the report's bundle. A folder whose compile refuses is no
-  bundle to the rest of the report, so its refusal is named once, on the
-  folder line, and R4's forms are unchanged.
+  under the map doctor inspected, as `--bundle` compiles it. Where the
+  map a run loads loads, it is that map, and the one compile is both the
+  folder line's and the report's bundle. Where it will not load, its
+  refusal is the folder line's, and the rest of the report still reads
+  the folder as `doctor --bundle .brokkr` reads it. A folder whose
+  compile refuses is, to the rest of the report, a bundle that did not
+  compile, never no bundle given, and its refusal is named once: on the
+  folder line, with no bundle line, unless the folder line already names
+  the map's refusal, when the bundle line names it. The bundle line names
+  the folder by its path, where `--bundle` names it as spelled. R4's
+  forms are unchanged.
 - **R6, the codex adapter's citation.** The codex adapter's evidence
   citation, `.forge/tasks/controller-codex-web-search-switch-2026-09-21.json`,
   stays word for word, in a codex scaffold's

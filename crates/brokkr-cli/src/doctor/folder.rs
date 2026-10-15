@@ -26,8 +26,13 @@ pub(super) enum Inspected {
     /// `--bundle`, compiled under the map doctor inspected.
     Given(PathBuf, anyhow::Result<Bundle>),
     /// The folder found with no old shape and no `--bundle`, compiled
-    /// once: its outcome is also the folder line's.
-    Folder(PathBuf, anyhow::Result<Bundle>),
+    /// once, as `--bundle` compiles it, and the map a run loads (`map`):
+    /// the folder line's outcome is the map's refusal, else that compile's.
+    Folder {
+        dir: PathBuf,
+        compiled: anyhow::Result<Bundle>,
+        map: anyhow::Result<()>,
+    },
     /// No `--bundle`, and no folder found that a run would deliver under.
     Neither,
 }
@@ -36,7 +41,7 @@ impl Inspected {
     /// The bundle the report reads, when it compiled.
     pub(super) fn compiled(&self) -> Option<&Bundle> {
         match self {
-            Inspected::Given(_, compiled) | Inspected::Folder(_, compiled) => {
+            Inspected::Given(_, compiled) | Inspected::Folder { compiled, .. } => {
                 compiled.as_ref().ok()
             }
             Inspected::Neither => None,
@@ -50,36 +55,54 @@ impl Inspected {
     pub(super) fn seats<'a>(&self, declared: Option<&'a BTreeSet<String>>) -> Seats<'a> {
         match (self, declared) {
             (_, Some(declared)) => Seats::Declared(declared),
-            (Inspected::Given(..) | Inspected::Folder(..), None) => Seats::BundleDidNotCompile,
+            (Inspected::Given(..) | Inspected::Folder { .. }, None) => Seats::BundleDidNotCompile,
             (Inspected::Neither, None) => Seats::NoBundleGiven,
         }
     }
 
     /// The bundle line's directory and compile: a given bundle's either
-    /// way, the folder's when it compiled. A folder's refusal is named
-    /// once, in the folder line ([`Inspected::folder`]).
+    /// way, the folder's unless its refusal is the folder line's, which it
+    /// is where the map a run loads loads ([`Inspected::folder`]): a
+    /// refusal is named once, and never nowhere.
     pub(super) fn line(&self) -> Option<(&Path, &anyhow::Result<Bundle>)> {
         match self {
-            Inspected::Given(dir, compiled) => Some((dir, compiled)),
-            Inspected::Folder(dir, compiled @ Ok(_)) => Some((dir, compiled)),
-            Inspected::Folder(_, Err(_)) | Inspected::Neither => None,
+            Inspected::Given(dir, compiled)
+            | Inspected::Folder {
+                dir,
+                compiled: compiled @ Ok(_),
+                ..
+            }
+            | Inspected::Folder {
+                dir,
+                compiled,
+                map: Err(_),
+            } => Some((dir, compiled)),
+            Inspected::Folder {
+                compiled: Err(_),
+                map: Ok(()),
+                ..
+            }
+            | Inspected::Neither => None,
         }
     }
 
-    /// The folder's compile when the folder was the report's bundle, for
-    /// [`report_folder`]; else none, and the folder line compiles its own.
+    /// The folder line's outcome when the folder was the report's bundle,
+    /// for [`report_folder`]: the map's refusal, else the compile's; else
+    /// none, and the folder line compiles its own.
     pub(super) fn folder(self) -> Option<anyhow::Result<()>> {
         match self {
-            Inspected::Folder(_, compiled) => Some(compiled.map(drop)),
+            Inspected::Folder { compiled, map, .. } => Some(map.and(compiled.map(drop))),
             Inspected::Given(..) | Inspected::Neither => None,
         }
     }
 }
 
 /// The bundle doctor's report reads (R5 of 2026-10-14): `bundle` as
-/// given, compiled under the map doctor inspected (`mapped`); else a
-/// folder found with no old shape, compiled once as the folder line
-/// compiles it, that one compile also the folder line's.
+/// given, else a folder found with no old shape, either compiled once
+/// under the map doctor inspected (`mapped`), so the folder is read as
+/// `doctor --bundle .brokkr` reads it. The folder also carries whether
+/// the map a run loads (`realms`, else the folder's) loads: where it
+/// does, it is the map inspected, and the compile is the one a run makes.
 pub(super) fn bundle(
     bundle: Option<&Path>,
     defaults: &DoctorDefaults,
@@ -87,12 +110,20 @@ pub(super) fn bundle(
     mapped: Option<&World>,
 ) -> Inspected {
     let workspace = &defaults.workspace;
+    let compile = |dir: &Path| -> anyhow::Result<Bundle> {
+        Ok(compile_for(workspace, dir, mapped, workspace)?)
+    };
     if let Some(dir) = bundle {
-        let compiled = compile_for(workspace, dir, mapped, workspace).map_err(Into::into);
-        return Inspected::Given(dir.to_path_buf(), compiled);
+        return Inspected::Given(dir.to_path_buf(), compile(dir));
     }
     match default_folder(&defaults.found) {
-        Some(dir) => Inspected::Folder(dir.clone(), compile_folder(workspace, &dir, realms)),
+        Some(dir) => Inspected::Folder {
+            compiled: compile(&dir),
+            map: World::discover(workspace, realms)
+                .map(drop)
+                .map_err(Into::into),
+            dir,
+        },
         None => Inspected::Neither,
     }
 }

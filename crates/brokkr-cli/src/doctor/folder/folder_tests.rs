@@ -227,7 +227,12 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
     let folder = root.join(".brokkr");
     let no_bundle = brokkr_runtime::launch::compile_for(&root, &folder, None, &root).unwrap_err();
     let no_bundle = format!("{:#}", anyhow::Error::from(no_bundle));
-    let Inspected::Folder(dir, Err(held)) = bundle(None, &defaults, None, None) else {
+    let Inspected::Folder {
+        dir,
+        compiled: Err(held),
+        map: Ok(()),
+    } = bundle(None, &defaults, None, None)
+    else {
         panic!("the found folder, its compile refused");
     };
     assert_eq!(
@@ -284,12 +289,30 @@ fn a_folder_whose_compile_refuses_is_a_bundle_that_did_not_compile() {
     let folder = root.join(".brokkr");
     let given = bundle(Some(&folder), &defaults, None, None);
     assert!(matches!(given.seats(None), Seats::BundleDidNotCompile));
-    assert_eq!(given.line().map(|(dir, _)| dir.to_path_buf()), Some(folder));
+    assert_eq!(
+        given.line().map(|(dir, _)| dir.to_path_buf()),
+        Some(folder.clone())
+    );
     assert!(given.folder().is_none());
     assert!(matches!(
         Inspected::Neither.seats(None),
         Seats::NoBundleGiven
     ));
+
+    // A map a run will not load is the folder line's refusal, so the
+    // folder's compile refusing too is named on its bundle line.
+    write(&folder.join("realms.json"), "{}");
+    let map = brokkr_runtime::realms::World::discover(&root, None).unwrap_err();
+    let unmapped = bundle(None, &defaults, None, None);
+    assert!(matches!(unmapped.seats(None), Seats::BundleDidNotCompile));
+    let line = unmapped
+        .line()
+        .map(|(dir, compiled)| (dir.to_path_buf(), compiled.is_err()));
+    assert_eq!(line, Some((folder, true)));
+    let held = unmapped
+        .folder()
+        .map(|held| format!("{:#}", held.unwrap_err()));
+    assert_eq!(held, Some(map.to_string()));
 }
 
 /// An old shape that cannot be read is its own line, never taken as no

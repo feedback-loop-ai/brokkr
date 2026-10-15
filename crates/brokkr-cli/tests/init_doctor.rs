@@ -972,6 +972,41 @@ fn doctor_reads_the_found_folder_as_its_bundle() {
     );
 }
 
+/// R5 where the map a run loads will not load: the folder line names
+/// that refusal, and the rest of the report reads the folder compiled
+/// under the map doctor inspected, as `doctor --bundle .brokkr` does, its
+/// bundle line included. A compile that then refuses too is named on
+/// that bundle line, the one place left to name it, the folder by the
+/// path the folder line names rather than as `--bundle` spelled it.
+#[test]
+fn a_folder_under_a_map_that_will_not_load_is_read_as_the_bundle_given() {
+    let repo = Repo::new();
+    assert_eq!(repo.brokkr("", &["init", "."]).code, Some(0));
+    let dsh = crate::workspace_root::workspace().join("adapters/dsh.json");
+    std::fs::copy(dsh, repo.path(".brokkr/adapters/dsh.json")).unwrap();
+    repo.write(".brokkr/realms.json", "{}");
+    let doctor = |args: &[&str]| {
+        let mut doctor = repo.command("");
+        doctor.args(args).env("SPARK_API_KEY", "review-placeholder");
+        let out = doctor.output().unwrap();
+        (out.status.code(), String::from_utf8(out.stdout).unwrap())
+    };
+    let named = doctor(&["doctor", "--bundle", ".brokkr"]);
+    let bundle = "\nok       bundle: 'starter' compiles, digest ";
+    assert_eq!(named.1.matches(bundle).count(), 1, "{}", named.1);
+    assert_eq!(doctor(&["doctor"]), named);
+
+    std::fs::remove_file(repo.path(".brokkr/policy.json")).unwrap();
+    let (code, named) = doctor(&["doctor", "--bundle", ".brokkr"]);
+    let spelled = "\nMISSING  bundle: .brokkr: bundle: ";
+    assert_eq!(named.matches(spelled).count(), 1, "{named}");
+    let found = format!(
+        "\nMISSING  bundle: {}/.brokkr: bundle: ",
+        repo.root.display()
+    );
+    assert_eq!(doctor(&["doctor"]), (code, named.replace(spelled, &found)));
+}
+
 /// Decision 0021, from the operator's side: the scaffold's gate seats
 /// stand on a declaration in the operator's own tree, so demoting the
 /// tier there refuses the very next compile — naming the seat and the
