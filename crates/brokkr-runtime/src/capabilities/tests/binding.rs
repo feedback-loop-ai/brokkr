@@ -296,6 +296,64 @@ fn an_admitted_mcp_dialect_seals_its_network_and_receipt_and_each_follows_its_ow
     );
 }
 
+/// U7c0 on the resolver's own path: the holding `sealed` builds for an
+/// admitted `docs-mcp` grant carries exactly what MB4's comparison
+/// admitted, its network following the dialect's egress and its receipt
+/// the minimum read; a grant below the minimum seals no holding and names
+/// MB4's cause; and the fence's own words still follow the sealed holding
+/// until U9b.
+#[test]
+fn the_resolver_seals_an_admitted_mcp_grant_on_its_holding_and_the_fence_still_follows_it() {
+    use brokkr_protocol::broker::{Clearance, Network};
+    let root = cq1_root();
+    let site = asks(json!({"library-docs": "requires"}));
+    let resolver = docs_at(root.path(), "local", None);
+    let required = |cause: Cause| cause.required(resolver.who(&site), "library-docs");
+    let sealed =
+        |egress, minimum| docs_at(root.path(), egress, minimum).sealed(&site, "library-docs");
+    let digest = docs_at(root.path(), "local", None).dialects["library-docs"]
+        .sha256
+        .clone();
+    let admitted = |network, minimum| Admitted {
+        network,
+        clearance: Clearance {
+            dialect: digest.clone(),
+            policy: policy(minimum),
+        },
+    };
+    let observed = [
+        ("local", Some("local")),
+        ("contracted", None),
+        ("uncontracted", Some("uncontracted")),
+    ]
+    .map(|(egress, minimum)| match sealed(egress, minimum) {
+        Ok(holding) => (
+            holding.admitted.clone(),
+            holding.native("private", "library-docs").err(),
+        ),
+        Err(_) => panic!("docs-mcp at {egress} is admitted under {minimum:?}"),
+    });
+    let fenced = |held: Option<Unheld>| match held {
+        Some(Unheld::Cause(cause)) => required(cause),
+        _ => panic!("the fence's words follow a sealed mcp holding"),
+    };
+    let observed = observed.map(|(admitted, fence)| (admitted, fenced(fence)));
+    let fence = lost(MCP).0;
+    assert_eq!(
+        observed,
+        [
+            (Some(admitted(Network::Isolated, "local")), fence.clone()),
+            (Some(admitted(Network::Shared, "contracted")), fence.clone()),
+            (Some(admitted(Network::Shared, "uncontracted")), fence),
+        ]
+    );
+    let below_minimum = match sealed("contracted", Some("local")) {
+        Err(Unheld::Cause(cause)) => required(cause),
+        _ => panic!("docs-mcp at contracted is below local"),
+    };
+    assert_eq!(below_minimum, lost(&below("contracted", "local")).0);
+}
+
 /// A native holding is never judged by MB4, so it carries no admitted
 /// facts under any minimum, its dialect's egress meeting it or not.
 #[test]

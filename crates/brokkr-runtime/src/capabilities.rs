@@ -1263,23 +1263,11 @@ impl Authority {
         capability: &str,
         serving: &Serving<'_>,
     ) -> Result<(Holding, String), Unheld> {
-        let grant = self.reaching(site, capability)?;
-        let dialect = self
-            .dialect(capability)
-            .map_err(|missing| Cause::incompatible(&grant.dialect, missing.to_string()))?;
-        let through = |but| Unheld::Cause(Cause::incompatible(&dialect.name, but));
-        let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
-        if tools.is_empty() {
-            return Err(through("the realm's grant admits no tool".into()));
-        }
-        // GP1, before any provider carries it (design D3 steps 5 and 6).
-        let definition = &self.definitions.0[capability];
-        gates::check(site, definition, grant)
-            .map_err(|refusal| Cause::gate(&dialect.name, refusal))?;
+        let holding = self.sealed(site, capability)?;
+        let through = |but| Unheld::Cause(Cause::incompatible(&holding.dialect, but));
+        let tools = &holding.tools;
         let provider = serving.provider;
-        let (bound, adapter_key) = self
-            .carried(capability, dialect, &tools)
-            .map_err(|unserved| unserved.unheld(dialect))?;
+        let (bound, adapter_key) = holding.native(&self.context.realm, capability)?;
         if bound != provider {
             return Err(through(format!(
                 "provider '{provider}' cannot carry a binding to provider '{bound}'"
@@ -1318,8 +1306,8 @@ impl Authority {
         // 2026-09-25; design D11): a nonempty one is inexpressible on every
         // candidate, a declared transport included, so it reaches CQ1's
         // outcomes alone and is never composed.
-        if !grant.restrictions.is_empty() {
-            let names = restriction_names("", &grant.restrictions);
+        if !holding.restrictions.is_empty() {
+            let names = restriction_names("", &holding.restrictions);
             let deferred = match native.restrictions {
                 Transport::Unsupported(_) => "",
                 Transport::Argv(_) => {
@@ -1333,22 +1321,8 @@ impl Authority {
                 names.join("', '")
             )));
         }
-        Ok((
-            Holding {
-                classes: definition.classes.clone(),
-                dialect: dialect.name.clone(),
-                dialect_sha256: dialect.sha256.clone(),
-                definition_sha256: definition.sha256.clone(),
-                tools,
-                restrictions: grant.restrictions.clone(),
-                implementation: Implementation::of(capability, &dialect.kind)
-                    .expect("a carried binding is never the reserved hands kind"),
-                retention: Retention::of(dialect, grant),
-                // Only a native binding is carried this far until U9b.
-                admitted: None,
-            },
-            adapter_key.to_string(),
-        ))
+        let adapter_key = adapter_key.to_string();
+        Ok((holding, adapter_key))
     }
 
     /// Resolve one site against one provider candidate (design D4 steps
