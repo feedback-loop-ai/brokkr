@@ -258,13 +258,14 @@ fn base_of(layer: &Path) -> Option<String> {
 
 /// Whether `part` is a single plain path component: no separator, `..`,
 /// `.`, root or prefix, and not empty. A name joined under a directory
-/// lands in it only when this holds.
+/// lands in it only when this holds. The spelling itself is judged, since
+/// [`Path::components`] drops a trailing separator and a trailing `.`.
 fn plain(part: &Path) -> bool {
-    let mut parts = part.components();
-    matches!(
-        (parts.next(), parts.next()),
-        (Some(std::path::Component::Normal(_)), None)
-    )
+    let spelling = part.as_os_str().as_encoded_bytes();
+    let separated = spelling
+        .iter()
+        .any(|&byte| std::path::is_separator(byte.into()));
+    !separated && !matches!(spelling, b"" | b"." | b"..")
 }
 
 /// Copy the recipe at `root` into `<dir>/<name>`, and with it each base

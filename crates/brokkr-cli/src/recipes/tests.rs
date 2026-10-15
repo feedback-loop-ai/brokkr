@@ -451,7 +451,9 @@ fn add_refuses_a_path_it_cannot_judge_by_type() {
     };
     assert_eq!(refusal.downcast_ref::<Unplain>(), Some(&expected));
     let dir = at.join("recipes");
-    for name in ["../node", "a/b", "", ".", "..", "/node"] {
+    for name in [
+        "../node", "a/b", "", ".", "..", "/node", "x/", "x//", "x/.", "x/./",
+    ] {
         let refusal = add(&at, node, name, &dir).unwrap_err();
         let expected = Unplain::Name {
             name: name.into(),
