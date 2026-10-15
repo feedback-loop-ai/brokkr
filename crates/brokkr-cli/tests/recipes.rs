@@ -367,6 +367,166 @@ fn add_from_git_url_clones_and_installs_without_network() {
     assert_eq!(code, Some(0), "cloned copy compiles: {stderr}");
 }
 
+/// `repo` made a git repository with every file in it committed, and the
+/// `file://` URL a clone reads it by, with no network.
+fn committed(repo: &Path) -> String {
+    git(repo, &["init"]);
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-m", "fixture recipes"]);
+    format!("file://{}", repo.display())
+}
+
+/// What `recipes add` prints for the recipes it installed into `rdir`, in
+/// the order given, each by the digest its installed copy compiles to.
+fn added(ws: &Ws, rdir: &Path, names: &[&str]) -> String {
+    let line = |name: &&str| {
+        let at = rdir.join(name);
+        let (code, stdout, stderr) = ws.brokkr(&["compile", "--bundle", at.to_str().unwrap()]);
+        assert_eq!(code, Some(0), "{stderr}");
+        let compiled: Value = serde_json::from_str(&stdout).unwrap();
+        let digest = &compiled["digest"].as_str().unwrap()[..12];
+        format!("added recipe '{name}' ({digest}) at {}\n", at.display())
+    };
+    names.iter().map(line).collect()
+}
+
+/// The names `rdir` holds.
+fn library(rdir: &Path) -> std::collections::BTreeSet<String> {
+    let entries = std::fs::read_dir(rdir).unwrap();
+    entries
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect()
+}
+
+/// `--path` installs the bundle at that directory of a clone that keeps its
+/// recipes below its root, where discovery finds none (#695).
+#[test]
+fn add_with_path_installs_the_bundle_it_names_inside_the_clone() {
+    let ws = Ws::new();
+    let rdir = ws.recipes_dir();
+    let repo = ws.path().join("fixture-repo");
+    for recipe in ["x", "y"] {
+        ws.write_recipe(&repo.join("recipes").join(recipe));
+    }
+    std::fs::write(repo.join("recipes/x/roles/x.md"), "x\n").unwrap();
+    let url = committed(&repo);
+    let add = ["recipes", "add", &url, "--name", "x"];
+    let into = ["--dir", rdir.to_str().unwrap()];
+
+    let (code, _, stderr) = ws.brokkr(&[&add[..], &into].concat());
+    let discovered = "error: clone has no bundle.json at its root or in any subdirectory\n";
+    assert_eq!((code, stderr.as_str()), (Some(1), discovered));
+    let (code, _, stderr) = ws.brokkr(&[&add[..], &["--path", "recipes/x"], &into].concat());
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(stderr, added(&ws, &rdir, &["x"]));
+    assert_eq!(library(&rdir), ["x".to_string()].into());
+    assert!(rdir.join("x/roles/x.md").is_file(), "x, not y");
+}
+
+/// A recipe at `--path` brings each base it extends from its own library,
+/// the directory beside it in the clone (decision 0078 ruling 3; #695).
+#[test]
+fn add_with_path_brings_the_bases_its_recipe_extends_from_beside_it() {
+    let ws = Ws::new();
+    let rdir = ws.recipes_dir();
+    let repo = ws.path().join("fixture-repo");
+    ws.write_recipe(&repo.join("recipes/fast"));
+    ws.write_derived(&repo.join("recipes/node"), "node", "fast", true);
+    let url = committed(&repo);
+    let (code, _, stderr) = ws.brokkr(&[
+        "recipes",
+        "add",
+        &url,
+        "--name",
+        "node",
+        "--path",
+        "recipes/node",
+        "--dir",
+        rdir.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(stderr, added(&ws, &rdir, &["node", "fast"]));
+    let both = ["fast".to_string(), "node".to_string()];
+    assert_eq!(library(&rdir), both.into());
+}
+
+/// A `--path` that is not plain, that passes through a link the clone
+/// holds, that leads nowhere or to a directory with no bundle.json, or that
+/// comes with a local source refuses by name, and the library is never
+/// made (#695). The link leads to a compiling bundle outside the clone.
+#[test]
+fn add_with_path_refuses_what_it_cannot_reach_and_writes_nothing() {
+    let ws = Ws::new();
+    let rdir = ws.recipes_dir();
+    let repo = ws.path().join("fixture-repo");
+    let outside = ws.path().join("outside");
+    ws.write_recipe(&repo.join("recipes/x"));
+    ws.write_recipe(&outside);
+    std::fs::create_dir_all(repo.join("recipes/empty")).unwrap();
+    std::fs::write(repo.join("recipes/empty/README.md"), "no bundle\n").unwrap();
+    std::os::unix::fs::symlink(&outside, repo.join("recipes/link")).unwrap();
+    let url = committed(&repo);
+    let local = repo.to_str().unwrap();
+
+    let unplain = |path: &str| {
+        format!(
+            "error: --path '{path}' is not a relative path of plain names, so recipes add cannot \
+             judge where in the clone it leads (#695); nothing was cloned or written\n"
+        )
+    };
+    let mut refusals: Vec<(&str, &str, String)> = ["../x", "/abs", "recipes/./x", "recipes/x/", ""]
+        .into_iter()
+        .map(|path| (&*url, path, unplain(path)))
+        .collect();
+    refusals.extend([
+        (
+            &*url,
+            "recipes/link",
+            "error: --path recipes/link passes through recipes/link, a symbolic link in the \
+             clone, which can name anything outside it (#695); nothing was written\n"
+                .to_string(),
+        ),
+        (
+            &*url,
+            "recipes/absent/x",
+            "error: --path recipes/absent/x: the clone holds no directory at recipes/absent \
+             (#695); nothing was written\n"
+                .to_string(),
+        ),
+        (
+            &*url,
+            "recipes/empty",
+            "error: --path recipes/empty: the clone's recipes/empty holds no bundle.json (#695); \
+             nothing was written\n"
+                .to_string(),
+        ),
+        (
+            local,
+            "recipes/x",
+            format!(
+                "error: --path names a directory inside a git source's clone, and {local} is a \
+                 local directory: name {local}/recipes/x as the source itself (#695); nothing \
+                 was written\n"
+            ),
+        ),
+    ]);
+    for (source, path, refusal) in refusals {
+        let (code, _, stderr) = ws.brokkr(&[
+            "recipes",
+            "add",
+            source,
+            "--name",
+            "x",
+            "--path",
+            path,
+            "--dir",
+            rdir.to_str().unwrap(),
+        ]);
+        assert_eq!((code, stderr), (Some(1), refusal), "{path}");
+        assert!(!rdir.exists(), "{path}");
+    }
+}
+
 #[test]
 fn add_of_a_non_compiling_bundle_cleans_up_and_fails() {
     let ws = Ws::new();

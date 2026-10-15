@@ -338,6 +338,7 @@ Usage: brokkr recipes add [OPTIONS] --name <NAME> <SOURCE>
 | --- | --- | --- | --- |
 | `<SOURCE>` |  |  | A local bundle directory or a git URL |
 | `--name <NAME>` |  |  | The name the recipe is installed under |
+| `--path <PATH>` |  |  | With a git URL, the bundle's directory inside the clone, a relative path of plain names (`recipes/fast`), walked without following a link; without it, the clone's root or its one subdirectory holding a bundle.json. The bases its recipe extends come from beside it |
 | `--dir <DIR>` | `recipes` |  | The recipe library directory it is installed into |
 
 ## brokkr recipes show

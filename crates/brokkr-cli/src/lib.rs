@@ -340,6 +340,13 @@ enum RecipesCmd {
         /// The name the recipe is installed under.
         #[arg(long)]
         name: String,
+        /// With a git URL, the bundle's directory inside the clone, a
+        /// relative path of plain names (`recipes/fast`), walked without
+        /// following a link; without it, the clone's root or its one
+        /// subdirectory holding a bundle.json. The bases its recipe
+        /// extends come from beside it.
+        #[arg(long)]
+        path: Option<String>,
         /// The recipe library directory it is installed into.
         #[arg(long, default_value = "recipes")]
         dir: PathBuf,

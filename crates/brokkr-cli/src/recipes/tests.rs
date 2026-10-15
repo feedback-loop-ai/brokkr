@@ -155,7 +155,7 @@ fn root_discovery_listing_and_existing_destination_cover_refusals() {
     let library = empty.path().join("library");
     std::fs::create_dir(&library).unwrap();
     std::fs::create_dir(library.join("already")).unwrap();
-    assert!(add(&workspace(), "unused", "already", &library).is_err());
+    assert!(add(&workspace(), "unused", "already", None, &library).is_err());
 }
 
 /// Installing a recipe whose seats JUDGE resolves the trust tier from
@@ -172,6 +172,7 @@ fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
         &workspace(),
         source.to_str().unwrap(),
         "gated",
+        None,
         library.path(),
     )
     .expect("a recipe whose gates the workspace vouches for installs");
@@ -201,8 +202,14 @@ fn installed(library: &Path) -> Vec<String> {
 fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
     let fresh = tempfile::tempdir().unwrap();
     let node = workspace().join("recipes/node");
-    add(&workspace(), node.to_str().unwrap(), "node", fresh.path())
-        .expect("node installs into a library that holds nothing");
+    add(
+        &workspace(),
+        node.to_str().unwrap(),
+        "node",
+        None,
+        fresh.path(),
+    )
+    .expect("node installs into a library that holds nothing");
     assert_eq!(installed(fresh.path()), ["fast", "node"]);
 
     let holding = tempfile::tempdir().unwrap();
@@ -212,8 +219,14 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
     let ours = std::fs::read_to_string(&charter).unwrap() + "\nThe library's own.\n";
     std::fs::write(&charter, &ours).unwrap();
     let own = workspace().join("recipes/self");
-    add(&workspace(), own.to_str().unwrap(), "own", holding.path())
-        .expect("self installs over the library's own fast");
+    add(
+        &workspace(),
+        own.to_str().unwrap(),
+        "own",
+        None,
+        holding.path(),
+    )
+    .expect("self installs over the library's own fast");
     assert_eq!(installed(holding.path()), ["fast", "own", "panel-review"]);
     assert_eq!(std::fs::read_to_string(&charter).unwrap(), ours);
 
@@ -226,6 +239,7 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
         &workspace(),
         alone.to_str().unwrap(),
         "node",
+        None,
         holding.path(),
     )
     .expect("a lone leaf composes with the library's base");
@@ -253,8 +267,14 @@ fn a_partial_chain_installs_over_the_librarys_own_base() {
     )
     .unwrap();
     let own = source.path().join("self");
-    add(&workspace(), own.to_str().unwrap(), "own", library.path())
-        .expect("self composes from its source's panel-review and the library's fast");
+    add(
+        &workspace(),
+        own.to_str().unwrap(),
+        "own",
+        None,
+        library.path(),
+    )
+    .expect("self composes from its source's panel-review and the library's fast");
     assert_eq!(installed(library.path()), ["fast", "own", "panel-review"]);
 }
 
@@ -289,7 +309,14 @@ fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
     let bare = tempfile::tempdir().unwrap();
     let library = tempfile::tempdir().unwrap();
     let node = workspace().join("recipes/node");
-    let refusal = add(bare.path(), node.to_str().unwrap(), "node", library.path()).unwrap_err();
+    let refusal = add(
+        bare.path(),
+        node.to_str().unwrap(),
+        "node",
+        None,
+        library.path(),
+    )
+    .unwrap_err();
     let refused = refusal
         .downcast_ref::<Refused>()
         .expect("a compile refusal");
@@ -329,6 +356,7 @@ fn a_second_add_waits_for_the_library_another_holds() {
             &workspace(),
             review_first.to_str().unwrap(),
             "review-first",
+            None,
             &dir,
         )
     });
@@ -365,12 +393,26 @@ fn a_dangling_link_in_the_library_is_never_removed() {
     };
 
     let base = linked("fast");
-    let refusal = add(&workspace(), node.to_str().unwrap(), "node", base.path()).unwrap_err();
+    let refusal = add(
+        &workspace(),
+        node.to_str().unwrap(),
+        "node",
+        None,
+        base.path(),
+    )
+    .unwrap_err();
     assert_eq!(refusal.downcast_ref::<Refused>().unwrap().recipe, "node");
     kept(base.path(), "fast");
 
     let leaf = linked("node");
-    let refusal = add(&workspace(), node.to_str().unwrap(), "node", leaf.path()).unwrap_err();
+    let refusal = add(
+        &workspace(),
+        node.to_str().unwrap(),
+        "node",
+        None,
+        leaf.path(),
+    )
+    .unwrap_err();
     let dest = leaf.path().join("node");
     assert_eq!(
         refusal.to_string(),
@@ -425,7 +467,7 @@ fn add_refuses_a_folder_repository_by_type() {
         (outside.path().to_path_buf(), root.join("deep/recipes")),
     ];
     for (from, dir) in cases {
-        let refusal = add(&from, node.to_str().unwrap(), "node", &dir).unwrap_err();
+        let refusal = add(&from, node.to_str().unwrap(), "node", None, &dir).unwrap_err();
         let refused = refusal.downcast_ref::<InFolder>();
         let expected = InFolder { root: root.clone() };
         assert_eq!(refused, Some(&expected), "{refusal}");
@@ -478,7 +520,7 @@ fn add_refuses_a_folder_repository_a_link_from_outside_resolves_into() {
 /// naming the folder repository at `root` (#675).
 fn refuses_in_folder(from: &Path, dir: &Path, root: &Path) {
     let node = workspace().join("recipes/node");
-    let refusal = add(from, node.to_str().unwrap(), "node", dir).unwrap_err();
+    let refusal = add(from, node.to_str().unwrap(), "node", None, dir).unwrap_err();
     let expected = InFolder {
         root: root.to_path_buf(),
     };
@@ -500,7 +542,7 @@ fn add_refuses_a_path_it_cannot_judge_by_type() {
     let node = workspace().join("recipes/node");
     let node = node.to_str().unwrap();
     let dir = at.join("missing/../recipes");
-    let refusal = add(&at, node, "node", &dir).unwrap_err();
+    let refusal = add(&at, node, "node", None, &dir).unwrap_err();
     let expected = Unplain::Dir {
         dir: dir.clone(),
         standing: at.clone(),
@@ -510,7 +552,7 @@ fn add_refuses_a_path_it_cannot_judge_by_type() {
     for name in [
         "../node", "a/b", "", ".", "..", "/node", "x/", "x//", "x/.", "x/./",
     ] {
-        let refusal = add(&at, node, name, &dir).unwrap_err();
+        let refusal = add(&at, node, name, None, &dir).unwrap_err();
         let expected = Unplain::Name {
             name: name.into(),
             dir: dir.clone(),
@@ -528,7 +570,7 @@ fn add_refuses_a_path_it_cannot_judge_by_type() {
 fn add_refuses_a_dir_it_cannot_read_the_way_to() {
     use std::os::unix::fs::PermissionsExt;
     let refused = |dir: &Path| {
-        let refusal = add(&workspace(), "unused", "node", dir).unwrap_err();
+        let refusal = add(&workspace(), "unused", "node", None, dir).unwrap_err();
         match refusal.downcast::<PlacesError>() {
             Ok(PlacesError::Unreadable { path, .. }) => path,
             other => panic!("an unreadable refusal: {other:?}"),
@@ -546,4 +588,77 @@ fn add_refuses_a_dir_it_cannot_read_the_way_to() {
     let path = refused(&dir);
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
     assert_eq!(path, dir);
+}
+
+/// A `--path` that is not a relative path of plain names refuses by its
+/// spelling before anything is cloned, and one given with a local source
+/// refuses by the variant, both creating nothing (#695).
+#[test]
+fn add_refuses_a_path_by_its_spelling_or_its_local_source_by_type() {
+    let outside = tempfile::tempdir().unwrap();
+    let dir = outside.path().join("recipes");
+    let never = "file:///never/cloned.git";
+    for path in [
+        "../x",
+        "/abs",
+        "recipes/./x",
+        "recipes/x/",
+        "",
+        ".",
+        "x//y",
+        "x/..",
+    ] {
+        let refusal = add(&workspace(), never, "x", Some(path), &dir).unwrap_err();
+        let expected = Unplain::Path { path: path.into() };
+        assert_eq!(refusal.downcast_ref::<Unplain>(), Some(&expected), "{path}");
+    }
+    let node = workspace().join("recipes/node");
+    let source = node.to_str().unwrap();
+    let refusal = add(&workspace(), source, "node", Some("fast"), &dir).unwrap_err();
+    let expected = AtPath::Local {
+        source: source.into(),
+        path: "fast".into(),
+    };
+    assert_eq!(refusal.downcast_ref::<AtPath>(), Some(&expected));
+    let left = std::fs::read_dir(outside.path()).unwrap().count();
+    assert_eq!(left, 0, "nothing is created");
+}
+
+/// The walk to `--path` inside a clone reaches a bundle, and refuses by the
+/// variant a part that is a link, a part that is absent or not a directory,
+/// and a directory whose bundle.json is absent or a link (#695).
+#[test]
+fn reach_walks_to_a_bundle_and_never_through_a_link() {
+    let clone = tempfile::tempdir().unwrap();
+    let recipes = clone.path().join("recipes");
+    for at in ["x", "empty", "linked"] {
+        std::fs::create_dir_all(recipes.join(at)).unwrap();
+    }
+    std::fs::write(recipes.join("x/bundle.json"), "{}").unwrap();
+    let linked = recipes.join("linked/bundle.json");
+    std::os::unix::fs::symlink(recipes.join("x/bundle.json"), linked).unwrap();
+    std::os::unix::fs::symlink(&recipes, clone.path().join("link")).unwrap();
+    assert_eq!(reach(clone.path(), "recipes/x"), Ok(recipes.join("x")));
+    let link = |path: &str, link: &str| AtPath::Link {
+        path: path.into(),
+        link: link.into(),
+    };
+    let missing = |path: &str, missing: &str| AtPath::Missing {
+        path: path.into(),
+        missing: missing.into(),
+    };
+    let unbundled = |path: &str| AtPath::Unbundled { path: path.into() };
+    let file = "recipes/x/bundle.json";
+    for (path, expected) in [
+        ("link/x", link("link/x", "link")),
+        (
+            "recipes/absent/x",
+            missing("recipes/absent/x", "recipes/absent"),
+        ),
+        (file, missing(file, file)),
+        ("recipes/empty", unbundled("recipes/empty")),
+        ("recipes/linked", unbundled("recipes/linked")),
+    ] {
+        assert_eq!(reach(clone.path(), path), Err(expected), "{path}");
+    }
 }

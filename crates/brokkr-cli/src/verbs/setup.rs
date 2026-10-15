@@ -123,7 +123,12 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
     let found = &layout.workspace();
     match command {
         RecipesCmd::List { dir } => recipes::list(found, &dir)?,
-        RecipesCmd::Add { source, name, dir } => recipes::add(found, &source, &name, &dir)?,
+        RecipesCmd::Add {
+            source,
+            name,
+            path,
+            dir,
+        } => recipes::add(found, &source, &name, path.as_deref(), &dir)?,
         RecipesCmd::Show { name, dir } => {
             let recipe = BundleSource::Recipe {
                 name,
