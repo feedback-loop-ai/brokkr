@@ -93,7 +93,7 @@ impl Repo {
     }
 
     /// `brokkr` standing in `dir`, relative to the root, created first.
-    fn command(&self, dir: &str) -> Command {
+    pub(crate) fn command(&self, dir: &str) -> Command {
         let cwd = self.path(dir);
         std::fs::create_dir_all(&cwd).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
@@ -314,7 +314,8 @@ fn discovery_finds_the_folder_from_a_subdirectory() {
     // Doctor, from the same place, reads the folder's journal, agents,
     // adapters and secrets store: a credential the folder's adapter
     // declares, set in the environment, is checked against the folder's
-    // store.
+    // store, and, the folder being doctor's bundle (R5), against its
+    // seats, none of which binds it.
     let mut doctor = repo.command("src/deep");
     doctor.arg("doctor").env("SPARK_API_KEY", "set");
     let printed = String::from_utf8(doctor.output().unwrap().stdout).unwrap();
@@ -325,10 +326,10 @@ fn discovery_finds_the_folder_from_a_subdirectory() {
             state.join("forge.db").display()
         ),
         format!("agents: {}:", repo.path(".brokkr/agents").display()),
-        format!(
-            "bindings store at {} and not",
-            state.join("secrets.env").display()
-        ),
+        "credential 'SPARK_API_KEY' is satisfied from the process environment — an ambient \
+         value is journaled nowhere and moves no digest (decision 0036 ruling 5); no seat of \
+         the inspected bundle binds it"
+            .to_string(),
     ];
     for line in lines {
         assert!(printed.contains(&line), "{line} in {printed}");

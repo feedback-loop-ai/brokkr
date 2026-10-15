@@ -36,8 +36,7 @@ The full transcript, annotated: [starters/bun.md](../starters/bun.md).
 
 ## Step 3 — overrides
 
-None at the spine level: `brokkr run --bundle . --repo . --feature "…"`
-is the same command.
+None at the spine level: `brokkr run --feature "…"` is the same command.
 
 One thing that is **not** an override and is worth re-reading from the
 node card: every seat's driver runs `bun install`, which executes your

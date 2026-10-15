@@ -1,8 +1,11 @@
 # Starter sample — Python (uv-first)
 
-Two real `brokkr init` runs, transcribed: one against a uv-managed
-repository and one against the same repository with the `uv.lock`
-removed. Nothing here was written by hand.
+Two real `brokkr init .` runs, transcribed, each at the root of a fresh
+`git init` copy of a fixture: one a uv-managed repository and one the
+same repository with the `uv.lock` removed. Nothing here was written by
+hand but each copy's absolute path, shown as `/home/you/my-app`, and the
+paths every stack writes, elided because the
+[quickstart](../quickstart.md#step-2--brokkr-init-) lists them.
 
 Python is the second stack (after node) where `init` reads a lockfile to
 decide, so this page shows both answers and the file that separates
@@ -23,29 +26,30 @@ requires-python = ">=3.11"
 ```
 
 ```
-$ brokkr init my-bundle
+$ brokkr init .
 ```
 
 ```text
-initialized reviewable bundle at my-bundle (digest 789009a981d943e0d5c767b4699b97ec3ece87cd8052f55aea536747575928ae)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+initialized /home/you/my-app/.brokkr (digest d1fc9704ac0eb601ebfa6d4c8a267243ac74a6e8494b10ce3101068a0de8aaf3), writing:
+  … fifteen paths and a note, elided here
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+commit the folder: git add .brokkr && git commit
 ```
 
 Fixture:
 [`python-uv/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/python-uv/).
-It writes the same fourteen files as every stack (see
+It writes the same fifteen files under `.brokkr/` as every stack (see
 [rust.md](rust.md#what-it-wrote) for the invariant `bundle.json` and the
 fixed parts of the agent files). What this repository changed is the
 stack's own data: the two charters below, the adapter's tool map and
 every agent's `tools.allow`.
 
-### `agents/charters/implementer.md`
+### `.brokkr/agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
 
-Implement the framed task (see `.forge/tasks/`). Match the project's
+Implement the framed task (see `.brokkr/state/tasks/`). Match the project's
 idiom. Tests are part of the change.
 
 This repository reads as a python/uv project (`pyproject.toml` + `uv.lock`), so use its own
@@ -65,7 +69,7 @@ Result: `complete` (implemented, tests green, committed) · `broken`
 report `complete` with failing tests or uncommitted changes.
 ```
 
-### `scripts/verify-seat.sh`
+### `.brokkr/scripts/verify-seat.sh`
 
 The deterministic verifier pins `uv run pytest` and
 `uv run ruff check .`. It runs both, types `pass` only when both exit
@@ -107,16 +111,17 @@ Same repository, no `uv.lock`:
 ```
 
 ```
-$ brokkr init my-bundle
+$ brokkr init .
 ```
 
 ```text
-initialized reviewable bundle at my-bundle (digest 1c8ec1e31338e23d35bfddef29d5874e48b01ae627bff9dbdde37305179e11ae)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+initialized /home/you/my-app/.brokkr (digest 07c1023f78ee90dfad0991de782974ba7118be8c867c0c00a09f2bfa648ffc83), writing:
+  … fifteen paths and a note, elided here
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+commit the folder: git add .brokkr && git commit
 ```
 
-`agents/charters/implementer.md` and `scripts/verify-seat.sh`, the
+`.brokkr/agents/charters/implementer.md` and `.brokkr/scripts/verify-seat.sh`, the
 changed part only:
 
 ```markdown

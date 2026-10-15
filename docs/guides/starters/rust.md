@@ -2,8 +2,9 @@
 
 What `brokkr init` actually wrote for a Rust repository, transcribed
 from a real run. Nothing on this page was composed by hand: the fixture
-below was copied into a scratch directory, `brokkr init my-bundle` was
-run inside it, and the output was pasted here and then annotated.
+below was copied into a fresh `git init` directory, `brokkr init .` was
+run at its root, and the output was pasted here and then annotated. The
+scratch directory's absolute path is shown as `/home/you/my-app`.
 
 The fixture is
 [`crates/brokkr-cli/tests/fixtures/init-stacks/rust/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/rust/),
@@ -32,44 +33,38 @@ edition = "2021"
 ## The invocation
 
 ```
-$ brokkr init my-bundle
+$ brokkr init .
 ```
 
 ```text
-initialized reviewable bundle at my-bundle (digest d4b6f758d2014a3726a6e9e798fdd3c8aae682d0ada499da536806b38b2f9c52)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+initialized /home/you/my-app/.brokkr (digest f03121db1c9a6670cba6f60b85c6353f20f8dc01d37ae3b06c66e94fe45c97ef), writing:
+  … fifteen paths and a note, elided here
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+commit the folder: git add .brokkr && git commit
 ```
 
-The digest is a function of the bytes that were written, and the
+This is the run the quickstart's
+[Step 2](../quickstart.md#step-2--brokkr-init-) transcribes whole, the
+same fixture with the same digest, so the elided lines are there: the
+fifteen paths `init` wrote and the agent CLI it scaffolded for. The
+digest is a function of the bytes that were written, and the
 charters and tool map below vary by stack, so **this digest is this
 fixture's**. Your Rust repository will print a different one and that is
 correct.
 
 ## What it wrote
 
-```
-my-bundle/adapters/claude.json
-my-bundle/adapters/exec.json
-my-bundle/agents/README.md
-my-bundle/agents/charters/implementer.md
-my-bundle/agents/charters/intake.md
-my-bundle/agents/charters/reviewer.md
-my-bundle/agents/implementer.json
-my-bundle/agents/intake.json
-my-bundle/agents/reviewer.json
-my-bundle/bundle.json
-my-bundle/policy.json
-my-bundle/realms.json
-my-bundle/scripts/ship-seat.sh
-my-bundle/scripts/verify-seat.sh
-```
+The fifteen paths of that list, every one under `.brokkr/` and nothing at the
+root of the repository (decision 0083). `.brokkr/.gitignore` holds the
+one line `state/`, so what a run writes into `.brokkr/state/` stays out
+of git, and the rest is the tracked scaffold you commit. `.brokkr/` is
+the bundle, so the script paths `bundle.json` names are read from there.
 
 A repository carrying `.specify/` or `openspec/config.yaml` also gets
-`dialects/`, the detected dialect's pinned data. The adapters follow the
-agent CLI on `PATH`: this fixture was scaffolded for `claude`. A codex
-scaffold writes `adapters/codex.json` in its place, and a dsh scaffold
-writes `adapters/dsh.json` beside it.
+`.brokkr/dialects/`, the detected dialect's pinned data. The adapters
+follow the agent CLI on `PATH`: this fixture was scaffolded for `claude`.
+A codex scaffold writes `.brokkr/adapters/codex.json` in its place, and a
+dsh scaffold writes `.brokkr/adapters/dsh.json` beside it.
 
 **The policy, intake/reviewer charters, ship script, and fixed model-agent
 fields do not vary by stack.** What varies is the stack's own data: the
@@ -121,7 +116,7 @@ For completeness, the invariant `bundle.json`:
 ```
 
 The three model offices name agents; their charter, model chain, limits and
-tool grant live under `agents/`, where `brokkr agents show <name>` reads
+tool grant live under `.brokkr/agents/`, where `brokkr agents show <name>` reads
 them back. Verify and ship are deterministic scripts with their limits and
 hands declared at the site, which Brokkr boxes under the `namespace`
 boundary only. Class remains the seat's authority.
@@ -176,12 +171,12 @@ An allowance is ONE grant with the adapter's map: a name the map cannot
 express refuses the scaffold's own compile (decision 0016), so when you
 edit one side, edit both.
 
-## `agents/charters/implementer.md`
+## `.brokkr/agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
 
-Implement the framed task (see `.forge/tasks/`). Match the project's
+Implement the framed task (see `.brokkr/state/tasks/`). Match the project's
 idiom. Tests are part of the change.
 
 This repository reads as a rust project (`Cargo.toml`), so use its own
@@ -229,7 +224,7 @@ Line by line, the parts that were chosen rather than fixed:
   presence and, for the workspace line, one `[workspace]` line read out
   of `Cargo.toml`. No `cargo` subprocess is spawned.
 
-## `scripts/verify-seat.sh`
+## `.brokkr/scripts/verify-seat.sh`
 
 The deterministic verifier contains these detected command pins:
 
@@ -257,15 +252,28 @@ The implementer's definition, as written:
 
 ```json
 {
-  "description": "Builds the framed task to the repository's conventions and commits the work with its tests.",
   "charter": "charters/implementer.md",
+  "description": "Builds the framed task to the repository's conventions and commits the work with its tests.",
+  "efforts": {
+    "opus": "high",
+    "sonnet": "high"
+  },
   "limits": {
     "max_attempts": 2,
     "timeout_seconds": 5400
   },
-  "models": ["opus", "sonnet"],
+  "models": [
+    "opus",
+    "sonnet"
+  ],
   "tools": {
-    "allow": ["cargo", "git", "ls", "rg", "mkdir"],
+    "allow": [
+      "cargo",
+      "git",
+      "ls",
+      "rg",
+      "mkdir"
+    ],
     "mcp": []
   }
 }
@@ -275,15 +283,15 @@ The bounds are the ones the starter used to declare inline on the seat
 (decision 0006); since the seats name agents, they ride here. The model
 chains are the repository's own library's — work leads with the stronger
 model where the ship does, and every chain is a preference, not a
-promise.
+promise. `efforts` is the reasoning effort each model is asked for.
 
 ## Correcting it
 
 All of it is ordinary JSON or Markdown in your tree. If your suite is
 `cargo nextest run` or your lint carries `--all-features`, edit
-`agents/charters/implementer.md` and `scripts/verify-seat.sh`; if a
+`.brokkr/agents/charters/implementer.md` and `.brokkr/scripts/verify-seat.sh`; if a
 seat needs a narrower or wider grant, edit its `tools.allow` in
-`agents/<name>.json` AND the matching entry in the adapter's map — the
+`.brokkr/agents/<name>.json` AND the matching entry in the adapter's map — the
 scaffold's own compile is the check that the two still agree. Every edit
 moves the bundle's digest, which is the point: a strategy is identified
 by its bytes, and a run records which bytes it ran.
@@ -291,7 +299,7 @@ by its bytes, and a run records which bytes it ran.
 ## What the fallback looks like
 
 A repository `init` does not recognize — no manifest, no lockfile, no
-`Makefile` — gets the same fourteen files with an **empty** tool map
+`Makefile` — gets the same fifteen files with an **empty** tool map
 (`"names": {}`), no `tools` list on any agent, and a README that
 says so in those words rather than granting a guessed permission. The
 two charters carry `<this project's …>` placeholders. See

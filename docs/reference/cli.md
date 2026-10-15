@@ -214,7 +214,7 @@ Usage: brokkr doctor [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--bundle <BUNDLE>` |  |  | A bundle directory to compile and check as well; without it, only a found .brokkr/ folder is compiled, for the folder line |
+| `--bundle <BUNDLE>` |  |  | A bundle directory to compile and check as well (default the found .brokkr/ folder, compiled once for the whole report and its folder line) |
 | `--realms <REALMS>` |  |  | The world's map whose realm house declarations doctor checks (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal whose database doctor opens. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store, so doctor can say which declared credentials a route is taking from the ambient environment instead (decision 0036 ruling 5; default .brokkr/state/secrets.env, else .forge/secrets.env) |

@@ -133,8 +133,8 @@ pub(super) struct TuiArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct DoctorArgs {
-    /// A bundle directory to compile and check as well; without it, only a
-    /// found .brokkr/ folder is compiled, for the folder line.
+    /// A bundle directory to compile and check as well (default the found .brokkr/
+    /// folder, compiled once for the whole report and its folder line).
     #[arg(long)]
     pub(super) bundle: Option<PathBuf>,
     /// The world's map whose realm house declarations doctor checks (default the found

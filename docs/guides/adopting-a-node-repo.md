@@ -69,6 +69,18 @@ hand.
 
 ## The five files your repo needs
 
+**This route makes your repository a recipe library.** A
+`recipes/<name>/bundle.json` at the root is a library's mark, and a
+library keeps its own layout (decision
+[0083](../decisions/0083-an-adopters-brokkr-lives-in-one-folder.md), the
+operator's ruling of 2026-10-13): `realms.json`, `adapters/` and
+`recipes/` at the root, and run state in `.forge/`, with no `.brokkr/`
+folder. That is how it stands on main. A repository that already has a
+`.brokkr/` folder, from the quickstart's step 2, cannot take this route:
+`brokkr recipes add` refuses there and writes nothing, until
+[#696](https://github.com/feedback-loop-ai/brokkr/issues/696) gives the
+folder recipes of its own.
+
 Brokkr resolves its data relative to the **workspace** it is invoked in
 — your repository root:
 
@@ -98,10 +110,10 @@ prompt exists. The tier is a ruling *your* world makes, in your own
 `adapters/` tree, which is why it is a file you own rather than a
 constant in the engine.
 
-(This is the only respect in which flow 3 differs from `brokkr init`,
-which scaffolds an `adapters/claude.json` for you — and refuses to
-overwrite one that is already there, because a tier is an operator's
-ruling and not a scaffold's.)
+(`brokkr init` scaffolds a `.brokkr/adapters/claude.json` for you
+instead, and writes nothing into a library, so the library route takes
+its adapters by hand: a tier is an operator's ruling, not a
+scaffold's.)
 
 **The recipe, second.** Install it from the local path:
 
@@ -135,8 +147,8 @@ echo '.forge/' >> .gitignore
 
 ## Your `realms.json`
 
-This is flow 3's one added step, and the quickstart states it in five
-lines. The long version: a **realms map** is the world an invocation
+This is flow 3's one added step: where `brokkr init` writes the map into
+its folder, a library writes its own. The long version: a **realms map** is the world an invocation
 opens (decision 0023) — the repositories it may see, and the one journal
 they share. A single project is the degenerate map with one entry, and
 pays nothing for the shape. Write this at your repository root:
@@ -189,7 +201,8 @@ check, which is worth the extra flag here.
 
 ## What each seat runs
 
-Then the spine's step 3, with `--recipe node` instead of `--bundle .`:
+Then the spine's step 3, with `--recipe node`, since a library has no
+folder to deliver under:
 
 ```
 brokkr run --recipe node --repo . \

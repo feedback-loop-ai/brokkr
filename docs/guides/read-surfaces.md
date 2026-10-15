@@ -22,9 +22,13 @@ than pretended away.
 
 `--realms <file>` chooses the **world** these surfaces read (decision
 0023): a map of repositories and the journal they share, defaulting to
-`./realms.json` when there is one. `--db` is retained and outranks the
-map's journal; with neither, the journal is `.forge/forge.db` exactly as
-it always was — a world that never drew a map notices nothing. A map
+the found folder's `.brokkr/realms.json` when there is one, from
+anywhere in the repository (decision 0083), and in a recipe library,
+which has no folder, to `./realms.json`. `--db` is retained and outranks
+the map's journal; with neither, the journal is the folder's
+`.brokkr/state/forge.db`, or a library's `.forge/forge.db`, and a
+repository with neither a folder nor a library mark has no journal
+place, so a surface there refuses and names `brokkr init .`. A map
 found rather than typed is still adopted, but not silently: when it sends
 the journal somewhere other than the path that would have been opened
 anyway, the surface names that journal on stderr before opening it.
@@ -56,7 +60,7 @@ run in another hearth. Since #374 every other verb that opens a journal
 `replay`, `ledger`, `anchor`, `keep-refs`, `compare`, `bridge`, `ui` and
 `doctor`'s database line — opens the journal the map names too, on the
 same three rules: `--db` outranks it, and with neither the journal is
-`.forge/forge.db`. A run started in a mapped world is resumed, concluded
+`.brokkr/state/forge.db`, or a library's `.forge/forge.db`. A run started in a mapped world is resumed, concluded
 or stopped with no `--db`. `ui` reads the fleet `tui` reads; because it
 serves one journal, a world whose realms name several hearths is refused
 by name until `--db` picks one.
@@ -65,7 +69,9 @@ by name until `--db` picks one.
 
 Every realm with its path, default branch and current HEAD, and the
 journal the world writes. Read-only, like every other readout, and
-`--json` emits the same derivation for scripts.
+`--json` emits the same derivation for scripts. The examples here are
+Brokkr's own repository, a recipe library, so its map and journal stand
+at the library's places.
 
 ```
 $ brokkr realms
@@ -150,7 +156,8 @@ anyone's permission is loud, not discovered later:
 
 ```text
 ok       capabilities brokkr: grants nothing; every native capability is governed by the no-grant default — switched off, or the seat is refused
-warn     capabilities brokkr native codex 'web-search': NOT granted here: every seat on codex is launched with it switched off by the adapter's declared control · evidence: codex-cli 0.154.0, cold `codex exec` only … · still unmeasured: whether the OFF switch holds on a RESUMED codex session is unmeasured; …
+ok       capabilities brokkr plan codex: adapter-level scope: … · a seat on codex that holds none of its native capabilities is admitted, each of them switched off by the composed command; that is composition, not a live measurement
+warn     capabilities brokkr native codex 'web-search': NOT granted here: the adapter-level plan above switches it off · evidence: codex-cli 0.154.0, cold `codex exec` only … · still unmeasured: whether the OFF switch holds on a RESUMED codex session is unmeasured; …
 warn     capabilities brokkr native dsh: native inventory unmeasured: … Nothing is granted through it and no native denial is claimed
 ```
 
@@ -210,10 +217,10 @@ another realm's section.
 
 ```
 $ brokkr runs
-alpha · 1 run · ./a/.forge/forge.db
+alpha · 1 run · ./a/.brokkr/state/forge.db
 many-hearths-8bf6d692 running implement seq 12 3s many hearths…
 
-beta · 1 run · ./b/.forge/forge.db
+beta · 1 run · ./b/.brokkr/state/forge.db
 the-other-slice-1a2b3c4d completed done seq 40 9m the other sli…
 ```
 
@@ -315,7 +322,8 @@ A seat on `spark-glm` is judged by that route's ceiling in place of
 route counts against its own ceiling and its provider's. Every floor must
 hold, in the order written, and the first that does not is the reason:
 `seat-scratch` is measured on the filesystem that holds the entry's own
-seat scratch, `.forge/scratch` in the repository it operates (or would
+seat scratch, `.brokkr/state/scratch` in the repository it operates, or
+a library's `.forge/scratch` (or would
 hold it, before the first attempt makes it); `temp` on the host's temp
 directory, where boxed seats' private `/tmp` and `HOME` are made; and a
 floor may name an absolute `path` in place of a `place`. Here the temp
@@ -720,7 +728,8 @@ Nothing it proposes is executed by the engine. Brokkr issues no operator
 command for Muninn, starts no run, gives the seat no repository tree (its
 working directory is a scratch directory) and no secrets, and writes to
 no run journal — proposals go to its own append-only file,
-`.forge/muninn.ndjson`, beside the journal and inside none of it. The
+`.brokkr/state/muninn.ndjson`, or a library's `.forge/muninn.ndjson`,
+beside the journal and inside none of it. The
 seat itself runs unboxed under `acceptEdits` and is told to propose
 only; what it could run beyond that is decided by Claude Code's
 permission model and the operator's own settings, not by Brokkr. Every proposal names the run ids and sequence numbers it was

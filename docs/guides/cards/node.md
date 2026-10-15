@@ -21,7 +21,7 @@ marker set and so the last one tried:
 Two things to check before step 3:
 
 - **`npm run lint` is a guess with a name on it.** If your
-  `package.json` has no `lint` script, edit `scripts/verify-seat.sh` — that
+  `package.json` has no `lint` script, edit `.brokkr/scripts/verify-seat.sh` — that
   is a five-second fix, and a lint that silently does not run is not.
 - **No install step is scaffolded.** What `npm ci` should do in your
   repository depends on your CI and your network posture, and a charter
@@ -33,11 +33,17 @@ The full transcript, annotated: [starters/node.md](../starters/node.md).
 
 `recipes/node` is the maintained reference recipe for a JavaScript
 stack, and it is a better starting point than the scaffold if you are
-adopting rather than experimenting:
+adopting rather than experimenting. It does not sit beside step 2's
+folder yet: in a repository with a `.brokkr/` folder, `brokkr recipes
+add` refuses and writes nothing, and recipes inside the folder are
+coming with [#696](https://github.com/feedback-loop-ai/brokkr/issues/696).
+The route that takes it today skips step 2 and installs it at your
+repository's root, which makes the repository a recipe library, with the
+library layout (`recipes/`, `adapters/`, and run state in `.forge/`):
 
 ```
 brokkr recipes add ~/src/brokkr/recipes/node --name node
-brokkr run --recipe node --repo . --feature "…"
+brokkr run --recipe node --feature "…"
 ```
 
 It has four seats rather than five (no intake — the feature text is the
@@ -49,9 +55,10 @@ doing.
 
 `recipes add` brings `fast`, the recipe `node` extends, into your
 library with it. **It brings no `adapters/` tree**, and `verify`,
-`review` and `ship` are gate-class. Copy `adapters/claude.json` into
-your repo *before* `recipes add`, or it refuses and leaves you nothing.
-This is [flow 3's](../quickstart.md#flow-3--adopt) first bullet.
+`review` and `ship` are gate-class. Copy Brokkr's `adapters/claude.json`
+into your repository's `adapters/` *before* `recipes add`, or it refuses
+and leaves you nothing. This is
+[flow 3's](../quickstart.md#flow-3--adopt) first bullet.
 
 ## Monorepos
 
@@ -73,7 +80,7 @@ registry. The charters also say, in those words, that this is a monorepo
 — so a seat does not helpfully narrow the command back down to one
 package.
 
-Raise an agent's `limits` in `agents/*.json` if your install alone runs
+Raise an agent's `limits` in `.brokkr/agents/*.json` if your install alone runs
 ten minutes — the bounds ride on the agent the seat names, not on the seat.
 
 ## See also

@@ -1,8 +1,11 @@
 # Starter sample — Go
 
-Transcribed from a real `brokkr init` run against fixture
+Transcribed from a real `brokkr init .` run at the root of a fresh `git
+init` copy of fixture
 [`crates/brokkr-cli/tests/fixtures/init-stacks/go/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/go/).
-Nothing here was written by hand.
+Nothing here was written by hand but the copy's absolute path, shown as
+`/home/you/my-app`, and the elided paths every stack writes, which the
+[quickstart](../quickstart.md#step-2--brokkr-init-) lists.
 
 ## The repository init read
 
@@ -19,35 +22,36 @@ go 1.22
 ## The invocation
 
 ```
-$ brokkr init my-bundle
+$ brokkr init .
 ```
 
 ```text
-initialized reviewable bundle at my-bundle (digest feac6d904f012e999c22f74277663b1315a57253c43fcf8acdd02f723e60d60b)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+initialized /home/you/my-app/.brokkr (digest c493129830a041783dc7bbdf23663192c31e706b35a3cc1ef584f92e64cfc75e), writing:
+  … fifteen paths and a note, elided here
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+commit the folder: git add .brokkr && git commit
 ```
 
 ## What it wrote
 
-The same scaffold shape as every stack: three model offices and two exec
-gates that Brokkr boxes under `namespace` only, with model and exec adapters, verify/ship scripts and
-`realms.json`. The
+The same `.brokkr/` folder as every stack: three model offices and two
+exec gates that Brokkr boxes under `namespace` only, with model and exec
+adapters, verify/ship scripts and `realms.json`. The
 invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote); so are the fixed parts of the agent
 files. What this repository changed is the stack's own data:
 
-- `agents/charters/implementer.md` and `scripts/verify-seat.sh`
+- `.brokkr/agents/charters/implementer.md` and `.brokkr/scripts/verify-seat.sh`
   below;
-- `adapters/claude.json`'s tool map and every agent's `tools.allow`,
+- `.brokkr/adapters/claude.json`'s tool map and every agent's `tools.allow`,
   sized to this stack's commands (shown after the charters).
 
-## `agents/charters/implementer.md`
+## `.brokkr/agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
 
-Implement the framed task (see `.forge/tasks/`). Match the project's
+Implement the framed task (see `.brokkr/state/tasks/`). Match the project's
 idiom. Tests are part of the change.
 
 This repository reads as a go project (`go.mod`), so use its own
@@ -78,7 +82,7 @@ report `complete` with failing tests or uncommitted changes.
 - **No install step**, for the same reason as node: `go build` resolves
   the module cache itself.
 
-## `scripts/verify-seat.sh`
+## `.brokkr/scripts/verify-seat.sh`
 
 The deterministic verifier contains these detected command pins:
 

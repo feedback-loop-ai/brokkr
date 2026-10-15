@@ -1,14 +1,17 @@
 # Starter sample — Bun
 
 **This page extends [node.md](node.md).** The scaffold is the same
-fourteen files; what differs is the stack's own data — the two charters'
+fifteen files under `.brokkr/`; what differs is the stack's own data — the two charters'
 package-manager lines, the adapter's tool map and every agent's
 `tools.allow`. If you have not read the node sample, read it first —
 everything it says about the invariant `bundle.json`, the missing install
 step and the `NO STACK WAS RECOGNIZED` banner still holds.
 
-Transcribed from a real run against fixture
-[`crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/).
+Transcribed from a real `brokkr init .` run at the root of a fresh `git
+init` copy of fixture
+[`crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/),
+its absolute path shown as `/home/you/my-app` and the paths every
+stack writes elided, as [node.md](node.md) elides them.
 
 ## The repository init read
 
@@ -33,21 +36,22 @@ Transcribed from a real run against fixture
 ## The invocation
 
 ```
-$ brokkr init my-bundle
+$ brokkr init .
 ```
 
 ```text
-initialized reviewable bundle at my-bundle (digest fcdb0fc2d428c0b73746ec923a9be398f9dc64d2455da8a6dd1177d6e5d89ce0)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+initialized /home/you/my-app/.brokkr (digest d7923ff8d84d425d4b6bc26d6752eba1ab75d64cea1acf5d866675498303f7c3), writing:
+  … fifteen paths and a note, elided here
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+commit the folder: git add .brokkr && git commit
 ```
 
-## `agents/charters/implementer.md`
+## `.brokkr/agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
 
-Implement the framed task (see `.forge/tasks/`). Match the project's
+Implement the framed task (see `.brokkr/state/tasks/`). Match the project's
 idiom. Tests are part of the change.
 
 This repository reads as a node/bun project (`package.json` + `bun.lock`), so use its own
@@ -91,7 +95,7 @@ The three lines that differ from [node.md](node.md), and why:
   `test` script" — bare `bun test` is bun's own test runner, which is a
   different program. `bun run test` runs what `package.json` says.
 
-## `scripts/verify-seat.sh`
+## `.brokkr/scripts/verify-seat.sh`
 
 The deterministic verifier pins `bun run test` and
 `bun run typecheck`. It runs both, types `pass` only when both exit

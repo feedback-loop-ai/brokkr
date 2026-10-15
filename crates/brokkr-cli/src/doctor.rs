@@ -20,7 +20,7 @@ use brokkr_runtime::capabilities::{
     restriction_names, Authority, Disposition, NativeInventory, Outcome, Requests, Strength,
     ADAPTER_SEAT,
 };
-use brokkr_runtime::{resolve_agent, Adapters, Availability, Bundle, Library, Presence};
+use brokkr_runtime::{resolve_agent, Adapters, Availability, Library, Presence};
 
 use crate::boundary;
 use crate::render::Safe;
@@ -698,8 +698,10 @@ pub(crate) fn doctor(
             Ok(Some(world)) => Ok(world.journal()),
             _ => defaults.journal(),
         });
+    let mapped = world.as_ref().ok().and_then(Option::as_ref);
+    let inspected = folder::bundle(bundle, defaults, realms, mapped);
     let (mut report, availability) = doctor_observed(
-        bundle,
+        &inspected,
         Paths {
             db: db.as_deref().map_err(|none| *none),
             library_root: &defaults.agents,
@@ -709,11 +711,6 @@ pub(crate) fn doctor(
         tool_version,
         ambient_variable,
         boundary,
-        bundle.map(|dir| {
-            let world = world.as_ref().ok().and_then(Option::as_ref);
-            brokkr_runtime::launch::compile_for(&workspace, dir, world, &workspace)
-                .map_err(Into::into)
-        }),
         dsh_provider_line,
     );
     report_capabilities(
@@ -723,8 +720,7 @@ pub(crate) fn doctor(
         &defaults.adapters,
         &availability,
     );
-    let mapped = world.as_ref().ok().and_then(Option::as_ref);
-    folder::report_folder(&mut report, defaults, realms);
+    folder::report_folder(&mut report, defaults, realms, inspected.folder());
     let adapters = &defaults.adapters;
     provisional::report_provisional(&mut report, adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);
@@ -1406,11 +1402,19 @@ fn doctor_in(
     probe: fn(&str) -> Option<String>,
     ambient: fn(&str) -> bool,
     boundary: Boundary,
-    compiled: Option<anyhow::Result<Bundle>>,
+    compiled: Option<anyhow::Result<brokkr_runtime::Bundle>>,
     composite: CompositeProbe,
 ) -> Report {
+    // A bundle given is compiled against the roots doctor was asked about.
+    let inspected = bundle.map_or(folder::Inspected::Neither, |dir| {
+        let compiled = compiled.unwrap_or_else(|| {
+            brokkr_runtime::Bundle::compile_under(dir, library_root, adapters_root, boundary)
+                .map_err(Into::into)
+        });
+        folder::Inspected::Given(dir.to_path_buf(), compiled)
+    });
     doctor_observed(
-        bundle,
+        &inspected,
         Paths {
             db: Ok(db),
             library_root,
@@ -1420,19 +1424,17 @@ fn doctor_in(
         probe,
         ambient,
         boundary,
-        compiled,
         composite,
     )
     .0
 }
 
 fn doctor_observed(
-    bundle: Option<&Path>,
+    bundle: &folder::Inspected,
     paths: Paths<'_>,
     probe: fn(&str) -> Option<String>,
     ambient: fn(&str) -> bool,
     boundary: Boundary,
-    compiled: Option<anyhow::Result<Bundle>>,
     composite: CompositeProbe,
 ) -> (Report, Availability) {
     let Paths {
@@ -1466,23 +1468,11 @@ fn doctor_observed(
             "required for worktree, drift, and dirty gates".into(),
         ),
     }
-    // Compile now so the hands probe can name the exact boxed sites in
-    // the bundle the operator asked doctor to inspect. The bundle result
+    // Compiled already, so the hands probe can name the exact boxed sites
+    // in the bundle the operator asked doctor to inspect. The bundle result
     // is still rendered at the end, after the other diagnostics.
-    let compiled = bundle.map(|dir| {
-        (
-            dir,
-            compiled.unwrap_or_else(|| {
-                Bundle::compile_under(dir, library_root, adapters_root, boundary)
-                    .map_err(Into::into)
-            }),
-        )
-    });
     let unboxed = std::collections::BTreeMap::new();
-    let hands = compiled
-        .as_ref()
-        .and_then(|(_, result)| result.as_ref().ok())
-        .map_or(&unboxed, |bundle| &bundle.hands);
+    let hands = bundle.compiled().map_or(&unboxed, |bundle| &bundle.hands);
     // Decision 0046 ruling 2: one line naming the boundaries a run can
     // start under here, and the `hands` line judged against the realm's
     // boundary rather than against bubblewrap alone (decision 0043's
@@ -1526,24 +1516,18 @@ fn doctor_observed(
     // trust, so it is no bundle to inspect — and it says which of the
     // two silences it is, rather than reading an empty set as "no seat
     // binds anything" or telling the operator they passed no bundle.
-    let declared: Option<BTreeSet<String>> = compiled.as_ref().and_then(|(_, result)| {
-        result.as_ref().ok().map(|bundle| {
-            bundle
-                .seats
-                .values()
-                .flat_map(|seat| seat.secrets.iter().cloned())
-                .collect()
-        })
+    let declared: Option<BTreeSet<String>> = bundle.compiled().map(|bundle| {
+        bundle
+            .seats
+            .values()
+            .flat_map(|seat| seat.secrets.iter().cloned())
+            .collect()
     });
-    let seats = match (&compiled, &declared) {
-        (_, Some(declared)) => Seats::Declared(declared),
-        (Some(_), None) => Seats::BundleDidNotCompile,
-        (None, None) => Seats::NoBundleGiven,
-    };
+    let seats = bundle.seats(declared.as_ref());
     report_ambient_credentials(&mut report, adapters_root, secrets_store, seats, ambient);
     paths::report_database(&mut report, db);
 
-    if let Some((dir, result)) = compiled {
+    if let Some((dir, result)) = bundle.line() {
         match result {
             Ok(bundle) => report.ok(
                 "bundle",

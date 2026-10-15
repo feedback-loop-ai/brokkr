@@ -157,12 +157,13 @@ $ brokkr doctor
 ```
 
 ```text
+warn     folder: none from /home/you/my-app up to /home/you/my-app — brokkr init . writes one
 ok       contracts: engine 0.12.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
 warn     exec: binary 'sh' not found — seats resolving to this provider will fail to spawn · serves no abstract model yet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
-ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
+ok       dialect brokkr: openspec · tool 'openspec' 1.12.0 · pinned 1.12.0 · probed inside the box
 ok       dialect brokkr requires openspec/config.yaml: present at …/openspec/config.yaml
 …
 ```
@@ -174,12 +175,17 @@ find out mid-run. Warnings are optional capabilities. `doctor` executes
 no agent. Dialect lines compare the installed specification tool with the
 realm's pin and check every file its dialect requires; a missing dialect tool
 warns that the design route will refuse without making the whole doctor fail.
-Four flags: `--bundle <dir>` also compiles a bundle and reports
-the result, and `--db <path>` chooses the workspace journal (default: the
-map's journal, else `.forge/forge.db`); `--realms <path>` selects a
-non-default realm map, and `--secrets-file <path>` names the secrets
-store (default `.forge/secrets.env`) so doctor can say which declared
-credentials a route takes from the ambient environment instead.
+The first line is always the folder: the `.brokkr/` folder doctor found
+and from where, `none` before step 2 has written one, or why it cannot
+read one. Once the folder stands, it is doctor's bundle: its agents,
+providers, capabilities and `bundle` line come from the folder's one
+compile, and a folder that does not compile says so on the folder line.
+Four flags, each outranking the folder: `--bundle <dir>` compiles that
+bundle instead, `--db <path>` chooses the workspace journal (default:
+the map's journal, else `.brokkr/state/forge.db`), `--realms <path>`
+selects another realm map, and `--secrets-file <path>` names the secrets
+store (default `.brokkr/state/secrets.env`) so doctor can say which
+declared credentials a route takes from the ambient environment instead.
 
 ### Step 2 — `brokkr init .`
 
@@ -194,62 +200,115 @@ $ brokkr init .
 ```
 
 ```text
-initialized reviewable bundle at . (digest 4a0f568f35fd6efec2fc66574651c3d786fbfcf54fcdc2bb34a247f0fcf426c9)
-run brokkr from inside . — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+initialized /home/you/my-app/.brokkr (digest f03121db1c9a6670cba6f60b85c6353f20f8dc01d37ae3b06c66e94fe45c97ef), writing:
+  .brokkr/.gitignore
+  .brokkr/adapters/claude.json
+  .brokkr/adapters/exec.json
+  .brokkr/agents/README.md
+  .brokkr/agents/charters/implementer.md
+  .brokkr/agents/charters/intake.md
+  .brokkr/agents/charters/reviewer.md
+  .brokkr/agents/implementer.json
+  .brokkr/agents/intake.json
+  .brokkr/agents/reviewer.json
+  .brokkr/bundle.json
+  .brokkr/policy.json
+  .brokkr/realms.json
+  .brokkr/scripts/ship-seat.sh
+  .brokkr/scripts/verify-seat.sh
+Scaffolded for `claude`, the first of claude, codex and dsh found on PATH.
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+commit the folder: git add .brokkr && git commit
 ```
 
-`init` takes the directory as a **positional argument**, not a flag. It
-refuses rather than overwriting a directory that already has a
-`bundle.json`, either adapter declaration, an agent definition, or a seat
-script
-`agents/` — a trust tier and a tool grant are operator rulings, not a
-scaffold's — and it compiles the bundle before printing the digest, so
-what you were handed is a thing that runs.
+That is a real run on Linux, at the root of a fresh `git init` copy of
+the Rust fixture
+[`init-stacks/rust/`](../../crates/brokkr-cli/tests/fixtures/init-stacks/rust/),
+with `claude` on `PATH`; the repository's absolute path is shown as
+`/home/you/my-app`.
 
-What it wrote:
+`init` takes the directory as a **positional argument**, not a flag, and
+that directory must be the root of its repository, because every verb
+reads the folder only there (decision
+[0083](../decisions/0083-an-adopters-brokkr-lives-in-one-folder.md)).
+Everything it writes goes into one folder, `.brokkr/`, and nothing else
+in your repository is touched: your own `README.md`, `.gitignore`,
+`scripts/`, `agents/` and `policy.json` stay yours. It refuses, writing
+nothing, where it would not leave a folder discovery reads:
+
+- a directory below the root names the root: `` <dir> is inside the
+  repository <root> but is not its root (decision 0083); a folder is
+  read only at the root: run `brokkr init <root>` ``;
+- a directory that does not exist is never created: `reading <dir>: No
+  such file or directory (os error 2)`;
+- a `.brokkr/` that already holds anything but a `.gitignore` and
+  `state/` names what it holds: `<root>/.brokkr already holds adapters,
+  agents, … (decision 0083); init writes a folder only where none stands,
+  or beside moved state (.gitignore and state/ alone): move or remove
+  them`;
+- a recipe library, a repository with a `recipes/<name>/bundle.json`,
+  keeps its own layout, and `init` writes nothing there.
+
+It compiles the folder before printing the digest, so what you were
+handed is a thing that runs, and it prints every path it wrote.
+
+What the folder holds:
 
 ```
-./bundle.json          # five seats: three model offices and two exec gates, boxed under namespace only
-./policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
-./realms.json          # the realm map: this repository, its journal, and the boundary where one is declared
-./adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
-./adapters/exec.json   # the deterministic exec driver
-./agents/README.md     # what was written, and which tools the seats were granted — your own README is untouched
-./agents/intake.json   # model offices: charter, model chain, tool grant, limits
-./agents/implementer.json
-./agents/reviewer.json
-./agents/charters/intake.md
-./agents/charters/implementer.md
-./agents/charters/reviewer.md
-./scripts/verify-seat.sh # detected test and lint commands; under namespace, boxed with no network
-./scripts/ship-seat.sh   # deterministic ledger and closeout
-./dialects/              # only in a spec-kit or OpenSpec repository: the detected dialect's pinned data
-./.forge/.gitignore      # ignores the run's own journal, results and ledger; one already there is kept
+.brokkr/.gitignore           # one line, state/: what a run writes stays out of git
+.brokkr/bundle.json          # five seats: three model offices and two exec gates, boxed under namespace only
+.brokkr/policy.json          # forge.phase-machine/v1, seven phases, nineteen rules
+.brokkr/realms.json          # the realm map: realm path "..", journal "state/forge.db", and the boundary where one is declared
+.brokkr/adapters/claude.json # the trust tier your gates judge on, and the tool map — yours to edit
+.brokkr/adapters/exec.json   # the deterministic exec driver
+.brokkr/agents/README.md     # what was written, and which tools the seats were granted
+.brokkr/agents/intake.json   # model offices: charter, model chain, tool grant, limits
+.brokkr/agents/implementer.json
+.brokkr/agents/reviewer.json
+.brokkr/agents/charters/intake.md
+.brokkr/agents/charters/implementer.md
+.brokkr/agents/charters/reviewer.md
+.brokkr/scripts/verify-seat.sh # detected test and lint commands; under namespace, boxed with no network
+.brokkr/scripts/ship-seat.sh   # deterministic ledger and closeout
+.brokkr/dialects/              # only in a spec-kit or OpenSpec repository: the detected dialect's pinned data
+.brokkr/state/                 # not written by init: the journal and everything a run writes, ignored
 ```
 
 `init` scaffolds for the first agent CLI on `PATH`: `claude`, `codex`
 or `dsh`, and `claude` when none is found. A codex scaffold writes
-`adapters/codex.json` in place of `adapters/claude.json`, hires every
+`.brokkr/adapters/codex.json` in place of `.brokkr/adapters/claude.json`, hires every
 model seat from codex, and declares the `harness` boundary in
-`realms.json`, so codex's own sandbox holds each model seat's hands —
+`.brokkr/realms.json`, so codex's own sandbox holds each model seat's hands —
 read-only for the review gate, workspace-write for intake and
 implement. dsh cannot hold the
 review gate, because its adapter is untrusted and names no judges. A dsh
 scaffold therefore hires intake and implement from dsh and keeps the
-reviewer on claude, and says so. On macOS `realms.json` declares
+reviewer on claude, and says so. On macOS `.brokkr/realms.json` declares
 `harness` whatever the CLI, because the default `namespace` boundary
 needs Linux bubblewrap 0.11 or newer. Under `harness`, verify and ship
 run their pinned scripts under no box of Brokkr's: the engine rebuilds
 their environment, and no network denial is confirmed. The scaffold's
-`agents/README.md` and the note a passing verify journals follow the
+`.brokkr/agents/README.md` and the note a passing verify journals follow the
 boundary `init` declared: a `namespace` scaffold's note says the
 network was denied, and a `harness` scaffold's says "passed unboxed,
 with no network denial confirmed"
 ([security model](../security-model.md)).
-Commit the scaffold before the
-first run: the ship gate closes out only on a clean tree, and the
-`.forge/.gitignore` keeps the run's own output out of it.
+Commit the folder before the first run, with the line `init` ends on,
+`git add .brokkr && git commit`: the ship gate closes out only on a
+clean tree, and `.brokkr/.gitignore` keeps what a run writes under
+`.brokkr/state/` out of it. From then on every verb finds the folder
+from anywhere in the repository, walking up to the git root.
+
+**Coming from the old layout.** A repository an earlier `brokkr init`
+scaffolded, with `bundle.json` or `.forge/` at its root, is refused by
+every verb before anything is opened, and the refusal lists the moves
+into `.brokkr/` (decision 0083 ruling 4): `this repository has Brokkr's
+old root layout and no .brokkr/ folder (decision 0083); nothing was
+opened, and Brokkr moves nothing`. Brokkr moves nothing itself; make
+the moves, by hand or with an agent, and `brokkr doctor` checks the
+result. A run that has not ended is ended first, through the one escape,
+a journal named on the command line, which reads the old layout whole:
+`brokkr conclude --run <id> --reason "…" --db .forge/forge.db`.
 
 The table has five working phases — `intake`, `implement`, `verify`,
 `review`, `ship` — plus the two terminals `done` and `stop`. `review` is
@@ -294,7 +353,9 @@ function of what was scaffolded, and two repositories with different
 stacks get different charters and tool maps and so different digests.
 
 If you would rather start from a maintained strategy than a scaffold,
-the library ships several:
+Brokkr's own repository is a recipe library that ships several. A
+library keeps its own layout, with no `.brokkr/` folder, and from a
+checkout of it:
 
 ```
 $ brokkr recipes list
@@ -306,33 +367,47 @@ triage	<digest>	12 phases	analyze[check>judge], clarify[check>judge], design[pos
 ```
 
 The twelve hex characters after the name are the leading bytes of the
-recipe's content digest. Use `--recipe <name>` instead of `--bundle
-<dir>` to run one of these; `--recipes-dir` (default `recipes`) says
-where the library lives.
+recipe's content digest. Use `--recipe <name>` instead of a bundle to
+run one of these; `--recipes-dir` (default `recipes`) says where the
+library lives, so a library is used from its own root, or named:
+`brokkr run --recipe <name> --recipes-dir <library>/recipes`. A
+repository with a `.brokkr/` folder cannot install a recipe into itself
+yet: `brokkr recipes add` refuses there and writes nothing, and recipes
+inside the folder are coming with
+[#696](https://github.com/feedback-loop-ai/brokkr/issues/696).
 
 ### Step 3 — `brokkr run`
 
 ```
-$ brokkr run --bundle . --repo . --feature "prefix selectors for the read surfaces"
+$ brokkr run --feature "prefix selectors for the read surfaces"
 run started: prefix-selectors-for-the-read-su-8bf6d692
 …
 ```
 
-`brokkr run` requires **exactly one** of `--bundle <dir>` or `--recipe
-<name>` — clap enforces the group — and `--feature <text>`. The rest:
+With the folder committed, `brokkr run` needs only `--feature <text>`,
+from anywhere in the repository: it walks up to the git root, finds
+`.brokkr/` there, and takes the bundle, the map, the journal, the agents,
+the adapters and the secrets store from it. Every flag still outranks
+the folder, each for its own fact (decision 0083 ruling 2), and
+`--bundle <dir>` and `--recipe <name>` may not both be given. The
+defaults, with the folder and in a recipe library, which has none:
 
-| Flag | What it does | Default |
-|---|---|---|
-| `--repo <path>` | The working directory seats run in and commit to. | The process's current directory. There is no flag default; the engine falls back to the cwd it was launched from. |
-| `--db <path>` | The workspace journal. Outranks a realms map's journal. | With neither `--db` nor a map, `.forge/forge.db`. |
-| `--realms <file>` | The world's map: repositories and the one journal they share. | `./realms.json` when there is one. A map named explicitly and missing or malformed is a refusal, never a silent fallback. |
-| `--recipes-dir <path>` | Where `--recipe` names are resolved. | `recipes` |
-| `--secrets-file <path>` | The operator-side secrets store, for seats with declared bindings. | `<workdir>/.forge/secrets.env` |
-| `--dispatch <file>` | A canonical `forge-dispatch/v2` JSON, for Looper-bound runs. | none |
+| Flag | What it does | With `.brokkr/` | In a recipe library |
+|---|---|---|---|
+| `--bundle <dir>`, `--recipe <name>` | The bundle the run delivers under. | `.brokkr/` | none: name one, or the run refuses and names `brokkr init .` |
+| `--repo <path>` | The working directory seats run in and commit to. | The repository root the folder stands in. | The process's current directory. |
+| `--db <path>` | The workspace journal. Outranks a realms map's journal. | The map's journal, else `.brokkr/state/forge.db`. | The map's journal, else `.forge/forge.db`. |
+| `--realms <file>` | The world's map: repositories and the one journal they share. | `.brokkr/realms.json` when there is one. | `./realms.json` when there is one. |
+| `--recipes-dir <path>` | Where `--recipe` names are resolved. | `recipes` | `recipes` |
+| `--secrets-file <path>` | The operator-side secrets store, for seats with declared bindings. | `.brokkr/state/secrets.env` | `.forge/secrets.env` |
+| `--dispatch <file>` | A canonical `forge-dispatch/v2` JSON, for Looper-bound runs. | none | none |
 
-`--repo .` is worth typing even though the cwd is the fallback: it makes
-the working directory explicit in the command someone reads six months
-later.
+A map named explicitly and missing or malformed is a refusal, never a
+silent fallback. A repository with neither a folder nor a library's
+`recipes/<name>/bundle.json` has no place for a journal, so a run there
+refuses before it creates anything: ``no .brokkr/ folder from <cwd> up to
+<root>, and <root> is not a recipe library (decision 0083); nothing was
+created: run `brokkr init .` from <root>``.
 
 The run drives real agent sessions to completion in the foreground, and on
 a terminal it shows the TUI's run view while it does: `q` closes the view
@@ -449,7 +524,7 @@ becomes:
 > the run go to `done` or `stop`.
 >
 > ```
-> brokkr run --bundle . --repo . \
+> brokkr run \
 >   --feature "cache the /health probe for 5s; add a test proving the second call does not hit the DB"
 > ```
 >
@@ -466,36 +541,48 @@ for when 3′ ends somewhere other than `done`.
 ## Flow 3 — adopt
 
 The spine, plus one step, for an existing repository whose recipe you
-did not write. Steps 1, 3 and 4 are unchanged; between 1 and 2:
+did not write. Steps 1, 3 and 4 are unchanged; after 2:
 
-> **1′.** Write the `realms.json` that says which repositories this
-> world contains and which journal they share.
+> **2′.** Read the map that says which repositories this world contains
+> and which journal they share. `brokkr init` wrote it as
+> `.brokkr/realms.json`:
 >
 > ```json
 > {
->   "schema": "forge.realms/v1",
+>   "journal": "state/forge.db",
 >   "realms": [
->     { "name": "my-app", "path": ".", "default_branch": "main" }
+>     {
+>       "default_branch": "main",
+>       "name": "starter",
+>       "path": ".."
+>     }
 >   ],
->   "journal": ".forge/forge.db"
+>   "schema": "forge.realms/v3"
 > }
 > ```
 >
 > Three fields per realm, all required, and paths are relative to the
-> map file's own directory so the map travels with the workspace. A
-> single project is the degenerate one-entry map and pays nothing for
-> the shape. Check what yours says with `brokkr realms`.
+> map file's own directory, `.brokkr/`, so the realm path `..` is the
+> repository and the journal is `.brokkr/state/forge.db`. A single
+> project is the degenerate one-entry map and pays nothing for the
+> shape; rename the realm, or add the repositories it works beside.
+> Check what yours says with `brokkr realms`.
 
 Two things that are **not** deltas and must not be skipped when you
 adopt a repository you did not write:
 
-- **The adapters are yours, not the scaffold's.** If you take a
-  maintained recipe (`brokkr recipes add …`) rather than `brokkr init`,
-  no `adapters/` tree arrives with it, and `verify`, `review` and `ship`
-  are `class: "gate"` — a gate requires a driver holding the trusted
-  tier, checked when the bundle compiles, before any prompt exists. Copy
-  `adapters/claude.json` out of this repository into yours first, or
-  `recipes add` refuses and leaves you no recipe.
+- **The adapters are yours, not a recipe's.** `verify`, `review` and
+  `ship` are `class: "gate"`, and a gate requires a driver holding the
+  trusted tier, checked when the bundle compiles, before any prompt
+  exists. `brokkr init` declares that tier in
+  `.brokkr/adapters/claude.json`, yours to read and edit. A maintained
+  recipe brings no adapters with it, and a repository with a `.brokkr/`
+  folder cannot install one yet: `brokkr recipes add` refuses there and
+  writes nothing, until
+  [#696](https://github.com/feedback-loop-ai/brokkr/issues/696) gives
+  the folder its own recipes. The route that installs one today makes
+  the repository a recipe library, as
+  [adopting-a-node-repo.md](adopting-a-node-repo.md) says.
 - **Know what you are granting.** Every seat's driver may run your
   project's toolchain, so every seat — the gates included — executes
   third-party code by design. In a Node repo `npm ci` runs the
@@ -521,18 +608,23 @@ edits that actually come up, is
 
 ### Where the run wrote things
 
-Relative to the working directory (`--repo`, or the cwd):
+Under the folder's `state/`, at the repository root:
 
-- `.forge/forge.db` — the journal, unless `--db` or a map says otherwise.
-- `.forge/tasks/<slug>.md` — the intake seat's framing, run-local.
-- `.forge/results/<effect_id>.json` — one typed result file per seat
-  attempt. This file is the only channel the engine reads from a seat;
-  anything a seat prints to stdout is not a result.
-- `.forge/ledger/<run-id>.md` — the shipper's close-out, if the run got
-  that far.
-- `.forge/secrets.env` — only if you used `brokkr secrets`.
+- `.brokkr/state/forge.db` — the journal, unless `--db` or a map says
+  otherwise.
+- `.brokkr/state/tasks/<slug>.md` — the intake seat's framing, run-local.
+- `.brokkr/state/results/<effect_id>.json` — one typed result file per
+  seat attempt. This file is the only channel the engine reads from a
+  seat; anything a seat prints to stdout is not a result.
+- `.brokkr/state/scratch/` — each seat's scratch directory.
+- `.brokkr/state/ledger/<run-id>.md` — the shipper's close-out, if the
+  run got that far.
+- `.brokkr/state/secrets.env` — only if you used `brokkr secrets`.
 
-Add `.forge/` to your `.gitignore`. It is evidence, not source.
+`.brokkr/.gitignore`, which `init` wrote, keeps all of it out of git: it
+is evidence, not source, and your own `.gitignore` needs no line. A
+recipe library writes the same files under `.forge/` in the working
+directory instead, and ignores that itself.
 
 ### The escape hatches
 
@@ -547,7 +639,8 @@ brokkr operator --run <id> acknowledge --reason "history from an older engine"
 ```
 
 The command is a **positional argument** and `--reason` is **required**;
-`--db` defaults to `.forge/forge.db`. There are four commands:
+`--db` defaults to the journal step 3 ruled: the map's, else
+`.brokkr/state/forge.db`. There are four commands:
 `retry` re-runs the current phase, `stop` ends the run, `supersede`
 records that residual findings on a run that has already finished were
 closed by another run's ruling (decision 0047), and `acknowledge`
@@ -590,7 +683,7 @@ and leaves only through `retry` or `stop`.
 #### Resume
 
 ```
-brokkr resume --run <id> --bundle .
+brokkr resume --run <id>
 brokkr resume --run <id> --recipe triage
 ```
 
@@ -600,11 +693,11 @@ is refused with a diagnostic rather than helpfully picking up your
 edited files. If you changed the bundle, that is a new run, not a
 resumed one.
 
-`brokkr resume` takes `--bundle`/`--recipe` (exactly one), `--run`,
-`--realms`, `--db`, `--repo` and `--secrets-file`. The journal is the one
-`run` wrote: `--db` when typed, else the journal the map names, else
-`.forge/forge.db` — so a run started in a mapped world is resumed with no
-`--db`.
+`brokkr resume` takes `--bundle` or `--recipe` (at most one, and the
+folder without either), `--run`, `--realms`, `--db`, `--repo` and
+`--secrets-file`. The journal is the one `run` wrote: `--db` when typed,
+else the journal the map names, else `.brokkr/state/forge.db` — so a run
+started in the folder's world is resumed with no `--db`.
 
 #### Conclude — closing a run whose bundle no longer compiles
 
@@ -671,7 +764,7 @@ $ brokkr costs --run latest
 Per seat: `attempts` counted from `effect/started` events, and `turns`
 and `cost_usd` summed from the `num_turns` and `total_cost_usd` fields
 the driver reported in its checkpoints. `--db` defaults to the journal
-the map names, else `.forge/forge.db`; `--realms` names the map.
+the map names, else `.brokkr/state/forge.db`; `--realms` names the map.
 
 Be clear-eyed about this:
 
@@ -782,19 +875,28 @@ $ brokkr doctor                           # tools, agent CLIs, database, contrac
 ```
 
 ```text
+warn     folder: none from /home/you/my-app up to /home/you/my-app — brokkr init . writes one
 ok       contracts: engine 0.12.0, event_schema 1, database_schema 1, driver_protocol 1
 ok       git: git version 2.51.0
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
-ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
+ok       dialect brokkr: openspec · tool 'openspec' 1.12.0 · pinned 1.12.0 · probed inside the box
 …
 ```
 
 ```
-$ brokkr init .                           # scaffold a reviewable starter recipe
-initialized reviewable bundle at . (digest …)
+$ brokkr init .                           # scaffold a reviewable starter recipe into .brokkr/
+```
 
-$ brokkr run --bundle . --repo . --feature "prefix selectors for the read surfaces"
+```text
+initialized /home/you/my-app/.brokkr (digest …), writing:
+…
+commit the folder: git add .brokkr && git commit
+```
+
+```
+$ git add .brokkr/ && git commit -m "the starter folder"
+$ brokkr run --feature "prefix selectors for the read surfaces"
 run started: prefix-selectors-for-the-read-su-8bf6d692
 …
 
@@ -808,9 +910,11 @@ stopped, without parsing anything.
 `brokkr init` writes a starter recipe you are meant to read: a seven-phase
 policy table (five working phases plus `done` and `stop`) with the review
 gate constitutionally protected, three model offices, and exec verify and
-ship gates, boxed only under the `namespace` boundary. The agent files in the scaffold's own `agents/` carry each
+ship gates, boxed only under the `namespace` boundary, all of it in one
+`.brokkr/` folder at the repository root. The agent files in
+`.brokkr/agents/` carry each
 model office's charter, model chain and tool grant; all seat limits remain
-in `bundle.json`. It compiles the bundle before printing
+in `.brokkr/bundle.json`. It compiles the bundle before printing
 the digest, so the thing you were handed is a thing that runs. It also
 reads the repository you ran it from — the manifests and lockfiles at
 that root, nothing executed — so the implementer's and verifier's
@@ -826,7 +930,7 @@ command it did not need. The same stack decides what the seats are
 pre-approved to RUN, not what else the operator's own Claude Code
 settings allow them:
 the binaries its commands invoke are written into the scaffold's
-`adapters/claude.json` `tool_permissions.names` as `Bash(<bin>:*)`
+`.brokkr/adapters/claude.json` `tool_permissions.names` as `Bash(<bin>:*)`
 entries and granted in the agents' `tools.allow` — the whole set to the
 work seats, and the same set without `mkdir` (the test runner's tools
 plus `git`, `ls` and `rg`) to the review gate's agent, which that smaller

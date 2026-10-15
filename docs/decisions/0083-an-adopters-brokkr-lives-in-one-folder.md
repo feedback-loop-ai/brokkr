@@ -3,7 +3,7 @@
 Status: accepted (operator ruled in chat, 2026-10-11, on #634)
 Date: 2026-10-11
 
-Built: partial (#634) — slice A: discovery, the defaults that follow from it, and the old-layout refusals; slice B: `init` writes the folder and `doctor` checks it; the guides of ruling 6 remain
+Built: built — slice A: discovery, the defaults that follow from it, and the old-layout refusals; slice B: `init` writes the folder and `doctor` checks it; slice C: the guides of ruling 6, doctor's folder as its bundle, and the Addendum
 
 ## Context
 
@@ -574,3 +574,133 @@ scaffold, and its layout stays.
   agent, and keeps every journaled run, because the journal moves with its
   `-wal` and `-shm`; `brokkr doctor` checks the moved folder.
 - Brokkr's own repository is unchanged by the build.
+
+## Addendum — 2026-10-15, the operator's rulings on the build (#634)
+
+The build landed in three slices: discovery, the defaults and the
+old-layout refusals (#672); `init` and `doctor` (#686); and the guides
+with this addendum. The operator ruled on #634 as the slices were
+reviewed. This addendum records those rulings, each with its date, and
+the rulings above keep their own text: where one below narrows or
+supersedes a sentence above, this addendum is what binds. Its text is
+the operator's to accept in the pull request that lands it.
+
+**2026-10-13, four rulings on the first slice.**
+
+1. **A recipe library keeps its layout.** A repository whose root holds
+   a `recipes/<name>/bundle.json` is a library, exempt from ruling 4's
+   old-layout refusal, and it keeps its layout whole, a tracked root
+   `bundle.json` beside `recipes/` included. This narrows ruling 4's
+   "No library root holds one": a library root may, and it is no root
+   layout. A library outranks a folder beside it, so its journal never
+   moves to a fresh one under the folder.
+2. **`init` reads and writes one path.** `brokkr init <dir>` detects the
+   stack of `<dir>` and writes `<dir>/.brokkr/`, the folder it creates,
+   and nothing else. This is the simpler rule the second item of "Asked
+   of the operator" recommended.
+3. **Doctor's folder line takes the report's usual status column**:
+   `ok`, `warn` or `MISSING`, like every other line.
+4. **The compile-derived move list is dropped.** Migration is done by an
+   agent, so the old-layout refusal lists the state's moves only. Ruling
+   4's first group, the files the compile reads, is not built, and with
+   it go the line `its bundle.json does not compile, so the files it
+   reads cannot be listed: <compile error>` and the binding
+   `old_root_layout_that_does_not_compile_refuses`. The root layout's
+   refusal lists the state's moves, then says in one line to move
+   `bundle.json` and every file it reads into `.brokkr/` at the same
+   relative paths and to name the journal `"state/forge.db"` and the
+   realm path `".."` in `.brokkr/realms.json`, and closes with its
+   `Brokkr reads no script or charter` line. The refusal's example in
+   ruling 4 is superseded where it shows `git mv` lines for
+   `bundle.json`, `policy.json`, the adapters, the agents and the
+   scripts: those moves are the agent's, and the list holds the state's.
+
+**2026-10-14, links (option 1).** Any symbolic link in or under `.forge`,
+or a `.forge` that is itself a link, makes the old-layout refusal list no
+moves at all. It refuses by name instead, at any depth:
+
+```text
+<path> is a symbolic link, and Brokkr lists no moves through or for one (decision 0083; the operator's ruling of 2026-10-14); nothing was opened: move the state into .brokkr/state yourself, then run again
+```
+
+Detection is unchanged: each entry is judged by `lstat`, as ruling 4's
+"Every entry is read by its own entry" has it. This narrows ruling 4's
+sentence "The refusal lists the moves for the operator to make", which
+holds only where no link stands in or under `.forge`.
+
+**2026-10-14, the second slice, R1 to R7, as built.**
+
+- **R1, an existing folder.** `init` refuses a `.brokkr/` that holds
+  anything but a regular-file `.gitignore` and a `state/` directory,
+  each judged as the entry itself, naming each entry it holds:
+  `<root>/.brokkr already holds <entries> (decision 0083); init writes a
+  folder only where none stands, or beside moved state (.gitignore and
+  state/ alone): move or remove them`.
+- **R2, a library.** `init` in a recipe library refuses and writes
+  nothing: `<root> is a recipe library, which keeps its own layout and
+  reads no .brokkr/ folder (decision 0083; the operator's ruling 1 of
+  2026-10-13): init writes nothing here`.
+- **R3, init's output.** After compiling the folder, `init` prints
+  `initialized <root>/.brokkr (digest <digest>), writing:`, every path it
+  wrote relative to `<dir>`, one per line and indented, its notes (the
+  agent CLI it scaffolded for, and the MCP notice of decision 0065), and
+  last `commit the folder: git add .brokkr && git commit`.
+- **R4, doctor's folder line**, the report's first, in its forms:
+  `folder: <root>/.brokkr (found from <cwd>)`; `folder: none from <cwd>
+  up to <root> — brokkr init . writes one`; `folder: none: <root> is a
+  recipe library, which keeps its own layout (decision 0083)`; the
+  first line of an old shape's refusal or of a discovery refusal;
+  `folder: <root>/.brokkr (found from <cwd>), but <path> still stands at
+  the root (decision 0083); move or remove it`, one per entry left; and
+  `folder: <root>/.brokkr (found from <cwd>), but its compile refuses
+  (decision 0083): <compile error>`. Each but the first three makes the
+  report unhealthy.
+- **R5, doctor's bundle.** With a folder found, no old shape beside it
+  and no `--bundle`, the folder is doctor's bundle for the whole report:
+  its agents, provider, capability and bundle lines read it as
+  `doctor --bundle .brokkr` reads it. Ruled 2026-10-14 and placed in
+  the third slice on 2026-10-15. As built, the folder is compiled once,
+  under the map doctor inspected, as `--bundle` compiles it. Where the
+  map a run loads loads, it is that map, and the one compile is both the
+  folder line's and the report's bundle. Where it will not load, its
+  refusal is the folder line's, and the rest of the report still reads
+  the folder as `doctor --bundle .brokkr` reads it. A folder whose
+  compile refuses is, to the rest of the report, a bundle that did not
+  compile, never no bundle given, and its refusal is named once: on the
+  folder line, with no bundle line, unless the folder line already names
+  the map's refusal, when the bundle line names it. The bundle line names
+  the folder by its path, where `--bundle` names it as spelled. R4's
+  forms are unchanged.
+- **R6, the codex adapter's citation.** The codex adapter's evidence
+  citation, `.forge/tasks/controller-codex-web-search-switch-2026-09-21.json`,
+  stays word for word, in a codex scaffold's
+  `.brokkr/adapters/codex.json` too: it cites a measurement made in
+  Brokkr's own repository, a library, and is evidence, never a path the
+  scaffold reads. Ruling 1's "no file `init` wrote contains the text
+  `.forge/`" holds for every byte but that citation.
+- **R7, a missing `<dir>`.** `init` of a `<dir>` that does not exist
+  refuses in discovery's words, `reading <dir>: No such file or
+  directory (os error 2)`, and creates nothing.
+
+**2026-10-15, `recipes add` in a folder repository (#675, option A).**
+`brokkr recipes add` refuses in a folder repository and writes nothing,
+because the `recipes/<name>/bundle.json` it would install is a library's
+mark, which outranks the folder (the first ruling of 2026-10-13). It is
+judged by the union of two readings: the working directory's layout, or
+the layout `--dir` lands in, `--dir` judged as spelled and as resolved
+and `--name` by its spelling. The accepted texts are:
+
+```text
+<root> keeps its Brokkr in <root>/.brokkr (decision 0083): recipes add would install a recipe library there, which outranks the folder and moves every default out of it (#675); a folder repository's bundle is .brokkr/ itself, so nothing was written
+--dir <dir> holds a part that is not a plain name below <standing>, the nearest entry on it that stands, so recipes add cannot judge where it would write (#675); nothing was written
+--name '<name>' is not one plain path component, so the recipe would not be one directory of <dir> (#675); nothing was written
+```
+
+`--dir ""` refuses, and an `extends` spelled `base/` does not compose.
+Carried as a LOW residual: a folder repository whose own `recipes/`
+links outward. Its fix is a change to ruling 4's layout rule, and it is
+not made here.
+
+**What comes next.** Recipes in a folder repository go next to
+[#696](https://github.com/feedback-loop-ai/brokkr/issues/696), which
+carries its own rulings and its own addendum.
