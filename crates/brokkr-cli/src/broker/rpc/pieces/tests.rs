@@ -27,13 +27,16 @@ pub(in crate::broker) fn bound(name: &str, value: &str) -> Vec<BoundSecret> {
 }
 
 /// A sink over a pipe that refuses its first `unready` writes as not ready,
-/// as a holder's status flags would, takes at most `most` bytes of each
+/// as a holder's status flags would, and, where `stutter` is not zero, the
+/// one write after every `stutter` it took, as a harness that takes a
+/// little at a time leaves its pipe; takes at most `most` bytes of each
 /// write, after `slow`, and refuses every write past its first `writes`
 /// with `refused`, the error the system would; when each write it took
 /// returned.
 pub(in crate::broker) struct Sink {
     pipe: PipeWriter,
     pub(in crate::broker) unready: usize,
+    pub(in crate::broker) stutter: usize,
     most: usize,
     writes: usize,
     slow: Duration,
@@ -50,7 +53,11 @@ impl Write for Sink {
         self.writes = self.writes.checked_sub(1).ok_or(self.refused)?;
         std::thread::sleep(self.slow);
         let taken = self.pipe.write(&bytes[..bytes.len().min(self.most)]);
-        self.at.lock().unwrap().push(Instant::now());
+        let mut at = self.at.lock().unwrap();
+        at.push(Instant::now());
+        if self.stutter > 0 && at.len().is_multiple_of(self.stutter) {
+            self.unready = 1;
+        }
         taken
     }
 
@@ -72,6 +79,7 @@ pub(in crate::broker) fn sink(most: usize, writes: usize, slow: Duration) -> (Si
     let sink = Sink {
         pipe,
         unready: 0,
+        stutter: 0,
         most,
         writes,
         slow,
