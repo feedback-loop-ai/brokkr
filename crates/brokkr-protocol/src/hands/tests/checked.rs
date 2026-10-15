@@ -403,7 +403,7 @@ fn a_hop_of_the_route_or_the_hands_system_set_exposes_the_store() {
     chmod(&shm, 0o700);
     std::os::unix::fs::symlink(fixture.path("store"), shm.join("store")).unwrap();
     let past = shm.join("store/secrets.env");
-    let text = edited(&text, mount_of(Path::new("/dev")), overlay);
+    let text = edited(&text, mount_of(Path::new("/dev")), |fields| overlay(fields));
     let unproved = store_on(&past, &none, &[], &text).map(|_| ());
     assert_eq!(unproved, Err(Refusal::Identity));
 }

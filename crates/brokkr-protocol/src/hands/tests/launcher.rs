@@ -613,7 +613,9 @@ fn the_route_a_launcher_was_found_by_is_admitted_before_it_runs() {
     let shm = held.path().canonicalize().unwrap();
     std::os::unix::fs::symlink(fixture.path("launcher"), shm.join("launcher")).unwrap();
     let past = shm.join("launcher/bwrap");
-    let unproved = edited(&table(), mount_of(Path::new("/dev")), overlay);
+    let unproved = edited(&table(), mount_of(Path::new("/dev")), |fields| {
+        overlay(fields)
+    });
     cases.push(("unproved", answer(&past, &unproved, &reach(&[], &[]))));
     let expected = unrun(&cases, |case| match case {
         "unproved" => Refusal::Identity,
