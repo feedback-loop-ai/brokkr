@@ -99,7 +99,7 @@ def worker(args):
     elapsed = time.monotonic() - start
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
     output = Path(args.log).read_text(errors="replace")
-    heaps = re.findall(r"^heap\t([^\t\n]+)\t([0-9]+)$", output, re.MULTILINE)
+    heaps = re.findall(r"(?:^|\.\.\. )heap\t([^\t\n]+)\t([0-9]+)$", output, re.MULTILINE)
     summaries = re.findall(r"^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out;", output, re.MULTILINE)
     expected = KINDS[NAMES.index(args.name)]
     valid = result.returncode == 0 and len(summaries) == 1 and len(heaps) == 1 and heaps[0][0] == expected
@@ -177,6 +177,12 @@ def evaluate(mode):
             "cpu_affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
             "test_threads": os.environ.get("RUST_TEST_THREADS"), "runner": os.environ.get("RUNNER_NAME")}
     save(OUT / "environment.json", info)
+    if mode == "test":
+        say("warming the complete test build before timing either full suite")
+        with (OUT / "warmup-build.log").open("w") as log:
+            subprocess.run(["cargo", "+" + toolchain(mode), "test", "--workspace", "--all-features",
+                            "--locked", "--no-fail-fast", "--no-run"],
+                           stdout=log, stderr=subprocess.STDOUT, check=True, timeout=2400)
     # The full serial suite warms all targets before the paired same-binary comparison.
     baseline = suite(mode, False, "full-sequential")
     binaries, env = prepare(mode)
