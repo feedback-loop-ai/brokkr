@@ -70,6 +70,13 @@ shard 'the other own-process binaries' bin:brokkr test:driver_conformance test:t
 shard 'the doctests' doc
 shard 'capability_broker, alone' test:it only:capability_broker::
 
+# Evaluation branch only: opt in to concurrent heap processes. Every other
+# shard and the default invocation retain their serial behavior.
+parallel_heaps=false
+if [ "${!#}" = --parallel-heaps ]; then
+  parallel_heaps=true
+  set -- "${@:1:$(($# - 1))}"
+fi
 mode="${1:-}"
 case "$mode" in
   test)
@@ -302,6 +309,9 @@ lost=false
 run_shard() {
   local index="$1" waited=0 status='' seconds='' refusal
   argv_of "$index"
+  if "$parallel_heaps" && [ "${shard_name[$index]}" = 'the heap measurements' ]; then
+    argv=(python3 ops/heap-evaluation/evaluate.py stage --mode "$mode")
+  fi
   printf 'test shards: runs %s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
   # The runner runs in the foreground: a non-interactive shell starts a
   # background command with SIGINT and SIGQUIT ignored, and a test that

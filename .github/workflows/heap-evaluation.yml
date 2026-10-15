@@ -1,0 +1,79 @@
+name: heap parallelism evaluation
+
+on:
+  push:
+    branches: [eval/parallel-heap-binaries]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    name: heap evaluation (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: '["self-hosted", "Linux", "X64", "brokkr-engine"]'
+            mode: test
+          - name: coverage
+            runner: '["self-hosted", "Linux", "X64", "brokkr-coverage"]'
+            mode: coverage
+          - name: macos
+            runner: '["macos-latest"]'
+            mode: test
+    runs-on: ${{ fromJSON(matrix.runner) }}
+    timeout-minutes: 90
+    env:
+      BROKKR_REQUIRE_BOUNDARY_EVIDENCE: ${{ matrix.name != 'macos' && '1' || '' }}
+      EVALUATION_MODE: ${{ matrix.mode }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
+        if: runner.environment == 'self-hosted'
+      - name: the pinned coverage toolchain and its measuring tool
+        id: nightly
+        run: |
+          echo "toolchain=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_OUTPUT"
+          echo "cargo_llvm_cov=$(tr -d '[:space:]' < cargo-llvm-cov-version.txt)" >> "$GITHUB_OUTPUT"
+          echo "RUSTUP_TOOLCHAIN=$(tr -d '[:space:]' < rust-nightly-version.txt)" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        if: matrix.mode == 'coverage'
+        with:
+          toolchain: ${{ steps.nightly.outputs.toolchain }}
+          components: llvm-tools-preview, rustfmt, clippy
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        if: matrix.mode == 'test'
+        with:
+          toolchain: 1.98.0
+      - name: stable for the uninstrumented suites
+        if: matrix.mode == 'test'
+        run: echo 'RUSTUP_TOOLCHAIN=1.98.0' >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment != 'self-hosted'
+      - uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
+        if: matrix.mode == 'coverage'
+        with:
+          tool: cargo-llvm-cov@${{ steps.nightly.outputs.cargo_llvm_cov }}
+          fallback: none
+      - name: retain the local engine's normal compilation policy
+        if: runner.environment == 'self-hosted' && matrix.mode == 'test'
+        run: echo 'CARGO_INCREMENTAL=1' >> "$GITHUB_ENV"
+      - name: full suites and same-binary ABBA measurements
+        run: python3 ops/heap-evaluation/evaluate.py evaluate --mode "$EVALUATION_MODE"
+      - name: retain raw measurements and full-suite logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: heap-evaluation-${{ matrix.name }}
+          path: |
+            target/heap-evaluation/**/*.json
+            target/heap-evaluation/**/*.log
+            target/coverage/coverage-exact.json
+            target/coverage/lcov.info
+          if-no-files-found: error

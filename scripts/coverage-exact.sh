@@ -407,7 +407,13 @@ merged_only_this_run() {
 # target exactly once, one shard after another, capability_broker last,
 # every profile into this one target. The report then merges them all, so
 # every check below reads the union, as it read the one run before.
-bash scripts/test-shards.sh coverage "$nightly" 9>&-
+heap_args=()
+if [[ "${1:-}" == --parallel-heaps && "$#" -eq 1 ]]; then
+  heap_args=(--parallel-heaps)
+elif [[ "$#" -ne 0 ]]; then
+  refuse 'the evaluation accepts only --parallel-heaps'
+fi
+bash scripts/test-shards.sh coverage "$nightly" ${heap_args[@]+"${heap_args[@]}"} 9>&-
 rm -f "$profile_list"
 cargo "+$nightly" llvm-cov report "${report_flags[@]}" --branch --json \
   --output-path "$forge_coverage_dir/coverage.json" 9>&-
