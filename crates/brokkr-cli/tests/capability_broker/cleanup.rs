@@ -315,8 +315,16 @@ fn an_attempt_cancelled_during_initialization_or_a_call_settles_the_server_and_i
         let Some(live) = Live::started(&dir, &said, answers) else {
             return;
         };
-        kill(live.harness);
+        let (broker, harness) = (live.broker(), live.harness);
+        kill(harness);
         let cancelled = Instant::now();
+        // The broker reads the cancellation as its parent's change, which
+        // the kernel makes only once the harness has exited, so its input
+        // is ended after that: ended first, as a loaded host can order
+        // them, it reads as the harness's own end, which leaves the call
+        // begun and closes nothing.
+        let reparented = || stat(broker).is_none_or(|(_, parent, ..)| parent != harness);
+        assert!(within(reparented), "{case}: the broker was not reparented");
         let ending = live.ended();
         let taken = cancelled.elapsed();
         assert!(taken < Duration::from_secs(5), "{case}: {taken:?}");
