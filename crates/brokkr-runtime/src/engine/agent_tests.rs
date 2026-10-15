@@ -31,6 +31,18 @@ fn candidate(agent: &str, model: &str) -> Candidate {
     })
 }
 
+/// A `driver` single on `role.md` hiring `worker` on opus, its class
+/// wherever the body keeps it.
+fn worker<C>(class: C) -> Invocation<C> {
+    Invocation::Single {
+        role_path: PathBuf::from("role.md"),
+        command: vec!["driver".into()],
+        candidates: vec![candidate("worker", "opus")],
+        written: Vec::new(),
+        class,
+    }
+}
+
 fn failure(effect_id: &str, sites: Value) -> EventEnvelope {
     let mut payload = json!({
         "effect_id": effect_id,
@@ -86,25 +98,19 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
         written: Vec::new(),
         class: SeatClass::Work,
     };
-    let single = SeatBody::Single {
-        role_path: PathBuf::from("role.md"),
-        command: vec!["driver".into()],
-        candidates: vec![candidate("worker", "opus")],
-        written: Vec::new(),
-        class: SeatClass::Work,
-    };
+    let single = SeatBody::Invocation(worker(SeatClass::Work));
     assert_eq!(
         invocation_sites(single.selected(None).unwrap().0)[0].0,
         None
     );
 
-    let panel = SeatBody::Panel {
+    let panel = SeatBody::Invocation(Invocation::Panel {
         members: vec![
             member("a", vec![candidate("left", "opus")]),
             member("b", Vec::new()),
         ],
         aggregate: Aggregate::UnanimousPass,
-    };
+    });
     let sites = invocation_sites(panel.selected(None).unwrap().0);
     assert_eq!(sites[0].0, Some("a".into()));
     assert_eq!(sites[1].0, Some("b".into()));
@@ -116,21 +122,16 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
                 name: "one".into(),
                 results: vec!["one-result".into()],
                 class: SeatClass::Work,
-                body: StepBody::Single {
-                    role_path: PathBuf::from("role.md"),
-                    command: vec!["driver".into()],
-                    candidates: vec![candidate("worker", "opus")],
-                    written: Vec::new(),
-                },
+                body: StepBody::Invocation(worker(())),
             },
             SequenceStep {
                 name: "two".into(),
                 results: vec!["two-result".into()],
                 class: SeatClass::Work,
-                body: StepBody::Panel {
+                body: StepBody::Invocation(Invocation::Panel {
                     members: vec![member("m", vec![candidate("left", "opus")])],
                     aggregate: Aggregate::UnanimousPass,
-                },
+                }),
             },
         ],
     };
@@ -143,13 +144,13 @@ fn invocation_sites_name_every_shape_the_engine_can_run() {
 /// selection: an inline run's journal gains nothing at all.
 #[test]
 fn an_inline_seat_selects_nothing_and_journals_nothing() {
-    let inline = SeatBody::Single {
+    let inline = SeatBody::Invocation(Invocation::Single {
         role_path: PathBuf::from("role.md"),
         command: vec!["inline-driver".into()],
         candidates: Vec::new(),
         written: vec!["inline-driver".into()],
         class: SeatClass::Work,
-    };
+    });
     let (selection, provenance, chains) =
         select_candidates(&[], "effect", inline.selected(None).unwrap().0);
     assert!(
@@ -163,13 +164,13 @@ fn an_inline_seat_selects_nothing_and_journals_nothing() {
         ["inline-driver".to_string()]
     );
 
-    let resolved = SeatBody::Single {
+    let resolved = SeatBody::Invocation(Invocation::Single {
         role_path: PathBuf::from("role.md"),
         command: vec!["inline-driver".into()],
         candidates: vec![candidate("worker", "opus"), candidate("worker", "sonnet")],
         written: Vec::new(),
         class: SeatClass::Work,
-    };
+    });
     let events = vec![failure("effect", json!([null]))];
     let (selection, provenance, chains) =
         select_candidates(&events, "effect", resolved.selected(None).unwrap().0);
@@ -356,7 +357,7 @@ fn fold_is_blind_to_every_field_this_slice_adds() {
 /// resumes into an effect that already has a fail-to-start behind it.
 #[test]
 fn the_chain_index_survives_a_restart_because_nothing_holds_it() {
-    let body = SeatBody::Single {
+    let body = SeatBody::Invocation(Invocation::Single {
         role_path: PathBuf::from("role.md"),
         command: vec!["inline-driver".into()],
         candidates: vec![
@@ -366,7 +367,7 @@ fn the_chain_index_survives_a_restart_because_nothing_holds_it() {
         ],
         written: Vec::new(),
         class: SeatClass::Work,
-    };
+    });
     let events = vec![
         failure("effect", json!([null])),
         failure("effect", json!([null])),

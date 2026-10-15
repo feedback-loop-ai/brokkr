@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use brokkr_runtime::bundle::{SeatBody, StepBody};
+use brokkr_runtime::bundle::{Invocation, SeatBody, StepBody};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
 use serde_json::json;
@@ -98,7 +98,7 @@ fn the_progress_rule_reaches_the_smith_through_its_office_not_a_dialect() {
     let SeatBody::Select { cases, .. } = &bundle.seats["implement"].body else {
         panic!("the implement seat selects by delivery class");
     };
-    let SeatBody::Single { role_path, .. } = &cases["design"] else {
+    let SeatBody::Invocation(Invocation::Single { role_path, .. }) = &cases["design"] else {
         panic!("the SDD delivery class seats one smith");
     };
     assert_eq!(

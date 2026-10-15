@@ -528,7 +528,7 @@ fn typed_or_legacy_adapter_mcp_facts_grant_nothing_and_the_fence_holds() {
         compiled(&fixture, None, &context).map_or_else(
             |error| error.to_string(),
             |bundle| match &bundle.seats["work"].body {
-                SeatBody::Single { command, .. } => format!("{command:?}"),
+                SeatBody::Invocation(Invocation::Single { command, .. }) => format!("{command:?}"),
                 _ => "not a single seat".to_string(),
             },
         )

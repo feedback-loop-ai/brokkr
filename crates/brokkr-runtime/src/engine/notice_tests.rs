@@ -393,14 +393,22 @@ fn recorded(link: &Candidate, argv: Vec<String>) -> Candidate {
     })
 }
 
-fn record_body(body: &mut SeatBody, label: &str, logs: &Path, result: &str, fail_first: bool) {
-    match body {
-        SeatBody::Single {
+/// One invocation's sites under `label`: a single answers `result`, and
+/// each panel member `pass` under `<label>:<member>`.
+fn record_invocation<C>(
+    invocation: &mut Invocation<C>,
+    label: &str,
+    logs: &Path,
+    result: &str,
+    fail_first: bool,
+) {
+    match invocation {
+        Invocation::Single {
             command,
             candidates,
             ..
         } => record_site(command, candidates, label, logs, result, fail_first),
-        SeatBody::Panel { members, .. } => {
+        Invocation::Panel { members, .. } => {
             for member in members {
                 let label = format!("{label}:{}", member.name);
                 record_site(
@@ -413,6 +421,14 @@ fn record_body(body: &mut SeatBody, label: &str, logs: &Path, result: &str, fail
                 );
             }
         }
+    }
+}
+
+fn record_body(body: &mut SeatBody, label: &str, logs: &Path, result: &str, fail_first: bool) {
+    match body {
+        SeatBody::Invocation(invocation) => {
+            record_invocation(invocation, label, logs, result, fail_first)
+        }
         SeatBody::Sequence { steps } => {
             let last = steps.len() - 1;
             for (index, step) in steps.iter_mut().enumerate() {
@@ -423,23 +439,8 @@ fn record_body(body: &mut SeatBody, label: &str, logs: &Path, result: &str, fail
                 };
                 let label = format!("{label}:{}", step.name);
                 match &mut step.body {
-                    StepBody::Single {
-                        command,
-                        candidates,
-                        ..
-                    } => record_site(command, candidates, &label, logs, &result, fail_first),
-                    StepBody::Panel { members, .. } => {
-                        for member in members {
-                            let label = format!("{label}:{}", member.name);
-                            record_site(
-                                &mut member.command,
-                                &mut member.candidates,
-                                &label,
-                                logs,
-                                "pass",
-                                fail_first,
-                            );
-                        }
+                    StepBody::Invocation(invocation) => {
+                        record_invocation(invocation, &label, logs, &result, fail_first)
                     }
                     StepBody::Dialect { .. } => {}
                 }
@@ -735,7 +736,8 @@ fn a_started_seat_that_fails_is_retried_on_its_own_link_with_its_own_notice() {
         )
         .unwrap();
     record(&mut bundle, "work", &fixture.logs(), "pass", false);
-    let SeatBody::Single { candidates, .. } = &mut bundle.seats.get_mut("work").unwrap().body
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) =
+        &mut bundle.seats.get_mut("work").unwrap().body
     else {
         panic!("a single seat")
     };
@@ -1280,7 +1282,7 @@ fn a_wrapped_inline_codex_verify_is_told_at_its_checks_step() {
     };
     assert_eq!(steps[0].name, "checks");
     assert!(matches!(steps[1].body, StepBody::Dialect { .. }));
-    let StepBody::Single { command, .. } = &mut steps[0].body else {
+    let StepBody::Invocation(Invocation::Single { command, .. }) = &mut steps[0].body else {
         panic!("an inline checks step")
     };
     *command = recording(&fixture.logs().join("verify-checks-0.json"), "halt");
@@ -1656,11 +1658,11 @@ fn quoted_or_hostile_text_neither_creates_nor_suppresses_the_notice() {
         let SeatBody::Sequence { steps } = &mut bundle.seats.get_mut("work").unwrap().body else {
             panic!("a sequence")
         };
-        let StepBody::Single {
+        let StepBody::Invocation(Invocation::Single {
             command,
             candidates,
             ..
-        } = &mut steps[0].body
+        }) = &mut steps[0].body
         else {
             panic!("a single step")
         };
@@ -1787,7 +1789,8 @@ fn inputs_house_feature_and_charter_text_neither_replace_nor_create_the_notice()
         // Triage reports legal declared inputs whose values name a
         // forged tool, undeclared claims of the carrier and of the facts that
         // decide it, and notes quoting the notice.
-        let SeatBody::Single { command, .. } = &mut bundle.seats.get_mut("triage").unwrap().body
+        let SeatBody::Invocation(Invocation::Single { command, .. }) =
+            &mut bundle.seats.get_mut("triage").unwrap().body
         else {
             panic!("a single triage seat")
         };

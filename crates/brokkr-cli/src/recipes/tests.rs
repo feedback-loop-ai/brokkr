@@ -5,7 +5,7 @@ use super::*;
 use crate::tests::workspace;
 use brokkr_core::policy::Machine;
 use brokkr_runtime::bundle::Limits;
-use brokkr_runtime::{Seat, SequenceStep, StepBody};
+use brokkr_runtime::{Invocation, Seat, SequenceStep, StepBody};
 use std::collections::BTreeMap;
 
 fn bundle_with_sequence() -> Bundle {
@@ -13,12 +13,13 @@ fn bundle_with_sequence() -> Bundle {
         name: name.into(),
         results: vec![result.into()],
         class: brokkr_runtime::SeatClass::Work,
-        body: StepBody::Single {
+        body: StepBody::Invocation(Invocation::Single {
             role_path: "role.md".into(),
             command: vec!["driver".into()],
             candidates: Vec::new(),
             written: Vec::new(),
-        },
+            class: (),
+        }),
     };
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -105,13 +106,13 @@ fn resolver_and_sequence_summary_cover_every_shape() {
 
     selected.seats.get_mut("review").unwrap().body = SeatBody::Select {
         cases: BTreeMap::new(),
-        default: Some(Box::new(SeatBody::Single {
+        default: Some(Box::new(SeatBody::Invocation(Invocation::Single {
             role_path: PathBuf::new(),
             command: Vec::new(),
             candidates: Vec::new(),
             written: Vec::new(),
             class: brokkr_runtime::SeatClass::Work,
-        })),
+        }))),
     };
     assert_eq!(seat_summary(&selected), "review{default=inline}");
     selected.seats.get_mut("review").unwrap().body = SeatBody::Select {

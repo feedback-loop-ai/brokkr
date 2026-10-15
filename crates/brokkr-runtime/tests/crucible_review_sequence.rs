@@ -33,7 +33,7 @@
 
 use std::path::PathBuf;
 
-use brokkr_runtime::{Aggregate, Bundle, SeatBody, StepBody};
+use brokkr_runtime::{Aggregate, Bundle, Invocation, SeatBody, StepBody};
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -84,7 +84,7 @@ fn review_is_a_positions_panel_followed_by_a_single_chief_gate() {
         "step ORDER is load-bearing: the panel states, then the chief rules"
     );
 
-    let StepBody::Panel { members, aggregate } = &steps[0].body else {
+    let StepBody::Invocation(Invocation::Panel { members, aggregate }) = &steps[0].body else {
         panic!("'positions' is a panel");
     };
     assert_eq!(*aggregate, Aggregate::ReviewPanel);
@@ -97,7 +97,10 @@ fn review_is_a_positions_panel_followed_by_a_single_chief_gate() {
     // The chief is a SINGLE step, not a second panel: one seat rules, so
     // there is one place the verdict can be traced to.
     assert!(
-        matches!(&steps[1].body, StepBody::Single { .. }),
+        matches!(
+            &steps[1].body,
+            StepBody::Invocation(Invocation::Single { .. })
+        ),
         "'chief' must be a single driver — a panel here would have no judge"
     );
 }

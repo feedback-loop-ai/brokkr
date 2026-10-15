@@ -1069,7 +1069,8 @@ fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
         Boundary::Namespace,
     )
     .unwrap();
-    let SeatBody::Single { command, .. } = &bundle.seats["verify"].body else {
+    let SeatBody::Invocation(Invocation::Single { command, .. }) = &bundle.seats["verify"].body
+    else {
         panic!("the verify seat is a single exec site");
     };
     let spec = &bundle.hands["verify"];
@@ -1320,7 +1321,7 @@ fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
         relink("target.md");
         let bundle = Bundle::compile(dir).unwrap();
         let role = |seat: &str| match &bundle.seats[seat].body {
-            SeatBody::Single { role_path, .. } => role_path.clone(),
+            SeatBody::Invocation(Invocation::Single { role_path, .. }) => role_path.clone(),
             _ => unreachable!("single seats"),
         };
         // The pins hold: both roles spawn, however the role was spelled,
@@ -1676,7 +1677,8 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     let bundles = [compile("recipe"), compile("derived")];
     let charter = root.join("agents/charters/worker.md");
     for bundle in &bundles {
-        let SeatBody::Single { role_path, .. } = &bundle.seats["work"].body else {
+        let SeatBody::Invocation(Invocation::Single { role_path, .. }) = &bundle.seats["work"].body
+        else {
             unreachable!("an agent resolves to a single seat")
         };
         assert_eq!(role_path, &charter, "the seat is told the agent's charter");
@@ -1748,7 +1750,7 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     // The inline site beside it keeps its own binding: the agent's charter
     // is not what it is told, however well pinned.
     let review = match &bundles[0].seats["review"].body {
-        SeatBody::Single { role_path, .. } => role_path.clone(),
+        SeatBody::Invocation(Invocation::Single { role_path, .. }) => role_path.clone(),
         _ => unreachable!("an inline single seat"),
     };
     assert_eq!(
@@ -2541,7 +2543,8 @@ fn owners_compiled(realm: &Path, charter: &str) -> Result<Bundle, String> {
 /// What `seat`'s dispatch door hands its driver, or why it refused. The
 /// driver would leave `marker`; a refusal must leave none.
 fn dispatched(bundle: &Bundle, seat: &str, marker: &Path) -> Result<Value, String> {
-    let SeatBody::Single { role_path, .. } = &bundle.seats[seat].body else {
+    let SeatBody::Invocation(Invocation::Single { role_path, .. }) = &bundle.seats[seat].body
+    else {
         unreachable!("single seats")
     };
     let outcome = spawn_site(
@@ -3262,13 +3265,13 @@ fn effect_started_carries_the_boundary_beside_provenance() {
             name: "review".into(),
             class: SeatClass::Gate,
             results: vec!["clean".into()],
-            body: StepBody::Panel {
+            body: StepBody::Invocation(Invocation::Panel {
                 members: vec![
                     member("left", vec!["driver".into()]),
                     member("right", vec!["driver".into()]),
                 ],
                 aggregate: Aggregate::UnanimousPass,
-            },
+            }),
         },
     ];
     let sequence = SeatBody::Sequence { steps };
@@ -3284,10 +3287,10 @@ fn effect_started_carries_the_boundary_beside_provenance() {
     );
 
     // A panel seat's members take the seat's class.
-    let panel = SeatBody::Panel {
+    let panel = SeatBody::Invocation(Invocation::Panel {
         members: vec![member("a", vec!["driver".into()])],
         aggregate: Aggregate::UnanimousPass,
-    };
+    });
     super::tests::set_site_hands(&mut engine.bundle, "review:a", HandsSpec::default());
     let (executable, _) = panel.selected(None).unwrap();
     assert_eq!(
@@ -4163,7 +4166,7 @@ fn a_sequence_panel_cannot_continue_when_its_member_marker_cannot_be_journaled()
         name: "panel".into(),
         class: SeatClass::Work,
         results: vec!["complete".into()],
-        body: StepBody::Panel {
+        body: StepBody::Invocation(Invocation::Panel {
             aggregate: Aggregate::UnanimousPass,
             members: vec![member(
                 "judge",
@@ -4175,7 +4178,7 @@ fn a_sequence_panel_cannot_continue_when_its_member_marker_cannot_be_journaled()
                     },
                 ),
             )],
-        },
+        }),
     }];
     let input = json!({"workdir":".", "allowed_results":["complete"], "context":{},
         "steps":[{"name":"panel", "members":{"judge":{"role_path":"role.md", "result_path":"result.json"}}}]});
@@ -4299,7 +4302,8 @@ fn smith_bundle(dir: &Path, agents: &Path, agent: &str, boundary: Boundary) -> B
 }
 
 fn smith_site(bundle: &Bundle) -> (&[Candidate], &HandsSpec) {
-    let SeatBody::Single { candidates, .. } = &bundle.seats["work"].body else {
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
+    else {
         panic!("the smith is a single seat")
     };
     let hands = bundle.sites["work"]

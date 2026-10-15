@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use brokkr_protocol::hands::BindMode;
 use brokkr_runtime::{
-    resolve_agent, Adapters, Availability, Bundle, Candidate, Library, PanelMember, Presence,
-    SeatBody, SeatClass, StepBody,
+    resolve_agent, Adapters, Availability, Bundle, Candidate, Invocation, Library, PanelMember,
+    Presence, SeatBody, SeatClass, StepBody,
 };
 use serde_json::Value;
 
@@ -196,14 +196,22 @@ fn hired_chains<'a>(site: String, body: &'a SeatBody, chains: &mut Vec<(String, 
         }
     };
     match body {
-        SeatBody::Single { candidates, .. } => chains.push((site, candidates)),
-        SeatBody::Panel { members: panel, .. } => members(&site, panel, chains),
+        SeatBody::Invocation(Invocation::Single { candidates, .. }) => {
+            chains.push((site, candidates))
+        }
+        SeatBody::Invocation(Invocation::Panel { members: panel, .. }) => {
+            members(&site, panel, chains)
+        }
         SeatBody::Sequence { steps } => {
             for step in steps {
                 let site = format!("{site}:{}", step.name);
                 match &step.body {
-                    StepBody::Single { candidates, .. } => chains.push((site, candidates)),
-                    StepBody::Panel { members: panel, .. } => members(&site, panel, chains),
+                    StepBody::Invocation(Invocation::Single { candidates, .. }) => {
+                        chains.push((site, candidates))
+                    }
+                    StepBody::Invocation(Invocation::Panel { members: panel, .. }) => {
+                        members(&site, panel, chains)
+                    }
                     StepBody::Dialect { .. } => {}
                 }
             }
@@ -303,7 +311,8 @@ const NODE_AND_VERIFY_OFFICES: [(&str, &str, &str, &[&str]); 3] = [
 
 /// A compiled seat hires `office` on exactly `chain`, every link at `high`.
 fn assert_hires(bundle: &Bundle, recipe: &str, phase: &str, office: &str, chain: &[&str]) {
-    let SeatBody::Single { candidates, .. } = &bundle.seats[phase].body else {
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats[phase].body
+    else {
         panic!("{recipe}:{phase} is one seat");
     };
     let hired: Vec<(&str, &str, Option<&str>)> = candidates
@@ -520,7 +529,8 @@ fn shipped_claude_implementer_can_commit() {
         &root.join("adapters"),
     )
     .expect("self bundle compiles");
-    let SeatBody::Single { command, .. } = &bundle.seats["implement"].body else {
+    let SeatBody::Invocation(Invocation::Single { command, .. }) = &bundle.seats["implement"].body
+    else {
         panic!("the library implementer is a single seat")
     };
     let allowed_tools = command
@@ -563,11 +573,11 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
             };
             assert!(seat.has_gate, "{name}:{phase} is gate-class");
             let (command, candidates) = match &seat.body {
-                SeatBody::Single {
+                SeatBody::Invocation(Invocation::Single {
                     command,
                     candidates,
                     ..
-                } => {
+                }) => {
                     assert!(bundle.hands.contains_key(phase), "{name}:{phase} is boxed");
                     (command, candidates)
                 }
@@ -577,11 +587,11 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
                     assert!(matches!(steps[1].body, StepBody::Dialect { .. }));
                     assert!(bundle.hands.contains_key("verify:checks"));
                     assert!(bundle.hands.contains_key("verify:dialect-verify"));
-                    let StepBody::Single {
+                    let StepBody::Invocation(Invocation::Single {
                         command,
                         candidates,
                         ..
-                    } = &steps[0].body
+                    }) = &steps[0].body
                     else {
                         panic!("{name}:{phase}:checks is one deterministic script")
                     };
@@ -925,7 +935,9 @@ fn the_dsh_implement_lanes_pin_glm_flash_with_no_effort() {
     assert!(dsh["effortless_routes"]["spark-glm"].is_string());
     for recipe in ["night-shift", "wager-harness-dsh"] {
         let bundle = compile(&root, recipe);
-        let SeatBody::Single { command, .. } = &bundle.seats["implement"].body else {
+        let SeatBody::Invocation(Invocation::Single { command, .. }) =
+            &bundle.seats["implement"].body
+        else {
             panic!("{recipe}'s implement seat is one inline session");
         };
         // `{brokkr}` composes to the running binary, this test's own.

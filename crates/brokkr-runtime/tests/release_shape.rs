@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use brokkr_runtime::{Bundle, SeatBody};
+use brokkr_runtime::{Bundle, Invocation, SeatBody};
 use serde_json::Value;
 
 fn workspace() -> PathBuf {
@@ -42,17 +42,17 @@ fn release_keeps_the_delivery_policy_and_deterministic_gates() {
     assert!(release.seats["review"].has_gate);
     for phase in ["verify", "ship"] {
         assert!(release.seats[phase].has_gate);
-        let SeatBody::Single {
+        let SeatBody::Invocation(Invocation::Single {
             command,
             candidates,
             ..
-        } = &release.seats[phase].body
+        }) = &release.seats[phase].body
         else {
             panic!("{phase} must remain deterministic exec")
         };
-        let SeatBody::Single {
+        let SeatBody::Invocation(Invocation::Single {
             command: inherited, ..
-        } = &fast.seats[phase].body
+        }) = &fast.seats[phase].body
         else {
             panic!("fast's {phase} must remain exec")
         };
@@ -62,7 +62,9 @@ fn release_keeps_the_delivery_policy_and_deterministic_gates() {
         assert!(release.hands.contains_key(phase));
         assert!(!release.hands[phase].network);
     }
-    let SeatBody::Single { role_path, .. } = &release.seats["implement"].body else {
+    let SeatBody::Invocation(Invocation::Single { role_path, .. }) =
+        &release.seats["implement"].body
+    else {
         panic!("the release manager is a library office")
     };
     assert!(role_path.ends_with("charters/release-manager.md"));
@@ -141,7 +143,9 @@ fn release_manager_uses_the_operators_medium_effort_chain_in_the_box() {
         serde_json::json!(["credentials.toml", "credentials"])
     );
     let release = compile("release");
-    let SeatBody::Single { candidates, .. } = &release.seats["implement"].body else {
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) =
+        &release.seats["implement"].body
+    else {
         panic!("release preparation is one office")
     };
     assert_eq!(candidates.len(), 2);

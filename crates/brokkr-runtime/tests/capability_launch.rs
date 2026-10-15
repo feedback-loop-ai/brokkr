@@ -13,8 +13,9 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::realms::{Boundary, RealmMap};
 use brokkr_runtime::capabilities::CapabilityContext;
+use brokkr_runtime::Invocation::{Panel, Single};
 use brokkr_runtime::SeatClass::{Gate, Work};
-use brokkr_runtime::{Bundle, SeatBody};
+use brokkr_runtime::{Bundle, SeatBody, StepBody};
 use serde_json::{json, Value};
 #[path = "capability_launch/charters.rs"]
 mod charters;
@@ -2314,7 +2315,7 @@ fn an_inline_claude_seats_typed_allow_reaches_its_final_command_as_the_engines_l
         .unwrap()
         .to_string_lossy()
         .into_owned();
-    let SeatBody::Single { command, .. } = &bundle.seats["work"].body else {
+    let SeatBody::Invocation(Single { command, .. }) = &bundle.seats["work"].body else {
         panic!("work is a single seat");
     };
     // Every observed fact at once, so a mutation reports each one it moves.
@@ -3051,7 +3052,7 @@ fn inline_codex_launching(
     use brokkr_protocol::native_controls::SERVING_INPUTS;
     use brokkr_runtime::engine::{expected_state, result_door, verify_record, LAUNCH_RECORD};
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[0];
-    let SeatBody::Single { command, .. } = &bundle.seats[label].body else {
+    let SeatBody::Invocation(Single { command, .. }) = &bundle.seats[label].body else {
         panic!("{label} is a single seat");
     };
     let mut spawn = brokkr_runtime::engine::compose_site_at(
@@ -5719,7 +5720,7 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
             &context,
         )
         .unwrap_or_else(|refusal| panic!("{recipe} must compile: {refusal}"));
-        let SeatBody::Single { command, .. } = &bundle.seats[seat].body else {
+        let SeatBody::Invocation(Single { command, .. }) = &bundle.seats[seat].body else {
             panic!("{recipe}/{seat} is a single seat");
         };
         let held: Vec<usize> = bundle.sites[seat]
@@ -5846,7 +5847,7 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
         .unwrap_or_else(|refusal| panic!("{relative} must compile: {refusal}"))
     };
     let authored = |bundle: &Bundle, seat: &str| {
-        let SeatBody::Single { command, .. } = &bundle.seats[seat].body else {
+        let SeatBody::Invocation(Single { command, .. }) = &bundle.seats[seat].body else {
             panic!("{seat} is a single seat");
         };
         command[1..].to_vec()
@@ -5979,7 +5980,7 @@ fn the_shipped_wager_harness_seats_its_typed_sandbox_narrowed_as_the_engines_own
         &context,
     )
     .unwrap_or_else(|refusal| panic!("recipes/wager-harness must compile: {refusal}"));
-    let SeatBody::Single { command, .. } = &bundle.seats["implement"].body else {
+    let SeatBody::Invocation(Single { command, .. }) = &bundle.seats["implement"].body else {
         panic!("implement is a single seat");
     };
     let held: Vec<usize> = bundle.sites["implement"]
@@ -8529,17 +8530,16 @@ fn served_cold(provider: &str, argv: Vec<String>) -> Vec<String> {
 /// member's, a sequence step's or a member of a panel step, and a select
 /// case's or the default's.
 fn body_command(body: &SeatBody, tag: &str) -> Option<Vec<String>> {
-    use brokkr_runtime::bundle::StepBody;
     let (name, rest) = tag.split_once(':').unwrap_or((tag, ""));
     match body {
-        SeatBody::Single { command, .. } if tag.is_empty() => Some(command.clone()),
-        SeatBody::Panel { members, .. } => members
+        SeatBody::Invocation(Single { command, .. }) if tag.is_empty() => Some(command.clone()),
+        SeatBody::Invocation(Panel { members, .. }) => members
             .iter()
             .find(|member| member.name == tag)
             .map(|member| member.command.clone()),
         SeatBody::Sequence { steps } => match &steps.iter().find(|step| step.name == name)?.body {
-            StepBody::Single { command, .. } if rest.is_empty() => Some(command.clone()),
-            StepBody::Panel { members, .. } => members
+            StepBody::Invocation(Single { command: c, .. }) if rest.is_empty() => Some(c.clone()),
+            StepBody::Invocation(Panel { members, .. }) => members
                 .iter()
                 .find(|member| member.name == rest)
                 .map(|member| member.command.clone()),

@@ -27,6 +27,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use brokkr_runtime::Invocation;
 use brokkr_runtime::{Aggregate, Bundle, Candidate, SeatBody, SeatClass, StepBody};
 
 fn workspace() -> PathBuf {
@@ -59,7 +60,7 @@ fn triage() -> Bundle {
 /// One resolved invocation out of a single-driver body, asserting the
 /// office was pinned to exactly one model.
 fn sole_candidate<'a>(body: &'a SeatBody, what: &str) -> &'a Candidate {
-    let SeatBody::Single { candidates, .. } = body else {
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = body else {
         panic!("{what} must be a single driver");
     };
     assert_eq!(
@@ -210,10 +211,10 @@ fn every_strategy_reviews_with_a_mixed_panel_before_the_sol_chief() {
         assert_eq!(steps[0].class, SeatClass::Work);
         assert_eq!(steps[1].class, SeatClass::Gate);
 
-        let StepBody::Panel {
+        let StepBody::Invocation(Invocation::Panel {
             members: compiled,
             aggregate,
-        } = &steps[0].body
+        }) = &steps[0].body
         else {
             panic!("{strategy} review must open with a panel");
         };
@@ -271,7 +272,7 @@ fn every_strategy_reviews_with_a_mixed_panel_before_the_sol_chief() {
 /// to nothing else (decision 0045's addendum of 2026-09-30), each link
 /// composing its concrete id.
 fn assert_sol_chief_falling_back_to_astra(body: &StepBody, strategy: &str) {
-    let StepBody::Single { candidates, .. } = body else {
+    let StepBody::Invocation(Invocation::Single { candidates, .. }) = body else {
         panic!("{strategy} chief must be a single driver");
     };
     let hires: Vec<(&str, &str, &str, Option<&str>)> = candidates

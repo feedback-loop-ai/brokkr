@@ -19,6 +19,7 @@ use thiserror::Error;
 mod aggregate;
 mod charters;
 pub mod compose;
+mod invocation;
 mod mcp;
 mod parse;
 mod phases;
@@ -30,6 +31,7 @@ mod tier;
 pub use aggregate::Aggregate;
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
+pub use invocation::Invocation;
 pub(crate) use mcp::McpIntent;
 use parse::{SeatScope, SiteCompiler};
 use site_form::{classify, SiteRole, StepShape, SEAT, STEP};
@@ -139,22 +141,8 @@ pub struct Seat {
 /// boundary (see [`site_form::refuse_confine`]).
 #[derive(Debug, Clone)]
 pub enum SeatBody {
-    Single {
-        role_path: PathBuf,
-        command: Vec<String>,
-        /// The bounded fallback chain (decision 0016). EMPTY for an
-        /// inline seat, which is what keeps the execute path — and
-        /// therefore inline behaviour — exactly as it was.
-        candidates: Vec<Candidate>,
-        /// The command as written, which 0031 reads; EMPTY for an agent.
-        written: Vec<String>,
-        /// Decision 0021 ruling 1's class of this driver-bearing site.
-        class: SeatClass,
-    },
-    Panel {
-        members: Vec<PanelMember>,
-        aggregate: Aggregate,
-    },
+    /// One driver or a panel, the single carrying its own class.
+    Invocation(Invocation),
     /// Named steps run one after another INSIDE one effect: later steps
     /// see earlier steps' result objects as context, and the FINAL
     /// step's result is the effect's single typed result.
@@ -170,18 +158,8 @@ pub enum SeatBody {
 
 #[derive(Clone, Copy)]
 pub enum ExecutableBody<'a> {
-    Single {
-        role_path: &'a Path,
-        command: &'a [String],
-        candidates: &'a [Candidate],
-    },
-    Panel {
-        members: &'a [PanelMember],
-        aggregate: Aggregate,
-    },
-    Sequence {
-        steps: &'a [SequenceStep],
-    },
+    Invocation(&'a Invocation),
+    Sequence { steps: &'a [SequenceStep] },
 }
 
 /// The delivery classes which can reach a selected seat. `escalate` parks
@@ -205,20 +183,7 @@ impl SeatBody {
             body => (body, None),
         };
         let executable = match body {
-            SeatBody::Single {
-                role_path,
-                command,
-                candidates,
-                ..
-            } => ExecutableBody::Single {
-                role_path,
-                command,
-                candidates,
-            },
-            SeatBody::Panel { members, aggregate } => ExecutableBody::Panel {
-                members,
-                aggregate: *aggregate,
-            },
+            SeatBody::Invocation(invocation) => ExecutableBody::Invocation(invocation),
             SeatBody::Sequence { steps } => ExecutableBody::Sequence { steps },
             SeatBody::Select { .. } => return None,
         };
@@ -240,8 +205,10 @@ impl SeatBody {
     pub(crate) fn is_gate(&self) -> bool {
         let gate = |class: SeatClass| class == SeatClass::Gate;
         match self {
-            SeatBody::Single { class, .. } => gate(*class),
-            SeatBody::Panel { members, .. } => every(members.iter().map(|m| gate(m.class))),
+            SeatBody::Invocation(Invocation::Single { class, .. }) => gate(*class),
+            SeatBody::Invocation(Invocation::Panel { members, .. }) => {
+                every(members.iter().map(|m| gate(m.class)))
+            }
             SeatBody::Sequence { steps } => every(steps.iter().map(|step| gate(step.class))),
             SeatBody::Select { cases, default } => {
                 every(cases.values().chain(default.as_deref()).map(Self::is_gate))
@@ -276,16 +243,8 @@ pub struct DialectExecution {
 /// aggregate — the same two forms a seat itself may take.
 #[derive(Debug, Clone)]
 pub enum StepBody {
-    Single {
-        role_path: PathBuf,
-        command: Vec<String>,
-        candidates: Vec<Candidate>,
-        written: Vec<String>,
-    },
-    Panel {
-        members: Vec<PanelMember>,
-        aggregate: Aggregate,
-    },
+    /// One driver or a panel; the step holds the single's class.
+    Invocation(Invocation<()>),
     /// A realm-dialect validator or deterministic loop check.
     Dialect { execution: DialectExecution },
 }
@@ -1137,20 +1096,14 @@ fn effort_exempt(
 /// this walk is not taught does not compile, so none is skipped silently.
 /// An agent reference writes none; the resolver pins its chain.
 fn written_sites<'a>(what: &str, body: &'a SeatBody) -> Vec<(String, &'a [String])> {
-    let members = |what: &str, members: &'a [PanelMember]| -> Vec<(String, &'a [String])> {
-        let site = |m: &'a PanelMember| (format!("{what}:{}", m.name), &m.written[..]);
-        members.iter().map(site).collect()
-    };
     match body {
-        SeatBody::Single { written, .. } => vec![(what.to_string(), written)],
-        SeatBody::Panel { members: panel, .. } => members(what, panel),
+        SeatBody::Invocation(invocation) => invocation.written_sites(what),
         SeatBody::Sequence { steps } => steps
             .iter()
             .flat_map(|step| {
                 let what = format!("{what}:{}", step.name);
                 match &step.body {
-                    StepBody::Single { written, .. } => vec![(what, &written[..])],
-                    StepBody::Panel { members: panel, .. } => members(&what, panel),
+                    StepBody::Invocation(invocation) => invocation.written_sites(&what),
                     StepBody::Dialect { .. } => Vec::new(),
                 }
             })
@@ -1696,7 +1649,7 @@ impl Bundle {
             // panel or a sequence has none: its members and steps were
             // each checked where they were built.
             match &body {
-                SeatBody::Single { candidates, .. } => {
+                SeatBody::Invocation(Invocation::Single { candidates, .. }) => {
                     let hands = agent_seat.as_ref().and_then(resolved_hands);
                     compiler.judge(at, phase, raw, candidates, hands)?;
                 }
@@ -1863,60 +1816,46 @@ impl Bundle {
             // label or its own panel members, never a prefix sweep that
             // would also drag an unrelated literal phase onto a wrapper
             // coordinate.
-            let (prior_body, moved) =
-                {
-                    let body = &seats
-                        .get(verify)
-                        .expect("the wrapper is applied only to a parsed verify seat")
-                        .body;
-                    let executable =
-                        match body.selected(None) {
-                            Some((executable, _))
-                                if !matches!(executable, ExecutableBody::Sequence { .. }) =>
-                            {
-                                executable
-                            }
-                            _ => return Err(CompileError::Invalid(
-                                "dialect verify currently requires a single or panel verify seat"
-                                    .into(),
-                            )),
-                        };
-                    let moved: Vec<(String, String, SiteKey)> =
-                        crate::engine::resume::owner_sites(executable, verify, None)
-                            .into_iter()
-                            .map(|owner| {
-                                let destination = match owner.tag() {
-                                    None => "verify:checks".to_string(),
-                                    Some(tag) => format!("verify:checks:{tag}"),
-                                };
-                                (owner.label(), destination, owner)
-                            })
-                            .collect();
-                    let prior_body =
-                        match body {
-                            SeatBody::Single {
-                                role_path,
-                                command,
-                                candidates,
-                                written,
-                                ..
-                            } => StepBody::Single {
-                                role_path: role_path.clone(),
-                                command: command.clone(),
-                                candidates: candidates.clone(),
-                                written: written.clone(),
-                            },
-                            SeatBody::Panel { members, aggregate } => StepBody::Panel {
-                                members: members.clone(),
-                                aggregate: *aggregate,
-                            },
-                            _ => return Err(CompileError::Invalid(
-                                "dialect verify currently requires a single or panel verify seat"
-                                    .into(),
-                            )),
-                        };
-                    (prior_body, moved)
+            let (prior_body, moved) = {
+                let body = &seats
+                    .get(verify)
+                    .expect("the wrapper is applied only to a parsed verify seat")
+                    .body;
+                let executable = match body.selected(None) {
+                    Some((executable, _))
+                        if !matches!(executable, ExecutableBody::Sequence { .. }) =>
+                    {
+                        executable
+                    }
+                    _ => {
+                        return Err(CompileError::Invalid(
+                            "dialect verify currently requires a single or panel verify seat"
+                                .into(),
+                        ))
+                    }
                 };
+                let moved: Vec<(String, String, SiteKey)> =
+                    crate::engine::resume::owner_sites(executable, verify, None)
+                        .into_iter()
+                        .map(|owner| {
+                            let destination = match owner.tag() {
+                                None => "verify:checks".to_string(),
+                                Some(tag) => format!("verify:checks:{tag}"),
+                            };
+                            (owner.label(), destination, owner)
+                        })
+                        .collect();
+                let prior_body = match body {
+                    SeatBody::Invocation(invocation) => StepBody::Invocation(invocation.to_step()),
+                    _ => {
+                        return Err(CompileError::Invalid(
+                            "dialect verify currently requires a single or panel verify seat"
+                                .into(),
+                        ))
+                    }
+                };
+                (prior_body, moved)
+            };
             // The validator's address is claimed against the WHOLE census,
             // before any source is drained (operator ruling of 2026-09-30,
             // unit 26c): its facts are written before the wrapped body's
@@ -2245,30 +2184,11 @@ fn refuse_global_aliasing(seats: &BTreeMap<String, Seat>) -> Result<(), CompileE
 }
 
 fn body_manifest(body: &SeatBody) -> Value {
-    let single = |candidates: &[Candidate]| {
-        if candidates.is_empty() {
-            json!({"driver": "inline"})
-        } else {
-            json!({"agent": candidates[0].agent, "candidates": candidates.iter().map(|candidate| json!({
-                "provider": candidate.provider,
-                "model": candidate.model,
-                "effort": candidate.effort,
-            })).collect::<Vec<_>>()})
-        }
-    };
     match body {
-        SeatBody::Single { candidates, .. } => single(candidates),
-        SeatBody::Panel { members, aggregate } => json!({
-            "panel": members.iter().map(|member| (member.name.clone(), single(&member.candidates))).collect::<Map<_, _>>(),
-            "aggregate": aggregate.word(),
-        }),
+        SeatBody::Invocation(invocation) => invocation.manifest(),
         SeatBody::Sequence { steps } => json!({"sequence": steps.iter().map(|step| {
             let body = match &step.body {
-                StepBody::Single { candidates, .. } => single(candidates),
-                StepBody::Panel { members, aggregate } => json!({
-                    "panel": members.iter().map(|member| (member.name.clone(), single(&member.candidates))).collect::<Map<_, _>>(),
-                    "aggregate": aggregate.word(),
-                }),
+                StepBody::Invocation(invocation) => invocation.manifest(),
                 StepBody::Dialect { execution } => json!({
                     "dialect": {"argv": execution.argv, "state": execution.state},
                 }),
@@ -5910,12 +5830,13 @@ fn parse_sequence(
                 let resolved =
                     resolve_reference(compiler, at.dir, &what, step_raw, at.secrets, STEP.role)?;
                 agent_hands = resolved.hands;
-                StepBody::Single {
+                StepBody::Invocation(Invocation::Single {
                     role_path: resolved.role_path,
                     command: resolved.command,
                     candidates: resolved.candidates,
                     written: Vec::new(),
-                }
+                    class: (),
+                })
             }
             StepShape::Panel => {
                 let step_at = SeatScope {
@@ -5923,26 +5844,27 @@ fn parse_sequence(
                     ..at
                 };
                 let (members, aggregate) = compiler.parse_panel(step_at, &what, step_raw)?;
-                StepBody::Panel { members, aggregate }
+                StepBody::Invocation(Invocation::Panel { members, aggregate })
             }
             StepShape::Inline => {
                 let written = compiler.inline_written(at, &what, step_raw, false)?;
                 let sites = &mut compiler.sites;
-                StepBody::Single {
+                StepBody::Invocation(Invocation::Single {
                     role_path: parse_role(at.dir, &what, step_raw, compiler.charters, sites)?,
                     command: parse_command(at.dir, &what, step_raw, at.secrets)?,
                     candidates: Vec::new(),
                     written,
-                }
+                    class: (),
+                })
             }
         };
         // The step's canonical class (GP1): a dialect step's validator
         // judges, so it is a gate; a panel step is one when its members are.
         let class = match &body {
-            StepBody::Single { candidates, .. } => {
+            StepBody::Invocation(Invocation::Single { candidates, .. }) => {
                 compiler.judge(at, &what, step_raw, candidates, agent_hands)?
             }
-            StepBody::Panel { members, .. } => {
+            StepBody::Invocation(Invocation::Panel { members, .. }) => {
                 refuse_class_without_a_driver(&what, step_raw)?;
                 SeatClass::of(every(members.iter().map(|m| m.class == SeatClass::Gate)))
             }

@@ -259,20 +259,20 @@ fn member(name: &str, command: Vec<String>) -> PanelMember {
 }
 
 fn panel(members: Vec<PanelMember>) -> SeatBody {
-    SeatBody::Panel {
+    SeatBody::Invocation(Invocation::Panel {
         members,
         aggregate: Aggregate::UnanimousPass,
-    }
+    })
 }
 
 fn single(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
-    SeatBody::Single {
+    SeatBody::Invocation(Invocation::Single {
         role_path: PathBuf::from("role.md"),
         command,
         candidates,
         written: Vec::new(),
         class: SeatClass::Work,
-    }
+    })
 }
 
 /// `single` over a readable, empty charter, for a seat the REAL adapter
@@ -281,13 +281,13 @@ fn single(command: Vec<String>, candidates: Vec<Candidate>) -> SeatBody {
 /// the site and hands its driver that text, so the charter is `charter`,
 /// the one [`dsh_served`] binds.
 fn chartered(command: Vec<String>, candidates: Vec<Candidate>, charter: &Path) -> SeatBody {
-    SeatBody::Single {
+    SeatBody::Invocation(Invocation::Single {
         role_path: charter.to_path_buf(),
         command,
         candidates,
         written: Vec::new(),
         class: SeatClass::Work,
-    }
+    })
 }
 
 /// The empty charter of the layer `layer` that [`dsh_served`] binds.
@@ -765,13 +765,13 @@ fn a_sequence_offers_its_work_steps_and_members_and_nothing_to_a_validator() {
         name: "council".into(),
         class: SeatClass::Work,
         results: vec!["pass".into(), "fail".into()],
-        body: StepBody::Panel {
+        body: StepBody::Invocation(Invocation::Panel {
             members: vec![
                 member("alpha", model_driver(dir.path(), "step-alpha", &["pass"])),
                 member("beta", model_driver(dir.path(), "step-beta", &["pass"])),
             ],
             aggregate: Aggregate::UnanimousPass,
-        },
+        }),
     };
     let mut seats = BTreeMap::new();
     seats.insert(
@@ -857,13 +857,13 @@ fn no_gate_topology_is_ever_offered_a_session() {
                         name: "bench".into(),
                         class: SeatClass::Gate,
                         results: vec!["pass".into(), "fail".into()],
-                        body: StepBody::Panel {
+                        body: StepBody::Invocation(Invocation::Panel {
                             members: vec![
                                 member("alpha", model_driver(dir.path(), "bench-alpha", &["pass"])),
                                 member("beta", model_driver(dir.path(), "bench-beta", &["pass"])),
                             ],
                             aggregate: Aggregate::UnanimousPass,
-                        },
+                        }),
                     },
                 ],
             },

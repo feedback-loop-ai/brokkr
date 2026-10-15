@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
-use brokkr_runtime::{Bundle, SeatBody};
+use brokkr_runtime::{Bundle, Invocation, SeatBody};
 use serde_json::Value;
 
 use crate::brokkr_folder::{repository, Repo};
@@ -527,7 +527,7 @@ fn compiles(bundle: &Path) -> Bundle {
 /// absolute path to the brokkr executable, which is nobody's contract.
 fn argv(compiled: &Bundle, seat: &str) -> Vec<String> {
     match &compiled.seats[seat].body {
-        SeatBody::Single { command, .. } => command[1..].to_vec(),
+        SeatBody::Invocation(Invocation::Single { command, .. }) => command[1..].to_vec(),
         other => panic!("{seat} is not a single-agent seat: {other:?}"),
     }
 }
@@ -884,7 +884,9 @@ fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
         let (_repo, bundle) = scaffold_from(fixture);
         let compiled = compiles(&bundle);
 
-        let SeatBody::Single { command, .. } = &compiled.seats["implement"].body else {
+        let SeatBody::Invocation(Invocation::Single { command, .. }) =
+            &compiled.seats["implement"].body
+        else {
             panic!("implement is a single-agent seat")
         };
         let allowed: Vec<String> = work.iter().map(|name| expr(name)).collect();
@@ -895,7 +897,9 @@ fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
             "{fixture}: implement argv {command:?} lacks {allowed:?}"
         );
 
-        let SeatBody::Single { command, .. } = &compiled.seats["review"].body else {
+        let SeatBody::Invocation(Invocation::Single { command, .. }) =
+            &compiled.seats["review"].body
+        else {
             panic!("review is a single-agent seat")
         };
         let allowed: Vec<String> = gate.iter().map(|name| expr(name)).collect();
@@ -906,7 +910,9 @@ fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
             "{fixture}/review: argv {command:?} lacks {allowed:?}"
         );
         for gate_seat in ["verify", "review", "ship"] {
-            let SeatBody::Single { command, .. } = &compiled.seats[gate_seat].body else {
+            let SeatBody::Invocation(Invocation::Single { command, .. }) =
+                &compiled.seats[gate_seat].body
+            else {
                 panic!("{gate_seat} is a single seat")
             };
             assert!(
@@ -915,11 +921,11 @@ fn the_implement_and_verify_seats_argv_carry_the_class_allowed_tools() {
             );
         }
         for exec_seat in ["verify", "ship"] {
-            let SeatBody::Single {
+            let SeatBody::Invocation(Invocation::Single {
                 command,
                 candidates,
                 ..
-            } = &compiled.seats[exec_seat].body
+            }) = &compiled.seats[exec_seat].body
             else {
                 panic!("{exec_seat} is a single exec seat")
             };

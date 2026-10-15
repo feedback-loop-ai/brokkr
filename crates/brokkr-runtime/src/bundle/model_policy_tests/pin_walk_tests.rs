@@ -30,23 +30,24 @@ pub(super) fn typed_seats(seats: &Value) -> BTreeMap<String, Seat> {
         class: SeatClass::Work,
         results: Vec::new(),
         body: match members(raw) {
-            Some(members) => StepBody::Panel {
+            Some(members) => StepBody::Invocation(Invocation::Panel {
                 members,
                 aggregate: Aggregate::UnanimousPass,
-            },
-            None => StepBody::Single {
+            }),
+            None => StepBody::Invocation(Invocation::Single {
                 role_path: PathBuf::new(),
                 command: Vec::new(),
                 candidates: Vec::new(),
                 written: written(raw),
-            },
+                class: (),
+            }),
         },
     };
     let body = |raw: &Value| match (members(raw), raw.get("sequence")) {
-        (Some(members), _) => SeatBody::Panel {
+        (Some(members), _) => SeatBody::Invocation(Invocation::Panel {
             members,
             aggregate: Aggregate::UnanimousPass,
-        },
+        }),
         (None, Some(steps)) => SeatBody::Sequence {
             steps: steps
                 .as_array()
@@ -56,13 +57,13 @@ pub(super) fn typed_seats(seats: &Value) -> BTreeMap<String, Seat> {
                 .map(step)
                 .collect(),
         },
-        (None, None) => SeatBody::Single {
+        (None, None) => SeatBody::Invocation(Invocation::Single {
             role_path: PathBuf::new(),
             command: Vec::new(),
             candidates: Vec::new(),
             written: written(raw),
             class: SeatClass::Work,
-        },
+        }),
     };
     let seats = seats.as_object().unwrap().iter();
     seats
@@ -82,10 +83,10 @@ pub(super) fn typed_seats(seats: &Value) -> BTreeMap<String, Seat> {
 
 #[test]
 fn whole_gate_class_rejects_empty_and_driverless_shapes() {
-    assert!(!SeatBody::Panel {
+    assert!(!SeatBody::Invocation(Invocation::Panel {
         members: Vec::new(),
         aggregate: Aggregate::UnanimousPass,
-    }
+    })
     .is_gate());
     assert!(!SeatBody::Sequence { steps: Vec::new() }.is_gate());
     // A selector judges when every body it can select does, and only then.
@@ -94,13 +95,13 @@ fn whole_gate_class_rejects_empty_and_driverless_shapes() {
         default,
     };
     assert!(!select(None).is_gate());
-    let gate = SeatBody::Single {
+    let gate = SeatBody::Invocation(Invocation::Single {
         role_path: PathBuf::new(),
         command: Vec::new(),
         candidates: Vec::new(),
         written: Vec::new(),
         class: SeatClass::Gate,
-    };
+    });
     assert!(select(Some(Box::new(gate))).is_gate());
 }
 
