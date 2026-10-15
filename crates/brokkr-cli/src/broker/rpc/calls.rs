@@ -502,11 +502,7 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     fn drained(&mut self, until: Instant) -> Result<(), Ended> {
         let drained = polled((until, self.attempt.1), || {
             let told = self.flush();
-            match (self.delivery, self.outbox.frames.is_empty(), told) {
-                (Delivery::Open, false, false) => Err(ErrorKind::WouldBlock.into()),
-                (Delivery::Open, false, true) => Ok(false),
-                _ => Ok(true),
-            }
+            waited(self.delivery, self.outbox.frames.is_empty(), told)
         });
         match (drained, self.delivery) {
             (true, Delivery::Open | Delivery::Gone) => Ok(()),
@@ -763,5 +759,22 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
             }
         }
         Err(ended)
+    }
+}
+
+/// One look at what waits for the harness while [`Session::drained`]
+/// waits for it, once [`Session::flush`] has written what it takes now:
+/// drained where nothing waits or its output is no longer open; written
+/// again at once where it was `told` some; or, where it took none, its
+/// output's readiness waited for ([`polled`]).
+pub(in crate::broker::rpc) fn waited(
+    delivery: Delivery,
+    empty: bool,
+    told: bool,
+) -> std::io::Result<bool> {
+    match (delivery, empty, told) {
+        (Delivery::Open, false, false) => Err(ErrorKind::WouldBlock.into()),
+        (Delivery::Open, false, true) => Ok(false),
+        _ => Ok(true),
     }
 }

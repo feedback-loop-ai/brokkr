@@ -16,7 +16,7 @@ use brokkr_protocol::broker::{Plan, Refusal};
 use rustix::io::Errno;
 use serde_json::{json, Value};
 
-use super::super::calls::{served, Delivery, Outbox};
+use super::super::calls::{served, waited, Delivery, Outbox};
 use super::super::output::Edge;
 use super::super::pieces::tests::{held, refusing, sink, Sink};
 use super::super::pieces::Pieces;
@@ -114,6 +114,37 @@ fn a_frame_past_its_deadline_is_never_begun_though_the_harness_would_take_it() {
     outbox.frames.push_back((frame(b"[]\n"), later));
     assert_eq!(outbox.flushed(&mut output, going), Delivery::Open);
     assert_eq!((taken(), outbox.frames.len()), (b"{}\n[]\n".to_vec(), 0));
+}
+
+#[test]
+fn a_drain_writes_again_at_once_while_the_harness_takes_some() {
+    // Frames waiting on an open output: one look that took none waits for
+    // its readiness, and one that took some writes again at once, however
+    // the session's threads were scheduled. Nothing waiting, or an output
+    // no longer open, is drained.
+    let look = |delivery, empty, told| match waited(delivery, empty, told) {
+        Ok(drained) => Ok(drained),
+        Err(error) => Err(error.kind()),
+    };
+    let would_block = Err(std::io::ErrorKind::WouldBlock);
+    assert_eq!(
+        [
+            look(Delivery::Open, false, false),
+            look(Delivery::Open, false, true),
+            look(Delivery::Open, true, true),
+            look(Delivery::Gone, false, true),
+            look(Delivery::Stalled, false, false),
+            look(Delivery::Undelivered, false, true),
+        ],
+        [
+            would_block,
+            Ok(false),
+            Ok(true),
+            Ok(true),
+            Ok(true),
+            Ok(true)
+        ]
+    );
 }
 
 /// An outbox holding one frame of three pieces, `x`s cut before their
