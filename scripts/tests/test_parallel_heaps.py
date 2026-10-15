@@ -109,10 +109,9 @@ class Launcher(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len(list(self.root.glob('*.finished'))), 3)
         self.assert_reaped()
-        self.assertEqual(json.loads((self.root / 'cargo-args').read_text()), [
-            'test', '--workspace', '--all-features', '--locked', '--no-fail-fast',
-            '--no-run', '--message-format=json', '--test=heap_claude',
-            '--test=heap_codex', '--test=heap_dsh'])
+        self.assertEqual(json.loads((self.root / 'cargo-args').read_text()), (
+            'test --workspace --all-features --locked --no-fail-fast --message-format=json '
+            '--test=heap_claude --test=heap_codex --test=heap_dsh --no-run').split())
         self.assertEqual(result.stdout.count('test result: ok.'), 3)
         for name in heaps.NAMES:
             self.assertEqual(json.loads((self.root / (name + '.args')).read_text()),
