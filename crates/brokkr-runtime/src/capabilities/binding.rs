@@ -7,11 +7,17 @@
 //! there is none. The resolver's reading of an `mcp` binding, with the
 //! bound on its identity, its egress against the bundle's binding minimum
 //! and what a holding retains (SC1, SC4, MB4, CR1) are read from the same
-//! kind.
+//! kind. What that comparison admitted is sealed once, as the holding's
+//! [`Admitted`] facts (U7c0).
 
+use brokkr_core::canonical::{sha256_bytes, to_bytes};
 use brokkr_core::realms::{CapabilityGrant, GrantRetention};
+use brokkr_protocol::broker::{Clearance, Network};
+use serde_json::{Map, Value};
 
-use super::{Authority, Cause, Connection, DialectKind, McpServer, ToolDialect, Unheld};
+use super::{
+    Authority, Cause, Connection, DialectKind, Implementation, McpServer, ToolDialect, Unheld,
+};
 use crate::agents::EgressClass;
 
 /// The binding minimum of a bundle that declares no `egress_minimum`
@@ -234,8 +240,9 @@ impl Retention {
 
     /// True exactly where the dialect retains and the realm does not
     /// veto; a realm can never require retention. Manifest v12's effective
-    /// retention reads it (`manifest.rs`, `Retention::value`).
-    pub(super) fn effective(self) -> bool {
+    /// retention reads it (`manifest.rs`, `Retention::value`), and so does
+    /// the engine's plan.
+    pub(crate) fn effective(self) -> bool {
         match self.realm {
             GrantRetention::Veto => false,
             GrantRetention::Unreserved | GrantRetention::Inherit => self.declared,
@@ -243,7 +250,69 @@ impl Retention {
     }
 }
 
+/// One held capability, fully attributable (ruling 8).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Holding {
+    pub classes: Vec<String>,
+    pub dialect: String,
+    pub dialect_sha256: String,
+    pub definition_sha256: String,
+    pub tools: Vec<String>,
+    /// The realm's restriction object, exactly as written.
+    pub restrictions: Map<String, Value>,
+    /// What carries it (SC3), from the dialect's kind.
+    pub(crate) implementation: Implementation,
+    /// The dialect's declaration beside the grant's veto (CR1).
+    pub retention: Retention,
+    /// What MB4's comparison sealed where it admitted an `mcp` holding;
+    /// none for a native one, which that comparison never judges. Not a
+    /// fact of manifest identity.
+    pub admitted: Option<Admitted>,
+}
+
+/// What MB4's comparison earned an `mcp` holding it admitted (U7c0, D5):
+/// the network its pinned dialect's egress projects to, and the receipt
+/// of the comparison. The engine provisions its plan from these and never
+/// reloads a grant or a dialect to recover them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Admitted {
+    pub network: Network,
+    pub clearance: Clearance,
+}
+
+/// The closed network `egress` projects to: a `local` route is isolated,
+/// and any route that leaves the host shares its network.
+fn network(egress: EgressClass) -> Network {
+    match egress {
+        EgressClass::Local => Network::Isolated,
+        EgressClass::Contracted | EgressClass::Uncontracted => Network::Shared,
+    }
+}
+
 impl Authority {
+    /// MB4's one comparison of `dialect`'s egress against the bundle's
+    /// binding minimum: below it, the cause; at or above it, what the
+    /// comparison sealed. The receipt binds the dialect's digest and the
+    /// sha256 of the canonical bytes of exactly the minimum it read
+    /// (operator ruling 2026-10-15).
+    pub(super) fn admitted(&self, dialect: &ToolDialect) -> Result<Admitted, Unserved> {
+        if dialect.egress < self.minimum {
+            return Err(Unserved::Below {
+                dialect: dialect.name.clone(),
+                egress: dialect.egress,
+                minimum: self.minimum,
+            });
+        }
+        let policy = sha256_bytes(&to_bytes(&Value::from(self.minimum.name())));
+        Ok(Admitted {
+            network: network(dialect.egress),
+            clearance: Clearance {
+                dialect: dialect.sha256.clone(),
+                policy,
+            },
+        })
+    }
+
     /// This authority, judging every `mcp` dialect's egress against the
     /// bundle's binding `minimum` (MB4) rather than the absent default.
     pub(crate) fn with_minimum(mut self, minimum: EgressClass) -> Authority {
@@ -285,12 +354,12 @@ impl Authority {
             Connection::Stdio(argv) if argv.iter().any(|part| references(part)) => {
                 Unserved::ArgvReference
             }
-            Connection::Stdio(_) if dialect.egress < self.minimum => Unserved::Below {
-                dialect: dialect.name.clone(),
-                egress: dialect.egress,
-                minimum: self.minimum,
+            // What an admitted holding carries is sealed here, and until
+            // U9b builds the broker the fence's words still follow it.
+            Connection::Stdio(_) => match self.admitted(dialect) {
+                Err(below) => below,
+                Ok(_) => unbuilt(realm, capability, dialect).into(),
             },
-            Connection::Stdio(_) => unbuilt(realm, capability, dialect).into(),
         })
     }
 

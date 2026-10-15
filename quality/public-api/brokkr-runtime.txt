@@ -818,6 +818,9 @@ pub brokkr_runtime::capabilities::Unbound::Mcp::realm: alloc::string::String
 pub brokkr_runtime::capabilities::Unbound::Missing
 pub brokkr_runtime::capabilities::Unbound::Missing::capability: alloc::string::String
 pub brokkr_runtime::capabilities::Unbound::Missing::realm: alloc::string::String
+pub struct brokkr_runtime::capabilities::Admitted
+pub brokkr_runtime::capabilities::Admitted::clearance: brokkr_protocol::broker::Clearance
+pub brokkr_runtime::capabilities::Admitted::network: brokkr_protocol::broker::Network
 pub struct brokkr_runtime::capabilities::Authored
 pub brokkr_runtime::capabilities::Authored::config_flags: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::capabilities::Authored::config_keys: alloc::vec::Vec<alloc::string::String>
@@ -863,6 +866,7 @@ pub brokkr_runtime::capabilities::Evidence::limitations: alloc::vec::Vec<alloc::
 pub brokkr_runtime::capabilities::Evidence::scope: alloc::string::String
 pub brokkr_runtime::capabilities::Evidence::source: alloc::string::String
 pub struct brokkr_runtime::capabilities::Holding
+pub brokkr_runtime::capabilities::Holding::admitted: core::option::Option<brokkr_runtime::capabilities::Admitted>
 pub brokkr_runtime::capabilities::Holding::classes: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::capabilities::Holding::definition_sha256: alloc::string::String
 pub brokkr_runtime::capabilities::Holding::dialect: alloc::string::String

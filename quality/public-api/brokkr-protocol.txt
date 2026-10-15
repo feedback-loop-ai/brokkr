@@ -196,6 +196,8 @@ pub enum brokkr_protocol::broker::Tree
 pub brokkr_protocol::broker::Tree::Package
 pub brokkr_protocol::broker::Tree::Package::root: std::path::PathBuf
 pub brokkr_protocol::broker::Tree::System
+impl serde_core::ser::Serialize for brokkr_protocol::broker::Tree
+pub fn brokkr_protocol::broker::Tree::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 impl<'de> serde_core::de::Deserialize<'de> for brokkr_protocol::broker::Tree
 pub fn brokkr_protocol::broker::Tree::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub struct brokkr_protocol::broker::Bootstrap

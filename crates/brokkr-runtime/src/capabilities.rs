@@ -46,7 +46,7 @@ pub(crate) mod manifest;
 use crate::bundle::SeatClass;
 use binding::Unserved;
 pub(crate) use binding::ABSENT_EGRESS_MINIMUM;
-pub use binding::{Native, Retention, Unbound};
+pub use binding::{Admitted, Holding, Native, Retention, Unbound};
 pub use dialect::{Connection, DialectKind, McpServer, Sends, ToolDialect};
 use gates::Cause;
 pub(crate) use manifest::Implementation;
@@ -849,22 +849,6 @@ impl CapabilityContext {
     }
 }
 
-/// One held capability, fully attributable (ruling 8).
-#[derive(Debug, Clone, PartialEq)]
-pub struct Holding {
-    pub classes: Vec<String>,
-    pub dialect: String,
-    pub dialect_sha256: String,
-    pub definition_sha256: String,
-    pub tools: Vec<String>,
-    /// The realm's restriction object, exactly as written.
-    pub restrictions: Map<String, Value>,
-    /// What carries it (SC3), from the dialect's kind.
-    pub(crate) implementation: Implementation,
-    /// The dialect's declaration beside the grant's veto (CR1).
-    pub retention: Retention,
-}
-
 /// The native contribution as typed data, before `controls` renders it
 /// (decision 0065 slice one, design D5.7): the abstract capabilities it
 /// switches ON and OFF, the raw argv — each power's ON or OFF switch and
@@ -1360,6 +1344,8 @@ impl Authority {
                 implementation: Implementation::of(capability, &dialect.kind)
                     .expect("a carried binding is never the reserved hands kind"),
                 retention: Retention::of(dialect, grant),
+                // Only a native binding is carried this far until U9b.
+                admitted: None,
             },
             adapter_key.to_string(),
         ))

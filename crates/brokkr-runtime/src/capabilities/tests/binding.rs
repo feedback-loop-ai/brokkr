@@ -223,6 +223,98 @@ fn an_absent_binding_minimum_is_contracted() {
     );
 }
 
+/// The receipt's policy digest of each binding minimum: the sha256 of the
+/// canonical bytes of exactly the minimum's word, computed outside Brokkr.
+fn policy(minimum: &str) -> String {
+    match minimum {
+        "local" => "ea17e25c6c7aa6ef9407f976a670e87e37bc7e2a86b7bd4a3305bb16f1ba6052",
+        "contracted" => "b42c5e32cc3ac505924a63bfaddd62d346a5dd8a70f98c9a998eb63c034acca9",
+        "uncontracted" => "6929c044957c06bc18e8bab5bbbdc1659d915e7ad97b10ce5e485a4876ab40f3",
+        other => panic!("no binding minimum '{other}'"),
+    }
+    .to_string()
+}
+
+/// U7c0: where MB4's comparison admits `docs-mcp`, it seals the network
+/// its egress projects to (`local` isolated, every other route shared)
+/// and the receipt of the dialect's digest and the minimum it read; below
+/// the minimum it seals nothing and names MB4's cause. Each fact follows
+/// its own input alone: egress moves only the network, the minimum only
+/// the policy digest, the dialect's digest only the receipt's dialect.
+#[test]
+fn an_admitted_mcp_dialect_seals_its_network_and_receipt_and_each_follows_its_own_input() {
+    use brokkr_protocol::broker::{Clearance, Network};
+    let root = cq1_root();
+    let class = |word| crate::agents::EgressClass::parse(word).unwrap();
+    let admitted = |authority: &Authority| authority.admitted(&authority.dialects["library-docs"]);
+    let digest = docs_at(root.path(), "local", None).dialects["library-docs"]
+        .sha256
+        .clone();
+    let sealed = |network, minimum, dialect: &str| {
+        Ok(Admitted {
+            network,
+            clearance: Clearance {
+                dialect: dialect.to_string(),
+                policy: policy(minimum),
+            },
+        })
+    };
+    let words = ["local", "contracted", "uncontracted"];
+    let (mut observed, mut expected) = (Vec::new(), Vec::new());
+    for minimum in words {
+        for egress in words {
+            let authority = docs_at(root.path(), egress, Some(minimum));
+            observed.push((minimum, egress, admitted(&authority)));
+            expected.push((
+                minimum,
+                egress,
+                match class(egress) < class(minimum) {
+                    true => Err(Unserved::Below {
+                        dialect: "docs-mcp".into(),
+                        egress: class(egress),
+                        minimum: class(minimum),
+                    }),
+                    false if egress == "local" => sealed(Network::Isolated, minimum, &digest),
+                    false => sealed(Network::Shared, minimum, &digest),
+                },
+            ));
+        }
+    }
+    assert_eq!(observed, expected);
+    // The absent minimum's receipt names `contracted`, the minimum it means.
+    let absent = docs_at(root.path(), "contracted", None);
+    assert_eq!(
+        admitted(&absent),
+        sealed(Network::Shared, "contracted", &digest)
+    );
+    // Other dialect bytes move the receipt's dialect alone.
+    let mut moved = docs_at(root.path(), "local", Some("local"));
+    moved.dialects.get_mut("library-docs").unwrap().sha256 = "e".repeat(64);
+    assert_eq!(
+        admitted(&moved),
+        sealed(Network::Isolated, "local", &"e".repeat(64))
+    );
+}
+
+/// A native holding is never judged by MB4, so it carries no admitted
+/// facts under any minimum, its dialect's egress meeting it or not.
+#[test]
+fn a_native_holding_carries_no_admitted_facts_under_any_binding_minimum() {
+    use crate::agents::EgressClass::{Contracted, Local, Uncontracted};
+    let root = cq1_root();
+    let native = switchable();
+    let admitted: Vec<_> = [Local, Contracted, Uncontracted]
+        .map(|minimum| {
+            let authority = bound_to_test_native(root.path()).with_minimum(minimum);
+            let outcome = authority
+                .resolve(&asks(json!({"web-search": "requires"})), &serving(&native))
+                .unwrap();
+            outcome.held["web-search"].admitted.clone()
+        })
+        .into();
+    assert_eq!(admitted, [None, None, None]);
+}
+
 /// MB4 judges an `mcp` dialect alone: a native holding, whose dialect is
 /// `uncontracted`, is what slice one made it under every minimum.
 #[test]

@@ -225,7 +225,9 @@ digest, network disposition, bootstrap identity and excluded store/control
 roots. It carries names/locators, never values. Runtime's existing typed
 egress is projected once to isolated/shared network, not copied into a
 second `PlanEgress` catalogue. Clearance in the private plan is the sealed
-admitted comparison receipt bound to dialect and binding-policy digests; the
+admitted comparison receipt bound to dialect and binding-policy digests (the
+binding-policy digest is the SHA-256 of the canonical bytes of exactly the
+typed binding minimum U5a2 compared; operator ruling 2026-10-15); the
 broker validates that receipt, not a second copy of runtime's egress ordering.
 The broker reobserves filesystem facts but
 never reloads grants. No descriptor number becomes durable authority.
@@ -1197,8 +1199,8 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
 | `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1 | 0065 follow-up refactors; identity and gate ordering must survive |
-| `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1 | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0 | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1, U7c0 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/capabilities/gates.rs` | U3a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/agents/charter_data.rs` | U3b, U3c | #347/#348 harness splits; #467 strictness and #500 probe evidence |
@@ -1246,7 +1248,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-protocol/src/hands/namespace/sources.rs` | U6c5a, U6c5b | Includes system write-exclusion/credential observation and task 28.17 measurement; split before implementation if ceilings cannot hold |
 | `crates/brokkr-cli/src/broker/bootstrap.rs` | U6c6a, U6c8 | Ready state, complete-frame EOF and close-on-exec status; count registration/consumers and recheck ceilings |
 | `crates/brokkr-protocol/src/secret/store.rs` | U6c7 | Count registration and same-unit consumers; recheck size and concurrent main edits |
-| `crates/brokkr-protocol/src/broker.rs` | U6c, U6c5a, U6c6a, U6c8, U6d, U6f1b | Shared consumed protocol edge; registration counts in lib.rs |
+| `crates/brokkr-protocol/src/broker.rs` | U6c, U6c5a, U6c6a, U6c8, U6d, U6f1b, U7c0 | Shared consumed protocol edge; registration counts in lib.rs |
 Also coordinate `crates/brokkr-cli/tests/init_doctor.rs` and
 `crates/brokkr-cli/tests/init_stacks.rs` (U1f2/U1g1),
 `crates/brokkr-runtime/tests/witness_digests.rs`,
@@ -1356,7 +1358,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U6f2 | U6f1b | Prove complete session cleanup; 32.1–32.2 | `crates/brokkr-cli/src/broker/session.rs` |
 | U7a | U1g2, U5f, U6f2 | Represent the complete server set; 33.1–33.2 | `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs`; `crates/brokkr-protocol/src/hands.rs` |
 | U7b | U7a | Consume adapter carriage and selected holdings; 34.1–34.2 | `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/agents/mcp.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
-| U7c | U7b | Provision protected per-attempt plans; 35.1–35.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/marks.rs` |
+| U7c0 | U7b | Seal the facts the engine provisions plans from; 35.1–35.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-protocol/src/broker.rs` |
+| U7c | U7c0 | Provision protected per-attempt plans; 35.1–35.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/marks.rs` |
 | U7d | U7c | Deliver checked configurations and selected discovery; 36.1–37.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U8a | U7d | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U8a2a | U8a | Hold the writer lease and durable reservations at dispatch; 38.3–38.4 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/sequence.rs` |
@@ -1906,6 +1909,19 @@ Proof: No union of fallbacks, dead server maps give no authority, unrepresentabl
 
 Owning tests: `crates/brokkr-runtime/src/agents/tests.rs`, `crates/brokkr-runtime/src/capabilities/tests.rs`, `crates/brokkr-runtime/src/bundle/agent_tests.rs`.
 
+### U7c0 — Seal the facts the engine provisions plans from
+
+Where U5a2 admits an MCP holding, seal on the typed `Holding` the facts U7c's plan needs and the engine may not recompute (D5: the engine never reloads grants or dialects): the pinned dialect's typed egress, projected once into the closed network disposition the plan carries (isolated or shared), and the clearance receipt U5a2's comparison earned (`Clearance`: the dialect digest and the binding-policy digest). The binding-policy digest is the SHA-256 of the canonical bytes (`canonical::to_bytes`, `canonical::sha256_bytes`) of exactly the typed binding minimum that comparison read for that holding, so the broker checks the receipt against the same fact (operator ruling 2026-10-15). Neither fact enters run-manifest identity. A holding the comparison did not admit carries no receipt. Make the effective retention rule (`Retention::effective`) visible to the crate so the engine reads it from its one home.
+
+In `crates/brokkr-protocol/src/broker.rs`, give each closed broker record (`Inventory`, `Pin`, `Plan` and every record a plan holds) one `Serialize` that writes exactly the wire names its closed `Deserialize` reads, so the engine writes plans and the inventory through the one type and nothing keeps a second copy of a wire name; a written record reads back equal, and `Owner` keeps its own. No field is added to `Inventory`: retention shares are a fixed function of the sealed inventory (U7c). The public API rises by these `Serialize` impls and the new public facts on `Holding`, about 15–20 entries, stated exactly at PR time (operator ruling 2026-10-15).
+
+Split before U7c (operator ruling 2026-10-15): run 0065-slice-two-unit-u7c-see-the--eb05dcad stopped blocked, because U7c's row cannot reach these facts. Capabilities.rs is frozen above its ceiling; new private child modules beside it follow the standing child-module rule.
+
+Closes tasks 35.1 and 35.2 with U7c; requirements [MB4](specs/mcp-capability-broker/spec.md), [CR3](specs/capability-response-retention/spec.md), [SC1](specs/slice-two-contracts/spec.md).
+Proof: An admitted MCP holding carries its projected network and its receipt, and each changes when, and only when, its own input changes (the dialect's egress, the dialect digest, the typed minimum); a holding below the minimum carries none; manifest identity is unchanged by either. Every closed broker record round-trips through its `Serialize` and closed `Deserialize` equal, with the exact wire names, and a removed field or renamed wire name fails. Effective retention reads the same rule as manifest v12. Bind each with a compiling removal.
+
+Owning tests: `crates/brokkr-runtime/src/capabilities/tests.rs`, and a new test module beside the protocol's `broker.rs`.
+
 ### U7c — Provision protected per-attempt plans
 
 Provision the single sealed plan inventory and private roots before launch, with complete owner identity and disjoint fixed retention shares including permitted fallback slots. Reuse existing launch facts; do not add a duplicate capability inventory or launch state machine. In marks.rs project and clear selected server/tool/discovery identifiers from the same intent consumed by configuration, using existing adapter hands.notice facts. Carry no plan or storage locator into prompt rendering; parse new edge data once into types.
@@ -1914,6 +1930,8 @@ Prepare box facts through U6c4/U6c5's existing consumed API: effective selected 
 
 Closes tasks 35.1 and 35.2; requirements [SD3](specs/slice-two-delivery/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [CR3](specs/capability-response-retention/spec.md).
 Proof: Substitution/missing inventory/pre-start uncertainty refuse exactly; simultaneous slots cannot share quota, oversized allocation refuses before launch, and resume cannot create fresh budget. Bind selected-fact construction and clearing independently: fallback and wanted drop remove stale facts, original requested digest and native/no-MCP behavior stay unchanged, and prompt facts contain no secret-store/ledger locator.
+
+Operator rulings 2026-10-15, after the blocked first run: U7c reads the network disposition, the clearance receipt and effective retention that U7c0 seals on each holding, and writes plans and the inventory through the protocol records' one `Serialize`. Retention shares are a fixed function of the sealed inventory: each retaining plan's share is 256 MiB divided by the number of retaining pins it lists, permitted fallback slots included, and provisioning refuses "capability evidence budget is exhausted" before launch where a share would fall under 8 MiB (more than 32 retaining slots). No inventory field carries them; U8b derives the same share from the same sealed inventory. The budget belongs to one attempt: its directory is created exclusively, so a retry, a reconnect or a resumed engine cannot mint a second inventory or fresh shares for an attempt, and re-provisioning an attempt whose directory exists refuses before launch; a resume that starts a new attempt has that attempt's own budget, as every attempt does. "Resume cannot create fresh budget" is proved as that refusal.
 
 Owning tests: `crates/brokkr-runtime/src/engine/capability_tests.rs`, `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
 

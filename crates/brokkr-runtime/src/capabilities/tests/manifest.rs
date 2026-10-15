@@ -51,6 +51,7 @@ fn held(dialect: &ToolDialect, grant: &CapabilityGrant) -> Holding {
         restrictions: grant.restrictions.clone(),
         implementation: Implementation::of("library-docs", &dialect.kind).unwrap(),
         retention: Retention::of(dialect, grant),
+        admitted: None,
     }
 }
 
@@ -182,6 +183,79 @@ fn the_record_pins_the_four_retention_outcomes_beside_their_inputs() {
             json!({"declared": true, "realm": "veto", "effective": false}),
         ]
     );
+}
+
+/// A retaining `docs-mcp` holding under an inheriting grant, as the
+/// resolver would seal one past the fence.
+fn retaining(root: &Path) -> Holding {
+    let grant = docs_grant(root, "forge.realms/v8", json!({"dialect": "docs-mcp"}));
+    held(&docs(root, json!({"argv": ["docs-mcp"]}), true), &grant)
+}
+
+/// U7c0: the engine reads effective retention from the rule manifest v12
+/// records, for every declaration under every realm disposition.
+#[test]
+fn effective_retention_is_the_one_rule_manifest_v12_records() {
+    use brokkr_core::realms::GrantRetention::{Inherit, Unreserved, Veto};
+    let root = cq1_root();
+    let base = retaining(root.path());
+    let observed: Vec<_> = [false, true]
+        .into_iter()
+        .flat_map(|declared| [Unreserved, Inherit, Veto].map(|realm| Retention { declared, realm }))
+        .map(|retention| {
+            let holding = Holding {
+                retention,
+                ..base.clone()
+            };
+            let record = holding_outcome(holding, DECLARATION).manifest();
+            let recorded = &record["held"]["library-docs"]["retention"]["effective"];
+            (retention.effective(), recorded.as_bool().unwrap())
+        })
+        .collect();
+    let row = |effective| (effective, effective);
+    assert_eq!(
+        observed,
+        [
+            row(false),
+            row(false),
+            row(false),
+            row(true),
+            row(true),
+            row(false)
+        ]
+    );
+}
+
+/// U7c0: what MB4's comparison sealed on a holding is not a fact of
+/// manifest identity: no admitted facts, and two that differ in both
+/// network and receipt, record the same bytes.
+#[test]
+fn the_admitted_network_and_receipt_never_reach_the_record() {
+    use brokkr_protocol::broker::{Clearance, Network};
+    let root = cq1_root();
+    let base = retaining(root.path());
+    let sealed = |network, digit: &str| Admitted {
+        network,
+        clearance: Clearance {
+            dialect: digit.repeat(64),
+            policy: digit.repeat(64),
+        },
+    };
+    let digests: Vec<String> = [
+        None,
+        Some(sealed(Network::Isolated, "a")),
+        Some(sealed(Network::Shared, "b")),
+    ]
+    .into_iter()
+    .map(|admitted| {
+        let holding = Holding {
+            admitted,
+            ..base.clone()
+        };
+        sha256_bytes(&to_bytes(&holding_outcome(holding, DECLARATION).manifest()))
+    })
+    .collect();
+    assert_eq!(digests[1..], [digests[0].clone(), digests[0].clone()]);
 }
 
 /// SC3: an `mcp` implementation is typed whole — the server it is carried
