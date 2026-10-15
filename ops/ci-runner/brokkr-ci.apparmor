@@ -3,7 +3,4 @@
 abi <abi/4.0>,
 profile brokkr-ci flags=(unconfined) {
   userns,
-  # Keep the container profile: the host fusermount profile permits only
-  # host desktop mount paths, excluding the suite's private /var/tmp tree.
-  /usr/bin/fusermount3 ix,
 }

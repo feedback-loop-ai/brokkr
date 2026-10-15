@@ -55,7 +55,10 @@ RUN export RUSTUP_HOME=/home/runner/.rustup CARGO_HOME=/home/runner/.cargo; \
     && rm -rf /tmp/git.tar.xz /tmp/git-2.55.0 \
     && chown -R runner:runner /home/runner/.cargo
 RUN apt-get update && apt-get install -y --no-install-recommends dbus fuse3 systemd-resolved \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && cp -p /usr/bin/fusermount3 /usr/local/bin/fusermount3
+# The local helper inherits this container's AppArmor profile. The host's
+# desktop profile attaches by /usr/bin path and forbids /var/tmp mounts.
 COPY --chmod=755 ops/ci-runner/entrypoint.sh ops/ci-runner/job-started.sh /opt/brokkr-ci/
 ENV ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/brokkr-ci/job-started.sh
 WORKDIR /runner
