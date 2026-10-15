@@ -60,7 +60,7 @@ trap 'rm -rf "$scratch"' EXIT
 # one version moved, is any digest written.
 updates=()
 for action in .github/actions/*/action.yml; do
-  key="$(grep -oE '^ +[A-Z0-9_]+_SHA256:' "$action" | tr -d ' :' | head -n 1)"
+  key="$(sed -nE 's/^ +([A-Z0-9_]+_SHA256):.*/\1/p' "$action" | head -n 1)"
   [ -n "$key" ] || continue
   url="$(release_url "$action")"
   if "$print_only"; then
