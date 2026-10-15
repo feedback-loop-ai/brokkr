@@ -10,6 +10,7 @@ import platform
 import re
 import resource
 import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -171,6 +172,10 @@ def suite(mode, parallel, label):
 
 
 def evaluate(mode):
+    if OUT.is_symlink():
+        raise RuntimeError("the evaluation output directory must not be a symlink")
+    if OUT.exists():
+        shutil.rmtree(OUT)
     OUT.mkdir(parents=True, exist_ok=True)
     info = {"commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
             "mode": mode, "platform": platform.platform(), "toolchain": toolchain(mode),
