@@ -607,13 +607,16 @@ fn the_route_a_launcher_was_found_by_is_admitted_before_it_runs() {
     // reach, though the launcher's own directory is mounted nowhere else.
     let into_reach = aliased(&links, &work.join("links"), "ro");
     cases.push(("alias", answer(&linked, &into_reach, &writable)));
-    // Found through a link past `/dev`, which no local filesystem holds: a
-    // hop's mount unproved, though the launcher's own is proved.
+    // Found through a link whose intermediate mount is unproved, even
+    // on Docker where /dev is tmpfs rather than the host's devtmpfs.
     let held = tempfile::tempdir_in("/dev/shm").unwrap();
     let shm = held.path().canonicalize().unwrap();
     std::os::unix::fs::symlink(fixture.path("launcher"), shm.join("launcher")).unwrap();
     let past = shm.join("launcher/bwrap");
-    cases.push(("unproved", answer(&past, &table(), &reach(&[], &[]))));
+    let unproved = edited(&table(), mount_of(Path::new("/dev")), |fields| {
+        overlay(fields)
+    });
+    cases.push(("unproved", answer(&past, &unproved, &reach(&[], &[]))));
     let expected = unrun(&cases, |case| match case {
         "unproved" => Refusal::Identity,
         _ => Refusal::BindOverlapsReach,

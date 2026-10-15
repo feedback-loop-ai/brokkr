@@ -1,0 +1,6 @@
+**
+!ops/
+!ops/ci-runner/
+!ops/ci-runner/Dockerfile
+!ops/ci-runner/entrypoint.sh
+!ops/ci-runner/job-started.sh

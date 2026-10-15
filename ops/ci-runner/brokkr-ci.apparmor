@@ -1,0 +1,6 @@
+# Scoped exception for the CI containers: nested bubblewrap namespaces.
+# Ubuntu otherwise restricts even processes labelled simply "unconfined".
+abi <abi/4.0>,
+profile brokkr-ci flags=(unconfined) {
+  userns,
+}

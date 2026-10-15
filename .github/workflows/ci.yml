@@ -12,6 +12,7 @@ on:
   # that lands, main plus the queued pull requests, so two green pull
   # requests first meet here rather than on main. A job that judges a pull
   # request's own head skips here; contributing.rs pins which, and why.
+  workflow_dispatch:
   merge_group:
     types: [checks_requested]
 
@@ -121,17 +122,21 @@ jobs:
       - run: cargo +1.88.0 check --workspace --all-targets --all-features --locked
   quality:
     name: format, clippy, contracts
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
+        if: runner.environment == 'self-hosted'
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment != 'self-hosted'
       - name: formatting is canonical
         run: cargo fmt --all -- --check
       - name: clippy is warning-free across every target
@@ -181,7 +186,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
     # 30, not the usual 20 (operator ruling 2026-10-09): decision 0065 slice
     # two's broker boundary proofs grew the Linux run to 18-20 minutes, and a
     # merge group that ran out of time with every test passed dropped #598
@@ -191,10 +196,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
+        if: runner.environment == 'self-hosted'
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment != 'self-hosted'
       # Decision 0043: the hands tests build a real bubblewrap namespace on
       # Linux; the boundary is never simulated, so the tool is installed.
       # The protected system set is prepared in the background, beside the
@@ -202,7 +211,7 @@ jobs:
       # (#647); nothing between here and the shards installs under /usr.
       - name: bubblewrap for the hands tests
         id: bubblewrap
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && runner.environment != 'self-hosted'
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'background'
@@ -312,7 +321,7 @@ jobs:
 
   coverage:
     name: exact coverage gate
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-coverage"]' || '["ubuntu-latest"]') }}
     # 45, not the usual 20 (operator rulings 2026-10-07 and 2026-10-15):
     # the broker's boundary proofs each wait out its fixed 30 s startup
     # deadline, which the design forbids shortening for tests, so the
@@ -323,6 +332,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
+        if: runner.environment == 'self-hosted'
       # The exact gate demands literal 100%, so its compiler is pinned like
       # every other tool CI installs: a nightly release changes the
       # instrumented line, branch and function set, and an unpinned one
@@ -349,6 +361,7 @@ jobs:
           # installing through cargo-binstall, unchecked (#339).
           fallback: none
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment != 'self-hosted'
       # The instrumented dependency build and the production check, kept
       # warm between runs (issue #341). coverage-exact.sh keys its own
       # directory by the nightly, the lockfile and the workspace's target set,
@@ -357,12 +370,14 @@ jobs:
       # the target set, so a restored cache may hold only a stale key, which
       # the script replaces with a cold build and prunes.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        if: runner.environment != 'self-hosted'
         with:
           path: ~/.cache/brokkr-coverage-cache
           key: brokkr-coverage-${{ runner.os }}-${{ hashFiles('rust-nightly-version.txt', 'cargo-llvm-cov-version.txt', 'Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml') }}
       # As in the test jobs, coverage-exact.sh's shards wait on the set (#647).
       - name: bubblewrap for the hands tests
         id: bubblewrap
+        if: runner.environment != 'self-hosted'
         uses: ./.github/actions/setup-bubblewrap
         with:
           protect-system-tree: 'background'
@@ -669,16 +684,20 @@ jobs:
 
   release-binary:
     name: release binary artifact
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-build"]' || '["ubuntu-latest"]') }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
+        if: runner.environment == 'self-hosted'
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: runner.environment != 'self-hosted'
       # The one Linux release build per run: the bootstrap bench and the
       # packaging job download this artifact rather than build their own.
       - run: cargo build --release --locked -p brokkr-cli
