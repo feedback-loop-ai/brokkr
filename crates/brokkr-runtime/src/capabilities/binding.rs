@@ -7,11 +7,18 @@
 //! there is none. The resolver's reading of an `mcp` binding, with the
 //! bound on its identity, its egress against the bundle's binding minimum
 //! and what a holding retains (SC1, SC4, MB4, CR1) are read from the same
-//! kind.
+//! kind. What that comparison admitted is sealed once, as the holding's
+//! [`Admitted`] facts (U7c0).
 
+use brokkr_core::canonical::{sha256_bytes, to_bytes};
 use brokkr_core::realms::{CapabilityGrant, GrantRetention};
+use brokkr_protocol::broker::{Clearance, Network};
+use serde_json::{Map, Value};
 
-use super::{Authority, Cause, Connection, DialectKind, McpServer, ToolDialect, Unheld};
+use super::{
+    gates, Authority, Cause, Connection, DialectKind, Implementation, McpServer, SiteAsks,
+    ToolDialect, Unheld,
+};
 use crate::agents::EgressClass;
 
 /// The binding minimum of a bundle that declares no `egress_minimum`
@@ -105,14 +112,14 @@ impl Unserved {
     /// unrepresentable identity refuses the compile whatever the strength,
     /// and every other cause is the dialect's incompatibility, which the
     /// ask's strength settles.
-    pub(super) fn unheld(self, dialect: &ToolDialect) -> Unheld {
+    pub(super) fn unheld(self, dialect: &str) -> Unheld {
         match self {
             Unserved::Identity => Unheld::Identity,
             Unserved::Unbound(_)
             | Unserved::ArgvReference
             | Unserved::Url
             | Unserved::Below { .. } => {
-                Unheld::Cause(Cause::incompatible(&dialect.name, self.to_string()))
+                Unheld::Cause(Cause::incompatible(dialect, self.to_string()))
             }
         }
     }
@@ -165,15 +172,15 @@ pub(super) fn native<'a>(
             provider,
             adapter_key,
         } => Ok((provider, adapter_key)),
-        Binding::Mcp(_) => Err(unbuilt(realm, capability, dialect)),
+        Binding::Mcp(_) => Err(unbuilt(realm, capability, &dialect.name)),
     }
 }
 
-fn unbuilt(realm: &str, capability: &str, dialect: &ToolDialect) -> Unbound {
+fn unbuilt(realm: &str, capability: &str, dialect: &str) -> Unbound {
     Unbound::Mcp {
         realm: realm.into(),
         capability: capability.into(),
-        dialect: dialect.name.clone(),
+        dialect: dialect.into(),
     }
 }
 
@@ -234,8 +241,9 @@ impl Retention {
 
     /// True exactly where the dialect retains and the realm does not
     /// veto; a realm can never require retention. Manifest v12's effective
-    /// retention reads it (`manifest.rs`, `Retention::value`).
-    pub(super) fn effective(self) -> bool {
+    /// retention reads it (`manifest.rs`, `Retention::value`), and so does
+    /// the engine's plan.
+    pub(crate) fn effective(self) -> bool {
         match self.realm {
             GrantRetention::Veto => false,
             GrantRetention::Unreserved | GrantRetention::Inherit => self.declared,
@@ -243,7 +251,87 @@ impl Retention {
     }
 }
 
+/// One held capability, fully attributable (ruling 8).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Holding {
+    pub classes: Vec<String>,
+    pub dialect: String,
+    pub dialect_sha256: String,
+    pub definition_sha256: String,
+    pub tools: Vec<String>,
+    /// The realm's restriction object, exactly as written.
+    pub restrictions: Map<String, Value>,
+    /// What carries it (SC3), from the dialect's kind.
+    pub(crate) implementation: Implementation,
+    /// The dialect's declaration beside the grant's veto (CR1).
+    pub retention: Retention,
+    /// What MB4's comparison sealed where it admitted an `mcp` holding;
+    /// none for a native one, which that comparison never judges. Not a
+    /// fact of manifest identity.
+    pub admitted: Option<Admitted>,
+}
+
+/// What MB4's comparison earned an `mcp` holding it admitted (U7c0, D5):
+/// the network its pinned dialect's egress projects to, and the receipt
+/// of the comparison. The engine provisions its plan from these and never
+/// reloads a grant or a dialect to recover them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Admitted {
+    pub network: Network,
+    pub clearance: Clearance,
+}
+
+impl Holding {
+    /// The native `(provider, adapter key)` a provider must carry this
+    /// holding of `capability` in `realm` by. An `mcp` holding, sealed with
+    /// what MB4's comparison admitted, takes the fence's own words until
+    /// U9b builds its broker.
+    pub(super) fn native(&self, realm: &str, capability: &str) -> Result<(&str, &str), Unheld> {
+        match &self.implementation {
+            Implementation::Native {
+                provider,
+                adapter_key,
+            } => Ok((provider, adapter_key)),
+            Implementation::Mcp { .. } => {
+                Err(Unserved::from(unbuilt(realm, capability, &self.dialect)).unheld(&self.dialect))
+            }
+        }
+    }
+}
+
+/// The closed network `egress` projects to: a `local` route is isolated,
+/// and any route that leaves the host shares its network.
+fn network(egress: EgressClass) -> Network {
+    match egress {
+        EgressClass::Local => Network::Isolated,
+        EgressClass::Contracted | EgressClass::Uncontracted => Network::Shared,
+    }
+}
+
 impl Authority {
+    /// MB4's one comparison of `dialect`'s egress against the bundle's
+    /// binding minimum: below it, the cause; at or above it, what the
+    /// comparison sealed. The receipt binds the dialect's digest and the
+    /// sha256 of the canonical bytes of exactly the minimum it read
+    /// (operator ruling 2026-10-15).
+    pub(super) fn admitted(&self, dialect: &ToolDialect) -> Result<Admitted, Unserved> {
+        if dialect.egress < self.minimum {
+            return Err(Unserved::Below {
+                dialect: dialect.name.clone(),
+                egress: dialect.egress,
+                minimum: self.minimum,
+            });
+        }
+        let policy = sha256_bytes(&to_bytes(&Value::from(self.minimum.name())));
+        Ok(Admitted {
+            network: network(dialect.egress),
+            clearance: Clearance {
+                dialect: dialect.sha256.clone(),
+                policy,
+            },
+        })
+    }
+
     /// This authority, judging every `mcp` dialect's egress against the
     /// bundle's binding `minimum` (MB4) rather than the absent default.
     pub(crate) fn with_minimum(mut self, minimum: EgressClass) -> Authority {
@@ -258,39 +346,69 @@ impl Authority {
     }
 
     /// The resolver's reading of the binding of `capability`, held as
-    /// `tools`: the native pair a provider must carry, or why none can. An
-    /// `mcp` binding answers in design D3 step 6's order — its identity,
-    /// then an unexecutable connection's SC1 cause, then its egress against
-    /// the bundle's binding minimum (MB4) — and, until U9b builds its
-    /// broker, the fence's own words last. A native binding is judged as
-    /// slice one judged it, whatever its dialect's egress. Reached only
-    /// past the compile fence, which refuses every `mcp` grant first.
-    pub(super) fn carried<'a>(
+    /// `tools`: what MB4's comparison admitted for an `mcp` binding, none
+    /// for a native one, or why no candidate can carry it. An `mcp` binding
+    /// answers in design D3 step 6's order — its identity, then an
+    /// unexecutable connection's SC1 cause, then its egress against the
+    /// bundle's binding minimum (MB4); the fence's own words follow its
+    /// sealed holding ([`Holding::native`]) until U9b builds its broker. A
+    /// native binding is judged as slice one judged it, whatever its
+    /// dialect's egress. Reached only past the compile fence, which
+    /// refuses every `mcp` grant first.
+    fn carried(
         &self,
         capability: &str,
-        dialect: &'a ToolDialect,
+        dialect: &ToolDialect,
         tools: &[String],
-    ) -> Result<(&'a str, &'a str), Unserved> {
-        let realm = &self.context.realm;
-        let server = match bound(realm, capability, dialect)? {
-            Binding::Native {
-                provider,
-                adapter_key,
-            } => return Ok((provider, adapter_key)),
+    ) -> Result<Option<Admitted>, Unserved> {
+        let server = match bound(&self.context.realm, capability, dialect)? {
+            Binding::Native { .. } => return Ok(None),
             Binding::Mcp(server) => server,
         };
         representable(capability, dialect, tools)?;
-        Err(match &server.connection {
-            Connection::Url(_) => Unserved::Url,
+        match &server.connection {
+            Connection::Url(_) => Err(Unserved::Url),
             Connection::Stdio(argv) if argv.iter().any(|part| references(part)) => {
-                Unserved::ArgvReference
+                Err(Unserved::ArgvReference)
             }
-            Connection::Stdio(_) if dialect.egress < self.minimum => Unserved::Below {
-                dialect: dialect.name.clone(),
-                egress: dialect.egress,
-                minimum: self.minimum,
-            },
-            Connection::Stdio(_) => unbuilt(realm, capability, dialect).into(),
+            Connection::Stdio(_) => self.admitted(dialect).map(Some),
+        }
+    }
+
+    /// The holding the realm's grant of `capability` seals at `site`,
+    /// before any provider is asked to carry it: the grant reaching the
+    /// site's office, its loaded dialect, the tools it admits, GP1's gates
+    /// and the binding's own reading (design D3 steps 5 and 6). What MB4's
+    /// comparison admitted for an `mcp` binding is sealed on it here, the
+    /// one place a holding gets it (U7c0).
+    pub(super) fn sealed(&self, site: &SiteAsks, capability: &str) -> Result<Holding, Unheld> {
+        let grant = self.reaching(site, capability)?;
+        let dialect = self
+            .dialect(capability)
+            .map_err(|missing| Cause::incompatible(&grant.dialect, missing.to_string()))?;
+        let tools = grant.tools.clone().unwrap_or_else(|| dialect.tools.clone());
+        if tools.is_empty() {
+            let none = "the realm's grant admits no tool".to_string();
+            return Err(Cause::incompatible(&dialect.name, none).into());
+        }
+        // GP1, before any provider carries it (design D3 steps 5 and 6).
+        let definition = &self.definitions.0[capability];
+        gates::check(site, definition, grant)
+            .map_err(|refusal| Cause::gate(&dialect.name, refusal))?;
+        let admitted = self
+            .carried(capability, dialect, &tools)
+            .map_err(|unserved| unserved.unheld(&dialect.name))?;
+        Ok(Holding {
+            classes: definition.classes.clone(),
+            dialect: dialect.name.clone(),
+            dialect_sha256: dialect.sha256.clone(),
+            definition_sha256: definition.sha256.clone(),
+            tools,
+            restrictions: grant.restrictions.clone(),
+            implementation: Implementation::of(capability, &dialect.kind)
+                .expect("a carried binding is never the reserved hands kind"),
+            retention: Retention::of(dialect, grant),
+            admitted,
         })
     }
 

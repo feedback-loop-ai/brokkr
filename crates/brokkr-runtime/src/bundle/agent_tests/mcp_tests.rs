@@ -1118,6 +1118,7 @@ fn mcp_holding(capability: &str) -> crate::capabilities::Holding {
             declared: false,
             realm: brokkr_core::realms::GrantRetention::Inherit,
         },
+        admitted: None,
     }
 }
 

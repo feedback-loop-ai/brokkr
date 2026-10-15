@@ -39,10 +39,12 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Object<D> {
     }
 }
 
-/// Each record as its public struct, and its one `Deserialize`: the same
-/// fields read by a struct no caller can name, through [`Object`]. A
-/// derived decoder the record itself carried would be a public way in
-/// beside the trait, which a sequence would pass.
+/// Each record as its public struct with its one `Serialize`, and its one
+/// `Deserialize`: the same fields read by a struct no caller can name,
+/// through [`Object`]. A derived decoder the record itself carried would be
+/// a public way in beside the trait, which a sequence would pass. A field's
+/// wire name is written once, in the record, and both directions read it
+/// (U7c0): the engine writes plans and the inventory through these types.
 macro_rules! records {
     ($(
         $(#[doc = $doc:literal])*
@@ -56,9 +58,9 @@ macro_rules! records {
         }
     )+) => {$(
         $(#[doc = $doc])*
-        #[derive(Debug, $($($derive),+)?)]
+        #[derive(Debug, PartialEq, Eq, Serialize, $($($derive),+)?)]
         pub struct $record {
-            $($(#[doc = $field_doc])* pub $field: $type,)*
+            $($(#[doc = $field_doc])* $(#[serde($($wire)+)])? pub $field: $type,)*
         }
 
         impl<'de> Deserialize<'de> for $record {
@@ -116,7 +118,7 @@ records! {
     /// of the canonical operated worktree, the effect and attempt are the
     /// engine's UUID strings and the instance its site instance reference.
     /// The plan's ledger opens with it ([`ledger`]).
-    #[derive(Clone, PartialEq, Eq, Serialize)]
+    #[derive(Clone)]
     pub struct Owner {
         pub repo: String,
         pub run: String,
@@ -148,6 +150,7 @@ records! {
     /// admitted: the dialect digest and the binding-policy digest it
     /// compared. The broker checks the receipt, never runtime's egress
     /// ordering again.
+    #[derive(Clone)]
     pub struct Clearance {
         pub dialect: String,
         pub policy: String,
@@ -208,7 +211,7 @@ records! {
 }
 
 /// MB3's closed program-tree distinction.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Tree {
     /// The executable sits directly in a shared system bin directory and
     /// is its own tree. A struct variant, so a field beside its kind is
@@ -218,16 +221,19 @@ pub enum Tree {
     Package { root: PathBuf },
 }
 
+/// [`Tree`]'s one wire form, which no caller can name: its `kind` tag and
+/// its words, written from a borrowed root and read into an owned one.
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
+enum Kind<P> {
+    System {},
+    Package { root: P },
+}
+
 impl<'de> Deserialize<'de> for Tree {
     /// The tree its `kind` names, read as every record is: through a
     /// type no caller can name, offered a map and nothing else.
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
-        enum Kind {
-            System {},
-            Package { root: PathBuf },
-        }
         Ok(match Kind::deserialize(Object(deserializer))? {
             Kind::System {} => Tree::System {},
             Kind::Package { root } => Tree::Package { root },
@@ -235,9 +241,20 @@ impl<'de> Deserialize<'de> for Tree {
     }
 }
 
+impl Serialize for Tree {
+    /// The tree in the words its `Deserialize` reads.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Tree::System {} => Kind::<&PathBuf>::System {},
+            Tree::Package { root } => Kind::Package { root },
+        }
+        .serialize(serializer)
+    }
+}
+
 /// How a managed writer's privilege is confined: no capability, no new
 /// privilege, no remount. An unknown confinement does not parse.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Privilege {
     Confined,
@@ -246,7 +263,7 @@ pub enum Privilege {
 /// The network the dialect's egress projects to: `local` is isolated,
 /// `contracted` and `uncontracted` share the host's. The bootstrap's sealed
 /// intent names it in the same words.
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Network {
     Isolated,
@@ -323,3 +340,6 @@ pub enum Refusal {
     #[error("broker retained-response support is incomplete")]
     RetentionIncomplete,
 }
+
+#[cfg(test)]
+mod tests;
