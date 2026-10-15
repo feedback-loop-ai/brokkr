@@ -8,6 +8,8 @@ mod checked;
 mod entry;
 #[cfg(target_os = "linux")]
 mod launcher;
+#[cfg(target_os = "linux")]
+mod provision;
 mod server;
 #[cfg(target_os = "linux")]
 mod sources;

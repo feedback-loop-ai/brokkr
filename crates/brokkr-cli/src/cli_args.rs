@@ -638,6 +638,10 @@ pub(super) enum BrokerCmd {
     /// a failure on a third. It takes no plan, store or grant.
     #[command(hide = true)]
     Bootstrap(BrokerBootstrapArgs),
+    /// The engine's provisioning observer (U7c0b): survey one server box
+    /// from one request on stdin and write one reply on stdout.
+    #[command(hide = true)]
+    Survey,
 }
 
 /// The bootstrap's three private control descriptors, by number. They are
