@@ -1113,7 +1113,7 @@ const JOB_LINES: [(&str, &str); 11] = [
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
 <checkout>
 <stable toolchain>
