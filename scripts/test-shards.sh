@@ -2,14 +2,13 @@
 # The workspace suite as shards (#633). This script runs the tests `cargo
 # test --workspace` runs, each exactly once, as shards run one after
 # another in plan order, each with its own output and its own exit status.
-# They never run at once: libtest already spreads one binary across every
-# core, so on CI's four a second binary beside it bought about a minute and
-# cost timing-sensitive tests their margins (the operator's ruling of
-# 2026-10-11). The run fails when any shard fails, and only after every
-# shard has run.
+# With --parallel-heaps, only the three single-test heap binaries overlap;
+# the other shards still run alone. Broader parallelism cost deadline-bound
+# tests their margins on hosted runners (operator ruling 2026-10-11).
+# The run fails when any shard fails, and only after every shard has run.
 #
-#   scripts/test-shards.sh test                 the test jobs' suite, doctests included
-#   scripts/test-shards.sh coverage <nightly>   the exact coverage gate's instrumented run
+#   scripts/test-shards.sh test [--parallel-heaps]     the test jobs' suite, doctests included
+#   scripts/test-shards.sh coverage <nightly> [--parallel-heaps]   the exact coverage gate's instrumented run
 #   scripts/test-shards.sh plan test|coverage   the partition check and each shard's command
 #
 # Every shard selects workspace-wide (`--workspace --all-features`), never by
@@ -46,7 +45,7 @@ refuse() {
 }
 
 usage() {
-  printf 'test shards: usage: %s test | coverage <nightly> | plan test|coverage\n' "$0" >&2
+  printf 'test shards: usage: %s test [--parallel-heaps] | coverage <nightly> [--parallel-heaps] | plan test|coverage\n' "$0" >&2
   exit 2
 }
 
@@ -70,6 +69,11 @@ shard 'the other own-process binaries' bin:brokkr test:driver_conformance test:t
 shard 'the doctests' doc
 shard 'capability_broker, alone' test:it only:capability_broker::
 
+parallel_heaps=false
+if [ "$#" -gt 0 ] && [ "${!#}" = --parallel-heaps ]; then
+  parallel_heaps=true
+  set -- "${@:1:$(($# - 1))}"
+fi
 mode="${1:-}"
 case "$mode" in
   test)
@@ -87,6 +91,7 @@ case "$mode" in
     doctests=false
     ;;
   plan)
+    ! "$parallel_heaps" || usage
     [ "$#" -eq 2 ] || usage
     case "$2" in
       test) doctests=true ;;
@@ -108,6 +113,9 @@ done
 for tool in jq cargo; do
   command -v "$tool" >/dev/null 2>&1 || refuse "$tool is required to hold the shards to the workspace"
 done
+if "$parallel_heaps"; then
+  command -v python3 >/dev/null 2>&1 || refuse 'python3 is required for parallel heaps'
+fi
 cd "$(git rev-parse --show-toplevel)"
 
 # The partition check, read from Cargo's own typed account of the targets.
@@ -302,6 +310,10 @@ lost=false
 run_shard() {
   local index="$1" waited=0 status='' seconds='' refusal
   argv_of "$index"
+  if "$parallel_heaps" && [ "${shard_name[$index]}" = 'the heap measurements' ]; then
+    argv=(python3 scripts/parallel-heaps.py)
+    if [ "$mode" = coverage ]; then argv+=(--nightly "${prefix[1]#+}"); fi
+  fi
   printf 'test shards: runs %s:%s\n' "${shard_name[$index]}" "$(printf ' %s' "${argv[@]}")"
   # The runner runs in the foreground: a non-interactive shell starts a
   # background command with SIGINT and SIGQUIT ignored, and a test that

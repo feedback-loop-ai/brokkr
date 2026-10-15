@@ -219,8 +219,9 @@ jobs:
           cache-build: 'true'
       # The suite `cargo test --workspace --all-features --locked
       # --no-fail-fast` runs, each test target exactly once, as shards run
-      # one after another, capability_broker last (#633).
-      - run: bash scripts/test-shards.sh test
+      # one after another, capability_broker last (#633). Only the three
+      # single-test heap binaries run together, with every child joined.
+      - run: bash scripts/test-shards.sh test --parallel-heaps
         env:
           # The protected set's directory, empty where the step was skipped
           # (macOS), so nothing waits there (#647).
@@ -384,7 +385,7 @@ jobs:
           protect-system-tree: 'background'
           cache-build: 'true'
       - name: prove literal nonzero 100% source-line/branch/function coverage
-        run: bash scripts/coverage-exact.sh
+        run: bash scripts/coverage-exact.sh --parallel-heaps
         env:
           BROKKR_SYSTEM_SET: ${{ steps.bubblewrap.outputs.system-set }}
           # The exact gate counts regions a skipped proof never enters, so

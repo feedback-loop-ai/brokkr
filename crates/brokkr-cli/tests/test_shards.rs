@@ -813,3 +813,57 @@ fn the_shards_wait_after_the_build_for_the_system_sets_preparation() {
         "{stdout}"
     );
 }
+
+/// The heap shard's real process launcher overlaps exactly its three
+/// measurements, preserves coverage profiles, and joins on failure or cancel.
+#[test]
+fn parallel_heap_launcher_preserves_the_shard_barrier_and_measurements() {
+    let output = Command::new("python3")
+        .arg("scripts/tests/test_parallel_heaps.py")
+        .current_dir(workspace())
+        .output()
+        .expect("the heap launcher's process tests run");
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn parallel_heap_opt_in_replaces_only_the_heap_command_in_both_modes() {
+    let real = metadata();
+    for (args, prefix, build) in MODES {
+        let scratch = Scratch::new(&real, &script());
+        let python = scratch.dir.path().join("bin/python3");
+        std::fs::write(&python, STUB).expect("stub heap launcher");
+        std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+        let mut args = args.to_vec();
+        args.push("--parallel-heaps");
+        let run = scratch.run(&args, &[]);
+        assert!(run.status.success(), "{run:?}");
+        let mut commands = vec![format!("{prefix} {build}")];
+        for (index, shard) in SHARDS.iter().enumerate() {
+            if args[0] == "coverage" && *shard == "--doc" {
+                continue;
+            }
+            commands.push(if index == 2 {
+                if args[0] == "coverage" {
+                    "scripts/parallel-heaps.py --nightly nightly-2026-09-05".to_string()
+                } else {
+                    "scripts/parallel-heaps.py".to_string()
+                }
+            } else {
+                format!("{prefix} {shard}")
+            });
+        }
+        assert_eq!(scratch.calls(), commands);
+        let events: Vec<_> = commands[1..]
+            .iter()
+            .flat_map(|command| [format!("start {command}"), format!("end {command}")])
+            .collect();
+        assert_eq!(scratch.events(), events);
+    }
+}
