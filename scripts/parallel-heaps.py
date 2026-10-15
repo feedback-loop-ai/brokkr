@@ -46,8 +46,9 @@ def prepare(nightly):
         env["CARGO_TARGET_DIR"] = env["CARGO_LLVM_COV_TARGET_DIR"]
     command = ["cargo", *toolchain, "test", "--workspace", "--all-features", "--locked",
                "--no-fail-fast", "--no-run", "--message-format=json"]
-    for name in NAMES:
-        command += ["--test", name]
+    # Literal selectors also let the repository's command scanner verify
+    # that this launcher never selects the filtered integration binary.
+    command += ["--test=heap_claude", "--test=heap_codex", "--test=heap_dsh"]
     output = subprocess.check_output(command, env=env, text=True)
     binaries = {}
     for line in output.splitlines():
