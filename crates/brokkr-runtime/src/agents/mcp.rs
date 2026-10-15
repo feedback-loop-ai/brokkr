@@ -203,6 +203,28 @@ impl McpSupport {
         }
     }
 
+    /// Whether `provider`, which this declaration answers for, can load an
+    /// engine-written MCP server (U7b; MB2): only a measured carriage can,
+    /// and every other fact is its own reason it cannot. A legacy server map
+    /// is no measurement, so it carries nothing; a carriage is never read
+    /// from an isolation shape, nor a shape from the carriage.
+    pub(crate) fn carries(&self, provider: &str) -> Result<(), Uncarried> {
+        let reason = match self.carriage() {
+            McpAxis::Measured { .. } => return Ok(()),
+            McpAxis::Unsupported { reason } | McpAxis::Inapplicable { reason } => reason,
+            McpAxis::Unmeasured(McpUnmeasured::Declared(reason)) => {
+                format!("its carriage is unmeasured: {reason}")
+            }
+            McpAxis::Unmeasured(McpUnmeasured::Legacy | McpUnmeasured::Absent) => {
+                "its adapter declares no measured carriage".to_string()
+            }
+        };
+        Err(Uncarried {
+            provider: provider.to_string(),
+            reason,
+        })
+    }
+
     /// What is known of one shape. A shape no entry names reads
     /// `Unmeasured(Absent)` on every axis: never another shape's result.
     /// The compile pass reads each site's shapes here (U1g1).
@@ -261,6 +283,15 @@ pub(super) struct McpContext<'a> {
     pub workspace: bool,
     pub harness: &'a HarnessHands,
     pub resume: &'a ResumeAssessment,
+}
+
+/// Why a provider cannot carry the engine's MCP servers (MB2): ruling 5's
+/// compatibility, which a `requires` ask refuses on and a `wants` drops.
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+#[error("provider '{provider}' cannot carry MCP ({reason})")]
+pub(crate) struct Uncarried {
+    pub(crate) provider: String,
+    pub(crate) reason: String,
 }
 
 /// An `mcp` refusal, naming the adapter file it is in.

@@ -1052,3 +1052,58 @@ fn exec_has_no_model_surface_and_dsh_names_its_measured_keys() {
         "{native}"
     );
 }
+
+/// U7b (MB2): the formerly dead carriage is read on its own. Only a measured
+/// carriage carries; an unsupported, declared-unmeasured, legacy (a server
+/// map naming the very `cap-` server included) or inapplicable one is its own
+/// reason, whatever its shapes measure, and a measured carriage carries with
+/// no shape measured at all.
+#[test]
+fn only_a_measured_carriage_carries_and_each_other_fact_is_its_own_reason() {
+    let qualified = || {
+        json!([entry(
+            json!("cold"),
+            "boxed",
+            on("claude", "claude"),
+            axes()
+        )])
+    };
+    let carriage = |axis: Value, shapes: Value| claude(json!({"carriage": axis, "shapes": shapes}));
+    let unsupported = json!({"unsupported": "engine MCP loading is unavailable"});
+    let exec = adapter(
+        "exec",
+        "exec",
+        "sh",
+        json!({"inapplicable": "no model MCP surface"}),
+    );
+    let legacy = json!({"flag": "--mcp-config", "servers": {"cap-library-docs": "/bin/docs"}});
+    let observed = [
+        carriage(measured("C05 engine sentinel called"), json!([])),
+        carriage(unsupported, qualified()),
+        carriage(json!({"unmeasured": "not probed"}), qualified()),
+        claude(legacy),
+        claude(json!("unsupported")),
+        exec,
+    ]
+    .map(|body| {
+        support(&body)
+            .carries("test-provider")
+            .map_err(|e| e.to_string())
+    });
+    let cannot = |reason: &str| {
+        Err(format!(
+            "provider 'test-provider' cannot carry MCP ({reason})"
+        ))
+    };
+    assert_eq!(
+        observed,
+        [
+            Ok(()),
+            cannot("engine MCP loading is unavailable"),
+            cannot("its carriage is unmeasured: not probed"),
+            cannot("its adapter declares no measured carriage"),
+            cannot("its adapter declares no measured carriage"),
+            cannot("no model MCP surface"),
+        ]
+    );
+}
