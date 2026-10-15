@@ -1114,7 +1114,7 @@ const JOB_LINES: [(&str, &str); 11] = [
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ fromJSON(matrix.os == 'ubuntu-latest' && vars.BROKKR_LOCAL_CI == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && '["self-hosted", "Linux", "X64", "brokkr-engine"]' || format('["{0}"]', matrix.os)) }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
 <local checkout>
 <stable toolchain>
