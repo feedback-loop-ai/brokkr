@@ -20,7 +20,8 @@ use serde_json::{json, Value};
 
 use super::ledger::sealed_ledger;
 use super::observer::within;
-use super::protocol::{after, conversed, greeting, speaking, talking, talking_beside, unheld};
+use super::protocol::{after, conversed, greeting, relayed, speaking, talking, talking_beside};
+use super::protocol::{unheld, SERVER};
 use super::readiness::boxed;
 use super::{set, skip, Sealed, SPEAKS};
 
@@ -113,7 +114,7 @@ fn a_dedicated_native_server_in_a_package_is_served_beside_the_systems_own_hard_
     let digest = sealed.seal_bytes(plan.to_string().as_bytes());
     let ran = conversed(&sealed, &digest, &greeting(), 3);
     let names = fresh().lines().next().unwrap().to_string();
-    let said = format!("{names}\n{links} {inode}\n");
+    let said = relayed(&format!("{names}\n{links} {inode}\n"));
     assert_eq!((ran.0, ran.1.len(), ran.3), (Some(0), 3, said));
     let single = std::os::unix::fs::MetadataExt::nlink(&std::fs::metadata(&program).unwrap());
     assert_eq!(single, 1);
@@ -136,7 +137,7 @@ fn two_servers_and_a_replacement_keep_their_private_directories_apart() {
     let first_ran = held.ended();
     let replaced = conversed(&first, &first_digest, &greeting(), 3);
     let reported = |ran: &super::protocol::Ran| (ran.0, ran.1.len(), ran.3.clone());
-    let fresh = (Some(0), 3, fresh());
+    let fresh = (Some(0), 3, relayed(&fresh()));
     for (case, ran) in [
         ("first", first_ran),
         ("beside", beside),
@@ -213,7 +214,9 @@ fn only_a_shared_network_reaches_an_external_endpoint_the_hosts_loopback_and_abs
             return;
         };
         let ran = conversed(&sealed, &digest, &greeting(), 3);
-        let said = format!("external={reach}\nloopback={reach}\nabstract={reach}\n");
+        let said = relayed(&format!(
+            "external={reach}\nloopback={reach}\nabstract={reach}\n"
+        ));
         let taken = usize::from(reach == "reached");
         let connected = (
             accepted(|| endpoint.accept()),
@@ -302,8 +305,9 @@ fn a_box_resolves_names_from_its_generated_files_and_a_shared_one_through_the_ch
         };
         let ran = conversed(&sealed, &digest, &greeting(), 3);
         let (listed, rest) = ran.3.split_once('\n').unwrap();
+        let etc_line = relayed("etc=");
         let mut listed: Vec<String> = listed
-            .strip_prefix("etc=")
+            .strip_prefix(etc_line.as_str())
             .unwrap()
             .split_whitespace()
             .map(String::from)
@@ -318,6 +322,7 @@ fn a_box_resolves_names_from_its_generated_files_and_a_shared_one_through_the_ch
             false => ("files", "resolv=absent\n".to_string(), "unresolved"),
         };
         let read = format!("hosts: {switch}\n{hosts}{resolv}localhost=127.0.0.1\nstub={stub}\n");
+        let read = relayed(&read);
         assert_eq!(
             (network, ran.0, ran.1.len(), listed, rest.to_string()),
             (network, Some(0), 3, etc(shared), read)
@@ -366,10 +371,14 @@ const FLOOD: &str = r#"i=0
 while [ $i -lt 4096 ]; do printf '%063d\n' $i >&2; i=$((i+1)); done
 "#;
 
-/// The masked tail the broker keeps of [`FLOOD`]: its last 64 KiB, 1,024
-/// whole lines.
+/// The masked tail the broker keeps of [`FLOOD`]: its last 64 KiB, as many
+/// whole lines as fit once each is labelled the server's ([`relayed`]).
 fn flooded() -> String {
-    (3072..4096).map(|line| format!("{line:063}\n")).collect()
+    let kept = (64 << 10) / relayed(&format!("{:063}\n", 0)).len();
+    let lines: String = (4096 - kept..4096)
+        .map(|line| format!("{line:063}\n"))
+        .collect();
+    relayed(&lines)
 }
 
 #[test]
@@ -414,8 +423,8 @@ printf 'split %s\001%s end\n' u6c8-ca nary-Qx7Zv >&2";
         return;
     };
     let ran = conversed(&sealed, &digest, &greeting(), 3);
-    let shown = "clear [2J copy ]52;c;aGk= backover\nsplit [secret:DOCS_TOKEN] end\n";
-    assert_eq!((ran.0, ran.1.len(), ran.3), (Some(0), 3, shown.to_string()));
+    let shown = relayed("clear [2J copy ]52;c;aGk= backover\nsplit [secret:DOCS_TOKEN] end\n");
+    assert_eq!((ran.0, ran.1.len(), ran.3), (Some(0), 3, shown));
     closed_clean(&sealed);
 }
 
@@ -571,33 +580,34 @@ fn left(reader: &mut PipeReader) -> Vec<u8> {
 
 #[test]
 fn a_standard_error_that_takes_one_write_holds_only_a_piece_the_guard_passed() {
-    // 0084726193 bound, the server's line ends in 847261933 past what one
-    // write of POSIX's 512 bytes takes, which passes whole, as itself and
-    // spelled apart from the binding; cut where one write ends, its first
-    // piece would end in 84726193, the bound value. So the line is cut
-    // before its last space instead, where no number is, and a standard
+    // 0084726193 bound, the server's line, labelled, ends in 847261933 past
+    // what one write of POSIX's 512 bytes takes, which passes whole, as
+    // itself and spelled apart from the binding; cut where one write ends,
+    // its first piece would end in 84726193, the bound value. So the line is
+    // cut before its last space instead, where no number is, and a standard
     // error with room for one write and no more holds that first piece
     // alone after what it held, and the rest, the session's own last line
     // included, is given up on at its bound. So too with 0012 bound and
     // the line ending in 123 written as the escapes the guard decodes,
-    // whose first 511 bytes end in the escapes of 12: it is cut before the
-    // space ahead of them, never inside an escape (U6f1b; MB4; operator
-    // ruling 2026-10-13).
+    // whose first 511 bytes, label included, end in the escapes of 12: it
+    // is cut before the space ahead of them, never inside an escape (U6f1b,
+    // U6f2; MB4; operator rulings 2026-10-13 and 2026-10-14).
     let escaped = ["0031", "0032", "0033"]
         .map(|hex| format!("\\u{hex}"))
         .concat();
+    let label = SERVER.len();
     let cases = [
         (
             "plain",
             "0084726193",
-            "printf '%503s847261933\\n' '' >&2".to_string(),
-            502,
+            format!("printf '%{}s847261933\\n' '' >&2", 503 - label),
+            502 - label,
         ),
         (
             "escaped",
             "0012",
-            format!("printf '%499s%s\\n' '' '{escaped}' >&2"),
-            498,
+            format!("printf '%{}s%s\\n' '' '{escaped}' >&2", 499 - label),
+            498 - label,
         ),
     ];
     for (case, value, line, spaces) in cases {
@@ -610,7 +620,7 @@ fn a_standard_error_that_takes_one_write_holds_only_a_piece_the_guard_passed() {
         let bindings = bound(value);
         let guard = Guard::new(&bindings);
         if case == "escaped" {
-            let written = [" ".repeat(499), escaped.clone()].concat();
+            let written = [SERVER, &" ".repeat(499 - label), &escaped].concat();
             let one_write = &written.as_bytes()[..ATOMIC - 1];
             let guarded = (guard.text(written.as_bytes()), guard.text(one_write));
             assert_eq!(guarded, (true, false));
@@ -620,7 +630,7 @@ fn a_standard_error_that_takes_one_write_holds_only_a_piece_the_guard_passed() {
         reader.read_exact(&mut room).unwrap();
         let talk = talking_beside(&sealed, &digest, (&greeting(), 0), Stdio::from(writer));
         let ran = talk.ended();
-        let piece = [" ".repeat(spaces), "\n".to_string()].concat();
+        let piece = relayed(&[" ".repeat(spaces), "\n".to_string()].concat());
         let said = (ran.0, ran.1.len(), left(&mut reader));
         let expected = (Some(1), 0, [&held[4096..], piece.as_bytes()].concat());
         assert_eq!((case, said), (case, expected));
@@ -911,7 +921,7 @@ fn the_server_reads_its_installed_bytes_as_they_are_and_admission_vouches_for_no
     let plan = sealed.observing(plan);
     let digest = sealed.seal_bytes(plan.to_string().as_bytes());
     let ran = conversed(&sealed, &digest, &greeting(), 3);
-    let read = format!("{canary}\n{old}\n");
+    let read = relayed(&format!("{canary}\n{old}\n"));
     assert_eq!((ran.0, ran.1.len(), ran.3), (Some(0), 3, read));
     let mut kept = String::new();
     std::fs::File::open(&held)

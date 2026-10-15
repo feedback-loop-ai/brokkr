@@ -26,6 +26,20 @@ use super::readiness::{boxed, Reads};
 use super::{admitted, ended, killed, refused, set, skip, unservable, Refusal, Sealed, SPEAKS};
 use super::{TALK_MAX, TOKEN};
 
+/// What begins each piece of a line the broker relays from its server's
+/// standard error, so that none reads as the broker's own (U6f2; operator
+/// ruling 2026-10-14).
+pub(super) const SERVER: &str = "MCP server stderr: ";
+
+/// `lines` as the broker relays them from its server's standard error, each
+/// labelled ([`SERVER`]).
+pub(super) fn relayed(lines: &str) -> String {
+    let labelled = lines
+        .split_inclusive('\n')
+        .map(|line| format!("{SERVER}{line}"));
+    labelled.collect()
+}
+
 /// A sealed fixture whose server, started, runs `said` in the box's own
 /// shell, and its plan's digest; none, declared skipped, where no box
 /// stands.
@@ -230,7 +244,11 @@ impl Talk {
     /// `child`, its input and output piped and its standard error piped or
     /// not, told `frames` and heard until it has said `answers` frames or
     /// its output has ended, each wait for it within `max`.
-    fn over(mut child: Child, (frames, answers): (&[Value], usize), max: Duration) -> Talk {
+    pub(super) fn over(
+        mut child: Child,
+        (frames, answers): (&[Value], usize),
+        max: Duration,
+    ) -> Talk {
         let output = super::apart(child.stdout.take().unwrap());
         let errors = child.stderr.take().map(super::apart);
         let mut input = child.stdin.take().unwrap();
@@ -448,13 +466,31 @@ fn a_nonretaining_plan_serves_its_harness_masked_and_closes_clean() {
         json!({"jsonrpc": "2.0", "id": 2, "result": {"tools": tools}}),
         json!({"jsonrpc": "2.0", "id": "c", "result": content}),
     ];
-    let said = "server says [secret:DOCS_TOKEN] é\n".to_string();
+    let said = relayed("server says [secret:DOCS_TOKEN] é\n");
     assert_eq!(ran, (Some(0), answers, String::new(), said));
     let one = vec![("resolve".to_string(), Some(Outcome::Succeeded))];
     let clean = (one, Some(Disposition::Clean), None);
     assert_eq!((reads.lookups(), sealed_ledger(&sealed)), (1, clean));
     let ledger = std::fs::read(super::ledger::of(&sealed.locator)).unwrap();
     assert!(!String::from_utf8_lossy(&ledger).contains(TOKEN));
+}
+
+#[test]
+fn a_servers_error_line_in_a_clean_session_is_relayed_as_the_servers_never_the_brokers() {
+    // The server says `error: ` on its standard error and serves its call
+    // all the same: the broker relays that line labelled the server's, so
+    // it never reads as the broker's own diagnostic, exits 0 and closes
+    // Clean. The exit status, not the standard error, says how the session
+    // ended (U6f2; operator ruling 2026-10-14).
+    let Some((sealed, digest)) = unretained(&after("echo 'error: quota nearly spent' >&2")) else {
+        return;
+    };
+    let ran = conversed(&sealed, &digest, &greeting(), 3);
+    let said = format!("{SERVER}error: quota nearly spent\n");
+    assert_eq!((ran.0, ran.1.len(), ran.3), (Some(0), 3, said));
+    let one = vec![("resolve".to_string(), Some(Outcome::Succeeded))];
+    let clean = (one, Some(Disposition::Clean), None);
+    assert_eq!(sealed_ledger(&sealed), clean);
 }
 
 #[test]
@@ -517,7 +553,7 @@ fn a_running_server_lacking_a_dependency_or_speaking_no_mcp_is_the_protocols_cau
         let server = sealed.path("opt/docs/bin/docs-mcp");
         let told = match says.is_empty() {
             true => String::new(),
-            false => format!("{}{says}", server.display()),
+            false => relayed(&format!("{}{says}", server.display())),
         };
         let (code, cause) = ended(Failure::Protocol);
         let protocol = ((code, told + &cause), 1, failed(Failure::Protocol));

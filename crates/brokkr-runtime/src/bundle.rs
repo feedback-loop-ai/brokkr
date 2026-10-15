@@ -42,7 +42,8 @@ use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
     EgressClass, HandsNotice, Library, Lowering, Sandbox, TrustTier,
 };
-use crate::dialect::{Dialect, DIALECT_PHASES};
+use crate::dialect::{rendered_phases, Dialect, DialectPhase, DIALECT_PHASES};
+use crate::phase_name;
 use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -93,11 +94,13 @@ pub use brokkr_core::policy::{is_engine_owned, ENGINE_OWNED_INPUTS, REALM_FACTS}
 /// also the vocabulary recorded on every compiled dialect step, so dispatch
 /// and sequence-boundary reasoning cannot drift apart.
 pub(crate) fn dialect_results(phase: &str) -> [&'static str; 2] {
-    match phase {
-        "clarify" => ["clear", "ambiguous"],
-        "analyze" => ["consistent", "drift"],
-        "verify" => ["pass", "fail"],
-        _ => ["drafted", "fail"],
+    match DialectPhase::parse(phase) {
+        Some(DialectPhase::Clarify) => ["clear", "ambiguous"],
+        Some(DialectPhase::Analyze) => ["consistent", "drift"],
+        None if phase == phase_name::VERIFY => ["pass", "fail"],
+        Some(DialectPhase::Specify | DialectPhase::Design | DialectPhase::Tasks) | None => {
+            ["drafted", "fail"]
+        }
     }
 }
 
@@ -1505,7 +1508,7 @@ impl Bundle {
         let mut dialect_prompts = BTreeMap::new();
         if uses_dialect {
             if let Some(dialect) = dialect {
-                for phase in DIALECT_PHASES.into_iter().chain(["implement", "review"]) {
+                for phase in rendered_phases() {
                     let rendered = dialect.rendered.get(phase).cloned().ok_or_else(|| {
                         CompileError::Invalid(format!(
                             "dialect '{}' pin carries no rendered instructions for phase '{phase}'",
@@ -1535,7 +1538,7 @@ impl Bundle {
         let protected_phase = config
             .get("protected_phase")
             .and_then(Value::as_str)
-            .unwrap_or("review")
+            .unwrap_or(phase_name::REVIEW)
             .to_string();
         if !machine.phases.contains(&protected_phase) {
             return Err(CompileError::Invalid(format!(
@@ -1661,9 +1664,12 @@ impl Bundle {
                 // exists there can be no edge to it; the unmatched verdict
                 // parks fail-closed. Once triage exists, ordinary coverage
                 // is mandatory and the roster test pins both bounded arms.
-                let reserved_oversized = phase == "implement"
+                let reserved_oversized = phase == phase_name::IMPLEMENT
                     && result == "oversized"
-                    && !machine.phases.iter().any(|known| known == "triage");
+                    && !machine
+                        .phases
+                        .iter()
+                        .any(|known| known == phase_name::TRIAGE);
                 if !covered && !reserved_oversized {
                     return Err(CompileError::Invalid(format!(
                         "seat '{phase}' may emit '{result}' but no rule covers it; \
@@ -1683,7 +1689,7 @@ impl Bundle {
             // authoring owner is registered (design D10 F2). Record the
             // agent hands the wrapped seat resolved so the synthetic
             // validator's hands law sees the same site it always did.
-            if phase == "verify" && wrapped_verify.is_some() {
+            if phase == phase_name::VERIFY && wrapped_verify.is_some() {
                 verify_agent_hands = agent_seat.as_ref().and_then(resolved_hands);
             }
             // Decision 0021, at the seat's own driver-bearing site. A
@@ -1699,7 +1705,7 @@ impl Bundle {
                 // its synthetic validator, exactly as it did when the
                 // wrapper ran inline; the wrapper pass applies the same
                 // refusal for a shape it cannot wrap.
-                _ if phase == "verify" && wrapped_verify.is_some() => {}
+                _ if phase == phase_name::VERIFY && wrapped_verify.is_some() => {}
                 _ => refuse_class_without_a_driver(phase, raw)?,
             }
             // Decision 0006 bounds belong to the strategy seat, not the
@@ -1851,7 +1857,8 @@ impl Bundle {
         refuse_aliasing_sites(&seats)?;
         let census = owner_index(&seats)?;
 
-        if let Some(command) = wrapped_verify.filter(|_| seats.contains_key("verify")) {
+        let verify = phase_name::VERIFY;
+        if let Some(command) = wrapped_verify.filter(|_| seats.contains_key(verify)) {
             // The wrapped seat's exact authoring owners — its own single
             // label or its own panel members, never a prefix sweep that
             // would also drag an unrelated literal phase onto a wrapper
@@ -1859,7 +1866,7 @@ impl Bundle {
             let (prior_body, moved) =
                 {
                     let body = &seats
-                        .get("verify")
+                        .get(verify)
                         .expect("the wrapper is applied only to a parsed verify seat")
                         .body;
                     let executable =
@@ -1875,7 +1882,7 @@ impl Bundle {
                             )),
                         };
                     let moved: Vec<(String, String, SiteKey)> =
-                        crate::engine::resume::owner_sites(executable, "verify", None)
+                        crate::engine::resume::owner_sites(executable, verify, None)
                             .into_iter()
                             .map(|owner| {
                                 let destination = match owner.tag() {
@@ -1916,7 +1923,7 @@ impl Bundle {
             // move, so a member named for it would take them along.
             claim_address(
                 &census,
-                "verify",
+                verify,
                 "verify:dialect-verify",
                 "the injected dialect validator",
             )?;
@@ -1928,15 +1935,15 @@ impl Bundle {
                 remaining.remove(source);
             }
             for (_, destination, owner) in &moved {
-                claim_address(&remaining, "verify", destination, &owner.describe())?;
+                claim_address(&remaining, verify, destination, &owner.describe())?;
             }
             let dialect_site = "verify:dialect-verify";
             let synthetic = dialect_gate_site(dialect_site, boundary)?;
-            let verify_raw = &resolved.seats["verify"];
-            let secrets = parse_secrets("verify", verify_raw)?;
+            let verify_raw = &resolved.seats[verify];
+            let secrets = parse_secrets(verify, verify_raw)?;
             let law = SiteLaw {
                 boundary,
-                dir: &resolved.roots[resolved.seat_origin["verify"]],
+                dir: &resolved.roots[resolved.seat_origin[verify]],
                 agent_hands: verify_agent_hands.as_ref(),
             };
             enforce_model_policy(
@@ -1987,17 +1994,17 @@ impl Bundle {
             relocate_verify_facts(&mut sites, &moved);
             let prior = SequenceStep {
                 name: "checks".into(),
-                class: SeatClass::of(seats["verify"].has_gate),
-                results: seats["verify"].results.clone(),
+                class: SeatClass::of(seats[verify].has_gate),
+                results: seats[verify].results.clone(),
                 body: prior_body,
             };
-            seats.get_mut("verify").expect("parsed above").body = SeatBody::Sequence {
+            seats.get_mut(verify).expect("parsed above").body = SeatBody::Sequence {
                 steps: vec![
                     prior,
                     SequenceStep {
                         name: "dialect-verify".into(),
                         class: SeatClass::Gate,
-                        results: dialect_results("verify")
+                        results: dialect_results(verify)
                             .into_iter()
                             .map(str::to_string)
                             .collect(),
@@ -5833,7 +5840,7 @@ fn parse_sequence(
                                 "sequence step '{what}' dialect must be 'validate' or 'check'"
                             ))
                         })?;
-                let expected = if ["clarify", "analyze"].contains(&phase) {
+                let expected = if DialectPhase::parse(phase).is_some_and(DialectPhase::is_loop) {
                     "check"
                 } else {
                     "validate"

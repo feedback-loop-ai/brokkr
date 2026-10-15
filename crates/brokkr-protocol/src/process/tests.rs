@@ -1018,7 +1018,7 @@ fn an_attempt_whose_end_cannot_be_proven_parks() {
     process.stderr = stderr;
     let stderr_held = attempt(process);
 
-    let answering = format!("read -r hello; {}", capabilities());
+    let answering = format!("read -r hello; printf '%s\\n' '{}'", capabilities());
     // A member still runs, so the table does not read the refused group gone.
     let member = format!("sleep 5 >/dev/null 2>&1 & {answering}");
     let mut process = spawned(&command(&member), std::path::Path::new("."), None);

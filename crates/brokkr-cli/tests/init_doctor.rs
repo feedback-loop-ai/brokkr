@@ -1102,7 +1102,13 @@ fn doctor_names_every_unpinned_model_seat_and_the_single_repair() {
         ("verify", "reviewer", "codex"),
     ] {
         let seat = &mut config["seats"][phase];
-        seat.as_object_mut().unwrap().remove("agent");
+        // The scaffold's verify seat has hands. On macOS, init declares
+        // the `harness` boundary, which refuses an inline site with hands
+        // before the model pins are read (decision 0046 ruling 4), so the
+        // inline sites here hold none.
+        let seat_map = seat.as_object_mut().unwrap();
+        seat_map.remove("agent");
+        seat_map.remove("hands");
         seat["role"] = serde_json::json!(format!("agents/charters/{charter}.md"));
         seat["driver"] = serde_json::json!({
             "command": ["{brokkr}", "driver", kind, "--"]

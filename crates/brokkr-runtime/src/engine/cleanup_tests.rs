@@ -172,6 +172,68 @@ fn a_panel_member_not_proven_over_parks_the_panel_with_its_evidence() {
     );
 }
 
+/// What an engine's next step leaves: the run's state where it ended, and
+/// every event type of its journal, in order.
+fn stepped(engine: &mut Engine) -> (Option<Run>, Vec<EventType>) {
+    let end = engine.drive_once().unwrap().map(|end| end.state.run);
+    let events = engine.store.load(&engine.run_id).unwrap();
+    (end, events.iter().map(|event| event.event_type).collect())
+}
+
+/// MB5 (decision 0065 slice two U6f2): a restart replays nothing uncertain.
+/// The attempt's driver reported success, but its process group still had
+/// members after the kill, as a broker's box outliving it would leave it:
+/// the attempt parks with that evidence. An engine started again over the
+/// same journal ends its every step parked on it, journals nothing more
+/// and asks no new attempt of the effect.
+#[test]
+fn a_restarted_engine_keeps_an_attempt_not_proven_over_parked_and_replays_nothing() {
+    let (dir, mut engine) = engine(single_body(vec!["driver".into()]));
+    engine.drive_once().unwrap();
+    engine.drive_once().unwrap();
+    let requested = engine.store.load(&engine.run_id).unwrap();
+    let effect = requested.last().unwrap().payload["effect_id"].clone();
+    let effect = effect.as_str().unwrap().to_string();
+    let started = json!({"effect_id": effect, "attempt_id": "attempt", "driver": "none"});
+    let attempt = Some("attempt".to_string());
+    engine
+        .append(EventType::EffectStarted, started, attempt)
+        .unwrap();
+    let held = unresolved(json!({"result": "complete"}), Unsettled::Group { group: 7 });
+    let held = DriverRun::Ran(held);
+    engine
+        .conclude_single(&effect, "attempt", held, &Selection::new(), None)
+        .unwrap();
+    use EventType::*;
+    let journal = vec![
+        RunStarted,
+        PhaseEntered,
+        EffectRequested,
+        EffectStarted,
+        EffectIndeterminate,
+        RunParked,
+    ];
+    assert_eq!(stepped(&mut engine).1, journal);
+    let (run_id, bundle) = (engine.run_id.clone(), engine.bundle.clone());
+    drop(engine);
+    let store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let work = Some(dir.path().join("work"));
+    let mut resumed = Engine::resume(store, bundle, &run_id, work).unwrap();
+    let reason = format!(
+        "effect {effect} indeterminate: the driver reported success; the attempt is not \
+         proven over: its process group 7 still had members after the kill; stderr tail: "
+    );
+    let parked = Run::AwaitingOperator {
+        reason: brokkr_core::fold::ParkReason::Stated(reason),
+    };
+    for _ in 0..2 {
+        assert_eq!(
+            stepped(&mut resumed),
+            (Some(parked.clone()), journal.clone())
+        );
+    }
+}
+
 /// Every field an attempt not proven over adds to `effect/indeterminate`
 /// is published in `effect-cleanup.v1` and validates against it, and one
 /// proven over adds none (decision 0016's additive rule).

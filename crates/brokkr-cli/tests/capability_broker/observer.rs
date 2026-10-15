@@ -21,6 +21,7 @@ use rustix::net::{SocketFlags, SocketType};
 use rustix::process::Pid;
 use serde_json::{json, Value};
 
+use super::cleanup::{identity, left_for_the_next_start};
 use super::{admitted, bootstrap, brokkr, chmod, euid, refused, setpriv, skip, unservable};
 use super::{Refusal, Sealed, Store, HARNESS};
 
@@ -892,7 +893,16 @@ fn an_operation_blocked_to_the_deadline_refuses_with_nothing_left_running() {
         // Nothing was looked up or started.
         assert_eq!((kind, store.lookups(ended_at)), (kind, 0));
         assert!(!sealed.path("started").exists());
+        reaped_at_the_next_start(kind, &sealed);
     });
+}
+
+/// Check that the observer the broker killed left its server identity's
+/// tree in the broker's TMPDIR, which nothing of the broker's removes, and
+/// that the next start reaps it (U6f2; #415, #646).
+fn reaped_at_the_next_start(kind: Kind, sealed: &Sealed) {
+    let left = left_for_the_next_start(&sealed.path("tmp"));
+    assert_eq!((kind, left), (kind, (identity(1), true)));
 }
 
 #[test]
@@ -918,6 +928,7 @@ fn a_cancelled_attempt_ends_a_blocked_observation_with_nothing_left_running() {
         assert!(gone(broker), "{kind:?}");
         assert_eq!((kind, store.lookups(ended_at)), (kind, 0));
         assert!(!sealed.path("started").exists());
+        reaped_at_the_next_start(kind, &sealed);
     });
 }
 
@@ -936,6 +947,7 @@ fn a_broker_killed_outright_takes_its_blocked_observer_with_it() {
         super::bounded_apart(attempt, b"", &apart(&sealed));
         assert!(ended, "{kind:?}");
         assert!(!sealed.path("started").exists());
+        reaped_at_the_next_start(kind, &sealed);
     });
 }
 

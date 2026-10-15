@@ -23,6 +23,8 @@ use brokkr_protocol::broker::Refusal;
 use serde_json::{json, Value};
 
 #[cfg(target_os = "linux")]
+mod cleanup;
+#[cfg(target_os = "linux")]
 mod handoff;
 mod ledger;
 #[cfg(target_os = "linux")]
@@ -235,6 +237,7 @@ fn bounded(child: Child, said: &[u8]) -> Output {
 /// [`bounded`], the broker's own standard error redirected by its starter
 /// to the file `apart`, which a failure names too (the review of U6f1b's
 /// seventh run).
+#[cfg(target_os = "linux")]
 fn bounded_apart(child: Child, said: &[u8], apart: &Path) -> Output {
     bounded_by(child, said, (TALK_MAX, Some(apart)))
 }

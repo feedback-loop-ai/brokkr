@@ -23,6 +23,7 @@ use super::{
 use crate::bundle::{
     dialect_results, Aggregate, DialectExecution, PanelMember, SeatClass, SequenceStep, StepBody,
 };
+use crate::dialect::DialectPhase;
 
 /// Where a step leaves its attempt, at each stage of settling it.
 enum StepVerdict<T> {
@@ -520,7 +521,10 @@ impl Engine {
         }
         let phase = run.phase();
         if matches!(at.step.body, StepBody::Dialect { .. })
-            && matches!(phase, "clarify" | "analyze")
+            && matches!(
+                DialectPhase::parse(phase).map(DialectPhase::is_loop),
+                Some(true)
+            )
             && result["result"] == dialect_results(phase)[1]
         {
             carried.deterministic_failure = Some((

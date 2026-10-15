@@ -131,7 +131,7 @@ fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
 
 /// A bundle a start admits, its seats' driver failing: the reap lines
 /// are said before any seat speaks, so a failing driver is enough.
-fn reap_bundle(tmp: &Path) -> PathBuf {
+pub(crate) fn reap_bundle(tmp: &Path) -> PathBuf {
     let bundle = tmp.join("bundle");
     std::fs::create_dir_all(&bundle).unwrap();
     let policy = r#"{"phases":["work","review","done"],"initial":"work","terminal":["done"],
