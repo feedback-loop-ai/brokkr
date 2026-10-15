@@ -20,7 +20,7 @@ jobs:
       matrix:
         include:
           - name: coverage
-            runner: '["self-hosted", "Linux", "X64", "brokkr-coverage"]'
+            runner: '["self-hosted", "Linux", "X64", "brokkr-coverage-eval"]'
             mode: coverage
     runs-on: ${{ fromJSON(matrix.runner) }}
     timeout-minutes: 90
