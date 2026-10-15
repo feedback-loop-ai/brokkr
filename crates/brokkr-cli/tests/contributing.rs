@@ -1150,7 +1150,7 @@ const JOB_LINES: [(&str, &str); 11] = [
         r#"
     name: exact coverage gate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
 <checkout>
       - name: the pinned coverage toolchain and its measuring tool
