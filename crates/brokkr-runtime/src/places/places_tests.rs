@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use super::{
-    default_map, folder, library, refuse_folder_base, run_local, state_of, unpinned_top_level,
-    Kind, Layout, Places, PlacesError,
+    base_library, default_map, folder, library, run_local, state_of, unpinned_top_level, Kind,
+    Layout, Places, PlacesError,
 };
 
 /// Mark `dir` as a recipe library (decision 0083 ruling 4), so a launch
@@ -23,6 +23,7 @@ fn a_workspace_without_a_folder_keeps_the_library_layout() {
         Places {
             agents: root.join("agents"),
             adapters: root.join("adapters"),
+            recipes: root.join("recipes"),
             map: root.join("realms.json"),
         }
     );
@@ -33,15 +34,18 @@ fn a_workspace_with_a_folder_reads_it() {
     let dir = tempfile::tempdir().unwrap();
     let root = &dir.path().canonicalize().unwrap();
     std::fs::create_dir(root.join(".brokkr")).unwrap();
-    assert_eq!(
-        Places::of(root).unwrap(),
-        Places {
-            agents: root.join(".brokkr/agents"),
-            adapters: root.join(".brokkr/adapters"),
-            map: root.join(".brokkr/realms.json"),
-        }
-    );
+    assert_eq!(Places::of(root).unwrap(), folder_places(root));
     assert_eq!(state_of(root).unwrap(), Some(root.join(".brokkr/state")));
+}
+
+/// The places of the folder at `root`.
+fn folder_places(root: &Path) -> Places {
+    Places {
+        agents: root.join(".brokkr/agents"),
+        adapters: root.join(".brokkr/adapters"),
+        recipes: root.join(".brokkr/recipes"),
+        map: root.join(".brokkr/realms.json"),
+    }
 }
 
 /// The places are judged at the root the walk reaches (round 634i's
@@ -56,14 +60,7 @@ fn places_are_the_root_folders_from_a_subdirectory() {
     std::fs::create_dir_all(root.join(".brokkr")).unwrap();
     let deep = root.join("src/deep");
     std::fs::create_dir_all(&deep).unwrap();
-    assert_eq!(
-        Places::of(&deep).unwrap(),
-        Places {
-            agents: root.join(".brokkr/agents"),
-            adapters: root.join(".brokkr/adapters"),
-            map: root.join(".brokkr/realms.json"),
-        }
-    );
+    assert_eq!(Places::of(&deep).unwrap(), folder_places(&root));
     assert_eq!(default_map(&deep).unwrap(), None);
 
     std::fs::create_dir(root.join("src/.brokkr")).unwrap();
@@ -404,29 +401,49 @@ fn only_a_folder_bundle_skips_its_state() {
     assert!(!unpinned_top_level(&folder, "state"));
 }
 
+/// Only a folder bundle skips its top-level `recipes/`, the shelf (#696);
+/// a library's recipe, and a library root's own `.brokkr`, pin theirs.
 #[test]
-fn only_a_folder_bundle_refuses_a_base() {
+fn only_a_folder_bundle_skips_its_shelf() {
     let (_dir, root) = folder_root();
-    let refused = refuse_folder_base(&root.join(".brokkr"), "shared").unwrap_err();
-    assert_eq!(
-        refused.to_string(),
-        format!(
-            "bundle: {}/.brokkr/bundle.json extends 'shared' (decision 0083); a bundle in \
-             .brokkr/ composes no base, because its library would be {}: remove extends",
-            root.display(),
-            root.display()
-        )
-    );
-    assert!(matches!(refused, crate::CompileError::Invalid(_)));
-    assert_eq!(
-        refuse_folder_base(&root.join("recipes/x"), "shared").ok(),
-        Some(())
-    );
+    let (folder, recipe) = (root.join(".brokkr"), root.join("recipes/x"));
+    assert!(unpinned_top_level(&folder, "recipes"));
+    assert!(!unpinned_top_level(&recipe, "recipes"));
+    assert!(!unpinned_top_level(
+        &root.join(".brokkr/recipes/x"),
+        "recipes"
+    ));
     plant_library(&root);
+    assert!(!unpinned_top_level(&folder, "recipes"));
+    let holds = ["state", "recipes", "dialects"].map(super::unpinned_holds);
     assert_eq!(
-        refuse_folder_base(&root.join(".brokkr"), "shared").ok(),
-        Some(())
+        holds,
+        [
+            "the folder's runtime state, which a run writes",
+            "the folder's shelf, whose named recipes are bundles of their own (#696)",
+            "operator configuration",
+        ]
     );
+}
+
+/// A folder bundle composes its base from its shelf (#696, amending
+/// decision 0083 ruling 1), never the repository root; every other layer,
+/// a shelf recipe and a library root's own `.brokkr` included, from its
+/// parent.
+#[test]
+fn only_a_folder_bundle_composes_from_its_shelf() {
+    let (_dir, root) = folder_root();
+    let folder = root.join(".brokkr");
+    assert_eq!(base_library(&folder).unwrap(), root.join(".brokkr/recipes"));
+    let shelved = root.join(".brokkr/recipes/x");
+    assert_eq!(
+        base_library(&shelved).unwrap(),
+        root.join(".brokkr/recipes")
+    );
+    let recipe = root.join("recipes/x");
+    assert_eq!(base_library(&recipe).unwrap(), root.join("recipes"));
+    plant_library(&root);
+    assert_eq!(base_library(&folder).unwrap(), root);
 }
 
 /// A layer whose layout cannot be read composes no base, refused by name,
@@ -439,7 +456,7 @@ fn a_folder_bundle_whose_layout_cannot_be_read_refuses_a_base() {
     let (recipes, folder) = (root.join("recipes"), root.join(".brokkr"));
     mode(&recipes, 0o000);
     let judged = (!reads_anything(&recipes)).then(|| {
-        let refused = refuse_folder_base(&folder, "shared").unwrap_err();
+        let refused = base_library(&folder).unwrap_err();
         (refused, !unpinned_top_level(&folder, "state"))
     });
     mode(&recipes, 0o755);

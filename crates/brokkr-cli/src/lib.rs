@@ -329,9 +329,10 @@ enum RecipesCmd {
     /// List recipes under --dir; broken ones print a warning line, never
     /// abort the listing.
     List {
-        /// The recipe library directory.
-        #[arg(long, default_value = "recipes")]
-        dir: PathBuf,
+        /// The recipe library directory (default the found .brokkr/recipes,
+        /// listing nothing while it is absent, else recipes).
+        #[arg(long)]
+        dir: Option<PathBuf>,
     },
     /// Install a recipe from a local path or a git URL into <dir>/<name>.
     Add {
@@ -356,9 +357,10 @@ enum RecipesCmd {
     Show {
         /// The recipe's name, resolved to <dir>/<name>.
         name: String,
-        /// The recipe library directory.
-        #[arg(long, default_value = "recipes")]
-        dir: PathBuf,
+        /// The recipe library directory (default the found .brokkr/recipes,
+        /// else recipes).
+        #[arg(long)]
+        dir: Option<PathBuf>,
     },
 }
 

@@ -397,7 +397,7 @@ pub(crate) fn bundled(bundle: std::path::PathBuf) -> DeliveryArgs {
     DeliveryArgs {
         bundle: Some(bundle),
         recipe: None,
-        recipes_dir: workspace().join("recipes"),
+        recipes_dir: Some(workspace().join("recipes")),
         secrets_file: None,
     }
 }

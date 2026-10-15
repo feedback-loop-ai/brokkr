@@ -122,7 +122,11 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
     layout.refuse_old()?;
     let found = &layout.workspace();
     match command {
-        RecipesCmd::List { dir } => recipes::list(found, &dir)?,
+        RecipesCmd::List { dir } => {
+            // The folder's default shelf lists nothing while it is absent.
+            let shelf = dir.is_none() && layout.shelf().is_some();
+            recipes::list(found, &layout.recipes(dir), shelf)?
+        }
         RecipesCmd::Add {
             source,
             name,
@@ -132,7 +136,7 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
         RecipesCmd::Show { name, dir } => {
             let recipe = BundleSource::Recipe {
                 name,
-                recipes_dir: dir,
+                recipes_dir: layout.recipes(dir),
             };
             return print_compiled(workspace, &recipe.resolve()?);
         }

@@ -243,7 +243,7 @@ Usage: brokkr run [OPTIONS] --feature <FEATURE>
 | --- | --- | --- | --- |
 | `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
-| `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
+| `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--feature <FEATURE>` |  |  | The feature the run delivers, as text: recorded when the run starts and handed to its seats |
 | `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map named here and missing or malformed is a refusal, never a silent fallback |
@@ -264,7 +264,7 @@ Usage: brokkr resume [OPTIONS] --run <RUN>
 | --- | --- | --- | --- |
 | `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
-| `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
+| `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
@@ -285,7 +285,7 @@ Usage: brokkr rerun [OPTIONS] --run <RUN>
 | `--run <RUN>` |  | yes | The source run whose feature is re-run |
 | `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
-| `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
+| `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
@@ -324,7 +324,7 @@ Usage: brokkr recipes list [OPTIONS]
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--dir <DIR>` | `recipes` |  | The recipe library directory |
+| `--dir <DIR>` |  |  | The recipe library directory (default the found .brokkr/recipes, listing nothing while it is absent, else recipes) |
 
 ## brokkr recipes add
 
@@ -352,7 +352,7 @@ Usage: brokkr recipes show [OPTIONS] <NAME>
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `<NAME>` |  |  | The recipe's name, resolved to &lt;dir&gt;/&lt;name&gt; |
-| `--dir <DIR>` | `recipes` |  | The recipe library directory |
+| `--dir <DIR>` |  |  | The recipe library directory (default the found .brokkr/recipes, else recipes) |
 
 ## brokkr agents
 
@@ -526,7 +526,7 @@ Usage: brokkr queue add [OPTIONS] --feature <FEATURE> --reason <REASON>
 | --- | --- | --- | --- |
 | `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
-| `--recipes-dir <RECIPES_DIR>` | `recipes` |  | The recipe library `--recipe` is resolved in |
+| `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
 | `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--feature <FEATURE>` |  |  | The feature the run delivers, as text: recorded when the run starts and handed to its seats |
 | `--realms <REALMS>` |  |  | The world's map: realms and the journal they share (decision 0023). Defaults to .brokkr/realms.json, else ./realms.json; a map named here and missing or malformed is a refusal, never a silent fallback |

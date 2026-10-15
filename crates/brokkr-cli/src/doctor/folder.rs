@@ -154,26 +154,32 @@ pub(super) fn report_folder(
     realms: Option<&Path>,
     compiled: Option<anyhow::Result<()>>,
 ) {
+    let workspace = &defaults.workspace;
     let compile = |dir: &Path| match compiled {
         Some(outcome) => outcome,
-        None => compile_folder(&defaults.workspace, dir, realms).map(drop),
+        None => compile_folder(workspace, dir, realms).map(drop),
     };
-    report_folder_with(report, &defaults.found, compile);
+    let shelved = |dir: &Path| {
+        compile_folder(workspace, dir, realms).map(|bundle| bundle.manifest_digest()[..12].into())
+    };
+    report_folder_with(report, &defaults.found, compile, shelved);
 }
 
-/// [`report_folder`], `compile` the folder's compile. The lines go ahead
-/// of every other, and a missing one leaves the report unhealthy.
+/// [`report_folder`], `compile` the folder's compile and `shelved` a shelf
+/// recipe's, to its digest. The lines go ahead of every other, and a
+/// missing one leaves the report unhealthy.
 fn report_folder_with(
     report: &mut Report,
     found: &Result<Found, FolderError>,
     compile: impl FnOnce(&Path) -> anyhow::Result<()>,
+    shelved: impl Fn(&Path) -> anyhow::Result<String>,
 ) {
     let mut folder = Report {
         healthy: true,
         lines: Vec::new(),
     };
     match found {
-        Ok(found) => observe(&mut folder, &found.layout, compile),
+        Ok(found) => observe(&mut folder, &found.layout, (compile, shelved)),
         Err(refused) => folder.missing(WHAT, refused.to_string()),
     }
     report.healthy &= folder.healthy;
@@ -182,11 +188,14 @@ fn report_folder_with(
 
 /// The lines `layout` earns: a library's own layout, an old shape's
 /// opening, each entry a half-moved folder left at the root, no folder,
-/// or the folder found and whether its compile refuses.
+/// or the folder found, whether its compile refuses, and its shelf.
 fn observe(
     report: &mut Report,
     layout: &places::Layout,
-    compile: impl FnOnce(&Path) -> anyhow::Result<()>,
+    (compile, shelved): (
+        impl FnOnce(&Path) -> anyhow::Result<()>,
+        impl Fn(&Path) -> anyhow::Result<String>,
+    ),
 ) {
     let (cwd, root) = (layout.cwd().display(), layout.root().display());
     let folder = layout.root().join(FOLDER);
@@ -208,16 +217,49 @@ fn observe(
             WHAT,
             format!("none from {cwd} up to {root} — brokkr init . writes one"),
         ),
-        (Kind::Folder, Ok(None)) => match compile(&folder) {
-            Ok(()) => report.ok(WHAT, found),
-            Err(refused) => report.missing(
-                WHAT,
+        (Kind::Folder, Ok(None)) => {
+            match compile(&folder) {
+                Ok(()) => report.ok(WHAT, found),
+                Err(refused) => report.missing(
+                    WHAT,
+                    format!(
+                        "{found}, but its compile refuses (decision 0083): {}",
+                        crate::safe_lines(&format!("{refused:#}"))
+                    ),
+                ),
+            }
+            report_shelf(report, &layout.places().recipes, shelved);
+        }
+    }
+}
+
+/// One line per recipe on the folder's `shelf` (#696), by name: its
+/// digest, `shelved` its compile, or that compile's refusal as a warning,
+/// because a broken shelf recipe is information and never fails the
+/// report. No shelf is no line; one that cannot be listed warns.
+fn report_shelf(
+    report: &mut Report,
+    shelf: &Path,
+    shelved: impl Fn(&Path) -> anyhow::Result<String>,
+) {
+    let recipes = match crate::recipes::listed(shelf) {
+        Ok(recipes) => recipes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => return report.warn("shelf", format!("{}: {error}", shelf.display())),
+    };
+    for (name, dir) in recipes {
+        let what = format!("recipe {name}");
+        match shelved(&dir) {
+            Ok(digest) => report.ok(&what, format!("{digest} at {}", dir.display())),
+            Err(refused) => report.warn(
+                &what,
                 format!(
-                    "{found}, but its compile refuses (decision 0083): {}",
+                    "{} does not compile (#696): {}",
+                    dir.display(),
                     crate::safe_lines(&format!("{refused:#}"))
                 ),
             ),
-        },
+        }
     }
 }
 

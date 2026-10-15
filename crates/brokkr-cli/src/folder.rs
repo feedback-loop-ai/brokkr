@@ -399,6 +399,19 @@ impl Layout {
             .unwrap_or_else(|| brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR.into())
     }
 
+    /// The recipe library a verb reads named recipes from: the flag, else
+    /// the folder's shelf ([`Layout::shelf`]), else `recipes`.
+    pub(crate) fn recipes(&self, flag: Option<PathBuf>) -> PathBuf {
+        flag.or_else(|| self.shelf())
+            .unwrap_or_else(|| "recipes".into())
+    }
+
+    /// The folder's shelf of named recipes, `.brokkr/recipes` (#696), where
+    /// the folder is.
+    pub(crate) fn shelf(&self) -> Option<PathBuf> {
+        self.folder_places().map(|places| places.recipes)
+    }
+
     fn folder_places(&self) -> Option<Places> {
         (self.0.kind() == Kind::Folder).then(|| self.0.places())
     }

@@ -115,28 +115,19 @@ fn seat_summary(bundle: &Bundle) -> String {
 }
 
 /// One line per recipe that compiles; a warning line per one that does
-/// not. Nothing aborts the listing: a broken recipe is information.
-pub(crate) fn list(workspace: &Path, dir: &Path) -> Result<()> {
+/// not. Nothing aborts the listing: a broken recipe is information. A
+/// `dir` that cannot be read warns, unless it is the folder's default
+/// `shelf` (#696) and nothing stands there: no recipe is on it yet.
+pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
     let world = World::discover(workspace, None)?;
-    let mut candidates: Vec<(String, PathBuf)> = Vec::new();
-    match std::fs::read_dir(dir) {
-        Ok(entries) => {
-            let mut subdirs: Vec<PathBuf> = entries
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.is_dir())
-                .collect();
-            subdirs.sort();
-            for sub in subdirs {
-                let name = sub
-                    .file_name()
-                    .expect("read_dir child path has a final component")
-                    .to_string_lossy()
-                    .into_owned();
-                candidates.push((name, sub));
-            }
+    let candidates = match listed(dir) {
+        Ok(candidates) => candidates,
+        Err(e) if shelf && e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => {
+            println!("warning: recipes dir {}: {e}", dir.display());
+            Vec::new()
         }
-        Err(e) => println!("warning: recipes dir {}: {e}", dir.display()),
-    }
+    };
     for (name, path) in candidates {
         match compile_in(workspace, &path, world.as_ref()) {
             Ok(bundle) => println!(
@@ -152,6 +143,23 @@ pub(crate) fn list(workspace: &Path, dir: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The recipes in the library `dir`, each directory in it with its name,
+/// sorted: what `list` and doctor's shelf lines both read.
+pub(crate) fn listed(dir: &Path) -> std::io::Result<Vec<(String, PathBuf)>> {
+    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_dir())
+        .collect();
+    subdirs.sort();
+    let named = subdirs.into_iter().map(|sub| {
+        let name = sub
+            .file_name()
+            .expect("read_dir child path has a final component");
+        (name.to_string_lossy().into_owned(), sub)
+    });
+    Ok(named.collect())
 }
 
 /// A source is a git URL by prefix (`http://`, `https://`, `git@`, and —

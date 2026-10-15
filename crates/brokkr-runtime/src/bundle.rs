@@ -4235,10 +4235,7 @@ fn skipped_top_level(root: &Path, path: &Path) -> Option<String> {
     let first = path.strip_prefix(root).ok()?.components().next()?;
     let name = first.as_os_str().to_str()?;
     crate::places::unpinned_top_level(root, name).then(|| {
-        let holds = match name {
-            crate::places::STATE => "the folder's runtime state, which a run writes",
-            _ => "operator configuration",
-        };
+        let holds = crate::places::unpinned_holds(name);
         format!(
             "which stands under '{name}' — a top-level name the bundle's file walk does not \
              pin, because it holds {holds}"
