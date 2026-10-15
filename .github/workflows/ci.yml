@@ -128,7 +128,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-local-runner
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
         if: runner.environment == 'self-hosted'
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -195,7 +196,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-local-runner
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
         if: runner.environment == 'self-hosted'
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
@@ -330,7 +332,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-local-runner
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
         if: runner.environment == 'self-hosted'
       # The exact gate demands literal 100%, so its compiler is pinned like
       # every other tool CI installs: a nightly release changes the
@@ -687,7 +690,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-local-runner
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
         if: runner.environment == 'self-hosted'
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:

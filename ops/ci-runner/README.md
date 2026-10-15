@@ -22,9 +22,15 @@ a measured optimum.
 
 Rust toolchains and bubblewrap are installed once. The small Ubuntu image
 also reduces the system tree inspected by the real broker boundary tests.
+The runner's whole filesystem is copied to a native disk volume and entered
+with chroot: the broker intentionally refuses overlay filesystem identities.
+Startup mounts the container's own proc/dev/sys into it, then drops SYS_ADMIN
+from the capability bounding set before starting the unprivileged runner.
+Each worker has a stable generated machine ID and Git 2.55.0 for reftable tests.
 Each worker's registry, toolchains, workspace artifacts and incremental
-compilation state persist on local disk. Checkout still cleans the source
-tree: `setup-local-runner` links `target` to a directory outside it. Hosted
+compilation state persist on local disk. Checkout replaces tracked source files; `local-runner` cleans untracked
+files while preserving only the real workspace `target` directory. Keeping
+it inside the workspace also makes the test binary available to hands boxes. Hosted
 cache download, compression, pruning and upload are skipped locally.
 Coverage retains its existing dependency cache and still clears workspace
 instrumentation and profiles before every measurement.
@@ -40,7 +46,7 @@ bash ops/ci-runner/manage.sh profile
 bash ops/ci-runner/manage.sh register
 bash ops/ci-runner/manage.sh start
 bash ops/ci-runner/manage.sh status
-gh variable set BROKKR_LOCAL_CI --repo feedback-loop-ai/brokkr --body true
+gh variable set BROKKR_LOCAL_CI --body true
 ```
 
 Registration passes a short-lived token over standard input. No personal
@@ -71,7 +77,7 @@ its existing cold hosted builds and attestation path.
 bash ops/ci-runner/manage.sh logs engine
 bash ops/ci-runner/manage.sh stop
 bash ops/ci-runner/manage.sh start
-gh workflow run ci.yml --repo feedback-loop-ai/brokkr --ref YOUR_BRANCH
+gh workflow run ci.yml --ref YOUR_BRANCH
 ```
 
 For hosted execution, set `BROKKR_LOCAL_CI` to `false` before starting a new

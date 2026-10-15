@@ -222,8 +222,8 @@ its preparation failed or never finished (#647); locally nothing names one
 in `BROKKR_SYSTEM_SET`, so nothing waits. The
 [persistent local runners](../../ops/ci-runner/README.md) use a small image
 whose system tree is already root-owned and protected, and probe a real
-bubblewrap namespace before running the same tests. They keep compiled
-artifacts outside the cleaned checkout and skip hosted cache transfers.
+bubblewrap namespace before running the same tests. They clean the checkout while preserving its real `target` directory
+and skip hosted cache transfers.
 `BROKKR_LOCAL_CI=false` selects hosted execution for new runs; fork pull
 requests and macOS always use hosted runners. A plain cargo test runs the same
 tests, also one binary after another. On Linux,

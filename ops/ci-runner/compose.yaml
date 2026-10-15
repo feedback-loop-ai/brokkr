@@ -7,6 +7,8 @@ x-runner: &runner
     dockerfile: ops/ci-runner/Dockerfile
   restart: unless-stopped
   init: true
+  cap_add:
+    - SYS_ADMIN # startup mounts only; entrypoint drops it before running jobs
   # Bubblewrap needs nested user/mount/network namespaces and ptrace tests.
   # No privileged mode, host Docker socket, host home or host network.
   security_opt:
@@ -34,6 +36,7 @@ services:
       RUNNER_LABELS: brokkr-local,brokkr-engine
       CARGO_BUILD_JOBS: '10'
     volumes:
+      - engine-root:/ci-root
       - engine-runner:/runner
       - engine-home:/home/runner
   coverage:
@@ -48,6 +51,7 @@ services:
       RUNNER_LABELS: brokkr-local,brokkr-coverage
       CARGO_BUILD_JOBS: '10'
     volumes:
+      - coverage-root:/ci-root
       - coverage-runner:/runner
       - coverage-home:/home/runner
   build:
@@ -62,10 +66,14 @@ services:
       RUNNER_LABELS: brokkr-local,brokkr-build
       CARGO_BUILD_JOBS: '4'
     volumes:
+      - build-root:/ci-root
       - build-runner:/runner
       - build-home:/home/runner
 
 volumes:
+  engine-root:
+  coverage-root:
+  build-root:
   engine-runner:
   engine-home:
   coverage-runner:

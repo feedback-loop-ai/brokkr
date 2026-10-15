@@ -1371,7 +1371,8 @@ const SHARED_STEPS: [(&str, &str); 5] = [
         "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-local-runner
+          clean: ${{ runner.environment != 'self-hosted' }}
+      - uses: ./.github/actions/local-runner
         if: runner.environment == 'self-hosted'",
     ),
     (
@@ -1504,7 +1505,7 @@ enum InTheQueue {
 
 /// The `if:` conditions this test reads, and what each does in a merge
 /// group. Any other condition fails the test rather than being guessed at.
-const CONDITIONS: [(&str, InTheQueue); 6] = [
+const CONDITIONS: [(&str, InTheQueue); 9] = [
     (
         "github.event_name == 'pull_request'",
         InTheQueue::PullRequestOnly,
@@ -1512,6 +1513,14 @@ const CONDITIONS: [(&str, InTheQueue); 6] = [
     (
         "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
         InTheQueue::Scheduled,
+    ),
+    // Both runner kinds execute the same checks in the queue. Only their
+    // provisioning and cache steps differ.
+    ("runner.environment == 'self-hosted'", InTheQueue::Runs),
+    ("runner.environment != 'self-hosted'", InTheQueue::Runs),
+    (
+        "runner.os == 'Linux' && runner.environment != 'self-hosted'",
+        InTheQueue::Runs,
     ),
     ("runner.os == 'Linux'", InTheQueue::Runs),
     ("runner.os == 'macOS'", InTheQueue::Runs),

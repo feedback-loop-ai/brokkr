@@ -1,4 +1,4 @@
-name: setup-local-runner
+name: local-runner
 description: Keep compiled workspace artifacts on the local runner's NVMe volume.
 runs:
   using: composite
@@ -7,15 +7,14 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        cache="$HOME/.cache/brokkr-targets/$GITHUB_JOB"
-        mkdir -p "$cache"
-        # checkout cleans the source tree each job. Build artifacts live
-        # outside it and survive, including workspace incremental state.
-        if [ -e target ] || [ -L target ]; then
-          echo 'local runner: checkout must leave no target directory' >&2
+        # Keep a real target directory inside the workspace: the hands
+        # tests bind that workspace, so an external symlink is not usable.
+        if [ -L target ]; then
+          echo 'local runner: target must be a real directory' >&2
           exit 1
         fi
-        ln -s "$cache" target
+        git clean -ffdx -e /target/
+        mkdir -p target
         # rust-toolchain otherwise defaults to CARGO_INCREMENTAL=0 for
         # disposable runners. Keep workspace incremental state where useful;
         # release code generation and coverage keep their existing settings.

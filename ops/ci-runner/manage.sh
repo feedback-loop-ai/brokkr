@@ -22,7 +22,7 @@ case "${1:-status}" in
       # A one-hour registration token goes over stdin, never into a file,
       # Docker environment, shell trace, or the long-lived container.
       gh api --method POST repos/feedback-loop-ai/brokkr/actions/runners/registration-token --jq .token |
-        docker compose run --rm --no-deps -T --entrypoint bash "$service" -c '
+        docker compose run --rm --no-deps -T --user runner --entrypoint bash "$service" -c '
           set -euo pipefail
           read -r token
           cd /runner

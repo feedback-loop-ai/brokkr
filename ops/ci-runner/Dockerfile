@@ -42,6 +42,18 @@ RUN curl -fsSL --retry 3 -o /tmp/cov.tar.gz \
     && echo 'b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a  /tmp/cov.tar.gz' | sha256sum -c - \
     && tar xzf /tmp/cov.tar.gz -C /home/runner/.cargo/bin && rm /tmp/cov.tar.gz
 
+USER root
+# The suite exercises Git's reftable support (Ubuntu 24.04 ships older Git).
+RUN export RUSTUP_HOME=/home/runner/.rustup CARGO_HOME=/home/runner/.cargo; \
+    apt-get update && apt-get install -y --no-install-recommends libcurl4-openssl-dev libexpat1-dev libssl-dev zlib1g-dev gettext \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL --retry 3 -o /tmp/git.tar.xz https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.xz \
+    && echo '457fdb04dc8728e007d4688695e6912e6f680727920f2a40bf11eacc17505357  /tmp/git.tar.xz' | sha256sum -c - \
+    && tar xJf /tmp/git.tar.xz -C /tmp \
+    && make -C /tmp/git-2.55.0 -j8 prefix=/usr NO_TCLTK=YesPlease all \
+    && make -C /tmp/git-2.55.0 prefix=/usr NO_TCLTK=YesPlease install \
+    && rm -rf /tmp/git.tar.xz /tmp/git-2.55.0 \
+    && chown -R runner:runner /home/runner/.cargo
 COPY --chmod=755 ops/ci-runner/entrypoint.sh ops/ci-runner/job-started.sh /opt/brokkr-ci/
 ENV ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/brokkr-ci/job-started.sh
 WORKDIR /runner
