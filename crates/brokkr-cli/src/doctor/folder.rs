@@ -236,7 +236,8 @@ fn observe(
 /// One line per recipe on the folder's `shelf` (#696), by name: its
 /// digest, `shelved` its compile, or that compile's refusal as a warning,
 /// because a broken shelf recipe is information and never fails the
-/// report. No shelf is no line; one that cannot be listed warns.
+/// report. No shelf is no line ([`crate::recipes::unshelved`]); one that
+/// cannot be listed, a link to nothing included, warns.
 fn report_shelf(
     report: &mut Report,
     shelf: &Path,
@@ -244,7 +245,7 @@ fn report_shelf(
 ) {
     let recipes = match crate::recipes::listed(shelf) {
         Ok(recipes) => recipes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(_) if crate::recipes::unshelved(shelf) => return,
         Err(error) => return report.warn("shelf", format!("{}: {error}", shelf.display())),
     };
     for (name, dir) in recipes {

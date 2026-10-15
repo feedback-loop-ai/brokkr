@@ -399,16 +399,35 @@ impl Layout {
             .unwrap_or_else(|| brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR.into())
     }
 
-    /// The recipe library a verb reads named recipes from: the flag, else
-    /// the folder's shelf ([`Layout::shelf`]), else `recipes`.
+    /// The recipe library a verb reads named recipes from ([`Layout::listing`]).
     pub(crate) fn recipes(&self, flag: Option<PathBuf>) -> PathBuf {
-        flag.or_else(|| self.shelf())
-            .unwrap_or_else(|| "recipes".into())
+        self.listing(flag).0
+    }
+
+    /// The recipe library a verb reads named recipes from: the flag, else
+    /// the folder's shelf ([`Layout::shelf`]), else `recipes`; and whether
+    /// it is that shelf, which lists nothing while nothing stands there.
+    pub(crate) fn listing(&self, flag: Option<PathBuf>) -> (PathBuf, bool) {
+        match (flag, self.shelf()) {
+            (Some(flag), _) => (flag, false),
+            (None, Some(shelf)) => (shelf, true),
+            (None, None) => (RECIPES.into(), false),
+        }
+    }
+
+    /// Where `recipes add` installs, and the repository root it compiles
+    /// against (#696 ruling 6): the folder's shelf, else `<root>/recipes`,
+    /// at the root whichever directory it runs in. The one place an
+    /// install's destination is chosen.
+    pub(crate) fn install_shelf(&self) -> (PathBuf, PathBuf) {
+        let root = self.0.root().to_path_buf();
+        let shelf = self.shelf().unwrap_or_else(|| root.join(RECIPES));
+        (root, shelf)
     }
 
     /// The folder's shelf of named recipes, `.brokkr/recipes` (#696), where
     /// the folder is.
-    pub(crate) fn shelf(&self) -> Option<PathBuf> {
+    fn shelf(&self) -> Option<PathBuf> {
         self.folder_places().map(|places| places.recipes)
     }
 
@@ -582,6 +601,10 @@ impl Move {
 /// The old layout's ignore file, and the folder's, whose one line `init`
 /// writes.
 pub(crate) const IGNORE: &str = ".gitignore";
+
+/// A recipe library's named recipes, at its root (decision 0078): the
+/// default of every recipe verb without a folder.
+const RECIPES: &str = "recipes";
 
 /// Whether the old ignore file stands among `names`, the root's `.forge/`
 /// entries, judged as the entry itself, as the root's `.forge` is

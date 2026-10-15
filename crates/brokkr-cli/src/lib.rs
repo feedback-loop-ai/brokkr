@@ -334,7 +334,10 @@ enum RecipesCmd {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    /// Install a recipe from a local path or a git URL into <dir>/<name>.
+    /// Install a recipe from a local path or a git URL into the shelf at
+    /// the repository's root, .brokkr/recipes/<name> where the folder is,
+    /// else recipes/<name>, with the agents and charters it names that
+    /// the agent library lacks.
     Add {
         /// A local bundle directory or a git URL.
         source: String,
@@ -348,9 +351,6 @@ enum RecipesCmd {
         /// extends come from beside it.
         #[arg(long)]
         path: Option<String>,
-        /// The recipe library directory it is installed into.
-        #[arg(long, default_value = "recipes")]
-        dir: PathBuf,
     },
     /// Print one recipe's RESOLVED bundle and, when it extends another,
     /// the composition chain it was resolved from (decision 0017).

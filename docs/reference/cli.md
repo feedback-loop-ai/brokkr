@@ -22,7 +22,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr compare`](#brokkr-compare): Compare two runs' aligned outcomes: decision trails, first divergence, phases visited, per-seat costs. Read-only
 - [`brokkr recipes`](#brokkr-recipes): The recipe library: bundle directories as named, swappable delivery strategies
 - [`brokkr recipes list`](#brokkr-recipes-list): List recipes under --dir; broken ones print a warning line, never abort the listing
-- [`brokkr recipes add`](#brokkr-recipes-add): Install a recipe from a local path or a git URL into &lt;dir&gt;/&lt;name&gt;
+- [`brokkr recipes add`](#brokkr-recipes-add): Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
 - [`brokkr recipes show`](#brokkr-recipes-show): Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from (decision 0017)
 - [`brokkr agents`](#brokkr-agents): The agent library (decision 0016): one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
 - [`brokkr agents list`](#brokkr-agents-list): One line per agent — name, model chain, description. A broken definition prints a warning line and never aborts the listing
@@ -328,7 +328,7 @@ Usage: brokkr recipes list [OPTIONS]
 
 ## brokkr recipes add
 
-Install a recipe from a local path or a git URL into &lt;dir&gt;/&lt;name&gt;
+Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
 
 ```text
 Usage: brokkr recipes add [OPTIONS] --name <NAME> <SOURCE>
@@ -339,7 +339,6 @@ Usage: brokkr recipes add [OPTIONS] --name <NAME> <SOURCE>
 | `<SOURCE>` |  |  | A local bundle directory or a git URL |
 | `--name <NAME>` |  |  | The name the recipe is installed under |
 | `--path <PATH>` |  |  | With a git URL, the bundle's directory inside the clone, a relative path of plain names (`recipes/fast`), walked without following a link; without it, the clone's root or its one subdirectory holding a bundle.json. The bases its recipe extends come from beside it |
-| `--dir <DIR>` | `recipes` |  | The recipe library directory it is installed into |
 
 ## brokkr recipes show
 

@@ -1089,8 +1089,9 @@ fn a_provisional_model_compiles_only_in_the_offices_the_map_lists() {
 /// The recipe verbs judge a recipe under the list the run reads: `list`
 /// and `show` admit the scaffold's provisional `sonnet` in the offices the
 /// workspace map lists, and `show` refuses it once the map lists none —
-/// the refusal printed once, on the one error line. `add` refuses in a
-/// folder repository (#675), so the library is planted as it copied one.
+/// the refusal printed once, on the one error line. `add` of the folder's
+/// own bundle refuses, because the shelf it installs onto lies inside it
+/// (#696), so the library is planted as it copied one.
 #[test]
 fn the_recipe_verbs_read_the_provisional_offices_the_map_lists() {
     let (repo, bundle, _) = init_with_only(&["claude"]);
@@ -1100,12 +1101,15 @@ fn the_recipe_verbs_read_the_provisional_offices_the_map_lists() {
     let verb = |args: &[&str]| brokkr(&[&["recipes"], args].concat(), &bundle);
 
     let starter = ["add", bundle.to_str().unwrap(), "--name", "starter"];
-    let (code, _, stderr) = verb(&[&starter[..], &["--dir", library.to_str().unwrap()]].concat());
-    assert_eq!(
-        (code, stderr),
-        (Some(1), crate::recipes::in_folder(&repo.root))
+    let (code, _, stderr) = verb(&starter);
+    let within = format!(
+        "error: recipes add would copy {} into {}/recipes, which lies inside it (#696): install \
+         a bundle directory that does not hold the shelf; nothing was written\n",
+        bundle.display(),
+        bundle.display()
     );
-    assert!(!library.exists());
+    assert_eq!((code, stderr), (Some(1), within));
+    assert!(!bundle.join("recipes").exists());
     crate::machine_proof::copy_dir(&bundle, &library.join("starter"));
     let library = library.to_str().unwrap();
     let (code, stdout, stderr) = verb(&["list", "--dir", library]);

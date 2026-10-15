@@ -4,7 +4,9 @@
 //! never moves the folder bundle's digest; and doctor's line per shelf
 //! recipe. Every repository is [`Repo`]'s, its folder planted by hand.
 
-use serde_json::Value;
+use std::path::{Path, PathBuf};
+
+use serde_json::{json, Value};
 
 use crate::brokkr_folder::{completes, digest, started, Repo};
 
@@ -17,7 +19,8 @@ fn shelved() -> Repo {
 }
 
 /// With no shelf, `recipes list` lists nothing and says nothing; a shelf
-/// that is not a directory, and an absent `--dir`, warn as before.
+/// that is not a directory, a link to nothing, and an absent `--dir`, warn
+/// as before.
 #[test]
 fn an_absent_shelf_lists_nothing() {
     let repo = Repo::new();
@@ -34,6 +37,14 @@ fn an_absent_shelf_lists_nothing() {
         shelf.display()
     );
     assert_eq!((ran.code, ran.stdout), (Some(0), unlisted));
+    std::fs::remove_file(&shelf).unwrap();
+    std::os::unix::fs::symlink("removed-shelf", &shelf).unwrap();
+    let ran = repo.brokkr("", &["recipes", "list"]);
+    let dangling = format!(
+        "warning: recipes dir {}: No such file or directory (os error 2)\n",
+        shelf.display()
+    );
+    assert_eq!((ran.code, ran.stdout), (Some(0), dangling));
 }
 
 /// `recipes list` and `recipes show` read the shelf with no `--dir`, from
@@ -128,6 +139,142 @@ fn a_linked_shelf_composes_no_base() {
         shelf.display()
     );
     assert_eq!((ran.code, ran.stderr), (Some(1), refusal));
+}
+
+/// A folder repository made by `brokkr init .`, and a recipe library
+/// beside it holding `fast`: the folder's own bundle, its implementer and
+/// reviewer hired as the library's `fast-implementer`, with a charter of
+/// its own, and `fast-reviewer`, each extending the agent `init` wrote.
+/// The recipe's path is returned.
+fn library_of_fast() -> (Repo, PathBuf) {
+    let repo = Repo::new();
+    let init = repo.init_with_only(&["claude"]);
+    assert_eq!(init.code, Some(0), "{}", init.stderr);
+    let library = repo.root.parent().unwrap().join("library");
+    let fast = library.join("recipes/fast");
+    std::fs::create_dir_all(&fast).unwrap();
+    std::fs::copy(repo.path(".brokkr/policy.json"), fast.join("policy.json")).unwrap();
+    crate::machine_proof::copy_dir(&repo.path(".brokkr/scripts"), &fast.join("scripts"));
+    let mut bundle = json_at(&repo.path(".brokkr/bundle.json"));
+    bundle["seats"]["implement"]["agent"] = json!("fast-implementer");
+    bundle["seats"]["review"]["agent"] = json!("fast-reviewer");
+    std::fs::write(fast.join("bundle.json"), bundle.to_string()).unwrap();
+    let charter = "charters/fast-implementer.md";
+    let overlay = |base: &str| {
+        let written = json_at(&repo.path(&format!(".brokkr/agents/{base}.json")));
+        json!({"extends": base, "models": written["models"], "efforts": written["efforts"]})
+    };
+    let mut implementer = overlay("implementer");
+    implementer["charter"] = json!(charter);
+    let reviewer = overlay("reviewer");
+    let agents = [
+        ("fast-implementer.json", implementer.to_string()),
+        (charter, "# Fast implementer\n".to_string()),
+        ("fast-reviewer.json", reviewer.to_string()),
+    ];
+    for (file, text) in agents {
+        let at = library.join("agents").join(file);
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(at, text).unwrap();
+    }
+    (repo, fast)
+}
+
+fn json_at(path: &Path) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// Installing `fast` from a library copies the agents it names that the
+/// folder lacks, and the charter one names, into `.brokkr/agents/`, and the
+/// recipe compiles (#696 ruling 5); each copy is the library's bytes. A
+/// second install finds them present and identical and writes none again.
+#[test]
+fn add_copies_the_agents_a_recipe_names() {
+    let (repo, fast) = library_of_fast();
+    let add = |name: &str| {
+        repo.brokkr(
+            "",
+            &["recipes", "add", fast.to_str().unwrap(), "--name", name],
+        )
+    };
+    let ran = add("fast");
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let agents = repo.path(".brokkr/agents");
+    let copied = [
+        "charters/fast-implementer.md",
+        "fast-implementer.json",
+        "fast-reviewer.json",
+    ];
+    for file in copied {
+        let source = fast.join("../../agents").join(file);
+        let copy = std::fs::read(agents.join(file)).unwrap();
+        assert_eq!(copy, std::fs::read(source).unwrap(), "{file}");
+    }
+    let listed = repo.brokkr("", &["recipes", "list"]);
+    let digest = &listed.stdout[5..17];
+    let at = agents.display();
+    let expected = format!(
+        "added recipe 'fast' ({digest}) at {}/fast\nadded charter charters/fast-implementer.md \
+         of agent 'fast-implementer' at {at}/charters/fast-implementer.md\nadded agent \
+         'fast-implementer' at {at}/fast-implementer.json\nadded agent 'fast-reviewer' at \
+         {at}/fast-reviewer.json\n",
+        repo.path(".brokkr/recipes").display()
+    );
+    assert_eq!(ran.stderr, expected);
+    let before = repo.files();
+    let ran = add("again");
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    assert!(
+        ran.stderr.starts_with("added recipe 'again' ("),
+        "{}",
+        ran.stderr
+    );
+    assert_eq!(ran.stderr.lines().count(), 1, "{}", ran.stderr);
+    let new: Vec<PathBuf> = repo
+        .files()
+        .into_keys()
+        .filter(|f| !before.contains_key(f))
+        .collect();
+    assert!(
+        new.iter()
+            .all(|file| file.starts_with(".brokkr/recipes/again")),
+        "{new:?}"
+    );
+}
+
+/// A differing `fast-reviewer` already in the folder refuses the install by
+/// name, and nothing is written: the folder is byte for byte as it was. An
+/// install whose compile refuses removes the agents and the charter it
+/// copied with the recipe.
+#[test]
+fn add_refuses_a_differing_agent_and_removes_a_refused_compiles_agents() {
+    let (repo, fast) = library_of_fast();
+    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let planted = repo.write(".brokkr/agents/fast-reviewer.json", "{}\n");
+    let before = repo.files();
+    let ran = repo.brokkr("", &add);
+    let differs = format!(
+        "error: recipes add replaces no agent definition or charter, and the source's differ from \
+         what stands at {} (#696): reconcile or remove each; nothing was written\n",
+        planted.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), differs));
+    assert_eq!(repo.files(), before);
+    assert!(!repo.path(".brokkr/recipes").exists());
+
+    std::fs::remove_file(&planted).unwrap();
+    let reviewer = fast.join("../../agents/fast-reviewer.json");
+    std::fs::write(reviewer, json!({"extends": "absent"}).to_string()).unwrap();
+    let before = repo.files();
+    let ran = repo.brokkr("", &add);
+    let refused = "error: recipe 'fast' does not compile (removed): ";
+    assert_eq!(ran.code, Some(1), "{}", ran.stderr);
+    assert!(ran.stderr.starts_with(refused), "{}", ran.stderr);
+    assert_eq!(repo.files(), before);
+    assert!(!repo.path(".brokkr/recipes").exists());
+    assert!(!repo
+        .path(".brokkr/agents/charters/fast-implementer.md")
+        .exists());
 }
 
 /// Doctor prints a line per shelf recipe after the folder line, and a

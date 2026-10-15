@@ -351,7 +351,7 @@ fn an_old_shape_that_cannot_be_read_is_missing() {
 /// The folder's shelf (#696): after the folder line, one line per recipe
 /// by name, its digest or its compile's refusal as a warning, which
 /// leaves the report healthy; a file on the shelf is no recipe, and a
-/// shelf that cannot be listed warns.
+/// shelf that cannot be listed, a link to nothing included, warns.
 #[test]
 fn each_shelf_recipe_is_a_line_that_never_fails_the_report() {
     let (_dir, root) = root_with(|root| {
@@ -375,4 +375,9 @@ fn each_shelf_recipe_is_a_line_that_never_fails_the_report() {
     let unlisted = format!("warn     shelf: {at}: Not a directory (os error 20)");
     let (lines, healthy) = folder_lines(&root, compiles);
     assert_eq!((&lines[1..], healthy), (&[unlisted][..], true));
+    std::fs::remove_file(&shelf).unwrap();
+    std::os::unix::fs::symlink("removed-shelf", &shelf).unwrap();
+    let dangling = format!("warn     shelf: {at}: No such file or directory (os error 2)");
+    let (lines, healthy) = folder_lines(&root, compiles);
+    assert_eq!((&lines[1..], healthy), (&[dangling][..], true));
 }
