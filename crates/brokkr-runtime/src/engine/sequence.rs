@@ -521,7 +521,10 @@ impl Engine {
         }
         let phase = run.phase();
         if matches!(at.step.body, StepBody::Dialect { .. })
-            && DialectPhase::parse(phase).is_some_and(DialectPhase::is_loop)
+            && matches!(
+                DialectPhase::parse(phase).map(DialectPhase::is_loop),
+                Some(true)
+            )
             && result["result"] == dialect_results(phase)[1]
         {
             carried.deterministic_failure = Some((
