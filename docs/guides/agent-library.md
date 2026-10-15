@@ -18,19 +18,27 @@ House and dialect declarations and their content digests ride inside the
 realms manifest pin, so changing a house changes the run identity without
 changing an agent or recipe digest.
 
+The sample shows the library's base offices; each `…` line stands for
+the overlays the listing prints between them.
+
 ```
 $ brokkr agents list
 analyst	fable → sol → opus	SDD judge, read-only by charter: finds drift across the artifacts and the realm constitution.
 chief-architect	fable → sol → opus → astra	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
 clarifier	opus → sol	SDD judge, read-only by charter: identifies every material ambiguity in the specification.
+…
+gpt-flash-task-planner	sol	GPT task planner for the GPT/Flash recipe.
+…
+implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
 implementer-engine	sol → fable	Engine-class implementer: builds core, store, contract, and policy work selected by triage.
 implementer-sdd	opus → sonnet	Smith for spec-driven delivery: writes the breakdown, builds it, and closes out the dialect change.
-implementer	opus → sonnet	Builds the framed task to the repository's conventions and commits the work with its tests.
 intake	sonnet → opus	Frames a raw request into a recorded, actionable task before any code is written.
 muninn	opus	Reads the fleet dossier and proposes operator actions; issues none.
+…
 position-robustness	sol → opus	Design panel member: argues the failure modes the simple design would leave open, with evidence.
 position-simplicity	opus → sol	Design panel member: argues the simplest design that meets the ruling, and names what it gives up.
-release-manager	opus → sol	Prepares a configured release, its documentation and organization-profile patches.
+release-manager	opus → sol	Prepares a release from committed changes, reconciles documentation and organization profiles, and records the remaining publication work from the realm's release configuration.
+researcher	fable → opus	Reads the articles a commission names or finds, and proposes registry entries with cited classifications; rules nothing.
 review-adversarial	sol → fable → opus	Review panel member: tries to break the delivered change with concrete adversarial cases.
 review-chief	sol → fable → opus → astra	Review chief: checks the panel's findings and rules the protected phase without lowering its verdict.
 review-correctness	sol → opus	Review panel member: does the change do what it claims, and does the evidence support it?
@@ -38,6 +46,7 @@ review-security	fable → sol → opus	Review panel member: the adversarial secu
 review-spec-compliance	opus → sol	Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?
 reviewer	sol → fable → opus	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
 triage	fable → sol → opus	Rules the commission's delivery class from a closed vocabulary, fresh and blind.
+…
 ```
 
 ```
