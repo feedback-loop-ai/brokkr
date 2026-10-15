@@ -22,6 +22,8 @@ mod charters;
 mod legacy_journal;
 #[path = "capability_launch/redrive.rs"]
 mod redrive;
+#[path = "capability_launch/servers.rs"]
+mod servers;
 
 fn workspace() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -454,6 +456,7 @@ fn checked_against(
                 workdir: Path::new("/w"),
                 spec,
             }),
+            brokers: servers::sealed_brokers(carried),
             ..Default::default()
         },
     )

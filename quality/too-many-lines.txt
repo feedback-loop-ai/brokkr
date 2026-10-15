@@ -161,7 +161,7 @@
  129 crates/brokkr-protocol/src/native_controls/tests.rs:8309 every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly
  308 crates/brokkr-protocol/src/native_controls/tests.rs:8496 the_sealed_inputs_are_checked_independently_of_the_command
  195 crates/brokkr-protocol/src/native_controls/tests.rs:8935 a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan
- 151 crates/brokkr-protocol/src/native_controls/tests.rs:9160 the_hands_are_bound_to_the_engines_transport_and_nothing_else
+ 148 crates/brokkr-protocol/src/native_controls/tests.rs:9160 the_hands_are_bound_to_the_engines_transport_and_nothing_else
  154 crates/brokkr-protocol/src/native_controls/tests.rs:9393 a_restriction_the_serving_builder_drops_is_refused_by_the_final_check
  140 crates/brokkr-protocol/src/native_controls/tests.rs:9590 under_harness_the_hands_are_the_adapters_harness_fragment_alone
  169 crates/brokkr-protocol/src/native_controls/tests.rs:9897 a_sealed_contribution_carries_only_established_effects

@@ -7317,7 +7317,7 @@ fn every_codex_transport_value_decodes_as_toml_to_exactly_itself() {
     assert_eq!(escaped.cold(cold.clone()).unwrap().into_argv(), cold);
     let mut raw = cold.clone();
     raw[12] = "mcp_servers.brokkr.command=\"/opt/a\\u002fb/brokkr\"".into();
-    assert_eq!(escaped.cold(raw), Err(uncarried("codex", "'--config'")));
+    assert_eq!(escaped.cold(raw), Err(servers::unsealed("codex")));
     // A path that is not UTF-8.
     use std::os::unix::ffi::OsStrExt;
     let unrepresentable = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/brokkr"));
@@ -9197,7 +9197,7 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
         served[at] = value.into();
         assert_eq!(
             boxed.cold(served),
-            Err(uncarried("codex", "'--config'")),
+            Err(servers::unsealed("codex")),
             "{at} {value}"
         );
     }
@@ -9212,7 +9212,7 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
     };
     assert_eq!(
         elsewhere.cold(cold.clone()),
-        Err(uncarried("codex", "'--config'"))
+        Err(servers::unsealed("codex"))
     );
     // A measured fragment whose class stands last: the cold command keeps
     // it there. Its rejoin is none the driver spawns: the hands' server
@@ -9277,10 +9277,7 @@ fn the_hands_are_bound_to_the_engines_transport_and_nothing_else() {
     let cold = claude_cold();
     let mut filed = cold.clone();
     filed[11] = "/w/hands.json".into();
-    assert_eq!(
-        boxed.cold(filed),
-        Err(uncarried("claude", "'--mcp-config'"))
-    );
+    assert_eq!(boxed.cold(filed), Err(servers::unsealed("claude")));
     let mut file = CLAUDE_HANDS;
     file[4] = "/w/hands.json";
     let mut loaded = CLAUDE_HANDS.to_vec();
@@ -12550,41 +12547,11 @@ fn undelivered(state: &Generated, command: &[String]) -> Option<Refusal> {
         })
 }
 
-/// The refusal a readable mutation earns after delivery and before any
-/// departure where its own state no longer carries exactly the effects of
-/// the checked command (rebuild unit 21-fix-a, R1): the first effect of
-/// the checked command it lacks, each counted as often as it stands, else
-/// the first it adds, each named without its value.
-fn unmatched(harness: &str, expected: &[String], command: &[String]) -> Option<Refusal> {
-    let effects = |command: &[String]| -> Option<Vec<Expressed>> {
-        let parsed = grammar::parse_final(harness, &command[1..])?.ok()?;
-        read_state(&parsed.command).ok().map(|state| state.effects)
-    };
-    let (checked, mut left) = (effects(expected)?, effects(command)?);
-    let named = |effect: &Expressed| match effect {
-        Expressed::List(ListKind::Include, _) => "an include list".to_string(),
-        Expressed::List(ListKind::Allow, _) => "an allow list".to_string(),
-        Expressed::List(ListKind::Deny, _) => "a deny list".to_string(),
-        Expressed::Class(word) => format!("the '{word}' sandbox class"),
-        Expressed::Off(capability) => {
-            format!("the measured OFF for native capability '{capability}'")
-        }
-        Expressed::Control(name, _) => format!("'{name}'"),
-    };
-    for effect in &checked {
-        match left.iter().position(|other| other == effect) {
-            Some(at) => drop(left.remove(at)),
-            None => return Some(uncarried(harness, &named(effect))),
-        }
-    }
-    left.first().map(|extra| uncomposed(harness, &named(extra)))
-}
-
 /// Every single mutation of one checked command, each beside the refusal
 /// written out for it (rebuild units 13-fix, 13-fix-b and 13-fix-c, R4 and
 /// R5), or, where it drops what its plan denies, the delivery refusal
 /// [`undelivered`] writes out (rebuild unit 21-fix-a), or, where its own
-/// state lacks or adds an effect, the refusal [`unmatched`] writes out
+/// state lacks or adds an effect, the refusal [`servers::unmatched`] writes out
 /// (rebuild unit 21-fix-a, R1). The executable is
 /// replaced. Every option — capability-bearing or
 /// not, nothing dropped as inert — is dropped and altered; a list of several
@@ -12604,7 +12571,7 @@ fn mutations(state: &Generated, expected: &[String]) -> Vec<(String, Vec<String>
     let refuse = |problem: &str| final_refusal(harness, problem);
     let departing = |command: &[String]| {
         undelivered(state, command)
-            .or_else(|| unmatched(harness, expected, command))
+            .or_else(|| servers::unmatched(harness, expected, command))
             .unwrap_or_else(|| departs(harness, first_departure(command, expected)))
     };
     let mut out = Vec::new();
@@ -12843,3 +12810,7 @@ fn every_single_mutation_of_a_checked_command_refuses() {
 /// The sealed serving inputs' closed form, moved here from this file with
 /// the MCP isolation intent they seal (U1g2).
 mod serving;
+
+/// The engine's complete MCP server set at the final check (U7a), with the
+/// mutation oracle's effect matcher moved here from this file.
+mod servers;

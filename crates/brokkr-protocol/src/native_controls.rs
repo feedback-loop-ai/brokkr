@@ -32,7 +32,7 @@ mod mcp;
 
 use grammar::{Command, Effect, ListKind};
 use mcp::untransported;
-pub use mcp::{authored_server_conflict, Transport};
+pub use mcp::{authored_server_conflict, SealedBroker, SealedServers, Transport};
 
 /// One list flag of a harness's tool selection, as its adapter names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1259,17 +1259,6 @@ pub struct SealedIsolation {
     pub fence: SealedFence,
 }
 
-/// The server set a launch's site intends: the no-broker plan has no other,
-/// and exec, which serves no model, intends none.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SealedServers {
-    #[default]
-    Empty,
-    Hands,
-    NoModelSurface,
-}
-
 /// One shape's ambient MCP exclusion: measured, measured unsupported with
 /// its reason, or never measured.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1605,9 +1594,10 @@ impl State {
 /// follow its template; the result path it owns; the session it rejoins;
 /// the one overlay a DSH driver staged and whether it qualified its stream
 /// reading; the prompt a DSH command carries as data (rebuild unit 13-fix,
-/// F5); what it binds the box's hands to (rebuild unit 13-fix-b, R1); and
-/// the isolated MCP configuration its intent built, which follows the
-/// composition (U1g2).
+/// F5); what it binds the box's hands to (rebuild unit 13-fix-b, R1), the
+/// sealed brokers beside them and the names its spawn removes from the
+/// harness's environment (U7a); and the isolated MCP configuration its
+/// intent built, which follows the composition (U1g2).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Serving<'a> {
     pub program: &'a str,
@@ -1621,6 +1611,8 @@ pub struct Serving<'a> {
     pub stream: bool,
     pub prompt: Option<&'a str>,
     pub hands: Option<Transport<'a>>,
+    pub brokers: &'a [SealedBroker],
+    pub removed: &'a [String],
 }
 
 /// The adapter's concrete values a launch is composed from beside its
@@ -1922,6 +1914,8 @@ pub fn check_final(
     // the serving builder lost is lost from its rebuild too, so no
     // comparison with that builder can find it.
     delivered(harness, controls, &state)?;
+    // The server set it carries is read on its own (U7a; MB1, SI2).
+    serving.sealed_set(harness, dialect.stands, &state)?;
     carried(harness, &composition, &state)?;
     let rebuilt =
         crate::adapters::serving_command(shape, &serving, &composed).map_err(|cause| {
@@ -2238,15 +2232,15 @@ fn sealed_inputs(
         }
         (_, transport) => transport,
     };
-    let hands_argv = match transport.map(|transport| transport.expand(dialect.hands)) {
-        Some(Some(expanded)) => expanded,
-        Some(None) => {
+    let servers = serving.servers(harness)?;
+    let hands_argv = match servers.expand(dialect.hands) {
+        Some(expanded) => expanded,
+        None => {
             return refuse(vec![Piece::Words(
                 "binds its hands to an executable or a workdir that is not UTF-8, which no \
                  provider value represents exactly (rebuild unit 13-fix-c, R2)",
             )])
         }
-        None => Vec::new(),
     };
     if controls.provenance.hands != hands_argv.len() {
         return refuse(vec![Piece::Words(
@@ -2314,7 +2308,7 @@ fn sealed_inputs(
     // 2026-09-27; decision 0046 ruling 4; rebuild unit 14a4c).
     let bound = match transport {
         _ if dialect.stands == Some(SealedBoundary::Harness) => dialect.hands.is_empty(),
-        Some(transport) => transport.carried_by(harness, &hands),
+        Some(_) => servers.carried_by(harness, &hands),
         None => true,
     };
     if !bound {

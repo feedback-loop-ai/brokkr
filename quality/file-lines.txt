@@ -76,7 +76,7 @@
    631 crates/brokkr-protocol/src/broker/ledger.rs
   1543 crates/brokkr-protocol/src/dsh_sandbox.rs
    218 crates/brokkr-protocol/src/fake.rs
-  1170 crates/brokkr-protocol/src/hands.rs
+  1169 crates/brokkr-protocol/src/hands.rs
    798 crates/brokkr-protocol/src/hands/namespace.rs
    508 crates/brokkr-protocol/src/hands/namespace/entry.rs
    800 crates/brokkr-protocol/src/hands/namespace/sources.rs
@@ -85,9 +85,9 @@
    167 crates/brokkr-protocol/src/hands/namespace/sources/store.rs
    296 crates/brokkr-protocol/src/hands/session.rs
    219 crates/brokkr-protocol/src/lib.rs
-  4302 crates/brokkr-protocol/src/native_controls.rs
+  4296 crates/brokkr-protocol/src/native_controls.rs
   1688 crates/brokkr-protocol/src/native_controls/grammar.rs
-   237 crates/brokkr-protocol/src/native_controls/mcp.rs
+   644 crates/brokkr-protocol/src/native_controls/mcp.rs
    138 crates/brokkr-protocol/src/oneshot.rs
    161 crates/brokkr-protocol/src/overrides.rs
    535 crates/brokkr-protocol/src/process.rs
@@ -264,7 +264,7 @@
    721 crates/brokkr-protocol/src/adapters/mcp/tests/dsh_home.rs
    302 crates/brokkr-protocol/src/adapters/notice_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
- 18993 crates/brokkr-protocol/src/adapters/tests.rs
+ 18981 crates/brokkr-protocol/src/adapters/tests.rs
    225 crates/brokkr-protocol/src/broker/ledger/tests.rs
   3127 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
    153 crates/brokkr-protocol/src/fake/tests.rs
@@ -275,7 +275,9 @@
   1388 crates/brokkr-protocol/src/hands/tests/launcher.rs
   1005 crates/brokkr-protocol/src/hands/tests/server.rs
   1880 crates/brokkr-protocol/src/hands/tests/sources.rs
- 12845 crates/brokkr-protocol/src/native_controls/tests.rs
+    91 crates/brokkr-protocol/src/native_controls/mcp/tests.rs
+ 12816 crates/brokkr-protocol/src/native_controls/tests.rs
+   523 crates/brokkr-protocol/src/native_controls/tests/servers.rs
    374 crates/brokkr-protocol/src/native_controls/tests/serving.rs
    194 crates/brokkr-protocol/src/oneshot/tests.rs
    137 crates/brokkr-protocol/src/overrides/tests.rs
@@ -331,10 +333,11 @@
    339 crates/brokkr-runtime/tests/adoption.rs
     94 crates/brokkr-runtime/tests/anchor_test.rs
    384 crates/brokkr-runtime/tests/budgets.rs
-  11653 crates/brokkr-runtime/tests/capability_launch.rs
+  11643 crates/brokkr-runtime/tests/capability_launch.rs
     765 crates/brokkr-runtime/tests/capability_launch/legacy_journal.rs
     393 crates/brokkr-runtime/tests/capability_launch/legacy_journal/codex.rs
      14 crates/brokkr-runtime/tests/capability_launch/redrive.rs
+     80 crates/brokkr-runtime/tests/capability_launch/servers.rs
     105 crates/brokkr-runtime/tests/capability_launch/charters.rs
    263 crates/brokkr-runtime/tests/crucible_review_sequence.rs
    214 crates/brokkr-runtime/tests/dispatch_seam.rs
