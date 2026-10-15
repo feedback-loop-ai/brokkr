@@ -1095,3 +1095,428 @@ fn past_qualified_dsh_work_sites_the_scaffolds_claude_reviewer_refuses_each_caus
     }
     each_row(table);
 }
+
+/// One MCP holding of `capability` through `<capability>-mcp`, typed as the
+/// resolver seals one past the fence. No compile holds MCP until U9b lifts
+/// it, so U7b's contributions are judged at their own seam on such outcomes.
+fn mcp_holding(capability: &str) -> crate::capabilities::Holding {
+    use crate::capabilities::{Connection, Holding, Implementation, Retention};
+    Holding {
+        classes: vec!["reads".to_string()],
+        dialect: format!("{capability}-mcp"),
+        dialect_sha256: "0".repeat(64),
+        definition_sha256: "1".repeat(64),
+        tools: vec!["lookup".to_string()],
+        restrictions: serde_json::Map::new(),
+        implementation: Implementation::Mcp {
+            server: format!("cap-{capability}"),
+            connection: Connection::Stdio(vec!["/opt/docs/bin/server".to_string()]),
+            version: "1.0.0".to_string(),
+            secrets: Vec::new(),
+        },
+        retention: Retention {
+            declared: false,
+            realm: brokkr_core::realms::GrantRetention::Inherit,
+        },
+    }
+}
+
+/// The site MB2's scenarios name, as the resolver opens on it.
+const RESEARCH: &str = "seat 'research' (office 'researcher') in realm 'private'";
+
+/// One candidate's MCP judgment (U7b): its intended set, what it refused,
+/// and its outcome as resolved and then as judged.
+type Judged = (
+    Option<McpIntent>,
+    Result<(), mcp::Unservable>,
+    crate::capabilities::Outcome,
+    crate::capabilities::Outcome,
+);
+
+/// `agent`'s `work` site compiled under `boundary`, each candidate's outcome
+/// resolved with no grant and then sealing its own entry of `held`, judged
+/// at its own serving as `asks` asks.
+fn judged(
+    fixture: &AgentFixture,
+    (agent, boundary): (&str, Boundary),
+    asks: Value,
+    held: &[&[&str]],
+) -> Vec<Judged> {
+    use crate::capabilities::{parse_requests, Authority, CapabilityContext, SiteAsks};
+    let mut config = fixture.config();
+    config["seats"]["work"]["agent"] = json!(agent);
+    let bundle = fixture.compile_under(config, boundary).unwrap();
+    let chain = bundle.sites["work"].chain.clone();
+    let adapters = Adapters::load(&fixture.adapters()).unwrap();
+    let context = CapabilityContext::no_grants("private", &fixture.root);
+    let authority = Authority::load(context).unwrap();
+    let requests = parse_requests("seat 'research'", &asks).unwrap();
+    let office = Some(("researcher", &requests));
+    let site = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
+    let unasked = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
+    let loaded = CapabilityAdapters::loaded(&adapters);
+    let resolved = mcp::candidate_capabilities(&authority, loaded, unasked, &chain, None).unwrap();
+    (chain.iter().zip(resolved.outcomes).zip(held))
+        .map(|((candidate, mut outcome), held)| {
+            for capability in *held {
+                (outcome.held).insert(capability.to_string(), mcp_holding(capability));
+            }
+            let before = outcome.clone();
+            let intent = McpIntent::of_candidate(candidate);
+            let serving = mcp::McpSite {
+                intent,
+                adapter: adapters.adapter(&candidate.provider),
+                strict: Vec::new(),
+            };
+            let judgment = serving.contribute(authority.who(&site), &site.asks, &mut outcome);
+            (intent, judgment, before, outcome)
+        })
+        .collect()
+}
+
+/// The fixture's offices with its Claude primary's carriage measured and its
+/// Codex fallback writing `mcp` as its declaration.
+fn carriers(fixture: &AgentFixture, mcp: Value) {
+    two_providers(fixture);
+    fixture.write("adapters/claude.json", strict_claude(Vec::new()));
+    let mut fallback = codex();
+    fallback["mcp"] = mcp;
+    fixture.write("adapters/codex.json", fallback);
+}
+
+/// MB1 at each candidate (U7b): a boxed primary whose provider carries MCP
+/// contributes the hands and exactly one `cap-<capability>` server per MCP
+/// holding of its own, by its exact name; a holding removed removes its
+/// server and an unused grant, which holds nothing, adds none. The Codex
+/// fallback's own carriage is the legacy word, so its wanted holdings drop
+/// with MB2's exact notice and it contributes the hands alone: neither link
+/// borrows the other's holdings, carriage or set.
+#[test]
+fn each_candidate_contributes_exactly_its_own_holdings_and_never_a_fallbacks() {
+    use mcp::McpContribution::{Brokered, Hands};
+    let fixture = AgentFixture::new();
+    carriers(&fixture, json!("unsupported"));
+    let boxed = ("boxed", Boundary::Namespace);
+    let wants = json!({"library-docs": "wants", "issue-tracker": "wants"});
+    let both: &[&str] = &["library-docs", "issue-tracker"];
+    let rows = [
+        judged(&fixture, boxed, wants.clone(), &[both, both]),
+        judged(&fixture, boxed, wants.clone(), &[&["library-docs"], &[]]),
+        judged(&fixture, boxed, wants, &[&[], &[]]),
+    ];
+    let contributions: Vec<Vec<_>> = (rows.iter())
+        .map(|row| {
+            let each = row.iter().map(|(intent, judgment, _, after)| {
+                (judgment.clone(), intent.unwrap().contribution(after))
+            });
+            each.collect()
+        })
+        .collect();
+    let codex = "provider 'codex' cannot carry MCP (its adapter declares no measured carriage)";
+    let brokered = |servers: Vec<&'static str>| (Ok(()), Ok(Brokered(servers)));
+    assert_eq!(
+        contributions,
+        [
+            vec![
+                brokered(vec!["cap-issue-tracker", "cap-library-docs"]),
+                (Ok(()), Ok(Hands)),
+            ],
+            vec![brokered(vec!["cap-library-docs"]), (Ok(()), Ok(Hands))],
+            vec![(Ok(()), Ok(Hands)), (Ok(()), Ok(Hands))],
+        ]
+    );
+    let (_, _, primary_before, primary) = &rows[0][0];
+    assert_eq!(primary, primary_before, "the carrying primary is unchanged");
+    let (_, _, before, fallback) = &rows[0][1];
+    let notice = |capability: &str| {
+        let sentence = format!(
+            "{RESEARCH}: dropped wanted capability '{capability}' through dialect \
+             '{capability}-mcp' because {codex}"
+        );
+        (capability.to_string(), sentence)
+    };
+    assert_eq!(
+        (fallback.held.keys().collect::<Vec<_>>(), &fallback.notices),
+        (
+            Vec::<&String>::new(),
+            &vec![notice("issue-tracker"), notice("library-docs")]
+        )
+    );
+    let lost = |capability: &str| (capability.to_string(), codex.to_string());
+    let mut not_held = before.not_held.clone();
+    not_held.extend([lost("issue-tracker"), lost("library-docs")]);
+    assert_eq!(fallback.not_held, not_held);
+    assert_eq!(
+        fallback.native, before.native,
+        "native powers stay as resolved"
+    );
+}
+
+/// MB2's carriage after the safety checks (U7b): an otherwise eligible
+/// provider whose carriage is unsupported, declared unmeasured, or only the
+/// legacy form — whose server map names the very `cap-` server it would be
+/// handed — refuses a `requires` ask with its exact reason, and the dead
+/// map supplies neither a server nor a carriage. The same ask at the
+/// carrying primary is held, its server contributed.
+#[test]
+fn unsupported_carriage_refuses_requires_and_a_dead_server_map_gives_no_authority() {
+    let fixture = AgentFixture::new();
+    let boxed = ("boxed", Boundary::Namespace);
+    let unsupported = json!({"unsupported": "engine MCP loading is unavailable"});
+    let refusals = [
+        json!({"carriage": unsupported, "shapes": []}),
+        json!({"carriage": {"unmeasured": "not probed"}, "shapes": []}),
+        json!({"flag": "--mcp-config", "servers": {"cap-library-docs": "/bin/docs"}}),
+    ]
+    .map(|codex| {
+        carriers(&fixture, codex);
+        let asks = json!({"library-docs": "requires", "issue-tracker": "wants"});
+        let row = judged(
+            &fixture,
+            boxed,
+            asks,
+            &[&[], &["library-docs", "issue-tracker"]],
+        );
+        let (_, judgment, _, _) = &row[1];
+        judgment.clone()
+    });
+    let uncarried = |reason: &str| mcp::Unservable::Uncarried {
+        capability: "library-docs".to_string(),
+        dialect: "library-docs-mcp".to_string(),
+        cause: crate::agents::Uncarried {
+            provider: "codex".to_string(),
+            reason: reason.to_string(),
+        },
+    };
+    let refused = |reason: &str| Err(uncarried(reason));
+    assert_eq!(
+        uncarried("not probed").to_string(),
+        "requires capability 'library-docs' through dialect 'library-docs-mcp', but provider \
+         'codex' cannot carry MCP (not probed)"
+    );
+    assert_eq!(
+        refusals,
+        [
+            refused("engine MCP loading is unavailable"),
+            refused("its carriage is unmeasured: not probed"),
+            refused("its adapter declares no measured carriage"),
+        ]
+    );
+    let requires = json!({"library-docs": "requires"});
+    let row = judged(&fixture, boxed, requires, &[&["library-docs"], &[]]);
+    let (intent, judgment, _, after) = &row[0];
+    let brokered = mcp::McpContribution::Brokered(vec!["cap-library-docs"]);
+    assert_eq!(
+        (judgment, intent.unwrap().contribution(after)),
+        (&Ok(()), Ok(brokered))
+    );
+}
+
+/// A set without the box's hands server carries no broker, whatever the
+/// ask's strength (MB2): the bare office's empty set refuses by its first
+/// holding; exec's set, and an opaque command no adapter answers for, have
+/// no model channel; and a candidate that composed nothing launches
+/// nothing, so it judges nothing and its outcome is left as it was.
+#[test]
+fn a_set_without_the_hands_server_or_a_model_channel_carries_no_broker() {
+    use mcp::Unservable::{NoHands, NoModelChannel};
+    let fixture = AgentFixture::new();
+    carriers(&fixture, json!("unsupported"));
+    let bare = ("bare", Boundary::Namespace);
+    let held: &[&str] = &["library-docs"];
+    let judgments = ["requires", "wants"].map(|strength| {
+        let row = judged(
+            &fixture,
+            bare,
+            json!({"library-docs": strength}),
+            &[held, held],
+        );
+        row.into_iter()
+            .map(|(_, judgment, ..)| judgment)
+            .collect::<Vec<_>>()
+    });
+    let empty = vec![Err(NoHands("library-docs".into())); 2];
+    assert_eq!(judgments, [empty.clone(), empty]);
+    assert_eq!(
+        NoHands("library-docs".into()).to_string(),
+        "MCP capability 'library-docs' requires workspace hands at this site"
+    );
+    let row = judged(
+        &fixture,
+        ("boxed", Boundary::Namespace),
+        json!({}),
+        &[held, &[]],
+    );
+    let (intent, _, _, outcome) = &row[0];
+    let adapters = Adapters::load(&fixture.adapters()).unwrap();
+    let authority = crate::capabilities::Authority::nothing("private", &fixture.root);
+    let asks = crate::capabilities::SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
+    let judge = |intent, adapter| {
+        let site = mcp::McpSite {
+            intent,
+            adapter,
+            strict: Vec::new(),
+        };
+        let mut judged = outcome.clone();
+        let judgment = site.contribute(authority.who(&asks), &asks.asks, &mut judged);
+        (judgment, judged == *outcome)
+    };
+    let no_channel = Err(NoModelChannel("library-docs".into()));
+    assert_eq!(
+        [
+            judge(Some(McpIntent::NoModelSurface), adapters.adapter("codex")),
+            judge(*intent, None),
+            judge(None, None),
+        ],
+        [
+            (no_channel.clone(), true),
+            (no_channel, true),
+            (Ok(()), true)
+        ]
+    );
+    assert_eq!(
+        NoModelChannel("library-docs".into()).to_string(),
+        "MCP capability 'library-docs' requires a model harness with an engine-owned MCP channel"
+    );
+}
+
+/// MB1's names (U7b): a server is `cap-` and the exact capability, and one
+/// no provider's configuration can carry as itself refuses rather than
+/// being shortened, normalized or renamed; an underscore is carried as it
+/// is. A wanted holding its provider cannot carry drops before its name is
+/// judged, so the Codex fallback refuses nothing.
+#[test]
+fn an_unrepresentable_server_name_refuses_and_is_never_shortened() {
+    let fixture = AgentFixture::new();
+    carriers(&fixture, json!("unsupported"));
+    let boxed = ("boxed", Boundary::Namespace);
+    let asks = json!({"library.docs": "wants", "library_docs": "wants"});
+    let dotted: &[&str] = &["library.docs"];
+    let row = judged(&fixture, boxed, asks.clone(), &[dotted, dotted]);
+    let unrepresentable = mcp::Unservable::Unrepresentable {
+        server: "cap-library.docs".into(),
+        provider: "claude".into(),
+    };
+    let judgments: Vec<_> = row
+        .iter()
+        .map(|(_, judgment, ..)| judgment.clone())
+        .collect();
+    assert_eq!(judgments, [Err(unrepresentable.clone()), Ok(())]);
+    assert_eq!(
+        unrepresentable.to_string(),
+        "MCP server name 'cap-library.docs' is not representable by provider 'claude'"
+    );
+    let row = judged(&fixture, boxed, asks, &[&["library_docs"], &[]]);
+    let (intent, judgment, _, after) = &row[0];
+    let brokered = mcp::McpContribution::Brokered(vec!["cap-library_docs"]);
+    assert_eq!(
+        (judgment, intent.unwrap().contribution(after)),
+        (&Ok(()), Ok(brokered))
+    );
+}
+
+/// Only an MCP holding contributes a server (U7b; MB1): a native holding
+/// beside one adds none, and a set holding no MCP capability contributes
+/// exactly itself, the empty set and exec's included.
+#[test]
+fn only_an_mcp_holding_contributes_and_a_set_without_one_is_itself() {
+    use crate::capabilities::Implementation;
+    use mcp::McpContribution::{Brokered, Empty, Hands, NoModelSurface};
+    let fixture = AgentFixture::new();
+    carriers(&fixture, json!("unsupported"));
+    let row = judged(
+        &fixture,
+        ("boxed", Boundary::Namespace),
+        json!({}),
+        &[&[], &[]],
+    );
+    let (_, _, _, mut outcome) = row.into_iter().next().unwrap();
+    let mut native = mcp_holding("web-search");
+    native.implementation = Implementation::Native {
+        provider: "claude".into(),
+        adapter_key: "web-search".into(),
+    };
+    outcome.held.insert("web-search".into(), native);
+    let alone = outcome.clone();
+    outcome
+        .held
+        .insert("library-docs".into(), mcp_holding("library-docs"));
+    let sets = [
+        McpIntent::Hands,
+        McpIntent::Empty,
+        McpIntent::NoModelSurface,
+    ];
+    assert_eq!(
+        sets.map(|intent| intent.contribution(&alone)),
+        [Ok(Hands), Ok(Empty), Ok(NoModelSurface)]
+    );
+    assert_eq!(
+        McpIntent::Hands.contribution(&outcome),
+        Ok(Brokered(vec!["cap-library-docs"]))
+    );
+}
+
+/// The capability pass judges each candidate's contribution once its own
+/// outcome is resolved (U7b): with the resolver's outcomes sealing an MCP
+/// holding at both links, the carrying primary keeps its holding while the
+/// Codex fallback, whose carriage is measured unsupported, drops a `wants`
+/// with MB2's notice and refuses a `requires` in MB2's exact site-prefixed
+/// words. The resolver is the compile's own, its outcomes then holding
+/// `library-docs` as no compile can until U9b.
+#[test]
+fn the_pass_judges_each_resolved_candidate_and_refuses_in_the_sites_words() {
+    use crate::capabilities::{parse_requests, Authority, CapabilityContext, Outcome, SiteAsks};
+    let fixture = AgentFixture::new();
+    let carriage = json!({"unsupported": "engine MCP loading is unavailable"});
+    carriers(&fixture, json!({"carriage": carriage, "shapes": []}));
+    let mut config = fixture.config();
+    config["seats"]["work"]["agent"] = json!("boxed");
+    let bundle = fixture.compile_under(config, Boundary::Namespace).unwrap();
+    let chain = &bundle.sites["work"].chain;
+    let adapters = Adapters::load(&fixture.adapters()).unwrap();
+    let context = CapabilityContext::no_grants("private", &fixture.root);
+    let authority = Authority::load(context).unwrap();
+    let unasked = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
+    let resolve = |_: &SiteAsks, serving: &crate::capabilities::Serving<'_>| {
+        let mut outcome: Outcome = mcp::resolve(&authority, &unasked, serving)?;
+        let holding = mcp_holding("library-docs");
+        outcome.held.insert("library-docs".to_string(), holding);
+        Ok(outcome)
+    };
+    let pass = |strength: &str| {
+        let requests = parse_requests("seat 'research'", &json!({"library-docs": strength}));
+        let requests = requests.unwrap();
+        let office = Some(("researcher", &requests));
+        let asks = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
+        let loaded = CapabilityAdapters::loaded(&adapters);
+        mcp::candidate_capabilities_with(&authority, loaded, asks, (chain, None), &resolve)
+    };
+    let site = pass("wants").unwrap();
+    let cause = "provider 'codex' cannot carry MCP (engine MCP loading is unavailable)";
+    let notice = format!(
+        "{RESEARCH}: dropped wanted capability 'library-docs' through dialect 'library-docs-mcp' \
+         because {cause}"
+    );
+    let held = |outcome: &Outcome| outcome.held.keys().cloned().collect::<Vec<_>>();
+    assert_eq!(
+        site.outcomes
+            .iter()
+            .map(|o| (held(o), o.notices.clone()))
+            .collect::<Vec<_>>(),
+        [
+            (vec!["library-docs".to_string()], Vec::new()),
+            (Vec::new(), vec![("library-docs".to_string(), notice)]),
+        ]
+    );
+    assert_eq!(site.strict.len(), 2);
+    let Err(CompileError::Capability(refusal)) = pass("requires") else {
+        panic!("a requires the fallback cannot carry is a capability refusal");
+    };
+    assert_eq!(
+        refusal,
+        format!(
+            "{RESEARCH}: requires capability 'library-docs' through dialect 'library-docs-mcp', \
+             but {cause}"
+        )
+    );
+}
