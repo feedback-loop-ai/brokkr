@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{bundle, report_folder, report_folder_with, Report};
+use super::{bundle, report_folder, report_folder_with, Inspected, Report, Seats};
 use crate::folder::DoctorDefaults;
 
 /// A repository root of its own, its `.git` planted, and what `plant`
@@ -227,11 +227,12 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
     let folder = root.join(".brokkr");
     let no_bundle = brokkr_runtime::launch::compile_for(&root, &folder, None, &root).unwrap_err();
     let no_bundle = format!("{:#}", anyhow::Error::from(no_bundle));
-    let (dir, compiled, held) = bundle(None, &defaults, None, None);
-    let held = format!("{:#}", held.unwrap().unwrap_err());
+    let Inspected::Folder(dir, Err(held)) = bundle(None, &defaults, None, None) else {
+        panic!("the found folder, its compile refused");
+    };
     assert_eq!(
-        (dir, compiled.is_none(), held),
-        (None, true, no_bundle.clone())
+        (dir, format!("{held:#}")),
+        (folder.clone(), no_bundle.clone())
     );
     let folder_line = |held: anyhow::Result<()>| {
         let mut report = report();
@@ -245,12 +246,10 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
         format!("MISSING  folder: {found}, but its compile refuses (decision 0083): held")
     );
 
-    let (dir, compiled, held) = bundle(Some(&folder), &defaults, None, None);
-    let compiled = format!("{:#}", compiled.unwrap().unwrap_err());
-    assert_eq!(
-        (dir, compiled, held.is_none()),
-        (Some(folder), no_bundle, true)
-    );
+    let Inspected::Given(dir, Err(compiled)) = bundle(Some(&folder), &defaults, None, None) else {
+        panic!("the bundle given, its compile refused");
+    };
+    assert_eq!((dir, format!("{compiled:#}")), (folder, no_bundle));
     let plants: [fn(&Path); 3] = [
         |root| {
             std::fs::create_dir(root.join(".brokkr")).unwrap();
@@ -263,12 +262,34 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
         let (_dir, root) = root_with(plant);
         std::fs::create_dir_all(root.join("src")).unwrap();
         let defaults = DoctorDefaults::of(root.join("src"), None);
-        let (dir, compiled, folder) = bundle(None, &defaults, None, None);
-        assert_eq!(
-            (dir, compiled.is_none(), folder.is_none()),
-            (None, true, true)
-        );
+        let inspected = bundle(None, &defaults, None, None);
+        assert!(matches!(inspected, Inspected::Neither));
     }
+}
+
+/// A folder whose compile refuses is, to the seats judgement, a bundle
+/// that did not compile, never no bundle given (decision 0040 ruling 4),
+/// and no bundle line: its refusal is the folder line's alone. A bundle
+/// given that refuses has its bundle line; with neither, no bundle was
+/// given.
+#[test]
+fn a_folder_whose_compile_refuses_is_a_bundle_that_did_not_compile() {
+    let (_dir, root) = root_with(|root| std::fs::create_dir(root.join(".brokkr")).unwrap());
+    let defaults = DoctorDefaults::of(root.clone(), None);
+    let found = bundle(None, &defaults, None, None);
+    assert!(matches!(found.seats(None), Seats::BundleDidNotCompile));
+    assert_eq!(found.line().map(|(dir, _)| dir.to_path_buf()), None);
+    assert!(matches!(found.folder(), Some(Err(_))));
+
+    let folder = root.join(".brokkr");
+    let given = bundle(Some(&folder), &defaults, None, None);
+    assert!(matches!(given.seats(None), Seats::BundleDidNotCompile));
+    assert_eq!(given.line().map(|(dir, _)| dir.to_path_buf()), Some(folder));
+    assert!(given.folder().is_none());
+    assert!(matches!(
+        Inspected::Neither.seats(None),
+        Seats::NoBundleGiven
+    ));
 }
 
 /// An old shape that cannot be read is its own line, never taken as no

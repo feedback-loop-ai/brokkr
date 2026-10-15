@@ -915,7 +915,10 @@ fn doctor_checks_a_moved_folder() {
 /// folder is doctor's bundle for the whole report, which is the report
 /// `doctor --bundle .brokkr` prints, its folder line and its one bundle
 /// line included. A folder whose compile refuses is
-/// compiled once, so its refusal is named once, in the folder line.
+/// compiled once, so its refusal is named once, in the folder line, and
+/// it is still a bundle that did not compile: a credential set in the
+/// environment reads as `doctor --bundle .brokkr` reads it, never as no
+/// bundle given (decision 0040 ruling 4).
 #[test]
 fn doctor_reads_the_found_folder_as_its_bundle() {
     let repo = Repo::new();
@@ -926,9 +929,22 @@ fn doctor_reads_the_found_folder_as_its_bundle() {
     assert_eq!(found.stdout.matches(bundle).count(), 1, "{}", found.stdout);
     assert_eq!((found.code, found.stdout), (named.code, named.stdout));
 
+    let dsh = crate::workspace_root::workspace().join("adapters/dsh.json");
+    std::fs::copy(dsh, repo.path(".brokkr/adapters/dsh.json")).unwrap();
     std::fs::remove_file(repo.path(".brokkr/policy.json")).unwrap();
     let compile = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
     let refused = compile.stderr.strip_prefix("error: ").unwrap().trim_end();
+    let ambient = |args: &[&str]| {
+        let mut doctor = repo.command("");
+        doctor.args(args).env("SPARK_API_KEY", "review-placeholder");
+        String::from_utf8(doctor.output().unwrap().stdout).unwrap()
+    };
+    let route = |stdout: &str| {
+        let route = stdout
+            .lines()
+            .find(|line| line.contains("route spark-glm:"));
+        route.unwrap_or_else(|| panic!("{stdout}")).to_string()
+    };
     let doctor = repo.brokkr("", &["doctor"]);
     let root = repo.root.display();
     let clause = format!(
@@ -939,6 +955,20 @@ fn doctor_reads_the_found_folder_as_its_bundle() {
     assert_eq!(
         (doctor.code, doctor.stdout.matches(refused).count()),
         (Some(1), 1)
+    );
+    let did_not_compile = format!(
+        "warn     route spark-glm: credential 'SPARK_API_KEY' is satisfied from the process \
+         environment — an ambient value is journaled nowhere and moves no digest (decision 0036 \
+         ruling 5); the bundle given does not compile, so it declares no seats to ask and this \
+         checked membership of the bindings store at {root}/.brokkr/state/secrets.env and not whether \
+         any seat binds it (decision 0040 ruling 4)"
+    );
+    let found = ambient(&["doctor"]);
+    assert_eq!(found.matches(refused).count(), 1, "{found}");
+    let named = route(&ambient(&["doctor", "--bundle", ".brokkr"]));
+    assert_eq!(
+        (route(&found), named),
+        (did_not_compile.clone(), did_not_compile)
     );
 }
 

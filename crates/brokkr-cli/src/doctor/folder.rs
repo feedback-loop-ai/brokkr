@@ -6,6 +6,7 @@
 //! runtime's one judgement ([`places::Layout::old`]), read without the
 //! moves a refusal lists, and its words are the refusal's own openings.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use brokkr_runtime::bundle::Bundle;
@@ -13,42 +14,86 @@ use brokkr_runtime::launch::compile_for;
 use brokkr_runtime::places::{self, Kind, Old, FOLDER};
 use brokkr_runtime::realms::World;
 
-use super::Report;
+use super::{Report, Seats};
 use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
 
 /// The line's name in the report.
 const WHAT: &str = "folder";
 
-/// The bundle the report reads, its compile, and the folder's compile
-/// when that was the same one.
-type Doctored = (
-    Option<PathBuf>,
-    Option<anyhow::Result<Bundle>>,
-    Option<anyhow::Result<()>>,
-);
+/// The bundle doctor's report reads (R5 of 2026-10-14), and which of the
+/// three ways it came to have it, each with its directory and compile.
+pub(super) enum Inspected {
+    /// `--bundle`, compiled under the map doctor inspected.
+    Given(PathBuf, anyhow::Result<Bundle>),
+    /// The folder found with no old shape and no `--bundle`, compiled
+    /// once: its outcome is also the folder line's.
+    Folder(PathBuf, anyhow::Result<Bundle>),
+    /// No `--bundle`, and no folder found that a run would deliver under.
+    Neither,
+}
+
+impl Inspected {
+    /// The bundle the report reads, when it compiled.
+    pub(super) fn compiled(&self) -> Option<&Bundle> {
+        match self {
+            Inspected::Given(_, compiled) | Inspected::Folder(_, compiled) => {
+                compiled.as_ref().ok()
+            }
+            Inspected::Neither => None,
+        }
+    }
+
+    /// What the report learns about the seats binding a credential
+    /// (decision 0040 ruling 4), `declared` the names the compiled
+    /// bundle's seats declare. A folder whose compile refuses is a bundle
+    /// that did not compile, never no bundle given.
+    pub(super) fn seats<'a>(&self, declared: Option<&'a BTreeSet<String>>) -> Seats<'a> {
+        match (self, declared) {
+            (_, Some(declared)) => Seats::Declared(declared),
+            (Inspected::Given(..) | Inspected::Folder(..), None) => Seats::BundleDidNotCompile,
+            (Inspected::Neither, None) => Seats::NoBundleGiven,
+        }
+    }
+
+    /// The bundle line's directory and compile: a given bundle's either
+    /// way, the folder's when it compiled. A folder's refusal is named
+    /// once, in the folder line ([`Inspected::folder`]).
+    pub(super) fn line(&self) -> Option<(&Path, &anyhow::Result<Bundle>)> {
+        match self {
+            Inspected::Given(dir, compiled) => Some((dir, compiled)),
+            Inspected::Folder(dir, compiled @ Ok(_)) => Some((dir, compiled)),
+            Inspected::Folder(_, Err(_)) | Inspected::Neither => None,
+        }
+    }
+
+    /// The folder's compile when the folder was the report's bundle, for
+    /// [`report_folder`]; else none, and the folder line compiles its own.
+    pub(super) fn folder(self) -> Option<anyhow::Result<()>> {
+        match self {
+            Inspected::Folder(_, compiled) => Some(compiled.map(drop)),
+            Inspected::Given(..) | Inspected::Neither => None,
+        }
+    }
+}
 
 /// The bundle doctor's report reads (R5 of 2026-10-14): `bundle` as
 /// given, compiled under the map doctor inspected (`mapped`); else a
 /// folder found with no old shape, compiled once as the folder line
-/// compiles it, that one compile also the folder line's. A folder that
-/// refuses is no bundle to the rest of the report, so its refusal is
-/// named once, in the folder line.
+/// compiles it, that one compile also the folder line's.
 pub(super) fn bundle(
     bundle: Option<&Path>,
     defaults: &DoctorDefaults,
     realms: Option<&Path>,
     mapped: Option<&World>,
-) -> Doctored {
+) -> Inspected {
     let workspace = &defaults.workspace;
     if let Some(dir) = bundle {
         let compiled = compile_for(workspace, dir, mapped, workspace).map_err(Into::into);
-        return (Some(dir.to_path_buf()), Some(compiled), None);
+        return Inspected::Given(dir.to_path_buf(), compiled);
     }
-    match default_folder(&defaults.found).map(|dir| (compile_folder(workspace, &dir, realms), dir))
-    {
-        Some((Ok(compiled), dir)) => (Some(dir), Some(Ok(compiled)), Some(Ok(()))),
-        Some((Err(refused), _)) => (None, None, Some(Err(refused))),
-        None => (None, None, None),
+    match default_folder(&defaults.found) {
+        Some(dir) => Inspected::Folder(dir.clone(), compile_folder(workspace, &dir, realms)),
+        None => Inspected::Neither,
     }
 }
 

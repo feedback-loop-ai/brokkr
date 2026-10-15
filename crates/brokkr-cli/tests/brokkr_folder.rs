@@ -93,7 +93,7 @@ impl Repo {
     }
 
     /// `brokkr` standing in `dir`, relative to the root, created first.
-    fn command(&self, dir: &str) -> Command {
+    pub(crate) fn command(&self, dir: &str) -> Command {
         let cwd = self.path(dir);
         std::fs::create_dir_all(&cwd).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));

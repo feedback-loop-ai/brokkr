@@ -236,9 +236,9 @@ in your repository is touched: your own `README.md`, `.gitignore`,
 `scripts/`, `agents/` and `policy.json` stay yours. It refuses, writing
 nothing, where it would not leave a folder discovery reads:
 
-- a directory below the root names the root: `<dir> is inside the
+- a directory below the root names the root: `` <dir> is inside the
   repository <root> but is not its root (decision 0083); a folder is
-  read only at the root: run brokkr init <root>`;
+  read only at the root: run `brokkr init <root>` ``;
 - a directory that does not exist is never created: `reading <dir>: No
   such file or directory (os error 2)`;
 - a `.brokkr/` that already holds anything but a `.gitignore` and
@@ -405,9 +405,9 @@ defaults, with the folder and in a recipe library, which has none:
 A map named explicitly and missing or malformed is a refusal, never a
 silent fallback. A repository with neither a folder nor a library's
 `recipes/<name>/bundle.json` has no place for a journal, so a run there
-refuses before it creates anything: `no .brokkr/ folder from <cwd> up to
+refuses before it creates anything: ``no .brokkr/ folder from <cwd> up to
 <root>, and <root> is not a recipe library (decision 0083); nothing was
-created: run brokkr init . from <root>`.
+created: run `brokkr init .` from <root>``.
 
 The run drives real agent sessions to completion in the foreground, and on
 a terminal it shows the TUI's run view while it does: `q` closes the view
