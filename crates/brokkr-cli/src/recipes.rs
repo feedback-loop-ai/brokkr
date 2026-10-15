@@ -369,6 +369,9 @@ enum Unplain {
     /// `name` is not one plain path component ([`plain`]), so
     /// `<dir>/<name>` could land outside `dir`.
     Name { name: String, dir: PathBuf },
+    /// `path` is not a relative path of plain components, so
+    /// `<clone>/<path>` could lead outside the clone (#695).
+    Path { path: String },
 }
 
 impl std::fmt::Display for Unplain {
@@ -388,11 +391,143 @@ impl std::fmt::Display for Unplain {
                  directory of {} (#675); nothing was written",
                 dir.display()
             ),
+            Unplain::Path { path } => write!(
+                formatter,
+                "--path '{path}' is not a relative path of plain names, so recipes add cannot \
+                 judge where in the clone it leads (#695); nothing was cloned or written"
+            ),
         }
     }
 }
 
 impl std::error::Error for Unplain {}
+
+/// An `add --path` refused because the path does not lead, within the
+/// clone, to a bundle (#695). Every path is the one `--path` spells, read
+/// below the clone's root. A caller matches the variant, never the text
+/// (decision 0071 ruling 8).
+#[derive(Debug, PartialEq, Eq)]
+enum AtPath {
+    /// The source is a local directory, which names its bundle itself.
+    Local { source: String, path: String },
+    /// `link`, a part of `path`, is a symbolic link, which can name
+    /// anything outside the clone.
+    Link { path: String, link: PathBuf },
+    /// The clone holds no directory at `missing`, a part of `path`.
+    Missing { path: String, missing: PathBuf },
+    /// The directory at `path` holds no `bundle.json` file.
+    Unbundled { path: String },
+}
+
+impl std::fmt::Display for AtPath {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AtPath::Local { source, path } => write!(
+                formatter,
+                "--path names a directory inside a git source's clone, and {source} is a local \
+                 directory: name {} as the source itself (#695); nothing was written",
+                Path::new(source).join(path).display()
+            ),
+            AtPath::Link { path, link } => write!(
+                formatter,
+                "--path {path} passes through {}, a symbolic link in the clone, which can name \
+                 anything outside it (#695); nothing was written",
+                link.display()
+            ),
+            AtPath::Missing { path, missing } => write!(
+                formatter,
+                "--path {path}: the clone holds no directory at {} (#695); nothing was written",
+                missing.display()
+            ),
+            AtPath::Unbundled { path } => write!(
+                formatter,
+                "--path {path}: the clone's {path} holds no bundle.json (#695); nothing was \
+                 written"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for AtPath {}
+
+/// Where `add` takes a recipe from: a local bundle directory, or a git URL
+/// whose clone holds the bundle at `path` ([`reach`]) or, without one, where
+/// [`bundle_root`] discovers it.
+enum Source<'a> {
+    Local(&'a Path),
+    Git { url: &'a str, path: Option<&'a str> },
+}
+
+impl<'a> Source<'a> {
+    /// Judge `source` and `path` before anything is cloned or written: a
+    /// path must be relative, of plain names only, each judged by its
+    /// spelling as `--name` is ([`plain`], so an empty part refuses a
+    /// trailing or doubled separator), and only a git source takes one.
+    fn judge(source: &'a str, path: Option<&'a str>) -> Result<Source<'a>> {
+        let git = is_git_source(source);
+        match path {
+            Some(path)
+                if !path
+                    .split(std::path::is_separator)
+                    .all(|p| plain(Path::new(p))) =>
+            {
+                Err(Unplain::Path { path: path.into() }.into())
+            }
+            Some(path) if !git => {
+                let (source, path) = (source.into(), path.into());
+                Err(AtPath::Local { source, path }.into())
+            }
+            _ if git => Ok(Source::Git { url: source, path }),
+            _ => Ok(Source::Local(Path::new(source))),
+        }
+    }
+
+    /// The bundle root, and the clone directory it sits in, which must
+    /// outlive the copies made from it.
+    fn fetch(self) -> Result<(Option<tempfile::TempDir>, PathBuf)> {
+        match self {
+            Source::Local(src) => {
+                let shown = src.display();
+                anyhow::ensure!(src.is_dir(), "source {shown} is not a directory");
+                Ok((None, src.to_path_buf()))
+            }
+            Source::Git { url, path } => {
+                let tmp = tempfile::tempdir().context("creating temp dir for clone")?;
+                let root = clone(url, path, tmp.path())?;
+                Ok((Some(tmp), root))
+            }
+        }
+    }
+}
+
+/// The directory at `path`, already judged plain ([`Source::judge`]),
+/// inside `clone`, walked a part at a time by each part's own entry, never
+/// through a link: a link can name anything outside the clone, and
+/// [`copy_dir`] refuses links only below the bundle it is given. An entry
+/// that cannot be read refuses as one the clone does not hold.
+fn reach(clone: &Path, path: &str) -> Result<PathBuf, AtPath> {
+    let (mut at, mut walked) = (clone.to_path_buf(), PathBuf::new());
+    for part in path.split(std::path::is_separator) {
+        at.push(part);
+        walked.push(part);
+        match std::fs::symlink_metadata(&at) {
+            Ok(meta) if meta.is_symlink() => {
+                let (path, link) = (path.into(), walked);
+                return Err(AtPath::Link { path, link });
+            }
+            Ok(meta) if meta.is_dir() => {}
+            _ => {
+                let (path, missing) = (path.into(), walked);
+                return Err(AtPath::Missing { path, missing });
+            }
+        }
+    }
+    let bundle = std::fs::symlink_metadata(at.join("bundle.json"));
+    if !bundle.is_ok_and(|meta| meta.is_file()) {
+        return Err(AtPath::Unbundled { path: path.into() });
+    }
+    Ok(at)
+}
 
 /// Refuse an `add` that would make a folder repository a recipe library
 /// (#675, the operator's option A), before anything is cloned, copied or
@@ -456,8 +591,8 @@ fn standing(path: &Path) -> Result<&Path, PlacesError> {
 }
 
 /// Clone the git `source` into `<tmp>/clone`, and the bundle root inside
-/// it ([`bundle_root`]).
-fn clone(source: &str, tmp: &Path) -> Result<PathBuf> {
+/// it: at `path` ([`reach`]), else where [`bundle_root`] discovers it.
+fn clone(source: &str, path: Option<&str>, tmp: &Path) -> Result<PathBuf> {
     let clone = tmp.join("clone");
     // `--` stops option injection; `protocol.ext.allow=never` stops
     // the ext transport, which would otherwise execute an arbitrary
@@ -475,7 +610,10 @@ fn clone(source: &str, tmp: &Path) -> Result<PathBuf> {
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
-    bundle_root(&clone)
+    match path {
+        Some(path) => Ok(reach(&clone, path)?),
+        None => bundle_root(&clone),
+    }
 }
 
 /// Install a recipe: clone or copy into `<dir>/<name>`, with the bases it
@@ -483,13 +621,21 @@ fn clone(source: &str, tmp: &Path) -> Result<PathBuf> {
 /// fails to compile all are removed — the library only ever holds recipes
 /// the compiler accepted or nothing. The library is held from the first
 /// copy to the last compile ([`hold`]); a clone happens before, unheld. A
-/// name that is not one plain component ([`Unplain::Name`]) and a folder
-/// repository ([`refuse_folder`]) are refused first.
-pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Result<()> {
+/// name that is not one plain component ([`Unplain::Name`]), a `path` the
+/// source cannot take ([`Source::judge`]) and a folder repository
+/// ([`refuse_folder`]) are refused first.
+pub(crate) fn add(
+    workspace: &Path,
+    source: &str,
+    name: &str,
+    path: Option<&str>,
+    dir: &Path,
+) -> Result<()> {
     if !plain(Path::new(name)) {
         let (name, dir) = (name.to_string(), dir.to_path_buf());
         return Err(Unplain::Name { name, dir }.into());
     }
+    let source = Source::judge(source, path)?;
     refuse_folder(workspace, dir)?;
     let world = World::discover(workspace, None)?;
     let dest = dir.join(name);
@@ -499,17 +645,8 @@ pub(crate) fn add(workspace: &Path, source: &str, name: &str, dir: &Path) -> Res
             dest.display()
         );
     }
+    let (_clone, root) = source.fetch()?;
     std::fs::create_dir_all(dir)?;
-
-    let tmp;
-    let root = if is_git_source(source) {
-        tmp = tempfile::tempdir().context("creating temp dir for clone")?;
-        clone(source, tmp.path())?
-    } else {
-        let src = Path::new(source);
-        anyhow::ensure!(src.is_dir(), "source {source} is not a directory");
-        src.to_path_buf()
-    };
     // Declared before the copies, so they are kept or removed while it is
     // still held.
     let _library = hold(dir)?;
