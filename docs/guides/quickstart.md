@@ -163,7 +163,7 @@ ok       git: git version 2.51.0
 ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
 warn     exec: binary 'sh' not found — seats resolving to this provider will fail to spawn · serves no abstract model yet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
-ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
+ok       dialect brokkr: openspec · tool 'openspec' 1.12.0 · pinned 1.12.0 · probed inside the box
 ok       dialect brokkr requires openspec/config.yaml: present at …/openspec/config.yaml
 …
 ```
@@ -880,7 +880,7 @@ ok       contracts: engine 0.12.0, event_schema 1, database_schema 1, driver_pro
 ok       git: git version 2.51.0
 ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
 ok       agent implementer: would run opus via claude here (chain opus → sonnet)
-ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
+ok       dialect brokkr: openspec · tool 'openspec' 1.12.0 · pinned 1.12.0 · probed inside the box
 …
 ```
 

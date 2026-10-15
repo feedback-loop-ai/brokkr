@@ -156,7 +156,8 @@ anyone's permission is loud, not discovered later:
 
 ```text
 ok       capabilities brokkr: grants nothing; every native capability is governed by the no-grant default — switched off, or the seat is refused
-warn     capabilities brokkr native codex 'web-search': NOT granted here: every seat on codex is launched with it switched off by the adapter's declared control · evidence: codex-cli 0.154.0, cold `codex exec` only … · still unmeasured: whether the OFF switch holds on a RESUMED codex session is unmeasured; …
+ok       capabilities brokkr plan codex: adapter-level scope: … · a seat on codex that holds none of its native capabilities is admitted, each of them switched off by the composed command; that is composition, not a live measurement
+warn     capabilities brokkr native codex 'web-search': NOT granted here: the adapter-level plan above switches it off · evidence: codex-cli 0.154.0, cold `codex exec` only … · still unmeasured: whether the OFF switch holds on a RESUMED codex session is unmeasured; …
 warn     capabilities brokkr native dsh: native inventory unmeasured: … Nothing is granted through it and no native denial is claimed
 ```
 

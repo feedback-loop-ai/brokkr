@@ -42,7 +42,7 @@ recipe-specific, such as a verifier script.
 `brokkr doctor` reads that same map and makes the specification side visible:
 
 ```text
-ok       dialect brokkr: openspec · tool 'openspec' OpenSpec 1.12.0 · pinned 1.12.0
+ok       dialect brokkr: openspec · tool 'openspec' 1.12.0 · pinned 1.12.0 · probed inside the box
 ok       dialect brokkr requires openspec/config.yaml: present at …/openspec/config.yaml
 ```
 
