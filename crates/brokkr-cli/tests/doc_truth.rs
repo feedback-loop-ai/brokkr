@@ -55,10 +55,10 @@ fn is_living(path: &str) -> bool {
 
 /// A paragraph, list or table between blank lines, or the inside of a
 /// fenced block: its text and the line its text starts on.
-struct Block {
-    first: usize,
-    text: String,
-    fenced: bool,
+pub(crate) struct Block {
+    pub(crate) first: usize,
+    pub(crate) text: String,
+    pub(crate) fenced: bool,
 }
 
 impl Block {
@@ -69,9 +69,9 @@ impl Block {
 }
 
 /// A living doc, read into blocks.
-struct Doc {
-    path: String,
-    blocks: Vec<Block>,
+pub(crate) struct Doc {
+    pub(crate) path: String,
+    pub(crate) blocks: Vec<Block>,
 }
 
 /// Appends a line to a block's text.
@@ -199,7 +199,7 @@ fn living_docs() -> Vec<Result<Doc, String>> {
 
 /// The living docs that can be read; `every_living_doc_is_read` refuses
 /// the rest.
-fn readable_docs() -> Vec<Doc> {
+pub(crate) fn readable_docs() -> Vec<Doc> {
     living_docs().into_iter().filter_map(Result::ok).collect()
 }
 

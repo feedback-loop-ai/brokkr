@@ -24,23 +24,30 @@ front of you.
 ## Recipes and composition
 
 A recipe is a delivery strategy as reviewable data, identified by
-content digest. The library is a directory of them.
+content digest. The library is a directory of them. The sample elides
+each recipe's digest with `…`: a digest moves with every recipe, agent
+or adapter edit, and the witness tests are where digests are pinned.
 
 ```
 $ brokkr recipes list
-fast	e0c1eb0757cd	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
-night-shift	1fa050796f20	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
-node	7abfe34bba48	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
-panel-review	1bf81bd7249f	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
-preflight	d28c15ee4994	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
-research	50c7db63c6f5	4 phases	research, verify	low	Read articles and propose registry entries with cited classifications; the operator rules them.	recipes/research
-research-dsh	8334be119867	4 phases	research, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.	recipes/research-dsh
-self	d06e486c3ef8	7 phases	implement, intake, review, ship, verify	medium	Brokkr delivering itself (decision 0005): panel-review's table and crew with one reviewer in place of the panel.	recipes/self
-triage	2bc18b05f87a	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
-verify	8054a434cc74	4 phases	review, verify			recipes/verify
-wager-harness	57de5240560b	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
-wager-harness-dsh	9ef87077a982	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
-wager-harness-muse	ea4672bc0e6c	6 phases	implement, review, ship, verify	low	Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.	recipes/wager-harness-muse
+fast	…	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
+gpt-flash	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=gpt-flash-implementer;design=gpt-flash-implementer-sdd;engine=gpt-flash-implementer-engine;feature=gpt-flash-implementer}, review{chore=positions>chief;design=positions>chief;engine=positions>chief;feature=positions>chief}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	GPT Sol plans, DeepSeek Flash 4.1 implements, and Sol rules final review with Astra as its last fallback.	recipes/gpt-flash
+landing	…	7 phases	classify, implement, review, ship, verify	low	A branch authored by hand is classified, verified when it is code, judged, remediated on findings and shipped by a run that vouches for it: fast entered at a classify gate, the road for shop work instead of the by-hand label.	recipes/landing
+night-shift	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
+node	…	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
+panel-review	…	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
+preflight	…	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
+release	…	6 phases	implement, review, ship, verify	medium	Prepare a configured release: versions, commit-derived notes, documentation and organization-profile patches, followed by verification and review.	recipes/release
+research	…	4 phases	research, verify	low	Read articles and propose registry entries with cited classifications; the operator rules them.	recipes/research
+research-dsh	…	4 phases	research, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.	recipes/research-dsh
+review-first	…	6 phases	implement, review, ship, verify	medium	An existing branch judged first: Sol reviews, the suite verifies, Muse remediates findings on return, and the run ships.	recipes/review-first
+self	…	7 phases	implement, intake, review, ship, verify	medium	Brokkr delivering itself (decision 0005): panel-review's table and crew with one reviewer in place of the panel.	recipes/self
+standby	…	6 phases	implement, review, ship, verify	medium	Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit.	recipes/standby
+triage	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
+verify	…	4 phases	review, verify			recipes/verify
+wager-harness	…	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
+wager-harness-dsh	…	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
+wager-harness-muse	…	6 phases	implement, review, ship, verify	low	Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.	recipes/wager-harness-muse
 ```
 
 | Recipe | Reach for it when | The difference it states |
@@ -591,30 +598,65 @@ seat definitions and every selected case, the role charters, the result
 schemas, and the driver command names. Friendly names are display
 metadata; the digest is identity.
 
+The sample elides the digests, each ancestor's absolute directory, and
+the manifest's body: a sha256 per bundle file, the resolved agents and
+every selected case, a few thousand lines in all.
+
 ```
 $ brokkr compile --bundle recipes/night-shift
 {
   "bundle": "night-shift",
-  "digest": "1fa050796f20…",
-  "phases": ["triage", "specify", "clarify", "design", "tasks", "analyze",
-             "implement", "verify", "review", "ship", "done", "stop"],
-  "seats": ["analyze", "clarify", "design", "implement", "review", "ship",
-            "specify", "tasks", "triage", "verify"],
-  "manifest": {
-    "…": "one sha256 per bundle file",
-    "select": { "review": { "…": "every resolved case" } }
-  },
   "composed_from": [
-    { "recipe": "triage", "digest": "4488af3d1165…", "dir": "…/recipes/triage" },
-    { "recipe": "fast", "digest": "8d3e5dc7acfb…", "dir": "…/recipes/fast" }
+    {
+      "digest": "…",
+      "dir": "…/recipes/triage",
+      "recipe": "triage"
+    },
+    {
+      "digest": "…",
+      "dir": "…/recipes/fast",
+      "recipe": "fast"
+    }
+  ],
+  "digest": "…",
+  "manifest": {
+…
+  },
+  "phases": [
+    "triage",
+    "specify",
+    "clarify",
+    "design",
+    "tasks",
+    "analyze",
+    "implement",
+    "verify",
+    "review",
+    "ship",
+    "done",
+    "stop"
+  ],
+  "seats": [
+    "analyze",
+    "clarify",
+    "design",
+    "implement",
+    "review",
+    "ship",
+    "specify",
+    "tasks",
+    "triage",
+    "verify"
   ]
 }
 ```
 
 `brokkr recipes show <name>` prints the same object from the same
 compile, in the workspace's realm as a run's is, so the two surfaces
-cannot drift. `brokkr recipes list` prints the first
-twelve hex characters per recipe.
+cannot drift. `brokkr recipes list` prints twelve hex characters of a
+digest per recipe, but it compiles each recipe in no realm, so where
+the workspace's map names a realm its digest can differ from the one
+`compile` and `recipes show` print there.
 
 Three consequences worth internalising:
 
@@ -781,55 +823,80 @@ both `next` and `park` outcomes.
 
 ## The reforging ladder
 
-Decision 0022 introduced the first bounded return: a security residual
-at review goes back into implement instead of ending the run. Decision
-0041 adds two more ownership-directed returns in `triage`: a
-specification defect goes back to design, and an implementation that
-outgrows its ruled class goes back to triage.
+Decision 0022 introduced the first bounded return: a residual at review
+goes back into implement instead of ending the run. Decision 0041 made
+returns ownership-directed: a defect goes back to the phase that owns
+it, and an implementation that outgrows its ruled class goes back to
+triage.
 
-**Review → implement.** `REVIEW-REFORGE` sends a security residual of
-any severity to `implement` with flagged severity. The implementer
-receives the review result as `context.returned_from`: findings, notes,
-and severities reach the seat that must answer them. Verify and review
-then run again.
+Every bounded return in `recipes/fast/policy.json` and
+`recipes/triage/policy.json` is below, rendered from those two files: a
+rule whose `next` is a phase its table lists before its `from`, with the
+exhaustion arm above it that counts entries and ends the loop. A test
+holds the table to the files, so a policy edit that moves a return
+fails until this table says so. Where a rule names several conditions,
+all must hold.
 
-The bound is `visits_implement_gte: 3`. The first visit is the original
-implementation and the second and third are the two reforgings. Once
-three visits have been entered, the exhaustion rules above the return
-take precedence:
+<!-- bounded-returns:start -->
 
-| Rule | Also requires | Outcome |
-|---|---|---|
-| `…-EXHAUSTED-ABOVE-MEDIUM` | `max_residual_severity_above: "medium"` | `next: stop`, severity `hard`. Above medium after two reforgings is the operator's. |
-| `…-EXHAUSTED-MEDIUM` | `max_residual_severity_above: "low"` | `park: true`. A surviving medium parks with the residual as reason. |
-| `…-EXHAUSTED-DEBT` | `fixes_applied: true`, `max_residual_severity_above: "none"`, `max_residual_severity_at_most: "low"` | `next: ship`, severity `flagged`. Ships as named, tracked debt. |
-| `…-EXHAUSTED-UNFIXED` | nothing further | `park: true`. A low or info residual that remains unfixed parks. |
+| Rule | Recipe | Return | Also requires | Bound | Exhaustion arms |
+|---|---|---|---|---|---|
+| `VERIFY-FAIL` | `fast` | `verify` → `implement` on `fail` | none | `visits_implement_gte: 3` | `VERIFY-FAIL-EXHAUSTED` |
+| `REVIEW-REFORGE` | `fast` | `review` → `implement` on `residual` | `max_residual_severity_above: "low"` | `visits_implement_gte: 3` | `REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM`, `REVIEW-REFORGE-EXHAUSTED-MEDIUM`, `REVIEW-REFORGE-EXHAUSTED-DEBT` |
+| `CLARIFY-AMBIGUOUS` | `triage` | `clarify` → `specify` on `ambiguous` | none | `visits_clarify_gte: 5` | `CLARIFY-AMBIGUOUS-EXHAUSTED` |
+| `DESIGN-UPSTREAM` | `triage` | `design` → `specify` on `upstream` | none | `visits_specify_gte: 3` | `DESIGN-UPSTREAM-EXHAUSTED` |
+| `TASKS-UPSTREAM` | `triage` | `tasks` → `design` on `upstream` | none | `visits_design_gte: 3` | `TASKS-UPSTREAM-EXHAUSTED` |
+| `ANALYZE-DRIFT-SPECIFY` | `triage` | `analyze` → `specify` on `drift` | `drift_in: ["specify"]` | `visits_analyze_gte: 5` | `ANALYZE-DRIFT-EXHAUSTED` |
+| `ANALYZE-DRIFT-DESIGN` | `triage` | `analyze` → `design` on `drift` | `drift_in: ["design"]` | `visits_analyze_gte: 5` | `ANALYZE-DRIFT-EXHAUSTED` |
+| `ANALYZE-DRIFT-TASKS` | `triage` | `analyze` → `tasks` on `drift` | `drift_in: ["tasks"]` | `visits_analyze_gte: 5` | `ANALYZE-DRIFT-EXHAUSTED` |
+| `REVIEW-CLEAN-SPEC-DEFECT` | `triage` | `review` → `specify` on `clean` | `spec_defect: true`, `strategy_in: ["design","engine"]` | `visits_specify_gte: 3` | `REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED` |
+| `REVIEW-SPEC-DEFECT` | `triage` | `review` → `specify` on `residual` | `spec_defect: true`, `strategy_in: ["design","engine"]` | `visits_specify_gte: 3` | `REVIEW-SPEC-DEFECT-EXHAUSTED` |
+| `IMPL-OVERSIZED` | `triage` | `implement` → `triage` on `oversized` | none | `visits_triage_gte: 2` | `IMPL-OVERSIZED-EXHAUSTED` |
+
+<!-- bounded-returns:end -->
+
+The returning seat receives the result that sent it back as
+`context.returned_from`: findings, notes, and severities reach the seat
+that must answer them, and every phase between runs again.
+
+**Review → implement.** `REVIEW-REFORGE` returns any residual above
+low, in any dimension, to `implement` with flagged severity. The first
+implement visit is the original implementation and the second and third
+are the two reforgings. Once three visits have been entered, the
+exhaustion arms above the return take precedence, in this order:
+
+<!-- review-exhaustion:start -->
+
+| Rule | Also requires | Outcome | Reason |
+|---|---|---|---|
+| `REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM` | `max_residual_severity_above: "medium"` | `next: stop`, severity `hard` | Two reforgings spent and the security residual is still above medium; the machine tried, and now the piece is the operator's (decision 0022). |
+| `REVIEW-REFORGE-EXHAUSTED-MEDIUM` | `max_residual_severity_above: "low"` | `park: true` | Two reforgings spent and a medium security residual survives; the run parks awaiting the operator, the residual as its reason, so the ruling lands inside the run's journal instead of after its death (decision 0022). |
+| `REVIEW-REFORGE-EXHAUSTED-DEBT` | `max_residual_severity_above: "none"`, `max_residual_severity_at_most: "low"` | `next: ship`, severity `flagged` | Two returns spent; a positively low or info residual ships as tracked debt named in the notes. Silence never earns this arm (decision 0041). |
+
+<!-- review-exhaustion:end -->
 
 The debt arm requires a severity positively ranked low or info —
 `above: "none"` and `at_most: "low"` together — because absence never
 satisfies a condition. An absent or unranked severity cannot take the
-shipping arm. Above the ladder, `REVIEW-SECURITY-HOLD` stops
-unconditionally with hard severity; risk acceptance remains the
-operator's.
+shipping arm. Below the return, a low or info residual ships as tracked
+debt (`REVIEW-RESIDUAL-OK`), and a residual verdict that rates its worst
+residual none parks (`REVIEW-RESIDUAL-NONE`), naming no debt and no
+defect. Above the ladder, `REVIEW-SECURITY-HOLD` stops unconditionally
+with hard severity; risk acceptance remains the operator's.
 
-**Review → design.** Only the `design` and `engine` strategies can take
+**Review → specify.** Only the `design` and `engine` strategies can take
 a specification-defect return, expressed by `strategy_in` together
 with `spec_defect: true`. Both a `clean` and a `residual` review can
-send the defect to `design`, because ownership of the defect is
-independent of the ordinary review verdict. The returning design seat
-receives that review result in `context.returned_from`.
-
-The bound is `visits_design_gte: 3`: the original design plus two
-returns. `REVIEW-CLEAN-SPEC-DEFECT-EXHAUSTED` and
-`REVIEW-SPEC-DEFECT-EXHAUSTED` sit above their return rules and park
-instead of attempting a fourth design visit.
+send the defect to `specify`, the earliest artifact, because ownership
+of the defect is independent of the ordinary review verdict. Each
+return sits below its own exhaustion arm, which parks instead of
+attempting a fourth specification visit.
 
 **Implement → triage.** `IMPL-OVERSIZED` returns an `oversized`
 implementation once so the delivery class can be ruled again. The
 triage seat remains a fresh-and-blind office: it receives the commission
-and current tree, not journal history. The bound is
-`visits_triage_gte: 2`: after the original ruling and one re-triage,
-`IMPL-OVERSIZED-EXHAUSTED` parks rather than looping.
+and current tree, not journal history. After the original ruling and
+one re-triage, `IMPL-OVERSIZED-EXHAUSTED` parks rather than looping.
 
 The transferable pattern is the same on every edge: put the bounded
 return below its exhaustion arm, count entries to the destination phase,
