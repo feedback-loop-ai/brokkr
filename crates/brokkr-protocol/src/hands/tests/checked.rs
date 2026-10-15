@@ -395,13 +395,15 @@ fn a_hop_of_the_route_or_the_hands_system_set_exposes_the_store() {
     assert_eq!(answer(&none, &ssl), reachable);
     let certs = aliased(&dir, Path::new("/etc/ssl/certs/brokkr-u6c5c"), "ro");
     assert_eq!(answer(&none, &certs), reachable);
-    // Reached by a link that lies past `/dev`, which no local filesystem
-    // holds: a hop's mount unproved, though the store's own is proved.
+    // Reached through a hop whose mount is unproved. Make that fact
+    // explicit in the injected table: /dev is tmpfs in Docker, whereas
+    // a normal host's devtmpfs is already outside the proved local set.
     let held = tempfile::tempdir_in("/dev/shm").unwrap();
     let shm = held.path().canonicalize().unwrap();
     chmod(&shm, 0o700);
     std::os::unix::fs::symlink(fixture.path("store"), shm.join("store")).unwrap();
     let past = shm.join("store/secrets.env");
+    let text = edited(&text, mount_of(Path::new("/dev")), overlay);
     let unproved = store_on(&past, &none, &[], &text).map(|_| ());
     assert_eq!(unproved, Err(Refusal::Identity));
 }
