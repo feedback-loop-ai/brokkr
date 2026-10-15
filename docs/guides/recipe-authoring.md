@@ -8,7 +8,7 @@ one flat pinned object identified by a content digest, and runs that.
 
 This guide is the anatomy. It assumes you have read
 [quickstart.md](quickstart.md) and have a scaffold from `brokkr init` in
-front of you.
+front of you, in your repository's `.brokkr/` folder.
 
 - [The three files](#the-three-files)
 - [`bundle.json` anatomy](#bundlejson-anatomy)
@@ -382,7 +382,8 @@ decision 0046 ruling 4, decision 0042 ruling 4 and a boxed boundary as
 the road open today, until a decision admits the step. Ordinary inline
 seats remain first-class for work that is not dialect-owned.
 
-`brokkr doctor --bundle ...` exercises that compile-time refusal in
+`brokkr doctor`, on the found `.brokkr/` folder or the bundle `--bundle`
+names, exercises that compile-time refusal in
 the discovered realm and reports its dialect, tool, and pinned
 tool version. Use `brokkr realms` to confirm realm selection; compilation
 checks the dialect bindings, while the run executes the declared tool.

@@ -1330,7 +1330,6 @@ impl brokkr_runtime::places::Layout
 pub fn brokkr_runtime::places::Layout::cwd(&self) -> &std::path::Path
 pub fn brokkr_runtime::places::Layout::discover(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Layout, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::Layout::kind(&self) -> brokkr_runtime::places::Kind
-pub fn brokkr_runtime::places::Layout::of_root(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Layout, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::Layout::old(&self) -> core::result::Result<core::option::Option<brokkr_runtime::places::Old>, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::Layout::places(&self) -> brokkr_runtime::places::Places
 pub fn brokkr_runtime::places::Layout::root(&self) -> &std::path::Path

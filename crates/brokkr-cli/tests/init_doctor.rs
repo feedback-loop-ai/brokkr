@@ -911,6 +911,37 @@ fn doctor_checks_a_moved_folder() {
     refuses_as_compile();
 }
 
+/// R5 (ruled 2026-10-14): with a folder found and no `--bundle`, the
+/// folder is doctor's bundle for the whole report, which is the report
+/// `doctor --bundle .brokkr` prints, its folder line and its one bundle
+/// line included. A folder whose compile refuses is
+/// compiled once, so its refusal is named once, in the folder line.
+#[test]
+fn doctor_reads_the_found_folder_as_its_bundle() {
+    let repo = Repo::new();
+    assert_eq!(repo.brokkr("", &["init", "."]).code, Some(0));
+    let named = repo.brokkr("", &["doctor", "--bundle", ".brokkr"]);
+    let found = repo.brokkr("", &["doctor"]);
+    let bundle = "\nok       bundle: 'starter' compiles, digest ";
+    assert_eq!(found.stdout.matches(bundle).count(), 1, "{}", found.stdout);
+    assert_eq!((found.code, found.stdout), (named.code, named.stdout));
+
+    std::fs::remove_file(repo.path(".brokkr/policy.json")).unwrap();
+    let compile = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let refused = compile.stderr.strip_prefix("error: ").unwrap().trim_end();
+    let doctor = repo.brokkr("", &["doctor"]);
+    let root = repo.root.display();
+    let clause = format!(
+        "MISSING  folder: {root}/.brokkr (found from {root}), but its compile refuses (decision \
+         0083): {refused}\n"
+    );
+    assert!(doctor.stdout.starts_with(&clause), "{}", doctor.stdout);
+    assert_eq!(
+        (doctor.code, doctor.stdout.matches(refused).count()),
+        (Some(1), 1)
+    );
+}
+
 /// Decision 0021, from the operator's side: the scaffold's gate seats
 /// stand on a declaration in the operator's own tree, so demoting the
 /// tier there refuses the very next compile — naming the seat and the

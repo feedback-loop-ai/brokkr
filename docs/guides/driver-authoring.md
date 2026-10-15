@@ -604,11 +604,14 @@ The `start` message's `input` object carries, for a single seat:
   "seat":            "implement",
   "role_path":       "<abs path to the seat's charter .md>",
   "workdir":         "<abs path the seat works in>",
-  "result_path":     "<workdir>/.forge/results/<effect_id>.json",
+  "result_path":     "<state>/results/<effect_id>.json",
   "allowed_results": ["complete", "broken", "blocked"],
   "context":         { "run_id": "…", "last_decision": { … } }
 }
 ```
+
+`<state>` is the run-local directory: `.brokkr/state` in an adopter's
+repository, or `<workdir>/.forge` in a recipe library (decision 0083).
 
 Panel seats carry a `members` object instead of `role_path`/`result_path`
 (one `role_path` + `result_path` per member); sequence seats carry a

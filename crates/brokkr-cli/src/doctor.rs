@@ -698,8 +698,10 @@ pub(crate) fn doctor(
             Ok(Some(world)) => Ok(world.journal()),
             _ => defaults.journal(),
         });
+    let mapped = world.as_ref().ok().and_then(Option::as_ref);
+    let (bundle, compiled, compiled_folder) = folder::bundle(bundle, defaults, realms, mapped);
     let (mut report, availability) = doctor_observed(
-        bundle,
+        bundle.as_deref(),
         Paths {
             db: db.as_deref().map_err(|none| *none),
             library_root: &defaults.agents,
@@ -709,11 +711,7 @@ pub(crate) fn doctor(
         tool_version,
         ambient_variable,
         boundary,
-        bundle.map(|dir| {
-            let world = world.as_ref().ok().and_then(Option::as_ref);
-            brokkr_runtime::launch::compile_for(&workspace, dir, world, &workspace)
-                .map_err(Into::into)
-        }),
+        compiled,
         dsh_provider_line,
     );
     report_capabilities(
@@ -723,8 +721,7 @@ pub(crate) fn doctor(
         &defaults.adapters,
         &availability,
     );
-    let mapped = world.as_ref().ok().and_then(Option::as_ref);
-    folder::report_folder(&mut report, defaults, realms);
+    folder::report_folder(&mut report, defaults, realms, compiled_folder);
     let adapters = &defaults.adapters;
     provisional::report_provisional(&mut report, adapters, mapped);
     report_realm_world(&mut report, world, &workspace, tool_version, probe_in_box);

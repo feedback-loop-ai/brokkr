@@ -6,8 +6,10 @@
 //! runtime's one judgement ([`places::Layout::old`]), read without the
 //! moves a refusal lists, and its words are the refusal's own openings.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use brokkr_runtime::bundle::Bundle;
+use brokkr_runtime::launch::compile_for;
 use brokkr_runtime::places::{self, Kind, Old, FOLDER};
 use brokkr_runtime::realms::World;
 
@@ -17,16 +19,68 @@ use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
 /// The line's name in the report.
 const WHAT: &str = "folder";
 
-/// Put the folder line first in `report`: the found folder compiled as a
-/// run would compile it, under the map a run loads (`realms`, else the
-/// folder's), so a map that will not load is the compile's refusal, as
-/// `brokkr compile` prints it, never a folder compiled under no map.
-pub(super) fn report_folder(report: &mut Report, defaults: &DoctorDefaults, realms: Option<&Path>) {
+/// The bundle the report reads, its compile, and the folder's compile
+/// when that was the same one.
+type Doctored = (
+    Option<PathBuf>,
+    Option<anyhow::Result<Bundle>>,
+    Option<anyhow::Result<()>>,
+);
+
+/// The bundle doctor's report reads (R5 of 2026-10-14): `bundle` as
+/// given, compiled under the map doctor inspected (`mapped`); else a
+/// folder found with no old shape, compiled once as the folder line
+/// compiles it, that one compile also the folder line's. A folder that
+/// refuses is no bundle to the rest of the report, so its refusal is
+/// named once, in the folder line.
+pub(super) fn bundle(
+    bundle: Option<&Path>,
+    defaults: &DoctorDefaults,
+    realms: Option<&Path>,
+    mapped: Option<&World>,
+) -> Doctored {
     let workspace = &defaults.workspace;
-    let compile = |dir: &Path| -> anyhow::Result<()> {
-        let world = World::discover(workspace, realms)?;
-        brokkr_runtime::launch::compile_for(workspace, dir, world.as_ref(), workspace)?;
-        Ok(())
+    if let Some(dir) = bundle {
+        let compiled = compile_for(workspace, dir, mapped, workspace).map_err(Into::into);
+        return (Some(dir.to_path_buf()), Some(compiled), None);
+    }
+    match default_folder(&defaults.found).map(|dir| (compile_folder(workspace, &dir, realms), dir))
+    {
+        Some((Ok(compiled), dir)) => (Some(dir), Some(Ok(compiled)), Some(Ok(()))),
+        Some((Err(refused), _)) => (None, None, Some(Err(refused))),
+        None => (None, None, None),
+    }
+}
+
+/// The folder a run with no `--bundle` delivers under: the found folder,
+/// where no old shape stands beside it.
+fn default_folder(found: &Result<Found, FolderError>) -> Option<PathBuf> {
+    let layout = &found.as_ref().ok()?.layout;
+    let clean = layout.kind() == Kind::Folder && matches!(layout.old(), Ok(None));
+    clean.then(|| layout.root().join(FOLDER))
+}
+
+/// `dir` compiled as a run would compile it, under the map a run loads
+/// (`realms`, else the folder's), so a map that will not load is the
+/// compile's refusal, as `brokkr compile` prints it, never a folder
+/// compiled under no map.
+fn compile_folder(workspace: &Path, dir: &Path, realms: Option<&Path>) -> anyhow::Result<Bundle> {
+    let world = World::discover(workspace, realms)?;
+    Ok(compile_for(workspace, dir, world.as_ref(), workspace)?)
+}
+
+/// Put the folder line first in `report`: the found folder compiled by
+/// [`compile_folder`], unless `compiled` already holds that compile's
+/// outcome, because the folder was the report's bundle ([`bundle`]).
+pub(super) fn report_folder(
+    report: &mut Report,
+    defaults: &DoctorDefaults,
+    realms: Option<&Path>,
+    compiled: Option<anyhow::Result<()>>,
+) {
+    let compile = |dir: &Path| match compiled {
+        Some(outcome) => outcome,
+        None => compile_folder(&defaults.workspace, dir, realms).map(drop),
     };
     report_folder_with(report, &defaults.found, compile);
 }

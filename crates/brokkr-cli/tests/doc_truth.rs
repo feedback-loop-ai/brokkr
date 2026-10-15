@@ -329,12 +329,16 @@ const FILE_KINDS: [&str; 9] = [
 
 /// Where a path that opens with neither `./`, `../` nor a top-level
 /// directory stands outside the repository, never read.
-const FOREIGN: [(&str, &str); 7] = [
+const FOREIGN: [(&str, &str); 8] = [
     ("/", "an absolute path names the host's tree"),
     ("~", "a path under a home directory"),
     ("$", "a path under an environment variable"),
     ("<", "a leading placeholder names a root the reader fills"),
     (".forge/", "a run's own working files, never tracked"),
+    (
+        ".brokkr/",
+        "an adopter's Brokkr folder, which this repository, a recipe library, does not hold",
+    ),
     ("target/", "cargo's build output"),
     ("node_modules/", "a Node repository's installed packages"),
 ];
@@ -489,7 +493,7 @@ impl Tree {
 /// the doc (or the directory of docs, `""` for any), the path it names (or
 /// the start of it), and why. An allowance that covers nothing fails, so
 /// none outlives its text.
-const ABSENT: [(&str, &str, &str); 22] = [
+const ABSENT: [(&str, &str, &str); 20] = [
     (
         "",
         "credentials.toml",
@@ -554,16 +558,6 @@ const ABSENT: [(&str, &str, &str); 22] = [
         "docs/guides/recipe-authoring.md",
         "../",
         "the spellings a recipe refuses, which never become paths",
-    ),
-    (
-        "docs/guides/",
-        "scripts/verify-seat.sh",
-        "the verify script `brokkr init` writes into the operator's repository",
-    ),
-    (
-        "docs/guides/",
-        "agents/README.md",
-        "the agents README `brokkr init` writes into the operator's repository",
     ),
     (
         "docs/guides/cards/bun.md",

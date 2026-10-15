@@ -1,5 +1,15 @@
 # Repo layout
 
+This repository is a recipe library, not an adopter's scaffold, so it
+keeps the library layout: its `recipes/`, `agents/`, `adapters/` and
+`realms.json` stand at the root, and its runs write their state into
+`.forge/` (decision
+[0083](../decisions/0083-an-adopters-brokkr-lives-in-one-folder.md), the
+operator's ruling of 2026-10-13). An adopter's repository holds none of
+this: `brokkr init .` writes everything Brokkr needs there into one
+`.brokkr/` folder, as the [quickstart](quickstart.md#step-2--brokkr-init-)
+shows.
+
 | Path | What it is |
 |---|---|
 | [`ARCHITECTURE.md`](../../ARCHITECTURE.md) | The implemented architecture — crates, journal, effect discipline, verification layers. |

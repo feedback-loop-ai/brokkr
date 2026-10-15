@@ -1,9 +1,12 @@
 # Starter sample — Node (npm)
 
 What `brokkr init` actually wrote for a Node repository, transcribed
-from a real run: the fixture was copied into a scratch directory,
-`brokkr init my-bundle` was run inside it, and its output was pasted
-here and then annotated.
+from a real run: the fixture was copied into a fresh `git init`
+directory, `brokkr init .` was run at its root, and its output was
+pasted here and then annotated, the directory's absolute path shown as
+`/home/you/my-app`. The fifteen paths `init` writes for every stack are
+elided; the [quickstart](../quickstart.md#step-2--brokkr-init-) lists
+them.
 
 The fixture is
 [`crates/brokkr-cli/tests/fixtures/init-stacks/node-npm/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-npm/).
@@ -25,31 +28,33 @@ their say.
 ## The invocation
 
 ```
-$ brokkr init my-bundle
+$ brokkr init .
 ```
 
 ```text
-initialized reviewable bundle at my-bundle (digest 73c4d35763c6684dbf95b299968ba59739af86124c5dc764899565263f2e875d)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+initialized /home/you/my-app/.brokkr (digest 14423b7e106ff9ceef7bd9a5a53470d263ba6062861b94d88d52722e34ee17ab), writing:
+  … fifteen paths and a note, elided here
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+commit the folder: git add .brokkr && git commit
 ```
 
 ## What it wrote
 
-The same scaffold shape as every stack: `agents/README.md`, `bundle.json`,
-`policy.json`, `realms.json`, model and exec adapters, three model
-definitions and charters, plus verify and ship scripts. The invariant `bundle.json` is in
+The same `.brokkr/` folder as every stack: `.brokkr/.gitignore`,
+`.brokkr/agents/README.md`, `bundle.json`, `policy.json`, `realms.json`, model
+and exec adapters, three model definitions and charters, plus verify
+and ship scripts. The invariant `bundle.json` is in
 [rust.md](rust.md#what-it-wrote), and so are the fixed parts of the
 agent files. What this repository changed is the stack's own data:
 the implementer charter and verifier script below, plus the model adapter's
 tool map and model agents' `tools.allow` (shown after them).
 
-## `agents/charters/implementer.md`
+## `.brokkr/agents/charters/implementer.md`
 
 ```markdown
 # Implementer seat — build it
 
-Implement the framed task (see `.forge/tasks/`). Match the project's
+Implement the framed task (see `.brokkr/state/tasks/`). Match the project's
 idiom. Tests are part of the change.
 
 This repository reads as a node/npm project (`package.json`), so use its own
@@ -86,7 +91,7 @@ report `complete` with failing tests or uncommitted changes.
   loud one — appears only when nothing matched, so a placeholder can
   never be mistaken for a command chosen for your project.
 
-## `scripts/verify-seat.sh`
+## `.brokkr/scripts/verify-seat.sh`
 
 The deterministic verifier contains these detected command pins:
 
@@ -136,16 +141,17 @@ answer, and this is a real capture too — fixture
 carrying `package.json`, `turbo.json` and `pnpm-lock.yaml`:
 
 ```
-$ brokkr init my-bundle
+$ brokkr init .
 ```
 
 ```text
-initialized reviewable bundle at my-bundle (digest 1359509b294a10b7d46885bd112459f90198b39d882db8d7b363c3b6e392c07c)
-run brokkr from inside my-bundle — its adapters/ and agents/ declare the trust tier and the tools its seats are pre-approved for; an unboxed seat is still decided by the harness's permission model and your own settings
+initialized /home/you/my-app/.brokkr (digest f75704f2b099ee165f7876d3e904852f29f583d9eb003286babc3d7fd47ef69f), writing:
+  … fifteen paths and a note, elided here
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+commit the folder: git add .brokkr && git commit
 ```
 
-`agents/charters/implementer.md`:
+`.brokkr/agents/charters/implementer.md`:
 
 ```markdown
 This repository reads as a node/turbo project (`package.json` + `turbo.json` + `pnpm-lock.yaml`), so use its own

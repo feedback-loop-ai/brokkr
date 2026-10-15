@@ -58,9 +58,9 @@ flowchart LR
 
 ```console
 brokkr doctor                       # ok / warn / MISSING per tool and driver; executes no agent
-cd your-repo && brokkr init .       # writes bundle.json, policy.json, realms.json, agents/, adapters/, scripts/, .forge/.gitignore (and dialects/ for a spec repo) — open them
-git add -A && git commit -m "starter bundle"   # ship closes out on a clean tree
-brokkr run --bundle . --repo . --feature "add one visible improvement" && brokkr inspect --run latest
+cd your-repo && brokkr init .       # writes one .brokkr/ folder: bundle.json, policy.json, realms.json, agents/, adapters/, scripts/, .gitignore (and dialects/ for a spec repo) — open it
+git add .brokkr/ && git commit -m "starter bundle"   # ship closes out on a clean tree; .brokkr/state/ stays ignored
+brokkr run --feature "add one visible improvement" && brokkr inspect --run latest
 ```
 
 From a clone of this repository skip `init`: `brokkr run --recipe fast --repo . --feature "…"` resolves the library's own Rust recipe under `./recipes`. Its [exit code](docs/reference/cli.md#exit-codes) says whether the run completed, parked for you or stopped; every verb and flag is in the [CLI reference](docs/reference/cli.md).

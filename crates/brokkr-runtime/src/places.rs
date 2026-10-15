@@ -217,13 +217,6 @@ impl Layout {
         Layout::at(cwd, root, workspace)
     }
 
-    /// The layout of `root` itself, judged with no walk: what `init`
-    /// asks of the directory it writes into.
-    pub fn of_root(root: &Path) -> Result<Layout, PlacesError> {
-        let root = root.to_path_buf();
-        Layout::at(root.clone(), root.clone(), &root)
-    }
-
     fn at(cwd: PathBuf, root: PathBuf, workspace: &Path) -> Result<Layout, PlacesError> {
         // A library outranks a folder beside it, so its journal never
         // moves to a fresh one under the folder.

@@ -285,9 +285,8 @@ fn a_linked_or_file_folder_refuses() {
 }
 
 /// A `.brokkr` entry that cannot be looked up refuses with its path,
-/// never read as no folder. Judged at the root itself, as `init`'s
-/// [`Layout::of_root`] does, because a walk meets the loop first at its
-/// `.git`.
+/// never read as no folder. Judged at the root itself, with no walk,
+/// because a walk meets the loop first at its `.git`.
 #[test]
 fn a_folder_that_cannot_be_read_refuses() {
     let dir = tempfile::tempdir().unwrap();
@@ -295,7 +294,7 @@ fn a_folder_that_cannot_be_read_refuses() {
     std::os::unix::fs::symlink(&looped, &looped).unwrap();
     let folder = looped.join(".brokkr");
     let unreadable = std::fs::symlink_metadata(&folder).unwrap_err();
-    let refused = Layout::of_root(&looped).unwrap_err();
+    let refused = Layout::at(looped.clone(), looped.clone(), &looped).unwrap_err();
     assert!(matches!(refused, PlacesError::Unreadable { ref path, .. } if *path == folder));
     assert_eq!(
         refused.to_string(),

@@ -319,8 +319,9 @@ check can read.
 
 Bundles and journals carry secret **names** only (decision 0012).
 
-- **The store** is `.forge/secrets.env` beside the workdir, or the file
-  `--secrets-file` names. `brokkr secrets set` reads a value from stdin
+- **The store** is `.brokkr/state/secrets.env` in the repository's
+  folder, a recipe library's `.forge/secrets.env` beside the workdir, or
+  the file `--secrets-file` names (decision 0083). `brokkr secrets set` reads a value from stdin
   and writes the store `0600`, and a store whose permissions are broader
   is refused on read. Names match `[A-Z][A-Z0-9_]*`. `PATH`, `IFS`,
   `LD_PRELOAD`, `LD_LIBRARY_PATH` and every `BROKKR_` name are refused.
