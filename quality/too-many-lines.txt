@@ -3,7 +3,6 @@
  111 crates/brokkr-bridge/src/lib.rs:613 sync_once
  228 crates/brokkr-cli/src/compare.rs:23 seat_costs
  184 crates/brokkr-cli/src/doctor.rs:875 report_capabilities
- 113 crates/brokkr-cli/src/init.rs:1455 init
  177 crates/brokkr-cli/src/muninn.rs:230 dossier_of
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  113 crates/brokkr-core/src/policy.rs:339 parse_rule
@@ -56,7 +55,6 @@
  108 crates/brokkr-cli/src/tui/tests.rs:68 journal
  103 crates/brokkr-cli/src/tui/tests.rs:3146 enter_with_no_turn_selected_opens_the_whole_transcript
  120 crates/brokkr-cli/src/ui/tests.rs:798 the_console_serves_the_boundary_and_paints_the_pair
- 108 crates/brokkr-cli/tests/boundary_verbs.rs:288 init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes
  153 crates/brokkr-cli/tests/boundary_verbs.rs:593 a_harness_realm_runs_its_exec_gate_unboxed_and_records_the_word
  149 crates/brokkr-cli/tests/contributing.rs:1660 the_boundary_guides_keep_every_section_and_gained_the_rows
  143 crates/brokkr-cli/tests/delivered_by_brokkr.rs:441 the_gate_cuts_the_tier_by_the_delta_since_the_judgment
@@ -163,7 +161,7 @@
  129 crates/brokkr-protocol/src/native_controls/tests.rs:8309 every_departure_of_a_final_claude_command_from_its_plan_refuses_exactly
  308 crates/brokkr-protocol/src/native_controls/tests.rs:8496 the_sealed_inputs_are_checked_independently_of_the_command
  195 crates/brokkr-protocol/src/native_controls/tests.rs:8935 a_codex_cold_command_and_its_rejoin_are_checked_against_one_plan
- 151 crates/brokkr-protocol/src/native_controls/tests.rs:9160 the_hands_are_bound_to_the_engines_transport_and_nothing_else
+ 148 crates/brokkr-protocol/src/native_controls/tests.rs:9160 the_hands_are_bound_to_the_engines_transport_and_nothing_else
  154 crates/brokkr-protocol/src/native_controls/tests.rs:9393 a_restriction_the_serving_builder_drops_is_refused_by_the_final_check
  140 crates/brokkr-protocol/src/native_controls/tests.rs:9590 under_harness_the_hands_are_the_adapters_harness_fragment_alone
  169 crates/brokkr-protocol/src/native_controls/tests.rs:9897 a_sealed_contribution_carries_only_established_effects

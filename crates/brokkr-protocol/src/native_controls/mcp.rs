@@ -1,12 +1,18 @@
-//! The engine's one MCP server transport and the checks that read MCP out
-//! of a parsed command (decision 0065 slice two, U1a): the box's hands as
-//! the engine binds them, the effects a hands fragment must carry and
-//! nothing beside, and the authored server a recipe may not configure. The
-//! single `brokkr` hands server is the only one; this module admits no
-//! other server.
+//! The engine's MCP server set and the checks that read MCP out of a
+//! parsed command (decision 0065 slice two, U1a and U7a): the box's hands
+//! as the engine binds them, one broker per sealed holding beside them, the
+//! one builder of the document and bindings a harness is handed, an
+//! independent reading of what a command carries, and the authored server
+//! a recipe may not configure. The set is exactly `brokkr` and the brokers
+//! named `cap-<capability>`; this module admits no other server.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde_json::{json, Value};
 
 use super::grammar::{self, Command, Effect, ListKind};
 use super::State;
+use crate::hands::SERVER_NAME;
 
 /// One value as the body of a TOML basic string (rebuild unit 13-fix-c,
 /// R2): the ONE encoder every value interpolated into a Codex TOML
@@ -49,38 +55,228 @@ pub struct Transport<'a> {
 }
 
 impl Transport<'_> {
-    /// The MCP document a Claude or LaneTally harness is handed.
-    fn document(&self) -> String {
-        crate::hands::mcp_config(self.brokkr, self.workdir, self.spec).to_string()
+    /// The MCP document a harness is handed to reach the box's hands alone,
+    /// as the set's one builder writes it ([`Servers::expand`]).
+    pub(crate) fn document(&self) -> Value {
+        let hands = BTreeMap::from([(SERVER_NAME.to_string(), Owed::Hands(*self))]);
+        document(self.brokkr, &hands)
     }
 
-    /// The server's argument vector as a TOML array, as a Codex harness is
-    /// handed it: each argument a basic string [`toml_basic`] encodes.
-    fn arguments(&self) -> String {
-        let quoted: Vec<String> = crate::hands::serve_args(self.workdir, self.spec)
-            .iter()
-            .map(|arg| format!("\"{}\"", toml_basic(arg)))
-            .collect();
-        format!("[{}]", quoted.join(","))
+    /// An adapter's measured `hands.workspace` fragment with the box's
+    /// hands alone expanded into it ([`Servers::expand`]).
+    pub fn expand(&self, fragment: &[String]) -> Option<Vec<String>> {
+        let hands = Servers {
+            hands: Some(*self),
+            brokers: &[],
+        };
+        hands.expand(fragment)
+    }
+}
+
+/// The server set a launch's site intends: the no-broker plan has no other,
+/// and exec, which serves no model, intends none. Beside the box's hands, a
+/// site holding MCP capabilities intends one broker per sealed holding
+/// (decision 0065 slice two, U7a; MB1).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SealedServers {
+    #[default]
+    Empty,
+    Hands,
+    Brokered(Vec<SealedBroker>),
+    NoModelSurface,
+}
+
+/// One held capability's broker as the engine seals it (U7a; MB1, MB4):
+/// served as `cap-<capability>` by the engine's own executable running
+/// `broker serve` on its own sealed plan, named by the plan's locator and
+/// digest alone, beside the dialect's secret names the harness, and so the
+/// broker it spawns, is served without.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SealedBroker {
+    pub capability: String,
+    pub plan: String,
+    pub plan_digest: String,
+    pub removals: Vec<String>,
+}
+
+/// One server of the engine's set, by what it serves.
+#[derive(Debug, Clone, Copy)]
+enum Owed<'a> {
+    Hands(Transport<'a>),
+    Broker(&'a SealedBroker),
+}
+
+impl Owed<'_> {
+    /// The arguments the harness spawns this server with after the
+    /// engine's executable: the hands profile's `hands serve`, or `broker
+    /// serve` on this broker's own sealed plan alone, never a dialect's
+    /// executable or the bootstrap.
+    fn args(&self) -> Vec<String> {
+        match self {
+            Owed::Hands(hands) => crate::hands::serve_args(hands.workdir, hands.spec),
+            Owed::Broker(broker) => [
+                "broker",
+                "serve",
+                "--plan",
+                &broker.plan,
+                "--plan-digest",
+                &broker.plan_digest,
+            ]
+            .map(String::from)
+            .to_vec(),
+        }
     }
 
-    /// The executable as the body of the TOML basic string a Codex
-    /// fragment quotes it in.
-    fn command(&self) -> String {
-        toml_basic(&self.brokkr.to_string_lossy())
+    /// Whether `entry`, as a command was read to carry it, is exactly this
+    /// server under the engine's `brokkr`: read field by field against the
+    /// sealed values, never compared with a rebuilt document.
+    fn is(&self, brokkr: &str, entry: &Entry) -> bool {
+        let args: Vec<&str> = entry.args.iter().map(String::as_str).collect();
+        let bound = match (self, &args[..]) {
+            (Owed::Hands(hands), ["hands", "serve", "--workdir", workdir, "--spec", spec]) => {
+                Some(*workdir) == hands.workdir.to_str()
+                    && serde_json::from_str(spec)
+                        .is_ok_and(|spec: Value| spec == hands.spec.to_value())
+            }
+            (
+                Owed::Broker(broker),
+                ["broker", "serve", "--plan", plan, "--plan-digest", digest],
+            ) => *plan == broker.plan && *digest == broker.plan_digest,
+            _ => false,
+        };
+        bound && entry.command == brokkr
+    }
+}
+
+/// The one MCP document every Claude-grammar harness is handed: each
+/// server of `named` by its exact name, run by `brokkr` with its own
+/// arguments.
+fn document(brokkr: &std::path::Path, named: &BTreeMap<String, Owed<'_>>) -> Value {
+    let servers: serde_json::Map<String, Value> = named
+        .iter()
+        .map(|(name, owed)| {
+            let entry = json!({"command": brokkr.to_string_lossy(), "args": owed.args()});
+            (name.clone(), entry)
+        })
+        .collect();
+    json!({ "mcpServers": servers })
+}
+
+/// Whether `name` is one bare name, ASCII letters, digits, `_` and `-`,
+/// which every harness's server table carries as itself.
+fn bare(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// The engine's complete MCP server set at one launch (U7a; MB1, SI2): the
+/// box's hands server, `brokkr`, where its hands are carried, and beside it
+/// one broker per sealed holding. It is written by one builder
+/// ([`Servers::expand`], and [`Transport::document`] for the hands alone)
+/// and judged by an independent reading of what a command carries
+/// ([`Servers::served`]), never by rebuilding that document.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Servers<'a> {
+    pub(super) hands: Option<Transport<'a>>,
+    pub(super) brokers: &'a [SealedBroker],
+}
+
+impl<'a> super::Serving<'a> {
+    /// The complete set this serving binds at `harness`, its brokers beside
+    /// the box's hands, or [`unsealed`] where it cannot be served as sealed
+    /// ([`Servers::named`]).
+    pub(super) fn servers(&self, harness: &str) -> Result<Servers<'a>, super::Refusal> {
+        let servers = Servers {
+            hands: self.hands,
+            brokers: self.brokers,
+        };
+        servers
+            .named()
+            .map(|_| servers)
+            .ok_or_else(|| unsealed(harness))
+    }
+
+    /// The final judgment of the set a whole command's `state` carries at
+    /// `harness`, under the boundary its launch `stands` under (U7a; MB1,
+    /// SI2): read on its own ([`Servers::served`]), or [`unsealed`].
+    pub(super) fn sealed_set(
+        &self,
+        harness: &str,
+        stands: Option<super::SealedBoundary>,
+        state: &State,
+    ) -> Result<(), super::Refusal> {
+        let servers = self.servers(harness)?.under(stands);
+        (servers.served(harness, state, self.removed))
+            .then_some(())
+            .ok_or_else(|| unsealed(harness))
+    }
+}
+
+/// The final-set refusal at `harness` (U7a; MB1, SI2): the cause the
+/// serving edge states too, as the driver's refusal carries it.
+pub(super) fn unsealed(harness: &str) -> super::Refusal {
+    let set = " final MCP configuration is not the engine's sealed server set";
+    let pieces = vec![super::Piece::Provider(harness), super::Piece::Words(set)];
+    super::refused(super::Why::Final, pieces)
+}
+
+impl<'a> Servers<'a> {
+    /// This set as served under the boundary a launch `stands` under: under
+    /// `harness` the harness's own class carries the box's hands, not a
+    /// server.
+    pub(super) fn under(self, stands: Option<super::SealedBoundary>) -> Self {
+        let boxed = stands != Some(super::SealedBoundary::Harness);
+        Servers {
+            hands: self.hands.filter(|_| boxed),
+            ..self
+        }
+    }
+
+    /// Every server by its exact name, `None` where the set cannot be
+    /// served as sealed: a broker beside no hands (MB2), or a capability
+    /// whose `cap-` name is not one bare name or is another holding's. No
+    /// name is shortened, normalized or suffixed into another. The empty
+    /// set names nothing.
+    fn named(&self) -> Option<BTreeMap<String, Owed<'a>>> {
+        let mut named = BTreeMap::new();
+        let Some(hands) = self.hands else {
+            return self.brokers.is_empty().then_some(named);
+        };
+        named.insert(SERVER_NAME.to_string(), Owed::Hands(hands));
+        for broker in self.brokers {
+            let name = format!("cap-{}", broker.capability);
+            if !bare(&broker.capability) || named.insert(name, Owed::Broker(broker)).is_some() {
+                return None;
+            }
+        }
+        Some(named)
     }
 
     /// An adapter's measured `hands.workspace` fragment with the engine's
     /// tokens expanded as the spawn expands them: `{hands_mcp_json}` to the
-    /// document, `{hands_args_toml}` to the arguments and `{brokkr}`, which
-    /// stands in a TOML basic string, to the executable that string
-    /// encodes (rebuild unit 13-fix-c, R2). `None` where the executable or
-    /// the workdir is not UTF-8: no provider value represents that path
-    /// exactly, and a lossy one would bind another.
-    pub fn expand(&self, fragment: &[String]) -> Option<Vec<String>> {
-        self.brokkr.to_str()?;
-        self.workdir.to_str()?;
-        let (document, arguments, command) = (self.document(), self.arguments(), self.command());
+    /// whole set's document, `{hands_args_toml}` to the hands server's
+    /// arguments as a TOML array of [`toml_basic`] strings and `{brokkr}`,
+    /// which stands in a TOML basic string, to the executable that string
+    /// encodes (rebuild unit 13-fix-c, R2). A set without the box's hands
+    /// serves no hands fragment, so nothing. `None` where the executable or
+    /// the workdir is not UTF-8, since no provider value represents that
+    /// path exactly and a lossy one would bind another, and where the set
+    /// cannot be served as sealed.
+    pub(super) fn expand(&self, fragment: &[String]) -> Option<Vec<String>> {
+        let Some(hands) = self.hands else {
+            return Some(Vec::new());
+        };
+        let brokkr = hands.brokkr.to_str()?;
+        hands.workdir.to_str()?;
+        let document = document(hands.brokkr, &self.named()?).to_string();
+        let quoted: Vec<String> = (Owed::Hands(hands).args().iter())
+            .map(|arg| format!("\"{}\"", toml_basic(arg)))
+            .collect();
+        let (arguments, command) = (format!("[{}]", quoted.join(",")), toml_basic(brokkr));
         Some(
             fragment
                 .iter()
@@ -93,47 +289,255 @@ impl Transport<'_> {
         )
     }
 
-    /// The capability-bearing options, other than tool lists and a class,
-    /// that the box's hands carry at `harness`, and nothing beside them: for
-    /// Claude and LaneTally strict MCP and exactly this document, and for
-    /// Codex this server's command, its arguments and its approving tool
-    /// mode. `None` where no hands transport is supported.
-    fn effects(&self, harness: &str) -> Option<Vec<(&'static str, Vec<String>)>> {
-        let control = |name: &'static str, value: String| (name, vec![value]);
-        let key = |part: &str| format!("mcp_servers.{}.{part}", crate::hands::SERVER_NAME);
-        match harness {
-            "claude" | "lanetally" => Some(vec![
-                ("--strict-mcp-config", Vec::new()),
-                control("--mcp-config", self.document()),
-            ]),
-            "codex" => Some(vec![
-                control(
-                    "--config",
-                    format!("{}=\"{}\"", key("command"), self.command()),
-                ),
-                control("--config", format!("{}={}", key("args"), self.arguments())),
-                control(
-                    "--config",
-                    format!("{}=\"approve\"", key("default_tools_approval_mode")),
-                ),
-            ]),
-            _ => None,
-        }
+    /// Whether `controls`, the MCP options of one command at `harness`,
+    /// carry exactly this set, read on their own ([`read`]): every name,
+    /// and each server's executable and arguments. A harness with no MCP
+    /// carrier in its arguments carries none.
+    fn carried(&self, harness: &str, controls: &[(&str, &Vec<String>)]) -> bool {
+        let (Some(owed), Some(read)) = (self.named(), read(harness, controls)) else {
+            return false;
+        };
+        let brokkr = self.hands.and_then(|hands| hands.brokkr.to_str());
+        read.len() == owed.len()
+            && owed.iter().all(|(name, owed)| {
+                let entry = read.get(name);
+                entry.is_some_and(|entry| brokkr.is_some_and(|brokkr| owed.is(brokkr, entry)))
+            })
     }
 
-    /// Whether the hands' read `state` carries exactly this transport's own
-    /// server at `harness`, and nothing beside it (rebuild unit 13-fix-b,
-    /// R1): every effect [`Self::effects`] owes, and as many controls as
-    /// it owes. A harness with no hands transport carries none.
+    /// Whether the box's hands' read `state` carries exactly this set at
+    /// `harness`, and nothing beside it (rebuild unit 13-fix-b, R1; U7a).
     pub(super) fn carried_by(&self, harness: &str, state: &State) -> bool {
-        let carried: Vec<(&str, &Vec<String>)> = state.controls().collect();
-        self.effects(harness).is_some_and(|owed| {
-            carried.len() == owed.len()
-                && owed
-                    .iter()
-                    .all(|(name, values)| carried.contains(&(*name, values)))
-        })
+        let controls: Vec<(&str, &Vec<String>)> = state.controls().collect();
+        self.carried(harness, &controls)
     }
+
+    /// The final judgment of a whole command (U7a; MB1, SI2): the MCP
+    /// options its `state` carries at `harness`, read independently, are
+    /// exactly this set, and the names its spawn `removed` from the
+    /// harness's environment are exactly the brokers' sealed removals, each
+    /// once (MB4). The empty set is carried by no MCP option at all or by
+    /// the strict flag beside the empty document SI2's isolation appends.
+    /// dsh carries its set in its engine-only home, not in its arguments,
+    /// and holds no hands, which R1's judgment refuses ([`Self::carried_by`]).
+    pub(super) fn served(&self, harness: &str, state: &State, removed: &[String]) -> bool {
+        let owed: BTreeSet<&str> = (self.brokers.iter())
+            .flat_map(|broker| &broker.removals)
+            .map(String::as_str)
+            .collect();
+        let removes: BTreeSet<&str> = removed.iter().map(String::as_str).collect();
+        let controls: Vec<(&str, &Vec<String>)> = state
+            .controls()
+            .filter(|control| mcp_option(harness, control))
+            .collect();
+        let empty = controls.is_empty() && self.hands.is_none() && self.brokers.is_empty();
+        let carried = match harness {
+            "claude" | "lanetally" | "codex" => empty || self.carried(harness, &controls),
+            _ => true,
+        };
+        carried && removes.len() == removed.len() && removes == owed
+    }
+}
+
+/// Whether one control of a command at `harness` is an MCP option: strict
+/// MCP or a document for Claude's grammar, and an assignment into the
+/// `mcp_servers` table for Codex.
+fn mcp_option(harness: &str, (name, values): &(&str, &Vec<String>)) -> bool {
+    match harness {
+        "codex" => {
+            *name == "--config"
+                && (values.iter())
+                    .any(|value| grammar::config_under(&grammar::config_key(value), "mcp_servers"))
+        }
+        _ => matches!(*name, "--strict-mcp-config" | "--mcp-config"),
+    }
+}
+
+/// One server entry as a command carries it, read on its own terms: its
+/// executable and its arguments, and nothing beside them.
+#[derive(Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Entry {
+    command: String,
+    args: Vec<String>,
+}
+
+/// The servers `controls` carry at `harness`, read independently of the
+/// builder: for Claude's grammar the one strict flag beside the one
+/// document, a closed object naming each server once; for Codex the three
+/// assignments of each server and nothing else. `None` where they are not
+/// exactly one such reading.
+fn read(harness: &str, controls: &[(&str, &Vec<String>)]) -> Option<BTreeMap<String, Entry>> {
+    match harness {
+        "claude" | "lanetally" => {
+            let (mut strict, mut documents) = (0, Vec::new());
+            for (name, values) in controls {
+                match (*name, values.as_slice()) {
+                    ("--strict-mcp-config", []) => strict += 1,
+                    ("--mcp-config", [document]) => documents.push(document),
+                    _ => return None,
+                }
+            }
+            let [document] = documents[..] else {
+                return None;
+            };
+            let read = serde_json::from_str::<Document>(document).ok();
+            read.filter(|_| strict == 1).map(|read| read.servers.0)
+        }
+        "codex" => codex_entries(controls),
+        _ => None,
+    }
+}
+
+/// An MCP document as a Claude-grammar harness reads it: one closed table.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Document {
+    #[serde(rename = "mcpServers")]
+    servers: Unique<Entry>,
+}
+
+/// A JSON object read with each name once: a name written twice is
+/// refused, never read last-wins.
+struct Unique<T>(BTreeMap<String, T>);
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Unique<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(reader: D) -> Result<Self, D::Error> {
+        reader.deserialize_map(Names(std::marker::PhantomData))
+    }
+}
+
+/// [`Unique`]'s reader of one object's names.
+struct Names<T>(std::marker::PhantomData<T>);
+
+impl<'de, T: serde::Deserialize<'de>> serde::de::Visitor<'de> for Names<T> {
+    type Value = Unique<T>;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("an object naming each server once")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Unique<T>, A::Error> {
+        let mut read = BTreeMap::new();
+        while let Some((name, value)) = map.next_entry::<String, T>()? {
+            if read.insert(name, value).is_some() {
+                return Err(serde::de::Error::custom("a server is named twice"));
+            }
+        }
+        Ok(Unique(read))
+    }
+}
+
+/// The servers Codex `--config` assignments bind: each exactly
+/// `mcp_servers.<name>.<part>=<value>` through bare key parts, every part
+/// once, and each server's command and arguments as TOML basic strings
+/// beside an approving tool mode. `None` for anything else.
+fn codex_entries(controls: &[(&str, &Vec<String>)]) -> Option<BTreeMap<String, Entry>> {
+    let blank = [' ', '\t'];
+    let mut parts: BTreeMap<&str, BTreeMap<&str, &str>> = BTreeMap::new();
+    for (name, values) in controls {
+        let ("--config", [assignment]) = (*name, values.as_slice()) else {
+            return None;
+        };
+        let (key, value) = assignment.split_once('=')?;
+        let key: Vec<&str> = key
+            .split('.')
+            .map(|part| part.trim_matches(blank))
+            .collect();
+        let ["mcp_servers", server, part] = key[..] else {
+            return None;
+        };
+        let fields = parts.entry(server).or_default();
+        if !bare(server) || fields.insert(part, value.trim_matches(blank)).is_some() {
+            return None;
+        }
+    }
+    let entry = |fields: &BTreeMap<&str, &str>| {
+        let owed = ["args", "command", "default_tools_approval_mode"];
+        let [Some(args), Some(command), Some(mode)] = owed.map(|part| fields.get(part)) else {
+            return None;
+        };
+        let approves = fields.len() == owed.len() && toml_string(mode)? == "approve";
+        approves.then_some(())?;
+        Some(Entry {
+            command: toml_string(command)?,
+            args: toml_strings(args)?,
+        })
+    };
+    (parts.iter())
+        .map(|(server, fields)| Some((server.to_string(), entry(fields)?)))
+        .collect()
+}
+
+/// One TOML basic string read back to the value it encodes, `None` where
+/// `text` is not exactly one: the inverse of [`toml_basic`], written apart
+/// from it so that a reading is never the writer's own echo.
+fn toml_string(text: &str) -> Option<String> {
+    let mut chars = text.strip_prefix('"')?.strip_suffix('"')?.chars();
+    let mut value = String::new();
+    while let Some(c) = chars.next() {
+        value.push(match c {
+            '\\' => escaped(&mut chars)?,
+            '"' => return None,
+            c if (c <= '\u{1f}' && c != '\t') || c == '\u{7f}' => return None,
+            c => c,
+        });
+    }
+    Some(value)
+}
+
+/// The character the escape after one `\` in `chars` names, `None` for an
+/// escape TOML does not define.
+fn escaped(chars: &mut std::str::Chars<'_>) -> Option<char> {
+    Some(match chars.next()? {
+        'b' => '\u{8}',
+        't' => '\t',
+        'n' => '\n',
+        'f' => '\u{c}',
+        'r' => '\r',
+        '"' => '"',
+        '\\' => '\\',
+        'u' => scalar(chars, 4)?,
+        'U' => scalar(chars, 8)?,
+        _ => return None,
+    })
+}
+
+/// The scalar value an escape names in `digits` hexadecimal digits.
+fn scalar(chars: &mut std::str::Chars<'_>, digits: usize) -> Option<char> {
+    let hex: String = chars.by_ref().take(digits).collect();
+    let whole = hex.len() == digits && hex.chars().all(|c| c.is_ascii_hexdigit());
+    char::from_u32(u32::from_str_radix(&hex, 16).ok().filter(|_| whole)?)
+}
+
+/// A TOML array of basic strings read back to its values, `None` where
+/// `text` is not exactly one.
+fn toml_strings(text: &str) -> Option<Vec<String>> {
+    let blank = [' ', '\t'];
+    let mut rest = text
+        .strip_prefix('[')?
+        .strip_suffix(']')?
+        .trim_matches(blank);
+    let mut values = Vec::new();
+    while !rest.is_empty() {
+        let mut escaped = false;
+        let end = (rest.char_indices().skip(1)).find_map(|(at, c)| {
+            let closes = !escaped && c == '"';
+            escaped = !escaped && c == '\\';
+            closes.then_some(at + 1)
+        })?;
+        values.push(toml_string(&rest[..end])?);
+        rest = rest[end..].trim_start_matches(blank);
+        match rest.strip_prefix(',') {
+            Some(tail) if !tail.trim_start_matches(blank).is_empty() => {
+                rest = tail.trim_start_matches(blank);
+            }
+            Some(_) => return None,
+            None if rest.is_empty() => {}
+            None => return None,
+        }
+    }
+    Some(values)
 }
 
 /// The first part of the box's whole transport that the typed hands
@@ -235,3 +639,6 @@ pub fn authored_server_conflict(command: &Command) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests;

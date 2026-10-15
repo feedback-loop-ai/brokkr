@@ -462,8 +462,11 @@ drawn only when a return was actually taken, never as decoration.
 
 Every driver records one retained, harness-owned transcript reference
 (decision 0032): Claude a session id, Codex a thread and rollout, DSH its
-session file. `brokkr transcript` reads that local file through the same
-bounded derivation the TUI pane uses, for every kind, and writes nothing:
+session file, of format version zero, three or four, and for version four
+plain or in DSH's compressed `.jsonl.zstd` encoding, which is decompressed
+within the plain file's bounds (decision 0086). `brokkr transcript` reads
+that local file through the same bounded derivation the TUI pane uses, for
+every kind, and writes nothing:
 no provider process is started and the journal is opened read-only. The
 browser participant page consumes the same shared presentation for every
 kind and keeps its checkpoint fallback. Its body drill reads by

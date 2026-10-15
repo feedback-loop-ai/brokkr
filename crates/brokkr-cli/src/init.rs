@@ -1,10 +1,11 @@
-//! `brokkr init <dir>` — scaffold a minimal reviewable bundle and prove it
-//! compiles. The template carries the tightened ship taxonomy (`ready` →
-//! `shipped` as the sole entry into `done`), the protected review phase,
-//! model-backed work and review offices, deterministic verify and ship
-//! offices, and the bundled headless Claude Code and exec drivers.
-//! Everything written is ordinary text meant to be reviewed and edited in
-//! git.
+//! `brokkr init <dir>` — scaffold a minimal reviewable bundle into the
+//! `.brokkr/` folder at the repository root `<dir>` and prove it compiles
+//! (decision 0083). The template carries the tightened ship taxonomy
+//! (`ready` → `shipped` as the sole entry into `done`), the protected
+//! review phase, model-backed work and review offices, deterministic
+//! verify and ship offices, and the bundled headless Claude Code and exec
+//! drivers. Everything written is ordinary text meant to be reviewed and
+//! edited in git, and nothing is written outside the folder.
 //!
 //! The scaffold is a WORKSPACE, not only a bundle: it carries its own
 //! `adapters/` and `agents/` trees, because since decision 0021 the tier
@@ -20,14 +21,15 @@
 //! #211, run 1) was IMPL-BLOCKED for exactly that. The operator's trust
 //! declarations and tool grants are theirs to edit — which is why they
 //! are scaffolded as files in their tree rather than compiled into this
-//! binary — and `brokkr` is run from inside the scaffold, where its
-//! `adapters/` and `agents/` are the workspace's.
+//! binary — and `brokkr` finds the folder from anywhere in the
+//! repository, where its `adapters/` and `agents/` are the workspace's.
 //!
 //! init LOOKS BEFORE IT SCAFFOLDS. The seats that build and prove a
 //! change are told which commands to run, and a charter that told every
 //! repository to "run the project's test suite" told none of them
-//! anything. So the repository being delivered — the workspace `brokkr`
-//! was invoked from, not the directory the recipe lands in — is read for
+//! anything. So the repository being delivered — `<dir>`, the one the
+//! folder is written into, never the directory `brokkr` was invoked
+//! from — is read for
 //! the manifests and lockfiles at its root, and the implementer charter and
 //! verifier script name that stack's own commands. Nothing is
 //! executed to find out: file presence is the whole of the evidence, and
@@ -87,12 +89,15 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use brokkr_core::realms::{Boundary, SCHEMA_V3, SCHEMA_V4};
 use brokkr_runtime::bundle::{DEFAULT_ADAPTERS_DIR, DEFAULT_AGENTS_DIR};
 use brokkr_runtime::dialect::Dialect;
+use brokkr_runtime::places::{FOLDER, JOURNAL, STATE};
 use brokkr_runtime::Bundle;
 use serde_json::json;
+
+use crate::folder::IGNORE;
 
 const OPENSPEC_DIALECT: &str = include_str!("../dialects/openspec.json");
 const SPECKIT_DIALECT: &str = include_str!("../dialects/speckit.json");
@@ -267,7 +272,7 @@ notes="$(dirname "$result_path")/ship-notes.$$"; trap 'rm -f "$notes"' EXIT
 write_result() { awk -v result="$1" '
   function json(text,out,i,byte,c){for(i=1;i<=length(text);i++){c=substr(text,i,1);if(c=="\\")out=out "\\\\";else if(c=="\"")out=out "\\\"";else{for(byte=1;byte<32&&c!=sprintf("%c",byte);byte++){}out=out (byte<32?sprintf("\\u%04x",byte):c)}}return out}
   BEGIN{printf "{\"result\": \"%s\", \"notes\": \"",result}{if(NR>1)printf "\\n";printf "%s",json($0)}END{print "\"}"}' "$notes" > "$result_path"; }
-ledger=".forge/ledger/$run_id.md"
+ledger=".brokkr/state/ledger/$run_id.md"
 if [ "$rule_id" != "SHIP-READY" ]; then
   [ -n "$journal" ] || { echo "ship-seat: prompt lacks journal path" >&2; exit 2; }
   dirty="$(git status --porcelain 2>&1 || true)"
@@ -433,7 +438,7 @@ const RG: Tool = Tool {
     permission: "Bash(rg:*)",
 };
 /// The one WRITE tool: `mkdir`, held by the work seats that write
-/// `.forge/` evidence. A gate seat judges; nothing a judge does needs to
+/// `.brokkr/state/` evidence. A gate seat judges; nothing a judge does needs to
 /// create a directory.
 const MKDIR: Tool = Tool {
     name: "mkdir",
@@ -1153,42 +1158,14 @@ fn detect_dialect(repo: &Path) -> DialectDetection {
     DialectDetection::Detected(choice, Box::new(dialect))
 }
 
-fn relative_realm_path(map_dir: &Path, repo: &Path) -> PathBuf {
-    let map_dir = std::fs::canonicalize(map_dir).unwrap_or_else(|_| map_dir.to_path_buf());
-    let repo = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
-    let from: Vec<_> = map_dir.components().collect();
-    let to: Vec<_> = repo.components().collect();
-    let common = from
-        .iter()
-        .zip(&to)
-        .take_while(|(left, right)| left == right)
-        .count();
-    if common == 0 {
-        return repo;
-    }
-    let mut relative = PathBuf::new();
-    for _ in &from[common..] {
-        relative.push("..");
-    }
-    for component in &to[common..] {
-        relative.push(component.as_os_str());
-    }
-    if relative.as_os_str().is_empty() {
-        relative.push(".");
-    }
-    relative
-}
-
 /// The map, at v3 unless a boundary is declared — the boundary is v4's
-/// one addition (decision 0046 ruling 1).
-fn realms_json(
-    dialect: &DialectDetection,
-    realm_path: &Path,
-    boundary: Option<Boundary>,
-) -> String {
+/// one addition (decision 0046 ruling 1). It stands in the folder, so its
+/// realm is the folder's parent, the repository, and its journal is in
+/// the folder's state (decision 0083 ruling 1).
+fn realms_json(dialect: &DialectDetection, boundary: Option<Boundary>) -> String {
     let mut realm = json!({
         "name": "starter",
-        "path": realm_path.to_string_lossy().replace('\\', "/"),
+        "path": "..",
         "default_branch": "main"
     });
     if let Some(choice) = dialect.choice() {
@@ -1204,40 +1181,32 @@ fn realms_json(
     serde_json::to_string_pretty(&json!({
         "schema": schema,
         "realms": [realm],
-        "journal": ".forge/forge.db"
+        "journal": format!("{STATE}/{JOURNAL}")
     }))
     .expect("realms map serializes")
         + "\n"
 }
 
-fn write_dialect(dir: &Path, choice: DialectChoice) -> Result<()> {
-    let instructions = dir.join("dialects").join(choice.name);
-    std::fs::create_dir_all(&instructions)?;
-    std::fs::write(
-        dir.join("dialects").join(format!("{}.json", choice.name)),
-        choice.source,
-    )?;
-    for (name, contents) in choice.instructions {
-        std::fs::write(instructions.join(name), contents)?;
-    }
-    Ok(())
+/// The dialect's pinned library data, each file by its path in the folder.
+fn dialect_files(choice: DialectChoice) -> Vec<(PathBuf, String)> {
+    let dialects = Path::new("dialects");
+    let instructions = choice
+        .instructions
+        .iter()
+        .map(|(name, contents)| (dialects.join(choice.name).join(name), contents.to_string()));
+    let library = (
+        dialects.join(format!("{}.json", choice.name)),
+        choice.source.to_string(),
+    );
+    std::iter::once(library).chain(instructions).collect()
 }
 
-fn refuse_dialect_overwrite(dir: &Path, choice: DialectChoice) -> Result<()> {
-    let dialect = dir.join("dialects").join(format!("{}.json", choice.name));
-    let instructions = dir.join("dialects").join(choice.name);
-    for path in std::iter::once(dialect).chain(
-        choice
-            .instructions
-            .iter()
-            .map(|(name, _)| instructions.join(name)),
-    ) {
-        if path.exists() {
-            bail!(
-                "{} already defines dialect data; refusing to overwrite — a dialect is an operator's ruling",
-                path.display()
-            );
-        }
+/// Write each of `files` under `dir`, its directories first.
+fn write_files(dir: &Path, files: &[(PathBuf, String)]) -> Result<()> {
+    for (path, contents) in files {
+        let path = dir.join(path);
+        std::fs::create_dir_all(path.parent().unwrap_or(dir))?;
+        std::fs::write(path, contents)?;
     }
     Ok(())
 }
@@ -1348,7 +1317,7 @@ fn commands(chosen: Option<(&Detected, &str, &str)>, placeholders: [&str; 2]) ->
 fn implementer(stack: Option<&Detected>) -> String {
     format!(
         "# Implementer seat — build it\n\n\
-         Implement the framed task (see `.forge/tasks/`). Match the project's\n\
+         Implement the framed task (see `.brokkr/state/tasks/`). Match the project's\n\
          idiom. Tests are part of the change.\n\n\
          {}\n\
          Build and test before declaring anything. Commit your work; never push.\n\n\
@@ -1404,7 +1373,7 @@ run() {{
 test_command={test}
 lint_command={lint}
 if [ -z "$test_command" ] || [ -z "$lint_command" ]; then
-  printf 'no stack was recognized; fill in scripts/verify-seat.sh before running this gate' > "$notes"
+  printf 'no stack was recognized; fill in .brokkr/scripts/verify-seat.sh before running this gate' > "$notes"
   write_result fail; exit 0
 fi
 run "$test_command" "$test_command"
@@ -1427,7 +1396,7 @@ fn charters(stack: Option<&Detected>) -> [(&'static str, String); 3] {
         ("implementer.md", implementer(stack)),
         (
             "intake.md",
-            "# Intake seat — frame the task\n\nRead the feature description and the repository until you can state\nthe task precisely. Write a short framing (goal, files you expect to\nchange, the tests that must prove it, non-goals) to\n`.forge/tasks/<slug>.md` in the working directory — run-local evidence,\nnot committed. Result: `resolved`, with `notes` naming the framing file.\nYou never decide the run's fate; the policy table does.\n".to_string(),
+            "# Intake seat — frame the task\n\nRead the feature description and the repository until you can state\nthe task precisely. Write a short framing (goal, files you expect to\nchange, the tests that must prove it, non-goals) to\n`.brokkr/state/tasks/<slug>.md` in the working directory — run-local evidence,\nnot committed. Result: `resolved`, with `notes` naming the framing file.\nYou never decide the run's fate; the policy table does.\n".to_string(),
         ),
         (
             "reviewer.md",
@@ -1437,46 +1406,29 @@ fn charters(stack: Option<&Detected>) -> [(&'static str, String); 3] {
 }
 
 /// What `init` hands back: the compiled scaffold's digest, whether its
-/// realm stands under `namespace` (which needs bubblewrap), and the
-/// sentences that say which agent CLI and boundary it chose and why.
+/// realm stands under `namespace` (which needs bubblewrap), the
+/// sentences that say which agent CLI and boundary it chose and why, and
+/// every path it wrote, relative to the root, sorted.
 pub(crate) struct Scaffold {
     pub digest: String,
     pub namespace: bool,
     pub notes: Vec<String>,
+    pub written: Vec<PathBuf>,
 }
 
-/// Scaffold into `dir`, having read `repo` — the repository being
-/// delivered, which is the workspace `brokkr` was invoked from and not
-/// the directory the recipe lands in. Two paths because they are two
-/// things: `brokkr init my-bundle` is run from inside the project whose
-/// seats the charters describe, and `my-bundle` is only where the text
-/// is written. `path` and `os` are the machine's search path and
-/// operating system, read for the agent CLI and the boundary.
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
-pub(crate) fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaffold> {
-    if dir.join("bundle.json").exists() {
-        bail!(
-            "{} already contains a bundle.json; refusing to overwrite",
-            dir.display()
-        );
-    }
-    if dir.join("realms.json").exists() {
-        bail!(
-            "{} already contains a realms.json; refusing to overwrite",
-            dir.display()
-        );
-    }
-    let detection = detect(repo);
-    if let Some(choice) = detection.dialect.choice() {
-        refuse_dialect_overwrite(dir, choice)?;
-    }
-    // The scaffold writes a trust declaration too, and that is WORKSPACE
-    // data rather than this bundle's own text: an `adapters/` already
-    // standing here is an operator's ruling (decision 0021 ruling 3), and
-    // a scaffolder that wrote over it would silently re-promote a tier the
-    // operator had demoted — the one move this vocabulary exists to make
-    // impossible by accident. Refused on the same terms, and before
-    // anything is written.
+/// Scaffold the folder `.brokkr/` under `root`, having read `root` for
+/// its stack and dialect: one path, the repository detected and the one
+/// written into alike (the operator's ruling 2 of 2026-10-13). `root` is
+/// the repository's root `brokkr init` admitted, whose folder holds at
+/// most the moved state's `.gitignore` and `state/` (decision 0083 ruling
+/// 5), so nothing written here is an operator's file: the trust tiers,
+/// grants, scripts and dialects an operator edits stand refused before
+/// this is reached. A `.gitignore` that already stands is kept. `path`
+/// and `os` are the machine's search path and operating system, read for
+/// the agent CLI and the boundary.
+pub(crate) fn init(root: &Path, path: &std::ffi::OsStr, os: &str) -> Result<Scaffold> {
+    let folder = root.join(FOLDER);
+    let detection = detect(root);
     let host = host(path, os);
     let detected = detection.stack.as_ref();
     let grants = grants(detected);
@@ -1488,117 +1440,85 @@ pub(crate) fn init(dir: &Path, repo: &Path, path: &std::ffi::OsStr, os: &str) ->
             hired.push(cli);
         }
     }
-    let adapters_dir = dir.join(DEFAULT_ADAPTERS_DIR);
-    let declarations: Vec<(PathBuf, String)> = hired
-        .iter()
-        .map(|&cli| {
-            (
-                adapters_dir.join(format!("{}.json", cli.binary())),
-                adapters::declaration(cli, &grants),
-            )
-        })
-        .chain(std::iter::once((
-            adapters_dir.join("exec.json"),
-            adapters::EXEC.to_string(),
-        )))
-        .collect();
-    for (declaration, _) in &declarations {
-        if declaration.exists() {
-            bail!(
-                "{} already declares a trust tier; refusing to overwrite — a tier \
-                 is an operator's ruling, not a scaffold's",
-                declaration.display()
-            );
-        }
-    }
-    for script in ["verify-seat.sh", "ship-seat.sh"] {
-        let path = dir.join("scripts").join(script);
-        if path.exists() {
-            bail!(
-                "{} already defines a seat script; refusing to overwrite",
-                path.display()
-            );
-        }
-    }
-    // The agent library is workspace data on the same terms: a grant an
-    // operator narrowed, or a chain they re-ordered, is theirs, and a
-    // scaffolder that wrote over it would widen a permission by accident.
-    // Each definition is refused by name, before anything is written.
-    let library = dir.join(DEFAULT_AGENTS_DIR);
-    for spec in SEATS {
-        let definition = library.join(format!("{}.json", spec.agent));
-        if definition.exists() {
-            bail!(
-                "{} already defines an agent; refusing to overwrite — its \
-                 allowances are an operator's ruling, not a scaffold's",
-                definition.display()
-            );
-        }
-    }
-    let dialect = &detection.dialect;
-    std::fs::create_dir_all(library.join("charters"))?;
-    std::fs::create_dir_all(&adapters_dir)?;
-    std::fs::create_dir_all(dir.join("scripts"))?;
-    std::fs::write(dir.join("policy.json"), POLICY)?;
-    std::fs::write(dir.join("bundle.json"), bundle_json(detected))?;
-    let realms = realms_json(dialect, &relative_realm_path(dir, repo), host.boundary);
-    std::fs::write(dir.join("realms.json"), realms)?;
-    if let Some(choice) = dialect.choice() {
-        write_dialect(dir, choice)?;
-    }
+    let (adapters_dir, library) = (
+        Path::new(DEFAULT_ADAPTERS_DIR),
+        Path::new(DEFAULT_AGENTS_DIR),
+    );
     // The scaffold's notes live inside the library it wrote, never at the
-    // target's own README.md: `brokkr init .` runs at a project's root, and
-    // a project's README is the operator's file, not a scaffold's.
-    let notes = readme(detected, dialect, &host, &hired);
-    std::fs::write(library.join("README.md"), notes)?;
-    // A run writes its journal beside the map and its results and ledger
-    // under the repository's `.forge/`, and the ship gate closes out only
-    // on a clean tree: each is ignored where it lands, from inside, so the
-    // operator's own `.gitignore` is never touched. The ignore file itself
-    // is excepted, so a committed scaffold carries it to every clone. One
-    // already there is the operator's and is kept.
-    for root in [dir, repo] {
-        let ignore = root.join(".forge/.gitignore");
-        if !ignore.exists() {
-            std::fs::create_dir_all(root.join(".forge"))?;
-            std::fs::write(ignore, "*\n!.gitignore\n")?;
-        }
-    }
-    for (declaration, declared) in &declarations {
-        std::fs::write(declaration, declared)?;
-    }
-    let verify = verify_script(detected, host.claims());
-    std::fs::write(dir.join("scripts/verify-seat.sh"), verify)?;
-    std::fs::write(dir.join("scripts/ship-seat.sh"), SHIP_SCRIPT)?;
+    // project's own README.md, which is the operator's file.
+    let mut files: Vec<(PathBuf, String)> = vec![
+        ("policy.json".into(), POLICY.to_string()),
+        ("bundle.json".into(), bundle_json(detected)),
+        (
+            "realms.json".into(),
+            realms_json(&detection.dialect, host.boundary),
+        ),
+        (
+            library.join("README.md"),
+            readme(detected, &detection.dialect, &host, &hired),
+        ),
+        (
+            "scripts/verify-seat.sh".into(),
+            verify_script(detected, host.claims()),
+        ),
+        ("scripts/ship-seat.sh".into(), SHIP_SCRIPT.to_string()),
+        (adapters_dir.join("exec.json"), adapters::EXEC.to_string()),
+    ];
+    files.extend(hired.iter().map(|&cli| {
+        let declared = adapters::declaration(cli, &grants);
+        (
+            adapters_dir.join(format!("{}.json", cli.binary())),
+            declared,
+        )
+    }));
     for spec in SEATS {
         let (provider, models) = spec.hire(host.cli);
         let allowance = allowance(spec, provider, &grants);
         // A codex seat's sandbox class is what holds its hands; without
         // them it would run at codex's own default, which writes nothing.
         let hands = (provider == Cli::Codex).then(|| codex_hands(detected));
-        let definition = library.join(format!("{}.json", spec.agent));
-        std::fs::write(definition, agent_json(spec, models, allowance, hands))?;
+        let definition = agent_json(spec, models, allowance, hands);
+        files.push((library.join(format!("{}.json", spec.agent)), definition));
     }
-    for (name, content) in charters(detected) {
-        std::fs::write(library.join("charters").join(name), content)?;
+    let charters =
+        charters(detected).map(|(name, text)| (library.join("charters").join(name), text));
+    files.extend(charters);
+    files.extend(
+        detection
+            .dialect
+            .choice()
+            .map_or_else(Vec::new, dialect_files),
+    );
+    // A run writes its journal, results and ledger under the folder's
+    // `state/`, and the ship gate closes out only on a clean tree: the
+    // folder ignores its state from inside, so the operator's own
+    // `.gitignore` is never touched (ruling 1).
+    if !folder.join(IGNORE).exists() {
+        files.push((IGNORE.into(), format!("{STATE}/\n")));
     }
+    write_files(&folder, &files)?;
     // init proves its own output: the scaffold must compile under the
     // constitutional lint before we call it a bundle — and, because the
     // seats resolve through the scaffold's own agents, that compile
     // resolves every allowance through the scaffold's own `adapters/`, so
     // a tool name this file got wrong refuses right here. Against the
-    // SCAFFOLD's own roots, not the process's: what init proves must be a
-    // property of what it wrote, and a starter that compiled only because
-    // the caller happened to stand in a tree with an `adapters/` or
-    // `agents/` would be a proof about the caller. Under the boundary the
-    // scaffold's own realm declares, for the same reason.
+    // SCAFFOLD's own roots, not the process's, and under the boundary the
+    // scaffold's own realm declares: what init proves must be a property
+    // of what it wrote.
     let boundary = host.boundary.unwrap_or(Boundary::Namespace);
-    let bundle = Bundle::compile_under(dir, &library, &adapters_dir, boundary)
+    let (agents, adapters) = (folder.join(library), folder.join(adapters_dir));
+    let bundle = Bundle::compile_under(&folder, &agents, &adapters, boundary)
         .context("scaffolded bundle failed to compile")?;
+    let mut written: Vec<PathBuf> = files
+        .into_iter()
+        .map(|(path, _)| Path::new(FOLDER).join(path))
+        .collect();
+    written.sort();
     Ok(Scaffold {
         digest: bundle.manifest_digest(),
         namespace: boundary == Boundary::Namespace,
         notes: host.notes,
+        written,
     })
 }
 

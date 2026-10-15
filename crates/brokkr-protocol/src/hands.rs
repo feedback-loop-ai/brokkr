@@ -1010,17 +1010,16 @@ pub fn tool_definition() -> Value {
     })
 }
 
-/// The MCP config a harness is handed to reach this server: one entry,
-/// `brokkr`, running this very binary.
+/// The MCP config a harness is handed to reach this server alone: one
+/// entry, `brokkr`, running this very binary, as the engine's one MCP
+/// builder writes it (decision 0065 slice two, U7a).
 pub fn mcp_config(brokkr: &Path, workdir: &Path, spec: &HandsSpec) -> Value {
-    json!({
-        "mcpServers": {
-            SERVER_NAME: {
-                "command": brokkr.to_string_lossy(),
-                "args": serve_args(workdir, spec),
-            }
-        }
-    })
+    let transport = crate::native_controls::Transport {
+        brokkr,
+        workdir,
+        spec,
+    };
+    transport.document()
 }
 
 /// The `brokkr hands serve …` argument vector a harness spawns.

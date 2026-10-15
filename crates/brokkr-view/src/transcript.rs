@@ -1731,14 +1731,8 @@ fn codex_completed_item(item: &Value) -> RowOutcome<CodexBlock> {
 
 // ----------------------------------------------------------------- DSH
 
-/// The DSH on-disk format versions this reader admits (design D3). The set
-/// is closed and exactly `{0, 3}`; the enum makes every dispatch site
-/// exhaustive so a third version cannot be added silently.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum DshVersion {
-    Zero,
-    Three,
-}
+mod dsh_versions;
+use dsh_versions::DshVersion;
 
 /// The version-zero recognized quiet vocabulary: the captured 0.1.2-rc.1
 /// catalogue minus the five content kinds (46 names). Untouched by this
@@ -1858,6 +1852,7 @@ fn dsh_quiet_event(kind: &str, version: DshVersion) -> bool {
     match version {
         DshVersion::Zero => DSH_QUIET_ZERO.contains(&kind),
         DshVersion::Three => DSH_QUIET_THREE.contains(&kind),
+        DshVersion::Four => dsh_versions::quiet_four(kind),
     }
 }
 
@@ -2005,7 +2000,7 @@ struct DshHeader {
 /// Admit the opening DSH ownership header (design D3). Ownership was
 /// established by discovery; this validates the version against the
 /// recorded token and its parsed value together, admitting exactly
-/// `{0, 3}`, and reports the projection refusal otherwise. A duplicated
+/// `{0, 3, 4}`, and reports the projection refusal otherwise. A duplicated
 /// `version` member, or a parsed number whose token cannot be
 /// established, refuses rather than falling open to the parsed value.
 fn dsh_header(value: &Value, raw: &str) -> Option<DshHeader> {
@@ -2024,13 +2019,7 @@ fn dsh_header(value: &Value, raw: &str) -> Option<DshHeader> {
         RawToken::None | RawToken::Many => return None,
     };
     let signature = digit_signature(token)?;
-    let version = if parsed == 0.0 && signature.is_empty() {
-        DshVersion::Zero
-    } else if parsed == 3.0 && signature == "3" {
-        DshVersion::Three
-    } else {
-        return None;
-    };
+    let version = DshVersion::admitted(parsed, &signature)?;
     let is_seeded = object.get("isSeeded").and_then(Value::as_bool);
     Some(DshHeader { version, is_seeded })
 }
@@ -3086,15 +3075,15 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
     let Some(kind) = object.get("type").and_then(Value::as_str) else {
         return DshRow::Unrecognized;
     };
-    // Under version three the counted omission, the per-version quiet set
-    // and the version-zero-only required unknowns are selected from the
-    // kind and the version together, before any payload member is read, so
-    // the fragment and packed decoders are reachable only under version
-    // zero (design D4). The packed decoder returns `Refused` on a shape
-    // violation and `Refused` refuses the read whatever the marker, so
+    // Under versions three and four the counted omission, the per-version
+    // quiet set and the version-zero-only required unknowns are selected
+    // from the kind and the version together, before any payload member is
+    // read, so the fragment and packed decoders are reachable only under
+    // version zero (design D4). The packed decoder returns `Refused` on a
+    // shape violation and `Refused` refuses the read whatever the marker, so
     // decoding a packed name first would refuse the read even when the
     // marker lifts the row's required-unknown status.
-    if version == DshVersion::Three {
+    if matches!(version, DshVersion::Three | DshVersion::Four) {
         match kind {
             "assistant/attempt" => return DshRow::Omission,
             "assistant/chunk"
@@ -3103,7 +3092,7 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
             | "tool-call-chunks"
             | "tool/code-dispatch"
             | "tool/code-dispatch-start" => return DshRow::Unrecognized,
-            _ if dsh_quiet_event(kind, DshVersion::Three) => return DshRow::Quiet,
+            _ if dsh_quiet_event(kind, version) => return DshRow::Quiet,
             _ => {}
         }
     }
@@ -3121,16 +3110,16 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
             } else {
                 Role::Assistant
             };
-            let outcome = dsh_message_blocks(message, role);
+            let outcome = dsh_versions::message_blocks(message, role, version);
             let cited = match dsh_citations(value, dsh_seq(value)) {
                 Ok(cited) => cited,
                 Err(()) => return DshRow::Refused,
             };
             // The version-three `user/message` definition declares no
-            // `turn` or `step`, so under `Three` a user message supplies
-            // no position whatever its `data` carries;
+            // `turn` or `step`, so under `Three` and `Four` a user message
+            // supplies no position whatever its `data` carries;
             // `assistant/message` declares both and reads them under
-            // either version, and version zero reads a user message's
+            // every version, and version zero reads a user message's
             // positions as today (design D4, D13).
             let read_positions = kind == "assistant/message" || version == DshVersion::Zero;
             let (turn, step) = if read_positions {
@@ -3171,7 +3160,7 @@ fn dsh_row(value: &Value, raw: &str, version: DshVersion) -> DshRow {
         }
         "tool/result" => {
             let message = data.get("message").unwrap_or(&Value::Null);
-            let outcome = dsh_message_blocks(message, Role::Tool);
+            let outcome = dsh_versions::result_blocks(message, version);
             let cited = match dsh_citations(value, dsh_seq(value)) {
                 Ok(cited) => cited,
                 Err(()) => return DshRow::Refused,

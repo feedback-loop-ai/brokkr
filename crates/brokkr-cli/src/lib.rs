@@ -820,7 +820,7 @@ fn failure_line(error: &anyhow::Error) -> String {
 /// Sanitize an error display line by line, keeping the chain's own line
 /// breaks: every rendered line loses control and directional characters
 /// while the recorded error strings stay untouched.
-fn safe_lines(text: &str) -> String {
+pub(crate) fn safe_lines(text: &str) -> String {
     text.split('\n')
         .map(|line| render::Safe::new(line).as_str().to_string())
         .collect::<Vec<String>>()
@@ -1845,7 +1845,7 @@ fn run_with(
 ) -> Result<ExitCode> {
     use verbs::{delivery, exchange, probe, queue, readouts, setup};
     match cli.command {
-        Cmd::Init(args) => setup::init(workspace, args),
+        Cmd::Init(args) => setup::init(args),
         Cmd::Costs(args) => readouts::costs(workspace, args),
         Cmd::Ledger(args) => readouts::ledger(workspace, args),
         Cmd::Anchor(args) => exchange::anchor(workspace, args),

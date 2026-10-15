@@ -703,6 +703,7 @@ pub enum brokkr_protocol::native_controls::SealedFence
 pub brokkr_protocol::native_controls::SealedFence::Lifted
 pub brokkr_protocol::native_controls::SealedFence::Standing
 pub enum brokkr_protocol::native_controls::SealedServers
+pub brokkr_protocol::native_controls::SealedServers::Brokered(alloc::vec::Vec<brokkr_protocol::native_controls::SealedBroker>)
 pub brokkr_protocol::native_controls::SealedServers::Empty
 pub brokkr_protocol::native_controls::SealedServers::Hands
 pub brokkr_protocol::native_controls::SealedServers::NoModelSurface
@@ -794,6 +795,11 @@ pub fn brokkr_protocol::native_controls::Refusal::at_compile(&self, &brokkr_prot
 pub fn brokkr_protocol::native_controls::Refusal::at_launch(&self, &serde_json::value::Value) -> alloc::string::String
 impl core::convert::From<brokkr_protocol::native_controls::Refusal> for brokkr_protocol::native_controls::Failure
 pub fn brokkr_protocol::native_controls::Failure::from(brokkr_protocol::native_controls::Refusal) -> brokkr_protocol::native_controls::Failure
+pub struct brokkr_protocol::native_controls::SealedBroker
+pub brokkr_protocol::native_controls::SealedBroker::capability: alloc::string::String
+pub brokkr_protocol::native_controls::SealedBroker::plan: alloc::string::String
+pub brokkr_protocol::native_controls::SealedBroker::plan_digest: alloc::string::String
+pub brokkr_protocol::native_controls::SealedBroker::removals: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_protocol::native_controls::SealedDialect
 pub brokkr_protocol::native_controls::SealedDialect::boundary: alloc::vec::Vec<alloc::string::String>
 pub brokkr_protocol::native_controls::SealedDialect::hands: alloc::vec::Vec<alloc::string::String>
@@ -826,6 +832,7 @@ pub brokkr_protocol::native_controls::Selection::flags: core::option::Option<[br
 pub brokkr_protocol::native_controls::Selection::include: alloc::vec::Vec<alloc::string::String>
 pub struct brokkr_protocol::native_controls::Serving<'a>
 pub brokkr_protocol::native_controls::Serving::authored: &'a [alloc::string::String]
+pub brokkr_protocol::native_controls::Serving::brokers: &'a [brokkr_protocol::native_controls::SealedBroker]
 pub brokkr_protocol::native_controls::Serving::hands: core::option::Option<brokkr_protocol::native_controls::Transport<'a>>
 pub brokkr_protocol::native_controls::Serving::mcp: &'a [alloc::string::String]
 pub brokkr_protocol::native_controls::Serving::output: core::option::Option<&'a str>
@@ -833,6 +840,7 @@ pub brokkr_protocol::native_controls::Serving::overlay: core::option::Option<&'a
 pub brokkr_protocol::native_controls::Serving::pins: &'a [alloc::string::String]
 pub brokkr_protocol::native_controls::Serving::program: &'a str
 pub brokkr_protocol::native_controls::Serving::prompt: core::option::Option<&'a str>
+pub brokkr_protocol::native_controls::Serving::removed: &'a [alloc::string::String]
 pub brokkr_protocol::native_controls::Serving::session: core::option::Option<&'a str>
 pub brokkr_protocol::native_controls::Serving::stream: bool
 pub brokkr_protocol::native_controls::Serving::workdir: &'a str
@@ -1046,6 +1054,15 @@ pub fn brokkr_protocol::secret::valid_name(&str) -> bool
 pub fn brokkr_protocol::secret::validate_name(&str) -> core::result::Result<(), alloc::string::String>
 pub fn brokkr_protocol::secret::validate_value(&str) -> core::result::Result<core::option::Option<alloc::string::String>, alloc::string::String>
 pub type brokkr_protocol::secret::Encoder = fn(&[u8]) -> alloc::vec::Vec<u8>
+pub mod brokkr_protocol::zstd
+pub enum brokkr_protocol::zstd::Refused
+pub brokkr_protocol::zstd::Refused::Mismatch(u32)
+pub brokkr_protocol::zstd::Refused::Unchecksummed
+pub brokkr_protocol::zstd::Refused::Undecodable(core::io::error::Error)
+pub struct brokkr_protocol::zstd::Unpacked
+pub brokkr_protocol::zstd::Unpacked::bytes: alloc::vec::Vec<u8>
+pub brokkr_protocol::zstd::Unpacked::past_bound: bool
+pub fn brokkr_protocol::zstd::unpack(&[u8], bool, u64) -> core::result::Result<brokkr_protocol::zstd::Unpacked, brokkr_protocol::zstd::Refused>
 pub enum brokkr_protocol::AttemptOutcome
 pub brokkr_protocol::AttemptOutcome::Failed
 pub brokkr_protocol::AttemptOutcome::Failed::error: alloc::string::String

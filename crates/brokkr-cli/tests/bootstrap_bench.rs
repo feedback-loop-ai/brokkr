@@ -122,8 +122,8 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
     std::fs::write(repo.join(".git/info/exclude"), "*.profraw\n").unwrap();
     // A marker, so `init` writes a stack-aware charter rather than the
     // placeholder one — the scaffold an operator would actually get.
-    // No `.gitignore`: the README asks for none, and `init` ignores the
-    // run's own `.forge/` itself.
+    // No `.gitignore`: the README asks for none, and `init`'s folder
+    // ignores its own `state/` itself.
     std::fs::write(repo.join("Makefile"), MAKEFILE).unwrap();
     git(repo, &["add", "."]);
     git(repo, &["commit", "-q", "-m", "bench fixture"]);
@@ -159,34 +159,26 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
     git(repo, &["add", "-A"]);
     git(repo, &["commit", "-q", "-m", "brokkr starter"]);
 
-    // Step 3, with the agent stubbed and NOTHING else changed.
+    // Step 3, with the agent stubbed and NOTHING else changed: from a
+    // subdirectory, with no flag at all, the folder is discovered and
+    // supplies the bundle, the repository, the map and the journal
+    // (decision 0083). An empty directory, which git does not track.
+    let src = repo.join("src");
+    std::fs::create_dir(&src).unwrap();
     let run = Command::new(env!("CARGO_BIN_EXE_brokkr"))
         .args([
             "run",
-            "--bundle",
-            ".",
-            "--repo",
-            ".",
-            "--db",
-            ".forge/forge.db",
             "--feature",
             "bootstrap benchmark: reach one completed effect",
         ])
         .env("BROKKR_CLAUDE_BIN", &stub)
-        .current_dir(repo)
+        .current_dir(&src)
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&run.stderr);
 
     let inspect = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args([
-            "inspect",
-            "--run",
-            "latest",
-            "--db",
-            ".forge/forge.db",
-            "--json",
-        ])
+        .args(["inspect", "--run", "latest", "--json"])
         .current_dir(repo)
         .output()
         .unwrap();

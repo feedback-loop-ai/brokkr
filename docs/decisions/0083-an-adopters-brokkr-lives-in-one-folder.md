@@ -3,7 +3,7 @@
 Status: accepted (operator ruled in chat, 2026-10-11, on #634)
 Date: 2026-10-11
 
-Built: partial (#634) — slice A: discovery, the defaults that follow from it, and the old-layout refusals; slice B, `init` writing the folder and `doctor` checking it, remains
+Built: partial (#634) — slice A: discovery, the defaults that follow from it, and the old-layout refusals; slice B: `init` writes the folder and `doctor` checks it; the guides of ruling 6 remain
 
 ## Context
 

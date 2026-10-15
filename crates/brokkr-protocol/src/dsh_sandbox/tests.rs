@@ -1766,9 +1766,12 @@ fn a_promotion_moves_one_ref_and_does_not_repack_the_host_repository() {
     // The REPOSITORY asks for the maintenance, which is the point: a fetch
     // runs it under a configuration this run did not choose. Detaching is
     // turned off only so the measurement below is not a race against a
-    // background repack.
+    // background repack. Git 2.56's automatic maintenance runs the
+    // geometric strategy and no longer the `gc` task, so the repository
+    // names that task as well; on older gits it is already the default.
     Repo::run(&repo.main, &["config", "gc.auto", "1"]);
     Repo::run(&repo.main, &["config", "gc.autoDetach", "false"]);
+    Repo::run(&repo.main, &["config", "maintenance.gc.enabled", "true"]);
 
     let staged = stage_seat_store(&repo.scope).unwrap();
     std::fs::write(repo.worktree.join("b.txt"), "b\n").unwrap();

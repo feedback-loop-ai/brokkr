@@ -774,6 +774,51 @@ fn structural_cap_notices_reach_every_surface() {
     compare(&world, &read, Some(7_796));
 }
 
+/// The synthetic DSH 0.2 session and its compressed twin (change
+/// `admit-dsh-session-v4`), as `local_transcript`'s tests read them.
+const DSH_V4: &[u8] = include_bytes!("fixtures/dsh-v4/session.v4.jsonl");
+const DSH_V4_PACKED: &[u8] = include_bytes!("fixtures/dsh-v4/session.v4.jsonl.zstd");
+
+/// A one-participant world whose DSH session directory holds `bytes` as
+/// the file `name` and nothing else.
+fn dsh_world(name: &str, bytes: &[u8]) -> World {
+    let world = make_world("dsh-session", "sessions/one", "");
+    std::fs::remove_file(&world.path).unwrap();
+    let path = Path::new(&world.path).with_file_name(name);
+    std::fs::write(&path, bytes).unwrap();
+    World {
+        path: path.to_str().unwrap().to_string(),
+        ..world
+    }
+}
+
+/// A version-four session written plain and written compressed reaches
+/// CLI text and JSON, `--turn`, the TUI pane, both doors and the browser
+/// route as the same five turns, its tool-role result among them (#678).
+#[test]
+fn a_version_four_session_reaches_every_surface_plain_and_compressed() {
+    let mut env = EnvGuard::lock();
+    let mut turns = Vec::new();
+    for (name, bytes) in [
+        ("session.v4.jsonl", DSH_V4),
+        ("session.v4.jsonl.zstd", DSH_V4_PACKED),
+    ] {
+        let world = dsh_world(name, bytes);
+        env.set("HOME", &world.home);
+        let read = shared_read(&world);
+        assert_eq!(read.path.as_deref(), Some(world.path.as_str()), "{name}");
+        assert_eq!(read.turns.len(), 5, "{name}: {read:?}");
+        assert_eq!(read.turns[3].role, "tool", "{name}");
+        assert_eq!(
+            read.turns[3].blocks[0].text, "synthetic alpha [call-1]",
+            "{name}"
+        );
+        compare(&world, &read, Some(3));
+        turns.push(read.turns);
+    }
+    assert_eq!(turns[0], turns[1]);
+}
+
 /// A DSH semantic refusal after a readable-looking prefix, and the
 /// ambiguity between two safe roots, travel the same TUI seam as every
 /// other refusal: no reading door, the retained counts/notices/hint and

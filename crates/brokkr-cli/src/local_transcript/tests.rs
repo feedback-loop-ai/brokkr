@@ -1147,6 +1147,19 @@ fn a_session_directory_holding_both_names_admits_the_versioned_one() {
     );
 }
 
+/// A version-zero `session.jsonl` whose one message is `superseded`: a
+/// reader that answers it read the plain name where it should not have.
+fn write_superseded_plain(session: &Path) {
+    std::fs::write(
+        session.join("session.jsonl"),
+        concat!(
+            "{\"type\":\"session\",\"version\":0,\"delegationDepth\":0}\n",
+            "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"superseded\"}]}}\n",
+        ),
+    )
+    .unwrap();
+}
+
 /// The versioned name beside the plain name is decisive whatever its
 /// version: a version-three `session.v3.jsonl` beside a version-zero
 /// `session.jsonl` reads the versioned file's message and never the plain
@@ -1165,14 +1178,7 @@ fn a_versioned_and_plain_pair_reads_the_versioned_files_message() {
         ),
     )
     .unwrap();
-    std::fs::write(
-        session.join("session.jsonl"),
-        concat!(
-            "{\"type\":\"session\",\"version\":0,\"delegationDepth\":0}\n",
-            "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"superseded\"}]}}\n",
-        ),
-    )
-    .unwrap();
+    write_superseded_plain(&session);
     let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
     let read = read_common(&reference);
     assert!(read.is_readable(), "{read:?}");
@@ -1196,17 +1202,10 @@ fn a_foreign_versioned_name_beside_a_readable_plain_name_refuses() {
     std::fs::create_dir_all(&session).unwrap();
     std::fs::write(
         session.join("session.v3.jsonl"),
-        "{\"type\":\"session\",\"version\":4,\"delegationDepth\":0}\n",
+        "{\"type\":\"session\",\"version\":5,\"delegationDepth\":0}\n",
     )
     .unwrap();
-    std::fs::write(
-        session.join("session.jsonl"),
-        concat!(
-            "{\"type\":\"session\",\"version\":0,\"delegationDepth\":0}\n",
-            "{\"type\":\"user/message\",\"seq\":1,\"time\":1,\"data\":{\"content\":[{\"type\":\"text\",\"text\":\"superseded\"}]}}\n",
-        ),
-    )
-    .unwrap();
+    write_superseded_plain(&session);
     let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
     let read = read_common(&reference);
     assert_eq!(read.unavailable, Some(Unavailable::UnsupportedFormat));
@@ -1263,12 +1262,12 @@ fn the_filename_and_the_header_version_are_independent_facts() {
     assert_eq!(read.turns.len(), 1);
     assert_eq!(read.turns[0].blocks[0].text, "zero");
 
-    // Either name carrying version 4 refuses.
+    // Either name carrying version 5 refuses.
     let foreign = home.join("sessions/three/project/seat");
     std::fs::create_dir_all(&foreign).unwrap();
     std::fs::write(
         foreign.join("session.v3.jsonl"),
-        "{\"type\":\"session\",\"version\":4,\"delegationDepth\":0}\n",
+        "{\"type\":\"session\",\"version\":5,\"delegationDepth\":0}\n",
     )
     .unwrap();
     let reference = common("dsh-session", "sessions/three", home.to_str().unwrap());
@@ -1352,20 +1351,24 @@ fn a_seeded_header_changes_neither_ownership_nor_admission() {
 /// The set is closed: a name outside it is never read, however plausible.
 #[test]
 fn a_session_filename_outside_the_admitted_set_is_not_read() {
-    let dir = tempfile::tempdir().unwrap();
-    let home = dir.path().join("home");
-    let session = home.join("sessions/one/project/seat");
-    std::fs::create_dir_all(&session).unwrap();
-    std::fs::write(
-        session.join("session.v4.jsonl"),
-        "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n",
-    )
-    .unwrap();
-    let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
-    assert_eq!(
-        read_common(&reference).unavailable,
-        Some(Unavailable::NotFound)
-    );
+    let header = "{\"type\":\"session\",\"delegationDepth\":0,\"version\":0}\n";
+    for name in [
+        "session.v5.jsonl",
+        "session.v2.jsonl",
+        "session.v4.jsonl.gz",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        let seat = home.join("sessions/one/project/seat");
+        std::fs::create_dir_all(&seat).unwrap();
+        std::fs::write(seat.join(name), header).unwrap();
+        let reference = common("dsh-session", "sessions/one", home.to_str().unwrap());
+        assert_eq!(
+            read_common(&reference).unavailable,
+            Some(Unavailable::NotFound),
+            "{name}"
+        );
+    }
 }
 
 #[test]
