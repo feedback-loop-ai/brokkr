@@ -68,8 +68,11 @@ keeps its own GitHub runner credentials in its runner volume and updates
 its runner application automatically.
 
 The workflow uses the local workers when `BROKKR_LOCAL_CI` is `true`, for
-pushes, merge groups, manual runs and pull requests from this repository.
-Fork pull requests use hosted runners. A pre-job hook independently rejects
+pushes, manual runs and pull requests from this repository. Merge groups
+use hosted runners (operator ruling 2026-10-15): the queue's run must pass
+to merge, and on the workstation it shares cores with Brokkr's own runs,
+which flake decision 0065's broker deadline tests. Fork pull requests use
+hosted runners. A pre-job hook independently rejects
 fork pull-request payloads before checkout. These persistent workers are for
 trusted repository contributors; their state is reusable by later jobs.
 Containers do not mount the host home, working checkouts, Docker socket or
