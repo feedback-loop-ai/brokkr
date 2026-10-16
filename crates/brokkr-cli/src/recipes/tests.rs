@@ -340,38 +340,42 @@ fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
 }
 
 /// Two `add`s into one library never interleave. The first is stood in for
-/// by a held library with its `fast` copy in place, about to be refused and
+/// by a held shelf with its `fast` copy in place, about to be refused and
 /// removed: the second waits rather than stop its walk at that copy, so it
-/// never keeps a `review-first` whose base the first then removes.
+/// never keeps a `review-first` whose base the first then removes. When
+/// the first made the library, it removes it empty before the second
+/// wakes, which then makes its own rather than install into a removed one.
 #[test]
 fn a_second_add_waits_for_the_library_another_holds() {
-    let library = tempfile::tempdir().unwrap();
-    let held = hold(library.path()).unwrap();
-    let in_flight = library.path().join("fast");
-    copy_dir(&workspace().join("recipes/fast"), &in_flight).unwrap();
-    let dir = library.path().to_path_buf();
-    let second = std::thread::spawn(move || {
-        let review_first = workspace().join("recipes/review-first");
-        add(
-            &workspace(),
-            &dir,
-            review_first.to_str().unwrap(),
-            "review-first",
-            None,
-        )
-    });
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    assert!(
-        !second.is_finished(),
-        "the second add ran in a held library"
-    );
-    std::fs::remove_dir_all(&in_flight).unwrap();
-    drop(held);
-    second
-        .join()
-        .unwrap()
-        .expect("the second add installs once the library is released");
-    assert_eq!(installed(library.path()), ["fast", "review-first"]);
+    for standing in [true, false] {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("library");
+        if standing {
+            std::fs::create_dir(&dir).unwrap();
+        }
+        let held = Shelf::make(&dir, &dir).unwrap();
+        assert_eq!(held.made.is_some(), !standing, "the first made it");
+        let in_flight = dir.join("fast");
+        copy_dir(&workspace().join("recipes/fast"), &in_flight).unwrap();
+        let library = dir.clone();
+        let second = std::thread::spawn(move || {
+            let review_first = workspace().join("recipes/review-first");
+            let source = review_first.to_str().unwrap();
+            add(&workspace(), &library, source, "review-first", None)
+        });
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(
+            !second.is_finished(),
+            "the second add ran in a held library"
+        );
+        std::fs::remove_dir_all(&in_flight).unwrap();
+        drop(held);
+        second
+            .join()
+            .unwrap()
+            .expect("the second add installs once the library is released");
+        assert_eq!(installed(&dir), ["fast", "review-first"]);
+    }
 }
 
 /// An entry the library already holds is never removed by an install that
@@ -532,7 +536,8 @@ fn a_shelf_recipes_base_is_planned_from_its_shelf() {
 
 /// A chain that comes back to a name already planned ends there, so a
 /// cycle is planned once and the compile names why it does not compose; a
-/// library whose parent does not stand is never made.
+/// library whose parent does not stand is never made, nor one its parent
+/// cannot hold.
 #[test]
 fn a_chain_ends_at_a_name_it_already_plans() {
     let source = tempfile::tempdir().unwrap();
@@ -554,6 +559,9 @@ fn a_chain_ends_at_a_name_it_already_plans() {
     let refusal = add(&workspace(), &unmade, leaf.to_str().unwrap(), "a", None).unwrap_err();
     let kind = refusal.downcast_ref::<std::io::Error>().map(|e| e.kind());
     assert_eq!(kind, Some(std::io::ErrorKind::NotFound));
+    let unheld = library.path().join("x".repeat(300));
+    let refusal = Shelf::make(&unheld, &unheld).err().map(|e| e.kind());
+    assert_eq!(refusal, Some(std::io::ErrorKind::InvalidFilename));
 }
 
 /// `add` refuses a library in a folder repository whose `recipes/` is a

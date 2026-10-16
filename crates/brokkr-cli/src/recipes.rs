@@ -269,22 +269,32 @@ impl Drop for Installing {
 /// The library directory, made here when nothing stands there yet, and
 /// removed when dropped if it still holds nothing, so an install refused
 /// before any copy leaves the workspace as it found it. Its parent, the
-/// root or its folder, stands.
-struct Shelf(Option<PathBuf>);
+/// root or its folder, stands, and is held ([`hold`]) from before the
+/// library is made until after it is removed: its fields drop after it.
+struct Shelf {
+    made: Option<PathBuf>,
+    _held: rustix::fd::OwnedFd,
+}
 
 impl Shelf {
-    fn make(dir: &Path) -> std::io::Result<Shelf> {
-        match std::fs::create_dir(dir) {
-            Ok(()) => Ok(Shelf(Some(dir.to_path_buf()))),
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(Shelf(None)),
-            Err(e) => Err(e),
-        }
+    /// Hold the parent of `place`, where the library `dir` resolves, then
+    /// make `dir` if nothing stands there.
+    fn make(dir: &Path, place: &Path) -> std::io::Result<Shelf> {
+        let _held = hold(place.parent().unwrap_or(place))?;
+        let made = match std::fs::create_dir(dir) {
+            Ok(()) => Some(dir.to_path_buf()),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => None,
+            Err(e) => return Err(e),
+        };
+        Ok(Shelf { made, _held })
     }
 }
 
 impl Drop for Shelf {
     fn drop(&mut self) {
-        self.0.iter().for_each(|dir| drop(std::fs::remove_dir(dir)));
+        self.made
+            .iter()
+            .for_each(|dir| drop(std::fs::remove_dir(dir)));
     }
 }
 
@@ -357,13 +367,14 @@ fn install(planned: &[(String, PathBuf)], dir: &Path) -> Result<Installing> {
     Ok(installing)
 }
 
-/// Hold the library exclusively, by a lock on its own directory, until the
-/// handle drops; a second holder waits. An install exposes each base it
-/// copies at its library name before its compile is accepted, and removes
-/// it when refused, so another `add` that ran meanwhile could stop its walk
-/// at that copy and keep a leaf whose base is then removed. One `add` at a
-/// time keeps "every copy kept or none" true across invocations.
-fn hold(dir: &Path) -> Result<rustix::fd::OwnedFd> {
+/// Hold a library exclusively, by a lock on its parent `dir`, which stands
+/// while an `add` makes and removes the library, until the handle drops; a
+/// second holder waits. An install exposes each base it copies at its
+/// library name before its compile is accepted, and removes it when
+/// refused, so another `add` that ran meanwhile could stop its walk at that
+/// copy and keep a leaf whose base is then removed. One `add` at a time
+/// keeps "every copy kept or none" true across invocations.
+fn hold(dir: &Path) -> std::io::Result<rustix::fd::OwnedFd> {
     use rustix::fs::{flock, open, FlockOperation, Mode, OFlags};
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
     let library = open(dir, flags, Mode::empty())?;
@@ -705,7 +716,7 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
 /// ([`agents::plan`]), then compile-verify every copy against `root`'s
 /// agents and adapters. If any fails to compile all are removed — the
 /// library only ever holds recipes the compiler accepted or nothing. The
-/// library is held from the plan to the last compile ([`hold`]); a clone
+/// library is held from before it is made to the last compile ([`Shelf`]); a clone
 /// happens before, unheld. A name that is not one plain component
 /// ([`Unplain::Name`]), a `path` the source cannot take ([`Source::judge`])
 /// and a library in a folder repository but its shelf ([`refuse_folder`])
@@ -749,10 +760,9 @@ fn install_held(
     Fetched(_clone, bundle, source_agents): Fetched,
     world: Option<&World>,
 ) -> Result<()> {
-    // Each declared before what it outlives: the copies are kept or removed
-    // while the library is still held, and an empty one made here goes last.
-    let _shelf = Shelf::make(dir)?;
-    let _library = hold(dir)?;
+    // Declared before what it outlives: the copies are kept or removed while
+    // the library is still held, and an empty one made here goes last.
+    let _shelf = Shelf::make(dir, place)?;
     let planned = planned(&bundle, name, dir)?;
     let sources: Vec<&Path> = planned.iter().map(|(_, source)| source.as_path()).collect();
     refuse_within(&sources, place)?;
