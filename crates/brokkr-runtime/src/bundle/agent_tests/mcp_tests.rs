@@ -1521,3 +1521,91 @@ fn the_pass_judges_each_resolved_candidate_and_refuses_in_the_sites_words() {
         )
     );
 }
+
+/// `adapter` declaring that its harness authenticates with `name` (MB4).
+fn authenticating(mut adapter: Value, name: &str) -> Value {
+    adapter["harness_auth"] = json!({"names": [name], "measured": "a fixture"});
+    adapter
+}
+
+/// MB4's names follow each candidate (U7d3): every serving the capability
+/// pass resolves carries its own adapter's authentication names, so the
+/// Codex fallback is served with its own and never its Claude primary's.
+#[test]
+fn each_candidate_is_served_with_its_own_adapters_authentication_names() {
+    use crate::capabilities::{Authority, CapabilityContext, Serving, SiteAsks};
+    let fixture = AgentFixture::new();
+    carriers(&fixture, json!("unsupported"));
+    let claude = authenticating(strict_claude(Vec::new()), "PRIMARY_KEY");
+    fixture.write("adapters/claude.json", claude);
+    let mut codex = authenticating(codex(), "FALLBACK_KEY");
+    codex["mcp"] = json!("unsupported");
+    fixture.write("adapters/codex.json", codex);
+    let mut config = fixture.config();
+    config["seats"]["work"]["agent"] = json!("boxed");
+    let bundle = fixture.compile_under(config, Boundary::Namespace).unwrap();
+    let adapters = Adapters::load(&fixture.adapters()).unwrap();
+    let context = CapabilityContext::no_grants("private", &fixture.root);
+    let authority = Authority::load(context).unwrap();
+    let served = std::cell::RefCell::new(Vec::new());
+    let resolve = |asks: &SiteAsks, serving: &Serving<'_>| {
+        let auth = serving.auth.to_vec();
+        served
+            .borrow_mut()
+            .push((serving.provider.to_string(), auth));
+        mcp::resolve(&authority, asks, serving)
+    };
+    let asks = SiteAsks::at(SeatClass::Work, "research", None, None).unwrap();
+    let loaded = CapabilityAdapters::loaded(&adapters);
+    let chain = (bundle.sites["work"].chain.as_slice(), None);
+    mcp::candidate_capabilities_with(&authority, loaded, asks, chain, &resolve).unwrap();
+    assert_eq!(
+        served.into_inner(),
+        [
+            ("claude".to_string(), vec!["PRIMARY_KEY".to_string()]),
+            ("codex".to_string(), vec!["FALLBACK_KEY".to_string()]),
+        ]
+    );
+}
+
+/// An inline site carries no adapter's authentication names (operator
+/// ruling of 2026-10-16): its Codex command, whose adapter reads
+/// `DOCS_TOKEN`, meets a dialect binding `DOCS_TOKEN` with the fence's own
+/// words, never MB4's collision.
+#[test]
+fn an_inline_site_is_served_with_no_authentication_names() {
+    use crate::capabilities::tests::{binding, cq1_root};
+    use crate::capabilities::{parse_requests, SiteAsks};
+    let fixture = AgentFixture::new();
+    fixture.write("adapters/codex.json", authenticating(codex(), "DOCS_TOKEN"));
+    let adapters = Adapters::load(&fixture.adapters()).unwrap();
+    let root = cq1_root();
+    let authority = binding::binding_secrets(root.path(), &["DOCS_TOKEN"]);
+    let requests = json!({"library-docs": "requires"});
+    let requests = parse_requests("seat 'research'", &requests).unwrap();
+    let office = Some(("researcher", &requests));
+    let asks = SiteAsks::at(SeatClass::Work, "research", office, None).unwrap();
+    let argv: Vec<String> = serde_json::from_value(codex_inline(&[])).unwrap();
+    let serving = InlineServing {
+        driver: Some("codex"),
+        argv: &argv,
+        local: &[],
+        hands: &[],
+        intent: None,
+    };
+    let loaded = CapabilityAdapters::loaded(&adapters);
+    let Err(CompileError::Capability(refusal)) =
+        mcp::inline_capabilities(&authority, loaded, asks, &serving)
+    else {
+        panic!("a requires the fence refuses is a capability refusal");
+    };
+    assert_eq!(
+        refusal,
+        format!(
+            "seat 'research' (office 'researcher') in realm 'private': requires capability \
+             'library-docs' through dialect 'docs-mcp', but {}; the capability cannot be held \
+             under this grant",
+            binding::MCP
+        )
+    );
+}

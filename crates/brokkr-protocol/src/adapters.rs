@@ -36,7 +36,7 @@ pub use composite::{
     dsh_composite, dsh_composite_prepared, CompositeError, DshComposite, DshInvocation, DshNode,
     DshPrepared, DshSeams, DshSelection, DshUnprepared, DshUnselected,
 };
-pub use mcp::StrictCause;
+pub use mcp::{harness_auth, HarnessAuthError, StrictCause};
 pub use served_route::split_route;
 
 use crate::dsh_sandbox;

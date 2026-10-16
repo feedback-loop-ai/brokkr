@@ -2,6 +2,18 @@
   "provider": "claude",
   "trust_tier": "trusted",
   "egress": "contracted",
+  "harness_auth": {
+    "names": [
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_AWS_API_KEY",
+      "ANTHROPIC_FOUNDRY_API_KEY",
+      "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+      "AWS_BEARER_TOKEN_BEDROCK",
+      "CLAUDE_CODE_OAUTH_TOKEN"
+    ],
+    "measured": "Claude Code 2.1.299 (Linux, 2026-10-17; claude --version reads '2.1.299 (Claude Code)'): strings -n 8 of the installed binary holds one array literal of its provider credential variables, these seven, defined beside its CLAUDE_CODE_SKIP_*_AUTH switches and its provider endpoint table; the cloud SDK credential chains (AWS_ACCESS_KEY_ID, GOOGLE_APPLICATION_CREDENTIALS, AZURE_*) are read by the provider SDKs, not by that list, and are not declared"
+  },
   "binary": "claude",
   "driver": [
     "{brokkr}",

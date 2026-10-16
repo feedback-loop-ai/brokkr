@@ -37,7 +37,7 @@ fn dialect(root: &Path, value: &Value) {
 
 /// The CQ1 world: `web-search` defined reads+egress, served by
 /// `search-native`, whose schema admits `allow.hosts`.
-fn cq1_root() -> TempDir {
+pub(crate) fn cq1_root() -> TempDir {
     // Under the canonicalised temporary base, so every path a fixture
     // writes, loads and expects is the one spelling (macOS `/var`).
     let root = TempDir::new_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
@@ -107,11 +107,10 @@ fn asks(requests: Value) -> SiteAsks {
     SiteAsks::of("research", Some(("researcher", &agent)), None).unwrap()
 }
 
-fn serving(native: &NativeInventory) -> Serving<'_> {
+pub(crate) fn serving(native: &NativeInventory) -> Serving<'_> {
     Serving {
         provider: "test-native",
-        // A synthetic provider dispatches no built-in driver: opaque, so
-        // the resolver's own logic is what these tests read.
+        // Synthetic and opaque: the resolver's own logic is what is read.
         harness: OPAQUE_HARNESS,
         model: Some("tn-1"),
         native: Some((native, "d1ge57")),
@@ -120,6 +119,7 @@ fn serving(native: &NativeInventory) -> Serving<'_> {
         fragment: &[],
         provenance: brokkr_protocol::native_controls::Provenance::NONE,
         written: &[],
+        auth: &[],
     }
 }
 
@@ -2040,7 +2040,7 @@ fn the_harness_an_adapter_dispatches_is_the_token_after_the_driver_word() {
     }
 }
 mod attribution;
-mod binding;
+pub(crate) mod binding;
 mod dialect_policy;
 mod fence;
 mod gate_class;

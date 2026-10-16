@@ -2,6 +2,10 @@
   "provider": "exec",
   "trust_tier": "untrusted",
   "egress": "contracted",
+  "harness_auth": {
+    "names": [],
+    "measured": "brokkr driver exec runs the command its bundle names with the seat's bindings and contacts no provider; the only variable it reads is BROKKR_EXEC_NAME, its label (crates/brokkr-protocol/src/adapters.rs, the AdapterKind::Exec invocation arm), so it reads no authentication name"
+  },
   "binary": "sh",
   "driver": [
     "{brokkr}",

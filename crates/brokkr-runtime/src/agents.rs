@@ -51,21 +51,10 @@ pub(crate) mod charter_data;
 mod load;
 mod mcp;
 pub use brokkr_protocol::adapters::HandsNotice;
-pub use load::{resolve_route, Adapters, Library, LibraryError};
+pub use load::{resolve_route, valid_name, Adapters, Library, LibraryError, NAME_GRAMMAR};
 pub(crate) use mcp::Uncarried;
 pub use mcp::{McpAxis, McpError, McpHands, McpHost, McpInvocation, McpIsolation, McpMeasurement};
 pub use mcp::{McpRefusal, McpShape, McpSupport, McpUnmeasured};
-
-/// The grammar every agent, model, provider and MCP server name obeys.
-/// Quoted verbatim in rejection messages so a reader can act on them.
-pub const NAME_GRAMMAR: &str = "^[a-z][a-z0-9-]*$";
-
-/// `true` when `name` matches [`NAME_GRAMMAR`].
-pub fn valid_name(name: &str) -> bool {
-    let mut characters = name.chars();
-    matches!(characters.next(), Some(first) if first.is_ascii_lowercase())
-        && characters.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
 
 /// What this machine knows about a provider. Absent entries are
 /// `Unknown`, which is the only arm compile ever sees.
@@ -424,6 +413,10 @@ pub struct Adapter {
     /// comes from the process environment rather than the bindings
     /// store; the engine never reads the value, here or anywhere.
     pub credentials: BTreeMap<String, String>,
+    /// MB4: every environment variable name this harness reads to
+    /// authenticate — its measured `harness_auth` names and each route's
+    /// `credentials` variable — sorted, each once.
+    pub harness_auth: Vec<String>,
     /// The binary `brokkr doctor` probes for on this machine.
     pub binary: String,
     /// Optional operator-written advice `brokkr doctor` prints when the

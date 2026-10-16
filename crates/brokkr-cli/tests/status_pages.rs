@@ -110,7 +110,8 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         native,
         // How the engine reaches the harness, not what it can do: the
         // binary doctor probes, its install hint, the driver prefix, the
-        // model map and pin flags, route credential names, the boxed
+        // model map and pin flags, route credential and harness
+        // authentication names, the boxed
         // seat's tool notice, and the file's own digest.
         binary: _,
         hint: _,
@@ -122,6 +123,7 @@ fn render(adapter: &Adapter, dialects: &[ToolDialect]) -> Rendered {
         model_flag: _,
         effort_flag: _,
         credentials: _,
+        harness_auth: _,
         hands_notice: _,
         digest: _,
     } = adapter;
