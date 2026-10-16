@@ -556,9 +556,9 @@ impl<'a> Source<'a> {
         }
     }
 
-    /// The bundle root, the source's agent library, if it has one: a
-    /// clone's `agents/`, or a local recipe library's
-    /// ([`agents::library_of`]) (#696), and the clone they sit in.
+    /// The bundle root, the source's agent library, if it has one: a recipe
+    /// library's or a shelf's, local or cloned ([`agents::library_of`]),
+    /// else a clone's `agents/` (#696), and the clone they sit in.
     fn fetch(self) -> Result<Fetched> {
         match self {
             Source::Local(src) => {
@@ -572,7 +572,8 @@ impl<'a> Source<'a> {
                 let tmp = tempfile::tempdir().context("creating temp dir for clone")?;
                 let clone_dir = tmp.path().join("clone");
                 let root = clone(url, path, &clone_dir)?;
-                let agents = clone_dir.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR);
+                let agents = agents::library_of(&root)?
+                    .unwrap_or_else(|| clone_dir.join(brokkr_runtime::bundle::DEFAULT_AGENTS_DIR));
                 Ok(Fetched(Some(tmp), root, Some(agents)))
             }
         }

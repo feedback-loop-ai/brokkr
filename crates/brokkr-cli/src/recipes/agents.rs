@@ -154,9 +154,10 @@ impl std::fmt::Display for Hiring {
 
 impl std::error::Error for Hiring {}
 
-/// The agent library beside a local source's recipe library: the bundle
-/// directory's parent, when it is named `recipes` (a library, or a
-/// folder's shelf), has its agents beside it; any other source has none.
+/// The agent library beside a source's recipe library, local or cloned:
+/// the bundle directory's parent, when it is named `recipes` (a library, or
+/// a folder's shelf), has its agents beside it; any other source has none
+/// here, and a clone falls back to its own `agents/`.
 pub(super) fn library_of(bundle: &Path) -> std::io::Result<Option<PathBuf>> {
     let bundle = bundle.canonicalize()?;
     let library = bundle.parent().filter(|at| at.ends_with("recipes"));

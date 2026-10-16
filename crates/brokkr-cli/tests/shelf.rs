@@ -315,7 +315,8 @@ fn add_refuses_a_differing_agent_and_removes_a_refused_compiles_agents() {
 }
 
 /// A recipe on another folder repository's shelf brings the agents its
-/// folder's library holds, `.brokkr/agents`, and a recipe at a clone's
+/// folder's library holds, `.brokkr/agents`, local or cloned, never a
+/// decoy `agents/` at the clone's root, and a recipe at a library clone's
 /// `--path` brings the clone's `agents/`: each source's library as ruling
 /// 5 reads it (#696). Each source's charter differs, so the copy names the
 /// library it was read from.
@@ -329,11 +330,20 @@ fn add_copies_the_agents_of_a_shelf_and_of_a_clone() {
         fast_in(&repo, &home);
         std::fs::write(charter, home.display().to_string()).unwrap();
     }
+    let decoy = shelved.path("agents");
+    crate::machine_proof::copy_dir(&shelved.path(".brokkr/agents"), &decoy);
+    std::fs::write(decoy.join(COPIED[0]), "# ROOT DECOY\n").unwrap();
     let url = crate::recipes::committed(&cloned);
+    let shelf_url = crate::recipes::committed(&shelved.root);
     let fast = shelved.path(".brokkr/recipes/fast");
+    let at_shelf = ".brokkr/recipes/fast";
     let sources = [
         (vec![fast.to_str().unwrap()], shelved.path(".brokkr/agents")),
         (vec![&*url, "--path", "recipes/fast"], cloned.join("agents")),
+        (
+            vec![&*shelf_url, "--path", at_shelf],
+            shelved.path(".brokkr/agents"),
+        ),
     ];
     let agents = repo.path(".brokkr/agents");
     for (source, library) in sources {

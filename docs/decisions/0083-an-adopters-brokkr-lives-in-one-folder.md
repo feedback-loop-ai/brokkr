@@ -776,9 +776,11 @@ otherwise), from the source's: each agent definition a site of a copied
 recipe names (a seat, a panel member, a sequence step, a select case or
 default), read as typed data from each copied recipe's own
 `bundle.json`, and the charter that definition names. The source's
-library is a git clone's `agents/`, or, for a local bundle whose parent
-directory is named `recipes`, that directory's sibling `agents/`; any
-other local source has none, and nothing is copied. An agent's own
+library, for a bundle whose parent directory is named `recipes`, local
+or in a clone, is that directory's sibling `agents/`, so a cloned
+folder's shelf recipe brings its `.brokkr/agents/`; any other git
+source's is its clone's `agents/`, and any other local source has none,
+and nothing is copied. An agent's own
 `extends` base is not copied: it resolves in the workspace's library.
 Agent capability definitions are not copied either (#703 asked). Every
 file is planned before anything is written, and a definition, a charter
