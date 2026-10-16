@@ -96,6 +96,20 @@ test('a step picks itself; the reader shows its seat with the tokens read apart,
   assert.match(text, /tool · Bash · stat -c %a tokens/)
 })
 
+test('a transcript turn’s time reads in every spelling Brokkr records: ISO, DSH’s epoch milliseconds, or none', async () => {
+  const at = (ts, text) => ({ role: 'assistant', ts, blocks: [{ kind: 'text', text }] })
+  const hhmm = (instant) => new Date(instant).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const turns = [at('2026-10-13T16:52:00Z', 'Claude.'), at('1792110878410', 'DSH.'), at('', 'Unrecorded.'), at('not a time', 'Unreadable.')]
+  const client = onRun(reviewed(), { [TRANSCRIPT]: { ...TURNS, turns } })
+  press(client.tree(), 'the step security')
+  await settled()
+  const text = textOf(reader(client.tree()))
+  assert.doesNotMatch(text, /Invalid Date/)
+  assert.ok(text.includes(`${hhmm('2026-10-13T16:52:00Z')}Claude.`))
+  assert.ok(text.includes(`${hhmm(1792110878410)}DSH.`))
+  assert.ok(text.includes(`DSH.Unrecorded.Unreadable.`))
+})
+
 test('an absent figure says why, in Brokkr’s words', () => {
   const client = onRun()
   press(client.tree(), 'the step implement')

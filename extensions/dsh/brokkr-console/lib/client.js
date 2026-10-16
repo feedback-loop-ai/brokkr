@@ -744,8 +744,17 @@ window.__ModuleLoader__.load({
           fact('Turns', seat.turns, plural(seat.attempts, 'attempt', 'attempts'))))
     }
 
-    /** HH:MM of an instant, in the operator's zone. */
-    const clock = (iso) => (iso === null ? '' : new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+    /**
+     * HH:MM of an instant, in the operator's zone. A transcript turn's `ts` is
+     * Brokkr's recorded spelling: an ISO instant (Claude, Codex), a signed
+     * epoch-millisecond integer (DSH), or empty where none was recorded; a
+     * value no clock reads shows nothing rather than "Invalid Date".
+     */
+    const clock = (ts) => {
+      if (ts === null || ts === '') return ''
+      const at = new Date(/^-?\d+$/.test(ts) ? Number(ts) : ts)
+      return Number.isNaN(at.getTime()) ? '' : at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
 
     /**
      * A seat's transcript, newest last, read through `brokkr transcript` and
