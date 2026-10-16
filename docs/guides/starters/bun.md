@@ -9,9 +9,7 @@ step and the `NO STACK WAS RECOGNIZED` banner still holds.
 
 Transcribed from a real `brokkr init .` run at the root of a fresh `git
 init` copy of fixture
-[`crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/),
-its absolute path shown as `/home/you/my-app` and the paths every
-stack writes elided, as [node.md](node.md) elides them.
+[`crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-bun/).
 
 ## The repository init read
 
@@ -35,16 +33,9 @@ stack writes elided, as [node.md](node.md) elides them.
 
 ## The invocation
 
-```
-$ brokkr init .
-```
-
-```text
-initialized /home/you/my-app/.brokkr (digest d7923ff8d84d425d4b6bc26d6752eba1ab75d64cea1acf5d866675498303f7c3), writing:
-  … fifteen paths and a note, elided here
-Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
-commit the folder: git add .brokkr && git commit
-```
+Its output is the quickstart's
+[Step 2](../quickstart.md#step-2--brokkr-init-), with this bun
+package's digest in place of the Rust fixture's.
 
 ## `.brokkr/agents/charters/implementer.md`
 

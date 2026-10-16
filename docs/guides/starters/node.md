@@ -2,11 +2,8 @@
 
 What `brokkr init` actually wrote for a Node repository, transcribed
 from a real run: the fixture was copied into a fresh `git init`
-directory, `brokkr init .` was run at its root, and its output was
-pasted here and then annotated, the directory's absolute path shown as
-`/home/you/my-app`. The fifteen paths `init` writes for every stack are
-elided; the [quickstart](../quickstart.md#step-2--brokkr-init-) lists
-them.
+directory and `brokkr init .` run at its root; what it wrote is below,
+annotated.
 
 The fixture is
 [`crates/brokkr-cli/tests/fixtures/init-stacks/node-npm/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/node-npm/).
@@ -27,16 +24,9 @@ their say.
 
 ## The invocation
 
-```
-$ brokkr init .
-```
-
-```text
-initialized /home/you/my-app/.brokkr (digest 14423b7e106ff9ceef7bd9a5a53470d263ba6062861b94d88d52722e34ee17ab), writing:
-  … fifteen paths and a note, elided here
-Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
-commit the folder: git add .brokkr && git commit
-```
+At this package's root `brokkr init .` prints the quickstart's
+[Step 2](../quickstart.md#step-2--brokkr-init-) output, but for the
+digest, which is this package's.
 
 ## What it wrote
 
@@ -138,18 +128,8 @@ and what keeps a gate from building is its charter, not the glob.
 The same node stack with a `turbo.json` at the root is a **different**
 answer, and this is a real capture too — fixture
 [`turbo-pnpm/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/turbo-pnpm/),
-carrying `package.json`, `turbo.json` and `pnpm-lock.yaml`:
-
-```
-$ brokkr init .
-```
-
-```text
-initialized /home/you/my-app/.brokkr (digest f75704f2b099ee165f7876d3e904852f29f583d9eb003286babc3d7fd47ef69f), writing:
-  … fifteen paths and a note, elided here
-Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
-commit the folder: git add .brokkr && git commit
-```
+carrying `package.json`, `turbo.json` and `pnpm-lock.yaml`. `brokkr init .`
+prints what the quickstart's Step 2 shows, with this stack's own digest.
 
 `.brokkr/agents/charters/implementer.md`:
 

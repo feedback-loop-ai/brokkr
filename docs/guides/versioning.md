@@ -174,9 +174,11 @@ rather than the authority being stripped to fit.
 
 The binary reports the versions it was built against:
 
-```
+```console
 $ brokkr doctor
+…
 ok       contracts: engine 0.12.0, event_schema 1, database_schema 1, driver_protocol 1
+…
 ```
 
 `event_schema`, `database_schema` and `driver_protocol` are all `1` and

@@ -227,7 +227,7 @@ fn fixtures() -> PathBuf {
 /// scaffolds for the first of claude, codex or dsh it finds, and these
 /// proofs are about the claude scaffold whatever agent CLIs this host
 /// carries. Every other verb sees the host's own PATH.
-fn brokkr(args: &[&str], cwd: &Path) -> (Option<i32>, String, String) {
+pub(crate) fn brokkr(args: &[&str], cwd: &Path) -> (Option<i32>, String, String) {
     let stubs = tempfile::tempdir().unwrap();
     std::fs::write(stubs.path().join("claude"), "").unwrap();
     let mut path = std::env::var_os("PATH").unwrap();
@@ -250,16 +250,23 @@ fn brokkr(args: &[&str], cwd: &Path) -> (Option<i32>, String, String) {
     )
 }
 
-/// Copy one fixture's marker files into a fresh repository and scaffold
-/// it — which is how `init` is used: the folder lands at the root of the
-/// repository it describes (decision 0083). The `TempDir` comes back with
-/// the folder's path so the tree outlives the call.
-fn scaffold_from(fixture: &str) -> (tempfile::TempDir, PathBuf) {
+/// A fresh repository holding one fixture's marker files, not yet
+/// scaffolded.
+pub(crate) fn repository_of(fixture: &str) -> tempfile::TempDir {
     let repo = repository();
     for entry in std::fs::read_dir(fixtures().join(fixture)).unwrap() {
         let marker = entry.unwrap().path();
         std::fs::copy(&marker, repo.path().join(marker.file_name().unwrap())).unwrap();
     }
+    repo
+}
+
+/// Copy one fixture's marker files into a fresh repository and scaffold
+/// it — which is how `init` is used: the folder lands at the root of the
+/// repository it describes (decision 0083). The `TempDir` comes back with
+/// the folder's path so the tree outlives the call.
+fn scaffold_from(fixture: &str) -> (tempfile::TempDir, PathBuf) {
+    let repo = repository_of(fixture);
     let (code, _, stderr) = brokkr(&["init", "."], repo.path());
     assert_eq!(code, Some(0), "{fixture}: {stderr}");
     let bundle = repo.path().join(".brokkr");

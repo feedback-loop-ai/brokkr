@@ -3,9 +3,7 @@
 Transcribed from a real `brokkr init .` run at the root of a fresh `git
 init` copy of fixture
 [`crates/brokkr-cli/tests/fixtures/init-stacks/go/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/go/).
-Nothing here was written by hand but the copy's absolute path, shown as
-`/home/you/my-app`, and the elided paths every stack writes, which the
-[quickstart](../quickstart.md#step-2--brokkr-init-) lists.
+Nothing here was written by hand.
 
 ## The repository init read
 
@@ -21,16 +19,9 @@ go 1.22
 
 ## The invocation
 
-```
-$ brokkr init .
-```
-
-```text
-initialized /home/you/my-app/.brokkr (digest c493129830a041783dc7bbdf23663192c31e706b35a3cc1ef584f92e64cfc75e), writing:
-  … fifteen paths and a note, elided here
-Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
-commit the folder: git add .brokkr && git commit
-```
+Run at this module's root, `brokkr init .` prints what the quickstart's
+[Step 2](../quickstart.md#step-2--brokkr-init-) shows; only the digest
+is the module's own.
 
 ## What it wrote
 

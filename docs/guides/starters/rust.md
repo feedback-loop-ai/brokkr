@@ -3,8 +3,8 @@
 What `brokkr init` actually wrote for a Rust repository, transcribed
 from a real run. Nothing on this page was composed by hand: the fixture
 below was copied into a fresh `git init` directory, `brokkr init .` was
-run at its root, and the output was pasted here and then annotated. The
-scratch directory's absolute path is shown as `/home/you/my-app`.
+run at its root, and the files it wrote were pasted here and then
+annotated.
 
 The fixture is
 [`crates/brokkr-cli/tests/fixtures/init-stacks/rust/`](../../../crates/brokkr-cli/tests/fixtures/init-stacks/rust/),
@@ -32,24 +32,13 @@ edition = "2021"
 
 ## The invocation
 
-```
-$ brokkr init .
-```
-
-```text
-initialized /home/you/my-app/.brokkr (digest f03121db1c9a6670cba6f60b85c6353f20f8dc01d37ae3b06c66e94fe45c97ef), writing:
-  … fifteen paths and a note, elided here
-Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
-commit the folder: git add .brokkr && git commit
-```
-
-This is the run the quickstart's
-[Step 2](../quickstart.md#step-2--brokkr-init-) transcribes whole, the
-same fixture with the same digest, so the elided lines are there: the
-fifteen paths `init` wrote and the agent CLI it scaffolded for. The
+`brokkr init .` in this repository prints what the quickstart's
+[Step 2](../quickstart.md#step-2--brokkr-init-) shows, which the doc
+tests run from this same fixture: the fifteen paths `init` wrote, the
+agent CLI it scaffolded for and the commit to make. The
 digest is a function of the bytes that were written, and the
-charters and tool map below vary by stack, so **this digest is this
-fixture's**. Your Rust repository will print a different one and that is
+charters and tool map below vary by stack, so **the digest is this
+repository's**. Your Rust repository will print a different one and that is
 correct.
 
 ## What it wrote
