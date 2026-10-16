@@ -446,7 +446,7 @@ fn copy_skips_nested_git_metadata() {
 
 /// A folder repository planted by hand: a `.git` and a `.brokkr` directory
 /// at its root (decision 0083), resolved as the walk resolves it.
-fn folder_repository() -> (tempfile::TempDir, PathBuf) {
+pub(super) fn folder_repository() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     for entry in [".git", FOLDER] {
@@ -507,6 +507,27 @@ fn add_refuses_a_source_that_holds_the_library_by_type() {
     };
     assert_eq!(refusal.downcast_ref::<Within>(), Some(&expected));
     assert!(!shelf.exists());
+}
+
+/// A shelf recipe's base is planned from its shelf, beside it, the library
+/// the compiler composes it from (`places::base_library`), never from a
+/// decoy at the repository's root (#696).
+#[test]
+fn a_shelf_recipes_base_is_planned_from_its_shelf() {
+    let (_dir, root) = folder_repository();
+    let shelf = root.join(".brokkr/recipes");
+    for at in [shelf.join("leaf"), shelf.join("base"), root.join("base")] {
+        std::fs::create_dir_all(&at).unwrap();
+        let layer = serde_json::json!({"name": "leaf", "extends": "base"});
+        std::fs::write(at.join("bundle.json"), layer.to_string()).unwrap();
+    }
+    let library = tempfile::tempdir().unwrap();
+    let plan = planned(&shelf.join("leaf"), "leaf", library.path()).unwrap();
+    let expected = [
+        ("leaf".to_string(), shelf.join("leaf")),
+        ("base".to_string(), shelf.join("base")),
+    ];
+    assert_eq!(plan, expected);
 }
 
 /// A chain that comes back to a name already planned ends there, so a

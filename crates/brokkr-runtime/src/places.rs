@@ -159,8 +159,9 @@ pub(crate) fn unpinned_holds(name: &str) -> &'static str {
 /// `<root>/.brokkr`, where `<root>` is its repository's root ([`root`])
 /// and holds the folder ([`Kind::Folder`]). Every other directory named
 /// `.brokkr`, a library's recipe or one below the root, is an ordinary
-/// bundle, never one by its name alone.
-fn folder_bundle(dir: &Path) -> Result<Option<&Path>, PlacesError> {
+/// bundle, never one by its name alone. `recipes add` asks it of every
+/// recipe it plans, so it never copies a folder bundle as one (#696).
+pub fn folder_bundle(dir: &Path) -> Result<Option<&Path>, PlacesError> {
     let named = dir.file_name() == Some(FOLDER.as_ref());
     let Some(parent) = dir.parent().filter(|_| named) else {
         return Ok(None);

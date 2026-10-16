@@ -792,6 +792,7 @@ recipes add replaces no agent definition or charter, and the source's differ fro
 recipes add cannot read <path>: <cause> (#696); nothing was written
 <bundle.json> names agent '<name>', which is not an agent name (^[a-z][a-z0-9-]*$) (#696); nothing was written
 <definition> names charter '<charter>', which is not a relative path of plain names in its library (#696); nothing was written
+<definition> names charter '<charter>', which its library <library> does not hold, so the copy would bind to whatever this workspace holds there (#696); nothing was written
 <path> is a link, or not the file or directory recipes add copies from the source's agent library (#696); nothing was written
 ```
 
@@ -830,6 +831,7 @@ copied into itself, so it refuses before anything is made:
 
 ```text
 recipes add would copy <source> into <shelf>, which lies inside it (#696): install a bundle directory that does not hold the shelf; nothing was written
+<source> is a repository's .brokkr folder, its default bundle, not a recipe: name a recipe on its shelf (<source>/recipes/<name>) or in a library as the source (#696); nothing was written
 ```
 
 The LOW residual of 2026-10-15 stands: a folder repository whose own

@@ -97,7 +97,8 @@ fn plan_reads_every_site_form_and_copies_what_the_library_lacks() {
 
 /// Each refusal by its variant, before anything is written: a bundle or a
 /// definition that cannot be read, a name outside the grammar, a charter
-/// that is not plain, a link or a file where the walk needs a directory,
+/// that is not plain or that the source lacks, a link or a file where the
+/// walk needs a directory,
 /// and files the library holds otherwise, a link to nothing included.
 #[test]
 fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
@@ -138,6 +139,12 @@ fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
         &definition,
         &json!({"charter": "charters/a.md"}).to_string(),
     );
+    let uncharted = Err(Hiring::Uncharted {
+        path: definition.clone(),
+        charter: "charters/a.md".into(),
+        library: source.clone(),
+    });
+    assert_eq!(planned(&source, &library, one.clone()), uncharted);
     write(&source.join("charters"), "a file");
     let unplain = |path: PathBuf| Err(Hiring::Unplain { path });
     let refused = planned(&source, &library, one.clone());
@@ -215,6 +222,15 @@ fn each_refusal_says_what_was_not_written() {
             },
             "/s/a.json names charter '../c.md', which is not a relative path of plain names in \
              its library (#696); nothing was written",
+        ),
+        (
+            Hiring::Uncharted {
+                path: path.clone(),
+                charter: "c.md".into(),
+                library: PathBuf::from("/s"),
+            },
+            "/s/a.json names charter 'c.md', which its library /s does not hold, so the copy \
+             would bind to whatever this workspace holds there (#696); nothing was written",
         ),
         (
             Hiring::Unplain { path: path.clone() },

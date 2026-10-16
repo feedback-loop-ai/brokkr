@@ -26,6 +26,7 @@ use brokkr_runtime::{Bundle, SeatBody};
 use crate::compile_in;
 
 mod agents;
+mod sources;
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity), else the `implicit` one a
@@ -326,7 +327,10 @@ fn plain(part: &Path) -> bool {
 /// directory ends the walk too, and the compile that follows names why
 /// the install does not compose. The library holds a base it has any
 /// entry for, a dangling link included, read as the source side is, and
-/// every name planned before it.
+/// every name planned before it. A base is found beside its layer, which
+/// is what the compiler's authority, `places::base_library`, names for a
+/// layer that is no folder bundle; a plan holding a folder bundle is
+/// refused before any copy ([`sources::refuse_folder_bundles`]).
 fn planned(root: &Path, name: &str, dir: &Path) -> Result<Vec<(String, PathBuf)>> {
     let mut planned = vec![(name.to_string(), root.to_path_buf())];
     let mut layer = root.canonicalize()?;
@@ -705,7 +709,7 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
 /// ([`Unplain::Name`]), a `path` the source cannot take ([`Source::judge`])
 /// and a library in a folder repository but its shelf ([`refuse_folder`])
 /// are refused first, and a planned recipe holding the library
-/// ([`refuse_within`]) before anything is copied.
+/// ([`refuse_within`]) or a folder bundle before anything is copied.
 pub(crate) fn add(
     root: &Path,
     dir: &Path,
@@ -733,9 +737,9 @@ pub(crate) fn add(
 
 /// [`add`]'s install, once judged: make and hold the library `dir`, which
 /// resolves to `place`, plan the recipes and the agents they name, refuse
-/// a planned recipe holding `place`, copy them, and keep them only if
-/// every recipe compiles against `root`. The clone in `fetched` outlives
-/// the copies.
+/// a planned recipe holding `place` or a folder bundle, copy them, and
+/// keep them only if every recipe compiles against `root`. The clone in
+/// `fetched` outlives the copies.
 fn install_held(
     root: &Path,
     dir: &Path,
@@ -751,6 +755,7 @@ fn install_held(
     let planned = planned(&bundle, name, dir)?;
     let sources: Vec<&Path> = planned.iter().map(|(_, source)| source.as_path()).collect();
     refuse_within(&sources, place)?;
+    sources::refuse_folder_bundles(&sources)?;
     let library = places::Places::of(root)?.agents;
     let hires = agents::plan(&sources, source_agents.as_deref(), &library)?;
     let mut installing = install(&planned, dir)?;

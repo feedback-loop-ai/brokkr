@@ -86,6 +86,13 @@ pub(super) enum Hiring {
     /// The definition at `path` names a charter that is not a relative
     /// path of plain names inside its library.
     Charter { path: PathBuf, charter: String },
+    /// The definition at `path` names a charter its `library`, the
+    /// source's agent library, does not hold.
+    Uncharted {
+        path: PathBuf,
+        charter: String,
+        library: PathBuf,
+    },
     /// An entry of the source's agent library that is a link, or not the
     /// file or directory it must be.
     Unplain { path: PathBuf },
@@ -113,6 +120,17 @@ impl std::fmt::Display for Hiring {
                 "{} names charter '{charter}', which is not a relative path of plain names in \
                  its library (#696); nothing was written",
                 path.display()
+            ),
+            Hiring::Uncharted {
+                path,
+                charter,
+                library,
+            } => write!(
+                formatter,
+                "{} names charter '{charter}', which its library {} does not hold, so the copy \
+                 would bind to whatever this workspace holds there (#696); nothing was written",
+                path.display(),
+                library.display()
             ),
             Hiring::Unplain { path } => write!(
                 formatter,
@@ -152,7 +170,9 @@ pub(super) fn library_of(bundle: &Path) -> std::io::Result<Option<PathBuf>> {
 /// holds, and the charter its definition names, but never one `library`
 /// already holds byte for byte. One `library` holds that differs refuses
 /// ([`Hiring::Differs`], naming each), as does a name or a file that
-/// cannot be read. A name `source` lacks is the compile's to judge.
+/// cannot be read, and a charter `source` lacks, which the copy would bind
+/// to whatever `library` holds there ([`Hiring::Uncharted`]). An agent
+/// name `source` lacks is the compile's to judge.
 pub(super) fn plan(
     recipes: &[&Path],
     source: Option<&Path>,
@@ -186,10 +206,15 @@ pub(super) fn plan(
         {
             return Err(Hiring::Charter { path, charter });
         }
-        if let Some(bytes) = read(source, &charter)? {
-            let what = format!("charter {charter} of agent '{name}'");
-            hire(&mut hires, library, &charter, what, bytes);
-        }
+        let Some(bytes) = read(source, &charter)? else {
+            return Err(Hiring::Uncharted {
+                path,
+                charter,
+                library: source.to_path_buf(),
+            });
+        };
+        let what = format!("charter {charter} of agent '{name}'");
+        hire(&mut hires, library, &charter, what, bytes);
     }
     held(hires.into_values().collect())
 }

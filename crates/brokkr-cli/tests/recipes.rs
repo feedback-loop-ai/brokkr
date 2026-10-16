@@ -362,7 +362,7 @@ fn add_from_git_url_clones_and_installs_without_network() {
 
 /// `repo` made a git repository with every file in it committed, and the
 /// `file://` URL a clone reads it by, with no network.
-fn committed(repo: &Path) -> String {
+pub(crate) fn committed(repo: &Path) -> String {
     git(repo, &["init"]);
     git(repo, &["add", "-A"]);
     git(repo, &["commit", "-m", "fixture recipes"]);

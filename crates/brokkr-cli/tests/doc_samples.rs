@@ -28,9 +28,9 @@ const PROMPT: &str = "$ brokkr";
 /// The wildcard: any run of whole lines, or of characters within one.
 const ELIDED: &str = "…";
 
-/// Why a doc's prompts wait for #634 slice C to land.
+/// Why a guide's prompts are not sampled yet.
 const AFTER_701: &str =
-    "#634 slice C (#701) rewrites its prompts; #365's next slice samples them once it merges";
+    "its prompts are the ones #701 and #696 wrote, which #365's slice 3 samples";
 
 /// Docs whose `$ brokkr` prompts are shown but not sampled, one row per
 /// doc, never per line, each with its reason. An allowance that covers

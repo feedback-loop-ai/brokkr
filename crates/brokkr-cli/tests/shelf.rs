@@ -142,15 +142,27 @@ fn a_linked_shelf_composes_no_base() {
 }
 
 /// A folder repository made by `brokkr init .`, and a recipe library
-/// beside it holding `fast`: the folder's own bundle, its implementer and
-/// reviewer hired as the library's `fast-implementer`, with a charter of
-/// its own, and `fast-reviewer`, each extending the agent `init` wrote.
-/// The recipe's path is returned.
+/// beside it holding `fast` ([`fast_in`]). The recipe's path is returned.
 fn library_of_fast() -> (Repo, PathBuf) {
+    let repo = initialised();
+    let fast = fast_in(&repo, &repo.root.parent().unwrap().join("library"));
+    (repo, fast)
+}
+
+/// A folder repository made by `brokkr init .`.
+fn initialised() -> Repo {
     let repo = Repo::new();
     let init = repo.init_with_only(&["claude"]);
     assert_eq!(init.code, Some(0), "{}", init.stderr);
-    let library = repo.root.parent().unwrap().join("library");
+    repo
+}
+
+/// `fast` at `<library>/recipes/fast`, a recipe library's or a folder's
+/// shelf, with its agents in `<library>/agents`: `repo`'s folder bundle, its
+/// implementer and reviewer hired as `fast-implementer`, with a charter of
+/// its own, and `fast-reviewer`, each extending the agent `init` wrote.
+/// The recipe's path is returned.
+fn fast_in(repo: &Repo, library: &Path) -> PathBuf {
     let fast = library.join("recipes/fast");
     std::fs::create_dir_all(&fast).unwrap();
     std::fs::copy(repo.path(".brokkr/policy.json"), fast.join("policy.json")).unwrap();
@@ -177,12 +189,20 @@ fn library_of_fast() -> (Repo, PathBuf) {
         std::fs::create_dir_all(at.parent().unwrap()).unwrap();
         std::fs::write(at, text).unwrap();
     }
-    (repo, fast)
+    fast
 }
 
 fn json_at(path: &Path) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
+
+/// The files of `fast`'s agent library an install copies into a folder
+/// `init` made.
+const COPIED: [&str; 3] = [
+    "charters/fast-implementer.md",
+    "fast-implementer.json",
+    "fast-reviewer.json",
+];
 
 /// The folder bundle's compiled digest and the files its manifest pins.
 fn pinned(repo: &Repo) -> (Value, serde_json::Map<String, Value>) {
@@ -213,11 +233,7 @@ fn add_copies_the_agents_a_recipe_names() {
     let ran = add("fast");
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let agents = repo.path(".brokkr/agents");
-    let copied = [
-        "charters/fast-implementer.md",
-        "fast-implementer.json",
-        "fast-reviewer.json",
-    ];
+    let copied = COPIED;
     for file in copied {
         let source = fast.join("../../agents").join(file);
         let copy = std::fs::read(agents.join(file)).unwrap();
@@ -296,6 +312,119 @@ fn add_refuses_a_differing_agent_and_removes_a_refused_compiles_agents() {
     assert!(!repo
         .path(".brokkr/agents/charters/fast-implementer.md")
         .exists());
+}
+
+/// A recipe on another folder repository's shelf brings the agents its
+/// folder's library holds, `.brokkr/agents`, and a recipe at a clone's
+/// `--path` brings the clone's `agents/`: each source's library as ruling
+/// 5 reads it (#696). Each source's charter differs, so the copy names the
+/// library it was read from.
+#[test]
+fn add_copies_the_agents_of_a_shelf_and_of_a_clone() {
+    let repo = initialised();
+    let shelved = Repo::new();
+    let cloned = repo.root.with_file_name("cloned");
+    for home in [shelved.path(".brokkr"), cloned.clone()] {
+        let charter = home.join("agents").join(COPIED[0]);
+        fast_in(&repo, &home);
+        std::fs::write(charter, home.display().to_string()).unwrap();
+    }
+    let url = crate::recipes::committed(&cloned);
+    let fast = shelved.path(".brokkr/recipes/fast");
+    let sources = [
+        (vec![fast.to_str().unwrap()], shelved.path(".brokkr/agents")),
+        (vec![&*url, "--path", "recipes/fast"], cloned.join("agents")),
+    ];
+    let agents = repo.path(".brokkr/agents");
+    for (source, library) in sources {
+        let add = [&["recipes", "add"], &source[..], &["--name", "fast"]].concat();
+        let ran = repo.brokkr("", &add);
+        assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+        for file in COPIED {
+            let copy = std::fs::read(agents.join(file)).unwrap();
+            assert_eq!(copy, std::fs::read(library.join(file)).unwrap(), "{file}");
+            std::fs::remove_file(agents.join(file)).unwrap();
+        }
+        std::fs::remove_dir_all(repo.path(".brokkr/recipes")).unwrap();
+    }
+}
+
+/// What `recipes add` prints when it refuses `source`, a repository's
+/// folder bundle, as a recipe (#696), its one pin.
+fn folder_bundle(source: &Path) -> String {
+    let source = source.display();
+    format!(
+        "error: {source} is a repository's .brokkr folder, its default bundle, not a recipe: name \
+         a recipe on its shelf ({source}/recipes/<name>) or in a library as the source (#696); \
+         nothing was written\n"
+    )
+}
+
+/// A folder bundle is no recipe source (#696): one that extends `base`
+/// from its shelf compiles where it stands, and `recipes add` of it from a
+/// folder `init` made refuses by name, the destination's tree as it was:
+/// spelled, with a decoy `base` beside the folder, and through a link.
+#[test]
+fn add_refuses_a_folder_bundle_as_a_source() {
+    let repo = initialised();
+    let source = Repo::new();
+    source.bundle(".brokkr/recipes/base", "base", completes());
+    let custom = json!({"name": "custom", "extends": "base"});
+    source.write(".brokkr/bundle.json", &custom.to_string());
+    let compiled = source.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    assert_eq!(compiled.code, Some(0), "{}", compiled.stderr);
+    let folder = source.path(".brokkr");
+    let linked = source.root.with_file_name("linked");
+    std::os::unix::fs::symlink(&folder, &linked).unwrap();
+    let tree = |repo: &Repo| (repo.files(), repo.path(".brokkr/recipes").exists());
+    let before = tree(&repo);
+    let refused = |from: &Path| {
+        let from = from.to_str().unwrap();
+        let ran = repo.brokkr("", &["recipes", "add", from, "--name", "custom"]);
+        assert_eq!((ran.code, ran.stderr), (Some(1), folder_bundle(&folder)));
+        assert_eq!(tree(&repo), before, "{from}");
+    };
+    refused(&folder);
+    source.bundle("base", "decoy", completes());
+    refused(&folder);
+    refused(&linked);
+}
+
+/// A definition naming a charter its library does not hold refuses by
+/// name with nothing written, whether the folder holds a file there, the
+/// reviewer charter `init` wrote, its bytes kept, or not: the copy would
+/// bind to whatever stands there (#696).
+#[test]
+fn add_refuses_a_charter_its_library_lacks() {
+    let (repo, fast) = library_of_fast();
+    let agents = fast.join("../../agents").canonicalize().unwrap();
+    let definition = agents.join("fast-implementer.json");
+    let mut implementer = json_at(&definition);
+    implementer["charter"] = json!("charters/reviewer.md");
+    std::fs::write(&definition, implementer.to_string()).unwrap();
+    let refusal = format!(
+        "error: {} names charter 'charters/reviewer.md', which its library {} does not hold, so \
+         the copy would bind to whatever this workspace holds there (#696); nothing was written\n",
+        definition.display(),
+        agents.display()
+    );
+    let held = repo.path(".brokkr/agents/charters/reviewer.md");
+    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    for holds in [true, false] {
+        assert_eq!(held.is_file(), holds);
+        let before = repo.files();
+        let ran = repo.brokkr("", &add);
+        assert_eq!(
+            (ran.code, ran.stderr),
+            (Some(1), refusal.clone()),
+            "{holds}"
+        );
+        assert_eq!(repo.files(), before);
+        assert!(!repo.path(".brokkr/recipes").exists());
+        if holds {
+            std::fs::remove_file(&held).unwrap();
+        }
+    }
 }
 
 /// Doctor prints a line per shelf recipe after the folder line, and a
