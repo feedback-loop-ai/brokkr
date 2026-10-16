@@ -63,7 +63,7 @@ const INSTANCE: &str = "1a220000000000000000000000000000000000000000000000000000
 
 /// A plan offering nothing, at the site whose engine stamps are `site`
 /// and `instance`.
-fn planned(site: &str, instance: &str) -> SitePlan {
+pub(super) fn planned(site: &str, instance: &str) -> SitePlan {
     let context = resume::SiteContext::new(site.into(), instance.into(), SeatClass::Work);
     SitePlan {
         context,
