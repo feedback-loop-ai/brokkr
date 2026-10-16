@@ -1349,6 +1349,7 @@ pub const brokkr_runtime::places::BUNDLE: &str
 pub const brokkr_runtime::places::FOLDER: &str
 pub const brokkr_runtime::places::JOURNAL: &str
 pub const brokkr_runtime::places::LIBRARY_STATE: &str
+pub const brokkr_runtime::places::RECIPES: &str
 pub const brokkr_runtime::places::SECRETS: &str
 pub const brokkr_runtime::places::STATE: &str
 pub fn brokkr_runtime::places::entry(&std::path::Path) -> core::io::error::Result<core::option::Option<std::fs::Metadata>>

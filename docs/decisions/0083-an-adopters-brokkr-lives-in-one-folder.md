@@ -745,6 +745,15 @@ shelf recipe pins that layer as decision 0017 pins every composed base:
 the skip keeps the shelf out of the folder's own files, never out of the
 composition.
 
+The skip covers the shelf and nothing else, so it does not cover what
+ruling 5 copies: an install that copies an agent definition or a charter
+into `.brokkr/agents/` moves the default bundle's digest by exactly the
+files it copied, because the folder bundle pins its agents as it always
+has, and one that copies none leaves the digest where it was. Pinning less
+would let an agent a run hires change unseen, so the build keeps the pin
+and carries the exception here; a different identity rule for the folder
+bundle would be a decision of its own.
+
 **4. Composition.** This amends ruling 1's sentence "A bundle in
 `.brokkr/` composes no base" and retires its refusal text: the folder
 bundle's base library is its shelf, `<root>/.brokkr/recipes`, never the

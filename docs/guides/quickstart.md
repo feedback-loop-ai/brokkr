@@ -646,9 +646,10 @@ run started: …
 ```
 
 Commit the shelf with the folder. The shelf never moves the folder
-bundle's digest, `brokkr doctor` prints one line per shelf recipe after
-its folder line, and `.brokkr/bundle.json` may itself extend a shelf
-recipe with `"extends": "careful"`.
+bundle's digest, though an agent `recipes add` copies (below) does,
+because the folder pins its agents. `brokkr doctor` prints one line per
+shelf recipe after its folder line, and `.brokkr/bundle.json` may itself
+extend a shelf recipe with `"extends": "careful"`.
 
 `recipes add` also copies, from the source's agent library, each agent
 definition the recipe names that `.brokkr/agents/` lacks and the

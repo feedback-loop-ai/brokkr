@@ -481,8 +481,10 @@ fn add_refuses_a_folder_repository_by_type() {
     assert_eq!(std::fs::read_dir(root.join(FOLDER)).unwrap().count(), 0);
 }
 
-/// `add` of a source that holds the library refuses by the type before the
-/// library is made: the folder's own bundle holds its shelf (#696).
+/// `add` of a source that holds the library refuses by the type before
+/// anything is copied, and the library it made is removed: the folder's own
+/// bundle holds its shelf, and so does a base named `recipes` beside a leaf
+/// in the folder, which is the shelf itself (#696).
 #[test]
 fn add_refuses_a_source_that_holds_the_library_by_type() {
     let (_dir, root) = folder_repository();
@@ -490,6 +492,17 @@ fn add_refuses_a_source_that_holds_the_library_by_type() {
     let refusal = add(&root, &shelf, folder.to_str().unwrap(), "own", None).unwrap_err();
     let expected = Within {
         source: folder,
+        place: shelf.clone(),
+    };
+    assert_eq!(refusal.downcast_ref::<Within>(), Some(&expected));
+    assert!(!shelf.exists());
+    let custom = root.join(".brokkr/custom");
+    std::fs::create_dir(&custom).unwrap();
+    let layer = serde_json::json!({"name": "custom", "extends": "recipes"});
+    std::fs::write(custom.join("bundle.json"), layer.to_string()).unwrap();
+    let refusal = add(&root, &shelf, custom.to_str().unwrap(), "x", None).unwrap_err();
+    let expected = Within {
+        source: shelf.clone(),
         place: shelf.clone(),
     };
     assert_eq!(refusal.downcast_ref::<Within>(), Some(&expected));

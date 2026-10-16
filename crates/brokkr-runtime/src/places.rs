@@ -92,7 +92,7 @@ pub const BUNDLE: &str = "bundle.json";
 /// The named recipes' directory: a library's at its root (decision 0078),
 /// and the folder's shelf in `.brokkr/` (#696), which a folder bundle's
 /// walk skips beside [`STATE`] and composes its base from.
-const RECIPES: &str = "recipes";
+pub const RECIPES: &str = "recipes";
 
 /// A recipe library's run-local directory, beside the operated
 /// repository, as it has always been (ruling 3's last column).

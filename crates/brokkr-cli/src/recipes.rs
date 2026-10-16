@@ -640,18 +640,18 @@ fn refuse_folder(dir: &Path) -> Result<PathBuf> {
     Ok(place)
 }
 
-/// Refuse a recipe at `bundle` that holds `place`, where the library
-/// resolves to ([`Within`]).
-fn refuse_within(bundle: &Path, place: &Path) -> Result<()> {
-    let source = bundle.canonicalize()?;
-    match place.starts_with(&source) {
-        true => Err(Within {
-            source,
-            place: place.to_path_buf(),
+/// Refuse when any planned recipe in `sources`, the leaf or a base its
+/// chain reaches, holds `place`, where the library resolves to
+/// ([`Within`]): a base beside a leaf in the folder can be the shelf itself.
+fn refuse_within(sources: &[&Path], place: &Path) -> Result<()> {
+    for bundle in sources {
+        let source = bundle.canonicalize()?;
+        if place.starts_with(&source) {
+            let place = place.to_path_buf();
+            return Err(Within { source, place }.into());
         }
-        .into()),
-        false => Ok(()),
     }
+    Ok(())
 }
 
 /// The nearest of `path`, an absolute path, and its ancestors at which an
@@ -704,8 +704,8 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
 /// happens before, unheld. A name that is not one plain component
 /// ([`Unplain::Name`]), a `path` the source cannot take ([`Source::judge`])
 /// and a library in a folder repository but its shelf ([`refuse_folder`])
-/// are refused first, and a source holding the library
-/// ([`refuse_within`]) before anything is made.
+/// are refused first, and a planned recipe holding the library
+/// ([`refuse_within`]) before anything is copied.
 pub(crate) fn add(
     root: &Path,
     dir: &Path,
@@ -728,17 +728,18 @@ pub(crate) fn add(
         );
     }
     let fetched = source.fetch()?;
-    refuse_within(&fetched.1, &place)?;
-    install_held(root, dir, name, fetched, world.as_ref())
+    install_held(root, dir, &place, name, fetched, world.as_ref())
 }
 
-/// [`add`]'s install, once judged: make and hold the library, plan the
-/// recipes and the agents they name, copy them, and keep them only if
+/// [`add`]'s install, once judged: make and hold the library `dir`, which
+/// resolves to `place`, plan the recipes and the agents they name, refuse
+/// a planned recipe holding `place`, copy them, and keep them only if
 /// every recipe compiles against `root`. The clone in `fetched` outlives
 /// the copies.
 fn install_held(
     root: &Path,
     dir: &Path,
+    place: &Path,
     name: &str,
     Fetched(_clone, bundle, source_agents): Fetched,
     world: Option<&World>,
@@ -749,6 +750,7 @@ fn install_held(
     let _library = hold(dir)?;
     let planned = planned(&bundle, name, dir)?;
     let sources: Vec<&Path> = planned.iter().map(|(_, source)| source.as_path()).collect();
+    refuse_within(&sources, place)?;
     let library = places::Places::of(root)?.agents;
     let hires = agents::plan(&sources, source_agents.as_deref(), &library)?;
     let mut installing = install(&planned, dir)?;

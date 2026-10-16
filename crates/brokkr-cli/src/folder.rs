@@ -17,7 +17,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use brokkr_runtime::places::{self, Kind, Old, Places, PlacesError, BUNDLE, FOLDER, JOURNAL};
-use brokkr_runtime::places::{LIBRARY_STATE, SECRETS, STATE};
+use brokkr_runtime::places::{LIBRARY_STATE, RECIPES, SECRETS, STATE};
 use tracked::{listed_paths, tracked, Change, Unwatched};
 
 /// Why a verb refused before it opened anything, in the operator's words.
@@ -601,10 +601,6 @@ impl Move {
 /// The old layout's ignore file, and the folder's, whose one line `init`
 /// writes.
 pub(crate) const IGNORE: &str = ".gitignore";
-
-/// A recipe library's named recipes, at its root (decision 0078): the
-/// default of every recipe verb without a folder.
-const RECIPES: &str = "recipes";
 
 /// Whether the old ignore file stands among `names`, the root's `.forge/`
 /// entries, judged as the entry itself, as the root's `.forge` is

@@ -184,10 +184,22 @@ fn json_at(path: &Path) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+/// The folder bundle's compiled digest and the files its manifest pins.
+fn pinned(repo: &Repo) -> (Value, serde_json::Map<String, Value>) {
+    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let mut compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
+    let files = compiled["manifest"]["files"].as_object().unwrap().clone();
+    (compiled["digest"].take(), files)
+}
+
 /// Installing `fast` from a library copies the agents it names that the
 /// folder lacks, and the charter one names, into `.brokkr/agents/`, and the
-/// recipe compiles (#696 ruling 5); each copy is the library's bytes. A
-/// second install finds them present and identical and writes none again.
+/// recipe compiles (#696 ruling 5); each copy is the library's bytes. The
+/// folder bundle pins its `agents/`, so the copies move its digest by
+/// exactly the files copied, where the shelf does not (ruling 3). A second
+/// install finds them present and identical, writes none again, and leaves
+/// the digest where it was.
 #[test]
 fn add_copies_the_agents_a_recipe_names() {
     let (repo, fast) = library_of_fast();
@@ -197,6 +209,7 @@ fn add_copies_the_agents_a_recipe_names() {
             &["recipes", "add", fast.to_str().unwrap(), "--name", name],
         )
     };
+    let (before, mut pinned_before) = pinned(&repo);
     let ran = add("fast");
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let agents = repo.path(".brokkr/agents");
@@ -221,6 +234,13 @@ fn add_copies_the_agents_a_recipe_names() {
         repo.path(".brokkr/recipes").display()
     );
     assert_eq!(ran.stderr, expected);
+    let (moved, pinned_after) = pinned(&repo);
+    assert_ne!(moved, before);
+    for file in copied {
+        let pin = pinned_after[&format!("agents/{file}")].clone();
+        assert_eq!(pinned_before.insert(format!("agents/{file}"), pin), None);
+    }
+    assert_eq!(pinned_after, pinned_before);
     let before = repo.files();
     let ran = add("again");
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
@@ -240,6 +260,7 @@ fn add_copies_the_agents_a_recipe_names() {
             .all(|file| file.starts_with(".brokkr/recipes/again")),
         "{new:?}"
     );
+    assert_eq!(pinned(&repo).0, moved);
 }
 
 /// A differing `fast-reviewer` already in the folder refuses the install by
