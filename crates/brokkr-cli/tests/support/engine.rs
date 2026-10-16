@@ -16,6 +16,22 @@ pub(crate) fn brokkr_in(dir: &Path) -> Command {
     command
 }
 
+/// Run in the fixture's environment and preserve the complete failure
+/// summary in libtest's captured output, including an unexpected park's
+/// reason on stdout. Child stderr remains unchanged for protocol proofs.
+pub(crate) fn completed_in(dir: &Path, args: &[&str]) -> std::process::Output {
+    let out = brokkr_in(dir).args(args).output().unwrap();
+    if !out.status.success() {
+        eprintln!(
+            "brokkr {args:?}: {}\nstdout: {}\nstderr: {}",
+            out.status,
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    out
+}
+
 /// Mark `dir` a recipe library (decision 0083 ruling 4), so a run verb
 /// standing in it keeps the library's own `.forge/` layout: a test's bare
 /// temporary directory has neither a `.brokkr/` folder nor the mark, and
@@ -30,7 +46,7 @@ pub(crate) fn library(dir: &Path) -> &Path {
 /// [`brokkr_in`] `dir` given `args`, run to its end: what it printed on
 /// stdout and on stderr.
 pub(crate) fn printed_in(dir: &Path, args: &[&str]) -> (String, String) {
-    let out = brokkr_in(dir).args(args).output().unwrap();
+    let out = completed_in(dir, args);
     (
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),

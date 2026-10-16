@@ -16,13 +16,13 @@ use brokkr_protocol::broker::{Plan, Refusal};
 use rustix::io::Errno;
 use serde_json::{json, Value};
 
-use super::super::calls::{served, Delivery, Outbox};
+use super::super::calls::{served, served_within, Delivery, Outbox};
 use super::super::output::Edge;
 use super::super::pieces::tests::{held, refusing, sink, Sink};
 use super::super::pieces::Pieces;
 use super::super::{initialized, started, Fatal, ATOMIC, REQUEST_MAX, RESPONSE_MAX, UNDELIVERED};
 use super::{admitted, answering_with, call, cancelled_behind, conversed, forwarded, idle_timeout};
-use super::{answer, mcp_but, tools, within, Harness, Script, Then, DIGEST, TURN};
+use super::{answer, mcp_but, tools, within, Harness, Script, Then, DIGEST};
 use super::{fake, lookup_failed, mcp, passed, ping_sized, pipe, request, result, session, silent};
 use crate::broker::session::lifetime::settled;
 use crate::broker::session::stderr::Drain;
@@ -492,33 +492,105 @@ fn an_answer_the_harness_takes_a_little_at_a_time_once_its_input_ends_is_taken_w
 }
 
 #[test]
-fn an_answer_is_written_as_fast_as_the_harness_takes_it() {
+fn a_near_limit_answer_is_delivered_whole_to_a_reading_harness() {
     // MB3's largest answer but 64 KiB, to a harness that reads all the
-    // while. A turn that wrote some of it waits for nothing, so it is not
-    // paced at one wait per pipe's worth: on Linux's 64 KiB pipes that is
-    // 127 waits of 10 ms, over 1.27 seconds, and on macOS's 16 KiB ones
-    // four times as many. Timed from its first byte, after the server's
-    // answer has been read whole, it takes well under 800 ms.
+    // while. This proves delivery over real pipes. The pacing proof below
+    // observes waits directly, independent of how either thread is scheduled.
     let text = "t".repeat(RESPONSE_MAX - (64 << 10));
     let body = json!({"content": [{"type": "text", "text": text}]});
     let answered = result(&json!("1"), body.clone());
     let ran = conversed(answering_with(tools(), body), move |harness| {
         harness.send(&call("1", "lookup"));
-        let (until, mut first) = (Instant::now() + Duration::from_secs(20), [0]);
-        while !matches!(harness.from.read(&mut first), Ok(1)) {
-            assert!(Instant::now() < until, "the broker answered nothing");
-            std::thread::sleep(TURN);
-        }
-        let begun = Instant::now();
-        harness.held.push(first[0]);
         assert_eq!(harness.next(), Some(answered));
-        let taken = begun.elapsed();
-        assert!(taken < Duration::from_millis(800), "{taken:?}");
     });
     let succeeded = vec![("lookup", Some(Outcome::Succeeded))];
     assert_eq!(
         (ran.ended, ran.proved),
         (Ok::<(), Ended>(()), admitted(succeeded))
+    );
+}
+
+#[test]
+fn a_turn_that_writes_part_of_an_answer_never_waits() {
+    // Take exactly one piece per turn, then report WouldBlock. The empty
+    // pipe supplies a pollable descriptor; writes are recorded in memory
+    // so reader scheduling cannot decide whether a turn makes progress.
+    struct Taking {
+        pipe: std::io::PipeWriter,
+        input: Option<std::io::PipeWriter>,
+        bytes: Rc<RefCell<Vec<u8>>>,
+        unready: bool,
+        writes: Rc<std::cell::Cell<usize>>,
+    }
+    impl AsFd for Taking {
+        fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+            self.pipe.as_fd()
+        }
+    }
+    impl Write for Taking {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if std::mem::take(&mut self.unready) {
+                return Err(std::io::ErrorKind::WouldBlock.into());
+            }
+            self.bytes.borrow_mut().extend_from_slice(bytes);
+            self.writes.set(self.writes.get() + 1);
+            self.unready = true;
+            if bytes.ends_with(b"\n") {
+                drop(self.input.take());
+            }
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let plan = super::plan();
+    let (mut input, mut output, server) = fake(mcp());
+    let mut stderr = Drain::new(pipe().0, &[]);
+    let (mut ledger, appended) = in_memory(&plan);
+    let attempt = within(Duration::from_secs(30));
+    let started = started((&mut input, &mut output), &plan, attempt, &mut stderr).unwrap();
+    let (asked, mut to) = pipe();
+    let (ping, id) = ping_sized(2 << 10);
+    writeln!(to, "{ping}").unwrap();
+    let (_held, descriptor) = pipe();
+    let bytes = Rc::new(RefCell::new(Vec::new()));
+    let writes = Rc::new(std::cell::Cell::new(0));
+    let taking = Taking {
+        pipe: descriptor,
+        input: Some(to),
+        bytes: Rc::clone(&bytes),
+        unready: false,
+        writes: Rc::clone(&writes),
+    };
+    let edge = Edge {
+        bindings: &[],
+        stderr: &mut stderr,
+    };
+    let ended = served_within(
+        (Duration::from_secs(120), |_| {
+            panic!("slept after delivering a piece")
+        }),
+        started,
+        &plan,
+        &mut ledger,
+        (asked, taking),
+        attempt,
+        edge,
+    );
+    assert_eq!(settled(ledger, ended), Ok(()));
+    drop((input, output));
+    server.join().unwrap();
+    assert!(writes.get() > 1, "the answer must span multiple turns");
+    let bytes = bytes.borrow();
+    let (frame, end) = bytes.split_at(bytes.len() - 1);
+    let answer: Value = serde_json::from_slice(frame).unwrap();
+    assert_eq!((answer, end), (result(&id, json!({})), &b"\n"[..]));
+    let (lifecycle, invalid) = recover(&appended.borrow(), &plan.owner, DIGEST);
+    assert_eq!(
+        (lifecycle.closed(), invalid),
+        (Some(&Disposition::Clean), None)
     );
 }
 

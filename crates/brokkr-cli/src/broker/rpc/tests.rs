@@ -892,9 +892,15 @@ fn edged(
             };
             match call {
                 None => served(started, &plan, &mut ledger, harness, attempt, edge),
-                Some(call) => {
-                    served_within(call, started, &plan, &mut ledger, harness, attempt, edge)
-                }
+                Some(call) => served_within(
+                    (call, std::thread::sleep),
+                    started,
+                    &plan,
+                    &mut ledger,
+                    harness,
+                    attempt,
+                    edge,
+                ),
             }
         });
     let diagnostics: Vec<u8> = drain
