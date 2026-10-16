@@ -152,9 +152,11 @@ fn the_brokers_own_standard_error_has_one_writer_and_one_voice() {
     let survey = at("brokkr-cli/src/broker/survey.rs", &["run"]);
     assert_eq!(
         broker_calls("std::io::stdout("),
-        [rpc.clone(), observer, survey.clone()].concat()
+        [rpc.clone(), observer, survey].concat()
     );
-    assert_eq!(broker_calls("std::io::stdin("), [rpc, survey].concat());
+    // The survey's watcher reads the rest of its input to its end (U7c).
+    let tether = at("brokkr-cli/src/broker/survey.rs", &["run", "tethered"]);
+    assert_eq!(broker_calls("std::io::stdin("), [rpc, tether].concat());
     // Those streams are waited on by poll, never by their status flags,
     // which every holder of each shares: only the broker's own pipes to its
     // box, which no other process reads or writes its end of, are set so.

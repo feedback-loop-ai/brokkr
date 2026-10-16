@@ -32,7 +32,7 @@ pub use aggregate::Aggregate;
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
 pub use invocation::Invocation;
-pub(crate) use mcp::McpIntent;
+pub(crate) use mcp::{McpContribution, McpIntent};
 use parse::{SeatScope, SiteCompiler};
 use site_form::{classify, SiteRole, StepShape, SEAT, STEP};
 #[cfg(test)]

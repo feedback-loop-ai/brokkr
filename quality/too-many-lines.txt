@@ -29,9 +29,9 @@
  102 crates/brokkr-runtime/src/bundle.rs:6198 walk_files
  240 crates/brokkr-runtime/src/capabilities.rs:1507 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:434 check
- 132 crates/brokkr-runtime/src/engine.rs:1093 seat_input
- 152 crates/brokkr-runtime/src/engine.rs:1289 execute
- 175 crates/brokkr-runtime/src/engine.rs:2112 decide
+ 132 crates/brokkr-runtime/src/engine.rs:1094 seat_input
+ 151 crates/brokkr-runtime/src/engine.rs:1290 execute
+ 175 crates/brokkr-runtime/src/engine.rs:2122 decide
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
  178 crates/brokkr-view/src/lib.rs:1009 scan_participants
  150 crates/brokkr-view/src/lib.rs:1820 participants
