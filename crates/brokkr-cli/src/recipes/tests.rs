@@ -673,8 +673,8 @@ fn add_refuses_a_dir_it_cannot_read_the_way_to() {
     use std::os::unix::fs::PermissionsExt;
     let refused = |dir: &Path| {
         let refusal = add(&workspace(), dir, "unused", "node", None).unwrap_err();
-        match refusal.downcast::<PlacesError>() {
-            Ok(PlacesError::Unreadable { path, .. }) => path,
+        match refusal.downcast::<personal::Unshelved>() {
+            Ok(personal::Unshelved::Unread { at, .. }) => at,
             other => panic!("an unreadable refusal: {other:?}"),
         }
     };

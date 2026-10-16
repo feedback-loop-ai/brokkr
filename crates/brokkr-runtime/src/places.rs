@@ -479,22 +479,31 @@ pub fn entry(path: &Path) -> std::io::Result<Option<std::fs::Metadata>> {
 /// The map `workspace` adopts when none is named, if one is there: the
 /// one presence rule for a launch, a queued launch and every read of the
 /// default (decision 0083 ruling 2). Nothing at its place is no map; a
-/// regular file, or a link that resolves to one (ruling 4: a linked entry
-/// is the entry), is the map; anything else refuses with its path.
+/// regular file, or a link that resolves to one ([`resolved`]), is the
+/// map; anything else refuses with its path.
 pub(crate) fn default_map(workspace: &Path) -> Result<Option<PathBuf>, PlacesError> {
     let map = Places::of(workspace)?.map;
-    let absent =
-        std::fs::symlink_metadata(&map).is_err_and(|error| error.kind() == ErrorKind::NotFound);
-    if absent {
-        return Ok(None);
-    }
-    match std::fs::metadata(&map) {
-        Ok(target) if target.is_file() => Ok(Some(map)),
-        Ok(_) => Err(PlacesError::MapNotAFile { path: map }),
+    match resolved(&map) {
+        Ok(None) => Ok(None),
+        Ok(Some(target)) if target.is_file() => Ok(Some(map)),
+        Ok(Some(_)) => Err(PlacesError::MapNotAFile { path: map }),
         Err(error) if error.kind() == ErrorKind::NotFound => {
             Err(PlacesError::MapDangling { path: map })
         }
         Err(source) => Err(PlacesError::Unreadable { path: map, source }),
+    }
+}
+
+/// Where the entry at `path` resolves (ruling 4: a linked entry is the
+/// entry): `None` when nothing stands there, else the real path it, or
+/// the end of its links, names. A link to nothing fails with `NotFound`,
+/// and a looping link, or a path through a file, with its own error, so
+/// none is read as absent: the one absent-versus-unreadable judgement the
+/// default map ([`default_map`]) and a recipe shelf (#697) take.
+pub fn resolved(path: &Path) -> std::io::Result<Option<PathBuf>> {
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        _ => std::fs::canonicalize(path).map(Some),
     }
 }
 

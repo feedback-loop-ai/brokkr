@@ -19,14 +19,14 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::launch::{compile_for, BundleSource};
-use brokkr_runtime::places::{self, Kind, PlacesError, FOLDER};
+use brokkr_runtime::places::{self, Kind, FOLDER};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, Invocation, SeatBody};
 
 mod agents;
 pub(crate) mod personal;
 mod sources;
-use personal::Origin;
+use personal::{Origin, Resolved};
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity), else the `implicit` one a
@@ -629,20 +629,15 @@ fn reach(clone: &Path, path: &str) -> Result<PathBuf, AtPath> {
 /// repository but its own shelf (#675, #696 ruling 6), before anything is
 /// cloned, copied or created. `dir` is judged where it resolves, since a
 /// shelf may be a link: by the one walk ([`places::Layout::discover`])
-/// from the nearest entry standing at `dir` or above it, since `add`
-/// creates the rest. The walk resolves links and stops at the nearest
-/// `.git`, so it is taken from every ancestor of that entry as `dir`
-/// spells it, and from every ancestor of the real directory it resolves
+/// from the nearest entry standing at `dir` or above it, `at`, since
+/// `add` creates the rest. The walk resolves links and stops at the
+/// nearest `.git`, so it is taken from every ancestor of `at` as `dir`
+/// spells it, and from every ancestor of the `real` directory it resolves
 /// to: a library or a shelf linked into a folder repository's `recipes/`,
-/// and a nested repository below a folder, refuse. A layout or an entry
-/// that cannot be read refuses in its own words (fail closed). The place
-/// `dir` resolves to is returned.
-fn refuse_folder(dir: &Path) -> Result<PathBuf> {
-    let at = standing(dir)?;
-    let rest = dir.strip_prefix(at).expect("an ancestor prefixes its path");
-    let real = places::Layout::discover(at)?.cwd().to_path_buf();
-    // Collected from its parts, so an empty `rest` leaves no trailing `/`.
-    let place: PathBuf = real.join(rest).components().collect();
+/// and a nested repository below a folder, refuse. A layout that cannot
+/// be read refuses in its own words (fail closed). The `place` `dir`
+/// resolves to is returned.
+fn refuse_folder(Resolved { at, real, place }: Resolved) -> Result<PathBuf> {
     let resolved = real
         .ancestors()
         .filter(|real| !at.ancestors().any(|s| s == *real));
@@ -668,20 +663,6 @@ fn refuse_within(sources: &[&Path], place: &Path) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// The nearest of `path`, an absolute path, and its ancestors at which an
-/// entry stands, judged as the entry itself ([`places::entry`]); the root
-/// directory always stands. One that cannot be read refuses.
-fn standing(path: &Path) -> Result<&Path, PlacesError> {
-    let found = path.ancestors().find_map(|at| match places::entry(at) {
-        Ok(entry) => entry.map(|_| Ok(at)),
-        Err(source) => Some(Err(PlacesError::Unreadable {
-            path: at.to_path_buf(),
-            source,
-        })),
-    });
-    found.unwrap_or(Ok(path))
 }
 
 /// Clone the git `source` into `clone`, and the bundle root inside it: at

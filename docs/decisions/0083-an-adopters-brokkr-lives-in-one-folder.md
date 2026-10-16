@@ -922,6 +922,19 @@ either shelf is read:
 --recipe '<name>' is not one plain recipe name, so it would not name one recipe on a shelf (#697): name the recipe as it stands on its shelf, or give --bundle <dir> for a bundle elsewhere; nothing was run
 ```
 
+A shelf that cannot be read, the project's or the personal one, is
+never read as an empty one: it refuses on every one of those verbs
+before either recipe is taken. Nothing standing at a shelf is an empty
+shelf, but the nearest entry standing at it or above it must resolve to
+a directory, so a link to nothing, a looping link, a file, or an entry
+whose metadata cannot be read refuses, naming the shelf and the entry
+judged. `recipes add` judges the shelf it installs onto by the same
+rule:
+
+```text
+the <origin> shelf <shelf> cannot be read (#697): <path>: <cause>; a shelf that cannot be read is never read as an empty one, so mend or remove it; nothing was run or installed
+```
+
 A name on neither shelf refuses as before,
 naming the project's shelf. A queued launch keeps the shelf it resolved
 when it was queued.

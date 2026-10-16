@@ -7,6 +7,7 @@
 //! `recipes list` and doctor show both, each recipe with its origin.
 
 use std::fmt;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -47,27 +48,65 @@ impl Origin {
     }
 
     /// Where an install onto this origin's shelf `dir`, an absolute path,
-    /// resolves. A project library is refused anywhere in a folder
-    /// repository but its shelf ([`super::refuse_folder`]); the personal
-    /// shelf is judged by no repository, folder or library mark, its own
-    /// or an ancestor's (#697 ruling 1), only resolved from the nearest
-    /// entry standing at it or above it, one that cannot be read refusing.
+    /// resolves ([`resolving`]), a shelf that cannot be read refusing. A
+    /// project library is refused anywhere in a folder repository but its
+    /// shelf ([`super::refuse_folder`]); the personal shelf is judged by
+    /// no repository, folder or library mark, its own or an ancestor's
+    /// (#697 ruling 1).
     pub(super) fn place(self, dir: &Path) -> Result<PathBuf> {
+        let resolved = resolving(self, dir)?;
         match self {
-            Origin::Project => super::refuse_folder(dir),
-            Origin::Personal => {
-                let at = super::standing(dir)?;
-                let rest = dir.strip_prefix(at).expect("an ancestor prefixes its path");
-                let real = at
-                    .canonicalize()
-                    .map_err(|source| PlacesError::Unreadable {
-                        path: at.to_path_buf(),
-                        source,
-                    })?;
-                Ok(real.join(rest).components().collect())
-            }
+            Origin::Project => super::refuse_folder(resolved),
+            Origin::Personal => Ok(resolved.place),
         }
     }
+}
+
+/// Where a shelf resolves ([`resolving`]).
+pub(super) struct Resolved<'a> {
+    /// The nearest entry standing at the shelf or above it.
+    pub(super) at: &'a Path,
+    /// The directory `at` resolves to, every link resolved.
+    pub(super) real: PathBuf,
+    /// The shelf beneath `real`, the rest of its path still to be made.
+    pub(super) place: PathBuf,
+}
+
+/// Judge the `origin` shelf `shelf` before anything on it is read or
+/// written (#697): the nearest entry standing at it or above it must
+/// resolve to a directory ([`places::resolved`], the judgement the default
+/// map takes too), so nothing standing at the shelf is an empty one, and
+/// a link to nothing, a looping link, a file, or an entry whose metadata
+/// cannot be read refuses ([`Unshelved::Unread`]), never read as an empty
+/// shelf. A relative shelf nothing stands at or above resolves as itself.
+pub(super) fn resolving(origin: Origin, shelf: &Path) -> Result<Resolved<'_>, Unshelved> {
+    for at in shelf.ancestors() {
+        let unread = |cause| Unshelved::Unread {
+            origin,
+            shelf: shelf.to_path_buf(),
+            at: at.to_path_buf(),
+            cause,
+        };
+        match places::resolved(at) {
+            Ok(None) => {}
+            Ok(Some(real)) if real.is_dir() => {
+                let rest = shelf
+                    .strip_prefix(at)
+                    .expect("an ancestor prefixes its path");
+                // Collected from its parts, so an empty `rest` leaves no trailing `/`.
+                let place = real.join(rest).components().collect();
+                return Ok(Resolved { at, real, place });
+            }
+            Ok(Some(_)) => return Err(unread(ErrorKind::NotADirectory.into())),
+            Err(cause) => return Err(unread(cause)),
+        }
+    }
+    let (real, place) = (shelf.to_path_buf(), shelf.to_path_buf());
+    Ok(Resolved {
+        at: shelf,
+        real,
+        place,
+    })
 }
 
 impl fmt::Display for Origin {
@@ -94,6 +133,14 @@ pub(crate) enum Unshelved {
     },
     /// An entry at the name that cannot be read, never taken as absent.
     Unreadable(PlacesError),
+    /// A shelf that cannot be read ([`resolving`]): what stands `at` it,
+    /// or above it, does not resolve to a directory, for its `cause`.
+    Unread {
+        origin: Origin,
+        shelf: PathBuf,
+        at: PathBuf,
+        cause: std::io::Error,
+    },
 }
 
 impl fmt::Display for Unshelved {
@@ -117,6 +164,19 @@ impl fmt::Display for Unshelved {
                 personal.display()
             ),
             Unshelved::Unreadable(refused) => fmt::Display::fmt(refused, formatter),
+            Unshelved::Unread {
+                origin,
+                shelf,
+                at,
+                cause,
+            } => write!(
+                formatter,
+                "the {origin} shelf {} cannot be read (#697): {}: {cause}; a shelf that cannot \
+                 be read is never read as an empty one, so mend or remove it; nothing was run \
+                 or installed",
+                shelf.display(),
+                at.display()
+            ),
         }
     }
 }
@@ -144,11 +204,14 @@ pub(crate) fn holding(recipe: Option<&str>, project: PathBuf) -> Result<PathBuf,
 /// stands there alone, and `project` where it stands on neither, whose
 /// launch refuses it as not installed. Something standing at the name on
 /// both shelves refuses ([`Unshelved::Shadowed`]), and so does an entry
-/// that cannot be read.
+/// that cannot be read, and, before either is read, a shelf that cannot
+/// be ([`resolving`]).
 fn holding_in(name: &str, project: PathBuf, personal: Option<&Path>) -> Result<PathBuf, Unshelved> {
     let Some(personal) = personal else {
         return Ok(project);
     };
+    resolving(Origin::Project, &project)?;
+    resolving(Origin::Personal, personal)?;
     let stands = |shelf: &Path| {
         let at = shelf.join(name);
         match places::entry(&at) {

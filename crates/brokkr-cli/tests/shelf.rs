@@ -707,6 +707,86 @@ fn a_recipe_name_that_is_a_path_refuses_on_every_verb() {
     assert!(!repo.seated("px"));
 }
 
+/// A shelf that cannot be read is never read as an empty one (#697 ruling
+/// 2): the personal shelf or the project's, a link whose target was moved
+/// away or a file, with `x` on both shelves until the break and with `x`
+/// on the readable shelf alone, refuses `run`, `resume`, `rerun`, `queue
+/// add` and `recipes show` of `x`, naming the shelf, before either recipe
+/// is taken: no run starts, and neither fake driver keeps state. Nothing
+/// at the personal shelf is an empty one, so `x` is the project's.
+#[test]
+fn a_shelf_that_cannot_be_read_refuses_on_every_verb() {
+    let repo = shelved();
+    let personal = repo.config().join("brokkr/recipes");
+    std::fs::create_dir_all(personal.parent().unwrap()).unwrap();
+    let ran = repo.brokkr("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let delivered = started(&ran);
+    let shown = repo.brokkr("", &["recipes", "show", "x"]);
+    assert_eq!(shown.code, Some(0), "{}", shown.stderr);
+    let verbs = [
+        vec!["recipes", "show", "x"],
+        vec!["run", "--feature", "f", "--no-view", "--recipe", "x"],
+        vec!["resume", "--run", &delivered, "--no-view", "--recipe", "x"],
+        vec!["rerun", "--run", &delivered, "--recipe", "x"],
+        vec![
+            "queue",
+            "add",
+            "--feature",
+            "f",
+            "--reason",
+            "r",
+            "--recipe",
+            "x",
+        ],
+    ];
+    repo.bundle(personal.join("x").to_str().unwrap(), "px", completes());
+    let state = |name: &str| {
+        std::fs::read_dir(repo.config().with_file_name(name))
+            .unwrap()
+            .count()
+    };
+    let kept = (state("x.state"), state("px.state"));
+    let project = repo.path(".brokkr/recipes");
+    let dangle: fn(&Path) =
+        |shelf| std::os::unix::fs::symlink(shelf.with_extension("target"), shelf).unwrap();
+    let file: fn(&Path) = |shelf| std::fs::write(shelf, "").unwrap();
+    let breaks = [
+        (dangle, "No such file or directory (os error 2)"),
+        (file, "not a directory"),
+    ];
+    for ((origin, shelf), (plant, cause), both) in [("personal", &personal), ("project", &project)]
+        .into_iter()
+        .flat_map(|side| breaks.map(|broken| (side, broken)))
+        .flat_map(|(side, broken)| [true, false].map(|both| (side, broken, both)))
+    {
+        let gone = shelf.with_extension("gone");
+        let x = shelf.with_extension("x");
+        if !both {
+            std::fs::rename(shelf.join("x"), &x).unwrap();
+        }
+        std::fs::rename(shelf, &gone).unwrap();
+        plant(shelf);
+        let at = shelf.display();
+        let refused = format!(
+            "error: the {origin} shelf {at} cannot be read (#697): {at}: {cause}; a shelf that \
+             cannot be read is never read as an empty one, so mend or remove it; nothing was run \
+             or installed\n"
+        );
+        for verb in &verbs {
+            let ran = repo.brokkr("", verb);
+            let case = format!("{verb:?} {origin} {cause} {both}");
+            assert_eq!((ran.code, ran.stderr), (Some(1), refused.clone()), "{case}");
+            assert_eq!((state("x.state"), state("px.state")), kept, "{case}");
+        }
+        std::fs::remove_file(shelf).unwrap();
+        std::fs::rename(&gone, shelf).unwrap();
+        if !both {
+            std::fs::rename(&x, shelf.join("x")).unwrap();
+        }
+    }
+}
+
 /// A personal install judges no repository, folder or library mark at its
 /// shelf or above it (#697 ruling 1): a dangling link standing on the
 /// personal shelf, which a library walk would read and refuse, leaves the

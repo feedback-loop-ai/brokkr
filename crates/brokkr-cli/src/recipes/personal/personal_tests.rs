@@ -68,9 +68,23 @@ fn a_recipe_named_as_a_path_refuses_before_any_shelf_is_read() {
     assert_eq!(holding(None, project.clone()).unwrap(), project);
 }
 
+/// What a shelf that cannot be read refuses with: the `origin` shelf at
+/// `shelf`, judged at `at` for `cause`.
+fn unread(origin: Origin, shelf: &Path, at: &Path, cause: &str) -> String {
+    format!(
+        "the {origin} shelf {} cannot be read (#697): {}: {cause}; a shelf that cannot be read is \
+         never read as an empty one, so mend or remove it; nothing was run or installed",
+        shelf.display(),
+        at.display()
+    )
+}
+
+const DANGLING: &str = "No such file or directory (os error 2)";
+
 /// The personal shelf resolves where it stands, through a link above it,
-/// and judges no mark there; an entry at it that does not resolve refuses
-/// by its path, never read as absent.
+/// and judges no mark there; a link to nothing above it, and a shelf that
+/// is a file, refuse the install by the shelf's path, never read as
+/// absent or as a place to write.
 #[test]
 fn a_personal_shelf_resolves_where_it_stands() {
     let dir = tempfile::tempdir().unwrap();
@@ -84,14 +98,66 @@ fn a_personal_shelf_resolves_where_it_stands() {
     assert_eq!(place, real.join("brokkr/recipes"));
     let dangling = dir.path().join("dangling");
     std::os::unix::fs::symlink("absent", &dangling).unwrap();
-    let refused = Origin::Personal
-        .place(&dangling.join("recipes"))
-        .unwrap_err();
-    let unread = format!(
-        "reading {}: No such file or directory (os error 2)",
-        dangling.display()
-    );
-    assert_eq!(refused.to_string(), unread);
+    let shelf = dangling.join("recipes");
+    let refused = Origin::Personal.place(&shelf).unwrap_err();
+    let expected = unread(Origin::Personal, &shelf, &dangling, DANGLING);
+    assert_eq!(refused.to_string(), expected);
+    let file = real.join("file");
+    std::fs::write(&file, "").unwrap();
+    let refused = Origin::Personal.place(&file).unwrap_err();
+    let expected = unread(Origin::Personal, &file, &file, "not a directory");
+    assert_eq!(refused.to_string(), expected);
+}
+
+/// A shelf that cannot be read, the project's or the personal one,
+/// refuses by its own variant before either recipe is taken, with `x` on
+/// the readable shelf alone and with `x` on both until the break: a link
+/// to nothing, a file, and a link to nothing above the shelf. Nothing at
+/// the personal shelf, or at a relative project shelf or above it, is an
+/// empty shelf.
+#[test]
+fn a_shelf_that_cannot_be_read_refuses_before_either_recipe_is_taken() {
+    let dangle: fn(&Path) = |at| std::os::unix::fs::symlink("gone", at).unwrap();
+    let file: fn(&Path) = |at| std::fs::write(at, "").unwrap();
+    // Each break: what is moved away and replaced, and the cause it reads.
+    let breaks = [
+        ("in/recipes", dangle, DANGLING),
+        ("in/recipes", file, "not a directory"),
+        ("in", dangle, DANGLING),
+    ];
+    let cases = [Origin::Project, Origin::Personal]
+        .into_iter()
+        .flat_map(|origin| breaks.map(|broken| (origin, broken)))
+        .flat_map(|case| [true, false].map(|both| (case, both)));
+    for ((origin, (judged, plant, cause)), both) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let sides = [dir.path().join("project"), dir.path().join("personal")];
+        let broken = &sides[usize::from(origin == Origin::Personal)];
+        let shelf = |side: &Path| side.join("in/recipes");
+        for side in &sides {
+            std::fs::create_dir_all(shelf(side)).unwrap();
+            if side != broken || both {
+                std::fs::create_dir(shelf(side).join("x")).unwrap();
+            }
+        }
+        std::fs::rename(broken.join(judged), broken.join("moved")).unwrap();
+        plant(&broken.join(judged));
+        let refused = holding_in("x", shelf(&sides[0]), Some(&shelf(&sides[1]))).unwrap_err();
+        let text = unread(origin, &shelf(broken), &broken.join(judged), cause);
+        assert_eq!(refused.to_string(), text, "{both}");
+        assert!(matches!(
+            refused,
+            Unshelved::Unread { origin: of, shelf: at, .. } if of == origin && at == shelf(broken)
+        ));
+    }
+    let (_dir, project, personal) = shelves(&["x"], &[]);
+    let absent = personal.join("brokkr/recipes");
+    let held = |project: &Path| {
+        holding_in("x", project.to_path_buf(), Some(&absent)).map_err(|e| e.to_string())
+    };
+    assert_eq!(held(&project), Ok(project));
+    let relative = PathBuf::from("no-shelf-697/recipes");
+    assert_eq!(held(&relative), Ok(relative));
 }
 
 /// An entry at the name that cannot be read refuses by its path, never
