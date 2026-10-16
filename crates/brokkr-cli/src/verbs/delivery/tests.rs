@@ -42,7 +42,7 @@ fn a_missing_recipe_never_masks_the_refusal_each_verb_met_first() {
     let missing = || DeliveryArgs {
         bundle: None,
         recipe: Some("missing".to_string()),
-        recipes_dir: ws.join("recipes"),
+        recipes_dir: Some(ws.join("recipes")),
         secrets_file: None,
     };
 

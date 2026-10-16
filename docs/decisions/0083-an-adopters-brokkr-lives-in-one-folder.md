@@ -704,3 +704,164 @@ not made here.
 **What comes next.** Recipes in a folder repository go next to
 [#696](https://github.com/feedback-loop-ai/brokkr/issues/696), which
 carries its own rulings and its own addendum.
+
+## Addendum — 2026-10-16, the recipe shelf (#696)
+
+Status: proposed; only the operator accepts this addendum.
+
+The operator accepted every recommendation of #696's write-up in chat on
+2026-10-15, as the issue's rulings 1 to 9 state them, and amended its
+ruling 6 the same day. This addendum records them as built, each with its
+text. The rulings above and the addendum of 2026-10-15 keep their own
+words; where this addendum narrows or amends one of their sentences, it
+binds once accepted.
+
+**1. The place.** A folder repository's named recipes stand on its
+shelf, `.brokkr/recipes/<name>/`, tracked beside the folder's own
+`bundle.json`, which stays the default recipe. The shelf is no library
+mark: a library's mark is a root `recipes/<name>/bundle.json`, so a shelf
+recipe never changes what the root holds.
+
+**2. The defaults.** With a folder discovered, the shelf is the default
+library of `recipes add`, `recipes list` and `recipes show`, and the
+default `--recipes-dir` of `--recipe` on `run`, `resume`, `rerun` and
+`queue add`. An explicit `--dir` or `--recipes-dir` still wins. Without a
+folder every default stays `recipes`. Ruling 3's table gains a row:
+
+| Fact | Flag | With `.brokkr/` discovered | With none (the library layout) |
+|---|---|---|---|
+| named recipes | `--dir` (`list`, `show`), `--recipes-dir` | `.brokkr/recipes/` | `recipes/` |
+
+While nothing stands at the default shelf, `recipes list` lists nothing
+and exits 0. An explicit `--dir` that cannot be read, and a shelf that is
+a file or a link to nothing, still print `warning: recipes dir <dir>:
+<error>`.
+
+**3. The default bundle's identity.** For a folder bundle only, the
+manifest walk skips `recipes` beside `state`, so installing or editing a
+shelf recipe never moves the default bundle's digest. Every other bundle
+pins a top-level `recipes/` as before. A default bundle that `extends` a
+shelf recipe pins that layer as decision 0017 pins every composed base:
+the skip keeps the shelf out of the folder's own files, never out of the
+composition.
+
+The skip covers the shelf and nothing else, so it does not cover what
+ruling 5 copies: an install that copies an agent definition or a charter
+into `.brokkr/agents/` moves the default bundle's digest by exactly the
+files it copied, because the folder bundle pins its agents as it always
+has, and one that copies none leaves the digest where it was. Pinning less
+would let an agent a run hires change unseen, so the build keeps the pin
+and carries the exception here; a different identity rule for the folder
+bundle would be a decision of its own.
+
+**4. Composition.** This amends ruling 1's sentence "A bundle in
+`.brokkr/` composes no base" and retires its refusal text: the folder
+bundle's base library is its shelf, `<root>/.brokkr/recipes`, never the
+repository root, and every other layer's is its parent, as before. Shelf
+recipes may extend each other, and `.brokkr/bundle.json` may extend a
+shelf recipe. An `extends` naming anything the shelf does not hold
+refuses with the composition's own text, which names the shelf and reads
+nothing at the root:
+
+```text
+bundle: <root>/.brokkr/bundle.json: extends '<name>', which is not a recipe in <root>/.brokkr/recipes
+```
+
+A shelf that is a link fails the composition's real-directory rule: a
+base must be `a real directory in <root>/.brokkr/recipes`.
+
+**5. Agents a recipe names.** `recipes add` copies into the workspace's
+agent library (`.brokkr/agents/` with a folder, `<root>/agents/`
+otherwise), from the source's: each agent definition a site of a copied
+recipe names (a seat, a panel member, a sequence step, a select case or
+default), read as typed data from each copied recipe's own
+`bundle.json`, and the charter that definition names. The source's
+library, for a bundle whose parent directory is named `recipes`, local
+or in a clone, is that directory's sibling `agents/`, so a cloned
+folder's shelf recipe brings its `.brokkr/agents/`; any other git
+source's is its clone's `agents/`, and any other local source has none,
+and nothing is copied. An agent's own
+`extends` base is not copied: it resolves in the workspace's library.
+Agent capability definitions are not copied either (#703 asked). Every
+file is planned before anything is written, and a definition, a charter
+or a source entry is walked without following a link. The copies join
+the install's kept-or-removed set, so a compile that refuses removes them
+with the recipe. A file already present and identical is skipped. The
+refusals, each before anything is written:
+
+```text
+recipes add replaces no agent definition or charter, and the source's differ from what stands at <path>, <path> (#696): reconcile or remove each; nothing was written
+recipes add cannot read <path>: <cause> (#696); nothing was written
+<bundle.json> names agent '<name>', which is not an agent name (^[a-z][a-z0-9-]*$) (#696); nothing was written
+<definition> names charter '<charter>', which is not a relative path of plain names in its library (#696); nothing was written
+<definition> names charter '<charter>', which its library <library> does not hold, so the copy would bind to whatever this workspace holds there (#696); nothing was written
+<path> is a link, or not the file or directory recipes add copies from the source's agent library (#696); nothing was written
+```
+
+`recipes add` prints `added <what> at <path>` after its recipe lines,
+one line per file it copied: `agent '<name>'`, or `charter <charter> of
+agent '<name>'`.
+
+**6. `recipes add` loses `--dir`** (amended 2026-10-15; the first ruling
+6, narrowing #675's check to the destination, is superseded). It installs
+onto the shelf of the repository it runs in, from any directory of it:
+`<root>/.brokkr/recipes/` with a folder, `<root>/recipes/` in a recipe
+library or a bare repository. It compiles every copy against that root's
+agents and adapters, and reads that root's map. `recipes add … --dir x`
+is clap's `error: unexpected argument '--dir' found`. `--dir` stays on
+`recipes list` and `recipes show`, and `--recipes-dir` on `--recipe`,
+because they only read. The `--dir` reading of the addendum of
+2026-10-15 goes with the flag: its `--dir` text, the walk of `--dir` as
+spelled and `--dir ""`. Its `--name` text stands; `<dir>` in it is now
+the shelf. The judgement of the destination as it resolves stays, because
+a shelf may be a link: the walk is taken from the nearest entry standing
+at the shelf and from every ancestor of it, as spelled and as resolved,
+and an install whose shelf resolves into a folder repository anywhere but
+that repository's own `.brokkr/recipes` refuses. That keeps #675's holds
+refused, a bare directory's `recipes` linked into a folder repository's
+root `recipes/`, a folder's `.brokkr/recipes` linked to `../recipes`, and
+a nested repository below a folder, and it no longer refuses a folder
+installing onto its own shelf. Its text stands where the earlier
+addendum's first text stood:
+
+```text
+recipes add would install into <place>, inside the folder repository <root> but not its shelf <root>/.brokkr/recipes/ (decision 0083; #675, #696): a folder repository keeps its named recipes on its shelf, so nothing was written
+```
+
+A source that holds the shelf, such as the folder's own bundle, would be
+copied into itself, so it refuses before anything is made:
+
+```text
+recipes add would copy <source> into <shelf>, which lies inside it (#696): install a bundle directory that does not hold the shelf; nothing was written
+<source> is a repository's .brokkr folder, its default bundle, not a recipe: name a recipe on its shelf (<source>/recipes/<name>) or in a library as the source (#696); nothing was written
+```
+
+The LOW residual of 2026-10-15 stands: a folder repository whose own
+root `recipes/` links outward.
+
+**7. Fetching from a repository's subdirectory** shipped apart, in
+#695: `recipes add <git-url> --path <relative path>` names the bundle's
+directory inside the clone, a relative path of plain names judged by its
+spelling before the clone and walked without following a link after it,
+and the bases its recipe extends come from beside it. The operator ruled
+on 2026-10-15 that it needs no decision of its own and is recorded here,
+with its accepted refusal of a local source:
+
+```text
+--path names a directory inside a git source's clone, and <source> is a local directory: name <source>/<path> as the source itself (#695); nothing was written
+```
+
+**8. Doctor.** With a folder found and no old shape beside it, doctor
+prints one line per shelf recipe after the folder line, sorted by name. A
+broken one warns and never makes the report unhealthy, and no shelf is
+no line:
+
+```text
+ok       recipe <name>: <digest> at <root>/.brokkr/recipes/<name>
+warn     recipe <name>: <root>/.brokkr/recipes/<name> does not compile (#696): <refusal>
+warn     shelf: <root>/.brokkr/recipes: <error>
+```
+
+**9. Vehicle and order.** This addendum, in #696's pull request, built
+after #634's third slice; the quickstart gains a step that tries another
+recipe on the shelf.

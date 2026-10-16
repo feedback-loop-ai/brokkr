@@ -122,17 +122,18 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
     layout.refuse_old()?;
     let found = &layout.workspace();
     match command {
-        RecipesCmd::List { dir } => recipes::list(found, &dir)?,
-        RecipesCmd::Add {
-            source,
-            name,
-            path,
-            dir,
-        } => recipes::add(found, &source, &name, path.as_deref(), &dir)?,
+        RecipesCmd::List { dir } => {
+            let (dir, shelf) = layout.listing(dir);
+            recipes::list(found, &dir, shelf)?
+        }
+        RecipesCmd::Add { source, name, path } => {
+            let (root, shelf) = layout.install_shelf();
+            recipes::add(&root, &shelf, &source, &name, path.as_deref())?
+        }
         RecipesCmd::Show { name, dir } => {
             let recipe = BundleSource::Recipe {
                 name,
-                recipes_dir: dir,
+                recipes_dir: layout.recipes(dir),
             };
             return print_compiled(workspace, &recipe.resolve()?);
         }

@@ -329,11 +329,15 @@ enum RecipesCmd {
     /// List recipes under --dir; broken ones print a warning line, never
     /// abort the listing.
     List {
-        /// The recipe library directory.
-        #[arg(long, default_value = "recipes")]
-        dir: PathBuf,
+        /// The recipe library directory (default the found .brokkr/recipes,
+        /// listing nothing while it is absent, else recipes).
+        #[arg(long)]
+        dir: Option<PathBuf>,
     },
-    /// Install a recipe from a local path or a git URL into <dir>/<name>.
+    /// Install a recipe from a local path or a git URL into the shelf at
+    /// the repository's root, .brokkr/recipes/<name> where the folder is,
+    /// else recipes/<name>, with the agents and charters it names that
+    /// the agent library lacks.
     Add {
         /// A local bundle directory or a git URL.
         source: String,
@@ -347,18 +351,16 @@ enum RecipesCmd {
         /// extends come from beside it.
         #[arg(long)]
         path: Option<String>,
-        /// The recipe library directory it is installed into.
-        #[arg(long, default_value = "recipes")]
-        dir: PathBuf,
     },
     /// Print one recipe's RESOLVED bundle and, when it extends another,
     /// the composition chain it was resolved from (decision 0017).
     Show {
         /// The recipe's name, resolved to <dir>/<name>.
         name: String,
-        /// The recipe library directory.
-        #[arg(long, default_value = "recipes")]
-        dir: PathBuf,
+        /// The recipe library directory (default the found .brokkr/recipes,
+        /// else recipes).
+        #[arg(long)]
+        dir: Option<PathBuf>,
     },
 }
 
@@ -1806,32 +1808,6 @@ fn manifest_beside(journal: &std::path::Path) -> PathBuf {
         .to_string_lossy()
         .to_string();
     journal.with_file_name(format!("{stem}.manifest.json"))
-}
-
-/// Compile a bundle against the tree the invocation stands in. The
-/// agent library and the adapters are read from the WORKSPACE for the
-/// same reason `realms.json` is (decision 0023): what a command resolves
-/// is a function of its arguments, not of where the caller happens to
-/// stand. The default workspace is `.`, so an operator sees exactly the
-/// roots they always did — but since decision 0021 a compile reads the
-/// adapter data for a bundle that names no agent at all (a gate seat's
-/// trust tier and a secret binding's grant live there), and a verb that
-/// resolved one tree while compiling against another would be the machine
-/// diagnosing itself wrong. In no realm, but under the world's
-/// provisional offices when a map is given (decision 0075 ruling
-/// 5): a recipe verb judges a recipe as the run that seats it would.
-pub(crate) fn compile_in(
-    workspace: &std::path::Path,
-    dir: &std::path::Path,
-    world: Option<&World>,
-) -> Result<Bundle> {
-    let places = brokkr_runtime::places::Places::of(workspace)?;
-    Ok(Bundle::compile_under(
-        dir,
-        &places.agents,
-        &places.adapters,
-        brokkr_runtime::bundle::RealmLaw::of(world, None),
-    )?)
 }
 
 /// Dispatch one parsed command to its verb's handler (decision 0071

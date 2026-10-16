@@ -173,9 +173,10 @@ pub(super) struct DeliveryArgs {
     /// Named recipe, resolved to <recipes-dir>/<name>.
     #[arg(long)]
     pub(super) recipe: Option<String>,
-    /// The recipe library `--recipe` is resolved in.
-    #[arg(long, default_value = "recipes")]
-    pub(super) recipes_dir: PathBuf,
+    /// The recipe library `--recipe` is resolved in (default the found
+    /// .brokkr/recipes, else recipes).
+    #[arg(long)]
+    pub(super) recipes_dir: Option<PathBuf>,
     /// Operator-side secrets store for seats with declared bindings
     /// (default .brokkr/state/secrets.env, or <workdir>/.forge/secrets.env).
     #[arg(long)]

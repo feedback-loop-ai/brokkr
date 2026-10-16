@@ -305,16 +305,12 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         let Some(extends) = extends else {
             return Ok(layers);
         };
-        let base = base_of(&dir, &file, &extends)?;
-        // The library is the leaf directory's parent: what a recipe library already is (a
-        // `.brokkr` folder's base is refused by `base_of`), and what `brokkr recipes add` installs
-        // into before it compile-verifies the copy. `dir` is already canonical, so its parent IS
-        // the library, asked for directly rather than through `..`. `pop` is total: a directory
-        // holding a bundle.json is never the filesystem root, and if it somehow were, `library`
-        // stays put and the "not a recipe in {library}" error below fires anyway. An
-        // `ok_or_else` here would be an arm no test can reach.
-        let mut library = dir.clone();
-        library.pop();
+        let base = base_of(&file, &extends)?;
+        // The library is the leaf directory's parent, what a recipe library already is and what
+        // `brokkr recipes add` installs into before it compile-verifies the copy, or a `.brokkr`
+        // folder's shelf (#696): `places::base_library`, the one judgement of a layer's library.
+        // `dir` is already canonical, so the library is asked for directly, never through `..`.
+        let library = crate::places::base_library(&dir)?;
         let candidate = library.join(base);
         if !candidate.is_dir() {
             return Err(invalid(format!(
@@ -343,16 +339,15 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
     }
 }
 
-/// The recipe a layer's `extends` names, refused before any path is built: a non-string, any
-/// base of a `.brokkr` folder's bundle (decision 0083 ruling 1), or a name that is no recipe name.
-fn base_of<'a>(dir: &Path, file: &Path, extends: &'a Value) -> Result<&'a str, CompileError> {
+/// The recipe a layer's `extends` names, refused before any path is built: a non-string, or a
+/// name that is no recipe name.
+fn base_of<'a>(file: &Path, extends: &'a Value) -> Result<&'a str, CompileError> {
     let file = file.display();
     let base = extends.as_str().ok_or_else(|| {
         invalid(format!(
             "{file}: 'extends' must be the name of a recipe in the library"
         ))
     })?;
-    crate::places::refuse_folder_base(dir, base)?;
     if !valid_recipe_name(base) {
         return Err(invalid(format!(
             "{file}: 'extends' value '{base}' is not a recipe name; names match \

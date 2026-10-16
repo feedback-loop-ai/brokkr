@@ -1331,15 +1331,18 @@ pub fn brokkr_runtime::places::Layout::workspace(&self) -> std::path::PathBuf
 pub struct brokkr_runtime::places::Places
 pub brokkr_runtime::places::Places::adapters: std::path::PathBuf
 pub brokkr_runtime::places::Places::agents: std::path::PathBuf
+pub brokkr_runtime::places::Places::recipes: std::path::PathBuf
 impl brokkr_runtime::places::Places
 pub fn brokkr_runtime::places::Places::of(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Places, brokkr_runtime::places::PlacesError>
 pub const brokkr_runtime::places::BUNDLE: &str
 pub const brokkr_runtime::places::FOLDER: &str
 pub const brokkr_runtime::places::JOURNAL: &str
 pub const brokkr_runtime::places::LIBRARY_STATE: &str
+pub const brokkr_runtime::places::RECIPES: &str
 pub const brokkr_runtime::places::SECRETS: &str
 pub const brokkr_runtime::places::STATE: &str
 pub fn brokkr_runtime::places::entry(&std::path::Path) -> core::io::error::Result<core::option::Option<std::fs::Metadata>>
+pub fn brokkr_runtime::places::folder_bundle(&std::path::Path) -> core::result::Result<core::option::Option<&std::path::Path>, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::root(&std::path::Path) -> core::result::Result<std::path::PathBuf, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::run_local(core::option::Option<&std::path::Path>, &std::path::Path) -> std::path::PathBuf
 pub fn brokkr_runtime::places::state_of(&std::path::Path) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>

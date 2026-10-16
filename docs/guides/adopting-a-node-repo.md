@@ -69,17 +69,30 @@ hand.
 
 ## The five files your repo needs
 
-**This route makes your repository a recipe library.** A
-`recipes/<name>/bundle.json` at the root is a library's mark, and a
-library keeps its own layout (decision
-[0083](../decisions/0083-an-adopters-brokkr-lives-in-one-folder.md), the
-operator's ruling of 2026-10-13): `realms.json`, `adapters/` and
-`recipes/` at the root, and run state in `.forge/`, with no `.brokkr/`
-folder. That is how it stands on main. A repository that already has a
-`.brokkr/` folder, from the quickstart's step 2, cannot take this route:
-`brokkr recipes add` refuses there and writes nothing, until
-[#696](https://github.com/feedback-loop-ai/brokkr/issues/696) gives the
-folder recipes of its own.
+**Two routes, and neither runs on main yet.** A repository with a
+`.brokkr/` folder, from the quickstart's step 2, keeps named recipes on
+the folder's shelf, `.brokkr/recipes/<name>/` (decision
+[0083](../decisions/0083-an-adopters-brokkr-lives-in-one-folder.md)'s
+addendum of 2026-10-16). `brokkr recipes add` installs there from
+anywhere in the repository, with `fast`, the base `node` extends, and
+copies the agents both seat, with their charters, into
+`.brokkr/agents/`. Today the compile refuses, because `fast-reviewer`
+extends Brokkr's `reviewer` and the one `init` wrote is another
+definition, and the install is removed whole:
+
+```
+$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+error: recipe 'node' does not compile (removed): bundle: bundle: agent 'fast-reviewer' (/home/you/src/your-node-repo/.brokkr/agents/fast-reviewer.json) 'replaces' gives a reason for 'hands', which neither it writes nor 'reviewer' declares (composed: node -> fast)
+```
+
+The rest of this guide is the older route, which makes your repository
+a recipe library. A `recipes/<name>/bundle.json` at the root is a
+library's mark, and a library keeps its own layout (the operator's
+ruling of 2026-10-13): `realms.json`, `adapters/` and `recipes/` at the
+root, and run state in `.forge/`, with no `.brokkr/` folder. It does not
+run on main either
+([#703](https://github.com/feedback-loop-ai/brokkr/issues/703)), as its
+second step shows.
 
 Brokkr resolves its data relative to the **workspace** it is invoked in
 — your repository root:
@@ -119,23 +132,19 @@ scaffold's.)
 
 ```
 $ brokkr recipes add ~/src/brokkr/recipes/node --name node
-added recipe 'node' (9159de5a5947) at recipes/node
-added recipe 'fast' (507571b56eb5) at recipes/fast
+error: recipe 'node' does not compile (removed): bundle: bundle: agent 'fast-implementer' (/home/you/src/your-node-repo/agents/fast-implementer.json) extends 'implementer', which is not an agent in this library (composed: node -> fast)
 ```
 
 `node` extends `fast`, and a base resolves from the library its recipe
-sits in, so `recipes add` copies `fast` beside it unless your library
-already holds a `fast`. It compiles what it copied and removes all of it
-again if any does not compile, so a recipe that lands is a recipe that runs — which is
-exactly why the adapters go first. Run it the other way around and you
-get a refusal and no recipe:
-
-```
-$ brokkr recipes add ~/src/brokkr/recipes/node --name node
-error: recipe 'node' does not compile (removed): bundle: adapters
-./adapters: No such file or directory …; this bundle names an agent,
-seats a gate, or declares a secret binding
-```
+sits in, so `recipes add` copies `fast` into `recipes/` beside it,
+at your repository's root from any directory in it, unless your library
+already holds a `fast`. It copies the agents both seat, and their
+charters, from `~/src/brokkr/agents/` into your `agents/`, but never an
+agent's own base, and `fast-implementer` extends `implementer`: so today
+the compile refuses. It compiles what it copied and removes all of it
+again if any does not compile, so a recipe that lands is a recipe that
+runs, and the adapters go first for that reason: a gate they do not
+vouch for refuses the compile.
 
 **The `.gitignore` line.** `.forge/` is run-local evidence — the
 journal, the task framing, one typed result file per seat attempt, the
@@ -209,7 +218,8 @@ brokkr run --recipe node --repo . \
   --feature "cache the /health probe result for 5s; add a test that proves the second call does not hit the DB"
 ```
 
-`--recipe node` resolves against `--recipes-dir` (default `recipes`).
+`--recipe node` resolves against `--recipes-dir` (default `recipes` in
+a library, and the shelf, `.brokkr/recipes`, where a folder is found).
 This recipe has **four** seats, not the scaffold's five: there is no
 intake seat to interrogate you, so the feature text IS the framing —
 write two or three sentences that would let a new colleague start.

@@ -37,6 +37,7 @@ fn folder_lines(cwd: &Path, compile: fn(&Path) -> anyhow::Result<()>) -> (Vec<St
         &mut report,
         &DoctorDefaults::of(cwd.into(), None).found,
         compile,
+        shelved,
     );
     assert_eq!(report.lines.last().unwrap(), "ok       later: line");
     report.lines.pop();
@@ -49,6 +50,15 @@ fn compiles(_: &Path) -> anyhow::Result<()> {
 
 fn refuses(dir: &Path) -> anyhow::Result<()> {
     Err(anyhow::anyhow!("one\u{1b}[2J\ntwo").context(format!("bundle: {}", dir.display())))
+}
+
+/// A shelf recipe's compile: the digest of one named `good`, and
+/// [`refuses`]' refusal for any other.
+fn shelved(dir: &Path) -> anyhow::Result<String> {
+    match dir.ends_with("good") {
+        true => Ok("0123456789ab".into()),
+        false => refuses(dir).map(|()| String::new()),
+    }
 }
 
 /// A half-moved folder's line for the entry `left` at the root.
@@ -325,7 +335,7 @@ fn an_old_shape_that_cannot_be_read_is_missing() {
     std::fs::set_permissions(&root, mode(0o000)).unwrap();
     let readable = std::fs::read_dir(&root).is_ok();
     let mut report = report();
-    report_folder_with(&mut report, &defaults.found, compiles);
+    report_folder_with(&mut report, &defaults.found, compiles, shelved);
     std::fs::set_permissions(&root, mode(0o755)).unwrap();
     if readable {
         eprintln!("skipped: this process reads a mode-000 directory, as root does");
@@ -336,4 +346,38 @@ fn an_old_shape_that_cannot_be_read_is_missing() {
         root.join("bundle.json").display()
     );
     assert_eq!((&report.lines[0], report.healthy), (&denied, false));
+}
+
+/// The folder's shelf (#696): after the folder line, one line per recipe
+/// by name, its digest or its compile's refusal as a warning, which
+/// leaves the report healthy; a file on the shelf is no recipe, and a
+/// shelf that cannot be listed, a link to nothing included, warns.
+#[test]
+fn each_shelf_recipe_is_a_line_that_never_fails_the_report() {
+    let (_dir, root) = root_with(|root| {
+        std::fs::create_dir_all(root.join(".brokkr/recipes/good")).unwrap();
+        std::fs::create_dir_all(root.join(".brokkr/recipes/broken")).unwrap();
+        write(&root.join(".brokkr/recipes/notes.md"), "not a recipe\n");
+    });
+    let (folder, shelf) = (root.join(".brokkr"), root.join(".brokkr/recipes"));
+    let (shown, at) = (root.display(), shelf.display());
+    let expected = [
+        format!("ok       folder: {} (found from {shown})", folder.display()),
+        format!(
+            "warn     recipe broken: {at}/broken does not compile (#696): bundle: {at}/broken: \
+             one[2J\ntwo"
+        ),
+        format!("ok       recipe good: 0123456789ab at {at}/good"),
+    ];
+    assert_eq!(folder_lines(&root, compiles), (expected.to_vec(), true));
+    std::fs::remove_dir_all(&shelf).unwrap();
+    write(&shelf, "a file\n");
+    let unlisted = format!("warn     shelf: {at}: Not a directory (os error 20)");
+    let (lines, healthy) = folder_lines(&root, compiles);
+    assert_eq!((&lines[1..], healthy), (&[unlisted][..], true));
+    std::fs::remove_file(&shelf).unwrap();
+    std::os::unix::fs::symlink("removed-shelf", &shelf).unwrap();
+    let dangling = format!("warn     shelf: {at}: No such file or directory (os error 2)");
+    let (lines, healthy) = folder_lines(&root, compiles);
+    assert_eq!((&lines[1..], healthy), (&[dangling][..], true));
 }
