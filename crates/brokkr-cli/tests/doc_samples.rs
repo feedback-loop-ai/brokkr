@@ -37,8 +37,9 @@ const ALLOWED: [(&str, &str); 6] = [
     (
         "docs/guides/quickstart.md",
         "its run, inspect and costs blocks need a driven fake-driver run as their fixture \
-         (#365's next slice), its compact tour is four commands in one block, and its \
-         recipes list block waits on #696, which rewrites that section",
+         (#365's next slice), its compact tour's prompts carry trailing comments or need \
+         that run, and its recipe-shelf blocks (recipes list, and Try another recipe's add, \
+         list and run) need a scaffolded folder and a recipe source as their fixture",
     ),
     (
         "docs/guides/secrets.md",
