@@ -208,6 +208,58 @@ records! {
         pub store: PathBuf,
         pub control: Vec<PathBuf>,
     }
+
+    /// What the engine asks its provisioning observer, `brokkr broker
+    /// survey`, to observe of one plan's server box (U7c0b): the launch
+    /// name the dialect's argv starts with, the engine's HOME as its
+    /// environment states it, the seat's reach, the network and the
+    /// managed writers' uids the plan seals.
+    pub struct Survey {
+        pub launch: String,
+        pub home: PathBuf,
+        pub reach: Reach,
+        pub network: Network,
+        pub writers: Vec<u32>,
+    }
+
+    /// What the observer found for the plan to seal: the resolved
+    /// executable and its program tree, the bootstrap it ran as, and the
+    /// bounded sources.
+    pub struct Provisioned {
+        pub executable: PathBuf,
+        pub tree: Tree,
+        pub bootstrap: Bootstrap,
+        pub sources: Sources,
+    }
+}
+
+/// The provisioning observer's one reply (U7c0b): the box it observed,
+/// MB3's cause it refused with, or why it read no request, so observed
+/// nothing. Each is an object of one field named by its variant; nothing
+/// else parses.
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase", deny_unknown_fields)]
+pub enum Surveyed {
+    Provisioned(Provisioned),
+    Refused(Refusal),
+    Unread(Unread),
+}
+
+/// Why the provisioning observer read no [`Survey`] (U7c0b): the request
+/// held more than its bound, ended before its record did, did not read, or
+/// was not one closed record, whether a field repeated, a field it does
+/// not name, a missing field or anything after it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Unread {
+    #[error("MCP server survey request exceeds its bound")]
+    Oversized,
+    #[error("MCP server survey request is truncated")]
+    Truncated,
+    #[error("MCP server survey request could not be read")]
+    Input,
+    #[error("MCP server survey request is not one closed record")]
+    Malformed,
 }
 
 /// MB3's closed program-tree distinction.

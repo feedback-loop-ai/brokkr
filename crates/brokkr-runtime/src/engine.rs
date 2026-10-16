@@ -34,8 +34,8 @@ use uuid::Uuid;
 use crate::agents::{Candidate, Lowering, McpAxis, McpInvocation, ResultDoor};
 use crate::bundle::{
     charters_as_started, charters_intact, layer_drift, site_charter_text, Bundle, CharterPin,
-    ExecutableBody, HandsState, McpIntent, PanelMember, Seat, SeatBody, SeatClass, SiteFacts,
-    StepBody, ENGINE_VERSION, REALM_FACTS,
+    ExecutableBody, HandsState, Invocation, McpIntent, PanelMember, Seat, SeatBody, SeatClass,
+    SiteFacts, StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use crate::dialect::DialectPhase;
 use crate::phase_name;
@@ -48,6 +48,7 @@ use brokkr_protocol::Cleanup;
 use brokkr_protocol::{AttemptReport, CleanupEvidence};
 use serde::Serialize;
 
+mod broker;
 mod capability_calls;
 mod checkpoints;
 mod fence;
@@ -416,13 +417,11 @@ pub(crate) fn verify_dispatch_bundle_bounds(
         .unwrap_or(1);
     fn body_parallel(body: &SeatBody) -> usize {
         match body {
-            SeatBody::Single { .. } => 1,
-            SeatBody::Panel { members, .. } => members.len(),
+            SeatBody::Invocation(invocation) => invocation.parallel(),
             SeatBody::Sequence { steps } => steps
                 .iter()
                 .map(|step| match &step.body {
-                    StepBody::Single { .. } => 1,
-                    StepBody::Panel { members, .. } => members.len(),
+                    StepBody::Invocation(invocation) => invocation.parallel(),
                     StepBody::Dialect { .. } => 1,
                 })
                 .max()
@@ -1174,7 +1173,7 @@ impl Engine {
         let context = Value::Object(context);
         let has_change = nearest_change(&context).is_some();
         let mut input = match body {
-            ExecutableBody::Single { role_path, .. } => json!({
+            ExecutableBody::Invocation(Invocation::Single { role_path, .. }) => json!({
                 "feature": self.feature,
                 "phase": phase,
                 "seat": phase,
@@ -1184,7 +1183,7 @@ impl Engine {
                 "allowed_results": seat.results,
                 "context": context,
             }),
-            ExecutableBody::Panel { members, aggregate } => json!({
+            ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => json!({
                 "feature": self.feature,
                 "phase": phase,
                 "seat": phase,
@@ -1204,13 +1203,13 @@ impl Engine {
                 let step_values: Vec<Value> = steps
                     .iter()
                     .map(|step| match &step.body {
-                        StepBody::Single { role_path, .. } => json!({
+                        StepBody::Invocation(Invocation::Single { role_path, .. }) => json!({
                             "name": step.name,
                             "allowed_results": step.results,
                             "role_path": role_path.to_string_lossy(),
                             "result_path": result(format!("-{}", step.name)),
                         }),
-                        StepBody::Panel { members, aggregate } => json!({
+                        StepBody::Invocation(Invocation::Panel { members, aggregate }) => json!({
                             "name": step.name,
                             "allowed_results": step.results,
                             "aggregate": format!("{aggregate:?}"),
@@ -1354,8 +1353,8 @@ impl Engine {
             .unwrap_or_else(|| seat_name.to_string());
         let attempt_id = Uuid::new_v4().to_string();
         let driver_label = match body {
-            ExecutableBody::Single { command, .. } => command[0].clone(),
-            ExecutableBody::Panel { members, aggregate } => {
+            ExecutableBody::Invocation(Invocation::Single { command, .. }) => command[0].clone(),
+            ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => {
                 format!("panel[{}]:{aggregate:?}", members.len())
             }
             ExecutableBody::Sequence { steps } => format!("sequence[{}]", steps.len()),
@@ -1375,15 +1374,17 @@ impl Engine {
         // whether a prior session may be handed back to it.
         let runtime_hands = self.runtime_hands(&site_name);
         let mut single = match body {
-            ExecutableBody::Single { command, .. } => Some(self.compose_at(
-                Some(&site_name),
-                &attempt_id,
-                gate,
-                argv_for(&selection, &None, command).to_vec(),
-                runtime_hands.as_ref(),
-                selection.get(&None),
-                input["result_path"].as_str().unwrap_or_default(),
-            )),
+            ExecutableBody::Invocation(Invocation::Single { command, .. }) => {
+                Some(self.compose_at(
+                    Some(&site_name),
+                    &attempt_id,
+                    gate,
+                    argv_for(&selection, &None, command).to_vec(),
+                    runtime_hands.as_ref(),
+                    selection.get(&None),
+                    input["result_path"].as_str().unwrap_or_default(),
+                ))
+            }
             _ => None,
         };
         // The delivery door is a spawn-time fact of the selected link
@@ -1414,15 +1415,7 @@ impl Engine {
             "attempt_id": attempt_id,
             "driver": driver_label,
         });
-        if let Some(provenance) = provenance {
-            started["provenance"] = provenance;
-        }
-        // Which boundary stood at every site of this attempt (decision
-        // 0046 ruling 3), beside the provenance and built from the same
-        // walk, present exactly when a site of the attempt declares hands.
-        if let Some(entries) = self.boundary_entries(body, &site_name, gate) {
-            started["boundary"] = entries;
-        }
+        self.record_sites(&mut started, provenance, body, &site_name, gate);
         // Which session — if any — each EXECUTING MODEL SITE of this
         // attempt may rejoin, decided from journaled facts before
         // anything spawns (decision 0030, generalised by proposed
@@ -1456,22 +1449,25 @@ impl Engine {
             self.active_gate_head = Some(git_head(&self.repo));
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
-
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
-        let deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
-
+        let mut deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
+        let ids = [effect_id, attempt_id.as_str(), site_name.as_str()];
+        if !self.provision(ids, &selection, &mut deadline)? {
+            return Ok(());
+        }
         match body {
-            ExecutableBody::Panel { members, aggregate } => self.execute_panel(
-                effect_id,
-                &attempt_id,
-                &site_name,
-                members,
-                aggregate,
-                &input,
-                deadline,
-                &selection,
-                gate,
-            ),
+            ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => self
+                .execute_panel(
+                    effect_id,
+                    &attempt_id,
+                    &site_name,
+                    members,
+                    *aggregate,
+                    &input,
+                    deadline,
+                    &selection,
+                    gate,
+                ),
             ExecutableBody::Sequence { steps } => self.execute_sequence(
                 effect_id,
                 &attempt_id,
@@ -1485,7 +1481,7 @@ impl Engine {
             // decides what is mounted — a composed bundle spans every
             // recipe directory in its chain, not one dir. Both were
             // settled above, where the session question needed them.
-            ExecutableBody::Single { .. } => {
+            ExecutableBody::Invocation(Invocation::Single { .. }) => {
                 let spawn = single.expect("a single seat composed its command");
                 let plan = selection.plan(&None);
                 let run = self.run_driver(
@@ -1501,6 +1497,27 @@ impl Engine {
                 let boundary = self.site_boundary(&site_name);
                 self.conclude_single(effect_id, &attempt_id, run, &selection, boundary)
             }
+        }
+    }
+
+    /// The attempt's `started` payload gains the selection's provenance,
+    /// where there is one, and which boundary stood at every site of this
+    /// attempt (decision 0046 ruling 3), beside the provenance and built
+    /// from the same walk, present exactly when a site of the attempt
+    /// declares hands.
+    fn record_sites(
+        &self,
+        started: &mut Value,
+        provenance: Option<Value>,
+        body: ExecutableBody<'_>,
+        site_name: &str,
+        gate: bool,
+    ) {
+        if let Some(provenance) = provenance {
+            started["provenance"] = provenance;
+        }
+        if let Some(entries) = self.boundary_entries(body, site_name, gate) {
+            started["boundary"] = entries;
         }
     }
 
@@ -1658,10 +1675,7 @@ impl Engine {
         let workdir = self.workdir();
         let mut plans = BTreeMap::new();
         for entry in resume::structural_sites(body, seat_name, case, gate) {
-            let label = match &entry.site {
-                None => site_name.to_string(),
-                Some(tag) => format!("{site_name}:{tag}"),
-            };
+            let label = site_label(site_name, &entry.site);
             let context = resume::SiteContext::new(
                 entry.key.digest(),
                 resume::InstanceKey::new(
@@ -1765,10 +1779,7 @@ impl Engine {
         let entries: Vec<Value> = invocation_sites(body)
             .into_iter()
             .map(|(site, _)| {
-                let label = match &site {
-                    None => site_name.to_string(),
-                    Some(tag) => format!("{site_name}:{tag}"),
-                };
+                let label = site_label(site_name, &site);
                 let boundary = self.site_boundary(&label);
                 any_hands |= boundary.is_some();
                 json!({
@@ -2357,6 +2368,13 @@ enum DriverRun {
 /// exactly the tags the engine already uses for checkpoints.
 type Site = Option<String>;
 
+/// The label the site `site` of the seat `site_name` is composed and
+/// marked under: the seat's own, or `<seat>:<tag>`.
+fn site_label(site_name: &str, site: &Site) -> String {
+    site.as_ref()
+        .map_or_else(|| site_name.to_string(), |tag| format!("{site_name}:{tag}"))
+}
+
 /// The candidate chosen for each agent-resolved invocation site of this
 /// attempt, derived from journaled facts BEFORE anything spawns. Inline
 /// sites are absent from this map, which is what keeps their execute
@@ -2446,28 +2464,12 @@ struct SitePlan {
 /// Every invocation site of a seat body, with the site's fallback chain.
 /// Inline sites carry an empty chain.
 fn invocation_sites(body: ExecutableBody<'_>) -> Vec<(Site, &[Candidate])> {
-    fn panel<'a>(members: &'a [PanelMember], prefix: Option<&str>) -> Vec<(Site, &'a [Candidate])> {
-        members
-            .iter()
-            .map(|member| {
-                let tag = match prefix {
-                    None => member.name.clone(),
-                    Some(step) => format!("{step}:{}", member.name),
-                };
-                (Some(tag), member.candidates.as_slice())
-            })
-            .collect()
-    }
     match body {
-        ExecutableBody::Single { candidates, .. } => vec![(None, candidates)],
-        ExecutableBody::Panel { members, .. } => panel(members, None),
+        ExecutableBody::Invocation(invocation) => invocation.chains(None),
         ExecutableBody::Sequence { steps } => steps
             .iter()
             .flat_map(|step| match &step.body {
-                StepBody::Single { candidates, .. } => {
-                    vec![(Some(step.name.clone()), candidates.as_slice())]
-                }
-                StepBody::Panel { members, .. } => panel(members, Some(&step.name)),
+                StepBody::Invocation(invocation) => invocation.chains(Some(&step.name)),
                 StepBody::Dialect { .. } => {
                     vec![(Some(step.name.clone()), &[] as &[Candidate])]
                 }

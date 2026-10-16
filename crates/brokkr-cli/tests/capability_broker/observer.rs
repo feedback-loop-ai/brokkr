@@ -868,18 +868,33 @@ fn each_block(proof: impl Fn(Kind, Sealed, String, Block)) {
 }
 
 #[test]
-fn an_operation_blocked_to_the_deadline_refuses_with_nothing_left_running() {
-    each_block(|kind, sealed, digest, block| {
+fn a_mount_blocked_to_the_deadline_refuses_with_nothing_left_running() {
+    blocked_to_the_deadline(Kind::Mount);
+}
+
+#[test]
+fn a_launcher_blocked_to_the_deadline_refuses_with_nothing_left_running() {
+    blocked_to_the_deadline(Kind::Launcher);
+}
+
+/// Each real blocked operation retains its deadline and cleanup proof.
+/// Separate tests let libtest overlap these independent 30-second waits.
+fn blocked_to_the_deadline(kind: Kind) {
+    if let Some(reason) = unservable() {
+        return skip(&reason);
+    }
+    if let Some((sealed, digest, block)) = stalled(kind) {
         let store = Store::new(sealed.path("store/secrets.env"));
         let started = Instant::now();
         let mut command = adopted(&serving(&sealed, &digest, &block, Starter::Harness));
         let attempt = command.stderr(Stdio::null()).spawn().unwrap();
         let pid = blocked(&sealed.locator, &block);
         let (_, broker, _) = status(pid).unwrap();
-        // The broker ends once the full deadline, never extended, has
-        // passed, and no more than a slice after; the observer, whatever it
-        // started and its whole group are gone by then.
+        // The controlled-clock proofs check the exact budget. Here the
+        // deadline must refuse and settle the whole real process group;
+        // the parent's elapsed time also includes startup and scheduling.
         let elapsed = awaited(broker) - started;
+        let finished = exited(broker);
         let ended = swept(pid);
         let code = super::bounded_apart(attempt, b"", &apart(&sealed))
             .status
@@ -887,14 +902,17 @@ fn an_operation_blocked_to_the_deadline_refuses_with_nothing_left_running() {
         let ended_at = Instant::now();
         let answer = (code, broker_err(&sealed));
         assert_eq!((kind, answer), (kind, refused(Refusal::Identity)));
-        let within = (elapsed >= Duration::from_secs(30)) & (elapsed < Duration::from_secs(32));
-        assert!(within, "{kind:?}: {elapsed:?}");
+        assert!(finished, "{kind:?}: broker still running at the hang guard");
+        assert!(
+            elapsed >= Duration::from_secs(30),
+            "{kind:?}: early refusal: {elapsed:?}"
+        );
         assert!(ended, "{kind:?}");
         // Nothing was looked up or started.
         assert_eq!((kind, store.lookups(ended_at)), (kind, 0));
         assert!(!sealed.path("started").exists());
         reaped_at_the_next_start(kind, &sealed);
-    });
+    }
 }
 
 /// Check that the observer the broker killed left its server identity's
@@ -963,11 +981,17 @@ pub(super) fn cancelled(broker: i32) -> Duration {
 /// When `pid` is gone, or only a zombie, waiting no longer than a minute.
 pub(super) fn awaited(pid: i32) -> Instant {
     let until = Instant::now() + Duration::from_secs(60);
-    let live = || status(pid).is_some_and(|(state, _, _)| state != 'Z');
-    while live() & (Instant::now() < until) {
+    while !exited(pid) && Instant::now() < until {
         std::thread::sleep(Duration::from_millis(20));
     }
     Instant::now()
+}
+
+/// Whether the process is gone or a zombie, without another wait. A
+/// caller can distinguish the hang guard in `awaited` from an exit, then
+/// clean up its fixture before asserting the observation.
+pub(super) fn exited(pid: i32) -> bool {
+    status(pid).is_none_or(|(state, _, _)| state == 'Z')
 }
 
 /// Whether `pid` and every member of its group ended within a while

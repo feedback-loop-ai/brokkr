@@ -117,7 +117,8 @@ fn the_brokers_own_standard_error_has_one_writer_and_one_voice() {
     // tail, after it for a failed one's (U6f1b; MB4; operator ruling
     // 2026-10-14).
     // No broker file prints, and its standard input and output are the
-    // call path's and the observer's socket's alone.
+    // call path's and the observer's socket's alone, beside the engine's
+    // provisioning survey's one request and one reply (U7c0b).
     let stderr = "brokkr-cli/src/broker/session/stderr.rs";
     let lifetime = "brokkr-cli/src/broker/session/lifetime.rs";
     let at = |file: &str, functions: &[&str]| -> Vec<(PathBuf, String)> {
@@ -148,11 +149,14 @@ fn the_brokers_own_standard_error_has_one_writer_and_one_voice() {
     let rpc = at("brokkr-cli/src/broker/rpc.rs", &["held_apart"]);
     let serving = at("brokkr-cli/src/broker/rpc.rs", &["serving"]);
     assert_eq!(broker_calls(", held_apart)"), serving);
+    let survey = at("brokkr-cli/src/broker/survey.rs", &["run"]);
     assert_eq!(
         broker_calls("std::io::stdout("),
-        [rpc.clone(), observer].concat()
+        [rpc.clone(), observer, survey].concat()
     );
-    assert_eq!(broker_calls("std::io::stdin("), rpc);
+    // The survey's watcher reads the rest of its input to its end (U7c).
+    let tether = at("brokkr-cli/src/broker/survey.rs", &["run", "tethered"]);
+    assert_eq!(broker_calls("std::io::stdin("), [rpc, tether].concat());
     // Those streams are waited on by poll, never by their status flags,
     // which every holder of each shares: only the broker's own pipes to its
     // box, which no other process reads or writes its end of, are set so.

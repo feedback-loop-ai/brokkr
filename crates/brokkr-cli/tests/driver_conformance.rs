@@ -14,6 +14,7 @@ use brokkr_protocol::adapters::capability_calls::{Observation, OBSERVATION_KEY};
 use brokkr_runtime::agents::{Adapters, Availability, Library};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::engine::{compose_site, BuiltBoundary};
+use brokkr_runtime::Invocation::{Panel, Single};
 use brokkr_runtime::{
     operator_command, resolve_agent, Bundle, Engine, SeatBody, SeatClass, StepBody,
 };
@@ -3017,8 +3018,8 @@ fn patch_proof_body(body: &mut SeatBody, from: &str, to: &str) {
         }
     }
     match body {
-        SeatBody::Single { command, .. } => patch_command(command, from, to),
-        SeatBody::Panel { members, .. } => {
+        SeatBody::Invocation(Single { command, .. }) => patch_command(command, from, to),
+        SeatBody::Invocation(Panel { members, .. }) => {
             for member in members.iter_mut() {
                 patch_command(&mut member.command, from, to);
             }
@@ -3026,8 +3027,8 @@ fn patch_proof_body(body: &mut SeatBody, from: &str, to: &str) {
         SeatBody::Sequence { steps } => {
             for step in steps.iter_mut() {
                 match &mut step.body {
-                    StepBody::Single { command, .. } => patch_command(command, from, to),
-                    StepBody::Panel { members, .. } => {
+                    StepBody::Invocation(Single { command: c, .. }) => patch_command(c, from, to),
+                    StepBody::Invocation(Panel { members, .. }) => {
                         for member in members.iter_mut() {
                             patch_command(&mut member.command, from, to);
                         }

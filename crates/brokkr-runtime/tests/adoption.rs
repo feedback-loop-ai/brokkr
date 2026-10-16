@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use brokkr_runtime::Invocation;
 use brokkr_runtime::{Bundle, PanelMember, SeatBody, StepBody};
 
 fn workspace() -> PathBuf {
@@ -54,24 +55,26 @@ fn sites(bundle: &Bundle) -> BTreeMap<String, (PathBuf, Vec<String>)> {
         member: &impl Fn(&mut BTreeMap<String, (PathBuf, Vec<String>)>, &str, &[PanelMember]),
     ) {
         match body {
-            SeatBody::Single {
+            SeatBody::Invocation(Invocation::Single {
                 role_path, command, ..
-            } => {
+            }) => {
                 out.insert(name.to_string(), (role_path.clone(), command.clone()));
             }
-            SeatBody::Panel { members, .. } => member(out, &format!("{name}:"), members),
+            SeatBody::Invocation(Invocation::Panel { members, .. }) => {
+                member(out, &format!("{name}:"), members)
+            }
             SeatBody::Sequence { steps } => {
                 for step in steps {
                     match &step.body {
-                        StepBody::Single {
+                        StepBody::Invocation(Invocation::Single {
                             role_path, command, ..
-                        } => {
+                        }) => {
                             out.insert(
                                 format!("{name}:{}", step.name),
                                 (role_path.clone(), command.clone()),
                             );
                         }
-                        StepBody::Panel { members, .. } => {
+                        StepBody::Invocation(Invocation::Panel { members, .. }) => {
                             member(out, &format!("{name}:{}:", step.name), members)
                         }
                         StepBody::Dialect { .. } => {}

@@ -31,6 +31,8 @@ body[data-ds-dark-theme]{
 }
 body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk{font-family:'IBM Plex Sans',system-ui,sans-serif;color:var(--bk-ink);background:var(--bk-canvas);min-height:100%;display:flex;flex-direction:column;container:bk/inline-size}
+/* The sidebar page is DSH's centre column, which clips; the panel scrolls itself, so a long fire reads to its end under the sticky ask bar. */
+.bk:not(.in-tab){height:100%;overflow-y:auto}
 /* DSH floats its composer over a conversation's view and publishes its height; the tab leaves room for it. */
 .bk.in-tab{box-sizing:border-box;min-height:auto;padding-bottom:calc(var(--dsh-composer-height, 120px) + 24px)}
 .bk a,.bk .bk-link{color:var(--bk-accent);background:none;border:0;padding:0;font:inherit;cursor:pointer;text-decoration:none}

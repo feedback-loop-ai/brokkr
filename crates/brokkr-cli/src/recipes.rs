@@ -21,7 +21,7 @@ use anyhow::{bail, Context, Result};
 use brokkr_runtime::launch::{compile_for, BundleSource};
 use brokkr_runtime::places::{self, Kind, PlacesError, FOLDER};
 use brokkr_runtime::realms::World;
-use brokkr_runtime::{Bundle, SeatBody};
+use brokkr_runtime::{Bundle, Invocation, SeatBody};
 
 mod agents;
 mod sources;
@@ -48,15 +48,15 @@ pub(crate) fn source<E>(
 fn seat_summary(bundle: &Bundle) -> String {
     fn hire(body: &SeatBody) -> String {
         match body {
-            SeatBody::Single {
+            SeatBody::Invocation(Invocation::Single {
                 candidates,
                 command,
                 ..
-            } => candidates
+            }) => candidates
                 .first()
                 .map(|candidate| candidate.agent.clone())
                 .unwrap_or_else(|| command.first().cloned().unwrap_or_else(|| "inline".into())),
-            SeatBody::Panel { members, .. } => members
+            SeatBody::Invocation(Invocation::Panel { members, .. }) => members
                 .iter()
                 .map(|member| {
                     member
@@ -83,8 +83,8 @@ fn seat_summary(bundle: &Bundle) -> String {
         .seats
         .iter()
         .map(|(name, seat)| match &seat.body {
-            SeatBody::Single { .. } => name.clone(),
-            SeatBody::Panel { members, .. } => format!(
+            SeatBody::Invocation(Invocation::Single { .. }) => name.clone(),
+            SeatBody::Invocation(Invocation::Panel { members, .. }) => format!(
                 "{name}[{}]",
                 members
                     .iter()

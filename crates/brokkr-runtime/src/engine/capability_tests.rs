@@ -978,7 +978,11 @@ fn every_dispatch_composes_the_lowered_allow_of_its_own_site() {
 /// [`engine`] over a canonicalised temporary root, so every fixture path
 /// is the one the filesystem resolves (macOS's `/var` is `/private/var`).
 fn canonical_engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
-    let dir = tempfile::tempdir().unwrap();
+    canonical_engine_in(tempfile::tempdir().unwrap(), body)
+}
+
+/// [`canonical_engine`] built in `dir`.
+fn canonical_engine_in(dir: tempfile::TempDir, body: SeatBody) -> (tempfile::TempDir, Engine) {
     let root = std::fs::canonicalize(dir.path()).unwrap();
     std::fs::create_dir(root.join("work")).unwrap();
     let store = Store::open(&root.join("forge.db")).unwrap();
@@ -1535,13 +1539,13 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
         "single",
         Some(holdings("work", json!({"web-search": "wants"}), None)),
     );
-    engine.bundle.seats.get_mut("work").unwrap().body = SeatBody::Single {
+    engine.bundle.seats.get_mut("work").unwrap().body = SeatBody::Invocation(Invocation::Single {
         role_path: role,
         command: capturing("single", "complete"),
         candidates: Vec::new(),
         written: Vec::new(),
         class: SeatClass::Work,
-    };
+    });
     engine.drive().unwrap();
     let single = handed("single");
     assert_eq!(single["seat"], "work");
@@ -1579,23 +1583,23 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
     engine.bundle.seats.get_mut("work").unwrap().body = SeatBody::Select {
         cases: [(
             "chore".to_string(),
-            SeatBody::Single {
+            SeatBody::Invocation(Invocation::Single {
                 role_path: chore,
                 command: capturing("chore", "complete"),
                 candidates: Vec::new(),
                 written: Vec::new(),
                 class: SeatClass::Work,
-            },
+            }),
         )]
         .into_iter()
         .collect(),
-        default: Some(Box::new(SeatBody::Single {
+        default: Some(Box::new(SeatBody::Invocation(Invocation::Single {
             role_path: default,
             command: capturing("default", "complete"),
             candidates: Vec::new(),
             written: Vec::new(),
             class: SeatClass::Work,
-        })),
+        }))),
     };
     engine.drive().unwrap();
     assert!(!captures.join("chore.json").exists());
@@ -1766,10 +1770,10 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
         },
     ];
     let seat = engine.bundle.seats.get_mut("work").unwrap();
-    seat.body = SeatBody::Panel {
+    seat.body = SeatBody::Invocation(Invocation::Panel {
         members: members.clone(),
         aggregate: Aggregate::UnanimousPass,
-    };
+    });
     seat.results = vec!["pass".into(), "fail".into()];
     let panel_input = engine
         .seat_input(
@@ -1874,5 +1878,6 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
     );
 }
 mod call_tests;
+mod provision_tests;
 mod resume_tests;
 mod serving_tests;

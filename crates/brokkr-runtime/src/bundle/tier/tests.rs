@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::agents::LibraryError;
-use crate::bundle::{Bundle, SeatBody};
+use crate::bundle::{Bundle, Invocation, SeatBody};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -146,7 +146,7 @@ fn inline_on(driver: &str, class: &str, tail: &[&str]) -> Value {
 
 fn chain(bundle: &Bundle) -> Vec<&str> {
     match &bundle.seats["work"].body {
-        SeatBody::Single { candidates, .. } => {
+        SeatBody::Invocation(Invocation::Single { candidates, .. }) => {
             candidates.iter().map(|c| c.model.as_str()).collect()
         }
         other => panic!("a single seat, got {other:?}"),

@@ -31,6 +31,7 @@
 mod bootstrap;
 mod rpc;
 mod session;
+mod survey;
 
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
@@ -97,6 +98,14 @@ pub(crate) fn plan_digest(text: &str) -> Result<String, BrokerError> {
     }
 }
 
+/// The engine's HOME as `home` states it, where it is absolute and
+/// resolves: the one rule admission's binding and the provisioning survey
+/// each read the engine's HOME by, each refusing with its own cause.
+fn canonical_home(home: &Path) -> Option<PathBuf> {
+    home.is_absolute().then_some(())?;
+    std::fs::canonicalize(home).ok()
+}
+
 /// Serve the plan `command` names: refuse before looking up a secret or
 /// starting anything where a check fails; otherwise launch its box, hand
 /// its server its bindings, start and initialize it, and serve the harness
@@ -105,7 +114,8 @@ pub(crate) fn plan_digest(text: &str) -> Result<String, BrokerError> {
 /// without waiting on a standard error nobody reads. Or, as `serve`'s
 /// private observer, observe it and hand back what was checked; or, as its
 /// waiting bootstrap, report the box ready and exec the server, returning
-/// only the cause of one that did not start.
+/// only the cause of one that did not start. Or, as the engine's
+/// provisioning observer, survey one box and reply ([`survey`], U7c0b).
 pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
     match command {
         BrokerCmd::Serve(BrokerServeArgs { plan, plan_digest }) => {
@@ -116,5 +126,6 @@ pub(crate) fn run(command: BrokerCmd) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         BrokerCmd::Bootstrap(args) => Err(bootstrap::run(&args).into()),
+        BrokerCmd::Survey => survey::run(),
     }
 }

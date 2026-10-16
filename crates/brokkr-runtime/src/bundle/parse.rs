@@ -14,8 +14,8 @@ use super::site_form::{classify, CaseShape, MemberShape, SeatShape, CASE, MEMBER
 use super::{
     command_parts, enforce_model_policy, parse_class, parse_command, parse_role, parse_sequence,
     record_hands, record_inline_tools, refuse_class_without_a_driver, resolve_reference,
-    AgentContext, Aggregate, Candidate, Charters, CompileError, Dialect, PanelMember, ResolvedSeat,
-    SeatBody, SeatClass, SiteFacts, SiteLaw, SELECT_STRATEGIES,
+    AgentContext, Aggregate, Candidate, Charters, CompileError, Dialect, Invocation, PanelMember,
+    ResolvedSeat, SeatBody, SeatClass, SiteFacts, SiteLaw, SELECT_STRATEGIES,
 };
 
 /// One compile's site parser. It owns the compile's two accumulators —
@@ -77,18 +77,19 @@ impl<'a> SiteCompiler<'a> {
             SeatShape::Agent => {
                 let agent_seat =
                     resolve_reference(self, at.dir, phase, raw, at.secrets, SEAT.role)?;
-                let body = SeatBody::Single {
+                let body = SeatBody::Invocation(Invocation::Single {
                     role_path: agent_seat.role_path.clone(),
                     command: agent_seat.command.clone(),
                     candidates: agent_seat.candidates.clone(),
                     written: Vec::new(),
                     class: parse_class(phase, raw)?,
-                };
+                });
                 Ok((Some(agent_seat), body, None))
             }
             SeatShape::Panel => {
                 let (members, aggregate) = self.parse_panel(at, phase, raw)?;
-                Ok((None, SeatBody::Panel { members, aggregate }, None))
+                let body = SeatBody::Invocation(Invocation::Panel { members, aggregate });
+                Ok((None, body, None))
             }
             SeatShape::Sequence => {
                 let (steps, whole_gate) = parse_sequence(self, at, phase, raw)?;
@@ -97,13 +98,13 @@ impl<'a> SiteCompiler<'a> {
             SeatShape::Select => Ok((None, self.parse_select(at, phase, raw)?, None)),
             SeatShape::Inline => {
                 let written = self.inline_written(at, phase, raw, true)?;
-                let body = SeatBody::Single {
+                let body = SeatBody::Invocation(Invocation::Single {
                     role_path: parse_role(at.dir, phase, raw, self.charters, &mut self.sites)?,
                     command: parse_command(at.dir, phase, raw, at.secrets)?,
                     candidates: Vec::new(),
                     written,
                     class: parse_class(phase, raw)?,
-                };
+                });
                 Ok((None, body, None))
             }
         }
@@ -148,7 +149,10 @@ impl<'a> SiteCompiler<'a> {
             CaseShape::Panel => {
                 let (members, aggregate) = self.parse_panel(at, what, raw)?;
                 refuse_class_without_a_driver(what, raw)?;
-                Ok(SeatBody::Panel { members, aggregate })
+                Ok(SeatBody::Invocation(Invocation::Panel {
+                    members,
+                    aggregate,
+                }))
             }
             CaseShape::Sequence => {
                 // Its steps say its fact: a_selected_sequence_holds_no_dialect_step.
@@ -169,13 +173,13 @@ impl<'a> SiteCompiler<'a> {
     ) -> Result<SeatBody, CompileError> {
         let resolved = resolve_reference(self, at.dir, what, raw, at.secrets, CASE.role)?;
         let class = self.judge(at, what, raw, &resolved.candidates, resolved.hands)?;
-        Ok(SeatBody::Single {
+        Ok(SeatBody::Invocation(Invocation::Single {
             role_path: resolved.role_path,
             command: resolved.command,
             candidates: resolved.candidates,
             written: Vec::new(),
             class,
-        })
+        }))
     }
 
     /// A case written inline, judged before its role and command are read.
@@ -187,13 +191,13 @@ impl<'a> SiteCompiler<'a> {
     ) -> Result<SeatBody, CompileError> {
         let written = self.inline_written(at, what, raw, false)?;
         let class = self.judge(at, what, raw, &[], None)?;
-        Ok(SeatBody::Single {
+        Ok(SeatBody::Invocation(Invocation::Single {
             role_path: parse_role(at.dir, what, raw, self.charters, &mut self.sites)?,
             command: parse_command(at.dir, what, raw, at.secrets)?,
             candidates: Vec::new(),
             written,
             class,
-        })
+        }))
     }
 
     /// Parse a panel body (`"panel": {…members…}, "aggregate": "…"`) at
