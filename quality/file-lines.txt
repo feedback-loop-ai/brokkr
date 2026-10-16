@@ -303,7 +303,7 @@
    433 crates/brokkr-runtime/src/agents/charter_data/tests.rs
   1109 crates/brokkr-runtime/src/agents/mcp/tests.rs
   5837 crates/brokkr-runtime/src/agents/tests.rs
-    78 crates/brokkr-runtime/src/agents/tests/harness_auth.rs
+    92 crates/brokkr-runtime/src/agents/tests/harness_auth.rs
    399 crates/brokkr-runtime/src/anchor/tests.rs
   6676 crates/brokkr-runtime/src/bundle/agent_tests.rs
    407 crates/brokkr-runtime/src/bundle/agent_tests/charter_tests.rs
