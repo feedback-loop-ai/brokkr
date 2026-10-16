@@ -1982,7 +1982,8 @@ fn a_gate_agent_whose_whole_chain_is_trusted_compiles() {
             "agent": "steady",
         }))
         .expect("a chain of trusted links holds a gate");
-    let SeatBody::Single { candidates, .. } = &bundle.seats["work"].body else {
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
+    else {
         unreachable!("an agent seat is a single body")
     };
     assert_eq!(candidates.len(), 2);
@@ -2751,7 +2752,8 @@ fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_script
             fast.manifest["boundary"],
             json!({"ship": boundary.word(), "verify": boundary.word()})
         );
-        let SeatBody::Single { command, .. } = &fast.seats["ship"].body else {
+        let SeatBody::Invocation(Invocation::Single { command, .. }) = &fast.seats["ship"].body
+        else {
             panic!("the ship seat is a single exec site")
         };
         // `{brokkr}` expanded twice: once as the dispatch, once as the
@@ -2770,7 +2772,8 @@ fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_script
     .expect("the inherited verify seat resolves against fast");
     let fast_dir = root.join("recipes/fast").canonicalize().unwrap();
     assert_eq!(wager.roots[1], fast_dir);
-    let SeatBody::Single { command, .. } = &wager.seats["verify"].body else {
+    let SeatBody::Invocation(Invocation::Single { command, .. }) = &wager.seats["verify"].body
+    else {
         panic!("the inherited verify seat is a single exec site")
     };
     let checked = fast_dir.join("scripts/verify-seat.sh");
@@ -2942,7 +2945,8 @@ fn ordinary_script_components_and_unjudged_arguments_keep_their_bytes() {
             )
             .unwrap();
         assert!(bundle.manifest["files"].get(relative).is_some());
-        let SeatBody::Single { command, .. } = &bundle.seats["work"].body else {
+        let SeatBody::Invocation(Invocation::Single { command, .. }) = &bundle.seats["work"].body
+        else {
             panic!("the gate is a single exec site")
         };
         assert_eq!(command[5], bundle.dir.join(relative).to_str().unwrap());
@@ -3374,7 +3378,8 @@ fn ruling_4s_own_binding_is_pinned_against_the_shipped_adapters() {
         brokkr_core::canonical::sha256_hex(&json!({"codex": codex}))
     );
     assert_eq!(bundle.manifest["boundary"], json!({"work": "harness"}));
-    let SeatBody::Single { candidates, .. } = &bundle.seats["work"].body else {
+    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
+    else {
         panic!("an agent seat is a single body")
     };
     // The candidate carries the shipped declaration to the engine, which
@@ -4348,7 +4353,7 @@ fn engine_exe() -> String {
 
 fn smith_candidates(bundle: &Bundle) -> &[Candidate] {
     match &bundle.seats["work"].body {
-        SeatBody::Single { candidates, .. } => candidates,
+        SeatBody::Invocation(Invocation::Single { candidates, .. }) => candidates,
         other => panic!("the smith is a single seat: {other:?}"),
     }
 }

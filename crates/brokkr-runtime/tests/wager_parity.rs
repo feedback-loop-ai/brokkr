@@ -13,6 +13,7 @@
 
 use std::path::PathBuf;
 
+use brokkr_runtime::Invocation;
 use brokkr_runtime::{Bundle, SeatBody};
 
 fn workspace() -> PathBuf {
@@ -93,10 +94,10 @@ fn exactly_one_seat_differs_and_it_differs_only_in_its_driver() {
     let mut differing: Vec<&str> = Vec::new();
     for (phase, mine) in &challenger.seats {
         let (
-            SeatBody::Single { command: mine, .. },
-            SeatBody::Single {
+            SeatBody::Invocation(Invocation::Single { command: mine, .. }),
+            SeatBody::Invocation(Invocation::Single {
                 command: theirs, ..
-            },
+            }),
         ) = (&mine.body, &incumbent.seats[phase].body)
         else {
             panic!("both arms seat single drivers throughout");
@@ -139,7 +140,9 @@ fn the_challenger_holds_no_gate_and_the_gates_stay_on_the_incumbent() {
          them — are identical in both arms (parity checklist item 6)"
     );
 
-    let SeatBody::Single { command, .. } = &challenger.seats["implement"].body else {
+    let SeatBody::Invocation(Invocation::Single { command, .. }) =
+        &challenger.seats["implement"].body
+    else {
         panic!("the challenger's implement seat is a single driver")
     };
     assert!(

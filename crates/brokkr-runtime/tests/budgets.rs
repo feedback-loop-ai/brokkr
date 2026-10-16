@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::adapters::{render_prompt, AdapterKind};
-use brokkr_runtime::bundle::{PanelMember, SeatBody, StepBody};
+use brokkr_runtime::bundle::{Invocation, PanelMember, SeatBody, StepBody};
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::engine::SiteMarks;
 use brokkr_runtime::{Bundle, Candidate, Seat, SeatClass};
@@ -82,12 +82,12 @@ fn members(sites: &mut Vec<Site>, at: &At<'_>, members: &[PanelMember]) {
 /// step answers with the seat's vocabulary, as the engine hands it.
 fn walk(sites: &mut Vec<Site>, at: &At<'_>, body: &SeatBody) {
     match body {
-        SeatBody::Single {
+        SeatBody::Invocation(Invocation::Single {
             role_path,
             candidates,
             ..
-        } => sites.extend(at.site(role_path, None, candidates)),
-        SeatBody::Panel { members: panel, .. } => members(sites, at, panel),
+        }) => sites.extend(at.site(role_path, None, candidates)),
+        SeatBody::Invocation(Invocation::Panel { members: panel, .. }) => members(sites, at, panel),
         SeatBody::Sequence { steps } => {
             for (index, step) in steps.iter().enumerate() {
                 let results = if index + 1 == steps.len() {
@@ -97,12 +97,14 @@ fn walk(sites: &mut Vec<Site>, at: &At<'_>, body: &SeatBody) {
                 };
                 let inner = at.inner(&step.name, results, step.class == SeatClass::Gate);
                 match &step.body {
-                    StepBody::Single {
+                    StepBody::Invocation(Invocation::Single {
                         role_path,
                         candidates,
                         ..
-                    } => sites.extend(inner.site(role_path, None, candidates)),
-                    StepBody::Panel { members: panel, .. } => members(sites, &inner, panel),
+                    }) => sites.extend(inner.site(role_path, None, candidates)),
+                    StepBody::Invocation(Invocation::Panel { members: panel, .. }) => {
+                        members(sites, &inner, panel)
+                    }
                     // A dialect step is a validator the engine runs itself.
                     StepBody::Dialect { .. } => {}
                 }

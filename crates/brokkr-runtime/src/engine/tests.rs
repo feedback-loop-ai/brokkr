@@ -77,23 +77,24 @@ pub(super) fn unlimited(hands: HandsIntent) -> crate::agents::Intent {
 }
 
 pub(super) fn single_body(command: Vec<String>) -> SeatBody {
-    SeatBody::Single {
+    SeatBody::Invocation(Invocation::Single {
         role_path: PathBuf::from("role.md"),
         command,
         candidates: Vec::new(),
         written: Vec::new(),
         class: SeatClass::Work,
-    }
+    })
 }
 
 /// The inline step every sequence fixture runs on `role.md`.
 pub(super) fn step_body(command: Vec<String>) -> StepBody {
-    StepBody::Single {
+    StepBody::Invocation(Invocation::Single {
         role_path: "role.md".into(),
         command,
         candidates: Vec::new(),
         written: Vec::new(),
-    }
+        class: (),
+    })
 }
 
 /// The two-step fixture sequence: an inline `draft` on `role` whose own
@@ -104,12 +105,13 @@ pub(super) fn draft_then_finish(
     drafted: &[&str],
     members: Vec<PanelMember>,
 ) -> Vec<SequenceStep> {
-    let draft = StepBody::Single {
+    let draft = StepBody::Invocation(Invocation::Single {
         role_path: role.into(),
         command: draft,
         candidates: Vec::new(),
         written: Vec::new(),
-    };
+        class: (),
+    });
     vec![
         SequenceStep {
             name: "draft".into(),
@@ -121,10 +123,10 @@ pub(super) fn draft_then_finish(
             name: "finish".into(),
             class: SeatClass::Work,
             results: vec!["pass".into(), "fail".into()],
-            body: StepBody::Panel {
+            body: StepBody::Invocation(Invocation::Panel {
                 members,
                 aggregate: Aggregate::UnanimousPass,
-            },
+            }),
         },
     ]
 }
@@ -633,12 +635,13 @@ fn dialect_change_expands_from_typed_history_and_absence_parks() {
                 name: "judge".into(),
                 results: vec!["clear".into(), "ambiguous".into()],
                 class: SeatClass::Work,
-                body: StepBody::Single {
+                body: StepBody::Invocation(Invocation::Single {
                     role_path: "role".into(),
                     command: vec!["missing".into()],
                     candidates: Vec::new(),
                     written: Vec::new(),
-                },
+                    class: (),
+                }),
             });
         }
         present
@@ -900,7 +903,7 @@ read -r done
         .selected(rebuilt.strategy.as_deref())
         .unwrap();
     assert_eq!(case, Some("feature"));
-    let ExecutableBody::Single { command, .. } = body else {
+    let ExecutableBody::Invocation(Invocation::Single { command, .. }) = body else {
         panic!("the feature case must remain a single seat")
     };
     assert_eq!(command, &["feature-driver"]);
@@ -1534,10 +1537,10 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
         .collect();
     let panel = bundle(
         dir.path(),
-        SeatBody::Panel {
+        SeatBody::Invocation(Invocation::Panel {
             members: members.clone(),
             aggregate: Aggregate::UnanimousPass,
-        },
+        }),
     );
     assert_eq!(verify_dispatch_bundle_bounds(&base, &panel), Ok(()));
 
@@ -1549,21 +1552,22 @@ fn dispatch_bounds_cover_single_panel_sequence_defaults_and_refusals() {
                     name: "single".into(),
                     results: vec!["single-result".into()],
                     class: SeatClass::Work,
-                    body: StepBody::Single {
+                    body: StepBody::Invocation(Invocation::Single {
                         role_path: "role".into(),
                         command: vec!["driver".into()],
                         candidates: Vec::new(),
                         written: Vec::new(),
-                    },
+                        class: (),
+                    }),
                 },
                 SequenceStep {
                     name: "panel".into(),
                     results: vec!["panel-result".into()],
                     class: SeatClass::Work,
-                    body: StepBody::Panel {
+                    body: StepBody::Invocation(Invocation::Panel {
                         members,
                         aggregate: Aggregate::UnanimousPass,
-                    },
+                    }),
                 },
                 SequenceStep {
                     name: "dialect".into(),
@@ -4725,7 +4729,7 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                 name: "draft".into(),
                 class: SeatClass::Work,
                 results: vec!["drafted".into()],
-                body: StepBody::Single {
+                body: StepBody::Invocation(Invocation::Single {
                     role_path: "draft.md".into(),
                     command: driver_command(
                         "vocabulary-effect",
@@ -4734,18 +4738,20 @@ fn a_non_final_sequence_result_is_enforced_before_it_becomes_prior_context() {
                     ),
                     candidates: Vec::new(),
                     written: Vec::new(),
-                },
+                    class: (),
+                }),
             },
             SequenceStep {
                 name: "finish".into(),
                 class: SeatClass::Work,
                 results: vec!["complete".into()],
-                body: StepBody::Single {
+                body: StepBody::Invocation(Invocation::Single {
                     role_path: "finish.md".into(),
                     command: vec!["must-not-run".into()],
                     candidates: Vec::new(),
                     written: Vec::new(),
-                },
+                    class: (),
+                }),
             },
         ];
         let (_dir, mut engine) = engine(SeatBody::Sequence {
@@ -4842,7 +4848,7 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
         assert_eq!(steps.last().unwrap().results, ["drafted", "fail"]);
         for step in &mut steps {
             match (&step.name[..], &mut step.body) {
-                ("positions", StepBody::Panel { members, .. }) => {
+                ("positions", StepBody::Invocation(Invocation::Panel { members, .. })) => {
                     for member in members {
                         member.command = driver_command(
                             "upstream-effect",
@@ -4856,11 +4862,11 @@ fn compiled_design_upstream_reenters_specify_then_exhausts() {
                 }
                 (
                     "chief",
-                    StepBody::Single {
+                    StepBody::Invocation(Invocation::Single {
                         command,
                         candidates,
                         ..
-                    },
+                    }),
                 ) => {
                     *command = driver_command(
                         "upstream-effect",
@@ -4922,11 +4928,11 @@ fn judged_sequence(
     let SeatBody::Sequence { mut steps } = engine.bundle.seats[seat].body.clone() else {
         panic!("compiled triage {seat} is a sequence");
     };
-    let StepBody::Single {
+    let StepBody::Invocation(Invocation::Single {
         command,
         candidates,
         ..
-    } = &mut steps[1].body
+    }) = &mut steps[1].body
     else {
         panic!("the compiled {seat} judge is a single step");
     };
@@ -5036,7 +5042,7 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
                 name: "positions".into(),
                 results: vec!["clean".into(), "residual".into(), "security-hold".into()],
                 class: SeatClass::Work,
-                body: StepBody::Panel {
+                body: StepBody::Invocation(Invocation::Panel {
                     members: vec![
                         member(
                             "correctness",
@@ -5070,13 +5076,13 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
                         ),
                     ],
                     aggregate: Aggregate::ReviewPanel,
-                },
+                }),
             },
             SequenceStep {
                 name: "chief".into(),
                 results: vec!["clean".into(), "residual".into(), "security-hold".into()],
                 class: SeatClass::Work,
-                body: StepBody::Single {
+                body: StepBody::Invocation(Invocation::Single {
                     role_path: "chief.md".into(),
                     command: capturing_driver_command(
                         "review-effect",
@@ -5086,7 +5092,8 @@ fn chief_synthesis_carries_a_panel_security_hold_to_the_machine() {
                     ),
                     candidates: Vec::new(),
                     written: Vec::new(),
-                },
+                    class: (),
+                }),
             },
         ];
         let seq_input = json!({

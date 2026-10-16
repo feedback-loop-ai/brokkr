@@ -205,12 +205,12 @@ fn a_derived_recipe_overrides_one_named_select_case_and_no_neighbour() {
     let compiled = Bundle::compile(&leaf).unwrap();
     let (selected, selected_case) = compiled.seats["work"].body.selected(None).unwrap();
     assert_eq!(selected_case, Some("default"));
-    let ExecutableBody::Single { role_path, .. } = selected else {
+    let ExecutableBody::Invocation(Invocation::Single { role_path, .. }) = selected else {
         panic!("the inherited default must stay a single seat")
     };
     assert_eq!(
         role_path,
-        base_dir.join("roles/default.md"),
+        &base_dir.join("roles/default.md"),
         "the inherited default resolves against the layer that wrote it"
     );
 
@@ -906,9 +906,9 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
     );
     let bundle = Bundle::compile(&leaf).unwrap();
     assert_eq!(bundle.roots, vec![leaf.clone(), base.clone()]);
-    let SeatBody::Single {
+    let SeatBody::Invocation(Invocation::Single {
         role_path, command, ..
-    } = &bundle.seats["review"].body
+    }) = &bundle.seats["review"].body
     else {
         panic!("the inherited review seat is a single driver")
     };
@@ -916,7 +916,8 @@ fn inherited_seats_resolve_their_paths_against_the_layer_that_wrote_them() {
     assert_eq!(command[0], base.join("drive").to_string_lossy());
     assert_eq!(command[1], "plain");
 
-    let SeatBody::Single { role_path, .. } = &bundle.seats["work"].body else {
+    let SeatBody::Invocation(Invocation::Single { role_path, .. }) = &bundle.seats["work"].body
+    else {
         panic!("the overriding work seat is a single driver")
     };
     assert_eq!(role_path, &leaf.join("roles/role.md"));
@@ -1000,7 +1001,8 @@ fn an_inherited_seats_ancestor_is_re_derived_by_the_re_walk() {
     )
     .expect("the inherited seat's script is pinned by the layer that wrote it");
     assert_eq!(bundle.roots, vec![leaf.clone(), base.clone()]);
-    let SeatBody::Single { command, .. } = &bundle.seats["work"].body else {
+    let SeatBody::Invocation(Invocation::Single { command, .. }) = &bundle.seats["work"].body
+    else {
         panic!("the inherited work seat is a single exec site")
     };
     assert_eq!(command[5], script.to_string_lossy());

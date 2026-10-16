@@ -23,7 +23,7 @@ use brokkr_core::realms::Boundary;
 
 use crate::agents::Candidate;
 pub(super) use crate::bundle::SiteKey;
-use crate::bundle::{ExecutableBody, SeatClass, StepBody};
+use crate::bundle::{ExecutableBody, Invocation, SeatClass, StepBody};
 
 /// The domain separator. Two digests over two different structures must
 /// never collide into each other — the site's own is `SiteKey`'s — and a
@@ -570,12 +570,12 @@ pub(crate) fn structural_sites(
         command,
     };
     match body {
-        ExecutableBody::Single { command, .. } => vec![site(
+        ExecutableBody::Invocation(Invocation::Single { command, .. }) => vec![site(
             SiteKey::single(seat, case),
             seat_class,
             command.to_vec(),
         )],
-        ExecutableBody::Panel { members, .. } => members
+        ExecutableBody::Invocation(Invocation::Panel { members, .. }) => members
             .iter()
             .enumerate()
             .map(|(index, member)| {
@@ -590,12 +590,12 @@ pub(crate) fn structural_sites(
             .iter()
             .enumerate()
             .flat_map(|(step_index, step)| match &step.body {
-                StepBody::Single { command, .. } => vec![site(
+                StepBody::Invocation(Invocation::Single { command, .. }) => vec![site(
                     SiteKey::sequence_step(seat, case, &step.name, step_index),
                     step.class,
                     command.clone(),
                 )],
-                StepBody::Panel { members, .. } => members
+                StepBody::Invocation(Invocation::Panel { members, .. }) => members
                     .iter()
                     .enumerate()
                     .map(|(member_index, member)| {
@@ -633,8 +633,8 @@ pub(crate) fn owner_sites(
     case: Option<&str>,
 ) -> Vec<SiteKey> {
     match body {
-        ExecutableBody::Single { .. } => vec![SiteKey::single(seat, case)],
-        ExecutableBody::Panel { members, .. } => members
+        ExecutableBody::Invocation(Invocation::Single { .. }) => vec![SiteKey::single(seat, case)],
+        ExecutableBody::Invocation(Invocation::Panel { members, .. }) => members
             .iter()
             .enumerate()
             .map(|(index, member)| SiteKey::panel_member(seat, case, &member.name, index))
@@ -643,10 +643,10 @@ pub(crate) fn owner_sites(
             .iter()
             .enumerate()
             .flat_map(|(step_index, step)| match &step.body {
-                StepBody::Single { .. } | StepBody::Dialect { .. } => {
+                StepBody::Dialect { .. } | StepBody::Invocation(Invocation::Single { .. }) => {
                     vec![SiteKey::sequence_step(seat, case, &step.name, step_index)]
                 }
-                StepBody::Panel { members, .. } => members
+                StepBody::Invocation(Invocation::Panel { members, .. }) => members
                     .iter()
                     .enumerate()
                     .map(|(member_index, member)| {

@@ -248,12 +248,12 @@ fn an_agent_reference_resolves_into_an_ordinary_seat_and_pins_itself() {
     let seat = &bundle.seats["work"];
     assert_eq!(seat.limits.max_attempts, 3);
     assert_eq!(seat.limits.timeout_seconds, 77);
-    let SeatBody::Single {
+    let SeatBody::Invocation(Invocation::Single {
         role_path,
         command,
         candidates,
         ..
-    } = &seat.body
+    }) = &seat.body
     else {
         panic!("an agent reference resolves to a single seat");
     };
@@ -319,9 +319,9 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
     // dispatch composes it; the fixture's adapter declares no template.
     let describe = |bundle: &Bundle| {
         let seat = &bundle.seats["work"];
-        let SeatBody::Single {
+        let SeatBody::Invocation(Invocation::Single {
             role_path, command, ..
-        } = &seat.body
+        }) = &seat.body
         else {
             unreachable!("single seat")
         };
@@ -341,7 +341,7 @@ fn a_resolved_seat_equals_the_equivalent_inline_seat() {
     };
     assert_eq!(describe(&resolved), describe(&inline));
     let role_of = |bundle: &Bundle| match &bundle.seats["work"].body {
-        SeatBody::Single { role_path, .. } => role_path.clone(),
+        SeatBody::Invocation(Invocation::Single { role_path, .. }) => role_path.clone(),
         _ => unreachable!("single seat"),
     };
     assert_eq!(
@@ -458,11 +458,11 @@ fn panel_members_and_sequence_steps_may_name_agents() {
     let SeatBody::Sequence { steps } = &bundle.seats["work"].body else {
         unreachable!("sequence")
     };
-    let StepBody::Single { candidates, .. } = &steps[1].body else {
+    let StepBody::Invocation(Invocation::Single { candidates, .. }) = &steps[1].body else {
         unreachable!("single step")
     };
     assert_eq!(candidates.len(), 1);
-    let StepBody::Panel { members, .. } = &steps[0].body else {
+    let StepBody::Invocation(Invocation::Panel { members, .. }) = &steps[0].body else {
         unreachable!("panel step")
     };
     assert!(!members[0].candidates.is_empty());
@@ -562,7 +562,8 @@ fn a_brand_new_provider_and_model_arrive_as_data() {
         }),
     );
     let bundle = fixture.compile(fixture.config()).unwrap();
-    let SeatBody::Single { command, .. } = &bundle.seats["work"].body else {
+    let SeatBody::Invocation(Invocation::Single { command, .. }) = &bundle.seats["work"].body
+    else {
         unreachable!("single seat")
     };
     assert_eq!(
@@ -657,9 +658,7 @@ fn an_adapter_template_secret_reference_faces_the_declared_secret_lint() {
     let mut config = fixture.config();
     config["seats"]["work"]["secrets"] = json!(["TOKEN"]);
     let bundle = fixture.compile(config).unwrap();
-    let SeatBody::Single { command, .. } = &bundle.seats["work"].body else {
-        unreachable!("single seat")
-    };
+    let command = command_of(&bundle, "work");
     assert!(command.iter().any(|part| part.contains("secret:TOKEN")));
 }
 
@@ -1048,7 +1047,7 @@ fn write_office(fixture: &AgentFixture) {
 
 fn command_of(bundle: &Bundle, seat: &str) -> Vec<String> {
     match &bundle.seats[seat].body {
-        SeatBody::Single { command, .. } => command.clone(),
+        SeatBody::Invocation(Invocation::Single { command, .. }) => command.clone(),
         _ => panic!("seat '{seat}' is a single site"),
     }
 }

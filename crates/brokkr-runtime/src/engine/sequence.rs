@@ -21,7 +21,8 @@ use super::{
     Site, Unproven,
 };
 use crate::bundle::{
-    dialect_results, Aggregate, DialectExecution, PanelMember, SeatClass, SequenceStep, StepBody,
+    dialect_results, Aggregate, DialectExecution, Invocation, PanelMember, SeatClass, SequenceStep,
+    StepBody,
 };
 use crate::dialect::DialectPhase;
 
@@ -236,8 +237,10 @@ impl Engine {
             self.active_gate_head = Some(git_head(&self.repo));
         }
         let ran = match &at.step.body {
-            StepBody::Single { command, .. } => self.single_step(run, at, command)?,
-            StepBody::Panel { members, aggregate } => {
+            StepBody::Invocation(Invocation::Single { command, .. }) => {
+                self.single_step(run, at, command)?
+            }
+            StepBody::Invocation(Invocation::Panel { members, aggregate }) => {
                 self.panel_step(run, at, members, *aggregate)?
             }
             StepBody::Dialect { execution } => {
