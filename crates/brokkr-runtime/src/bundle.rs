@@ -1608,7 +1608,7 @@ impl Bundle {
             mut sites,
             ..
         } = compiler;
-        agents.settle()?;
+        agents.settle(&resolved.seats)?;
         // Decision 0031 over the TYPED, flattened seats before the wrapper
         // moves an address: one refusal names the whole repair set, and the
         // maps it returns seed the manifest's `drivers` pin and the resume.

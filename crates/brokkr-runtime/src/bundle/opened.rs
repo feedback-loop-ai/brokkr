@@ -14,7 +14,9 @@
 //! compile. An inline built-in model driver opens them OPTIONALLY (decision
 //! 0066 ruling 1): a failure is kept, never refused at the site, and read by
 //! the capability pass and decision 0069's check after every seat. A bundle
-//! with none of these compiles with no `adapters/` directory in sight.
+//! with none of these compiles with no `adapters/` directory in sight. Once
+//! every seat is parsed, a root the seats' written keys name is opened all
+//! the same ([`opens_as_written`]), so each bundle opens what it always did.
 //!
 //! The LIBRARY is opened only by an agent reference, which is what keeps a
 //! missing one a non-event for every bundle that inlines. Each is loaded at
@@ -22,6 +24,8 @@
 //! same value.
 
 use std::path::Path;
+
+use serde_json::{Map, Value};
 
 use super::{tier, CapabilityAdapters, CompileError, LibraryRead, SeatClass};
 use crate::agents::{Adapters, Candidate, EgressClass, Library};
@@ -221,10 +225,20 @@ impl<'a> Opened<'a> {
         }
     }
 
-    /// Once every seat is parsed: each site that waited is judged by the
-    /// adapters the compile opened, in the order the sites were reached,
-    /// exactly as it would have been had they been open when it was.
-    pub(super) fn settle(&mut self) -> Result<(), CompileError> {
+    /// Once every seat is parsed: the roots the composed `seats` open as
+    /// written ([`opens_as_written`]), then each site that waited is judged
+    /// by the adapters the compile opened, in the order the sites were
+    /// reached, exactly as it would have been had they been open when it was.
+    pub(super) fn settle(&mut self, seats: &Map<String, Value>) -> Result<(), CompileError> {
+        match opens_as_written(seats) {
+            AsWritten::Nothing => {}
+            AsWritten::Adapters => {
+                self.adapters()?;
+            }
+            AsWritten::Library => {
+                self.agent_roots()?;
+            }
+        }
         let waiting = std::mem::take(&mut self.waiting);
         let Some(adapters) = self.loaded() else {
             return Ok(());
@@ -239,6 +253,47 @@ impl<'a> Opened<'a> {
             )?;
         }
         Ok(())
+    }
+}
+
+/// Which roots a bundle opened before #349 by its written keys alone.
+enum AsWritten {
+    Nothing,
+    Adapters,
+    Library,
+}
+
+/// The roots the compiler before #349 opened by scanning the composed seats'
+/// raw keys, wherever they stand: an `agent` key opened the library and the
+/// adapters, and a `dialect`, `secrets` or `tools` key or a gate `class`
+/// opened the adapters. A typed site opens what it consults on its own; this
+/// keeps what the scan also read, such as a panel member NAMED `agent`, so
+/// every manifest pins the library asks it did and a root that cannot load
+/// is refused where it was (review return F1, landing #349 slice 7). It only
+/// opens: no site reads what it opened by an `expect`.
+fn opens_as_written(seats: &Map<String, Value>) -> AsWritten {
+    let names_agent = |map: &Map<String, Value>| map.contains_key("agent");
+    if seats.values().any(|seat| any_object(seat, &names_agent)) {
+        return AsWritten::Library;
+    }
+    let consults = |map: &Map<String, Value>| {
+        ["dialect", "secrets", "tools"]
+            .iter()
+            .any(|key| map.contains_key(*key))
+            || map.get("class").and_then(Value::as_str) == Some("gate")
+    };
+    match seats.values().any(|seat| any_object(seat, &consults)) {
+        true => AsWritten::Adapters,
+        false => AsWritten::Nothing,
+    }
+}
+
+/// Does `test` hold of `value` or of any object nested anywhere in it?
+fn any_object(value: &Value, test: &dyn Fn(&Map<String, Value>) -> bool) -> bool {
+    match value {
+        Value::Object(map) => test(map) || map.values().any(|child| any_object(child, test)),
+        Value::Array(items) => items.iter().any(|child| any_object(child, test)),
+        _ => false,
     }
 }
 

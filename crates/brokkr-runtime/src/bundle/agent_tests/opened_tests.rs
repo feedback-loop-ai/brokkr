@@ -209,6 +209,70 @@ fn a_seat_parsed_before_the_first_site_that_opens_the_adapters_refuses_first() {
     );
 }
 
+/// A review panel of two bare members, one NAMED `name`, and a policy that
+/// routes both results its aggregate emits.
+fn panel_named(name: &str) -> (Value, Value) {
+    let member = json!({"role": "roles/work.md", "driver": {"command": ["driver"]}});
+    let review = json!({"results": ["pass", "fail"], "aggregate": "unanimous-pass",
+                        "panel": {name: member.clone(), "other": member}});
+    let rule = |result: &str| {
+        json!({"id": result, "from": "review", "result": result,
+               "next": "done", "reason": result})
+    };
+    let mut table = policy();
+    table["rules"] = json!([table["rules"][0], rule("pass"), rule("fail")]);
+    (seats(bare("complete"), review), table)
+}
+
+/// Review return F1: a member NAMED for a root references nothing, yet the
+/// compiler that scanned the raw seats read the name as the key it spells
+/// and opened that root, so the roots open as written once every seat is
+/// parsed. An `agent` name opens the library, whose unseated agents' asks
+/// the manifest pins; with no roots, each name refuses as df112346 did, and
+/// a name that spells no key compiles.
+#[test]
+fn a_member_named_for_a_root_opens_it_as_the_written_keys_always_did() {
+    let fixture = AgentFixture::declaring();
+    define(&fixture, "web-search", json!(["reads", "egress"]));
+    fixture.write(
+        "agents/researcher.json",
+        unseated(json!({"web-search": "wants"})),
+    );
+    let (config, table) = panel_named("agent");
+    let compiled = fixture.compile_with_policy(config, &table).unwrap();
+    let definitions = compiled.manifest["capabilities"]["definitions"].as_object();
+    assert_eq!(
+        definitions.unwrap().keys().collect::<Vec<_>>(),
+        ["web-search"]
+    );
+
+    std::fs::remove_dir_all(fixture.library()).unwrap();
+    std::fs::remove_dir_all(fixture.adapters()).unwrap();
+    let said = |name: &str| {
+        let (config, table) = panel_named(name);
+        outcome(fixture.compile_with_policy(config, &table))
+    };
+    let absent = |root: &str, path: PathBuf| {
+        format!(
+            "bundle: {root} {}: No such file or directory (os error 2)",
+            path.display()
+        )
+    };
+    let mut rows = vec![(
+        "agent".to_string(),
+        said("agent"),
+        absent("agent library", fixture.library()),
+    )];
+    for name in ["secrets", "tools", "dialect"] {
+        let expected = format!("{}; {NEEDED}", absent("adapters", fixture.adapters()));
+        rows.push((name.to_string(), said(name), expected));
+    }
+    each_row(rows);
+    let (config, table) = panel_named("one");
+    let unnamed = fixture.compile_with_policy(config, &table);
+    assert_eq!(unnamed.unwrap().name, "fixture");
+}
+
 /// Each root is loaded at most once per compile, and what its load said is
 /// kept: a root that changes after the first site opened it changes nothing
 /// a later site reads, an optional read's failure included.
