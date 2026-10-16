@@ -314,13 +314,21 @@ pub(in crate::broker) fn served<'b>(
     attempt: Startup<'_>,
     edge: Edge<'_, 'b, impl Read + AsFd>,
 ) -> Result<(), Ended> {
-    served_within(CALL, started, plan, ledger, harness, attempt, edge)
+    served_within(
+        (CALL, std::thread::sleep),
+        started,
+        plan,
+        ledger,
+        harness,
+        attempt,
+        edge,
+    )
 }
 
-/// [`served`], each forwarded call bound by `call`, which only tests make
-/// shorter than MB3's.
+/// [`served`], each forwarded call bound by `call`, and an idle turn
+/// waiting with `wait`. Tests can observe the wait decisions directly.
 pub(super) fn served_within<'b>(
-    call: Duration,
+    (call, wait): (Duration, impl FnMut(Duration)),
     (server, catalog): (Server<'_>, Catalog),
     plan: &Plan,
     ledger: &mut Ledger<'b>,
@@ -351,7 +359,7 @@ pub(super) fn served_within<'b>(
         call,
         active: None,
     };
-    match session.serving(&mut harness) {
+    match session.serving(&mut harness, wait) {
         Ok(()) => session.drained(attempt.0),
         Err(ended) => {
             session.drained(Instant::now() + CLOSING).ok();
@@ -370,7 +378,11 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     /// and what waits for the harness written as far as it takes it, every
     /// turn. A turn waits ([`Pace`]) only where nothing moved: no byte read
     /// from the harness or the server, and none written to either.
-    fn serving(&mut self, harness: &mut Lines<impl Read + AsFd>) -> Result<(), Ended> {
+    fn serving(
+        &mut self,
+        harness: &mut Lines<impl Read + AsFd>,
+        mut wait: impl FnMut(Duration),
+    ) -> Result<(), Ended> {
         let mut pace = Pace::new();
         while self.going()? {
             let room = self.ledger.room().is_ok();
@@ -384,7 +396,7 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
             let heard = self.heard()?;
             let spoke = self.stderr.drained();
             let told = self.flush();
-            pace.after(!(heard & quiet) | spoke | told);
+            pace.after(!(heard & quiet) | spoke | told, &mut wait);
         }
         Ok(())
     }

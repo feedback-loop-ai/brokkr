@@ -36,6 +36,10 @@ pub(super) use linux::ready;
 #[cfg(all(test, target_os = "linux"))]
 mod tests;
 
+#[cfg(test)]
+#[path = "readiness/tests/timing.rs"]
+mod timing_tests;
+
 /// What admission hands serving: each checked source's handle, by the host
 /// path that named it, held until the launch mounts it; the store's
 /// admitted handle, which the binding sender reads and the box never
@@ -90,19 +94,24 @@ impl Pace {
 
     /// Wait, where nothing `moved`, the next wait; where something did,
     /// not at all, the next wait [`BRIEF`] again.
-    pub(in crate::broker) fn after(&mut self, moved: bool) {
+    pub(in crate::broker) fn after(&mut self, moved: bool, mut wait: impl FnMut(Duration)) {
         if moved {
             self.0 = BRIEF;
             return;
         }
-        std::thread::sleep(self.0);
+        wait(self.0);
         self.0 = (self.0 * 2).min(SLICE);
     }
 }
 
 /// Whether `startup`'s deadline is still ahead, the attempt not cancelled.
 pub(in crate::broker) fn timely((deadline, cancelled): Startup<'_>) -> bool {
-    (Instant::now() < deadline) & !cancelled()
+    timely_at((deadline, cancelled), Instant::now())
+}
+
+/// The same decision against one reading of the monotonic clock.
+fn timely_at((deadline, cancelled): Startup<'_>, now: Instant) -> bool {
+    (now < deadline) & !cancelled()
 }
 
 /// Whether `step` was taken until it was done, while `startup` is
@@ -111,14 +120,25 @@ pub(in crate::broker) fn timely((deadline, cancelled): Startup<'_>) -> bool {
 /// deadline or the cancellation came first.
 pub(in crate::broker) fn polled(
     startup: Startup<'_>,
+    step: impl FnMut() -> std::io::Result<bool>,
+) -> bool {
+    polled_with(startup, Instant::now, std::thread::sleep, step)
+}
+
+/// The polling policy with its clock and wait supplied: the absolute
+/// deadline stays the caller's across every step and every startup stage.
+fn polled_with(
+    startup: Startup<'_>,
+    mut now: impl FnMut() -> Instant,
+    mut wait: impl FnMut(Duration),
     mut step: impl FnMut() -> std::io::Result<bool>,
 ) -> bool {
     let mut pace = Pace::new();
-    while timely(startup) {
+    while timely_at(startup, now()) {
         match step() {
             Ok(true) => return true,
-            Ok(false) => pace.after(true),
-            Err(error) if error.kind() == ErrorKind::WouldBlock => pace.after(false),
+            Ok(false) => pace.after(true, &mut wait),
+            Err(error) if error.kind() == ErrorKind::WouldBlock => pace.after(false, &mut wait),
             Err(_) => return false,
         }
     }

@@ -18,7 +18,7 @@ use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use serde_json::json;
 
 use super::ledger::{failed_with, sealed_ledger, Proved};
-use super::observer::{awaited, cancelled, gone, processes, started_to, status, traced};
+use super::observer::{awaited, cancelled, exited, gone, processes, started_to, status, traced};
 use super::observer::{tracer, within, Starter, NO_TRACER};
 use super::{admitted, refused, skip, unservable, Refusal, Sealed};
 
@@ -268,14 +268,21 @@ fn a_box_held_at_its_entry_refuses_at_the_absolute_deadline() {
     let Some(held) = Held::started_by(Starter::Harness, &HELD) else {
         return;
     };
-    // The one deadline admission started with, observation's and
-    // readiness's alike, never extended: the broker ends once it has
-    // passed, and no more than a slice after. The box went with it.
+    // Real-process proof of deadline refusal and cleanup. The shared
+    // poller's controlled-clock tests prove the exact budget; this parent
+    // includes process startup and its own scheduling in elapsed time.
     let elapsed = awaited(held.chain[3]) - held.begun;
+    let finished = exited(held.chain[3]);
     let (answer, settled, _, ledger) = held.ended();
     assert_eq!(answer, refused(Refusal::Establishment));
-    let bounded = (elapsed >= Duration::from_secs(30)) & (elapsed < Duration::from_secs(32));
-    assert!(bounded, "{elapsed:?}");
+    assert!(
+        finished,
+        "broker still running at the process wait's hang guard"
+    );
+    assert!(
+        elapsed >= Duration::from_secs(30),
+        "early refusal: {elapsed:?}"
+    );
     assert!(settled);
     // Its ledger closed Failed with that cause, and no call.
     assert_eq!(ledger, failed_with(Refusal::Establishment));
