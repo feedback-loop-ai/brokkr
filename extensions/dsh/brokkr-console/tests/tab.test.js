@@ -131,6 +131,14 @@ test('the pulse is ui.html’s: the same strike and halo, at the same pace', () 
   assert.match(css, /prefers-reduced-motion:reduce/)
 })
 
+test('the full panel scrolls itself: DSH’s centre column clips, so a fire longer than the window still reads to its end', () => {
+  const css = readFileSync(new URL('../lib/console.css', import.meta.url), 'utf8')
+  assert.match(css, /\.bk:not\(\.in-tab\)\{height:100%;overflow-y:auto\}/)
+  // The tab rides the conversation's own scroll, and the ask bar sticks to whichever scroller holds it.
+  assert.doesNotMatch(/\.bk\.in-tab\{([^}]*)\}/.exec(css)[1], /overflow/)
+  assert.match(/\.bk-askbar\{([^}]*)\}/.exec(css)[1], /position:sticky;bottom:0/)
+})
+
 test('every colour is a theme variable, with a dark set under DSH’s dark-theme mark', () => {
   const css = readFileSync(new URL('../lib/console.css', import.meta.url), 'utf8')
   const [light, dark] = [/body\{([^}]*)\}/.exec(css)[1], /body\[data-ds-dark-theme\]\{([^}]*)\}/.exec(css)[1]]
