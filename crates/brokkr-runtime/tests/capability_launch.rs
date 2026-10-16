@@ -8674,8 +8674,10 @@ fn driver_serving_child() {
 /// [`driver_serving_child`], because a driver's serving branch is reached
 /// only through its own stdin protocol — handed `extra` after its `--`,
 /// with `env` set, then sent the protocol's hello, a resume offer of
-/// `session` where one is made, the start carrying `input`, and shutdown.
-/// What the driver said on its stdout.
+/// `session` where one is made, and the start carrying `input`. Closing
+/// stdin ends the exchange: a driver may exit while handling start, so
+/// a later shutdown write would race that legitimate exit. What the
+/// driver said on its stdout.
 #[cfg(unix)]
 fn serve_driver(
     kind: &str,
@@ -8725,7 +8727,6 @@ fn serve_driver(
                     "effect_id": "fx", "attempt_id": "a1", "seat": input["seat"],
                     "input": input}),
         ),
-        Some(json!({"proto": "forge-driver/v1", "msg_id": "m4", "type": "shutdown"})),
     ];
     for message in messages.into_iter().flatten() {
         writeln!(stdin, "{message}").unwrap();

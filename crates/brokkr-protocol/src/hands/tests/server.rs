@@ -914,10 +914,12 @@ fn settled(pid: u64) -> Vec<(u32, String)> {
     };
     let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < until {
-        let held = asleep().then(|| descriptors(pid));
+        let held = asleep().then(|| descriptors(pid)).flatten();
         std::thread::sleep(std::time::Duration::from_millis(50));
-        if held.is_some_and(|held| asleep() & (descriptors(pid) == held)) {
-            return descriptors(pid);
+        if let Some(held) = held {
+            if asleep() && descriptors(pid).as_ref() == Some(&held) {
+                return held;
+            }
         }
     }
     panic!("{pid} never settled");
@@ -952,16 +954,24 @@ fn a_process_is_read_once_it_has_settled() {
             }
         });
     }
-    let (mut child, stray) = holding_a_stray(|| shell.spawn().unwrap());
-    let pid = u64::from(child.id());
+    // A failed observation must not leave the ten-minute sleeper behind.
+    struct Child(std::process::Child);
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let (child, stray) = holding_a_stray(|| Child(shell.spawn().unwrap()));
+    let pid = u64::from(child.0.id());
     let running = |held: &[(u32, String)]| held.iter().any(|(number, _)| *number == 3);
     let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    while !running(&descriptors(pid)) & (std::time::Instant::now() < until) {
+    while !descriptors(pid).is_some_and(|held| running(&held)) && std::time::Instant::now() < until
+    {
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
     let read = settled(pid);
-    child.kill().unwrap();
-    child.wait().unwrap();
+    drop(child);
     let null = || "/dev/null".to_string();
     let expected = [(0, null()), (1, null()), (2, null())];
     assert_eq!(read, expected, "this process's stray: {stray}");
@@ -981,20 +991,57 @@ fn holding_a_stray<T>(start: impl FnOnce() -> T) -> (T, String) {
     (start(), link)
 }
 
-/// Each descriptor `pid` holds, by number, and what `/proc` links it to.
+/// Each descriptor `pid` holds, by number, and what `/proc` links it to,
+/// or no snapshot if a descriptor disappeared while it was being read.
 #[cfg(target_os = "linux")]
-fn descriptors(pid: u64) -> Vec<(u32, String)> {
-    let dir = std::fs::read_dir(format!("/proc/{pid}/fd")).unwrap();
-    let mut held: Vec<(u32, String)> = dir
-        .map(|entry| {
-            let entry = entry.unwrap();
-            let link = std::fs::read_link(entry.path()).unwrap();
+fn descriptors(pid: u64) -> Option<Vec<(u32, String)>> {
+    read_descriptors(std::fs::read_dir(format!("/proc/{pid}/fd")))
+}
+
+/// `/proc` is live: a link may close after its directory entry was read.
+/// Discard that entire snapshot rather than mistake an incomplete one for
+/// a settled process. Unexpected errors remain failures.
+#[cfg(target_os = "linux")]
+fn read_descriptors(
+    dir: std::io::Result<impl Iterator<Item = std::io::Result<std::fs::DirEntry>>>,
+) -> Option<Vec<(u32, String)>> {
+    let held = dir.and_then(|dir| {
+        dir.map(|entry| {
+            let entry = entry?;
+            let link = std::fs::read_link(entry.path())?;
             let number = entry.file_name().to_str().unwrap().parse().unwrap();
-            (number, link.to_str().unwrap().to_string())
+            Ok((number, link.to_str().unwrap().to_string()))
         })
-        .collect();
-    held.sort();
-    held
+        .collect::<std::io::Result<Vec<_>>>()
+    });
+    match held {
+        Ok(mut held) => {
+            held.sort();
+            Some(held)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => panic!("could not read descriptor snapshot: {error}"),
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_descriptor_closed_during_a_snapshot_invalidates_the_whole_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let link = dir.path().join("3");
+    std::os::unix::fs::symlink("/dev/null", &link).unwrap();
+    let read = || std::fs::read_dir(dir.path());
+    assert_eq!(
+        read_descriptors(read()),
+        Some(vec![(3, "/dev/null".into())])
+    );
+
+    // Reproduce the close between readdir and readlink without depending
+    // on the scheduler to interleave an observed process with this test.
+    let entries: Vec<_> = read().unwrap().collect();
+    std::fs::remove_file(link).unwrap();
+    assert_eq!(read_descriptors(Ok(entries.into_iter())), None);
+    assert_eq!(read_descriptors(read()), Some(vec![]));
 }
 
 /// The generated identity's tree `entry` hands over.
