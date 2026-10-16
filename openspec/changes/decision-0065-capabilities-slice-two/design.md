@@ -1184,7 +1184,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/agents.rs` (1671) | U1b, U1f, U3b, U7b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/load.rs` (1334) | U1b, U3b | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b, U1g1 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U1g0, U4c, U4f2, U6a, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U1g0, U4c, U4f2, U6a, U7d, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/composite.rs` (4666) | U1c2 | #226 dsh composite identity; its declared-home seam must keep one owner |
 | `crates/brokkr-protocol/src/transcript.rs` | U1c2 | dsh home resolution; the transcript fold and the persistence check must read the same home |
@@ -1194,13 +1194,13 @@ At each PR recheck these paths and baseline counts against main.
 | `adapters/dsh.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/exec.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/bundle.rs` (7815) | U1f, U3a, U3c, U4d, U5a2, U7c | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-runtime/src/bundle/mcp.rs` | U1f, U7b, U9b1, U1g1 | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-runtime/src/bundle/mcp.rs` | U1f, U7b, U9b1, U1g1, U7d2 | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
-| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2 | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0 | 0065 follow-up refactors; identity and gate ordering must survive |
-| `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1, U7c0 | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/capabilities/gates.rs` | U3a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/agents/charter_data.rs` | U3b, U3c | #347/#348 harness splits; #467 strictness and #500 probe evidence |
@@ -1214,7 +1214,9 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/capabilities/attribution.rs` | U4d | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/engine/capability_calls.rs` | U4e, U4f, U8d | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/checkpoints.rs` | U4a2, U4e, U8d | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/engine/sequence.rs` | U8a2a, U8e | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine/sequence.rs` | U8a2a, U8e, U7d2 | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine/panel.rs` | U7d2 | Panel members seal after provisioning, as sequence steps do |
+| `adapters/*.json` | U7d3 | Measured adapter data; every witness digest moves and is re-blessed |
 | `crates/brokkr-runtime/src/engine/resume.rs` (1062) | U4f | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-view/src/lib.rs` (2767) | U4g, U8f | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-view/src/capability_calls.rs` | U4g, U8f | 0065 follow-up refactors; identity and gate ordering must survive |
@@ -1235,7 +1237,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/broker/rpc.rs` | U6e, U6f1a, U6f1b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/output.rs` | U6f1a, U8b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-protocol/src/hands.rs` (1267 at this visit) | U6c3, U6c4, U7a, U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2a, U8a2b, U8c, U8d, U8e | Protected inventory, cross-worktree admission lock and lifetime reservations; #403/#415 cleanup and ongoing splits |
+| `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2a, U8a2b, U8c, U8d, U8e, U7d2 | Protected inventory, cross-worktree admission lock and lifetime reservations; #403/#415 cleanup and ongoing splits |
 | `crates/brokkr-runtime/src/engine/marks.rs` | U7c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-protocol/src/hands/evidence.rs` | U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
@@ -1363,7 +1365,9 @@ witness/compose pins accompany only rows that change their inputs.
 | U7c0b | U7c0 | Observe a server box for provisioning, under the startup bound; 35.1–35.2 | `crates/brokkr-protocol/src/hands/namespace.rs`; `crates/brokkr-protocol/src/hands/namespace/sources/host.rs`; `crates/brokkr-protocol/src/broker.rs`; `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/broker.rs`; `crates/brokkr-cli/src/broker/survey.rs` (new) |
 | U7c | U7c0b | Provision protected per-attempt plans; 35.1–35.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/marks.rs` |
 | U7d | U7c | Deliver checked configurations and selected discovery; 36.1–37.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
-| U8a | U7d | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
+| U7d2 | U7d | Seal the brokered server set after provisioning; 36.1–36.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/panel.rs`; `crates/brokkr-runtime/src/engine/sequence.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U7d3 | U7d2 | Refuse secret bindings that collide with harness authentication; 36.1–36.2 | `adapters/*.json`; `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
+| U8a | U7d3 | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U8a2a | U8a | Hold the writer lease and durable reservations at dispatch; 38.3–38.4 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/sequence.rs` |
 | U8a2b | U8a2a | Exclude every managed writer from admitted server sources; 38.3–38.4 | `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine.rs` |
 | U8b | U8a2b | Stage retained responses before delivery; 39.1–39.2 | `crates/brokkr-cli/src/broker/output.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-protocol/src/broker/ledger.rs` |
@@ -1965,7 +1969,31 @@ Configuration continues to carry only broker locator/digest, with no server valu
 Closes tasks 36.1, 36.2, 37.1 and 37.2; requirements [MB4](specs/mcp-capability-broker/spec.md), [MB1](specs/mcp-capability-broker/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD3](specs/slice-two-delivery/spec.md), [CC2](specs/capability-call-checkpoints/spec.md).
 Proof: Actual composed cold/resume/replacement commands match independent literal server intent, and mutations refuse at the final serving boundary. Separately bind rendering and selection for Codex deferred discovery, fallback clearing, wanted drop and hostile prose; preserve hands notice, native/no-MCP prompts and requested-effect digest. No complete plan or storage locator reaches the renderer. Independently prove MB4's removal of exported dialect secret names from harness/broker environments, store-only child bindings and exact requires/wants authentication-collision causes at the serving boundary.
 
+Operator rulings 2026-10-16, after the first run stopped blocked (0065-slice-two-unit-u7d-see-the--5977e175, no edits): U7d's row cannot make an engine-composed command carry brokers. The engine seals no brokered set (`isolation_intent` never yields `SealedServers::Brokered`), a single seat's serving inputs are sealed before its plans are provisioned, the plans' pins and dialect secret names never reach the sealed record, and no adapter declares its harness authentication names. U7d is split in three, run in order: U7d, U7d2, U7d3. U7d keeps its row and does the protocol half. Each U0-supported builder and the final serving check consume `SealedServers::Brokered` beside boxed hands; the Claude and LaneTally builders expand the set through `Servers::expand`; Codex and dsh, which have no measured broker carrier, refuse; the spawn removes each sealed removal from the harness environment and passes the same list as `Serving.removed`; group 37 parses the capability-server carrier once into a closed type and renders the fixed guidance in the existing capability contract. U7d proves this against hand-sealed serving inputs, as U7a did; the engine-composed cold, resume and replacement proof moves to U7d2 and the authentication-collision causes to U7d3. adapters.rs sits at its baseline, so new code goes in private child modules under the standing rule. No public API change is expected; any rise comes back to the operator at PR time. U7d closes tasks 37.1 and 37.2; tasks 36.1 and 36.2 close with U7d3.
+
 Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/native_controls/tests.rs`, `crates/brokkr-runtime/src/engine/capability_tests.rs`, `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
+
+### U7d2 — Seal the brokered server set after provisioning
+
+Thread each provisioned slot's `Pin` (locator and digest) and its dialect secret names out of the engine's provisioning in engine/broker.rs, and seal them into `SealedServers::Brokered`: each `SealedBroker` carries its capability, plan locator, plan digest and removals, from the holding's brokered marks. A single seat's serving inputs are sealed after its plans are provisioned, as panels and sequence steps already order it, and panels and sequence steps seal the same pins. The intent the engine reads (`McpIntent`) gains the brokered case; the MCP compile fence stays. engine.rs is frozen at its baseline; new private child modules beside it follow the standing rule. No public API change.
+
+Split from U7d (operator ruling 2026-10-16): the first U7d run found no engine producer of a brokered set.
+
+Closes, with U7d and U7d3, tasks 36.1 and 36.2; requirements [MB1](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [SI2](specs/strict-mcp-isolation/spec.md).
+Proof: Actual engine-composed cold, resume and replacement commands carry hands plus brokers that match independent literal server intent, and a mutated pin, plan digest or removal refuses at the final serving boundary. A seat with no brokered mark seals no broker; native and no-MCP launches and the requested-effect digest are unchanged. Bind each with a compiling removal.
+
+Owning tests: `crates/brokkr-runtime/src/engine/capability_tests.rs`, `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/tests/capability_launch.rs`.
+
+### U7d3 — Refuse secret bindings that collide with harness authentication
+
+Declare each adapter's measured harness authentication variable names as adapter data in `adapters/*.json`, read once by the protocol's adapter loader, and refuse a holding whose dialect secret name collides with one, with MB4's exact cause "MCP secret binding '<name>' collides with harness authentication" in GP1's form: a required holding refuses and a wanted one is dropped. Each adapter's names are measured from its harness, with the evidence recorded. The data change moves witness digests; re-bless them in the same pull request. Public API growth for the new adapter field comes back to the operator at PR time.
+
+Split from U7d (operator ruling 2026-10-16): no adapter declared its harness authentication names.
+
+Closes, with U7d and U7d2, tasks 36.1 and 36.2; requirement [MB4](specs/mcp-capability-broker/spec.md).
+Proof: For each adapter, a colliding name refuses a required holding and drops a wanted one with the exact cause, a name that collides with nothing passes, and an adapter that declares no names collides with nothing. Bind each with a compiling removal.
+
+Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-runtime/src/capabilities/tests.rs`.
 
 ### U8a — Protect artifact paths in workspace hands
 

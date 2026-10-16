@@ -300,3 +300,6 @@ including the result file.\n"
     );
     assert!(!prompt.contains("mcp__brokkr__workspace"), "{prompt}");
 }
+
+/// U7d: the capability servers guidance beside the hands notice.
+mod discovery_tests;

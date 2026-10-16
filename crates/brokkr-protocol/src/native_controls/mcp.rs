@@ -71,6 +71,40 @@ impl Transport<'_> {
         };
         hands.expand(fragment)
     }
+
+    /// The MCP document a Claude-grammar harness is handed to reach the
+    /// box's hands and, beside them, `brokers` (U7d; MB1), as the set's one
+    /// builder writes it; `None` where the set cannot be served as sealed
+    /// ([`Servers::named`]).
+    pub(crate) fn beside(&self, brokers: &[SealedBroker]) -> Option<Value> {
+        let servers = Servers {
+            hands: Some(*self),
+            brokers,
+        };
+        Some(document(self.brokkr, &servers.named()?))
+    }
+}
+
+impl SealedServers {
+    /// The brokers this set seals beside the box's hands, none outside
+    /// [`SealedServers::Brokered`].
+    pub(crate) fn brokers(&self) -> &[SealedBroker] {
+        match self {
+            SealedServers::Brokered(brokers) => brokers,
+            SealedServers::Empty | SealedServers::Hands | SealedServers::NoModelSurface => &[],
+        }
+    }
+
+    /// The names a spawn removes from the harness's environment, and so
+    /// from every broker it spawns (U7d; MB4): each broker's sealed
+    /// removals, each name once, sorted, which is the list the final check
+    /// ([`Servers::served`]) is handed as what the spawn removed.
+    pub(crate) fn removals(&self) -> Vec<String> {
+        let names: BTreeSet<&String> = (self.brokers().iter())
+            .flat_map(|broker| &broker.removals)
+            .collect();
+        names.into_iter().cloned().collect()
+    }
 }
 
 /// The server set a launch's site intends: the no-broker plan has no other,
@@ -99,6 +133,15 @@ pub struct SealedBroker {
     pub plan: String,
     pub plan_digest: String,
     pub removals: Vec<String>,
+}
+
+impl SealedBroker {
+    /// The one name a holding's broker is served as, `cap-<capability>`,
+    /// `None` where `capability` is not one bare name: the set's builder
+    /// and the guidance that names it to a seat (U7d; MB1) read it here.
+    pub(crate) fn server(capability: &str) -> Option<String> {
+        bare(capability).then(|| format!("cap-{capability}"))
+    }
 }
 
 /// One server of the engine's set, by what it serves.
@@ -248,8 +291,8 @@ impl<'a> Servers<'a> {
         };
         named.insert(SERVER_NAME.to_string(), Owed::Hands(hands));
         for broker in self.brokers {
-            let name = format!("cap-{}", broker.capability);
-            if !bare(&broker.capability) || named.insert(name, Owed::Broker(broker)).is_some() {
+            let name = SealedBroker::server(&broker.capability)?;
+            if named.insert(name, Owed::Broker(broker)).is_some() {
                 return None;
             }
         }
