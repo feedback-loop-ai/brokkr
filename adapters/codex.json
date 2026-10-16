@@ -2,6 +2,14 @@
   "provider": "codex",
   "trust_tier": "trusted",
   "egress": "uncontracted",
+  "harness_auth": {
+    "names": [
+      "CODEX_ACCESS_TOKEN",
+      "CODEX_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "measured": "codex-cli 0.162.1 (Linux, 2026-10-17; codex --version): the native binary's 'no Codex credentials were found' message lists its credential sources in order, auth.json, OPENAI_API_KEY, CODEX_API_KEY and CODEX_ACCESS_TOKEN, and its login help reads the key from OPENAI_API_KEY; auth.json is a file under CODEX_HOME, not a variable"
+  },
   "binary": "codex",
   "driver": [
     "{brokkr}",

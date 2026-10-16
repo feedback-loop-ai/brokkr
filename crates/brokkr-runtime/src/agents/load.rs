@@ -18,14 +18,26 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 use super::{
-    mcp::McpContext, valid_name, Adapter, Agent, EgressClass, HarnessHands, LocalTools, McpRefusal,
-    McpSupport, ResultDoor, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape,
-    ResumeStatus, Sandbox, ToolPermissions, TrustTier, NAME_GRAMMAR,
+    mcp::McpContext, Adapter, Agent, EgressClass, HarnessHands, LocalTools, McpRefusal, McpSupport,
+    ResultDoor, ResumeAssessment, ResumeEvidence, ResumeIdentity, ResumeShape, ResumeStatus,
+    Sandbox, ToolPermissions, TrustTier,
 };
 use crate::bundle::Limits;
 
+mod auth;
 mod models;
 mod overlay;
+
+/// The grammar every agent, model, provider and MCP server name obeys.
+/// Quoted verbatim in rejection messages so a reader can act on them.
+pub const NAME_GRAMMAR: &str = "^[a-z][a-z0-9-]*$";
+
+/// `true` when `name` matches [`NAME_GRAMMAR`].
+pub fn valid_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    matches!(characters.next(), Some(first) if first.is_ascii_lowercase())
+        && characters.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
 
 #[derive(Debug, Error)]
 pub enum LibraryError {
@@ -288,45 +300,6 @@ fn routes(
             route.clone(),
             egress_class(value, &format!("routes.{route}"), what)?,
         );
-    }
-    Ok(out)
-}
-
-/// A provider's declared credential variables (decision 0036 ruling 5):
-/// route name → the environment variable that route's endpoint needs.
-/// A NAME, never a value — the same rule the whole tree obeys, enforced
-/// beside it by `refuse_secret_stores`.
-fn credentials(
-    map: &Map<String, Value>,
-    what: &str,
-) -> Result<BTreeMap<String, String>, LibraryError> {
-    let Some(declared) = map.get("credentials") else {
-        return Ok(BTreeMap::new());
-    };
-    let Some(entries) = declared.as_object() else {
-        return invalid(format!(
-            "{what} 'credentials' must be an object of route name → environment \
-             variable name"
-        ));
-    };
-    let mut out = BTreeMap::new();
-    for (route, value) in entries {
-        if !route_name(route) {
-            return invalid(format!(
-                "{what} 'credentials' names '{route}', which does not match \
-                 {ROUTE_GRAMMAR}"
-            ));
-        }
-        match value.as_str().filter(|name| secret_name(name)) {
-            Some(variable) => out.insert(route.clone(), variable.to_string()),
-            None => {
-                return invalid(format!(
-                    "{what} 'credentials.{route}' is {value}; a credential is the \
-                     NAME of an environment variable ({SECRET_NAME_GRAMMAR}), \
-                     never a value"
-                ))
-            }
-        };
     }
     Ok(out)
 }
@@ -766,6 +739,30 @@ impl Adapters {
     }
 }
 
+/// Every top-level key an adapter file may write; any other is refused.
+const ADAPTER_KEYS: [&str; 20] = [
+    "provider",
+    "trust_tier",
+    "egress",
+    "routes",
+    "credentials",
+    "harness_auth",
+    "binary",
+    "hint",
+    "driver",
+    "models",
+    "judges",
+    "model_flag",
+    "efforts",
+    "effort_flag",
+    "effortless_routes",
+    "tool_permissions",
+    "mcp",
+    "hands",
+    "resume",
+    "native_capabilities",
+];
+
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     let what = models::described(name, path);
@@ -774,31 +771,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     }
     let source = read_json(path)?;
     let map = object(&source, &what)?;
-    only_keys(
-        map,
-        &[
-            "provider",
-            "trust_tier",
-            "egress",
-            "routes",
-            "credentials",
-            "binary",
-            "hint",
-            "driver",
-            "models",
-            "judges",
-            "model_flag",
-            "efforts",
-            "effort_flag",
-            "effortless_routes",
-            "tool_permissions",
-            "mcp",
-            "hands",
-            "resume",
-            "native_capabilities",
-        ],
-        &what,
-    )?;
+    only_keys(map, &ADAPTER_KEYS, &what)?;
     // Every adapter is authority data: its native capabilities (decision
     // 0065 ruling 4) and its models' tiers (decision 0075 ruling
     // 5) alike, so a key written twice anywhere in the file is a refusal
@@ -960,6 +933,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
             }
         };
     let resume = resume_assessment(map, &what)?;
+    let credentials = auth::credentials(map, &what)?;
     let mcp = mcp.admit(&McpContext {
         what: &what,
         binary: &binary,
@@ -972,7 +946,8 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         trust_tier: trust_tier(map, &what)?,
         egress: adapter_egress(map, &what)?,
         routes: routes(map, &what)?,
-        credentials: credentials(map, &what)?,
+        harness_auth: auth::harness_auth(map, &credentials, &what)?,
+        credentials,
         binary,
         hint,
         driver,

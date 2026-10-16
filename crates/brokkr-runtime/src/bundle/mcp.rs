@@ -436,6 +436,12 @@ fn native<'a>(
     adapter(adapters, provider).map(|adapter| (&adapter.native, adapter.digest.as_str()))
 }
 
+/// The names the harness of the adapter serving `provider` reads to
+/// authenticate (MB4); none where no adapter answers for it.
+fn auth<'a>(adapters: CapabilityAdapters<'a>, provider: &str) -> &'a [String] {
+    adapter(adapters, provider).map_or(&[], |adapter| adapter.harness_auth.as_slice())
+}
+
 /// An agent-backed site's sealed capability facts (decision 0065 ruling 5):
 /// its asks resolved once per candidate of its chain. Under the harness
 /// boundary the engine appends each candidate's `hands.harness.*` fragment
@@ -549,6 +555,9 @@ pub(super) fn candidate_capabilities_with(
                 // template, the engine's local permissions and hands
                 // (design D5.7), none of it the recipe's words.
                 written: &[],
+                // Each candidate's own adapter: a fallback never
+                // borrows another candidate's names.
+                auth: auth(adapters, &candidate.provider),
             }
         })
         .collect();
@@ -596,6 +605,9 @@ pub(super) fn inline_capabilities(
         fragment: inline.hands,
         provenance: &provenance,
         written: inline.argv,
+        // An inline site carries no adapter's authentication names
+        // (operator ruling of 2026-10-16).
+        auth: &[],
     };
     // Inline hands are boxed or none: the hands law refuses an inline model
     // harness's hands unboxed (decision 0046 ruling 4).

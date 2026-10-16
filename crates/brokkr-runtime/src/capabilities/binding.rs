@@ -105,6 +105,10 @@ pub(super) enum Unserved {
         egress: EgressClass,
         minimum: EgressClass,
     },
+    /// MB4: a secret the dialect binds is a name the serving harness reads
+    /// to authenticate.
+    #[error("MCP secret binding '{0}' collides with harness authentication")]
+    Collides(String),
 }
 
 impl Unserved {
@@ -118,7 +122,8 @@ impl Unserved {
             Unserved::Unbound(_)
             | Unserved::ArgvReference
             | Unserved::Url
-            | Unserved::Below { .. } => {
+            | Unserved::Below { .. }
+            | Unserved::Collides(_) => {
                 Unheld::Cause(Cause::incompatible(dialect, self.to_string()))
             }
         }
@@ -297,6 +302,21 @@ impl Holding {
             }
         }
     }
+
+    /// MB4 at the serving candidate: the first secret this `mcp` holding
+    /// binds that is one of `auth`, the names the candidate's harness reads
+    /// to authenticate. A native holding binds no secret.
+    pub(super) fn collision(&self, auth: &[String]) -> Result<(), Unserved> {
+        match &self.implementation {
+            Implementation::Mcp { secrets, .. } => {
+                match secrets.iter().find(|s| auth.contains(s)) {
+                    Some(name) => Err(Unserved::Collides(name.clone())),
+                    None => Ok(()),
+                }
+            }
+            Implementation::Native { .. } => Ok(()),
+        }
+    }
 }
 
 /// The closed network `egress` projects to: a `local` route is isolated,
@@ -373,6 +393,27 @@ impl Authority {
             }
             Connection::Stdio(_) => self.admitted(dialect).map(Some),
         }
+    }
+
+    /// The realm's grant of `capability` that reaches the site's office
+    /// (design D4), or why none does: no dialect is chosen before it.
+    fn reaching(&self, site: &SiteAsks, capability: &str) -> Result<&CapabilityGrant, Cause> {
+        let Some(grant) = self.context.grants.get(capability) else {
+            return Err(Cause::Ungranted(
+                "the realm does not grant it to this office".into(),
+            ));
+        };
+        if grant.reaches(&site.office) {
+            return Ok(grant);
+        }
+        let scope = grant.offices.as_deref().unwrap_or_default();
+        Err(Cause::Ungranted(match scope.is_empty() {
+            true => "the realm grants it to no office".to_string(),
+            false => format!(
+                "the realm grants it only to offices [{}], not to this office",
+                scope.join(", ")
+            ),
+        }))
     }
 
     /// The holding the realm's grant of `capability` seals at `site`,

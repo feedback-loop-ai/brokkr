@@ -846,3 +846,66 @@ fn each_refusal_reads_as_the_operator_sees_it() {
         assert_eq!(refusal.at_launch(), format!("{lead}{text}"));
     }
 }
+
+/// MB4's `harness_auth` declaration (U7d3) reads its names in the order
+/// written, an empty list included, and refuses every other shape with its
+/// typed cause: anything but an object of exactly `names` and a non-empty
+/// `measured`, a name outside decision 0012's grammar, and a name written
+/// twice. Each cause's text is pinned once, here.
+#[test]
+fn a_harness_auth_declaration_reads_its_names_and_refuses_every_other_shape() {
+    use super::HarnessAuthError::{Name, Repeated, Shape};
+    let declared = |names: Value| json!({"names": names, "measured": "a measurement"});
+    let shape = |cause: &str| Err(Shape(cause.to_string()));
+    let rows = [
+        (
+            declared(json!(["OPENAI_API_KEY", "CODEX_API_KEY"])),
+            Ok(s(&["OPENAI_API_KEY", "CODEX_API_KEY"])),
+        ),
+        (declared(json!([])), Ok(Vec::new())),
+        // An array is never read by position as the two members.
+        (json!([[], "m"]), shape("it is not an object")),
+        (json!(null), shape("it is not an object")),
+        (json!({"names": []}), shape("missing field `measured`")),
+        (
+            json!({"names": [], "measured": "m", "env": "X"}),
+            shape("unknown field `env`, expected `names` or `measured`"),
+        ),
+        (
+            declared(json!("OPENAI_API_KEY")),
+            shape("invalid type: string \"OPENAI_API_KEY\", expected a sequence"),
+        ),
+        (
+            json!({"names": [], "measured": ""}),
+            shape("'measured' is empty"),
+        ),
+        (
+            declared(json!(["openai_api_key"])),
+            Err(Name("openai_api_key".into())),
+        ),
+        (declared(json!(["9KEY"])), Err(Name("9KEY".into()))),
+        (declared(json!([""])), Err(Name(String::new()))),
+        (
+            declared(json!(["KEY", "OTHER", "KEY"])),
+            Err(Repeated("KEY".into())),
+        ),
+    ];
+    let observed: Vec<_> = rows
+        .iter()
+        .map(|(value, _)| super::harness_auth(value))
+        .collect();
+    let expected: Vec<_> = rows.into_iter().map(|(_, outcome)| outcome).collect();
+    assert_eq!(observed, expected);
+    assert_eq!(
+        [
+            Shape("x".into()).to_string(),
+            Name("x".into()).to_string(),
+            Repeated("X".into()).to_string(),
+        ],
+        [
+            "must be an object of exactly 'names' and a non-empty 'measured' (x)",
+            "names 'x', which does not match [A-Z][A-Z0-9_]*",
+            "names 'X' twice",
+        ]
+    );
+}

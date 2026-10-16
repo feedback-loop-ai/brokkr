@@ -823,6 +823,9 @@ pub struct Serving<'a> {
     /// Under a harness brokkr drives it carries no capability-bearing
     /// option (operator ruling 1 of 2026-09-23; rebuild unit 12).
     pub written: &'a [String],
+    /// MB4: the names the serving adapter's harness reads to authenticate
+    /// (`Adapter::harness_auth`); none at an inline site.
+    pub auth: &'a [String],
 }
 
 // ------------------------------------------------------------ authority
@@ -1234,27 +1237,6 @@ impl Authority {
         }
     }
 
-    /// The realm's grant of `capability` that reaches the site's office
-    /// (design D4), or why none does: no dialect is chosen before it.
-    fn reaching(&self, site: &SiteAsks, capability: &str) -> Result<&CapabilityGrant, Cause> {
-        let Some(grant) = self.context.grants.get(capability) else {
-            return Err(Cause::Ungranted(
-                "the realm does not grant it to this office".into(),
-            ));
-        };
-        if grant.reaches(&site.office) {
-            return Ok(grant);
-        }
-        let scope = grant.offices.as_deref().unwrap_or_default();
-        Err(Cause::Ungranted(match scope.is_empty() {
-            true => "the realm grants it to no office".to_string(),
-            false => format!(
-                "the realm grants it only to offices [{}], not to this office",
-                scope.join(", ")
-            ),
-        }))
-    }
-
     /// Why this candidate cannot hold `capability`, or the holding and
     /// the native key that serves it.
     fn holding(
@@ -1264,6 +1246,7 @@ impl Authority {
         serving: &Serving<'_>,
     ) -> Result<(Holding, String), Unheld> {
         let holding = self.sealed(site, capability)?;
+        (holding.collision(serving.auth)).map_err(|unserved| unserved.unheld(&holding.dialect))?;
         let through = |but| Unheld::Cause(Cause::incompatible(&holding.dialect, but));
         let tools = &holding.tools;
         let provider = serving.provider;
@@ -1489,6 +1472,7 @@ impl Authority {
                 fragment: &[],
                 provenance: &launch::Provenance::default(),
                 written: &[],
+                auth: &adapter.harness_auth,
             },
         )?;
         final_validation(adapter, &outcome)
@@ -1952,4 +1936,4 @@ fn final_validation(adapter: &crate::agents::Adapter, outcome: &Outcome) -> Resu
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

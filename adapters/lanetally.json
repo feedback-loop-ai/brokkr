@@ -1,5 +1,17 @@
 {
   "provider": "lanetally",
+  "harness_auth": {
+    "names": [
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_AWS_API_KEY",
+      "ANTHROPIC_FOUNDRY_API_KEY",
+      "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+      "AWS_BEARER_TOKEN_BEDROCK",
+      "CLAUDE_CODE_OAUTH_TOKEN"
+    ],
+    "measured": "claude-lanetally (Linux, 2026-10-17) is a three-line script that execs LaneTally's rollout/session-wrapper.sh -- claude; the wrapper reads no authentication variable and exports only LANETALLY_RUN_ID and ANTHROPIC_CUSTOM_HEADERS (request headers, not credentials), then runs the same Claude Code 2.1.299, so these are claude's seven names as adapters/claude.json measures them"
+  },
   "binary": "claude-lanetally",
   "hint": "LaneTally's session-capture wrapper, expected at ~/.local/bin/claude-lanetally; set BROKKR_LANETALLY_BIN to an absolute path if ~/.local/bin is not on PATH",
   "driver": [

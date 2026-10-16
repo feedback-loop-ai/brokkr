@@ -301,6 +301,7 @@ pub brokkr_runtime::agents::Adapter::hands: core::option::Option<alloc::vec::Vec
 pub brokkr_runtime::agents::Adapter::hands_gap: core::option::Option<alloc::string::String>
 pub brokkr_runtime::agents::Adapter::hands_notice: core::option::Option<brokkr_protocol::adapters::HandsNotice>
 pub brokkr_runtime::agents::Adapter::harness: brokkr_runtime::agents::HarnessHands
+pub brokkr_runtime::agents::Adapter::harness_auth: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::agents::Adapter::hint: core::option::Option<alloc::string::String>
 pub brokkr_runtime::agents::Adapter::judges: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::agents::Adapter::mcp: brokkr_runtime::agents::McpSupport
@@ -917,6 +918,7 @@ pub struct brokkr_runtime::capabilities::Sends
 pub brokkr_runtime::capabilities::Sends::description: alloc::string::String
 pub brokkr_runtime::capabilities::Sends::seat_composed: bool
 pub struct brokkr_runtime::capabilities::Serving<'a>
+pub brokkr_runtime::capabilities::Serving::auth: &'a [alloc::string::String]
 pub brokkr_runtime::capabilities::Serving::authored: &'a [alloc::string::String]
 pub brokkr_runtime::capabilities::Serving::fragment: &'a [alloc::string::String]
 pub brokkr_runtime::capabilities::Serving::harness: &'a str
