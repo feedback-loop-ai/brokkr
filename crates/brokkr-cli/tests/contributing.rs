@@ -89,7 +89,7 @@ fn the_sixty_second_table_is_the_recipe_library() {
         .filter(|line| !line.starts_with("warning:"))
         .filter_map(|line| {
             let fields: Vec<&str> = line.split('\t').collect();
-            (fields.len() == 7).then(|| {
+            (fields.len() == 8).then(|| {
                 (
                     fields[0].to_string(),
                     (

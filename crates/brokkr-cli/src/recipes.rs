@@ -24,7 +24,9 @@ use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, Invocation, SeatBody};
 
 mod agents;
+pub(crate) mod personal;
 mod sources;
+use personal::Origin;
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity), else the `implicit` one a
@@ -115,12 +117,12 @@ fn seat_summary(bundle: &Bundle) -> String {
         .join(", ")
 }
 
-/// One line per recipe that compiles; a warning line per one that does
-/// not. Nothing aborts the listing: a broken recipe is information. A
-/// `dir` that cannot be read warns, unless it is the folder's default
-/// `shelf` (#696) and nothing stands there ([`unshelved`]): no recipe is
-/// on it yet.
-pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
+/// One line per recipe that compiles, with its `origin` (#697); a warning
+/// line per one that does not. Nothing aborts the listing: a broken recipe
+/// is information. A `dir` that cannot be read warns, unless it is a
+/// default `shelf` (#696) and nothing stands there ([`unshelved`]): no
+/// recipe is on it yet.
+pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool, origin: Origin) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let candidates = match listed(dir) {
         Ok(candidates) => candidates,
@@ -133,7 +135,7 @@ pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
     for (name, path) in candidates {
         match compile_for(workspace, &path, world.as_ref(), workspace) {
             Ok(bundle) => println!(
-                "{name}\t{}\t{} phases\t{}\t{}\t{}\t{}",
+                "{name}\t{}\t{} phases\t{}\t{}\t{}\t{origin}\t{}",
                 &bundle.manifest_digest()[..12],
                 bundle.machine.phases.len(),
                 seat_summary(&bundle),
@@ -766,6 +768,8 @@ fn install_held(
     refuse_within(&sources, place)?;
     sources::refuse_folder_bundles(&sources)?;
     let library = places::Places::of(root)?.agents;
+    // A shelf outside the repository, the personal one, copies nothing in (#697).
+    let source_agents = source_agents.filter(|_| dir.starts_with(root));
     let hires = agents::plan(&sources, source_agents.as_deref(), &library)?;
     let mut installing = install(&planned, dir)?;
     agents::copy(&hires, &mut installing.1)?;

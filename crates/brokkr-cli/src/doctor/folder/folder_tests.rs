@@ -32,10 +32,20 @@ fn report() -> Report {
 /// The folder line of a doctor run from `cwd`, `compile` its compile, and
 /// whether the report stayed healthy.
 fn folder_lines(cwd: &Path, compile: fn(&Path) -> anyhow::Result<()>) -> (Vec<String>, bool) {
+    folder_lines_with(cwd, None, compile)
+}
+
+/// [`folder_lines`], with the personal shelf `personal` (#697).
+fn folder_lines_with(
+    cwd: &Path,
+    personal: Option<&Path>,
+    compile: fn(&Path) -> anyhow::Result<()>,
+) -> (Vec<String>, bool) {
     let mut report = report();
     report_folder_with(
         &mut report,
         &DoctorDefaults::of(cwd.into(), None).found,
+        personal,
         compile,
         shelved,
     );
@@ -335,7 +345,7 @@ fn an_old_shape_that_cannot_be_read_is_missing() {
     std::fs::set_permissions(&root, mode(0o000)).unwrap();
     let readable = std::fs::read_dir(&root).is_ok();
     let mut report = report();
-    report_folder_with(&mut report, &defaults.found, compiles, shelved);
+    report_folder_with(&mut report, &defaults.found, None, compiles, shelved);
     std::fs::set_permissions(&root, mode(0o755)).unwrap();
     if readable {
         eprintln!("skipped: this process reads a mode-000 directory, as root does");
@@ -380,4 +390,48 @@ fn each_shelf_recipe_is_a_line_that_never_fails_the_report() {
     let dangling = format!("warn     shelf: {at}: No such file or directory (os error 2)");
     let (lines, healthy) = folder_lines(&root, compiles);
     assert_eq!((&lines[1..], healthy), (&[dangling][..], true));
+}
+
+/// The personal shelf (#697): after the folder found and its shelf, and
+/// after a library's line, one line per personal recipe, its digest or
+/// its compile's refusal as a warning, which leaves the report healthy; a
+/// personal shelf that cannot be listed warns, an absent one is no line,
+/// and a bare repository, where no run reads a recipe, lists none.
+#[test]
+fn each_personal_recipe_is_a_line_that_never_fails_the_report() {
+    let config = tempfile::tempdir().unwrap();
+    let personal = config.path().canonicalize().unwrap().join("recipes");
+    for name in ["good", "broken"] {
+        std::fs::create_dir_all(personal.join(name)).unwrap();
+    }
+    let at = personal.display();
+    let lines = [
+        format!(
+            "warn     personal recipe broken: {at}/broken does not compile (#697): bundle: \
+             {at}/broken: one[2J\ntwo"
+        ),
+        format!("ok       personal recipe good: 0123456789ab at {at}/good"),
+    ];
+    let planted: [fn(&Path); 2] = [
+        |root| std::fs::create_dir_all(root.join(".brokkr/recipes/good")).unwrap(),
+        |root| write(&root.join("recipes/x/bundle.json"), "{}"),
+    ];
+    for (plant, shelf_lines) in planted.into_iter().zip([1, 0]) {
+        let (_dir, root) = root_with(plant);
+        let (found, healthy) = folder_lines_with(&root, Some(&personal), compiles);
+        assert_eq!((&found[1 + shelf_lines..], healthy), (&lines[..], true));
+    }
+    let (_dir, bare) = root_with(|_| {});
+    assert_eq!(
+        folder_lines_with(&bare, Some(&personal), compiles).0.len(),
+        1
+    );
+    let (_dir, root) = root_with(|root| std::fs::create_dir(root.join(".brokkr")).unwrap());
+    let absent = config.path().join("absent");
+    assert_eq!(folder_lines_with(&root, Some(&absent), compiles).0.len(), 1);
+    std::fs::remove_dir_all(&personal).unwrap();
+    write(&personal, "a file\n");
+    let unlisted = format!("warn     personal shelf: {at}: Not a directory (os error 20)");
+    let (found, healthy) = folder_lines_with(&root, Some(&personal), compiles);
+    assert_eq!((&found[1..], healthy), (&[unlisted][..], true));
 }

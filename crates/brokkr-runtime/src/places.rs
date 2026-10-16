@@ -7,6 +7,7 @@
 //! the engine and the map's default all take it from the same workspace,
 //! so none can admit what another refuses (ruling 3).
 
+use std::ffi::OsString;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -93,6 +94,19 @@ pub const BUNDLE: &str = "bundle.json";
 /// and the folder's shelf in `.brokkr/` (#696), which a folder bundle's
 /// walk skips beside [`STATE`] and composes its base from.
 pub const RECIPES: &str = "recipes";
+
+/// The personal shelf (#697): the operator's own named recipes, `recipes`
+/// in the machine's configuration directory beside `host.json`
+/// (`$XDG_CONFIG_HOME/brokkr`, else `$HOME/.config/brokkr`), never in a
+/// repository, so no library mark is judged there. Placed by the one root
+/// `host.json` is, and refused as its lookup is where neither names an
+/// absolute directory.
+pub fn personal_shelf(
+    xdg: Option<OsString>,
+    home: Option<OsString>,
+) -> Result<PathBuf, crate::admission::HostError> {
+    Ok(crate::admission::config_dir(xdg, home)?.join(RECIPES))
+}
 
 /// A recipe library's run-local directory, beside the operated
 /// repository, as it has always been (ruling 3's last column).

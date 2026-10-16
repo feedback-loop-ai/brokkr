@@ -474,3 +474,30 @@ fn a_folder_bundle_whose_layout_cannot_be_read_refuses_a_base() {
     );
     assert!(pinned);
 }
+
+/// The personal shelf stands beside `host.json`, in the one directory
+/// `host_file` finds it in (#697): under `$XDG_CONFIG_HOME`, else
+/// `$HOME/.config`, and refused in its words where neither is absolute.
+#[test]
+fn the_personal_shelf_stands_beside_the_host_file() {
+    let placed = |xdg: Option<&str>, home: Option<&str>| {
+        let (xdg, home) = (xdg.map(Into::into), home.map(Into::into));
+        let shelf = super::personal_shelf(xdg.clone(), home.clone()).map_err(|e| e.to_string());
+        let host = crate::admission::host_file(xdg, home).map_err(|e| e.to_string());
+        (shelf, host.map(|file| file.with_file_name("recipes")))
+    };
+    for (xdg, home, shelf) in [
+        (Some("/x"), Some("/h"), "/x/brokkr/recipes"),
+        (None, Some("/h"), "/h/.config/brokkr/recipes"),
+        (Some("relative"), Some("/h"), "/h/.config/brokkr/recipes"),
+    ] {
+        let (found, beside) = placed(xdg, home);
+        assert_eq!(found, Ok(PathBuf::from(shelf)), "{xdg:?}");
+        assert_eq!(found, beside, "{xdg:?}");
+    }
+    let unplaced = "no host configuration can be found: neither XDG_CONFIG_HOME nor HOME \
+                    names an absolute directory";
+    let (found, beside) = placed(None, Some("relative"));
+    assert_eq!(found, Err(unplaced.to_string()));
+    assert_eq!(found, beside);
+}

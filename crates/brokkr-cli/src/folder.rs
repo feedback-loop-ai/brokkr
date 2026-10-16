@@ -449,6 +449,9 @@ pub(crate) struct DoctorDefaults {
     pub(crate) agents: PathBuf,
     pub(crate) adapters: PathBuf,
     pub(crate) secrets: PathBuf,
+    /// The personal shelf this machine places (#697), whose recipes the
+    /// folder line is followed by; none until the verb reads the host's.
+    pub(crate) personal: Option<PathBuf>,
 }
 
 /// A layout discovery found, as the runtime judged it, and its journal's
@@ -479,7 +482,13 @@ impl DoctorDefaults {
                 journal: layout.state_file(false, JOURNAL),
                 layout: layout.0,
             }),
+            personal: None,
         }
+    }
+
+    /// These defaults, reading the personal shelf `personal` (#697).
+    pub(crate) fn with_personal(self, personal: Option<PathBuf>) -> DoctorDefaults {
+        DoctorDefaults { personal, ..self }
     }
 
     /// The journal every other verb would open, or why it has none:

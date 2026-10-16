@@ -21,7 +21,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr rerun`](#brokkr-rerun): Re-run a past run's feature as a NEW run under another bundle or recipe, so outcomes can be compared by run id. No stored linkage
 - [`brokkr compare`](#brokkr-compare): Compare two runs' aligned outcomes: decision trails, first divergence, phases visited, per-seat costs. Read-only
 - [`brokkr recipes`](#brokkr-recipes): The recipe library: bundle directories as named, swappable delivery strategies
-- [`brokkr recipes list`](#brokkr-recipes-list): List recipes under --dir; broken ones print a warning line, never abort the listing
+- [`brokkr recipes list`](#brokkr-recipes-list): List recipes under --dir, then those on the personal shelf, each with its origin, project or personal; broken ones print a warning line, never abort the listing
 - [`brokkr recipes add`](#brokkr-recipes-add): Install a recipe from a local path or a git URL into the shelf at the repository's root, .brokkr/recipes/&lt;name&gt; where the folder is, else recipes/&lt;name&gt;, with the agents and charters it names that the agent library lacks
 - [`brokkr recipes show`](#brokkr-recipes-show): Print one recipe's RESOLVED bundle and, when it extends another, the composition chain it was resolved from (decision 0017)
 - [`brokkr agents`](#brokkr-agents): The agent library (decision 0016): one definition per agent — description, charter, an ordered chain of abstract model names, abstract tool/MCP configuration — that seats reference by name
@@ -316,7 +316,7 @@ Usage: brokkr recipes <COMMAND>
 
 ## brokkr recipes list
 
-List recipes under --dir; broken ones print a warning line, never abort the listing
+List recipes under --dir, then those on the personal shelf, each with its origin, project or personal; broken ones print a warning line, never abort the listing
 
 ```text
 Usage: brokkr recipes list [OPTIONS]
@@ -339,6 +339,7 @@ Usage: brokkr recipes add [OPTIONS] --name <NAME> <SOURCE>
 | `<SOURCE>` |  |  | A local bundle directory or a git URL |
 | `--name <NAME>` |  |  | The name the recipe is installed under |
 | `--path <PATH>` |  |  | With a git URL, the bundle's directory inside the clone, a relative path of plain names (`recipes/fast`), walked without following a link; without it, the clone's root or its one subdirectory holding a bundle.json. The bases its recipe extends come from beside it |
+| `--personal` |  |  | Install onto the personal shelf instead, $XDG_CONFIG_HOME/brokkr/recipes/&lt;name&gt;, else $HOME/.config/brokkr/recipes/&lt;name&gt;, beside host.json and in no repository; it copies no agent or charter |
 
 ## brokkr recipes show
 
@@ -350,7 +351,7 @@ Usage: brokkr recipes show [OPTIONS] <NAME>
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `<NAME>` |  |  | The recipe's name, resolved to &lt;dir&gt;/&lt;name&gt; |
+| `<NAME>` |  |  | The recipe's name, resolved to &lt;dir&gt;/&lt;name&gt;, else to the personal shelf's; a name on both refuses |
 | `--dir <DIR>` |  |  | The recipe library directory (default the found .brokkr/recipes, else recipes) |
 
 ## brokkr agents

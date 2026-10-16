@@ -2,13 +2,17 @@
 //! the default of `recipes list`, `recipes show` and `run --recipe` where
 //! a folder is found, with an explicit flag still winning; a shelf that
 //! never moves the folder bundle's digest; and doctor's line per shelf
-//! recipe. Every repository is [`Repo`]'s, its folder planted by hand.
+//! recipe. The personal shelf beside `host.json` (#697): `recipes add
+//! --personal`, `--recipe` reading the project's shelf and then it, a name
+//! on both refused, and the origin `recipes list` and doctor show. Every
+//! repository is [`Repo`]'s, its folder planted by hand, and its
+//! configuration directory [`Repo::config`].
 
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-use crate::brokkr_folder::{completes, digest, started, Repo};
+use crate::brokkr_folder::{completes, digest, started, Ran, Repo};
 
 /// A folder repository whose shelf holds the fake-driver recipe `x`.
 fn shelved() -> Repo {
@@ -55,7 +59,7 @@ fn list_and_show_read_the_shelf() {
     let at = repo.path(".brokkr/recipes/x");
     let compiled = digest(&repo, ".brokkr/recipes/x");
     let line = format!(
-        "x\t{}\t3 phases\timplement, review\t\t\t{}\n",
+        "x\t{}\t3 phases\timplement, review\t\t\tproject\t{}\n",
         &compiled[..12],
         at.display()
     );
@@ -72,7 +76,7 @@ fn list_and_show_read_the_shelf() {
     repo.bundle("own/y", "y", completes());
     let ran = repo.brokkr("", &["recipes", "list", "--dir", "own"]);
     let own = format!(
-        "y\t{}\t3 phases\timplement, review\t\t\town/y\n",
+        "y\t{}\t3 phases\timplement, review\t\t\tproject\town/y\n",
         &digest(&repo, "own/y")[..12]
     );
     assert_eq!((ran.code, ran.stdout), (Some(0), own));
@@ -498,4 +502,148 @@ fn doctor_reads_the_shelf() {
         (ran.code, lines),
         (healthy, expected.iter().map(String::as_str).collect())
     );
+}
+
+/// `recipes add --personal <source> --name mine` from `repo`'s root, each
+/// variable in `env` set to its value, or unset where it has none.
+fn add_personal(repo: &Repo, source: &Path, env: &[(&str, Option<&Path>)]) -> Ran {
+    let mut add = repo.command("");
+    add.args(["recipes", "add", "--personal", source.to_str().unwrap()]);
+    add.args(["--name", "mine"]);
+    for (variable, value) in env {
+        match value {
+            Some(value) => add.env(variable, value),
+            None => add.env_remove(variable),
+        };
+    }
+    Ran::of(add.output().unwrap())
+}
+
+/// `recipes add --personal` installs beside `host.json` (#697 rulings 1
+/// and 6): under `$XDG_CONFIG_HOME/brokkr/recipes`, else
+/// `$HOME/.config/brokkr/recipes`, and refuses as `host.json`'s lookup does
+/// where neither names an absolute directory, making nothing. No file of
+/// the repository changes, and the folder bundle's digest stays.
+#[test]
+fn add_personal_installs_beside_the_host_file() {
+    let repo = shelved();
+    repo.bundle("../mine-source", "mine", completes());
+    let source = repo.root.with_file_name("mine-source");
+    let before = (repo.files(), digest(&repo, ".brokkr"));
+    let home = repo.config().with_file_name("home");
+    let unset = ("XDG_CONFIG_HOME", None);
+    let placed = [
+        (vec![], repo.config().join("brokkr/recipes/mine")),
+        (
+            vec![unset, ("HOME", Some(&*home))],
+            home.join(".config/brokkr/recipes/mine"),
+        ),
+    ];
+    for (env, installed) in placed {
+        let ran = add_personal(&repo, &source, &env);
+        let compiled = digest(&repo, installed.to_str().unwrap());
+        let added = format!(
+            "added recipe 'mine' ({}) at {}\n",
+            &compiled[..12],
+            installed.display()
+        );
+        assert_eq!((ran.code, ran.stderr), (Some(0), added));
+        assert_eq!((repo.files(), digest(&repo, ".brokkr")), before);
+    }
+    let relative = [unset, ("HOME", Some(Path::new("relative")))];
+    let ran = add_personal(&repo, &source, &relative);
+    let unplaced = "error: no host configuration can be found: neither XDG_CONFIG_HOME nor HOME \
+                    names an absolute directory\n";
+    assert_eq!((ran.code, &*ran.stderr), (Some(1), unplaced));
+    assert_eq!(repo.files(), before.0);
+}
+
+/// A personal install copies no agent or charter into the repository
+/// (#697 ruling 4): `fast`, whose library holds the agents it hires, is
+/// compiled against the folder's agents, which lack them, so it refuses,
+/// the repository byte for byte as it was, and makes nothing on the
+/// shelf, not even the configuration directory it would have stood in.
+#[test]
+fn a_personal_install_copies_no_agent_into_the_repository() {
+    let (repo, fast) = library_of_fast();
+    let before = repo.files();
+    let ran = add_personal(&repo, &fast, &[]);
+    let refused = "error: recipe 'mine' does not compile (removed): ";
+    assert!(ran.stderr.starts_with(refused), "{}", ran.stderr);
+    assert!(ran.stderr.contains("fast-implementer"), "{}", ran.stderr);
+    assert_eq!((ran.code, repo.config().exists()), (Some(1), false));
+    assert_eq!(repo.files(), before);
+}
+
+/// `--recipe` reads the project's shelf, then the personal one (#697
+/// ruling 6): a run delivers under either, `recipes list` shows both with
+/// their origin, and doctor lists the personal recipe. Editing it changes
+/// no file of the repository and not the folder bundle's digest, and a
+/// resume of the run it delivered refuses the drift. A name on both
+/// shelves refuses `run` and `show` alike, naming both paths (ruling 2).
+#[test]
+fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
+    let repo = shelved();
+    let personal = repo.config().join("brokkr/recipes");
+    let mine = personal.join("mine");
+    repo.bundle(mine.to_str().unwrap(), "mine", completes());
+    let run = |name: &str| {
+        let ran = repo.brokkr(
+            "src",
+            &["run", "--recipe", name, "--feature", "f", "--no-view"],
+        );
+        assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+        started(&ran)
+    };
+    let delivered = run("mine");
+    run("x");
+    assert_eq!((repo.seated("mine"), repo.seated("x")), (true, true));
+    let line = |name: &str, origin: &str, at: &Path| {
+        let compiled = digest(&repo, at.to_str().unwrap());
+        let (digest, at) = (&compiled[..12], at.display());
+        format!("{name}\t{digest}\t3 phases\timplement, review\t\t\t{origin}\t{at}\n")
+    };
+    let project = repo.path(".brokkr/recipes/x");
+    let listed = repo.brokkr("", &["recipes", "list"]);
+    let both = line("x", "project", &project) + &line("mine", "personal", &mine);
+    assert_eq!((listed.code, listed.stdout), (Some(0), both));
+    let doctor = repo.brokkr("", &["doctor"]);
+    let compiled = digest(&repo, mine.to_str().unwrap());
+    let shown = format!(
+        "ok       personal recipe mine: {} at {}",
+        &compiled[..12],
+        mine.display()
+    );
+    assert!(
+        doctor.stdout.lines().any(|l| l == shown),
+        "{}",
+        doctor.stdout
+    );
+
+    let before = (repo.files(), digest(&repo, ".brokkr"));
+    std::fs::write(mine.join("roles/role.md"), "# edited\n").unwrap();
+    assert_eq!((repo.files(), digest(&repo, ".brokkr")), before);
+    let resume = [
+        "resume",
+        "--run",
+        &delivered,
+        "--recipe",
+        "mine",
+        "--no-view",
+    ];
+    let ran = repo.brokkr("", &resume);
+    let drift = format!("error: run '{delivered}' pins a different bundle: changed: roles/role.md");
+    assert_eq!((ran.code, ran.first_line()), (Some(1), &*drift));
+
+    repo.bundle(personal.join("x").to_str().unwrap(), "px", completes());
+    let shadowed = format!(
+        "error: recipe 'x' stands on both the project shelf, at {}, and the personal shelf, at \
+         {} (#697): neither shelf wins, so rename or remove one of them\n",
+        project.display(),
+        personal.join("x").display()
+    );
+    let ran = repo.brokkr("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]);
+    assert_eq!((ran.code, ran.stderr), (Some(1), shadowed.clone()));
+    let ran = repo.brokkr("", &["recipes", "show", "x"]);
+    assert_eq!((ran.code, ran.stderr), (Some(1), shadowed));
 }

@@ -204,17 +204,14 @@ impl Ws {
         std::fs::write(at.join("bundle.json"), r#"{"name": "broken"}"#).unwrap();
     }
 
+    /// `brokkr <args>` in the workspace, whose personal shelf (#697) is one
+    /// nothing stands at, so no host's own is listed here.
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        let out = Command::new(brokkr_bin())
-            .args(args)
-            .current_dir(self.path())
-            .output()
-            .unwrap();
-        (
-            out.status.code(),
-            String::from_utf8_lossy(&out.stdout).into_owned(),
-            String::from_utf8_lossy(&out.stderr).into_owned(),
-        )
+        let mut command = Command::new(brokkr_bin());
+        command.args(args).current_dir(self.path());
+        command.env("XDG_CONFIG_HOME", self.path().join(".config"));
+        let ran = crate::brokkr_folder::Ran::of(command.output().unwrap());
+        (ran.code, ran.stdout, ran.stderr)
     }
 
     fn recipes_dir(&self) -> PathBuf {
@@ -269,8 +266,8 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
     let cols: Vec<&str> = line.split('\t').collect();
     assert_eq!(
         cols.len(),
-        7,
-        "name, digest, phases, seats, cost, description, path: {line}"
+        8,
+        "name, digest, phases, seats, cost, description, origin, path: {line}"
     );
     assert_eq!(
         cols[1],
@@ -290,7 +287,8 @@ fn list_prints_valid_recipes_and_warns_on_broken_ones() {
         cols[5].is_empty(),
         "legacy fixture has no description: {line}"
     );
-    assert!(cols[6].ends_with("good"), "source path: {}", cols[6]);
+    assert_eq!(cols[6], "project", "the origin (#697): {line}");
+    assert!(cols[7].ends_with("good"), "source path: {}", cols[7]);
 
     let warning = stdout
         .lines()

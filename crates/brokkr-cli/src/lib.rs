@@ -326,8 +326,9 @@ enum KeepRefsCmd {
 
 #[derive(Subcommand)]
 enum RecipesCmd {
-    /// List recipes under --dir; broken ones print a warning line, never
-    /// abort the listing.
+    /// List recipes under --dir, then those on the personal shelf, each
+    /// with its origin, project or personal; broken ones print a warning
+    /// line, never abort the listing.
     List {
         /// The recipe library directory (default the found .brokkr/recipes,
         /// listing nothing while it is absent, else recipes).
@@ -351,11 +352,18 @@ enum RecipesCmd {
         /// extends come from beside it.
         #[arg(long)]
         path: Option<String>,
+        /// Install onto the personal shelf instead,
+        /// $XDG_CONFIG_HOME/brokkr/recipes/<name>, else
+        /// $HOME/.config/brokkr/recipes/<name>, beside host.json and in no
+        /// repository; it copies no agent or charter.
+        #[arg(long)]
+        personal: bool,
     },
     /// Print one recipe's RESOLVED bundle and, when it extends another,
     /// the composition chain it was resolved from (decision 0017).
     Show {
-        /// The recipe's name, resolved to <dir>/<name>.
+        /// The recipe's name, resolved to <dir>/<name>, else to the
+        /// personal shelf's; a name on both refuses.
         name: String,
         /// The recipe library directory (default the found .brokkr/recipes,
         /// else recipes).

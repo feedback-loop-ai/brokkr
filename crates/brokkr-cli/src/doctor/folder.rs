@@ -16,6 +16,7 @@ use brokkr_runtime::realms::World;
 
 use super::{Report, Seats};
 use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
+use crate::recipes::personal::Origin;
 
 /// The line's name in the report.
 const WHAT: &str = "folder";
@@ -162,15 +163,18 @@ pub(super) fn report_folder(
     let shelved = |dir: &Path| {
         compile_folder(workspace, dir, realms).map(|bundle| bundle.manifest_digest()[..12].into())
     };
-    report_folder_with(report, &defaults.found, compile, shelved);
+    let personal = defaults.personal.as_deref();
+    report_folder_with(report, &defaults.found, personal, compile, shelved);
 }
 
 /// [`report_folder`], `compile` the folder's compile and `shelved` a shelf
-/// recipe's, to its digest. The lines go ahead of every other, and a
-/// missing one leaves the report unhealthy.
+/// recipe's, to its digest, `personal` the personal shelf (#697). The
+/// lines go ahead of every other, and a missing one leaves the report
+/// unhealthy.
 fn report_folder_with(
     report: &mut Report,
     found: &Result<Found, FolderError>,
+    personal: Option<&Path>,
     compile: impl FnOnce(&Path) -> anyhow::Result<()>,
     shelved: impl Fn(&Path) -> anyhow::Result<String>,
 ) {
@@ -179,7 +183,7 @@ fn report_folder_with(
         lines: Vec::new(),
     };
     match found {
-        Ok(found) => observe(&mut folder, &found.layout, (compile, shelved)),
+        Ok(found) => observe(&mut folder, &found.layout, personal, (compile, shelved)),
         Err(refused) => folder.missing(WHAT, refused.to_string()),
     }
     report.healthy &= folder.healthy;
@@ -188,10 +192,13 @@ fn report_folder_with(
 
 /// The lines `layout` earns: a library's own layout, an old shape's
 /// opening, each entry a half-moved folder left at the root, no folder,
-/// or the folder found, whether its compile refuses, and its shelf.
+/// or the folder found, whether its compile refuses, and its shelf. Where
+/// a run reads named recipes, in a library or the folder found, the
+/// `personal` shelf's lines follow (#697).
 fn observe(
     report: &mut Report,
     layout: &places::Layout,
+    personal: Option<&Path>,
     (compile, shelved): (
         impl FnOnce(&Path) -> anyhow::Result<()>,
         impl Fn(&Path) -> anyhow::Result<String>,
@@ -202,10 +209,15 @@ fn observe(
     let found = format!("{} (found from {cwd})", folder.display());
     match (layout.kind(), layout.old()) {
         (_, Err(refused)) => report.missing(WHAT, refused.to_string()),
-        (Kind::Library, _) => report.ok(
-            WHAT,
-            format!("none: {root} is a recipe library, which keeps its own layout (decision 0083)"),
-        ),
+        (Kind::Library, _) => {
+            report.ok(
+                WHAT,
+                format!(
+                    "none: {root} is a recipe library, which keeps its own layout (decision 0083)"
+                ),
+            );
+            report_personal(report, personal, &shelved);
+        }
         (_, Ok(Some(Old::Root))) => report.missing(WHAT, Opening::Root.to_string()),
         (_, Ok(Some(Old::StateOnly))) => report.missing(WHAT, Opening::StateOnly.to_string()),
         (_, Ok(Some(Old::HalfMoved { left, .. }))) => {
@@ -228,34 +240,49 @@ fn observe(
                     ),
                 ),
             }
-            report_shelf(report, &layout.places().recipes, shelved);
+            report_shelf(report, &layout.places().recipes, Origin::Project, &shelved);
+            report_personal(report, personal, &shelved);
         }
     }
 }
 
-/// One line per recipe on the folder's `shelf` (#696), by name: its
-/// digest, `shelved` its compile, or that compile's refusal as a warning,
-/// because a broken shelf recipe is information and never fails the
-/// report. No shelf is no line ([`crate::recipes::unshelved`]); one that
-/// cannot be listed, a link to nothing included, warns.
+/// [`report_shelf`] of the `personal` shelf, where the machine places one.
+fn report_personal(
+    report: &mut Report,
+    personal: Option<&Path>,
+    shelved: impl Fn(&Path) -> anyhow::Result<String>,
+) {
+    if let Some(shelf) = personal {
+        report_shelf(report, shelf, Origin::Personal, shelved);
+    }
+}
+
+/// One line per recipe on the `shelf` of `origin`, the folder's (#696) or
+/// the personal one (#697), by name: its digest, `shelved` its compile, or
+/// that compile's refusal as a warning, because a broken shelf recipe is
+/// information and never fails the report. No shelf is no line
+/// ([`crate::recipes::unshelved`]); one that cannot be listed, a link to
+/// nothing included, warns.
 fn report_shelf(
     report: &mut Report,
     shelf: &Path,
+    origin: Origin,
     shelved: impl Fn(&Path) -> anyhow::Result<String>,
 ) {
+    let (recipe, place, issue) = origin.doctor();
     let recipes = match crate::recipes::listed(shelf) {
         Ok(recipes) => recipes,
         Err(_) if crate::recipes::unshelved(shelf) => return,
-        Err(error) => return report.warn("shelf", format!("{}: {error}", shelf.display())),
+        Err(error) => return report.warn(place, format!("{}: {error}", shelf.display())),
     };
     for (name, dir) in recipes {
-        let what = format!("recipe {name}");
+        let what = format!("{recipe} {name}");
         match shelved(&dir) {
             Ok(digest) => report.ok(&what, format!("{digest} at {}", dir.display())),
             Err(refused) => report.warn(
                 &what,
                 format!(
-                    "{} does not compile (#696): {}",
+                    "{} does not compile ({issue}): {}",
                     dir.display(),
                     crate::safe_lines(&format!("{refused:#}"))
                 ),
