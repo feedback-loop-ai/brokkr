@@ -78,6 +78,55 @@ fn a_config_control_of_two_values_or_a_quoted_name_is_no_reading() {
     assert_eq!(codex_entries(&controls), None);
 }
 
+/// U7d2 (MB1): a measured fragment expanded beside sealed brokers carries
+/// the whole set's document, each broker on its own plan, written out by
+/// hand here; with none it is the hands-only expansion, and a broker whose
+/// capability is no bare name expands nothing.
+#[test]
+fn a_fragment_expanded_beside_brokers_carries_the_whole_set() {
+    let spec = crate::hands::HandsSpec {
+        network: false,
+        binds: Vec::new(),
+    };
+    let hands = Transport {
+        brokkr: std::path::Path::new("/bin/brokkr"),
+        workdir: std::path::Path::new("/w"),
+        spec: &spec,
+    };
+    let broker = |capability: &str| SealedBroker {
+        capability: capability.into(),
+        plan: "/p/plan-0.json".into(),
+        plan_digest: "a".repeat(64),
+        removals: vec!["DOCS_TOKEN".into()],
+    };
+    let fragment = ["--mcp-config".to_string(), "{hands_mcp_json}".to_string()];
+    let served = "{\"command\":\"/bin/brokkr\",\"args\":[\"hands\",\"serve\",\"--workdir\",\"/w\",\
+                  \"--spec\",\"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\\\"network\\\":\
+                  false}\"]}";
+    let docs = format!(
+        "{{\"command\":\"/bin/brokkr\",\"args\":[\"broker\",\"serve\",\"--plan\",\
+         \"/p/plan-0.json\",\"--plan-digest\",\"{}\"]}}",
+        "a".repeat(64)
+    );
+    let parsed = |argv: Option<Vec<String>>| {
+        let argv = argv.unwrap();
+        assert_eq!(argv[0], "--mcp-config");
+        serde_json::from_str::<Value>(&argv[1]).unwrap()
+    };
+    let whole = format!("{{\"mcpServers\":{{\"brokkr\":{served},\"cap-library-docs\":{docs}}}}}");
+    assert_eq!(
+        parsed(hands.expand_beside(&fragment, &[broker("library-docs")])),
+        serde_json::from_str::<Value>(&whole).unwrap()
+    );
+    let alone = format!("{{\"mcpServers\":{{\"brokkr\":{served}}}}}");
+    assert_eq!(
+        parsed(hands.expand(&fragment)),
+        serde_json::from_str::<Value>(&alone).unwrap()
+    );
+    assert_eq!(hands.expand_beside(&fragment, &[]), hands.expand(&fragment));
+    assert_eq!(hands.expand_beside(&fragment, &[broker("docs.v2")]), None);
+}
+
 /// A server table that is not one object is refused in the reader's own
 /// words.
 #[test]

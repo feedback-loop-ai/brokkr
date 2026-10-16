@@ -46,7 +46,7 @@ fn private_dir() -> tempfile::TempDir {
 /// `from` installed as the executable `name` in `dir`, singly linked: a
 /// child `cp` writes it and it is renamed in, so no fork of this process
 /// holds it open for writing when it runs (#255). Its canonical path.
-fn installed(dir: &Path, name: &str, from: &Path) -> PathBuf {
+pub(in crate::engine) fn installed(dir: &Path, name: &str, from: &Path) -> PathBuf {
     let staged = dir.join(format!("{name}.staged"));
     let cp = Command::new("/bin/cp").arg(from).arg(&staged).status();
     assert_eq!(cp.unwrap().code(), Some(0), "copying {}", from.display());

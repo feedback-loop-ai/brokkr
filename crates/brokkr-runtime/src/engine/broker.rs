@@ -34,6 +34,12 @@
 //! brokered holding provisions nothing. The driver of an attempt that did
 //! provision is handed only what provisioning left of the attempt's bound
 //! ([`left`]), and an attempt with nothing left is refused.
+//!
+//! What provisioning wrote is what each site is served (U7d2; MB1, MB4):
+//! every slot's plan locator and digest, as the inventory pins them, and
+//! its dialect's secret names, sealed as one [`SealedBroker`] under its
+//! capability and kept on the attempt's selection by site label, from which
+//! the site's serving inputs are sealed only once the plans exist.
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -51,6 +57,7 @@ use brokkr_protocol::broker::{
     Privilege, Provisioned, Reach, Refusal, Restrictions, Survey, Surveyed, Unread, Writers,
 };
 use brokkr_protocol::hands::{self, BindMode, GitFacts, HandsSpec};
+use brokkr_protocol::native_controls::SealedBroker;
 use rustix::fs::{fstat, mkdirat, openat, Mode, OFlags, Stat, CWD};
 use rustix::io::Errno;
 use rustix::process::{kill_process_group, Pid, Signal};
@@ -228,6 +235,14 @@ pub(super) struct Attempt<'a> {
     pub(super) site: &'a str,
 }
 
+/// What one attempt's provisioning made: its directory, and the brokers
+/// sealed from its plans, by the label of the site each serves.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Sealed {
+    pub(super) control: PathBuf,
+    pub(super) brokers: BTreeMap<String, Vec<SealedBroker>>,
+}
+
 /// The facts every plan of one attempt shares, and how its boxes are
 /// surveyed, and by when.
 struct Shared<'h> {
@@ -253,10 +268,18 @@ impl Engine {
     pub(super) fn provision(
         &mut self,
         ids: [&str; 3],
-        selection: &Selection,
+        selection: &mut Selection,
         bound: &mut Duration,
     ) -> Result<bool, EngineError> {
         let began = Instant::now();
+        // A test drives dispatch's own call on a host it stood in, as
+        // `fence::tests::peer_between` reaches between a fold and an append.
+        #[cfg(test)]
+        if let Some((host, survey)) =
+            super::capability_tests::provision_tests::brokered_tests::stood_in()
+        {
+            return self.provision_with(ids, selection, (began, bound), Ok(host), survey);
+        }
         let host = Host::of(std::env::vars_os(), std::env::current_exe());
         self.provision_with(ids, selection, (began, bound), host, &surveyed)
     }
@@ -267,11 +290,12 @@ impl Engine {
     /// where a plan was provisioned, `bound` is left holding what remains
     /// of it for the driver, and an attempt with nothing left is refused;
     /// otherwise the attempt fails with the refusal before any driver
-    /// starts.
+    /// starts. `selection` is left holding the brokers sealed for each
+    /// site, none where nothing was provisioned.
     pub(super) fn provision_with(
         &mut self,
         [effect, attempt, site]: [&str; 3],
-        selection: &Selection,
+        selection: &mut Selection,
         (began, bound): (Instant, &mut Duration),
         host: Result<Host, Unprovisioned>,
         survey: Surveyor<'_>,
@@ -283,11 +307,13 @@ impl Engine {
         };
         let surveyor = (survey, startup(began, *bound));
         let provisioned = self.provisioned(attempt, selection, host, surveyor);
-        let remaining = provisioned
-            .and_then(|made| (made.map(|_| left(*bound, began, Instant::now()))).transpose());
+        let remaining = provisioned.and_then(|made| {
+            let left = |sealed: Sealed| Ok((sealed.brokers, left(*bound, began, Instant::now())?));
+            made.map(left).transpose()
+        });
         let refusal = match remaining {
-            Ok(remaining) => {
-                *bound = remaining.unwrap_or(*bound);
+            Ok(made) => {
+                (selection.brokers, *bound) = made.unwrap_or((BTreeMap::new(), *bound));
                 return Ok(true);
             }
             Err(refusal) => refusal,
@@ -304,8 +330,9 @@ impl Engine {
 
     /// Seal and write every brokered holding's plan of this attempt, and
     /// its inventory last, under `host`, each box surveyed by `survey`
-    /// before `deadline`; the attempt's directory, or none where no site
-    /// brokers a holding. The budget and every holding's seal are judged
+    /// before `deadline`; the attempt's directory and the brokers sealed
+    /// from its plans ([`brokers`]), or none where no site brokers a
+    /// holding. The budget and every holding's seal are judged
     /// before the host is consulted, a host that could not be read refusing
     /// only an attempt that brokers a holding, and every plan is sealed
     /// before anything is made.
@@ -315,7 +342,7 @@ impl Engine {
         selection: &Selection,
         host: Result<Host, Unprovisioned>,
         (survey, deadline): (Surveyor<'_>, Instant),
-    ) -> Result<Option<PathBuf>, Unprovisioned> {
+    ) -> Result<Option<Sealed>, Unprovisioned> {
         let slots = self.slots(attempt.site, selection);
         let retaining = slots.iter().filter(|slot| slot.retained()).count();
         share(retaining as u64)?;
@@ -343,8 +370,12 @@ impl Engine {
             .map(|(slot, seal)| self.plan(&shared, attempt, slot, seal))
             .collect::<Result<_, _>>()?;
         let run = protected(&host.home, &below)?;
-        written(&run, &shared.control, plans)?;
-        Ok(Some(shared.control))
+        let pins = written(&run, &shared.control, plans)?;
+        let brokers = brokers(&slots, &seals, pins);
+        Ok(Some(Sealed {
+            control: shared.control,
+            brokers,
+        }))
     }
 
     /// Every brokered holding of this attempt's executing model sites, each
@@ -663,7 +694,7 @@ pub(super) fn owned(stat: &Stat, user: u32, private: bool) -> bool {
 /// directory `run`, each plan written in it, and the inventory pinning
 /// them last. Only a directory that already stands is provisioned;
 /// anything else that stops it being made is a write that failed.
-fn written(run: &OwnedFd, control: &Path, plans: Vec<Plan>) -> Result<(), Unprovisioned> {
+fn written(run: &OwnedFd, control: &Path, plans: Vec<Plan>) -> Result<Vec<Pin>, Unprovisioned> {
     let attempt = control.file_name().unwrap_or_default();
     match mkdirat(run, attempt, Mode::RWXU) {
         Ok(()) => Ok(()),
@@ -678,7 +709,37 @@ fn written(run: &OwnedFd, control: &Path, plans: Vec<Plan>) -> Result<(), Unprov
         let locator = control.join(name);
         pins.push(Pin { locator, digest });
     }
-    sealed(&dir, INVENTORY, &Inventory { plans: pins }).map(drop)
+    let inventory = Inventory { plans: pins };
+    sealed(&dir, INVENTORY, &inventory)?;
+    Ok(inventory.plans)
+}
+
+/// Each slot's broker (U7d2; MB1, MB4), under the label of the site it
+/// serves, in the slots' order: its capability, the locator and digest its
+/// `pins` entry pins its plan by, and its dialect's secret names as the
+/// harness's removals. Each locator is read as the UTF-8 its inventory was
+/// written in: a path that is not UTF-8 serializes to no record, so its
+/// attempt was refused as a failed write before this reads it, which
+/// `brokered_tests::an_attempt_directory_that_is_not_utf8_seals_no_broker`
+/// binds as the removal control of the refusal this omits.
+fn brokers(
+    slots: &[Slot<'_>],
+    seals: &[Seal<'_>],
+    pins: Vec<Pin>,
+) -> BTreeMap<String, Vec<SealedBroker>> {
+    let mut brokers: BTreeMap<String, Vec<SealedBroker>> = BTreeMap::new();
+    for ((slot, seal), pin) in slots.iter().zip(seals).zip(pins) {
+        brokers
+            .entry(slot.label.clone())
+            .or_default()
+            .push(SealedBroker {
+                capability: slot.held.capability.to_string(),
+                plan: pin.locator.to_string_lossy().into_owned(),
+                plan_digest: pin.digest,
+                removals: seal.secrets.to_vec(),
+            });
+    }
+    brokers
 }
 
 /// `record` written through its one `Serialize` as a new owner-only file
