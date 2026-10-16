@@ -48,6 +48,7 @@ use brokkr_protocol::Cleanup;
 use brokkr_protocol::{AttemptReport, CleanupEvidence};
 use serde::Serialize;
 
+mod broker;
 mod capability_calls;
 mod checkpoints;
 mod fence;
@@ -1456,10 +1457,12 @@ impl Engine {
             self.active_gate_head = Some(git_head(&self.repo));
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
-
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
-        let deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
-
+        let mut deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
+        let ids = [effect_id, attempt_id.as_str(), site_name.as_str()];
+        if !self.provision(ids, &selection, &mut deadline)? {
+            return Ok(());
+        }
         match body {
             ExecutableBody::Panel { members, aggregate } => self.execute_panel(
                 effect_id,
@@ -1658,10 +1661,7 @@ impl Engine {
         let workdir = self.workdir();
         let mut plans = BTreeMap::new();
         for entry in resume::structural_sites(body, seat_name, case, gate) {
-            let label = match &entry.site {
-                None => site_name.to_string(),
-                Some(tag) => format!("{site_name}:{tag}"),
-            };
+            let label = site_label(site_name, &entry.site);
             let context = resume::SiteContext::new(
                 entry.key.digest(),
                 resume::InstanceKey::new(
@@ -1765,10 +1765,7 @@ impl Engine {
         let entries: Vec<Value> = invocation_sites(body)
             .into_iter()
             .map(|(site, _)| {
-                let label = match &site {
-                    None => site_name.to_string(),
-                    Some(tag) => format!("{site_name}:{tag}"),
-                };
+                let label = site_label(site_name, &site);
                 let boundary = self.site_boundary(&label);
                 any_hands |= boundary.is_some();
                 json!({
@@ -2356,6 +2353,13 @@ enum DriverRun {
 /// a sequence step, `<step>:<member>` for a member inside a step panel —
 /// exactly the tags the engine already uses for checkpoints.
 type Site = Option<String>;
+
+/// The label the site `site` of the seat `site_name` is composed and
+/// marked under: the seat's own, or `<seat>:<tag>`.
+fn site_label(site_name: &str, site: &Site) -> String {
+    site.as_ref()
+        .map_or_else(|| site_name.to_string(), |tag| format!("{site_name}:{tag}"))
+}
 
 /// The candidate chosen for each agent-resolved invocation site of this
 /// attempt, derived from journaled facts BEFORE anything spawns. Inline

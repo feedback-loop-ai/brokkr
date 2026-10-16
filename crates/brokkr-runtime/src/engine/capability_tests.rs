@@ -978,7 +978,11 @@ fn every_dispatch_composes_the_lowered_allow_of_its_own_site() {
 /// [`engine`] over a canonicalised temporary root, so every fixture path
 /// is the one the filesystem resolves (macOS's `/var` is `/private/var`).
 fn canonical_engine(body: SeatBody) -> (tempfile::TempDir, Engine) {
-    let dir = tempfile::tempdir().unwrap();
+    canonical_engine_in(tempfile::tempdir().unwrap(), body)
+}
+
+/// [`canonical_engine`] built in `dir`.
+fn canonical_engine_in(dir: tempfile::TempDir, body: SeatBody) -> (tempfile::TempDir, Engine) {
     let root = std::fs::canonicalize(dir.path()).unwrap();
     std::fs::create_dir(root.join("work")).unwrap();
     let store = Store::open(&root.join("forge.db")).unwrap();
@@ -1874,5 +1878,6 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
     );
 }
 mod call_tests;
+mod provision_tests;
 mod resume_tests;
 mod serving_tests;

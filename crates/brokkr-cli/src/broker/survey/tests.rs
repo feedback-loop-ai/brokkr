@@ -1,8 +1,8 @@
-//! The provisioning observer's request and reply (U7c0b): one closed,
-//! bounded request read whole, each way it fails to read answered with
-//! its own closed cause, and each refusal before a box is observed
-//! answered with its own. Each malformed request differs from a request
-//! that reads by its one defect alone.
+//! The provisioning observer's request and reply (U7c0b, U7c): one closed,
+//! bounded request line, nothing after it read, each way it fails to read
+//! answered with its own closed cause, and each refusal before a box is
+//! observed answered with its own. Each malformed request differs from a
+//! request that reads by its one defect alone.
 
 use brokkr_protocol::broker::{Network, Reach};
 use serde_json::json;
@@ -23,10 +23,14 @@ fn asking(launch: &str, home: &str) -> Survey {
     }
 }
 
-/// [`asking`]'s wire form, `sh` under `/home/op`, and that it reads.
+/// [`asking`]'s wire form, `sh` under `/home/op`, without its newline, and
+/// that it reads as one line.
 fn written() -> String {
     let text = serde_json::to_string(&asking("sh", "/home/op")).unwrap();
-    assert_eq!(read(text.as_bytes()), Ok(asking("sh", "/home/op")));
+    assert_eq!(
+        read(format!("{text}\n").as_bytes()),
+        Ok(asking("sh", "/home/op"))
+    );
     text
 }
 
@@ -36,18 +40,23 @@ fn read(text: &[u8]) -> Result<Survey, Unread> {
 }
 
 #[test]
-fn a_request_is_read_whole_within_its_bound() {
-    // Padded to the bound exactly it is read; one byte more is not.
-    let mut padded = format!("{}\n", written()).into_bytes();
-    padded.resize(REQUEST_BYTES_MAX as usize, b' ');
+fn a_request_line_is_read_within_its_bound() {
+    // A line padded to the bound exactly, its newline included, is read;
+    // one byte more is not, nor a bound's worth with no newline in it.
+    let mut padded = written().into_bytes();
+    padded.resize(REQUEST_BYTES_MAX as usize - 1, b' ');
+    padded.push(b'\n');
     assert_eq!(read(&padded), Ok(asking("sh", "/home/op")));
-    padded.push(b' ');
+    padded.insert(0, b' ');
     assert_eq!(read(&padded), Err(Unread::Oversized));
+    let unending = vec![b' '; REQUEST_BYTES_MAX as usize];
+    assert_eq!(read(&unending), Err(Unread::Oversized));
 }
 
 #[test]
-fn a_request_that_ends_inside_its_record_is_truncated() {
+fn a_request_whose_input_ends_before_its_newline_is_truncated() {
     let text = written();
+    assert_eq!(read(text.as_bytes()), Err(Unread::Truncated));
     assert_eq!(
         read(&text.as_bytes()[..text.len() - 1]),
         Err(Unread::Truncated)
@@ -56,9 +65,19 @@ fn a_request_that_ends_inside_its_record_is_truncated() {
 }
 
 #[test]
+fn a_request_line_ending_inside_its_record_is_malformed() {
+    let text = written();
+    let cut = format!("{}\n", &text[..text.len() - 1]);
+    assert_eq!(read(cut.as_bytes()), Err(Unread::Malformed));
+}
+
+#[test]
 fn a_request_repeating_a_field_is_malformed() {
     let twice = written().replacen('{', r#"{"launch":"bash","#, 1);
-    assert_eq!(read(twice.as_bytes()), Err(Unread::Malformed));
+    assert_eq!(
+        read(format!("{twice}\n").as_bytes()),
+        Err(Unread::Malformed)
+    );
 }
 
 #[test]
@@ -66,14 +85,20 @@ fn a_request_naming_a_field_the_record_does_not_is_malformed() {
     written();
     let mut widened = serde_json::to_value(asking("sh", "/home/op")).unwrap();
     widened["plan"] = json!("/p");
-    assert_eq!(read(widened.to_string().as_bytes()), Err(Unread::Malformed));
+    let line = format!("{widened}\n");
+    assert_eq!(read(line.as_bytes()), Err(Unread::Malformed));
 }
 
 #[test]
-fn a_request_followed_by_another_is_malformed() {
+fn a_line_holding_two_requests_is_malformed_and_nothing_after_the_line_is_read() {
     let text = written();
-    let doubled = format!("{text}\n{text}\n");
+    let doubled = format!("{text}{text}\n");
     assert_eq!(read(doubled.as_bytes()), Err(Unread::Malformed));
+    // The input after the line is left where it stands, unread.
+    let followed = format!("{text}\n{{not a record");
+    let mut input = followed.as_bytes();
+    assert_eq!(request(&mut input), Ok(asking("sh", "/home/op")));
+    assert_eq!(input, b"{not a record");
 }
 
 /// Input that cannot be read.
@@ -87,7 +112,8 @@ impl Read for Broken {
 
 #[test]
 fn input_that_cannot_be_read_is_unread_input() {
-    assert_eq!(request(&mut Broken), Err(Unread::Input));
+    let mut broken = std::io::BufReader::new(Broken);
+    assert_eq!(request(&mut broken), Err(Unread::Input));
 }
 
 /// A running binary that cannot be named.

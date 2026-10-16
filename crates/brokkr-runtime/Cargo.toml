@@ -67,5 +67,10 @@ tiktoken-rs = "=0.12.1"
 # lookups of decision 0065's bound reads use rustix's safe calls. A direct
 # edge to the version brokkr-protocol and brokkr-cli already take; no
 # registry version moves.
+#
+# U7c (operator rulings 2026-10-15 and 2026-10-16): provisioning kills and
+# reaps its survey's whole process group on expiry, which rustix's `process`
+# feature names safely. brokkr-protocol and brokkr-cli already build rustix
+# with it, so the lockfile does not move.
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1.4", default-features = false, features = ["fs", "std"] }
+rustix = { version = "1.1.4", default-features = false, features = ["fs", "process", "std"] }
