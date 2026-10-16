@@ -101,18 +101,26 @@ impl<'a> SiteCompiler<'a> {
                 Ok((None, SeatBody::Sequence { steps }, Some(whole_gate)))
             }
             SeatShape::Select => Ok((None, self.parse_select(at, phase, raw)?, None)),
-            SeatShape::Inline => {
-                let written = self.inline_written(at, phase, raw, true)?;
-                let body = SeatBody::Invocation(Invocation::Single {
-                    role_path: parse_role(at.dir, phase, raw, self.charters, &mut self.sites)?,
-                    command: parse_command(at.dir, phase, raw, at.secrets)?,
-                    candidates: Vec::new(),
-                    written,
-                    class: parse_class(phase, raw)?,
-                });
-                Ok((None, body, None))
-            }
+            SeatShape::Inline => Ok((None, self.parse_inline_seat(at, phase, raw)?, None)),
         }
+    }
+
+    /// A seat written inline: its command as written, then its role, its
+    /// command and its class, in that order.
+    fn parse_inline_seat(
+        &mut self,
+        at: SeatScope<'_>,
+        phase: &str,
+        raw: &Value,
+    ) -> Result<SeatBody, CompileError> {
+        let written = self.inline_written(at, phase, raw, true)?;
+        Ok(SeatBody::Invocation(Invocation::Single {
+            role_path: parse_role(at.dir, phase, raw, self.charters, &mut self.sites)?,
+            command: parse_command(at.dir, phase, raw, at.secrets)?,
+            candidates: Vec::new(),
+            written,
+            class: parse_class(phase, raw)?,
+        }))
     }
 
     /// A select seat: every case under the layer that wrote it, and the

@@ -2256,21 +2256,7 @@ fn resolve_reference(
     let adapters = agents.adapters()?;
     let resolution = crate::agents::resolve_report(report, adapters)
         .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
-    if site == SiteRole::Member {
-        for (key, present) in [
-            ("limits", resolution.limits.is_some()),
-            ("inputs", resolution.inputs.is_some()),
-        ] {
-            if present {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{what}' references agent '{name}', which declares \
-                     '{key}'; a panel member or sequence step has no {key} of its \
-                     own — the seat above it does — so the declaration could only \
-                     be discarded silently"
-                )));
-            }
-        }
-    }
+    refuse_member_declarations(what, name, site, &resolution)?;
     // The composed argv faces the SAME secret-reference lint as an inline
     // one (decision 0012), and `{brokkr}` is expanded by the same
     // function, so a resolved seat is an inline seat by construction.
@@ -2344,6 +2330,33 @@ fn resolve_reference(
         inputs: resolution.inputs.clone(),
         hands: resolution.hands.clone(),
     })
+}
+
+/// A panel member or sequence step has no `limits` or `inputs` of its own,
+/// so an agent it references may declare neither.
+fn refuse_member_declarations(
+    what: &str,
+    name: &str,
+    site: SiteRole,
+    resolution: &crate::agents::Resolution,
+) -> Result<(), CompileError> {
+    if site != SiteRole::Member {
+        return Ok(());
+    }
+    for (key, present) in [
+        ("limits", resolution.limits.is_some()),
+        ("inputs", resolution.inputs.is_some()),
+    ] {
+        if present {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' references agent '{name}', which declares \
+                 '{key}'; a panel member or sequence step has no {key} of its \
+                 own — the seat above it does — so the declaration could only \
+                 be discarded silently"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Rebuild unit 5c-fix-b (chief R1; operator ruling 1 of 2026-09-23): a
@@ -3130,6 +3143,34 @@ fn admitted_sandbox(boundary: Boundary, seat_class: SeatClass) -> (Sandbox, &'st
     }
 }
 
+/// The fragment the engine selects for one link on its serving path, named
+/// for a refusal: `hands.workspace` under a box, the `hands.harness` member
+/// the class selects under `harness`, an absent member read as empty. Under
+/// `open` no engine fragment expresses a class, so there is none.
+fn sandbox_fragment<'c>(
+    boundary: Boundary,
+    seat_class: SeatClass,
+    adapter: &'c Adapter,
+    candidate: &'c Candidate,
+) -> Option<(&'static str, &'c [String])> {
+    if boundary.is_boxed() {
+        Some(("`hands.workspace` fragment", &candidate.hands_fragment))
+    } else if boundary == Boundary::Harness {
+        Some(match seat_class {
+            SeatClass::Gate => (
+                "`hands.harness.gate` fragment",
+                adapter.harness.gate.as_deref().unwrap_or(&[]),
+            ),
+            SeatClass::Work => (
+                "`hands.harness.work` fragment",
+                adapter.harness.work.as_deref().unwrap_or(&[]),
+            ),
+        })
+    } else {
+        None
+    }
+}
+
 /// Design D5.3: a typed `tools.sandbox` is admitted only where an EXISTING
 /// engine fragment already expresses exactly that class, and refused
 /// everywhere else — never dropped, clamped or called narrower. Runs after
@@ -3202,20 +3243,8 @@ fn admit_local_sandbox(
         let adapter = adapters
             .adapter(provider)
             .expect("resolution mapped every link of the chain");
-        let (part, fragment): (&str, &[String]) = if boundary.is_boxed() {
-            ("`hands.workspace` fragment", &candidate.hands_fragment)
-        } else if boundary == Boundary::Harness {
-            match seat_class {
-                SeatClass::Gate => (
-                    "`hands.harness.gate` fragment",
-                    adapter.harness.gate.as_deref().unwrap_or(&[]),
-                ),
-                SeatClass::Work => (
-                    "`hands.harness.work` fragment",
-                    adapter.harness.work.as_deref().unwrap_or(&[]),
-                ),
-            }
-        } else {
+        let Some((part, fragment)) = sandbox_fragment(boundary, seat_class, adapter, candidate)
+        else {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' link {link} requests 'tools.sandbox' '{class}' under the `open` \
                  boundary, where a work seat runs at the harness's own default and no engine \
@@ -3500,10 +3529,6 @@ fn enforce_model_policy(
 
 /// Decision 0021's two prohibitions proper — the gate tier, the judges
 /// list and the egress bar — at one site, after the hands law has spoken.
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn enforce_route_policy(
     what: &str,
     raw: &Value,
@@ -3522,60 +3547,7 @@ fn enforce_route_policy(
     let minimum = agents.egress_minimum;
     let adapters = agents.adapters()?;
     let mut authorised = Map::new();
-    // Each site as (driver, concrete model id): the id is what carries
-    // the ROUTE (decision 0036 ruling 2), and an agent chain's abstract
-    // name becomes concrete through the adapter that maps it.
-    let drivers: Vec<(usize, Option<String>, Option<String>, ModelPin)> =
-        match candidates.is_empty() {
-            // An inline site's route is read off its own argv, on the flag
-            // the ADAPTER names (`model_flag`, since decision 0016) AND on
-            // `--model` (decision 0040 ruling 1). A provider the operator
-            // adds that takes `-m` is read on `-m`, so the route named
-            // there is the route this site reaches; and it is read on
-            // `--model` too, because the same CLI commonly honours that as
-            // well, and a pin the engine declined to read there went to an
-            // unruled route on the adapter's own clearance. Both doors,
-            // held shut by one read. Where no adapter answers for the
-            // driver, the `(None, _)` arm below lands the site on
-            // `Uncontracted` whatever this returns.
-            true => {
-                let parts = command_parts(raw);
-                let driver = dispatch_driver(&parts);
-                let pin = inline_route_pin(
-                    &parts,
-                    driver
-                        .as_deref()
-                        .and_then(|provider| adapters.adapter(provider)),
-                );
-                let abstract_model = driver
-                    .as_deref()
-                    .and_then(|provider| adapters.adapter(provider))
-                    .and_then(|adapter| match &pin {
-                        ModelPin::Concrete(concrete) => adapter
-                            .models
-                            .iter()
-                            .find_map(|(name, id)| (id == concrete).then(|| name.clone())),
-                        _ => None,
-                    });
-                vec![(1, driver, abstract_model, pin)]
-            }
-            false => candidates
-                .iter()
-                .enumerate()
-                .map(|(index, candidate)| {
-                    let (_, concrete) = adapters
-                        .serving(&candidate.model)
-                        .expect("resolution mapped every link of the chain");
-                    (
-                        index + 1,
-                        Some(candidate.provider.clone()),
-                        Some(candidate.model.clone()),
-                        ModelPin::Concrete(concrete.to_string()),
-                    )
-                })
-                .collect(),
-        };
-    for (link, driver, abstract_model, pin) in drivers {
+    for (link, driver, abstract_model, pin) in route_links(raw, candidates, adapters) {
         let adapter = driver
             .as_deref()
             .and_then(|provider| adapters.adapter(provider));
@@ -3687,6 +3659,66 @@ fn enforce_route_policy(
     Ok(())
 }
 
+/// Each link of a site as (link, driver, abstract model, concrete model
+/// pin): the id is what carries the ROUTE (decision 0036 ruling 2), and
+/// an agent chain's abstract name becomes concrete through the adapter
+/// that maps it.
+fn route_links(
+    raw: &Value,
+    candidates: &[Candidate],
+    adapters: &Adapters,
+) -> Vec<(usize, Option<String>, Option<String>, ModelPin)> {
+    match candidates.is_empty() {
+        // An inline site's route is read off its own argv, on the flag
+        // the ADAPTER names (`model_flag`, since decision 0016) AND on
+        // `--model` (decision 0040 ruling 1). A provider the operator
+        // adds that takes `-m` is read on `-m`, so the route named
+        // there is the route this site reaches; and it is read on
+        // `--model` too, because the same CLI commonly honours that as
+        // well, and a pin the engine declined to read there went to an
+        // unruled route on the adapter's own clearance. Both doors,
+        // held shut by one read. Where no adapter answers for the
+        // driver, `enforce_route_policy`'s `(None, _)` arm lands the site
+        // on `Uncontracted` whatever this returns.
+        true => {
+            let parts = command_parts(raw);
+            let driver = dispatch_driver(&parts);
+            let pin = inline_route_pin(
+                &parts,
+                driver
+                    .as_deref()
+                    .and_then(|provider| adapters.adapter(provider)),
+            );
+            let abstract_model = driver
+                .as_deref()
+                .and_then(|provider| adapters.adapter(provider))
+                .and_then(|adapter| match &pin {
+                    ModelPin::Concrete(concrete) => adapter
+                        .models
+                        .iter()
+                        .find_map(|(name, id)| (id == concrete).then(|| name.clone())),
+                    _ => None,
+                });
+            vec![(1, driver, abstract_model, pin)]
+        }
+        false => candidates
+            .iter()
+            .enumerate()
+            .map(|(index, candidate)| {
+                let (_, concrete) = adapters
+                    .serving(&candidate.model)
+                    .expect("resolution mapped every link of the chain");
+                (
+                    index + 1,
+                    Some(candidate.provider.clone()),
+                    Some(candidate.model.clone()),
+                    ModelPin::Concrete(concrete.to_string()),
+                )
+            })
+            .collect(),
+    }
+}
+
 /// What the hands law reads beside a site (decision 0046 ruling 4;
 /// design DD22): the boundary the bundle compiles under, the directory
 /// of the layer that DECLARED the site — the one its `./` resolves
@@ -3732,29 +3764,7 @@ fn enforce_hands_boundary(
     }
     let boundary = law.boundary;
     if candidates.is_empty() {
-        let parts = command_parts(raw);
-        return match dispatch_driver(&parts).as_deref() {
-            Some("exec") => pinned_script(law.dir, &parts).map(drop).map_err(|problem| {
-                CompileError::Invalid(format!(
-                    "seat '{what}' declares hands under the `{boundary}` boundary, where no \
-                     box stands, so its exec command must name the bundle's own pinned \
-                     script: {problem} (decision 0046 ruling 4; decision 0021)"
-                ))
-            }),
-            Some(driver) => Err(CompileError::Invalid(format!(
-                "seat '{what}' is an inline `{driver}` site that declares hands under the \
-                 `{boundary}` boundary; its argv is the author's own and carries the \
-                 box's tokens, which no harness stands behind unboxed. Seat it through an \
-                 agent, whose adapter declares how the harness stands under `harness`, or \
-                 run the realm under a boxed boundary (decision 0046 ruling 4)"
-            ))),
-            None => Err(CompileError::Invalid(format!(
-                "seat '{what}' declares hands under the `{boundary}` boundary, where no box \
-                 stands, and its command is a bare program rather than a `{{brokkr}} driver \
-                 exec` dispatch of the bundle's own pinned script (decision 0046 ruling 4; \
-                 decision 0021)"
-            ))),
-        };
+        return inline_hands_boundary(what, raw, law);
     }
     let adapters = agents.adapters()?;
     let class = parse_class(what, raw)?;
@@ -3809,6 +3819,35 @@ fn enforce_hands_boundary(
         }
     }
     Ok(())
+}
+
+/// The hands law's inline arms, under `harness` and `open`: an exec site
+/// names the bundle's own pinned script, and any other is refused.
+fn inline_hands_boundary(what: &str, raw: &Value, law: SiteLaw<'_>) -> Result<(), CompileError> {
+    let boundary = law.boundary;
+    let parts = command_parts(raw);
+    match dispatch_driver(&parts).as_deref() {
+        Some("exec") => pinned_script(law.dir, &parts).map(drop).map_err(|problem| {
+            CompileError::Invalid(format!(
+                "seat '{what}' declares hands under the `{boundary}` boundary, where no \
+                 box stands, so its exec command must name the bundle's own pinned \
+                 script: {problem} (decision 0046 ruling 4; decision 0021)"
+            ))
+        }),
+        Some(driver) => Err(CompileError::Invalid(format!(
+            "seat '{what}' is an inline `{driver}` site that declares hands under the \
+             `{boundary}` boundary; its argv is the author's own and carries the \
+             box's tokens, which no harness stands behind unboxed. Seat it through an \
+             agent, whose adapter declares how the harness stands under `harness`, or \
+             run the realm under a boxed boundary (decision 0046 ruling 4)"
+        ))),
+        None => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares hands under the `{boundary}` boundary, where no box \
+             stands, and its command is a bare program rather than a `{{brokkr}} driver \
+             exec` dispatch of the bundle's own pinned script (decision 0046 ruling 4; \
+             decision 0021)"
+        ))),
+    }
 }
 
 /// The measured reason beside a missing `hands.harness` member, when the
