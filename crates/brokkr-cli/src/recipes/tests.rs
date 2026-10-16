@@ -5,6 +5,7 @@ use super::*;
 use crate::tests::workspace;
 use brokkr_core::policy::Machine;
 use brokkr_runtime::bundle::Limits;
+use brokkr_runtime::launch::LaunchError;
 use brokkr_runtime::{Seat, SequenceStep, StepBody};
 use std::collections::BTreeMap;
 
@@ -323,8 +324,8 @@ fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
     assert_eq!(refused.recipe, "node");
     assert!(
         matches!(
-            refused.cause.downcast_ref::<brokkr_runtime::CompileError>(),
-            Some(brokkr_runtime::CompileError::Invalid(_))
+            refused.cause,
+            LaunchError::Compile(brokkr_runtime::CompileError::Invalid(_))
         ),
         "{:?}",
         refused.cause

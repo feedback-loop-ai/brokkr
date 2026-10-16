@@ -1810,32 +1810,6 @@ fn manifest_beside(journal: &std::path::Path) -> PathBuf {
     journal.with_file_name(format!("{stem}.manifest.json"))
 }
 
-/// Compile a bundle against the tree the invocation stands in. The
-/// agent library and the adapters are read from the WORKSPACE for the
-/// same reason `realms.json` is (decision 0023): what a command resolves
-/// is a function of its arguments, not of where the caller happens to
-/// stand. The default workspace is `.`, so an operator sees exactly the
-/// roots they always did — but since decision 0021 a compile reads the
-/// adapter data for a bundle that names no agent at all (a gate seat's
-/// trust tier and a secret binding's grant live there), and a verb that
-/// resolved one tree while compiling against another would be the machine
-/// diagnosing itself wrong. In no realm, but under the world's
-/// provisional offices when a map is given (decision 0075 ruling
-/// 5): a recipe verb judges a recipe as the run that seats it would.
-pub(crate) fn compile_in(
-    workspace: &std::path::Path,
-    dir: &std::path::Path,
-    world: Option<&World>,
-) -> Result<Bundle> {
-    let places = brokkr_runtime::places::Places::of(workspace)?;
-    Ok(Bundle::compile_under(
-        dir,
-        &places.agents,
-        &places.adapters,
-        brokkr_runtime::bundle::RealmLaw::of(world, None),
-    )?)
-}
-
 /// Dispatch one parsed command to its verb's handler (decision 0071
 /// ruling 10: a verb is a `Cmd` variant plus a handler). The match is
 /// exhaustive and every arm only forwards, so a new verb cannot compile

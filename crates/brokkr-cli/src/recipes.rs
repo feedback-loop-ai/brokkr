@@ -10,20 +10,18 @@
 //! a compile reads the adapter data even for a recipe that names no
 //! agent, and a listing that resolved one tree while compiling against
 //! whichever directory the operator happened to stand in would report
-//! working recipes as broken — and, in `add`, delete them for it. For the
-//! same reason each reads the workspace map's provisional offices
-//! (decision 0075 ruling 5).
+//! working recipes as broken — and, in `add`, delete them for it. Each is
+//! [`compile_for`] in the workspace's realm, as `show`, doctor and a run
+//! compile it, so one recipe has one digest on every surface (#696).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use brokkr_runtime::launch::BundleSource;
+use brokkr_runtime::launch::{compile_for, BundleSource};
 use brokkr_runtime::places::{self, Kind, PlacesError, FOLDER};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, SeatBody};
-
-use crate::compile_in;
 
 mod agents;
 mod sources;
@@ -133,7 +131,7 @@ pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
         }
     };
     for (name, path) in candidates {
-        match compile_in(workspace, &path, world.as_ref()) {
+        match compile_for(workspace, &path, world.as_ref(), workspace) {
             Ok(bundle) => println!(
                 "{name}\t{}\t{} phases\t{}\t{}\t{}\t{}",
                 &bundle.manifest_digest()[..12],
@@ -388,7 +386,7 @@ fn hold(dir: &Path) -> std::io::Result<rustix::fd::OwnedFd> {
 #[derive(Debug)]
 struct Refused {
     recipe: String,
-    cause: anyhow::Error,
+    cause: brokkr_runtime::launch::LaunchError,
 }
 
 impl std::fmt::Display for Refused {
@@ -785,7 +783,7 @@ fn install_held(
 /// or the first refusal ([`Refused`]).
 fn verify(root: &Path, installing: &Installing, world: Option<&World>) -> Result<Vec<String>> {
     let compiled = installing.0.iter().map(|(recipe, path)| -> Result<String> {
-        let bundle = compile_in(root, path, world).map_err(|cause| Refused {
+        let bundle = compile_for(root, path, world, root).map_err(|cause| Refused {
             recipe: recipe.clone(),
             cause,
         })?;

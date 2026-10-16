@@ -279,6 +279,35 @@ fn add_copies_the_agents_a_recipe_names() {
     assert_eq!(pinned(&repo).0, moved);
 }
 
+/// One shelf recipe has one identity (#696): under the map `init` writes,
+/// `recipes add`, `recipes list` and doctor's shelf line name the digest
+/// `recipes show` prints, compiled in the folder's realm as a run is.
+#[test]
+fn every_recipe_verb_names_the_digest_show_prints() {
+    let (repo, fast) = library_of_fast();
+    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let added = repo.brokkr("", &add);
+    assert_eq!(added.code, Some(0), "{}", added.stderr);
+    let shown = repo.brokkr("", &["recipes", "show", "fast"]);
+    let compiled: Value = serde_json::from_str(&shown.stdout).unwrap();
+    let realm = &compiled["manifest"]["capabilities"]["realm"];
+    assert_eq!((shown.code, realm), (Some(0), &json!("starter")));
+    let digest = &compiled["digest"].as_str().unwrap()[..12];
+    let shelf = repo.path(".brokkr/recipes");
+    let first = |text: &str| text.lines().next().unwrap().to_string();
+    let added_line = format!("added recipe 'fast' ({digest}) at {}/fast", shelf.display());
+    assert_eq!(first(&added.stderr), added_line);
+    let listed = repo.brokkr("", &["recipes", "list"]);
+    assert_eq!(listed.stdout.split('\t').nth(1), Some(digest));
+    let doctor = repo.brokkr("", &["doctor"]);
+    let line = format!("ok       recipe fast: {digest} at {}/fast", shelf.display());
+    assert!(
+        doctor.stdout.lines().any(|l| l == line),
+        "{}",
+        doctor.stdout
+    );
+}
+
 /// A differing `fast-reviewer` already in the folder refuses the install by
 /// name, and nothing is written: the folder is byte for byte as it was. An
 /// install whose compile refuses removes the agents and the charter it
