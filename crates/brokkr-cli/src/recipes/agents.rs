@@ -160,7 +160,9 @@ impl std::error::Error for Hiring {}
 /// here, and a clone falls back to its own `agents/`.
 pub(super) fn library_of(bundle: &Path) -> std::io::Result<Option<PathBuf>> {
     let bundle = bundle.canonicalize()?;
-    let library = bundle.parent().filter(|at| at.ends_with("recipes"));
+    let library = bundle
+        .parent()
+        .filter(|at| at.ends_with(brokkr_runtime::places::RECIPES));
     Ok(library
         .and_then(Path::parent)
         .map(|home| home.join(DEFAULT_AGENTS_DIR)))
