@@ -434,19 +434,12 @@ impl Workspace {
     /// Like `brokkr`, but returns stdout verbatim for commands whose
     /// output is not JSON (e.g. the tab-separated `runs` listing).
     fn brokkr_raw(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        let out = crate::engine::brokkr_in(self.path())
-            .args(args)
-            .output()
-            .unwrap();
-        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-        if !out.status.success() {
-            eprintln!(
-                "brokkr {args:?}: {}\nstdout: {stdout}\nstderr: {stderr}",
-                out.status
-            );
-        }
-        (out.status.code(), stdout, stderr)
+        let out = crate::engine::completed_in(self.path(), args);
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
     }
 
     fn run(&self) -> (Option<i32>, Value, String) {

@@ -8674,10 +8674,9 @@ fn driver_serving_child() {
 /// [`driver_serving_child`], because a driver's serving branch is reached
 /// only through its own stdin protocol — handed `extra` after its `--`,
 /// with `env` set, then sent the protocol's hello, a resume offer of
-/// `session` where one is made, and the start carrying `input`. Closing
-/// stdin ends the exchange: a driver may exit while handling start, so
-/// a later shutdown write would race that legitimate exit. What the
-/// driver said on its stdout.
+/// `session` where offered, and start carrying `input`. EOF ends the
+/// exchange: the driver can exit during start, so writing shutdown races
+/// that legitimate exit. Returns its stdout.
 #[cfg(unix)]
 fn serve_driver(
     kind: &str,
