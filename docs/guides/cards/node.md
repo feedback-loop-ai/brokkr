@@ -33,18 +33,23 @@ The full transcript, annotated: [starters/node.md](../starters/node.md).
 
 `recipes/node` is the maintained reference recipe for a JavaScript
 stack, and it is a better starting point than the scaffold if you are
-adopting rather than experimenting. It does not sit beside step 2's
-folder yet: in a repository with a `.brokkr/` folder, `brokkr recipes
-add` refuses and writes nothing, and recipes inside the folder are
-coming with [#696](https://github.com/feedback-loop-ai/brokkr/issues/696).
-The route that takes it today skips step 2 and installs it at your
-repository's root, which makes the repository a recipe library, with the
-library layout (`recipes/`, `adapters/`, and run state in `.forge/`):
+adopting rather than experimenting. In a repository with step 2's
+folder it goes on the folder's shelf, `.brokkr/recipes/node/`, which
+`run --recipe` reads with no flag:
 
 ```
 brokkr recipes add ~/src/brokkr/recipes/node --name node
 brokkr run --recipe node --feature "…"
 ```
+
+Not yet, though: the install copies the agents `node` and `fast` seat
+into `.brokkr/agents/`, and their `fast-reviewer` extends Brokkr's
+`reviewer`, which is not the one `init` wrote, so the compile refuses
+and the install is removed whole. The quickstart's
+[Try another recipe](../quickstart.md#try-another-recipe) shows the
+shelf with a recipe that does install, and
+[adopting-a-node-repo.md](../adopting-a-node-repo.md) says what each
+route prints today.
 
 It has four seats rather than five (no intake — the feature text is the
 framing), and its charters name `npm ci` and `npx tsc --noEmit`
@@ -53,11 +58,10 @@ explicitly. That means it needs a committed `package-lock.json` and
 resolves outward to the registry, which is not what you want a gate seat
 doing.
 
-`recipes add` brings `fast`, the recipe `node` extends, into your
-library with it. **It brings no `adapters/` tree**, and `verify`,
-`review` and `ship` are gate-class. Copy Brokkr's `adapters/claude.json`
-into your repository's `adapters/` *before* `recipes add`, or it refuses
-and leaves you nothing. This is
+`recipes add` brings `fast`, the recipe `node` extends, onto the shelf
+with it, and the agents both seat. **It brings no adapters**, and
+`verify`, `review` and `ship` are gate-class: your folder's adapters must
+vouch for them, or the compile refuses and leaves you nothing. This is
 [flow 3's](../quickstart.md#flow-3--adopt) first bullet.
 
 ## Monorepos

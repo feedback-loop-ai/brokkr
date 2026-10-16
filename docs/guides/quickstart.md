@@ -376,13 +376,12 @@ triage	<digest>	12 phases	analyze[check>judge], clarify[check>judge], design[pos
 
 The twelve hex characters after the name are the leading bytes of the
 recipe's content digest. Use `--recipe <name>` instead of a bundle to
-run one of these; `--recipes-dir` (default `recipes`) says where the
-library lives, so a library is used from its own root, or named:
+run one of these; `--recipes-dir` says where the library lives (in a
+library, `recipes`), so a library is used from its own root, or named:
 `brokkr run --recipe <name> --recipes-dir <library>/recipes`. A
-repository with a `.brokkr/` folder cannot install a recipe into itself
-yet: `brokkr recipes add` refuses there and writes nothing, and recipes
-inside the folder are coming with
-[#696](https://github.com/feedback-loop-ai/brokkr/issues/696).
+repository with a `.brokkr/` folder keeps its own named recipes on the
+folder's shelf, `.brokkr/recipes/<name>/`, the default of every recipe
+verb and of `--recipe` there: see [Try another recipe](#try-another-recipe).
 
 ### Step 3 — `brokkr run`
 
@@ -406,7 +405,7 @@ defaults, with the folder and in a recipe library, which has none:
 | `--repo <path>` | The working directory seats run in and commit to. | The repository root the folder stands in. | The process's current directory. |
 | `--db <path>` | The workspace journal. Outranks a realms map's journal. | The map's journal, else `.brokkr/state/forge.db`. | The map's journal, else `.forge/forge.db`. |
 | `--realms <file>` | The world's map: repositories and the one journal they share. | `.brokkr/realms.json` when there is one. | `./realms.json` when there is one. |
-| `--recipes-dir <path>` | Where `--recipe` names are resolved. | `recipes` | `recipes` |
+| `--recipes-dir <path>` | Where `--recipe` names are resolved. | `.brokkr/recipes` | `recipes` |
 | `--secrets-file <path>` | The operator-side secrets store, for seats with declared bindings. | `.brokkr/state/secrets.env` | `.forge/secrets.env` |
 | `--dispatch <file>` | A canonical `forge-dispatch/v2` JSON, for Looper-bound runs. | none | none |
 
@@ -584,13 +583,10 @@ adopt a repository you did not write:
   trusted tier, checked when the bundle compiles, before any prompt
   exists. `brokkr init` declares that tier in
   `.brokkr/adapters/claude.json`, yours to read and edit. A maintained
-  recipe brings no adapters with it, and a repository with a `.brokkr/`
-  folder cannot install one yet: `brokkr recipes add` refuses there and
-  writes nothing, until
-  [#696](https://github.com/feedback-loop-ai/brokkr/issues/696) gives
-  the folder its own recipes. The route that installs one today makes
-  the repository a recipe library, as
-  [adopting-a-node-repo.md](adopting-a-node-repo.md) says.
+  recipe brings no adapters with it: `brokkr recipes add` copies onto
+  the folder the agents and charters a recipe names, never an adapter,
+  and an install whose compile refuses is removed whole, as
+  [Try another recipe](#try-another-recipe) shows.
 - **Know what you are granting.** Every seat's driver may run your
   project's toolchain, so every seat — the gates included — executes
   third-party code by design. In a Node repo `npm ci` runs the
@@ -633,6 +629,50 @@ Under the folder's `state/`, at the repository root:
 is evidence, not source, and your own `.gitignore` needs no line. A
 recipe library writes the same files under `.forge/` in the working
 directory instead, and ignores that itself.
+
+### Try another recipe
+
+The folder's `bundle.json` is the default recipe. Named recipes stand
+beside it on the folder's shelf, `.brokkr/recipes/<name>/`, which
+`recipes list`, `recipes show` and `run --recipe` read with no flag from
+anywhere in the repository (decision 0083's addendum of 2026-10-16). A
+recipe is a bundle directory, so a variant of your own starts as a copy
+of the folder's bundle, its policy and its scripts, edited outside the
+folder; `brokkr recipes add` installs it onto the shelf, compiled
+against the folder's agents and adapters first:
+
+```
+$ mkdir -p ~/variants/careful
+$ cp .brokkr/bundle.json .brokkr/policy.json ~/variants/careful/
+$ cp -r .brokkr/scripts ~/variants/careful/
+$ brokkr recipes add ~/variants/careful --name careful
+added recipe 'careful' (<digest>) at /home/you/src/app/.brokkr/recipes/careful
+$ brokkr recipes list
+careful	<digest>	7 phases	implement, intake, review, ship, verify			/home/you/src/app/.brokkr/recipes/careful
+$ brokkr run --recipe careful --feature "prefix selectors for the read surfaces"
+run started: …
+```
+
+Commit the shelf with the folder. The shelf never moves the folder
+bundle's digest, though an agent `recipes add` copies (below) does,
+because the folder pins its agents. `brokkr doctor` prints one line per
+shelf recipe after its folder line, and `.brokkr/bundle.json` may itself
+extend a shelf recipe with `"extends": "careful"`.
+
+`recipes add` also copies, from the source's agent library, each agent
+definition the recipe names that `.brokkr/agents/` lacks and the
+charter that definition names. It refuses before writing anything when
+one already there differs, naming each, and replaces nothing of yours.
+Brokkr's own recipes do not install into a fresh folder yet: their
+agents extend Brokkr's `implementer` and `reviewer`, and the ones `init`
+wrote are other definitions, so
+
+```
+$ brokkr recipes add ~/src/brokkr/recipes/fast --name fast
+error: recipe 'fast' does not compile (removed): bundle: agent 'fast-reviewer' (/home/you/src/app/.brokkr/agents/fast-reviewer.json) 'replaces' gives a reason for 'hands', which neither it writes nor 'reviewer' declares
+```
+
+and the install is removed whole, the agents it copied with it.
 
 ### The escape hatches
 

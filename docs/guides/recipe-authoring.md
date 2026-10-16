@@ -654,10 +654,10 @@ $ brokkr compile --bundle recipes/night-shift
 
 `brokkr recipes show <name>` prints the same object from the same
 compile, in the workspace's realm as a run's is, so the two surfaces
-cannot drift. `brokkr recipes list` prints twelve hex characters of a
-digest per recipe, but it compiles each recipe in no realm, so where
-the workspace's map names a realm its digest can differ from the one
-`compile` and `recipes show` print there.
+cannot drift. `brokkr recipes list` and `brokkr recipes add` print
+twelve hex characters of a digest per recipe from that same compile, so
+where the workspace's map names a realm they print that realm's digest
+too (#696).
 
 Three consequences worth internalising:
 

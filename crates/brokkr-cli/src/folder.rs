@@ -17,7 +17,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use brokkr_runtime::places::{self, Kind, Old, Places, PlacesError, BUNDLE, FOLDER, JOURNAL};
-use brokkr_runtime::places::{LIBRARY_STATE, SECRETS, STATE};
+use brokkr_runtime::places::{LIBRARY_STATE, RECIPES, SECRETS, STATE};
 use tracked::{listed_paths, tracked, Change, Unwatched};
 
 /// Why a verb refused before it opened anything, in the operator's words.
@@ -397,6 +397,38 @@ impl Layout {
     pub(crate) fn adapters(&self, flag: Option<PathBuf>) -> PathBuf {
         flag.or_else(|| self.folder_places().map(|places| places.adapters))
             .unwrap_or_else(|| brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR.into())
+    }
+
+    /// The recipe library a verb reads named recipes from ([`Layout::listing`]).
+    pub(crate) fn recipes(&self, flag: Option<PathBuf>) -> PathBuf {
+        self.listing(flag).0
+    }
+
+    /// The recipe library a verb reads named recipes from: the flag, else
+    /// the folder's shelf ([`Layout::shelf`]), else `recipes`; and whether
+    /// it is that shelf, which lists nothing while nothing stands there.
+    pub(crate) fn listing(&self, flag: Option<PathBuf>) -> (PathBuf, bool) {
+        match (flag, self.shelf()) {
+            (Some(flag), _) => (flag, false),
+            (None, Some(shelf)) => (shelf, true),
+            (None, None) => (RECIPES.into(), false),
+        }
+    }
+
+    /// Where `recipes add` installs, and the repository root it compiles
+    /// against (#696 ruling 6): the folder's shelf, else `<root>/recipes`,
+    /// at the root whichever directory it runs in. The one place an
+    /// install's destination is chosen.
+    pub(crate) fn install_shelf(&self) -> (PathBuf, PathBuf) {
+        let root = self.0.root().to_path_buf();
+        let shelf = self.shelf().unwrap_or_else(|| root.join(RECIPES));
+        (root, shelf)
+    }
+
+    /// The folder's shelf of named recipes, `.brokkr/recipes` (#696), where
+    /// the folder is.
+    fn shelf(&self) -> Option<PathBuf> {
+        self.folder_places().map(|places| places.recipes)
     }
 
     fn folder_places(&self) -> Option<Places> {

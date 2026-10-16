@@ -5,6 +5,7 @@ use super::*;
 use crate::tests::workspace;
 use brokkr_core::policy::Machine;
 use brokkr_runtime::bundle::Limits;
+use brokkr_runtime::launch::LaunchError;
 use brokkr_runtime::{Invocation, Seat, SequenceStep, StepBody};
 use std::collections::BTreeMap;
 
@@ -151,12 +152,12 @@ fn root_discovery_listing_and_existing_destination_cover_refusals() {
 
     let recipes_file = empty.path().join("not-a-directory");
     std::fs::write(&recipes_file, "x").unwrap();
-    list(&workspace(), &recipes_file).unwrap();
+    list(&workspace(), &recipes_file, false).unwrap();
 
     let library = empty.path().join("library");
     std::fs::create_dir(&library).unwrap();
     std::fs::create_dir(library.join("already")).unwrap();
-    assert!(add(&workspace(), "unused", "already", None, &library).is_err());
+    assert!(add(&workspace(), &library, "unused", "already", None).is_err());
 }
 
 /// Installing a recipe whose seats JUDGE resolves the trust tier from
@@ -171,10 +172,10 @@ fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
     let source = workspace().join("recipes/verify");
     add(
         &workspace(),
+        library.path(),
         source.to_str().unwrap(),
         "gated",
         None,
-        library.path(),
     )
     .expect("a recipe whose gates the workspace vouches for installs");
     assert!(
@@ -183,7 +184,7 @@ fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
     );
     // …and the listing that follows reads the same tree, so the recipe
     // it just accepted is not reported broken one command later.
-    list(&workspace(), library.path()).unwrap();
+    list(&workspace(), library.path(), false).unwrap();
 }
 
 fn installed(library: &Path) -> Vec<String> {
@@ -205,10 +206,10 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
     let node = workspace().join("recipes/node");
     add(
         &workspace(),
+        fresh.path(),
         node.to_str().unwrap(),
         "node",
         None,
-        fresh.path(),
     )
     .expect("node installs into a library that holds nothing");
     assert_eq!(installed(fresh.path()), ["fast", "node"]);
@@ -222,10 +223,10 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
     let own = workspace().join("recipes/self");
     add(
         &workspace(),
+        holding.path(),
         own.to_str().unwrap(),
         "own",
         None,
-        holding.path(),
     )
     .expect("self installs over the library's own fast");
     assert_eq!(installed(holding.path()), ["fast", "own", "panel-review"]);
@@ -238,10 +239,10 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
     let alone = apart.path().join("node");
     add(
         &workspace(),
+        holding.path(),
         alone.to_str().unwrap(),
         "node",
         None,
-        holding.path(),
     )
     .expect("a lone leaf composes with the library's base");
     assert_eq!(
@@ -270,10 +271,10 @@ fn a_partial_chain_installs_over_the_librarys_own_base() {
     let own = source.path().join("self");
     add(
         &workspace(),
+        library.path(),
         own.to_str().unwrap(),
         "own",
         None,
-        library.path(),
     )
     .expect("self composes from its source's panel-review and the library's fast");
     assert_eq!(installed(library.path()), ["fast", "own", "panel-review"]);
@@ -297,7 +298,7 @@ fn a_base_outside_the_library_is_never_copied() {
         let target = tempfile::tempdir().unwrap();
         let library = target.path().join("lib");
         std::fs::create_dir(&library).unwrap();
-        let installing = install(&leaf, "leaf", &library).unwrap();
+        let installing = install(&planned(&leaf, "leaf", &library).unwrap(), &library).unwrap();
         let names: Vec<&str> = installing.0.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["leaf"], "{base}");
         assert!(!target.path().join("outside").exists(), "{base}");
@@ -312,10 +313,10 @@ fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
     let node = workspace().join("recipes/node");
     let refusal = add(
         bare.path(),
+        library.path(),
         node.to_str().unwrap(),
         "node",
         None,
-        library.path(),
     )
     .unwrap_err();
     let refused = refusal
@@ -324,8 +325,8 @@ fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
     assert_eq!(refused.recipe, "node");
     assert!(
         matches!(
-            refused.cause.downcast_ref::<brokkr_runtime::CompileError>(),
-            Some(brokkr_runtime::CompileError::Invalid(_))
+            refused.cause,
+            LaunchError::Compile(brokkr_runtime::CompileError::Invalid(_))
         ),
         "{:?}",
         refused.cause
@@ -341,38 +342,42 @@ fn a_refused_derived_recipe_leaves_the_library_as_it_found_it() {
 }
 
 /// Two `add`s into one library never interleave. The first is stood in for
-/// by a held library with its `fast` copy in place, about to be refused and
+/// by a held shelf with its `fast` copy in place, about to be refused and
 /// removed: the second waits rather than stop its walk at that copy, so it
-/// never keeps a `review-first` whose base the first then removes.
+/// never keeps a `review-first` whose base the first then removes. When
+/// the first made the library, it removes it empty before the second
+/// wakes, which then makes its own rather than install into a removed one.
 #[test]
 fn a_second_add_waits_for_the_library_another_holds() {
-    let library = tempfile::tempdir().unwrap();
-    let held = hold(library.path()).unwrap();
-    let in_flight = library.path().join("fast");
-    copy_dir(&workspace().join("recipes/fast"), &in_flight).unwrap();
-    let dir = library.path().to_path_buf();
-    let second = std::thread::spawn(move || {
-        let review_first = workspace().join("recipes/review-first");
-        add(
-            &workspace(),
-            review_first.to_str().unwrap(),
-            "review-first",
-            None,
-            &dir,
-        )
-    });
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    assert!(
-        !second.is_finished(),
-        "the second add ran in a held library"
-    );
-    std::fs::remove_dir_all(&in_flight).unwrap();
-    drop(held);
-    second
-        .join()
-        .unwrap()
-        .expect("the second add installs once the library is released");
-    assert_eq!(installed(library.path()), ["fast", "review-first"]);
+    for standing in [true, false] {
+        let parent = tempfile::tempdir().unwrap();
+        let dir = parent.path().join("library");
+        if standing {
+            std::fs::create_dir(&dir).unwrap();
+        }
+        let held = Shelf::make(&dir, &dir).unwrap();
+        assert_eq!(held.made.is_some(), !standing, "the first made it");
+        let in_flight = dir.join("fast");
+        copy_dir(&workspace().join("recipes/fast"), &in_flight).unwrap();
+        let library = dir.clone();
+        let second = std::thread::spawn(move || {
+            let review_first = workspace().join("recipes/review-first");
+            let source = review_first.to_str().unwrap();
+            add(&workspace(), &library, source, "review-first", None)
+        });
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(
+            !second.is_finished(),
+            "the second add ran in a held library"
+        );
+        std::fs::remove_dir_all(&in_flight).unwrap();
+        drop(held);
+        second
+            .join()
+            .unwrap()
+            .expect("the second add installs once the library is released");
+        assert_eq!(installed(&dir), ["fast", "review-first"]);
+    }
 }
 
 /// An entry the library already holds is never removed by an install that
@@ -396,10 +401,10 @@ fn a_dangling_link_in_the_library_is_never_removed() {
     let base = linked("fast");
     let refusal = add(
         &workspace(),
+        base.path(),
         node.to_str().unwrap(),
         "node",
         None,
-        base.path(),
     )
     .unwrap_err();
     assert_eq!(refusal.downcast_ref::<Refused>().unwrap().recipe, "node");
@@ -408,10 +413,10 @@ fn a_dangling_link_in_the_library_is_never_removed() {
     let leaf = linked("node");
     let refusal = add(
         &workspace(),
+        leaf.path(),
         node.to_str().unwrap(),
         "node",
         None,
-        leaf.path(),
     )
     .unwrap_err();
     let dest = leaf.path().join("node");
@@ -424,7 +429,8 @@ fn a_dangling_link_in_the_library_is_never_removed() {
     );
     kept(leaf.path(), "node");
 
-    let refusal = install(&node, "node", leaf.path()).err().unwrap();
+    let planned = planned(&node, "node", leaf.path()).unwrap();
+    let refusal = install(&planned, leaf.path()).err().unwrap();
     assert_eq!(
         refusal.downcast_ref::<std::io::Error>().map(|e| e.kind()),
         Some(std::io::ErrorKind::AlreadyExists)
@@ -446,7 +452,7 @@ fn copy_skips_nested_git_metadata() {
 
 /// A folder repository planted by hand: a `.git` and a `.brokkr` directory
 /// at its root (decision 0083), resolved as the walk resolves it.
-fn folder_repository() -> (tempfile::TempDir, PathBuf) {
+pub(super) fn folder_repository() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().canonicalize().unwrap();
     for entry in [".git", FOLDER] {
@@ -455,31 +461,115 @@ fn folder_repository() -> (tempfile::TempDir, PathBuf) {
     (dir, root)
 }
 
-/// `add` refuses in a folder repository, from its workspace or into a
-/// `dir` inside it that does not stand yet, by the type and with nothing
-/// created (#675).
+/// `add` refuses a library inside a folder repository anywhere but its
+/// shelf, where nothing stands yet, by the type and with nothing created;
+/// the folder's own shelf passes, and an install into it that the compile
+/// refuses removes the agents it copied, the directories they needed and
+/// the shelf it made (#675, #696).
 #[test]
 fn add_refuses_a_folder_repository_by_type() {
     let (_dir, root) = folder_repository();
     let node = workspace().join("recipes/node");
-    let outside = tempfile::tempdir().unwrap();
-    let cases = [
-        (root.clone(), outside.path().join("recipes")),
-        (outside.path().to_path_buf(), root.join("deep/recipes")),
-    ];
-    for (from, dir) in cases {
-        let refusal = add(&from, node.to_str().unwrap(), "node", None, &dir).unwrap_err();
+    for dir in [root.join("recipes"), root.join("deep/recipes")] {
+        let refusal = add(&root, &dir, node.to_str().unwrap(), "node", None).unwrap_err();
         let refused = refusal.downcast_ref::<InFolder>();
-        let expected = InFolder { root: root.clone() };
+        let expected = InFolder {
+            root: root.clone(),
+            place: dir.clone(),
+        };
         assert_eq!(refused, Some(&expected), "{refusal}");
         assert!(!dir.exists(), "{}", dir.display());
     }
+    let shelf = root.join(".brokkr/recipes");
+    let refusal = add(&root, &shelf, node.to_str().unwrap(), "node", None).unwrap_err();
+    let refused = refusal.downcast_ref::<Refused>().map(|r| r.recipe.as_str());
+    assert_eq!(refused, Some("node"), "{refusal}");
+    assert_eq!(std::fs::read_dir(root.join(FOLDER)).unwrap().count(), 0);
 }
 
-/// `add` refuses a `dir` in a folder repository whose `recipes/` is a link
-/// to a directory outside it or a nested repository, from outside it, by
-/// the type: the folder repository is judged where `dir` spells it, not
-/// only where the walk from `dir` resolves to (#675).
+/// `add` of a source that holds the library refuses by the type before
+/// anything is copied, and the library it made is removed: the folder's own
+/// bundle holds its shelf, and so does a base named `recipes` beside a leaf
+/// in the folder, which is the shelf itself (#696).
+#[test]
+fn add_refuses_a_source_that_holds_the_library_by_type() {
+    let (_dir, root) = folder_repository();
+    let (folder, shelf) = (root.join(FOLDER), root.join(".brokkr/recipes"));
+    let refusal = add(&root, &shelf, folder.to_str().unwrap(), "own", None).unwrap_err();
+    let expected = Within {
+        source: folder,
+        place: shelf.clone(),
+    };
+    assert_eq!(refusal.downcast_ref::<Within>(), Some(&expected));
+    assert!(!shelf.exists());
+    let custom = root.join(".brokkr/custom");
+    std::fs::create_dir(&custom).unwrap();
+    let layer = serde_json::json!({"name": "custom", "extends": "recipes"});
+    std::fs::write(custom.join("bundle.json"), layer.to_string()).unwrap();
+    let refusal = add(&root, &shelf, custom.to_str().unwrap(), "x", None).unwrap_err();
+    let expected = Within {
+        source: shelf.clone(),
+        place: shelf.clone(),
+    };
+    assert_eq!(refusal.downcast_ref::<Within>(), Some(&expected));
+    assert!(!shelf.exists());
+}
+
+/// A shelf recipe's base is planned from its shelf, beside it, the library
+/// the compiler composes it from (`places::base_library`), never from a
+/// decoy at the repository's root (#696).
+#[test]
+fn a_shelf_recipes_base_is_planned_from_its_shelf() {
+    let (_dir, root) = folder_repository();
+    let shelf = root.join(".brokkr/recipes");
+    for at in [shelf.join("leaf"), shelf.join("base"), root.join("base")] {
+        std::fs::create_dir_all(&at).unwrap();
+        let layer = serde_json::json!({"name": "leaf", "extends": "base"});
+        std::fs::write(at.join("bundle.json"), layer.to_string()).unwrap();
+    }
+    let library = tempfile::tempdir().unwrap();
+    let plan = planned(&shelf.join("leaf"), "leaf", library.path()).unwrap();
+    let expected = [
+        ("leaf".to_string(), shelf.join("leaf")),
+        ("base".to_string(), shelf.join("base")),
+    ];
+    assert_eq!(plan, expected);
+}
+
+/// A chain that comes back to a name already planned ends there, so a
+/// cycle is planned once and the compile names why it does not compose; a
+/// library whose parent does not stand is never made, nor one its parent
+/// cannot hold.
+#[test]
+fn a_chain_ends_at_a_name_it_already_plans() {
+    let source = tempfile::tempdir().unwrap();
+    for (name, base) in [("a", "b"), ("b", "a")] {
+        let at = source.path().join(name);
+        std::fs::create_dir(&at).unwrap();
+        let layer = serde_json::json!({"name": name, "extends": base});
+        std::fs::write(at.join("bundle.json"), layer.to_string()).unwrap();
+    }
+    let library = tempfile::tempdir().unwrap();
+    let leaf = source.path().join("a");
+    let names: Vec<String> = planned(&leaf, "a", library.path())
+        .unwrap()
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(names, ["a", "b"]);
+    let unmade = library.path().join("missing/recipes");
+    let refusal = add(&workspace(), &unmade, leaf.to_str().unwrap(), "a", None).unwrap_err();
+    let kind = refusal.downcast_ref::<std::io::Error>().map(|e| e.kind());
+    assert_eq!(kind, Some(std::io::ErrorKind::NotFound));
+    let unheld = library.path().join("x".repeat(300));
+    let refusal = Shelf::make(&unheld, &unheld).err().map(|e| e.kind());
+    assert_eq!(refusal, Some(std::io::ErrorKind::InvalidFilename));
+}
+
+/// `add` refuses a library in a folder repository whose `recipes/` is a
+/// link to a directory outside it or a nested repository, by the type: the
+/// folder repository is judged where the library is spelled, not only
+/// where the walk from it resolves to (#675).
 #[test]
 fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
     let (_dir, root) = folder_repository();
@@ -488,9 +578,13 @@ fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
     let dir = root.join("recipes");
     let plant_link = |dir: &Path| std::os::unix::fs::symlink(external.path(), dir).unwrap();
     let plant_repository = |dir: &Path| std::fs::create_dir_all(dir.join(".git")).unwrap();
-    for plant in [&plant_link as &dyn Fn(&Path), &plant_repository] {
+    let real = external.path().canonicalize().unwrap();
+    for (plant, place) in [
+        (&plant_link as &dyn Fn(&Path), &real),
+        (&plant_repository, &dir),
+    ] {
         plant(&dir);
-        refuses_in_folder(outside.path(), &dir, &root);
+        refuses_in_folder(outside.path(), &dir, &root, place);
         assert!(!dir.join("node").exists());
         std::fs::remove_file(&dir)
             .or_else(|_| std::fs::remove_dir_all(&dir))
@@ -499,10 +593,10 @@ fn add_refuses_a_folder_repository_behind_a_link_or_a_nested_repository() {
     assert_eq!(std::fs::read_dir(external.path()).unwrap().count(), 0);
 }
 
-/// `add` refuses a `dir` that a link outside a folder repository resolves
-/// into a nested repository at its `recipes/`, at the link and below it,
-/// by the type: the folder repository is judged where `dir` resolves to,
-/// not only where it is spelled (#675).
+/// `add` refuses a library that a link outside a folder repository
+/// resolves into a nested repository at its `recipes/`, at the link and
+/// below it, by the type: the folder repository is judged where the
+/// library resolves to, not only where it is spelled (#675).
 #[test]
 fn add_refuses_a_folder_repository_a_link_from_outside_resolves_into() {
     let (_dir, root) = folder_repository();
@@ -511,19 +605,24 @@ fn add_refuses_a_folder_repository_a_link_from_outside_resolves_into() {
     std::fs::create_dir_all(nested.join(".git")).unwrap();
     let alias = outside.path().join("alias");
     std::os::unix::fs::symlink(&nested, &alias).unwrap();
-    for dir in [alias.clone(), alias.join("sub")] {
-        refuses_in_folder(outside.path(), &dir, &root);
+    for (dir, place) in [
+        (alias.clone(), nested.clone()),
+        (alias.join("sub"), nested.join("sub")),
+    ] {
+        refuses_in_folder(outside.path(), &dir, &root, &place);
     }
     assert_eq!(std::fs::read_dir(&nested).unwrap().count(), 1, ".git only");
 }
 
 /// `add` of a compiling recipe from `from` into `dir` refuses by the type,
-/// naming the folder repository at `root` (#675).
-fn refuses_in_folder(from: &Path, dir: &Path, root: &Path) {
+/// naming the folder repository at `root` and the `place` `dir` resolves
+/// to (#675).
+fn refuses_in_folder(from: &Path, dir: &Path, root: &Path, place: &Path) {
     let node = workspace().join("recipes/node");
-    let refusal = add(from, node.to_str().unwrap(), "node", None, dir).unwrap_err();
+    let refusal = add(from, dir, node.to_str().unwrap(), "node", None).unwrap_err();
     let expected = InFolder {
         root: root.to_path_buf(),
+        place: place.to_path_buf(),
     };
     assert_eq!(
         refusal.downcast_ref::<InFolder>(),
@@ -532,28 +631,20 @@ fn refuses_in_folder(from: &Path, dir: &Path, root: &Path) {
     );
 }
 
-/// A `dir` that climbs with `..` where nothing stands yet, and a `name`
-/// that is not one plain component, refuse by the variant before anything
-/// is created: either would write somewhere other than the place judged
-/// (#675).
+/// A `name` that is not one plain component refuses by the variant before
+/// anything is created: it would write somewhere other than the place
+/// judged (#675).
 #[test]
 fn add_refuses_a_path_it_cannot_judge_by_type() {
     let outside = tempfile::tempdir().unwrap();
     let at = outside.path().to_path_buf();
     let node = workspace().join("recipes/node");
     let node = node.to_str().unwrap();
-    let dir = at.join("missing/../recipes");
-    let refusal = add(&at, node, "node", None, &dir).unwrap_err();
-    let expected = Unplain::Dir {
-        dir: dir.clone(),
-        standing: at.clone(),
-    };
-    assert_eq!(refusal.downcast_ref::<Unplain>(), Some(&expected));
     let dir = at.join("recipes");
     for name in [
         "../node", "a/b", "", ".", "..", "/node", "x/", "x//", "x/.", "x/./",
     ] {
-        let refusal = add(&at, node, name, None, &dir).unwrap_err();
+        let refusal = add(&at, &dir, node, name, None).unwrap_err();
         let expected = Unplain::Name {
             name: name.into(),
             dir: dir.clone(),
@@ -564,20 +655,18 @@ fn add_refuses_a_path_it_cannot_judge_by_type() {
     assert_eq!(left, 0, "nothing is created");
 }
 
-/// An entry on the walk from `dir` that cannot be read refuses by name,
-/// never taken as absent (fail closed); so does a `dir` that cannot be
-/// made absolute.
+/// An entry on the walk from the library that cannot be read refuses by
+/// name, never taken as absent (fail closed).
 #[test]
 fn add_refuses_a_dir_it_cannot_read_the_way_to() {
     use std::os::unix::fs::PermissionsExt;
     let refused = |dir: &Path| {
-        let refusal = add(&workspace(), "unused", "node", None, dir).unwrap_err();
+        let refusal = add(&workspace(), dir, "unused", "node", None).unwrap_err();
         match refusal.downcast::<PlacesError>() {
             Ok(PlacesError::Unreadable { path, .. }) => path,
             other => panic!("an unreadable refusal: {other:?}"),
         }
     };
-    assert_eq!(refused(Path::new("")), PathBuf::new());
     if rustix::process::geteuid().is_root() {
         return;
     }
@@ -609,13 +698,13 @@ fn add_refuses_a_path_by_its_spelling_or_its_local_source_by_type() {
         "x//y",
         "x/..",
     ] {
-        let refusal = add(&workspace(), never, "x", Some(path), &dir).unwrap_err();
+        let refusal = add(&workspace(), &dir, never, "x", Some(path)).unwrap_err();
         let expected = Unplain::Path { path: path.into() };
         assert_eq!(refusal.downcast_ref::<Unplain>(), Some(&expected), "{path}");
     }
     let node = workspace().join("recipes/node");
     let source = node.to_str().unwrap();
-    let refusal = add(&workspace(), source, "node", Some("fast"), &dir).unwrap_err();
+    let refusal = add(&workspace(), &dir, source, "node", Some("fast")).unwrap_err();
     let expected = AtPath::Local {
         source: source.into(),
         path: "fast".into(),

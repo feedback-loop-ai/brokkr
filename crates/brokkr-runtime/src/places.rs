@@ -89,6 +89,11 @@ fn unreadable(path: &Path) -> impl FnOnce(std::io::Error) -> PlacesError + '_ {
 /// mark under each `recipes/<name>/`.
 pub const BUNDLE: &str = "bundle.json";
 
+/// The named recipes' directory: a library's at its root (decision 0078),
+/// and the folder's shelf in `.brokkr/` (#696), which a folder bundle's
+/// walk skips beside [`STATE`] and composes its base from.
+pub const RECIPES: &str = "recipes";
+
 /// A recipe library's run-local directory, beside the operated
 /// repository, as it has always been (ruling 3's last column).
 pub const LIBRARY_STATE: &str = ".forge";
@@ -121,9 +126,12 @@ pub(crate) const UNPINNED_TOP_LEVEL: [&str; 3] = [
 
 /// Whether the walk of the layer at `dir`, its canonical directory, skips
 /// the top-level `name`: one of [`UNPINNED_TOP_LEVEL`], or a folder
-/// bundle's [`STATE`] (decision 0083). Every other bundle pins a
-/// top-level `state/` as it always did, and so does a layer whose layout
-/// cannot be read: pinning more never lets a file change unseen.
+/// bundle's [`STATE`] (decision 0083) or shelf, [`RECIPES`] (#696), so
+/// installing or editing a shelf recipe never moves the default bundle's
+/// digest; a shelf recipe it extends is pinned as every composed base is
+/// (decision 0017). Every other bundle pins a top-level `state/` and
+/// `recipes/` as it always did, and so does a layer whose layout cannot
+/// be read: pinning more never lets a file change unseen.
 ///
 /// A scaffold may also be the workspace brokkr is invoked from (decision
 /// 0042): its realm map and dialect library are workspace declarations
@@ -132,7 +140,18 @@ pub(crate) const UNPINNED_TOP_LEVEL: [&str; 3] = [
 /// 0065). The bundle's file walk, its pinned-script lookup and its skip
 /// reason all ask this one function, so they cannot drift.
 pub(crate) fn unpinned_top_level(dir: &Path, name: &str) -> bool {
-    UNPINNED_TOP_LEVEL.contains(&name) || name == STATE && matches!(folder_bundle(dir), Ok(Some(_)))
+    UNPINNED_TOP_LEVEL.contains(&name)
+        || [STATE, RECIPES].contains(&name) && matches!(folder_bundle(dir), Ok(Some(_)))
+}
+
+/// What the top-level `name` a walk skips ([`unpinned_top_level`]) holds,
+/// in the words of the refusal of a path under it.
+pub(crate) fn unpinned_holds(name: &str) -> &'static str {
+    match name {
+        STATE => "the folder's runtime state, which a run writes",
+        RECIPES => "the folder's shelf, whose named recipes are bundles of their own (#696)",
+        _ => "operator configuration",
+    }
 }
 
 /// The repository root of a folder bundle, by the one judgement of a
@@ -140,8 +159,9 @@ pub(crate) fn unpinned_top_level(dir: &Path, name: &str) -> bool {
 /// `<root>/.brokkr`, where `<root>` is its repository's root ([`root`])
 /// and holds the folder ([`Kind::Folder`]). Every other directory named
 /// `.brokkr`, a library's recipe or one below the root, is an ordinary
-/// bundle, never one by its name alone.
-fn folder_bundle(dir: &Path) -> Result<Option<&Path>, PlacesError> {
+/// bundle, never one by its name alone. `recipes add` asks it of every
+/// recipe it plans, so it never copies a folder bundle as one (#696).
+pub fn folder_bundle(dir: &Path) -> Result<Option<&Path>, PlacesError> {
     let named = dir.file_name() == Some(FOLDER.as_ref());
     let Some(parent) = dir.parent().filter(|_| named) else {
         return Ok(None);
@@ -150,14 +170,17 @@ fn folder_bundle(dir: &Path) -> Result<Option<&Path>, PlacesError> {
     Ok(folder.then_some(parent))
 }
 
-/// The agent library, the adapters and the default map a workspace's
-/// launches read. Where their run-local state stands is
+/// The agent library, the adapters, the named recipes and the default map
+/// a workspace's launches read. Where their run-local state stands is
 /// [`Layout::state`]'s to judge, because a workspace with no place for it
 /// refuses.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Places {
     pub agents: PathBuf,
     pub adapters: PathBuf,
+    /// The named recipes: the folder's shelf, `.brokkr/recipes` (#696),
+    /// else the library's `recipes`.
+    pub recipes: PathBuf,
     /// The map a workspace adopts when none is named, if it is there.
     pub(crate) map: PathBuf,
 }
@@ -177,6 +200,7 @@ impl Places {
         Places {
             agents: dir.join(DEFAULT_AGENTS_DIR),
             adapters: dir.join(DEFAULT_ADAPTERS_DIR),
+            recipes: dir.join(RECIPES),
             map: dir.join(DEFAULT_MAP_FILE),
         }
     }
@@ -468,7 +492,7 @@ pub(crate) fn default_map(workspace: &Path) -> Result<Option<PathBuf>, PlacesErr
 /// rather than choosing a layout (the operator's ruling of 2026-09-26:
 /// fail closed on what cannot be read).
 fn library(root: &Path) -> Result<bool, PlacesError> {
-    let recipes = root.join("recipes");
+    let recipes = root.join(RECIPES);
     let listed = match std::fs::read_dir(&recipes) {
         Err(error) if absent(&error) => return Ok(false),
         listed => listed.map_err(unreadable(&recipes))?,
@@ -502,21 +526,24 @@ pub fn run_local(state: Option<&Path>, workdir: &Path) -> PathBuf {
     state.map_or_else(|| workdir.join(LIBRARY_STATE), Path::to_path_buf)
 }
 
-/// A folder bundle ([`folder_bundle`]) composes no base (ruling 1): its
-/// library would be the repository root, a directory the project owns.
-/// Refused before any base is read, and so is a layer whose layout cannot
-/// be read. `dir` is the layer's canonical directory.
-pub(crate) fn refuse_folder_base(dir: &Path, base: &str) -> Result<(), CompileError> {
+/// The library the layer at `dir`, its canonical directory, composes its
+/// base from (decision 0017): a folder bundle's ([`folder_bundle`]) is
+/// its shelf, `.brokkr/recipes`, never the repository root, a directory
+/// the project owns (#696, amending decision 0083 ruling 1); every other
+/// layer's is its parent, what a recipe library already is. Refused
+/// before any base is read where the layer's layout cannot be read. `pop`
+/// is total: a directory holding a bundle.json is never the filesystem
+/// root, and if it somehow were, the base is "not a recipe" in it anyway.
+pub(crate) fn base_library(dir: &Path) -> Result<PathBuf, CompileError> {
     let judged = folder_bundle(dir).map_err(|refused| CompileError::Invalid(refused.to_string()));
+    let mut library = dir.to_path_buf();
     match judged? {
-        Some(root) => Err(CompileError::Invalid(format!(
-            "{}/{FOLDER}/bundle.json extends '{base}' (decision 0083); a bundle in {FOLDER}/ \
-             composes no base, because its library would be {}: remove extends",
-            root.display(),
-            root.display()
-        ))),
-        None => Ok(()),
+        Some(_) => library.push(RECIPES),
+        None => {
+            library.pop();
+        }
     }
+    Ok(library)
 }
 
 #[cfg(test)]

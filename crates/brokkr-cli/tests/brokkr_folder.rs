@@ -141,7 +141,7 @@ impl Repo {
     /// A fake-driver bundle named `name` at `relative`, its implementer
     /// answering each attempt with `answers` in turn and its reviewer
     /// clean.
-    fn bundle(&self, relative: &str, name: &str, answers: Value) {
+    pub(crate) fn bundle(&self, relative: &str, name: &str, answers: Value) {
         let script = self.aside.join(format!("{name}.script.json"));
         let review = json!([{"behavior": "succeed", "result": {"result": "clean"}}]);
         let seats = json!({"seats": {"implement": answers, "review": review}});
@@ -172,9 +172,16 @@ impl Repo {
 
     /// The folder planted by hand, as `init` will write it: its bundle and
     /// the ignore file that keeps its state out of git.
-    fn folder(&self) {
+    pub(crate) fn folder(&self) {
         self.bundle(".brokkr", "folder", completes());
         self.write(".brokkr/.gitignore", "state/\n");
+    }
+
+    /// Whether the fake driver of the bundle named `name` has kept state:
+    /// whether a run was delivered under it.
+    pub(crate) fn seated(&self, name: &str) -> bool {
+        let state = self.aside.join(format!("{name}.state"));
+        std::fs::read_dir(state).unwrap().count() > 0
     }
 
     /// A recipe library's mark: a bundle under `recipes/`.
@@ -206,7 +213,7 @@ impl Repo {
     }
 }
 
-fn completes() -> Value {
+pub(crate) fn completes() -> Value {
     json!([{"behavior": "succeed", "result": {"result": "complete"}}])
 }
 
@@ -237,7 +244,7 @@ pub(crate) fn commit(root: &Path) {
 }
 
 /// The run id a `brokkr run` said it started.
-fn started(ran: &Ran) -> String {
+pub(crate) fn started(ran: &Ran) -> String {
     ran.stderr
         .lines()
         .find_map(|line| line.strip_prefix("run started: "))
@@ -608,7 +615,8 @@ fn a_flag_reads_where_it_was_typed(repo: &Repo) {
     let dispatched = [&queue[..], &flags, &["--dispatch", "d.json"]].concat();
     let mapped = [
         &queue[..],
-        &["--recipe", "r", "--realms", "maps/realms.json"],
+        &["--recipe", "r", "--recipes-dir", "recipes"],
+        &["--realms", "maps/realms.json"],
     ]
     .concat();
     for added in [dispatched, mapped] {
@@ -645,10 +653,7 @@ fn a_flag_reads_where_it_was_typed(repo: &Repo) {
 /// `--bundle` and `--recipe` beside a discovered folder: the run is the
 /// named bundle's, whose fake driver alone keeps state.
 fn a_named_bundle_runs(repo: &Repo) -> (String, String) {
-    let seated = |name: &str| {
-        let state = repo.aside.join(format!("{name}.state"));
-        std::fs::read_dir(state).unwrap().count() > 0
-    };
+    let seated = |name: &str| repo.seated(name);
     repo.bundle("elsewhere", "elsewhere", completes());
     let ran = repo.brokkr(
         "",
@@ -1077,7 +1082,7 @@ fn role_under_state(repo: &Repo, relative: &str) {
 }
 
 /// The digest `brokkr compile --bundle <relative>` prints.
-fn digest(repo: &Repo, relative: &str) -> String {
+pub(crate) fn digest(repo: &Repo, relative: &str) -> String {
     let ran = repo.brokkr("", &["compile", "--bundle", relative]);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
     let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
@@ -1682,8 +1687,12 @@ fn the_listed_moves_empty_every_forge() {
     );
 }
 
+/// A folder bundle composes its base from its shelf, `.brokkr/recipes`
+/// (#696, amending decision 0083 ruling 1), never the repository root: a
+/// base the shelf lacks refuses naming the shelf, and one it holds
+/// composes.
 #[test]
-fn a_folder_bundle_composes_no_base() {
+fn a_folder_bundle_composes_from_its_shelf() {
     let repo = Repo::new();
     repo.folder();
     let path = repo.path(".brokkr/bundle.json");
@@ -1693,8 +1702,8 @@ fn a_folder_bundle_composes_no_base() {
     // A base that would refuse in its own words if it were ever read.
     repo.write("shared/bundle.json", "not json");
     let refusal = format!(
-        "error: bundle: {}/.brokkr/bundle.json extends 'shared' (decision 0083); a bundle in \
-         .brokkr/ composes no base, because its library would be {}: remove extends\n",
+        "error: bundle: {}/.brokkr/bundle.json: extends 'shared', which is not a recipe in \
+         {}/.brokkr/recipes\n",
         repo.root.display(),
         repo.root.display()
     );
@@ -1702,4 +1711,19 @@ fn a_folder_bundle_composes_no_base() {
     assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), refusal.as_str()));
     let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
     assert_eq!((ran.code, ran.stderr.as_str()), (Some(1), refusal.as_str()));
+    repo.bundle(".brokkr/recipes/shared", "shared", completes());
+    let overlay = json!({"name": "folder", "extends": "shared"});
+    std::fs::write(&path, overlay.to_string()).unwrap();
+    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
+    let base = &compiled["composed_from"][0]["recipe"];
+    let composed = (ran.code, base);
+    assert_eq!(composed, (Some(0), &json!("shared")), "{}", ran.stderr);
+    let ran = repo.brokkr("src", &["run", "--feature", "x", "--no-view"]);
+    assert_eq!(
+        (ran.code, repo.seated("shared")),
+        (Some(0), true),
+        "{}",
+        ran.stderr
+    );
 }
