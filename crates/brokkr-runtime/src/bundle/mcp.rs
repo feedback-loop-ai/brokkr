@@ -119,7 +119,7 @@ fn strictness(
     adapter: Option<&Adapter>,
 ) -> Vec<(McpShape, McpAxis)> {
     let hands = match intent {
-        Some(McpIntent::Hands) => McpHands::Boxed,
+        Some(McpIntent::Hands | McpIntent::Brokered) => McpHands::Boxed,
         Some(McpIntent::Empty) if harnessed => McpHands::Harness,
         Some(McpIntent::Empty) => McpHands::NoHands,
         Some(McpIntent::NoModelSurface) | None => return Vec::new(),
@@ -158,6 +158,11 @@ pub(crate) enum McpIntent {
     Empty,
     /// The engine's hands server alone.
     Hands,
+    /// The hands server and, beside it, one broker per MCP holding the
+    /// serving's outcome brokers (U7d2; MB1): never composed, only read by
+    /// the engine from a hands set against its holdings
+    /// ([`McpIntent::brokering`]).
+    Brokered,
     /// The exec harness, which serves no model: no set is intended and none
     /// is measured.
     NoModelSurface,
@@ -214,7 +219,9 @@ impl McpIntent {
     /// in the outcome's order, beside the box's hands, and nothing else.
     /// Without an MCP holding the set contributes itself. A set without the
     /// hands server, or exec's, which serves no model, carries no broker
-    /// (MB2): it refuses by its first holding, whatever that asked.
+    /// (MB2): it refuses by its first holding, whatever that asked. The
+    /// brokered set is the hands set read against holdings, so it
+    /// contributes as the hands set does.
     pub(crate) fn contribution(self, outcome: &Outcome) -> Result<McpContribution<'_>, Unservable> {
         let mut servers = (outcome.held.iter())
             .filter_map(|(capability, holding)| match &holding.implementation {
@@ -225,13 +232,29 @@ impl McpIntent {
         let first = servers.peek().map(|(capability, _)| capability.to_string());
         match (self, first) {
             (McpIntent::Empty, None) => Ok(McpContribution::Empty),
-            (McpIntent::Hands, None) => Ok(McpContribution::Hands),
+            (McpIntent::Hands | McpIntent::Brokered, None) => Ok(McpContribution::Hands),
             (McpIntent::NoModelSurface, None) => Ok(McpContribution::NoModelSurface),
-            (McpIntent::Hands, Some(_)) => Ok(McpContribution::Brokered(
+            (McpIntent::Hands | McpIntent::Brokered, Some(_)) => Ok(McpContribution::Brokered(
                 servers.map(|(_, server)| server).collect(),
             )),
             (McpIntent::Empty, Some(first)) => Err(Unservable::NoHands(first)),
             (McpIntent::NoModelSurface, Some(first)) => Err(Unservable::NoModelChannel(first)),
+        }
+    }
+
+    /// The set the engine reads this one as at a serving whose compiled
+    /// outcome is `outcome` (U7d2; MB1): the brokered set where its
+    /// holdings contribute brokers beside the hands, and itself otherwise.
+    /// A set its holdings cannot be served beside was refused at compile
+    /// ([`McpSite::contribute`]) and brokers nothing here.
+    pub(crate) fn brokering(self, outcome: Option<&Outcome>) -> McpIntent {
+        match outcome.map(|outcome| self.contribution(outcome)) {
+            Some(Ok(McpContribution::Brokered(_))) => McpIntent::Brokered,
+            Some(Ok(
+                McpContribution::Empty | McpContribution::Hands | McpContribution::NoModelSurface,
+            ))
+            | Some(Err(_))
+            | None => self,
         }
     }
 }
@@ -353,7 +376,7 @@ impl McpSite<'_> {
 /// fragment holds.
 fn typed_hands(intent: Option<McpIntent>, fragment: &[String]) -> usize {
     match intent {
-        Some(McpIntent::Hands | McpIntent::NoModelSurface) => fragment.len(),
+        Some(McpIntent::Hands | McpIntent::Brokered | McpIntent::NoModelSurface) => fragment.len(),
         Some(McpIntent::Empty) | None => 0,
     }
 }

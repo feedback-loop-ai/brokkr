@@ -29,7 +29,7 @@
  240 crates/brokkr-runtime/src/capabilities.rs:1507 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:434 check
  132 crates/brokkr-runtime/src/engine.rs:1094 seat_input
- 151 crates/brokkr-runtime/src/engine.rs:1290 execute
+ 148 crates/brokkr-runtime/src/engine.rs:1291 execute
  175 crates/brokkr-runtime/src/engine.rs:2122 decide
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
  178 crates/brokkr-view/src/lib.rs:1009 scan_participants

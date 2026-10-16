@@ -26,8 +26,9 @@ use super::call_tests::planned;
 use super::*;
 use crate::capabilities::{Admitted, Connection, Holding, Implementation, Retention, Strength};
 
+pub(in crate::engine) mod brokered_tests;
 mod discovery_tests;
-mod survey_tests;
+pub(in crate::engine) mod survey_tests;
 
 /// The instance reference the single site resolves to.
 const INSTANCE: &str = "1a22000000000000000000000000000000000000000000000000000000000022";
@@ -257,7 +258,8 @@ impl Fixture {
             site: "work",
         };
         let deadline = Instant::now() + Duration::from_secs(60);
-        (self.engine).provisioned(&attempt, &selected(), host, (survey, deadline))
+        let sealed = (self.engine).provisioned(&attempt, &selected(), host, (survey, deadline));
+        sealed.map(|made| made.map(|sealed| sealed.control))
     }
 
     /// Whether the attempt `attempt` of the single site may spawn once
@@ -273,7 +275,7 @@ impl Fixture {
     ) -> bool {
         let (ids, timed) = (["effect", attempt, "work"], (began, bound));
         let engine = &mut self.engine;
-        let launched = engine.provision_with(ids, &selected(), timed, host, survey);
+        let launched = engine.provision_with(ids, &mut selected(), timed, host, survey);
         launched.unwrap()
     }
 }
@@ -1073,7 +1075,7 @@ fn each_member_provisions_its_own_selected_links_holdings_under_its_own_site() {
     );
     let host = Ok(fixture.host());
     let control = (fixture.engine).provisioned(&attempt, &selection, host, surveyor);
-    let (_, plans) = sealed(&control.unwrap().unwrap());
+    let (_, plans) = sealed(&control.unwrap().unwrap().control);
     let owned: Vec<[&Value; 3]> = (plans.iter())
         .map(|plan| {
             [

@@ -2,6 +2,8 @@
 //! 14a2), moved here from `capability_tests.rs`, and the MCP isolation
 //! intent dispatch seals among them (decision 0065 slice two, U1g2).
 
+use brokkr_protocol::native_controls::{SealedBoundary, SealedDialect};
+
 use super::*;
 
 /// The intent dispatch seals for a serving whose shapes carry no SI2
@@ -12,7 +14,8 @@ fn standing(servers: &str) -> Value {
 }
 
 /// The dispatch door's refusal of serving inputs that decode but differ.
-const NOT_SEALED: &str = "dispatch refused: the serving inputs handed over are not the ones the \
+pub(super) const NOT_SEALED: &str =
+    "dispatch refused: the serving inputs handed over are not the ones the \
                           engine sealed beside this spawn's record; a dialect, pin or hands \
                           declaration that differs is never trusted by its shape (rebuild unit \
                           14a2; design D5.7, D6)";

@@ -10,7 +10,7 @@ use brokkr_protocol::adapters::HandsNotice;
 use serde_json::{json, Value};
 
 use crate::agents::{Candidate, ResultDoor};
-use crate::bundle::{Bundle, HandsState, McpContribution, McpIntent};
+use crate::bundle::{Bundle, HandsState, McpContribution, McpIntent, SiteFacts};
 use crate::capabilities::{Holding, Implementation, Outcome};
 
 /// The private carrier of the MCP servers the serving candidate is given
@@ -52,43 +52,18 @@ impl<'a> SiteMarks<'a> {
     /// The outcome compiled for the candidate serving `label`: the selected
     /// link's own, or an inline site's one.
     fn outcome(&self, label: &str, link: Option<&Candidate>) -> Option<&'a Outcome> {
-        let site = self.bundle.sites.get(label)?.capabilities.as_ref()?;
-        site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
+        outcome_at(self.bundle.sites.get(label), link)
     }
 
     /// The MCP holdings the serving candidate's own intended set brokers
     /// (U7c; MB1): the holding behind each server the set that candidate
     /// composed with contributes beside the box's hands
     /// ([`McpContribution::Brokered`]), in its order, and none otherwise.
-    /// The one projection the plans the engine provisions and the servers
-    /// it names to the seat are both read from.
+    /// The one projection the plans the engine provisions, the brokers it
+    /// seals and the servers it names to the seat are all read from
+    /// ([`brokered_at`]).
     pub(super) fn brokered(&self, label: &str, link: Option<&Candidate>) -> Vec<Brokered<'a>> {
-        let intent = match link {
-            Some(link) => McpIntent::of_candidate(link),
-            None => (self.bundle.sites.get(label)).and_then(|facts| facts.inline_mcp),
-        };
-        let Some(outcome) = self.outcome(label, link) else {
-            return Vec::new();
-        };
-        let servers = match intent.map(|intent| intent.contribution(outcome)) {
-            Some(Ok(McpContribution::Brokered(servers))) => servers,
-            Some(Ok(
-                McpContribution::Empty | McpContribution::Hands | McpContribution::NoModelSurface,
-            ))
-            | Some(Err(_))
-            | None => Vec::new(),
-        };
-        let held = |server: &str| {
-            (outcome.held.iter()).find_map(|(capability, holding)| match &holding.implementation {
-                Implementation::Mcp { server: named, .. } if named == server => Some(Brokered {
-                    capability,
-                    server: named,
-                    holding,
-                }),
-                Implementation::Mcp { .. } | Implementation::Native { .. } => None,
-            })
-        };
-        servers.into_iter().filter_map(held).collect()
+        brokered_at(self.bundle.sites.get(label), link)
     }
 
     /// The MCP servers the serving candidate is given (U7c; MB1, D8): each
@@ -272,4 +247,52 @@ impl<'a> SiteMarks<'a> {
             input["spec_dialect"] = seat_input["spec_dialect"].clone();
         }
     }
+}
+
+/// The outcome compiled for the candidate serving the site `facts`
+/// describe: the selected link's own, or an inline site's one.
+pub(super) fn outcome_at<'a>(
+    facts: Option<&'a SiteFacts>,
+    link: Option<&Candidate>,
+) -> Option<&'a Outcome> {
+    let site = facts?.capabilities.as_ref()?;
+    site.serving(link.map(|link| (link.provider.as_str(), link.model.as_str())))
+}
+
+/// The MCP holdings the serving candidate's own intended set brokers at the
+/// site `facts` describe ([`SiteMarks::brokered`]).
+pub(super) fn brokered_at<'a>(
+    facts: Option<&'a SiteFacts>,
+    link: Option<&Candidate>,
+) -> Vec<Brokered<'a>> {
+    let intent = match link {
+        Some(link) => McpIntent::of_candidate(link),
+        None => facts.and_then(|facts| facts.inline_mcp),
+    };
+    let Some(outcome) = outcome_at(facts, link) else {
+        return Vec::new();
+    };
+    let servers = match intent.map(|intent| intent.contribution(outcome)) {
+        Some(Ok(McpContribution::Brokered(servers))) => servers,
+        // An `Unservable` set brokers nothing here because the compile
+        // already refused it (`McpSite::contribute`), which
+        // `bundle::agent_tests::mcp_tests::a_set_without_the_hands_server_or_a_model_channel_carries_no_broker`
+        // binds as this arm's removal control.
+        Some(Ok(
+            McpContribution::Empty | McpContribution::Hands | McpContribution::NoModelSurface,
+        ))
+        | Some(Err(_))
+        | None => Vec::new(),
+    };
+    let held = |server: &str| {
+        (outcome.held.iter()).find_map(|(capability, holding)| match &holding.implementation {
+            Implementation::Mcp { server: named, .. } if named == server => Some(Brokered {
+                capability,
+                server: named,
+                holding,
+            }),
+            Implementation::Mcp { .. } | Implementation::Native { .. } => None,
+        })
+    };
+    servers.into_iter().filter_map(held).collect()
 }

@@ -3164,15 +3164,17 @@ struct SyntheticDsh {
 
 #[cfg(unix)]
 fn synthetic_dsh(root: &Path, child: &Path) -> SyntheticDsh {
-    use std::os::unix::fs::PermissionsExt;
+    use super::capability_tests::provision_tests::survey_tests::installed;
     let put = |dir: &Path, name: &str, bytes: &[u8]| {
         let path = dir.join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, bytes).unwrap();
         path
     };
-    let executable = |path: &Path| {
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Copied in by a child and renamed, never written in place (ETXTBSY).
+    let executable = |dir: &Path, name: &str, bytes: &[u8]| {
+        std::fs::create_dir_all(dir).unwrap();
+        installed(dir, name, &put(&root.join("sources"), name, bytes))
     };
     let core = root.join("core");
     let pkg = core.join("node_modules").join("@deepseek-ai").join("dsh");
@@ -3181,8 +3183,7 @@ fn synthetic_dsh(root: &Path, child: &Path) -> SyntheticDsh {
         "package.json",
         br#"{"name":"@deepseek-ai/dsh","version":"0.1.5-rc.2","bin":{"dsh":"lib/bin.js"}}"#,
     );
-    let bin = put(&pkg, "lib/bin.js", b"#!/usr/bin/env node\n");
-    executable(&bin);
+    let bin = executable(&pkg.join("lib"), "bin.js", b"#!/usr/bin/env node\n");
     put(
         &core,
         "node_modules/.package-lock.json",
@@ -3225,7 +3226,7 @@ fn synthetic_dsh(root: &Path, child: &Path) -> SyntheticDsh {
         );
     }
     let node_dir = root.join("node").join("bin");
-    let node = put(
+    executable(
         &node_dir,
         "node",
         format!(
@@ -3237,7 +3238,6 @@ fn synthetic_dsh(root: &Path, child: &Path) -> SyntheticDsh {
         )
         .as_bytes(),
     );
-    executable(&node);
     SyntheticDsh {
         bin,
         home,

@@ -63,13 +63,25 @@ impl Transport<'_> {
     }
 
     /// An adapter's measured `hands.workspace` fragment with the box's
-    /// hands alone expanded into it ([`Servers::expand`]).
+    /// hands alone expanded into it ([`Transport::expand_beside`]).
     pub fn expand(&self, fragment: &[String]) -> Option<Vec<String>> {
-        let hands = Servers {
+        self.expand_beside(fragment, &[])
+    }
+
+    /// An adapter's measured `hands.workspace` fragment with the whole set
+    /// expanded into it, `brokers` beside the box's hands (U7d2; MB1), as
+    /// the set's one builder writes it ([`Servers::expand`]); `None` where
+    /// it cannot be served as sealed ([`Servers::named`]).
+    pub fn expand_beside(
+        &self,
+        fragment: &[String],
+        brokers: &[SealedBroker],
+    ) -> Option<Vec<String>> {
+        let servers = Servers {
             hands: Some(*self),
-            brokers: &[],
+            brokers,
         };
-        hands.expand(fragment)
+        servers.expand(fragment)
     }
 
     /// The MCP document a Claude-grammar harness is handed to reach the

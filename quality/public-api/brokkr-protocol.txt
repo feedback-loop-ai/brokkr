@@ -897,6 +897,7 @@ pub brokkr_protocol::native_controls::Transport::spec: &'a brokkr_protocol::hand
 pub brokkr_protocol::native_controls::Transport::workdir: &'a std::path::Path
 impl brokkr_protocol::native_controls::Transport<'_>
 pub fn brokkr_protocol::native_controls::Transport<'_>::expand(&self, &[alloc::string::String]) -> core::option::Option<alloc::vec::Vec<alloc::string::String>>
+pub fn brokkr_protocol::native_controls::Transport<'_>::expand_beside(&self, &[alloc::string::String], &[brokkr_protocol::native_controls::SealedBroker]) -> core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub const brokkr_protocol::native_controls::LINE: usize
 pub const brokkr_protocol::native_controls::ROLE_TEXT: &str
 pub const brokkr_protocol::native_controls::SERVING_INPUTS: &str

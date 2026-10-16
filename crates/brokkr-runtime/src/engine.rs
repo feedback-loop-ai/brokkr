@@ -20,9 +20,8 @@ use brokkr_core::EventEnvelope;
 use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{
     flatten, pin_fault, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
-    LocalExpectation, Origin, SandboxIntent, SealedAssessment, SealedBoundary, SealedDialect,
-    SealedFence, SealedIsolation, SealedServers, SealedServing, Segment, TemplateExpectation,
-    Transport, SERVING_INPUTS,
+    LocalExpectation, Origin, SandboxIntent, SealedBroker, SealedServing, Segment,
+    TemplateExpectation, Transport, SERVING_INPUTS,
 };
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
@@ -31,11 +30,11 @@ use serde_json::{json, Map, Value};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::agents::{Candidate, Lowering, McpAxis, McpInvocation, ResultDoor};
+use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::bundle::{
     charters_as_started, charters_intact, layer_drift, site_charter_text, Bundle, CharterPin,
-    ExecutableBody, HandsState, Invocation, McpIntent, PanelMember, Seat, SeatBody, SeatClass,
-    SiteFacts, StepBody, ENGINE_VERSION, REALM_FACTS,
+    ExecutableBody, HandsState, Invocation, PanelMember, Seat, SeatBody, SeatClass, SiteFacts,
+    StepBody, ENGINE_VERSION, REALM_FACTS,
 };
 use crate::dialect::DialectPhase;
 use crate::phase_name;
@@ -52,8 +51,10 @@ mod broker;
 mod capability_calls;
 mod checkpoints;
 mod fence;
+mod isolation;
 use capability_calls::Calls;
 use checkpoints::Checkpoints;
+pub use isolation::serving_inputs;
 mod marks;
 #[doc(hidden)]
 pub use marks::SiteMarks;
@@ -1404,12 +1405,6 @@ impl Engine {
         // as a different effect.
         self.marks()
             .site(&site_name, gate, selection.get(&None), &mut input);
-        self.mark_capabilities(
-            &site_name,
-            selection.get(&None),
-            single.as_mut(),
-            &mut input,
-        );
         let mut started = json!({
             "effect_id": effect_id,
             "attempt_id": attempt_id,
@@ -1452,9 +1447,14 @@ impl Engine {
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
         let mut deadline = std::time::Duration::from_secs(seat.limits.timeout_seconds);
         let ids = [effect_id, attempt_id.as_str(), site_name.as_str()];
-        if !self.provision(ids, &selection, &mut deadline)? {
+        if !self.provision(ids, &mut selection, &mut deadline)? {
             return Ok(());
         }
+        // Sealed once its plans are provisioned, as members and steps are
+        // (U7d2): the brokers it is served with are their pins.
+        let brokers = selection.brokers(&site_name);
+        let link = selection.get(&None);
+        self.mark_serving(&site_name, link, brokers, single.as_mut(), &mut input);
         match body {
             ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => self
                 .execute_panel(
@@ -1560,11 +1560,28 @@ impl Engine {
     /// site whose expected state cannot be sealed refuses its spawn. The
     /// typed serving inputs are sealed with it and written beside it under
     /// the same three rules (rebuild unit 14a2), with the boundary this
-    /// engine stands under (rebuild unit 14a4c).
+    /// engine stands under (rebuild unit 14a4c). No plan is provisioned
+    /// here, so a site that brokers a holding refuses its spawn; dispatch
+    /// marks with its attempt's own brokers ([`Engine::mark_serving`]).
     pub fn mark_capabilities(
         &self,
         label: &str,
         link: Option<&Candidate>,
+        spawn: Option<&mut SiteSpawn>,
+        input: &mut Value,
+    ) {
+        self.mark_serving(label, link, &[], spawn, input);
+    }
+
+    /// [`Engine::mark_capabilities`] with the brokers the attempt's
+    /// provisioning sealed for this site (U7d2), its hands segment
+    /// expanded beside them before the record is sealed
+    /// ([`isolation::beside`]).
+    fn mark_serving(
+        &self,
+        label: &str,
+        link: Option<&Candidate>,
+        brokers: &[SealedBroker],
         spawn: Option<&mut SiteSpawn>,
         input: &mut Value,
     ) {
@@ -1607,14 +1624,17 @@ impl Engine {
         let Some(outcome) = outcome else {
             return;
         };
+        let workdir = self.workdir();
         let sealed = expected_state(outcome, link, facts).and_then(|expected| {
-            let serving = serving_inputs(link, facts, spawn.class, self.boundary)?;
+            let served = isolation::served(spawn, (link, facts), self.boundary, &workdir, brokers);
+            let serving = served.map_err(|unsealed| unsealed.to_string())?;
             spawn.seal(expected)?;
             spawn.serving = Some(serving);
             Ok(())
         });
         match sealed {
             Ok(()) => {
+                input["launch_arguments"] = spawn.launch_arguments();
                 input[LAUNCH_RECORD] = spawn.launch_record();
                 input[SERVING_INPUTS] = spawn
                     .serving
@@ -2397,6 +2417,8 @@ fn site_label(site_name: &str, site: &Site) -> String {
 struct Selection {
     candidates: BTreeMap<Site, Candidate>,
     plans: BTreeMap<Site, SitePlan>,
+    /// The brokers provisioning sealed, by site label (U7d2).
+    brokers: BTreeMap<String, Vec<SealedBroker>>,
 }
 
 impl Selection {
@@ -3177,119 +3199,6 @@ pub(crate) fn composed(link: &Candidate) -> Option<&crate::agents::Composition> 
         Lowering::Composed(composition) => Some(composition),
         Lowering::Unavailable | Lowering::Refused(_) => None,
     }
-}
-
-/// The typed serving inputs of the site a spawn serves (rebuild unit
-/// 14a2), carried from where they were chosen (rebuild unit 14a1) and
-/// never read back from any argv: the selected candidate's composition, or
-/// an inline site's recorded dialect and hands. Of the two boundary
-/// fragments a composition carries, the spawn's class selects the one
-/// sealed, as [`compose_segments`] selects the one appended; a spawn with
-/// no class refuses, as every composition classes its own (operator ruling
-/// of 2026-09-30, unit 26c). The run's `boundary` is
-/// sealed beside them as the typed fact the site stood under, and none for
-/// a site without hands (rebuild unit 14a4c), so a declared-empty fragment
-/// pair under `harness` never reads as no boundary.
-pub fn serving_inputs(
-    link: Option<&Candidate>,
-    facts: Option<&SiteFacts>,
-    class: Option<SeatClass>,
-    boundary: Boundary,
-) -> Result<SealedServing, String> {
-    let stands = facts
-        .filter(|facts| matches!(facts.hands, HandsState::Hands(_)))
-        .and_then(|_| SealedBoundary::named(boundary.word()));
-    let serving = |link| composed(link).map(|composition| (*composition.serving).clone());
-    let carried = link.map_or_else(|| facts.and_then(SiteFacts::inline_serving), serving);
-    let crate::agents::ServingInputs {
-        dialect,
-        pins,
-        spec,
-    } = carried.ok_or_else(|| {
-        "dispatch refused: the site's typed serving inputs were never recorded, so none can be \
-         sealed beside its launch record; they are carried from the composition and never \
-         recovered from its argv (rebuild unit 14a2; design D5.7, D6)"
-            .to_string()
-    })?;
-    let boundary = match class {
-        Some(SeatClass::Gate) => dialect.boundary.gate,
-        Some(SeatClass::Work) => dialect.boundary.work,
-        None => {
-            return Err(
-                "dispatch refused: the spawn was composed for no seat class, so none of the \
-                 boundary fragments its serving inputs carry can be selected and sealed; a \
-                 fragment is never chosen by default (decision 0046 ruling 4; rebuild unit 14a2)"
-                    .to_string(),
-            )
-        }
-    };
-    Ok(SealedServing {
-        dialect: SealedDialect {
-            permissions: dialect.permissions,
-            sandbox: dialect.sandbox,
-            hands: dialect.hands,
-            boundary,
-            stands,
-        },
-        pins,
-        spec,
-        isolation: isolation_intent(link, facts).map_err(|error| error.to_string())?,
-    })
-}
-
-/// The compile never recorded the site's MCP server set (U1g2).
-#[derive(Debug, Error)]
-#[error(
-    "dispatch refused: the site's MCP server set was never recorded, so no isolation intent is \
-     sealed beside its launch (decision 0065 slice two, U1g2)"
-)]
-struct UnrecordedServers;
-
-/// The MCP isolation intent sealed with a site's serving inputs (decision
-/// 0065 slice two, U1g2): the set the compile composed the selected serving
-/// with ([`McpIntent::of_candidate`], or an inline site's own), each shape's
-/// SI2 record beside that serving's own outcome, a resume shape's by name,
-/// and the MCP fence this engine stands under; a shape unrecorded is unmeasured.
-fn isolation_intent(
-    link: Option<&Candidate>,
-    facts: Option<&SiteFacts>,
-) -> Result<SealedIsolation, UnrecordedServers> {
-    let inline = facts.and_then(|facts| facts.inline_mcp);
-    let intent = link.map_or(inline, McpIntent::of_candidate);
-    let servers = match intent.ok_or(UnrecordedServers)? {
-        McpIntent::Empty => SealedServers::Empty,
-        McpIntent::Hands => SealedServers::Hands,
-        McpIntent::NoModelSurface => SealedServers::NoModelSurface,
-    };
-    let site = facts.and_then(|facts| facts.capabilities.as_ref());
-    let record = site.and_then(|site| {
-        let outcome = site.serving(link.map(|link| (&*link.provider, &*link.model)))?;
-        let at = (site.outcomes.iter()).position(|each| std::ptr::eq(each, outcome))?;
-        site.strict.get(at)
-    });
-    let fence = match crate::capabilities::McpFence::current() {
-        crate::capabilities::McpFence::Standing => SealedFence::Standing,
-        #[cfg(test)]
-        crate::capabilities::McpFence::Lifted => SealedFence::Lifted,
-    };
-    let mut sealed = SealedIsolation {
-        servers,
-        fence,
-        ..SealedIsolation::default()
-    };
-    for (shape, axis) in record.into_iter().flatten() {
-        let assessed = match axis {
-            McpAxis::Measured { .. } => SealedAssessment::Measured,
-            McpAxis::Unsupported { reason } => SealedAssessment::Unsupported(reason.clone()),
-            McpAxis::Unmeasured(_) | McpAxis::Inapplicable { .. } => SealedAssessment::Unmeasured,
-        };
-        match &shape.invocation {
-            McpInvocation::Cold => sealed.cold = assessed,
-            McpInvocation::Replacement => sealed.replacement = assessed,
-            McpInvocation::Resume(name) => drop(sealed.resume.insert(name.clone(), assessed)),
-        }
-    }
-    Ok(sealed)
 }
 
 /// Rebuild unit 5d-fix-b (chief F1, F2, F4 and F5; decision 0046 ruling 4;
