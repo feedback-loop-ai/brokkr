@@ -26,7 +26,7 @@ use brokkr_runtime::{Bundle, Invocation, SeatBody};
 mod agents;
 pub(crate) mod personal;
 mod sources;
-use personal::{Origin, Resolved};
+use personal::{Origin, Resolved, ShelfPath};
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity), else the `implicit` one a
@@ -122,13 +122,13 @@ fn seat_summary(bundle: &Bundle) -> String {
 /// is information. A `dir` that cannot be read warns, unless it is a
 /// default `shelf` (#696) and nothing stands there ([`unshelved`]): no
 /// recipe is on it yet.
-pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool, origin: Origin) -> Result<()> {
+pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool, origin: Origin) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let candidates = match listed(dir) {
         Ok(candidates) => candidates,
-        Err(_) if shelf && unshelved(dir) => Vec::new(),
+        Err(_) if shelf && unshelved(origin, dir) => Vec::new(),
         Err(e) => {
-            println!("warning: recipes dir {}: {e}", dir.display());
+            println!("warning: recipes dir {}: {e}", dir.path().display());
             Vec::new()
         }
     };
@@ -151,8 +151,8 @@ pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool, origin: Origin) ->
 
 /// The recipes in the library `dir`, each directory in it with its name,
 /// sorted: what `list` and doctor's shelf lines both read.
-pub(crate) fn listed(dir: &Path) -> std::io::Result<Vec<(String, PathBuf)>> {
-    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(dir)?
+pub(crate) fn listed(dir: &ShelfPath) -> std::io::Result<Vec<(String, PathBuf)>> {
+    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(dir.path())?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.is_dir())
         .collect();
@@ -166,11 +166,13 @@ pub(crate) fn listed(dir: &Path) -> std::io::Result<Vec<(String, PathBuf)>> {
     Ok(named.collect())
 }
 
-/// Whether nothing stands at the shelf `dir`, judged as the entry itself:
-/// a shelf that is a link to nothing stands, so it warns as an unreadable
-/// one does rather than reading as no shelf.
-pub(crate) fn unshelved(dir: &Path) -> bool {
-    matches!(places::entry(dir), Ok(None))
+/// Whether nothing stands at the `origin` shelf `dir`, judged as the entry
+/// itself, and the shelf resolves as `--recipe` judges it
+/// ([`personal::resolving`]): a shelf that is a link to nothing stands, and
+/// one below a link to nothing or a file does not resolve, so each warns as
+/// an unreadable one does rather than reading as no shelf.
+pub(crate) fn unshelved(origin: Origin, dir: &ShelfPath) -> bool {
+    matches!(places::entry(dir.path()), Ok(None)) && personal::resolving(origin, dir).is_ok()
 }
 
 /// A source is a git URL by prefix (`http://`, `https://`, `git@`, and —
@@ -690,7 +692,7 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
     }
 }
 
-/// Install a recipe into the library `dir`, the `origin` shelf of the
+/// Install a recipe into the library `shelf`, the `origin` shelf of the
 /// repository at `root` that `add` runs in (#696 ruling 6, #697): clone or
 /// copy it into `<dir>/<name>`, with the bases it extends that the library
 /// lacks and, onto a project shelf, the agents and charters they name that
@@ -703,18 +705,19 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
 /// ([`refuse_within`]) or a folder bundle before anything is copied.
 pub(crate) fn add(
     root: &Path,
-    dir: &Path,
+    shelf: &ShelfPath,
     origin: Origin,
     source: &str,
     name: &str,
     path: Option<&str>,
 ) -> Result<()> {
+    let dir = shelf.path();
     if !plain(Path::new(name)) {
         let (name, dir) = (name.to_string(), dir.to_path_buf());
         return Err(Unplain::Name { name, dir }.into());
     }
     let source = Source::judge(source, path)?;
-    let place = origin.place(dir)?;
+    let place = origin.place(shelf)?;
     let world = World::discover(root, None)?;
     let dest = dir.join(name);
     if std::fs::symlink_metadata(&dest).is_ok() {

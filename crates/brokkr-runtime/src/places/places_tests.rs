@@ -345,6 +345,38 @@ fn the_default_map_is_a_file_or_nothing() {
     assert!(matches!(refused, PlacesError::Unreadable { ref path, .. } if *path == map));
 }
 
+/// Every spelling of one entry is judged at the entry itself (#697): a
+/// link to nothing spelled with a trailing separator, or a trailing `.`,
+/// fails `NotFound` as the bare spelling does, never read as nothing
+/// there, and a file so spelled resolves to the file.
+#[test]
+fn an_entry_is_resolved_whatever_its_spelling() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (link, file) = (root.join("link"), root.join("file"));
+    std::os::unix::fs::symlink("gone", &link).unwrap();
+    std::fs::write(&file, "").unwrap();
+    let spellings = |at: &Path| {
+        let at = at.display();
+        [
+            format!("{at}"),
+            format!("{at}/"),
+            format!("{at}/."),
+            format!("{at}//"),
+        ]
+    };
+    for spelled in spellings(&link) {
+        let unread = super::resolved(Path::new(&spelled)).unwrap_err();
+        assert_eq!(unread.kind(), std::io::ErrorKind::NotFound, "{spelled}");
+    }
+    for spelled in spellings(&file) {
+        let real = super::resolved(Path::new(&spelled)).unwrap();
+        assert_eq!(real.as_deref().map(Path::as_os_str), Some(file.as_os_str()));
+    }
+    let absent = super::resolved(&root.join("absent/")).unwrap();
+    assert_eq!(absent, None);
+}
+
 /// A workspace that is a file holds no map it can read: its place
 /// refuses as unreadable, never as no map.
 #[test]

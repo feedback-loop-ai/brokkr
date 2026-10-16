@@ -16,7 +16,7 @@ use brokkr_runtime::realms::World;
 
 use super::{Report, Seats};
 use crate::folder::{DoctorDefaults, FolderError, Found, Opening};
-use crate::recipes::personal::Origin;
+use crate::recipes::personal::{Origin, ShelfPath};
 
 /// The line's name in the report.
 const WHAT: &str = "folder";
@@ -163,7 +163,7 @@ pub(super) fn report_folder(
     let shelved = |dir: &Path| {
         compile_folder(workspace, dir, realms).map(|bundle| bundle.manifest_digest()[..12].into())
     };
-    let personal = defaults.personal.as_deref();
+    let personal = defaults.personal.as_ref();
     report_folder_with(report, &defaults.found, personal, compile, shelved);
 }
 
@@ -174,7 +174,7 @@ pub(super) fn report_folder(
 fn report_folder_with(
     report: &mut Report,
     found: &Result<Found, FolderError>,
-    personal: Option<&Path>,
+    personal: Option<&ShelfPath>,
     compile: impl FnOnce(&Path) -> anyhow::Result<()>,
     shelved: impl Fn(&Path) -> anyhow::Result<String>,
 ) {
@@ -198,7 +198,7 @@ fn report_folder_with(
 fn observe(
     report: &mut Report,
     layout: &places::Layout,
-    personal: Option<&Path>,
+    personal: Option<&ShelfPath>,
     (compile, shelved): (
         impl FnOnce(&Path) -> anyhow::Result<()>,
         impl Fn(&Path) -> anyhow::Result<String>,
@@ -240,7 +240,8 @@ fn observe(
                     ),
                 ),
             }
-            report_shelf(report, &layout.places().recipes, Origin::Project, &shelved);
+            let shelf = ShelfPath::new(layout.places().recipes);
+            report_shelf(report, &shelf, Origin::Project, &shelved);
             report_personal(report, personal, &shelved);
         }
     }
@@ -249,7 +250,7 @@ fn observe(
 /// [`report_shelf`] of the `personal` shelf, where the machine places one.
 fn report_personal(
     report: &mut Report,
-    personal: Option<&Path>,
+    personal: Option<&ShelfPath>,
     shelved: impl Fn(&Path) -> anyhow::Result<String>,
 ) {
     if let Some(shelf) = personal {
@@ -262,18 +263,18 @@ fn report_personal(
 /// that compile's refusal as a warning, because a broken shelf recipe is
 /// information and never fails the report. No shelf is no line
 /// ([`crate::recipes::unshelved`]); one that cannot be listed, a link to
-/// nothing included, warns.
+/// nothing included, or one below a link to nothing, warns.
 fn report_shelf(
     report: &mut Report,
-    shelf: &Path,
+    shelf: &ShelfPath,
     origin: Origin,
     shelved: impl Fn(&Path) -> anyhow::Result<String>,
 ) {
     let (recipe, place, issue) = origin.doctor();
     let recipes = match crate::recipes::listed(shelf) {
         Ok(recipes) => recipes,
-        Err(_) if crate::recipes::unshelved(shelf) => return,
-        Err(error) => return report.warn(place, format!("{}: {error}", shelf.display())),
+        Err(_) if crate::recipes::unshelved(origin, shelf) => return,
+        Err(error) => return report.warn(place, format!("{}: {error}", shelf.path().display())),
     };
     for (name, dir) in recipes {
         let what = format!("{recipe} {name}");

@@ -8,24 +8,59 @@
 
 use std::fmt;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::Result;
 use brokkr_runtime::admission::HostError;
 use brokkr_runtime::places::{self, PlacesError};
 
+/// A shelf's path, normalised once where it enters the CLI (#697; decision
+/// 0071 ruling 3): rebuilt from its components, so no trailing separator,
+/// `.` component or doubled separator is left, and every spelling of one
+/// shelf is judged, and read, at the same entry. A `..` stays as spelled,
+/// judged like any other entry ([`resolving`]), since folding it lexically
+/// is not what a link resolves to. The one constructor normalises, so no
+/// spelling of a shelf reaches a judgement or a read raw.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShelfPath(PathBuf);
+
+impl ShelfPath {
+    /// The shelf `spelled` names, normalised. A spelling of `.` alone is
+    /// the current directory, and an empty one stays empty.
+    pub(crate) fn new(spelled: impl AsRef<Path>) -> ShelfPath {
+        let spelled = spelled.as_ref();
+        let parts = spelled
+            .components()
+            .filter(|part| *part != Component::CurDir);
+        let path: PathBuf = parts.collect();
+        match path.as_os_str().is_empty() && !spelled.as_os_str().is_empty() {
+            true => ShelfPath(PathBuf::from(".")),
+            false => ShelfPath(path),
+        }
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.0
+    }
+
+    pub(crate) fn into_path(self) -> PathBuf {
+        self.0
+    }
+}
+
 /// The personal shelf, from this process's `XDG_CONFIG_HOME` and `HOME`:
 /// the CLI's edge, where every verb that reads the shelf asks.
-pub(crate) fn shelf() -> Result<PathBuf, HostError> {
-    places::personal_shelf(
+pub(crate) fn shelf() -> Result<ShelfPath, HostError> {
+    let placed = places::personal_shelf(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
-    )
+    );
+    placed.map(ShelfPath::new)
 }
 
 /// The personal shelf, where this machine places one. Where it places
 /// none, no personal recipe can stand, so a reader has nothing to read.
-pub(crate) fn placed() -> Option<PathBuf> {
+pub(crate) fn placed() -> Option<ShelfPath> {
     shelf().ok()
 }
 
@@ -53,7 +88,7 @@ impl Origin {
     /// shelf ([`super::refuse_folder`]); the personal shelf is judged by
     /// no repository, folder or library mark, its own or an ancestor's
     /// (#697 ruling 1).
-    pub(super) fn place(self, dir: &Path) -> Result<PathBuf> {
+    pub(super) fn place(self, dir: &ShelfPath) -> Result<PathBuf> {
         let resolved = resolving(self, dir)?;
         match self {
             Origin::Project => super::refuse_folder(resolved),
@@ -79,7 +114,10 @@ pub(super) struct Resolved<'a> {
 /// a link to nothing, a looping link, a file, or an entry whose metadata
 /// cannot be read refuses ([`Unshelved::Unread`]), never read as an empty
 /// shelf. A relative shelf nothing stands at or above resolves as itself.
-pub(super) fn resolving(origin: Origin, shelf: &Path) -> Result<Resolved<'_>, Unshelved> {
+/// The shelf comes normalised ([`ShelfPath`]), so the entry judged is the
+/// entry itself, never the target a trailing separator reads through.
+pub(super) fn resolving(origin: Origin, shelf: &ShelfPath) -> Result<Resolved<'_>, Unshelved> {
+    let shelf = shelf.path();
     for at in shelf.ancestors() {
         let unread = |cause| Unshelved::Unread {
             origin,
@@ -189,13 +227,13 @@ impl std::error::Error for Unshelved {}
 /// recipe name, judged by its spelling, refuses before either shelf is
 /// read ([`Unshelved::Unplain`]): `run`, `resume`, `rerun`, `queue add`
 /// and `recipes show` all ask here.
-pub(crate) fn holding(recipe: Option<&str>, project: PathBuf) -> Result<PathBuf, Unshelved> {
+pub(crate) fn holding(recipe: Option<&str>, project: ShelfPath) -> Result<PathBuf, Unshelved> {
     match recipe {
         Some(name) if !super::plain(Path::new(name)) => Err(Unshelved::Unplain {
             name: name.to_string(),
         }),
-        Some(name) => holding_in(name, project, placed().as_deref()),
-        None => Ok(project),
+        Some(name) => holding_in(name, project, placed().as_ref()),
+        None => Ok(project.into_path()),
     }
 }
 
@@ -206,12 +244,17 @@ pub(crate) fn holding(recipe: Option<&str>, project: PathBuf) -> Result<PathBuf,
 /// both shelves refuses ([`Unshelved::Shadowed`]), and so does an entry
 /// that cannot be read, and, before either is read, a shelf that cannot
 /// be ([`resolving`]).
-fn holding_in(name: &str, project: PathBuf, personal: Option<&Path>) -> Result<PathBuf, Unshelved> {
+fn holding_in(
+    name: &str,
+    project: ShelfPath,
+    personal: Option<&ShelfPath>,
+) -> Result<PathBuf, Unshelved> {
     let Some(personal) = personal else {
-        return Ok(project);
+        return Ok(project.into_path());
     };
     resolving(Origin::Project, &project)?;
     resolving(Origin::Personal, personal)?;
+    let (project, personal) = (project.path(), personal.path());
     let stands = |shelf: &Path| {
         let at = shelf.join(name);
         match places::entry(&at) {
@@ -222,21 +265,21 @@ fn holding_in(name: &str, project: PathBuf, personal: Option<&Path>) -> Result<P
             })),
         }
     };
-    match (stands(&project)?, stands(personal)?) {
+    match (stands(project)?, stands(personal)?) {
         ((true, project), (true, personal)) => Err(Unshelved::Shadowed {
             name: name.to_string(),
             project,
             personal,
         }),
         ((false, _), (true, _)) => Ok(personal.to_path_buf()),
-        (_, (false, _)) => Ok(project),
+        (_, (false, _)) => Ok(project.to_path_buf()),
     }
 }
 
 /// `recipes list`: the project's shelf `dir`, then the personal one where
 /// this machine places it, each recipe with its origin (#697 ruling 6). A
 /// personal shelf with nothing standing at it lists nothing.
-pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
+pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool) -> Result<()> {
     super::list(workspace, dir, shelf, Origin::Project)?;
     match placed() {
         Some(personal) => super::list(workspace, &personal, true, Origin::Personal),
@@ -254,7 +297,7 @@ pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
 /// are removed again when the install refuses.
 pub(crate) fn add(root: &Path, source: &str, name: &str, path: Option<&str>) -> Result<()> {
     let shelf = shelf()?;
-    let made = Made::above(&shelf)?;
+    let made = Made::above(shelf.path())?;
     super::add(root, &shelf, Origin::Personal, source, name, path)?;
     made.keep();
     Ok(())

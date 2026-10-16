@@ -928,8 +928,9 @@ before either recipe is taken. Nothing standing at a shelf is an empty
 shelf, but the nearest entry standing at it or above it must resolve to
 a directory, so a link to nothing, a looping link, a file, or an entry
 whose metadata cannot be read refuses, naming the shelf and the entry
-judged. `recipes add` judges the shelf it installs onto by the same
-rule:
+judged. A shelf's path is normalised once, where it enters, so every
+spelling of one shelf is judged at the same entry. `recipes add` judges
+the shelf it installs onto by the same rule:
 
 ```text
 the <origin> shelf <shelf> cannot be read (#697): <path>: <cause>; a shelf that cannot be read is never read as an empty one, so mend or remove it; nothing was run or installed

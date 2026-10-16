@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::{bundle, report_folder, report_folder_with, Inspected, Report, Seats};
 use crate::folder::DoctorDefaults;
+use crate::recipes::personal::ShelfPath;
 
 /// A repository root of its own, its `.git` planted, and what `plant`
 /// puts in it; the tempdir comes back with the canonical root.
@@ -45,7 +46,7 @@ fn folder_lines_with(
     report_folder_with(
         &mut report,
         &DoctorDefaults::of(cwd.into(), None).found,
-        personal,
+        personal.map(ShelfPath::new).as_ref(),
         compile,
         shelved,
     );
@@ -395,8 +396,9 @@ fn each_shelf_recipe_is_a_line_that_never_fails_the_report() {
 /// The personal shelf (#697): after the folder found and its shelf, and
 /// after a library's line, one line per personal recipe, its digest or
 /// its compile's refusal as a warning, which leaves the report healthy; a
-/// personal shelf that cannot be listed warns, an absent one is no line,
-/// and a bare repository, where no run reads a recipe, lists none.
+/// personal shelf that cannot be listed warns, an absent one is no line
+/// but one below a link to nothing warns, as `--recipe` refuses it, and a
+/// bare repository, where no run reads a recipe, lists none.
 #[test]
 fn each_personal_recipe_is_a_line_that_never_fails_the_report() {
     let config = tempfile::tempdir().unwrap();
@@ -429,6 +431,15 @@ fn each_personal_recipe_is_a_line_that_never_fails_the_report() {
     let (_dir, root) = root_with(|root| std::fs::create_dir(root.join(".brokkr")).unwrap());
     let absent = config.path().join("absent");
     assert_eq!(folder_lines_with(&root, Some(&absent), compiles).0.len(), 1);
+    let dangling = config.path().join("dangling");
+    std::os::unix::fs::symlink("gone", &dangling).unwrap();
+    let below = dangling.join("recipes");
+    let unread = format!(
+        "warn     personal shelf: {}: No such file or directory (os error 2)",
+        below.display()
+    );
+    let (found, healthy) = folder_lines_with(&root, Some(&below), compiles);
+    assert_eq!((&found[1..], healthy), (&[unread][..], true));
     std::fs::remove_dir_all(&personal).unwrap();
     write(&personal, "a file\n");
     let unlisted = format!("warn     personal shelf: {at}: Not a directory (os error 20)");

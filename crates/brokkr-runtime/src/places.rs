@@ -499,11 +499,15 @@ pub(crate) fn default_map(workspace: &Path) -> Result<Option<PathBuf>, PlacesErr
 /// the end of its links, names. A link to nothing fails with `NotFound`,
 /// and a looping link, or a path through a file, with its own error, so
 /// none is read as absent: the one absent-versus-unreadable judgement the
-/// default map ([`default_map`]) and a recipe shelf (#697) take.
+/// default map ([`default_map`]) and a recipe shelf (#697) take. The path
+/// is rebuilt from its components first, so the entry judged is the entry
+/// itself: a trailing separator would read through a link to its target,
+/// and a link to nothing would read as nothing there.
 pub fn resolved(path: &Path) -> std::io::Result<Option<PathBuf>> {
-    match std::fs::symlink_metadata(path) {
+    let entry: PathBuf = path.components().collect();
+    match std::fs::symlink_metadata(&entry) {
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-        _ => std::fs::canonicalize(path).map(Some),
+        _ => std::fs::canonicalize(&entry).map(Some),
     }
 }
 

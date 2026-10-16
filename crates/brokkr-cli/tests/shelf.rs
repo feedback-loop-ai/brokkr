@@ -707,13 +707,70 @@ fn a_recipe_name_that_is_a_path_refuses_on_every_verb() {
     assert!(!repo.seated("px"));
 }
 
+/// The spellings of the project's shelf a flag can name, each a different
+/// spelling of `.brokkr/recipes` (#697): through its entry, with a `.`,
+/// from `.`, with a doubled separator, and absolute through its entry.
+fn spellings(repo: &Repo) -> [String; 5] {
+    [
+        ".brokkr/recipes/".into(),
+        ".brokkr/recipes/.".into(),
+        "./.brokkr/recipes/".into(),
+        ".brokkr//recipes".into(),
+        format!("{}/", repo.path(".brokkr/recipes").display()),
+    ]
+}
+
+/// Each of `verbs`, as given and, where the `project` shelf is the broken
+/// one, with each of its [`spellings`] named by the verb's flag, `--dir`
+/// for `recipes show` and `--recipes-dir` for the rest, with the shelf
+/// its refusal names: the one entry every spelling is judged at, which
+/// `recipes show` reads as typed and the others from the root.
+fn spelled(
+    repo: &Repo,
+    verbs: &[Vec<&str>],
+    broken: &Path,
+    project: bool,
+) -> Vec<(Vec<String>, PathBuf)> {
+    let owned = |verb: &[&str]| verb.iter().map(ToString::to_string).collect::<Vec<_>>();
+    let mut asked: Vec<_> = verbs.iter().map(|v| (owned(v), broken.into())).collect();
+    let named = verbs.iter().flat_map(|v| spellings(repo).map(|s| (v, s)));
+    for (verb, spelling) in named.filter(|_| project) {
+        let show = verb[0] == "recipes";
+        let flag = if show { "--dir" } else { "--recipes-dir" };
+        let typed = show && !spelling.starts_with('/');
+        let shown = if typed {
+            PathBuf::from(".brokkr/recipes")
+        } else {
+            broken.into()
+        };
+        asked.push(([owned(verb), owned(&[flag, &spelling])].concat(), shown));
+    }
+    asked
+}
+
+/// The runs `repo`'s journal holds and the queue it keeps, as listed.
+fn ledger(repo: &Repo) -> (String, String) {
+    let runs = repo.brokkr("", &["runs", "--json"]);
+    let queue = repo.brokkr("", &["queue", "list", "--json"]);
+    assert_eq!(
+        (runs.code, queue.code),
+        (Some(0), Some(0)),
+        "{}{}",
+        runs.stderr,
+        queue.stderr
+    );
+    (runs.stdout, queue.stdout)
+}
+
 /// A shelf that cannot be read is never read as an empty one (#697 ruling
 /// 2): the personal shelf or the project's, a link whose target was moved
 /// away or a file, with `x` on both shelves until the break and with `x`
 /// on the readable shelf alone, refuses `run`, `resume`, `rerun`, `queue
 /// add` and `recipes show` of `x`, naming the shelf, before either recipe
-/// is taken: no run starts, and neither fake driver keeps state. Nothing
-/// at the personal shelf is an empty one, so `x` is the project's.
+/// is taken: no run starts, no entry is queued, and neither fake driver
+/// keeps state. Every spelling of the project's shelf a flag names
+/// ([`spellings`]) is judged at the one entry, for one cause. Nothing at
+/// the personal shelf is an empty one, so `x` is the project's.
 #[test]
 fn a_shelf_that_cannot_be_read_refuses_on_every_verb() {
     let repo = shelved();
@@ -747,6 +804,7 @@ fn a_shelf_that_cannot_be_read_refuses_on_every_verb() {
             .count()
     };
     let kept = (state("x.state"), state("px.state"));
+    let listed = ledger(&repo);
     let project = repo.path(".brokkr/recipes");
     let dangle: fn(&Path) =
         |shelf| std::os::unix::fs::symlink(shelf.with_extension("target"), shelf).unwrap();
@@ -767,18 +825,20 @@ fn a_shelf_that_cannot_be_read_refuses_on_every_verb() {
         }
         std::fs::rename(shelf, &gone).unwrap();
         plant(shelf);
-        let at = shelf.display();
-        let refused = format!(
-            "error: the {origin} shelf {at} cannot be read (#697): {at}: {cause}; a shelf that \
-             cannot be read is never read as an empty one, so mend or remove it; nothing was run \
-             or installed\n"
-        );
-        for verb in &verbs {
-            let ran = repo.brokkr("", verb);
+        for (verb, at) in spelled(&repo, &verbs, shelf, origin == "project") {
+            let at = at.display();
+            let refused = format!(
+                "error: the {origin} shelf {at} cannot be read (#697): {at}: {cause}; a shelf \
+                 that cannot be read is never read as an empty one, so mend or remove it; \
+                 nothing was run or installed\n"
+            );
+            let verb: Vec<&str> = verb.iter().map(String::as_str).collect();
+            let ran = repo.brokkr("", &verb);
             let case = format!("{verb:?} {origin} {cause} {both}");
-            assert_eq!((ran.code, ran.stderr), (Some(1), refused.clone()), "{case}");
+            assert_eq!((ran.code, ran.stderr), (Some(1), refused), "{case}");
             assert_eq!((state("x.state"), state("px.state")), kept, "{case}");
         }
+        assert_eq!(ledger(&repo), listed, "{origin} {cause} {both}");
         std::fs::remove_file(shelf).unwrap();
         std::fs::rename(&gone, shelf).unwrap();
         if !both {
