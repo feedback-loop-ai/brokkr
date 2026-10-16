@@ -38,7 +38,8 @@ fn planned(source: &Path, library: &Path, seats: serde_json::Value) -> Result<Ve
 /// definition the source holds is planned with the charter it names, and
 /// a name the source lacks is the compile's. The copies land with the
 /// directories they need; planned again, every file stands identical and
-/// nothing is planned, and with no source library nothing ever is.
+/// nothing is planned, and with no source library, or one that does not
+/// stand, nothing ever is.
 #[test]
 fn plan_reads_every_site_form_and_copies_what_the_library_lacks() {
     let (_dir, source, library) = libraries();
@@ -84,6 +85,8 @@ fn plan_reads_every_site_form_and_copies_what_the_library_lacks() {
     let copied = std::fs::read(&charter).unwrap();
     assert_eq!(copied, b"# single\n");
     assert_eq!(planned(&source, &library, seats.clone()), Ok(Vec::new()));
+    let absent = source.with_file_name("absent");
+    assert_eq!(planned(&absent, &library, seats.clone()), Ok(Vec::new()));
     let unsourced = plan(&[&recipe(&source, seats)], None, &library);
     assert_eq!(unsourced, Ok(Vec::new()));
 
