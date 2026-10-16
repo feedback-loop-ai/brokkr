@@ -3,8 +3,10 @@
 //! MB1). The typed inputs the engine sealed beside a launch are read here,
 //! once, into the final check's [`Serving`], and the box's hands transport
 //! is bound here; beside them, the engine's typed isolation intent names the
-//! launch's server set — empty or hands-only, the only sets this
-//! no-broker plan has — and each invocation shape's measured assessment.
+//! launch's server set — empty, the box's hands, or one broker per sealed
+//! holding beside those hands (U7d) — and each invocation shape's measured
+//! assessment. Only Claude's grammar carries brokers; Codex and dsh have
+//! no measured broker carrier, so a brokered set refuses for them.
 //!
 //! Only the U0-qualified mechanisms are built. Claude's grammar, which
 //! LaneTally's wrapper forwards, excludes ambient MCP under
@@ -27,15 +29,15 @@
 //!
 //! [`Serving`]: crate::native_controls::Serving
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
 use super::{claude_restriction_control, last_message_door, placed, ResumeGate, ServingShape};
 use crate::native_controls::{
-    SealedAssessment, SealedBoundary, SealedFence, SealedIsolation, SealedServers, SealedServing,
-    Transport, SERVING_INPUTS,
+    SealedAssessment, SealedBoundary, SealedBroker, SealedFence, SealedIsolation, SealedServers,
+    SealedServing, Transport, SERVING_INPUTS,
 };
 use crate::transcript::{DshHome, DshHomeError};
 
@@ -97,6 +99,58 @@ impl<'a> Edge<'a> {
     }
 }
 
+thread_local! {
+    /// The names every harness spawn of the attempt in progress removes
+    /// (U7d; MB4), set from that attempt's own sealed serving input by
+    /// [`Removing::attempt`] before anything spawns, and empty outside an
+    /// attempt. `spawn_harness`, every harness's one spawn door, runs on
+    /// the thread that serves the attempt, as `lost`'s spawn fact does, so
+    /// a version probe or qualification spawn removes the same names as the
+    /// model command, whose final check derives them from the same input.
+    static REMOVED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// One attempt's removals in force: from [`Removing::attempt`] until the
+/// value drops, on return or unwind, when the names in force before it are
+/// put back, so no attempt's list outlives it or reaches the next one.
+pub(super) struct Removing {
+    before: Vec<String>,
+}
+
+impl Removing {
+    /// Bring `input`'s removals into force for the attempt it starts: its
+    /// sealed set's ([`SealedServers::removals`]), the list its final check
+    /// is handed. Sealed inputs that do not decode bring none; every launch
+    /// reading them refuses as unreadable before any spawn ([`intent`]).
+    pub(super) fn attempt(input: &Value) -> Removing {
+        let edge = Edge::new(input);
+        let names = match edge.sealed() {
+            Some(Ok(sealed)) => sealed.isolation.servers.removals(),
+            Some(Err(_)) | None => Vec::new(),
+        };
+        Removing {
+            before: REMOVED.replace(names),
+        }
+    }
+}
+
+impl Drop for Removing {
+    fn drop(&mut self) {
+        REMOVED.set(std::mem::take(&mut self.before));
+    }
+}
+
+/// `builder` with every name the attempt in progress removes taken out of
+/// the harness's environment, inherited, set or bound alike, so no broker
+/// the harness spawns inherits one (U7d; MB4).
+pub(super) fn unbind(builder: &mut std::process::Command) {
+    REMOVED.with_borrow(|names| {
+        for name in names {
+            builder.env_remove(name);
+        }
+    });
+}
+
 /// The engine's own executable, which a harness spawns as `brokkr hands
 /// serve`: the one place a launch reads it.
 fn engine_executable() -> PathBuf {
@@ -141,7 +195,9 @@ fn hands_transport<'a>(
 /// Before the check, a sealed launch's MCP options must be exactly those of
 /// the configuration its intent built and of its sealed server set
 /// ([`final_set`]), or it refuses with SI2's exact cause; the check then
-/// rebuilds that configuration behind the composition (U1g2).
+/// rebuilds that configuration behind the composition (U1g2). The check is
+/// handed the sealed brokers beside the box's hands and the names the spawn
+/// removes, the attempt's own ([`Removing::attempt`]; U7d).
 ///
 /// [`check_final`]: crate::native_controls::check_final
 /// [`Checked::into_argv`]: crate::native_controls::Checked::into_argv
@@ -180,7 +236,10 @@ pub(super) fn served(
     let hands = hands_transport(sealed, &brokkr, chosen.workdir);
     let built = edge.built.get().map_or(&[][..], Vec::as_slice);
     let server = hands.filter(|_| sealed_servers(sealed) == SealedServers::Hands);
-    final_set(harness, &command, built, server.as_ref()).map_err(|refusal| refusal.at_launch())?;
+    let servers = &sealed.isolation.servers;
+    let (brokers, removed) = (servers.brokers(), servers.removals());
+    final_set(harness, &command, built, server.as_ref(), brokers)
+        .map_err(|refusal| refusal.at_launch())?;
     let dialect = &sealed.dialect;
     check_final(
         harness,
@@ -201,6 +260,8 @@ pub(super) fn served(
             output: last_message_door(input)
                 .then(|| input["result_path"].as_str().unwrap_or_default()),
             hands,
+            brokers,
+            removed: &removed,
             ..chosen
         },
     )
@@ -513,20 +574,34 @@ fn sealed_servers(sealed: &SealedServing) -> SealedServers {
     }
 }
 
+/// Whether the intent's server set is the one `sealed` inputs declare
+/// ([`sealed_servers`]), or at least one broker beside the box's hands
+/// where they declare those hands (U7d; MB1, MB2): brokers beside no
+/// hands, or an empty broker list, which is the hands set spelt again,
+/// never are.
+fn declared(sealed: &SealedServing) -> bool {
+    match (&sealed.isolation.servers, sealed_servers(sealed)) {
+        (SealedServers::Brokered(brokers), SealedServers::Hands) => !brokers.is_empty(),
+        (intended, declared) => *intended == declared,
+    }
+}
+
 /// SI2's final configuration check (U1g2): the MCP options a sealed
 /// Claude-grammar command carries must be exactly those of the
 /// configuration its intent `built` and, where its sealed set holds it, of
-/// the box's hands `server`. A strict flag removed, another document
+/// the box's hands `server` with its sealed `brokers` beside it, the whole
+/// set's one document (U7d). A strict flag removed, another document
 /// appended or the built one changed refuses before any server or model
-/// starts. A command that cannot be read whole is the final check's own
-/// refusal. Codex builds no isolated configuration, its hands' bindings
-/// being the final check's, and dsh carries its set in its engine-only
-/// home, not its argv.
+/// starts, and so does a set its builder cannot name. A command that
+/// cannot be read whole is the final check's own refusal. Codex builds no
+/// isolated configuration, its hands' bindings being the final check's,
+/// and dsh carries its set in its engine-only home, not its argv.
 fn final_set(
     provider: &'static str,
     command: &[String],
     built: &[String],
     server: Option<&Transport<'_>>,
+    brokers: &[SealedBroker],
 ) -> Result<(), McpRefusal> {
     use crate::native_controls::grammar::{parse_final, Command};
     if ServingShape::of(provider) != Some(ServingShape::Claude) {
@@ -546,16 +621,17 @@ fn final_set(
         options.sort();
         options
     };
+    let not_sealed = McpRefusal::NotSealed { provider };
     let mut owed = placed(provider, built).map_or_else(Vec::new, |built| options(&built));
     if let Some(server) = server {
-        let document = crate::hands::mcp_config(server.brokkr, server.workdir, server.spec);
+        let document = server.beside(brokers).ok_or(not_sealed.clone())?;
         owed.push(("--strict-mcp-config".into(), Vec::new()));
         owed.push(("--mcp-config".into(), vec![document.to_string()]));
         owed.sort();
     }
     match options(&carried.command) == owed {
         true => Ok(()),
-        false => Err(McpRefusal::NotSealed { provider }),
+        false => Err(not_sealed),
     }
 }
 
@@ -586,7 +662,11 @@ fn with_empty_set(
 /// flag and the empty document here. dsh's empty set is its engine-only
 /// home with no server row in its overlay, so its arguments are unchanged,
 /// and dsh holds no hands (its adapter's measured fact), so a hands set is
-/// never measured for it. A launch offered no rejoin is admitted cold; one
+/// never measured for it. A brokered set rides the same fragment, whose
+/// document the engine expanded to the whole set (U7d); Codex's fragment
+/// and dsh's home carry no broker, so a brokered set refuses for either
+/// whichever way the fence stands, never served without the brokers it
+/// seals. A launch offered no rejoin is admitted cold; one
 /// `offered` a rejoin can always end as its cold replacement, so that shape
 /// is admitted for it, and the rejoin itself separately
 /// ([`Isolated::resumes`]). A shape not admitted refuses past the fence and,
@@ -605,11 +685,17 @@ pub(super) fn isolated(
         return Ok(unbuilt);
     };
     let not_sealed = McpRefusal::NotSealed { provider };
-    if sealed_servers(sealed) != isolation.servers {
+    if !declared(sealed) {
         return Err(not_sealed);
     }
-    let hands = isolation.servers == SealedServers::Hands;
+    let hands = isolation.servers != SealedServers::Empty;
     let shape = ServingShape::of(provider);
+    if !isolation.servers.brokers().is_empty() && shape != Some(ServingShape::Claude) {
+        return Err(McpRefusal::Strict(StrictCause::Unmeasured {
+            provider: provider.into(),
+            shape: "brokers".into(),
+        }));
+    }
     let empty = !hands && shape == Some(ServingShape::Claude);
     let configured = extra.iter().any(|part| {
         claude_restriction_control(part)

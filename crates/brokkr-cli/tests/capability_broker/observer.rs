@@ -847,11 +847,29 @@ fn the_admitted_launcher_runs_through_its_handle_with_no_environment() {
     // The one run the admission gave its launcher: the kept handle, by the
     // kernel's name for it, asked its version with an empty environment.
     let log = std::fs::read_to_string(&log).unwrap();
+    assert_eq!(traced_calls(&log), [LAUNCHED]);
+}
+
+/// The one `execve` the admitted launcher is run by.
+const LAUNCHED: &str = r#"execve("/proc/self/fd/0", ["/proc/self/fd/0", "--version"], []) = 0"#;
+
+/// Each call a recorded strace `log` names, after the pid column strace
+/// pads a short pid to. A tracee that dies inside a call leaves strace a
+/// line whose call reads `???()`, its marker for an unfinished call that
+/// is no call at all, so that line is dropped; under load it follows the
+/// launcher's own exit.
+fn traced_calls(log: &str) -> Vec<&str> {
     let calls = log.lines().filter_map(|line| line.split_once(' '));
-    // strace pads a short pid to its column, so the call starts after it.
-    let calls: Vec<&str> = calls.map(|(_, call)| call.trim_start()).collect();
-    let run = r#"execve("/proc/self/fd/0", ["/proc/self/fd/0", "--version"], []) = 0"#;
-    assert_eq!(calls, [run]);
+    let calls = calls.map(|(_, call)| call.trim_start());
+    calls.filter(|call| !call.starts_with("???(")).collect()
+}
+
+/// A log recorded under load, the launcher's death mid-call written after
+/// its one run, still names that run alone.
+#[test]
+fn a_tracee_dying_mid_call_adds_no_call_to_the_recorded_log() {
+    let log = format!("4242  {LAUNCHED}\n4242  ???()                           = ?\n");
+    assert_eq!(traced_calls(&log), [LAUNCHED]);
 }
 
 /// `proof` run under each block this run can lay, where a box stands, and

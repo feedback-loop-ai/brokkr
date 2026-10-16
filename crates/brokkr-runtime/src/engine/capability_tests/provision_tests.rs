@@ -26,6 +26,7 @@ use super::call_tests::planned;
 use super::*;
 use crate::capabilities::{Admitted, Connection, Holding, Implementation, Retention, Strength};
 
+mod discovery_tests;
 mod survey_tests;
 
 /// The instance reference the single site resolves to.

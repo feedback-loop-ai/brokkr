@@ -21,6 +21,7 @@ use serde_json::{json, Map, Value};
 
 pub mod capability_calls;
 mod composite;
+mod discovery;
 mod dsh_stderr;
 mod lost;
 mod mcp;
@@ -424,7 +425,7 @@ pub fn render_prompt(input: &Value, kind: AdapterKind) -> Result<String, StartRe
         _ => format!(
             "{}{}",
             hands_paragraph(input),
-            crate::native_controls::capabilities_paragraph(input)
+            discovery::capabilities_contract(input)
         ),
     };
     // Under a `last-message` door (decision 0046 ruling 4) the contract's
@@ -698,7 +699,7 @@ fn write_prompt(writer: &mut impl Write, payload: &str) -> Result<(), String> {
 /// Drain a child's stderr on its own thread, so a chatty session cannot
 /// deadlock the stdout stream being folded live. The bytes come back
 /// raw: known-plaintext masking (decision 0012, layer 5) runs on them
-/// before any string conversion, in [`masked_text`].
+/// before any string conversion, in [`secret::mask_text`].
 fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<Vec<u8>> {
     let mut pipe = child.stderr.take().expect("piped");
     std::thread::spawn(move || {
@@ -708,13 +709,9 @@ fn drain_stderr(child: &mut std::process::Child) -> std::thread::JoinHandle<Vec<
     })
 }
 
-/// Captured child bytes as text, masked first and converted second.
-fn masked_text(bytes: &[u8], bindings: &[secret::BoundSecret]) -> String {
-    String::from_utf8_lossy(&secret::mask_bytes(bytes, bindings)).into_owned()
-}
-
 /// Every harness spawns here: argv, workdir, stdio and extra environment,
-/// then the one secret injector, its typed refusal mapped to text once.
+/// then the one secret injector, its typed refusal mapped to text once,
+/// and last the removals of the attempt it serves (U7d; MB4).
 fn spawn_harness(
     command: &[String],
     workdir: &str,
@@ -735,6 +732,7 @@ fn spawn_harness(
         .stdout(stdout)
         .stderr(Stdio::piped());
     secret::bind_environment(&mut builder, bindings).map_err(|error| error.to_string())?;
+    mcp::unbind(&mut builder);
     let child = io_context(builder.spawn(), "could not invoke the agent CLI")?;
     lost::spawned();
     Ok(child)
@@ -2503,7 +2501,7 @@ fn invoke_stream_json(
         exit_code: lost::exit_code(status),
         session_meta,
         stdout: String::new(),
-        stderr: masked_text(&stderr_thread.join().unwrap_or_default(), bindings),
+        stderr: secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings),
         state: None,
         refusal,
         launch: LaunchTerminal::Cold,
@@ -3737,7 +3735,7 @@ fn invoke_codex(
         }
         io_context(child.wait(), "agent CLI did not conclude")?
     };
-    let stderr = masked_text(&stderr_thread.join().unwrap_or_default(), bindings);
+    let stderr = secret::mask_text(&stderr_thread.join().unwrap_or_default(), bindings);
     // An attempt that concluded without ever reaching a `turn.completed`
     // — a release that folds none, or a codex that exits before its
     // first turn finishes — has read the thread record not at all. Ask
@@ -5509,7 +5507,7 @@ fn finish_dsh(
     // dsh classifies nothing here and a refusal before its first turn
     // follows decision 0006 unchanged; the guide says so beside claude
     // and codex.
-    let stderr = redact_dsh_reasoning(&masked_text(
+    let stderr = redact_dsh_reasoning(&secret::mask_text(
         &stderr_thread.join().unwrap_or_default(),
         bindings,
     ));
@@ -5555,6 +5553,8 @@ fn invoke_with_stager(
     mut stage: impl FnMut(&str) -> Result<tempfile::NamedTempFile, String>,
 ) -> Result<Invocation, String> {
     let Pinned { binary: bin, extra } = pinned;
+    // MB4: every spawn of this attempt, probe and model alike, removes its sealed names.
+    let _removing = mcp::Removing::attempt(input);
     let workdir = input
         .get("workdir")
         .and_then(Value::as_str)
@@ -6733,7 +6733,7 @@ fn run_seat_with(
     for value in session_meta.values_mut() {
         secret::mask_json(value, &bindings);
     }
-    let refusal = refusal.map(|reason| masked_text(reason.as_bytes(), &bindings));
+    let refusal = refusal.map(|reason| secret::mask_text(reason.as_bytes(), &bindings));
     // A provider refusal before the first turn is a determinate failure
     // to start (decision 0053): `result: failed`, no `accepted`, no
     // checkpoint, and the reason is the result's error so the journal
@@ -6922,7 +6922,7 @@ fn run_seat_with(
             result
         }
         Err(error) => {
-            json!({"__unparseable_result_file__": masked_text(error.to_string().as_bytes(), &bindings)})
+            json!({"__unparseable_result_file__": secret::mask_text(error.to_string().as_bytes(), &bindings)})
         }
     };
     // Result contracts are objects. Enrich the driver's copy with the

@@ -12,6 +12,10 @@ use serde_json::json;
 #[cfg(unix)]
 mod dsh_home;
 
+/// A brokered set beside the box's hands at the serving edge (U7d).
+#[cfg(unix)]
+mod brokers;
+
 fn s(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| part.to_string()).collect()
 }
