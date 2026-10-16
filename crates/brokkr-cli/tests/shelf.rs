@@ -53,6 +53,8 @@ fn an_absent_shelf_lists_nothing() {
 
 /// `recipes list` and `recipes show` read the shelf with no `--dir`, from
 /// the root or a subdirectory, and a `--dir` still names its own library.
+/// With neither `XDG_CONFIG_HOME` nor `HOME` set, `recipes list` lists the
+/// project's shelf alone (#697).
 #[test]
 fn list_and_show_read_the_shelf() {
     let repo = shelved();
@@ -63,6 +65,12 @@ fn list_and_show_read_the_shelf() {
         &compiled[..12],
         at.display()
     );
+    // Where this machine places no personal shelf, the project's alone.
+    let mut unplaced = repo.command("");
+    unplaced.args(["recipes", "list"]);
+    unplaced.env_remove("XDG_CONFIG_HOME").env_remove("HOME");
+    let ran = Ran::of(unplaced.output().unwrap());
+    assert_eq!((ran.code, &ran.stdout, &*ran.stderr), (Some(0), &line, ""));
     for from in ["", "src/deep"] {
         let ran = repo.brokkr(from, &["recipes", "list"]);
         assert_eq!((ran.code, &ran.stdout), (Some(0), &line), "{}", ran.stderr);
@@ -568,10 +576,11 @@ fn a_personal_install_copies_no_agent_into_the_repository() {
     let (repo, fast) = library_of_fast();
     let before = repo.files();
     let ran = add_personal(&repo, &fast, &[]);
-    let refused = "error: recipe 'mine' does not compile (removed): ";
-    assert!(ran.stderr.starts_with(refused), "{}", ran.stderr);
-    assert!(ran.stderr.contains("fast-implementer"), "{}", ran.stderr);
-    assert_eq!((ran.code, repo.config().exists()), (Some(1), false));
+    let refused = "error: recipe 'mine' does not compile (removed): bundle: seat 'implement': \
+                   agent 'fast-implementer' is not in the library; known agents: implementer, \
+                   intake, reviewer\n";
+    assert_eq!((ran.code, &*ran.stderr), (Some(1), refused));
+    assert!(!repo.config().exists());
     assert_eq!(repo.files(), before);
 }
 
@@ -646,4 +655,79 @@ fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
     assert_eq!((ran.code, ran.stderr), (Some(1), shadowed.clone()));
     let ran = repo.brokkr("", &["recipes", "show", "x"]);
     assert_eq!((ran.code, ran.stderr), (Some(1), shadowed));
+}
+
+/// `--recipe` names a recipe, never a path (#697 ruling 2): a name that is
+/// not one plain recipe name, judged by its spelling, refuses on `run`,
+/// `resume`, `rerun`, `queue add` and `recipes show` before either shelf is
+/// read, with `x` on the project's shelf alone and with `x` on both, so
+/// no spelling of `x` seats the project's recipe past the refusal of a
+/// name on both shelves.
+#[test]
+fn a_recipe_name_that_is_a_path_refuses_on_every_verb() {
+    let repo = shelved();
+    let ran = repo.brokkr("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let delivered = started(&ran);
+    let verbs = [
+        vec!["run", "--feature", "f", "--no-view", "--recipe"],
+        vec!["resume", "--run", &delivered, "--no-view", "--recipe"],
+        vec!["rerun", "--run", &delivered, "--recipe"],
+        vec![
+            "queue",
+            "add",
+            "--feature",
+            "f",
+            "--reason",
+            "r",
+            "--recipe",
+        ],
+        vec!["recipes", "show"],
+    ];
+    let names = ["x/", "./x", "x/.", "../x", "a/b", "/abs/x", ""];
+    let personal = repo.config().join("brokkr/recipes/x");
+    for planted in [false, true] {
+        if planted {
+            repo.bundle(personal.to_str().unwrap(), "px", completes());
+        }
+        for (verb, name) in verbs.iter().flat_map(|v| names.map(|n| (v, n))) {
+            let ran = repo.brokkr("", &[&verb[..], &[name]].concat());
+            let refused = format!(
+                "error: --recipe '{name}' is not one plain recipe name, so it would not name one \
+                 recipe on a shelf (#697): name the recipe as it stands on its shelf, or give \
+                 --bundle <dir> for a bundle elsewhere; nothing was run\n"
+            );
+            assert_eq!(
+                (ran.code, ran.stderr),
+                (Some(1), refused),
+                "{verb:?} {name}"
+            );
+        }
+    }
+    assert!(!repo.seated("px"));
+}
+
+/// A personal install judges no repository, folder or library mark at its
+/// shelf or above it (#697 ruling 1): a dangling link standing on the
+/// personal shelf, which a library walk would read and refuse, leaves the
+/// install of `mine` beside it unrefused, and the link as it was.
+#[test]
+fn a_personal_install_judges_no_library_at_its_shelf() {
+    let repo = shelved();
+    repo.bundle("../mine-source", "mine", completes());
+    let source = repo.root.with_file_name("mine-source");
+    let shelf = repo.config().join("brokkr/recipes");
+    let link = shelf.join("broken/bundle.json");
+    std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink("absent.json", &link).unwrap();
+    let ran = add_personal(&repo, &source, &[]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let installed = shelf.join("mine");
+    let added = format!(
+        "added recipe 'mine' ({}) at {}\n",
+        &digest(&repo, installed.to_str().unwrap())[..12],
+        installed.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(0), added));
+    assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("absent.json"));
 }

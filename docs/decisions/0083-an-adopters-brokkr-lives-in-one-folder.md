@@ -884,7 +884,12 @@ configuration directory, the one decision 0068's addendum gives
 value that is not an absolute directory is passed over. Both files take
 that directory from one function, so `host.json` and the shelf cannot
 part. The shelf is in no repository, and no library mark is judged
-there. Where neither variable names an absolute directory, an install
+there: an install onto it applies no repository, folder or library
+detection to the shelf or to any directory above it, and keeps every
+hold that guards the write itself. `XDG_CONFIG_HOME` and `HOME` name the
+operator's own configuration, and Brokkr does not judge whether that
+directory lies inside a repository. Where neither variable names an
+absolute directory, an install
 refuses with `host.json`'s own text, as the lookup does:
 
 ```text
@@ -907,9 +912,17 @@ recipe '<name>' stands on both the project shelf, at <project>/<name>, and the p
 An entry at the name that cannot be read refuses as `reading <path>:
 <cause>`, never read as absent. The project's shelf is the one #696's
 ruling 2 gives, so an explicit `--recipes-dir` or `--dir` names it, and
-the personal shelf is still read beside it, under the same refusal. A
-name that is not one plain path component reads the project's shelf
-alone, as it always did. A name on neither shelf refuses as before,
+the personal shelf is still read beside it, under the same refusal.
+`--recipe` names a recipe, never a path: a name that is not one plain
+recipe name, judged by its spelling, so `x/` and `./x` as much as `a/b`,
+`..` or an empty name, refuses on every one of those verbs before
+either shelf is read:
+
+```text
+--recipe '<name>' is not one plain recipe name, so it would not name one recipe on a shelf (#697): name the recipe as it stands on its shelf, or give --bundle <dir> for a bundle elsewhere; nothing was run
+```
+
+A name on neither shelf refuses as before,
 naming the project's shelf. A queued launch keeps the shelf it resolved
 when it was queued.
 

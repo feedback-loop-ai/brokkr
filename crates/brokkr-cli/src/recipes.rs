@@ -709,22 +709,21 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
     }
 }
 
-/// Install a recipe into the library `dir`, the shelf of the repository at
-/// `root` that `add` runs in (#696 ruling 6): clone or copy it into
-/// `<dir>/<name>`, with the bases it extends that the library lacks and
-/// the agents and charters they name that `root`'s agent library lacks
-/// ([`agents::plan`]), then compile-verify every copy against `root`'s
-/// agents and adapters. If any fails to compile all are removed — the
-/// library only ever holds recipes the compiler accepted or nothing. The
-/// library is held from before it is made to the last compile ([`Shelf`]); a clone
-/// happens before, unheld. A name that is not one plain component
-/// ([`Unplain::Name`]), a `path` the source cannot take ([`Source::judge`])
-/// and a library in a folder repository but its shelf ([`refuse_folder`])
-/// are refused first, and a planned recipe holding the library
+/// Install a recipe into the library `dir`, the `origin` shelf of the
+/// repository at `root` that `add` runs in (#696 ruling 6, #697): clone or
+/// copy it into `<dir>/<name>`, with the bases it extends that the library
+/// lacks and, onto a project shelf, the agents and charters they name that
+/// `root`'s agent library lacks ([`agents::plan`]), then compile-verify
+/// every copy against `root`'s agents and adapters, all removed if any
+/// fails, held from before the library is made to the last compile
+/// ([`Shelf`]). A name not one plain component ([`Unplain::Name`]), a `path`
+/// the source cannot take ([`Source::judge`]) and a place `origin` refuses
+/// ([`Origin::place`]) refuse first, a planned recipe holding the library
 /// ([`refuse_within`]) or a folder bundle before anything is copied.
 pub(crate) fn add(
     root: &Path,
     dir: &Path,
+    origin: Origin,
     source: &str,
     name: &str,
     path: Option<&str>,
@@ -734,7 +733,7 @@ pub(crate) fn add(
         return Err(Unplain::Name { name, dir }.into());
     }
     let source = Source::judge(source, path)?;
-    let place = refuse_folder(dir)?;
+    let place = origin.place(dir)?;
     let world = World::discover(root, None)?;
     let dest = dir.join(name);
     if std::fs::symlink_metadata(&dest).is_ok() {
@@ -744,7 +743,7 @@ pub(crate) fn add(
         );
     }
     let fetched = source.fetch()?;
-    install_held(root, dir, &place, name, fetched, world.as_ref())
+    install_held(root, dir, &place, name, fetched, world.as_ref(), origin)
 }
 
 /// [`add`]'s install, once judged: make and hold the library `dir`, which
@@ -759,6 +758,7 @@ fn install_held(
     name: &str,
     Fetched(_clone, bundle, source_agents): Fetched,
     world: Option<&World>,
+    origin: Origin,
 ) -> Result<()> {
     // Declared before what it outlives: the copies are kept or removed while
     // the library is still held, and an empty one made here goes last.
@@ -768,8 +768,8 @@ fn install_held(
     refuse_within(&sources, place)?;
     sources::refuse_folder_bundles(&sources)?;
     let library = places::Places::of(root)?.agents;
-    // A shelf outside the repository, the personal one, copies nothing in (#697).
-    let source_agents = source_agents.filter(|_| dir.starts_with(root));
+    // The personal shelf copies nothing into the repository (#697).
+    let source_agents = source_agents.filter(|_| origin == Origin::Project);
     let hires = agents::plan(&sources, source_agents.as_deref(), &library)?;
     let mut installing = install(&planned, dir)?;
     agents::copy(&hires, &mut installing.1)?;

@@ -9,6 +9,17 @@ use brokkr_runtime::launch::LaunchError;
 use brokkr_runtime::{Invocation, Seat, SequenceStep, StepBody};
 use std::collections::BTreeMap;
 
+/// [`super::add`] onto a project library, as every install here is.
+pub(crate) fn add(
+    root: &Path,
+    dir: &Path,
+    source: &str,
+    name: &str,
+    path: Option<&str>,
+) -> Result<()> {
+    super::add(root, dir, Origin::Project, source, name, path)
+}
+
 fn bundle_with_sequence() -> Bundle {
     let step = |name: &str, result: &str| SequenceStep {
         name: name.into(),

@@ -45,6 +45,29 @@ impl Origin {
             Origin::Personal => ("personal recipe", "personal shelf", "#697"),
         }
     }
+
+    /// Where an install onto this origin's shelf `dir`, an absolute path,
+    /// resolves. A project library is refused anywhere in a folder
+    /// repository but its shelf ([`super::refuse_folder`]); the personal
+    /// shelf is judged by no repository, folder or library mark, its own
+    /// or an ancestor's (#697 ruling 1), only resolved from the nearest
+    /// entry standing at it or above it, one that cannot be read refusing.
+    pub(super) fn place(self, dir: &Path) -> Result<PathBuf> {
+        match self {
+            Origin::Project => super::refuse_folder(dir),
+            Origin::Personal => {
+                let at = super::standing(dir)?;
+                let rest = dir.strip_prefix(at).expect("an ancestor prefixes its path");
+                let real = at
+                    .canonicalize()
+                    .map_err(|source| PlacesError::Unreadable {
+                        path: at.to_path_buf(),
+                        source,
+                    })?;
+                Ok(real.join(rest).components().collect())
+            }
+        }
+    }
 }
 
 impl fmt::Display for Origin {
@@ -60,6 +83,9 @@ impl fmt::Display for Origin {
 /// never the text (decision 0071 ruling 8).
 #[derive(Debug)]
 pub(crate) enum Unshelved {
+    /// The name is not one plain recipe name: `--recipe` names a recipe,
+    /// never a path, so no shelf is read for it (#697 ruling 2).
+    Unplain { name: String },
     /// The name stands on both shelves (#697 ruling 2): neither wins.
     Shadowed {
         name: String,
@@ -73,6 +99,12 @@ pub(crate) enum Unshelved {
 impl fmt::Display for Unshelved {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Unshelved::Unplain { name } => write!(
+                formatter,
+                "--recipe '{name}' is not one plain recipe name, so it would not name one recipe \
+                 on a shelf (#697): name the recipe as it stands on its shelf, or give --bundle \
+                 <dir> for a bundle elsewhere; nothing was run"
+            ),
             Unshelved::Shadowed {
                 name,
                 project,
@@ -93,23 +125,28 @@ impl std::error::Error for Unshelved {}
 
 /// The shelf `--recipe` reads `recipe` from (#697 rulings 2 and 6): the
 /// project's, `project`, else the personal one this machine places. No
-/// recipe named reads `project`, as before.
+/// recipe named reads `project`, as before. A name that is not one plain
+/// recipe name, judged by its spelling, refuses before either shelf is
+/// read ([`Unshelved::Unplain`]): `run`, `resume`, `rerun`, `queue add`
+/// and `recipes show` all ask here.
 pub(crate) fn holding(recipe: Option<&str>, project: PathBuf) -> Result<PathBuf, Unshelved> {
     match recipe {
+        Some(name) if !super::plain(Path::new(name)) => Err(Unshelved::Unplain {
+            name: name.to_string(),
+        }),
         Some(name) => holding_in(name, project, placed().as_deref()),
         None => Ok(project),
     }
 }
 
-/// [`holding`] with the personal shelf given: `project` where the name
-/// stands there, the personal shelf where it stands there alone, and
-/// `project` where it stands on neither, whose launch refuses it as not
-/// installed. Something standing at the name on both shelves refuses
-/// ([`Unshelved::Shadowed`]), and so does an entry that cannot be read. A
-/// name that is not one plain path component would not name a recipe
-/// on the personal shelf, so it reads `project` alone, as it always did.
+/// [`holding`] with the personal shelf given, for a plain `name`:
+/// `project` where the name stands there, the personal shelf where it
+/// stands there alone, and `project` where it stands on neither, whose
+/// launch refuses it as not installed. Something standing at the name on
+/// both shelves refuses ([`Unshelved::Shadowed`]), and so does an entry
+/// that cannot be read.
 fn holding_in(name: &str, project: PathBuf, personal: Option<&Path>) -> Result<PathBuf, Unshelved> {
-    let Some(personal) = personal.filter(|_| super::plain(Path::new(name))) else {
+    let Some(personal) = personal else {
         return Ok(project);
     };
     let stands = |shelf: &Path| {
@@ -148,13 +185,14 @@ pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
 /// shelf, compiled against the agents and adapters of the repository at
 /// `root` (ruling 4), as every install is, and refused as `host.json`'s
 /// lookup is where this machine places no shelf. Nothing is copied into
-/// the repository: an install onto a shelf outside it copies no agent or
-/// charter. The configuration directories made for the shelf are removed
-/// again when the install refuses.
+/// the repository: a personal install copies no agent or charter, and
+/// judges no repository, folder or library mark at its shelf
+/// ([`Origin::place`]). The configuration directories made for the shelf
+/// are removed again when the install refuses.
 pub(crate) fn add(root: &Path, source: &str, name: &str, path: Option<&str>) -> Result<()> {
     let shelf = shelf()?;
     let made = Made::above(&shelf)?;
-    super::add(root, &shelf, source, name, path)?;
+    super::add(root, &shelf, Origin::Personal, source, name, path)?;
     made.keep();
     Ok(())
 }
