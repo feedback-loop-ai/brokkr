@@ -719,14 +719,6 @@ fn compile_delegates_to_the_default_library_roots() {
     assert!(Bundle::compile(&fixture.bundle()).is_ok());
 }
 
-#[test]
-fn mentions_agent_walks_the_whole_config() {
-    assert!(mentions_agent(&json!({"seats": {"work": {"agent": "x"}}})));
-    assert!(mentions_agent(&json!({"sequence": [{"agent": "x"}]})));
-    assert!(!mentions_agent(&json!({"seats": {"work": {"role": "r"}}})));
-    assert!(!mentions_agent(&json!("agent")));
-}
-
 /// `driver.confine` was the one `driver` key legal beside `agent:` until
 /// decision 0046 ruling 5 retired it into the `container` boundary; a
 /// resolved seat that still writes it is refused by the same words an
@@ -6673,3 +6665,4 @@ fn a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified() {
 mod charter_tests;
 mod gate_tests;
 mod mcp_tests;
+mod opened_tests;

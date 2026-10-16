@@ -2738,7 +2738,7 @@ fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_script
                 dir: self_dir,
                 agent_hands: None,
             },
-            None,
+            &mut super::tests::unopened(),
         )
         .expect("self's verifier is its layer's own pinned script");
         let fast = Bundle::compile_under(

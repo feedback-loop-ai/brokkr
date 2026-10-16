@@ -71,6 +71,19 @@ impl Fixture {
     }
 }
 
+/// What a parser below the compile's entry runs under: nothing opened, over
+/// roots that hold nothing, so a site that consulted them would be refused.
+pub(super) fn unopened() -> Opened<'static> {
+    let nowhere = Path::new("/nonexistent");
+    let definitions = Box::leak(Box::default());
+    Opened::new(
+        (nowhere, nowhere),
+        definitions,
+        EgressClass::Contracted,
+        Vec::new(),
+    )
+}
+
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -518,8 +531,6 @@ fn a_synthetic_verifier_is_subject_to_its_own_binding_policy() {
 
 #[test]
 fn a_malformed_default_dialect_is_a_compile_refusal() {
-    assert!(!needs_adapters(&json!({"plain":true})));
-    assert!(needs_adapters(&json!({"dialect":"validate"})));
     let fixture = Fixture::new();
     let policy = Fixture::policy();
     let config = Fixture::config();
@@ -738,7 +749,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
     let dir = fixture.root.as_path();
     let results = vec!["pass".to_string(), "fail".to_string()];
     let (charters, origin, ns) = (Charters::default(), BTreeMap::new(), Boundary::Namespace);
-    let compiler = || SiteCompiler::new(None, ns, None, &charters, &[], &origin);
+    let compiler = || SiteCompiler::new(unopened(), ns, None, &charters, &[], &origin);
     let at = SeatScope {
         dir,
         results: &results,
