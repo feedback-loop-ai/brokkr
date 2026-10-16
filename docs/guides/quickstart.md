@@ -132,11 +132,8 @@ fragment before compilation reaches the review gate. The pin test in
 `crates/brokkr-runtime/src/bundle/model_policy_tests.rs` is the record of
 that split.
 
-```console
-$ brokkr --version
-```
-
 ```text
+$ brokkr --version
 brokkr 0.12.0
 ```
 
@@ -152,21 +149,25 @@ brokkr 0.12.0
 
 **Before you go on**, spend the cheapest thirty seconds available:
 
-```
-$ brokkr doctor
-```
-
 ```text
+$ brokkr doctor
 warn     folder: none from /home/you/my-app up to /home/you/my-app — brokkr init . writes one
 ok       contracts: engine 0.12.0, event_schema 1, database_schema 1, driver_protocol 1
-ok       git: git version 2.51.0
-ok       claude: 2.1.252 (Claude Code) · serves fable, haiku, opus, sonnet
-warn     exec: binary 'sh' not found — seats resolving to this provider will fail to spawn · serves no abstract model yet
-ok       agent implementer: would run opus via claude here (chain opus → sonnet)
-ok       dialect brokkr: openspec · tool 'openspec' 1.12.0 · pinned 1.12.0 · probed inside the box
-ok       dialect brokkr requires openspec/config.yaml: present at …/openspec/config.yaml
 …
+warn     adapters: adapters: adapters adapters: No such file or directory (os error 2)
+…
+warn     agents: agents: agent library agents: No such file or directory (os error 2)
+warn     database: none: no .brokkr/ folder from /home/you/my-app up to /home/you/my-app, and /home/you/my-app is not a recipe library (decision 0083); nothing was created: run `brokkr init .` from /home/you/my-app
+warn     capabilities native: the adapter declarations at adapters could not be read (adapters adapters: No such file or directory (os error 2)), so no harness's native capabilities are named below; that is NOT a finding that an installed harness has none
+ok       capabilities <unmapped>: no realms map, so no capability grants are declared; every native capability is governed by the no-grant default — switched off, or the seat is refused
+ok       house rules: no realms map; none declared
+ok       dialect: no realms map; none declared
 ```
+
+That is a real run at the root of a fresh `git init` copy of the Rust
+fixture, before step 2, the repository's absolute path shown as
+`/home/you/my-app`; each `…` stands for lines your machine decides: its
+`git`, the boundaries and boxes it can build, and the tools it carries.
 
 Lines are prefixed `ok`, `warn`, or `MISSING`. A `MISSING` line is a
 refusal to guess: an absent driver binary means seats resolving to that
@@ -175,6 +176,10 @@ find out mid-run. Warnings are optional capabilities. `doctor` executes
 no agent. Dialect lines compare the installed specification tool with the
 realm's pin and check every file its dialect requires; a missing dialect tool
 warns that the design route will refuse without making the whole doctor fail.
+A repository with no folder has no adapters, agents or realm map to
+read, so its provider and agent lines, and a line for each dialect the
+realm declares, appear once step 2 has written the folder: run `brokkr
+doctor` again then.
 The first line is always the folder: the `.brokkr/` folder doctor found
 and from where, `none` before step 2 has written one, or why it cannot
 read one. Once the folder stands, it is doctor's bundle: its agents,
@@ -195,12 +200,9 @@ model chain and tool grant; deterministic offices carry an exec script,
 which Brokkr boxes under the `namespace` boundary and nowhere else.
 `brokkr init` writes one you are meant to open and edit.
 
-```
-$ brokkr init .
-```
-
 ```text
-initialized /home/you/my-app/.brokkr (digest f03121db1c9a6670cba6f60b85c6353f20f8dc01d37ae3b06c66e94fe45c97ef), writing:
+$ brokkr init .
+initialized /home/you/my-app/.brokkr (digest …), writing:
   .brokkr/.gitignore
   .brokkr/adapters/claude.json
   .brokkr/adapters/exec.json
@@ -217,15 +219,21 @@ initialized /home/you/my-app/.brokkr (digest f03121db1c9a6670cba6f60b85c6353f20f
   .brokkr/scripts/ship-seat.sh
   .brokkr/scripts/verify-seat.sh
 Scaffolded for `claude`, the first of claude, codex and dsh found on PATH.
+…
 Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
+…
 commit the folder: git add .brokkr && git commit
 ```
 
-That is a real run on Linux, at the root of a fresh `git init` copy of
+That is a real run, at the root of a fresh `git init` copy of
 the Rust fixture
 [`init-stacks/rust/`](../../crates/brokkr-cli/tests/fixtures/init-stacks/rust/),
 with `claude` on `PATH`; the repository's absolute path is shown as
-`/home/you/my-app`.
+`/home/you/my-app`, and the digest is elided. The two `…` lines are
+your machine's: on macOS a sentence follows the first note saying
+`realms.json` declares the `harness` boundary, and on Linux without
+bubblewrap a warning before the last line says the `namespace` boundary
+needs it.
 
 `init` takes the directory as a **positional argument**, not a flag, and
 that directory must be the root of its repository, because every verb
@@ -345,10 +353,10 @@ charter and verifier script name *that stack's* build, test and lint
 commands, quoting back which files the guess came from. Nothing is
 executed to find out. Which files it reads, and what it concludes, is
 your [card](#per-stack-cards) — and
-[`docs/guides/starters/`](starters/) shows the actual output for each,
+[`docs/guides/starters/`](starters/) shows what `init` wrote for each,
 transcribed from real runs.
 
-The digest above is printed in full and will not be yours: it is a
+`init` prints the digest in full; it is elided above because it is a
 function of what was scaffolded, and two repositories with different
 stacks get different charters and tool maps and so different digests.
 
