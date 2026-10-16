@@ -145,7 +145,9 @@ inaccurate, and R-L1 below corrects it.
 | R-L3 HOME rule | `Host::of` reads HOME through `hands::home_dir` over the UTF-8 entries, as `session::trusted_home` does. A non-UTF-8 HOME is refused `Root` (mutation H). |
 
 I1 (a `forge_run_id` that is not a portable path component) and I2 are
-info findings and outside this row, so they were not acted on.
+info findings and outside this row, so they were not acted on. The third
+re-vouch's review raised I1 again as L3, and it is closed below, in
+"The third re-vouch's review".
 
 ## Tests
 
@@ -622,6 +624,57 @@ under `broker::`, and its `it` target 106 under `capability_broker::` and
 `openspec validate` 26 of 26; the files, clones and api ratchets held;
 `recipes/self` compiled.
 
+## The third re-vouch's review
+
+The review of aea95a7e returned the unit as residual, with M1 medium and
+L1, L2 and L3 low.
+
+| Finding | How it is answered |
+| --- | --- |
+| M1 a stale binary passes when cargo's `brokkr.d` is absent or older | Closed in the test file. The compiler's dep-info for the hard-linked copy names only `crates/brokkr-cli/src/bin/brokkr.rs`. `built_brokkr` now also requires that no workspace source named by the compiler's dep-info of any library cargo built in the binary's profile is newer than the binary. Those libraries are read from `deps`, and from `build/<package>/<hash>/out` under the build-dir layout (`library_sources`, `outputs`). Cargo does not record which library variant the binary linked, so every variant counts. A variant the binary did not link can only make it read stale, never current. A source this tree lacks is skipped, since a kept target holds other trees' libraries. |
+| L1 survey's group and watcher failures map to `Refusal::Identity` | Open, as recorded above: a cause of their own needs a protocol change outside this row. |
+| L2 protected-root layout, inventory name, startup bound and home expansion restated | Open, as recorded in the first review's L2: the owners are private to the CLI and the protocol, and each copy is bound by a writer/reader test. |
+| L3 the run id walked as a path | Closed in `engine/broker.rs`. `protected` refuses `Root` for any name that is not one plain name, `Path::new(name).file_name() == Some(name)`, before it makes or opens it. That covers the run id, which `DispatchEnvelopeV2::verify` admits with separators. The new test `a_run_id_that_is_not_one_plain_name_reaches_no_directory` provisions under the run ids `../escaped`, `a/b`, `.` and `..`. Each refuses `Root`, and the capabilities directory then holds only the repo's directory, which is empty. |
+| G1 gate-directed prose in the panel | Not acted on, as the chief ruled. |
+
+These are the M1 controls. The real `target/debug/brokkr.d` was set
+aside, the binary was current, and the runtime lib's `survey_tests` ran
+with `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` set through `--config`. All four
+passed. A changed library source was then tested by touching
+`crates/brokkr-cli/src/broker/survey.rs`, which a runtime-only test build
+does not relink. Both real-survey proofs refused as stale (2 passed, 2
+failed). With `survey_tests.rs` checked out at aea95a7e, the same state
+passed all four. That reproduces M1: the previous rule ran a binary
+older than a library source it links. The new file was then restored.
+After `survey.rs`'s time was restored with `touch -r`, all four passed.
+Touching `crates/brokkr-protocol/src/lib.rs` made the test build rebuild
+brokkr-protocol and brokkr-runtime, the library newer than the binary.
+Both real-survey proofs refused as stale (2 passed, 2 failed), and
+restoring its time brought them back. With cargo's real `brokkr.d` back,
+all four passed. A `brokkr.d` naming a source this tree lacks, dated an
+hour before the binary, also passed all four. With that same file and
+`survey.rs` touched, both real-survey proofs refused (2 passed, 2
+failed). The touched times and the real `brokkr.d` were then restored.
+
+The L3 mutation replaced the guard's `?` line with `let _ = plain;`.
+`a_run_id_that_is_not_one_plain_name_reaches_no_directory` then failed
+at its first case: `../escaped` provisioned
+`capabilities/<repo>/../escaped/attempt-1` instead of refusing `Root`.
+The guard was restored.
+
+The gates were rerun on this tree. Format and workspace clippy were clean
+after clippy's `cloned_ref_to_slice_refs` in the new test was fixed. The
+runtime lib passed 1012 tests, its `provision_tests` passed 20 with
+boundary evidence required, and `capability_launch` and `it` passed 76
+and 132. The CLI lib passed 164 under `broker::`, and its `it` target
+passed 106 under `capability_broker::`. Typos and `git diff --check`
+reported nothing, `openspec validate` passed 26 of 26, and `recipes/self`
+compiled. `quality/file-lines.txt` rows were set by hand to the `wc -l`
+counts: `engine/broker.rs` 694, `provision_tests.rs` 1137 and
+`survey_tests.rs` 605. This seat was not permitted to execute
+`quality/ratchet.sh`, so the files, clones and api ratchets are pending
+for this tree.
+
 ## Assumptions and follow-ups
 
 L1 of the fourth run's review is a follow-up: the survey's group-leader
@@ -645,7 +698,9 @@ within ten minutes of the run.
 ## Pending
 
 The exact coverage gate and the CRAP ratchet on the host (run by the
-controller), remote CI and macOS are pending until their results exist.
+controller), remote CI and macOS are pending until their results exist,
+and so are the files, clones and api ratchets on the third re-vouch's
+answer.
 The strace proof and its helpers are behind `cfg(target_os = "linux")`;
 the tether and the CLI survey tests use only calls macOS also has, but
 the macOS build was not observed.

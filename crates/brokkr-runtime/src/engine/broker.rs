@@ -117,7 +117,8 @@ pub(super) enum Unprovisioned {
     #[error("the secret store's path does not resolve")]
     Store,
     /// HOME, or a directory on the way to the attempt's, is missing, a
-    /// symlink, or not protected as the broker requires.
+    /// symlink, named by anything but one plain name, or not protected as
+    /// the broker requires.
     #[error("capability evidence root is not protected")]
     Root,
     /// The attempt's directory already stands: its inventory and its
@@ -617,8 +618,10 @@ fn directory() -> OFlags {
 
 /// The run's directory below the protected root, reached from `/` one
 /// component at a time without following a symlink, and made owner-only
-/// where it is missing from the protected root's first component on.
-/// HOME's own ancestors and the protected root's are this user's or
+/// where it is missing from the protected root's first component on. Each
+/// name, the run's id among them, is one plain name, so none walks out of
+/// the directory it is reached from or past an unchecked one. HOME's own
+/// ancestors and the protected root's are this user's or
 /// root's and writable by no one else, unless root-owned and sticky; the
 /// protected root and everything below it is this user's alone. These are
 /// the directories the broker binds a locator through. The user is the
@@ -632,6 +635,8 @@ fn protected(home: &Path, below: &[&str]) -> Result<OwnedFd, Unprovisioned> {
         (home.into_iter()).chain(PROTECTED_ROOT.iter().chain(below).map(std::ffi::OsStr::new));
     let mut held = openat(CWD, "/", directory(), Mode::empty()).or(Err(Unprovisioned::Root))?;
     for (index, name) in names.enumerate() {
+        let plain = Path::new(name).file_name() == Some(name);
+        plain.then_some(()).ok_or(Unprovisioned::Root)?;
         // A directory that stands already is judged as it stands.
         let _ = (index >= made).then(|| mkdirat(&held, name, Mode::RWXU));
         held = openat(&held, name, directory(), Mode::empty()).or(Err(Unprovisioned::Root))?;

@@ -119,7 +119,7 @@
    202 crates/brokkr-runtime/src/capabilities/manifest.rs
    645 crates/brokkr-runtime/src/dialect.rs
   4331 crates/brokkr-runtime/src/engine.rs
-   689 crates/brokkr-runtime/src/engine/broker.rs
+   694 crates/brokkr-runtime/src/engine/broker.rs
    272 crates/brokkr-runtime/src/engine/capability_calls.rs
    396 crates/brokkr-runtime/src/engine/checkpoints.rs
    275 crates/brokkr-runtime/src/engine/marks.rs
@@ -321,8 +321,8 @@
     35 crates/brokkr-runtime/src/engine/boundary_tests/door_tests.rs
   1883 crates/brokkr-runtime/src/engine/capability_tests.rs
    443 crates/brokkr-runtime/src/engine/capability_tests/call_tests.rs
-  1115 crates/brokkr-runtime/src/engine/capability_tests/provision_tests.rs
-   560 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/survey_tests.rs
+  1137 crates/brokkr-runtime/src/engine/capability_tests/provision_tests.rs
+   605 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/survey_tests.rs
    167 crates/brokkr-runtime/src/engine/capability_tests/resume_tests.rs
    449 crates/brokkr-runtime/src/engine/capability_tests/serving_tests.rs
    128 crates/brokkr-runtime/src/engine/checkpoints/tests.rs

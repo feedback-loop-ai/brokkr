@@ -746,6 +746,28 @@ fn an_attempt_directory_that_cannot_be_made_is_a_failed_write() {
     );
 }
 
+/// A run id that is not one plain name refuses as an unprotected root
+/// does, and nothing is made beside the repo's directory or in it: the run
+/// is reached as one name, never walked through.
+#[test]
+fn a_run_id_that_is_not_one_plain_name_reaches_no_directory() {
+    let test = "a_run_id_that_is_not_one_plain_name_reaches_no_directory";
+    let Some(mut fixture) = Fixture::protected(test) else {
+        return;
+    };
+    fixture.hold("status", admitted("status", &["true"], false));
+    let repo = fixture.run_dir().parent().unwrap().to_path_buf();
+    for run in ["../escaped", "a/b", ".", ".."] {
+        fixture.engine.run_id = run.into();
+        let refused = fixture.provision("attempt-1", &observing);
+        assert_eq!(refused, Err(Unprovisioned::Root), "{run}");
+    }
+    let capabilities = std::fs::read_dir(repo.parent().unwrap()).unwrap();
+    let made: Vec<PathBuf> = capabilities.map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(made, std::slice::from_ref(&repo));
+    assert_eq!(std::fs::read_dir(&repo).unwrap().count(), 0);
+}
+
 /// The environment of one entry, `HOME` as `home`, beside one that is
 /// not UTF-8.
 fn homed(home: impl Into<OsString>) -> Vec<(OsString, OsString)> {

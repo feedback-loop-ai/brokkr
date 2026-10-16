@@ -9,6 +9,7 @@
 //! real engine ended mid-survey, by SIGTERM or SIGKILL, leaves nothing of
 //! the survey running.
 
+use std::collections::BTreeSet;
 use std::os::unix::fs::MetadataExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -212,10 +213,11 @@ fn only_one_closed_reply_of_the_surveys_own_bootstrap_is_an_answer() {
 }
 
 /// The binary cargo built beside this test binary, the one `brokkr` a
-/// workspace build makes, where it is current: no file cargo's dep-info
-/// for it names is newer than it, so it reads and writes as the sources
-/// beside this test do. Otherwise why it is not run. A relative source is
-/// the workspace root's, where cargo runs the compiler.
+/// workspace build makes, where it is current: no file its dep-info names,
+/// and no workspace source a library built in its profile names
+/// ([`library_sources`]), is newer than it, so it reads and writes as the
+/// sources beside this test do. Otherwise why it is not run. A relative
+/// source is the workspace root's, where cargo runs the compiler.
 fn built_brokkr() -> Result<PathBuf, &'static str> {
     let stale = "the brokkr beside this test binary is older than its sources: build it";
     let this = std::env::current_exe().ok();
@@ -231,14 +233,60 @@ fn built_brokkr() -> Result<PathBuf, &'static str> {
     };
     let made = modified(&built).ok_or(stale)?;
     let info = std::fs::read_to_string(dep_info(&built)).unwrap_or_default();
-    let (_, sources) = (info.lines().next())
-        .and_then(|rule| rule.split_once(": "))
-        .ok_or(stale)?;
+    let sources = first_rule(&info).ok_or(stale)?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2);
     let root = root.ok_or(stale)?;
     let mut sources = sources.split_whitespace().map(|source| root.join(source));
     let current = sources.all(|source| modified(&source).is_some_and(|at| at <= made));
-    current.then_some(built).ok_or(stale)
+    let mut linked = library_sources(&built).into_iter();
+    let linked = linked.all(|source| modified(&root.join(source)).is_none_or(|at| at <= made));
+    (current && linked).then_some(built).ok_or(stale)
+}
+
+/// The sources the first rule of the dep-info `info` names.
+fn first_rule(info: &str) -> Option<&str> {
+    let (_, sources) = info.lines().next()?.split_once(": ")?;
+    Some(sources)
+}
+
+/// Every workspace source the compiler's dep-info of a library built in the
+/// profile of the uplifted binary `built` names. The binary's own dep-info
+/// names only its own file, while it links the workspace's libraries, and a
+/// test build that needs none of it relinks nothing: a library source newer
+/// than the binary is one it may not have been built from. Every library
+/// cargo built here counts, since which one the binary linked is not
+/// recorded, so one it did not link can only make it read stale, never
+/// current; a source missing here is another tree's, a kept target's, whose
+/// change moved a source this tree has. A relative source is the
+/// workspace's; a registry's is absolute.
+fn library_sources(built: &Path) -> BTreeSet<PathBuf> {
+    let libraries = (outputs(built).flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten()))
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension() == Some("rlib".as_ref()));
+    let infos = libraries.filter_map(|library| {
+        let crate_name = library.file_stem()?.to_str()?.strip_prefix("lib")?;
+        std::fs::read_to_string(library.with_file_name(format!("{crate_name}.d"))).ok()
+    });
+    let mut sources = BTreeSet::new();
+    for info in infos {
+        let named = first_rule(&info).unwrap_or_default().split_whitespace();
+        let named = named.map(PathBuf::from);
+        sources.extend(named.filter(|source| source.is_relative()));
+    }
+    sources
+}
+
+/// The directories cargo writes the profile of the uplifted binary `built`'s
+/// compiled units in: `deps`, and, under the build-dir layout, each
+/// package's `build/<package>/<hash>/out`.
+fn outputs(built: &Path) -> impl Iterator<Item = PathBuf> {
+    let packages = std::fs::read_dir(built.with_file_name("build"));
+    let hashes = (packages.into_iter().flatten().flatten())
+        .flat_map(|package| std::fs::read_dir(package.path()).into_iter().flatten())
+        .flatten();
+    let outs = hashes.map(|hash| hash.path().join("out"));
+    std::iter::once(built.with_file_name("deps")).chain(outs)
 }
 
 /// The profile directory the test binary `test` was built in. Cargo keeps
@@ -260,12 +308,12 @@ fn profile(test: &Path) -> Option<&Path> {
 /// every workspace source it was built from, which cargo writes only for a
 /// binary built on its own (`cargo build`); or, for one built only because
 /// a test needs it, as the suites and the exact gate build it, the
-/// compiler's beside the copy it is a hard link of, in `deps` or, under the
-/// build-dir layout, in `build/brokkr-cli/<hash>/out`, naming the binary's
-/// own sources. Those runs build every binary before they run any test.
-/// Cargo's is trusted only where it is no older than the binary: a target
-/// a later test build relinked the binary in keeps another build's.
-/// Where none is found, the one beside it, which reads as stale.
+/// compiler's beside the copy it is a hard link of ([`outputs`]), naming
+/// only the binary's own file, the libraries it links being read apart
+/// ([`library_sources`]). Cargo's is trusted only where it is no older
+/// than the binary: a target a later test build relinked the binary in
+/// keeps another build's. Where none is found, the one beside it, which
+/// reads as stale.
 fn dep_info(built: &Path) -> PathBuf {
     let beside = built.with_extension("d");
     let Ok(binary) = std::fs::metadata(built) else {
@@ -281,10 +329,7 @@ fn dep_info(built: &Path) -> PathBuf {
     }
     let same = (binary.dev(), binary.ino());
     let identity = |path: &Path| std::fs::metadata(path).map(|meta| (meta.dev(), meta.ino()));
-    let hashes = std::fs::read_dir(built.with_file_name("build").join("brokkr-cli"));
-    let outs = (hashes.into_iter().flatten().flatten()).map(|hash| hash.path().join("out"));
-    let dirs = std::iter::once(built.with_file_name("deps")).chain(outs);
-    let copies = dirs
+    let copies = outputs(built)
         .flat_map(|dir| std::fs::read_dir(dir).into_iter().flatten())
         .flatten()
         .map(|entry| entry.path())
