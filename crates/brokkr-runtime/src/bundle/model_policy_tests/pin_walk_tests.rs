@@ -122,7 +122,7 @@ fn a_selected_sequence_holds_no_dialect_step() {
     let (charters, case_origin) = (Charters::default(), BTreeMap::new());
     for (operation, expected) in refusals {
         let compiler = &mut SiteCompiler::new(
-            None,
+            crate::bundle::tests::unopened(),
             Boundary::Namespace,
             Some(&dialect),
             &charters,

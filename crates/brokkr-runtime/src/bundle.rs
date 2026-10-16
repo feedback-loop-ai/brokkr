@@ -21,6 +21,7 @@ mod charters;
 pub mod compose;
 mod invocation;
 mod mcp;
+mod opened;
 mod parse;
 mod phases;
 mod pins;
@@ -33,6 +34,7 @@ use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
 pub use invocation::Invocation;
 pub(crate) use mcp::{McpContribution, McpIntent};
+use opened::Opened;
 use parse::{SeatScope, SiteCompiler};
 use site_form::{classify, SiteRole, StepShape, SEAT, STEP};
 #[cfg(test)]
@@ -627,30 +629,6 @@ pub struct Bundle {
 pub const DEFAULT_AGENTS_DIR: &str = "agents";
 pub const DEFAULT_ADAPTERS_DIR: &str = "adapters";
 
-/// The agent library and adapters for one compilation, plus the
-/// per-invocation-site records that become the manifest's `agents` key.
-///
-/// The adapters are the wider need: an agent reference resolves through
-/// them, AND decision 0021's two refusals read a driver's declarations
-/// out of them. The LIBRARY is opened only when a seat actually names an
-/// agent, which is what keeps a missing one a non-event for every bundle
-/// that inlines.
-struct AgentContext {
-    library: Option<Library>,
-    adapters: Adapters,
-    /// Decision 0036 ruling 4: the egress class a seat's resolved route
-    /// must MEET before that seat may declare secret bindings. The
-    /// operator rules it into the bundle; absence is `Contracted`, which
-    /// is exactly what `binding_grant: true` meant, so every bundle on
-    /// disk keeps the behaviour it has.
-    egress_minimum: EgressClass,
-    /// Every library charter's bound read, held until the bundle is sealed
-    /// (rebuild unit 18-fix-b return, council F2).
-    reads: Vec<LibraryRead>,
-    /// The offices a provisional model may hold ([`RealmLaw`]).
-    provisional_offices: Vec<String>,
-}
-
 /// One library charter a site was bound to, as its read holds it: the site
 /// and agent a refusal names, the reference as written, the digest of the
 /// buffer read and what the read holds. No layer's walk pins a library's
@@ -704,42 +682,6 @@ struct ResolvedSeat {
 
 fn resolved_hands(seat: &ResolvedSeat) -> Option<HandsSpec> {
     seat.hands.clone()
-}
-
-/// Does this bundle reference an agent anywhere? A bundle that does not
-/// never opens the library, so a tree without one compiles exactly as it
-/// did before decision 0016.
-fn mentions_agent(value: &Value) -> bool {
-    match value {
-        Value::Object(map) => map.contains_key("agent") || map.values().any(mentions_agent),
-        Value::Array(items) => items.iter().any(mentions_agent),
-        _ => false,
-    }
-}
-
-/// Does this bundle need the ADAPTER data at compile time? An agent
-/// reference resolves through it, and decision 0021's refusals read a
-/// driver's tier and grant out of it — so a gate-class site or a
-/// declared secret binding needs it too, even in a bundle that names no
-/// agent at all (`recipes/verify` and `recipes/fast` are exactly that).
-/// A bundle with none of the three has nothing to check and still
-/// compiles with no `adapters/` directory in sight. A typed `tools`
-/// declaration (decision 0065 slice one, design D5.2) is judged against
-/// what an adapter can represent, so it opens the adapters too — through
-/// this same fallible context, never a swallowed load.
-fn needs_adapters(value: &Value) -> bool {
-    match value {
-        Value::Object(map) => {
-            map.contains_key("agent")
-                || map.contains_key("dialect")
-                || map.contains_key("secrets")
-                || map.contains_key("tools")
-                || map.get("class").and_then(Value::as_str) == Some("gate")
-                || map.values().any(needs_adapters)
-        }
-        Value::Array(items) => items.iter().any(needs_adapters),
-        _ => false,
-    }
 }
 
 /// The model-bearing built-in named by one written driver command
@@ -994,38 +936,6 @@ struct Unpinned {
     hands_notice: BTreeMap<String, HandsNotice>,
 }
 
-/// Adapter data for an inline model seat, loaded only where a bundle seats
-/// one, and kept as the `Result` the load gave (decision 0066 ruling 1).
-///
-/// Readers with opposite needs. The effortless-route exemption (decision
-/// 0035 addendum 2026-09-11), the inline resume assessment and the inline
-/// discovery notice (decision 0069) take the `Ok` and read an absent or
-/// unloadable root as none of them, so the strict rule stands. The
-/// capability pass is MANDATORY: the same data says how a harness's native
-/// search is switched off, and an error swallowed here used to reach it as
-/// "nothing declared" and compile a Codex seat with no denial. It takes the
-/// error too, and refuses the seat with the loader's own words. A PRESENT
-/// root that does not load is refused after that pass in any case
-/// (decision 0069): a malformed discovery notice must not pass itself off
-/// as an adapter that declares none. `None` is a bundle that seats no
-/// inline model driver and so asked for nothing.
-fn load_pin_adapters(root: &Path, seats: &Map<String, Value>) -> Option<Result<Adapters, String>> {
-    fn has_inline_model_driver(value: &Value) -> bool {
-        match value {
-            Value::Object(map) => {
-                built_in_model_driver(&command_parts(value)).is_some()
-                    || map.values().any(has_inline_model_driver)
-            }
-            Value::Array(items) => items.iter().any(has_inline_model_driver),
-            _ => false,
-        }
-    }
-    if !seats.values().any(has_inline_model_driver) {
-        return None;
-    }
-    Some(Adapters::load(root).map_err(|error| error.to_string()))
-}
-
 /// The adapters a capability pass resolves against, and why there are none
 /// where a load failed: what [`mcp::candidate_capabilities`] and
 /// [`mcp::inline_capabilities`] are handed.
@@ -1043,9 +953,8 @@ impl<'a> CapabilityAdapters<'a> {
         }
     }
 
-    /// An inline seat's adapters where no agent context holds them: never
-    /// asked for, or failed to load. Inline adapters that loaded open an
-    /// agent context (`tier::inline_context`) and are read as `loaded`.
+    /// Adapters no site opened, or an optional read that failed to load;
+    /// adapters that loaded are read as `loaded` ([`Opened`]).
     fn unloaded(pinned: Option<&'a Result<Adapters, String>>) -> Self {
         CapabilityAdapters {
             adapters: None,
@@ -1445,13 +1354,6 @@ impl Bundle {
             .unwrap_or_default()
             .to_string();
         let table = resolved.table.clone();
-        // Read by the pin walk once the seats are parsed, and by the
-        // capability pass (decision 0065): an inline model seat in a bundle
-        // seating no gate opens no agent context, and its adapter still says
-        // how its search is switched off and its tier whether it may sit
-        // (decision 0075 ruling 5).
-        let pin_adapters = load_pin_adapters(adapters_root, &resolved.seats);
-        let inline_adapters = pin_adapters.as_ref().and_then(|l| l.as_ref().ok());
         let machine = Machine::from_table(&table)?;
         let uses_dialect = machine
             .phases
@@ -1501,57 +1403,18 @@ impl Bundle {
         }
         assert_phase_unavoidable(&machine, &table, &protected_phase)?;
 
-        // Compile-time resolution depends on exactly two digested inputs:
-        // the library and the adapters. Availability is UNSPECIFIED here —
-        // a compile that probed PATH would give one bundle two digests and
-        // make an in-flight run unresumable after an `apt install`. The
-        // COMPOSED seats are what is scanned: a base may be what carries
-        // the agent reference.
-        let agents = match uses_dialect || resolved.seats.values().any(needs_adapters) {
-            false => tier::inline_context(inline_adapters, egress_minimum),
-            true => Some(AgentContext {
-                library: match resolved.seats.values().any(mentions_agent) {
-                    false => None,
-                    true => Some(
-                        Library::load(library_root)
-                            .map_err(|e| CompileError::Invalid(e.to_string()))?,
-                    ),
-                },
-                adapters: Adapters::load(adapters_root).map_err(|e| {
-                    CompileError::Invalid(format!(
-                        "{e}; the adapter data is where a driver's model mapping \
-                         (decision 0016) and its trust tier and binding grant \
-                         (decision 0021) are declared, and this bundle names an \
-                         agent, seats a gate, declares a secret binding or declares \
-                         typed tools"
-                    ))
-                })?,
-                egress_minimum,
-                reads: Vec::new(),
-                provisional_offices,
-            }),
-        };
-        // Decision 0065 ruling 1 (CQ2; design D3): a library this compile
-        // LOADED is linted whole, before any seat is resolved or subtracts
-        // anything — every agent in it, seated or not, asks only for what
-        // the operator defined. The capability walk below resolves seated
-        // references alone, so without this a valid seated worker hides an
-        // unseated office's undefined request. A library no seat opens is
-        // not loaded to be linted. What the lint consulted is pinned: the
-        // names ride into the manifest's definitions beside the seats' own.
-        let library_asks: Vec<String> = match agents.as_ref().and_then(|a| a.library.as_ref()) {
-            None => Vec::new(),
-            Some(library) => {
-                let problems = authority.definitions.lint(library);
-                if !problems.is_empty() {
-                    return Err(CompileError::Capability(problems.join("; ")));
-                }
-                library
-                    .agents()
-                    .flat_map(|agent| agent.capabilities.keys().cloned())
-                    .collect()
-            }
-        };
+        // What the COMPOSED seats open, each when a site first needs it: a
+        // base may be what carries the agent reference. A dialect phase's
+        // wrapper and steps consult the adapters, so they open here.
+        let mut agents = Opened::new(
+            (library_root, adapters_root),
+            &authority.definitions,
+            egress_minimum,
+            provisional_offices,
+        );
+        if uses_dialect {
+            agents.adapters()?;
+        }
 
         // The dialect's `verify` wrapper, applied only AFTER the authoring
         // census below (design D10 F2). Wrapping renames the wrapped seat's
@@ -1745,11 +1608,12 @@ impl Bundle {
             mut sites,
             ..
         } = compiler;
+        agents.settle(&resolved.seats)?;
         // Decision 0031 over the TYPED, flattened seats before the wrapper
         // moves an address: one refusal names the whole repair set, and the
         // maps it returns seed the manifest's `drivers` pin and the resume.
         let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) =
-            enforce_model_pins(&seats, inline_adapters)?;
+            enforce_model_pins(&seats, agents.loaded())?;
         for (label, value) in pin_drivers.into_iter().chain(resume_witness) {
             site_facts(&mut sites, &label).pin_drivers = Some(value);
         }
@@ -1769,13 +1633,7 @@ impl Bundle {
         // provider candidate, and the outcome lands in the one canonical
         // site family so relocation carries it like every other fact.
         {
-            let (library, adapters) = match &agents {
-                Some(context) => (
-                    context.library.as_ref(),
-                    CapabilityAdapters::loaded(&context.adapters),
-                ),
-                None => (None, CapabilityAdapters::unloaded(pin_adapters.as_ref())),
-            };
+            let (library, adapters) = (agents.library(), agents.capability_adapters());
             for (phase, raw) in &resolved.seats {
                 // The layer that wrote the seat, as its agent's hands
                 // segment is expanded against (review return F1).
@@ -1798,8 +1656,8 @@ impl Bundle {
         // Judged after the capability pass, which already refuses a seat
         // the failed load leaves with no valid denial, naming that same
         // cause (decision 0066 ruling 1). An absent root reads as no notice.
-        if let Some(Err(problem)) = pin_adapters.as_ref().filter(|_| adapters_root.exists()) {
-            return Err(CompileError::Invalid(problem.clone()));
+        if let Some(problem) = agents.unloadable().filter(|_| adapters_root.exists()) {
+            return Err(CompileError::Invalid(problem.to_string()));
         }
 
         // The authoring census (design D10 F2): every structural owner is
@@ -1906,17 +1764,12 @@ impl Bundle {
             // a native power it cannot switch off does not seat the
             // validator either (ruling 4).
             {
-                // A dialect phase is what opened the agent context above,
-                // so the wrapper never runs without one.
-                let context = agents
-                    .as_ref()
-                    .expect("a bundle that uses the dialect opened its adapters");
-                let library = context.library.as_ref();
-                let adapters = CapabilityAdapters::loaded(&context.adapters);
+                // A dialect phase opened the adapters above, and the
+                // validator's gate law read them.
                 record_capabilities(
                     &authority,
-                    library,
-                    adapters,
+                    agents.library(),
+                    agents.capability_adapters(),
                     boundary,
                     (law.dir, &resolved.roots, &resolved.case_origin),
                     dialect_site,
@@ -1965,7 +1818,7 @@ impl Bundle {
             .values()
             .filter_map(|facts| facts.capabilities.as_ref())
             .flat_map(|site| site.asks.asks.keys().chain(&site.asks.subtracted).cloned())
-            .chain(library_asks)
+            .chain(agents.library_asks())
             .collect();
         let mut capability_record = authority.manifest(&consulted);
         capability_record["sites"] = Value::Object(capability_sites);
@@ -2017,7 +1870,7 @@ impl Bundle {
         // F2): a library charter, which no layer's walk pins, is checked by
         // the read that bound it, owner included, before any identity is
         // sealed.
-        for read in agents.iter().flat_map(|context| &context.reads) {
+        for read in &agents.reads {
             read.check()?;
         }
         resolved.seal(charters.into_inner())?;
@@ -2343,13 +2196,7 @@ fn resolve_reference(
         .ok_or_else(|| {
             CompileError::Invalid(format!("seat '{what}' agent must be a non-empty string"))
         })?;
-    let context = agents
-        .as_mut()
-        .expect("a bundle mentioning an agent loads the library");
-    let library = context
-        .library
-        .as_ref()
-        .expect("a bundle mentioning an agent opens the library");
+    let (library, adapters) = agents.agent_roots()?;
     // Decision 0065 slice one (design D5.2): the site's own typed `tools`
     // narrows a PRIVATE clone of the office before composition. Shape is
     // judged here, narrowing inside the resolver, and the effective value
@@ -2357,7 +2204,7 @@ fn resolve_reference(
     let requested = decode_site_tools(what, raw)?;
     let report = crate::agents::report_narrowed(
         library,
-        &context.adapters,
+        adapters,
         &Availability::unspecified(),
         name,
         boundary,
@@ -2406,30 +2253,16 @@ fn resolve_reference(
             sites,
         )?;
     }
-    let context = agents.as_mut().expect("agent context opened above");
-    let resolution = crate::agents::resolve_report(report, &context.adapters)
+    let adapters = agents.adapters()?;
+    let resolution = crate::agents::resolve_report(report, adapters)
         .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
-    if site == SiteRole::Member {
-        for (key, present) in [
-            ("limits", resolution.limits.is_some()),
-            ("inputs", resolution.inputs.is_some()),
-        ] {
-            if present {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{what}' references agent '{name}', which declares \
-                     '{key}'; a panel member or sequence step has no {key} of its \
-                     own — the seat above it does — so the declaration could only \
-                     be discarded silently"
-                )));
-            }
-        }
-    }
+    refuse_member_declarations(what, name, site, &resolution)?;
     // The composed argv faces the SAME secret-reference lint as an inline
     // one (decision 0012), and `{brokkr}` is expanded by the same
     // function, so a resolved seat is an inline seat by construction.
     let mut candidates = Vec::with_capacity(resolution.candidates.len());
     for candidate in &resolution.candidates {
-        refuse_permission_pins(what, candidate, &context.adapters)?;
+        refuse_permission_pins(what, candidate, adapters)?;
         lint_secret_refs(what, &candidate.argv, secrets)?;
         candidates.push(Candidate {
             agent: candidate.agent.clone(),
@@ -2476,7 +2309,7 @@ fn resolve_reference(
     site_facts(sites, what).charter = Some(pin);
     // Rebuild unit 18-fix-b return (F2): the read is held until the seal,
     // which checks it still stands, its owner included.
-    context.reads.push(LibraryRead {
+    agents.reads.push(LibraryRead {
         site: what.to_string(),
         agent: resolution.agent.clone(),
         reference: source.reference.clone(),
@@ -2497,6 +2330,33 @@ fn resolve_reference(
         inputs: resolution.inputs.clone(),
         hands: resolution.hands.clone(),
     })
+}
+
+/// A panel member or sequence step has no `limits` or `inputs` of its own,
+/// so an agent it references may declare neither.
+fn refuse_member_declarations(
+    what: &str,
+    name: &str,
+    site: SiteRole,
+    resolution: &crate::agents::Resolution,
+) -> Result<(), CompileError> {
+    if site != SiteRole::Member {
+        return Ok(());
+    }
+    for (key, present) in [
+        ("limits", resolution.limits.is_some()),
+        ("inputs", resolution.inputs.is_some()),
+    ] {
+        if present {
+            return Err(CompileError::Invalid(format!(
+                "seat '{what}' references agent '{name}', which declares \
+                 '{key}'; a panel member or sequence step has no {key} of its \
+                 own — the seat above it does — so the declaration could only \
+                 be discarded silently"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Rebuild unit 5c-fix-b (chief R1; operator ruling 1 of 2026-09-23): a
@@ -3283,6 +3143,34 @@ fn admitted_sandbox(boundary: Boundary, seat_class: SeatClass) -> (Sandbox, &'st
     }
 }
 
+/// The fragment the engine selects for one link on its serving path, named
+/// for a refusal: `hands.workspace` under a box, the `hands.harness` member
+/// the class selects under `harness`, an absent member read as empty. Under
+/// `open` no engine fragment expresses a class, so there is none.
+fn sandbox_fragment<'c>(
+    boundary: Boundary,
+    seat_class: SeatClass,
+    adapter: &'c Adapter,
+    candidate: &'c Candidate,
+) -> Option<(&'static str, &'c [String])> {
+    if boundary.is_boxed() {
+        Some(("`hands.workspace` fragment", &candidate.hands_fragment))
+    } else if boundary == Boundary::Harness {
+        Some(match seat_class {
+            SeatClass::Gate => (
+                "`hands.harness.gate` fragment",
+                adapter.harness.gate.as_deref().unwrap_or(&[]),
+            ),
+            SeatClass::Work => (
+                "`hands.harness.work` fragment",
+                adapter.harness.work.as_deref().unwrap_or(&[]),
+            ),
+        })
+    } else {
+        None
+    }
+}
+
 /// Design D5.3: a typed `tools.sandbox` is admitted only where an EXISTING
 /// engine fragment already expresses exactly that class, and refused
 /// everywhere else — never dropped, clamped or called narrower. Runs after
@@ -3301,7 +3189,7 @@ fn admit_local_sandbox(
     raw: &Value,
     candidates: &[Candidate],
     law: SiteLaw<'_>,
-    adapters: Option<&Adapters>,
+    agents: &mut Opened<'_>,
     sites: &BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
     let Some(requested) = sites
@@ -3335,7 +3223,7 @@ fn admit_local_sandbox(
         )));
     }
     let seat_class = parse_class(what, raw)?;
-    let adapters = adapters.expect("an agent-resolved site opened the adapters (needs_adapters)");
+    let adapters = agents.adapters()?;
     for (index, candidate) in candidates.iter().enumerate() {
         let link = index + 1;
         let provider = &candidate.provider;
@@ -3355,20 +3243,8 @@ fn admit_local_sandbox(
         let adapter = adapters
             .adapter(provider)
             .expect("resolution mapped every link of the chain");
-        let (part, fragment): (&str, &[String]) = if boundary.is_boxed() {
-            ("`hands.workspace` fragment", &candidate.hands_fragment)
-        } else if boundary == Boundary::Harness {
-            match seat_class {
-                SeatClass::Gate => (
-                    "`hands.harness.gate` fragment",
-                    adapter.harness.gate.as_deref().unwrap_or(&[]),
-                ),
-                SeatClass::Work => (
-                    "`hands.harness.work` fragment",
-                    adapter.harness.work.as_deref().unwrap_or(&[]),
-                ),
-            }
-        } else {
+        let Some((part, fragment)) = sandbox_fragment(boundary, seat_class, adapter, candidate)
+        else {
             return Err(CompileError::Invalid(format!(
                 "seat '{what}' link {link} requests 'tools.sandbox' '{class}' under the `open` \
                  boundary, where a work seat runs at the harness's own default and no engine \
@@ -3623,7 +3499,7 @@ fn enforce_model_policy(
     raw: &Value,
     candidates: &[Candidate],
     secrets: &[String],
-    agents: &mut Option<AgentContext>,
+    agents: &mut Opened<'_>,
     law: SiteLaw<'_>,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<SeatClass, CompileError> {
@@ -3632,16 +3508,13 @@ fn enforce_model_policy(
     // its class, so the work-class early return below cannot bypass it,
     // and it reads the adapters only on the chain path, where the
     // `agent` key opened them — a bundle whose only hands site is a
-    // work-class exec seat compiles with no `adapters/` in sight, as
-    // `needs_adapters` says it may.
-    enforce_hands_boundary(
-        what,
-        raw,
-        candidates,
-        law,
-        agents.as_ref().map(|context| &context.adapters),
-    )?;
+    // work-class exec seat compiles with no `adapters/` in sight.
+    enforce_hands_boundary(what, raw, candidates, law, agents)?;
     let class = parse_class(what, raw)?;
+    // A gate's tier and judges are read out of the adapters.
+    if class == SeatClass::Gate {
+        agents.adapters()?;
+    }
     // The route is read off the model pin, so a site the pin walk refuses by
     // this `model_unpinned` over this argv has no route to judge here.
     if !model_unpinned(&command_parts(raw)) {
@@ -3650,92 +3523,31 @@ fn enforce_model_policy(
     // Design D5.3, LAST: a typed sandbox class is admitted only where an
     // existing engine fragment expresses it exactly, after every standing
     // refusal above has had its say, so none of them loses precedence.
-    let adapters = agents.as_ref().map(|context| &context.adapters);
-    admit_local_sandbox(what, raw, candidates, law, adapters, sites)?;
+    admit_local_sandbox(what, raw, candidates, law, agents, sites)?;
     Ok(class)
 }
 
 /// Decision 0021's two prohibitions proper — the gate tier, the judges
 /// list and the egress bar — at one site, after the hands law has spoken.
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn enforce_route_policy(
     what: &str,
     raw: &Value,
     candidates: &[Candidate],
     secrets: &[String],
-    agents: &mut Option<AgentContext>,
+    agents: &mut Opened<'_>,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
-    let class = tier::admitted(what, raw, candidates, agents.as_ref())?;
+    let class = tier::admitted(what, raw, candidates, agents)?;
     if class == SeatClass::Work && secrets.is_empty() {
         return Ok(());
     }
     // Read the adapter data without writing beside it: the inline
     // witness now lands in the one canonical site table (design D10 F1),
     // so no split borrow of the context is needed.
-    let context = agents
-        .as_ref()
-        .expect("a gate-class or secret-binding seat opens the adapters");
-    let adapters = &context.adapters;
-    let minimum = context.egress_minimum;
+    let minimum = agents.egress_minimum;
+    let adapters = agents.adapters()?;
     let mut authorised = Map::new();
-    // Each site as (driver, concrete model id): the id is what carries
-    // the ROUTE (decision 0036 ruling 2), and an agent chain's abstract
-    // name becomes concrete through the adapter that maps it.
-    let drivers: Vec<(usize, Option<String>, Option<String>, ModelPin)> =
-        match candidates.is_empty() {
-            // An inline site's route is read off its own argv, on the flag
-            // the ADAPTER names (`model_flag`, since decision 0016) AND on
-            // `--model` (decision 0040 ruling 1). A provider the operator
-            // adds that takes `-m` is read on `-m`, so the route named
-            // there is the route this site reaches; and it is read on
-            // `--model` too, because the same CLI commonly honours that as
-            // well, and a pin the engine declined to read there went to an
-            // unruled route on the adapter's own clearance. Both doors,
-            // held shut by one read. Where no adapter answers for the
-            // driver, the `(None, _)` arm below lands the site on
-            // `Uncontracted` whatever this returns.
-            true => {
-                let parts = command_parts(raw);
-                let driver = dispatch_driver(&parts);
-                let pin = inline_route_pin(
-                    &parts,
-                    driver
-                        .as_deref()
-                        .and_then(|provider| adapters.adapter(provider)),
-                );
-                let abstract_model = driver
-                    .as_deref()
-                    .and_then(|provider| adapters.adapter(provider))
-                    .and_then(|adapter| match &pin {
-                        ModelPin::Concrete(concrete) => adapter
-                            .models
-                            .iter()
-                            .find_map(|(name, id)| (id == concrete).then(|| name.clone())),
-                        _ => None,
-                    });
-                vec![(1, driver, abstract_model, pin)]
-            }
-            false => candidates
-                .iter()
-                .enumerate()
-                .map(|(index, candidate)| {
-                    let (_, concrete) = adapters
-                        .serving(&candidate.model)
-                        .expect("resolution mapped every link of the chain");
-                    (
-                        index + 1,
-                        Some(candidate.provider.clone()),
-                        Some(candidate.model.clone()),
-                        ModelPin::Concrete(concrete.to_string()),
-                    )
-                })
-                .collect(),
-        };
-    for (link, driver, abstract_model, pin) in drivers {
+    for (link, driver, abstract_model, pin) in route_links(raw, candidates, adapters) {
         let adapter = driver
             .as_deref()
             .and_then(|provider| adapters.adapter(provider));
@@ -3847,6 +3659,66 @@ fn enforce_route_policy(
     Ok(())
 }
 
+/// Each link of a site as (link, driver, abstract model, concrete model
+/// pin): the id is what carries the ROUTE (decision 0036 ruling 2), and
+/// an agent chain's abstract name becomes concrete through the adapter
+/// that maps it.
+fn route_links(
+    raw: &Value,
+    candidates: &[Candidate],
+    adapters: &Adapters,
+) -> Vec<(usize, Option<String>, Option<String>, ModelPin)> {
+    match candidates.is_empty() {
+        // An inline site's route is read off its own argv, on the flag
+        // the ADAPTER names (`model_flag`, since decision 0016) AND on
+        // `--model` (decision 0040 ruling 1). A provider the operator
+        // adds that takes `-m` is read on `-m`, so the route named
+        // there is the route this site reaches; and it is read on
+        // `--model` too, because the same CLI commonly honours that as
+        // well, and a pin the engine declined to read there went to an
+        // unruled route on the adapter's own clearance. Both doors,
+        // held shut by one read. Where no adapter answers for the
+        // driver, `enforce_route_policy`'s `(None, _)` arm lands the site
+        // on `Uncontracted` whatever this returns.
+        true => {
+            let parts = command_parts(raw);
+            let driver = dispatch_driver(&parts);
+            let pin = inline_route_pin(
+                &parts,
+                driver
+                    .as_deref()
+                    .and_then(|provider| adapters.adapter(provider)),
+            );
+            let abstract_model = driver
+                .as_deref()
+                .and_then(|provider| adapters.adapter(provider))
+                .and_then(|adapter| match &pin {
+                    ModelPin::Concrete(concrete) => adapter
+                        .models
+                        .iter()
+                        .find_map(|(name, id)| (id == concrete).then(|| name.clone())),
+                    _ => None,
+                });
+            vec![(1, driver, abstract_model, pin)]
+        }
+        false => candidates
+            .iter()
+            .enumerate()
+            .map(|(index, candidate)| {
+                let (_, concrete) = adapters
+                    .serving(&candidate.model)
+                    .expect("resolution mapped every link of the chain");
+                (
+                    index + 1,
+                    Some(candidate.provider.clone()),
+                    Some(candidate.model.clone()),
+                    ModelPin::Concrete(concrete.to_string()),
+                )
+            })
+            .collect(),
+    }
+}
+
 /// What the hands law reads beside a site (decision 0046 ruling 4;
 /// design DD22): the boundary the bundle compiles under, the directory
 /// of the layer that DECLARED the site — the one its `./` resolves
@@ -3884,7 +3756,7 @@ fn enforce_hands_boundary(
     raw: &Value,
     candidates: &[Candidate],
     law: SiteLaw<'_>,
-    adapters: Option<&Adapters>,
+    agents: &mut Opened<'_>,
 ) -> Result<(), CompileError> {
     let has_hands = law.agent_hands.is_some() || raw.get("hands").is_some();
     if !has_hands || law.boundary.is_boxed() {
@@ -3892,32 +3764,10 @@ fn enforce_hands_boundary(
     }
     let boundary = law.boundary;
     if candidates.is_empty() {
-        let parts = command_parts(raw);
-        return match dispatch_driver(&parts).as_deref() {
-            Some("exec") => pinned_script(law.dir, &parts).map(drop).map_err(|problem| {
-                CompileError::Invalid(format!(
-                    "seat '{what}' declares hands under the `{boundary}` boundary, where no \
-                     box stands, so its exec command must name the bundle's own pinned \
-                     script: {problem} (decision 0046 ruling 4; decision 0021)"
-                ))
-            }),
-            Some(driver) => Err(CompileError::Invalid(format!(
-                "seat '{what}' is an inline `{driver}` site that declares hands under the \
-                 `{boundary}` boundary; its argv is the author's own and carries the \
-                 box's tokens, which no harness stands behind unboxed. Seat it through an \
-                 agent, whose adapter declares how the harness stands under `harness`, or \
-                 run the realm under a boxed boundary (decision 0046 ruling 4)"
-            ))),
-            None => Err(CompileError::Invalid(format!(
-                "seat '{what}' declares hands under the `{boundary}` boundary, where no box \
-                 stands, and its command is a bare program rather than a `{{brokkr}} driver \
-                 exec` dispatch of the bundle's own pinned script (decision 0046 ruling 4; \
-                 decision 0021)"
-            ))),
-        };
+        return inline_hands_boundary(what, raw, law);
     }
+    let adapters = agents.adapters()?;
     let class = parse_class(what, raw)?;
-    let adapters = adapters.expect("an agent-resolved site opened the adapters (needs_adapters)");
     for (index, candidate) in candidates.iter().enumerate() {
         let link = index + 1;
         let provider = &candidate.provider;
@@ -3969,6 +3819,35 @@ fn enforce_hands_boundary(
         }
     }
     Ok(())
+}
+
+/// The hands law's inline arms, under `harness` and `open`: an exec site
+/// names the bundle's own pinned script, and any other is refused.
+fn inline_hands_boundary(what: &str, raw: &Value, law: SiteLaw<'_>) -> Result<(), CompileError> {
+    let boundary = law.boundary;
+    let parts = command_parts(raw);
+    match dispatch_driver(&parts).as_deref() {
+        Some("exec") => pinned_script(law.dir, &parts).map(drop).map_err(|problem| {
+            CompileError::Invalid(format!(
+                "seat '{what}' declares hands under the `{boundary}` boundary, where no \
+                 box stands, so its exec command must name the bundle's own pinned \
+                 script: {problem} (decision 0046 ruling 4; decision 0021)"
+            ))
+        }),
+        Some(driver) => Err(CompileError::Invalid(format!(
+            "seat '{what}' is an inline `{driver}` site that declares hands under the \
+             `{boundary}` boundary; its argv is the author's own and carries the \
+             box's tokens, which no harness stands behind unboxed. Seat it through an \
+             agent, whose adapter declares how the harness stands under `harness`, or \
+             run the realm under a boxed boundary (decision 0046 ruling 4)"
+        ))),
+        None => Err(CompileError::Invalid(format!(
+            "seat '{what}' declares hands under the `{boundary}` boundary, where no box \
+             stands, and its command is a bare program rather than a `{{brokkr}} driver \
+             exec` dispatch of the bundle's own pinned script (decision 0046 ruling 4; \
+             decision 0021)"
+        ))),
+    }
 }
 
 /// The measured reason beside a missing `hands.harness` member, when the
@@ -5803,7 +5682,7 @@ fn parse_sequence(
                     step_raw,
                     false,
                     &command_parts(&synthetic),
-                    compiler.agents.as_ref().map(|context| &context.adapters),
+                    Some(compiler.agents.adapters()?),
                     &mut compiler.sites,
                 )?;
                 compiler.judge(at, &what, &synthetic, &[], None)?;

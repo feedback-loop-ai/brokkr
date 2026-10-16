@@ -19,14 +19,13 @@
  122 crates/brokkr-runtime/src/agents.rs:1101 compose
  195 crates/brokkr-runtime/src/agents/load.rs:770 parse_adapter
  101 crates/brokkr-runtime/src/agents/load.rs:1033 resume_assessment
- 492 crates/brokkr-runtime/src/bundle.rs:1415 assemble
- 130 crates/brokkr-runtime/src/bundle.rs:2329 resolve_reference
- 112 crates/brokkr-runtime/src/bundle.rs:2736 lower_inline_sandbox
- 116 crates/brokkr-runtime/src/bundle.rs:3299 admit_local_sandbox
- 113 crates/brokkr-runtime/src/bundle.rs:3664 enforce_route_policy
- 132 crates/brokkr-runtime/src/bundle.rs:5391 record_capabilities
- 190 crates/brokkr-runtime/src/bundle.rs:5672 parse_sequence
- 102 crates/brokkr-runtime/src/bundle.rs:6198 walk_files
+ 452 crates/brokkr-runtime/src/bundle.rs:1324 assemble
+ 110 crates/brokkr-runtime/src/bundle.rs:2182 resolve_reference
+ 112 crates/brokkr-runtime/src/bundle.rs:2596 lower_inline_sandbox
+ 104 crates/brokkr-runtime/src/bundle.rs:3187 admit_local_sandbox
+ 132 crates/brokkr-runtime/src/bundle.rs:5270 record_capabilities
+ 190 crates/brokkr-runtime/src/bundle.rs:5551 parse_sequence
+ 102 crates/brokkr-runtime/src/bundle.rs:6077 walk_files
  240 crates/brokkr-runtime/src/capabilities.rs:1507 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:434 check
  132 crates/brokkr-runtime/src/engine.rs:1094 seat_input
@@ -181,22 +180,22 @@
  189 crates/brokkr-runtime/src/agents/tests.rs:4971 unit3_native_expectation_is_sealed_from_typed_inputs_not_from_emission
  230 crates/brokkr-runtime/src/agents/tests.rs:5243 unit3_a_pending_selection_keeps_its_own_mappings_through_materialization
  178 crates/brokkr-runtime/src/agents/tests.rs:5609 the_shipped_codex_declares_the_notice_and_keeps_its_launch_and_qualification
- 112 crates/brokkr-runtime/src/bundle/agent_tests.rs:1192 an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_value
- 580 crates/brokkr-runtime/src/bundle/agent_tests.rs:1406 an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses
- 192 crates/brokkr-runtime/src/bundle/agent_tests.rs:2046 an_inline_site_records_its_adapters_permission_template_only_where_its_allow_lowers
- 229 crates/brokkr-runtime/src/bundle/agent_tests.rs:2300 an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses
- 108 crates/brokkr-runtime/src/bundle/agent_tests.rs:2759 an_agent_backed_sites_compiled_composition_keeps_each_serving_input_as_declared
- 437 crates/brokkr-runtime/src/bundle/agent_tests.rs:2953 an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture
- 177 crates/brokkr-runtime/src/bundle/agent_tests.rs:3815 every_executable_form_owns_its_local_declaration
- 129 crates/brokkr-runtime/src/bundle/agent_tests.rs:4029 every_inline_executable_form_records_or_refuses_its_own_declaration
- 496 crates/brokkr-runtime/src/bundle/agent_tests.rs:4233 a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly
- 159 crates/brokkr-runtime/src/bundle/agent_tests.rs:4799 a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution
- 123 crates/brokkr-runtime/src/bundle/agent_tests.rs:5238 a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox
- 106 crates/brokkr-runtime/src/bundle/agent_tests.rs:5382 an_unreadable_contribution_refuses_by_position_without_echoing_its_token
- 110 crates/brokkr-runtime/src/bundle/agent_tests.rs:5509 a_valid_native_denial_keeps_a_matching_sandbox_admitted_and_only_there
- 114 crates/brokkr-runtime/src/bundle/agent_tests.rs:5676 resolved_native_on_and_restriction_contributions_obey_the_same_refusals
- 175 crates/brokkr-runtime/src/bundle/agent_tests.rs:6321 every_selected_site_binds_its_charter_owner_reference_target_and_digest
- 149 crates/brokkr-runtime/src/bundle/agent_tests.rs:6518 a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified
+ 112 crates/brokkr-runtime/src/bundle/agent_tests.rs:1184 an_agent_backed_seat_narrows_its_office_per_field_and_records_the_effective_value
+ 580 crates/brokkr-runtime/src/bundle/agent_tests.rs:1398 an_inline_claude_or_lanetally_site_lowers_its_allow_and_every_other_shape_refuses
+ 192 crates/brokkr-runtime/src/bundle/agent_tests.rs:2038 an_inline_site_records_its_adapters_permission_template_only_where_its_allow_lowers
+ 229 crates/brokkr-runtime/src/bundle/agent_tests.rs:2292 an_inline_codex_seat_lowers_its_sandbox_by_class_and_every_other_shape_refuses
+ 108 crates/brokkr-runtime/src/bundle/agent_tests.rs:2751 an_agent_backed_sites_compiled_composition_keeps_each_serving_input_as_declared
+ 437 crates/brokkr-runtime/src/bundle/agent_tests.rs:2945 an_inline_codex_seat_refuses_every_competing_sandbox_contribution_and_every_misbound_capture
+ 177 crates/brokkr-runtime/src/bundle/agent_tests.rs:3807 every_executable_form_owns_its_local_declaration
+ 129 crates/brokkr-runtime/src/bundle/agent_tests.rs:4021 every_inline_executable_form_records_or_refuses_its_own_declaration
+ 496 crates/brokkr-runtime/src/bundle/agent_tests.rs:4225 a_typed_sandbox_admits_only_where_an_existing_codex_fragment_expresses_it_exactly
+ 159 crates/brokkr-runtime/src/bundle/agent_tests.rs:4791 a_competing_control_beside_a_matching_sandbox_refuses_in_either_contribution
+ 123 crates/brokkr-runtime/src/bundle/agent_tests.rs:5230 a_resolved_native_off_contribution_cannot_compete_with_a_matching_sandbox
+ 106 crates/brokkr-runtime/src/bundle/agent_tests.rs:5374 an_unreadable_contribution_refuses_by_position_without_echoing_its_token
+ 110 crates/brokkr-runtime/src/bundle/agent_tests.rs:5501 a_valid_native_denial_keeps_a_matching_sandbox_admitted_and_only_there
+ 114 crates/brokkr-runtime/src/bundle/agent_tests.rs:5668 resolved_native_on_and_restriction_contributions_obey_the_same_refusals
+ 175 crates/brokkr-runtime/src/bundle/agent_tests.rs:6313 every_selected_site_binds_its_charter_owner_reference_target_and_digest
+ 149 crates/brokkr-runtime/src/bundle/agent_tests.rs:6510 a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified
  130 crates/brokkr-runtime/src/bundle/compose_tests.rs:165 a_derived_recipe_overrides_one_named_select_case_and_no_neighbour
  103 crates/brokkr-runtime/src/bundle/compose_tests.rs:610 policy_is_per_layer_and_tables_merge_by_name
  109 crates/brokkr-runtime/src/bundle/compose_tests.rs:1984 a_replacement_between_check_and_read_is_refused_never_read

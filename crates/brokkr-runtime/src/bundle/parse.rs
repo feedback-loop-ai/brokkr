@@ -12,19 +12,19 @@ use serde_json::{Map, Value};
 
 use super::site_form::{classify, CaseShape, MemberShape, SeatShape, CASE, MEMBER, SEAT};
 use super::{
-    command_parts, enforce_model_policy, parse_class, parse_command, parse_role, parse_sequence,
-    record_hands, record_inline_tools, refuse_class_without_a_driver, resolve_reference,
-    AgentContext, Aggregate, Candidate, Charters, CompileError, Dialect, Invocation, PanelMember,
-    ResolvedSeat, SeatBody, SeatClass, SiteFacts, SiteLaw, SELECT_STRATEGIES,
+    built_in_model_driver, command_parts, enforce_model_policy, parse_class, parse_command,
+    parse_role, parse_sequence, record_hands, record_inline_tools, refuse_class_without_a_driver,
+    resolve_reference, Aggregate, Candidate, Charters, CompileError, Dialect, Invocation, Opened,
+    PanelMember, ResolvedSeat, SeatBody, SeatClass, SiteFacts, SiteLaw, SELECT_STRATEGIES,
 };
 
 /// One compile's site parser. It owns the compile's two accumulators —
-/// the agent context the resolver reads and the canonical site family
-/// every fact is written into — and borrows what every site is judged
-/// against: the boundary, the realm's dialect, the charters bound so far,
-/// and the layer roots with each select case's origin among them.
+/// what the sites opened, which the resolver reads, and the canonical site
+/// family every fact is written into — and borrows what every site is
+/// judged against: the boundary, the realm's dialect, the charters bound so
+/// far, and the layer roots with each select case's origin among them.
 pub(super) struct SiteCompiler<'a> {
-    pub(super) agents: Option<AgentContext>,
+    pub(super) agents: Opened<'a>,
     pub(super) sites: BTreeMap<String, SiteFacts>,
     pub(super) boundary: Boundary,
     pub(super) dialect: Option<&'a Dialect>,
@@ -46,7 +46,7 @@ pub(super) struct SeatScope<'s> {
 impl<'a> SiteCompiler<'a> {
     /// A compiler with no site written yet.
     pub(super) fn new(
-        agents: Option<AgentContext>,
+        agents: Opened<'a>,
         boundary: Boundary,
         dialect: Option<&'a Dialect>,
         charters: &'a Charters,
@@ -65,7 +65,9 @@ impl<'a> SiteCompiler<'a> {
     }
 
     /// A seat's body, in the form `classify` read: the agent it resolved,
-    /// if it names one, and a sequence's whole-gate fact, if it is one.
+    /// if it names one, and a sequence's whole-gate fact, if it is one. A
+    /// seat that declares secret bindings opens the adapters first, which
+    /// say what route may carry them (decision 0021).
     pub(super) fn parse_seat_body(
         &mut self,
         at: SeatScope<'_>,
@@ -73,6 +75,9 @@ impl<'a> SiteCompiler<'a> {
         raw: &Value,
         shape: SeatShape,
     ) -> Result<(Option<ResolvedSeat>, SeatBody, Option<bool>), CompileError> {
+        if raw.get("secrets").is_some() {
+            self.agents.adapters()?;
+        }
         match shape {
             SeatShape::Agent => {
                 let agent_seat =
@@ -96,18 +101,26 @@ impl<'a> SiteCompiler<'a> {
                 Ok((None, SeatBody::Sequence { steps }, Some(whole_gate)))
             }
             SeatShape::Select => Ok((None, self.parse_select(at, phase, raw)?, None)),
-            SeatShape::Inline => {
-                let written = self.inline_written(at, phase, raw, true)?;
-                let body = SeatBody::Invocation(Invocation::Single {
-                    role_path: parse_role(at.dir, phase, raw, self.charters, &mut self.sites)?,
-                    command: parse_command(at.dir, phase, raw, at.secrets)?,
-                    candidates: Vec::new(),
-                    written,
-                    class: parse_class(phase, raw)?,
-                });
-                Ok((None, body, None))
-            }
+            SeatShape::Inline => Ok((None, self.parse_inline_seat(at, phase, raw)?, None)),
         }
+    }
+
+    /// A seat written inline: its command as written, then its role, its
+    /// command and its class, in that order.
+    fn parse_inline_seat(
+        &mut self,
+        at: SeatScope<'_>,
+        phase: &str,
+        raw: &Value,
+    ) -> Result<SeatBody, CompileError> {
+        let written = self.inline_written(at, phase, raw, true)?;
+        Ok(SeatBody::Invocation(Invocation::Single {
+            role_path: parse_role(at.dir, phase, raw, self.charters, &mut self.sites)?,
+            command: parse_command(at.dir, phase, raw, at.secrets)?,
+            candidates: Vec::new(),
+            written,
+            class: parse_class(phase, raw)?,
+        }))
     }
 
     /// A select seat: every case under the layer that wrote it, and the
@@ -295,7 +308,8 @@ impl<'a> SiteCompiler<'a> {
     }
 
     /// An inline site's command as written, once its typed `tools` are
-    /// judged against it and recorded.
+    /// judged against it and recorded. Typed `tools` open the adapters
+    /// strictly; a built-in model driver opens them by the optional read.
     pub(super) fn inline_written(
         &mut self,
         at: SeatScope<'_>,
@@ -304,7 +318,13 @@ impl<'a> SiteCompiler<'a> {
         seat: bool,
     ) -> Result<Vec<String>, CompileError> {
         let written = command_parts(raw);
-        let adapters = self.agents.as_ref().map(|context| &context.adapters);
+        if raw.get("tools").is_some() {
+            self.agents.adapters()?;
+        }
+        if built_in_model_driver(&written).is_some() {
+            self.agents.read_for_inline_driver();
+        }
+        let adapters = self.agents.loaded();
         record_inline_tools(at.dir, what, raw, seat, &written, adapters, &mut self.sites)?;
         Ok(written)
     }

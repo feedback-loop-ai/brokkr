@@ -15,23 +15,25 @@
 //! serves it.
 //!
 //! The check reads the adapters the compile opened for an agent, a gate,
-//! a secret or typed tools, and otherwise [`inline_context`] opens the
-//! optional read decision 0066 ruling 1 gives every inline built-in model
-//! driver, so a work seat in a bundle that names no agent, seats no gate
-//! and binds no secret is judged all the same. Where neither read loaded
-//! nothing is declared, so nothing is provisional: an absent root compiles
-//! as it always did, and a present one that does not load is refused by
-//! decision 0069's own check, after the capability pass has had its say.
+//! a secret or typed tools, or by the optional read decision 0066 ruling 1
+//! gives every inline built-in model driver, so a work seat in a bundle
+//! that names no agent, seats no gate and binds no secret is judged all the
+//! same, and a site reached before any of them opened the adapters is
+//! judged once every seat is parsed ([`Opened::settle`]). Where neither
+//! read loaded nothing is declared, so nothing is provisional: an absent
+//! root compiles as it always did, and a present one that does not load is
+//! refused by decision 0069's own check, after the capability pass has had
+//! its say.
 
 use brokkr_core::realms::Realm;
 use serde_json::Value;
 use thiserror::Error;
 
 use super::{
-    command_parts, dispatch_driver, inline_route_pin, parse_class, route_pin, AgentContext,
-    Boundary, CompileError, ModelPin, SeatClass, MODEL_FLAG,
+    command_parts, dispatch_driver, inline_route_pin, parse_class, route_pin, Boundary,
+    CompileError, ModelPin, Opened, SeatClass, MODEL_FLAG,
 };
-use crate::agents::{Adapter, Adapters, Candidate, EgressClass};
+use crate::agents::{Adapter, Adapters, Candidate};
 use crate::realms::World;
 
 /// What a realm rules over a compile: the boundary its boxed hands stand
@@ -152,38 +154,34 @@ struct Link<'a> {
     model: &'a str,
 }
 
-/// The context an inline site's tier is judged by where no agent, gate,
-/// secret or typed tools opened one: the optional inline read, where it
-/// loaded, opening no library. Only inline sites reach it, and an inline
-/// command holds no office, so it lists none.
-pub(super) fn inline_context(
-    inline: Option<&Adapters>,
-    egress_minimum: EgressClass,
-) -> Option<AgentContext> {
-    inline.map(|adapters| AgentContext {
-        library: None,
-        adapters: adapters.clone(),
-        egress_minimum,
-        reads: Vec::new(),
-        provisional_offices: Vec::new(),
-    })
-}
-
 /// The site's class, once every link of its chain has passed the tier
-/// check. Called where the route policy reads the class, so every site
+/// check, or once it waits to be judged by the adapters a later site
+/// opens. Called where the route policy reads the class, so every site
 /// the model policy judges is judged here too.
 pub(super) fn admitted(
     what: &str,
     raw: &Value,
     candidates: &[Candidate],
-    agents: Option<&AgentContext>,
+    agents: &mut Opened<'_>,
 ) -> Result<SeatClass, CompileError> {
     let class = parse_class(what, raw)?;
-    let Some(context) = agents else {
-        return Ok(class);
-    };
-    let offices = &context.provisional_offices;
-    let links = provisional_links(what, raw, candidates, &context.adapters)
+    let command = command_parts(raw);
+    if let Some((adapters, offices)) = agents.for_tier(what, &command, candidates, class) {
+        judge((what, &command), candidates, class, adapters, offices)?;
+    }
+    Ok(class)
+}
+
+/// Every link of the site `what`, written as `command`, judged against
+/// `adapters` and the `offices` a provisional model may hold.
+pub(super) fn judge(
+    (what, command): (&str, &[String]),
+    candidates: &[Candidate],
+    class: SeatClass,
+    adapters: &Adapters,
+    offices: &[String],
+) -> Result<(), CompileError> {
+    let links = provisional_links(what, command, candidates, adapters)
         .map_err(CompileError::Provisional)?;
     for link in links {
         let (seat, model, adapter) = (
@@ -212,19 +210,19 @@ pub(super) fn admitted(
             }));
         }
     }
-    Ok(class)
+    Ok(())
 }
 
 /// The links of a site's chain whose model is provisional: every link of
 /// an agent's resolved chain, or the one model an inline command pins.
 fn provisional_links<'a>(
     what: &str,
-    raw: &Value,
+    command: &[String],
     candidates: &'a [Candidate],
     adapters: &'a Adapters,
 ) -> Result<Vec<Link<'a>>, ProvisionalRefusal> {
     if candidates.is_empty() {
-        return inline_link(what, raw, adapters);
+        return inline_link(what, command, adapters);
     }
     Ok(candidates
         .iter()
@@ -292,10 +290,10 @@ pub(super) const FALLBACK_FLAG: &str = "--fallback-model";
 /// arbitrary command runs is decisions 0043 and 0046's.
 fn inline_link<'a>(
     what: &str,
-    raw: &Value,
+    command: &[String],
     adapters: &'a Adapters,
 ) -> Result<Vec<Link<'a>>, ProvisionalRefusal> {
-    let Some(driver) = dispatch_driver(&command_parts(raw)) else {
+    let Some(driver) = dispatch_driver(command) else {
         return Ok(Vec::new());
     };
     let own = adapters.adapter(&driver);
@@ -309,7 +307,7 @@ fn inline_link<'a>(
     if own.is_some_and(|own| own.models.is_empty() && own.model_flag.is_none()) {
         return Ok(Vec::new());
     }
-    let pins = inline_pins(what, raw, own, &declarer.provider)?;
+    let pins = inline_pins(what, command, own, &declarer.provider)?;
     let mut links = Vec::new();
     for (index, (flags, concrete)) in pins.into_iter().enumerate() {
         if !own.is_some_and(|own| own.models.values().any(|id| *id == concrete)) {
@@ -338,7 +336,7 @@ fn inline_link<'a>(
 /// naming `declarer`, the adapter whose provisional model it may reach.
 fn inline_pins(
     what: &str,
-    raw: &Value,
+    parts: &[String],
     own: Option<&Adapter>,
     declarer: &str,
 ) -> Result<Vec<(Vec<String>, String)>, ProvisionalRefusal> {
@@ -347,8 +345,7 @@ fn inline_pins(
         adapter: declarer.to_string(),
         flags,
     };
-    let parts = command_parts(raw);
-    let primary = match inline_route_pin(&parts, own) {
+    let primary = match inline_route_pin(parts, own) {
         ModelPin::Concrete(concrete) => concrete,
         ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
         ModelPin::Absent => {
@@ -358,7 +355,7 @@ fn inline_pins(
             });
         }
     };
-    let fallback = match route_pin(&parts, FALLBACK_FLAG) {
+    let fallback = match route_pin(parts, FALLBACK_FLAG) {
         ModelPin::Concrete(concrete) => Some(concrete),
         ModelPin::Unreadable(flags) => return Err(unreadable(flags)),
         ModelPin::Absent => None,
