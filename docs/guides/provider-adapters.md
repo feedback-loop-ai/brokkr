@@ -206,10 +206,14 @@ segment only; the second `meta/` is OpenRouter's name for the model.
 Neither is ruled `contracted`; both are `uncontracted` by silence.
 Muse Spark always reasons, so the adapter's `efforts` carries `xhigh`
 for it and the profile row declares no `off` level. A seat's `--effort`
-reaches the wire: the driver writes it into a settings document of the
-seat's own, which dsh reads over its composition and over the route's
-`reasoning:` default (decision 0035 addendum), and the request header
-echoes the level back into the record. The reasoning itself comes back
+reaches the wire on both dsh releases. The driver writes it on the
+overlay's `agent-default-model` row, which dsh 0.2 reads, and into a
+settings document of the seat's own, which dsh 0.1 reads over its
+composition and over the route's `reasoning:` default (decision 0035
+addenda of 2026-09-05 and 2026-10-17). The request header echoes the
+level back into the record. A level the header marks as the adapter's
+default (`adapterDefaults.reasoningEffort: true`) is never recorded as
+the seat's. The reasoning itself comes back
 encrypted, so the record carries its signature and no text.
 
 A key taken from the launching environment is the one channel that

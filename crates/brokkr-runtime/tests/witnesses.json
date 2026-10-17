@@ -1,23 +1,23 @@
 {
   "bundles": {
     "recipes/fast": "d95aa754c3054556171349eba13af4ca4972410d49a17a677965d48b0c56de86",
-    "recipes/gpt-flash": "58cc6bd80ad3ab68d71e5fe66140141475707e1d9aa4ca5144da9674f11642b2",
+    "recipes/gpt-flash": "f8f2ace849147374f83ab3a47e2348d1e26484d917a61ed1ecf99e07fe26fabe",
     "recipes/landing": "460f4435fa4525e0ee0609d97982550f96786be11e9484441ab95a108189c299",
-    "recipes/night-shift": "bc0ec14f2c6d66c016aebb776849466ee144cef9fc3b2e8af92d36e86d8eeb9f",
+    "recipes/night-shift": "b79d9cc65c0629fc724082c7c1d06b696a6db8d58bf2f62812f78aa0c3aaee6e",
     "recipes/node": "f289b20c15e8ca82b58f4f0cafe71c7a13b315bcf616ccf1d378b25fa39be0a4",
     "recipes/panel-review": "dde36a3ffa67831f1964f9493aca41d36f71ad15c2de64163fa17f5ee5bbaf1c",
     "recipes/preflight": "880e58f82af3bdb51d71578cbaeb6f6ef230a00da9846176a79326ad5572c89f",
     "recipes/release": "d09167adc51cecaefae5c0ebea97c95a898403f6400d0543f6ec47986671b79f",
     "recipes/research": "64a6b7ff8f81b61f9749223bd4fc53b282a4b7883c789ed6c4d09810db73bc58",
-    "recipes/research-dsh": "4f2116eb693fdcfe1124f5ed5dace2399304716d1794d12e8559ccfb1bc9bebf",
-    "recipes/review-first": "7cb6d6565b45aaa9a030ea6b6b6f67155be37deb0f36c624e8407e49d74d2e18",
+    "recipes/research-dsh": "67655e19db32493e139b81507e23ad8e8e8edb7add3b4f4868e09cea6fa67edf",
+    "recipes/review-first": "2ebd1228df0e442ecfb2a28bf56217d85ba8783168a07dec4f2860c3d12d78ac",
     "recipes/self": "34b8ba6af052c3d780c6d4e35edf68a4452912b154be8e69ee1ee2934f916600",
     "recipes/standby": "64b0ded7c4ba1290b54db1142fb52fdd8602d1d2cc916621beb8b72495e5e420",
     "recipes/triage": "72caa4c904c43e95ff2dba47e38664696910badf183e2d5521f414e926976c08",
     "recipes/verify": "abca5430100867d3a7a3efbeb60e97376b7be754b6fa09c56e69251b17d51ce0",
     "recipes/wager-harness": "d9862b8fb23e050ee139364e0a321ab68587f946c1bb8d426ec83ddf1b86d343",
-    "recipes/wager-harness-dsh": "3ef797640d1b3a6597df7e7be9ec5864f810930f94867eaa3ee0086ea403b70d",
-    "recipes/wager-harness-muse": "5bedc521a10a61d0df0a32714dde72eadb497e0d94e7a6891e9567c21b9df407"
+    "recipes/wager-harness-dsh": "5c6519e5bf54eafc5aaf4261b104b4741b918edc2604e4936815588cd016909d",
+    "recipes/wager-harness-muse": "b6b3f9c500ff870fbaf2792d987221768169f6cc591906ef8687c8b27d9a3ac6"
   },
   "tables": {
     "recipes/fast": "2b3110db22252800340b9f2459fca6a88d654146ca7cecb2f90d7f1b89a5fd42",

@@ -14,6 +14,7 @@ const SHIPPED: &str = "\
         baseURL: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
         compat:
           thinkingFormat: deepseek
+          supportsDeveloperRole: false
         models:
           - id: qwen3.8-max
             reasoningEfforts:

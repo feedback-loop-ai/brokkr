@@ -488,3 +488,90 @@ the clamp's alphabet has no space and the sentinel does — so
 `applied_harness_effort` matches the source-literal seed before
 clamping anything else. Harness-written values cross the clamp
 exactly as before.
+
+## Addendum — 2026-10-17, proposed: on dsh 0.2 the level rides the composition row
+
+Status: proposed (the operator accepts at PR time). Drafted from the
+controller's measurements in
+[brokkr#728](https://github.com/feedback-loop-ai/brokkr/issues/728).
+
+### Context
+
+DeepSeek-V4.1-Flash-1017 serves as `deepseek-flash`, the id the `flash`
+alias already names, and dsh 0.2.1-rc.2 (npm `next`, 2026-10-17) is the
+release that supports it. The controller measured the following on
+2026-10-17, on an isolated 0.2.1-rc.2 install with its own `DSH_HOME`,
+driven by a release build of main `ddffa2aa` through `brokkr driver
+dsh`:
+
+- **The settings channel is gone.** On 0.2 the `settings` row is
+  `@deepseek-ai/dsh-settings`, which has no configuration fields, so
+  the overlay's `settings.path` row points at nothing. The 2026-09-05
+  addendum's channel no longer carries a level.
+- **The composition row carries it.** `@deepseek-ai/dsh-agent-default-model`
+  reads `reasoningEffort` as a live composition field on 0.2. In 0.1
+  that field was kept out of the row on purpose.
+- **A dropped pin is replaced by the adapter's default, and says so.**
+  A seat pinned `--effort low` on `deepseek-flash` sent the header
+  `{"config":{"provider":"deepseek-official","model":"deepseek-flash","maxTokens":256000,"reasoningEffort":"high"},"adapterDefaults":{"reasoningEffort":true,"maxTokens":true}}`.
+  Main's fold read `config.reasoningEffort` alone and recorded
+  `effort: high` on every seat-turn checkpoint and on the result. On a
+  custom route (`dashscope/glm-5.3 --effort high`) no effort reached the
+  wire at all.
+- **Both channels together work on both releases.** With
+  `reasoningEffort` on the overlay's `agent-default-model` row, 0.2.1
+  sent the pinned level with `adapterDefaults` `{"maxTokens":true}`:
+  `low`, `high` and `max` on `deepseek-flash`, `high` on
+  `deepseek-v4-pro`, `low` on `meta-contributor`. 0.1.5-rc.1 ignored the
+  row key without a word, as this decision's 2026-09-05 addendum
+  measured, and kept reading the settings document.
+- **The research route needs a compat flag.** pi-ai 1.0.2+ in dsh 0.2
+  sends a `developer`-role message to a reasoning model, and Model
+  Studio refuses it: `INVALID_REQUEST: 400 … developer is not one of
+  ['system', 'assistant', 'user', 'tool', 'function']`. With
+  `compat.supportsDeveloperRole: false` beside `thinkingFormat:
+  deepseek`, `qwen3.8-max` answered at `xhigh` and at `low`.
+
+### Rulings
+
+1. **Both channels.** The dsh driver writes a seat's pinned level on
+   the overlay's `agent-default-model` row, where 0.2 reads it, and in
+   the seat's settings document, where 0.1 reads it. Both carry the
+   same scalar, clamped by `effort_token` and single-quoted. An effort
+   with no model beside it is still refused at spawn.
+2. **An adapter-defaulted level is never the seat's.** When a
+   `request/header` says `adapterDefaults.reasoningEffort: true`, the
+   fold leaves the seat's effort as it stood: `not reported` for a
+   pinned seat, the `not applicable` seed for a pin-less one. A header
+   the fold cannot read records no level.
+3. **The research route states `supportsDeveloperRole: false`.**
+   `recipes/research-dsh/drivers/research-web.yml` carries it under the
+   `dashscope` provider's `compat:`, and the weekly sweep installs
+   `@deepseek-ai/dsh@0.2.1-rc.2`.
+
+### Recorded, not ruled: the level vocabulary
+
+DeepSeek's levels on 0.2.1 are `off`, `low`, `high` and `max`. `medium`
+and `xhigh` refuse loudly: `UNSUPPORTED_REASONING_EFFORT: provider
+"deepseek-official" model "deepseek-flash" does not support reasoning
+effort "medium"`. The adapter's vocabulary is `low`, `medium`, `high`
+and `xhigh`. Every live pin today is `flash` at `high`, which both
+vocabularies name. Which vocabulary the adapter states is the
+operator's next ruling.
+
+### Enforcement binding
+
+`dsh_effort::pinned_level`, `dsh_effort::model_row` and
+`dsh_effort::applied_level` in `brokkr-protocol::adapters`, reached from
+`dsh_seat_overlay_in`, `dsh_effort_settings_in` and the `request/header`
+arm of `fold_dsh_event`. Their tests in `adapters/dsh_effort_tests.rs`:
+`a_pinned_level_rides_the_model_row_and_the_settings_document`,
+`a_header_whose_adapter_defaulted_the_level_leaves_the_seat_effort_standing`,
+`a_header_that_applied_the_pin_is_the_seat_effort_on_either_release` and
+`a_header_the_reader_cannot_read_records_no_level`. Driver conformance,
+whose dsh shims read the level from the overlay's `agent-default-model`
+row and from the document the `settings` row names, and fail when the
+two disagree. The `recipes/research-dsh` row of
+`crates/brokkr-runtime/tests/witnesses.json` holds ruling 3. The
+2026-09-05 addendum's text above is left as written, since it was true
+when written. On dsh 0.2 this addendum is what a dsh row means.

@@ -420,11 +420,14 @@ The two sentinels are decision 0031's, reused rather than reinvented,
 and the distinction between them is load-bearing:
 
 - `not reported` — the harness echoed no level for this row. This was
-  every dsh row until 2026-09-05; since decision 0035's addendum the
-  dsh driver forwards the pin through a settings document of the
-  seat's own and reads the level back from the `request/header` dsh
-  echoes, so on a dsh row the sentinel now means a row written before
-  the first request went out — or a release that echoes nothing.
+  every dsh row until 2026-09-05; since decision 0035's addenda the
+  dsh driver forwards the pin on the `agent-default-model` row, which
+  dsh 0.2 reads, and through a settings document of the seat's own,
+  which dsh 0.1 reads, and it reads the level back from the
+  `request/header` dsh echoes. So on a dsh row the sentinel now means a
+  row written before the first request went out, a release that echoes
+  nothing, or a header whose level is the adapter's default
+  (`adapterDefaults.reasoningEffort: true`), which is never the seat's.
 - `not applicable` — the driver has no model turn at all. This is `exec`.
   Since decision 0035's 2026-09-11 addendum it is also a dsh seat whose
   lane resolves to a route the adapter lists as effortless: no level to

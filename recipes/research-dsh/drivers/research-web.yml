@@ -26,6 +26,14 @@
 # low, medium, xhigh; high and max are pinned unsupported there and are
 # left undeclared here, so they stay refused. Each key is the level a
 # seat may pin; each value is what goes on the wire.
+#
+# The route says Model Studio takes no `developer` role. pi-ai 1.0.2+
+# in dsh 0.2 sends a `developer`-role message to a reasoning model, and
+# Model Studio refuses it: `INVALID_REQUEST: 400 … developer is not one
+# of ['system', 'assistant', 'user', 'tool', 'function']`. With
+# `supportsDeveloperRole: false`, qwen3.8-max answered at xhigh and at
+# low on dsh 0.2.1-rc.2 (measured 2026-10-17, #728; decision 0035
+# addendum 2026-10-17).
 - id: llm-pi-ai
   config:
     providers:
@@ -36,6 +44,7 @@
         baseURL: https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1
         compat:
           thinkingFormat: deepseek
+          supportsDeveloperRole: false
         models:
           - id: qwen3.8-max
             reasoningEfforts:

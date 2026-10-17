@@ -1051,6 +1051,13 @@ fn exec_has_no_model_surface_and_dsh_names_its_measured_keys() {
         ),
         "{native}"
     );
+    assert!(
+        native.contains(
+            "dsh 0.2's web-deepseek-api row (the Search and Fetch APIs, billed from \
+             2026-11-01) reads it too"
+        ),
+        "{native}"
+    );
 }
 
 /// U7b (MB2): the formerly dead carriage is read on its own. Only a measured
