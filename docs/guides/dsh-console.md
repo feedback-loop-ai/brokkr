@@ -133,11 +133,15 @@ back to the cards.
   conversation's realm, on the recipe with the most runs; where none ran in
   the range, on the first the realm knows, so its recipes are still listed.
 - **Graph.** `brokkr graph --recipe <name> --json`: the recipe's state
-  machine as its table resolves now, its states left to right in `phases`
-  order with `done` at the end and `stop` beneath, each box holding the
-  seats and models the latest run pinned. Each rule is an edge with how
-  often it fired, its width growing with the count; a rule that never fired
-  is dashed, and an edge into `stop` is drawn in the stop tone. A live run's
+  machine as its table resolves now, its states left to right from the
+  initial one, then in `phases` order, with `done` at the end and `stop`
+  beneath, each box holding the seats and models the latest run pinned. The
+  rules joining two states are one line, a little wider the more runs it
+  moved, with each outcome that fired as a chip (`pass 21`, `residual 12`,
+  `security-hold 2`); a line whose rules never fired is faint, dashed and
+  unlabelled; lines into `stop` are in the stop tone and the line into
+  `done` in the done tone. Pick a recipe from the dropdown, the ones that
+  ran first with their runs. A live run's
   state wears the pulse, and picking the pulse opens the run in Realms.
   Picking a state lists its rules with their counts, the runs that entered
   it, its median and 90th-percentile time, its cost with the providers that
@@ -193,6 +197,11 @@ The graph lists the first four under "Not available yet", disabled, each
 with the reason `brokkr inspect` gives.
 
 ## The assistant
+
+The question boxes below (Ask Brokkr, Ask about this run) are **hidden by
+default** while their experience is reconsidered. Set `BROKKR_CONSOLE_ASK=1`
+where DSH starts to show them. The model tools and the suggestion card are
+unaffected.
 
 DSH's model reads Brokkr through four read-only tools the plugin registers:
 `brokkr_runs`, `brokkr_inspect`, `brokkr_queue` and `brokkr_transcript`. Each

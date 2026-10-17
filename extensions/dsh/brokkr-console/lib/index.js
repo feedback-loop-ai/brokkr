@@ -151,7 +151,7 @@ function routes({ brokkr, desk, here, locate, focus }) {
 export function apply(ctx) {
   const config = configFrom(process.env, process.cwd())
   const brokkr = brokkrOf(config)
-  const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd })
+  const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd, ask: config.ask })
   const desk = deskOf({ brokkr, resume: config.resume, locate: poller.locate })
   const here = hereOf({ brokkr, workspace: config.cwd })
   const focus = focusOf()

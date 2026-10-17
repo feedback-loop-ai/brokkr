@@ -356,6 +356,7 @@ pub brokkr_view::GraphView::drift_text: core::option::Option<alloc::string::Stri
 pub brokkr_view::GraphView::drifted_runs: usize
 pub brokkr_view::GraphView::ends: brokkr_view::graph::Ends
 pub brokkr_view::GraphView::from: alloc::string::String
+pub brokkr_view::GraphView::links: alloc::vec::Vec<brokkr_view::graph::Link>
 pub brokkr_view::GraphView::live: alloc::vec::Vec<brokkr_view::graph::LiveRun>
 pub brokkr_view::GraphView::never_fired: brokkr_view::graph::NeverFired
 pub brokkr_view::GraphView::range: brokkr_view::Range

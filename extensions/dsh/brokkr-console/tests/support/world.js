@@ -241,6 +241,33 @@ export function graphRule(id, from, next, kind, count, over = {}) {
 }
 
 /**
+ * The links Brokkr draws from `rules`: one per state and next state in the
+ * order its first rule holds, each result that fired summed, the most runs
+ * first; a park has none. The fixture's own derivation, so a graph document
+ * holds both as Brokkr prints them.
+ */
+export function linksOf(rules) {
+  const links = []
+  for (const rule of rules) {
+    if (rule.next === null) continue
+    let link = links.find((each) => each.from === rule.from && each.next === rule.next)
+    if (link === undefined) links.push((link = { from: rule.from, next: rule.next, kind: rule.kind, count: 0, rules: 0, outcomes: [], text: '' }))
+    link.count += rule.count
+    link.rules += 1
+    if (rule.count === 0) continue
+    const outcome = link.outcomes.find((each) => each.result === rule.result)
+    if (outcome === undefined) link.outcomes.push({ result: rule.result, count: rule.count, text: '' })
+    else outcome.count += rule.count
+  }
+  for (const link of links) {
+    link.outcomes.sort((a, b) => b.count - a.count)
+    for (const outcome of link.outcomes) outcome.text = `${outcome.result} ${outcome.count}`
+    link.text = link.outcomes.map((outcome) => outcome.text).join(' · ')
+  }
+  return links
+}
+
+/**
  * `brokkr graph --recipe self --realm brokkr --json`: intake, implement,
  * verify, review and ship in a row with done at its end and stop beneath; a
  * self-loop at implement, a back edge from review and a dormant one, forward
@@ -250,7 +277,7 @@ export function graphRule(id, from, next, kind, count, over = {}) {
  */
 export function graphDoc(over = {}) {
   const seat = (key, provider, model) => ({ key, provider, model, text: `${key} · ${provider} ${model}` })
-  return {
+  const doc = {
     view_version: 1,
     realm: 'brokkr',
     recipe: 'self',
@@ -308,6 +335,7 @@ export function graphDoc(over = {}) {
     ],
     ...over,
   }
+  return { ...doc, links: over.links ?? linksOf(doc.rules) }
 }
 
 // ---------------------------------------------------------- the binary

@@ -33,7 +33,7 @@ Each run's pinned `policy.json` digest is compared with the resolved one.
 ## D3 — Layout
 
 The layout is deterministic and owned by the view:
-- **States** are ranked in `phases` order, left to right.
+- **States** are ranked with the table's initial state first, then in `phases` order, left to right.
 - **Terminals:** `done` sits at the right end; `stop`, and any terminal other than the last, sits beneath the row.
 - **Self-loops** sit above their state.
 - **A rule whose `next` is earlier in the order** is a back edge, drawn above the row.
@@ -46,7 +46,16 @@ The view emits, per rule:
 - `count`;
 - `kind`: `forward`, `self`, `back` or `terminal`.
 
-The client places by rank and kind. Edge width is `1.5 + 0.35 × count` px, capped at 12. Never-fired edges are dashed at 1.5 px.
+The view also emits `links`: the rules joining one state to one next state, as one link per pair, in the order its first rule holds. Each link carries:
+- `count`, the rules' counts summed, and `rules`, how many rules it joins;
+- `outcomes`, one per result that fired, its rules' counts summed, the most runs first (`pass 21`, `residual 12`);
+- `text`, the outcomes joined, empty when none fired.
+
+The graph draws links, not rules. The operator saw one edge per rule as clutter: three near-parallel curves from review into `stop`, a label per dormant rule, rule ids where outcomes belong.
+- **Width:** a fired link runs from 1.5 to 4 px by the square root of its share of the busiest link. A link whose rules never fired is 1.25 px, dashed and faint, with no label.
+- **Outcomes** are chips on their own ground, Brokkr's `<result> <count>`, in the stop tone into `stop` and the done tone into `done`.
+- **Placement:** a gap between neighbours is as wide as the widest chips any neighbour link carries. Fired arcs take the inner lanes. Chips into a terminal sit just under their state. No chip overlaps another or a state.
+- **Rule ids** are each link's title, and the state panel lists every rule with its count, dormant ones included.
 
 ## D4 — Per-state figures
 
@@ -90,7 +99,7 @@ All figures are over the range.
 
 **The tab.** The Library is a top-level tab of the console, next to Realms and Analytics, in the sidebar page and in the conversation tab alike. In a conversation's tab it opens on the conversation's realm.
 
-**The views.** It has two views, **Graph** and **Pareto**, under one realm picker and one range. Graph also has a recipe picker.
+**The views.** It has two views, **Graph** and **Pareto**, under one realm picker and one range. Graph also has a recipe picker: one dropdown however many recipes a realm keeps. The recipes that ran in range come first, with their runs as Brokkr counts them, most first. The rest follow, by name.
 
 **Navigation.**
 - Clicking a recipe's point in Pareto opens its Graph.
@@ -105,6 +114,10 @@ These are drawn on the boards but need recording that does not exist yet:
 - **the cast board and the charter studio**.
 
 The graph draws no escape markings and no bench actions in this slice.
+
+## D10 — The console's question boxes are hidden
+
+The operator found the assistant surfaces from slice two (Ask Brokkr, Ask about this run) not yet a good experience, and asked for them hidden until they are thought through again. They are off unless `BROKKR_CONSOLE_ASK=1` is set where DSH starts. The host passes the setting to the client with the workspace. Nothing else changes: the model tools and the suggestion card stay as they were.
 
 ## D9 — Tokens read one way on every surface
 

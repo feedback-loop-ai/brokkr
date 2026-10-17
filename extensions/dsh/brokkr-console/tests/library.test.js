@@ -115,9 +115,11 @@ const press = (tree, label) => labelled(tree, label).props.onClick()
 const fetched = (client, path) => client.fetches.map((each) => String(each.url)).filter((url) => url.startsWith(path))
 const heading = (tree) => textOf(findAll(tree, (node) => node.type === 'h1')[0])
 const machine = (tree) => findAll(tree, (node) => node.type === 'svg' && node.props['aria-label'] === 'The recipe’s state machine')[0]
-const edge = (tree, id) => findAll(machine(tree), (node) => node.type === 'path' && node.props['data-rule'] === id)[0]
-const label = (tree, id) => textOf(findAll(machine(tree), (node) => node.type === 'text' && node.props['data-rule'] === id)[0])
-const stroke = (tree, id) => [edge(tree, id).props.style.strokeWidth, edge(tree, id).props.style.strokeDasharray]
+/** A link by its pair, `from→next`: its path, its outcome chips' words, and its stroke. */
+const edge = (tree, pair) => findAll(machine(tree), (node) => node.type === 'path' && node.props['data-link'] === pair)[0]
+const chipsOn = (tree, pair) => findAll(machine(tree), (node) => node.type === 'g' && node.props['data-link'] === pair && node.props.className === undefined)
+  .flatMap((group) => findAll(group, (node) => node.type === 'text').map(textOf))
+const stroke = (tree, pair) => [edge(tree, pair).props.style.strokeWidth, edge(tree, pair).props.style.strokeDasharray]
 const box = (tree, name) => findAll(labelled(machine(tree), `the state ${name}`), (node) => node.type === 'rect')[0].props
 /** The y of every point a path's `M` and `C` commands name. */
 const ys = (d) => d.match(/-?[\d.]+/g).map(Number).filter((_, index) => index % 2 === 1)
@@ -138,16 +140,22 @@ test('the Library is a tab in both mounts, after Realms and Analytics, and a con
   assert.equal(heading(tab.tree()), 'swarmail / triage')
 })
 
+/** The recipe picker's select, and its groups as `[label, [option text…]]`. */
+const recipeSelect = (tree) => findAll(tree, (node) => node.type === 'select' && node.props['aria-label'] === 'Recipe')[0].props
+const recipeList = (tree) => findAll(tree, (node) => node.type === 'optgroup').map((group) => [group.props.label, findAll(group, (node) => node.type === 'option').map(textOf)])
+
 test('the Library opens on the first realm and on the recipe Brokkr draws when asked for none, and sends no command', async () => {
   const client = await onLibrary()
   assert.deepEqual(fetched(client, ANALYTICS), [`${ANALYTICS}?range=7d`])
   // Brokkr picks the recipe with the most runs in range; the console names none.
   assert.deepEqual(fetched(client, GRAPH), [`${GRAPH}?range=7d&realm=brokkr`])
   assert.equal(heading(client.tree()), 'brokkr / self')
-  // The recipe picker names the realm's recipes as the graph names them, measured or not.
-  assert.deepEqual(buttons(labelled(client.tree(), 'Recipe')).map((button) => [textOf(button), button.props['aria-pressed']]), [
-    ['charter', false], ['frontier', false], ['lean', false], ['leaky', false], ['muninn', false], ['self', true],
+  // The recipe picker is one list, the recipes that ran first with their runs, then the rest by name.
+  assert.deepEqual(recipeList(client.tree()), [
+    ['ran in range · 5', ['self · 10 runs', 'frontier · 6 runs', 'leaky · 5 runs', 'lean · 4 runs', 'muninn · 2 runs']],
+    ['not run in range · 1', ['charter']],
   ])
+  assert.equal(recipeSelect(client.tree()).value, 'self')
   assert.deepEqual(buttons(labelled(client.tree(), 'Realm')).map((button) => [textOf(button), button.props['aria-pressed']]), [['brokkr', true], ['swarmail', false]])
   assert.deepEqual(client.fetches.filter((each) => String(each.url).includes('/api/command')), [])
   assert.deepEqual(client.sockets[0].sent.at(-1), { type: 'watch', view: 'analytics', run: null })
@@ -166,7 +174,7 @@ test('a realm none of whose recipes ran in range still lists them: the dormant g
   const client = await onLibrary(answers({ [ANALYTICS]: analyticsOf(analyticsDoc({ realms: [realmRow('brokkr')], recipes: [] })), [GRAPH]: dormant }))
   assert.deepEqual(fetched(client, GRAPH), [`${GRAPH}?range=7d&realm=brokkr`])
   assert.equal(heading(client.tree()), 'brokkr / charter')
-  assert.deepEqual(buttons(labelled(client.tree(), 'Recipe')).map(textOf), ['charter', 'frontier', 'lean', 'leaky', 'muninn', 'self'])
+  assert.deepEqual(recipeList(client.tree()), [['not run in range · 6', ['charter', 'frontier', 'leaky', 'lean', 'muninn', 'self']]])
   buttons(labelled(client.tree(), 'View')).find((button) => textOf(button) === 'Pareto').props.onClick()
   await settled()
   const tree = client.tree()
@@ -174,37 +182,62 @@ test('a realm none of whose recipes ran in range still lists them: the dormant g
   assert.equal(textOf(labelled(tree, 'Not measured yet')), 'not measured yet: charter · frontier · lean · leaky · muninn · self · no runs in this range')
 })
 
-test('an edge is 1.5 + 0.35 × its count pixels wide, at most 12, labelled with Brokkr’s words, a fired edge to the next state with its count alone; a rule that never fired is dashed at 1.5 and reads its name with 0', async () => {
+test('one link per pair of states, as wide as the runs it moved, with the outcomes that moved them as chips; a link whose rules never fired is faint and dashed, with no chip', async () => {
   const { edgeWidth } = clientModule()
-  assert.deepEqual([edgeWidth(0), edgeWidth(4), edgeWidth(40)], [1.5, 1.5 + 0.35 * 4, 12])
+  assert.deepEqual([edgeWidth(0, 40), edgeWidth(10, 40), edgeWidth(40, 40)], [1.25, 1.5 + 2.5 * 0.5, 4])
   const tree = (await onLibrary()).tree()
-  for (const [id, count] of [['IMPL-OK', 6], ['VERIFY-FAIL', 3], ['REVIEW-REFORGE', 1], ['IMPL-RETRY', 2]]) {
-    assert.deepEqual(stroke(tree, id), [1.5 + 0.35 * count, undefined], id)
-    // Between neighbours there is room for the count only; the rule's name is its title and the panel's.
-    assert.equal(label(tree, id), id === 'IMPL-OK' ? String(count) : `${id} · ${count}`)
+  assert.deepEqual(stroke(tree, 'intake→implement'), [4, undefined])
+  assert.deepEqual(stroke(tree, 'implement→verify'), [1.5 + 2.5 * Math.sqrt(6 / 40), undefined])
+  assert.deepEqual(chipsOn(tree, 'implement→verify'), ['ok 6'])
+  assert.deepEqual(chipsOn(tree, 'verify→stop'), ['fail 3'])
+  assert.deepEqual(chipsOn(tree, 'implement→implement'), ['broken 2'])
+  for (const pair of ['review→verify', 'ship→stop']) {
+    assert.deepEqual(stroke(tree, pair), [1.25, '4 4'], pair)
+    assert.match(edge(tree, pair).props.className, /\bdormant\b/)
+    assert.deepEqual(chipsOn(tree, pair), [], pair)
   }
-  assert.deepEqual(stroke(tree, 'INTAKE-OK'), [12, undefined])
-  for (const id of ['REVIEW-CLEAN', 'SHIP-DIRTY']) {
-    assert.deepEqual(stroke(tree, id), [1.5, '5 4'], id)
-    assert.match(edge(tree, id).props.className, /\bdormant\b/)
-    assert.equal(label(tree, id), `${id} · 0`)
-  }
-  // A park rule goes to no state, so it has no edge; the state's panel lists it.
-  assert.equal(edge(tree, 'REVIEW-HOLD'), undefined)
+  // A park rule goes to no state, so it has no link; the state's panel lists it.
+  assert.equal(findAll(machine(tree), (node) => node.type === 'path' && String(node.props['data-link']).startsWith('review→null')).length, 0)
+  // The rules behind a link are its title, by id with their counts.
+  const title = findAll(machine(tree), (node) => node.type === 'title').map(textOf).find((words) => words.startsWith('verify → stop'))
+  assert.equal(title, 'verify → stop · fail 3 · VERIFY-FAIL 3')
 })
 
-test('every edge into stop carries the stop tone, and no other does', async () => {
-  const tree = (await onLibrary()).tree()
-  const edges = findAll(machine(tree), (node) => node.type === 'path' && node.props['data-rule'] !== undefined)
-  const [toned, plain] = [edges.filter((path) => /\bstop\b/.test(path.props.className)), edges.filter((path) => !/\bstop\b/.test(path.props.className))]
-  assert.deepEqual(toned.map((path) => path.props['data-rule']), ['VERIFY-FAIL', 'REVIEW-RESIDUAL-SECURITY', 'SHIP-DIRTY'])
-  assert.deepEqual(toned.map((path) => path.props.markerEnd), ['url(#bk-lib-tip-stop)', 'url(#bk-lib-tip-stop)', 'url(#bk-lib-tip-stop)'])
-  assert.ok(plain.length > 0 && plain.every((path) => path.props.markerEnd === 'url(#bk-lib-tip)'))
-  const labels = findAll(machine(tree), (node) => node.type === 'text' && /\bstop\b/.test(String(node.props.className)) && node.props['data-rule'] !== undefined)
-  assert.deepEqual(labels.map((text) => text.props['data-rule']), ['VERIFY-FAIL', 'REVIEW-RESIDUAL-SECURITY', 'SHIP-DIRTY'])
+test('two rules into one state are one link, its outcomes by result with the most runs first', async () => {
+  const rules = graphDoc().rules.concat([{ id: 'REVIEW-ABOVE-MEDIUM', from: 'review', next: 'stop', result: 'residual', when: [], severity: null, count: 5, kind: 'terminal', text: 'REVIEW-ABOVE-MEDIUM · 5' }])
+  const client = await onLibrary(answers({ [GRAPH]: graphOf(graphDoc({ rules })) }))
+  const tree = client.tree()
+  assert.equal(findAll(machine(tree), (node) => node.type === 'path' && node.props['data-link'] === 'review→stop').length, 1)
+  assert.deepEqual(chipsOn(tree, 'review→stop'), ['residual 5', 'fail 2'])
 })
 
-test('the row runs left to right in Brokkr’s order with done at its end and stop beneath; a self-loop and the edges back arc above the row, an edge into stop goes down to it', async () => {
+
+test('every link into stop carries the stop tone, its chips too, and the link into done the done tone', async () => {
+  const tree = (await onLibrary()).tree()
+  const edges = findAll(machine(tree), (node) => node.type === 'path' && node.props['data-link'] !== undefined)
+  const toned = edges.filter((path) => /\bstop\b/.test(path.props.className))
+  assert.deepEqual(toned.map((path) => path.props['data-link']), ['verify→stop', 'review→stop', 'ship→stop'])
+  assert.ok(toned.every((path) => path.props.markerEnd === 'url(#bk-lib-tip-stop)'))
+  assert.ok(edges.filter((path) => !toned.includes(path)).every((path) => path.props.markerEnd === 'url(#bk-lib-tip)'))
+  const stopChips = findAll(machine(tree), (node) => node.type === 'g' && /bk-lib-chip stop/.test(String(node.props.className)))
+  assert.deepEqual(stopChips.map((chip) => textOf(chip)), ['fail 3', 'fail 2'])
+  assert.match(edge(tree, 'ship→done').props.className, /\bdone\b/)
+})
+
+test('no outcome chip sits on another, nor on a state', async () => {
+  const tree = (await onLibrary()).tree()
+  const rectOf = (props) => ({ x: props.x, y: props.y, right: props.x + props.width, bottom: props.y + props.height })
+  const chips = findAll(machine(tree), (node) => node.type === 'g' && /^bk-lib-chip/.test(String(node.props.className))).map((chip) => rectOf(findAll(chip, (node) => node.type === 'rect')[0].props))
+  const boxes = findAll(machine(tree), (node) => node.type === 'rect' && /^bk-lib-state/.test(String(node.props.className))).map((rect) => rectOf(rect.props))
+  const meet = (a, b) => a.x < b.right && b.x < a.right && a.y < b.bottom && b.y < a.bottom
+  assert.ok(chips.length >= 6)
+  chips.forEach((chip, index) => {
+    chips.slice(index + 1).forEach((other) => assert.ok(!meet(chip, other), `two chips meet at ${chip.x},${chip.y}`))
+    boxes.forEach((box) => assert.ok(!meet(chip, box), `a chip at ${chip.x},${chip.y} sits on a state`))
+  })
+})
+
+test('the row runs left to right in Brokkr’s order with done at its end and stop beneath; a self-loop and the links back arc above the row, a link into stop goes down to it', async () => {
   const tree = (await onLibrary()).tree()
   const row = ['intake', 'implement', 'verify', 'review', 'ship', 'done'].map((name) => box(tree, name))
   assert.ok(row.every((rect, index) => index === 0 || rect.x > row[index - 1].x))
@@ -212,10 +245,10 @@ test('the row runs left to right in Brokkr’s order with done at its end and st
   assert.ok(row.every((rect) => middle(rect) === middle(row[0])))
   const top = Math.min(...row.map((rect) => rect.y))
   assert.ok(box(tree, 'stop').y > Math.max(...row.map((rect) => rect.y + rect.height)))
-  for (const id of ['IMPL-RETRY', 'REVIEW-REFORGE', 'REVIEW-CLEAN']) assert.ok(Math.min(...ys(edge(tree, id).props.d)) < top, id)
+  for (const pair of ['implement→implement', 'review→implement', 'review→verify']) assert.ok(Math.min(...ys(edge(tree, pair).props.d)) < top, pair)
   const verify = box(tree, 'verify')
-  assert.ok(Math.min(...ys(edge(tree, 'VERIFY-FAIL').props.d)) >= verify.y + verify.height)
-  assert.equal(Math.max(...ys(edge(tree, 'VERIFY-FAIL').props.d)), box(tree, 'stop').y)
+  assert.ok(Math.min(...ys(edge(tree, 'verify→stop').props.d)) >= verify.y + verify.height)
+  assert.equal(Math.max(...ys(edge(tree, 'verify→stop').props.d)), box(tree, 'stop').y)
   // Each state's box holds its seats and their models.
   assert.match(textOf(labelled(machine(tree), 'the state review')), /review:security · claude opus/)
 })

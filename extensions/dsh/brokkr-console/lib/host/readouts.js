@@ -568,6 +568,24 @@ function graphRule(value, path) {
   }
 }
 
+/** The rules joining one state to one next state, as one link: the runs it moved, how many rules it joins, and each result that fired with its runs (design D3). */
+function graphLink(value, path) {
+  object(value, path)
+  return {
+    from: text(value.from, `${path}.from`),
+    next: text(value.next, `${path}.next`),
+    kind: word(value.kind, RULE_KINDS, `${path}.kind`),
+    count: count(value.count, `${path}.count`),
+    rules: count(value.rules, `${path}.rules`),
+    outcomes: list(value.outcomes, `${path}.outcomes`, (outcome, at) => ({
+      result: text(object(outcome, at).result, `${at}.result`),
+      count: count(outcome.count, `${at}.count`),
+      text: text(outcome.text, `${at}.text`),
+    })),
+    text: typeof value.text === 'string' ? value.text : text(value.text, `${path}.text`),
+  }
+}
+
 /**
  * `brokkr graph --recipe <name> --json`: the recipe's state machine with the
  * journal's traffic over the range, at the graph's own wire version. The
@@ -585,6 +603,7 @@ export function graphOf(doc) {
     runs: count(doc.runs, 'runs'),
     states: list(doc.states, 'states', graphState),
     rules: list(doc.rules, 'rules', graphRule),
+    links: list(doc.links, 'links', graphLink),
     never_fired: span(doc.never_fired, 'never_fired'),
     retired: list(doc.retired, 'retired', (value, path) => ({
       rule_id: text(object(value, path).rule_id, `${path}.rule_id`),

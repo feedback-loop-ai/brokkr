@@ -102,6 +102,9 @@ pub struct GraphView {
     /// Every rule of the table, in its order, or only the fired ones when
     /// the table was not found.
     pub rules: Vec<Edge>,
+    /// The rules joining each pair of states, one link per pair in the
+    /// order its first rule holds: what the graph draws. A park has none.
+    pub links: Vec<Link>,
     pub never_fired: NeverFired,
     /// Rules that fired in the range and are not in the table now.
     pub retired: Vec<RuleCount>,
@@ -202,6 +205,32 @@ pub struct Edge {
     /// Its `transition/decided` events in the range.
     pub count: usize,
     pub kind: RuleKind,
+    pub text: String,
+}
+
+/// Every rule from one state to one next state, as one link: the runs it
+/// moved in the range and the outcomes that moved them (design D3).
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Link {
+    pub from: String,
+    pub next: String,
+    pub kind: RuleKind,
+    /// The rules' counts, summed.
+    pub count: usize,
+    /// How many of the table's rules the link joins.
+    pub rules: usize,
+    /// One per result that fired, its rules' counts summed, the most runs
+    /// first: `pass 21`, `residual 12`. Empty when none fired.
+    pub outcomes: Vec<Outcome>,
+    /// The outcomes' words joined, or empty when none fired.
+    pub text: String,
+}
+
+/// A result's runs over one link: what the seat said, and how often.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct Outcome {
+    pub result: String,
+    pub count: usize,
     pub text: String,
 }
 

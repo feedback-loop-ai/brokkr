@@ -13,10 +13,11 @@ The console SHALL show a **Library** tab after Realms and Analytics, in the side
 
 The Graph view SHALL draw:
 - each state as a box holding its seats and models;
-- each rule as an edge from its state to its `next`:
-  - solid, with its count, when it fired;
-  - dashed when its count is 0;
-  - in the stop tone when it ends in `stop`;
+- the rules joining each pair of states as one link:
+  - solid when any of its rules fired, as wide as the runs it moved, with each outcome that fired as a chip (`fail 3`);
+  - faint and dashed, with no chip, when none fired;
+  - in the stop tone into `stop`, and in the done tone into the terminal that completes a run;
+- no outcome chip over another chip or over a state;
 - self-loops above their state;
 - back edges above the row;
 - `stop` beneath the row and `done` at its end.
@@ -25,8 +26,13 @@ It SHALL draw the pulse on each live run's state. It SHALL list retired rules an
 
 #### Scenario: A rule that never fired
 
-- **WHEN** a rule's count is 0
-- **THEN** its edge is dashed, and its label reads its name with "0"
+- **WHEN** every rule from `review` to `verify` has count 0
+- **THEN** their link is faint and dashed with no chip, and the state panel lists each of them with "0"
+
+#### Scenario: Two rules into one state
+
+- **WHEN** `REVIEW-RESIDUAL-SECURITY` (residual, 6) and `REVIEW-SECURITY-HOLD` (security-hold, 2) both go from `review` to `stop`
+- **THEN** one link joins them, with the chips `residual 6` and `security-hold 2`
 
 #### Scenario: Picking a state
 
@@ -60,4 +66,22 @@ Every surface that shows a seat's or a state's tokens SHALL read them from Brokk
 
 - **WHEN** a state's seats reported no tokens
 - **THEN** its tokens read as Brokkr's absence mark, with no arrows
+
+### Requirement: One recipe picker however many recipes
+
+The Graph view SHALL offer its recipes in one dropdown: those that ran in range first, each with its runs, the most first, then those that did not, by name, and SHALL say how many recipes the realm keeps.
+
+#### Scenario: A realm with eighteen recipes
+
+- **WHEN** a realm keeps 18 recipes and two ran in range
+- **THEN** the dropdown lists those two first with their runs, then the other sixteen by name, and the line beside it reads "18 recipes in this realm"
+
+### Requirement: The question boxes are hidden unless turned on
+
+The console SHALL show no question box (Ask Brokkr, Ask about this run) on the Realms views or a run unless `BROKKR_CONSOLE_ASK` is `1` where DSH starts.
+
+#### Scenario: The default
+
+- **WHEN** `BROKKR_CONSOLE_ASK` is unset
+- **THEN** neither the Realms view nor a run shows a question box
 

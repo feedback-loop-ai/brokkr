@@ -248,13 +248,18 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-hit:focus-visible .bk-lib-state{stroke:var(--bk-pick);stroke-dasharray:3 3}
 /* An edge's width and dash are its count's, set on the path; only its tone is the sheet's. */
 .bk-lib-edge{fill:none;stroke:var(--bk-edge)}
-.bk-lib-edge.dormant{stroke:var(--bk-line-strong)}
+.bk-lib-edge.dormant{stroke:var(--bk-line-strong);opacity:.55}
 .bk-lib-edge.stop{stroke:var(--bk-halt)}
+.bk-lib-edge.stop.dormant{opacity:.45}
+.bk-lib-edge.done{stroke:var(--bk-ok)}
+.bk-lib-chip rect{fill:var(--bk-sunken);stroke:var(--bk-line-strong);stroke-width:1}
+.bk-lib-chip text{fill:var(--bk-ink-2);font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace}
+.bk-lib-chip.stop rect{fill:var(--bk-bad-wash);stroke:var(--bk-halt)}
+.bk-lib-chip.stop text{fill:var(--bk-bad-ink)}
+.bk-lib-chip.done rect{fill:var(--bk-ok-fill);stroke:var(--bk-ok)}
+.bk-lib-chip.done text{fill:var(--bk-ok-ink)}
 .bk-lib-tip{fill:var(--bk-edge)}
 .bk-lib-tip.stop{fill:var(--bk-halt)}
-.bk-lib-label{fill:var(--bk-ink-2);font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace}
-.bk-lib-label.dormant{fill:var(--bk-faint);font-weight:400}
-.bk-lib-label.stop{fill:var(--bk-bad-ink)}
 .bk-lib-plot{display:block;max-width:760px;font-family:'IBM Plex Sans',system-ui,sans-serif}
 .bk-lib-q.frontier{fill:var(--bk-ok-fill)}.bk-lib-q.costly{fill:var(--bk-run-fill)}.bk-lib-q.leaky{fill:var(--bk-warn-fill)}.bk-lib-q.dominated{fill:var(--bk-bad-wash)}
 .bk-lib-qname{font-size:12px;font-weight:600}
@@ -289,3 +294,5 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
   .bk-lib-panel{max-width:none}
   .bk-lib-views{margin-left:0}
 }
+.bk-lib-select{min-height:32px;width:auto;min-width:240px;max-width:360px;padding:0 8px;flex:0 1 auto}
+.bk-lib-recipe{align-items:center}

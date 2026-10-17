@@ -22,9 +22,9 @@ const fleet = () =>
   )
 
 /** The panel, opened on the parked run in `brokkr`, with `view` as its run view. */
-async function onRun(view = runViewDoc(), answers = {}) {
+async function onRun(view = runViewDoc(), answers = {}, ask = false) {
   const client = mountClient('main', {}, answers)
-  client.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
+  client.push({ type: 'snapshot', ask, fleet: fleet(), overview: null, run: null })
   buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
   buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(view) } })
@@ -217,13 +217,21 @@ test('a running run has nothing to wait on, and the reader takes the row', async
   assert.deepEqual(split.children.map((child) => child.props['aria-label']), ['Reader'])
 })
 
-test('one place asks: the Asking about bar, on the realms and on a run', async () => {
+test('the question boxes are hidden unless BROKKR_CONSOLE_ASK turns them on: none on the realms nor on a run', async () => {
+  const bars = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Asking about')
   const realms = mountClient('main')
   realms.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
+  assert.equal(bars(realms.tree()).length, 0)
+  assert.equal(bars((await onRun()).tree()).length, 0)
+})
+
+test('turned on, one place asks: the Asking about bar, on the realms and on a run', async () => {
+  const realms = mountClient('main')
+  realms.push({ type: 'snapshot', ask: true, fleet: fleet(), overview: null, run: null })
   const bars = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Asking about')
   assert.equal(bars(realms.tree()).length, 1)
   assert.equal(findAll(realms.tree(), (node) => node.type === 'aside').length, 0)
-  const run = await onRun()
+  const run = await onRun(runViewDoc(), {}, true)
   assert.equal(bars(run.tree()).length, 1)
   assert.equal(findAll(run.tree(), (node) => node.type === 'aside').length, 0)
 })

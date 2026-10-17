@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::facts::{GraphRun, Ruled, Scoped};
 use super::{Edge, Ends, GraphError, GraphQuery, GraphTable, GraphView, LiveRun, NeverFired};
-use super::{Place, RuleKind, SeatPin, State, Table, GRAPH_VIEW_VERSION};
+use super::{Link, Outcome, Place, RuleKind, SeatPin, State, Table, GRAPH_VIEW_VERSION};
 use crate::analytics::{cost_figure, middle, span, stamp, total, Ending, RuleCount, Window};
 use crate::clarify::{pins_of, Pins};
 use crate::fleet::STOP_PHASE;
@@ -243,6 +243,65 @@ fn drift(table: Option<GraphTable>, runs: &[GraphRun]) -> (usize, Option<String>
     )
 }
 
+/// The rules as the graph draws them: one link per state and next state,
+/// in the order its first rule holds, its outcomes by result.
+fn links(rules: &[Edge]) -> Vec<Link> {
+    let mut links: Vec<Link> = Vec::new();
+    for rule in rules {
+        let Some(next) = &rule.next else { continue };
+        let at = match links
+            .iter()
+            .position(|link| link.from == rule.from && &link.next == next)
+        {
+            Some(at) => at,
+            None => {
+                links.push(Link {
+                    from: rule.from.clone(),
+                    next: next.clone(),
+                    kind: rule.kind,
+                    count: 0,
+                    rules: 0,
+                    outcomes: Vec::new(),
+                    text: String::new(),
+                });
+                links.len() - 1
+            }
+        };
+        let link = &mut links[at];
+        link.count += rule.count;
+        link.rules += 1;
+        if rule.count == 0 {
+            continue;
+        }
+        match link
+            .outcomes
+            .iter_mut()
+            .find(|outcome| outcome.result == rule.result)
+        {
+            Some(outcome) => outcome.count += rule.count,
+            None => link.outcomes.push(Outcome {
+                result: rule.result.clone(),
+                count: rule.count,
+                text: String::new(),
+            }),
+        }
+    }
+    for link in &mut links {
+        // The most runs first; a tie keeps the table's order.
+        link.outcomes.sort_by_key(|outcome| std::cmp::Reverse(outcome.count));
+        for outcome in &mut link.outcomes {
+            outcome.text = format!("{} {}", outcome.result, outcome.count);
+        }
+        let words: Vec<&str> = link
+            .outcomes
+            .iter()
+            .map(|outcome| outcome.text.as_str())
+            .collect();
+        link.text = words.join(" · ");
+    }
+    links
+}
+
 /// The 90th percentile of `sorted` by nearest rank; `None` of nothing.
 pub(super) fn p90(sorted: &[i64]) -> Option<i64> {
     let rank = (sorted.len() * 9).div_ceil(10);
@@ -406,6 +465,7 @@ pub fn graph(query: &GraphQuery) -> Result<GraphView, GraphError> {
             of: rules.len(),
             text: format!("{dormant} of {}", rules.len()),
         },
+        links: links(&rules),
         rules,
         retired,
         drifted_runs,

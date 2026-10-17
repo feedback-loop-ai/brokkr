@@ -29,6 +29,13 @@ Status: proposed. Fired by the operator on 2026-10-17. Each task closes on obser
 - [x] 4.2 TUI: the seat pane's tokens cell reads `Σ total ↑ in ↓ out · cache hit`; `brokkr graph`'s text the same. `tui/seats.rs`, `verbs/graph.rs`; `tui/tests.rs` `a_seats_tokens_read_with_arrows_and_the_cache_hit`, the graph text tests.
 - [x] 4.3 Console: the state panel's Tokens and Cache hit; the Pareto table's Cache hit column; the host validates the cells. `lib/client.js`, `lib/host/readouts.js`; `tests/library.test.js`.
 
+## 5. The graph reworked, the picker, the question boxes (D3, D7, D10)
+
+- [x] 5.1 `brokkr-view`: `GraphView.links`, one per pair of states with its outcomes by result; test. `graph.rs` `Link`, `Outcome`; `graph/figures.rs` `links`; `graph/tests.rs` `the_graph_draws_one_link_per_pair_of_states_with_the_outcomes_that_fired`. Public-API snapshot measured.
+- [x] 5.2 Client: links drawn thin with outcome chips, dormant links faint and unlabelled, no chip over a chip or a state; the host validates links. `lib/client.js` `layoutOf`, `StateMachine`, `chipsOf`; `lib/host/readouts.js` `graphLink`; `tests/library.test.js`.
+- [x] 5.3 Client: the recipe dropdown. `lib/client.js` `RecipePicker`; `tests/library.test.js`.
+- [x] 5.4 The question boxes hidden unless `BROKKR_CONSOLE_ASK=1`. `lib/host/config.js`, `lib/host/poller.js`, `lib/client.js`; `tests/client.test.js`, `tests/poller.test.js`.
+
 ## 3. Docs and observation
 
 - [x] 3.1 The guide, the status row and `brokkr graph` in the CLI reference. `docs/guides/dsh-console.md`, `docs/status.md`, `docs/reference/cli.md`.

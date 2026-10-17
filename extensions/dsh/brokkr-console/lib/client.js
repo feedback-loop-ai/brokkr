@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
 
     /** One socket for the panel and its list entry; reconnects with a fresh snapshot. */
     const store = {
-      state: { fleet: null, overview: null, run: null, error: null, live: false, workspace: null, suggestions: {}, targets: null },
+      state: { fleet: null, overview: null, run: null, error: null, live: false, workspace: null, ask: false, suggestions: {}, targets: null },
       ctx: null,
       listeners: new Set(),
       watch: { type: 'watch', view: 'none', run: null },
@@ -55,7 +55,7 @@ window.__ModuleLoader__.load({
     function receive(message) {
       switch (message.type) {
         case 'snapshot':
-          return emit({ fleet: message.fleet, overview: message.overview, run: message.run, error: null, workspace: message.workspace ?? store.state.workspace })
+          return emit({ fleet: message.fleet, overview: message.overview, run: message.run, error: null, workspace: message.workspace ?? store.state.workspace, ask: message.ask === true })
         case 'fleet':
           return emit({ fleet: message.fleet, error: null })
         case 'overview':
@@ -404,7 +404,7 @@ window.__ModuleLoader__.load({
           pane(`realms · ${hearths.length}`, 'Realms', '', h('div', { className: 'bk-realm-rows' }, order(hearths).map((hearth) => h(RealmRow, { key: hearth.realm, hearth, day: dayOf(hearth), open, here })))),
           h(Queue, { queue: state.overview?.queue }),
           h(Muninn, { muninn: state.overview?.muninn })),
-        h(AskBar, { context: [{ kind: 'Brokkr', name: 'every realm' }], about: 'About Brokkr across every realm the console reads.', dir: folder ?? state.workspace, sessionId }))
+        state.ask ? h(AskBar, { context: [{ kind: 'Brokkr', name: 'every realm' }], about: 'About Brokkr across every realm the console reads.', dir: folder ?? state.workspace, sessionId }) : null)
     }
 
     // ------------------------------------------------------------ one realm
@@ -995,7 +995,7 @@ window.__ModuleLoader__.load({
         row === null
           ? h('main', { className: 'bk-main' }, h(RunList, { hearth, selected: runId, select }))
           : h(Run, { hearth, row, run: state.run, see, picked, pick }),
-        h(AskBar, { context, about, dir: row === null ? (folder ?? state.workspace) : (runView?.worktree ?? folder ?? state.workspace), sessionId }))
+        state.ask ? h(AskBar, { context, about, dir: row === null ? (folder ?? state.workspace) : (runView?.worktree ?? folder ?? state.workspace), sessionId }) : null)
     }
 
     // ------------------------------------------------------------ analytics
@@ -1090,101 +1090,128 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------ the library
 
-    /** A rule's edge width in pixels (design D3): `1.5 + 0.35 × count`, at most 12; a rule that never fired is 1.5, and dashed. */
-    const edgeWidth = (count) => Math.min(12, 1.5 + 0.35 * count)
+    /**
+     * A link's stroke in pixels (design D3): a link whose rules never fired
+     * is 1.25 and dashed; a fired one runs from 1.5 to 4 by the square root
+     * of its share of the busiest link, so heavy traffic reads heavier
+     * without turning into a bar.
+     */
+    const edgeWidth = (count, most) => (count === 0 ? 1.25 : 1.5 + 2.5 * Math.sqrt(count / Math.max(most, count, 1)))
 
-    /** The Library's graph, in pixels: a state's box, its header and seat lines and footer, a terminal's pill, the gaps, an arc's rise and lane. */
-    const GRAPH = { box: 196, head: 44, line: 16, foot: 24, terminal: 120, pill: 44, gap: 64, pad: 24, below: 104, rise: 48, lane: 18, least: 0.6 }
+    /** The Library's graph, in pixels: a state's box, its header, seat lines and footer, a terminal's pill, the gaps, an arc's rise and lane, and an outcome chip. */
+    const GRAPH = { box: 196, head: 44, line: 16, foot: 24, terminal: 120, pill: 44, gap: 56, pad: 24, below: 132, rise: 34, lane: 26, least: 0.6, chip: 18, glyph: 6.6, inset: 12, apart: 4 }
     const boxHeight = (state) => GRAPH.head + Math.max(state.seats.length, 1) * GRAPH.line + GRAPH.foot
+    /** One outcome's chip width, and a link's chips side by side. */
+    const chipWidth = (text) => Math.ceil(text.length * GRAPH.glyph) + GRAPH.inset
+    const chipsWidth = (link) => link.outcomes.reduce((sum, outcome) => sum + chipWidth(outcome.text) + GRAPH.apart, -GRAPH.apart)
 
-    /** One edge's path and its label's point, `{d, x, y, anchor}`, by where its ends sit; `lane` is its arc's when it arcs above the row. */
-    function pathOf(from, to, nth, lane) {
+    /** One link's path and the centre of its chips, `{d, x, y}`, by where its ends sit; `lane` is its arc's when it arcs above the row. */
+    function pathOf(from, to, lane) {
       if (from === to) {
-        const [x, y, rise] = [from.cx, from.y, 44 + nth * 16]
-        return { d: `M${x - 16} ${y}C${x - 34} ${y - rise} ${x + 34} ${y - rise} ${x + 16} ${y}`, x, y: y - rise * 0.75 - 6, anchor: 'middle' }
+        const [x, y, rise] = [from.cx, from.y, 40]
+        return { d: `M${x - 16} ${y}C${x - 34} ${y - rise} ${x + 34} ${y - rise} ${x + 16} ${y}`, x, y: y - rise - 6 }
       }
       if (to.state.place === 'beneath') {
-        const [sx, sy] = [from.cx + nth * 14, from.y + from.height]
-        // Each edge into a terminal lands toward the side it comes from, so several into `stop` stay apart.
+        const [sx, sy] = [from.cx, from.y + from.height]
+        // Each link into a terminal lands toward the side it comes from, so several into `stop` stay apart.
         const tx = to.cx + Math.max(14 - to.width / 2, Math.min(to.width / 2 - 14, (from.cx - to.cx) / 6))
-        return { d: `M${sx} ${sy}C${sx} ${sy + 56} ${tx} ${to.y - 56} ${tx} ${to.y}`, x: sx + 8, y: sy + 22 + nth * 14, anchor: 'start' }
+        return { d: `M${sx} ${sy}C${sx} ${sy + 70} ${tx} ${to.y - 70} ${tx} ${to.y}`, x: sx, y: sy + 30 }
       }
       if (lane === null) {
-        const [sx, tx, y] = [from.x + from.width, to.x - 2, from.y + from.height / 2 + nth * 18]
-        return { d: `M${sx} ${y}H${tx}`, x: (sx + tx) / 2, y: y - 10, anchor: 'middle' }
+        const [sx, tx, y] = [from.x + from.width, to.x - 2, Math.max(from.y, to.y) + Math.min(from.height, to.height) / 2]
+        return { d: `M${sx} ${y}H${tx}`, x: (sx + tx) / 2, y: y - GRAPH.chip / 2 - 6 }
       }
       const toward = Math.sign(to.cx - from.cx)
       const [sx, tx, base, rise] = [from.cx + toward * 24, to.cx - toward * 24, Math.min(from.y, to.y), GRAPH.rise + lane * GRAPH.lane]
-      return { d: `M${sx} ${from.y}C${sx} ${base - rise} ${tx} ${base - rise} ${tx} ${to.y}`, x: (sx + tx) / 2, y: base - rise * 0.75 - 6, anchor: 'middle' }
+      return { d: `M${sx} ${from.y}C${sx} ${base - rise * 1.33} ${tx} ${base - rise * 1.33} ${tx} ${to.y}`, x: (sx + tx) / 2, y: base - rise }
     }
 
     /**
      * The view laid out as design D3 places it: the row's states left to right
      * in Brokkr's order with the end terminal (`done`) at its right, the other
-     * terminals beneath it, and each rule's edge by where it goes: along the
-     * row to its neighbour, a loop above its own state, an arc above the row
-     * (back, or past its neighbour), or down to a terminal beneath.
+     * terminals beneath it, and each link by where it goes: along the row to
+     * its neighbour, a loop above its own state, an arc above the row (back,
+     * or past its neighbour), or down to a terminal beneath. A gap is as wide
+     * as the widest chips any neighbour link carries, and fired arcs take the
+     * inner lanes, so no outcome sits on a box or on another.
      */
     function layoutOf(view) {
       const line = [...view.states.filter((state) => state.place === 'row'), ...view.states.filter((state) => state.place === 'end')]
       const beneath = view.states.filter((state) => state.place === 'beneath')
       const rank = new Map(line.map((state, index) => [state.name, index]))
       const named = new Set(view.states.map((state) => state.name))
-      // A park rule (no `next`) has no edge; the state's panel lists it.
-      const drawn = view.rules.filter((rule) => rule.next !== null && named.has(rule.from) && named.has(rule.next))
-      const arched = (rule) => rule.from !== rule.next && rank.has(rule.next) && rank.get(rule.next) !== rank.get(rule.from) + 1
-      const top = GRAPH.pad + GRAPH.rise + drawn.filter(arched).length * GRAPH.lane
+      const drawn = view.links.filter((link) => named.has(link.from) && named.has(link.next))
+      const arched = (link) => link.from !== link.next && rank.has(link.next) && rank.get(link.next) !== rank.get(link.from) + 1
+      const neighbours = drawn.filter((link) => !arched(link) && link.from !== link.next && rank.has(link.next))
+      const gap = Math.max(GRAPH.gap, ...neighbours.map((link) => chipsWidth(link) + 24))
+      const arcs = [...drawn.filter((link) => arched(link) && link.count > 0), ...drawn.filter((link) => arched(link) && link.count === 0)]
+      const top = GRAPH.pad + GRAPH.chip + GRAPH.rise + Math.max(arcs.length, 1) * GRAPH.lane
       const tall = Math.max(GRAPH.pill, ...line.map((state) => (state.place === 'row' ? boxHeight(state) : GRAPH.pill)))
       const places = new Map()
       let x = GRAPH.pad
       for (const state of line) {
         const [width, height] = state.place === 'row' ? [GRAPH.box, boxHeight(state)] : [GRAPH.terminal, GRAPH.pill]
         places.set(state.name, { state, x, y: top + (tall - height) / 2, width, height, cx: x + width / 2 })
-        x += width + GRAPH.gap
+        x += width + gap
       }
-      const across = Math.max(x - GRAPH.gap - GRAPH.pad, GRAPH.terminal)
+      const across = Math.max(x - gap - GRAPH.pad, GRAPH.terminal)
       const low = top + tall + GRAPH.below
       beneath.forEach((state, index) => {
         const cx = GRAPH.pad + ((index + 0.5) * across) / beneath.length
         places.set(state.name, { state, x: cx - GRAPH.terminal / 2, y: low, width: GRAPH.terminal, height: GRAPH.pill, cx })
       })
-      const pairs = new Map()
-      let lane = 0
-      const edges = drawn.map((rule) => {
-        const pair = `${rule.from}\u0000${rule.next}`
-        const nth = pairs.get(pair) ?? 0
-        pairs.set(pair, nth + 1)
-        return { rule, ...pathOf(places.get(rule.from), places.get(rule.next), nth, arched(rule) ? lane++ : null) }
-      })
-      return { places, edges, width: across + 2 * GRAPH.pad, height: (beneath.length === 0 ? top + tall : low + GRAPH.pill) + GRAPH.pad + 40 }
+      const lanes = new Map(arcs.map((link, index) => [link, index]))
+      const edges = drawn.map((link) => ({ link, ...pathOf(places.get(link.from), places.get(link.next), lanes.has(link) ? lanes.get(link) : null) }))
+      return { places, edges, width: across + 2 * GRAPH.pad, height: (beneath.length === 0 ? top + tall : low + GRAPH.pill) + GRAPH.pad }
     }
 
     /** An arrowhead of a fixed size, whatever its edge's width. */
-    const tip = (id, className) => h('marker', { key: id, id, viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 9, markerHeight: 9, markerUnits: 'userSpaceOnUse', orient: 'auto' },
+    const tip = (id, className) => h('marker', { key: id, id, viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 8, markerHeight: 8, markerUnits: 'userSpaceOnUse', orient: 'auto' },
       h('path', { d: 'M0 0L8 4L0 8z', className }))
+
+    /** A link's outcomes as chips, side by side and centred on `(x, y)`: Brokkr's `<result> <count>`, each on its own ground so no line runs through it. */
+    function chipsOf(link, x, y, tone) {
+      let at = x - chipsWidth(link) / 2
+      return link.outcomes.map((outcome) => {
+        const width = chipWidth(outcome.text)
+        const chip = h('g', { key: outcome.result, className: `bk-lib-chip${tone}`, 'data-outcome': outcome.result },
+          h('rect', { x: at, y: y - GRAPH.chip / 2, width, height: GRAPH.chip, rx: GRAPH.chip / 2 }),
+          h('text', { x: at + width / 2, y: y + 4, textAnchor: 'middle' }, outcome.text))
+        at += width + GRAPH.apart
+        return chip
+      })
+    }
 
     /**
      * The recipe's state machine as the graph board draws it: each state a box
-     * holding its seats, each rule an edge as wide as its count, labelled with
-     * Brokkr's `<ID> · <count>`, dashed when it never fired and in the stop
-     * tone when it ends in `stop`; the pulse on each live run's state, which
-     * opens that run in Realms.
+     * holding its seats; each pair of states one link, as wide as the runs it
+     * moved, with the outcomes that moved them as chips; a link whose rules
+     * never fired faint and dashed, with no chip; the stop tone into `stop`;
+     * the pulse on each live run's state, which opens that run in Realms. Each
+     * rule, by its id, is the link's title and the state panel's list.
      */
     function StateMachine({ view, picked, pick, openRun }) {
       const { places, edges, width, height } = layoutOf(view)
-      const ink = edges.map(({ rule, d, x, y, anchor }, index) => {
-        const tone = `${rule.count === 0 ? ' dormant' : ''}${rule.next === 'stop' ? ' stop' : ''}`
-        return h('g', { key: `e${index}` },
-          h('title', null, [`${rule.id}: ${rule.from} → ${rule.next}`, rule.result, ...rule.when].filter((part) => part !== null).join(' · ')),
-          h('path', { d, 'data-rule': rule.id, className: `bk-lib-edge${tone}`, style: { strokeWidth: edgeWidth(rule.count), strokeDasharray: rule.count === 0 ? '5 4' : undefined },
-            markerEnd: `url(#${rule.next === 'stop' ? 'bk-lib-tip-stop' : 'bk-lib-tip'})` }),
-          h('text', { x, y, textAnchor: anchor, 'data-rule': rule.id, className: `bk-lib-label${tone}` }, rule.kind === 'forward' && rule.count > 0 ? String(rule.count) : rule.text))
+      const most = Math.max(1, ...view.links.map((link) => link.count))
+      const end = view.states.find((state) => state.place === 'end')?.name ?? null
+      const lines = []
+      const chips = []
+      edges.forEach(({ link, d, x, y }) => {
+        const tone = `${link.count === 0 ? ' dormant' : ''}${link.next === 'stop' ? ' stop' : link.next === end ? ' done' : ''}`
+        const ids = view.rules.filter((rule) => rule.from === link.from && rule.next === link.next).map((rule) => `${rule.id} ${rule.count}`)
+        const key = `${link.from}→${link.next}`
+        lines.push(h('g', { key: `e${key}` },
+          h('title', null, [`${link.from} → ${link.next}`, link.text === '' ? 'never in range' : link.text, ...ids].join(' · ')),
+          h('path', { d, 'data-link': key, className: `bk-lib-edge${tone}`, style: { strokeWidth: edgeWidth(link.count, most), strokeDasharray: link.count === 0 ? '4 4' : undefined },
+            markerEnd: `url(#${link.next === 'stop' ? 'bk-lib-tip-stop' : 'bk-lib-tip'})` })))
+        if (link.count > 0) chips.push(h('g', { key: `c${key}`, 'data-link': key }, chipsOf(link, x, y, tone)))
       })
+      const boxes = []
       for (const { state, x, y, width, height, cx } of places.values()) {
         const on = state.name === picked
         const row = state.place === 'row'
         const figures = [`${state.entered} entered`, state.median.text, state.cost.cost.kind === 'reported' ? state.cost.text : null].filter((part) => part !== null)
-        ink.push(h('g', { key: `s${state.name}`, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-pressed': on, 'aria-label': `the state ${state.name}`, onClick: () => pick(on ? null : state.name) },
+        boxes.push(h('g', { key: `s${state.name}`, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-pressed': on, 'aria-label': `the state ${state.name}`, onClick: () => pick(on ? null : state.name) },
           h('rect', { x, y, width, height, rx: row ? 10 : height / 2, className: `bk-lib-state ${state.place}${state.name === 'stop' ? ' stop' : ''}${on ? ' sel' : ''}` }),
           row ? [
             h('text', { key: 'name', x: x + 14, y: y + 24, className: 'bk-lib-name' }, state.name),
@@ -1201,15 +1228,16 @@ window.__ModuleLoader__.load({
         if (place === undefined) continue
         const nth = here.get(run.state) ?? 0
         here.set(run.state, nth + 1)
-        ink.push(h('g', { key: `live${run.run_id}`, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-label': `the live run ${run.label}`,
+        boxes.push(h('g', { key: `live${run.run_id}`, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-label': `the live run ${run.label}`,
           transform: `translate(${place.x + place.width - 34 - nth * 28} ${place.y + 8})`, onClick: () => openRun(run.run_id) },
           h('title', null, `${run.label} is here now · open it in Realms`),
           h(Mark, { live: true, size: 14 })))
       }
+      // Lines beneath, boxes over them, the outcome chips over both.
       return h('div', { className: 'bk-graph' },
         h('svg', { viewBox: `0 0 ${width} ${height}`, width: '100%', style: { maxWidth: width, minWidth: Math.round(width * GRAPH.least), height: 'auto' }, className: 'bk-lib-graph', role: 'group', 'aria-label': 'The recipe’s state machine' },
           h('defs', null, tip('bk-lib-tip', 'bk-lib-tip'), tip('bk-lib-tip-stop', 'bk-lib-tip stop')),
-          ink))
+          lines, boxes, chips))
     }
 
     /** The picked state as the board's side panel reads it: its rules with their counts, its figures and its seats, each Brokkr's own. */
@@ -1361,6 +1389,24 @@ window.__ModuleLoader__.load({
             h('td', null, reported(row) ? quadrantOf(row.done_rate, row.cost_per_run.cost.usd, targets) : 'cost not reported')))))))
     }
 
+    /**
+     * The recipe picker: one list however many recipes a realm keeps, those
+     * that ran in range first with their runs as Brokkr counts them, most
+     * first, then the ones that did not, by name.
+     */
+    function RecipePicker({ names, rows, recipe, choose }) {
+      const runs = new Map(rows.map((row) => [row.recipe, row.runs]))
+      const ran = names.filter((name) => runs.has(name)).sort((a, b) => runs.get(b) - runs.get(a) || a.localeCompare(b))
+      const idle = names.filter((name) => !runs.has(name)).sort((a, b) => a.localeCompare(b))
+      const option = (name) => h('option', { key: name, value: name }, runs.has(name) ? `${name} · ${runs.get(name)} ${runs.get(name) === 1 ? 'run' : 'runs'}` : name)
+      return h('label', { className: 'bk-row bk-lib-recipe' }, h('span', { className: 'bk-k' }, 'Recipe'),
+        h('select', { className: 'bk-input bk-lib-select', 'aria-label': 'Recipe', value: recipe ?? '', onChange: (event) => choose(event.target.value) },
+          recipe === null || names.includes(recipe) ? null : h('option', { value: recipe }, recipe),
+          ran.length === 0 ? null : h('optgroup', { label: `ran in range · ${ran.length}` }, ran.map(option)),
+          idle.length === 0 ? null : h('optgroup', { label: `not run in range · ${idle.length}` }, idle.map(option))),
+        h('span', { className: 'bk-d' }, `${names.length} ${names.length === 1 ? 'recipe' : 'recipes'} in this realm`))
+    }
+
     /** The realms Brokkr's figures name, in their order. */
     const realmsIn = (figures) => [...new Set([...figures.realms.map((row) => row.realm), ...figures.recipes.map((row) => row.realm)])]
 
@@ -1426,8 +1472,7 @@ window.__ModuleLoader__.load({
             realms.map((name) => choice(name === realm, name, () => go({ realm: name, recipe: null })))),
           ranges(range, setRange),
           h('span', { className: 'bk-row bk-lib-views', role: 'group', 'aria-label': 'View' }, choice(sub === 'graph', 'Graph', () => goTo({ sub: 'graph' })), choice(sub === 'pareto', 'Pareto', () => goTo({ sub: 'pareto' })))),
-        sub !== 'graph' || names.length === 0 ? null : h('div', { className: 'bk-row', role: 'group', 'aria-label': 'Recipe' }, h('span', { className: 'bk-k' }, 'Recipe'),
-          names.map((name) => choice(name === recipe, name, () => goTo({ recipe: name })))),
+        sub !== 'graph' || names.length === 0 ? null : h(RecipePicker, { names, rows, recipe, choose: (name) => goTo({ recipe: name }) }),
         body)
     }
 

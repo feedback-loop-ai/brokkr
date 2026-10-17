@@ -21,7 +21,7 @@ const bar = (tree) => findAll(tree, (node) => node.props['aria-label'] === 'Aski
 /** The panel, with the console's workspace `/w/console`, opened on the parked run with `view`. */
 function onRun(view = runViewDoc()) {
   const client = mountClient('main')
-  client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleet(), overview: null, run: null })
+  client.push({ type: 'snapshot', workspace: '/w/console', ask: true, fleet: fleet(), overview: null, run: null })
   buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
   buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(view) } })
@@ -42,7 +42,7 @@ test('the client injects the DSH services the assistant uses', () => {
 
 test('Ask Brokkr opens a session in the console’s workspace and sends the question with the tools, the rule to use only them, and the evidence rule', async () => {
   const client = mountClient('main')
-  client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleet(), overview: null, run: null })
+  client.push({ type: 'snapshot', workspace: '/w/console', ask: true, fleet: fleet(), overview: null, run: null })
   assert.match(textOf(bar(client.tree())), /^Asking aboutBrokkr every realm/)
   await ask(client, 'Where should I spend the next hour?')
   const [create, open, draft, submit] = client.dsh.calls
@@ -78,7 +78,7 @@ test('a run with no worktree is asked about in the console’s workspace', async
 
 test('with no directory to open a session in, the question box is disabled and nothing opens', async () => {
   const client = mountClient('main')
-  client.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
+  client.push({ type: 'snapshot', ask: true, fleet: fleet(), overview: null, run: null })
   const input = findAll(bar(client.tree()), (node) => node.type === 'input')[0]
   assert.equal(input.props.disabled, true)
   assert.equal(input.props.placeholder, 'No directory to open a session in')
@@ -87,7 +87,7 @@ test('with no directory to open a session in, the question box is disabled and n
 
 test('a DSH that offers no sessions to plugins says so and asks nothing', async () => {
   const client = mountClient('main', {}, {}, { services: {}, calls: [] })
-  client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleet(), overview: null, run: null })
+  client.push({ type: 'snapshot', workspace: '/w/console', ask: true, fleet: fleet(), overview: null, run: null })
   await ask(client, 'Anything?')
   assert.match(textOf(bar(client.tree())), /Not asked: this DSH does not offer sessions to plugins/)
 })
@@ -161,7 +161,7 @@ test('in a conversation’s tab, the context goes to the host for that conversat
   dsh.services.sessions.list = { getSnapshot: () => ({ ids: ['s1'], byId: { s1: { sessionId: 's1', cwd: '/w/console' } } }), subscribe: () => () => {} }
   const client = mountClient('conversation.view', { sessionId: 's1' }, { '/brokkr-console/api/here': { realm: 'brokkr' }, '/brokkr-console/api/focus': { told: false } }, dsh)
   await settled()
-  client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleet(), overview: null, run: null })
+  client.push({ type: 'snapshot', workspace: '/w/console', ask: true, fleet: fleet(), overview: null, run: null })
   await settled()
   const strip = bar(client.tree())
   assert.equal(findAll(strip, (node) => node.type === 'input').length, 0, 'the conversation’s own box is the one to type in')

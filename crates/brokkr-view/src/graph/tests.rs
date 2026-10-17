@@ -431,6 +431,61 @@ fn each_rule_has_its_kind_and_each_state_its_place() {
 }
 
 #[test]
+fn the_graph_draws_one_link_per_pair_of_states_with_the_outcomes_that_fired() {
+    // Two more rules into stop from verify that never fired: still one
+    // link, three rules, and only the outcome that fired is said.
+    let mut table = table();
+    let extra = |id: &str, result: &str| json!({"id": id, "from": "verify", "result": result, "next": "stop", "reason": id});
+    table["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(extra("VERIFY-BROKE", "broken"));
+    // Conditioned and listed first, as a table layers a rule over another
+    // with the same result.
+    let mut again = extra("VERIFY-FAIL-AGAIN", "fail");
+    again["when"] = json!({"fixes_applied": true});
+    table["rules"].as_array_mut().unwrap().insert(0, again);
+    let view = read_under(Machine::from_table(&table).unwrap(), fleet(), "self", true).unwrap();
+    let link = |from: &str, next: &str| {
+        view.links
+            .iter()
+            .find(|link| link.from == from && link.next == next)
+            .unwrap()
+    };
+    let stop = link("verify", "stop");
+    assert_eq!(
+        (stop.count, stop.rules, stop.kind),
+        (3, 3, RuleKind::Terminal)
+    );
+    assert_eq!(
+        stop.outcomes,
+        [Outcome {
+            result: "fail".into(),
+            count: 3,
+            text: "fail 3".into()
+        }]
+    );
+    assert_eq!(stop.text, "fail 3");
+    // A pair whose one rule never fired is a link with no outcome.
+    let retry = link("design", "design");
+    assert_eq!(
+        (retry.count, retry.kind, retry.text.as_str()),
+        (0, RuleKind::SelfLoop, "")
+    );
+    assert!(retry.outcomes.is_empty());
+    // One link per pair, none for a park, in the order the first rule holds.
+    let pairs: Vec<(&str, &str)> = view
+        .links
+        .iter()
+        .map(|link| (link.from.as_str(), link.next.as_str()))
+        .collect();
+    let mut unique = pairs.clone();
+    unique.dedup();
+    assert_eq!(pairs.len(), unique.len());
+    assert_eq!(pairs[..2], [("verify", "stop"), ("intake", "design")]);
+}
+
+#[test]
 fn the_initial_state_leads_the_row_wherever_the_table_lists_it() {
     // A composed recipe can list the state it starts in last: `landing`
     // extends `fast` and adds `classify`, which lands after `stop`.

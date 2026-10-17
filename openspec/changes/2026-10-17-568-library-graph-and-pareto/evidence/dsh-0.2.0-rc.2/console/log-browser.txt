@@ -1,18 +1,18 @@
-2026-10-17T11:04:25.012Z http 200 /brokkr-console/api/analytics?range=7d
-2026-10-17T11:04:25.827Z http 200 /brokkr-console/api/graph?range=7d&realm=brokkr
-2026-10-17T11:04:29.826Z shot wide-1-graph-brokkr-landing
-2026-10-17T11:04:31.414Z shot wide-2-graph-landing-review-picked
-2026-10-17T11:04:32.320Z http 200 /brokkr-console/api/graph?range=7d&realm=swarmail
-2026-10-17T11:04:37.591Z shot wide-3-graph-swarmail-self
-2026-10-17T11:04:41.672Z shot wide-4-pareto-swarmail
-2026-10-17T11:04:42.528Z http 200 /brokkr-console/api/graph?range=7d&realm=brokkr
-2026-10-17T11:04:46.780Z shot wide-5-pareto-brokkr
-2026-10-17T11:04:56.707Z http 200 /brokkr-console/api/analytics?range=7d
-2026-10-17T11:04:57.502Z http 200 /brokkr-console/api/graph?range=7d&realm=brokkr
-2026-10-17T11:05:01.483Z shot laptop-1-graph-brokkr-landing
-2026-10-17T11:05:02.416Z http 200 /brokkr-console/api/graph?range=7d&realm=swarmail
-2026-10-17T11:05:07.644Z shot laptop-3-graph-swarmail-self
-2026-10-17T11:05:11.757Z shot laptop-4-pareto-swarmail
-2026-10-17T11:05:12.616Z http 200 /brokkr-console/api/graph?range=7d&realm=brokkr
-2026-10-17T11:05:16.911Z shot laptop-5-pareto-brokkr
-2026-10-17T11:05:16.911Z errors []
+2026-10-17T12:10:39.860Z http 200 /brokkr-console/api/analytics?range=7d
+2026-10-17T12:10:40.724Z http 200 /brokkr-console/api/graph?range=7d&realm=brokkr
+2026-10-17T12:10:44.621Z shot wide-1-graph-brokkr-landing
+2026-10-17T12:10:46.290Z shot wide-2-graph-landing-review-picked
+2026-10-17T12:10:47.154Z http 200 /brokkr-console/api/graph?range=7d&realm=swarmail
+2026-10-17T12:10:52.459Z shot wide-3-graph-swarmail-self
+2026-10-17T12:10:56.587Z shot wide-4-pareto-swarmail
+2026-10-17T12:10:57.437Z http 200 /brokkr-console/api/graph?range=7d&realm=brokkr
+2026-10-17T12:11:01.754Z shot wide-5-pareto-brokkr
+2026-10-17T12:11:11.751Z http 200 /brokkr-console/api/analytics?range=7d
+2026-10-17T12:11:12.588Z http 200 /brokkr-console/api/graph?range=7d&realm=brokkr
+2026-10-17T12:11:16.538Z shot laptop-1-graph-brokkr-landing
+2026-10-17T12:11:17.503Z http 200 /brokkr-console/api/graph?range=7d&realm=swarmail
+2026-10-17T12:11:22.716Z shot laptop-3-graph-swarmail-self
+2026-10-17T12:11:26.778Z shot laptop-4-pareto-swarmail
+2026-10-17T12:11:27.659Z http 200 /brokkr-console/api/graph?range=7d&realm=brokkr
+2026-10-17T12:11:31.879Z shot laptop-5-pareto-brokkr
+2026-10-17T12:11:31.879Z errors []
