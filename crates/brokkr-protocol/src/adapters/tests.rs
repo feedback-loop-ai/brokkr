@@ -1,7 +1,7 @@
 use super::*;
 use crate::env_guard::EnvGuard;
-use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::{os::unix::ffi::OsStrExt, path::Path};
+mod claude_usage;
 
 /// One invocation of `kind` over its override as this test's environment
 /// holds it, read by the one reader the way `run_seat` reads it.
