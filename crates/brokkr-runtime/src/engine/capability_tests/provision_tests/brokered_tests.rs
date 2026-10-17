@@ -235,6 +235,10 @@ impl Claude {
             std::env::current_exe().unwrap(),
             self.fixture.engine.workdir(),
         );
+        // The root the engine made and wrote beside the sealed inputs (U8a).
+        let artifacts = PathBuf::from(input[controls::ARTIFACT_ROOT].as_str().unwrap());
+        assert_eq!(artifacts, artifact_root(&self.fixture.engine.run_local()));
+        assert!(artifacts.is_dir(), "made before launch");
         let SealedServers::Brokered(brokers) = &sealed.isolation.servers else {
             panic!("the seat is brokered");
         };
@@ -259,6 +263,7 @@ impl Claude {
                 hands: sealed.spec.as_ref().map(|spec| Transport {
                     brokkr: &brokkr,
                     workdir: &workdir,
+                    artifacts: &artifacts,
                     spec,
                 }),
                 brokers,
@@ -320,7 +325,7 @@ fn document(workdir: &Path, broker: Option<&SealedBroker>) -> String {
     let (exe, workdir) = (exe.to_str().unwrap(), workdir.to_str().unwrap());
     let spec = r#"{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"#;
     let hands = format!(
-        r#""brokkr":{{"args":["hands","serve","--workdir","{workdir}","--spec","{spec}"],"command":"{exe}"}}"#
+        r#""brokkr":{{"args":["hands","serve","--workdir","{workdir}","--artifacts","{workdir}/.forge/artifacts","--spec","{spec}"],"command":"{exe}"}}"#
     );
     let broker = broker.map_or_else(String::new, |broker| {
         format!(
@@ -722,7 +727,8 @@ fn a_broker_set_that_is_not_the_provisioned_one_refuses_its_spawn() {
     };
     for (serving, broker) in [(&sealed, &unbare), (&handless, &broker)] {
         let mut again = spawn.clone();
-        let expanded = beside(&mut again, serving, &workdir, std::slice::from_ref(broker));
+        let worktree = (workdir.as_path(), Path::new("/a"));
+        let expanded = beside(&mut again, serving, worktree, std::slice::from_ref(broker));
         assert_eq!(expanded, Err(Unsealed::Unexpanded));
         assert_eq!(again.argv, spawn.argv);
     }

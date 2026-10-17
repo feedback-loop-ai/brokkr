@@ -32,7 +32,7 @@ mod mcp;
 
 use grammar::{Command, Effect, ListKind};
 use mcp::untransported;
-pub use mcp::{authored_server_conflict, SealedBroker, SealedServers, Transport};
+pub use mcp::{authored_server_conflict, SealedBroker, SealedServers, Transport, ARTIFACT_ROOT};
 
 /// One list flag of a harness's tool selection, as its adapter names it.
 #[derive(Debug, Clone, PartialEq, Eq)]

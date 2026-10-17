@@ -377,6 +377,7 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
             Some(&spec),
             link,
             workdir,
+            Path::new("/a"),
             &roots,
             "/r/p.json",
             Some(&Unboxed {
@@ -413,7 +414,7 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
                     "--sandbox",
                     "read-only",
                     "-c",
-                    r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/work","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#,
+                    r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/work","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#,
                 ])
             ),
         ]
@@ -437,6 +438,8 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
                     "exec",
                     "--workdir",
                     "/work",
+                    "--artifacts",
+                    "/a",
                     "--spec",
                     spec_json,
                     "--bundle-root",
@@ -578,6 +581,7 @@ fn the_driver_extras_begin_after_the_engines_prefix_and_the_verbs_own_escape() {
             Some(&spec),
             None,
             Path::new("/work"),
+            Path::new("/a"),
             &[PathBuf::from("/bundle")],
             "/r/p.json",
             Some(&Unboxed {
@@ -720,18 +724,25 @@ fn compose_site_follows_the_boundary_and_the_class() {
     // The same link resolved unboxed: no workspace fragment composed.
     let unboxed = candidate("codex", Vec::new(), codex_harness());
     assert_eq!(unboxed.argv, base);
+    // Every site below but the last composes over the same worktree,
+    // artifact root, bundle and result path.
+    let artifacts = Path::new("/a");
+    let site = |boundary, class, argv, spec, link, prepared| {
+        let result = "/r/p.json";
+        compose_site(
+            boundary, class, argv, spec, link, workdir, artifacts, &roots, result, prepared,
+        )
+    };
 
     // A site without hands: its command untouched, under every boundary.
     for boundary in [Boundary::Namespace, Boundary::Harness, Boundary::Open] {
-        let spawn = compose_site(
-            built_boundary(boundary).unwrap(),
+        let built = built_boundary(boundary).unwrap();
+        let spawn = site(
+            built,
             SeatClass::Gate,
             base.clone(),
             None,
             Some(&unboxed),
-            workdir,
-            &roots,
-            "/r/p.json",
             None,
         );
         // Its tokens keep the origin the link carried them with.
@@ -747,38 +758,32 @@ fn compose_site_follows_the_boundary_and_the_class() {
 
     // `namespace`: today's path token for token, for a model site and
     // for an exec dispatch, in the engine's environment.
-    let boxed_model = compose_site(
+    let boxed_model = site(
         BuiltBoundary::Namespace,
         SeatClass::Gate,
         codex.argv.clone(),
         Some(&spec),
         Some(&codex),
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     assert_eq!(
         Ok(boxed_model.argv),
-        hands_command(codex.argv.clone(), Some(&spec), workdir, &roots)
+        hands_command(codex.argv.clone(), Some(&spec), workdir, artifacts, &roots)
     );
     assert_eq!(boxed_model.env, SpawnEnv::Inherit);
     assert_eq!(boxed_model.rewalk, None);
     let exec = exec_dispatch(Path::new("/bundle/scripts/verify.sh"));
-    let boxed_exec = compose_site(
+    let boxed_exec = site(
         BuiltBoundary::Namespace,
         SeatClass::Gate,
         exec.clone(),
         Some(&spec),
         None,
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     assert_eq!(
         Ok(boxed_exec.argv.clone()),
-        hands_command(exec.clone(), Some(&spec), workdir, &roots)
+        hands_command(exec.clone(), Some(&spec), workdir, artifacts, &roots)
     );
     assert_eq!(boxed_exec.argv[1], "hands");
     assert_eq!(boxed_exec.env, SpawnEnv::Inherit);
@@ -786,15 +791,12 @@ fn compose_site_follows_the_boundary_and_the_class() {
     // `harness`, a codex gate: unboxed resolution supplies the base
     // argv; the adapter's gate fragment goes in with `{result_path}` expanded, and
     // no MCP server is served; the environment stays the engine's.
-    let gate = compose_site(
+    let gate = site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
         base.clone(),
         Some(&spec),
         Some(&codex),
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     let mut expected = base.clone();
@@ -821,15 +823,12 @@ fn compose_site_follows_the_boundary_and_the_class() {
     assert_eq!(gate.rewalk, None);
 
     // A codex work site under `harness`: the writable class, no server.
-    let work = compose_site(
+    let work = site(
         BuiltBoundary::Harness,
         SeatClass::Work,
         base.clone(),
         Some(&spec),
         Some(&codex),
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     let mut expected = base.clone();
@@ -840,15 +839,12 @@ fn compose_site_follows_the_boundary_and_the_class() {
     let mut branded = codex_harness();
     branded.gate = Some(vec!["--hook".into(), "{brokkr}".into()]);
     let branded = candidate("codex", CODEX_FRAGMENT.to_vec(), branded);
-    let hooked = compose_site(
+    let hooked = site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
         base.clone(),
         Some(&spec),
         Some(&branded),
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     assert_eq!(hooked.argv[hooked.argv.len() - 1], exe);
@@ -856,42 +852,33 @@ fn compose_site_follows_the_boundary_and_the_class() {
     // A link declaring no fragment for the class appends nothing; a
     // site with no link (nothing resolved) is left its own argv.
     let bare = candidate("silent", CODEX_FRAGMENT.to_vec(), HarnessHands::default());
-    let nothing = compose_site(
+    let nothing = site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
         bare.argv[..6].to_vec(),
         Some(&spec),
         Some(&bare),
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     assert_eq!(nothing.argv, bare.argv[..6].to_vec());
-    let unlinked = compose_site(
+    let unlinked = site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
         base.clone(),
         Some(&spec),
         None,
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     assert_eq!(unlinked.argv, base);
 
     // `open`, a work site: the base driver argv and nothing of Brokkr's,
     // in the engine's environment because the harness needs the keys.
-    let open = compose_site(
+    let open = site(
         BuiltBoundary::Open,
         SeatClass::Work,
         base.clone(),
         Some(&spec),
         Some(&codex),
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     assert_eq!(open.argv, base);
@@ -900,15 +887,12 @@ fn compose_site_follows_the_boundary_and_the_class() {
     // A site declaring `network: false` keeps its manifest entry and
     // gets no network switch of its own in the argv.
     let quiet = HandsSpec::parse(&json!({"kind": "workspace", "network": false})).unwrap();
-    let quieted = compose_site(
+    let quieted = site(
         BuiltBoundary::Harness,
         SeatClass::Gate,
         base.clone(),
         Some(&quiet),
         Some(&codex),
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     assert!(!quieted.argv.iter().any(|part| part.contains("network")));
@@ -926,26 +910,22 @@ fn compose_site_follows_the_boundary_and_the_class() {
     let mut expected = network_prefix(7, 8);
     expected.extend(exec.clone());
     for boundary in [Boundary::Harness, Boundary::Open] {
-        let as_gate = compose_site(
-            built_boundary(boundary).unwrap(),
+        let built = built_boundary(boundary).unwrap();
+        let spec = Some(&spec);
+        let as_gate = site(
+            built,
             SeatClass::Gate,
             exec.clone(),
-            Some(&spec),
+            spec,
             None,
-            workdir,
-            &roots,
-            "/r/p.json",
             Some(&unboxed),
         );
-        let as_work = compose_site(
-            built_boundary(boundary).unwrap(),
+        let as_work = site(
+            built,
             SeatClass::Work,
             exec.clone(),
-            Some(&spec),
+            spec,
             None,
-            workdir,
-            &roots,
-            "/r/p.json",
             Some(&unboxed),
         );
         assert_eq!(
@@ -961,30 +941,25 @@ fn compose_site_follows_the_boundary_and_the_class() {
     }
     // With the probe failing (no prefix) the argv is the command alone,
     // and with nothing prepared at all the environment is empty.
-    let plain = compose_site(
+    let unprobed = Unboxed {
+        env: table.clone(),
+        prefix: Vec::new(),
+    };
+    let plain = site(
         BuiltBoundary::Open,
         SeatClass::Gate,
         exec.clone(),
         Some(&spec),
         None,
-        workdir,
-        &roots,
-        "/r/p.json",
-        Some(&Unboxed {
-            env: table.clone(),
-            prefix: Vec::new(),
-        }),
+        Some(&unprobed),
     );
     assert_eq!(plain.argv, exec);
-    let unprepared = compose_site(
+    let unprepared = site(
         BuiltBoundary::Open,
         SeatClass::Gate,
         exec.clone(),
         Some(&spec),
         None,
-        workdir,
-        &roots,
-        "/r/p.json",
         None,
     );
     assert_eq!(unprepared.env, SpawnEnv::Exactly(BTreeMap::new()));
@@ -996,6 +971,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
         Some(&spec),
         None,
         workdir,
+        artifacts,
         &[],
         "/r/p.json",
         None,
@@ -1086,6 +1062,7 @@ fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
         Some(spec),
         None,
         Path::new("/repo"),
+        Path::new("/a"),
         &bundle.roots,
         "/r/p.json",
         Some(&Unboxed {
@@ -1122,6 +1099,7 @@ fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
             Some(spec),
             None,
             Path::new("/repo"),
+            Path::new("/a"),
             &bundle.roots,
             "/r/p.json",
             Some(&Unboxed::default()),
@@ -1197,6 +1175,7 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
             None,
             None,
             Path::new("/repo"),
+            Path::new("/a"),
             std::slice::from_ref(&root),
             "/result.json",
             None,
@@ -1212,6 +1191,7 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
                 Some(&spec),
                 None,
                 Path::new("/repo"),
+                Path::new("/a"),
                 std::slice::from_ref(&root),
                 "/result.json",
                 None,
@@ -3198,6 +3178,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
         Some(&HandsSpec::default()),
         None,
         dir.path(),
+        Path::new("/a"),
         std::slice::from_ref(&layer),
         "/r/p.json",
         None,
@@ -3811,6 +3792,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
         hands.as_ref(),
         Some(candidate),
         workdir.path(),
+        Path::new("/a"),
         &[],
         result_path,
         None,
@@ -3927,6 +3909,9 @@ fn a_resume_under_another_word_is_refused_naming_boundary() {
 
 /// The judge's door: the last message (moved to a child module by U1g2).
 mod door_tests;
+/// The artifact root the engine makes and an exec seat's box cannot
+/// change (U8a).
+mod evidence_tests;
 
 #[test]
 fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {
@@ -4255,331 +4240,4 @@ fn the_shipped_verify_input_and_prompt_name_no_workspace_tool_under_any_built_bo
 }
 
 // ───────────────── issue #307: the engine smith's launch, as composed
-
-const SMITH_POLICY: &str = r#"{
-  "schema": "forge.phase-machine/v1",
-  "phases": ["work", "review", "done", "stop"],
-  "initial": "work",
-  "terminal": ["done", "stop"],
-  "shippable_from": ["review"],
-  "rules": [
-    {"id": "W-PASS", "from": "work", "result": "pass", "next": "review", "reason": "work concluded"},
-    {"id": "W-FAIL", "from": "work", "result": "fail", "next": "stop", "reason": "work failed"},
-    {"id": "R-OK", "from": "review", "result": "clean", "next": "done", "reason": "review concluded"}
-  ]
-}"#;
-
-fn repository() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .unwrap()
-}
-
-/// A two-seat bundle under `dir` whose `work` seat hires `agent` as a
-/// work-class office, compiled under `boundary` against `agents` and the
-/// SHIPPED adapters. No provider is probed and nothing is spawned.
-fn smith_bundle(dir: &Path, agents: &Path, agent: &str, boundary: Boundary) -> Bundle {
-    let bundle = dir.join("bundle");
-    std::fs::create_dir_all(bundle.join("roles")).unwrap();
-    std::fs::write(bundle.join("policy.json"), SMITH_POLICY).unwrap();
-    std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
-    let config = json!({
-        "name": "smith",
-        "policy": "policy.json",
-        "seats": {
-            "work": {"results": ["pass", "fail"], "class": "work", "agent": agent},
-            "review": {
-                "role": "roles/role.md",
-                "results": ["clean"],
-                "driver": {"command": ["true"]},
-            },
-        }
-    });
-    std::fs::write(bundle.join("bundle.json"), config.to_string()).unwrap();
-    Bundle::compile_under(&bundle, agents, &repository().join("adapters"), boundary)
-        .unwrap_or_else(|error| panic!("the smith compiles under `{boundary}`: {error}"))
-}
-
-fn smith_site(bundle: &Bundle) -> (&[Candidate], &HandsSpec) {
-    let SeatBody::Invocation(Invocation::Single { candidates, .. }) = &bundle.seats["work"].body
-    else {
-        panic!("the smith is a single seat")
-    };
-    let hands = bundle.sites["work"]
-        .hands_spec()
-        .expect("the compiler recorded the smith's hands");
-    (candidates, hands)
-}
-
-/// The SHIPPED engine smith compiled under `namespace` in a fresh root,
-/// beside the checkout its launch runs in.
-fn shipped_smith() -> (tempfile::TempDir, PathBuf, Bundle) {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    let workdir = root.join("checkout");
-    std::fs::create_dir_all(workdir.join("results")).unwrap();
-    let agents = repository().join("agents");
-    let bundle = smith_bundle(&root, &agents, "implementer-engine", Boundary::Namespace);
-    (dir, workdir, bundle)
-}
-
-/// One link of the smith's chain composed as its work site under
-/// `boundary` by production `compose_site`, as the engine launches it.
-fn compose_smith(
-    boundary: BuiltBoundary,
-    link: &Candidate,
-    hands: &HandsSpec,
-    workdir: &Path,
-    bundle: &Bundle,
-) -> SiteSpawn {
-    let result_path = workdir.join("results/fx.json");
-    compose_site(
-        boundary,
-        SeatClass::Work,
-        link.argv.clone(),
-        Some(hands),
-        Some(link),
-        workdir,
-        &bundle.roots,
-        result_path.to_str().unwrap(),
-        None,
-    )
-}
-
-fn engine_exe() -> String {
-    std::env::current_exe()
-        .unwrap()
-        .to_string_lossy()
-        .into_owned()
-}
-
-/// The box the shipped smith declares, written out by hand: the expected
-/// side of every assertion below is a literal, never the serialiser.
-fn assert_serves_the_smiths_box(served: &[String], workdir: &Path) {
-    assert_eq!(served.len(), 6, "{served:?}");
-    assert_eq!(
-        served[..5],
-        [
-            "hands",
-            "serve",
-            "--workdir",
-            workdir.to_str().unwrap(),
-            "--spec"
-        ],
-        "{served:?}"
-    );
-    let policy: Value = serde_json::from_str(&served[5]).expect("the spec is JSON");
-    assert_eq!(
-        policy,
-        json!({
-            "kind": "workspace",
-            "network": false,
-            "binds": [
-                {
-                    "path": "~/.cargo",
-                    "mode": "overlay",
-                    "mask": ["credentials.toml", "credentials"]
-                },
-                {"path": "~/.rustup", "mode": "ro", "mask": []}
-            ]
-        })
-    );
-}
-
-fn assert_no_token_is_left_unexpanded(argv: &[String]) {
-    for token in [
-        "{brokkr}",
-        "{hands_mcp_json}",
-        "{hands_args_toml}",
-        "{result_path}",
-    ] {
-        assert!(
-            !argv.iter().any(|part| part.contains(token)),
-            "{token} in {argv:?}"
-        );
-    }
-}
-
-/// The shipped engine smith, compiled under `namespace` from the shipped
-/// agent and adapters and composed by production `compose_site`, first
-/// link: sol on Codex. The native sandbox is the read-only one
-/// `hands.workspace` declares, the one writable surface is the MCP hands
-/// server carrying the declared box, the harness work fragment is absent
-/// and no tool-list flag appears anywhere. This is what the launch SAYS;
-/// what Codex enforces natively is the controller's live measurement.
-#[test]
-fn the_shipped_engine_smith_launches_sol_read_only_with_the_boxed_hands_server() {
-    let (_dir, workdir, bundle) = shipped_smith();
-    assert_eq!(bundle.manifest["boundary"], json!({"work": "namespace"}));
-    let (candidates, hands) = smith_site(&bundle);
-    let sol = &candidates[0];
-    assert_eq!(
-        (sol.provider.as_str(), sol.model.as_str()),
-        ("codex", "sol")
-    );
-
-    let spawn = compose_smith(BuiltBoundary::Namespace, sol, hands, &workdir, &bundle);
-    let exe = engine_exe();
-    assert_eq!(spawn.argv.len(), 16, "{:?}", spawn.argv);
-    let served = spawn.argv[13]
-        .strip_prefix("mcp_servers.brokkr.args=")
-        .expect("the MCP server's arguments");
-    // A TOML array of basic strings escaped with `\\` and `\"` alone is
-    // also a JSON array, so it is decoded here without the serialiser.
-    let served: Vec<String> = serde_json::from_str(served).expect("an array of strings");
-    assert_serves_the_smiths_box(&served, &workdir);
-    assert_eq!(
-        spawn.argv,
-        [
-            exe.as_str(),
-            "driver",
-            "codex",
-            "--",
-            "--model",
-            "gpt-6.1-sol",
-            "--effort",
-            "medium",
-            "--sandbox",
-            "read-only",
-            "-c",
-            &format!("mcp_servers.brokkr.command=\"{exe}\""),
-            "-c",
-            spawn.argv[13].as_str(),
-            "-c",
-            "mcp_servers.brokkr.default_tools_approval_mode=\"approve\"",
-        ]
-    );
-    assert!(spawn.refusal.is_none() && spawn.rewalk.is_none());
-    for absent in [
-        "workspace-write",
-        "danger-full-access",
-        "sandbox_mode",
-        "--allowedTools",
-        "--disallowedTools",
-        "--tools",
-        "Bash(",
-    ] {
-        assert!(
-            !spawn.argv.iter().any(|part| part.contains(absent)),
-            "{absent} in {:?}",
-            spawn.argv
-        );
-    }
-    assert_no_token_is_left_unexpanded(&spawn.argv);
-}
-
-/// The same compile's second link: fable on Claude. Its complete
-/// workspace fragment survives in order, its one `--allowedTools` grant
-/// is the MCP workspace tool and nothing of the retired Cargo/Git list,
-/// and its MCP server carries the same box.
-#[test]
-fn the_shipped_engine_smith_falls_back_to_fable_with_the_mcp_grant_alone() {
-    let (_dir, workdir, bundle) = shipped_smith();
-    let (candidates, hands) = smith_site(&bundle);
-    assert_eq!(candidates.len(), 2);
-    let fable = &candidates[1];
-    assert_eq!(
-        (fable.provider.as_str(), fable.model.as_str()),
-        ("claude", "fable")
-    );
-
-    let spawn = compose_smith(BuiltBoundary::Namespace, fable, hands, &workdir, &bundle);
-    let exe = engine_exe();
-    assert_eq!(spawn.argv.len(), 17, "{:?}", spawn.argv);
-    let config: Value = serde_json::from_str(&spawn.argv[14]).expect("the MCP config is JSON");
-    let server = &config["mcpServers"]["brokkr"];
-    assert_eq!(
-        config,
-        json!({"mcpServers": {"brokkr": {"command": exe, "args": server["args"]}}}),
-        "one server, and nothing beside its command and arguments"
-    );
-    let served: Vec<String> = serde_json::from_value(server["args"].clone()).unwrap();
-    assert_serves_the_smiths_box(&served, &workdir);
-    assert_eq!(
-        spawn.argv,
-        [
-            exe.as_str(),
-            "driver",
-            "claude",
-            "--",
-            "--permission-mode",
-            "acceptEdits",
-            "--model",
-            "claude-fable-5-1",
-            "--effort",
-            "high",
-            "--tools",
-            "",
-            "--strict-mcp-config",
-            "--mcp-config",
-            spawn.argv[14].as_str(),
-            "--allowedTools",
-            "mcp__brokkr__workspace",
-        ]
-    );
-    // The MCP config names `~/.cargo` as a bind, so it is read apart.
-    for absent in ["Bash(", "cargo", "git", "workspace-write", "--sandbox"] {
-        assert!(
-            !spawn.argv[1..14]
-                .iter()
-                .chain(&spawn.argv[15..])
-                .any(|part| part.contains(absent)),
-            "{absent} in {:?}",
-            spawn.argv
-        );
-    }
-    assert_no_token_is_left_unexpanded(&spawn.argv);
-}
-
-/// H1's launch control, the separate unboxed path (decision 0046 ruling
-/// 4). A Codex-only smith with the same hands is COMPILED under `harness`
-/// and composed from that compile: exactly the declared writable
-/// fragment, no workspace MCP registration and no tool list. The hands
-/// stay on the record, and under this boundary Brokkr enforces none of
-/// them — the harness's own sandbox is what stands.
-#[test]
-fn a_codex_only_smith_compiled_under_harness_launches_the_work_fragment_alone() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    let agents = root.join("agents");
-    std::fs::create_dir_all(agents.join("charters")).unwrap();
-    std::fs::write(agents.join("charters/smith.md"), "# charter\n").unwrap();
-    let mut smith: Value = serde_json::from_slice(
-        &std::fs::read(repository().join("agents/implementer-engine.json")).unwrap(),
-    )
-    .unwrap();
-    smith["charter"] = json!("charters/smith.md");
-    smith["models"] = json!(["sol"]);
-    smith["efforts"] = json!({"sol": "medium"});
-    std::fs::write(agents.join("smith.json"), smith.to_string()).unwrap();
-    let workdir = root.join("checkout");
-    std::fs::create_dir_all(workdir.join("results")).unwrap();
-
-    let bundle = smith_bundle(&root, &agents, "smith", Boundary::Harness);
-    assert_eq!(bundle.boundary, Boundary::Harness);
-    assert_eq!(bundle.manifest["boundary"], json!({"work": "harness"}));
-    assert_eq!(bundle.manifest["hands"]["work"]["network"], json!(false));
-    let (candidates, hands) = smith_site(&bundle);
-    assert_eq!(hands.binds.len(), 2);
-    let sol = &candidates[0];
-    assert!(sol.hands_fragment.is_empty(), "{:?}", sol.argv);
-
-    let spawn = compose_smith(BuiltBoundary::Harness, sol, hands, &workdir, &bundle);
-    let exe = engine_exe();
-    assert_eq!(
-        spawn.argv,
-        [
-            exe.as_str(),
-            "driver",
-            "codex",
-            "--",
-            "--model",
-            "gpt-6.1-sol",
-            "--effort",
-            "medium",
-            "--sandbox",
-            "workspace-write",
-        ]
-    );
-}
+mod smith_tests;

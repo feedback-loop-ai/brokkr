@@ -20,7 +20,7 @@ use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::native_controls::{
     flatten, pin_fault, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
     LocalExpectation, Origin, SandboxIntent, SealedBroker, SealedServing, Segment,
-    TemplateExpectation, Transport, SERVING_INPUTS,
+    TemplateExpectation, ARTIFACT_ROOT, SERVING_INPUTS,
 };
 use brokkr_protocol::process::{DriverProcess, SpawnEnv};
 use brokkr_protocol::AttemptOutcome;
@@ -44,7 +44,9 @@ use brokkr_protocol::Cleanup;
 use brokkr_protocol::{AttemptReport, CleanupEvidence};
 use serde::Serialize;
 
+mod boxed;
 mod broker;
+use boxed::{artifact_root, hands_command, make_root};
 mod capability_calls;
 mod checkpoints;
 mod decide;
@@ -1241,9 +1243,11 @@ impl Engine {
         let Some(outcome) = outcome else {
             return;
         };
-        let workdir = self.workdir();
+        let (workdir, artifacts) = (self.workdir(), artifact_root(&self.run_local()));
         let sealed = expected_state(outcome, link, facts).and_then(|expected| {
-            let served = isolation::served(spawn, (link, facts), self.boundary, &workdir, brokers);
+            let site = (link, facts);
+            let served =
+                isolation::served(spawn, site, self.boundary, (&workdir, &artifacts), brokers);
             let serving = served.map_err(|unsealed| unsealed.to_string())?;
             spawn.seal(expected)?;
             spawn.serving = Some(serving);
@@ -1252,6 +1256,7 @@ impl Engine {
         match sealed {
             Ok(()) => {
                 input["launch_arguments"] = spawn.launch_arguments();
+                input[ARTIFACT_ROOT] = json!(artifacts.to_string_lossy());
                 input[LAUNCH_RECORD] = spawn.launch_record();
                 input[SERVING_INPUTS] = spawn
                     .serving
@@ -1465,7 +1470,12 @@ impl Engine {
             SeatClass::Work
         };
         let facts = label.and_then(|label| self.bundle.sites.get(label));
-        SiteSpawn {
+        // U8a (CR2): a box is handed the run's artifact root, made here
+        // before launch; one that cannot be made refuses the spawn.
+        let artifacts = artifact_root(&self.run_local());
+        let boxed = boundary == BuiltBoundary::Namespace;
+        let unrooted = boxed.then(|| make_root(&artifacts).err()).flatten();
+        let mut spawn = SiteSpawn {
             // Rebuild unit 18: the site's own charter binding rides its
             // spawn to the dispatch door.
             charter: facts.and_then(|facts| facts.charter.clone()),
@@ -1477,11 +1487,16 @@ impl Engine {
                 hands,
                 link,
                 &workdir,
+                &artifacts,
                 &self.bundle.roots,
                 result_path,
                 unboxed.as_ref(),
             )
-        }
+        };
+        spawn.refusal = unrooted
+            .map(|unrooted| unrooted.to_string())
+            .or(spawn.refusal);
+        spawn
     }
 
     /// What an unboxed exec dispatch starts in (design DD10, DD15): the
@@ -2982,6 +2997,7 @@ pub fn compose_site(
     hands: Option<&HandsSpec>,
     candidate: Option<&Candidate>,
     workdir: &Path,
+    artifacts: &Path,
     roots: &[PathBuf],
     result_path: &str,
     unboxed: Option<&Unboxed>,
@@ -2994,6 +3010,7 @@ pub fn compose_site(
         hands,
         candidate,
         workdir,
+        artifacts,
         roots,
         result_path,
         unboxed,
@@ -3024,6 +3041,7 @@ pub fn compose_site_at(
     hands: Option<&HandsSpec>,
     candidate: Option<&Candidate>,
     workdir: &Path,
+    artifacts: &Path,
     roots: &[PathBuf],
     result_path: &str,
     unboxed: Option<&Unboxed>,
@@ -3054,34 +3072,50 @@ pub fn compose_site_at(
         Ok(segments) => (segments, None),
         Err(reason) => (vec![Segment::new(Origin::Authored, &command)], Some(reason)),
     };
-    let mut spawn = compose_segments(
+    let site = Composing {
         boundary,
         class,
-        segments,
         hands,
         candidate,
         workdir,
+        artifacts,
         roots,
         result_path,
         unboxed,
-    );
+    };
+    let mut spawn = compose_segments(&site, segments);
     spawn.refusal = spawn.refusal.or(refusal);
     spawn.class = Some(class);
     spawn
 }
 
-#[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
-fn compose_segments(
+/// What [`compose_segments`] composes a site's segments under: the inputs
+/// [`compose_site_at`] was handed beside its command, carried as one value
+/// so the private composer restates neither public signature.
+struct Composing<'a> {
     boundary: BuiltBoundary,
     class: SeatClass,
-    segments: Vec<Segment>,
-    hands: Option<&HandsSpec>,
-    candidate: Option<&Candidate>,
-    workdir: &Path,
-    roots: &[PathBuf],
-    result_path: &str,
-    unboxed: Option<&Unboxed>,
-) -> SiteSpawn {
+    hands: Option<&'a HandsSpec>,
+    candidate: Option<&'a Candidate>,
+    workdir: &'a Path,
+    artifacts: &'a Path,
+    roots: &'a [PathBuf],
+    result_path: &'a str,
+    unboxed: Option<&'a Unboxed>,
+}
+
+fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
+    let Composing {
+        boundary,
+        class,
+        hands,
+        candidate,
+        workdir,
+        artifacts,
+        roots,
+        result_path,
+        unboxed,
+    } = *site;
     let Some(spec) = hands else {
         return SiteSpawn::of(segments);
     };
@@ -3106,14 +3140,16 @@ fn compose_segments(
         // candidate: its argv is the author's, and a model site's hands are
         // the recorded fragment `compose_site_at` appended last (rebuild
         // unit 14a4a).
-        BuiltBoundary::Namespace => match hands_command(command, Some(spec), workdir, roots) {
-            Ok(mapped) => SiteSpawn::of(behind(mapped, &segments)),
-            Err(reason) => {
-                let mut spawn = SiteSpawn::of(segments);
-                spawn.refusal = Some(reason);
-                spawn
+        BuiltBoundary::Namespace => {
+            match hands_command(command, Some(spec), workdir, artifacts, roots) {
+                Ok(mapped) => SiteSpawn::of(behind(mapped, &segments)),
+                Err(reason) => {
+                    let mut spawn = SiteSpawn::of(segments);
+                    spawn.refusal = Some(reason.to_string());
+                    spawn
+                }
             }
-        },
+        }
         BuiltBoundary::Harness => {
             let brokkr = std::env::current_exe()
                 .unwrap_or_default()
@@ -3195,86 +3231,6 @@ fn stderr_tail(stderr: &str) -> String {
         .chars()
         .rev()
         .collect()
-}
-
-/// Decision 0043: put a site's hands in the box. A model seat's argv has
-/// the adapter's fragment already; its two tokens are expanded here,
-/// where the workdir and this binary's path are known — the MCP server a
-/// harness spawns is `brokkr hands serve` on this very executable. An
-/// `exec` dispatch is boxed whole instead: `brokkr hands exec` builds the
-/// namespace at run time and passes the driver's stdio straight through.
-/// A site without hands gets its command back untouched.
-///
-/// Rebuild unit 14a2: a model seat's tokens are expanded by
-/// [`Transport::expand`], the one TOML-safe encoder the final check
-/// expects them from, so the spawn and the check cannot disagree on an
-/// escape. An executable or workdir that is not UTF-8 has no exact
-/// provider value and refuses rather than binding a lossy one.
-pub(crate) fn hands_command(
-    command: Vec<String>,
-    hands: Option<&brokkr_protocol::hands::HandsSpec>,
-    workdir: &std::path::Path,
-    roots: &[PathBuf],
-) -> Result<Vec<String>, String> {
-    let Some(spec) = hands else {
-        return Ok(command);
-    };
-    let brokkr = std::env::current_exe().unwrap_or_default();
-    let is_exec = command.len() >= 3 && command[1] == "driver" && command[2] == "exec";
-    if is_exec {
-        let bundle_root = roots
-            .iter()
-            .find(|root| {
-                command
-                    .iter()
-                    .any(|part| Path::new(part).strip_prefix(root).is_ok())
-            })
-            .or_else(|| roots.first());
-        let command = command
-            .into_iter()
-            .map(|part| {
-                bundle_root
-                    .and_then(|root| Path::new(&part).strip_prefix(root).ok())
-                    .map(|relative| {
-                        brokkr_protocol::hands::namespace_join(
-                            brokkr_protocol::hands::SANDBOX_BUNDLE,
-                            relative,
-                        )
-                    })
-                    .unwrap_or(part)
-            })
-            .collect::<Vec<_>>();
-        let mut boxed = vec![
-            brokkr.to_string_lossy().into_owned(),
-            "hands".to_string(),
-            "exec".to_string(),
-            "--workdir".to_string(),
-            workdir.to_string_lossy().into_owned(),
-            "--spec".to_string(),
-            spec.to_value().to_string(),
-        ];
-        if let Some(root) = bundle_root {
-            boxed.extend([
-                "--bundle-root".to_string(),
-                root.to_string_lossy().into_owned(),
-            ]);
-        }
-        boxed.push("--".to_string());
-        boxed.extend(command);
-        return Ok(boxed);
-    }
-    Transport {
-        brokkr: &brokkr,
-        workdir,
-        spec,
-    }
-    .expand(&command)
-    .ok_or_else(|| {
-        "dispatch refused: the engine's executable or the site's workdir is not UTF-8, so no \
-         provider value names it exactly and the box's hands cannot be bound to it; a lossy \
-         path would bind another (rebuild unit 13-fix-c, R2; rebuild unit 14a2)"
-            .to_string()
-    })
 }
 
 /// The first abstract definition or tool dialect a compiled `capabilities`

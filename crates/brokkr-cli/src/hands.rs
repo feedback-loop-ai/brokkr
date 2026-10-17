@@ -22,7 +22,11 @@ fn run_with(
         hands::HandsSpec::parse(&raw).map_err(|problem| anyhow::anyhow!("--spec: {problem}"))
     };
     match command {
-        HandsCommand::Serve { workdir, spec } => {
+        HandsCommand::Serve {
+            workdir,
+            artifacts,
+            spec,
+        } => {
             let spec = parse_spec(&spec)?;
             // The session outlives every call: overlay upper layers live
             // here until the harness closes the server's stdin, or a
@@ -32,11 +36,13 @@ fn run_with(
             let stdin = std::io::stdin();
             let (input, output) = (stdin.lock(), std::io::stdout());
             let path = session.path();
-            hands::serve(input, output, &workdir, path, &spec, &hands::execute)?;
+            let (work, root) = (&workdir, &artifacts);
+            hands::serve(input, output, work, root, path, &spec, &hands::execute)?;
             Ok(Exit::Completed.into())
         }
         HandsCommand::Exec {
             workdir,
+            artifacts,
             bundle_root,
             spec,
             command,
@@ -48,7 +54,8 @@ fn run_with(
                 Some("--") => command[1..].to_vec(),
                 _ => command,
             };
-            let code = hands::run_boxed(&spec, &workdir, bundle_root.as_deref(), &command)
+            let bundle_root = bundle_root.as_deref();
+            let code = hands::run_boxed(&spec, &workdir, &artifacts, bundle_root, &command)
                 .map_err(anyhow::Error::msg)?;
             Ok(Exit::of_box(code).into())
         }

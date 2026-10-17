@@ -93,6 +93,46 @@ pub(in crate::adapters) fn dispatched(
     sealed.value()
 }
 
+/// `fragment` expanded for the box's hands as dispatch binds them in the
+/// fixtures: to this executable, the workdir `/w`, the artifact root `/a`
+/// the engine writes beside the sealed inputs (U8a) and `spec`.
+pub(in crate::adapters) fn bound(
+    fragment: &[String],
+    spec: &crate::hands::HandsSpec,
+) -> Vec<String> {
+    let brokkr = std::env::current_exe().unwrap();
+    let transport = Transport {
+        brokkr: &brokkr,
+        workdir: Path::new("/w"),
+        artifacts: Path::new("/a"),
+        spec,
+    };
+    transport
+        .expand(fragment)
+        .expect("a UTF-8 executable, workdir and root")
+}
+
+/// U8a: the box's hands are bound to the artifact root the engine wrote
+/// beside the sealed inputs, so another root, or none, binds other hands
+/// and the launch refuses with the final-set cause.
+#[test]
+fn the_hands_are_bound_to_the_artifact_root_the_engine_wrote() {
+    let mut seal = Seal::authored(0);
+    let hands = seal.hands(&["--strict-mcp-config", "--mcp-config", "{hands_mcp_json}"]);
+    let bound = sealed_claude(&hands, hands.len(), seal);
+    let (mut moved, mut rootless) = (bound.clone(), bound.clone());
+    moved[ARTIFACT_ROOT] = json!("/elsewhere");
+    rootless.as_object_mut().unwrap().remove(ARTIFACT_ROOT);
+    let unbound = McpRefusal::NotSealed { provider: "claude" }.at_launch();
+    for (input, served) in [(&bound, true), (&moved, false), (&rootless, false)] {
+        let plan = claude_launch("claude", &hands, None, input, CLAUDE_SHAPE, None);
+        match served {
+            true => assert!(plan.unwrap().command.windows(3).any(|at| at == hands)),
+            false => assert_eq!(plan.map(|plan| plan.command), Err(unbound.clone())),
+        }
+    }
+}
+
 /// Sealed serving inputs declaring the default typed hands under `stands`.
 fn hands_under(stands: SealedBoundary) -> Value {
     let dialect = crate::native_controls::SealedDialect {
@@ -440,7 +480,7 @@ fn a_server_set_its_sealed_inputs_do_not_declare_is_refused() {
     // The document as an independent literal (NC6), only the test's own
     // executable substituted.
     let exe = std::env::current_exe().unwrap();
-    let serve = r#"["hands","serve","--workdir","/w","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+    let serve = r#"["hands","serve","--workdir","/w","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
     let document = format!(
         r#"{{"mcpServers":{{"brokkr":{{"args":{serve},"command":"{}"}}}}}}"#,
         exe.to_str().unwrap()

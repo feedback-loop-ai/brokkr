@@ -14639,15 +14639,8 @@ impl Seal {
     /// expanded arguments are returned for the fixture to hand the driver.
     pub(super) fn hands(&mut self, fragment: &[&str]) -> Vec<String> {
         let fragment: Vec<String> = fragment.iter().map(|part| part.to_string()).collect();
-        let brokkr = std::env::current_exe().unwrap();
         let spec = crate::hands::HandsSpec::default();
-        let hands = crate::native_controls::Transport {
-            brokkr: &brokkr,
-            workdir: std::path::Path::new("/w"),
-            spec: &spec,
-        }
-        .expand(&fragment)
-        .expect("a UTF-8 executable and workdir");
+        let hands = super::mcp::tests::bound(&fragment, &spec);
         self.runs
             .push((crate::native_controls::Origin::Hands, hands.len()));
         self.dialect.hands = fragment;
@@ -14678,7 +14671,7 @@ const CODEX_SERVER: [&str; 6] = [
 pub(super) fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Value {
     use crate::native_controls::{
         Expected, HandsIntent, HeldPower, Identity, Inventory, LaunchRecord, NativeExpectation,
-        Segment, SERVING_INPUTS,
+        Segment, ARTIFACT_ROOT, SERVING_INPUTS,
     };
     let controls = crate::native_controls::managed(&input)
         .expect("a readable plan")
@@ -14730,7 +14723,7 @@ pub(super) fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Val
             template: seal.template,
         },
     };
-    input["launch_record"] = record.value();
+    (input["launch_record"], input[ARTIFACT_ROOT]) = (record.value(), json!("/a"));
     input[SERVING_INPUTS] = super::mcp::tests::dispatched(seal.dialect, seal.pins, seal.spec);
     input
 }
@@ -16541,7 +16534,7 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
     // canonical fixture value `{brokkr}` binds, is substituted.
     let exe = std::env::current_exe().unwrap();
     let exe = exe.to_str().unwrap();
-    let serve = r#"["hands","serve","--workdir","/w","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+    let serve = r#"["hands","serve","--workdir","/w","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
     let document = format!(r#"{{"mcpServers":{{"brokkr":{{"args":{serve},"command":"{exe}"}}}}}}"#);
     let document = document.as_str();
     let head = s(&[

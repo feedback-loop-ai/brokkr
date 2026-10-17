@@ -696,6 +696,9 @@ pub enum HandsCommand {
         /// The worktree, bound read-write at its own path.
         #[arg(long)]
         workdir: PathBuf,
+        /// The engine's artifact root, which the box never writes (U8a).
+        #[arg(long)]
+        artifacts: PathBuf,
         /// The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]}.
         #[arg(long, default_value = "\"workspace\"")]
         spec: String,
@@ -707,6 +710,9 @@ pub enum HandsCommand {
         /// The worktree, bound read-write at its own path.
         #[arg(long)]
         workdir: PathBuf,
+        /// The engine's artifact root, as `serve` takes it.
+        #[arg(long)]
+        artifacts: PathBuf,
         /// Strategy root, bound read-only at /runtime/bundle.
         #[arg(long)]
         bundle_root: Option<PathBuf>,

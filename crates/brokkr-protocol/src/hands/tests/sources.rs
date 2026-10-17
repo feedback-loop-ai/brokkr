@@ -299,19 +299,17 @@ fn the_mount_table_is_read_strictly_and_within_its_bound() {
          38 36 98:0 /a\\040b /mnt/w\\134x ro shared:2 master:3 - overlay o rw\n"
     );
     let parsed = parse(text.as_bytes(), 3).unwrap();
-    assert_eq!(
-        parsed[0],
-        Record {
-            id: 36,
-            dev: (98, 0),
-            root: PathBuf::from("/mnt1"),
-            point: PathBuf::from("/mnt/parent"),
-            writable: true,
-            local: true,
-        }
-    );
+    let mut first = mounted(36, (98, 0), "/mnt1", "/mnt/parent", true);
+    (first.filesystem, first.source) = ("ext3".into(), "/dev/root".into());
+    first.supers = vec![b"rw".to_vec(), b"errors=continue".to_vec()];
+    assert_eq!(parsed[0], first);
     assert!(!parsed[1].local);
     let escaped = &parsed[2];
+    let tail = (&escaped.filesystem, &escaped.source, &escaped.supers);
+    assert_eq!(
+        tail,
+        (&"overlay".into(), &"o".into(), &vec![b"rw".to_vec()])
+    );
     let named = (&escaped.root, &escaped.point, escaped.writable);
     assert_eq!(
         named,
@@ -320,9 +318,18 @@ fn the_mount_table_is_read_strictly_and_within_its_bound() {
     assert!(!escaped.local);
     // The bound: three records at three, not at two.
     assert_eq!(parse(text.as_bytes(), 2), Err(Refusal::Identity));
+    // A device named empty is written as an empty source: the store reads
+    // the record as main did, its source empty.
+    let unnamed = format!("{}\n", LINE.replace(" /dev/root ", "  "));
+    let mountinfo = || serving(unnamed.as_bytes());
+    let read = store::table(&host(strangers(), &mountinfo));
+    let source = read.map(|records| records[0].source.clone());
+    assert_eq!(source, Ok(OsString::new()));
     // A table with no final newline, nothing, a missing separator, a short
     // tail, a bad device, an unknown option, a bad escape, a relative point
-    // or a local relative root, and an id twice.
+    // or a local relative root, and an id twice. H6: an escape past `\377`,
+    // a truncated one, a decoded NUL, a bad escape in the type or source,
+    // an empty type, and an empty or bad option.
     let malformed = [
         LINE.to_string(),
         String::new(),
@@ -331,6 +338,14 @@ fn the_mount_table_is_read_strictly_and_within_its_bound() {
         LINE.replace("98:0", "98-0"),
         LINE.replace("rw,noatime", "noatime"),
         LINE.replace("/mnt1", "/mnt\\9"),
+        LINE.replace("/mnt1", "/mnt\\400"),
+        LINE.replace("/mnt1", "/mnt\\04"),
+        LINE.replace("/mnt1", "/mnt\\000"),
+        LINE.replace(" ext3 ", " ext\\9 "),
+        LINE.replace("/dev/root", "/dev/r\\9"),
+        LINE.replace(" ext3 ", "  "),
+        LINE.replace("rw,noatime", "rw,,noatime"),
+        LINE.replace("rw,noatime", "rw,noatime\\9"),
         LINE.replace("/mnt/parent", "mnt/parent"),
         LINE.replace("/mnt1", "mnt1"),
         format!("{LINE}\n{LINE}"),
@@ -354,6 +369,9 @@ fn mounted(id: u64, dev: (u32, u32), root: &str, point: &str, writable: bool) ->
         point: PathBuf::from(point),
         writable,
         local: true,
+        filesystem: "ext4".into(),
+        source: "/dev/sda1".into(),
+        supers: vec![b"rw".to_vec()],
     }
 }
 
@@ -1150,16 +1168,18 @@ fn only_the_mount_records_the_walk_stood_on_are_counted_or_digested() {
     let parsed = parse(&text, usize::MAX).unwrap();
     let first = observed(text.clone()).unwrap();
     assert_eq!((first.0, first.1), (2, 1));
-    // A mount made elsewhere on the host, or one taken away, moves no
-    // sealed fact.
+    // A mount made elsewhere on the host, its device named or empty, or one
+    // taken away, moves no sealed fact.
     let next = parsed.iter().map(|record| record.id).max().unwrap() + 1;
     let elsewhere = format!("{next} 1 0:4242 / /u6c5b/elsewhere rw - tmpfs none rw\n");
+    let unnamed = elsewhere.replace(" none ", "  ");
     let proc = parsed
         .iter()
         .find(|record| record.point == Path::new("/proc"));
     let proc = proc.unwrap().id;
     for churned in [
         [text.clone(), elsewhere.into_bytes()].concat(),
+        [text.clone(), unnamed.into_bytes()].concat(),
         edited(&text, proc, Vec::clear),
     ] {
         assert_eq!(observed(churned), Ok(first.clone()));

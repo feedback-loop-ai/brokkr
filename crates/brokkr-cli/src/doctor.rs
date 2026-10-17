@@ -13,7 +13,7 @@ use brokkr_protocol::adapters::{
     dsh_composite_prepared, DshComposite, DshInvocation, DshPrepared, DshSeams, DshSelection,
     DshUnprepared, DshUnselected,
 };
-use brokkr_protocol::hands::{execute, HandsSpec, Session};
+use brokkr_protocol::hands::{execute, io_context, HandsSpec, Session};
 use brokkr_protocol::native_controls::bounded_line;
 use brokkr_runtime::agents::{Adapter, ResumeIdentity, ResumeStatus};
 use brokkr_runtime::capabilities::{
@@ -121,7 +121,18 @@ fn probe_in_box(spec: &HandsSpec, workdir: &Path, program: &str) -> Result<Optio
     let session = Session::create("doctor")
         .map_err(String::from)
         .map_err(unbuilt)?;
-    match execute(spec, workdir, session.path(), &command, PROBE_TIMEOUT) {
+    // The probe's own empty artifact root, outside the box's every mount
+    // (U8a): doctor publishes nothing and reads no run's evidence.
+    let artifacts = session.path().join("artifacts");
+    io_context(std::fs::create_dir(&artifacts), "artifacts").map_err(unbuilt)?;
+    match execute(
+        spec,
+        workdir,
+        &artifacts,
+        session.path(),
+        &command,
+        PROBE_TIMEOUT,
+    ) {
         Ok(executed) => box_answer(&executed),
         Err(error) => Err(unbuilt(error)),
     }

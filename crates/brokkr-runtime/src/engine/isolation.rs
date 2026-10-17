@@ -61,16 +61,16 @@ pub fn serving_inputs(
 /// The serving inputs `spawn` is sealed with at the site `facts` describe
 /// ([`serving_inputs`]), with the brokers the attempt's provisioning sealed
 /// for this site, `provisioned`, and its hands segment expanded beside them
-/// under `workdir` ([`beside`]; U7d2).
+/// under `workdir` and the run's artifact root ([`beside`]; U7d2, U8a).
 pub(super) fn served(
     spawn: &mut SiteSpawn,
     (link, facts): (Option<&Candidate>, Option<&SiteFacts>),
     boundary: Boundary,
-    workdir: &Path,
+    worktree: (&Path, &Path),
     provisioned: &[SealedBroker],
 ) -> Result<SealedServing, Unsealed> {
     let serving = serving_with(link, facts, spawn.class, boundary, provisioned)?;
-    beside(spawn, &serving, workdir, provisioned)?;
+    beside(spawn, &serving, worktree, provisioned)?;
     Ok(serving)
 }
 
@@ -117,13 +117,13 @@ fn serving_with(
 /// `serving` seals, which the spawn carries expanded for the box's hands
 /// alone exactly once, is expanded again by the set's one builder
 /// ([`Transport::expand_beside`]) with the brokers beside the hands, under
-/// the executable and `workdir` it was composed with. A spawn without
-/// brokers keeps its every byte; one whose hands segment is not that
-/// expansion refuses, and nothing is rebuilt around another.
+/// the executable, `workdir` and artifact root it was composed with. A
+/// spawn without brokers keeps its every byte; one whose hands segment is
+/// not that expansion refuses, and nothing is rebuilt around another.
 pub(super) fn beside(
     spawn: &mut SiteSpawn,
     serving: &SealedServing,
-    workdir: &Path,
+    (workdir, artifacts): (&Path, &Path),
     brokers: &[SealedBroker],
 ) -> Result<(), Unsealed> {
     if brokers.is_empty() {
@@ -134,6 +134,7 @@ pub(super) fn beside(
     let hands = Transport {
         brokkr: &brokkr,
         workdir,
+        artifacts,
         spec,
     };
     let fragment = &serving.dialect.hands;

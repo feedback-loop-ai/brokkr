@@ -132,6 +132,9 @@ pub(crate) struct Scratch {
     _root: tempfile::TempDir,
     home: PathBuf,
     repo: PathBuf,
+    /// The artifact root the hands server is handed, beside the repository
+    /// and so outside the box's every mount (U8a).
+    artifacts: PathBuf,
     /// The spellings of the root a CLI may print, longest first, so a
     /// canonical `/private/var/…` is replaced before the `/var/…` inside it.
     spellings: Vec<String>,
@@ -150,6 +153,7 @@ impl Scratch {
         let root = io(lay_out(tmp), "could not create the probe's scratch world")?;
         let home = root.path().join("home");
         let repo = root.path().join("repo");
+        let artifacts = root.path().join("artifacts");
         let mut spellings = vec![
             root.path().to_string_lossy().into_owned(),
             fs::canonicalize(root.path())
@@ -163,6 +167,7 @@ impl Scratch {
             _root: root,
             home,
             repo,
+            artifacts,
             spellings,
         })
     }
@@ -192,6 +197,7 @@ fn lay_out(tmp: &Path) -> std::io::Result<tempfile::TempDir> {
     let repo = root.path().join("repo");
     for dir in [
         &root.path().join("home"),
+        &root.path().join("artifacts"),
         &repo.join(".git/objects"),
         &repo.join(".git/refs/heads"),
     ] {
@@ -227,10 +233,11 @@ impl Runner<'_> {
     fn argv(&self, template: &[String]) -> Vec<String> {
         let spec = HandsSpec::default();
         let repo = self.scratch.repo.to_string_lossy();
-        let mcp_json = mcp_config(self.brokkr, &self.scratch.repo, &spec).to_string();
+        let (work, artifacts) = (&self.scratch.repo, &self.scratch.artifacts);
+        let mcp_json = mcp_config(self.brokkr, work, artifacts, &spec).to_string();
         // A JSON array of strings is a TOML inline array of basic strings.
         let args_toml =
-            serde_json::to_string(&serve_args(&self.scratch.repo, &spec)).unwrap_or_default();
+            serde_json::to_string(&serve_args(work, artifacts, &spec)).unwrap_or_default();
         let brokkr = self.brokkr.to_string_lossy();
         template
             .iter()

@@ -78,3 +78,59 @@ fn a_compiled_launch_is_checked_against_its_complete_sealed_server_set() {
         );
     }
 }
+
+/// [`checked_launch`] against the serving inputs `carried`, however they
+/// were sealed; moved here from the parent by U8a.
+pub(super) fn checked_against(
+    bundle: &Bundle,
+    label: &str,
+    candidate: usize,
+    carried: &brokkr_protocol::native_controls::SealedServing,
+) -> Result<Vec<String>, String> {
+    use brokkr_protocol::native_controls::{
+        check_final, managed, Checked, Dialect, LaunchRecord, Origin, Serving, Transport,
+    };
+    let facts = &bundle.sites[label];
+    let (spawn, _) = sealed(bundle, label, candidate);
+    let command = sealed_launch(bundle, label, candidate)?;
+    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
+    let harness = outcome.provider.as_str();
+    let controls = managed(&json!({"native_controls": outcome.controls()}))?.unwrap();
+    let record = LaunchRecord::decode(Some(&spawn.launch_record()))?;
+    let authored: Vec<String> = record
+        .segments
+        .iter()
+        .filter(|segment| segment.origin == Origin::Authored)
+        .flat_map(|segment| segment.argv.iter().cloned())
+        .collect();
+    let brokkr = std::env::current_exe().unwrap();
+    check_final(
+        harness,
+        command,
+        &controls,
+        &record.expected,
+        Dialect {
+            permissions: carried.dialect.permissions.as_ref(),
+            sandbox: &carried.dialect.sandbox,
+            hands: &carried.dialect.hands,
+            boundary: &carried.dialect.boundary,
+            stands: carried.dialect.stands,
+        },
+        Serving {
+            program: harness,
+            workdir: "/w",
+            authored: &authored,
+            pins: &carried.pins,
+            hands: carried.spec.as_ref().map(|spec| Transport {
+                brokkr: &brokkr,
+                workdir: Path::new("/w"),
+                artifacts: Path::new("/a"),
+                spec,
+            }),
+            brokers: sealed_brokers(carried),
+            ..Default::default()
+        },
+    )
+    .map(Checked::into_argv)
+    .map_err(|refusal| refusal.cause)
+}

@@ -50,6 +50,13 @@ fn command(text: &str) -> Vec<String> {
     vec![text.to_string()]
 }
 
+/// The engine's artifact root as it makes one under `dir` (U8a).
+fn artifact_root(dir: &Path) -> PathBuf {
+    let artifacts = dir.join("artifacts");
+    std::fs::create_dir_all(&artifacts).unwrap();
+    artifacts
+}
+
 /// A box killed by a signal has no exit code, and says so as `-1`, both
 /// through the bounded `execute_in` and the pass-through `run_boxed_in`.
 #[test]
@@ -59,10 +66,12 @@ fn a_box_killed_by_a_signal_reports_minus_one() {
     let bwrap = stand_ins(dir.path(), 1).join("bwrap");
     let (spec, facts) = (HandsSpec::default(), GitFacts::default());
     let (home, session) = (dir.path().join("home"), dir.path().join("session"));
+    let artifacts = artifact_root(dir.path());
     let executed = execute_in(
         &bwrap,
         &spec,
         dir.path(),
+        &artifacts,
         &home,
         &dir.path().join("scratch"),
         &session,
@@ -77,6 +86,7 @@ fn a_box_killed_by_a_signal_reports_minus_one() {
             &bwrap,
             &spec,
             dir.path(),
+            &artifacts,
             &home,
             &session,
             &facts,
@@ -95,7 +105,16 @@ fn run_boxed_returns_the_exit_code_of_the_box() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     env.set("PATH", stand_ins(dir.path(), 1));
-    let run = |text: &str| run_boxed(&HandsSpec::default(), dir.path(), None, &command(text));
+    let artifacts = artifact_root(dir.path());
+    let run = |text: &str| {
+        run_boxed(
+            &HandsSpec::default(),
+            dir.path(),
+            &artifacts,
+            None,
+            &command(text),
+        )
+    };
     assert_eq!(run("0"), Ok(0));
     assert_eq!(run("3"), Ok(3));
     assert_eq!(run("signal"), Ok(-1));
@@ -111,8 +130,15 @@ fn run_boxed_refuses_when_its_session_cannot_be_made() {
     let file = dir.path().join("not-a-directory");
     std::fs::write(&file, "").unwrap();
     env.set("TMPDIR", &file);
+    let artifacts = artifact_root(dir.path());
     assert_eq!(
-        run_boxed(&HandsSpec::default(), dir.path(), None, &command("0")),
+        run_boxed(
+            &HandsSpec::default(),
+            dir.path(),
+            &artifacts,
+            None,
+            &command("0")
+        ),
         Err("hands session: Not a directory (os error 20)".to_string())
     );
 }
