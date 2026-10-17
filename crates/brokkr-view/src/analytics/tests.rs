@@ -671,3 +671,209 @@ fn a_missing_rule_and_a_missing_model_are_absent_not_words() {
         Value::Null
     );
 }
+
+// ------------------------------------------------------------ recipes
+
+/// How a recipe's run stands: done, stopped by a rule, or still open.
+#[derive(Clone, Copy)]
+enum Fate {
+    Done,
+    Stop,
+    Open,
+}
+
+/// A run of `recipe` in `realm` on 10 October whose one seat ran on
+/// `provider`, reporting `cost` and, when it reports any, `tokens`.
+fn recipe_run(
+    realm: &str,
+    recipe: &str,
+    fate: Fate,
+    provider: &str,
+    cost: Option<f64>,
+) -> (Journal, Option<RunState>) {
+    let mut journal = Journal::started(Some(realm), "2026-10-10T00:00:00Z").seat(
+        "s1",
+        provider,
+        "m",
+        cost,
+        "2026-10-10T00:10:00Z",
+    );
+    journal.events[0].payload["manifest"]["bundle_name"] = json!(recipe);
+    journal.events[2].payload["checkpoint"]["input_tokens"] = json!(900);
+    journal.events[2].payload["checkpoint"]["output_tokens"] = json!(100);
+    let (journal, state) = match fate {
+        Fate::Done => (
+            journal.then(EventType::RunCompleted, json!({}), "2026-10-10T01:00:00Z"),
+            ended(Status::Completed, "done", None, 1),
+        ),
+        Fate::Stop => (
+            journal.then(EventType::RunStopped, json!({}), "2026-10-10T01:00:00Z"),
+            ended(Status::Stopped, "stop", Some("VERIFY-FAIL"), 1),
+        ),
+        Fate::Open => (journal, state(Some("review"), Status::Running, None)),
+    };
+    (journal, Some(state))
+}
+
+/// `done` runs that reached done and `stopped` that did not, each seat on
+/// `provider` reporting `cost`.
+fn recipe_runs(
+    realm: &str,
+    recipe: &str,
+    (done, stopped): (usize, usize),
+    provider: &str,
+    cost: Option<f64>,
+) -> Vec<(Journal, Option<RunState>)> {
+    let fates =
+        std::iter::repeat_n(Fate::Done, done).chain(std::iter::repeat_n(Fate::Stop, stopped));
+    fates
+        .map(|fate| recipe_run(realm, recipe, fate, provider, cost))
+        .collect()
+}
+
+fn recipes_of(journals: &[(Journal, Option<RunState>)]) -> Vec<RecipeRow> {
+    read_one(&runs(journals), Range::Week).recipes
+}
+
+fn row<'a>(rows: &'a [RecipeRow], realm: &str, recipe: &str) -> &'a RecipeRow {
+    let found = rows
+        .iter()
+        .find(|row| row.realm == realm && row.recipe == recipe);
+    found.unwrap()
+}
+
+#[test]
+fn a_recipes_cost_per_run_is_what_reported_over_all_its_runs() {
+    let journals = [
+        recipe_run("alpha", "self", Fate::Done, "claude", Some(3.0)),
+        recipe_run("alpha", "self", Fate::Stop, "dsh", None),
+        recipe_run("alpha", "self", Fate::Open, "codex", None),
+        recipe_run("alpha", "self", Fate::Stop, "claude", Some(1.4)),
+    ];
+    let rows = recipes_of(&journals);
+    assert_eq!(
+        rows,
+        [RecipeRow {
+            realm: "alpha".into(),
+            recipe: "self".into(),
+            runs: 4,
+            done: 1,
+            done_rate: 25.0,
+            done_text: "25%".into(),
+            cost_per_run: CostFigure {
+                cost: ReportedCost::Reported {
+                    usd: (3.0 + 1.4) / 4.0
+                },
+                text: "$1.10".into(),
+                reporting: vec!["claude".into()],
+                silent: vec!["codex".into(), "dsh".into()],
+                note: Some("claude only · codex and dsh report none".into()),
+            },
+            tokens_per_run: TokensFigure {
+                count: Some(1000),
+                text: "1k tok".into()
+            },
+            on_frontier: Some(true),
+        }]
+    );
+}
+
+#[test]
+fn a_recipe_reaching_done_more_often_for_less_dominates_another() {
+    let mut journals = recipe_runs("alpha", "a", (2, 3), "claude", Some(2.0));
+    journals.extend(recipe_runs("alpha", "b", (3, 7), "claude", Some(3.0)));
+    let rows = recipes_of(&journals);
+    let a = row(&rows, "alpha", "a");
+    assert_eq!((a.done_rate, a.on_frontier), (40.0, Some(true)));
+    let b = row(&rows, "alpha", "b");
+    assert_eq!((b.done_rate, b.on_frontier), (30.0, Some(false)));
+    assert_eq!(b.cost_per_run.text, "$3.00");
+}
+
+#[test]
+fn recipes_that_tie_are_both_on_the_frontier_and_neither_dominates_across_realms() {
+    let mut journals = recipe_runs("alpha", "c", (1, 1), "claude", Some(2.0));
+    journals.extend(recipe_runs("alpha", "d", (1, 1), "claude", Some(2.0)));
+    // Better on both, and in another realm: it dominates neither.
+    journals.extend(recipe_runs("beta", "e", (2, 0), "claude", Some(1.0)));
+    // Cheaper at the same rate, and more reliable at the same cost.
+    journals.extend(recipe_runs("gamma", "f", (1, 1), "claude", Some(2.0)));
+    journals.extend(recipe_runs("gamma", "g", (1, 1), "claude", Some(1.0)));
+    journals.extend(recipe_runs("gamma", "h", (2, 0), "claude", Some(2.0)));
+    let rows = recipes_of(&journals);
+    let frontier: Vec<(&str, Option<bool>)> = rows
+        .iter()
+        .map(|row| (row.recipe.as_str(), row.on_frontier))
+        .collect();
+    assert_eq!(
+        frontier,
+        [
+            ("c", Some(true)),
+            ("d", Some(true)),
+            ("e", Some(true)),
+            ("f", Some(false)),
+            ("g", Some(true)),
+            ("h", Some(true)),
+        ]
+    );
+}
+
+#[test]
+fn a_recipe_with_no_reported_cost_is_off_the_plot_and_dominates_nothing() {
+    let mut journals = recipe_runs("alpha", "silent", (3, 0), "codex", None);
+    journals.extend(recipe_runs("alpha", "priced", (1, 1), "claude", Some(2.0)));
+    // A run before the range, and one whose start names no recipe.
+    let mut early = recipe_run("alpha", "early", Fate::Done, "claude", Some(1.0));
+    early.0.events[3].recorded_at = "2026-09-01T00:00:00Z".into();
+    journals.push(early);
+    journals.push((
+        Journal::started(Some("alpha"), "2026-10-10T00:00:00Z").then(
+            EventType::RunCompleted,
+            json!({}),
+            "2026-10-10T01:00:00Z",
+        ),
+        Some(ended(Status::Completed, "done", None, 0)),
+    ));
+    let rows = recipes_of(&journals);
+    let names: Vec<&str> = rows.iter().map(|row| row.recipe.as_str()).collect();
+    assert_eq!(names, ["priced", "silent"]);
+    let silent = row(&rows, "alpha", "silent");
+    assert_eq!(
+        (
+            &silent.cost_per_run.cost,
+            silent.cost_per_run.text.as_str(),
+            silent.on_frontier
+        ),
+        (&ReportedCost::NotReported, "not reported", None)
+    );
+    assert_eq!(row(&rows, "alpha", "priced").on_frontier, Some(true));
+    let wire = serde_json::to_value(read_one(&runs(&journals), Range::Week)).unwrap();
+    assert_eq!(wire["view_version"], json!(23));
+    assert_eq!(wire["recipes"][1]["on_frontier"], Value::Null);
+    assert_eq!(
+        wire["recipes"][1]["cost_per_run"]["cost"],
+        json!({"kind": "not_reported"})
+    );
+}
+
+#[test]
+fn a_recipe_whose_seats_meter_no_tokens_states_the_absence() {
+    let mut journals = vec![recipe_run(
+        "alpha",
+        "quiet",
+        Fate::Done,
+        "claude",
+        Some(1.0),
+    )];
+    let checkpoint = &mut journals[0].0.events[2].payload["checkpoint"];
+    checkpoint["input_tokens"] = Value::Null;
+    checkpoint["output_tokens"] = Value::Null;
+    let rows = recipes_of(&journals);
+    assert_eq!(
+        rows[0].tokens_per_run,
+        TokensFigure {
+            count: None,
+            text: ABSENT.into()
+        }
+    );
+}

@@ -14,9 +14,13 @@ use serde::{Serialize, Serializer};
 
 mod facts;
 mod figures;
+mod recipes;
 mod words;
 
+pub(crate) use facts::{finished, in_range, is_open, Ending, Window};
 pub use figures::analytics;
+pub(crate) use figures::{cost_figure, middle, span, total};
+pub(crate) use words::{listed, stamp};
 
 const HOUR_MILLIS: i64 = 60 * 60 * 1000;
 const DAY_MILLIS: i64 = 24 * HOUR_MILLIS;
@@ -51,7 +55,7 @@ impl Range {
         }
     }
 
-    const fn millis(self) -> i64 {
+    pub(crate) const fn millis(self) -> i64 {
         match self {
             Range::Day => DAY_MILLIS,
             Range::Week => 7 * DAY_MILLIS,
@@ -145,6 +149,8 @@ pub struct Analytics {
     pub rework: Rework,
     pub models: Vec<ModelShare>,
     pub realms: Vec<RealmRow>,
+    /// One row per realm and recipe with runs in the range.
+    pub recipes: Vec<RecipeRow>,
     /// Hearths whose journal did not load, each with its refusal.
     pub quarantined: Vec<QuarantinedHearth>,
     pub not_recorded: [&'static str; 4],
@@ -294,6 +300,34 @@ pub struct RealmRow {
     pub cost_text: String,
     /// Runs whose journal does not load or fold, so no figure reads them.
     pub unreadable_runs: usize,
+}
+
+/// One recipe of one realm over the runs the range keeps: those that ended
+/// in it and those still open (design D6).
+#[derive(Serialize, Debug, PartialEq)]
+pub struct RecipeRow {
+    pub realm: String,
+    pub recipe: String,
+    pub runs: usize,
+    /// The runs that reached `done`.
+    pub done: usize,
+    /// `done` as a percent of `runs`.
+    pub done_rate: f64,
+    pub done_text: String,
+    /// The reported cost over `runs`, with the harnesses behind it.
+    pub cost_per_run: CostFigure,
+    pub tokens_per_run: TokensFigure,
+    /// Whether no other priced recipe of the realm reaches `done` at least
+    /// as often for at most as much, one strictly; absent when this recipe
+    /// reported no cost.
+    pub on_frontier: Option<bool>,
+}
+
+/// A token count, or the absence mark when nothing metered one.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct TokensFigure {
+    pub count: Option<u64>,
+    pub text: String,
 }
 
 #[derive(Serialize, Debug, PartialEq)]

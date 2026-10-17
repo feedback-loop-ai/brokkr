@@ -40,7 +40,7 @@ export function row(over = {}) {
 /** A world's `FleetView`: `[[realm, rows], ...]`. */
 export function fleetDoc(realms, over = {}) {
   return {
-    view_version: 22,
+    view_version: 23,
     realms: realms.map(([realm, runs]) => ({ realm, journal: `/hearths/${realm}/forge.db`, runs, count: runs.length, detail: null })),
     count: realms.reduce((sum, [, runs]) => sum + runs.length, 0),
     ...over,
@@ -119,7 +119,7 @@ export function seat(over = {}) {
 export function runViewDoc(over = {}) {
   const { seq = 12, ...rest } = over
   return {
-    view_version: 22,
+    view_version: 23,
     summary: {
       consecutive_failures: {},
       cursor: 'park',
@@ -155,10 +155,44 @@ export function runViewDoc(over = {}) {
   }
 }
 
+/** A `CostFigure` as Brokkr prints it: `usd` reported by Claude's seats with Codex's silent, or not reported at all when `usd` is null. */
+export function costFigure(usd, over = {}) {
+  const figure = usd === null
+    ? { cost: { kind: 'not_reported' }, text: 'not reported', reporting: [], silent: ['dsh'], note: 'dsh reports none' }
+    : { cost: { kind: 'reported', usd }, text: `$${usd.toFixed(2)}`, reporting: ['claude'], silent: ['codex'], note: 'claude only · codex report none' }
+  return { ...figure, ...over }
+}
+
+/** One realm's row of `brokkr analytics --json`: lanetally's, unless told otherwise. */
+export function realmRow(realm = 'lanetally', over = {}) {
+  return { realm, shipped: 3, stopped: 1, median: { millis: 15_120_000, text: '4h 12m' }, waiting_millis: 3_600_000, waiting_text: '1.0h', cost: { kind: 'not_reported' }, cost_text: 'not reported', unreadable_runs: 0, ...over }
+}
+
+/**
+ * One `recipes[]` row of `brokkr analytics --json` (design D6): lanetally's
+ * `self`, 3 of 4 runs done at $2.00 a run, on the frontier, unless told
+ * otherwise; `usd: null` is a recipe whose seats reported no cost.
+ */
+export function recipeRow(over = {}) {
+  const { usd = 2, ...rest } = over
+  return {
+    realm: 'lanetally',
+    recipe: 'self',
+    runs: 4,
+    done: 3,
+    done_rate: 75,
+    done_text: '75%',
+    cost_per_run: costFigure(usd),
+    tokens_per_run: { count: 1_200_000, text: '1.20M tok' },
+    on_frontier: usd === null ? null : true,
+    ...rest,
+  }
+}
+
 /** `brokkr analytics --json` for one realm whose seats reported no cost. */
 export function analyticsDoc(over = {}) {
   return {
-    view_version: 22,
+    view_version: 23,
     range: '7d',
     realm: null,
     from: '2026-10-06T09:00:00Z',
@@ -177,9 +211,101 @@ export function analyticsDoc(over = {}) {
       { model: 'gpt-5.5', attempts: 3, percent: 75, text: 'gpt-5.5 75%' },
       { model: null, attempts: 1, percent: 25, text: 'not reported 25%' },
     ],
-    realms: [{ realm: 'lanetally', shipped: 3, stopped: 1, median: { millis: 15_120_000, text: '4h 12m' }, waiting_millis: 3_600_000, waiting_text: '1.0h', cost: { kind: 'not_reported' }, cost_text: 'not reported', unreadable_runs: 0 }],
+    realms: [realmRow()],
     quarantined: [],
     not_recorded: ['machine capacity over time', 'cost limits', 'costs for Codex and dsh', 'reasons findings were dismissed'],
+    recipes: [recipeRow()],
+    ...over,
+  }
+}
+
+/** One state of a `GraphView`: a row state with one Claude seat and no cost reported, or a terminal with no seat, unless told otherwise. */
+export function graphState(name, place = 'row', over = {}) {
+  const row = place === 'row'
+  return {
+    name,
+    place,
+    entered: row ? 5 : 0,
+    median: row ? { millis: 600_000, text: '10m' } : { millis: null, text: '—' },
+    p90: row ? { millis: 1_200_000, text: '20m' } : { millis: null, text: '—' },
+    cost: costFigure(null),
+    tokens: { input: null, output: null, cache_read: null, text: '—' },
+    seats: row ? [{ key: `${name}:main`, provider: 'claude', model: 'sonnet', text: `${name}:main · claude sonnet` }] : [],
+    ...over,
+  }
+}
+
+/** One rule of a `GraphView`, its text Brokkr's `<ID> · <count>`. */
+export function graphRule(id, from, next, kind, count, over = {}) {
+  return { id, from, next, result: 'ok', when: [], severity: null, count, kind, text: `${id} · ${count}`, ...over }
+}
+
+/**
+ * `brokkr graph --recipe self --realm brokkr --json`: intake, implement,
+ * verify, review and ship in a row with done at its end and stop beneath; a
+ * self-loop at implement, a back edge from review and a dormant one, forward
+ * edges, a terminal into done and two into stop, a dormant rule into stop, a
+ * park rule, a live run in verify and one in review, a retired rule and a
+ * drift note. Synthetic figures only.
+ */
+export function graphDoc(over = {}) {
+  const seat = (key, provider, model) => ({ key, provider, model, text: `${key} · ${provider} ${model}` })
+  return {
+    view_version: 1,
+    realm: 'brokkr',
+    recipe: 'self',
+    range: '7d',
+    from: '2026-10-06T09:00:00Z',
+    to: '2026-10-13T09:00:00Z',
+    recipes: ['charter', 'frontier', 'lean', 'leaky', 'muninn', 'self'],
+    table: { kind: 'resolved' },
+    runs: 10,
+    states: [
+      graphState('intake'),
+      graphState('implement'),
+      graphState('verify', 'row', { seats: [] }),
+      graphState('review', 'row', {
+        entered: 4,
+        median: { millis: 1_800_000, text: '30m' },
+        p90: { millis: 3_600_000, text: '1h 00m' },
+        cost: costFigure(1.5),
+        tokens: { input: 1200, output: 300, cache_read: 1000, text: 'in 1k · out 300 · cache read 1k' },
+        seats: [seat('review:security', 'claude', 'opus'), seat('review:correctness', 'codex', 'gpt-5.5')],
+      }),
+      graphState('ship'),
+      graphState('done', 'end'),
+      graphState('stop', 'beneath'),
+    ],
+    rules: [
+      graphRule('INTAKE-OK', 'intake', 'implement', 'forward', 40),
+      graphRule('IMPL-RETRY', 'implement', 'implement', 'self', 2, { result: 'broken' }),
+      graphRule('IMPL-OK', 'implement', 'verify', 'forward', 6),
+      graphRule('VERIFY-PASS', 'verify', 'review', 'forward', 4),
+      graphRule('VERIFY-FAIL', 'verify', 'stop', 'terminal', 3, { result: 'fail', when: ['not fixes_applied'], severity: 'normal' }),
+      graphRule('REVIEW-OK', 'review', 'ship', 'forward', 2),
+      graphRule('REVIEW-REFORGE', 'review', 'implement', 'back', 1, { result: 'fail' }),
+      graphRule('REVIEW-CLEAN', 'review', 'verify', 'back', 0),
+      graphRule('REVIEW-RESIDUAL-SECURITY', 'review', 'stop', 'terminal', 2, { result: 'fail', severity: 'high' }),
+      graphRule('REVIEW-HOLD', 'review', null, 'forward', 1, { result: 'hold' }),
+      graphRule('SHIP-COMPLETE', 'ship', 'done', 'terminal', 2),
+      graphRule('SHIP-DIRTY', 'ship', 'stop', 'terminal', 0, { result: 'dirty' }),
+    ],
+    never_fired: { count: 2, of: 12, text: '2 of 12' },
+    retired: [{ rule_id: 'OLD-RULE', count: 2 }],
+    drifted_runs: 4,
+    drift_text: '4 runs ran under an earlier version of this table',
+    ends: {
+      done: 2,
+      stop: [{ rule_id: 'VERIFY-FAIL', count: 3 }, { rule_id: 'REVIEW-RESIDUAL-SECURITY', count: 2 }],
+      stopped: 5,
+      operator: 1,
+      open: 2,
+      text: '2 done · 5 stop by a rule · 1 stopped by you · 2 open',
+    },
+    live: [
+      { run_id: 'add-the-graph-7c1d2e3f', label: 'Add the graph', state: 'verify' },
+      { run_id: 'tidy-the-seats-2b3c4d5e', label: 'Tidy the seats', state: 'review' },
+    ],
     ...over,
   }
 }

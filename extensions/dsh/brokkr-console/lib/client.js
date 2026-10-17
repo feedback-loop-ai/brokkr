@@ -4,7 +4,8 @@
 // shell's platform table. It paints what the host half pushes from Brokkr's
 // readouts and decides nothing: a run is led by its title, a button exists
 // only for a command Brokkr admits, and every reason, refusal and figure is
-// Brokkr's own text (design D1). Layout and copy follow the step-1 boards.
+// Brokkr's own text (design D1). Layout and copy follow the step-1 boards,
+// and the Library's follow change 2026-10-17-568's boards.
 window.__ModuleLoader__.load({
   id: 'brokkr-console',
   factory: (require) => {
@@ -24,7 +25,7 @@ window.__ModuleLoader__.load({
 
     /** One socket for the panel and its list entry; reconnects with a fresh snapshot. */
     const store = {
-      state: { fleet: null, overview: null, run: null, error: null, live: false, workspace: null, suggestions: {} },
+      state: { fleet: null, overview: null, run: null, error: null, live: false, workspace: null, suggestions: {}, targets: null },
       ctx: null,
       listeners: new Set(),
       watch: { type: 'watch', view: 'none', run: null },
@@ -92,6 +93,47 @@ window.__ModuleLoader__.load({
       }, [])
       return store.state
     }
+
+    /** The Library's two targets, the viewer's own (design D6): a done rate in percent and a cost a run in dollars. */
+    const TARGETS = { done: 50, cost: 3 }
+    const TARGETS_KEY = 'brokkr-console:library-targets'
+    /** A target as stored: a number from zero to `most`, else `null` and the default stands. */
+    const targetOf = (value, most) => (Number.isFinite(value) && value >= 0 && value <= most ? value : null)
+    /** The targets this browser keeps for the console, or the defaults when it keeps none or refuses its storage. */
+    function storedTargets() {
+      try {
+        const kept = JSON.parse(window.localStorage.getItem(TARGETS_KEY) ?? 'null') ?? {}
+        return { done: targetOf(kept.done, 100) ?? TARGETS.done, cost: targetOf(kept.cost, Infinity) ?? TARGETS.cost }
+      } catch {
+        return { ...TARGETS }
+      }
+    }
+    /**
+     * The targets, shared by every mount through the store, and their setter.
+     * An edit moves the lines for this page whether or not the browser lets
+     * the console keep it.
+     */
+    function useTargets() {
+      const targets = useLocalStore().targets ?? storedTargets()
+      const set = (change) => {
+        const next = { ...targets, ...change }
+        emit({ targets: next })
+        try {
+          window.localStorage.setItem(TARGETS_KEY, JSON.stringify(next))
+        } catch {
+          // Refused storage keeps the edit for this page only.
+        }
+      }
+      return [targets, set]
+    }
+
+    /** A console route's answer, read once: `land({value, error})`, with its body or the refusal's words. */
+    function readRoute(path, query, land) {
+      fetch(`${BASE}${path}?${query}`)
+        .then((response) => response.json().then((body) => land(response.ok ? { value: body, error: null } : { value: null, error: body.error })))
+        .catch(() => land({ value: null, error: 'the console could not be reached' }))
+    }
+
     /** The console's stylesheet, once per page. */
     function useStyles() {
       useEffect(() => {
@@ -766,11 +808,8 @@ window.__ModuleLoader__.load({
       const [read, setRead] = useState({ seat: null, head: null, value: null, error: null })
       useEffect(() => {
         let wanted = true
-        const land = (next) => wanted && setRead(next)
         const query = new URLSearchParams({ realm: hearth.realm, run: row.run_id, seat: seat.key })
-        fetch(`${BASE}/api/transcript?${query}`)
-          .then((response) => response.json().then((body) => land(response.ok ? { seat: seat.key, head, value: body, error: null } : { seat: seat.key, head, value: null, error: body.error })))
-          .catch(() => land({ seat: seat.key, head, value: null, error: 'the console could not be reached' }))
+        readRoute('/api/transcript', query, (read) => wanted && setRead({ seat: seat.key, head, ...read }))
         return () => {
           wanted = false
         }
@@ -984,6 +1023,8 @@ window.__ModuleLoader__.load({
     }
 
     const MODEL_TONES = [1, 2, 3, 4].map((tone) => `var(--bk-model-${tone})`)
+    /** A table's header row; `numeric(index)` right-aligns a column of figures. */
+    const header = (names, numeric) => h('thead', null, h('tr', null, names.map((name, index) => h('th', { key: name, scope: 'col', className: numeric(index) ? 'n' : '' }, name))))
     const figure = (title, note, ...body) => h('figure', { className: 'bk-cell bk-figure' }, h('figcaption', { className: 'bk-row' }, h('strong', null, title), h('span', { className: 'bk-d' }, note)), ...body)
     const tile = (key, value, note) => h('div', { className: 'bk-cell bk-tile' }, h('span', { className: 'bk-k' }, key), h('span', { className: 'bk-num' }, value), h('span', { className: 'bk-d' }, note))
 
@@ -1011,12 +1052,17 @@ window.__ModuleLoader__.load({
     function ByRealm({ data, open }) {
       return h('section', { className: 'bk-cell bk-section' }, h('div', { className: 'bk-row' }, h('strong', null, 'By realm'), h('span', { className: 'bk-d' }, 'click a row to open the realm')),
         h('div', { style: { overflowX: 'auto' } }, h('table', { className: 'bk-table' },
-          h('thead', null, h('tr', null, ['Realm', 'Shipped', 'Stopped', 'Median start → end', 'Waiting on you', 'Reported cost'].map((name, index) => h('th', { key: name, scope: 'col', className: index > 0 ? 'n' : '' }, name)))),
+          header(['Realm', 'Shipped', 'Stopped', 'Median start → end', 'Waiting on you', 'Reported cost'], (index) => index > 0),
           h('tbody', null, data.realms.map((row) => h('tr', { key: row.realm, onClick: () => open(row.realm), style: { cursor: 'pointer' } },
             h('td', null, h('strong', null, row.realm)), h('td', { className: 'n' }, String(row.shipped)), h('td', { className: 'n' }, String(row.stopped)),
             h('td', { className: 'n' }, row.median.text), h('td', { className: 'n' }, row.waiting_text), h('td', { className: 'n' }, row.cost_text)))))),
         data.quarantined.map((hearth) => h('div', { key: hearth.realm, className: 'bk-error' }, `${hearth.realm} is quarantined: ${hearth.refusal}`)))
     }
+
+    /** One choice of a picker: a chip, pressed while it is the one chosen. */
+    const choice = (on, text, pick) => h('button', { key: text, type: 'button', className: `bk-fchip${on ? ' on' : ''}`, 'aria-pressed': on, onClick: pick }, text)
+    /** The range picker Analytics and the Library share: the words `brokkr analytics` and `brokkr graph` take. */
+    const ranges = (range, setRange) => [h('span', { key: 'range', className: 'bk-k' }, 'Range'), ...['24h', '7d', '30d'].map((word) => choice(word === range, word, () => setRange(word)))]
 
     function Analytics({ open }) {
       const [range, setRange] = useState('7d')
@@ -1027,20 +1073,358 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         const query = new URLSearchParams({ range })
         if (realm !== null) query.set('realm', realm)
-        fetch(`${BASE}/api/analytics?${query}`).then((response) => response.json().then((body) => {
-          if (!response.ok) return setError(body.error)
-          setError(null)
-          setData(body)
-          if (realm === null) setRealms(body.realms.map((row) => row.realm))
-        })).catch(() => setError('the console could not be reached'))
+        readRoute('/api/analytics', query, ({ value, error: refused }) => {
+          setError(refused)
+          if (value === null) return
+          setData(value)
+          if (realm === null) setRealms(value.realms.map((row) => row.realm))
+        })
       }, [range, realm])
-      const choice = (on, text, pick) => h('button', { key: text, type: 'button', className: `bk-fchip${on ? ' on' : ''}`, onClick: pick }, text)
       return h('div', { className: 'bk-main', style: { maxWidth: 1200, margin: '0 auto', width: '100%' } },
-        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Range'), ['24h', '7d', '30d'].map((word) => choice(word === range, word, () => setRange(word))),
+        h('div', { className: 'bk-row' }, ranges(range, setRange),
           h('span', { className: 'bk-k' }, 'Realm'), choice(realm === null, 'All', () => setRealm(null)), realms.map((name) => choice(name === realm, name, () => setRealm(name)))),
         error === null ? null : h('div', { className: 'bk-error' }, error),
         data === null ? null : [h(Figures, { key: 'f', data }), h(ByRealm, { key: 'r', data, open }),
           h('div', { key: 'n', className: 'bk-coming' }, chip('not recorded yet', 'bk-later'), `: ${data.not_recorded.join(' · ')}`)])
+    }
+
+    // ------------------------------------------------------------ the library
+
+    /** A rule's edge width in pixels (design D3): `1.5 + 0.35 × count`, at most 12; a rule that never fired is 1.5, and dashed. */
+    const edgeWidth = (count) => Math.min(12, 1.5 + 0.35 * count)
+
+    /** The Library's graph, in pixels: a state's box, its header and seat lines and footer, a terminal's pill, the gaps, an arc's rise and lane. */
+    const GRAPH = { box: 212, head: 44, line: 16, foot: 24, terminal: 120, pill: 44, gap: 76, pad: 28, below: 110, rise: 56, lane: 22 }
+    const boxHeight = (state) => GRAPH.head + Math.max(state.seats.length, 1) * GRAPH.line + GRAPH.foot
+
+    /** One edge's path and its label's point, `{d, x, y, anchor}`, by where its ends sit; `lane` is its arc's when it arcs above the row. */
+    function pathOf(from, to, nth, lane) {
+      if (from === to) {
+        const [x, y, rise] = [from.cx, from.y, 44 + nth * 16]
+        return { d: `M${x - 16} ${y}C${x - 34} ${y - rise} ${x + 34} ${y - rise} ${x + 16} ${y}`, x, y: y - rise * 0.75 - 6, anchor: 'middle' }
+      }
+      if (to.state.place === 'beneath') {
+        const [sx, sy] = [from.cx + nth * 14, from.y + from.height]
+        // Each edge into a terminal lands toward the side it comes from, so several into `stop` stay apart.
+        const tx = to.cx + Math.max(14 - to.width / 2, Math.min(to.width / 2 - 14, (from.cx - to.cx) / 6))
+        return { d: `M${sx} ${sy}C${sx} ${sy + 56} ${tx} ${to.y - 56} ${tx} ${to.y}`, x: sx + 8, y: sy + 22 + nth * 14, anchor: 'start' }
+      }
+      if (lane === null) {
+        const [sx, tx, y] = [from.x + from.width, to.x - 2, from.y + from.height / 2 + nth * 18]
+        return { d: `M${sx} ${y}H${tx}`, x: (sx + tx) / 2, y: y - 10, anchor: 'middle' }
+      }
+      const toward = Math.sign(to.cx - from.cx)
+      const [sx, tx, base, rise] = [from.cx + toward * 24, to.cx - toward * 24, Math.min(from.y, to.y), GRAPH.rise + lane * GRAPH.lane]
+      return { d: `M${sx} ${from.y}C${sx} ${base - rise} ${tx} ${base - rise} ${tx} ${to.y}`, x: (sx + tx) / 2, y: base - rise * 0.75 - 6, anchor: 'middle' }
+    }
+
+    /**
+     * The view laid out as design D3 places it: the row's states left to right
+     * in Brokkr's order with the end terminal (`done`) at its right, the other
+     * terminals beneath it, and each rule's edge by where it goes: along the
+     * row to its neighbour, a loop above its own state, an arc above the row
+     * (back, or past its neighbour), or down to a terminal beneath.
+     */
+    function layoutOf(view) {
+      const line = [...view.states.filter((state) => state.place === 'row'), ...view.states.filter((state) => state.place === 'end')]
+      const beneath = view.states.filter((state) => state.place === 'beneath')
+      const rank = new Map(line.map((state, index) => [state.name, index]))
+      const named = new Set(view.states.map((state) => state.name))
+      // A park rule (no `next`) has no edge; the state's panel lists it.
+      const drawn = view.rules.filter((rule) => rule.next !== null && named.has(rule.from) && named.has(rule.next))
+      const arched = (rule) => rule.from !== rule.next && rank.has(rule.next) && rank.get(rule.next) !== rank.get(rule.from) + 1
+      const top = GRAPH.pad + GRAPH.rise + drawn.filter(arched).length * GRAPH.lane
+      const tall = Math.max(GRAPH.pill, ...line.map((state) => (state.place === 'row' ? boxHeight(state) : GRAPH.pill)))
+      const places = new Map()
+      let x = GRAPH.pad
+      for (const state of line) {
+        const [width, height] = state.place === 'row' ? [GRAPH.box, boxHeight(state)] : [GRAPH.terminal, GRAPH.pill]
+        places.set(state.name, { state, x, y: top + (tall - height) / 2, width, height, cx: x + width / 2 })
+        x += width + GRAPH.gap
+      }
+      const across = Math.max(x - GRAPH.gap - GRAPH.pad, GRAPH.terminal)
+      const low = top + tall + GRAPH.below
+      beneath.forEach((state, index) => {
+        const cx = GRAPH.pad + ((index + 0.5) * across) / beneath.length
+        places.set(state.name, { state, x: cx - GRAPH.terminal / 2, y: low, width: GRAPH.terminal, height: GRAPH.pill, cx })
+      })
+      const pairs = new Map()
+      let lane = 0
+      const edges = drawn.map((rule) => {
+        const pair = `${rule.from}\u0000${rule.next}`
+        const nth = pairs.get(pair) ?? 0
+        pairs.set(pair, nth + 1)
+        return { rule, ...pathOf(places.get(rule.from), places.get(rule.next), nth, arched(rule) ? lane++ : null) }
+      })
+      return { places, edges, width: across + 2 * GRAPH.pad, height: (beneath.length === 0 ? top + tall : low + GRAPH.pill) + GRAPH.pad + 40 }
+    }
+
+    /** An arrowhead of a fixed size, whatever its edge's width. */
+    const tip = (id, className) => h('marker', { key: id, id, viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 9, markerHeight: 9, markerUnits: 'userSpaceOnUse', orient: 'auto' },
+      h('path', { d: 'M0 0L8 4L0 8z', className }))
+
+    /**
+     * The recipe's state machine as the graph board draws it: each state a box
+     * holding its seats, each rule an edge as wide as its count, labelled with
+     * Brokkr's `<ID> · <count>`, dashed when it never fired and in the stop
+     * tone when it ends in `stop`; the pulse on each live run's state, which
+     * opens that run in Realms.
+     */
+    function StateMachine({ view, picked, pick, openRun }) {
+      const { places, edges, width, height } = layoutOf(view)
+      const ink = edges.map(({ rule, d, x, y, anchor }, index) => {
+        const tone = `${rule.count === 0 ? ' dormant' : ''}${rule.next === 'stop' ? ' stop' : ''}`
+        return h('g', { key: `e${index}` },
+          h('title', null, [`${rule.id}: ${rule.from} → ${rule.next}`, rule.result, ...rule.when].filter((part) => part !== null).join(' · ')),
+          h('path', { d, 'data-rule': rule.id, className: `bk-lib-edge${tone}`, style: { strokeWidth: edgeWidth(rule.count), strokeDasharray: rule.count === 0 ? '5 4' : undefined },
+            markerEnd: `url(#${rule.next === 'stop' ? 'bk-lib-tip-stop' : 'bk-lib-tip'})` }),
+          h('text', { x, y, textAnchor: anchor, 'data-rule': rule.id, className: `bk-lib-label${tone}` }, rule.text))
+      })
+      for (const { state, x, y, width, height, cx } of places.values()) {
+        const on = state.name === picked
+        const row = state.place === 'row'
+        const figures = [`${state.entered} entered`, state.median.text, state.cost.cost.kind === 'reported' ? state.cost.text : null].filter((part) => part !== null)
+        ink.push(h('g', { key: `s${state.name}`, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-pressed': on, 'aria-label': `the state ${state.name}`, onClick: () => pick(on ? null : state.name) },
+          h('rect', { x, y, width, height, rx: row ? 10 : height / 2, className: `bk-lib-state ${state.place}${state.name === 'stop' ? ' stop' : ''}${on ? ' sel' : ''}` }),
+          row ? [
+            h('text', { key: 'name', x: x + 14, y: y + 24, className: 'bk-lib-name' }, state.name),
+            ...(state.seats.length === 0
+              ? [h('text', { key: 'seats', x: x + 14, y: y + GRAPH.head, className: 'bk-lib-seat' }, 'no seat named')]
+              : state.seats.map((seat, at) => h('text', { key: seat.key, x: x + 14, y: y + GRAPH.head + at * GRAPH.line, className: 'bk-lib-seat' }, clip(seat.text, 32)))),
+            h('text', { key: 'figures', x: x + 14, y: y + height - 10, className: 'bk-lib-sub' }, figures.join(' · ')),
+          ] : h('text', { x: cx, y: y + height / 2 + 5, textAnchor: 'middle', className: `bk-lib-name${state.name === 'stop' ? ' stop' : ''}` }, state.name)))
+      }
+      // The pulse on each live run's state, apart from the box so picking it picks no state.
+      const here = new Map()
+      for (const run of view.live) {
+        const place = run.state === null ? undefined : places.get(run.state)
+        if (place === undefined) continue
+        const nth = here.get(run.state) ?? 0
+        here.set(run.state, nth + 1)
+        ink.push(h('g', { key: `live${run.run_id}`, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-label': `the live run ${run.label}`,
+          transform: `translate(${place.x + place.width - 34 - nth * 28} ${place.y + 8})`, onClick: () => openRun(run.run_id) },
+          h('title', null, `${run.label} is here now · open it in Realms`),
+          h(Mark, { live: true, size: 14 })))
+      }
+      return h('div', { className: 'bk-graph' },
+        h('svg', { width, height, className: 'bk-lib-graph', role: 'group', 'aria-label': 'The recipe’s state machine' },
+          h('defs', null, tip('bk-lib-tip', 'bk-lib-tip'), tip('bk-lib-tip-stop', 'bk-lib-tip stop')),
+          ink))
+    }
+
+    /** The picked state as the board's side panel reads it: its rules with their counts, its figures and its seats, each Brokkr's own. */
+    function StatePanel({ view, name }) {
+      const panel = (...body) => h('aside', { className: 'bk-cell bk-lib-panel', 'aria-label': 'Selected state', 'aria-live': 'polite' }, ...body)
+      const state = view.states.find((each) => each.name === name) ?? null
+      if (state === null) return panel(h('div', { className: 'bk-note' }, 'Pick a state to read its rules, its figures and its seats.'))
+      const terminal = state.place !== 'row'
+      const rules = view.rules.filter((rule) => rule.from === state.name || (terminal && rule.next === state.name))
+      const silent = state.cost.note ?? (state.cost.silent.length === 0 ? null : `${state.cost.silent.join(', ')} reported none`)
+      return panel(
+        h('span', { className: 'bk-k' }, terminal ? 'Terminal state' : 'State'),
+        h('h2', { className: 'bk-title' }, state.name),
+        h('div', { className: 'bk-tiles' },
+          fact('Entered', String(state.entered), 'runs in range'),
+          fact('Time', state.median.text, `median · p90 ${state.p90.text}`),
+          fact('Cost', state.cost.text, silent),
+          fact('Tokens', state.tokens.text)),
+        h('div', { className: 'bk-lib-list', 'aria-label': 'Its rules' }, h('span', { className: 'bk-k' }, terminal ? 'Rules that end here' : 'Its rules'),
+          rules.length === 0 ? h('div', { className: 'bk-note' }, 'No rule of this recipe leaves it.') : rules.map((rule) => h('div', { key: `${rule.from}\u0000${rule.id}`, className: 'bk-lib-rulerow', title: [rule.result, ...rule.when].filter((part) => part !== null).join(' · ') },
+            h('span', { className: 'bk-lib-id' }, terminal ? `${rule.id} from ${rule.from}` : `${rule.id} → ${rule.next ?? 'parks'}`), h('strong', null, String(rule.count))))),
+        h('div', { className: 'bk-lib-list', 'aria-label': 'Its seats' }, h('span', { className: 'bk-k' }, 'Seats'),
+          state.seats.length === 0 ? h('div', { className: 'bk-note' }, 'Brokkr names no seat here.') : state.seats.map((seat) => h('div', { key: seat.key }, seat.text))))
+    }
+
+    /** The Graph view: Brokkr's words for the recipe over the range, its state machine beside the picked state, and what lies beneath it. */
+    function RecipeGraph({ view, picked, pick, openRun }) {
+      const stray = view.live.filter((run) => run.state === null || !view.states.some((state) => state.name === run.state))
+      const beneath = [
+        view.retired.length === 0 ? null : h('div', { key: 'retired', className: 'bk-note' }, h('strong', null, 'Retired rules'), ` · fired in range, not in the table now: ${view.retired.map((rule) => `${rule.rule_id} · ${rule.count}`).join(' · ')}`),
+        view.drift_text === null ? null : h('div', { key: 'drift', className: 'bk-note' }, view.drift_text),
+        stray.length === 0 ? null : h('div', { key: 'stray', className: 'bk-note' }, 'Open at no state drawn here: ',
+          stray.map((run) => h('button', { key: run.run_id, type: 'button', className: 'bk-link', onClick: () => openRun(run.run_id) }, run.label))),
+      ].filter((part) => part !== null)
+      return [
+        h('section', { key: 'tiles', className: 'bk-tiles', 'aria-label': 'The recipe in range' },
+          tile(`Runs · ${view.range}`, String(view.runs), view.ends.text),
+          tile('Rules that never fired', view.never_fired.text, 'drawn dashed')),
+        view.table.kind === 'not_found' ? h('div', { key: 'table', className: 'bk-coming' }, view.table.text) : null,
+        h('div', { key: 'stage', className: 'bk-lib-stage' },
+          pane(`graph · ${view.recipe}`, 'The recipe’s graph', 'bk-lib-pane',
+            view.states.length === 0 ? h('div', { className: 'bk-note' }, 'Brokkr drew no state for this recipe.') : h(StateMachine, { view, picked, pick, openRun }),
+            h('div', { className: 'bk-row', role: 'group', 'aria-label': 'Pick a state' }, view.states.map((state) => choice(state.name === picked, state.name, () => pick(state.name === picked ? null : state.name)))),
+            beneath.length === 0 ? null : h('div', { className: 'bk-lib-beneath', 'aria-label': 'Beneath the graph' }, beneath)),
+          h(StatePanel, { view, name: picked })),
+      ]
+    }
+
+    /** The four quadrants of the Pareto view (design D6), by where a recipe sits against the viewer's two targets. */
+    const QUADRANT = { frontier: 'Pareto frontier quadrant', costly: 'Reliable but costly', leaky: 'Cheap but leaky', dominated: 'Costly and leaky' }
+
+    /**
+     * The quadrant a recipe falls in at `targets`, the console's one
+     * judgement (design D1): a point on a target line goes to the better
+     * side, so a done rate at the target is reliable and a cost at it cheap.
+     */
+    function quadrantOf(doneRate, usd, targets) {
+      const [reliable, cheap] = [doneRate >= targets.done, usd <= targets.cost]
+      return QUADRANT[reliable ? (cheap ? 'frontier' : 'costly') : cheap ? 'leaky' : 'dominated']
+    }
+
+    /** The Pareto plot, in pixels: its frame, and the plane inside its axes. */
+    const PLOT = { width: 680, height: 372, left: 64, right: 650, top: 24, bottom: 316 }
+    const reported = (row) => row.cost_per_run.cost.kind === 'reported'
+
+    /** The viewer's two targets, edited on the view; a word that is not a target yet waits in its box and moves nothing. */
+    function Targets({ targets, setTargets }) {
+      const [drafts, setDrafts] = useState({ done: null, cost: null })
+      const field = (name, label, shown, most, unit) => h('label', { className: 'bk-row bk-lib-target-field' }, name === 'cost' ? '$' : null,
+        h('input', { className: 'bk-input bk-lib-target-input', type: 'number', min: 0, step: name === 'cost' ? 0.05 : 1, 'aria-label': label, value: drafts[name] ?? shown,
+          onChange: (event) => {
+            const words = event.target.value
+            setDrafts({ ...drafts, [name]: words })
+            const target = words.trim() === '' ? null : targetOf(Number(words), most)
+            if (target !== null) setTargets({ [name]: target })
+          },
+          onBlur: () => setDrafts({ ...drafts, [name]: null }) }), unit)
+      return h('div', { className: 'bk-row', role: 'group', 'aria-label': 'Your targets' }, h('span', { className: 'bk-note' }, 'Quadrants split at your targets:'),
+        field('done', 'Done-rate target, percent', String(targets.done), 100, '% done'),
+        field('cost', 'Cost-a-run target, dollars', targets.cost.toFixed(2), Infinity, 'a run'),
+        h('span', { className: 'bk-d' }, 'kept in this browser · edit one to move its line'))
+    }
+
+    /**
+     * The Graph Pareto frontier (design D6): each recipe of the realm with a
+     * reported cost, done rate up and cost a run right, in four quadrants
+     * split at the viewer's targets; Brokkr's frontier joined as a step line;
+     * the recipes it cannot plot named beneath, and every figure in a table.
+     */
+    function Pareto({ rows, known, targets, setTargets, open }) {
+      const plotted = rows.filter(reported)
+      const unmeasured = known.filter((name) => !rows.some((row) => row.recipe === name))
+      const most = Math.max(1, targets.cost * 2, ...plotted.map((row) => row.cost_per_run.cost.usd * 1.15))
+      const x = (usd) => PLOT.left + (Math.min(usd, most) / most) * (PLOT.right - PLOT.left)
+      const y = (rate) => PLOT.bottom - (Math.min(Math.max(rate, 0), 100) / 100) * (PLOT.bottom - PLOT.top)
+      const at = (row) => [x(row.cost_per_run.cost.usd), y(row.done_rate)]
+      const [tx, ty] = [x(targets.cost), y(targets.done)]
+      const frontier = plotted.filter((row) => row.on_frontier).map(at).sort(([ax, ay], [bx, by]) => ax - bx || by - ay)
+      const area = (key, [x1, y1, x2, y2], [lx, ly, anchor]) => h('g', { key },
+        h('rect', { x: x1, y: y1, width: Math.max(0, x2 - x1), height: Math.max(0, y2 - y1), className: `bk-lib-q ${key}` }),
+        h('text', { x: lx, y: ly, textAnchor: anchor, className: `bk-lib-qname ${key}` }, key === 'frontier' ? `${QUADRANT[key]} · cheap and reliable` : QUADRANT[key]))
+      const { left, right, top, bottom } = PLOT
+      const plot = h('svg', { viewBox: `0 0 ${PLOT.width} ${PLOT.height}`, width: '100%', className: 'bk-lib-plot', role: 'group', 'aria-label': 'The Graph Pareto frontier' },
+        area('frontier', [left, top, tx, ty], [left + 8, top + 16, 'start']),
+        area('costly', [tx, top, right, ty], [right - 8, top + 16, 'end']),
+        area('leaky', [left, ty, tx, bottom], [left + 8, bottom - 8, 'start']),
+        area('dominated', [tx, ty, right, bottom], [right - 8, bottom - 8, 'end']),
+        h('line', { x1: left, y1: top, x2: left, y2: bottom, className: 'bk-axis' }),
+        h('line', { x1: left, y1: bottom, x2: right, y2: bottom, className: 'bk-axis' }),
+        h('text', { x: left - 6, y: top + 4, textAnchor: 'end', className: 'bk-ax' }, '100%'),
+        h('text', { x: left - 6, y: bottom + 4, textAnchor: 'end', className: 'bk-ax' }, '0%'),
+        h('text', { x: left, y: bottom + 16, textAnchor: 'middle', className: 'bk-ax' }, '$0'),
+        h('text', { x: right, y: bottom + 16, textAnchor: 'end', className: 'bk-ax' }, `$${most.toFixed(2)}`),
+        h('text', { x: left, y: top - 8, className: 'bk-ax' }, 'done rate ↑'),
+        h('text', { x: right, y: bottom + 48, textAnchor: 'end', className: 'bk-ax' }, 'cost a run →'),
+        h('line', { x1: left, y1: ty, x2: right, y2: ty, className: 'bk-lib-target done' }),
+        h('line', { x1: tx, y1: top, x2: tx, y2: bottom, className: 'bk-lib-target cost' }),
+        h('text', { x: tx, y: bottom + 32, textAnchor: 'middle', className: 'bk-lib-target-label' }, `$${targets.cost.toFixed(2)} a run`),
+        h('text', { x: left + 8, y: ty - 6, className: 'bk-lib-target-label' }, `${targets.done}% done`),
+        frontier.length < 2 ? null : h('path', { d: frontier.map(([px, py], index) => (index === 0 ? `M${px} ${py}` : `H${px}V${py}`)).join(''), className: 'bk-lib-frontier' }),
+        plotted.map((row) => {
+          const [px, py] = at(row)
+          const late = px > right - 220
+          return h('g', { key: row.recipe, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-label': `the recipe ${row.recipe}`, onClick: () => open(row.recipe) },
+            h('title', null, `${row.recipe}: ${quadrantOf(row.done_rate, row.cost_per_run.cost.usd, targets)} · open its graph`),
+            h('circle', { cx: px, cy: py, r: 7, className: `bk-lib-point${row.on_frontier ? ' frontier' : ''}` }),
+            h('text', { x: late ? px - 11 : px + 11, y: py + 4, textAnchor: late ? 'end' : 'start', className: 'bk-lib-plabel' }, `${row.recipe} · ${row.done_text} · ${row.cost_per_run.text}`))
+        }))
+      const unreported = rows.filter((row) => !reported(row))
+      return h('section', { className: 'bk-cell bk-section', 'aria-label': 'Pareto' },
+        h('div', { className: 'bk-row' }, h('strong', null, 'Graph Pareto frontier'), h('span', { className: 'bk-d' }, 'done rate against cost a run · click a recipe to open its graph')),
+        h(Targets, { targets, setTargets }),
+        plot,
+        unreported.length === 0 ? null : h('div', { className: 'bk-note', 'aria-label': 'Cost not reported' }, h('strong', null, 'cost not reported: '),
+          unreported.map((row) => (row.cost_per_run.note === null ? row.recipe : `${row.recipe} (${row.cost_per_run.note})`)).join(' · ')),
+        unmeasured.length === 0 ? null : h('div', { className: 'bk-note', 'aria-label': 'Not measured yet' }, h('strong', null, 'not measured yet: '), `${unmeasured.join(' · ')} · no runs in this range`),
+        h('div', { style: { overflowX: 'auto' } }, h('table', { className: 'bk-table' },
+          header(['Recipe', 'Runs', 'Done', 'Done rate', 'Cost a run', 'Tokens a run', 'Quadrant'], (index) => index > 0 && index < 6),
+          h('tbody', null, rows.map((row) => h('tr', { key: row.recipe, onClick: () => open(row.recipe), style: { cursor: 'pointer' } },
+            h('td', null, h('strong', null, row.recipe), row.on_frontier ? ' ' : null, row.on_frontier ? chip('on the frontier', 'bk-ship') : null),
+            h('td', { className: 'n' }, String(row.runs)), h('td', { className: 'n' }, String(row.done)), h('td', { className: 'n' }, row.done_text),
+            h('td', { className: 'n' }, row.cost_per_run.text, row.cost_per_run.note === null ? null : h('div', { className: 'bk-d' }, row.cost_per_run.note)),
+            h('td', { className: 'n' }, row.tokens_per_run.text),
+            h('td', null, reported(row) ? quadrantOf(row.done_rate, row.cost_per_run.cost.usd, targets) : 'cost not reported')))))))
+    }
+
+    /** The recipe of `rows` with the most runs in range, the first listed where runs tie; `null` when none ran. */
+    const busiest = (rows) => rows.reduce((best, row) => (best === null || row.runs > best.runs ? row : best), null)?.recipe ?? null
+    /** The realms Brokkr's figures name, in their order. */
+    const realmsIn = (figures) => [...new Set([...figures.realms.map((row) => row.realm), ...figures.recipes.map((row) => row.realm)])]
+
+    /**
+     * The Library (design D7): one realm picker and one range over two views,
+     * Graph and Pareto. It reads `brokkr analytics` for the realms' recipes and
+     * `brokkr graph` for the recipe in view, sends no command, and keeps
+     * nothing but the viewer's two targets. `route` holds the realm, recipe
+     * and view picked; until one is picked, the realm is the conversation's
+     * (`here`) when Brokkr lists it, else the first, and the recipe is the one
+     * with the most runs in range. The realm's known recipes, for the recipe
+     * picker and "not measured yet", are the ones its recipe's graph names.
+     */
+    function Library({ route, go, here, openRun }) {
+      const [range, setRange] = useState('7d')
+      const [figures, setFigures] = useState({ range: null, value: null, error: null })
+      const [graph, setGraph] = useState({ key: null, value: null, error: null })
+      const [picked, pick] = useState(null)
+      const [targets, setTargets] = useTargets()
+      useEffect(() => {
+        let wanted = true
+        readRoute('/api/analytics', new URLSearchParams({ range }), (read) => wanted && setFigures({ range, ...read }))
+        return () => {
+          wanted = false
+        }
+      }, [range])
+      const current = figures.range === range ? figures.value : null
+      // The realms stay listed while another range is read.
+      const realms = figures.value === null ? [] : realmsIn(figures.value)
+      const realm = route.realm ?? (realms.includes(here) ? here : realms[0] ?? null)
+      const rows = current === null ? [] : current.recipes.filter((row) => row.realm === realm)
+      const recipe = route.recipe ?? busiest(rows)
+      const sub = route.sub ?? 'graph'
+      const key = [realm, recipe, range].join('\u0000')
+      useEffect(() => {
+        let wanted = true
+        if (current !== null && recipe !== null) {
+          const query = new URLSearchParams({ recipe, range })
+          if (realm !== null) query.set('realm', realm)
+          readRoute('/api/graph', query, (read) => wanted && setGraph({ key, ...read }))
+        }
+        return () => {
+          wanted = false
+        }
+      }, [key, current === null])
+      useEffect(() => pick(null), [realm, recipe])
+      const shown = graph.key === key ? graph : null
+      const known = shown?.value?.recipes ?? null
+      const goTo = (change) => go({ realm, recipe, sub, ...change })
+      const names = known ?? rows.map((row) => row.recipe)
+      const body = figures.range === range && figures.error !== null ? h('div', { className: 'bk-error' }, `Brokkr’s figures could not be read: ${figures.error}`)
+        : current === null ? h('div', { className: 'bk-note' }, 'Reading Brokkr’s figures…')
+          : recipe === null ? h('div', { className: 'bk-note' }, `No recipe has a run in ${realm ?? 'this workspace'} in the last ${range}, so there is nothing to draw yet.`)
+            : sub === 'pareto' ? h(Pareto, { rows, known: known ?? [], targets, setTargets, open: (name) => goTo({ sub: 'graph', recipe: name }) })
+              : shown === null ? h('div', { className: 'bk-note' }, 'Reading the graph…')
+                : shown.error !== null ? h('div', { className: 'bk-error' }, `The graph could not be read: ${shown.error}`)
+                  : h(RecipeGraph, { view: shown.value, picked, pick, openRun: (run) => openRun(realm, run) })
+      return h('div', { className: 'bk-main bk-library' },
+        h('h1', { className: 'bk-title' }, realm ?? 'this workspace', sub === 'graph' && recipe !== null ? ` / ${recipe}` : ''),
+        h('div', { className: 'bk-row' },
+          realms.length === 0 ? null : h('span', { className: 'bk-row', role: 'group', 'aria-label': 'Realm' }, h('span', { className: 'bk-k' }, 'Realm'),
+            realms.map((name) => choice(name === realm, name, () => go({ realm: name, recipe: null })))),
+          ranges(range, setRange),
+          h('span', { className: 'bk-row bk-lib-views', role: 'group', 'aria-label': 'View' }, choice(sub === 'graph', 'Graph', () => goTo({ sub: 'graph' })), choice(sub === 'pareto', 'Pareto', () => goTo({ sub: 'pareto' })))),
+        sub !== 'graph' || names.length === 0 ? null : h('div', { className: 'bk-row', role: 'group', 'aria-label': 'Recipe' }, h('span', { className: 'bk-k' }, 'Recipe'),
+          names.map((name) => choice(name === recipe, name, () => goTo({ recipe: name })))),
+        body)
     }
 
     /**
@@ -1091,10 +1475,16 @@ window.__ModuleLoader__.load({
         if (home !== null) setRoute({ view: 'realm', realm: home, run: null })
       }, [home])
       useEffect(() => {
-        watch(route.view, route.run === null ? null : { realm: route.realm, run_id: route.run })
+        // The host knows no Library view: the Library reads by fetch, as Analytics does, and watches only what Analytics watches.
+        watch(route.view === 'library' ? 'analytics' : route.view, route.run === null ? null : { realm: route.realm, run_id: route.run })
         return () => watch('none', null)
       }, [route.view, route.realm, route.run])
-      const open = (realm) => setRoute({ view: 'realm', realm, run: null })
+      const open = (realm, run = null) => setRoute({ view: 'realm', realm, run })
+      // A live run's pulse in the Library opens it in Realms as its fleet row does: the hearth holding its realm, then the run.
+      const openRun = (realm, run) => {
+        const hearths = state.fleet.hearths
+        open(hearths.find((hearth) => holds(hearth, realm))?.realm ?? (hearths.length === 1 ? hearths[0].realm : realm), run)
+      }
       const select = (run) => setRoute({ ...route, run })
       const see = (view) => emit({ run: { realm: route.realm, run_id: route.run, view } })
       const count = waiting(state.fleet)
@@ -1102,15 +1492,16 @@ window.__ModuleLoader__.load({
       const body = state.fleet === null
         ? h('div', { className: 'bk-main' }, state.error === null ? h('div', { className: 'bk-note' }, state.live ? 'Reading Brokkr…' : 'Connecting…') : null)
         : route.view === 'analytics' ? h(Analytics, { open })
-          : route.view === 'realm' ? h(Realm, { state, realm: route.realm, runId: route.run, select, back: () => setRoute({ view: 'realms', realm: null, run: null }), see, open, folder, sessionId })
-            : h(Realms, { state, open, here: home, folder, sessionId })
+          : route.view === 'library' ? h(Library, { route, go: (change) => setRoute({ ...route, ...change }), here, openRun })
+            : route.view === 'realm' ? h(Realm, { state, realm: route.realm, runId: route.run, select, back: () => setRoute({ view: 'realms', realm: null, run: null }), see, open, folder, sessionId })
+              : h(Realms, { state, open, here: home, folder, sessionId })
       const context = !inTab ? null
         : looking ? 'finding this conversation’s realm…'
           : refused !== null ? `this conversation’s realm could not be read: ${refused}`
             : home !== null ? `this conversation is in ${home}`
               : 'this conversation’s folder is in no realm Brokkr lists'
       return h('div', { className: `bk${inTab ? ' in-tab' : ''}`, 'data-testid': inTab ? 'brokkr-console-tab' : 'brokkr-console', ref: (element) => (root.element = element) },
-        h('nav', { className: 'bk-nav', 'aria-label': 'Brokkr views' }, h('span', { className: 'bk-brand' }, h(Mark, { live: forging(state.fleet) }), 'Brokkr'), tab('realms', 'Realms'), tab('analytics', 'Analytics'),
+        h('nav', { className: 'bk-nav', 'aria-label': 'Brokkr views' }, h('span', { className: 'bk-brand' }, h(Mark, { live: forging(state.fleet) }), 'Brokkr'), tab('realms', 'Realms'), tab('analytics', 'Analytics'), tab('library', 'Library'),
           context === null ? null : h('span', { className: 'bk-note' }, context),
           state.fleet === null ? null : h('span', { className: 'bk-status' }, `${state.fleet.hearths.reduce((sum, hearth) => sum + runningIn(hearth.runs), 0)} running · `, h('strong', null, `${count} waiting on you`), state.live ? '' : ' · reconnecting')),
         state.error === null ? null : h('div', { className: 'bk-main' }, h('div', { className: 'bk-error' }, state.error)),
@@ -1150,6 +1541,9 @@ window.__ModuleLoader__.load({
     }
 
     module.exports.apply = apply
+    // The Library's two pure readings, for the tests: an edge's width, and the quadrant a recipe falls in.
+    module.exports.edgeWidth = edgeWidth
+    module.exports.quadrantOf = quadrantOf
     // The client services the assistant uses must be injected to exist at apply (slice two, evidence limit 7).
     module.exports.inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'conversation', 'sidebarRight']
     module.exports.name = 'brokkr-console'

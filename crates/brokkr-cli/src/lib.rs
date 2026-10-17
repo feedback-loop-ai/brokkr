@@ -191,6 +191,10 @@ enum Cmd {
     /// realm: shipped, start to end, waiting on you, rework, cost and
     /// served models. `--json` emits the view model.
     Analytics(verbs::analytics::AnalyticsArgs),
+    /// One recipe's state machine with how often each rule fired, where
+    /// runs spent their time and how they ended, over a range. Read-only;
+    /// `--json` emits the view model.
+    Graph(verbs::graph::GraphArgs),
     /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
     /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
     Driver(DriverArgs),
@@ -1867,6 +1871,7 @@ fn run_with(
         Cmd::Realms(args) => readouts::realms(workspace, args),
         Cmd::Runs(args) => readouts::runs(workspace, args),
         Cmd::Analytics(args) => verbs::analytics::analytics(workspace, args),
+        Cmd::Graph(args) => verbs::graph::graph(workspace, args),
         Cmd::Hands { command } => hands::run(command),
         Cmd::Probe { command } => probe::probe(workspace, command),
         Cmd::Broker { command } => broker::run(command),

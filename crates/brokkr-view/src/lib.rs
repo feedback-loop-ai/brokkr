@@ -26,12 +26,14 @@
 #![forbid(unsafe_code)]
 
 mod analytics;
+mod attempts;
 pub mod capability_calls;
 mod clarify;
 mod commands;
 mod compare;
 mod dashboard;
 mod fleet;
+mod graph;
 mod items;
 pub mod js;
 mod participant;
@@ -60,6 +62,7 @@ pub use fleet::{
     HearthEntries, Hire, Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict,
     TITLE_COLUMNS, VERDICT_COLUMNS,
 };
+pub use graph::{graph, GraphError, GraphQuery, GraphTable, GraphView, Table, GRAPH_VIEW_VERSION};
 pub use participant::Subject;
 pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
@@ -119,7 +122,8 @@ use serde_json::Value;
 /// Bumped to 21 by #511: a run row gained its `acknowledgement`.
 /// Bumped to 22 by #568's console tab: a participant gained its
 /// `tokens`, the total, input, output and cache-hit cells.
-pub const VIEW_VERSION: u32 = 22;
+/// Bumped to 23 by #568's Library: the analytics readout gained `recipes`.
+pub const VIEW_VERSION: u32 = 23;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -1746,26 +1750,30 @@ fn token_usage<'a>(records: impl Iterator<Item = &'a Value>) -> Option<TokenUsag
 }
 
 fn session_usage(part: &Build) -> Option<TokenUsage> {
-    token_usage(
-        part.checkpoints
-            .iter()
-            .map(|(checkpoint, _, _)| checkpoint)
-            .filter(|checkpoint| {
-                matches!(
-                    checkpoint.get("step").and_then(Value::as_str),
-                    Some("seat-turn" | "turn-completed")
-                ) && [
-                    "input_tokens",
-                    "output_tokens",
-                    "cache_read_tokens",
-                    "cache_write_tokens",
-                    "reasoning_output_tokens",
-                ]
-                .iter()
-                .any(|key| checkpoint.get(*key).and_then(Value::as_u64).is_some())
-            }),
-    )
-    .or_else(|| token_usage(part.session.iter()))
+    let checkpoints = part.checkpoints.iter().map(|(checkpoint, _, _)| checkpoint);
+    seat_usage(checkpoints, part.session.as_ref())
+}
+
+/// A seat's checkpoints metered: its turns, else its `session` record.
+pub(crate) fn seat_usage<'a>(
+    checkpoints: impl Iterator<Item = &'a Value>,
+    session: Option<&'a Value>,
+) -> Option<TokenUsage> {
+    token_usage(checkpoints.filter(|checkpoint| {
+        matches!(
+            checkpoint.get("step").and_then(Value::as_str),
+            Some("seat-turn" | "turn-completed")
+        ) && [
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "reasoning_output_tokens",
+        ]
+        .iter()
+        .any(|key| checkpoint.get(*key).and_then(Value::as_u64).is_some())
+    }))
+    .or_else(|| token_usage(session.into_iter()))
 }
 
 fn usage_text(usage: &TokenUsage, prefix: &str) -> String {

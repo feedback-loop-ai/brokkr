@@ -223,6 +223,51 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-model{display:flex;flex-direction:column;line-height:17px}
 .bk-ask-here{margin-left:auto;min-height:30px;font-size:13px;flex:none;white-space:nowrap}
 .bk-ask-row .bk-input{flex:1 1 260px;width:auto}
+/* The Library (change 2026-10-17-568): the recipe's state machine beside the picked state, and the Pareto plot. */
+.bk-library{gap:14px}
+.bk-lib-stage{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.bk-lib-pane{flex:999 1 640px}
+.bk-lib-panel{flex:1 1 300px;max-width:420px;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.bk-lib-panel .bk-tiles{grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:8px}
+.bk-lib-list{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.bk-lib-rulerow{display:flex;justify-content:space-between;gap:8px;font-variant-numeric:tabular-nums}
+.bk-lib-id{font-family:'IBM Plex Mono',monospace;font-size:12px;overflow-wrap:anywhere}
+.bk-lib-beneath{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--bk-line-soft);padding-top:8px}
+.bk-lib-views{margin-left:auto;gap:6px}
+.bk-lib-graph{display:block;overflow:visible;font-family:'IBM Plex Sans',system-ui,sans-serif}
+.bk-lib-state{fill:var(--bk-surface);stroke:var(--bk-line-node);stroke-width:1.5}
+.bk-lib-state.end{fill:var(--bk-ok-fill);stroke:var(--bk-ok)}
+.bk-lib-state.beneath{fill:var(--bk-stop-fill)}
+.bk-lib-state.stop{fill:var(--bk-bad-fill);stroke:var(--bk-bad)}
+.bk-lib-state.sel{stroke:var(--bk-pick);stroke-width:3}
+.bk-lib-name{fill:var(--bk-ink);font-size:14px;font-weight:600}
+.bk-lib-name.stop{fill:var(--bk-bad-ink)}
+.bk-lib-seat{fill:var(--bk-ink-2);font-size:11px}
+.bk-lib-sub{fill:var(--bk-muted);font-size:11px}
+.bk-hit:hover .bk-lib-name,.bk-hit:focus-visible .bk-lib-name{fill:var(--bk-pick)}
+.bk-hit:focus-visible .bk-lib-state{stroke:var(--bk-pick);stroke-dasharray:3 3}
+/* An edge's width and dash are its count's, set on the path; only its tone is the sheet's. */
+.bk-lib-edge{fill:none;stroke:var(--bk-edge)}
+.bk-lib-edge.dormant{stroke:var(--bk-line-strong)}
+.bk-lib-edge.stop{stroke:var(--bk-halt)}
+.bk-lib-tip{fill:var(--bk-edge)}
+.bk-lib-tip.stop{fill:var(--bk-halt)}
+.bk-lib-label{fill:var(--bk-ink-2);font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace}
+.bk-lib-label.dormant{fill:var(--bk-faint);font-weight:400}
+.bk-lib-label.stop{fill:var(--bk-bad-ink)}
+.bk-lib-plot{display:block;max-width:760px;font-family:'IBM Plex Sans',system-ui,sans-serif}
+.bk-lib-q.frontier{fill:var(--bk-ok-fill)}.bk-lib-q.costly{fill:var(--bk-run-fill)}.bk-lib-q.leaky{fill:var(--bk-warn-fill)}.bk-lib-q.dominated{fill:var(--bk-bad-wash)}
+.bk-lib-qname{font-size:12px;font-weight:600}
+.bk-lib-qname.frontier{fill:var(--bk-ok-ink)}.bk-lib-qname.costly{fill:var(--bk-run-ink)}.bk-lib-qname.leaky{fill:var(--bk-warn-ink)}.bk-lib-qname.dominated{fill:var(--bk-bad-ink)}
+.bk-lib-target{stroke:var(--bk-muted);stroke-width:2}
+.bk-lib-target-label{fill:var(--bk-muted);font-size:11px}
+.bk-lib-frontier{fill:none;stroke:var(--bk-phosphor);stroke-width:2;stroke-dasharray:6 4}
+.bk-lib-point{fill:var(--bk-accent);stroke:var(--bk-surface);stroke-width:2}
+.bk-lib-point.frontier{stroke:var(--bk-phosphor);stroke-width:3}
+.bk-lib-plabel{fill:var(--bk-ink);font-size:12px}
+.bk-hit:hover .bk-lib-plabel,.bk-hit:focus-visible .bk-lib-plabel{fill:var(--bk-pick)}
+.bk-lib-target-field{gap:4px;font-size:13px;color:var(--bk-ink-2)}
+.bk .bk-lib-target-input{width:88px;padding:5px 8px}
 .bk-error{padding:12px 14px;border:1px solid var(--bk-bad);border-radius:10px;background:var(--bk-bad-wash);color:var(--bk-bad-ink);font-size:13px}
 /* The conversation's tab is narrower than the full panel: the run list, the
    run and the assistant stack instead of sitting side by side. */
@@ -241,4 +286,6 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
   .bk-q .s{display:none}
   .bk-queue{grid-template-columns:minmax(0,1fr)}
   .bk-timeline{grid-template-columns:56px minmax(0,1fr)}
+  .bk-lib-panel{max-width:none}
+  .bk-lib-views{margin-left:0}
 }

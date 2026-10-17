@@ -5,12 +5,15 @@
 // value is passed as `--flag=value`, so a value that opens with `-` (a reason
 // can) is never read as a flag.
 import { launch, run } from './runner.js'
-import { analyticsOf, fleetOf, jsonOf, muninnOf, queueOf, realmsOf, runViewOf, transcriptReadOf } from './readouts.js'
+import { analyticsOf, fleetOf, graphOf, jsonOf, muninnOf, queueOf, realmsOf, runViewOf, transcriptReadOf } from './readouts.js'
 
 /** The two `brokkr operator` commands the console presses. */
 const OPERATOR = ['retry', 'stop']
 
 const flag = (name, value) => `--${name}=${value}`
+
+/** `--realm=<name>`, or nothing when the readout is asked over every realm (or a one-hearth world). */
+const realmOf = (realm) => (realm === null ? [] : [flag('realm', realm)])
 
 /**
  * The bundle a run is resumed under: the operator's override when one is
@@ -46,10 +49,9 @@ export function brokkrOf(config) {
      * readout's own document, read whatever the exit code (`transcriptReadOf`).
      */
     transcript: async (target, seat) => transcriptReadOf(await run(config, ['transcript', ...runOf(target), flag('seat', seat), '--json']), 'brokkr transcript'),
-    analytics: (range, realm) => {
-      const only = realm === null ? [] : [flag('realm', realm)]
-      return read(['analytics', flag('range', range), ...only, '--json'], 'brokkr analytics', analyticsOf)
-    },
+    analytics: (range, realm) => read(['analytics', flag('range', range), ...realmOf(realm), '--json'], 'brokkr analytics', analyticsOf),
+    /** One recipe's state machine and its traffic over the range (the Library's Graph). */
+    graph: (realm, recipe, range) => read(['graph', flag('recipe', recipe), ...realmOf(realm), flag('range', range), '--json'], 'brokkr graph', graphOf),
     /** `brokkr operator retry|stop` or `brokkr conclude`, with the reason recorded. */
     command(target, command, reason) {
       const verb = OPERATOR.includes(command) ? ['operator', command] : ['conclude']
