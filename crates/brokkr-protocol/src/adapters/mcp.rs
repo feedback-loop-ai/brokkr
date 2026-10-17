@@ -37,7 +37,7 @@ use serde_json::Value;
 use super::{claude_restriction_control, last_message_door, placed, ResumeGate, ServingShape};
 use crate::native_controls::{
     SealedAssessment, SealedBoundary, SealedBroker, SealedFence, SealedIsolation, SealedServers,
-    SealedServing, Transport, SERVING_INPUTS,
+    SealedServing, Transport, ARTIFACT_ROOT, SERVING_INPUTS,
 };
 use crate::transcript::{DshHome, DshHomeError};
 
@@ -157,16 +157,21 @@ fn engine_executable() -> PathBuf {
     std::env::current_exe().unwrap_or_default()
 }
 
-/// The box's hands bound to `brokkr` and `workdir`, where the sealed inputs
-/// declare them; `None` where the site has none.
+/// The box's hands bound to `brokkr`, `workdir` and the artifact root the
+/// engine wrote beside the sealed inputs (U8a), where those declare them;
+/// `None` where the site has none. A root the input lacks binds none, so
+/// no hands server matches it.
 fn hands_transport<'a>(
     sealed: &'a SealedServing,
     brokkr: &'a Path,
     workdir: &'a str,
+    input: &'a Value,
 ) -> Option<Transport<'a>> {
+    let artifacts = input.get(ARTIFACT_ROOT).and_then(Value::as_str);
     sealed.spec.as_ref().map(|spec| Transport {
         brokkr,
         workdir: Path::new(workdir),
+        artifacts: Path::new(artifacts.unwrap_or_default()),
         spec,
     })
 }
@@ -233,7 +238,7 @@ pub(super) fn served(
         .flat_map(|segment| segment.argv.iter().cloned())
         .collect();
     let brokkr = engine_executable();
-    let hands = hands_transport(sealed, &brokkr, chosen.workdir);
+    let hands = hands_transport(sealed, &brokkr, chosen.workdir, input);
     let built = edge.built.get().map_or(&[][..], Vec::as_slice);
     let server = hands.filter(|_| sealed_servers(sealed) == SealedServers::Hands);
     let servers = &sealed.isolation.servers;

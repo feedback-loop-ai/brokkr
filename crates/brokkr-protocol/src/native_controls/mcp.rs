@@ -42,15 +42,22 @@ pub(super) fn toml_basic(value: &str) -> String {
     body
 }
 
+/// The driver-input key the engine's artifact root rides under, beside the
+/// sealed serving inputs and written with them (U8a; CR2): the final check
+/// binds the box's hands to it as the engine made it, never derived.
+pub const ARTIFACT_ROOT: &str = "artifact_root";
+
 /// What the engine binds the box's hands to at spawn (decision 0043;
 /// rebuild unit 13-fix-b, R1): its own executable, which the harness spawns
-/// as `brokkr hands serve`, the site's workdir and its typed hands
-/// declaration. The transport's values are produced from these, never read
-/// from a record or a command.
+/// as `brokkr hands serve`, the site's workdir, the run-local artifact root
+/// the box keeps read-only (decision 0065 slice two, U8a; CR2) and its
+/// typed hands declaration. The transport's values are produced from
+/// these, never read from a record or a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Transport<'a> {
     pub brokkr: &'a std::path::Path,
     pub workdir: &'a std::path::Path,
+    pub artifacts: &'a std::path::Path,
     pub spec: &'a crate::hands::HandsSpec,
 }
 
@@ -170,7 +177,9 @@ impl Owed<'_> {
     /// executable or the bootstrap.
     fn args(&self) -> Vec<String> {
         match self {
-            Owed::Hands(hands) => crate::hands::serve_args(hands.workdir, hands.spec),
+            Owed::Hands(hands) => {
+                crate::hands::serve_args(hands.workdir, hands.artifacts, hands.spec)
+            }
             Owed::Broker(broker) => [
                 "broker",
                 "serve",
@@ -190,8 +199,12 @@ impl Owed<'_> {
     fn is(&self, brokkr: &str, entry: &Entry) -> bool {
         let args: Vec<&str> = entry.args.iter().map(String::as_str).collect();
         let bound = match (self, &args[..]) {
-            (Owed::Hands(hands), ["hands", "serve", "--workdir", workdir, "--spec", spec]) => {
+            (
+                Owed::Hands(hands),
+                ["hands", "serve", "--workdir", workdir, "--artifacts", artifacts, "--spec", spec],
+            ) => {
                 Some(*workdir) == hands.workdir.to_str()
+                    && Some(*artifacts) == hands.artifacts.to_str()
                     && serde_json::from_str(spec)
                         .is_ok_and(|spec: Value| spec == hands.spec.to_value())
             }
@@ -317,16 +330,17 @@ impl<'a> Servers<'a> {
     /// arguments as a TOML array of [`toml_basic`] strings and `{brokkr}`,
     /// which stands in a TOML basic string, to the executable that string
     /// encodes (rebuild unit 13-fix-c, R2). A set without the box's hands
-    /// serves no hands fragment, so nothing. `None` where the executable or
-    /// the workdir is not UTF-8, since no provider value represents that
-    /// path exactly and a lossy one would bind another, and where the set
-    /// cannot be served as sealed.
+    /// serves no hands fragment, so nothing. `None` where the executable,
+    /// the workdir or the artifact root is not UTF-8, since no provider
+    /// value represents that path exactly and a lossy one would bind
+    /// another, and where the set cannot be served as sealed.
     pub(super) fn expand(&self, fragment: &[String]) -> Option<Vec<String>> {
         let Some(hands) = self.hands else {
             return Some(Vec::new());
         };
         let brokkr = hands.brokkr.to_str()?;
         hands.workdir.to_str()?;
+        hands.artifacts.to_str()?;
         let document = document(hands.brokkr, &self.named()?).to_string();
         let quoted: Vec<String> = (Owed::Hands(hands).args().iter())
             .map(|arg| format!("\"{}\"", toml_basic(arg)))

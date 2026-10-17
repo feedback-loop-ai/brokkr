@@ -20,6 +20,14 @@ fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The engine's artifact root as it makes one under `dir`, handed to
+/// `hands serve` and `hands exec` (U8a).
+fn artifact_root(dir: &Path) -> PathBuf {
+    let artifacts = dir.join("artifacts");
+    std::fs::create_dir_all(&artifacts).unwrap();
+    artifacts
+}
+
 /// Ask the boundary itself, quietly, before a test claims it can build a box.
 /// Nesting is refused by the engine-owned marker, not by an accidental kernel
 /// policy or namespace nesting limit.
@@ -52,10 +60,19 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
     }
     let dir = tempfile::tempdir().unwrap();
     let work = dir.path().join("work");
-    std::fs::create_dir_all(&work).unwrap();
+    // A recipe library's root, in the worktree the box binds (U8a).
+    let artifacts = artifact_root(&work.join(".forge"));
     std::fs::write(work.join("hello.txt"), "from the worktree\n").unwrap();
+    let (work_arg, root_arg) = (work.to_str().unwrap(), artifacts.to_str().unwrap());
     let mut child = Command::new(brokkr_bin())
-        .args(["hands", "serve", "--workdir", work.to_str().unwrap()])
+        .args([
+            "hands",
+            "serve",
+            "--workdir",
+            work_arg,
+            "--artifacts",
+            root_arg,
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -97,8 +114,17 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
 /// session tree exists and its signal handler stands. Returns the server
 /// and its tree.
 fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
+    let artifacts = artifact_root(&tmp.join("state"));
+    let (work_arg, root_arg) = (tmp.to_str().unwrap(), artifacts.to_str().unwrap());
     let mut server = Command::new(brokkr_bin())
-        .args(["hands", "serve", "--workdir", tmp.to_str().unwrap()])
+        .args([
+            "hands",
+            "serve",
+            "--workdir",
+            work_arg,
+            "--artifacts",
+            root_arg,
+        ])
         .env("TMPDIR", tmp)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -314,27 +340,24 @@ fn an_unremovable_dead_tree_is_said_at_the_start() {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn hands_exec_runs_the_command_whole_and_returns_its_code() {
     if !can_create_namespace() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let work = dir.path().join("work");
+    let (work, artifacts) = (dir.path().join("work"), artifact_root(dir.path()));
     std::fs::create_dir_all(&work).unwrap();
     let secret = dir.path().join("secret");
     std::fs::write(&secret, "x").unwrap();
-    let ok = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "exec",
-            "--workdir",
-            work.to_str().unwrap(),
-            "--",
-            "bash",
-            "-c",
-            "echo boxed > out.txt",
-        ])
+    // `hands exec` over the worktree, beside the engine's artifact root.
+    let exec = |rest: &[&str]| {
+        let (work, artifacts) = (work.to_str().unwrap(), artifacts.to_str().unwrap());
+        let mut command = Command::new(brokkr_bin());
+        command.args(["hands", "exec", "--workdir", work, "--artifacts", artifacts]);
+        command.args(rest);
+        command
+    };
+    let ok = exec(&["--", "bash", "-c", "echo boxed > out.txt"])
         .status()
         .unwrap();
     assert!(ok.success());
@@ -342,63 +365,21 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
         std::fs::read_to_string(work.join("out.txt")).unwrap(),
         "boxed\n"
     );
-    let hidden = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "exec",
-            "--workdir",
-            work.to_str().unwrap(),
-            "--",
-            "cat",
-            secret.to_str().unwrap(),
-        ])
+    let hidden = exec(&["--", "cat", secret.to_str().unwrap()])
         .stderr(Stdio::null())
         .status()
         .unwrap();
     assert_eq!(hidden.code(), Some(1), "the host file is not in the box");
-    let code = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "exec",
-            "--workdir",
-            work.to_str().unwrap(),
-            "--",
-            "bash",
-            "-c",
-            "exit 7",
-        ])
-        .status()
-        .unwrap();
+    let code = exec(&["--", "bash", "-c", "exit 7"]).status().unwrap();
     assert_eq!(code.code(), Some(7));
     // A spec that does not parse is refused before anything spawns.
-    let bad = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "exec",
-            "--workdir",
-            work.to_str().unwrap(),
-            "--spec",
-            "{\"kind\":\"mitten\"}",
-            "--",
-            "true",
-        ])
+    let bad = exec(&["--spec", "{\"kind\":\"mitten\"}", "--", "true"])
         .output()
         .unwrap();
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("--spec"));
     // And the boxed binary can call itself: the exec driver dispatch shape.
-    let selfcall = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "exec",
-            "--workdir",
-            work.to_str().unwrap(),
-            "--",
-            brokkr_bin(),
-            "--version",
-        ])
-        .output()
-        .unwrap();
+    let selfcall = exec(&["--", brokkr_bin(), "--version"]).output().unwrap();
     assert!(
         selfcall.status.success(),
         "{}",
@@ -413,20 +394,16 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
         "#!/bin/sh\nprintf 'bundle script ran\\n' > bundle-ran.txt\n",
     )
     .unwrap();
-    let outside = Command::new(brokkr_bin())
-        .args([
-            "hands",
-            "exec",
-            "--workdir",
-            work.to_str().unwrap(),
-            "--bundle-root",
-            bundle.to_str().unwrap(),
-            "--",
-            "sh",
-            "/runtime/bundle/outside.sh",
-        ])
-        .output()
-        .unwrap();
+    let bundle = bundle.to_str().unwrap();
+    let outside = exec(&[
+        "--bundle-root",
+        bundle,
+        "--",
+        "sh",
+        "/runtime/bundle/outside.sh",
+    ])
+    .output()
+    .unwrap();
     assert!(
         outside.status.success(),
         "{}",
@@ -456,10 +433,11 @@ fn the_box_private_tmp_and_home_are_owner_only_under_umask_002() {
     let seen = Command::new("sh")
         .args([
             "-c",
-            "umask 002; exec \"$0\" hands exec --workdir \"$1\" -- \
+            "umask 002; exec \"$0\" hands exec --workdir \"$1\" --artifacts \"$2\" -- \
              stat -c '%a %n' /tmp /runtime/home",
             brokkr_bin(),
             work.to_str().unwrap(),
+            artifact_root(dir.path()).to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -552,6 +530,7 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
     })
     .to_string();
     let work = verifier_workspace();
+    let artifacts = artifact_root(work.path());
     for (failing, expected) in [(false, "pass"), (true, "fail")] {
         if failing {
             std::fs::write(work.path().join("FAIL"), "fail this named test\n").unwrap();
@@ -562,6 +541,8 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
                 "exec",
                 "--workdir",
                 work.path().to_str().unwrap(),
+                "--artifacts",
+                artifacts.to_str().unwrap(),
                 "--spec",
                 &spec,
                 "--",

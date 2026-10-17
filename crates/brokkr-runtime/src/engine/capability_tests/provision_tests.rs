@@ -913,9 +913,12 @@ fn the_sealed_reach_names_each_hands_root_where_the_hands_box_binds_it() {
     let sealed = reach(&spec, &home, &workdir, &git);
     let scratch = fixture.root.join("scratch");
     let command = ["true".to_string()];
+    let artifacts = fixture.root.join("artifacts");
+    std::fs::create_dir_all(&artifacts).unwrap();
     let argv = brokkr_protocol::hands::box_argv(
         &spec,
         &workdir,
+        &artifacts,
         &home,
         &scratch,
         OverlayWrites::Ram,

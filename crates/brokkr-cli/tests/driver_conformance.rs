@@ -2265,8 +2265,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         .find(|candidate| candidate.provider == "codex")
         .expect("reviewer chains the codex lane");
     assert!(candidate.argv.ends_with(&candidate.hands_fragment));
-    let mut command = candidate.argv.clone();
-    command.truncate(command.len() - candidate.hands_fragment.len());
+    let command = candidate.argv[..candidate.argv.len() - candidate.hands_fragment.len()].to_vec();
 
     let workdir = tempfile::tempdir().unwrap();
     let result_path = workdir.path().join("results/fx.json");
@@ -2279,6 +2278,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         hands.as_ref(),
         Some(candidate),
         workdir.path(),
+        workdir.path().join("artifacts").as_path(),
         &[],
         result,
         None,

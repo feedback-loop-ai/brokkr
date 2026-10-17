@@ -60,7 +60,9 @@ there is no atomic commit across the ledger and harness stdin.
 
 The broker SHALL durably stage those bytes outside the seat's writable reach.
 The engine SHALL verify the bound ledger reference, digest and bytes, then
-publish the artifact atomically at .forge/artifacts/sha256/<hex>, where hex
+publish the artifact atomically at artifacts/sha256/<hex> in the run-local
+directory (decision 0083: an adopter folder's `.brokkr/state`, a recipe
+library's `.forge`), where hex
 is the lowercase SHA-256 of exactly those bytes. Existing identical content
 SHALL be reused only after digest verification; conflicting existing bytes,
 symlinks, nonregular files and traversal SHALL refuse. Durable publication

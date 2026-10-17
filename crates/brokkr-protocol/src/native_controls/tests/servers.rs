@@ -101,7 +101,7 @@ fn removals() -> Vec<String> {
 }
 
 /// The hands server's entry the fixtures bind, written out by hand.
-const HANDS_ENTRY: &str = r#"{"args":["hands","serve","--workdir","/w","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"],"command":"/bin/brokkr"}"#;
+const HANDS_ENTRY: &str = r#"{"args":["hands","serve","--workdir","/w","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"],"command":"/bin/brokkr"}"#;
 
 /// A broker's entry, written out by hand: `command` running `broker serve`
 /// on the plan at `plan` sealed at `digest`.

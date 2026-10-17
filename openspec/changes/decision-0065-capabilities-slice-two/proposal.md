@@ -56,7 +56,8 @@ See [the returned visit](evidence/design-boxed-broker.md#returned-specify-visit)
   precedes secret lookup, and only the boxed server receives bindings through
   the single injector; the host launcher receives no secret environment. Opted-in,
   non-vetoed responses have a fixed aggregate budget, are masked, content-addressed at
-  `.forge/artifacts/sha256/<hex>`, and openable through inspect. Fatal broker
+  `artifacts/sha256/<hex>` in the run-local directory (decision 0083: an adopter
+  folder's `.brokkr/state`, a recipe library's `.forge`), and openable through inspect. Fatal broker
   session outcomes remain durable even when the harness reports success;
   responses that cannot be masked without changing their data shape refuse.
 - Later implementation adds seat-record v6, run-manifest v12 and **the next
