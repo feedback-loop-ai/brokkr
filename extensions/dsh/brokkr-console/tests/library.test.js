@@ -174,13 +174,14 @@ test('a realm none of whose recipes ran in range still lists them: the dormant g
   assert.equal(textOf(labelled(tree, 'Not measured yet')), 'not measured yet: charter · frontier · lean · leaky · muninn · self · no runs in this range')
 })
 
-test('an edge is 1.5 + 0.35 × its count pixels wide, at most 12, labelled with Brokkr’s words; a rule that never fired is dashed at 1.5 and reads its name with 0', async () => {
+test('an edge is 1.5 + 0.35 × its count pixels wide, at most 12, labelled with Brokkr’s words, a fired edge to the next state with its count alone; a rule that never fired is dashed at 1.5 and reads its name with 0', async () => {
   const { edgeWidth } = clientModule()
   assert.deepEqual([edgeWidth(0), edgeWidth(4), edgeWidth(40)], [1.5, 1.5 + 0.35 * 4, 12])
   const tree = (await onLibrary()).tree()
   for (const [id, count] of [['IMPL-OK', 6], ['VERIFY-FAIL', 3], ['REVIEW-REFORGE', 1], ['IMPL-RETRY', 2]]) {
     assert.deepEqual(stroke(tree, id), [1.5 + 0.35 * count, undefined], id)
-    assert.equal(label(tree, id), `${id} · ${count}`)
+    // Between neighbours there is room for the count only; the rule's name is its title and the panel's.
+    assert.equal(label(tree, id), id === 'IMPL-OK' ? String(count) : `${id} · ${count}`)
   }
   assert.deepEqual(stroke(tree, 'INTAKE-OK'), [12, undefined])
   for (const id of ['REVIEW-CLEAN', 'SHIP-DIRTY']) {
@@ -310,6 +311,26 @@ test('Pareto plots each recipe with a reported cost in its quadrant at the defau
   // The two target lines cross where lean sits.
   assert.deepEqual([target(tree, 'done').y1, target(tree, 'cost').x1], [dot(tree, 'lean').cy, dot(tree, 'lean').cx])
   assert.equal(heading(tree), 'brokkr')
+})
+
+test('the targets sit at the middle of their axes, so the four quadrants keep one size however far a cost runs past its target', async () => {
+  const client = await onPareto()
+  const sizes = (tree) => Object.fromEntries(findAll(tree, (node) => node.type === 'rect' && /^bk-lib-q /.test(String(node.props.className)))
+    .map((rect) => [rect.props.className.slice('bk-lib-q '.length), [rect.props.width, rect.props.height]]))
+  const equal = (tree) => {
+    const rects = sizes(tree)
+    const [width, height] = rects.frontier
+    assert.ok(width > 0 && height > 0)
+    for (const quadrant of ['costly', 'leaky', 'dominated']) assert.deepEqual(rects[quadrant], [width, height], quadrant)
+  }
+  equal(client.tree())
+  // lean sits exactly on both targets, at the centre of the plane.
+  const { cx, cy } = dot(client.tree(), 'lean')
+  assert.deepEqual([target(client.tree(), 'cost').x1, target(client.tree(), 'done').y1], [cx, cy])
+  // A cost target far below the recipes' costs still splits the plane in four equal parts.
+  input(client.tree(), COST).onChange({ target: { value: '0.5' } })
+  input(client.tree(), DONE).onChange({ target: { value: '90' } })
+  equal(client.tree())
 })
 
 test('the step line joins Brokkr’s frontier points in order of cost, and the recipes it cannot plot are named beneath it', async () => {

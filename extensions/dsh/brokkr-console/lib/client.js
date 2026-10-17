@@ -1094,7 +1094,7 @@ window.__ModuleLoader__.load({
     const edgeWidth = (count) => Math.min(12, 1.5 + 0.35 * count)
 
     /** The Library's graph, in pixels: a state's box, its header and seat lines and footer, a terminal's pill, the gaps, an arc's rise and lane. */
-    const GRAPH = { box: 212, head: 44, line: 16, foot: 24, terminal: 120, pill: 44, gap: 76, pad: 28, below: 110, rise: 56, lane: 22 }
+    const GRAPH = { box: 196, head: 44, line: 16, foot: 24, terminal: 120, pill: 44, gap: 64, pad: 24, below: 104, rise: 48, lane: 18, least: 0.6 }
     const boxHeight = (state) => GRAPH.head + Math.max(state.seats.length, 1) * GRAPH.line + GRAPH.foot
 
     /** One edge's path and its label's point, `{d, x, y, anchor}`, by where its ends sit; `lane` is its arc's when it arcs above the row. */
@@ -1178,7 +1178,7 @@ window.__ModuleLoader__.load({
           h('title', null, [`${rule.id}: ${rule.from} → ${rule.next}`, rule.result, ...rule.when].filter((part) => part !== null).join(' · ')),
           h('path', { d, 'data-rule': rule.id, className: `bk-lib-edge${tone}`, style: { strokeWidth: edgeWidth(rule.count), strokeDasharray: rule.count === 0 ? '5 4' : undefined },
             markerEnd: `url(#${rule.next === 'stop' ? 'bk-lib-tip-stop' : 'bk-lib-tip'})` }),
-          h('text', { x, y, textAnchor: anchor, 'data-rule': rule.id, className: `bk-lib-label${tone}` }, rule.text))
+          h('text', { x, y, textAnchor: anchor, 'data-rule': rule.id, className: `bk-lib-label${tone}` }, rule.kind === 'forward' && rule.count > 0 ? String(rule.count) : rule.text))
       })
       for (const { state, x, y, width, height, cx } of places.values()) {
         const on = state.name === picked
@@ -1189,7 +1189,7 @@ window.__ModuleLoader__.load({
           row ? [
             h('text', { key: 'name', x: x + 14, y: y + 24, className: 'bk-lib-name' }, state.name),
             ...(state.seats.length === 0
-              ? [h('text', { key: 'seats', x: x + 14, y: y + GRAPH.head, className: 'bk-lib-seat' }, 'no seat named')]
+              ? [h('text', { key: 'seats', x: x + 14, y: y + GRAPH.head, className: 'bk-lib-seat' }, 'no model seat')]
               : state.seats.map((seat, at) => h('text', { key: seat.key, x: x + 14, y: y + GRAPH.head + at * GRAPH.line, className: 'bk-lib-seat' }, clip(seat.text, 32)))),
             h('text', { key: 'figures', x: x + 14, y: y + height - 10, className: 'bk-lib-sub' }, figures.join(' · ')),
           ] : h('text', { x: cx, y: y + height / 2 + 5, textAnchor: 'middle', className: `bk-lib-name${state.name === 'stop' ? ' stop' : ''}` }, state.name)))
@@ -1207,7 +1207,7 @@ window.__ModuleLoader__.load({
           h(Mark, { live: true, size: 14 })))
       }
       return h('div', { className: 'bk-graph' },
-        h('svg', { width, height, className: 'bk-lib-graph', role: 'group', 'aria-label': 'The recipe’s state machine' },
+        h('svg', { viewBox: `0 0 ${width} ${height}`, width: '100%', style: { maxWidth: width, minWidth: Math.round(width * GRAPH.least), height: 'auto' }, className: 'bk-lib-graph', role: 'group', 'aria-label': 'The recipe’s state machine' },
           h('defs', null, tip('bk-lib-tip', 'bk-lib-tip'), tip('bk-lib-tip-stop', 'bk-lib-tip stop')),
           ink))
     }
@@ -1303,8 +1303,11 @@ window.__ModuleLoader__.load({
       const plotted = rows.filter(reported)
       const unmeasured = known.filter((name) => !rows.some((row) => row.recipe === name))
       const most = Math.max(1, targets.cost * 2, ...plotted.map((row) => row.cost_per_run.cost.usd * 1.15))
-      const x = (usd) => PLOT.left + (Math.min(usd, most) / most) * (PLOT.right - PLOT.left)
-      const y = (rate) => PLOT.bottom - (Math.min(Math.max(rate, 0), 100) / 100) * (PLOT.bottom - PLOT.top)
+      // Each axis bends at its target, which sits at the middle, so the four
+      // quadrants keep one size however far a recipe's cost runs past it.
+      const half = (value, target, end) => (value <= target ? (target <= 0 ? 0 : value / target) * 0.5 : 0.5 + ((Math.min(value, end) - target) / Math.max(end - target, Number.EPSILON)) * 0.5)
+      const x = (usd) => PLOT.left + half(Math.max(usd, 0), targets.cost, most) * (PLOT.right - PLOT.left)
+      const y = (rate) => PLOT.bottom - half(Math.min(Math.max(rate, 0), 100), targets.done, 100) * (PLOT.bottom - PLOT.top)
       const at = (row) => [x(row.cost_per_run.cost.usd), y(row.done_rate)]
       const [tx, ty] = [x(targets.cost), y(targets.done)]
       const frontier = plotted.filter((row) => row.on_frontier).map(at).sort(([ax, ay], [bx, by]) => ax - bx || by - ay)

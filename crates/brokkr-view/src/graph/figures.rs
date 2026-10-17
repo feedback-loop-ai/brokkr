@@ -25,14 +25,24 @@ struct Shape {
 }
 
 impl Shape {
-    /// The table's, or — when it was not found — what the runs entered and
-    /// ruled, in the order they first did, the states their ends left them
-    /// in being the terminals.
+    /// The table's, its initial state first and the rest in `phases` order
+    /// (a composed recipe can list the state it starts in last), or — when
+    /// it was not found — what the runs entered and ruled, in the order they
+    /// first did, the states their ends left them in being the terminals.
     fn of(table: Option<GraphTable>, runs: &[GraphRun]) -> Shape {
         if let Some(table) = table {
+            let machine = table.machine;
+            let initial = machine
+                .phases
+                .iter()
+                .filter(|phase| **phase == machine.initial);
+            let rest = machine
+                .phases
+                .iter()
+                .filter(|phase| **phase != machine.initial);
             return Shape {
-                phases: table.machine.phases.clone(),
-                terminal: table.machine.terminal.iter().cloned().collect(),
+                phases: initial.chain(rest).cloned().collect(),
+                terminal: machine.terminal.iter().cloned().collect(),
             };
         }
         let mut phases: Vec<String> = Vec::new();

@@ -17,10 +17,15 @@ const NOW: &str = "2026-10-13T12:00:00Z";
 /// The table: a forward row from intake to ship, a self-loop at design, a
 /// back edge from review, and rules into both terminals.
 fn machine() -> Machine {
+    Machine::from_table(&table()).unwrap()
+}
+
+/// The table [`machine`] is read from.
+fn table() -> serde_json::Value {
     let rule = |id: &str, from: &str, result: &str, next: &str| json!({"id": id, "from": from, "result": result, "next": next, "reason": id});
     let mut again = rule("REVIEW-AGAIN", "review", "residual", "implement");
     again["when"] = json!({"fixes_applied": false});
-    Machine::from_table(&json!({
+    json!({
         "phases": ["intake", "design", "implement", "verify", "review", "ship", "done", "stop"],
         "initial": "intake",
         "terminal": ["done", "stop"],
@@ -35,8 +40,7 @@ fn machine() -> Machine {
             again,
             rule("SHIP-COMPLETE", "ship", "complete", "done"),
         ],
-    }))
-    .unwrap()
+    })
 }
 
 /// The compiled manifest's pins: the table's file, a composed base layer,
@@ -272,7 +276,17 @@ fn read_over(
     recipe: &str,
     table: bool,
 ) -> Result<GraphView, GraphError> {
-    let (machine, manifest) = (machine(), resolved());
+    read_under(machine(), journals, recipe, table)
+}
+
+/// The graph of `recipe` over `journals`, under `machine` when `table`.
+fn read_under(
+    machine: Machine,
+    journals: Vec<(Journal, Option<RunState>)>,
+    recipe: &str,
+    table: bool,
+) -> Result<GraphView, GraphError> {
+    let manifest = resolved();
     let runs = runs(&journals);
     let realms = vec!["alpha".to_string(), "beta".to_string()];
     let hearths = [
@@ -414,6 +428,44 @@ fn each_rule_has_its_kind_and_each_state_its_place() {
         ),
         (json!("end"), json!("beneath"))
     );
+}
+
+#[test]
+fn the_initial_state_leads_the_row_wherever_the_table_lists_it() {
+    // A composed recipe can list the state it starts in last: `landing`
+    // extends `fast` and adds `classify`, which lands after `stop`.
+    let mut table = table();
+    table["phases"] = json!([
+        "design",
+        "implement",
+        "verify",
+        "review",
+        "ship",
+        "done",
+        "stop",
+        "intake"
+    ]);
+    let view = read_under(Machine::from_table(&table).unwrap(), fleet(), "self", true).unwrap();
+    let order: Vec<&str> = view
+        .states
+        .iter()
+        .map(|state| state.name.as_str())
+        .collect();
+    assert_eq!(
+        order,
+        [
+            "intake",
+            "design",
+            "implement",
+            "verify",
+            "review",
+            "ship",
+            "done",
+            "stop"
+        ]
+    );
+    assert_eq!(rule(&view, "INTAKE-OK").kind, RuleKind::Forward);
+    assert_eq!(named(&view, "intake").place, Place::Row);
 }
 
 #[test]

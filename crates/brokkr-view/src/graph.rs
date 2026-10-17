@@ -97,7 +97,7 @@ pub struct GraphView {
     pub table: Table,
     /// The runs the range keeps: those that ended in it, and those open.
     pub runs: usize,
-    /// In the table's `phases` order.
+    /// The table's initial state first, then the rest in its `phases` order.
     pub states: Vec<State>,
     /// Every rule of the table, in its order, or only the fired ones when
     /// the table was not found.
@@ -120,7 +120,7 @@ pub enum Table {
     NotFound { text: String },
 }
 
-/// Where a state sits (design D3): in the row in `phases` order, at the
+/// Where a state sits (design D3): in the row, initial first then in `phases` order, at the
 /// row's end (the last terminal that completes a run), or beneath it
 /// (`stop`, and every other terminal).
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]

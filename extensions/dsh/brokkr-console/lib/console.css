@@ -226,7 +226,7 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 /* The Library (change 2026-10-17-568): the recipe's state machine beside the picked state, and the Pareto plot. */
 .bk-library{gap:14px}
 .bk-lib-stage{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
-.bk-lib-pane{flex:999 1 640px}
+.bk-lib-pane{flex:999 1 760px;min-width:0}
 .bk-lib-panel{flex:1 1 300px;max-width:420px;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
 .bk-lib-panel .bk-tiles{grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:8px}
 .bk-lib-list{display:flex;flex-direction:column;gap:4px;font-size:13px}
