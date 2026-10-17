@@ -618,7 +618,7 @@ adopt a repository you did not write:
   none, and then its install reads a bound package cache. Run it against
   a dependency tree you would install by hand.
 
-The long form, with the five files a Node repository needs and the three
+The long form, with the files a Node repository needs and the three
 edits that actually come up, is
 [adopting-a-node-repo.md](adopting-a-node-repo.md).
 
@@ -677,8 +677,13 @@ extend a shelf recipe with `"extends": "careful"`.
 
 `recipes add` also copies, from the source's agent library, each agent
 definition the recipe names that `.brokkr/agents/` lacks and the
-charter that definition names. It refuses before writing anything when
-one already there differs, naming each, and replaces nothing of yours.
+charter that definition names, and the definition of each capability
+those agents request. Definitions go where a compile reads them,
+`capabilities/` beside the map, else at the root: the source's from the
+root its library stands in, and into this repository's, which is
+`.brokkr/capabilities/` beside the `realms.json` that `init` writes. It
+refuses before writing anything when one already there differs, naming
+each, and replaces nothing of yours.
 Brokkr's own recipes do not install into a fresh folder yet: their
 agents extend Brokkr's `implementer` and `reviewer`, and the ones `init`
 wrote are other definitions, so

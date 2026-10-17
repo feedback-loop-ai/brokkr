@@ -11,8 +11,9 @@ copy to keep true. What is Node-specific is on this page:
 
 - [What you are granting](#what-you-are-granting) — read this before
   anything else
-- [The five files your repo needs](#the-five-files-your-repo-needs)
-- [Your `realms.json`](#your-realmsjson) — flow 3's one added step
+- [The files your repo needs](#the-files-your-repo-needs)
+- [Your `realms.json`](#your-realmsjson) — the map a library writes for
+  itself
 - [What each seat runs](#what-each-seat-runs)
 - [Fitting the recipe to your repo](#fitting-the-recipe-to-your-repo)
 - [What this guide does not claim](#what-this-guide-does-not-claim)
@@ -67,42 +68,47 @@ Two consequences worth holding:
 Run it against a repository whose dependency tree you would install by
 hand.
 
-## The five files your repo needs
+## The files your repo needs
 
-**Two routes, and neither runs on main yet.** A repository with a
+**Two routes, and only one runs on main.** A repository with a
 `.brokkr/` folder, from the quickstart's step 2, keeps named recipes on
 the folder's shelf, `.brokkr/recipes/<name>/` (decision
 [0083](../decisions/0083-an-adopters-brokkr-lives-in-one-folder.md)'s
 addendum of 2026-10-16). `brokkr recipes add` installs there from
 anywhere in the repository, with `fast`, the base `node` extends, and
-copies the agents both seat, with their charters, into
-`.brokkr/agents/`. Today the compile refuses, because `fast-reviewer`
-extends Brokkr's `reviewer` and the one `init` wrote is another
-definition, and the install is removed whole:
+copies the agents both seat, with their charters and the capability
+definitions they request, into the folder. Today the compile refuses,
+because `fast-reviewer` extends Brokkr's `reviewer` and the one `init`
+wrote is another definition, and the install is removed whole:
 
 ```
 $ brokkr recipes add ~/src/brokkr/recipes/node --name node
 error: recipe 'node' does not compile (removed): bundle: bundle: agent 'fast-reviewer' (/home/you/src/your-node-repo/.brokkr/agents/fast-reviewer.json) 'replaces' gives a reason for 'hands', which neither it writes nor 'reviewer' declares (composed: node -> fast)
 ```
 
-The rest of this guide is the older route, which makes your repository
-a recipe library. A `recipes/<name>/bundle.json` at the root is a
-library's mark, and a library keeps its own layout (the operator's
-ruling of 2026-10-13): `realms.json`, `adapters/` and `recipes/` at the
-root, and run state in `.forge/`, with no `.brokkr/` folder. It does not
-run on main either
-([#703](https://github.com/feedback-loop-ai/brokkr/issues/703)), as its
-second step shows.
+One set of base agents that `init` and Brokkr's recipes share is
+[#717](https://github.com/feedback-loop-ai/brokkr/issues/717), not built
+yet.
+
+The rest of this guide is the route that runs, which makes your
+repository a recipe library. A `recipes/<name>/bundle.json` at the root
+is a library's mark, and a library keeps its own layout (the operator's
+ruling of 2026-10-13): `realms.json`, `adapters/`, `agents/`,
+`capabilities/` and `recipes/` at the root, and run state in `.forge/`,
+with no `.brokkr/` folder. Until #717 it takes Brokkr's agent library
+whole, by hand.
 
 Brokkr resolves its data relative to the **workspace** it is invoked in
 — your repository root:
 
 ```
 your-node-repo/
-├── recipes/node/          # the recipe: bundle.json, policy.json, roles/
+├── recipes/node/          # the recipe, and recipes/fast/, the base it extends
 ├── adapters/claude.json   # which drivers your world trusts
+├── agents/                # the agent library the recipes' seats hire from
+├── capabilities/          # the definition of each capability those agents request
 ├── realms.json            # the world this invocation opens
-├── docs/house-rules.md     # this repository's conventions
+├── docs/house-rules.md    # this repository's conventions
 └── .gitignore             # + a line for .forge/
 ```
 
@@ -128,22 +134,55 @@ instead, and writes nothing into a library, so the library route takes
 its adapters by hand: a tier is an operator's ruling, not a
 scaffold's.)
 
-**The recipe, second.** Install it from the local path:
+**The agents and their capability definitions, second.** `node`'s and
+`fast`'s seats hire agents from the library in `agents/` (#360), and an
+agent that requests a capability needs its abstract definition at
+`capabilities/<name>.json` (decision 0065). `recipes add` copies the
+agents a recipe's seats name from `~/src/brokkr/agents/`, their
+charters, and the definition of each capability they request from
+`~/src/brokkr/capabilities/`, but never an agent's own base, and
+`fast-implementer` extends `implementer`. With only the adapters copied,
+the compile refuses, and the install removes everything it copied,
+`recipes/` included:
 
 ```
 $ brokkr recipes add ~/src/brokkr/recipes/node --name node
 error: recipe 'node' does not compile (removed): bundle: bundle: agent 'fast-implementer' (/home/you/src/your-node-repo/agents/fast-implementer.json) extends 'implementer', which is not an agent in this library (composed: node -> fast)
 ```
 
+So copy Brokkr's agent library whole, and its definitions with it:
+
+```
+cp -r ~/src/brokkr/agents ~/src/brokkr/capabilities .
+```
+
+The definitions are not optional once the library is: a compile reads
+every agent in it, and Brokkr's `researcher` requests `web-fetch` and
+`web-search`. Copy `agents/` alone and the compile names each one
+missing:
+
+```
+$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+error: recipe 'node' does not compile (removed): bundle: bundle: agent 'researcher': capability 'web-fetch' has no abstract definition at 'capabilities/web-fetch.json' in the operator configuration; declare its classes before requesting it; agent 'researcher': capability 'web-search' has no abstract definition at 'capabilities/web-search.json' in the operator configuration; declare its classes before requesting it (composed: node -> fast)
+```
+
+**The recipe, third.** Install it from the local path:
+
+```
+$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+added recipe 'node' (<digest>) at /home/you/src/your-node-repo/recipes/node
+added recipe 'fast' (<digest>) at /home/you/src/your-node-repo/recipes/fast
+```
+
 `node` extends `fast`, and a base resolves from the library its recipe
-sits in, so `recipes add` copies `fast` into `recipes/` beside it,
-at your repository's root from any directory in it, unless your library
-already holds a `fast`. It copies the agents both seat, and their
-charters, from `~/src/brokkr/agents/` into your `agents/`, but never an
-agent's own base, and `fast-implementer` extends `implementer`: so today
-the compile refuses. It compiles what it copied and removes all of it
-again if any does not compile, so a recipe that lands is a recipe that
-runs, and the adapters go first for that reason: a gate they do not
+sits in, so `recipes add` copies `fast` into `recipes/` beside it, at
+your repository's root from any directory in it, unless your library
+already holds a `fast`. Every agent, charter and definition it would
+copy is already in your library, byte for byte, so it copies none of
+them again; one that differed would refuse the install, naming each, and
+replace nothing of yours. It compiles what it copied and removes all of
+it again if any does not compile, so a recipe that lands is a recipe
+that runs, and the adapters go first for that reason: a gate they do not
 vouch for refuses the compile.
 
 **The `.gitignore` line.** `.forge/` is run-local evidence — the
@@ -156,8 +195,8 @@ echo '.forge/' >> .gitignore
 
 ## Your `realms.json`
 
-This is flow 3's one added step: where `brokkr init` writes the map into
-its folder, a library writes its own. The long version: a **realms map** is the world an invocation
+Where `brokkr init` writes the map into its folder, a library writes its
+own. The long version: a **realms map** is the world an invocation
 opens (decision 0023) — the repositories it may see, and the one journal
 they share. A single project is the degenerate map with one entry, and
 pays nothing for the shape. Write this at your repository root:
@@ -199,12 +238,12 @@ journal  ./.forge/forge.db
 realm    my-app  .  main  a1b2c3d
 ```
 
-Two `doctor` lines are worth knowing before you run the spine's check:
-
-- **The `agents` warning is expected and harmless.** `recipes/node`
-  adopts no agent from the shared library (decision 0016): its seats
-  carry an inline `role` and `driver`, so there is no `agents/` tree for
-  your repo to have. A warning is an optional capability, not a refusal.
+One kind of `doctor` line is worth knowing before you run the spine's
+check: **most `agent` lines warn, and that is expected.** Brokkr's
+library names models that only its other adapters map, so with
+`adapters/claude.json` alone each such agent warns that no adapter maps
+its model; the agents `node` hires, `node-implementer` and
+`node-reviewer`, print `ok`. A warning is not a refusal.
 `brokkr doctor --bundle recipes/node` compiles the recipe as part of the
 check, which is worth the extra flag here.
 

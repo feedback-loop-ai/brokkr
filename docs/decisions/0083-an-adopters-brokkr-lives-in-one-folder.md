@@ -782,7 +782,8 @@ folder's shelf recipe brings its `.brokkr/agents/`; any other git
 source's is its clone's `agents/`, and any other local source has none,
 and nothing is copied. An agent's own
 `extends` base is not copied: it resolves in the workspace's library.
-Agent capability definitions are not copied either (#703 asked). Every
+The capability definitions a copied agent requests are copied with it,
+as the extension below rules (#703). Every
 file is planned before anything is written, and a definition, a charter
 or a source entry is walked without following a link. The copies join
 the install's kept-or-removed set, so a compile that refuses removes them
@@ -790,17 +791,52 @@ with the recipe. A file already present and identical is skipped. The
 refusals, each before anything is written:
 
 ```text
-recipes add replaces no agent definition or charter, and the source's differ from what stands at <path>, <path> (#696): reconcile or remove each; nothing was written
+recipes add replaces no agent definition, charter or capability definition, and the source's differ from what stands at <path>, <path> (#696): reconcile or remove each; nothing was written
 recipes add cannot read <path>: <cause> (#696); nothing was written
 <bundle.json> names agent '<name>', which is not an agent name (^[a-z][a-z0-9-]*$) (#696); nothing was written
 <definition> names charter '<charter>', which is not a relative path of plain names in its library (#696); nothing was written
 <definition> names charter '<charter>', which its library <library> does not hold, so the copy would bind to whatever this workspace holds there (#696); nothing was written
-<path> is a link, or not the file or directory recipes add copies from the source's agent library (#696); nothing was written
+<path> is a link, or not the file or directory recipes add copies from the source's agent library or capability definitions (#696); nothing was written
 ```
 
 `recipes add` prints `added <what> at <path>` after its recipe lines,
 one line per file it copied: `agent '<name>'`, or `charter <charter> of
 agent '<name>'`.
+
+*Extension, 2026-10-17: capability definitions (#703).* Status:
+proposed; the operator ruled its substance on #703, and only the
+operator accepts this text. An agent definition `recipes add` copies
+brings the abstract definition of each capability it requests,
+`capabilities/<name>.json`, from the source's operator configuration
+into the workspace's: each is the directory a compile reads definitions
+from (decision 0065), by the compile's one rule, beside the map, else at
+the root. The workspace's is `.brokkr/capabilities/` in the folder
+`init` writes, else its repository's root. The source's is judged at the
+root its agent library stands in, by ruling 1's one walk from the
+directory the library is in: the repository's root where that directory
+is its `.brokkr` folder, else that directory, never a folder by its name
+alone (a library checked out as `.brokkr` with its own `.git` is a
+repository of its own), as that root's own compile reads them; a walk
+that refuses, and a source map that cannot be read, refuse by the
+`cannot read` text above, once an agent requests a capability. They join the one
+plan with the agents and charters, by its rules: planned before anything is written, walked
+without following a link, skipped when present and identical, refused by
+the text above when present and different, and removed with the recipe
+when its compile refuses. A name outside the capability grammar is never
+walked; the compile names it. A definition the source does not hold
+refuses, even where the workspace holds one, since the copy would bind to
+whatever the workspace defines. Each copy prints `capability '<name>' of
+agent '<agent>'`. A definition is no bundle file, so it never enters a
+bundle's pinned files; but a compile pins, in its capability record, every
+definition its library's agents request, so the folder bundle's digest
+also moves by the pin of each definition a copied agent requests. An
+install onto the personal shelf copies no definition, as it copies no
+agent. Only the agents a recipe names bring theirs: a library copied by
+hand brings its own `capabilities/` by hand. The new refusal:
+
+```text
+<definition> requests capability '<name>', whose definition the source's <capabilities> does not hold, so the copy would bind to whatever this workspace defines there (#703); nothing was written
+```
 
 **6. `recipes add` loses `--dir`** (amended 2026-10-15; the first ruling
 6, narrowing #675's check to the destination, is superseded). It installs

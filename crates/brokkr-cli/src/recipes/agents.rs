@@ -4,6 +4,9 @@
 //! workspace's, so the compile still reads one agents directory. An
 //! agent's own `extends` base is not copied: it resolves in the workspace's
 //! library, where `init` wrote `implementer`, `intake` and `reviewer`.
+//! Each capability a copied definition requests is copied too (#703), its
+//! abstract definition from the directory the source's compile reads them
+//! from into the one the workspace's reads them from ([`definitions_of`]).
 //! Every file is planned, and every conflict refused, before anything is
 //! written; the copies are written from the bytes that were compared.
 
@@ -11,8 +14,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use brokkr_core::realms::is_name;
 use brokkr_runtime::agents::{valid_name, NAME_GRAMMAR};
 use brokkr_runtime::bundle::DEFAULT_AGENTS_DIR;
+use brokkr_runtime::capabilities::DEFINITIONS_DIR;
+use brokkr_runtime::places::Layout;
+use brokkr_runtime::realms::World;
+use serde::de::IgnoredAny;
 use serde::Deserialize;
 
 use super::plain;
@@ -58,10 +66,13 @@ impl Site {
     }
 }
 
-/// An agent definition, as far as it names a charter.
+/// An agent definition, as far as it names a charter and the capabilities
+/// it requests; how strongly it requests each is the compile's to read.
 #[derive(Deserialize)]
 struct Definition {
     charter: Option<String>,
+    #[serde(default)]
+    capabilities: BTreeMap<String, IgnoredAny>,
 }
 
 /// One file an install copies into the workspace's agent library: what it
@@ -93,11 +104,18 @@ pub(super) enum Hiring {
         charter: String,
         library: PathBuf,
     },
-    /// An entry of the source's agent library that is a link, or not the
-    /// file or directory it must be.
+    /// The definition at `path` requests a `capability` whose abstract
+    /// definition `definitions`, the source's, does not hold (#703).
+    Undefined {
+        path: PathBuf,
+        capability: String,
+        definitions: PathBuf,
+    },
+    /// An entry of the source's agent library or capability definitions
+    /// that is a link, or not the file or directory it must be.
     Unplain { path: PathBuf },
-    /// Files the workspace's library already holds that differ from the
-    /// source's, or cannot be compared with them.
+    /// Files the workspace already holds that differ from the source's, or
+    /// cannot be compared with them.
     Differs { paths: Vec<PathBuf> },
 }
 
@@ -132,19 +150,31 @@ impl std::fmt::Display for Hiring {
                 path.display(),
                 library.display()
             ),
+            Hiring::Undefined {
+                path,
+                capability,
+                definitions,
+            } => write!(
+                formatter,
+                "{} requests capability '{capability}', whose definition the source's {} does \
+                 not hold, so the copy would bind to whatever this workspace defines there \
+                 (#703); nothing was written",
+                path.display(),
+                definitions.display()
+            ),
             Hiring::Unplain { path } => write!(
                 formatter,
                 "{} is a link, or not the file or directory recipes add copies from the source's \
-                 agent library (#696); nothing was written",
+                 agent library or capability definitions (#696); nothing was written",
                 path.display()
             ),
             Hiring::Differs { paths } => {
                 let paths: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
                 write!(
                     formatter,
-                    "recipes add replaces no agent definition or charter, and the source's \
-                     differ from what stands at {} (#696): reconcile or remove each; nothing was \
-                     written",
+                    "recipes add replaces no agent definition, charter or capability definition, \
+                     and the source's differ from what stands at {} (#696): reconcile or remove \
+                     each; nothing was written",
                     paths.join(", ")
                 )
             }
@@ -168,23 +198,37 @@ pub(super) fn library_of(bundle: &Path) -> std::io::Result<Option<PathBuf>> {
         .map(|home| home.join(DEFAULT_AGENTS_DIR)))
 }
 
+/// Where the workspace at `root` keeps the capability definitions its
+/// compile reads in `world`, by the compile's own rule
+/// ([`capability_context`](brokkr_runtime::launch::capability_context)):
+/// beside the map, else at `root`.
+pub(super) fn definitions_of(root: &Path, world: Option<&World>) -> PathBuf {
+    let context = brokkr_runtime::launch::capability_context(root, world, None, root);
+    context.root.join(DEFINITIONS_DIR)
+}
+
 /// The files to copy from `source`, the source's agent library, into
 /// `library`, the workspace's: each agent `recipes` name that `source`
-/// holds, and the charter its definition names, but never one `library`
-/// already holds byte for byte. One `library` holds that differs refuses
+/// holds, the charter its definition names, and the definition of each
+/// capability it requests, from where the source's compile reads them
+/// ([`define`]) into `definitions` (#703), but never one the workspace
+/// already holds byte for byte. One it holds that differs refuses
 /// ([`Hiring::Differs`], naming each), as does a name or a file that
-/// cannot be read, and a charter `source` lacks, which the copy would bind
-/// to whatever `library` holds there ([`Hiring::Uncharted`]). An agent
-/// name `source` lacks is the compile's to judge.
+/// cannot be read, and a charter or a definition the source lacks, which
+/// the copy would bind to whatever the workspace holds there
+/// ([`Hiring::Uncharted`], [`Hiring::Undefined`]). An agent name `source`
+/// lacks, and a capability name outside the grammar, are the compile's to
+/// judge.
 pub(super) fn plan(
     recipes: &[&Path],
     source: Option<&Path>,
     library: &Path,
+    definitions: &Path,
 ) -> Result<Vec<Hire>, Hiring> {
     let Some(source) = source else {
         return Ok(Vec::new());
     };
-    let mut hires = BTreeMap::new();
+    let (mut hires, mut asked) = (BTreeMap::new(), Vec::new());
     for name in named(recipes)? {
         let definition = format!("{name}.json");
         let Some(bytes) = read(source, &definition)? else {
@@ -192,7 +236,10 @@ pub(super) fn plan(
         };
         let path = source.join(&definition);
         let parsed = serde_json::from_slice::<Definition>(&bytes);
-        let charter = parsed.map_err(|e| unread(&path, &e))?.charter;
+        let Definition {
+            charter,
+            capabilities,
+        } = parsed.map_err(|e| unread(&path, &e))?;
         hire(
             &mut hires,
             library,
@@ -200,6 +247,15 @@ pub(super) fn plan(
             format!("agent '{name}'"),
             bytes,
         );
+        let requested: Vec<String> = capabilities.into_keys().filter(|c| is_name(c)).collect();
+        if !requested.is_empty() {
+            let (name, path) = (name.clone(), path.clone());
+            asked.push(Asking {
+                name,
+                path,
+                requested,
+            });
+        }
         let Some(charter) = charter else {
             continue;
         };
@@ -219,7 +275,70 @@ pub(super) fn plan(
         let what = format!("charter {charter} of agent '{name}'");
         hire(&mut hires, library, &charter, what, bytes);
     }
+    define(&mut hires, asked, source, definitions)?;
     held(hires.into_values().collect())
+}
+
+/// The capabilities a planned agent requests: its name, where its
+/// definition stands, and each capability name in the grammar it asks for.
+struct Asking {
+    name: String,
+    path: PathBuf,
+    requested: Vec<String>,
+}
+
+/// Plan into `definitions` the definition of each capability `asked`
+/// requests, read where the source whose agent library is `source` keeps
+/// them ([`sourced`]), found only when one is asked; one it lacks refuses
+/// ([`Hiring::Undefined`]).
+fn define(
+    hires: &mut BTreeMap<PathBuf, Hire>,
+    asked: Vec<Asking>,
+    source: &Path,
+    definitions: &Path,
+) -> Result<(), Hiring> {
+    if asked.is_empty() {
+        return Ok(());
+    }
+    let from = sourced(source)?;
+    for Asking {
+        name,
+        path,
+        requested,
+    } in asked
+    {
+        for capability in requested {
+            let file = format!("{capability}.json");
+            let Some(bytes) = read(&from, &file)? else {
+                let definitions = from;
+                return Err(Hiring::Undefined {
+                    path,
+                    capability,
+                    definitions,
+                });
+            };
+            let what = format!("capability '{capability}' of agent '{name}'");
+            hire(hires, definitions, &file, what, bytes);
+        }
+    }
+    Ok(())
+}
+
+/// Where the source whose agent library is `source` keeps the capability
+/// definitions its own compile reads, by the compile's rule
+/// ([`definitions_of`]) at the root that library stands in, by the one walk
+/// of a layout ([`Layout::discover`]) from the directory beside it: the
+/// repository's, where that directory is its `.brokkr` folder, else that
+/// directory, never a folder by its name alone. A walk that refuses, and a
+/// map there that cannot be read, refuse (fail closed); a map whose
+/// crossings moved still says where it stands, all `add` asks of it.
+fn sourced(source: &Path) -> Result<PathBuf, Hiring> {
+    let home = source.parent().unwrap_or(source);
+    let root = Layout::discover(home)
+        .map_err(|e| unread(home, &e))?
+        .workspace();
+    let world = World::inspect(&root, None).map_err(|e| unread(&root, &e))?;
+    Ok(definitions_of(&root, world.as_ref()))
 }
 
 /// Plan `bytes` at `relative` in `library`, once per destination.
