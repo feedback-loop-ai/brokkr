@@ -115,7 +115,9 @@ pub(super) struct Resolved<'a> {
 /// cannot be read refuses ([`Unshelved::Unread`]), never read as an empty
 /// shelf. A relative shelf nothing stands at or above resolves as itself.
 /// The shelf comes normalised ([`ShelfPath`]), so the entry judged is the
-/// entry itself, never the target a trailing separator reads through.
+/// entry itself, never the target a trailing separator reads through. The
+/// part of the shelf beneath that entry, the current directory for a
+/// relative one, holds no `..` ([`climbs`]).
 pub(super) fn resolving(origin: Origin, shelf: &ShelfPath) -> Result<Resolved<'_>, Unshelved> {
     let shelf = shelf.path();
     for at in shelf.ancestors() {
@@ -131,6 +133,7 @@ pub(super) fn resolving(origin: Origin, shelf: &ShelfPath) -> Result<Resolved<'_
                 let rest = shelf
                     .strip_prefix(at)
                     .expect("an ancestor prefixes its path");
+                climbs(origin, shelf, at, rest)?;
                 // Collected from its parts, so an empty `rest` leaves no trailing `/`.
                 let place = real.join(rest).components().collect();
                 return Ok(Resolved { at, real, place });
@@ -139,12 +142,30 @@ pub(super) fn resolving(origin: Origin, shelf: &ShelfPath) -> Result<Resolved<'_
             Err(cause) => return Err(unread(cause)),
         }
     }
+    climbs(origin, shelf, Path::new("."), shelf)?;
     let (real, place) = (shelf.to_path_buf(), shelf.to_path_buf());
     Ok(Resolved {
         at: shelf,
         real,
         place,
     })
+}
+
+/// Refuse the `origin` shelf `shelf` where `rest`, its part beneath `at`,
+/// the nearest entry standing at it or above it, holds a `..` (#726): the
+/// first part of `rest` does not stand, so the kernel reports the shelf
+/// absent, and a shelf read as absent there would be an empty one, past
+/// the refusal of a name on both shelves ([`Unshelved::Shadowed`]). A `..`
+/// beneath a standing entry is in `at`, where the kernel resolves it.
+fn climbs(origin: Origin, shelf: &Path, at: &Path, rest: &Path) -> Result<(), Unshelved> {
+    match rest.components().any(|part| part == Component::ParentDir) {
+        true => Err(Unshelved::Climbing {
+            origin,
+            shelf: shelf.to_path_buf(),
+            at: at.to_path_buf(),
+        }),
+        false => Ok(()),
+    }
 }
 
 impl fmt::Display for Origin {
@@ -156,8 +177,9 @@ impl fmt::Display for Origin {
     }
 }
 
-/// Why `--recipe <name>` reads no shelf. A caller matches the variant,
-/// never the text (decision 0071 ruling 8).
+/// Why `--recipe <name>` reads no shelf, or `recipes add --personal`
+/// installs onto none. A caller matches the variant, never the text
+/// (decision 0071 ruling 8).
 #[derive(Debug)]
 pub(crate) enum Unshelved {
     /// The name is not one plain recipe name: `--recipe` names a recipe,
@@ -175,6 +197,27 @@ pub(crate) enum Unshelved {
     /// or above it, does not resolve to a directory, for its `cause`.
     Unread {
         origin: Origin,
+        shelf: PathBuf,
+        at: PathBuf,
+        cause: std::io::Error,
+    },
+    /// A shelf spelled through `..` beneath `at`, the nearest entry of it
+    /// that stands ([`climbs`]).
+    Climbing {
+        origin: Origin,
+        shelf: PathBuf,
+        at: PathBuf,
+    },
+    /// An install of a name the project shelf holds (#726), which
+    /// resolution would refuse ([`Unshelved::Shadowed`]).
+    Shadowing {
+        name: String,
+        project: PathBuf,
+        personal: PathBuf,
+    },
+    /// A directory above the personal `shelf`, `at`, that the install
+    /// could not make for its `cause`, every one it made removed ([`Made`]).
+    Unmade {
         shelf: PathBuf,
         at: PathBuf,
         cause: std::io::Error,
@@ -212,6 +255,33 @@ impl fmt::Display for Unshelved {
                 "the {origin} shelf {} cannot be read (#697): {}: {cause}; a shelf that cannot \
                  be read is never read as an empty one, so mend or remove it; nothing was run \
                  or installed",
+                shelf.display(),
+                at.display()
+            ),
+            Unshelved::Climbing { origin, shelf, at } => write!(
+                formatter,
+                "the {origin} shelf {} climbs by '..' out of a directory that does not stand \
+                 beneath {} (#726): a shelf spelled through what does not exist is never read as \
+                 an empty one, so spell it without the '..'; nothing was run or installed",
+                shelf.display(),
+                at.display()
+            ),
+            Unshelved::Shadowing {
+                name,
+                project,
+                personal,
+            } => write!(
+                formatter,
+                "recipe '{name}' stands on the project shelf, at {}, so installing it onto the \
+                 personal shelf, at {}, would stand it on both (#726): neither shelf would win, \
+                 so rename or remove one of them; nothing was installed",
+                project.display(),
+                personal.display()
+            ),
+            Unshelved::Unmade { shelf, at, cause } => write!(
+                formatter,
+                "the personal shelf {} cannot be made (#726): {}: {cause}; every directory made \
+                 for it was removed again, so nothing was installed",
                 shelf.display(),
                 at.display()
             ),
@@ -255,17 +325,7 @@ fn holding_in(
     resolving(Origin::Project, &project)?;
     resolving(Origin::Personal, personal)?;
     let (project, personal) = (project.path(), personal.path());
-    let stands = |shelf: &Path| {
-        let at = shelf.join(name);
-        match places::entry(&at) {
-            Ok(entry) => Ok((entry.is_some(), at)),
-            Err(source) => Err(Unshelved::Unreadable(PlacesError::Unreadable {
-                path: at,
-                source,
-            })),
-        }
-    };
-    match (stands(project)?, stands(personal)?) {
+    match (stands(project, name)?, stands(personal, name)?) {
         ((true, project), (true, personal)) => Err(Unshelved::Shadowed {
             name: name.to_string(),
             project,
@@ -273,6 +333,20 @@ fn holding_in(
         }),
         ((false, _), (true, _)) => Ok(personal.to_path_buf()),
         (_, (false, _)) => Ok(project.to_path_buf()),
+    }
+}
+
+/// Whether anything stands at `name` on `shelf`, judged as the entry
+/// itself, and its path. An entry that cannot be read refuses, never read
+/// as absent.
+fn stands(shelf: &Path, name: &str) -> Result<(bool, PathBuf), Unshelved> {
+    let at = shelf.join(name);
+    match places::entry(&at) {
+        Ok(entry) => Ok((entry.is_some(), at)),
+        Err(source) => Err(Unshelved::Unreadable(PlacesError::Unreadable {
+            path: at,
+            source,
+        })),
     }
 }
 
@@ -293,32 +367,78 @@ pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool) -> Result<()>
 /// lookup is where this machine places no shelf. Nothing is copied into
 /// the repository: a personal install copies no agent or charter, and
 /// judges no repository, folder or library mark at its shelf
-/// ([`Origin::place`]). The configuration directories made for the shelf
-/// are removed again when the install refuses.
-pub(crate) fn add(root: &Path, source: &str, name: &str, path: Option<&str>) -> Result<()> {
+/// ([`Origin::place`]). The shelf is judged, and a name the `project`
+/// shelf holds refused ([`unshadowing`]), before anything is made, and
+/// the configuration directories made for the shelf are removed again
+/// when the install refuses (#726).
+pub(crate) fn add(
+    root: &Path,
+    project: &ShelfPath,
+    source: &str,
+    name: &str,
+    path: Option<&str>,
+) -> Result<()> {
     let shelf = shelf()?;
+    resolving(Origin::Personal, &shelf)?;
+    unshadowing(name, project, &shelf)?;
     let made = Made::above(shelf.path())?;
     super::add(root, &shelf, Origin::Personal, source, name, path)?;
     made.keep();
     Ok(())
 }
 
-/// The directories above the personal shelf an install made, deepest
-/// first, removed when dropped unless kept, each only while it is empty.
+/// Refuse an install of `name` onto the `personal` shelf where the
+/// `project` shelf, the one `--recipe` reads first ([`holding`]), already
+/// holds it (#726), since resolution would refuse the name on both
+/// ([`Unshelved::Shadowed`]). The project shelf is judged as resolution
+/// judges it, so one that cannot be read refuses ([`resolving`],
+/// [`stands`]). A name that is not one plain name stands on no shelf, and
+/// [`super::add`] refuses it by its own text.
+fn unshadowing(name: &str, project: &ShelfPath, personal: &ShelfPath) -> Result<(), Unshelved> {
+    if !super::plain(Path::new(name)) {
+        return Ok(());
+    }
+    resolving(Origin::Project, project)?;
+    match stands(project.path(), name)? {
+        (true, project) => Err(Unshelved::Shadowing {
+            name: name.to_string(),
+            project,
+            personal: personal.path().join(name),
+        }),
+        (false, _) => Ok(()),
+    }
+}
+
+/// The directories above the personal shelf an install made, in the order
+/// made, removed deepest first when dropped unless kept, each only while
+/// it is empty.
 struct Made(Vec<PathBuf>);
 
 impl Made {
     /// Make the shelf's parent and every directory above it that nothing
-    /// stands at, judged as the entry itself, so a link is never removed.
-    fn above(shelf: &Path) -> std::io::Result<Made> {
+    /// stands at, judged as the entry itself, so a link is never removed,
+    /// one at a time from the outermost (#726): the guard stands before
+    /// the first is made and holds each once made, so a failure at any
+    /// depth removes every one made and refuses naming the shelf
+    /// ([`Unshelved::Unmade`]). An entry whose presence cannot be read is
+    /// not judged to stand, so its making refuses by its own cause.
+    fn above(shelf: &Path) -> Result<Made, Unshelved> {
         let parent = shelf.parent().unwrap_or(shelf);
-        let missing = parent
+        let missing: Vec<&Path> = parent
             .ancestors()
-            .take_while(|dir| matches!(places::entry(dir), Ok(None)))
-            .map(Path::to_path_buf)
+            .take_while(|dir| !matches!(places::entry(dir), Ok(Some(_))))
             .collect();
-        std::fs::create_dir_all(parent)?;
-        Ok(Made(missing))
+        let mut made = Made(Vec::new());
+        for dir in missing.into_iter().rev() {
+            let unmade = |cause| Unshelved::Unmade {
+                shelf: shelf.to_path_buf(),
+                at: dir.to_path_buf(),
+                cause,
+            };
+            std::fs::create_dir(dir).map_err(unmade)?;
+            made.0.push(dir.to_path_buf());
+        }
+        Ok(made)
     }
 
     fn keep(mut self) {
@@ -328,7 +448,7 @@ impl Made {
 
 impl Drop for Made {
     fn drop(&mut self) {
-        for dir in &self.0 {
+        for dir in self.0.iter().rev() {
             let _ = std::fs::remove_dir(dir);
         }
     }

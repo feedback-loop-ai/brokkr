@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{resolving, Made, Origin, ShelfPath, Unshelved};
+use super::{resolving, unshadowing, Made, Origin, ShelfPath, Unshelved};
 
 /// [`super::holding`], the project's shelf spelled as a path.
 fn holding(recipe: Option<&str>, project: PathBuf) -> Result<PathBuf, Unshelved> {
@@ -285,4 +285,105 @@ fn the_directories_made_for_a_shelf_go_unless_kept() {
     assert!(config.join("brokkr").is_dir());
     drop(Made::above(&shelf).unwrap());
     assert!(config.join("brokkr").is_dir());
+}
+
+/// What a shelf spelled through `..` beneath an absent part refuses with:
+/// the `origin` shelf `shelf`, beneath `at`, the entry of it that stands.
+fn climbing(origin: Origin, shelf: &Path, at: &Path) -> String {
+    format!(
+        "the {origin} shelf {} climbs by '..' out of a directory that does not stand beneath {} \
+         (#726): a shelf spelled through what does not exist is never read as an empty one, so \
+         spell it without the '..'; nothing was run or installed",
+        shelf.display(),
+        at.display()
+    )
+}
+
+/// A shelf whose part beneath its nearest standing entry holds a `..`
+/// refuses by its own variant on either origin, absolute and, beneath the
+/// current directory, relative (#726); a `..` beneath a standing entry is
+/// the kernel's, so the shelf resolves where it leads.
+#[test]
+fn a_shelf_climbing_out_of_what_does_not_stand_refuses() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root.join("cfg/sub")).unwrap();
+    let absolute = [
+        (root.join("nope/../cfg/brokkr/recipes"), root.clone()),
+        (root.join("cfg/gone/../brokkr/recipes"), root.join("cfg")),
+        (root.join("cfg/sub/gone/.."), root.join("cfg/sub")),
+    ];
+    let relative = PathBuf::from("no-shelf-726/../recipes");
+    let cases = absolute
+        .into_iter()
+        .chain([(relative, PathBuf::from("."))])
+        .flat_map(|case| [Origin::Project, Origin::Personal].map(|origin| (origin, case.clone())));
+    for (origin, (shelf, at)) in cases {
+        let refused = resolving(origin, &ShelfPath::new(&shelf)).err();
+        let judged = matches!(
+            &refused,
+            Some(Unshelved::Climbing { origin: of, shelf: spelled, at: stands })
+                if *of == origin && *spelled == shelf && *stands == at
+        );
+        assert!(judged, "{}: {refused:?}", shelf.display());
+        let text = climbing(origin, &shelf, &at);
+        assert_eq!(refused.unwrap().to_string(), text);
+    }
+    let standing = ShelfPath::new(root.join("cfg/sub/../brokkr/recipes"));
+    let resolved = resolving(Origin::Personal, &standing).unwrap();
+    assert_eq!(resolved.place, root.join("cfg/brokkr/recipes"));
+}
+
+/// The directories an install makes for a shelf are each held from before
+/// the first is made: a component too long to make, below one the install
+/// made, refuses naming the shelf and the directory, and leaves the tree
+/// as it was (#726).
+#[test]
+fn a_directory_that_cannot_be_made_removes_every_one_made() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = "a".repeat(256);
+    let at = dir.path().join("new").join(&long);
+    let shelf = at.join("brokkr/recipes");
+    let refused = Made::above(&shelf).err();
+    let cause = std::fs::create_dir(dir.path().join(&long)).unwrap_err();
+    let made = matches!(&refused, Some(Unshelved::Unmade { shelf: of, at: unmade, .. })
+        if *of == shelf && *unmade == at);
+    assert!(made, "{refused:?}");
+    let text = format!(
+        "the personal shelf {} cannot be made (#726): {}: {cause}; every directory made for it \
+         was removed again, so nothing was installed",
+        shelf.display(),
+        at.display()
+    );
+    assert_eq!(refused.unwrap().to_string(), text);
+    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+}
+
+/// An install onto the personal shelf of a name the project shelf holds
+/// refuses naming both paths (#726); a name it does not hold, and one that
+/// is no plain name, pass to the install, and a project shelf that cannot
+/// be read refuses as resolution refuses it.
+#[test]
+fn an_install_of_a_name_the_project_shelf_holds_refuses() {
+    let (_dir, project, personal) = shelves(&["x"], &[]);
+    let (on_project, on_personal) = (ShelfPath::new(&project), ShelfPath::new(&personal));
+    let refused = unshadowing("x", &on_project, &on_personal).unwrap_err();
+    assert!(matches!(&refused, Unshelved::Shadowing { name, .. } if name == "x"));
+    let shadowing = format!(
+        "recipe 'x' stands on the project shelf, at {}, so installing it onto the personal shelf, \
+         at {}, would stand it on both (#726): neither shelf would win, so rename or remove one of \
+         them; nothing was installed",
+        project.join("x").display(),
+        personal.join("x").display()
+    );
+    assert_eq!(refused.to_string(), shadowing);
+    for name in ["y", "../x", ""] {
+        let passed = unshadowing(name, &on_project, &on_personal);
+        assert!(matches!(passed, Ok(())), "{name}: {passed:?}");
+    }
+    std::fs::rename(&project, project.with_extension("gone")).unwrap();
+    std::os::unix::fs::symlink("gone", &project).unwrap();
+    let refused = unshadowing("x", &on_project, &on_personal).unwrap_err();
+    let text = unread(Origin::Project, &project, &project, DANGLING);
+    assert_eq!(refused.to_string(), text);
 }

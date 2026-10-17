@@ -136,7 +136,10 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             let (root, shelf) = layout.install_shelf();
             let path = path.as_deref();
             match personal {
-                true => recipes::personal::add(&root, &source, &name, path)?,
+                true => {
+                    let project = layout.recipes(None);
+                    recipes::personal::add(&root, &project, &source, &name, path)?
+                }
                 false => recipes::add(&root, &shelf, Project, &source, &name, path)?,
             }
         }

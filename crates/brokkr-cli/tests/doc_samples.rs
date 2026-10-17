@@ -368,8 +368,8 @@ fn roots_of(root: &Path) -> Vec<String> {
 
 /// `command` under the config home `config` and no `COLUMNS`, so no
 /// host's configuration (its `host.json`) or terminal width reaches a
-/// sample.
-fn hermetic(command: &mut Command, config: &Path) {
+/// sample, or `contributing`'s recipe listing (#726).
+pub(crate) fn hermetic(command: &mut Command, config: &Path) {
     command.env("XDG_CONFIG_HOME", config).env_remove("COLUMNS");
 }
 
