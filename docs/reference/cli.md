@@ -57,7 +57,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr runs`](#brokkr-runs): List runs in the workspace database: one clamped line per run, newest first. `--json` emits the view model for scripts
 - [`brokkr realms`](#brokkr-realms): List the world (decision 0023): each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
 - [`brokkr analytics`](#brokkr-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
-- [`brokkr graph`](#brokkr-graph): One recipe's state machine with how often each rule fired, where runs spent their time and how they ended, over a range. Read-only; `--json` emits the view model
+- [`brokkr graph`](#brokkr-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
 - [`brokkr driver`](#brokkr-driver): Run a built-in forge-driver/v1 adapter (claude \| lanetally \| codex \| dsh \| exec). Bundles reference these as {brokkr} driver &lt;kind&gt; -- &lt;extra args&gt;
 - [`brokkr hands`](#brokkr-hands): The model's hands are one tool, and the tool runs in an empty root (decision 0043): serve the `workspace` tool over MCP on stdio, or run one command whole inside the same box
 - [`brokkr hands serve`](#brokkr-hands-serve): Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
@@ -829,7 +829,7 @@ Usage: brokkr analytics [OPTIONS]
 
 ## brokkr graph
 
-One recipe's state machine with how often each rule fired, where runs spent their time and how they ended, over a range. Read-only; `--json` emits the view model
+One recipe's state machine and its traffic over a range. `--json` emits the view model
 
 ```text
 Usage: brokkr graph [OPTIONS]
@@ -870,12 +870,13 @@ Usage: brokkr hands <COMMAND>
 Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
 
 ```text
-Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR>
+Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--workdir <WORKDIR>` |  |  | The worktree, bound read-write at its own path |
+| `--artifacts <ARTIFACTS>` |  |  | The engine's artifact root, which the box never writes (U8a) |
 | `--spec <SPEC>` | `"workspace"` |  | The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]} |
 
 ## brokkr hands exec
@@ -883,12 +884,13 @@ Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR>
 Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
 
 ```text
-Usage: brokkr hands exec [OPTIONS] --workdir <WORKDIR> <COMMAND>...
+Usage: brokkr hands exec [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS> <COMMAND>...
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--workdir <WORKDIR>` |  |  | The worktree, bound read-write at its own path |
+| `--artifacts <ARTIFACTS>` |  |  | The engine's artifact root, as `serve` takes it |
 | `--bundle-root <BUNDLE_ROOT>` |  |  | Strategy root, bound read-only at /runtime/bundle |
 | `--spec <SPEC>` | `"workspace"` |  | The box spec as JSON, as `serve` takes it |
 | `<COMMAND>...` |  |  | The command and its arguments, run inside the box |

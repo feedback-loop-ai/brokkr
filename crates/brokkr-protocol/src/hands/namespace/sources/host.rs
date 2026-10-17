@@ -63,11 +63,10 @@ fn named(fd: BorrowedFd<'_>) -> PathBuf {
 /// device a name might now give is ever opened: none where the file's
 /// mode or ACL denies this process a read, refused on any other failure.
 pub(super) fn readable(held: BorrowedFd<'_>) -> Result<Option<OwnedFd>, Refusal> {
-    match rustix::fs::open(named(held), READ, Mode::empty()) {
+    let opened = rustix::fs::open(named(held), READ, Mode::empty());
+    match opened.map_err(|errno| errno == Errno::ACCESS) {
         Ok(fd) => Ok(Some(fd)),
-        Err(errno) => (errno == Errno::ACCESS)
-            .then_some(None)
-            .ok_or(Refusal::Identity),
+        Err(denied) => denied.then_some(None).ok_or(Refusal::Identity),
     }
 }
 
@@ -163,10 +162,10 @@ pub(in crate::hands) fn acl(fd: BorrowedFd<'_>) -> Acl {
     }
 }
 
-/// One record of the mount table, as MB3 reads it: its id and device,
-/// where in its filesystem its root lies, where it lies in this namespace,
-/// whether its own option is `rw`, and whether its filesystem is one of
-/// [`LOCAL`], whose device and inode name one object here.
+/// One mount table record, as MB3 reads it: its id and device, its root in
+/// its filesystem, its place here, whether its own option is `rw`, whether
+/// its filesystem is one of [`LOCAL`] (device and inode name one object),
+/// its type and source decoded, and its super options as the table spells.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::hands) struct Record {
     pub(in crate::hands) id: u64,
@@ -175,6 +174,9 @@ pub(in crate::hands) struct Record {
     pub(in crate::hands) point: PathBuf,
     pub(in crate::hands) writable: bool,
     pub(in crate::hands) local: bool,
+    pub(in crate::hands) filesystem: OsString,
+    pub(in crate::hands) source: OsString,
+    pub(in crate::hands) supers: Vec<Vec<u8>>,
 }
 
 /// The local filesystems whose identity the observer proves; overlay,
@@ -184,21 +186,16 @@ const LOCAL: [&str; 9] = [
 ];
 
 /// The mount table `text`, strictly: each line its six fields, optional
-/// fields, a lone `-` and exactly three more; `rw` or `ro` first among its
-/// options; octal escapes only; no id twice; no more records than `bound`,
-/// which is checked before any is kept.
+/// fields ([`tagged`]), a lone `-` and three more, none empty but a source
+/// (a device named empty); `rw` or `ro` first among its options, each whole;
+/// octal escapes only, no NUL; no id twice; at most `bound` records, checked first.
 pub(in crate::hands) fn records(text: &[u8], bound: usize) -> Result<Vec<Record>, Refusal> {
     let body = text.strip_suffix(b"\n").ok_or(Refusal::Identity)?;
     let lines = body.split(|byte| *byte == b'\n');
     let count = lines.clone().count();
     (count <= bound).then_some(()).ok_or(Refusal::Identity)?;
-    let mut records = Vec::with_capacity(count);
-    let mut ids = Vec::with_capacity(count);
-    for line in lines {
-        let record = record(line)?;
-        ids.push(record.id);
-        records.push(record);
-    }
+    let records = lines.map(record).collect::<Result<Vec<_>, _>>()?;
+    let mut ids: Vec<u64> = records.iter().map(|record| record.id).collect();
     ids.sort_unstable();
     let unique = ids.windows(2).all(|pair| pair[0] != pair[1]);
     unique.then_some(records).ok_or(Refusal::Identity)
@@ -211,32 +208,27 @@ fn record(line: &[u8]) -> Result<Record, Refusal> {
     for field in &mut six {
         *field = fields.next().ok_or(Refusal::Identity)?;
     }
-    let found = fields.by_ref().any(|field| field == b"-");
+    let ended = (fields.by_ref()).find(|field| (*field == b"-") | !tagged(field));
     let tail = [fields.next(), fields.next(), fields.next(), fields.next()];
     let [id, parent, dev, root, point, options] = six;
-    let ([Some(filesystem), Some(_), Some(_), None], true, false) =
-        (tail, found, six.contains(&&b"-"[..]))
+    let ([Some(filesystem), Some(source), Some(supers), None], true, false) =
+        (tail, ended == Some(&b"-"[..]), six.contains(&&b"-"[..]))
     else {
         return Err(Refusal::Identity);
     };
-    number(parent).ok_or(Refusal::Identity)?;
-    let local = LOCAL.iter().any(|name| name.as_bytes() == filesystem);
-    let (root, point) = (unescaped(root), unescaped(point));
-    let (Some(root), Some(point)) = (root, point) else {
+    let source = (source.is_empty().then(PathBuf::new)).or_else(|| unescaped(source));
+    let decoded = [root, point, filesystem].map(unescaped);
+    let ([Some(root), Some(point), Some(filesystem)], Some(source)) = (decoded, source) else {
         return Err(Refusal::Identity);
     };
-    // A pseudo filesystem's root names no path (nsfs: `mnt:[4026532867]`);
-    // a local one's always does.
+    let local = LOCAL.iter().any(|name| filesystem.as_os_str() == *name);
+    // A pseudo filesystem's root names no path (nsfs: `mnt:[4026532867]`).
     let named = point.is_absolute() & (root.is_absolute() | !local);
-    let parsed = (
-        named.then_some(()),
-        number(id),
-        device(dev),
-        writable(options),
-    );
-    let (Some(()), Some(id), Some(dev), Some(writable)) = parsed else {
+    let parsed = (number(id), number(parent), device(dev), writable(options));
+    let (true, (Some(id), Some(_), Some(dev), Some(writable))) = (named, parsed) else {
         return Err(Refusal::Identity);
     };
+    let supers = supers.split(|byte| *byte == b',').map(<[u8]>::to_vec);
     Ok(Record {
         id,
         dev,
@@ -244,7 +236,17 @@ fn record(line: &[u8]) -> Result<Record, Refusal> {
         point,
         writable,
         local,
+        filesystem: filesystem.into_os_string(),
+        source: source.into_os_string(),
+        supers: supers.collect(),
     })
+}
+
+/// An optional field the kernel writes: `shared:N`, `master:N`, `propagate_from:N`, `unbindable`.
+fn tagged(field: &[u8]) -> bool {
+    let tags: [&[u8]; 3] = [b"shared:", b"master:", b"propagate_from:"];
+    let numbered = (tags.iter()).any(|tag| field.strip_prefix(*tag).and_then(number).is_some());
+    numbered | (field == b"unbindable")
 }
 
 /// A `major:minor` device, each part decimal.
@@ -254,11 +256,13 @@ fn device(dev: &[u8]) -> Option<(u32, u32)> {
     Some((major, number(&minor[1..])?.try_into().ok()?))
 }
 
-/// Whether a mount's own options, `rw` or `ro` first, let it be written.
+/// Whether a mount's own options, each whole, `rw` or `ro` first, let it be written.
 fn writable(options: &[u8]) -> Option<bool> {
-    match options.split(|byte| *byte == b',').next()? {
-        b"rw" => Some(true),
-        b"ro" => Some(false),
+    let mut items = options.split(|byte| *byte == b',');
+    let whole = items.clone().all(|item| unescaped(item).is_some());
+    match (whole, items.next()?) {
+        (true, b"rw") => Some(true),
+        (true, b"ro") => Some(false),
         _ => None,
     }
 }
@@ -269,10 +273,11 @@ fn number(text: &[u8]) -> Option<u64> {
     digits.then(|| std::str::from_utf8(text).ok()?.parse().ok())?
 }
 
-/// A mount table path with its `\ooo` escapes decoded.
-fn unescaped(text: &[u8]) -> Option<PathBuf> {
+/// A mount table field with its `\ooo` escapes decoded: none where it is
+/// empty, an escape is not three octal digits up to `\377`, or any NUL.
+pub(in crate::hands) fn unescaped(text: &[u8]) -> Option<PathBuf> {
     let mut bytes = Vec::with_capacity(text.len());
-    let mut rest = text;
+    let mut rest = (!text.is_empty() & !text.contains(&0)).then_some(text)?;
     while let Some((first, tail)) = rest.split_first() {
         rest = tail;
         if *first != b'\\' {
@@ -281,9 +286,8 @@ fn unescaped(text: &[u8]) -> Option<PathBuf> {
         }
         let (digits, tail) = (rest.get(..3)?, &rest[3..]);
         let octal = digits.iter().all(|digit| (b'0'..=b'7').contains(digit));
-        let value =
-            octal.then(|| u8::from_str_radix(std::str::from_utf8(digits).ok()?, 8).ok())??;
-        bytes.push(value);
+        let value = octal.then(|| u8::from_str_radix(std::str::from_utf8(digits).ok()?, 8).ok());
+        bytes.push(value.flatten().filter(|value| *value != 0)?);
         rest = tail;
     }
     Some(PathBuf::from(OsString::from_vec(bytes)))
@@ -325,9 +329,7 @@ pub(in crate::hands) fn holding<'r>(
 
 /// Every record of the device `dev` but the mount `own`.
 fn others(records: &[Record], own: u64, dev: (u32, u32)) -> impl Iterator<Item = &Record> {
-    records
-        .iter()
-        .filter(move |record| (record.id != own) & (record.dev == dev))
+    (records.iter()).filter(move |record| (record.id != own) & (record.dev == dev))
 }
 
 /// Where `record` shows the object at `inside`, where its root holds it.

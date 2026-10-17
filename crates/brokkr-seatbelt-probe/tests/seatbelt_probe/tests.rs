@@ -1893,7 +1893,7 @@ fn a_unit_that_covers_a_toolchain_spelling_or_control_target_fails() {
 #[test]
 fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
     use brokkr_protocol::hands::{box_argv, Bind, BindMode, GitFacts, HandsSpec, OverlayWrites};
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     let inputs = fixed_inputs();
     let profile = fixed_profile(&inputs);
@@ -1903,15 +1903,14 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
     assert!(verdict(&STARTUP_RULE_LEDGER));
 
     let scratch = std::env::temp_dir().join(format!("brokkr-hands-test-{}", std::process::id()));
-    let session = scratch.join("session");
+    // The box observes an existing worktree and the artifact root in it (U8a).
+    let (session, work) = (scratch.join("session"), scratch.join("work"));
+    std::fs::create_dir_all(work.join("artifacts")).unwrap();
     let varied: [(HandsSpec, PathBuf, GitFacts); 3] = [
         (
             HandsSpec::default(),
             PathBuf::from("/Users/runner"),
-            GitFacts {
-                common_dir: None,
-                ..Default::default()
-            },
+            GitFacts::default(),
         ),
         (
             HandsSpec {
@@ -1947,7 +1946,8 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
     for (spec, home, git) in varied {
         let argv = box_argv(
             &spec,
-            Path::new("/work"),
+            &work,
+            &work.join("artifacts"),
             &home,
             &scratch,
             OverlayWrites::Session(&session),

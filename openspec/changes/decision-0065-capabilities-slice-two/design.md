@@ -624,7 +624,9 @@ store alone does not prove native-read isolation. Native read-only mode only
 proves write containment. A secret-bearing shape that cannot qualify takes
 MB2's hard refusal. No whole-harness box is invented to waive that result.
 
-Published bytes stay at .forge/artifacts/sha256/<hex>. U8a establishes a
+Published bytes stay at artifacts/sha256/<hex> in the run-local directory
+(decision 0083: `places::run_local`, an adopter folder's `.brokkr/state`, a
+recipe library's `.forge`; operator ruling 2026-10-17). U8a establishes a
 read-only overlay after all user binds, blocks writable aliases/overlaps, pins
 ancestors and rejects symlinks, nonregular/multiply-linked artifacts and root
 drift. Atomic publication uses bound handles, same-filesystem exclusive temp,
@@ -1185,7 +1187,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/agents/load.rs` (1334) | U1b, U3b, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b, U1g1 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U1g0, U4c, U4f2, U6a, U7d, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d, U8a | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/composite.rs` (4666) | U1c2 | #226 dsh composite identity; its declared-home seam must keep one owner |
 | `crates/brokkr-protocol/src/transcript.rs` | U1c2 | dsh home resolution; the transcript fold and the persistence check must read the same home |
 | `adapters/claude.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
@@ -1198,7 +1200,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
-| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2 | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a | Recheck concurrent main edits and module registration before the row |
@@ -1240,6 +1242,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2a, U8a2b, U8c, U8d, U8e, U7d2 | Protected inventory, cross-worktree admission lock and lifetime reservations; #403/#415 cleanup and ongoing splits |
 | `crates/brokkr-runtime/src/engine/marks.rs` | U7c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-protocol/src/hands/evidence.rs` | U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-cli/src/hands.rs` | U8a | The hands serve and exec verbs parse the carried artifact root |
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
@@ -1367,7 +1370,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U7d | U7c | Deliver checked configurations and selected discovery; 36.1–37.2 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U7d2 | U7d | Seal the brokered server set after provisioning; 36.1–36.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/panel.rs`; `crates/brokkr-runtime/src/engine/sequence.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U7d3 | U7d2 | Refuse secret bindings that collide with harness authentication; 36.1–36.2 | `adapters/*.json`; `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/agents/load.rs`; `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
-| U8a | U7d3 | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
+| U8a | U7d3 | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-cli/src/hands.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-cli/src/lib.rs`; `crates/brokkr-protocol/src/probe/observe.rs`; `crates/brokkr-cli/src/doctor.rs` |
 | U8a2a | U8a | Hold the writer lease and durable reservations at dispatch; 38.3–38.4 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/sequence.rs` |
 | U8a2b | U8a2a | Exclude every managed writer from admitted server sources; 38.3–38.4 | `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine.rs` |
 | U8b | U8a2b | Stage retained responses before delivery; 39.1–39.2 | `crates/brokkr-cli/src/broker/output.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-protocol/src/broker/ledger.rs` |
@@ -2007,6 +2010,10 @@ Workspace-specific protected mounts remain in hands.rs::box_argv, which consumes
 
 Closes tasks 38.1 and 38.2; requirements [CR2](specs/capability-response-retention/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
 Proof: Real namespace writes/ancestor renames/aliases/overlap controls cannot change evidence; mount failure refuses, never omits the protection.
+
+Operator rulings 2026-10-17, after U8a's first run parked (0065-slice-two-unit-u8a-see-the--01a6bd8e, IMPL-OVERSIZED-EXHAUSTED, nothing committed): since decision 0083 the run-local directory is `places::run_local(state, workdir)`: an adopter's `.brokkr/state`, which need not lie under the realm workdir hands is handed, and only a recipe library's `<workdir>/.forge`. So hands cannot derive the artifact root from its workdir, and a protocol copy of places.rs would be a second home (decision 0071 ruling 5). The artifact root is `run_local(..).join("artifacts")`. The engine makes it, owner-only, before launch where it is missing, and carries it to hands as a typed fact: `Transport` gains the root (checked field by field where a transport is compared), the hands serve and exec arguments carry it, and every engine `Transport` constructor passes it. U8a's row therefore also names `crates/brokkr-protocol/src/adapters/mcp.rs`, `crates/brokkr-cli/src/hands.rs` and `crates/brokkr-runtime/src/engine.rs` (with its existing children, such as engine/isolation.rs), and stays one unit. Where the root lies inside a bind, hands overlays it read-only after every writable bind and pins its ancestors; where it lies outside every bind, hands cannot reach it and only the alias exclusion applies. Protection is never omitted: a root that cannot be made or observed refuses with CR2's cause. The public API rise this needs (the `Transport` field and the box_argv/execute/run_boxed signatures) is approved as measured, up to +6 lines across quality/public-api/brokkr-protocol.txt and brokkr-runtime.txt together; a larger rise comes back to the operator. hands.rs is frozen at its baseline: new code goes in private children under the standing rule.
+
+Operator rulings 2026-10-17, after U8a's second run (0065-slice-two-unit-u8a-see-the--64473a79, built and signed as 7a96fd31, then blocked on scope): the hands serve and exec arguments that carry the artifact root are produced and parsed in three more files, which must change in the same commit as the engine's spawn: `crates/brokkr-cli/src/lib.rs` (the clap `HandsCommand` that cli/src/hands.rs consumes), `crates/brokkr-protocol/src/probe/observe.rs` (the adapter probe, which spawns `hands serve` through the serve arguments) and `crates/brokkr-cli/src/doctor.rs` (doctor's box probe through `hands::execute`). They join U8a's row. brokkr-cli's public API may rise by the two lines the new `artifacts` arguments measure, beside the protocol and runtime allowance.
 
 Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-runtime/src/engine/boundary_tests.rs`.
 

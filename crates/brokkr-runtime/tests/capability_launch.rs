@@ -262,6 +262,7 @@ fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<Stri
         bundle.hands.get(label),
         facts.chain.get(candidate),
         Path::new("/w"),
+        Path::new("/a"),
         &[],
         "/w/result.json",
         None,
@@ -269,7 +270,7 @@ fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<Stri
     // The plan AND the argv's two parts, each exactly as the engine writes
     // it: the driver refuses a launch whose provenance it cannot reassemble.
     let mut input = json!({"workdir": "/w", "seat": label, "native_controls": outcome.controls(),
-                           "launch_arguments": spawn.launch_arguments()});
+                           "launch_arguments": spawn.launch_arguments(), "artifact_root": "/a"});
     // Beside the plan, the record and serving inputs sealed exactly as
     // dispatch seals them (`mark_capabilities`), or dispatch's refusal
     // where it seals none (rebuild unit 15-fix-a).
@@ -357,7 +358,7 @@ fn seal_serving(
 fn sealed_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<String>, String> {
     let (spawn, mut input) = sealed(bundle, label, candidate);
     let outcome = &bundle.sites[label].capabilities.as_ref().unwrap().outcomes[candidate];
-    input["workdir"] = json!("/w");
+    (input["workdir"], input["artifact_root"]) = (json!("/w"), json!("/a"));
     input["seat"] = json!(label);
     input["native_controls"] = outcome.controls();
     input["launch_arguments"] = spawn.launch_arguments();
@@ -407,62 +408,7 @@ fn checked_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<
         spawn.class,
         bundle.boundary,
     )?;
-    checked_against(bundle, label, candidate, &carried)
-}
-
-/// [`checked_launch`] against the serving inputs `carried`, however they
-/// were sealed.
-fn checked_against(
-    bundle: &Bundle,
-    label: &str,
-    candidate: usize,
-    carried: &brokkr_protocol::native_controls::SealedServing,
-) -> Result<Vec<String>, String> {
-    use brokkr_protocol::native_controls::{
-        check_final, managed, Checked, Dialect, LaunchRecord, Origin, Serving, Transport,
-    };
-    let facts = &bundle.sites[label];
-    let (spawn, _) = sealed(bundle, label, candidate);
-    let command = sealed_launch(bundle, label, candidate)?;
-    let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
-    let harness = outcome.provider.as_str();
-    let controls = managed(&json!({"native_controls": outcome.controls()}))?.unwrap();
-    let record = LaunchRecord::decode(Some(&spawn.launch_record()))?;
-    let authored: Vec<String> = record
-        .segments
-        .iter()
-        .filter(|segment| segment.origin == Origin::Authored)
-        .flat_map(|segment| segment.argv.iter().cloned())
-        .collect();
-    let brokkr = std::env::current_exe().unwrap();
-    check_final(
-        harness,
-        command,
-        &controls,
-        &record.expected,
-        Dialect {
-            permissions: carried.dialect.permissions.as_ref(),
-            sandbox: &carried.dialect.sandbox,
-            hands: &carried.dialect.hands,
-            boundary: &carried.dialect.boundary,
-            stands: carried.dialect.stands,
-        },
-        Serving {
-            program: harness,
-            workdir: "/w",
-            authored: &authored,
-            pins: &carried.pins,
-            hands: carried.spec.as_ref().map(|spec| Transport {
-                brokkr: &brokkr,
-                workdir: Path::new("/w"),
-                spec,
-            }),
-            brokers: servers::sealed_brokers(carried),
-            ..Default::default()
-        },
-    )
-    .map(Checked::into_argv)
-    .map_err(|refusal| refusal.cause)
+    servers::checked_against(bundle, label, candidate, &carried)
 }
 
 /// [`sealed`] over `facts` — the site's own, or a copy a test has moved —
@@ -522,6 +468,7 @@ fn sealing_at(
         bundle.hands.get(label),
         link,
         Path::new(workdir),
+        Path::new("/a"),
         &[],
         &format!("{workdir}/result.json"),
         None,
@@ -592,6 +539,7 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
         bundle.hands.get(label),
         facts.chain.first(),
         Path::new("/w"),
+        Path::new("/a"),
         &[],
         "/w/result.json",
         None,
@@ -947,7 +895,7 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
 
 /// The box's `hands serve` arguments at `/w` for a workspace hands with no
 /// binds and no network, as the fixtures declare it.
-const HANDS_SERVE: &str = r#"["hands","serve","--workdir","/w","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+const HANDS_SERVE: &str = r#"["hands","serve","--workdir","/w","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
 
 /// The shipped Codex adapter's `hands.workspace` fragment as the box serves
 /// it at `/w`: an independent literal, never production's own expansion
@@ -1118,7 +1066,7 @@ fn tampered_launch(
 ) -> Result<Vec<String>, String> {
     let (spawn, mut input) = sealed(bundle, label, candidate);
     let outcome = &bundle.sites[label].capabilities.as_ref().unwrap().outcomes[candidate];
-    input["workdir"] = json!("/w");
+    (input["workdir"], input["artifact_root"]) = (json!("/w"), json!("/a"));
     input["seat"] = json!(label);
     input["native_controls"] = outcome.controls();
     input["launch_arguments"] = spawn.launch_arguments();
@@ -3063,6 +3011,7 @@ fn inline_codex_launching(
         None,
         None,
         Path::new("/w"),
+        Path::new("/a"),
         &[],
         "/w/result.json",
         None,
@@ -3093,7 +3042,7 @@ fn inline_codex_launching(
         // (unit 5d-fix-c1) — so it judges the final command it composes
         // (unit 5d-fix-c2).
         let mut input = handed.clone();
-        input["workdir"] = json!("/w");
+        (input["workdir"], input["artifact_root"]) = (json!("/w"), json!("/a"));
         input["launch_arguments"] = spawn.launch_arguments();
         brokkr_protocol::adapters::codex_command("codex", extra, "/w", None, &input)
     });
@@ -4546,7 +4495,7 @@ fn sealed_rejoin(
     let outcome = &facts.capabilities.as_ref().unwrap().outcomes[candidate];
     let mut input = json!({LAUNCH_RECORD: spawn.launch_record(), SERVING_INPUTS: serving,
                            "workdir": "/w", "seat": label, "native_controls": outcome.controls(),
-                           "launch_arguments": spawn.launch_arguments()});
+                           "launch_arguments": spawn.launch_arguments(), "artifact_root": "/a"});
     assert_eq!(
         verify_record(&spawn, &input),
         Ok(()),
@@ -7950,7 +7899,7 @@ fn an_empty_harness_fragment_is_the_hands_under_harness_and_refused_under_open()
         let sealed = SealedServing::decode(input.get(SERVING_INPUTS)).unwrap();
         (
             input[SERVING_INPUTS]["dialect"]["stands"].clone(),
-            checked_against(bundle, "work", 0, &sealed),
+            servers::checked_against(bundle, "work", 0, &sealed),
         )
     };
     let (stands, harness) = checked(Boundary::Harness);
@@ -8638,7 +8587,7 @@ fn dispatched(
     };
     input["boundary"] = json!(boundary);
     input["hands"] = json!(hands);
-    input["workdir"] = json!(workdir);
+    (input["workdir"], input["artifact_root"]) = (json!(workdir), json!("/a"));
     input["launch_arguments"] = spawn.launch_arguments();
     let extra = spawn.argv[spawn.argv.iter().position(|part| part == "--").unwrap() + 1..].to_vec();
     Ok((extra, input))
@@ -11456,7 +11405,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
     let command = format!("mcp_servers.brokkr.command=\"{exe}\"");
     let args = format!(
         "mcp_servers.brokkr.args={}",
-        r#"["hands","serve","--workdir","/w","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
+        r#"["hands","serve","--workdir","/w","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
     );
     let boxed = [
         "--sandbox",

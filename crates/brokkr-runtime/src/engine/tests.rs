@@ -2065,6 +2065,7 @@ fn git_helpers_fail_closed_and_a_site_without_hands_composes_its_own_argv() {
             command.clone(),
             None,
             dir.path(),
+            Path::new("/a"),
             &[dir.path().to_path_buf()]
         ),
         Ok(command)
@@ -5610,7 +5611,13 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
 fn a_site_without_hands_spawns_its_command_untouched() {
     let command = vec!["claude".to_string(), "--model".to_string(), "x".to_string()];
     assert_eq!(
-        hands_command(command.clone(), None, Path::new("/work"), &[]),
+        hands_command(
+            command.clone(),
+            None,
+            Path::new("/work"),
+            Path::new("/a"),
+            &[]
+        ),
         Ok(command)
     );
 }
@@ -5634,6 +5641,7 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
         ],
         Some(&spec),
         Path::new("/work"),
+        Path::new("/a"),
         &[],
     )
     .unwrap();
@@ -5645,9 +5653,12 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
     let config: Value = serde_json::from_str(&argv[4]).unwrap();
     assert_eq!(config["mcpServers"]["brokkr"]["command"], exe);
     assert_eq!(config["mcpServers"]["brokkr"]["args"][3], "/work");
+    assert_eq!(config["mcpServers"]["brokkr"]["args"][5], "/a");
     let toml = argv[6].strip_prefix("mcp_servers.brokkr.args=").unwrap();
     assert!(
-        toml.starts_with("[\"hands\",\"serve\",\"--workdir\",\"/work\",\"--spec\",\""),
+        toml.starts_with(
+            "[\"hands\",\"serve\",\"--workdir\",\"/work\",\"--artifacts\",\"/a\",\"--spec\",\""
+        ),
         "{toml}"
     );
     assert!(
@@ -5678,17 +5689,18 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
     ]
     .map(String::from)
     .to_vec();
-    let argv = hands_command(fragment.clone(), Some(&spec), workdir, &[]).unwrap();
+    let argv = hands_command(fragment.clone(), Some(&spec), workdir, Path::new("/a"), &[]).unwrap();
     let brokkr = std::env::current_exe().unwrap();
-    let transport = Transport {
+    let transport = brokkr_protocol::native_controls::Transport {
         brokkr: &brokkr,
         workdir,
+        artifacts: Path::new("/a"),
         spec: &spec,
     };
     assert_eq!(Some(argv.clone()), transport.expand(&fragment));
     assert_eq!(
         argv[5],
-        r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/w\\\"\t\n\u0001\u007F\b\f\r","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
+        r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/w\\\"\t\n\u0001\u007F\b\f\r","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
     );
     assert_eq!(
         argv[3],
@@ -5697,15 +5709,19 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
 
     #[cfg(unix)]
     {
+        use super::boxed::Unnamed;
         use std::os::unix::ffi::OsStrExt;
         let lossy = Path::new(std::ffi::OsStr::from_bytes(b"/w\xff"));
-        let refusal = "dispatch refused: the engine's executable or the site's workdir is not \
-                       UTF-8, so no provider value names it exactly and the box's hands cannot \
-                       be bound to it; a lossy path would bind another (rebuild unit 13-fix-c, \
-                       R2; rebuild unit 14a2)";
+        let refusal = "dispatch refused: the site's workdir '/w\u{fffd}' is not UTF-8, so no \
+                       argument names it exactly and a lossy path would name another (rebuild \
+                       unit 13-fix-c, R2; rebuild unit 14a2; U8a, H1)";
         assert_eq!(
-            hands_command(fragment.clone(), Some(&spec), lossy, &[]),
-            Err(refusal.to_string())
+            hands_command(fragment.clone(), Some(&spec), Path::new("/w"), lossy, &[]),
+            Err(Unnamed::Artifacts(lossy.into()))
+        );
+        assert_eq!(
+            hands_command(fragment.clone(), Some(&spec), lossy, Path::new("/a"), &[]),
+            Err(Unnamed::Workdir(lossy.into()))
         );
         let command: Vec<String> = ["/bin/brokkr", "driver", "codex", "--"]
             .map(String::from)
@@ -5719,6 +5735,7 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
             Some(&spec),
             None,
             lossy,
+            Path::new("/a"),
             &[],
             "",
             None,
@@ -5750,17 +5767,35 @@ fn only_an_exec_dispatch_is_boxed_whole() {
     let spec = brokkr_protocol::hands::HandsSpec::default();
     let short = vec!["true".to_string()];
     assert_eq!(
-        hands_command(short.clone(), Some(&spec), Path::new("/w"), &[]),
+        hands_command(
+            short.clone(),
+            Some(&spec),
+            Path::new("/w"),
+            Path::new("/a"),
+            &[]
+        ),
         Ok(short)
     );
     let not_a_dispatch = vec!["a".to_string(), "b".to_string(), "exec".to_string()];
     assert_eq!(
-        hands_command(not_a_dispatch.clone(), Some(&spec), Path::new("/w"), &[],),
+        hands_command(
+            not_a_dispatch.clone(),
+            Some(&spec),
+            Path::new("/w"),
+            Path::new("/a"),
+            &[],
+        ),
         Ok(not_a_dispatch)
     );
     let other_driver = vec!["x".to_string(), "driver".to_string(), "claude".to_string()];
     assert_eq!(
-        hands_command(other_driver.clone(), Some(&spec), Path::new("/w"), &[],),
+        hands_command(
+            other_driver.clone(),
+            Some(&spec),
+            Path::new("/w"),
+            Path::new("/a"),
+            &[],
+        ),
         Ok(other_driver)
     );
 }
@@ -5781,6 +5816,7 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         inner,
         Some(&spec),
         Path::new("/work"),
+        Path::new("/a"),
         &[PathBuf::from("/bundle")],
     )
     .unwrap();
@@ -5789,13 +5825,13 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         .to_string_lossy()
         .into_owned();
     assert_eq!(&argv[..3], [exe.as_str(), "hands", "exec"]);
-    assert_eq!(&argv[3..5], ["--workdir", "/work"]);
-    assert_eq!(argv[5], "--spec");
-    assert_eq!(&argv[7..9], ["--bundle-root", "/bundle"]);
-    assert_eq!(argv[9], "--");
-    assert_eq!(argv[10], "/usr/local/bin/brokkr");
-    assert_eq!(argv[15], "/runtime/bundle/scripts/verify.sh");
-    assert_eq!(argv[16], "{prompt_file}");
+    assert_eq!(&argv[3..7], ["--workdir", "/work", "--artifacts", "/a"]);
+    assert_eq!(argv[7], "--spec");
+    assert_eq!(&argv[9..11], ["--bundle-root", "/bundle"]);
+    assert_eq!(argv[11], "--");
+    assert_eq!(argv[12], "/usr/local/bin/brokkr");
+    assert_eq!(argv[17], "/runtime/bundle/scripts/verify.sh");
+    assert_eq!(argv[18], "{prompt_file}");
 
     // The helper also remains total for an invented bundle with no
     // roots; production bundles always carry at least their leaf root.
@@ -5806,10 +5842,16 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         "--".to_string(),
         "true".to_string(),
     ];
-    let rootless =
-        hands_command(rootless_inner.clone(), Some(&spec), Path::new("/work"), &[]).unwrap();
-    assert_eq!(rootless[7], "--");
-    assert_eq!(&rootless[8..], &rootless_inner);
+    let rootless = hands_command(
+        rootless_inner.clone(),
+        Some(&spec),
+        Path::new("/work"),
+        Path::new("/a"),
+        &[],
+    )
+    .unwrap();
+    assert_eq!(rootless[9], "--");
+    assert_eq!(&rootless[10..], &rootless_inner);
 }
 
 /// A driver that streams the given checkpoints, then the terminal

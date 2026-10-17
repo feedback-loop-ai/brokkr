@@ -844,3 +844,41 @@ fn ran(run_id: &str, at: &str) -> RuleRun {
         at: at.into(),
     }
 }
+
+#[test]
+fn a_links_outcomes_sum_its_rules_by_result_the_most_taken_first() {
+    // Beside VERIFY-FAIL's three runs into stop, a rule with the same
+    // result moves one more and a rule with another result moves one: the
+    // link says fail 4 before broken 1.
+    let mut table = table();
+    let extra = |id: &str, result: &str| json!({"id": id, "from": "verify", "result": result, "next": "stop", "reason": id});
+    let rules = table["rules"].as_array_mut().unwrap();
+    rules.push(extra("VERIFY-BROKE", "broken"));
+    let mut again = extra("VERIFY-FAIL-AGAIN", "fail");
+    again["when"] = json!({"fixes_applied": true});
+    rules.insert(0, again);
+    let failed = |run_id: &'static str, rule: &str| {
+        let journal = Journal::started(run_id, "self", "alpha", &on(12, "00:00:00"));
+        let journal = to_verify(journal, 12, 5)
+            .ruled(rule, "verify", "stop", &on(12, "02:00:00"))
+            .ended(EventType::RunStopped, &on(12, "02:00:00"));
+        (journal, Some(stopped_by(rule)))
+    };
+    let mut journals = fleet();
+    journals.push(failed("x1", "VERIFY-FAIL-AGAIN"));
+    // A run that names no feature is called by its id.
+    let (broke, mut state) = failed("x2", "VERIFY-BROKE");
+    state.as_mut().unwrap().feature = None;
+    journals.push((broke, state));
+    let view = read_under(Machine::from_table(&table).unwrap(), journals, "self", true).unwrap();
+    let stop = view
+        .links
+        .iter()
+        .find(|link| link.from == "verify" && link.next == "stop")
+        .unwrap();
+    assert_eq!((stop.count, stop.rules), (5, 3));
+    assert_eq!(stop.text, "fail 4 · broken 1");
+    let latest = &rule(&view, "VERIFY-BROKE").latest;
+    let labels: Vec<&str> = latest.iter().map(|run| run.label.as_str()).collect();
+    assert_eq!(labels, ["x2"]);
+}

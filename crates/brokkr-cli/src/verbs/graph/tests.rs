@@ -360,6 +360,23 @@ fn the_verb_prints_the_view_as_lines_or_verbatim() {
         };
         assert_eq!(graph(dir.path(), args).unwrap(), Exit::Completed.into());
     }
+    // Through the command line, naming no recipe: the realm's busiest.
+    let db = dir.path().join("forge.db");
+    let cli = Cli::try_parse_from([
+        "brokkr".as_ref(),
+        "graph".as_ref(),
+        "--db".as_ref(),
+        db.as_os_str(),
+    ]);
+    let drawn = crate::run_with(
+        cli.unwrap(),
+        dir.path(),
+        crate::ui::serve,
+        None,
+        None,
+        crate::run_tui,
+    );
+    assert_eq!(drawn.unwrap(), Exit::Completed.into());
     let unknown = GraphArgs {
         recipe: Some("nosuch".into()),
         realm: None,
@@ -415,6 +432,11 @@ fn with_no_recipe_named_the_busiest_is_drawn_else_the_first_known() {
         journal.run(run_id, &json!({"bundle_name": recipe}), &[entered("work")]);
     }
     assert_eq!(chose(&hearth(dir.path())).unwrap(), "beta");
+    let unclocked = chosen(&hearth(dir.path()), &shelf, UNMAPPED, Range::Week, "noon");
+    assert_eq!(
+        unclocked.unwrap_err().to_string(),
+        "the clock read 'noon', which is not an RFC 3339 time"
+    );
     let empty = tempfile::tempdir().unwrap();
     let none = chosen(&hearth(empty.path()), &[], "brokkr", Range::Week, &now);
     let none = none.unwrap_err();

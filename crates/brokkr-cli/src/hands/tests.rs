@@ -16,6 +16,7 @@ fn a_session_that_cannot_lock_prints_the_lock_and_the_errno() {
     };
     let serve = HandsCommand::Serve {
         workdir: tmp.path().to_path_buf(),
+        artifacts: tmp.path().join("artifacts"),
         spec: "\"workspace\"".to_string(),
     };
     let error = run_with(serve, refused).unwrap_err();

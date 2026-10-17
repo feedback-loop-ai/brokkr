@@ -191,9 +191,7 @@ enum Cmd {
     /// realm: shipped, start to end, waiting on you, rework, cost and
     /// served models. `--json` emits the view model.
     Analytics(verbs::analytics::AnalyticsArgs),
-    /// One recipe's state machine with how often each rule fired, where
-    /// runs spent their time and how they ended, over a range. Read-only;
-    /// `--json` emits the view model.
+    /// One recipe's state machine and its traffic over a range. `--json` emits the view model.
     Graph(verbs::graph::GraphArgs),
     /// Run a built-in forge-driver/v1 adapter (claude | lanetally | codex | dsh | exec).
     /// Bundles reference these as {brokkr} driver <kind> -- <extra args>.
@@ -700,6 +698,9 @@ pub enum HandsCommand {
         /// The worktree, bound read-write at its own path.
         #[arg(long)]
         workdir: PathBuf,
+        /// The engine's artifact root, which the box never writes (U8a).
+        #[arg(long)]
+        artifacts: PathBuf,
         /// The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]}.
         #[arg(long, default_value = "\"workspace\"")]
         spec: String,
@@ -711,6 +712,9 @@ pub enum HandsCommand {
         /// The worktree, bound read-write at its own path.
         #[arg(long)]
         workdir: PathBuf,
+        /// The engine's artifact root, as `serve` takes it.
+        #[arg(long)]
+        artifacts: PathBuf,
         /// Strategy root, bound read-only at /runtime/bundle.
         #[arg(long)]
         bundle_root: Option<PathBuf>,

@@ -31,3 +31,23 @@ fn nothing_reported_reads_as_the_totals_own_words() {
         (crate::ABSENT.to_string(), crate::ABSENT.to_string())
     );
 }
+
+#[test]
+fn any_one_of_the_three_reported_draws_the_arrows() {
+    // A total that was not worked out still shows the arrows when input
+    // or output was reported: only all three absent reads as the total.
+    let cell = |text: &str, absent: bool| Cell {
+        text: text.into(),
+        absent,
+        note: None,
+    };
+    let cells = |input: bool, output: bool| TokenCells {
+        total: cell("—", true),
+        input: cell("5k", !input),
+        output: cell("1k", !output),
+        cache_hit: cell("—", true),
+    };
+    assert_eq!(cells(true, false).arrows(), "Σ — ↑ 5k ↓ 1k");
+    assert_eq!(cells(false, true).arrows(), "Σ — ↑ 5k ↓ 1k");
+    assert_eq!(cells(false, false).arrows(), "—");
+}

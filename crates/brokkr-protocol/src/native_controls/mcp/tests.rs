@@ -91,6 +91,7 @@ fn a_fragment_expanded_beside_brokers_carries_the_whole_set() {
     let hands = Transport {
         brokkr: std::path::Path::new("/bin/brokkr"),
         workdir: std::path::Path::new("/w"),
+        artifacts: std::path::Path::new("/a"),
         spec: &spec,
     };
     let broker = |capability: &str| SealedBroker {
@@ -101,7 +102,7 @@ fn a_fragment_expanded_beside_brokers_carries_the_whole_set() {
     };
     let fragment = ["--mcp-config".to_string(), "{hands_mcp_json}".to_string()];
     let served = "{\"command\":\"/bin/brokkr\",\"args\":[\"hands\",\"serve\",\"--workdir\",\"/w\",\
-                  \"--spec\",\"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\\\"network\\\":\
+                  \"--artifacts\",\"/a\",\"--spec\",\"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\\\"network\\\":\
                   false}\"]}";
     let docs = format!(
         "{{\"command\":\"/bin/brokkr\",\"args\":[\"broker\",\"serve\",\"--plan\",\
@@ -137,4 +138,32 @@ fn a_server_table_that_is_not_one_object_is_refused_in_its_words() {
         refusal(r#"{"mcpServers":[]}"#),
         Some("invalid type: sequence, expected an object naming each server once at line 1 column 14".into())
     );
+}
+
+/// U8a: the box's hands server is read field by field, the artifact root
+/// the engine carries among them, so an entry naming another root or none
+/// is not the engine's hands, whatever else it carries.
+#[test]
+fn the_hands_entry_is_read_with_its_artifact_root() {
+    let path = std::path::Path::new;
+    let (brokkr, workdir, artifacts) = (path("/bin/brokkr"), path("/w"), path("/a"));
+    let spec = &crate::hands::HandsSpec::default();
+    let owed = Owed::Hands(Transport {
+        brokkr,
+        workdir,
+        artifacts,
+        spec,
+    });
+    let entry = |args: Vec<String>| Entry {
+        command: "/bin/brokkr".into(),
+        args,
+    };
+    let args = owed.args();
+    assert!(owed.is("/bin/brokkr", &entry(args.clone())));
+    let mut moved = args.clone();
+    moved[5] = "/elsewhere".into();
+    let rootless = [&args[..4], &args[6..]].concat();
+    for args in [moved, rootless] {
+        assert!(!owed.is("/bin/brokkr", &entry(args.clone())), "{args:?}");
+    }
 }

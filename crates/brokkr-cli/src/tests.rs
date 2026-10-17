@@ -3975,11 +3975,13 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let work = dir.path().join("work");
+    let (work, artifacts) = (dir.path().join("work"), dir.path().join("artifacts"));
     std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(&artifacts).unwrap();
     let code = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work.clone(),
+            artifacts: artifacts.clone(),
             bundle_root: None,
             spec: "\"workspace\"".into(),
             command: vec![
@@ -4002,6 +4004,7 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     let code = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work.clone(),
+            artifacts: artifacts.clone(),
             bundle_root: None,
             spec: "\"workspace\"".into(),
             command: vec![
@@ -4025,6 +4028,7 @@ fn the_hands_exec_verb_boxes_a_command_and_refuses_a_bad_spec() {
     let refused = run(cli(Cmd::Hands {
         command: HandsCommand::Exec {
             workdir: work,
+            artifacts,
             bundle_root: None,
             spec: "{\"kind\":\"mitten\"}".into(),
             command: vec!["true".into()],

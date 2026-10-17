@@ -49,7 +49,9 @@ const ALLOWED: [(&str, &str); 6] = [
     ),
     (
         "docs/guides/adopting-a-node-repo.md",
-        "flow 3 does not run as written on main (#703); sampled once #703 is fixed",
+        "flow 3's adds install from a Brokkr checkout, whose agent library its library route \
+         copies whole by hand and its folder route refuses, until #717 builds one portable base \
+         set",
     ),
     (
         "docs/guides/read-surfaces.md",

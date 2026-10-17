@@ -31,9 +31,13 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Map, Value};
 
+mod environment;
+mod evidence;
 mod namespace;
 mod overlay;
 mod session;
+use environment::box_environment;
+pub use evidence::UNPROTECTED_EVIDENCE;
 #[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
 use namespace::{namespace_path, Mount, Namespace, Profile};
 use overlay::overlay_argv;
@@ -397,16 +401,18 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
 ];
 
 /// The bubblewrap argv for one boxed command: the namespace, the binds,
-/// the environment, then `--` and the command. `scratch` holds this
-/// call's generated identity files and private home and tmp; `writes`
-/// says where the upper layers of overlay binds live: a session's are
-/// the seat's to remove when it ends. The namespace, its toolchain and
-/// its identity are `namespace::Namespace`'s; the workspace's own mounts and
-/// environment are ordered here.
+/// the environment, then `--` and the command. `artifacts` is the
+/// engine's run-local artifact root, which the box never writes (U8a).
+/// `scratch` holds this call's generated identity files and private home
+/// and tmp; `writes` says where the upper layers of overlay binds live: a
+/// session's are the seat's to remove when it ends. The namespace, its
+/// toolchain and its identity are `namespace::Namespace`'s; the workspace's
+/// own mounts and environment are ordered here.
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn box_argv(
     spec: &HandsSpec,
     workdir: &Path,
+    artifacts: &Path,
     home: &Path,
     scratch: &Path,
     writes: OverlayWrites<'_>,
@@ -428,6 +434,12 @@ pub fn box_argv(
     namespace.identity(&scratch.join("etc"))?;
     session::private_dir(&private_home)?;
     session::private_dir(&private_tmp)?;
+    // U8a: the engine's own facts of the evidence, observed before any
+    // mount and never authored; no writable mount may alias it.
+    let mut protected = evidence::Protected::observe(artifacts, workdir)?;
+    for private in [&private_home, &private_tmp] {
+        protected.exclude(private)?;
+    }
     // The private home and tmp go in BEFORE the worktree, so a worktree
     // that itself lives under /tmp is mounted on top of the private /tmp
     // rather than hidden beneath it.
@@ -469,13 +481,22 @@ pub fn box_argv(
     // which record it rather than fixing it silently.
     if let Some(common) = &git.common_dir {
         if !common.starts_with(workdir) {
+            protected.exclude(common)?;
             namespace.mount_in_place(Mount::Bind, common);
         }
         namespace.tmpfs(&namespace_join(&namespace_path(common), Path::new("hooks")));
         namespace.mount_in_place(Mount::RoBindTry, &common.join("config"));
     }
+    // U8a: each directory between the worktree and an artifact root it
+    // holds is a mount of its own, so no write in the box renames it.
+    for ancestor in protected.ancestors() {
+        namespace.mount_in_place(Mount::Bind, ancestor);
+    }
     for (index, bind) in spec.binds.iter().enumerate() {
         let host = expand_home(&bind.path, home);
+        if bind.mode != BindMode::Ro {
+            protected.exclude(&host)?;
+        }
         match bind.mode {
             BindMode::Ro => namespace.mount_in_place(Mount::RoBindTry, &host),
             BindMode::Rw => namespace.mount_in_place(Mount::BindTry, &host),
@@ -492,69 +513,20 @@ pub fn box_argv(
             }
         }
     }
+    // U8a: a root the worktree holds read-only, after every writable
+    // mount; one outside every writable mount is never mounted at all.
+    if let Some(root) = protected.held() {
+        namespace.mount_in_place(Mount::RoBind, root);
+    }
     for (key, value) in box_environment(spec, home) {
         namespace.setenv(key, &value);
     }
     for (key, value) in &git.identity {
         namespace.setenv(key, value);
     }
+    // U8a (L1): what was observed is observed again as the argv is final.
+    protected.confirm()?;
     Ok(namespace.enter(workdir, command))
-}
-
-/// The workspace box's environment, in the order it is set: the fixed
-/// switches, then each toolchain home its own bind declares.
-fn box_environment(spec: &HandsSpec, home: &Path) -> Vec<(&'static str, String)> {
-    let cargo_home = home.join(".cargo");
-    let rustup_home = home.join(".rustup");
-    let npm_cache = home.join(".npm");
-    let sandbox_path = format!(
-        "/runtime:{}:/usr/local/bin:/usr/bin:/bin",
-        namespace_join(&namespace_path(&cargo_home), Path::new("bin"))
-    );
-    let mut environment = vec![
-        ("HOME", SANDBOX_HOME.to_string()),
-        ("USER", "runner".to_string()),
-        ("LOGNAME", "runner".to_string()),
-        ("TMPDIR", "/tmp".to_string()),
-        ("PATH", sandbox_path),
-        ("LANG", "C.UTF-8".to_string()),
-        ("LC_ALL", "C.UTF-8".to_string()),
-        ("CI", "true".to_string()),
-        ("DISABLE_AUTOUPDATER", "1".to_string()),
-        ("DISABLE_TELEMETRY", "1".to_string()),
-        // Seat commits are unsigned (CONTRIBUTING); the signing wrapper
-        // and its key are not in the box, and the repository config that
-        // names them is outranked by this environment entry.
-        ("GIT_CONFIG_COUNT", "1".to_string()),
-        ("GIT_CONFIG_KEY_0", "commit.gpgsign".to_string()),
-        ("GIT_CONFIG_VALUE_0", "false".to_string()),
-    ];
-    // On rustup installations cargo and rustc are proxies below
-    // ~/.cargo/bin. A declared toolchain bind must therefore be both
-    // executable and discoverable; the private HOME must not redirect the
-    // proxy to an empty ~/.rustup inside the box.
-    if spec
-        .binds
-        .iter()
-        .any(|bind| expand_home(&bind.path, home) == cargo_home)
-    {
-        environment.push(("CARGO_HOME", namespace_path(&cargo_home)));
-    }
-    if spec
-        .binds
-        .iter()
-        .any(|bind| expand_home(&bind.path, home) == rustup_home)
-    {
-        environment.push(("RUSTUP_HOME", namespace_path(&rustup_home)));
-    }
-    if spec
-        .binds
-        .iter()
-        .any(|bind| expand_home(&bind.path, home) == npm_cache)
-    {
-        environment.push(("NPM_CONFIG_CACHE", namespace_path(&npm_cache)));
-    }
-    environment
 }
 
 /// The engine's own uid and gid: what the box maps to `runner`, and what
@@ -776,9 +748,11 @@ pub fn io_context<T>(result: std::io::Result<T>, doing: &str) -> Result<T, Strin
     }
 }
 
-/// The executor the server calls per tool invocation: production hands
-/// it [`execute`]; a test hands it a stub.
-pub type Executor = dyn Fn(&HandsSpec, &Path, &Path, &str, Duration) -> Result<Executed, String>;
+/// The executor the server calls per tool invocation, with the spec, the
+/// workdir, the artifact root and the session: production hands it
+/// [`execute`]; a test hands it a stub.
+pub type Executor =
+    dyn Fn(&HandsSpec, &Path, &Path, &Path, &str, Duration) -> Result<Executed, String>;
 
 /// One executed command, as the tool reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -843,6 +817,7 @@ fn rendered(bytes: &[u8], truncated: bool) -> String {
 pub fn execute(
     spec: &HandsSpec,
     workdir: &Path,
+    artifacts: &Path,
     session: &Path,
     command: &str,
     timeout: Duration,
@@ -853,7 +828,7 @@ pub fn execute(
     io_context(std::fs::create_dir_all(&scratch), "scratch")?;
     let git = git_facts(workdir);
     let result = execute_in(
-        &bwrap, spec, workdir, &home, &scratch, session, &git, command, timeout,
+        &bwrap, spec, workdir, artifacts, &home, &scratch, session, &git, command, timeout,
     );
     let _ = std::fs::remove_dir_all(&scratch);
     result
@@ -864,6 +839,7 @@ pub fn execute_in(
     bwrap: &Path,
     spec: &HandsSpec,
     workdir: &Path,
+    artifacts: &Path,
     home: &Path,
     scratch: &Path,
     session: &Path,
@@ -877,7 +853,9 @@ pub fn execute_in(
         command.to_string(),
     ];
     let writes = OverlayWrites::Session(session);
-    let built = box_argv(spec, workdir, home, scratch, writes, git, None, &inner);
+    let built = box_argv(
+        spec, workdir, artifacts, home, scratch, writes, git, None, &inner,
+    );
     let argv = io_context(built, "namespace")?;
     let spawned = Command::new(bwrap)
         .args(&argv[1..])
@@ -927,6 +905,7 @@ pub fn execute_in(
 pub fn run_boxed(
     spec: &HandsSpec,
     workdir: &Path,
+    artifacts: &Path,
     bundle_root: Option<&Path>,
     command: &[String],
 ) -> Result<i32, String> {
@@ -938,6 +917,7 @@ pub fn run_boxed(
         &bwrap,
         spec,
         workdir,
+        artifacts,
         &home,
         session.path(),
         &git,
@@ -951,6 +931,7 @@ pub fn run_boxed_in(
     bwrap: &Path,
     spec: &HandsSpec,
     workdir: &Path,
+    artifacts: &Path,
     home: &Path,
     session: &Path,
     git: &GitFacts,
@@ -969,6 +950,7 @@ pub fn run_boxed_in(
     let built = box_argv(
         &with_self,
         workdir,
+        artifacts,
         home,
         &scratch,
         OverlayWrites::Ram,
@@ -1013,22 +995,25 @@ pub fn tool_definition() -> Value {
 /// The MCP config a harness is handed to reach this server alone: one
 /// entry, `brokkr`, running this very binary, as the engine's one MCP
 /// builder writes it (decision 0065 slice two, U7a).
-pub fn mcp_config(brokkr: &Path, workdir: &Path, spec: &HandsSpec) -> Value {
+pub fn mcp_config(brokkr: &Path, workdir: &Path, artifacts: &Path, spec: &HandsSpec) -> Value {
     let transport = crate::native_controls::Transport {
         brokkr,
         workdir,
+        artifacts,
         spec,
     };
     transport.document()
 }
 
 /// The `brokkr hands serve …` argument vector a harness spawns.
-pub fn serve_args(workdir: &Path, spec: &HandsSpec) -> Vec<String> {
+pub fn serve_args(workdir: &Path, artifacts: &Path, spec: &HandsSpec) -> Vec<String> {
     vec![
         "hands".to_string(),
         "serve".to_string(),
         "--workdir".to_string(),
         workdir.to_string_lossy().into_owned(),
+        "--artifacts".to_string(),
+        artifacts.to_string_lossy().into_owned(),
         "--spec".to_string(),
         spec.to_value().to_string(),
     ]
@@ -1042,6 +1027,7 @@ pub fn serve<R: BufRead, W: Write>(
     input: R,
     mut output: W,
     workdir: &Path,
+    artifacts: &Path,
     session: &Path,
     spec: &HandsSpec,
     run: &Executor,
@@ -1051,7 +1037,7 @@ pub fn serve<R: BufRead, W: Write>(
         if line.trim().is_empty() {
             continue;
         }
-        let Some(reply) = handle(&line, workdir, session, spec, run) else {
+        let Some(reply) = handle(&line, workdir, artifacts, session, spec, run) else {
             continue;
         };
         output.write_all(reply.to_string().as_bytes())?;
@@ -1073,6 +1059,7 @@ fn rpc_result(id: Value, result: Value) -> Value {
 pub fn handle(
     line: &str,
     workdir: &Path,
+    artifacts: &Path,
     session: &Path,
     spec: &HandsSpec,
     run: &Executor,
@@ -1110,19 +1097,21 @@ pub fn handle(
         "tools/list" => rpc_result(id, json!({"tools": [tool_definition()]})),
         "tools/call" => match call_arguments(&params) {
             Err(problem) => rpc_error(id, -32602, problem),
-            Ok((command, timeout)) => match run(spec, workdir, session, &command, timeout) {
-                Ok(executed) => rpc_result(
-                    id,
-                    json!({
-                        "content": [{"type": "text", "text": executed.render()}],
-                        "isError": executed.exit_code != 0,
-                    }),
-                ),
-                Err(problem) => rpc_result(
-                    id,
-                    json!({"content": [{"type": "text", "text": problem}], "isError": true}),
-                ),
-            },
+            Ok((command, timeout)) => {
+                match run(spec, workdir, artifacts, session, &command, timeout) {
+                    Ok(executed) => rpc_result(
+                        id,
+                        json!({
+                            "content": [{"type": "text", "text": executed.render()}],
+                            "isError": executed.exit_code != 0,
+                        }),
+                    ),
+                    Err(problem) => rpc_result(
+                        id,
+                        json!({"content": [{"type": "text", "text": problem}], "isError": true}),
+                    ),
+                }
+            }
         },
         other => rpc_error(id, -32601, format!("method not found: {other}")),
     })

@@ -234,8 +234,8 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// The recipes one `add` copied into the library, by name, and every other
-/// entry it made, the agents and charters it copied (#696) and the
-/// directories they needed, removed together when dropped unless kept — so
+/// entry it made, the agents, charters and definitions it copied (#696,
+/// #703) and the directories they needed, removed together unless kept — so
 /// an install refused at any step leaves no partial copy squatting on a
 /// name and making every retry fail with "already exists".
 struct Installing(Vec<(String, PathBuf)>, Vec<PathBuf>);
@@ -695,8 +695,8 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
 /// Install a recipe into the library `shelf`, the `origin` shelf of the
 /// repository at `root` that `add` runs in (#696 ruling 6, #697): clone or
 /// copy it into `<dir>/<name>`, with the bases it extends that the library
-/// lacks and, onto a project shelf, the agents and charters they name that
-/// `root`'s agent library lacks ([`agents::plan`]), then compile-verify
+/// lacks and, onto a project shelf, the agents, charters and capability
+/// definitions they name that `root` lacks ([`agents::plan`]), then verify
 /// every copy against `root`'s agents and adapters, all removed if any
 /// fails, held from before the library is made to the last compile
 /// ([`Shelf`]). A name not one plain component ([`Unplain::Name`]), a `path`
@@ -752,9 +752,10 @@ fn install_held(
     refuse_within(&sources, place)?;
     sources::refuse_folder_bundles(&sources)?;
     let library = places::Places::of(root)?.agents;
+    let definitions = agents::definitions_of(root, world);
     // The personal shelf copies nothing into the repository (#697).
     let source_agents = source_agents.filter(|_| origin == Origin::Project);
-    let hires = agents::plan(&sources, source_agents.as_deref(), &library)?;
+    let hires = agents::plan(&sources, source_agents.as_deref(), &library, &definitions)?;
     let mut installing = install(&planned, dir)?;
     agents::copy(&hires, &mut installing.1)?;
     let digests = verify(root, &installing, world)?;
