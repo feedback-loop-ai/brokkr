@@ -28,9 +28,19 @@ fn recipe(source: &Path, seats: serde_json::Value) -> PathBuf {
     recipe
 }
 
+/// The workspace's capability definitions, beside its `library`.
+fn defined(library: &Path) -> PathBuf {
+    library.with_file_name("defined")
+}
+
 /// What [`plan`] makes of a recipe holding `seats` beside `source`.
 fn planned(source: &Path, library: &Path, seats: serde_json::Value) -> Result<Vec<Hire>, Hiring> {
-    plan(&[&recipe(source, seats)], Some(source), library)
+    plan(
+        &[&recipe(source, seats)],
+        Some(source),
+        library,
+        &defined(library),
+    )
 }
 
 /// Every form a site names an agent in is read: a seat's, a panel
@@ -87,7 +97,7 @@ fn plan_reads_every_site_form_and_copies_what_the_library_lacks() {
     assert_eq!(planned(&source, &library, seats.clone()), Ok(Vec::new()));
     let absent = source.with_file_name("absent");
     assert_eq!(planned(&absent, &library, seats.clone()), Ok(Vec::new()));
-    let unsourced = plan(&[&recipe(&source, seats)], None, &library);
+    let unsourced = plan(&[&recipe(&source, seats)], None, &library, &library);
     assert_eq!(unsourced, Ok(Vec::new()));
 
     let mut again = Vec::new();
@@ -101,8 +111,8 @@ fn plan_reads_every_site_form_and_copies_what_the_library_lacks() {
 /// Each refusal by its variant, before anything is written: a bundle or a
 /// definition that cannot be read, a name outside the grammar, a charter
 /// that is not plain or that the source lacks, a link or a file where the
-/// walk needs a directory,
-/// and files the library holds otherwise, a link to nothing included.
+/// walk needs a directory, a link to nothing where a copy is due, and
+/// files the library holds otherwise.
 #[test]
 fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
     let (_dir, source, library) = libraries();
@@ -116,7 +126,7 @@ fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
     let bundle = missing.join("bundle.json");
     let absent = "No such file or directory (os error 2)";
     assert_eq!(
-        plan(&[&missing], Some(&source), &library),
+        plan(&[&missing], Some(&source), &library, &library),
         Err(unread(&bundle, absent))
     );
     let typed = planned(&source, &library, json!({"a": {"agent": 5}}));
@@ -159,6 +169,13 @@ fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
     let dangling = library.join("charters/a.md");
     std::fs::create_dir(library.join("charters")).unwrap();
     std::os::unix::fs::symlink("removed", &dangling).unwrap();
+    let occupied = Err(Hiring::Occupied {
+        path: dangling.clone(),
+    });
+    assert_eq!(planned(&source, &library, one.clone()), occupied);
+    assert_eq!(std::fs::read_link(&dangling).unwrap(), Path::new("removed"));
+    std::fs::remove_file(&dangling).unwrap();
+    write(&dangling, "# other\n");
     let paths = vec![library.join("a.json"), dangling];
     let differs = planned(&source, &library, one.clone());
     assert_eq!(differs, Err(Hiring::Differs { paths }));
@@ -171,8 +188,109 @@ fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
     assert_eq!(planned(&linked, &library, one), unplain(linked));
 }
 
+/// Each capability a planned definition requests brings its definition,
+/// once, from the `capabilities/` the source's mapless compile reads, beside
+/// its library, into the workspace's (#703); a name outside the grammar is
+/// never walked, and a definition the workspace holds identical is skipped.
+/// One the source lacks refuses, even where the workspace holds one, as do
+/// a source map that cannot be read, once a capability is asked, a linked
+/// `capabilities/`, and one the workspace holds otherwise.
+#[test]
+fn plan_copies_the_definitions_its_agents_request() {
+    let (_dir, source, library) = libraries();
+    let asks = |capabilities: serde_json::Value| json!({"capabilities": capabilities});
+    let a = asks(json!({"web-fetch": "wants", "../escape": "wants"}));
+    write(&source.join("a.json"), &a.to_string());
+    let b = asks(json!({"web-fetch": "requires"}));
+    write(&source.join("b.json"), &b.to_string());
+    let from = source.with_file_name("capabilities");
+    write(&from.join("web-fetch.json"), "{\"name\": \"web-fetch\"}\n");
+    write(&from.with_file_name("escape.json"), "outside\n");
+    let seats = json!({"a": {"agent": "a"}, "b": {"agent": "b"}});
+    let hires = planned(&source, &library, seats.clone()).unwrap();
+    let shown: Vec<(&str, &Path)> = hires.iter().map(|h| (&*h.what, &*h.to)).collect();
+    let copy_at = defined(&library).join("web-fetch.json");
+    let (at_a, at_b) = (library.join("a.json"), library.join("b.json"));
+    let expected: [(&str, &Path); 3] = [
+        ("capability 'web-fetch' of agent 'a'", &copy_at),
+        ("agent 'a'", &at_a),
+        ("agent 'b'", &at_b),
+    ];
+    assert_eq!(shown, expected);
+    copy(&hires, &mut Vec::new()).unwrap();
+    let copied = std::fs::read(&copy_at).unwrap();
+    assert_eq!(copied, b"{\"name\": \"web-fetch\"}\n");
+    assert_eq!(planned(&source, &library, seats.clone()), Ok(Vec::new()));
+
+    std::fs::write(&copy_at, "{}").unwrap();
+    let paths = vec![copy_at.clone()];
+    let differs = planned(&source, &library, seats.clone());
+    assert_eq!(differs, Err(Hiring::Differs { paths }));
+    std::fs::remove_file(from.join("web-fetch.json")).unwrap();
+    let undefined = Err(Hiring::Undefined {
+        path: source.join("a.json"),
+        capability: "web-fetch".into(),
+        definitions: from.clone(),
+    });
+    assert_eq!(planned(&source, &library, seats.clone()), undefined);
+    let root = source.parent().unwrap().to_path_buf();
+    let map = root.join("realms.json");
+    write(&map, "not json");
+    let shown = map.display();
+    let cause = format!("{shown} is not a readable realms map: expected ident at line 1 column 2");
+    let unread = Err(Hiring::Unread { path: root, cause });
+    assert_eq!(planned(&source, &library, seats.clone()), unread);
+    write(&source.join("c.json"), "{}");
+    let unasked = planned(&source, &library, json!({"c": {"agent": "c"}}));
+    assert_eq!(unasked.map(|hires| hires.len()), Ok(1));
+    std::fs::remove_file(map).unwrap();
+    std::fs::remove_dir(&from).unwrap();
+    std::os::unix::fs::symlink(&library, &from).unwrap();
+    let unplain = Err(Hiring::Unplain { path: from });
+    assert_eq!(planned(&source, &library, seats), unplain);
+}
+
+/// A destination is judged as the entry itself before any byte is compared
+/// (#703): a link to the source's own bytes where an agent or a capability
+/// definition is due, and a directory where a file is due, each refuse by
+/// name, the link left as it stands; with nothing there, all are planned.
+#[test]
+fn plan_refuses_a_destination_that_is_no_plain_file() {
+    let (_dir, source, library) = libraries();
+    let a = json!({"capabilities": {"web-fetch": "wants"}}).to_string();
+    write(&source.join("a.json"), &a);
+    let from = source.with_file_name("capabilities");
+    write(&from.join("web-fetch.json"), "{}\n");
+    let same = source.with_file_name("same");
+    write(&same.join("a.json"), &a);
+    write(&same.join("web-fetch.json"), "{}\n");
+    let definition = defined(&library).join("web-fetch.json");
+    let agent = library.join("a.json");
+    let seats = json!({"a": {"agent": "a"}});
+    let occupied = |path: &Path| Err(Hiring::Occupied { path: path.into() });
+    for (at, target) in [
+        (&agent, same.join("a.json")),
+        (&definition, same.join("web-fetch.json")),
+    ] {
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&target, at).unwrap();
+        assert_eq!(planned(&source, &library, seats.clone()), occupied(at));
+        assert_eq!(std::fs::read_link(at).unwrap(), target);
+        std::fs::remove_file(at).unwrap();
+    }
+    std::fs::create_dir(&definition).unwrap();
+    assert_eq!(
+        planned(&source, &library, seats.clone()),
+        occupied(&definition)
+    );
+    std::fs::remove_dir(&definition).unwrap();
+    let planned = planned(&source, &library, seats);
+    assert_eq!(planned.map(|hires| hires.len()), Ok(2));
+}
+
 /// An entry on the walk, or a definition, this process cannot read refuses
-/// by name, never taken as absent (fail closed).
+/// by name, never taken as absent (fail closed); so does a destination
+/// whose entry cannot be inspected.
 #[test]
 fn plan_refuses_what_it_is_denied() {
     use std::os::unix::fs::PermissionsExt;
@@ -194,7 +312,15 @@ fn plan_refuses_what_it_is_denied() {
     assert_eq!(refused, Err(Hiring::Unread { path, cause }));
     mode(&definition, 0o000);
     let refused = planned(&source, &library, json!({"a": {"agent": "a"}}));
-    let (path, cause) = (definition, denied);
+    let (path, cause) = (definition.clone(), denied.clone());
+    assert_eq!(refused, Err(Hiring::Unread { path, cause }));
+    mode(&definition, 0o600);
+    write(&source.join("locked/a.md"), "# a\n");
+    std::fs::create_dir(&library).unwrap();
+    mode(&library, 0o000);
+    let refused = planned(&source, &library, json!({"a": {"agent": "a"}}));
+    mode(&library, 0o700);
+    let (path, cause) = (library.join("a.json"), denied);
     assert_eq!(refused, Err(Hiring::Unread { path, cause }));
 }
 
@@ -236,17 +362,33 @@ fn each_refusal_says_what_was_not_written() {
              would bind to whatever this workspace holds there (#696); nothing was written",
         ),
         (
+            Hiring::Undefined {
+                path: path.clone(),
+                capability: "web-fetch".into(),
+                definitions: PathBuf::from("/capabilities"),
+            },
+            "/s/a.json requests capability 'web-fetch', whose definition the source's \
+             /capabilities does not hold, so the copy would bind to whatever this workspace \
+             defines there (#703); nothing was written",
+        ),
+        (
             Hiring::Unplain { path: path.clone() },
             "/s/a.json is a link, or not the file or directory recipes add copies from the \
-             source's agent library (#696); nothing was written",
+             source's agent library or capability definitions (#696); nothing was written",
+        ),
+        (
+            Hiring::Occupied { path: path.clone() },
+            "the workspace's /s/a.json is a link, or not a plain file, where recipes add would \
+             copy one; recipes add neither reads through nor replaces it (#703): remove it; \
+             nothing was written",
         ),
         (
             Hiring::Differs {
                 paths: vec![path, PathBuf::from("/s/b.json")],
             },
-            "recipes add replaces no agent definition or charter, and the source's differ from \
-             what stands at /s/a.json, /s/b.json (#696): reconcile or remove each; nothing was \
-             written",
+            "recipes add replaces no agent definition, charter or capability definition, and \
+             the source's differ from what stands at /s/a.json, /s/b.json (#696): reconcile or \
+             remove each; nothing was written",
         ),
     ];
     for (refusal, text) in texts {
