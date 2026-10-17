@@ -168,7 +168,7 @@
   1481 crates/brokkr-cli/src/broker/rpc/tests/masking.rs
    254 crates/brokkr-cli/src/broker/session/lifetime/tests.rs
   1052 crates/brokkr-cli/src/broker/session/readiness/tests.rs
-   309 crates/brokkr-cli/src/broker/session/stderr/tests.rs
+   312 crates/brokkr-cli/src/broker/session/stderr/tests.rs
    148 crates/brokkr-cli/src/broker/survey/tests.rs
   1631 crates/brokkr-cli/src/cli_reference_tests.rs
    422 crates/brokkr-cli/src/compare/tests.rs
