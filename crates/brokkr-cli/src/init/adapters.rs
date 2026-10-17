@@ -408,7 +408,7 @@ const DSH: &str = r#"{
     ]
   },
   "native_capabilities": {
-    "unmeasured": "dsh's tool_permissions and mcp declarations cover command-line narrowing, ambient MCP exclusion and engine-server carriage only, which does not establish that dsh has no native egress. U0 and U0c listed native web_fetch and web_search under an engine-only DSH_HOME, and the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route family; no cell exercised either, and no OFF control has been declared or measured. Its native inventory, and any ON or OFF control for it, remain unmeasured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
+    "unmeasured": "dsh's tool_permissions and mcp declarations cover command-line narrowing, ambient MCP exclusion and engine-server carriage only, which does not establish that dsh has no native egress. U0 and U0c listed native web_fetch and web_search under an engine-only DSH_HOME, and the web_search row (web-search-deepseek) reads DEEPSEEK_API_KEY on every route family; no cell exercised either. dsh 0.2's web-deepseek-api row (the Search and Fetch APIs, billed from 2026-11-01) reads it too. No OFF control is measured: nothing is granted through dsh and no native denial is claimed (decision 0065 slice one; owed to the controller)"
   },
   "hands": {
     "unsupported": "dsh replaces its tool surface only through a profile plugin; no CLI flag disables its shell and file tools or adds an MCP server"

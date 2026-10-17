@@ -50,7 +50,7 @@ jobs:
         uses: ./.github/actions/setup-bubblewrap
       - name: the harness is the one the adapter measured
         run: |
-          npm install -g @deepseek-ai/dsh@0.1.5-rc.1
+          npm install -g @deepseek-ai/dsh@0.2.1-rc.2
           dsh -V
           dsh --profile headless --dump-default-config >/dev/null
       - name: the engine

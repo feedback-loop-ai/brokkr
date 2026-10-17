@@ -101,22 +101,21 @@ printf '{"type":"turn.completed","usage":{"input_tokens":21,"cached_input_tokens
 /// message the way the JSONL backend does (`data.message.source.model`)
 /// and, before it, the request header echoing the level it applied
 /// (`data.header.config.reasoningEffort`) — read from the settings
-/// document the overlay's `settings` row points at, which is where a
-/// real 0.1.2-rc.1 reads it (decision 0035 addendum). A real launcher
-/// has no `--effort` flag, so one reaching this shim's argv is a
-/// driver that forwarded the pin the wrong way, and the shim fails.
+/// document the `settings` row names (0.1) and the `agent-default-model`
+/// row (0.2), failing (`exit 4`) when they disagree (decision 0035
+/// addenda). A real launcher has no `--effort` flag, so one in this
+/// shim's argv is a driver that forwarded the pin wrongly (`exit 3`).
 const DSH_USAGE_SHIM: &str = r#"#!/bin/sh
 prompt=$*
 target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
 [ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
-root=
-sp=
-prev=
+root= sp= prev= rl= lvl=
 for a in "$@"; do
   [ "$a" = --effort ] && exit 3
   if [ "$prev" = --patch ]; then
     root=$(awk -F"'" '/^    root: /{print $2}' "$a")
     sp=$(awk -F"'" '/^    path: /{print $2}' "$a")
+    rl=$(awk -F"'" '/^    reasoningEffort: /{print $2}' "$a")
   fi
   prev=$a
 done
@@ -124,8 +123,9 @@ d="$root/--conformance--/session-served"
 mkdir -p "$d"
 f="$d/session.v3.jsonl"
 printf '{"type":"session","version":0,"id":"session-conformance-1","cwd":"/w"}\n' > "$f"
+[ -n "$sp" ] && lvl=$(awk -F"'" '/reasoningEffort/{print $2}' "$sp")
+[ "$lvl" = "$rl" ] || exit 4
 if [ -n "$sp" ]; then
-  lvl=$(awk -F"'" '/reasoningEffort/{print $2}' "$sp")
   printf '{"type":"request/header","data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash","reasoningEffort":"%s"}}}}\n' "$lvl" >> "$f"
 fi
 printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"deepseek-v4-flash"}},"usage":{"inputTokens":13,"outputTokens":3}}}\n' >> "$f"
@@ -134,34 +134,14 @@ printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source
 /// The same shim, writing the name the previously shipped, plugin-free
 /// core wrote. A disabled or identity-mismatched launch runs whatever
 /// core the host has installed, so this is not a legacy curiosity: it is
-/// the cold route AS1 requires to keep the telemetry it already had. The
-/// filename is a LITERAL here, so moving a constant cannot quietly move
-/// what this shim proves.
-const DSH_SHIPPED_USAGE_SHIM: &str = r#"#!/bin/sh
-prompt=$*
-target=$(printf '%s\n' "$prompt" | sed -n 's/^    \(.*\.json\)$/\1/p' | head -1)
-[ -n "$target" ] && printf '{"result": "resolved", "notes": "shim did the work", "model": "seat-claim"}' > "$target"
-root=
-sp=
-prev=
-for a in "$@"; do
-  [ "$a" = --effort ] && exit 3
-  if [ "$prev" = --patch ]; then
-    root=$(awk -F"'" '/^    root: /{print $2}' "$a")
-    sp=$(awk -F"'" '/^    path: /{print $2}' "$a")
-  fi
-  prev=$a
-done
-d="$root/--conformance--/session-served"
-mkdir -p "$d"
-f="$d/session.jsonl"
-printf '{"type":"session","version":0,"id":"session-conformance-1","cwd":"/w"}\n' > "$f"
-if [ -n "$sp" ]; then
-  lvl=$(awk -F"'" '/reasoningEffort/{print $2}' "$sp")
-  printf '{"type":"request/header","data":{"header":{"config":{"provider":"deepseek-official","model":"deepseek-v4-flash","reasoningEffort":"%s"}}}}\n' "$lvl" >> "$f"
-fi
-printf '{"type":"assistant/message","data":{"turn":1,"step":1,"message":{"source":{"model":"deepseek-v4-flash"}},"usage":{"inputTokens":13,"outputTokens":3}}}\n' >> "$f"
-"#;
+/// the cold route AS1 requires to keep the telemetry it already had. Both
+/// filenames are LITERALS here, so moving a constant cannot quietly move
+/// what this shim proves, and a shim that wrote the same name fails.
+fn dsh_shipped_usage_shim() -> String {
+    let shim = DSH_USAGE_SHIM.replace(r#"f="$d/session.v3.jsonl""#, r#"f="$d/session.jsonl""#);
+    assert_ne!(shim, DSH_USAGE_SHIM, "the shipped shim writes its own name");
+    shim
+}
 
 const SILENT_SHIM: &str = "#!/bin/sh\ncat > /dev/null 2>&1 || true\necho did nothing\n";
 
@@ -1370,9 +1350,10 @@ fn the_shipped_cold_transcript_name_keeps_its_seat_telemetry() {
     // succeeding with no model, no effort and no token totals. Discovery
     // now reads both generations, and this drives the built binary to
     // prove it end to end rather than at the unit seam.
+    let shipped = dsh_shipped_usage_shim();
     for (name, shim_body) in [
         ("session.v3.jsonl", DSH_USAGE_SHIM),
-        ("session.jsonl", DSH_SHIPPED_USAGE_SHIM),
+        ("session.jsonl", shipped.as_str()),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let shim = make_shim(dir.path(), shim_body);

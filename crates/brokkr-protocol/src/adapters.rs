@@ -22,6 +22,7 @@ use serde_json::{json, Map, Value};
 pub mod capability_calls;
 mod composite;
 mod discovery;
+mod dsh_effort;
 mod dsh_stderr;
 mod lost;
 mod mcp;
@@ -2122,23 +2123,13 @@ fn fold_dsh_event(
             // second locator shape (decision 0032).
         }
         Some("request/header") => {
-            // The harness's own echo of the level it applied: the
-            // request it is about to send, after every profile, plugin
-            // and settings layer (decision 0035 ruling 3, for the lane
-            // its addendum brought in). Measured on 0.1.2-rc.1: the
-            // header's `config` carries `reasoningEffort` when a level
-            // applies and omits it when none does, so an absent field
-            // leaves the seat saying `not reported`, honestly — for a
-            // seat that pinned one. A seat that arrived with no pin
-            // carries invoke_dsh_launch_observed's seed (`not
-            // applicable`, by the compile law that only effortless routes
-            // compile pin-less),
-            // which an absent field leaves standing.
-            if let Some(effort) = event
-                .pointer("/data/header/config/reasoningEffort")
-                .and_then(Value::as_str)
-                .and_then(effort_token)
-            {
+            // The harness's own echo of the level it applied, after
+            // every layer (decision 0035 ruling 3 and its addenda). A
+            // header naming none, or naming the adapter's default,
+            // leaves the seat's effort as it stood: `not reported` for a
+            // pinned seat, invoke_dsh_launch_observed's `not applicable`
+            // seed for a pin-less one.
+            if let Some(effort) = dsh_effort::applied_level(event) {
                 session_meta.insert("effort".into(), Value::String(effort));
             }
         }
@@ -6287,7 +6278,7 @@ fn dsh_seat_overlay_in(
         }
     }
     if let Some(model) = model {
-        body.push_str(&dsh_model_row(model)?);
+        body.push_str(&dsh_effort::model_row(model, effort)?);
     }
     body.push_str(&rows);
     let mut patch = dsh_storage_context(create(), "could not stage the dsh seat overlay")?;
@@ -6302,36 +6293,31 @@ fn dsh_seat_overlay_in(
 }
 
 /// This seat's settings document: the pinned model restated as a
-/// complete default-model selection with the pinned level on it. dsh's
-/// `agent-default-model` package keeps `reasoningEffort` out of its
-/// composition config on purpose — a later selection that clears an
-/// effort must stay cleared rather than re-inherit one — and reads it
-/// from the settings section instead, where a complete selection wins
-/// over the composition row (measured 2026-09-05 on 0.1.2-rc.1: the
-/// same key written into the composition row was ignored without a
-/// word; written here, the request header echoed it). A level is one
-/// bounded word by `effort_token`'s clamp and is quoted anyway, because
-/// the document is YAML and the discipline is the transcript root's.
+/// complete default-model selection with the pinned level on it. dsh
+/// 0.1's `agent-default-model` package keeps `reasoningEffort` out of
+/// its composition config on purpose and reads it from the settings
+/// section instead, where a complete selection wins over the
+/// composition row (measured 2026-09-05 on 0.1.2-rc.1). dsh 0.2 reads
+/// the composition row instead, so the model row carries the level too
+/// (`dsh_effort::model_row`; decision 0035 addendum 2026-10-17). The
+/// level is `dsh_effort::pinned_level`'s scalar, as on that row.
 fn dsh_effort_settings_in(
     model: &str,
     effort: &str,
     create: impl FnOnce() -> std::io::Result<tempfile::NamedTempFile>,
 ) -> Result<tempfile::NamedTempFile, String> {
     let DshModel { provider, model } = parse_dsh_model(model)?;
-    let Some(effort) = effort_token(effort) else {
-        return Err("dsh driver: the pinned effort is not one bounded word".to_string());
-    };
+    let effort = dsh_effort::pinned_level(effort)?;
     let mut file = dsh_storage_context(create(), "could not stage the dsh seat settings")?;
     let body = format!(
         "# Written by `brokkr driver dsh` for one seat: the effort pin, in the\n\
-         # settings section dsh reads over its composition. The composition\n\
-         # row that pins the model cannot carry a level by its own design, so\n\
-         # the selection is restated here whole, with the level on it.\n\
+         # settings section dsh 0.1 reads over its composition. dsh 0.1's\n\
+         # composition row cannot carry a level by its own design, so the\n\
+         # selection is restated here whole, with the level on it.\n\
          agent-default-model:\n\
          \x20 provider: {provider}\n\
          \x20 model: {model}\n\
-         \x20 reasoningEffort: '{}'\n",
-        effort.replace('\'', "''")
+         \x20 reasoningEffort: {effort}\n"
     );
     dsh_storage_context(
         file.write_all(body.as_bytes()),
@@ -7111,3 +7097,6 @@ mod lost_tests;
 
 #[cfg(test)]
 mod dsh_v4_tests;
+
+#[cfg(test)]
+mod dsh_effort_tests;
