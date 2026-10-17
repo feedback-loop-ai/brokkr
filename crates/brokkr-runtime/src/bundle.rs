@@ -29,9 +29,11 @@ mod opened;
 mod parse;
 mod phases;
 mod pins;
+mod sequence;
 mod site_form;
 mod site_key;
 mod tier;
+mod walk;
 
 pub use aggregate::Aggregate;
 use charters::parse_role;
@@ -40,11 +42,13 @@ pub use invocation::Invocation;
 pub(crate) use mcp::{McpContribution, McpIntent};
 use opened::Opened;
 use parse::{SeatScope, SiteCompiler};
+use sequence::{sequence_steps, step_body, step_class, step_name, step_results, StepAt};
 use site_form::{classify, SiteRole, StepShape, STEP};
 #[cfg(test)]
 use site_form::{refuse_amendments, refuse_boundary_key, refuse_confine};
 pub(crate) use site_key::SiteKey;
 pub use tier::{ProvisionalRefusal, RealmLaw};
+use walk::{refuse_unlisted_consumed, walk_digests, walk_keys, Walk};
 
 use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
@@ -5063,218 +5067,39 @@ fn parse_limits(phase: &str, raw: &Value) -> Result<Limits, CompileError> {
 /// run serially inside one effect. At least two steps (a one-step
 /// sequence is a single seat); names unique case-insensitively. Beside them,
 /// `has_gate`: every step, a dialect one or an unsupplied check too, WROTE `gate`.
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn parse_sequence(
     compiler: &mut SiteCompiler<'_>,
     at: SeatScope<'_>,
     phase: &str,
     raw: &Value,
 ) -> Result<(Vec<SequenceStep>, bool), CompileError> {
-    let steps_raw = raw
-        .get("sequence")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{phase}' sequence must be an array"))
-        })?;
-    if steps_raw.len() < 2 {
-        return Err(CompileError::Invalid(format!(
-            "seat '{phase}' sequence needs at least two steps; \
-             a one-step sequence is a single seat"
-        )));
-    }
+    let steps_raw = sequence_steps(phase, raw)?;
     let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
     let mut whole_gate = true;
     for (index, step_raw) in steps_raw.iter().enumerate() {
-        let name = step_raw
-            .get("name")
-            .and_then(Value::as_str)
-            .filter(|n| !n.is_empty())
-            .ok_or_else(|| {
-                CompileError::Invalid(format!(
-                    "seat '{phase}' sequence step {index} needs a non-empty 'name'"
-                ))
-            })?;
-        if steps.iter().any(|s| s.name.eq_ignore_ascii_case(name)) {
-            return Err(CompileError::Invalid(format!(
-                "seat '{phase}' sequence has duplicate step name '{name}' \
-                 (step names are case-insensitive)"
-            )));
-        }
+        let name = step_name(phase, index, step_raw, &steps)?;
         let what = format!("{phase}:{name}");
         let shape = classify(&what, step_raw, &STEP)?;
-        let final_step = index + 1 == steps_raw.len();
-        if final_step && step_raw.get("results").is_some() {
-            return Err(CompileError::Invalid(format!(
-                "sequence step '{what}' is final and receives the seat's results; remove its ignored 'results'"
-            )));
+        let step = StepAt {
+            phase,
+            name,
+            what: &what,
+            raw: step_raw,
+        };
+        let step_results = step_results(at, step, index + 1 == steps_raw.len())?;
+        if shape == StepShape::Dialect {
+            whole_gate &= matches!(parse_class(&what, step_raw), Ok(SeatClass::Gate));
         }
-        let mut step_results = if final_step {
-            at.results.to_vec()
-        } else if step_raw.get("results").is_some() {
-            step_raw
-                .get("results")
-                .and_then(Value::as_array)
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                })
-                .filter(|values| !values.is_empty())
-                .ok_or_else(|| {
-                    CompileError::Invalid(format!(
-                        "sequence step '{what}' needs its own non-empty 'results' vocabulary"
-                    ))
-                })?
-        } else if let Some(aggregate) = step_raw
-            .get("aggregate")
-            .and_then(Value::as_str)
-            .and_then(Aggregate::parse)
-        {
-            aggregate
-                .required_results()
-                .iter()
-                .map(|result| (*result).to_string())
-                .collect()
-        } else {
-            return Err(CompileError::Invalid(format!(
-                "sequence step '{what}' needs its own non-empty 'results' vocabulary"
-            )));
+        let Some(parsed) = step_body(compiler, at, step, shape, step_results)? else {
+            continue;
         };
-        let mut agent_hands = None;
-        let body = match shape {
-            StepShape::Dialect => {
-                whole_gate &= matches!(parse_class(&what, step_raw), Ok(SeatClass::Gate));
-                let operation =
-                    step_raw
-                        .get("dialect")
-                        .and_then(Value::as_str)
-                        .ok_or_else(|| {
-                            CompileError::Invalid(format!(
-                                "sequence step '{what}' dialect must be 'validate' or 'check'"
-                            ))
-                        })?;
-                let expected = if DialectPhase::parse(phase).is_some_and(DialectPhase::is_loop) {
-                    "check"
-                } else {
-                    "validate"
-                };
-                if operation != expected {
-                    return Err(CompileError::Invalid(format!(
-                    "sequence step '{what}' uses dialect operation '{operation}'; phase '{phase}' needs '{expected}'"
-                )));
-                }
-                let dialect = compiler.dialect.ok_or_else(|| {
-                    CompileError::Invalid(format!(
-                        "phase '{phase}' needs a realm dialect to resolve step '{name}'"
-                    ))
-                })?;
-                let Some(command) = dialect.validation(phase) else {
-                    if operation == "check" {
-                        // No executable site is compiled for an unsupported
-                        // check, so a `tools` declaration here would have no
-                        // owner and could only be discarded (design D5.2).
-                        if step_raw.get("tools").is_some() {
-                            return Err(CompileError::Invalid(format!(
-                                "sequence step '{what}' declares 'tools' on a dialect step whose \
-                             '{operation}' the dialect does not supply; no executable site \
-                             exists to own the declaration, so it could only be discarded — \
-                             refused (decision 0065 slice one, design D5)"
-                            )));
-                        }
-                        continue;
-                    }
-                    return Err(CompileError::Invalid(format!(
-                        "dialect '{}' declares phase '{phase}' {operation} unsupported",
-                        dialect.name
-                    )));
-                };
-                let synthetic = dialect_gate_site(&what, compiler.boundary)?;
-                // The dialect's validator is an exec-generated check: it can
-                // own a checked empty declaration and represents no nonempty
-                // local field (design D5.2), judged against the command the
-                // validator actually runs.
-                record_inline_tools(
-                    at.dir,
-                    &what,
-                    step_raw,
-                    false,
-                    &command_parts(&synthetic),
-                    Some(compiler.agents.adapters()?),
-                    &mut compiler.sites,
-                )?;
-                compiler.judge(at, &what, &synthetic, &[], None)?;
-                // A final dialect step emits the deterministic adapter's two
-                // outcomes, not every result the enclosing seat accepts. Keeping
-                // that actual vocabulary on the compiled step lets the engine see
-                // an earlier author result which no remaining step can produce
-                // (notably `upstream`) and end the sequence at that boundary.
-                step_results = dialect_results(phase)
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect();
-                StepBody::Dialect {
-                    execution: DialectExecution {
-                        argv: command.argv.clone(),
-                        state: command.state.clone(),
-                    },
-                }
-            }
-            StepShape::Agent => {
-                let resolved =
-                    resolve_reference(compiler, at.dir, &what, step_raw, at.secrets, STEP.role)?;
-                agent_hands = resolved.hands;
-                StepBody::Invocation(Invocation::Single {
-                    role_path: resolved.role_path,
-                    command: resolved.command,
-                    candidates: resolved.candidates,
-                    written: Vec::new(),
-                    class: (),
-                })
-            }
-            StepShape::Panel => {
-                let step_at = SeatScope {
-                    results: &step_results,
-                    ..at
-                };
-                let (members, aggregate) = compiler.parse_panel(step_at, &what, step_raw)?;
-                StepBody::Invocation(Invocation::Panel { members, aggregate })
-            }
-            StepShape::Inline => {
-                let written = compiler.inline_written(at, &what, step_raw, false)?;
-                let sites = &mut compiler.sites;
-                StepBody::Invocation(Invocation::Single {
-                    role_path: parse_role(at.dir, &what, step_raw, compiler.charters, sites)?,
-                    command: parse_command(at.dir, &what, step_raw, at.secrets)?,
-                    candidates: Vec::new(),
-                    written,
-                    class: (),
-                })
-            }
-        };
-        // The step's canonical class (GP1): a dialect step's validator
-        // judges, so it is a gate; a panel step is one when its members are.
-        let class = match &body {
-            StepBody::Invocation(Invocation::Single { candidates, .. }) => {
-                compiler.judge(at, &what, step_raw, candidates, agent_hands)?
-            }
-            StepBody::Invocation(Invocation::Panel { members, .. }) => {
-                refuse_class_without_a_driver(&what, step_raw)?;
-                SeatClass::of(every(members.iter().map(|m| m.class == SeatClass::Gate)))
-            }
-            StepBody::Dialect { .. } => SeatClass::Gate,
-        };
+        let class = step_class(compiler, at, step, &parsed.body, parsed.hands)?;
         whole_gate &= class == SeatClass::Gate;
         steps.push(SequenceStep {
             name: name.to_string(),
             class,
-            results: step_results,
-            body,
+            results: parsed.results,
+            body: parsed.body,
         });
     }
     Ok((steps, whole_gate))
@@ -5590,140 +5415,15 @@ fn manifest_for(
 /// there it cannot ask what it is is refused naming it (16-fix-e, second
 /// return F1). A directory the walk cannot list, skipped or not, is refused
 /// naming it, and naming who read a consumed entry it holds.
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn walk_files(
     dir: &Path,
     scope: &Path,
     consumed: &BTreeMap<String, Supplied>,
 ) -> Result<BTreeMap<String, String>, CompileError> {
-    // Each directory to list, with how its parent found it when it stands
-    // in a skipped tree.
-    let mut stack: Vec<(PathBuf, Option<Found>)> = vec![(scope.to_path_buf(), None)];
-    let (mut paths, mut unpinned) = (Vec::new(), Vec::new());
-    while let Some((current, found)) = stack.pop() {
-        let in_skipped = found.is_some();
-        let (handle, names) = listing(dir, &current, found, consumed)?;
-        let handle = std::rc::Rc::new(handle);
-        for name in names {
-            let path = current.join(&name);
-            // A consumed entry is the one entry it was read by, never a tree
-            // to descend (16-fix-e, return F1): whatever stands there now is
-            // judged by its own check, which names who read it.
-            let consumed_here = consumed.contains_key(&walk_key(dir, &path).unwrap_or_default());
-            // A scaffold may also be the workspace from which Brokkr is
-            // invoked. Its realm map and dialect library are workspace
-            // declarations pinned into the RUN manifest, never bundle files:
-            // changing either must not move the strategy's identity.
-            let skipped = in_skipped
-                || current == dir
-                    && (name.to_str()).is_some_and(|n| crate::places::unpinned_top_level(dir, n));
-            if skipped && consumed.is_empty() {
-                continue;
-            }
-            if skipped {
-                // Asked of the entry, never its target (16-fix-e, F3): a
-                // linked directory here is one entry, not a tree. An entry
-                // it cannot ask is refused as itself (second return F1).
-                at_stage(ReadStage::Skipped, &path);
-                let meta = std::fs::symlink_metadata(&path)
-                    .map_err(|error| unobservable(dir, &path, &error))?;
-                if meta.is_dir() {
-                    let found = (std::rc::Rc::clone(&handle), name, node(&meta));
-                    stack.push((path, Some(found)));
-                } else {
-                    unpinned.push(path);
-                }
-            } else if !consumed_here && path.is_dir() {
-                stack.push((path, None));
-            } else if consumed_here || path.is_file() {
-                // A secrets store inside the bundle would ride the
-                // manifest digest: rotation would change the digest AND
-                // the manifest would embed a SHA-256 of the secret file —
-                // an offline-guessing oracle (decision 0012, layer 2).
-                if path.file_name().and_then(|n| n.to_str()) == Some("secrets.env") {
-                    return Err(CompileError::Invalid(format!(
-                        "bundle contains a secrets store '{}'; the store must \
-                         live outside the bundle dir (e.g. .forge/secrets.env) \
-                         so digests carry names only",
-                        path.display()
-                    )));
-                }
-                paths.push(path);
-            }
-        }
-    }
-    paths.sort();
-    let mut walked = Vec::with_capacity(paths.len());
-    for path in paths {
-        // Join actual components, never replace bytes inside a name:
-        // Unix `scripts\gate.sh` is a different file from `scripts/gate.sh`.
-        // Refuse names JSON cannot represent instead of losing bytes.
-        let rel = path
-            .strip_prefix(dir)
-            .expect("walked under dir")
-            .iter()
-            .map(|name| {
-                name.to_str().ok_or_else(|| {
-                    CompileError::Invalid(format!(
-                        "bundle filename '{}' is not UTF-8; manifest keys must preserve exact names",
-                        path.display()
-                    ))
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .join("/");
-        // The composition namespace is computed, never read from disk:
-        // a real file under it could otherwise forge provenance.
-        if rel.starts_with(COMPOSE_PREFIX) {
-            return Err(CompileError::Invalid(format!(
-                "bundle file '{rel}' uses the reserved '{COMPOSE_PREFIX}' namespace; \
-                 composition provenance is computed by the resolver, never \
-                 supplied by a bundle"
-            )));
-        }
-        walked.push((path, rel));
-    }
-    if let Some((key, supplied)) = consumed
-        .iter()
-        .find(|(key, _)| !walked.iter().any(|(_, rel)| rel == *key))
-    {
-        return Err(CompileError::Invalid(format!(
-            "{}, which the walk that pins the layer lists under no entry of the name {} it was \
-             read by: the name reached the file through a case or normalization alias the \
-             filesystem accepted, or the entry was removed after the read. A layer's identity \
-             names a consumed file by the entry its directory lists, so it is refused; write the \
-             reference as its directory lists it (decision 0065 slice one, design D7)",
-            supplied.consumer,
-            bounded_reference(key)
-        )));
-    }
-    let mut named: BTreeMap<(u64, u64), (Entry, String)> = BTreeMap::new();
-    let mut files = BTreeMap::new();
-    for (path, rel) in walked {
-        let supplied = consumed.get(&rel);
-        if supplied.is_none() {
-            at_stage(ReadStage::Walked, &path);
-        }
-        one_entry(dir, &path, &rel, supplied, consumed, &mut named)?;
-        let digest = match supplied {
-            Some(supplied) => supplied.digest.clone(),
-            None => sha256_bytes(&std::fs::read(&path)?),
-        };
-        files.insert(rel, digest);
-    }
-    // Judged after every pinned entry, so a consumed file's first entry is
-    // the one it was read by; nothing here is read or pinned.
-    for path in unpinned {
-        let rel = path
-            .strip_prefix(dir)
-            .expect("walked under dir")
-            .to_string_lossy();
-        one_entry(dir, &path, &rel, None, consumed, &mut named)?;
-    }
-    Ok(files)
+    let (paths, unpinned) = Walk::list(dir, scope, consumed)?;
+    let walked = walk_keys(dir, paths)?;
+    refuse_unlisted_consumed(consumed, &walked)?;
+    walk_digests(dir, walked, unpinned, consumed)
 }
 
 /// How the walk found a directory in a skipped tree: the handle on the
