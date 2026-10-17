@@ -1659,8 +1659,19 @@ fn fold_stream_event(
             // a session figure, so it lands on the session record only —
             // the turns above stay silent about it rather than each
             // claiming a share nobody measured (decision 0035 ruling 4).
+            //
+            // It is a SUBSET of output_tokens (seat-record v6), and the
+            // store refuses a record that says otherwise. Claude Code
+            // 2.1.300 reported a long session's thinking above the
+            // result's output figure, which failed the seat at its
+            // last step and parked the run. Which figure was off cannot
+            // be told from here, so the reasoning count is left ABSENT
+            // rather than written as a subset it is not: absent, never
+            // invented (decision 0035 ruling 4).
+            let output = session_meta.get("output_tokens").and_then(Value::as_u64);
             if let Some(value) =
                 positive_count(event.pointer("/usage/output_tokens_details/thinking_tokens"))
+                    .filter(|value| output.is_some_and(|output| *value <= output))
             {
                 session_meta.insert("reasoning_output_tokens".into(), Value::from(value));
             }
