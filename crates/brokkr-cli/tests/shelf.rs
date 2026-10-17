@@ -1325,16 +1325,21 @@ fn a_personal_install_below_a_name_too_long_leaves_nothing() {
 }
 
 /// `recipes add --personal` of a name the project shelf holds refuses at
-/// install, naming both paths, and one that is no plain name refuses by
-/// its own text, each making nothing on the personal side (#726).
+/// install, naming both paths, whether the recipe or a base it extends
+/// holds it, and one that is no plain name refuses by its own text, each
+/// making nothing on the personal side (#726).
 #[test]
 fn a_personal_install_of_a_name_the_project_shelf_holds_refuses() {
     let repo = shelved();
     repo.bundle("../x-source", "xs", completes());
+    repo.bundle("../lib/x", "xb", completes());
+    repo.write(
+        "../lib/leaf/bundle.json",
+        &json!({"name": "leaf", "extends": "x"}).to_string(),
+    );
     let source = repo.root.with_file_name("x-source");
     let before = repo.files();
     let shelf = repo.config().join("brokkr/recipes");
-    let ran = add_named(&repo, &source, "x", &[]);
     let shadowing = format!(
         "error: recipe 'x' stands on the project shelf, at {}, so installing it onto the personal \
          shelf, at {}, would stand it on both (#726): neither shelf would win, so rename or remove \
@@ -1342,6 +1347,10 @@ fn a_personal_install_of_a_name_the_project_shelf_holds_refuses() {
         repo.path(".brokkr/recipes/x").display(),
         shelf.join("x").display()
     );
+    let ran = add_named(&repo, &source, "x", &[]);
+    assert_eq!((ran.code, ran.stderr), (Some(1), shadowing.clone()));
+    let leaf = repo.root.with_file_name("lib").join("leaf");
+    let ran = add_named(&repo, &leaf, "leaf", &[]);
     assert_eq!((ran.code, ran.stderr), (Some(1), shadowing));
     let ran = add_named(&repo, &source, "../x", &[]);
     let unplain = format!(

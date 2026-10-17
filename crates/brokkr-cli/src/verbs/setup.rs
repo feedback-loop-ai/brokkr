@@ -14,7 +14,7 @@ use brokkr_runtime::realms::World;
 
 use crate::cli_args::{CompileArgs, DoctorArgs, DriverArgs, FakeDriverArgs, InitArgs};
 use crate::folder::{DoctorDefaults, Layout};
-use crate::recipes::personal::Origin::Project;
+use crate::recipes::personal::Onto::Project;
 use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};

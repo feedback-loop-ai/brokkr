@@ -367,10 +367,10 @@ pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool) -> Result<()>
 /// lookup is where this machine places no shelf. Nothing is copied into
 /// the repository: a personal install copies no agent or charter, and
 /// judges no repository, folder or library mark at its shelf
-/// ([`Origin::place`]). The shelf is judged, and a name the `project`
-/// shelf holds refused ([`unshadowing`]), before anything is made, and
-/// the configuration directories made for the shelf are removed again
-/// when the install refuses (#726).
+/// ([`Origin::place`]). The shelf is judged before anything is made, a
+/// recipe the `project` shelf holds is refused before any is copied
+/// ([`Onto::unshadowing`]), and the configuration directories made for
+/// the shelf are removed again when the install refuses (#726).
 pub(crate) fn add(
     root: &Path,
     project: &ShelfPath,
@@ -380,32 +380,56 @@ pub(crate) fn add(
 ) -> Result<()> {
     let shelf = shelf()?;
     resolving(Origin::Personal, &shelf)?;
-    unshadowing(name, project, &shelf)?;
     let made = Made::above(shelf.path())?;
-    super::add(root, &shelf, Origin::Personal, source, name, path)?;
+    super::add(root, &shelf, Onto::Personal { project }, source, name, path)?;
     made.keep();
     Ok(())
 }
 
-/// Refuse an install of `name` onto the `personal` shelf where the
-/// `project` shelf, the one `--recipe` reads first ([`holding`]), already
-/// holds it (#726), since resolution would refuse the name on both
-/// ([`Unshelved::Shadowed`]). The project shelf is judged as resolution
-/// judges it, so one that cannot be read refuses ([`resolving`],
-/// [`stands`]). A name that is not one plain name stands on no shelf, and
-/// [`super::add`] refuses it by its own text.
-fn unshadowing(name: &str, project: &ShelfPath, personal: &ShelfPath) -> Result<(), Unshelved> {
-    if !super::plain(Path::new(name)) {
-        return Ok(());
+/// The shelf an install goes onto: the project's, or the personal one,
+/// which carries the `project` shelf, the one `--recipe` reads first
+/// ([`holding`]), whose recipes it may not install (#726).
+#[derive(Clone, Copy)]
+pub(crate) enum Onto<'a> {
+    Project,
+    Personal { project: &'a ShelfPath },
+}
+
+impl Onto<'_> {
+    /// The origin of the shelf the install goes onto.
+    pub(super) fn origin(self) -> Origin {
+        match self {
+            Onto::Project => Origin::Project,
+            Onto::Personal { .. } => Origin::Personal,
+        }
     }
-    resolving(Origin::Project, project)?;
-    match stands(project.path(), name)? {
-        (true, project) => Err(Unshelved::Shadowing {
-            name: name.to_string(),
-            project,
-            personal: personal.path().join(name),
-        }),
-        (false, _) => Ok(()),
+
+    /// Refuse a personal install onto `dir` whose plan, the recipe and
+    /// each base its `extends` chain copies, holds a name the project
+    /// shelf holds (#726), since resolution would refuse the name on both
+    /// ([`Unshelved::Shadowed`]). The project shelf is judged as
+    /// resolution judges it, so one that cannot be read refuses
+    /// ([`resolving`], [`stands`]). A project install refuses nothing.
+    pub(super) fn unshadowing(
+        self,
+        planned: &[(String, PathBuf)],
+        dir: &Path,
+    ) -> Result<(), Unshelved> {
+        let Onto::Personal { project } = self else {
+            return Ok(());
+        };
+        resolving(Origin::Project, project)?;
+        for (name, _) in planned {
+            if let (true, project) = stands(project.path(), name)? {
+                let (name, personal) = (name.clone(), dir.join(name));
+                return Err(Unshelved::Shadowing {
+                    name,
+                    project,
+                    personal,
+                });
+            }
+        }
+        Ok(())
     }
 }
 

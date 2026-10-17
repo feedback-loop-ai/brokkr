@@ -1073,9 +1073,12 @@ directory made before it is removed.
 `recipes add --personal` refuses at install a name the project's shelf
 already holds, the shelf `--recipe` reads first, judged as resolution
 judges it: a project shelf, or an entry at the name, that cannot be read
-refuses by ruling 2's texts. The personal shelf is judged first, and
-nothing is made on it. A name that is no plain name refuses by `add`'s
-own `--name` text.
+refuses by ruling 2's texts. Every name the install would copy is
+judged, the recipe's and each base its `extends` chain copies onto the
+personal shelf, before any is copied, so an install never makes a
+project recipe unavailable by copying its base. Whatever was made for
+the personal shelf is removed again. A name that is no plain name
+refuses by `add`'s own `--name` text.
 
 ```text
 the <origin> shelf <shelf> climbs by '..' out of a directory that does not stand beneath <at> (#726): a shelf spelled through what does not exist is never read as an empty one, so spell it without the '..'; nothing was run or installed

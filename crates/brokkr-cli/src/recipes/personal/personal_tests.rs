@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{resolving, unshadowing, Made, Origin, ShelfPath, Unshelved};
+use super::{resolving, Made, Onto, Origin, ShelfPath, Unshelved};
 
 /// [`super::holding`], the project's shelf spelled as a path.
 fn holding(recipe: Option<&str>, project: PathBuf) -> Result<PathBuf, Unshelved> {
@@ -359,15 +359,26 @@ fn a_directory_that_cannot_be_made_removes_every_one_made() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
-/// An install onto the personal shelf of a name the project shelf holds
-/// refuses naming both paths (#726); a name it does not hold, and one that
-/// is no plain name, pass to the install, and a project shelf that cannot
-/// be read refuses as resolution refuses it.
+/// An install onto the personal shelf whose plan holds a name the project
+/// shelf holds, the recipe's or a base's, refuses naming both paths
+/// (#726); a plan of names it does not hold, and any plan onto the project
+/// shelf, pass to the install, and a project shelf that cannot be read
+/// refuses as resolution refuses it.
 #[test]
 fn an_install_of_a_name_the_project_shelf_holds_refuses() {
     let (_dir, project, personal) = shelves(&["x"], &[]);
-    let (on_project, on_personal) = (ShelfPath::new(&project), ShelfPath::new(&personal));
-    let refused = unshadowing("x", &on_project, &on_personal).unwrap_err();
+    let on_project = ShelfPath::new(&project);
+    let onto = Onto::Personal {
+        project: &on_project,
+    };
+    let plan = |names: &[&str]| -> Vec<(String, PathBuf)> {
+        names
+            .iter()
+            .map(|name| (name.to_string(), PathBuf::new()))
+            .collect()
+    };
+    let unshadowing = |names: &[&str]| onto.unshadowing(&plan(names), &personal);
+    let refused = unshadowing(&["y", "x"]).unwrap_err();
     assert!(matches!(&refused, Unshelved::Shadowing { name, .. } if name == "x"));
     let shadowing = format!(
         "recipe 'x' stands on the project shelf, at {}, so installing it onto the personal shelf, \
@@ -377,13 +388,12 @@ fn an_install_of_a_name_the_project_shelf_holds_refuses() {
         personal.join("x").display()
     );
     assert_eq!(refused.to_string(), shadowing);
-    for name in ["y", "../x", ""] {
-        let passed = unshadowing(name, &on_project, &on_personal);
-        assert!(matches!(passed, Ok(())), "{name}: {passed:?}");
-    }
+    assert!(matches!(unshadowing(&["y", "z"]), Ok(())));
+    let projected = Onto::Project.unshadowing(&plan(&["x"]), &project);
+    assert!(matches!(projected, Ok(())));
     std::fs::rename(&project, project.with_extension("gone")).unwrap();
     std::os::unix::fs::symlink("gone", &project).unwrap();
-    let refused = unshadowing("x", &on_project, &on_personal).unwrap_err();
+    let refused = unshadowing(&["x"]).unwrap_err();
     let text = unread(Origin::Project, &project, &project, DANGLING);
     assert_eq!(refused.to_string(), text);
 }

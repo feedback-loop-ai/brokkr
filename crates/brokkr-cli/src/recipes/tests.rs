@@ -20,7 +20,7 @@ pub(crate) fn add(
     super::add(
         root,
         &ShelfPath::new(dir),
-        Origin::Project,
+        Onto::Project,
         source,
         name,
         path,
