@@ -130,10 +130,21 @@ fn a_header_that_applied_the_pin_is_the_seat_effort_on_either_release() {
 
 /// What the header reader cannot read it does not record: a header that
 /// is not there, a marker that is not a boolean, a level that is not a
-/// word.
+/// word, and a header or a record in it that is a sequence, not an object
+/// (review A728-1: serde's derived reader takes one by position).
 #[test]
 fn a_header_the_reader_cannot_read_records_no_level() {
+    let header = |header| serde_json::json!({"type": "request/header", "data": {"header": header}});
+    let level = |config| header(serde_json::json!({"config": config}));
+    assert_eq!(
+        applied_level(&level(serde_json::json!({"reasoningEffort": "high"}))),
+        Some("high".to_string())
+    );
     for event in [
+        header(serde_json::json!([{"reasoningEffort": "high"}, {}])),
+        level(serde_json::json!(["high"])),
+        header(serde_json::json!({
+            "config": {"reasoningEffort": "high"}, "adapterDefaults": [false]})),
         serde_json::json!({"type": "request/header"}),
         serde_json::json!({"type": "request/header", "data": {"header": {
             "config": {"reasoningEffort": "high"}, "adapterDefaults": {"reasoningEffort": "no"}}}}),
