@@ -818,24 +818,30 @@ is its `.brokkr` folder, else that directory, never a folder by its name
 alone (a library checked out as `.brokkr` with its own `.git` is a
 repository of its own), as that root's own compile reads them; a walk
 that refuses, and a source map that cannot be read, refuse by the
-`cannot read` text above, once an agent requests a capability. They join the one
-plan with the agents and charters, by its rules: planned before anything is written, walked
-without following a link, skipped when present and identical, refused by
-the text above when present and different, and removed with the recipe
-when its compile refuses. A name outside the capability grammar is never
-walked; the compile names it. A definition the source does not hold
-refuses, even where the workspace holds one, since the copy would bind to
-whatever the workspace defines. Each copy prints `capability '<name>' of
-agent '<agent>'`. A definition is no bundle file, so it never enters a
-bundle's pinned files; but a compile pins, in its capability record, every
-definition its library's agents request, so the folder bundle's digest
-also moves by the pin of each definition a copied agent requests. An
-install onto the personal shelf copies no definition, as it copies no
-agent. Only the agents a recipe names bring theirs: a library copied by
-hand brings its own `capabilities/` by hand. The new refusal:
+`cannot read` text above, once an agent requests a capability. They
+join the one plan with the agents and charters, by its rules: planned
+before anything is written, walked without following a link, at the
+source and at the workspace's own entry for each file, an agent's and a
+charter's too, which is compared only where it is a plain file, and
+refused by the second text below where it is a link, to anything or
+nothing, or not a plain file; skipped when present and identical,
+refused by the text above when present and different, and removed with
+the recipe when its compile refuses. A name outside the capability
+grammar is never walked; the compile names it. A definition the source
+does not hold refuses, even where the workspace holds one, since the
+copy would bind to whatever the workspace defines. Each copy prints
+`capability '<name>' of agent '<agent>'`. A definition is no bundle
+file, so it never enters a bundle's pinned files; but a compile pins, in
+its capability record, every definition its library's agents request, so
+the folder bundle's digest also moves by the pin of each definition a
+copied agent requests. An install onto the personal shelf copies no
+definition, as it copies no agent. Only the agents a recipe names bring
+theirs: a library copied by hand brings its own `capabilities/` by hand.
+The new refusals:
 
 ```text
 <definition> requests capability '<name>', whose definition the source's <capabilities> does not hold, so the copy would bind to whatever this workspace defines there (#703); nothing was written
+the workspace's <path> is a link, or not a plain file, where recipes add would copy one; recipes add neither reads through nor replaces it (#703): remove it; nothing was written
 ```
 
 **6. `recipes add` loses `--dir`** (amended 2026-10-15; the first ruling

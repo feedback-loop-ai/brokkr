@@ -114,6 +114,9 @@ pub(super) enum Hiring {
     /// An entry of the source's agent library or capability definitions
     /// that is a link, or not the file or directory it must be.
     Unplain { path: PathBuf },
+    /// The workspace's entry at `path`, where a file is due, is a link, to
+    /// anything or nothing, or not a plain file: never compared through.
+    Occupied { path: PathBuf },
     /// Files the workspace already holds that differ from the source's, or
     /// cannot be compared with them.
     Differs { paths: Vec<PathBuf> },
@@ -168,6 +171,13 @@ impl std::fmt::Display for Hiring {
                  agent library or capability definitions (#696); nothing was written",
                 path.display()
             ),
+            Hiring::Occupied { path } => write!(
+                formatter,
+                "the workspace's {} is a link, or not a plain file, where recipes add would copy \
+                 one; recipes add neither reads through nor replaces it (#703): remove it; nothing \
+                 was written",
+                path.display()
+            ),
             Hiring::Differs { paths } => {
                 let paths: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
                 write!(
@@ -216,9 +226,10 @@ pub(super) fn definitions_of(root: &Path, world: Option<&World>) -> PathBuf {
 /// ([`Hiring::Differs`], naming each), as does a name or a file that
 /// cannot be read, and a charter or a definition the source lacks, which
 /// the copy would bind to whatever the workspace holds there
-/// ([`Hiring::Uncharted`], [`Hiring::Undefined`]). An agent name `source`
-/// lacks, and a capability name outside the grammar, are the compile's to
-/// judge.
+/// ([`Hiring::Uncharted`], [`Hiring::Undefined`]), and a destination that
+/// is a link or not a plain file ([`Hiring::Occupied`]). An agent name
+/// `source` lacks, and a capability name outside the grammar, are the
+/// compile's to judge.
 pub(super) fn plan(
     recipes: &[&Path],
     source: Option<&Path>,
@@ -409,14 +420,22 @@ fn unread(path: &Path, cause: &dyn std::fmt::Display) -> Hiring {
 }
 
 /// `hires` without the files the workspace's library already holds byte
-/// for byte, or the refusal naming each it holds otherwise.
+/// for byte, or the refusal naming each it holds otherwise. Each
+/// destination is judged as the entry itself before any byte is compared:
+/// only a plain file is read, and anything else there refuses
+/// ([`Hiring::Occupied`]), as does an entry that cannot be inspected.
 fn held(hires: Vec<Hire>) -> Result<Vec<Hire>, Hiring> {
     let (mut needed, mut differs) = (Vec::new(), Vec::new());
     for hire in hires {
-        match brokkr_runtime::places::entry(&hire.to) {
-            Ok(None) => needed.push(hire),
-            _ if std::fs::read(&hire.to).is_ok_and(|bytes| bytes == hire.bytes) => {}
-            _ => differs.push(hire.to),
+        let found = brokkr_runtime::places::entry(&hire.to).map_err(|e| unread(&hire.to, &e))?;
+        match found {
+            None => needed.push(hire),
+            Some(entry) if entry.is_file() => {
+                if !std::fs::read(&hire.to).is_ok_and(|bytes| bytes == hire.bytes) {
+                    differs.push(hire.to);
+                }
+            }
+            Some(_) => return Err(Hiring::Occupied { path: hire.to }),
         }
     }
     match differs.is_empty() {

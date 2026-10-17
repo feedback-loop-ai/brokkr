@@ -111,8 +111,8 @@ fn plan_reads_every_site_form_and_copies_what_the_library_lacks() {
 /// Each refusal by its variant, before anything is written: a bundle or a
 /// definition that cannot be read, a name outside the grammar, a charter
 /// that is not plain or that the source lacks, a link or a file where the
-/// walk needs a directory,
-/// and files the library holds otherwise, a link to nothing included.
+/// walk needs a directory, a link to nothing where a copy is due, and
+/// files the library holds otherwise.
 #[test]
 fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
     let (_dir, source, library) = libraries();
@@ -169,6 +169,13 @@ fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
     let dangling = library.join("charters/a.md");
     std::fs::create_dir(library.join("charters")).unwrap();
     std::os::unix::fs::symlink("removed", &dangling).unwrap();
+    let occupied = Err(Hiring::Occupied {
+        path: dangling.clone(),
+    });
+    assert_eq!(planned(&source, &library, one.clone()), occupied);
+    assert_eq!(std::fs::read_link(&dangling).unwrap(), Path::new("removed"));
+    std::fs::remove_file(&dangling).unwrap();
+    write(&dangling, "# other\n");
     let paths = vec![library.join("a.json"), dangling];
     let differs = planned(&source, &library, one.clone());
     assert_eq!(differs, Err(Hiring::Differs { paths }));
@@ -243,8 +250,47 @@ fn plan_copies_the_definitions_its_agents_request() {
     assert_eq!(planned(&source, &library, seats), unplain);
 }
 
+/// A destination is judged as the entry itself before any byte is compared
+/// (#703): a link to the source's own bytes where an agent or a capability
+/// definition is due, and a directory where a file is due, each refuse by
+/// name, the link left as it stands; with nothing there, all are planned.
+#[test]
+fn plan_refuses_a_destination_that_is_no_plain_file() {
+    let (_dir, source, library) = libraries();
+    let a = json!({"capabilities": {"web-fetch": "wants"}}).to_string();
+    write(&source.join("a.json"), &a);
+    let from = source.with_file_name("capabilities");
+    write(&from.join("web-fetch.json"), "{}\n");
+    let same = source.with_file_name("same");
+    write(&same.join("a.json"), &a);
+    write(&same.join("web-fetch.json"), "{}\n");
+    let definition = defined(&library).join("web-fetch.json");
+    let agent = library.join("a.json");
+    let seats = json!({"a": {"agent": "a"}});
+    let occupied = |path: &Path| Err(Hiring::Occupied { path: path.into() });
+    for (at, target) in [
+        (&agent, same.join("a.json")),
+        (&definition, same.join("web-fetch.json")),
+    ] {
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&target, at).unwrap();
+        assert_eq!(planned(&source, &library, seats.clone()), occupied(at));
+        assert_eq!(std::fs::read_link(at).unwrap(), target);
+        std::fs::remove_file(at).unwrap();
+    }
+    std::fs::create_dir(&definition).unwrap();
+    assert_eq!(
+        planned(&source, &library, seats.clone()),
+        occupied(&definition)
+    );
+    std::fs::remove_dir(&definition).unwrap();
+    let planned = planned(&source, &library, seats);
+    assert_eq!(planned.map(|hires| hires.len()), Ok(2));
+}
+
 /// An entry on the walk, or a definition, this process cannot read refuses
-/// by name, never taken as absent (fail closed).
+/// by name, never taken as absent (fail closed); so does a destination
+/// whose entry cannot be inspected.
 #[test]
 fn plan_refuses_what_it_is_denied() {
     use std::os::unix::fs::PermissionsExt;
@@ -266,7 +312,15 @@ fn plan_refuses_what_it_is_denied() {
     assert_eq!(refused, Err(Hiring::Unread { path, cause }));
     mode(&definition, 0o000);
     let refused = planned(&source, &library, json!({"a": {"agent": "a"}}));
-    let (path, cause) = (definition, denied);
+    let (path, cause) = (definition.clone(), denied.clone());
+    assert_eq!(refused, Err(Hiring::Unread { path, cause }));
+    mode(&definition, 0o600);
+    write(&source.join("locked/a.md"), "# a\n");
+    std::fs::create_dir(&library).unwrap();
+    mode(&library, 0o000);
+    let refused = planned(&source, &library, json!({"a": {"agent": "a"}}));
+    mode(&library, 0o700);
+    let (path, cause) = (library.join("a.json"), denied);
     assert_eq!(refused, Err(Hiring::Unread { path, cause }));
 }
 
@@ -321,6 +375,12 @@ fn each_refusal_says_what_was_not_written() {
             Hiring::Unplain { path: path.clone() },
             "/s/a.json is a link, or not the file or directory recipes add copies from the \
              source's agent library or capability definitions (#696); nothing was written",
+        ),
+        (
+            Hiring::Occupied { path: path.clone() },
+            "the workspace's /s/a.json is a link, or not a plain file, where recipes add would \
+             copy one; recipes add neither reads through nor replaces it (#703): remove it; \
+             nothing was written",
         ),
         (
             Hiring::Differs {

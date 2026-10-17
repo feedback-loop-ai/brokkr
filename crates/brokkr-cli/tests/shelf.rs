@@ -611,6 +611,56 @@ fn add_refuses_a_definition_it_would_replace_or_cannot_read() {
     assert_eq!(made, [false, false]);
 }
 
+/// A folder entry where `recipes add` would copy a file is judged as the
+/// entry itself before any byte is compared (#703): a link inside the
+/// folder to the source's own bytes, a capability definition's or an
+/// agent's, a charter's link to nothing, and a directory where a definition
+/// is due, each refuse the install by name. Nothing is installed or
+/// copied, no shelf is made, and each link stands as it was; with the
+/// entries removed, the install goes through.
+#[test]
+fn add_refuses_a_destination_that_is_no_plain_file() {
+    let (repo, fast) = library_of_fast();
+    let library = fast.join("../..").canonicalize().unwrap();
+    let text = requesting(&repo, &library);
+    let reviewer = std::fs::read_to_string(library.join("agents/fast-reviewer.json")).unwrap();
+    repo.write(".brokkr/capabilities/same.txt", text);
+    repo.write(".brokkr/agents/same.json", &reviewer);
+    let add = ["recipes", "add", fast.to_str().unwrap(), "--name", "fast"];
+    let refused = |at: &Path| {
+        let before = repo.files();
+        let ran = repo.brokkr("", &add);
+        let occupied = format!(
+            "error: the workspace's {} is a link, or not a plain file, where recipes add would \
+             copy one; recipes add neither reads through nor replaces it (#703): remove it; \
+             nothing was written\n",
+            at.display()
+        );
+        assert_eq!((ran.code, ran.stderr), (Some(1), occupied));
+        assert_eq!(repo.files(), before);
+        assert!(!repo.path(".brokkr/recipes").exists());
+    };
+    let definition = repo.path(".brokkr/capabilities/web-fetch.json");
+    let agent = repo.path(".brokkr/agents/fast-reviewer.json");
+    let charter = repo.path(".brokkr/agents").join(COPIED[0]);
+    let links = [
+        (&definition, "same.txt"),
+        (&agent, "same.json"),
+        (&charter, "removed.md"),
+    ];
+    for (at, target) in links {
+        std::os::unix::fs::symlink(target, at).unwrap();
+        refused(at);
+        assert_eq!(std::fs::read_link(at).unwrap(), Path::new(target));
+        std::fs::remove_file(at).unwrap();
+    }
+    std::fs::create_dir(&definition).unwrap();
+    refused(&definition);
+    std::fs::remove_dir(&definition).unwrap();
+    let ran = repo.brokkr("", &add);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+}
+
 /// The library route of the Node guide's flow 3 (#703): a repository with
 /// no folder, holding `adapters/` and `agents/` by hand, installs onto its
 /// root's `recipes/` and copies a requested definition into its root's
