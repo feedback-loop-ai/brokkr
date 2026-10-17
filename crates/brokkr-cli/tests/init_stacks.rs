@@ -228,6 +228,15 @@ fn fixtures() -> PathBuf {
 /// proofs are about the claude scaffold whatever agent CLIs this host
 /// carries. Every other verb sees the host's own PATH.
 pub(crate) fn brokkr(args: &[&str], cwd: &Path) -> (Option<i32>, String, String) {
+    brokkr_with(args, cwd, |_| {})
+}
+
+/// [`brokkr`], the command carrying what `configure` sets last.
+pub(crate) fn brokkr_with(
+    args: &[&str],
+    cwd: &Path,
+    configure: impl Fn(&mut Command),
+) -> (Option<i32>, String, String) {
     let stubs = tempfile::tempdir().unwrap();
     std::fs::write(stubs.path().join("claude"), "").unwrap();
     let mut path = std::env::var_os("PATH").unwrap();
@@ -237,17 +246,12 @@ pub(crate) fn brokkr(args: &[&str], cwd: &Path) -> (Option<i32>, String, String)
         )
         .unwrap();
     }
-    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(args)
-        .env("PATH", path)
-        .current_dir(cwd)
-        .output()
-        .unwrap();
-    (
-        out.status.code(),
-        String::from_utf8_lossy(&out.stdout).into_owned(),
-        String::from_utf8_lossy(&out.stderr).into_owned(),
-    )
+    let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+    command.args(args).env("PATH", path).current_dir(cwd);
+    configure(&mut command);
+    let out = command.output().unwrap();
+    let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+    (out.status.code(), text(&out.stdout), text(&out.stderr))
 }
 
 /// A fresh repository holding one fixture's marker files, not yet

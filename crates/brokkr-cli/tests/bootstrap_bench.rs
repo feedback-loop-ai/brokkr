@@ -26,10 +26,13 @@
 //! decision 0043's Linux box cannot be built. A Linux host that cannot
 //! build that box (inside one already, or no usable bubblewrap) skips,
 //! and `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` turns that skip into a failure.
+//!
+//! `doc_samples` drives the guides' run over the same [`Scaffold`].
 
 #![cfg(unix)]
 
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The stub the adapter spawns instead of Claude Code. It reads the seat
@@ -96,21 +99,38 @@ fn git(repo: &Path, args: &[&str]) {
         .success());
 }
 
-#[test]
-fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
+/// Whether this host can box the scaffold's gates as `init` declares
+/// them: whether a namespace can be built.
+#[cfg(target_os = "linux")]
+pub(crate) fn can_box_the_gates() -> bool {
+    can_create_namespace()
+}
+
+/// macOS declares `harness`, and never asks.
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn can_box_the_gates() -> bool {
+    true
+}
+
+/// A pristine scaffold, committed: a fresh repository holding the
+/// fixture's `Makefile`, with `init .` run into its root and the stub
+/// first on PATH, which is what an operator is handed before step 3.
+pub(crate) struct Scaffold {
+    _repo: tempfile::TempDir,
+    _stubs: tempfile::TempDir,
+    pub(crate) root: PathBuf,
+    /// The stub, for `BROKKR_CLAUDE_BIN`.
+    pub(crate) stub: PathBuf,
+    /// This process's PATH with the stub's directory first.
+    pub(crate) path: OsString,
+}
+
+/// The [`Scaffold`], its `init` carrying what `configure` sets beside PATH.
+pub(crate) fn scaffold_with(configure: impl Fn(&mut Command)) -> Scaffold {
     use std::os::unix::fs::PermissionsExt;
 
-    #[cfg(target_os = "linux")]
-    if !can_create_namespace() {
-        brokkr_protocol::hands::skip_boundary_proof(
-            brokkr_protocol::hands::boundary_evidence_required(),
-            "no namespace can be built here for the scaffold's boxed gates",
-        );
-        return;
-    }
-
-    let repo = tempfile::tempdir().unwrap();
-    let repo = repo.path();
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path();
     git(repo, &["init", "-q"]);
     git(repo, &["config", "user.name", "Bootstrap Bench"]);
     git(repo, &["config", "user.email", "bench@test"]);
@@ -142,12 +162,12 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
     .unwrap();
 
     // Step 2 of the spine, into the repository root itself.
-    let init = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["init", "."])
+    let mut init = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+    init.args(["init", "."])
         .env("PATH", &path)
-        .current_dir(repo)
-        .output()
-        .unwrap();
+        .current_dir(repo);
+    configure(&mut init);
+    let init = init.output().unwrap();
     assert_eq!(
         init.status.code(),
         Some(0),
@@ -158,6 +178,26 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
     // or the ship gate finds it untracked and rules SHIP-DIRTY.
     git(repo, &["add", "-A"]);
     git(repo, &["commit", "-q", "-m", "brokkr starter"]);
+    Scaffold {
+        root: repo.to_path_buf(),
+        stub,
+        path,
+        _repo: dir,
+        _stubs: stubs,
+    }
+}
+
+#[test]
+fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
+    if !can_box_the_gates() {
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "no namespace can be built here for the scaffold's boxed gates",
+        );
+        return;
+    }
+    let scaffold = scaffold_with(|_| {});
+    let (repo, stub) = (&scaffold.root, &scaffold.stub);
 
     // Step 3, with the agent stubbed and NOTHING else changed: from a
     // subdirectory, with no flag at all, the folder is discovered and
@@ -171,7 +211,7 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
             "--feature",
             "bootstrap benchmark: reach one completed effect",
         ])
-        .env("BROKKR_CLAUDE_BIN", &stub)
+        .env("BROKKR_CLAUDE_BIN", stub)
         .current_dir(&src)
         .output()
         .unwrap();
