@@ -1,16 +1,28 @@
 //! Every attempt's seats as the journal records them (decision 0016): the
 //! sites an agent resolution chose, with the provider each ran on, the
-//! model it reported, whether it reported a cost, the tokens it spent and
-//! the phase it ran in; and every reported cost with its time and phase.
-//! One walk, read by the analytics readout and the recipe's graph alike
-//! (decision 0071 ruling 5).
+//! model it reported, and each checkpoint it metered — its time and phase,
+//! its reported cost and its tokens; and every reported cost with its time
+//! and phase. One walk, read by the analytics readout and the recipe's
+//! graph alike (decision 0071 ruling 5).
 
 use std::collections::BTreeMap;
 
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::Value;
 
-use crate::{field, js, reported_cost, seat_usage, TokenUsage};
+use crate::meter::{sum_usage, Meter, Metering};
+use crate::{field, js, reported_cost, TokenUsage};
+
+/// One checkpoint of a site, read once at its edge.
+struct Metered {
+    at: i64,
+    /// The phase the run was in when the checkpoint was recorded.
+    phase: Option<String>,
+    reported: bool,
+    meter: Meter,
+    /// Whether it is the site's finishing session record.
+    session: bool,
+}
 
 /// One invocation site of one attempt that an agent resolution chose.
 pub(crate) struct Site {
@@ -19,9 +31,37 @@ pub(crate) struct Site {
     pub(crate) phase: Option<String>,
     pub(crate) provider: String,
     pub(crate) model: Option<String>,
-    pub(crate) reported: bool,
-    /// What the site's records metered, by the rule [`seat_usage`] states.
-    pub(crate) usage: Option<TokenUsage>,
+    metered: Vec<Metered>,
+    by: Metering,
+}
+
+/// Which moments a figure keeps, by a time and the phase the run was in
+/// then: the window alone, or the window and one state.
+pub(crate) type Keeps<'a> = &'a dyn Fn(i64, Option<&str>) -> bool;
+
+impl Site {
+    /// Whether the site ran in what `keeps` holds: it started there, or
+    /// metered a checkpoint there.
+    pub(crate) fn ran(&self, keeps: Keeps) -> bool {
+        keeps(self.at, self.phase.as_deref()) || self.kept(keeps).next().is_some()
+    }
+
+    /// Whether a checkpoint `keeps` holds reported a cost.
+    pub(crate) fn reported(&self, keeps: Keeps) -> bool {
+        self.kept(keeps).any(|metered| metered.reported)
+    }
+
+    /// What the checkpoints `keeps` holds metered, by the rule
+    /// [`Metering`] states.
+    pub(crate) fn usage(&self, keeps: Keeps) -> Option<TokenUsage> {
+        let counted = self.kept(keeps);
+        sum_usage(counted.filter_map(|metered| metered.meter.counted(self.by, metered.session)))
+    }
+
+    fn kept<'a>(&'a self, keeps: Keeps<'a>) -> impl Iterator<Item = &'a Metered> + 'a {
+        let metered = self.metered.iter();
+        metered.filter(move |metered| keeps(metered.at, metered.phase.as_deref()))
+    }
 }
 
 /// One reported cost: the checkpoint records [`reported_cost`] reads, as
@@ -38,19 +78,11 @@ pub(crate) struct Attempts {
     pub(crate) sites: Vec<Site>,
 }
 
-/// A site's checkpoints, and the finishing one among them.
-#[derive(Default)]
-struct Records<'a> {
-    checkpoints: Vec<&'a Value>,
-    session: Option<&'a Value>,
-}
-
 #[derive(Default)]
 struct Walk<'a> {
     phase: Option<&'a str>,
     costs: Vec<Spend>,
     sites: Vec<Site>,
-    records: Vec<Records<'a>>,
     by_site: BTreeMap<(&'a str, Option<&'a str>), usize>,
 }
 
@@ -69,10 +101,9 @@ impl<'a> Walk<'a> {
                 phase: self.phase.map(str::to_string),
                 provider: provider.to_string(),
                 model: None,
-                reported: false,
-                usage: None,
+                metered: Vec::new(),
+                by: Metering::Session,
             });
-            self.records.push(Records::default());
         }
     }
 
@@ -81,9 +112,10 @@ impl<'a> Walk<'a> {
     fn recorded(&mut self, at: i64, attempt: &'a str, record: Option<&'a Value>, priced: bool) {
         let Some(record) = record else { return };
         let cost = priced.then(|| reported_cost(record)).flatten();
+        let phase = self.phase.map(str::to_string);
         self.costs.extend(cost.map(|usd| Spend {
             at,
-            phase: self.phase.map(str::to_string),
+            phase: phase.clone(),
             usd,
         }));
         let Some(slot) = self.by_site.get(&(attempt, field(record, "member"))) else {
@@ -93,15 +125,28 @@ impl<'a> Walk<'a> {
         if let Some(model) = field(record, "model") {
             site.model = Some(model.to_string());
         }
-        site.reported |= cost.is_some();
         if priced {
-            let records = &mut self.records[*slot];
-            records.checkpoints.push(record);
-            if field(record, "step").is_some_and(|step| step.ends_with("-session-finished")) {
-                records.session = Some(record);
-            }
+            let session =
+                field(record, "step").is_some_and(|step| step.ends_with("-session-finished"));
+            site.metered.push(Metered {
+                at,
+                phase,
+                reported: cost.is_some(),
+                meter: Meter::of(record),
+                session,
+            });
         }
     }
+}
+
+/// Only the last finishing record a site wrote is its session record.
+fn settle(mut site: Site) -> Site {
+    let last = site.metered.iter().rposition(|metered| metered.session);
+    for (index, metered) in site.metered.iter_mut().enumerate() {
+        metered.session = Some(index) == last;
+    }
+    site.by = Metering::of(site.metered.iter().map(|metered| &metered.meter));
+    site
 }
 
 /// Every site and reported cost of one run's journal.
@@ -128,18 +173,8 @@ pub(crate) fn attempts(events: &[EventEnvelope]) -> Attempts {
             _ => {}
         }
     }
-    let Walk {
-        costs,
-        sites,
-        records,
-        ..
-    } = walk;
-    let sites = sites.into_iter().zip(records).map(|(mut site, records)| {
-        site.usage = seat_usage(records.checkpoints.into_iter(), records.session);
-        site
-    });
     Attempts {
-        costs,
-        sites: sites.collect(),
+        costs: walk.costs,
+        sites: walk.sites.into_iter().map(settle).collect(),
     }
 }

@@ -50,8 +50,11 @@ export function brokkrOf(config) {
      */
     transcript: async (target, seat) => transcriptReadOf(await run(config, ['transcript', ...runOf(target), flag('seat', seat), '--json']), 'brokkr transcript'),
     analytics: (range, realm) => read(['analytics', flag('range', range), ...realmOf(realm), '--json'], 'brokkr analytics', analyticsOf),
-    /** One recipe's state machine and its traffic over the range (the Library's Graph). */
-    graph: (realm, recipe, range) => read(['graph', flag('recipe', recipe), ...realmOf(realm), flag('range', range), '--json'], 'brokkr graph', graphOf),
+    /** One recipe's state machine and its traffic over the range (the Library's Graph); with `recipe` null, the one Brokkr picks. */
+    graph: (realm, recipe, range) => {
+      const named = recipe === null ? [] : [flag('recipe', recipe)]
+      return read(['graph', ...named, ...realmOf(realm), flag('range', range), '--json'], 'brokkr graph', graphOf)
+    },
     /** `brokkr operator retry|stop` or `brokkr conclude`, with the reason recorded. */
     command(target, command, reason) {
       const verb = OPERATOR.includes(command) ? ['operator', command] : ['conclude']

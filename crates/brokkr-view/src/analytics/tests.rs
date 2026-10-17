@@ -877,3 +877,30 @@ fn a_recipe_whose_seats_meter_no_tokens_states_the_absence() {
         }
     );
 }
+
+#[test]
+fn a_seat_started_before_the_range_counts_what_it_metered_inside_it() {
+    let mut journals = vec![recipe_run(
+        "alpha",
+        "spanning",
+        Fate::Open,
+        "claude",
+        Some(1.0),
+    )];
+    // The run and its attempt start before the week begins; the attempt's
+    // session finishes inside it.
+    let events = &mut journals[0].0.events;
+    events[0].recorded_at = "2026-10-06T11:00:00Z".into();
+    events[1].recorded_at = "2026-10-06T11:30:00Z".into();
+    events[2].recorded_at = "2026-10-06T12:30:00Z".into();
+    let rows = recipes_of(&journals);
+    let cost = &rows[0].cost_per_run;
+    assert_eq!(
+        (
+            cost.text.as_str(),
+            cost.reporting.as_slice(),
+            rows[0].tokens_per_run.count
+        ),
+        ("$1.00", ["claude".to_string()].as_slice(), Some(1000))
+    );
+}

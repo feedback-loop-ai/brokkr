@@ -36,6 +36,7 @@ mod fleet;
 mod graph;
 mod items;
 pub mod js;
+mod meter;
 mod participant;
 mod scope;
 mod tokens;
@@ -63,6 +64,7 @@ pub use fleet::{
     TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use graph::{graph, GraphError, GraphQuery, GraphTable, GraphView, Table, GRAPH_VIEW_VERSION};
+use meter::{sum_usage, Meter, Metering};
 pub use participant::Subject;
 pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
@@ -1721,59 +1723,26 @@ fn finish_usage(mut usage: TokenUsage) -> Option<TokenUsage> {
 }
 
 fn token_usage<'a>(records: impl Iterator<Item = &'a Value>) -> Option<TokenUsage> {
-    let mut usage = TokenUsage::default();
-    for record in records {
-        add_token(
-            &mut usage.input_tokens,
-            record.get("input_tokens").and_then(Value::as_u64),
-        );
-        add_token(
-            &mut usage.output_tokens,
-            record.get("output_tokens").and_then(Value::as_u64),
-        );
-        add_token(
-            &mut usage.cache_read_tokens,
-            record.get("cache_read_tokens").and_then(Value::as_u64),
-        );
-        add_token(
-            &mut usage.cache_write_tokens,
-            record.get("cache_write_tokens").and_then(Value::as_u64),
-        );
-        add_token(
-            &mut usage.reasoning_output_tokens,
-            record
-                .get("reasoning_output_tokens")
-                .and_then(Value::as_u64),
-        );
-    }
-    finish_usage(usage)
+    let count = |record: &Value, key: &str| record.get(key).and_then(Value::as_u64);
+    sum_usage(records.map(|record| TokenUsage {
+        input_tokens: count(record, "input_tokens"),
+        output_tokens: count(record, "output_tokens"),
+        cache_read_tokens: count(record, "cache_read_tokens"),
+        cache_write_tokens: count(record, "cache_write_tokens"),
+        reasoning_output_tokens: count(record, "reasoning_output_tokens"),
+        total_tokens: None,
+    }))
 }
 
 fn session_usage(part: &Build) -> Option<TokenUsage> {
-    let checkpoints = part.checkpoints.iter().map(|(checkpoint, _, _)| checkpoint);
-    seat_usage(checkpoints, part.session.as_ref())
-}
-
-/// A seat's checkpoints metered: its turns, else its `session` record.
-pub(crate) fn seat_usage<'a>(
-    checkpoints: impl Iterator<Item = &'a Value>,
-    session: Option<&'a Value>,
-) -> Option<TokenUsage> {
-    token_usage(checkpoints.filter(|checkpoint| {
-        matches!(
-            checkpoint.get("step").and_then(Value::as_str),
-            Some("seat-turn" | "turn-completed")
-        ) && [
-            "input_tokens",
-            "output_tokens",
-            "cache_read_tokens",
-            "cache_write_tokens",
-            "reasoning_output_tokens",
-        ]
-        .iter()
-        .any(|key| checkpoint.get(*key).and_then(Value::as_u64).is_some())
-    }))
-    .or_else(|| token_usage(session.into_iter()))
+    let checkpoints = part.checkpoints.iter();
+    let meters: Vec<Meter> = checkpoints
+        .map(|(checkpoint, _, _)| Meter::of(checkpoint))
+        .collect();
+    let session = part.session.as_ref().map(Meter::of);
+    let by = Metering::of(&meters);
+    let turns = meters.iter().filter_map(|meter| meter.counted(by, false));
+    sum_usage(turns.chain(session.and_then(|session| session.counted(by, true))))
 }
 
 fn usage_text(usage: &TokenUsage, prefix: &str) -> String {

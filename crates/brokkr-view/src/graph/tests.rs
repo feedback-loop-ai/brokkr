@@ -194,10 +194,10 @@ fn fleet() -> Vec<(Journal, Option<RunState>)> {
     let failed = |run_id, day, minutes, pins: &serde_json::Value| {
         verify_failed(run_id, day, minutes).pinned(pins.clone())
     };
-    // A rule the table no longer holds, fired twice, under a base layer
-    // that has since moved.
+    // A rule the table no longer holds, fired twice, under the same policy
+    // file and a base layer that has since moved.
     let retired = verify_failed("r4", 11, 40)
-        .pinned(json!({"files": {"@compose/0000/base": "b0"}}))
+        .pinned(json!({"files": {"policy.json": "now", "@compose/0000/base": "b0"}}))
         .ruled("OLD-RULE", "design", "design", &on(11, "00:45:00"))
         .ruled("OLD-RULE", "design", "design", &on(11, "00:46:00"));
     // Open in review after review sent it back once; the table it pinned
@@ -431,12 +431,17 @@ fn a_rule_the_table_no_longer_holds_is_retired_with_its_count() {
 #[test]
 fn runs_pinned_under_another_table_are_counted_as_drifted() {
     let view = read("self", true).unwrap();
-    // r1-r3 pinned another policy file, r4 a base layer that moved; r5's
-    // other role file is not the table, and r6 pinned nothing to compare.
+    // r1-r3 pinned another policy file, r4 the same one under a base layer
+    // that moved; r5's other role file is not the table, and r6 pinned
+    // nothing to compare.
     assert_eq!(view.drifted_runs, 4);
     assert_eq!(
         view.drift_text.as_deref(),
-        Some("4 runs ran under an earlier version of this table")
+        Some(
+            "3 runs ran under an earlier version of this table · \
+             1 run ran under an earlier version of a base this recipe composes, \
+             which may not have changed this table"
+        )
     );
 }
 
@@ -576,6 +581,41 @@ fn a_states_cost_names_the_providers_that_reported_none() {
         }
     );
     assert_eq!(named(&view, "intake").tokens.text, ABSENT);
+}
+
+#[test]
+fn a_seat_started_before_the_range_counts_where_and_when_it_metered() {
+    // The attempt starts at implement before the week begins; its session
+    // finishes in review inside it.
+    let spanning = Journal::started("r11", "self", "alpha", &on(6, "10:00:00"))
+        .entered("implement", &on(6, "11:00:00"))
+        .then(
+            EventType::EffectStarted,
+            json!({"effect_id": "e", "attempt_id": "a9",
+                   "provenance": [{"agent": "a", "provider": "claude"}]}),
+            &on(6, "11:30:00"),
+        )
+        .entered("review", &on(6, "11:50:00"))
+        .then(
+            EventType::EffectCheckpointed,
+            json!({"effect_id": "e", "attempt_id": "a9",
+                   "checkpoint": {"step": "claude-session-finished", "total_cost_usd": 1.0,
+                                  "input_tokens": 5000, "output_tokens": 1000}}),
+            &on(6, "12:30:00"),
+        );
+    let open = state(Some("review"), Status::Running, None);
+    let view = read_over(vec![(spanning, Some(open))], "self", true).unwrap();
+    let review = &named(&view, "review");
+    assert_eq!(
+        (
+            review.cost.text.as_str(),
+            review.cost.reporting.as_slice(),
+            review.cost.note.as_deref()
+        ),
+        ("$1.00", ["claude".to_string()].as_slice(), None)
+    );
+    assert_eq!(review.tokens.text, "6k tok · in 5k tok · out 1k tok");
+    assert_eq!(named(&view, "implement").tokens.text, ABSENT);
 }
 
 #[test]

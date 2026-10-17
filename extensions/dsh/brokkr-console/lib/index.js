@@ -121,15 +121,16 @@ function routes({ brokkr, desk, here, locate, focus }) {
         send(res, 200, await brokkr.analytics(rangeOf(query), query.get('realm')))
       },
     ],
-    // The Library's Graph: one recipe of one realm (or of a one-hearth world, with no realm named).
+    // The Library's Graph: one recipe of one realm (or of a one-hearth world, with no realm named);
+    // with no recipe named, the one Brokkr picks, so a realm none of whose recipes ran still lists them.
     [
       'GET',
       `${BASE}/api/graph`,
       async (req, res) => {
         const query = queryOf(req)
         const range = rangeOf(query)
-        const [recipe, realm] = [query.get('recipe') ?? '', query.get('realm')]
-        if (!GRAMMAR.recipe.test(recipe)) throw new RequestRefused('a graph is asked for by its recipe’s name')
+        const [recipe, realm] = [query.get('recipe'), query.get('realm')]
+        if (recipe !== null && !GRAMMAR.recipe.test(recipe)) throw new RequestRefused('a graph is asked for by its recipe’s name')
         if (realm !== null && (realm === '' || realm.length > 256)) throw new RequestRefused('a realm is named in 1 to 256 characters')
         send(res, 200, await brokkr.graph(realm, recipe, range))
       },

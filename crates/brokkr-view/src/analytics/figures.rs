@@ -9,7 +9,7 @@ use super::words::{change_text, date, hours_text, listed, percent, span_text, st
 use super::{Analytics, AnalyticsError, CostFigure, Day, Headline, ModelShare, Query, RealmRow};
 use super::{ReportedCost, Rework, RuleCount, Shipped, Span, StepWait, StoppedByRule, Waiting};
 use super::{DAY_MILLIS, NOT_RECORDED};
-use crate::attempts::Site;
+use crate::attempts::{Keeps, Site};
 use crate::{js, ABSENT, VIEW_VERSION};
 
 /// The runs that finished inside `window`, with when and how.
@@ -145,18 +145,22 @@ fn sites_in<'a>(runs: &'a [&'a RunFacts], window: Window) -> impl Iterator<Item 
 }
 
 fn cost(runs: &[&RunFacts], window: Window) -> CostFigure {
-    cost_figure(sites_in(runs, window), reported_in(runs, window))
+    let sites = runs.iter().flat_map(|run| &run.sites);
+    let keeps = |at: i64, _: Option<&str>| window.holds(at);
+    cost_figure(sites, &keeps, reported_in(runs, window))
 }
 
-/// A reported cost, `usd`, and the harnesses of `sites` behind it: those
-/// that reported a cost and those that reported none.
+/// A reported cost, `usd`, and the harnesses behind it of the `sites` that
+/// ran in what `keeps` holds: those that reported a cost there and those
+/// that reported none.
 pub(crate) fn cost_figure<'a>(
     sites: impl Iterator<Item = &'a Site>,
+    keeps: Keeps,
     usd: Option<f64>,
 ) -> CostFigure {
     let mut harnesses: BTreeMap<&str, bool> = BTreeMap::new();
-    for site in sites {
-        *harnesses.entry(&site.provider).or_default() |= site.reported;
+    for site in sites.filter(|site| site.ran(keeps)) {
+        *harnesses.entry(&site.provider).or_default() |= site.reported(keeps);
     }
     let named = |reported: bool| -> Vec<String> {
         let held = harnesses.iter().filter(|(_, did)| **did == reported);

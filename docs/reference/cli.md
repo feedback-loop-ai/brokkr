@@ -831,12 +831,12 @@ Usage: brokkr analytics [OPTIONS]
 One recipe's state machine with how often each rule fired, where runs spent their time and how they ended, over a range. Read-only; `--json` emits the view model
 
 ```text
-Usage: brokkr graph [OPTIONS] --recipe <RECIPE>
+Usage: brokkr graph [OPTIONS]
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
-| `--recipe <RECIPE>` |  |  | The recipe whose graph is drawn, by name: on the realm's shelf, or a bundle directory in the realm whose bundle.json names it |
+| `--recipe <RECIPE>` |  |  | The recipe whose graph is drawn, by name: on the realm's shelf, or a bundle directory in the realm whose bundle.json names it (default the realm's recipe with the most runs in the range, else the first it knows by name) |
 | `--realm <REALM>` |  |  | The realm the recipe resolves in and whose runs are counted (default the workspace's realm, else the map's first) |
 | `--range <RANGE>` | `7d` |  | How far back from now: 24h, 7d or 30d |
 | `--realms <REALMS>` |  |  | The world's map — every hearth it names is read (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |

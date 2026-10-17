@@ -160,40 +160,77 @@ fn rules(
     (edges.collect(), retired.collect())
 }
 
-/// The pins that say which table a manifest ran under: its own policy
-/// file and every composed base layer's digest.
-fn table_pin(pins: &Pins) -> Vec<(&str, &str)> {
-    let files = pins.files.iter();
-    let table = files.filter(|(file, _)| *file == POLICY_FILE || file.starts_with(COMPOSE_PREFIX));
-    table
-        .map(|(file, digest)| (file.as_str(), digest.as_str()))
+/// The pins of a manifest's files that `file` keeps, with their digests.
+fn pinned(pins: &Pins, file: impl Fn(&str) -> bool) -> Vec<(&str, &str)> {
+    let files = pins.files.iter().filter(|(name, _)| file(name));
+    files
+        .map(|(name, digest)| (name.as_str(), digest.as_str()))
         .collect()
 }
 
+/// How a run's pinned table differs from the resolved one: its own policy
+/// file is another, or only a base layer it composes moved, which may
+/// have left the table as it is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Drift {
+    Table,
+    Base,
+}
+
+impl Drift {
+    /// `run`'s drift from `resolved`; none for a run that pinned neither
+    /// a policy file nor a base layer, as there is nothing to compare.
+    fn of(resolved: &Pins, run: &Pins) -> Option<Drift> {
+        let own = |pins| pinned(pins, |file| file == POLICY_FILE);
+        let layers = |pins| pinned(pins, |file| file.starts_with(COMPOSE_PREFIX));
+        let (own_run, layers_run) = (own(run), layers(run));
+        match (
+            own_run.is_empty() && layers_run.is_empty(),
+            own_run == own(resolved),
+        ) {
+            (true, _) => None,
+            (false, false) => Some(Drift::Table),
+            (false, true) => (layers_run != layers(resolved)).then_some(Drift::Base),
+        }
+    }
+
+    fn words(self) -> &'static str {
+        match self {
+            Drift::Table => "ran under an earlier version of this table",
+            Drift::Base => {
+                "ran under an earlier version of a base this recipe composes, \
+                 which may not have changed this table"
+            }
+        }
+    }
+}
+
 /// The runs whose pinned table is not the resolved one, and the words for
-/// them. A run that pinned none is not counted: there is nothing to
-/// compare.
+/// them, those whose own policy file differs apart from those whose base
+/// alone moved.
 fn drift(table: Option<GraphTable>, runs: &[GraphRun]) -> (usize, Option<String>) {
     let Some(table) = table else {
         return (0, None);
     };
     let resolved = pins_of(table.manifest);
-    let resolved = table_pin(&resolved);
-    let drifted = runs
+    let drifts: Vec<Drift> = runs
         .iter()
-        .filter(|run| {
-            let pinned = table_pin(&run.pins);
-            !pinned.is_empty() && pinned != resolved
-        })
-        .count();
-    let text = match drifted {
-        0 => None,
-        1 => Some("1 run ran under an earlier version of this table".to_string()),
-        many => Some(format!(
-            "{many} runs ran under an earlier version of this table"
-        )),
-    };
-    (drifted, text)
+        .filter_map(|run| Drift::of(&resolved, &run.pins))
+        .collect();
+    let clauses: Vec<String> = [Drift::Table, Drift::Base]
+        .into_iter()
+        .filter_map(
+            |kind| match drifts.iter().filter(|drift| **drift == kind).count() {
+                0 => None,
+                1 => Some(format!("1 run {}", kind.words())),
+                many => Some(format!("{many} runs {}", kind.words())),
+            },
+        )
+        .collect();
+    (
+        drifts.len(),
+        (!clauses.is_empty()).then(|| clauses.join(" · ")),
+    )
 }
 
 /// The 90th percentile of `sorted` by nearest rank; `None` of nothing.
@@ -202,7 +239,7 @@ pub(super) fn p90(sorted: &[i64]) -> Option<i64> {
     rank.checked_sub(1).map(|index| sorted[index])
 }
 
-fn tokens<'a>(usages: impl Iterator<Item = &'a TokenUsage>) -> StateTokens {
+fn tokens(usages: impl Iterator<Item = TokenUsage>) -> StateTokens {
     let mut sum = TokenUsage::default();
     for usage in usages {
         add_token(&mut sum.input_tokens, usage.input_tokens);
@@ -256,11 +293,7 @@ fn state(shape: &Shape, runs: &[GraphRun], phase: &str, window: Window) -> State
         .collect();
     spans.sort_unstable();
     let attempts = runs.iter().map(|run| &run.attempts);
-    let sites: Vec<_> = attempts
-        .clone()
-        .flat_map(|attempts| &attempts.sites)
-        .filter(|site| held(site.at, site.phase.as_deref()))
-        .collect();
+    let sites = attempts.clone().flat_map(|attempts| &attempts.sites);
     let costs = attempts.flat_map(|attempts| &attempts.costs);
     let spent = total(
         costs
@@ -281,8 +314,8 @@ fn state(shape: &Shape, runs: &[GraphRun], phase: &str, window: Window) -> State
         entered,
         median: span(middle(&spans)),
         p90: span(p90(&spans)),
-        tokens: tokens(sites.iter().filter_map(|site| site.usage.as_ref())),
-        cost: cost_figure(sites.into_iter(), spent),
+        tokens: tokens(sites.clone().filter_map(|site| site.usage(&held))),
+        cost: cost_figure(sites, &held, spent),
         seats: seats(runs.iter().max_by_key(|run| run.started), phase),
     }
 }

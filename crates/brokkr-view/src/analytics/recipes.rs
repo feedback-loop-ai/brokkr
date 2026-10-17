@@ -80,7 +80,9 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
         .count();
     let done_rate = done as f64 * 100.0 / count;
     let sites = runs.iter().flat_map(|run| &run.sites);
-    let sites: Vec<_> = sites.filter(|site| window.holds(site.at)).collect();
+    // A cost, a token and a provider's reporting are kept by the time of
+    // the checkpoint that metered them, never by the attempt's start.
+    let keeps = |at: i64, _: Option<&str>| window.holds(at);
     let costs = runs.iter().flat_map(|run| &run.costs);
     let spent = total(
         costs
@@ -88,8 +90,8 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
             .map(|(_, usd)| *usd),
     );
     let tokens: Option<u64> = sites
-        .iter()
-        .filter_map(|site| site.usage.as_ref().and_then(|usage| usage.total_tokens))
+        .clone()
+        .filter_map(|site| site.usage(&keeps).and_then(|usage| usage.total_tokens))
         .reduce(u64::saturating_add);
     let per_run = tokens.map(|tokens| js::round_half_up(tokens as f64 / count) as u64);
     RecipeRow {
@@ -99,7 +101,7 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
         done,
         done_rate,
         done_text: format!("{}%", js::round_half_up(done_rate)),
-        cost_per_run: cost_figure(sites.into_iter(), spent.map(|usd| usd / count)),
+        cost_per_run: cost_figure(sites, &keeps, spent.map(|usd| usd / count)),
         tokens_per_run: TokensFigure {
             text: per_run.map_or_else(|| ABSENT.to_string(), fmt_tokens),
             count: per_run,

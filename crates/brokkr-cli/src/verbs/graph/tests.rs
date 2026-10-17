@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use super::*;
 use crate::verbs::analytics::RangeRefused;
-use crate::Cli;
+use crate::{Cli, Cmd};
 
 /// The repository root: its `recipes/` holds `self`, which composes
 /// `panel-review` over its base.
@@ -181,6 +181,46 @@ fn a_bundle_directory_is_found_by_the_name_its_bundle_json_gives_it() {
 }
 
 #[test]
+fn an_adopters_implicit_bundle_resolves_and_is_drawn_with_its_dormant_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = std::fs::canonicalize(dir.path()).unwrap();
+    let bins = repo.join("bin");
+    std::fs::create_dir(&bins).unwrap();
+    std::fs::write(bins.join("claude"), "").unwrap();
+    crate::init::init(&repo, bins.as_os_str(), "linux").unwrap();
+    // A visible bundle beside the folder still resolves after it.
+    std::fs::create_dir(repo.join("other")).unwrap();
+    std::fs::write(repo.join("other/bundle.json"), r#"{"name": "other"}"#).unwrap();
+    let shelf = shelf(&repo).unwrap();
+    assert_eq!(
+        shelf,
+        [
+            ("starter".to_string(), repo.join(".brokkr")),
+            ("other".to_string(), repo.join("other")),
+        ]
+    );
+    let bundle = compiled(None, &repo, &shelf, "starter").unwrap().unwrap();
+    let journal = repo.join(".brokkr/state");
+    let first = &bundle.machine.rules[0];
+    let mut events = vec![entered(&first.from)];
+    events.extend(seat(&first.from, &first.result));
+    Journal::at(&journal).run("live", &bundle.manifest, &events);
+    let now = now_rfc3339();
+    let view = derive(
+        &hearth(&journal),
+        Some(&bundle),
+        &shelf,
+        &asked("starter", &now),
+    )
+    .unwrap();
+    assert_eq!(
+        (&view.table, view.runs, view.rules.len()),
+        (&Table::Resolved, 1, bundle.machine.rules.len())
+    );
+    assert_eq!(view.never_fired.count, bundle.machine.rules.len());
+}
+
+#[test]
 fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
     let repository = repository();
     let shelf = shelf(&repository).unwrap();
@@ -252,7 +292,8 @@ fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
         &lines[lines.len() - 3..],
         [
             "retired OLD-RULE · 1",
-            "drift  1 run ran under an earlier version of this table",
+            "drift  1 run ran under an earlier version of a base this recipe composes, \
+             which may not have changed this table",
             "ends   1 done · 1 stop by a rule · 0 stopped by you · 0 open",
         ]
     );
@@ -310,7 +351,7 @@ fn the_verb_prints_the_view_as_lines_or_verbatim() {
     Journal::at(dir.path()).run("live", &json!({"bundle_name": "gone"}), &[entered("work")]);
     for json in [false, true] {
         let args = GraphArgs {
-            recipe: "gone".into(),
+            recipe: Some("gone".into()),
             realm: None,
             range: Range::Week,
             realms: None,
@@ -320,7 +361,7 @@ fn the_verb_prints_the_view_as_lines_or_verbatim() {
         assert_eq!(graph(dir.path(), args).unwrap(), Exit::Completed.into());
     }
     let unknown = GraphArgs {
-        recipe: "nosuch".into(),
+        recipe: Some("nosuch".into()),
         realm: None,
         range: Range::Week,
         realms: None,
@@ -346,11 +387,45 @@ fn clap_takes_the_recipe_and_refuses_a_range_outside_the_three() {
         source.as_deref(),
         Some("unknown range '2d': one of 24h, 7d or 30d")
     );
-    let missing = Cli::try_parse_from(["brokkr", "graph"])
-        .err()
-        .expect("no recipe");
+    let unnamed = Cli::try_parse_from(["brokkr", "graph"]).unwrap();
+    let Cmd::Graph(args) = unnamed.command else {
+        panic!("brokkr graph is the graph verb");
+    };
+    assert_eq!(args.recipe, None, "Brokkr picks the recipe");
+}
+
+#[test]
+fn with_no_recipe_named_the_busiest_is_drawn_else_the_first_known() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("recipes/zeta")).unwrap();
+    std::fs::create_dir_all(dir.path().join("recipes/alpha")).unwrap();
+    let shelf = shelf(dir.path()).unwrap();
+    let now = now_rfc3339();
+    let chose = |hearths: &[Hearth]| chosen(hearths, &shelf, UNMAPPED, Range::Week, &now);
+    // No run yet: the first the realm knows by name.
+    assert_eq!(chose(&hearth(dir.path())).unwrap(), "alpha");
+    let mut journal = Journal::at(dir.path());
+    // Two runs of beta, one of zeta and one of alpha; beta is the busiest.
+    for (run_id, recipe) in [
+        ("b1", "beta"),
+        ("z1", "zeta"),
+        ("b2", "beta"),
+        ("a1", "alpha"),
+    ] {
+        journal.run(run_id, &json!({"bundle_name": recipe}), &[entered("work")]);
+    }
+    assert_eq!(chose(&hearth(dir.path())).unwrap(), "beta");
+    let empty = tempfile::tempdir().unwrap();
+    let none = chosen(&hearth(empty.path()), &[], "brokkr", Range::Week, &now);
+    let none = none.unwrap_err();
     assert_eq!(
-        missing.kind(),
-        clap::error::ErrorKind::MissingRequiredArgument
+        none.downcast_ref::<NoRecipe>(),
+        Some(&NoRecipe {
+            realm: "brokkr".into()
+        })
+    );
+    assert_eq!(
+        none.to_string(),
+        "no recipe in brokkr: none is installed and no run in the range names one"
     );
 }

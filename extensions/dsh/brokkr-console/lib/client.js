@@ -1356,8 +1356,6 @@ window.__ModuleLoader__.load({
             h('td', null, reported(row) ? quadrantOf(row.done_rate, row.cost_per_run.cost.usd, targets) : 'cost not reported')))))))
     }
 
-    /** The recipe of `rows` with the most runs in range, the first listed where runs tie; `null` when none ran. */
-    const busiest = (rows) => rows.reduce((best, row) => (best === null || row.runs > best.runs ? row : best), null)?.recipe ?? null
     /** The realms Brokkr's figures name, in their order. */
     const realmsIn = (figures) => [...new Set([...figures.realms.map((row) => row.realm), ...figures.recipes.map((row) => row.realm)])]
 
@@ -1368,8 +1366,9 @@ window.__ModuleLoader__.load({
      * nothing but the viewer's two targets. `route` holds the realm, recipe
      * and view picked; until one is picked, the realm is the conversation's
      * (`here`) when Brokkr lists it, else the first, and the recipe is the one
-     * with the most runs in range. The realm's known recipes, for the recipe
-     * picker and "not measured yet", are the ones its recipe's graph names.
+     * Brokkr draws when asked for none: the one with the most runs in range,
+     * else the first the realm knows. The realm's known recipes, for the recipe picker and
+     * "not measured yet", are the ones that graph names, measured or not.
      */
     function Library({ route, go, here, openRun }) {
       const [range, setRange] = useState('7d')
@@ -1389,13 +1388,13 @@ window.__ModuleLoader__.load({
       const realms = figures.value === null ? [] : realmsIn(figures.value)
       const realm = route.realm ?? (realms.includes(here) ? here : realms[0] ?? null)
       const rows = current === null ? [] : current.recipes.filter((row) => row.realm === realm)
-      const recipe = route.recipe ?? busiest(rows)
+      const asked = route.recipe ?? null
       const sub = route.sub ?? 'graph'
-      const key = [realm, recipe, range].join('\u0000')
+      const key = [realm, asked, range].join('\u0000')
       useEffect(() => {
         let wanted = true
-        if (current !== null && recipe !== null) {
-          const query = new URLSearchParams({ recipe, range })
+        if (current !== null) {
+          const query = new URLSearchParams(asked === null ? { range } : { recipe: asked, range })
           if (realm !== null) query.set('realm', realm)
           readRoute('/api/graph', query, (read) => wanted && setGraph({ key, ...read }))
         }
@@ -1403,18 +1402,18 @@ window.__ModuleLoader__.load({
           wanted = false
         }
       }, [key, current === null])
-      useEffect(() => pick(null), [realm, recipe])
       const shown = graph.key === key ? graph : null
+      const recipe = asked ?? shown?.value?.recipe ?? null
+      useEffect(() => pick(null), [realm, recipe])
       const known = shown?.value?.recipes ?? null
-      const goTo = (change) => go({ realm, recipe, sub, ...change })
+      const goTo = (change) => go({ realm, recipe: asked, sub, ...change })
       const names = known ?? rows.map((row) => row.recipe)
       const body = figures.range === range && figures.error !== null ? h('div', { className: 'bk-error' }, `Brokkr’s figures could not be read: ${figures.error}`)
         : current === null ? h('div', { className: 'bk-note' }, 'Reading Brokkr’s figures…')
-          : recipe === null ? h('div', { className: 'bk-note' }, `No recipe has a run in ${realm ?? 'this workspace'} in the last ${range}, so there is nothing to draw yet.`)
-            : sub === 'pareto' ? h(Pareto, { rows, known: known ?? [], targets, setTargets, open: (name) => goTo({ sub: 'graph', recipe: name }) })
-              : shown === null ? h('div', { className: 'bk-note' }, 'Reading the graph…')
-                : shown.error !== null ? h('div', { className: 'bk-error' }, `The graph could not be read: ${shown.error}`)
-                  : h(RecipeGraph, { view: shown.value, picked, pick, openRun: (run) => openRun(realm, run) })
+          : sub === 'pareto' ? h(Pareto, { rows, known: known ?? [], targets, setTargets, open: (name) => goTo({ sub: 'graph', recipe: name }) })
+            : shown === null ? h('div', { className: 'bk-note' }, 'Reading the graph…')
+              : shown.error !== null ? h('div', { className: 'bk-error' }, `The graph could not be read: ${shown.error}`)
+                : h(RecipeGraph, { view: shown.value, picked, pick, openRun: (run) => openRun(realm, run) })
       return h('div', { className: 'bk-main bk-library' },
         h('h1', { className: 'bk-title' }, realm ?? 'this workspace', sub === 'graph' && recipe !== null ? ` / ${recipe}` : ''),
         h('div', { className: 'bk-row' },

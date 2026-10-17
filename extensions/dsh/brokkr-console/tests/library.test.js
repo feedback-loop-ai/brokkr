@@ -39,7 +39,7 @@ test('a graph is asked for by a recipe’s plain name, a range Brokkr takes and 
     [{ recipe: 'self', range: '1y' }, 'the range is one of 24h, 7d or 30d'],
     [{ recipe: '../self' }, recipe],
     [{ recipe: '--realms=/etc/passwd' }, recipe],
-    [{}, recipe],
+    [{ recipe: '' }, recipe],
     [{ recipe: 'self', realm: 'x'.repeat(257) }, realm],
     [{ recipe: 'self', realm: '' }, realm],
   ]) {
@@ -49,12 +49,13 @@ test('a graph is asked for by a recipe’s plain name, a range Brokkr takes and 
   assert.deepEqual(calls(), [])
 })
 
-test('a graph is read with each value a flag, the realm only when named, and reaches the page as the console read it', async () => {
+test('a graph is read with each value a flag, the recipe and the realm only when named, and reaches the page as the console read it', async () => {
   const { ask, calls } = await hosted([{ match: ['graph'], responses: [json(graphDoc())] }])
   const answer = await ask({ realm: 'brokkr', recipe: 'self', range: '30d' })
   assert.deepEqual([answer.status, JSON.parse(answer.body)], [200, graphOf(graphDoc())])
   await ask({ recipe: 'self' })
-  assert.deepEqual(calls(), ['graph --recipe=self --realm=brokkr --range=30d --json', 'graph --recipe=self --range=7d --json'])
+  await ask({ realm: 'brokkr' })
+  assert.deepEqual(calls(), ['graph --recipe=self --realm=brokkr --range=30d --json', 'graph --recipe=self --range=7d --json', 'graph --realm=brokkr --range=7d --json'])
 })
 
 test('Brokkr’s refusal of a recipe it does not know, and a graph at another version, reach the page as their own words', async () => {
@@ -126,20 +127,22 @@ test('the Library is a tab in both mounts, after Realms and Analytics, and a con
   assert.deepEqual(nav(mountClient('main').tree()), ['Realms', 'Analytics', 'Library'])
   const dsh = dshStub()
   dsh.services.sessions.list = { getSnapshot: () => ({ ids: ['s1'], byId: { s1: { sessionId: 's1', cwd: '/home/op/source/swarmail' } } }), subscribe: () => () => {} }
-  const tab = mountClient('conversation.view', { sessionId: 's1' }, answers({ [HERE]: { realm: 'swarmail' } }), dsh)
+  const triage = graphOf(graphDoc({ realm: 'swarmail', recipe: 'triage', recipes: ['triage'] }))
+  const tab = mountClient('conversation.view', { sessionId: 's1' }, answers({ [HERE]: { realm: 'swarmail' }, [GRAPH]: triage }), dsh)
   await settled()
   tab.push({ type: 'snapshot', fleet: fleet(), overview: null, run: null })
   assert.deepEqual(nav(tab.tree()), ['Realms', 'Analytics', 'Library'])
   buttons(tab.tree()).find((button) => textOf(button) === 'Library').props.onClick()
   await settled()
-  assert.deepEqual(fetched(tab, GRAPH), [`${GRAPH}?recipe=triage&range=7d&realm=swarmail`])
+  assert.deepEqual(fetched(tab, GRAPH), [`${GRAPH}?range=7d&realm=swarmail`])
   assert.equal(heading(tab.tree()), 'swarmail / triage')
 })
 
-test('the Library opens on the first realm and on its recipe with the most runs in range, asks Brokkr for that graph, and sends no command', async () => {
+test('the Library opens on the first realm and on the recipe Brokkr draws when asked for none, and sends no command', async () => {
   const client = await onLibrary()
   assert.deepEqual(fetched(client, ANALYTICS), [`${ANALYTICS}?range=7d`])
-  assert.deepEqual(fetched(client, GRAPH), [`${GRAPH}?recipe=self&range=7d&realm=brokkr`])
+  // Brokkr picks the recipe with the most runs in range; the console names none.
+  assert.deepEqual(fetched(client, GRAPH), [`${GRAPH}?range=7d&realm=brokkr`])
   assert.equal(heading(client.tree()), 'brokkr / self')
   // The recipe picker names the realm's recipes as the graph names them, measured or not.
   assert.deepEqual(buttons(labelled(client.tree(), 'Recipe')).map((button) => [textOf(button), button.props['aria-pressed']]), [
@@ -151,13 +154,24 @@ test('the Library opens on the first realm and on its recipe with the most runs 
   // Another range is asked of Brokkr again, figures and graph alike.
   buttons(client.tree()).find((button) => textOf(button) === '30d').props.onClick()
   await settled()
-  assert.deepEqual(fetched(client, GRAPH).at(-1), `${GRAPH}?recipe=self&range=30d&realm=brokkr`)
+  assert.deepEqual(fetched(client, GRAPH).at(-1), `${GRAPH}?range=30d&realm=brokkr`)
+  // Switching to Pareto keeps the graph already read: nothing is asked again.
+  buttons(labelled(client.tree(), 'View')).find((button) => textOf(button) === 'Pareto').props.onClick()
+  await settled()
+  assert.equal(fetched(client, GRAPH).length, 2)
 })
 
-test('a realm with no recipe run in range says so plainly, and asks for no graph', async () => {
-  const client = await onLibrary(answers({ [ANALYTICS]: analyticsOf(analyticsDoc({ realms: [realmRow('brokkr')], recipes: [] })) }))
-  assert.match(textOf(client.tree()), /No recipe has a run in brokkr in the last 7d/)
-  assert.deepEqual(fetched(client, GRAPH), [])
+test('a realm none of whose recipes ran in range still lists them: the dormant graph Brokkr draws, and Pareto names each as not measured yet', async () => {
+  const dormant = graphOf(graphDoc({ recipe: 'charter', runs: 0, live: [] }))
+  const client = await onLibrary(answers({ [ANALYTICS]: analyticsOf(analyticsDoc({ realms: [realmRow('brokkr')], recipes: [] })), [GRAPH]: dormant }))
+  assert.deepEqual(fetched(client, GRAPH), [`${GRAPH}?range=7d&realm=brokkr`])
+  assert.equal(heading(client.tree()), 'brokkr / charter')
+  assert.deepEqual(buttons(labelled(client.tree(), 'Recipe')).map(textOf), ['charter', 'frontier', 'lean', 'leaky', 'muninn', 'self'])
+  buttons(labelled(client.tree(), 'View')).find((button) => textOf(button) === 'Pareto').props.onClick()
+  await settled()
+  const tree = client.tree()
+  assert.deepEqual(findAll(tree, (node) => String(node.props['aria-label']).startsWith('the recipe ')), [])
+  assert.equal(textOf(labelled(tree, 'Not measured yet')), 'not measured yet: charter · frontier · lean · leaky · muninn · self · no runs in this range')
 })
 
 test('an edge is 1.5 + 0.35 × its count pixels wide, at most 12, labelled with Brokkr’s words; a rule that never fired is dashed at 1.5 and reads its name with 0', async () => {

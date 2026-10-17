@@ -130,7 +130,8 @@ back to the cards.
 - **Library.** A realm's recipes, for 24 hours, 7 days or 30 days, in two
   views. It reads and never presses: the only thing it keeps is your two
   Pareto targets, in this browser. In a conversation's tab it opens on the
-  conversation's realm, on the recipe with the most runs.
+  conversation's realm, on the recipe with the most runs; where none ran in
+  the range, on the first the realm knows, so its recipes are still listed.
 - **Graph.** `brokkr graph --recipe <name> --json`: the recipe's state
   machine as its table resolves now, its states left to right in `phases`
   order with `done` at the end and `stop` beneath, each box holding the
@@ -142,7 +143,9 @@ back to the cards.
   it, its median and 90th-percentile time, its cost with the providers that
   reported none, its tokens and its seats. Beneath the graph: rules that
   fired but are no longer in the table, and how many runs ran under an
-  earlier version of it. A recipe whose table is not found in the realm is
+  earlier version of it, counted apart from the runs where only a base the
+  recipe composes moved, which may have left the table as it is. A recipe
+  whose table is not found in the realm is
   drawn from the rules its runs fired, and says so.
 - **Pareto.** Each recipe of the realm with runs and a reported cost is a
   point, how often its runs reach `done` against what a run costs, from
