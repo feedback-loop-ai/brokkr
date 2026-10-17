@@ -288,7 +288,8 @@ fn links(rules: &[Edge]) -> Vec<Link> {
     }
     for link in &mut links {
         // The most runs first; a tie keeps the table's order.
-        link.outcomes.sort_by_key(|outcome| std::cmp::Reverse(outcome.count));
+        link.outcomes
+            .sort_by_key(|outcome| std::cmp::Reverse(outcome.count));
         for outcome in &mut link.outcomes {
             outcome.text = format!("{} {}", outcome.result, outcome.count);
         }

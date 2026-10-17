@@ -52,6 +52,10 @@ test('the tab opens on the realm its conversation’s folder belongs to, and say
   assert.deepEqual(buttons(switcher).map((button) => [textOf(button), button.props['aria-pressed']]), [['brokkr · 1', false], ['swarmail', true]])
   buttons(switcher).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
   assert.match(textOf(client.tree()), /Encrypt the token store/)
+  // Inside a run the context is its realm and the run: no other realm is offered there.
+  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
+  assert.match(textOf(client.tree()), /← brokkr’s runs/)
+  assert.equal(findAll(client.tree(), (node) => node.props['aria-label'] === 'Realms').length, 0)
 })
 
 test('a conversation in no realm gets every realm, and says why', async () => {
