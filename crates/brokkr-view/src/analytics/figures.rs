@@ -4,10 +4,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::facts::{Ending, Route, RunFacts, Scoped, Window};
+use super::recipes::recipe_rows;
 use super::words::{change_text, date, hours_text, listed, percent, span_text, stamp};
 use super::{Analytics, AnalyticsError, CostFigure, Day, Headline, ModelShare, Query, RealmRow};
 use super::{ReportedCost, Rework, RuleCount, Shipped, Span, StepWait, StoppedByRule, Waiting};
 use super::{DAY_MILLIS, NOT_RECORDED};
+use crate::attempts::{Keeps, Site};
 use crate::{js, ABSENT, VIEW_VERSION};
 
 /// The runs that finished inside `window`, with when and how.
@@ -35,23 +37,31 @@ fn stopped_in(runs: &[&RunFacts], window: Window) -> usize {
         .count()
 }
 
+/// The median of `sorted`, the mean of the middle two when it is even;
+/// `None` of nothing.
+pub(crate) fn middle(sorted: &[i64]) -> Option<i64> {
+    let half = sorted.len() / 2;
+    match (sorted.len(), sorted.len() % 2) {
+        (0, _) => None,
+        (_, 1) => Some(sorted[half]),
+        _ => Some((sorted[half - 1] + sorted[half]) / 2),
+    }
+}
+
+/// A duration, or the absence mark when there is none.
+pub(crate) fn span(millis: Option<i64>) -> Span {
+    Span {
+        text: millis.map_or_else(|| ABSENT.to_string(), span_text),
+        millis,
+    }
+}
+
 fn median(runs: &[&RunFacts], window: Window) -> Span {
     let mut spans: Vec<i64> = finished_in(runs, window)
         .map(|(started, ended, _)| (ended - started).max(0))
         .collect();
     spans.sort_unstable();
-    let middle = spans.len() / 2;
-    let millis = if spans.is_empty() {
-        None
-    } else if spans.len() % 2 == 1 {
-        Some(spans[middle])
-    } else {
-        Some((spans[middle - 1] + spans[middle]) / 2)
-    };
-    Span {
-        text: millis.map_or_else(|| ABSENT.to_string(), span_text),
-        millis,
-    }
+    span(middle(&spans))
 }
 
 /// Waiting on the operator and all parked time, inside `window`.
@@ -111,24 +121,46 @@ fn stopped_by_rule(runs: &[&RunFacts], window: Window) -> StoppedByRule {
     }
 }
 
-fn total(costs: impl Iterator<Item = f64>) -> Option<f64> {
+/// The sum of `costs`, `None` when there is none to sum.
+pub(crate) fn total(costs: impl Iterator<Item = f64>) -> Option<f64> {
     costs.fold(None, |sum, cost| Some(sum.unwrap_or(0.0) + cost))
 }
 
-fn spent(runs: &[&RunFacts], window: Window) -> ReportedCost {
+fn reported_in(runs: &[&RunFacts], window: Window) -> Option<f64> {
     let costs = runs.iter().flat_map(|run| &run.costs);
-    ReportedCost::of(total(
+    total(
         costs
             .filter(|(at, _)| window.holds(*at))
             .map(|(_, cost)| *cost),
-    ))
+    )
+}
+
+fn spent(runs: &[&RunFacts], window: Window) -> ReportedCost {
+    ReportedCost::of(reported_in(runs, window))
+}
+
+fn sites_in<'a>(runs: &'a [&'a RunFacts], window: Window) -> impl Iterator<Item = &'a Site> + 'a {
+    let sites = runs.iter().flat_map(|run| &run.sites);
+    sites.filter(move |site| window.holds(site.at))
 }
 
 fn cost(runs: &[&RunFacts], window: Window) -> CostFigure {
-    let mut harnesses: BTreeMap<&str, bool> = BTreeMap::new();
     let sites = runs.iter().flat_map(|run| &run.sites);
-    for site in sites.filter(|site| window.holds(site.at)) {
-        *harnesses.entry(&site.provider).or_default() |= site.reported;
+    let keeps = |at: i64, _: Option<&str>| window.holds(at);
+    cost_figure(sites, &keeps, reported_in(runs, window))
+}
+
+/// A reported cost, `usd`, and the harnesses behind it of the `sites` that
+/// ran in what `keeps` holds: those that reported a cost there and those
+/// that reported none.
+pub(crate) fn cost_figure<'a>(
+    sites: impl Iterator<Item = &'a Site>,
+    keeps: Keeps,
+    usd: Option<f64>,
+) -> CostFigure {
+    let mut harnesses: BTreeMap<&str, bool> = BTreeMap::new();
+    for site in sites.filter(|site| site.ran(keeps)) {
+        *harnesses.entry(&site.provider).or_default() |= site.reported(keeps);
     }
     let named = |reported: bool| -> Vec<String> {
         let held = harnesses.iter().filter(|(_, did)| **did == reported);
@@ -144,7 +176,7 @@ fn cost(runs: &[&RunFacts], window: Window) -> CostFigure {
             listed(&silent)
         )),
     };
-    let cost = spent(runs, window);
+    let cost = ReportedCost::of(usd);
     CostFigure {
         text: cost.text(),
         cost,
@@ -242,8 +274,7 @@ fn rework(runs: &[&RunFacts], window: Window) -> Rework {
 
 fn models(runs: &[&RunFacts], window: Window) -> Vec<ModelShare> {
     let mut tally: BTreeMap<Option<&str>, usize> = BTreeMap::new();
-    let sites = runs.iter().flat_map(|run| &run.sites);
-    for site in sites.filter(|site| window.holds(site.at)) {
+    for site in sites_in(runs, window) {
         *tally.entry(site.model.as_deref()).or_default() += 1;
     }
     let total: usize = tally.values().sum();
@@ -330,6 +361,7 @@ pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
             .iter()
             .map(|realm| realm_row(&scoped, realm, window))
             .collect(),
+        recipes: recipe_rows(&scoped.runs, window),
         quarantined: scoped.quarantined,
         not_recorded: NOT_RECORDED,
     })

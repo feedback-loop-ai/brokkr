@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Library — the graph</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+.pg{font-family:'IBM Plex Sans',system-ui,sans-serif;color:#1b1a17;background:#f6f5f1;min-height:1120px;font-size:14px;line-height:1.45}
+.nav{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0 20px;height:52px;background:#fff;border-bottom:1px solid #e2dfd6}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;margin-right:18px}
+.pulse{width:10px;height:10px;border-radius:50%;background:#c2410c;animation:beat 1.6s ease-in-out infinite}
+@keyframes beat{0%,100%{box-shadow:0 0 0 3px rgba(194,65,12,.25)}50%{box-shadow:0 0 0 8px rgba(194,65,12,0)}}
+@keyframes ring{0%{r:6;opacity:.7}100%{r:22;opacity:0}}
+.ringa{animation:ring 1.6s ease-out infinite}
+.tab{font:inherit;background:none;border:0;padding:14px 12px;color:#5b5850;cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{color:#1b1a17;font-weight:600;border-bottom-color:#c2410c}
+.status{margin-left:auto;color:#5b5850}
+.k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b675e;font-weight:600}
+.seg{display:inline-flex;border:1px solid #d9d5ca;border-radius:8px;overflow:hidden;background:#fff}
+.seg button{font:inherit;font-size:13px;min-height:32px;padding:0 12px;border:0;border-right:1px solid #e2dfd6;background:none;color:#3d3a34;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button.on{background:#1b1a17;color:#fff}
+.kpis{display:flex;flex-wrap:wrap;background:#fff;border:1px solid #e2dfd6;border-radius:12px}
+.kpi{flex:1 1 160px;padding:12px 18px;border-right:1px solid #eeebe3;display:flex;flex-direction:column;gap:2px}
+.kpi:last-child{border-right:0}
+.kv{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.script{color:#6b675e;font-size:12px}
+.stage{background:#fff;border:1px solid #e2dfd6;border-radius:14px;padding:14px 16px 12px;min-width:0}
+.det{background:#fff;border:1px solid #e2dfd6;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+.fact{display:flex;flex-direction:column;gap:1px}
+.fv{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+.box{border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.esc{border:1px dashed #d95c5c;background:#fff7f7}
+.idea{border:1px solid #efd0ad;background:#fdf6ee}
+.good{border:1px solid #bfe2c8;background:#f1faf3}
+.btn{font:inherit;font-size:13px;min-height:36px;padding:0 14px;border-radius:8px;border:1px solid #cfcabd;background:#fff;color:#1b1a17;cursor:pointer}
+.btn.pri{background:#1b1a17;color:#fff;border-color:#1b1a17}
+.lg{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#3d3a34}
+.ln{display:inline-block;width:22px;height:0;border-top:3px solid #3d3a34}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font:inherit;font-size:12px;min-height:30px;padding:0 10px;border-radius:999px;border:1px solid #d9d5ca;background:#fbfaf7;cursor:pointer;color:#1b1a17}
+.chip.on{background:#1b1a17;color:#fff;border-color:#1b1a17}
+svg text{font-family:'IBM Plex Sans',system-ui,sans-serif}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace}
+</style>
+</helmet>
+<div class="pg">
+  <nav class="nav" aria-label="Brokkr views">
+    <span class="brand"><span class="pulse" aria-hidden="true"></span>Brokkr</span>
+    <button class="tab" type="button">Realms</button>
+    <button class="tab" type="button">Analytics</button>
+    <button class="tab on" type="button" aria-current="page">Library</button>
+    <span class="status">1 running · <strong>0 waiting on you</strong></span>
+  </nav>
+
+  <div style="max-width: 1392px; margin: 0 auto; padding: 20px 24px 32px; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <h1 style="margin: 0 10px 0 0; font-size: 22px; font-weight: 600">swarmail <span style="color: #a29d90; font-weight: 400">/</span> self</h1>
+      <span class="seg" role="group" aria-label="Recipe"><button type="button" class="on" aria-pressed="true">self</button><button type="button">frontier</button><button type="button">Compare</button></span>
+      <span class="seg" role="group" aria-label="Range"><button type="button">24h</button><button type="button" class="on" aria-pressed="true">7d</button><button type="button">30d</button></span>
+      <span style="margin-left: auto" class="seg" role="group" aria-label="View"><button type="button" class="on" aria-pressed="true">Graph</button><button type="button">Table</button><button type="button">Bench</button></span>
+    </div>
+
+    <div class="kpis" role="list">
+      <div class="kpi" role="listitem"><span class="k">Runs</span><span class="kv">28 <span style="color: #a29d90; font-weight: 400">→</span> <span style="color: #2f8f4e">6 done</span></span><span class="script">1 in 4.7 reach done</span></div>
+      <div class="kpi" role="listitem"><span class="k">Ended in stop by a rule</span><span class="kv" style="color: #b91c1c">16</span><span class="script">4 at verify · 12 at review</span></div>
+      <div class="kpi" role="listitem"><span class="k">Escapes</span><span class="kv" style="color: #b91c1c">23</span><span class="script">defects an earlier check let through</span></div>
+      <div class="kpi" role="listitem"><span class="k">Cost</span><span class="kv">$2.47 <span class="script" style="font-weight: 400">a run</span></span><span class="script">$11.51 a done run · Claude seats only</span></div>
+      <div class="kpi" role="listitem"><span class="k">Rules that never fired</span><span class="kv" style="color: #6b675e">11 of 22</span><span class="script">drawn dashed</span></div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: stretch">
+      <section class="stage" style="flex: 999 1 760px" aria-label="The recipe's state machine, with how often each rule fired">
+        <div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 6px">
+          <span class="k">The state machine · policy.json</span>
+          <span class="lg"><span class="ln"></span>a rule that fired · width = times</span>
+          <span class="lg"><span class="ln" style="border-top: 2px dashed #b5b0a4"></span>never fired</span>
+          <span class="lg"><span class="ln" style="border-top: 2px dashed #d95c5c"></span>slipped past this check</span>
+          <span class="lg"><span class="ln" style="border-top: 2px dashed #d97706"></span>you, outside the machine</span>
+        </div>
+        <div style="overflow-x: auto">
+        <svg viewBox="0 0 1180 600" role="img" aria-label="States intake, design, implement, verify, review, ship, done and stop. Intake to design 27 times, design to implement 27, implement to verify 27, verify to review 20, review to ship 6, ship to done 6. Verify to stop 4 times, review to stop 12 times. There is no edge from review or verify back to implement; you re-fire a new run from stop. Eleven rules never fired." style="width: 100%; min-width: 900px; height: auto; display: block">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#3d3a34"></path></marker>
+            <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b91c1c"></path></marker>
+            <marker id="arg" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b5b0a4"></path></marker>
+            <marker id="aro" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#d97706"></path></marker>
+          </defs>
+
+          <!-- dormant edges (never fired) -->
+          <path d="M255 150 C235 95, 315 95, 295 150" fill="none" stroke="#b5b0a4" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arg)"></path>
+          <text x="275" y="90" text-anchor="middle" font-size="10" fill="#8a867c">retry · 0</text>
+          <path d="M455 170 C435 115, 515 115, 495 170" fill="none" stroke="#b5b0a4" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arg)"></path>
+          <text x="475" y="110" text-anchor="middle" font-size="10" fill="#8a867c">broken → retry · 0</text>
+          <path d="M840 130 C840 50, 680 50, 680 166" fill="none" stroke="#b5b0a4" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arg)"></path>
+          <text x="760" y="46" text-anchor="middle" font-size="10" fill="#8a867c">clean with fixes → re-verify · 0</text>
+          <path d="M1040 166 C1040 70, 930 70, 925 128" fill="none" stroke="#b5b0a4" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arg)"></path>
+          <text x="1000" y="64" text-anchor="middle" font-size="10" fill="#8a867c">drift → review · 0</text>
+          <path d="M285 270 C285 400, 540 470, 570 480" fill="none" stroke="#b5b0a4" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arg)"></path>
+          <path d="M485 250 C485 380, 580 440, 600 470" fill="none" stroke="#b5b0a4" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arg)"></path>
+          <path d="M1055 250 C1055 400, 820 480, 790 490" fill="none" stroke="#b5b0a4" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arg)"></path>
+          <text x="330" y="420" font-size="10" fill="#8a867c">design fails twice · 0</text>
+          <text x="440" y="390" font-size="10" fill="#8a867c">broken twice · blocked · 0</text>
+          <text x="930" y="430" font-size="10" fill="#8a867c">dirty tree · 0</text>
+
+          <!-- fired edges -->
+          <path d="M150 210 L196 210" stroke="#3d3a34" stroke-width="10" marker-end="url(#ar)"></path>
+          <text x="173" y="196" text-anchor="middle" font-size="12" font-weight="600">27</text>
+          <path d="M370 210 L416 210" stroke="#3d3a34" stroke-width="10" marker-end="url(#ar)"></path>
+          <text x="393" y="196" text-anchor="middle" font-size="12" font-weight="600">27</text>
+          <path d="M550 210 L596 210" stroke="#3d3a34" stroke-width="10" marker-end="url(#ar)"></path>
+          <text x="573" y="196" text-anchor="middle" font-size="12" font-weight="600">27</text>
+          <path d="M730 210 L776 210" stroke="#3d3a34" stroke-width="8" marker-end="url(#ar)"></path>
+          <text x="753" y="196" text-anchor="middle" font-size="12" font-weight="600">20</text>
+          <path d="M960 210 L1006 210" stroke="#2f8f4e" stroke-width="4" marker-end="url(#ar)"></path>
+          <text x="983" y="196" text-anchor="middle" font-size="12" font-weight="600" fill="#14632f">6</text>
+          <path d="M1100 210 L1128 210" stroke="#2f8f4e" stroke-width="4" marker-end="url(#ar)"></path>
+          <path d="M1080 170 C1080 140, 1110 140, 1100 172" fill="none" stroke="#2f8f4e" stroke-width="2.5" marker-end="url(#ar)"></path>
+          <text x="1110" y="136" font-size="10" fill="#14632f">ready · 6</text>
+
+          <path d="M665 250 C665 360, 640 420, 640 466" fill="none" stroke="#b91c1c" stroke-width="3.5" marker-end="url(#arr)"></path>
+          <text x="672" y="330" font-size="12" font-weight="600" fill="#991b1b">VERIFY-FAIL · 4</text>
+          <text x="672" y="345" font-size="11" fill="#991b1b">3 code · 1 machine</text>
+          <path d="M870 290 C870 400, 760 440, 740 466" fill="none" stroke="#b91c1c" stroke-width="6.5" marker-end="url(#arr)"></path>
+          <text x="880" y="340" font-size="12" font-weight="600" fill="#991b1b">12 from review</text>
+          <text x="880" y="356" font-size="11" fill="#991b1b">6 SECURITY residual</text>
+          <text x="880" y="370" font-size="11" fill="#991b1b">4 ABOVE MEDIUM · 2 SECURITY HOLD</text>
+
+          <!-- operator re-fire, outside the machine -->
+          <path d="M560 510 C300 560, 90 560, 85 254" fill="none" stroke="#d97706" stroke-width="3" stroke-dasharray="7 5" marker-end="url(#aro)"></path>
+          <text x="250" y="580" font-size="12" fill="#8a4b13"><tspan font-weight="600">you re-fire a new run</tspan> · intake and design again, ~46 min each time</text>
+
+          <!-- states -->
+          <g onClick="{{ pick.intake }}" style="cursor: pointer">
+            <rect x="20" y="170" width="130" height="80" rx="10" fill="#fff" stroke="{{ ring.intake }}" stroke-width="{{ rw.intake }}"></rect>
+            <text x="34" y="194" font-size="14" font-weight="600">intake</text>
+            <text x="34" y="212" font-size="11" fill="#6b675e">GLM 5.3 Flash</text>
+            <text x="34" y="236" font-size="11" fill="#14632f">5 min · $0</text>
+          </g>
+          <g onClick="{{ pick.design }}" style="cursor: pointer">
+            <rect x="200" y="150" width="170" height="120" rx="10" fill="#fff" stroke="{{ ring.design }}" stroke-width="{{ rw.design }}"></rect>
+            <rect x="196" y="146" width="178" height="128" rx="13" fill="none" stroke="#d95c5c" stroke-width="2" stroke-dasharray="5 4"></rect>
+            <text x="214" y="174" font-size="14" font-weight="600">design</text>
+            <rect x="214" y="184" width="66" height="22" rx="5" fill="#f6f5f1"></rect><text x="247" y="199" text-anchor="middle" font-size="10">simplicity</text>
+            <rect x="286" y="184" width="70" height="22" rx="5" fill="#fdecec" stroke="#d95c5c"></rect><text x="321" y="199" text-anchor="middle" font-size="10" fill="#991b1b">robustness</text>
+            <text x="285" y="222" text-anchor="middle" font-size="10" fill="#6b675e">↓ chief</text>
+            <text x="214" y="242" font-size="11" fill="#6b675e">Flash ×3 · 41 min · $0</text>
+            <text x="214" y="260" font-size="11" font-weight="600" fill="#991b1b">8 security escapes</text>
+          </g>
+          <g onClick="{{ pick.implement }}" style="cursor: pointer">
+            <rect x="420" y="170" width="130" height="80" rx="10" fill="#fff" stroke="{{ ring.implement }}" stroke-width="{{ rw.implement }}"></rect>
+            <text x="434" y="194" font-size="14" font-weight="600">implement</text>
+            <text x="434" y="212" font-size="11" fill="#6b675e">Flash · 32 min</text>
+            <text x="434" y="236" font-size="11" fill="#8a4b13">made all 15 caught</text>
+          </g>
+          <g onClick="{{ pick.verify }}" style="cursor: pointer">
+            <rect x="600" y="170" width="130" height="80" rx="10" fill="#eef3fc" stroke="{{ ring.verify }}" stroke-width="{{ rw.verify }}"></rect>
+            <rect x="596" y="166" width="138" height="88" rx="13" fill="none" stroke="#d95c5c" stroke-width="2" stroke-dasharray="5 4"></rect>
+            <text x="614" y="194" font-size="14" font-weight="600">verify</text>
+            <text x="614" y="212" font-size="11" fill="#6b675e">gates · 4 min</text>
+            <text x="614" y="236" font-size="11" font-weight="600" fill="#991b1b">12 escapes</text>
+          </g>
+          <g onClick="{{ pick.review }}" style="cursor: pointer">
+            <rect x="780" y="130" width="180" height="160" rx="10" fill="#eef3fc" stroke="{{ ring.review }}" stroke-width="{{ rw.review }}"></rect>
+            <text x="794" y="154" font-size="14" font-weight="600">review</text>
+            <text x="946" y="154" text-anchor="end" font-size="10" fill="#6b675e">worst verdict rules</text>
+            <rect x="794" y="164" width="152" height="22" rx="5" fill="#fff"></rect><text x="802" y="179" font-size="10">correctness · Qwen 3.8 Max</text>
+            <rect x="794" y="190" width="152" height="22" rx="5" fill="#fff" stroke="#1e3a8a"></rect><text x="802" y="205" font-size="10" fill="#1e3a8a" font-weight="600">security · Opus 5.5 · caught 8</text>
+            <rect x="794" y="216" width="152" height="22" rx="5" fill="#fff"></rect><text x="802" y="231" font-size="10">guarantees · Astra 6.0</text>
+            <rect x="794" y="242" width="152" height="22" rx="5" fill="#fff"></rect><text x="802" y="257" font-size="10">tests · Fable 5.1 · $2.71</text>
+            <text x="794" y="280" font-size="11" fill="#6b675e">28 min · $3.36 a review</text>
+            <circle class="ringa" cx="950" cy="280" r="6" fill="none" stroke="#c2410c" stroke-width="2"></circle>
+            <circle cx="950" cy="280" r="5" fill="#c2410c"></circle>
+          </g>
+          <text x="960" y="306" text-anchor="end" font-size="11" fill="#9a3412">run 12b is here now</text>
+          <g onClick="{{ pick.ship }}" style="cursor: pointer">
+            <rect x="1010" y="170" width="90" height="80" rx="10" fill="#fff" stroke="{{ ring.ship }}" stroke-width="{{ rw.ship }}"></rect>
+            <text x="1024" y="194" font-size="14" font-weight="600">ship</text>
+            <text x="1024" y="212" font-size="11" fill="#6b675e">receipt</text>
+            <text x="1024" y="236" font-size="11" fill="#14632f">6 of 6</text>
+          </g>
+          <circle cx="1150" cy="210" r="20" fill="#2f8f4e"></circle><circle cx="1150" cy="210" r="15" fill="none" stroke="#fff" stroke-width="2"></circle>
+          <text x="1150" y="246" text-anchor="middle" font-size="12" font-weight="600" fill="#14632f">done · 6</text>
+          <g onClick="{{ pick.stop }}" style="cursor: pointer">
+            <rect x="560" y="466" width="230" height="64" rx="32" fill="#fdecec" stroke="{{ ring.stop }}" stroke-width="{{ rw.stop }}"></rect>
+            <rect x="565" y="471" width="220" height="54" rx="27" fill="none" stroke="#d95c5c" stroke-width="1.5"></rect>
+            <text x="675" y="494" text-anchor="middle" font-size="14" font-weight="600" fill="#991b1b">stop · 16 by a rule</text>
+            <text x="675" y="512" text-anchor="middle" font-size="11" fill="#991b1b">+ 5 stopped by you</text>
+          </g>
+
+          <!-- escapes: dashed red from the catch back to the check that missed it -->
+          <path d="M790 286 C700 330, 420 330, 300 274" fill="none" stroke="#d95c5c" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arr)"></path>
+          <text x="560" y="318" text-anchor="middle" font-size="10" fill="#991b1b">8 security findings the robustness position missed</text>
+        </svg>
+        </div>
+        <div class="chips" role="group" aria-label="Pick a state" style="margin-top: 8px">
+          <sc-for list="{{ states }}" as="s" hint-placeholder-count="7">
+            <button type="button" class="{{ s.cls }}" aria-pressed="{{ s.on }}" onClick="{{ s.pick }}">{{ s.name }}</button>
+          </sc-for>
+        </div>
+      </section>
+
+      <aside class="det" style="flex: 1 1 340px; max-width: 420px" aria-live="polite" aria-label="Selected state">
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span class="k">{{ d.role }}</span>
+          <h2 style="margin: 0; font-size: 22px; font-weight: 600">{{ d.name }}</h2>
+          <span class="script" style="font-size: 13px">{{ d.cast }}</span>
+        </div>
+        <div class="facts">
+          <sc-for list="{{ d.facts }}" as="f" hint-placeholder-count="4">
+            <div class="fact"><span class="k">{{ f.k }}</span><span class="fv">{{ f.v }}</span><span class="script">{{ f.s }}</span></div>
+          </sc-for>
+        </div>
+        <div class="box" style="border: 1px solid #e2dfd6; background: #fbfaf7"><span class="k">Its rules</span>
+          <sc-for list="{{ d.rules }}" as="r" hint-placeholder-count="2">
+            <span style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span class="mono" style="font-size: 12px">{{ r.id }}</span><span style="font-weight: 600; font-variant-numeric: tabular-nums">{{ r.n }}</span></span>
+          </sc-for>
+        </div>
+        <sc-if value="{{ d.hasEsc }}" hint-placeholder-val="{{ true }}">
+          <div class="box esc"><span class="k" style="color: #991b1b">Slipped past here</span><span style="font-weight: 600">{{ d.esc }}</span><span class="script">{{ d.escWhy }}</span></div>
+        </sc-if>
+        <sc-if value="{{ d.hasIdea }}" hint-placeholder-val="{{ false }}">
+          <div class="box idea"><span class="k" style="color: #8a4b13">Change the graph</span><span style="font-weight: 600">{{ d.idea }}</span><span class="script">{{ d.ideaWhy }}</span></div>
+        </sc-if>
+        <sc-if value="{{ d.hasGood }}" hint-placeholder-val="{{ false }}">
+          <div class="box good"><span class="k" style="color: #14632f">Going right</span><span>{{ d.good }}</span></div>
+        </sc-if>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto">
+          <button type="button" class="btn pri">{{ d.act }}</button>
+          <button type="button" class="btn">{{ d.act2 }}</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1120}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 'stop' };
+  }
+  renderVals() {
+    const sel = this.state.sel;
+    const D = {
+      intake: { name: 'intake', role: 'State · makes', cast: 'GLM 5.3 Flash · your Spark',
+        facts: [{ k: 'Entered', v: '28', s: '1 stopped by you' }, { k: 'Time', v: '5 min', s: 'median' }, { k: 'Cost', v: '$0', s: 'your Spark' }, { k: 'Retries', v: '9', s: 'failed attempts, retried' }],
+        rules: [{ id: 'INTAKE-OK → design', n: '27' }],
+        hasEsc: false, hasIdea: false, hasGood: true, good: 'Nothing it framed came back.', act: 'Open charter', act2: 'Bench it' },
+      design: { name: 'design', role: 'State · makes · positions argue, the chief writes the spec', cast: 'simplicity · robustness → chief · GLM 5.3 Flash ×3',
+        facts: [{ k: 'Entered', v: '27', s: 'every one went on' }, { k: 'Time', v: '41 min', s: 'median · p90 59' }, { k: 'Spec defects', v: '0', s: 'in 18 review rulings' }, { k: 'Cost', v: '$0', s: 'your Spark' }],
+        rules: [{ id: 'DESIGN-OK-DRAFTED → implement', n: '27' }, { id: 'DESIGN-OK → implement', n: '0' }, { id: 'DESIGN-RETRY → design', n: '0' }, { id: 'DESIGN-FAIL-TWICE → stop', n: '0' }],
+        hasEsc: true, esc: 'robustness position · 8 security findings', escWhy: 'Its charter owns hostile bytes, hangs and bursts. Review later found 2 HIGH, 4 MEDIUM and 2 LOW security issues in these designs’ code.',
+        hasIdea: false, hasGood: true, good: 'The spec held: no review ruling named a spec defect.', act: 'Bench the robustness position', act2: 'Open its charter' },
+      implement: { name: 'implement', role: 'State · makes', cast: 'GLM 5.3 Flash · your Spark',
+        facts: [{ k: 'Entered', v: '27', s: 'all went to verify' }, { k: 'Time', v: '32 min', s: 'median · p90 107' }, { k: 'Tokens', v: '81M in', s: '97% from cache' }, { k: 'Lost results', v: '1', s: 'a broken tool call' }],
+        rules: [{ id: 'IMPL-OK → verify', n: '27' }, { id: 'IMPL-BROKEN-RETRY → implement', n: '0' }, { id: 'IMPL-BROKEN-TWICE → stop', n: '0' }, { id: 'IMPL-BLOCKED → stop', n: '0' }],
+        hasEsc: true, esc: 'its own test run · 3 escapes', escWhy: 'It reported every gate green; verify then failed. Two were a startup race that only shows under load.',
+        hasIdea: false, hasGood: false, act: 'Bench the implementer', act2: 'Open its charter' },
+      verify: { name: 'verify', role: 'State · checks · hermetic gates', cast: 'fmt · clippy · tests · coverage 100/100/100 · no network',
+        facts: [{ k: 'Entered', v: '27', s: '3 stopped by you' }, { k: 'Caught', v: '3 + 1', s: 'code defects + a full disk' }, { k: 'Time', v: '4 min', s: 'median · p90 60' }, { k: 'Passed', v: '20', s: 'to review' }],
+        rules: [{ id: 'VERIFY-PASS → review', n: '20' }, { id: 'VERIFY-FAIL → stop', n: '4' }],
+        hasEsc: true, esc: '12 escapes to review', escWhy: 'Everything review caught had passed every gate. No gate covers security or the panel’s findings.',
+        hasIdea: true, idea: 'A fail could go back to implement, not to stop', ideaWhy: 'VERIFY-FAIL ends the run. A repair edge keeps the spec and the run, instead of you re-firing intake and design.',
+        hasGood: false, act: 'Bench a security gate', act2: 'Draft the repair edge' },
+      review: { name: 'review', role: 'State · checks · the last net', cast: 'correctness Qwen 3.8 Max · security Opus 5.5 · guarantees Astra 6.0 · tests Fable 5.1',
+        facts: [{ k: 'Entered', v: '20', s: 'run 12b is here now' }, { k: 'Caught', v: '12', s: '8 by security' }, { k: 'Time', v: '28 min', s: 'median for the panel' }, { k: 'Cost', v: '$3.36', s: 'a review · Claude members' }],
+        rules: [{ id: 'REVIEW-RESIDUAL-OK → ship', n: '6' }, { id: 'REVIEW-RESIDUAL-SECURITY → stop', n: '6' }, { id: 'REVIEW-RESIDUAL-ABOVE-MEDIUM → stop', n: '4' }, { id: 'REVIEW-SECURITY-HOLD → stop', n: '2' }, { id: 'REVIEW-CLEAN → verify', n: '0' }, { id: 'REVIEW-CLEAN-NO-FIXES → ship', n: '0' }],
+        hasEsc: false, hasIdea: true, idea: 'Residuals could go back to implement', ideaWhy: 'Every residual ends in stop. Two of security’s were LOW. A repair edge for MEDIUM and below, and a follow-up issue for LOW, are both recipe changes you can bench.',
+        hasGood: true, good: 'Caught 12 that the earlier checks let through.', act: 'Draft the repair edge', act2: 'Replay the LOW rule' },
+      ship: { name: 'ship', role: 'State · signs and closes out', cast: 'receipt · ledger · never pushes',
+        facts: [{ k: 'Entered', v: '6', s: 'all reached done' }, { k: 'Time', v: '< 1 min', s: '' }, { k: 'Cost a run', v: '$2.47', s: 'Claude seats only' }, { k: 'Cost a done run', v: '$11.51', s: '' }],
+        rules: [{ id: 'SHIP-READY → ship', n: '6' }, { id: 'SHIP-COMPLETE → done', n: '6' }, { id: 'SHIP-DRIFT / SHIPPED-DRIFT → review', n: '0' }, { id: 'SHIP-DIRTY / SHIPPED-DIRTY → stop', n: '0' }],
+        hasEsc: false, hasIdea: false, hasGood: true, good: 'On the Graph Pareto frontier: no measured graph reaches done more often for less.', act: 'Open the bench', act2: 'Compare with frontier' },
+      stop: { name: 'stop', role: 'Terminal state · where caught runs end', cast: '16 by a rule · 5 by you',
+        facts: [{ k: 'From verify', v: '4', s: '3 code · 1 machine' }, { k: 'From review', v: '12', s: '8 security · 4 the panel' }, { k: 'Then', v: 're-fire', s: 'you start a new run' }, { k: 'Each re-fire', v: '~46 min', s: 'intake and design again' }],
+        rules: [{ id: 'VERIFY-FAIL', n: '4' }, { id: 'REVIEW-RESIDUAL-SECURITY', n: '6' }, { id: 'REVIEW-RESIDUAL-ABOVE-MEDIUM', n: '4' }, { id: 'REVIEW-SECURITY-HOLD', n: '2' }],
+        hasEsc: false, hasIdea: true, idea: 'The machine has no repair edge', ideaWhy: 'Every catch ends here, and the fix comes back as a new run from intake. A residual or a verify fail going back to implement would keep the spec, the run and its history.',
+        hasGood: false, act: 'Draft a recipe with a repair edge', act2: 'Bench it on recorded runs' },
+    };
+    const order = [['intake', 'intake'], ['design', 'design'], ['implement', 'implement'], ['verify', 'verify'], ['review', 'review'], ['ship', 'ship'], ['stop', 'stop']];
+    const pick = {}; const ring = {}; const rw = {};
+    order.forEach(([id]) => { pick[id] = () => this.setState({ sel: id }); ring[id] = id === sel ? '#c2410c' : '#b5b0a4'; rw[id] = id === sel ? 3 : 1.5; });
+    return {
+      d: D[sel], pick, ring, rw,
+      states: order.map(([id, name]) => ({ name, on: id === sel ? 'true' : 'false', cls: id === sel ? 'chip on' : 'chip', pick: pick[id] })),
+    };
+  }
+}
+</script>
+</body>
+</html>

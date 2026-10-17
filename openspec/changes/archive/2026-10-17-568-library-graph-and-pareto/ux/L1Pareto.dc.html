@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Library — bench</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1d4ed8}a:hover{color:#1e3a8a}
+.pg{font-family:'IBM Plex Sans',system-ui,sans-serif;color:#1b1a17;background:#f6f5f1;min-height:1480px;font-size:14px;line-height:1.45}
+.nav{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0 20px;height:52px;background:#ffffff;border-bottom:1px solid #e2dfd6}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;margin-right:18px}
+.pulse{width:10px;height:10px;border-radius:50%;background:#c2410c;box-shadow:0 0 0 4px rgba(194,65,12,.18)}
+.tab{font:inherit;background:none;border:0;padding:14px 12px;color:#5b5850;cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{color:#1b1a17;font-weight:600;border-bottom-color:#c2410c}
+.status{margin-left:auto;color:#5b5850}
+.k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b675e;font-weight:600}
+.fchip{font:inherit;font-size:13px;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid #d9d5ca;background:#fff;color:#3d3a34;cursor:pointer}
+.fchip.on{background:#1b1a17;color:#fff;border-color:#1b1a17}
+.btn{font:inherit;font-size:13px;min-height:36px;padding:0 14px;border-radius:8px;border:1px solid #cfcabd;background:#fff;color:#1b1a17;cursor:pointer}
+.btn.pri{background:#1b1a17;color:#fff;border-color:#1b1a17}
+.script{color:#6b675e;font-size:12px}
+.panel{background:#fff;border:1px solid #e2dfd6;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.num{font-size:28px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
+table{border-collapse:separate;border-spacing:0;width:100%}
+th,td{padding:9px 10px;border-bottom:1px solid #eeebe3;text-align:left;vertical-align:top;font-variant-numeric:tabular-nums}
+thead th{background:#fbfaf7}
+.n{text-align:right}
+.pend{color:#8a867c;font-style:italic}
+.ok{display:inline-flex;align-items:center;font-size:11px;padding:1px 7px;border-radius:999px;background:#e9f6ec;color:#14632f;border:1px solid #bfe2c8}
+.warn{display:inline-flex;align-items:center;font-size:11px;padding:1px 7px;border-radius:999px;background:#fdf1e4;color:#8a4b13;border:1px solid #efd0ad}
+.bad{display:inline-flex;align-items:center;font-size:11px;padding:1px 7px;border-radius:999px;background:#fdecec;color:#991b1b;border:1px solid #f3c3c3}
+.rank{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid #eeebe3}
+.rank:last-child{border-bottom:0}
+.badge{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
+.meter{display:flex;height:8px;border-radius:4px;overflow:hidden;background:#eeebe3;width:160px}
+.meter b{display:block;height:100%}
+.plot{position:relative;height:220px;border-left:1px solid #cfcabd;border-bottom:1px solid #cfcabd;margin:6px 0 22px 34px}
+.dot{position:absolute;width:16px;height:16px;border-radius:50%;transform:translate(-50%,50%)}
+.dlab{position:absolute;font-size:12px;transform:translate(12px,50%);white-space:nowrap}
+.case{display:inline-block;width:14px;height:14px;border-radius:3px}
+.c-hold{background:#b91c1c}.c-med{background:#e0623c}.c-low{background:#f0a86b}.c-ok{background:#2f8f4e}
+.variant{border:1px solid #e2dfd6;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.variant.base{background:#fbfaf7}
+</style>
+</helmet>
+<div class="pg">
+  <nav class="nav" aria-label="Brokkr views">
+    <span class="brand"><span class="pulse" aria-hidden="true"></span>Brokkr</span>
+    <button class="tab" type="button">Realms</button>
+    <button class="tab" type="button">Analytics</button>
+    <button class="tab on" type="button" aria-current="page">Library</button>
+    <span class="status">0 running · <strong>0 waiting on you</strong></span>
+  </nav>
+
+  <div style="max-width: 1392px; margin: 0 auto; padding: 22px 24px 32px; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+      <h1 style="margin: 0 12px 0 0; font-size: 24px; font-weight: 600">Bench · swarmail</h1>
+      <span style="display: flex; gap: 6px" role="group" aria-label="View"><button class="fchip" type="button">Flow</button><button class="fchip" type="button">Table</button><button class="fchip on" type="button" aria-pressed="true">Bench</button></span>
+      <span class="script" style="margin-left: auto">Diagnose the graph, test one part of it in isolation, promote what wins.</span>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+      <section class="panel" style="flex: 1 1 520px" aria-label="Which graph is more efficient">
+        <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap"><span class="k">1 · Graph Pareto frontier</span><span class="script">success rate against cost per run · since 10 Oct</span></div>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+          <span class="script">Quadrants split at your targets:</span>
+          <button class="btn" type="button" style="min-height: 30px">50% done</button>
+          <button class="btn" type="button" style="min-height: 30px">$3.00 a run</button>
+          <span class="script">· edit to move the lines</span>
+        </div>
+        <div class="plot" style="height: 320px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr))" role="img" aria-label="Graph Pareto frontier in four quadrants split at 50 percent done and 3 dollars a run. Top left, Pareto frontier: cheap and reliable, the target, empty today. Top right: reliable but costly. Bottom left: cheap but leaky, where self sits at 21 percent and 2.47 dollars. Bottom right: costly and leaky. frontier and the frontier-xhigh draft are not measured yet.">
+          <div style="background: #e9f6ec; border-right: 2px solid #8a867c; border-bottom: 2px solid #8a867c; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px">
+            <strong style="color: #14632f; font-size: 13px">Pareto frontier quadrant</strong><span class="script" style="color: #14632f">cheap and reliable · the aim</span>
+          </div>
+          <div style="background: #eef3fc; border-bottom: 2px solid #8a867c; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; align-items: flex-end; text-align: right">
+            <strong style="color: #1e3a8a; font-size: 13px">Reliable but costly</strong><span class="script" style="color: #1e3a8a">works; find what to cheapen</span>
+          </div>
+          <div style="background: #fdf6ee; border-right: 2px solid #8a867c; padding: 10px 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px">
+            <strong style="color: #8a4b13; font-size: 13px">Cheap but leaky</strong><span class="script" style="color: #8a4b13">fix where runs stop</span>
+          </div>
+          <div style="background: #fdecec; padding: 10px 12px; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; align-items: flex-end; text-align: right">
+            <strong style="color: #991b1b; font-size: 13px">Costly and leaky</strong><span class="script" style="color: #991b1b">dominated · retire it</span>
+          </div>
+          <span class="script" style="position: absolute; left: -34px; top: 0; transform: rotate(-90deg) translateX(-100%); transform-origin: left top">done rate ↑</span>
+          <span class="script" style="position: absolute; right: 0; bottom: -20px">cost per run →</span>
+          <span style="position: absolute; left: 41%; bottom: 21%; width: 12%; height: 0; border-top: 2px dashed #2f8f4e; transform: rotate(-58deg); transform-origin: left center"></span>
+          <span class="script" style="position: absolute; left: 30%; bottom: 52%; color: #14632f; font-weight: 600">aim ↖</span>
+          <span class="dot" style="left: 41%; bottom: 21%; background: #c2410c; box-shadow: 0 0 0 5px rgba(194,65,12,.2)"></span><span class="dlab" style="left: 41%; bottom: 21%"><strong>self</strong> · 21% · $2.47 a run</span>
+          <span class="dot" style="left: 70%; bottom: 62%; border: 2px dashed #8a867c; background: #fff"></span><span class="dlab pend" style="left: 70%; bottom: 62%">frontier · not measured</span>
+          <span class="dot" style="left: 84%; bottom: 76%; border: 2px dashed #d9b48f; background: #fff"></span><span class="dlab pend" style="left: 84%; bottom: 76%; transform: translate(-100%, 50%) translateX(-12px)">frontier-xhigh · draft</span>
+        </div>
+        <span class="script"><strong style="color: #8a4b13">self is cheap but leaky:</strong> it costs little a run, and 4 of 5 runs end in stop. Moving up is the bench's job: a repair edge, a better robustness position, a security gate before review.</span>
+        <table>
+          <thead><tr><th scope="col">Graph</th><th scope="col" class="n">Success rate</th><th scope="col" class="n">Cost / run</th><th scope="col" class="n">Cost / success</th><th scope="col" class="n">Tokens / run</th><th scope="col">Leaks most at</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">self <span class="ok">on the frontier</span></th><td class="n">21% · 6 of 28</td><td class="n">$2.47</td><td class="n">$11.51</td><td class="n">7.9M</td><td><span class="bad">Review · Security</span></td></tr>
+            <tr><th scope="row">frontier</th><td class="n pend">no runs</td><td class="n pend">—</td><td class="n pend">—</td><td class="n pend">—</td><td class="pend">bench it, or run it</td></tr>
+          </tbody>
+        </table>
+        <span class="script">Cost counts Claude seats only: Codex and Model Studio do not report cost yet, and Spark seats are $0 on your hardware. Tokens cover every seat.</span>
+      </section>
+
+      <section class="panel" style="flex: 1 1 560px" aria-label="Where to improve">
+        <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap"><span class="k">2 · What to adjust, ranked by escapes</span><span class="script">a catch at a later check is a miss by every earlier check that owned it</span></div>
+        <div>
+          <div class="rank">
+            <span class="badge" style="background: #b91c1c">1</span>
+            <span style="display: flex; flex-direction: column; gap: 4px">
+              <strong>Design · robustness position — 8 security escapes</strong>
+              <span style="display: flex; gap: 3px; align-items: center"><span class="case c-hold"></span><span class="case c-hold"></span><span class="case c-med"></span><span class="case c-med"></span><span class="case c-med"></span><span class="case c-med"></span><span class="case c-low"></span><span class="case c-low"></span><span class="script" style="margin-left: 6px">caught at review: 2 HIGH · 4 MEDIUM · 2 LOW</span></span>
+              <span class="script">Its charter owns hostile bytes and hangs; it argued 8 designs whose code then failed security review. Adjust the model or the charter.</span>
+            </span>
+            <button class="btn pri" type="button">Bench it</button>
+          </div>
+          <div class="rank">
+            <span class="badge" style="background: #e0623c">2</span>
+            <span style="display: flex; flex-direction: column; gap: 4px">
+              <strong>Verify — 12 escapes, no gate for any</strong>
+              <span class="script">Everything review caught passed every gate first. A cheap security gate or missing tests would catch some before a 28-minute review.</span>
+            </span>
+            <button class="btn" type="button">Bench a gate</button>
+          </div>
+          <div class="rank">
+            <span class="badge" style="background: #f0a86b; color: #1b1a17">3</span>
+            <span style="display: flex; flex-direction: column; gap: 4px">
+              <strong>Implement's own test run — 3 escapes</strong>
+              <span class="script">It reported green; verify failed (2 a startup race that only shows under load). Its run is not the gate's run.</span>
+            </span>
+            <button class="btn" type="button">Bench it</button>
+          </div>
+          <div class="rank">
+            <span class="badge" style="background: #8a867c">4</span>
+            <span style="display: flex; flex-direction: column; gap: 4px">
+              <strong>Review · Security — 2 LOW stops</strong>
+              <span class="script">Not a miss: a calibration question. The rule stops on any residual; replayable without a model.</span>
+            </span>
+            <button class="btn" type="button">Replay the rule</button>
+          </div>
+          <div class="rank">
+            <span class="badge" style="background: #8a867c">5</span>
+            <span style="display: flex; flex-direction: column; gap: 4px">
+              <strong>Review · Tests — $2.71 a review, no catch of its own</strong>
+              <span class="script">The priciest seat. Bench a cheaper model for the same findings.</span>
+            </span>
+            <button class="btn" type="button">Bench it</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel" aria-label="Experiment: robustness position">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px">
+        <span class="k">3 · Experiment</span>
+        <strong style="font-size: 18px">Design · robustness position, on 8 recorded designs</strong>
+        <span class="script">isolated: the position alone, on the exact framing and code it saw · no repository writes · its own journal</span>
+        <span class="warn" style="margin-left: auto">not run yet</span>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 16px">
+        <div style="flex: 1 1 380px; display: flex; flex-direction: column; gap: 8px">
+          <span class="k">Cases</span>
+          <span style="display: flex; gap: 3px; flex-wrap: wrap; align-items: center"><span class="case c-hold"></span><span class="case c-hold"></span><span class="case c-med"></span><span class="case c-med"></span><span class="case c-med"></span><span class="case c-med"></span><span class="case c-low"></span><span class="case c-low"></span></span>
+          <span class="script">the 8 runs whose code Security stopped, each with the finding review wrote</span>
+          <span class="k" style="margin-top: 6px">What counts as right</span>
+          <span class="script">The position names the hazard review later found, and says how the design answers it. Scored against review's own words, so no labelling is needed; you confirm the borderline ones.</span>
+        </div>
+        <div style="flex: 2 1 640px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+          <div class="variant base"><span class="k">Baseline</span><strong>GLM 5.3 Flash</strong><span class="script">charter as today</span><span class="pend">named ? of 8</span><span>$0 · your Spark</span><span class="script">scored from its recorded transcripts, no re-run</span></div>
+          <div class="variant"><span class="k">Model</span><strong>Fable 5.1 · high</strong><span class="script">charter as today · frontier's cast</span><span class="pend">named —</span><span class="pend">$ —</span></div>
+          <div class="variant" style="border-color: #f0a86b"><span class="k">Charter</span><strong>GLM 5.3 Flash</strong><span class="script">+ "name the thread each new piece of work runs on"</span><span class="pend">named —</span><span>$0 · your Spark</span></div>
+          <div class="variant"><span class="k">Both</span><strong>Fable 5.1 · high</strong><span class="script">+ the new paragraph</span><span class="pend">named —</span><span class="pend">$ —</span></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding-top: 4px; border-top: 1px solid #eeebe3">
+        <span class="script">Scored on: hazards named · $ and minutes per case. 8 cases × 3 new variants = 24 position sessions; the baseline is read, not re-run.</span>
+        <span style="margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap">
+          <button class="btn" type="button">Open the charter</button>
+          <button class="btn" type="button">Add a variant</button>
+          <button class="btn pri" type="button">Run the bench</button>
+        </span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: #f6f5f1; border-radius: 10px; padding: 10px 12px">
+        <span class="k">After it runs</span>
+        <span class="script">the winner becomes a one-line recipe draft or a charter change, the Pareto frontier gains a point, and the flow view shows whether the 8 escapes move from review back into design.</span>
+        <button class="btn" type="button" style="margin-left: auto" disabled>Promote the winner</button>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1480}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -13,11 +13,12 @@ export const TOOL_BOUND_BYTES = 256 * 1024
 const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
 const ACTIONS = ['dismiss_finding', 'talk_to_reviewer', 'hold', 'answer_here']
 
-/** The id grammar the command desk reads, and those of a realm and a seat. */
+/** The id grammar the command desk reads, and those of a realm, a seat and a recipe's name (the Library's graph route). */
 export const GRAMMAR = {
   run: /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/,
   realm: /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/,
   seat: /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/,
+  recipe: /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/,
 }
 
 /** A call the tool will not make, with the words the model is given. */

@@ -7,7 +7,8 @@ The console puts Brokkr's fleet inside a DSH web client, in two places:
 - a **Brokkr** entry in DSH's left panel list, whose icon shows how many runs
   are waiting on you, for when no conversation is open.
 
-Both show the same console, with two views, **Realms** and **Analytics**, in
+Both show the same console, with three views, **Realms**, **Analytics** and
+**Library**, in
 DSH's light or dark theme, whichever DSH's Settings has chosen. It is a DSH plugin
 kept in this repository at `extensions/dsh/brokkr-console/` (decision 0085,
 proposed). It targets DSH `0.2.0-rc.2`.
@@ -63,8 +64,9 @@ without DSH's login cookie, or from another origin, is refused.
   its session in the conversation's folder.
 - **From the left panel.** The full-width console, on every realm.
 
-A realm's bar lists every realm, so you can move between them without going
-back to the cards.
+A realm's view, and a run's inside it, offer no other realm: the context
+there is that realm, and that run. "← All realms" leads back to the cards,
+where every realm is.
 
 ## What it shows
 
@@ -126,6 +128,43 @@ back to the cards.
   realms or one: the headline tiles, runs finished per day, where runs wait
   for you, rework, the share of step attempts by model, the by-realm table,
   and the readout's own "not recorded yet" list.
+- **Library.** A realm's recipes, for 24 hours, 7 days or 30 days, in two
+  views. It reads and never presses: the only thing it keeps is your two
+  Pareto targets, in this browser. In a conversation's tab it opens on the
+  conversation's realm, on the recipe with the most runs; where none ran in
+  the range, on the first the realm knows, so its recipes are still listed.
+- **Graph.** `brokkr graph --recipe <name> --json`: the recipe's state
+  machine as its table resolves now, its states left to right from the
+  initial one, then in `phases` order, with `done` at the end and `stop`
+  beneath, each box holding the seats and models the latest run pinned. The
+  rules joining two states are one line, a little wider the more runs it
+  moved, with each outcome that fired as a chip (`pass 21`, `residual 12`,
+  `security-hold 2`); a line whose rules never fired is faint, dashed and
+  unlabelled; lines into `stop` are in the stop tone and the line into
+  `done` in the done tone. Pick a recipe from the dropdown, the ones that
+  ran first with their runs. Click a line to read its transition beneath
+  the graph: every rule behind it, the ones that never fired too, with its
+  conditions, severity and count, and the latest runs that took it, each
+  opening in Realms. A live run's
+  state wears the pulse, and picking the pulse opens the run in Realms.
+  Picking a state lists its rules with their counts, the runs that entered
+  it, its median and 90th-percentile time, its cost with the providers that
+  reported none, its tokens and its seats. Beneath the graph: rules that
+  fired but are no longer in the table, and how many runs ran under an
+  earlier version of it, counted apart from the runs where only a base the
+  recipe composes moved, which may have left the table as it is. A recipe
+  whose table is not found in the realm is
+  drawn from the rules its runs fired, and says so.
+- **Pareto.** Each recipe of the realm with runs and a reported cost is a
+  point, how often its runs reach `done` against what a run costs, from
+  `brokkr analytics --json`'s `recipes`. Two targets you set (50% done and
+  $3.00 a run until you change them) split the plane into **Pareto frontier
+  quadrant**, **Reliable but costly**, **Cheap but leaky** and **Costly and
+  leaky**; a point on a target line counts on the better side. A step line
+  joins the recipes Brokkr marks as on the frontier, those no other recipe
+  of the realm beats on both. A recipe whose seats reported no cost is
+  listed as "cost not reported", and a recipe with no runs in the range as
+  "not measured yet". Clicking a point opens its graph.
 
 ## What a press does
 
@@ -162,6 +201,11 @@ The graph lists the first four under "Not available yet", disabled, each
 with the reason `brokkr inspect` gives.
 
 ## The assistant
+
+The question boxes below (Ask Brokkr, Ask about this run) are **hidden by
+default** while their experience is reconsidered. Set `BROKKR_CONSOLE_ASK=1`
+where DSH starts to show them. The model tools and the suggestion card are
+unaffected.
 
 DSH's model reads Brokkr through four read-only tools the plugin registers:
 `brokkr_runs`, `brokkr_inspect`, `brokkr_queue` and `brokkr_transcript`. Each

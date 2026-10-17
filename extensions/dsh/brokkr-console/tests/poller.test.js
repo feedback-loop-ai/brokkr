@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { brokkrOf } from '../lib/host/brokkr.js'
+import { configFrom } from '../lib/host/config.js'
 import { pollerOf } from '../lib/host/poller.js'
 import { analyticsDoc, fleetDoc, json, row, runViewDoc, stubBrokkr } from './support/world.js'
 
@@ -13,7 +14,7 @@ const OTHER = 'lane-detection-v2-77aa01bc'
 
 const fleetAt = (seq, other = 3) => json(fleetDoc([['brokkr', [row({ seq }), row({ run_id: OTHER, seq: other, title: 'Lane detection v2' })]]]))
 
-function polled(fleets) {
+function polled(fleets, ask = undefined) {
   const brokkr = stubBrokkr([
     { match: ['runs'], responses: fleets },
     { match: ['inspect'], responses: [json(runViewDoc())] },
@@ -21,7 +22,7 @@ function polled(fleets) {
     { match: ['muninn'], responses: [json([])] },
     { match: ['analytics'], responses: [json(analyticsDoc())] },
   ])
-  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000 })
+  const poller = pollerOf({ brokkr: brokkrOf(brokkr.config), pollMs: 60_000, ...(ask === undefined ? {} : { ask }) })
   const peer = () => {
     const sent = []
     return { sent, send: (message) => sent.push(message), onClose: () => {} }
@@ -84,4 +85,16 @@ test('a client that reconnects receives the current snapshot, its open run inclu
     [snapshot.type, snapshot.fleet.hearths[0].runs[0].seq, snapshot.run.run_id, snapshot.run.view.summary.seq],
     ['snapshot', 14, RUN, 12],
   )
+})
+
+test('the question boxes are off unless BROKKR_CONSOLE_ASK is 1, and the snapshot carries the setting', async () => {
+  assert.deepEqual(['', '0', 'yes', '1'].map((value) => configFrom({ BROKKR_CONSOLE_ASK: value }, '/w').ask), [false, false, false, true])
+  assert.equal(configFrom({}, '/w').ask, false)
+  for (const [ask, carried] of [[undefined, false], [true, true]]) {
+    const { poller, peer, settle } = polled([fleetAt(12)], ask)
+    const client = peer()
+    poller.attach(client)({ type: 'watch', view: 'realms', run: null })
+    await settle(client)
+    assert.equal(client.sent[0].ask, carried)
+  }
 })

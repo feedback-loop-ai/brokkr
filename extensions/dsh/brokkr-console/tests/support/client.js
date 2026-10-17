@@ -107,11 +107,23 @@ export function findAll(node, where) {
 /** The buttons, by their text. */
 export const buttons = (tree) => findAll(tree, (node) => node.type === 'button')
 
+const REFUSED = Symbol('refused')
+/** An answer the console's route refuses: the page reads a failed response whose body carries `error`. */
+export const refusedWith = (error) => ({ [REFUSED]: { error } })
+
+/** The client's exports, loaded as DSH loads them but mounting nothing: for the pure readings it exports beside `apply`. */
+export function clientModule() {
+  let loaded = null
+  runInNewContext(SOURCE, { window: { __ModuleLoader__: { load: (module) => (loaded = module) } } })
+  return loaded.factory((name) => ({ react: reactStub().React })[name])
+}
+
 /**
  * Load the client in a sandbox and mount `component` ('main' or 'sidebar.panellist').
+ * `storage` is the browser's `localStorage` the page sees (none unless given).
  * @returns the rendered tree's getter, the sockets the client opened, and the fetches it made.
  */
-export function mountClient(component, props = {}, answers = {}, dsh = dshStub()) {
+export function mountClient(component, props = {}, answers = {}, dsh = dshStub(), storage = undefined) {
   const { React, mount } = reactStub()
   const sockets = []
   const fetches = []
@@ -127,7 +139,7 @@ export function mountClient(component, props = {}, answers = {}, dsh = dshStub()
   }
   let loaded = null
   const sandbox = {
-    window: { __ModuleLoader__: { load: (module) => (loaded = module) } },
+    window: { __ModuleLoader__: { load: (module) => (loaded = module) }, localStorage: storage },
     WebSocket,
     location: { origin: 'http://127.0.0.1:3080' },
     document: { getElementById: () => ({}), createElement: () => ({}), head: { appendChild: () => {} } },
@@ -141,7 +153,8 @@ export function mountClient(component, props = {}, answers = {}, dsh = dshStub()
       const path = String(url).split('?')[0]
       const answer = answers[path] ?? { error: 'no answer' }
       const body = typeof answer === 'function' ? await answer(String(url)) : answer
-      return { ok: path in answers, json: async () => body }
+      const refused = body?.[REFUSED]
+      return { ok: path in answers && refused === undefined, json: async () => refused ?? body }
     },
   }
   runInNewContext(SOURCE, sandbox)

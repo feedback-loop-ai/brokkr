@@ -18,6 +18,7 @@ mod acknowledge;
 pub(super) mod analytics;
 pub(super) mod delivery;
 pub(super) mod exchange;
+pub(super) mod graph;
 pub(super) mod probe;
 pub(super) mod queue;
 pub(super) mod readouts;

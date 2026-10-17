@@ -28,7 +28,7 @@
    417 crates/brokkr-cli/src/init/adapters.rs
     24 crates/brokkr-cli/src/init/effort.rs
    177 crates/brokkr-cli/src/ledger.rs
-  1908 crates/brokkr-cli/src/lib.rs
+  1911 crates/brokkr-cli/src/lib.rs
    515 crates/brokkr-cli/src/local_transcript/discover.rs
    214 crates/brokkr-cli/src/local_transcript/mod.rs
    585 crates/brokkr-cli/src/local_transcript/safe_fs.rs

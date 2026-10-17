@@ -49,7 +49,7 @@ impl std::fmt::Display for RangeRefused {
 impl std::error::Error for RangeRefused {}
 
 /// `--range`, read by the view's one vocabulary.
-fn range(word: &str) -> Result<Range, RangeRefused> {
+pub(crate) fn range(word: &str) -> Result<Range, RangeRefused> {
     word.parse().map_err(RangeRefused)
 }
 
@@ -67,6 +67,20 @@ pub(crate) fn analytics(workspace: &Path, args: AnalyticsArgs) -> Result<ExitCod
 /// Every hearth read, quarantining what does not load, and the view
 /// derived over them at `now`.
 fn derive(hearths: &[Hearth], range: Range, realm: Option<&str>, now: &str) -> Result<Analytics> {
+    let view = read_hearths(hearths, |grouped| {
+        brokkr_view::analytics(&Query {
+            hearths: grouped,
+            range,
+            realm,
+            now,
+        })
+    });
+    view.map_err(|error| anyhow::Error::msg(error.to_string()))
+}
+
+/// Every hearth read, quarantining what does not load, handed to `view`
+/// as the cross-run readouts take them: `analytics` and `graph` alike.
+pub(crate) fn read_hearths<T>(hearths: &[Hearth], view: impl FnOnce(&[AnalyticsHearth]) -> T) -> T {
     let read: Vec<fleet::HearthRead> = hearths
         .iter()
         .map(|hearth| fleet::read_journal(&hearth.journal))
@@ -92,13 +106,7 @@ fn derive(hearths: &[Hearth], range: Range, realm: Option<&str>, now: &str) -> R
             refusal: read[index].detail.as_deref(),
         })
         .collect();
-    let query = Query {
-        hearths: &grouped,
-        range,
-        realm,
-        now,
-    };
-    brokkr_view::analytics(&query).map_err(|error| anyhow::Error::msg(error.to_string()))
+    view(&grouped)
 }
 
 /// The headline as a few lines, painted from the view's own text.
