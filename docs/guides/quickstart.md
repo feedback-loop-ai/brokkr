@@ -387,9 +387,20 @@ verb and of `--recipe` there: see [Try another recipe](#try-another-recipe).
 
 ```
 $ brokkr run --feature "prefix selectors for the read surfaces"
-run started: prefix-selectors-for-the-read-su-8bf6d692
+note: the map /home/you/my-app/.brokkr/realms.json found in this workspace is adopted (journal unchanged); --realms names it explicitly
+run started: prefix-selectors-for-the-read-su-…
 …
 ```
+
+That is a real run, with one stand-in: the `claude` CLI is the stub
+[`scripts/bootstrap-bench.sh`](../../scripts/bootstrap-bench.sh) puts
+first on `PATH` through the adapter's own `BROKKR_CLAUDE_BIN`, which
+answers each model seat at once and writes no code. The repository is a
+fresh `git init` holding a `Makefile` whose `build`, `test` and `lint`
+pass, with Step 2's folder committed, so the scaffold's own verify and
+ship gates run for real and the run reaches `done`. Its id ends in a
+hash, elided here, and the last `…` stands for what your host prints
+after it.
 
 With the folder committed, `brokkr run` needs only `--feature <text>`,
 from anywhere in the repository: it walks up to the git root, finds
@@ -440,36 +451,38 @@ Then ask the run what happened:
 
 ```
 $ brokkr inspect --run latest
-run  prefix-selectors-for-the-read-su-8bf6d692
-     completed · phase done · seq 38
+run  prefix-selectors-for-the-read-su-…
+     completed · phase done · seq 51
+     boundary …
 ruling  SHIP-COMPLETE  ship → done · shipped
 
 seats
-  participant status    attempts turns cost activity
-  intake      succeeded 1        —     —    resolved · 0s
-  implement   succeeded 1        —     —    complete · 0s
-  verify      succeeded 1        —     —    pass · 0s
-  review      succeeded 1        —     —    clean · 0s
-  ship        succeeded 1        —     —    shipped · 0s
-
+  model is the provider's claim, not proof · effort is configuration
+  participant status    attempts turns cost tokens model          boundary       effort         activity
+…
 trail
    1 run/started        prefix selectors for the read surfaces…
    2 phase/entered      intake
-   7 effect/succeeded   intake · resolved
-   8 transition/decided INTAKE-OK intake → implement · resolved
-  …
-  36 transition/decided SHIP-COMPLETE ship → done · shipped
-  37 phase/entered      done
-  38 run/completed      completed
+   8 effect/succeeded   intake ·… · model not reported · boundary not applicable
+   9 transition/decided INTAKE-OK intake → implement · resolved
+…
+  49 transition/decided SHIP-COMPLETE ship → done · shipped
+  50 phase/entered      done
+  51 run/completed      completed
 
 graph
   intake ×1
     → intake · finished
-  …
+…
   done ×1  ←current
 ```
 
-Four blocks, and each one answers a different question:
+That is Step 3's run, read back, with its seats and the middles of its
+trail and graph elided, and the `boundary` line, which is your host's:
+[the read surfaces](read-surfaces.md#brokkr-inspect--one-run-explained)
+show the whole readout.
+
+Five blocks, and each one answers a different question:
 
 - **header** — the run id, its status (`running`, `awaiting_operator`,
   `completed`, `stopped`), the phase it is in, and the journal sequence
@@ -478,7 +491,10 @@ Four blocks, and each one answers a different question:
   which phase to which, on which typed result. When a run parked, this
   is where the park reason is.
 - **seats** — per seat: attempts, turns and cost from the journal's
-  checkpoints, and the last activity.
+  checkpoints, the model the provider claimed, the boundary its hands
+  stood behind, the effort, and the last activity; under a model seat,
+  its transcript reference, the agent and the model it was seated by,
+  and the effort pinned.
 - **trail** — the numbered journal events. Every line is a sequence
   number and a fact. Nothing in it was written by a model: seats produce
   typed results, the table produces rulings.
@@ -800,10 +816,17 @@ machine's `boundaries` line the same way.
 ```
 $ brokkr costs --run latest
 {
-  "run_id": "prefix-selectors-for-the-read-su-8bf6d692",
+  "run_id": "prefix-selectors-for-the-read-su-…",
   "seats": {
-    "implement": { "attempts": 1, "turns": 24, "cost_usd": 0.0 },
-    …
+    "implement": {
+      "attempts": 1,
+      "boundary": "not applicable",
+      "cost_usd": 0.0,
+      "effort": "not reported",
+      "model": "not reported",
+      "turns": 1
+    },
+…
   },
   "total_cost_usd": 0.0
 }
@@ -811,7 +834,9 @@ $ brokkr costs --run latest
 
 Per seat: `attempts` counted from `effect/started` events, and `turns`
 and `cost_usd` summed from the `num_turns` and `total_cost_usd` fields
-the driver reported in its checkpoints. `--db` defaults to the journal
+the driver reported in its checkpoints, beside the `model`, `effort` and
+`boundary` the journal records. Step 3's stub reports one turn and no
+cost for each model seat. `--db` defaults to the journal
 the map names, else `.brokkr/state/forge.db`; `--realms` names the map.
 
 Be clear-eyed about this:
@@ -919,37 +944,15 @@ cargo install --path crates/brokkr-cli    # builds and installs the binary
 **Then deliver something.**
 
 ```
-$ brokkr doctor                           # tools, agent CLIs, database, contracts
+brokkr doctor                           # tools, agent CLIs, database, contracts
+brokkr init .                           # scaffold a reviewable starter recipe into .brokkr/
+git add .brokkr/ && git commit -m "the starter folder"
+brokkr run --feature "prefix selectors for the read surfaces"
+brokkr tui                              # explore what just happened
 ```
 
-```text
-warn     folder: none from /home/you/my-app up to /home/you/my-app — brokkr init . writes one
-ok       contracts: engine 0.12.0, event_schema 1, database_schema 1, driver_protocol 1
-ok       git: git version 2.51.0
-ok       claude: 2.1.251 (Claude Code) · serves fable, haiku, opus, sonnet
-ok       agent implementer: would run opus via claude here (chain opus → sonnet)
-ok       dialect brokkr: openspec · tool 'openspec' 1.12.0 · pinned 1.12.0 · probed inside the box
-…
-```
-
-```
-$ brokkr init .                           # scaffold a reviewable starter recipe into .brokkr/
-```
-
-```text
-initialized /home/you/my-app/.brokkr (digest …), writing:
-…
-commit the folder: git add .brokkr && git commit
-```
-
-```
-$ git add .brokkr/ && git commit -m "the starter folder"
-$ brokkr run --feature "prefix selectors for the read surfaces"
-run started: prefix-selectors-for-the-read-su-8bf6d692
-…
-
-$ brokkr tui                              # explore what just happened
-```
+Steps 1 to 3 above show what `doctor`, `init .` and `run` print, run
+for real; `tui` opens the fleet view Step 3 describes.
 
 `brokkr run`'s [exit code](../reference/cli.md#exit-codes) tells a shell
 script whether the run reached `done`, parked for the operator or

@@ -73,15 +73,14 @@ journal the world writes. Read-only, like every other readout, and
 Brokkr's own repository, a recipe library, so its map and journal stand
 at the library's places.
 
-```
-$ brokkr realms
-```
-
 ```text
+$ brokkr realms
 map      ./realms.json
 journal  ./.forge/forge.db
-realm    brokkr  .  main  5a4bf4a28558d123c432d8992cfd9f13ffd81eb7
+realm    brokkr  .  main  …
 ```
+
+The last field is the realm's HEAD commit, elided here.
 
 A world whose realms draw crossings (`forge.realms/v5`, decision 0057)
 says so under each realm: what that realm publishes, then what it
@@ -89,11 +88,9 @@ consumes — naming the publishing realm and whether the pin still
 matches. The readout opens no crossing file and hashes nothing: every
 state comes off the one report the loader already built, so it and the
 run-time refusal can never disagree. A pin that moved is a line, not the
-end of the reading; `realms` reports, it does not refuse.
-
-```
-$ brokkr realms
-```
+end of the reading; `realms` reports, it does not refuse. In an
+illustrative world of two realms, one publishing a contract the other
+consumes, `realms` prints:
 
 ```text
 map      ./realms.json
@@ -204,19 +201,21 @@ a passing argv test upgrades neither.
 
 ### `brokkr runs` — the fleet
 
-One clamped line per run, newest first.
+One clamped line per run, newest first. The samples from here to
+`seats` read the run the [quickstart's Step 3](quickstart.md#step-3--brokkr-run)
+drives, the `claude` CLI stubbed, with its id's hash, its duration and
+your host's places elided.
 
 ```
 $ brokkr runs
-prefix-selectors-for-the-read-su-8bf6d692 completed done seq 38 3s prefix selec…
+prefix-selectors-for-the-read-su-… completed done seq 51 …s prefix selec…
 ```
 
 In a world of many hearths, the same listing is grouped by realm — each
 section naming the journal it was read from, and no run crossing into
-another realm's section.
+another realm's section. In an illustrative world of two realms:
 
-```
-$ brokkr runs
+```text
 alpha · 1 run · ./a/.brokkr/state/forge.db
 many-hearths-8bf6d692 running implement seq 12 3s many hearths…
 
@@ -337,39 +336,35 @@ became.
 
 ```
 $ brokkr inspect --run latest
-run  prefix-selectors-for-the-read-su-8bf6d692
-     completed · phase done · seq 38
-     boundary namespace
+run  prefix-selectors-for-the-read-su-…
+     completed · phase done · seq 51
+     boundary …
 ruling  SHIP-COMPLETE  ship → done · shipped
 
 seats
-  model is the provider's claim, not proof · effort is configuration
-  participant status    attempts turns cost tokens model            boundary       effort activity
-  intake      succeeded 1        —     —    —      claude-fable-5-1 not applicable —      resolved · 0s
-  implement   succeeded 1        —     —    —      claude-fable-5-1 not applicable —      complete · 0s
-  verify      succeeded 1        —     —    —      not applicable   namespace      —      pass · 0s
-  review      succeeded 1        —     —    —      claude-fable-5-1 not applicable —      clean · 0s
-  ship        succeeded 1        —     —    —      not applicable   namespace      —      shipped · 0s
-
+…
 trail
    1 run/started        prefix selectors for the read surfaces…
    2 phase/entered      intake
-   7 effect/succeeded   intake · resolved
-   8 transition/decided INTAKE-OK intake → implement · resolved
-   9 phase/entered      implement
-  14 effect/succeeded   implement · complete
-  15 transition/decided IMPL-OK implement → verify · complete
-  16 phase/entered      verify
-  21 effect/succeeded   verify · pass
-  22 transition/decided VERIFY-PASS verify → review · pass
-  23 phase/entered      review
-  28 effect/succeeded   review · clean
-  29 transition/decided REVIEW-CLEAN-NO-FIXES review → ship · clean
-  30 phase/entered      ship
-  35 effect/succeeded   ship · shipped
-  36 transition/decided SHIP-COMPLETE ship → done · shipped
-  37 phase/entered      done
-  38 run/completed      completed
+   8 effect/succeeded   intake ·… · model not reported · boundary not applicable
+   9 transition/decided INTAKE-OK intake → implement · resolved
+  10 phase/entered      implement
+  16 effect/succeeded   implemen… · model not reported · boundary not applicable
+  17 transition/decided IMPL-OK implement → verify · complete
+  18 phase/entered      verify
+  24 effect/succeeded   verify · pa… · model not applicable · boundary …
+  25 transition/decided VERIFY-PASS verify → review · pass
+  26 phase/entered      review
+  32 effect/succeeded   review ·… · model not reported · boundary not applicable
+  33 transition/decided REVIEW-CLEAN-NO-FIXES review → ship · clean
+  34 phase/entered      ship
+  40 effect/succeeded   ship · ready · model not applicable · boundary …
+  41 transition/decided SHIP-READY ship → ship · ready
+  42 phase/entered      ship
+  48 effect/succeeded   ship · ship… · model not applicable · boundary …
+  49 transition/decided SHIP-COMPLETE ship → done · shipped
+  50 phase/entered      done
+  51 run/completed      completed
 
 graph
   intake ×1
@@ -380,10 +375,15 @@ graph
     → verify · finished
   review ×1
     → review · finished
-  ship ×1
+  ship ×2
     → ship · finished
   done ×1  ←current
 ```
+
+The seats block is `seats`' own readout, shown whole below. The ship
+gate runs twice: its first visit writes the run's ledger and answers
+`ready`, which `SHIP-READY` sends back to ship to confirm the close-out,
+and the second answers `shipped`.
 
 Every line above is a rule id and a journal sequence number: the run
 states which rule fired, from where, on which typed result. Nothing in
@@ -442,10 +442,32 @@ is versioned for the verb, so a script that wants the seats reads
 $ brokkr seats --run latest
 seats
   model is the provider's claim, not proof · effort is configuration
-  participant status    attempts turns cost tokens model            boundary       effort activity
-  intake      succeeded 1        —     —    —      claude-fable-5-1 not applicable —      resolved · 0s
-  verify      succeeded 1        —     —    —      not applicable   namespace      —      pass · 0s
+  participant status    attempts turns cost tokens model          boundary       effort         activity
+  intake      succeeded 1        —     —    —      not reported   not applicable not reported
+    transcript  claude-session · — · home …
+    intake · selected sonnet via claude
+    effort pinned high · applied not reported (configuration)
+  implement   succeeded 1        —     —    —      not reported   not applicable not reported
+    transcript  claude-session · — · home …
+    implementer · selected opus via claude
+    effort pinned high · applied not reported (configuration)
+  verify      succeeded 1        —     —    —      not applicable … not applicable
+    transcript  none
+  review      succeeded 1        —     —    —      not reported   not applicable not reported
+    transcript  claude-session · — · home …
+    reviewer · selected fable via claude
+    effort pinned high · applied not reported (configuration)
+  ship        succeeded 1        —     —    —      not applicable … not applicable
+    transcript  none
+  ship        succeeded 1        —     —    —      not applicable … not applicable
+    transcript  none
 ```
+
+The stub reports no model and no effort, so those cells say `not
+reported`; under each model seat are its transcript reference, the
+agent and the model the scaffold seated it with, and the effort its
+agent pins. The two gates' `boundary` is your host's: `namespace` on
+Linux.
 
 The graph also shows the **way back**. When a review finds a security
 residual, decision 0022 sends the run back to implement — and the

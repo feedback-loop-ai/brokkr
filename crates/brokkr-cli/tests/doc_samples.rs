@@ -16,12 +16,15 @@
 //! matches byte for byte, tabs included.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+use std::process::Command;
 
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::bootstrap_bench::{can_box_the_gates, scaffold_with, Scaffold};
 use crate::doc_truth::{readable_docs, Block, Doc};
-use crate::init_stacks::{brokkr, repository_of};
+use crate::init_stacks::{brokkr_with, repository_of};
 use crate::workspace_root::{read, workspace};
 
 /// What opens a prompt line, after its indent and its blockquote.
@@ -36,10 +39,9 @@ const ELIDED: &str = "…";
 const ALLOWED: [(&str, &str); 6] = [
     (
         "docs/guides/quickstart.md",
-        "its run, inspect and costs blocks need a driven fake-driver run as their fixture \
-         (#365's next slice), its compact tour's prompts carry trailing comments or need \
-         that run, and its recipe-shelf blocks (recipes list, and Try another recipe's add, \
-         list and run) need a scaffolded folder and a recipe source as their fixture",
+        "its recipe-shelf blocks (recipes list, and Try another recipe's add, list and run) \
+         wait on #722, which changes what recipes list prints, and need a recipe source as \
+         their fixture",
     ),
     (
         "docs/guides/secrets.md",
@@ -51,13 +53,14 @@ const ALLOWED: [(&str, &str); 6] = [
     ),
     (
         "docs/guides/read-surfaces.md",
-        "its readouts need a journal of driven runs (#365's next slice), and its crossing \
-         world is illustrative, not this repository",
+        "its transcript blocks need a real model's session, its muninn block a Muninn seat \
+         and a parked fleet, its operator supersede block and the inspect after it a \
+         historical run's residual findings, and watch and ui are live views",
     ),
     (
         "docs/guides/journal-and-verification.md",
-        "a driven run's evidence, which needs a driven fake-driver run as its fixture: \
-         #365's next slice",
+        "a driven run's evidence (anchor, export, verify-run, replay, import, keep-refs), \
+         which #365's next slice samples at Place::Driven",
     ),
     (
         "docs/guides/provider-adapters.md",
@@ -73,7 +76,19 @@ enum Place {
     /// The root of a fresh `git init` copy of the named init-stacks
     /// fixture, with no `.brokkr/` folder yet.
     Fixture(&'static str),
+    /// The root of the bootstrap bench's [`Scaffold`]: `init`'s folder,
+    /// committed, over a `Makefile` whose targets pass, with the `claude`
+    /// CLI stubbed through the adapter's own `BROKKR_CLAUDE_BIN`, so the
+    /// scaffold's verify and ship gates run for real and its model seats
+    /// answer at once, writing no code.
+    Scaffold,
+    /// The [`Place::Scaffold`] after [`RUN`], the guides' run, reached
+    /// `done`.
+    Driven,
 }
+
+/// The run the guides drive, as Step 3 of the quickstart starts it.
+const RUN: [&str; 3] = ["run", "--feature", "prefix selectors for the read surfaces"];
 
 /// Which stream a sample's block shows.
 #[derive(Clone, Copy)]
@@ -95,6 +110,7 @@ enum Exit {
 /// A sampled block: the doc, the prompt line that opens the block, the
 /// argv the prompt runs, and where it runs, what it shows and how it
 /// exits.
+#[derive(Clone, Copy)]
 struct Sample {
     doc: &'static str,
     prompt: &'static str,
@@ -107,7 +123,7 @@ struct Sample {
 /// How a fixture's root reads in a doc.
 const HOME: &str = "/home/you/my-app";
 
-const SAMPLED: [Sample; 7] = [
+const SAMPLED: [Sample; 14] = [
     Sample {
         doc: "docs/guides/agent-library.md",
         prompt: "$ brokkr agents list",
@@ -167,6 +183,63 @@ const SAMPLED: [Sample; 7] = [
         place: Place::Workspace,
         stream: Stream::Stdout,
         exit: Exit::Any,
+    },
+    // The guides' run itself, so not at the place it has driven.
+    Sample {
+        doc: "docs/guides/quickstart.md",
+        prompt: "$ brokkr run --feature \"prefix selectors for the read surfaces\"",
+        argv: &RUN,
+        place: Place::Scaffold,
+        stream: Stream::Stderr,
+        exit: Exit::Success,
+    },
+    Sample {
+        doc: "docs/guides/quickstart.md",
+        prompt: "$ brokkr inspect --run latest",
+        argv: &["inspect", "--run", "latest"],
+        place: Place::Driven,
+        stream: Stream::Stdout,
+        exit: Exit::Success,
+    },
+    Sample {
+        doc: "docs/guides/quickstart.md",
+        prompt: "$ brokkr costs --run latest",
+        argv: &["costs", "--run", "latest"],
+        place: Place::Driven,
+        stream: Stream::Stdout,
+        exit: Exit::Success,
+    },
+    Sample {
+        doc: "docs/guides/read-surfaces.md",
+        prompt: "$ brokkr realms",
+        argv: &["realms"],
+        place: Place::Workspace,
+        stream: Stream::Stdout,
+        exit: Exit::Success,
+    },
+    Sample {
+        doc: "docs/guides/read-surfaces.md",
+        prompt: "$ brokkr runs",
+        argv: &["runs"],
+        place: Place::Driven,
+        stream: Stream::Stdout,
+        exit: Exit::Success,
+    },
+    Sample {
+        doc: "docs/guides/read-surfaces.md",
+        prompt: "$ brokkr inspect --run latest",
+        argv: &["inspect", "--run", "latest"],
+        place: Place::Driven,
+        stream: Stream::Stdout,
+        exit: Exit::Success,
+    },
+    Sample {
+        doc: "docs/guides/read-surfaces.md",
+        prompt: "$ brokkr seats --run latest",
+        argv: &["seats", "--run", "latest"],
+        place: Place::Driven,
+        stream: Stream::Stdout,
+        exit: Exit::Success,
     },
 ];
 
@@ -285,11 +358,38 @@ struct Printed {
     roots: Vec<String>,
 }
 
+/// A fixture's root, canonical first and then as given.
+fn roots_of(root: &Path) -> Vec<String> {
+    let text = |path: &Path| path.to_str().unwrap().to_string();
+    vec![text(&root.canonicalize().unwrap()), text(root)]
+}
+
+/// `command` under the config home `config` and no `COLUMNS`, so no
+/// host's configuration (its `host.json`) or terminal width reaches a
+/// sample.
+fn hermetic(command: &mut Command, config: &Path) {
+    command.env("XDG_CONFIG_HOME", config).env_remove("COLUMNS");
+}
+
+/// [`RUN`] driven to `done` in `scaffold`: anything else is no place for
+/// a sample, and fails with the run's stderr.
+fn drive(scaffold: &Scaffold, configure: &dyn Fn(&mut Command)) {
+    let (code, _, stderr) = brokkr_with(&RUN, &scaffold.root, configure);
+    assert_eq!(
+        code,
+        Some(0),
+        "the guides' run did not reach done: {stderr}"
+    );
+}
+
 /// The built binary run with a sample's argv where the sample says, an
-/// `init` with a `claude` first on PATH, as `init_stacks` runs it.
+/// `init` with a `claude` first on PATH, as `init_stacks` runs it. Every
+/// command it spawns is [`hermetic`].
 fn printed(sample: &Sample) -> Printed {
-    let run = |cwd: &std::path::Path, roots: Vec<String>| {
-        let (code, stdout, stderr) = brokkr(sample.argv, cwd);
+    let config = tempfile::tempdir().unwrap();
+    let hermetic = |command: &mut Command| hermetic(command, config.path());
+    let run = |cwd: &Path, roots: Vec<String>, configure: &dyn Fn(&mut Command)| {
+        let (code, stdout, stderr) = brokkr_with(sample.argv, cwd, configure);
         Printed {
             code,
             stdout,
@@ -298,15 +398,23 @@ fn printed(sample: &Sample) -> Printed {
         }
     };
     match sample.place {
-        Place::Workspace => run(&workspace(), Vec::new()),
+        Place::Workspace => run(&workspace(), Vec::new(), &hermetic),
         Place::Fixture(fixture) => {
             let repo = repository_of(fixture);
-            let text = |path: &std::path::Path| path.to_str().unwrap().to_string();
-            let roots = vec![
-                text(&repo.path().canonicalize().unwrap()),
-                text(repo.path()),
-            ];
-            run(repo.path(), roots)
+            run(repo.path(), roots_of(repo.path()), &hermetic)
+        }
+        Place::Scaffold | Place::Driven => {
+            let scaffold = scaffold_with(hermetic);
+            let stubbed = |command: &mut Command| {
+                hermetic(command);
+                command
+                    .env("PATH", &scaffold.path)
+                    .env("BROKKR_CLAUDE_BIN", &scaffold.stub);
+            };
+            if matches!(sample.place, Place::Driven) {
+                drive(&scaffold, &stubbed);
+            }
+            run(&scaffold.root, roots_of(&scaffold.root), &stubbed)
         }
     }
 }
@@ -358,6 +466,19 @@ fn shown(sample: &Sample, printed: Printed) -> Ran {
         .fold(text, |text, root| placed(&text, root)))
 }
 
+/// The prompt that runs `argv`: each argument as it is, and one that
+/// holds a space in double quotes, as a shell reads it.
+fn spelled(argv: &[&str]) -> String {
+    let words: Vec<String> = argv
+        .iter()
+        .map(|arg| match arg.contains(' ') {
+            true => format!("\"{arg}\""),
+            false => arg.to_string(),
+        })
+        .collect();
+    format!("{PROMPT} {}", words.join(" "))
+}
+
 /// Each sample in `sampled` that is not what `run` prints for its argv,
 /// or whose block is not one command with its output.
 fn sample_failures(
@@ -367,7 +488,7 @@ fn sample_failures(
 ) -> Vec<String> {
     let mut found = Vec::new();
     for sample in sampled {
-        let spelled = format!("{PROMPT} {}", sample.argv.join(" "));
+        let spelled = spelled(sample.argv);
         if sample.prompt != spelled {
             found.push(format!(
                 "{}: the sample `{}` runs `{spelled}`",
@@ -450,10 +571,32 @@ fn every_brokkr_prompt_in_a_living_doc_is_sampled_or_allowed() {
     );
 }
 
+/// The samples a host runs: all of them where the scaffold's gates can
+/// be `boxed`, and else all but those at the scaffold's places.
+fn runnable(boxed: bool) -> Vec<Sample> {
+    let scaffolded = |sample: &&Sample| matches!(sample.place, Place::Scaffold | Place::Driven);
+    SAMPLED
+        .iter()
+        .filter(|sample| boxed || !scaffolded(sample))
+        .copied()
+        .collect()
+}
+
+/// Where the scaffold's gates cannot be boxed, the samples at its places
+/// are skipped as `bootstrap_bench` skips: said on stderr, and refused
+/// where `BROKKR_REQUIRE_BOUNDARY_EVIDENCE` asks for the box.
 #[test]
 fn every_sample_is_what_the_binary_prints() {
+    let boxed = can_box_the_gates();
+    if !boxed {
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "no namespace can be built here for the scaffold's boxed gates, \
+             so the samples at its places are not run",
+        );
+    }
     assert_eq!(
-        sample_failures(&readable_docs(), &SAMPLED, printed),
+        sample_failures(&readable_docs(), &runnable(boxed), printed),
         Vec::<String>::new(),
         "a sampled block is not what its command prints: paste the output, eliding with `…`"
     );
@@ -646,6 +789,56 @@ fn a_sample_is_one_command_and_its_output() {
             "docs/a.md:30: `$ brokkr ledger` exited 1: no journal",
             "docs/a.md:36: the sample ends before what `$ brokkr inspect` printed:\none\ntwo\nthree\n",
         ]
+    );
+}
+
+#[test]
+fn a_prompt_quotes_an_argument_that_holds_a_space() {
+    assert_eq!(
+        spelled(&RUN),
+        "$ brokkr run --feature \"prefix selectors for the read surfaces\""
+    );
+    assert_eq!(
+        spelled(&["inspect", "--run", "latest"]),
+        "$ brokkr inspect --run latest"
+    );
+}
+
+#[test]
+fn the_scaffolds_samples_wait_for_a_box() {
+    let prompts = |samples: Vec<Sample>| samples.iter().map(|s| s.prompt).collect::<Vec<_>>();
+    assert_eq!(
+        prompts(runnable(true)),
+        prompts(SAMPLED.to_vec()),
+        "a host that boxes the gates runs every sample"
+    );
+    assert_eq!(
+        prompts(runnable(false)),
+        [
+            "$ brokkr agents list",
+            "$ brokkr recipes list",
+            "$ brokkr compile --bundle recipes/night-shift",
+            "$ brokkr --version",
+            "$ brokkr doctor",
+            "$ brokkr init .",
+            "$ brokkr doctor",
+            "$ brokkr realms",
+        ]
+    );
+}
+
+#[test]
+fn a_sample_runs_under_a_config_home_of_its_own_and_no_width() {
+    let mut command = Command::new("brokkr");
+    hermetic(&mut command, Path::new("/t/config"));
+    let set: BTreeMap<_, _> = command.get_envs().collect();
+    let name = std::ffi::OsStr::new;
+    assert_eq!(
+        set,
+        BTreeMap::from([
+            (name("COLUMNS"), None),
+            (name("XDG_CONFIG_HOME"), Some(name("/t/config"))),
+        ])
     );
 }
 
