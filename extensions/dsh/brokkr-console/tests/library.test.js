@@ -266,8 +266,30 @@ test('the pulse sits on each live run’s state, and picking it opens that run i
   pulses[0].props.onClick()
   assert.deepEqual(client.sockets[0].sent.at(-1), { type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: LIVE } })
   const text = textOf(client.tree())
-  assert.match(text, /← brokkr’s runs/)
+  // Opened from the Library, the way back comes first, the realm's runs beside it.
+  assert.match(text, /← Library · brokkr \/ selfbrokkr’s runs/)
   assert.match(text, /Add the graph/)
+})
+
+test('a run opened from a picked transition brings the operator back to the same realm, recipe, range and pick; the realm’s runs is a way out that forgets it', async () => {
+  const client = await onLibrary()
+  buttons(client.tree()).find((button) => textOf(button) === '30d').props.onClick()
+  await settled()
+  press(client.tree(), 'the transition verify → stop')
+  buttons(labelled(client.tree(), 'The runs that took VERIFY-FAIL')).find((button) => textOf(button) === 'Encrypt the token store').props.onClick()
+  await settled()
+  assert.deepEqual(client.sockets[0].sent.at(-1), { type: 'watch', view: 'realm', run: { realm: 'brokkr', run_id: 'encrypt-the-token-store-41d0a9c2' } })
+  const back = buttons(client.tree()).find((button) => textOf(button) === '← Library · brokkr / self')
+  back.props.onClick()
+  await settled()
+  assert.equal(heading(client.tree()), 'brokkr / self')
+  assert.match(textOf(labelled(client.tree(), 'Selected transition')), /^Transitionverify → stop/)
+  assert.deepEqual(buttons(client.tree()).filter((button) => ['24h', '7d', '30d'].includes(textOf(button)) && /\bon\b/.test(String(button.props.className))).map(textOf), ['30d'])
+  // Into the run again, then out by the realm's runs: the way back to the Library is let go.
+  buttons(labelled(client.tree(), 'The runs that took VERIFY-FAIL')).find((button) => textOf(button) === 'Encrypt the token store').props.onClick()
+  await settled()
+  buttons(client.tree()).find((button) => textOf(button) === 'brokkr’s runs').props.onClick()
+  assert.equal(buttons(client.tree()).filter((button) => textOf(button).startsWith('← Library')).length, 0)
 })
 
 test('picking review shows its rules with their counts, the runs that entered, its median and p90, its cost naming the provider that reported none, and its seats with their models', async () => {
@@ -300,7 +322,7 @@ test('picking a transition shows every rule behind it, the ones that never fired
   assert.deepEqual(findAll(panel, (node) => String(node.props.className).startsWith('bk-cell bk-tile')).map(textOf), ['Runs3moved in range', 'Outcomesfail 3', 'Rules1every one fired'])
   const rule = findAll(panel, (node) => String(node.props.className).startsWith('bk-cell bk-lib-rule'))[0]
   assert.match(textOf(rule), /^VERIFY-FAIL3result fail · not fixes_applied · severity normal/)
-  assert.deepEqual(buttons(labelled(rule, 'The runs that took VERIFY-FAIL')).map(textOf), ['Flaky gates', 'Cert expiry'])
+  assert.deepEqual(buttons(labelled(rule, 'The runs that took VERIFY-FAIL')).map(textOf), ['Encrypt the token store', 'Tidy the seats'])
   assert.match(textOf(labelled(rule, 'The runs that took VERIFY-FAIL')), /^latest 2 of 3/)
   // The picked transition is drawn in the pick tone; picking it again lets it go.
   assert.match(edge(client.tree(), 'verify→stop').props.className, /\bsel\b/)

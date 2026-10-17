@@ -113,6 +113,7 @@ All figures are over the range.
 **Navigation.**
 - Clicking a recipe's point in Pareto opens its Graph.
 - Clicking a live run's pulse opens the run in Realms, as a fleet row does.
+- A run opened from the Library, by its pulse or from a picked transition's runs, keeps where the operator came from: the realm, the recipe, the view, the range and the pick. The run's bar offers "← Library · <realm> / <recipe>" first, which restores all of it, and the realm's runs beside it, which lets it go.
 
 ## D8 — Not in this slice
 

@@ -963,7 +963,7 @@ window.__ModuleLoader__.load({
         h(Timeline, { view, row }))
     }
 
-    function Realm({ state, realm, runId, select, back, see, open, folder, sessionId }) {
+    function Realm({ state, realm, runId, select, back, cameFrom = null, see, open, folder, sessionId }) {
       const [picked, pick] = useState(null)
       useEffect(() => pick(null), [runId])
       const hearth = state.fleet.hearths.find((each) => each.realm === realm)
@@ -984,7 +984,10 @@ window.__ModuleLoader__.load({
         : runAbout !== null ? `About ${runAbout}.`
           : `About the Brokkr realm “${hearth.realm}” and its runs.`
       return h(React.Fragment, null,
-        h('div', { className: 'bk-bar' }, h('button', { type: 'button', className: 'bk-link', onClick: row === null ? back : () => select(null) }, row === null ? '← All realms' : `← ${hearth.realm}’s runs`),
+        h('div', { className: 'bk-bar' },
+          // Opened from the Library: the way back to where the operator was comes first, the realm's runs beside it.
+          row !== null && cameFrom !== null ? h('button', { type: 'button', className: 'bk-link', onClick: cameFrom.go }, `← ${cameFrom.label}`) : null,
+          h('button', { type: 'button', className: 'bk-link', onClick: row === null ? back : () => select(null) }, row === null ? '← All realms' : cameFrom !== null ? `${hearth.realm}’s runs` : `← ${hearth.realm}’s runs`),
           h('span', { style: { fontSize: 17, fontWeight: 600 } }, row === null ? hearth.realm : label),
           h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null),
         row === null
@@ -1452,10 +1455,13 @@ window.__ModuleLoader__.load({
      * "not measured yet", are the ones that graph names, measured or not.
      */
     function Library({ route, go, here, openRun }) {
-      const [range, setRange] = useState('7d')
+      // The range and the pick live in the route, so a run opened from here can bring the operator back to exactly this.
+      const range = route.range ?? '7d'
+      const setRange = (word) => go({ range: word })
       const [figures, setFigures] = useState({ range: null, value: null, error: null })
       const [graph, setGraph] = useState({ key: null, value: null, error: null })
-      const [picked, pick] = useState(null)
+      const picked = route.picked ?? null
+      const pick = (value) => go({ picked: value })
       const [targets, setTargets] = useTargets()
       useEffect(() => {
         let wanted = true
@@ -1485,7 +1491,13 @@ window.__ModuleLoader__.load({
       }, [key, current === null])
       const shown = graph.key === key ? graph : null
       const recipe = asked ?? shown?.value?.recipe ?? null
-      useEffect(() => pick(null), [realm, recipe])
+      // Another realm or recipe lets the pick go; coming back to the same one keeps it.
+      const [seen] = useState({ at: [realm, recipe].join('\u0000') })
+      useEffect(() => {
+        const at = [realm, recipe].join('\u0000')
+        if (at !== seen.at && picked !== null) pick(null)
+        seen.at = at
+      }, [realm, recipe])
       const known = shown?.value?.recipes ?? null
       const goTo = (change) => go({ realm, recipe: asked, sub, ...change })
       const names = known ?? rows.map((row) => row.recipe)
@@ -1494,7 +1506,7 @@ window.__ModuleLoader__.load({
           : sub === 'pareto' ? h(Pareto, { rows, known: known ?? [], targets, setTargets, open: (name) => goTo({ sub: 'graph', recipe: name }) })
             : shown === null ? h('div', { className: 'bk-note' }, 'Reading the graph…')
               : shown.error !== null ? h('div', { className: 'bk-error' }, `The graph could not be read: ${shown.error}`)
-                : h(RecipeGraph, { view: shown.value, picked, pick, openRun: (run) => openRun(realm, run) })
+                : h(RecipeGraph, { view: shown.value, picked, pick, openRun: (run) => openRun(realm, run, { ...route, view: 'library', realm, recipe, range, picked }) })
       return h('div', { className: 'bk-main bk-library' },
         h('h1', { className: 'bk-title' }, realm ?? 'this workspace', sub === 'graph' && recipe !== null ? ` / ${recipe}` : ''),
         h('div', { className: 'bk-row' },
@@ -1560,11 +1572,13 @@ window.__ModuleLoader__.load({
       }, [route.view, route.realm, route.run])
       const open = (realm, run = null) => setRoute({ view: 'realm', realm, run })
       // A live run's pulse in the Library opens it in Realms as its fleet row does: the hearth holding its realm, then the run.
-      const openRun = (realm, run) => {
+      // `from` is where the operator opened it, kept so the run's bar can bring them back there.
+      const openRun = (realm, run, from = null) => {
         const hearths = state.fleet.hearths
-        open(hearths.find((hearth) => holds(hearth, realm))?.realm ?? (hearths.length === 1 ? hearths[0].realm : realm), run)
+        setRoute({ view: 'realm', realm: hearths.find((hearth) => holds(hearth, realm))?.realm ?? (hearths.length === 1 ? hearths[0].realm : realm), run, from })
       }
-      const select = (run) => setRoute({ ...route, run })
+      const select = (run) => setRoute({ ...route, run, from: run === null ? null : route.from ?? null })
+      const cameFrom = route.view === 'realm' && route.run !== null && route.from ? { label: `Library · ${route.from.realm} / ${route.from.recipe ?? 'its recipe'}`, go: () => setRoute(route.from) } : null
       const see = (view) => emit({ run: { realm: route.realm, run_id: route.run, view } })
       const count = waiting(state.fleet)
       const tab = (view, text) => h('button', { type: 'button', className: `bk-tab${route.view === view || (view === 'realms' && route.view === 'realm') ? ' on' : ''}`, onClick: () => setRoute({ view, realm: null, run: null }) }, text)
@@ -1572,7 +1586,7 @@ window.__ModuleLoader__.load({
         ? h('div', { className: 'bk-main' }, state.error === null ? h('div', { className: 'bk-note' }, state.live ? 'Reading Brokkr…' : 'Connecting…') : null)
         : route.view === 'analytics' ? h(Analytics, { open })
           : route.view === 'library' ? h(Library, { route, go: (change) => setRoute({ ...route, ...change }), here, openRun })
-            : route.view === 'realm' ? h(Realm, { state, realm: route.realm, runId: route.run, select, back: () => setRoute({ view: 'realms', realm: null, run: null }), see, open, folder, sessionId })
+            : route.view === 'realm' ? h(Realm, { state, realm: route.realm, runId: route.run, select, back: () => setRoute({ view: 'realms', realm: null, run: null }), cameFrom, see, open, folder, sessionId })
               : h(Realms, { state, open, here: home, folder, sessionId })
       const context = !inTab ? null
         : looking ? 'finding this conversation’s realm…'

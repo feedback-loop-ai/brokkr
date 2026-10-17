@@ -90,3 +90,12 @@ The console SHALL show no question box (Ask Brokkr, Ask about this run) on the R
 - **WHEN** `BROKKR_CONSOLE_ASK` is unset
 - **THEN** neither the Realms view nor a run shows a question box
 
+### Requirement: A run opened from the Library leads back to it
+
+A run opened from the Library SHALL offer, first in its bar, a way back to the Library as the operator left it: the same realm, recipe, view, range and picked state or transition. The realm's runs SHALL stay beside it, and leaving by them SHALL let the way back go.
+
+#### Scenario: Back from a transition's run
+
+- **WHEN** the operator, on `brokkr / self` over 30 days with `verify → stop` picked, opens a run that took `VERIFY-FAIL`, and then presses "← Library · brokkr / self"
+- **THEN** the Library shows `brokkr / self` over 30 days with `verify → stop` still picked
+

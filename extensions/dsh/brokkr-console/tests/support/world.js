@@ -309,8 +309,8 @@ export function graphDoc(over = {}) {
       graphRule('IMPL-OK', 'implement', 'verify', 'forward', 6),
       graphRule('VERIFY-PASS', 'verify', 'review', 'forward', 4),
       graphRule('VERIFY-FAIL', 'verify', 'stop', 'terminal', 3, { result: 'fail', when: ['not fixes_applied'], severity: 'normal', latest: [
-        { run_id: 'flaky-gates-11aa22bb', label: 'Flaky gates', at: '2026-10-12T09:00:00Z' },
-        { run_id: 'cert-expiry-33cc44dd', label: 'Cert expiry', at: '2026-10-10T09:00:00Z' },
+        { run_id: 'encrypt-the-token-store-41d0a9c2', label: 'Encrypt the token store', at: '2026-10-12T09:00:00Z' },
+        { run_id: 'tidy-the-seats-2b3c4d5e', label: 'Tidy the seats', at: '2026-10-10T09:00:00Z' },
       ] }),
       graphRule('REVIEW-OK', 'review', 'ship', 'forward', 2),
       graphRule('REVIEW-REFORGE', 'review', 'implement', 'back', 1, { result: 'fail' }),
