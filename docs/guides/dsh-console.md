@@ -64,9 +64,9 @@ without DSH's login cookie, or from another origin, is refused.
   its session in the conversation's folder.
 - **From the left panel.** The full-width console, on every realm.
 
-A realm's run list carries a bar of every realm, so you can move between
-them without going back to the cards. Inside a run the bar is gone: the
-context there is that realm and that run.
+A realm's view, and a run's inside it, offer no other realm: the context
+there is that realm, and that run. "← All realms" leads back to the cards,
+where every realm is.
 
 ## What it shows
 

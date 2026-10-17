@@ -986,13 +986,7 @@ window.__ModuleLoader__.load({
       return h(React.Fragment, null,
         h('div', { className: 'bk-bar' }, h('button', { type: 'button', className: 'bk-link', onClick: row === null ? back : () => select(null) }, row === null ? '← All realms' : `← ${hearth.realm}’s runs`),
           h('span', { style: { fontSize: 17, fontWeight: 600 } }, row === null ? hearth.realm : label),
-          h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null,
-          // Other realms are offered on a realm's run list only: inside a run the context is that realm and that run.
-          row !== null || state.fleet.hearths.length < 2 ? null : h('nav', { className: 'bk-realms', 'aria-label': 'Realms' }, state.fleet.hearths.map((each) => {
-            const waitingHere = each.runs.filter(needsYou).length
-            return h('button', { key: each.realm, type: 'button', className: `bk-fchip${each.realm === hearth.realm ? ' on' : ''}`, 'aria-pressed': each.realm === hearth.realm, onClick: () => open(each.realm) },
-              waitingHere > 0 ? `${each.realm} · ${waitingHere}` : each.realm)
-          }))),
+          h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null),
         row === null
           ? h('main', { className: 'bk-main' }, h(RunList, { hearth, selected: runId, select }))
           : h(Run, { hearth, row, run: state.run, see, picked, pick }),

@@ -76,7 +76,6 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-muninn{padding:10px 12px;background:var(--bk-sunken);border:1px solid var(--bk-line);border-radius:10px;font-size:12px;line-height:17px;color:var(--bk-ink-2)}
 .bk-input{width:100%;box-sizing:border-box;font:inherit;font-size:14px;border:1px solid var(--bk-line-strong);border-radius:10px;padding:11px 12px;background:var(--bk-surface);color:var(--bk-ink)}
 .bk-bar{background:var(--bk-sunken);border-bottom:1px solid var(--bk-line);padding:10px 24px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-.bk-realms{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .bk-grp{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--bk-muted);padding:12px 8px 4px;border-bottom:1px solid var(--bk-line-soft)}
 .bk-runs{gap:0}
 .bk-filter{position:absolute;top:-17px;right:12px;width:min(260px,50%);padding:5px 10px;font-size:13px;border-radius:8px;background:var(--bk-canvas)}
