@@ -19,13 +19,12 @@
  122 crates/brokkr-runtime/src/agents.rs:1094 compose
  173 crates/brokkr-runtime/src/agents/load.rs:767 parse_adapter
  101 crates/brokkr-runtime/src/agents/load.rs:1008 resume_assessment
- 452 crates/brokkr-runtime/src/bundle.rs:1324 assemble
- 110 crates/brokkr-runtime/src/bundle.rs:2182 resolve_reference
- 112 crates/brokkr-runtime/src/bundle.rs:2596 lower_inline_sandbox
- 104 crates/brokkr-runtime/src/bundle.rs:3187 admit_local_sandbox
- 132 crates/brokkr-runtime/src/bundle.rs:5270 record_capabilities
- 190 crates/brokkr-runtime/src/bundle.rs:5551 parse_sequence
- 102 crates/brokkr-runtime/src/bundle.rs:6077 walk_files
+ 110 crates/brokkr-runtime/src/bundle.rs:1705 resolve_reference
+ 112 crates/brokkr-runtime/src/bundle.rs:2119 lower_inline_sandbox
+ 104 crates/brokkr-runtime/src/bundle.rs:2710 admit_local_sandbox
+ 132 crates/brokkr-runtime/src/bundle.rs:4790 record_capabilities
+ 190 crates/brokkr-runtime/src/bundle.rs:5071 parse_sequence
+ 102 crates/brokkr-runtime/src/bundle.rs:5597 walk_files
  240 crates/brokkr-runtime/src/capabilities.rs:1491 native_plan
  127 crates/brokkr-runtime/src/dialect.rs:434 check
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
