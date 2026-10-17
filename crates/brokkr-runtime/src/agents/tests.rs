@@ -2417,11 +2417,14 @@ fn an_io_failure_propagates_rather_than_becoming_a_warning() {
 }
 
 /// A top-level key nobody knows is refused on an adapter exactly as on
-/// an agent: a misspelled capability must not read as silence.
+/// an agent: a misspelled capability must not read as silence. MB4's
+/// `harness_auth` is admitted beside the rest (U7d3).
 #[test]
 fn an_unknown_top_level_adapter_key_is_refused() {
     let tree = Tree::new();
     let mut adapter = claude_body();
+    // Written first, in key order too: were it unknown, it would be named.
+    adapter["harness_auth"] = json!({"names": ["CLAUDE_KEY"], "measured": "a fixture"});
     adapter["tool_permisions"] = json!("unsupported");
     tree.write("adapters/claude.json", &adapter);
     let message = tree.adapters_error();
@@ -4938,13 +4941,7 @@ mod native {
             &Serving {
                 provider,
                 harness,
-                model: Some("tn-1"),
-                native: Some((native, "d1ge57")),
-                unloaded: None,
-                authored: &[],
-                fragment: &[],
-                provenance: brokkr_protocol::native_controls::Provenance::NONE,
-                written: &[],
+                ..crate::capabilities::tests::serving(native)
             },
         )
     }
@@ -5836,3 +5833,5 @@ fn notice_and_evidence_bytes_each_move_the_adapter_digest() {
         json!({"version": "1.2.3", "applies_to": "1.2.3"})
     );
 }
+
+mod harness_auth;

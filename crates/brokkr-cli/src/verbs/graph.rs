@@ -22,6 +22,7 @@ use serde::Deserialize;
 use super::analytics::{range, read_hearths};
 use crate::folder::Layout;
 use crate::recipes::listed;
+use crate::recipes::personal::ShelfPath;
 use crate::{fleet_of, now_rfc3339, Exit, Invocation};
 
 #[derive(clap::Args)]
@@ -170,7 +171,7 @@ fn bundles(dir: &Path, depth: usize) -> Vec<(String, PathBuf)> {
 fn shelf(folder: &Path) -> Result<Vec<(String, PathBuf)>> {
     let layout = Layout::discover(folder)?;
     layout.refuse_old()?;
-    let recipes = folder.join(layout.recipes(None));
+    let recipes = ShelfPath::new(folder.join(layout.recipes(None).path()));
     let mut found = listed(&recipes).unwrap_or_default();
     found.extend(layout.bundle().ok().as_deref().and_then(named));
     found.extend(bundles(folder, BUNDLE_DEPTH));

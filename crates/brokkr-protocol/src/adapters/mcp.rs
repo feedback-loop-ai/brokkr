@@ -731,5 +731,55 @@ pub(super) fn isolated(
     })
 }
 
+/// An adapter's `harness_auth` as written: the environment variable names
+/// its harness reads to authenticate, beside the measurement that found
+/// them, and nothing else (MB4).
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DeclaredAuth {
+    names: Vec<String>,
+    measured: String,
+}
+
+/// Why an adapter's `harness_auth` declaration is refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum HarnessAuthError {
+    /// Not an object of exactly `names` and a non-empty `measured`.
+    #[error("must be an object of exactly 'names' and a non-empty 'measured' ({0})")]
+    Shape(String),
+    /// A name outside decision 0012's grammar.
+    #[error("names '{0}', which does not match [A-Z][A-Z0-9_]*")]
+    Name(String),
+    #[error("names '{0}' twice")]
+    Repeated(String),
+}
+
+/// The names an adapter's `harness_auth` declaration measured (MB4), read
+/// once: each holds decision 0012's name grammar and none is written twice.
+/// The measurement is evidence the adapter digest pins; nothing reads it.
+pub fn harness_auth(value: &Value) -> Result<Vec<String>, HarnessAuthError> {
+    // serde reads an array into a struct by position; only an object is a
+    // declaration.
+    if !value.is_object() {
+        return Err(HarnessAuthError::Shape("it is not an object".into()));
+    }
+    let declared = <DeclaredAuth as serde::Deserialize>::deserialize(value)
+        .map_err(|error| HarnessAuthError::Shape(error.to_string()))?;
+    if declared.measured.is_empty() {
+        return Err(HarnessAuthError::Shape("'measured' is empty".into()));
+    }
+    let mut names: Vec<String> = Vec::with_capacity(declared.names.len());
+    for name in declared.names {
+        if !crate::secret::valid_name(&name) {
+            return Err(HarnessAuthError::Name(name));
+        }
+        if names.contains(&name) {
+            return Err(HarnessAuthError::Repeated(name));
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
 #[cfg(test)]
 pub(super) mod tests;

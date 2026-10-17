@@ -865,3 +865,139 @@ warn     shelf: <root>/.brokkr/recipes: <error>
 **9. Vehicle and order.** This addendum, in #696's pull request, built
 after #634's third slice; the quickstart gains a step that tries another
 recipe on the shelf.
+
+## Addendum — 2026-10-16, the personal shelf (#697)
+
+Status: proposed; only the operator accepts this addendum.
+
+Ruling 7 left #432 a personal overlay of tracked configuration. The
+operator ruled its first slice in chat on 2026-10-15, as #697's rulings
+1 to 7 state them. This addendum records what its first pull request
+built, ruling by ruling, and names what it leaves to the next. The
+rulings above and the addenda of 2026-10-15 and 2026-10-16 (#696) keep
+their own words.
+
+**1. The place.** The personal shelf is `recipes` in the machine's
+configuration directory, the one decision 0068's addendum gives
+`host.json`: `$XDG_CONFIG_HOME/brokkr/recipes/<name>/`, else
+`$HOME/.config/brokkr/recipes/<name>/`, on Linux and macOS alike. A
+value that is not an absolute directory is passed over. Both files take
+that directory from one function, so `host.json` and the shelf cannot
+part. The shelf is in no repository, and no library mark is judged
+there: an install onto it applies no repository, folder or library
+detection to the shelf or to any directory above it, and keeps every
+hold that guards the write itself. `XDG_CONFIG_HOME` and `HOME` name the
+operator's own configuration, and Brokkr does not judge whether that
+directory lies inside a repository. Where neither variable names an
+absolute directory, an install
+refuses with `host.json`'s own text, as the lookup does:
+
+```text
+no host configuration can be found: neither XDG_CONFIG_HOME nor HOME names an absolute directory
+```
+
+Where the machine places no shelf, a reader of the shelf has nothing to
+read: `--recipe`, `recipes list` and doctor read the project's shelf
+alone.
+
+**2. No shadowing.** `--recipe <name>` on `run`, `resume`, `rerun` and
+`queue add`, and `recipes show <name>`, read the project's shelf, then
+the personal one. A name with any entry standing on both refuses, naming
+both paths, and neither shelf wins:
+
+```text
+recipe '<name>' stands on both the project shelf, at <project>/<name>, and the personal shelf, at <personal>/<name> (#697): neither shelf wins, so rename or remove one of them
+```
+
+An entry at the name that cannot be read refuses as `reading <path>:
+<cause>`, never read as absent. The project's shelf is the one #696's
+ruling 2 gives, so an explicit `--recipes-dir` or `--dir` names it, and
+the personal shelf is still read beside it, under the same refusal.
+`--recipe` names a recipe, never a path: a name that is not one plain
+recipe name, judged by its spelling, so `x/` and `./x` as much as `a/b`,
+`..` or an empty name, refuses on every one of those verbs before
+either shelf is read:
+
+```text
+--recipe '<name>' is not one plain recipe name, so it would not name one recipe on a shelf (#697): name the recipe as it stands on its shelf, or give --bundle <dir> for a bundle elsewhere; nothing was run
+```
+
+A shelf that cannot be read, the project's or the personal one, is
+never read as an empty one: it refuses on every one of those verbs
+before either recipe is taken. Nothing standing at a shelf is an empty
+shelf, but the nearest entry standing at it or above it must resolve to
+a directory, so a link to nothing, a looping link, a file, or an entry
+whose metadata cannot be read refuses, naming the shelf and the entry
+judged. A shelf's path is normalised once, where it enters, so every
+spelling of one shelf is judged at the same entry. `recipes add` judges
+the shelf it installs onto by the same rule:
+
+```text
+the <origin> shelf <shelf> cannot be read (#697): <path>: <cause>; a shelf that cannot be read is never read as an empty one, so mend or remove it; nothing was run or installed
+```
+
+A name on neither shelf refuses as before,
+naming the project's shelf. A queued launch keeps the shelf it resolved
+when it was queued.
+
+**3. Composition runs one way.** A personal recipe composes from its own
+shelf, its parent, as every layer that is no folder bundle does
+(decision 0017; #696's ruling 4). Nothing on a project shelf or in a
+folder bundle can name a personal recipe, because neither shelf's
+composition reads the other. A personal recipe extending a project
+recipe, a personal recipe extending the folder's own bundle through the
+reserved name `.brokkr`, and the two typed refusals of a project layer
+naming a personal one are #697's second slice. The compiler's resolver
+reads only the layer's directory (`places::base_library`), so a personal
+layer's second library needs the workspace threaded into the resolve,
+which is the bundle compiler's change.
+
+**4. Same checks.** `recipes add --personal`, `recipes list`, doctor and
+a run compile a personal recipe through the one compile every recipe
+takes (`launch::compile_for`), against the workspace's agents and
+adapters, so it gets every refusal a tracked recipe gets and has one
+digest on every surface. An install onto a shelf outside the repository
+copies no agent or charter into the repository's library. A recipe that
+hires an agent the workspace lacks refuses to compile, and the install
+removes it.
+
+**5. Origins.** A run from a personal recipe pins its composed manifest
+as every run does, and a resume reads that pin and refuses drift, so an
+edit of the personal recipe after the run started is refused:
+
+```text
+run '<run>' pins a different bundle: changed: <file>
+```
+
+Recording each layer's origin in the journal, and `recipes show`
+printing it, are the second slice's, with ruling 3's composition across
+shelves, since a chain within one shelf has one origin.
+
+**6. The CLI.** `recipes add --personal <source> --name <name>` installs
+onto the personal shelf, from any directory of the repository whose
+agents and adapters compile it. It is `add`'s only destination choice.
+The directories it makes above the shelf are removed again when the
+install refuses. `recipes list` prints the project's recipes, then the
+personal ones, each line with its origin, `project` or `personal`,
+before its path:
+
+```text
+<name>	<digest>	<n> phases	<seats>	<cost>	<description>	<origin>	<path>
+```
+
+Doctor prints the personal shelf's lines after the shelf's, where a run
+reads named recipes: after the folder found with no old shape, and after
+a recipe library's line. They follow the shelf lines' rules: a broken
+recipe warns and never makes the report unhealthy, and no shelf is no
+line.
+
+```text
+ok       personal recipe <name>: <digest> at <personal>/<name>
+warn     personal recipe <name>: <personal>/<name> does not compile (#697): <refusal>
+warn     personal shelf: <personal>: <error>
+```
+
+**7. Vehicle and order.** This addendum is in #697's first pull request,
+built after #696. The second slice builds composition across shelves
+(ruling 3), the origins of ruling 5 and their proof on resume, and
+extends this addendum.

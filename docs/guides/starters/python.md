@@ -3,9 +3,9 @@
 Two real `brokkr init .` runs, transcribed, each at the root of a fresh
 `git init` copy of a fixture: one a uv-managed repository and one the
 same repository with the `uv.lock` removed. Nothing here was written by
-hand but each copy's absolute path, shown as `/home/you/my-app`, and the
-paths every stack writes, elided because the
-[quickstart](../quickstart.md#step-2--brokkr-init-) lists them.
+hand. Each run prints what the quickstart's
+[Step 2](../quickstart.md#step-2--brokkr-init-) shows, with its own
+digest.
 
 Python is the second stack (after node) where `init` reads a lockfile to
 decide, so this page shows both answers and the file that separates
@@ -23,17 +23,6 @@ them.
 name = "recognizable-uv-app"
 version = "0.1.0"
 requires-python = ">=3.11"
-```
-
-```
-$ brokkr init .
-```
-
-```text
-initialized /home/you/my-app/.brokkr (digest d1fc9704ac0eb601ebfa6d4c8a267243ac74a6e8494b10ce3101068a0de8aaf3), writing:
-  … fifteen paths and a note, elided here
-Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
-commit the folder: git add .brokkr && git commit
 ```
 
 Fixture:
@@ -108,17 +97,6 @@ Same repository, no `uv.lock`:
 
 ```
 ./pyproject.toml
-```
-
-```
-$ brokkr init .
-```
-
-```text
-initialized /home/you/my-app/.brokkr (digest 07c1023f78ee90dfad0991de782974ba7118be8c867c0c00a09f2bfa648ffc83), writing:
-  … fifteen paths and a note, elided here
-Decision 0065 rules that a seat never inherits your own MCP configuration, but this build does not enforce it yet: a seat may still start the MCP servers your harness configuration names.
-commit the folder: git add .brokkr && git commit
 ```
 
 `.brokkr/agents/charters/implementer.md` and `.brokkr/scripts/verify-seat.sh`, the

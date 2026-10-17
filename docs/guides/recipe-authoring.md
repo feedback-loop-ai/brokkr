@@ -30,24 +30,24 @@ or adapter edit, and the witness tests are where digests are pinned.
 
 ```
 $ brokkr recipes list
-fast	…	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	recipes/fast
-gpt-flash	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=gpt-flash-implementer;design=gpt-flash-implementer-sdd;engine=gpt-flash-implementer-engine;feature=gpt-flash-implementer}, review{chore=positions>chief;design=positions>chief;engine=positions>chief;feature=positions>chief}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	GPT Sol plans, DeepSeek Flash 4.1 implements, and Sol rules final review with Astra as its last fallback.	recipes/gpt-flash
-landing	…	7 phases	classify, implement, review, ship, verify	low	A branch authored by hand is classified, verified when it is code, judged, remediated on findings and shipped by a run that vouches for it: fast entered at a classify gate, the road for shop work instead of the by-hand label.	recipes/landing
-night-shift	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	recipes/night-shift
-node	…	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	recipes/node
-panel-review	…	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	recipes/panel-review
-preflight	…	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	recipes/preflight
-release	…	6 phases	implement, review, ship, verify	medium	Prepare a configured release: versions, commit-derived notes, documentation and organization-profile patches, followed by verification and review.	recipes/release
-research	…	4 phases	research, verify	low	Read articles and propose registry entries with cited classifications; the operator rules them.	recipes/research
-research-dsh	…	4 phases	research, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.	recipes/research-dsh
-review-first	…	6 phases	implement, review, ship, verify	medium	An existing branch judged first: Sol reviews, the suite verifies, Muse remediates findings on return, and the run ships.	recipes/review-first
-self	…	7 phases	implement, intake, review, ship, verify	medium	Brokkr delivering itself (decision 0005): panel-review's table and crew with one reviewer in place of the panel.	recipes/self
-standby	…	6 phases	implement, review, ship, verify	medium	Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit.	recipes/standby
-triage	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	recipes/triage
-verify	…	4 phases	review, verify			recipes/verify
-wager-harness	…	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	recipes/wager-harness
-wager-harness-dsh	…	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	recipes/wager-harness-dsh
-wager-harness-muse	…	6 phases	implement, review, ship, verify	low	Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.	recipes/wager-harness-muse
+fast	…	6 phases	implement, review, ship, verify	medium	Default Rust delivery from implementation through verification, review, and ship.	project	recipes/fast
+gpt-flash	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=gpt-flash-implementer;design=gpt-flash-implementer-sdd;engine=gpt-flash-implementer-engine;feature=gpt-flash-implementer}, review{chore=positions>chief;design=positions>chief;engine=positions>chief;feature=positions>chief}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	GPT Sol plans, DeepSeek Flash 4.1 implements, and Sol rules final review with Astra as its last fallback.	project	recipes/gpt-flash
+landing	…	7 phases	classify, implement, review, ship, verify	low	A branch authored by hand is classified, verified when it is code, judged, remediated on findings and shipped by a run that vouches for it: fast entered at a classify gate, the road for shop work instead of the by-hand label.	project	recipes/landing
+night-shift	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	medium-high	Unattended triage routing that parks on the first unusual result and uses the dsh implementation lane.	project	recipes/night-shift
+node	…	6 phases	implement, review, ship, verify	medium	Node and TypeScript repositories using JavaScript-specific seats and tools.	project	recipes/node
+panel-review	…	7 phases	implement, intake, review[correctness+security], ship, verify	high	General delivery needing independent correctness and security reviewers.	project	recipes/panel-review
+preflight	…	4 phases	review, verify	medium	Verify and review an existing branch without implementing or shipping it.	project	recipes/preflight
+release	…	6 phases	implement, review, ship, verify	medium	Prepare a configured release: versions, commit-derived notes, documentation and organization-profile patches, followed by verification and review.	project	recipes/release
+research	…	4 phases	research, verify	low	Read articles and propose registry entries with cited classifications; the operator rules them.	project	recipes/research
+research-dsh	…	4 phases	research, verify	low	The research intake on the dsh lane: the same charter and gate, the researcher seated on Qwen3.8-Max with page fetch turned on.	project	recipes/research-dsh
+review-first	…	6 phases	implement, review, ship, verify	medium	An existing branch judged first: Sol reviews, the suite verifies, Muse remediates findings on return, and the run ships.	project	recipes/review-first
+self	…	7 phases	implement, intake, review, ship, verify	medium	Brokkr delivering itself (decision 0005): panel-review's table and crew with one reviewer in place of the panel.	project	recipes/self
+standby	…	6 phases	implement, review, ship, verify	medium	Fast's shape with every model seat on the other vendor at judge-grade effort, so delivery survives one account's exhausted limit.	project	recipes/standby
+triage	…	12 phases	analyze[check>judge], clarify[check>judge], design[positions>chief>validate], implement{chore=implementer;design=implementer-sdd;engine=implementer-engine;feature=implementer}, review{chore=reviewer;design=positions>chief;engine=positions>chief;feature=review-correctness+review-security}, ship, specify[author>validate], tasks[author>validate], triage, verify[checks>dialect-verify]	variable	Routing delivery: a chief-grade triage gate rules the class before Fast's crew, adding the current SDD design council when ruled.	project	recipes/triage
+verify	…	4 phases	review, verify			project	recipes/verify
+wager-harness	…	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to Codex for a fair wager.	project	recipes/wager-harness
+wager-harness-dsh	…	6 phases	implement, review, ship, verify	medium	Driver evaluation that swaps only implementation to DSH for a fair wager.	project	recipes/wager-harness-dsh
+wager-harness-muse	…	6 phases	implement, review, ship, verify	low	Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.	project	recipes/wager-harness-muse
 ```
 
 | Recipe | Reach for it when | The difference it states |
@@ -77,6 +77,18 @@ Node/TypeScript repository instead of this Rust one: the phase table is
 identical, only the seats' driver commands and role charters are
 JavaScript. [Adopting a Node repo](adopting-a-node-repo.md)
 walks a stranger from an unmodified repo to a first run.
+
+The `project` column is the recipe's origin. Your own recipes, kept out
+of every repository, stand on the personal shelf beside the machine's
+host configuration: `$XDG_CONFIG_HOME/brokkr/recipes/<name>/`, else
+`$HOME/.config/brokkr/recipes/<name>/`. `recipes add --personal`
+installs there. `recipes list` lists them after the project's, as
+`personal`. `--recipe <name>` reads the project's shelf first, then the
+personal one. A personal recipe compiles against the workspace's agents
+and adapters, as a tracked one does, and the install copies no agent or
+charter into the repository. A name that stands on both shelves refuses
+rather than letting one win (#697). A personal recipe can extend another
+on its own shelf; extending a project recipe is #432's next slice.
 
 Every shipped `verify` and `ship` seat is an inline gate-class `exec`
 site with workspace hands. No model reports evidence that a script can

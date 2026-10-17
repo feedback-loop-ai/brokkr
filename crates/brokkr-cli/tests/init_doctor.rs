@@ -11,33 +11,7 @@
 use std::process::Command;
 
 use crate::brokkr_folder::{git, repository, Repo, ROOT_LAYOUT, STATE_ONLY};
-
-/// Run `brokkr`. An `init` runs with a `claude` first on PATH: it
-/// scaffolds for the first of claude, codex or dsh it finds, and these
-/// proofs are about the claude scaffold whatever agent CLIs this host
-/// carries. Every other verb sees the host's own PATH.
-fn brokkr(args: &[&str], cwd: &std::path::Path) -> (Option<i32>, String, String) {
-    let stubs = tempfile::tempdir().unwrap();
-    std::fs::write(stubs.path().join("claude"), "").unwrap();
-    let mut path = std::env::var_os("PATH").unwrap();
-    if args.first() == Some(&"init") {
-        path = std::env::join_paths(
-            std::iter::once(stubs.path().to_path_buf()).chain(std::env::split_paths(&path)),
-        )
-        .unwrap();
-    }
-    let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(args)
-        .env("PATH", path)
-        .current_dir(cwd)
-        .output()
-        .unwrap();
-    (
-        out.status.code(),
-        String::from_utf8_lossy(&out.stdout).into_owned(),
-        String::from_utf8_lossy(&out.stderr).into_owned(),
-    )
-}
+use crate::init_stacks::brokkr;
 
 #[test]
 fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
@@ -200,15 +174,9 @@ const AMBIENT_MCP: &str = "Decision 0065 rules that a seat never inherits your o
      configuration, but this build does not enforce it yet: a seat may still start the MCP \
      servers your harness configuration names.";
 
-/// The guides that transcribe a scaffold's output.
-const TRANSCRIPTS: [&str; 6] = [
-    "quickstart.md",
-    "starters/bun.md",
-    "starters/go.md",
-    "starters/node.md",
-    "starters/python.md",
-    "starters/rust.md",
-];
+/// The guides that transcribe a scaffold's output: the quickstart's
+/// Step 2, which `doc_samples` runs, and the starters point to.
+const TRANSCRIPTS: [&str; 1] = ["quickstart.md"];
 
 /// Every guide that transcribes `init`'s output carries the sentence it
 /// prints now, and none still says an unboxed seat is decided by the

@@ -359,11 +359,7 @@ fn dsh_served(bundle: &mut Bundle, label: &str, link: &Candidate) -> PathBuf {
                 harness: "dsh",
                 model: Some(&link.model),
                 native: Some((&dsh.native, &dsh.digest)),
-                unloaded: None,
-                authored: &[],
-                fragment: &[],
-                provenance: brokkr_protocol::native_controls::Provenance::NONE,
-                written: &[],
+                ..crate::capabilities::tests::serving(&dsh.native)
             },
         )
         .expect("the shipped dsh declaration resolves in a realm that grants nothing");

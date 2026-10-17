@@ -65,6 +65,7 @@ mod governing;
 mod host;
 
 pub use capacity::{Capacity, Host, Measured, Shared, Unmeasurable};
+pub(crate) use host::config_dir;
 pub use host::{free_bytes, host_file, HostError, Place, RouteClass};
 
 /// Why an entry may not start now.

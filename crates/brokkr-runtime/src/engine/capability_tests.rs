@@ -19,12 +19,7 @@ fn two_candidates() -> SiteCapabilities {
         provider,
         harness: provider,
         model: Some(model),
-        native: Some((native, "d1ge57")),
-        unloaded: None,
-        authored: &[],
-        fragment: &[],
-        provenance: brokkr_protocol::native_controls::Provenance::NONE,
-        written: &[],
+        ..crate::capabilities::tests::serving(native)
     };
     let outcomes = vec![
         authority
@@ -1418,12 +1413,7 @@ fn holdings(label: &str, office: Value, seat: Option<Value>) -> SiteCapabilities
                         provider,
                         harness: provider,
                         model: Some(model),
-                        native: Some((&native, "d1ge57")),
-                        unloaded: None,
-                        authored: &[],
-                        fragment: &[],
-                        provenance: brokkr_protocol::native_controls::Provenance::NONE,
-                        written: &[],
+                        ..crate::capabilities::tests::serving(&native)
                     },
                 )
                 .unwrap()

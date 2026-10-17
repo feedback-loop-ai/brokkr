@@ -49,6 +49,10 @@ pub brokkr_protocol::adapters::DshUnprepared::Unlocated::cause: brokkr_protocol:
 pub brokkr_protocol::adapters::DshUnprepared::Unlocated::invocation: brokkr_protocol::adapters::DshInvocation
 impl brokkr_protocol::adapters::DshUnprepared
 pub fn brokkr_protocol::adapters::DshUnprepared::cause(&self) -> &brokkr_protocol::adapters::CompositeError
+pub enum brokkr_protocol::adapters::HarnessAuthError
+pub brokkr_protocol::adapters::HarnessAuthError::Name(alloc::string::String)
+pub brokkr_protocol::adapters::HarnessAuthError::Repeated(alloc::string::String)
+pub brokkr_protocol::adapters::HarnessAuthError::Shape(alloc::string::String)
 pub enum brokkr_protocol::adapters::StartRefusal
 pub brokkr_protocol::adapters::StartRefusal::MissingCorrelation(&'static str)
 pub brokkr_protocol::adapters::StartRefusal::Override(brokkr_protocol::overrides::OverrideError)
@@ -112,6 +116,7 @@ pub fn brokkr_protocol::adapters::codex_command(&str, &[alloc::string::String], 
 pub fn brokkr_protocol::adapters::dsh_cold_command(&str, &[alloc::string::String], &str, &str, &str, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::dsh_composite(&brokkr_protocol::adapters::DshSeams) -> core::result::Result<brokkr_protocol::adapters::DshComposite, brokkr_protocol::adapters::CompositeError>
 pub fn brokkr_protocol::adapters::dsh_composite_prepared(&brokkr_protocol::adapters::DshPrepared) -> core::result::Result<brokkr_protocol::adapters::DshComposite, brokkr_protocol::adapters::CompositeError>
+pub fn brokkr_protocol::adapters::harness_auth(&serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, brokkr_protocol::adapters::HarnessAuthError>
 pub fn brokkr_protocol::adapters::lanetally_command(&str, &[alloc::string::String], core::option::Option<&str>, &serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, alloc::string::String>
 pub fn brokkr_protocol::adapters::render_prompt(&serde_json::value::Value, brokkr_protocol::adapters::AdapterKind) -> core::result::Result<alloc::string::String, brokkr_protocol::adapters::StartRefusal>
 pub fn brokkr_protocol::adapters::serve(brokkr_protocol::adapters::AdapterKind, alloc::vec::Vec<alloc::string::String>) -> core::io::error::Result<()>

@@ -1,6 +1,5 @@
 use super::*;
-use crate::recipes::add;
-use crate::recipes::tests::folder_repository;
+use crate::recipes::tests::{add, folder_repository};
 
 /// A folder bundle refuses as a source by the type, judged where it
 /// resolves: spelled, through a link, and as the base a leaf beside it

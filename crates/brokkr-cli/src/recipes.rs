@@ -19,12 +19,14 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::launch::{compile_for, BundleSource};
-use brokkr_runtime::places::{self, Kind, PlacesError, FOLDER};
+use brokkr_runtime::places::{self, Kind, FOLDER};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, Invocation, SeatBody};
 
 mod agents;
+pub(crate) mod personal;
 mod sources;
+use personal::{Origin, Resolved, ShelfPath};
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity), else the `implicit` one a
@@ -115,25 +117,25 @@ fn seat_summary(bundle: &Bundle) -> String {
         .join(", ")
 }
 
-/// One line per recipe that compiles; a warning line per one that does
-/// not. Nothing aborts the listing: a broken recipe is information. A
-/// `dir` that cannot be read warns, unless it is the folder's default
-/// `shelf` (#696) and nothing stands there ([`unshelved`]): no recipe is
-/// on it yet.
-pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
+/// One line per recipe that compiles, with its `origin` (#697); a warning
+/// line per one that does not. Nothing aborts the listing: a broken recipe
+/// is information. A `dir` that cannot be read warns, unless it is a
+/// default `shelf` (#696) and nothing stands there ([`unshelved`]): no
+/// recipe is on it yet.
+pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool, origin: Origin) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let candidates = match listed(dir) {
         Ok(candidates) => candidates,
-        Err(_) if shelf && unshelved(dir) => Vec::new(),
+        Err(_) if shelf && unshelved(origin, dir) => Vec::new(),
         Err(e) => {
-            println!("warning: recipes dir {}: {e}", dir.display());
+            println!("warning: recipes dir {}: {e}", dir.path().display());
             Vec::new()
         }
     };
     for (name, path) in candidates {
         match compile_for(workspace, &path, world.as_ref(), workspace) {
             Ok(bundle) => println!(
-                "{name}\t{}\t{} phases\t{}\t{}\t{}\t{}",
+                "{name}\t{}\t{} phases\t{}\t{}\t{}\t{origin}\t{}",
                 &bundle.manifest_digest()[..12],
                 bundle.machine.phases.len(),
                 seat_summary(&bundle),
@@ -149,8 +151,8 @@ pub(crate) fn list(workspace: &Path, dir: &Path, shelf: bool) -> Result<()> {
 
 /// The recipes in the library `dir`, each directory in it with its name,
 /// sorted: what `list` and doctor's shelf lines both read.
-pub(crate) fn listed(dir: &Path) -> std::io::Result<Vec<(String, PathBuf)>> {
-    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(dir)?
+pub(crate) fn listed(dir: &ShelfPath) -> std::io::Result<Vec<(String, PathBuf)>> {
+    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(dir.path())?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.is_dir())
         .collect();
@@ -164,11 +166,13 @@ pub(crate) fn listed(dir: &Path) -> std::io::Result<Vec<(String, PathBuf)>> {
     Ok(named.collect())
 }
 
-/// Whether nothing stands at the shelf `dir`, judged as the entry itself:
-/// a shelf that is a link to nothing stands, so it warns as an unreadable
-/// one does rather than reading as no shelf.
-pub(crate) fn unshelved(dir: &Path) -> bool {
-    matches!(places::entry(dir), Ok(None))
+/// Whether nothing stands at the `origin` shelf `dir`, judged as the entry
+/// itself, and the shelf resolves as `--recipe` judges it
+/// ([`personal::resolving`]): a shelf that is a link to nothing stands, and
+/// one below a link to nothing or a file does not resolve, so each warns as
+/// an unreadable one does rather than reading as no shelf.
+pub(crate) fn unshelved(origin: Origin, dir: &ShelfPath) -> bool {
+    matches!(places::entry(dir.path()), Ok(None)) && personal::resolving(origin, dir).is_ok()
 }
 
 /// A source is a git URL by prefix (`http://`, `https://`, `git@`, and —
@@ -627,20 +631,15 @@ fn reach(clone: &Path, path: &str) -> Result<PathBuf, AtPath> {
 /// repository but its own shelf (#675, #696 ruling 6), before anything is
 /// cloned, copied or created. `dir` is judged where it resolves, since a
 /// shelf may be a link: by the one walk ([`places::Layout::discover`])
-/// from the nearest entry standing at `dir` or above it, since `add`
-/// creates the rest. The walk resolves links and stops at the nearest
-/// `.git`, so it is taken from every ancestor of that entry as `dir`
-/// spells it, and from every ancestor of the real directory it resolves
+/// from the nearest entry standing at `dir` or above it, `at`, since
+/// `add` creates the rest. The walk resolves links and stops at the
+/// nearest `.git`, so it is taken from every ancestor of `at` as `dir`
+/// spells it, and from every ancestor of the `real` directory it resolves
 /// to: a library or a shelf linked into a folder repository's `recipes/`,
-/// and a nested repository below a folder, refuse. A layout or an entry
-/// that cannot be read refuses in its own words (fail closed). The place
-/// `dir` resolves to is returned.
-fn refuse_folder(dir: &Path) -> Result<PathBuf> {
-    let at = standing(dir)?;
-    let rest = dir.strip_prefix(at).expect("an ancestor prefixes its path");
-    let real = places::Layout::discover(at)?.cwd().to_path_buf();
-    // Collected from its parts, so an empty `rest` leaves no trailing `/`.
-    let place: PathBuf = real.join(rest).components().collect();
+/// and a nested repository below a folder, refuse. A layout that cannot
+/// be read refuses in its own words (fail closed). The `place` `dir`
+/// resolves to is returned.
+fn refuse_folder(Resolved { at, real, place }: Resolved) -> Result<PathBuf> {
     let resolved = real
         .ancestors()
         .filter(|real| !at.ancestors().any(|s| s == *real));
@@ -668,20 +667,6 @@ fn refuse_within(sources: &[&Path], place: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The nearest of `path`, an absolute path, and its ancestors at which an
-/// entry stands, judged as the entry itself ([`places::entry`]); the root
-/// directory always stands. One that cannot be read refuses.
-fn standing(path: &Path) -> Result<&Path, PlacesError> {
-    let found = path.ancestors().find_map(|at| match places::entry(at) {
-        Ok(entry) => entry.map(|_| Ok(at)),
-        Err(source) => Some(Err(PlacesError::Unreadable {
-            path: at.to_path_buf(),
-            source,
-        })),
-    });
-    found.unwrap_or(Ok(path))
-}
-
 /// Clone the git `source` into `clone`, and the bundle root inside it: at
 /// `path` ([`reach`]), else where [`bundle_root`] discovers it.
 fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
@@ -707,32 +692,32 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
     }
 }
 
-/// Install a recipe into the library `dir`, the shelf of the repository at
-/// `root` that `add` runs in (#696 ruling 6): clone or copy it into
-/// `<dir>/<name>`, with the bases it extends that the library lacks and
-/// the agents and charters they name that `root`'s agent library lacks
-/// ([`agents::plan`]), then compile-verify every copy against `root`'s
-/// agents and adapters. If any fails to compile all are removed — the
-/// library only ever holds recipes the compiler accepted or nothing. The
-/// library is held from before it is made to the last compile ([`Shelf`]); a clone
-/// happens before, unheld. A name that is not one plain component
-/// ([`Unplain::Name`]), a `path` the source cannot take ([`Source::judge`])
-/// and a library in a folder repository but its shelf ([`refuse_folder`])
-/// are refused first, and a planned recipe holding the library
+/// Install a recipe into the library `shelf`, the `origin` shelf of the
+/// repository at `root` that `add` runs in (#696 ruling 6, #697): clone or
+/// copy it into `<dir>/<name>`, with the bases it extends that the library
+/// lacks and, onto a project shelf, the agents and charters they name that
+/// `root`'s agent library lacks ([`agents::plan`]), then compile-verify
+/// every copy against `root`'s agents and adapters, all removed if any
+/// fails, held from before the library is made to the last compile
+/// ([`Shelf`]). A name not one plain component ([`Unplain::Name`]), a `path`
+/// the source cannot take ([`Source::judge`]) and a place `origin` refuses
+/// ([`Origin::place`]) refuse first, a planned recipe holding the library
 /// ([`refuse_within`]) or a folder bundle before anything is copied.
 pub(crate) fn add(
     root: &Path,
-    dir: &Path,
+    shelf: &ShelfPath,
+    origin: Origin,
     source: &str,
     name: &str,
     path: Option<&str>,
 ) -> Result<()> {
+    let dir = shelf.path();
     if !plain(Path::new(name)) {
         let (name, dir) = (name.to_string(), dir.to_path_buf());
         return Err(Unplain::Name { name, dir }.into());
     }
     let source = Source::judge(source, path)?;
-    let place = refuse_folder(dir)?;
+    let place = origin.place(shelf)?;
     let world = World::discover(root, None)?;
     let dest = dir.join(name);
     if std::fs::symlink_metadata(&dest).is_ok() {
@@ -742,7 +727,7 @@ pub(crate) fn add(
         );
     }
     let fetched = source.fetch()?;
-    install_held(root, dir, &place, name, fetched, world.as_ref())
+    install_held(root, dir, &place, name, fetched, world.as_ref(), origin)
 }
 
 /// [`add`]'s install, once judged: make and hold the library `dir`, which
@@ -757,6 +742,7 @@ fn install_held(
     name: &str,
     Fetched(_clone, bundle, source_agents): Fetched,
     world: Option<&World>,
+    origin: Origin,
 ) -> Result<()> {
     // Declared before what it outlives: the copies are kept or removed while
     // the library is still held, and an empty one made here goes last.
@@ -766,6 +752,8 @@ fn install_held(
     refuse_within(&sources, place)?;
     sources::refuse_folder_bundles(&sources)?;
     let library = places::Places::of(root)?.agents;
+    // The personal shelf copies nothing into the repository (#697).
+    let source_agents = source_agents.filter(|_| origin == Origin::Project);
     let hires = agents::plan(&sources, source_agents.as_deref(), &library)?;
     let mut installing = install(&planned, dir)?;
     agents::copy(&hires, &mut installing.1)?;

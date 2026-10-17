@@ -11,12 +11,16 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::canonical::sha256_bytes;
-use brokkr_core::policy::{is_declarable, Machine};
+use brokkr_core::policy::Machine;
+// The test modules reach it through `use super::*`.
+#[cfg(test)]
+use brokkr_core::policy::is_declarable;
 use brokkr_core::realms::Boundary;
 use serde_json::{json, Map, Value};
 use thiserror::Error;
 
 mod aggregate;
+mod assemble;
 mod charters;
 pub mod compose;
 mod invocation;
@@ -36,7 +40,7 @@ pub use invocation::Invocation;
 pub(crate) use mcp::{McpContribution, McpIntent};
 use opened::Opened;
 use parse::{SeatScope, SiteCompiler};
-use site_form::{classify, SiteRole, StepShape, SEAT, STEP};
+use site_form::{classify, SiteRole, StepShape, STEP};
 #[cfg(test)]
 use site_form::{refuse_amendments, refuse_boundary_key, refuse_confine};
 pub(crate) use site_key::SiteKey;
@@ -46,7 +50,7 @@ use crate::agents::{
     resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
     EgressClass, HandsNotice, Library, Lowering, Sandbox, TrustTier,
 };
-use crate::dialect::{rendered_phases, Dialect, DialectPhase, DIALECT_PHASES};
+use crate::dialect::{Dialect, DialectPhase};
 use crate::phase_name;
 use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
 
@@ -1316,8 +1320,6 @@ impl Bundle {
     /// then agent references inside the RESOLVED seats resolve against
     /// the library and adapters (decisions 0016 and 0017 layered).
     #[expect(
-        clippy::excessive_nesting,
-        clippy::too_many_lines,
         clippy::too_many_arguments,
         reason = "baseline 2026-09, #288; decision 0065 adds the capability context"
     )]
@@ -1343,97 +1345,29 @@ impl Bundle {
             .map_err(CompileError::Capability)?;
         let config = &resolved.document;
         let name = resolved.name.clone();
-        let description = config
-            .get("description")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let cost = config
-            .get("cost")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let table = resolved.table.clone();
-        let machine = Machine::from_table(&table)?;
-        let uses_dialect = machine
-            .phases
-            .iter()
-            .any(|phase| DIALECT_PHASES.contains(&phase.as_str()));
+        let description = assemble::config_text(config, "description");
+        let cost = assemble::config_text(config, "cost");
+        let phases::Table {
+            machine,
+            uses_dialect,
+            dialect_prompts,
+            declared_minimum,
+            protected_phase,
+        } = phases::table(&resolved, realm_name, dialect)?;
 
-        let mut dialect_prompts = BTreeMap::new();
-        if uses_dialect {
-            if let Some(dialect) = dialect {
-                for phase in rendered_phases() {
-                    let rendered = dialect.rendered.get(phase).cloned().ok_or_else(|| {
-                        CompileError::Invalid(format!(
-                            "dialect '{}' pin carries no rendered instructions for phase '{phase}'",
-                            dialect.name
-                        ))
-                    })?;
-                    dialect_prompts.insert(phase.to_string(), rendered);
-                }
-            }
-        }
-
-        if let Some(phase) = machine
-            .phases
-            .iter()
-            .find(|phase| DIALECT_PHASES.contains(&phase.as_str()))
-        {
-            if realm_name.is_some() && dialect.is_none() {
-                return Err(CompileError::Invalid(format!(
-                    "realm '{}' declares no dialect, but phase '{phase}' needs one",
-                    realm_name.unwrap_or("<unmapped>")
-                )));
-            }
-        }
-
-        let authority = authority.with_minimum(parse_egress_minimum(config)?);
+        let authority = authority.with_minimum(declared_minimum);
         let egress_minimum = authority.minimum();
-        let protected_phase = config
-            .get("protected_phase")
-            .and_then(Value::as_str)
-            .unwrap_or(phase_name::REVIEW)
-            .to_string();
-        if !machine.phases.contains(&protected_phase) {
-            return Err(CompileError::Invalid(format!(
-                "policy has no '{protected_phase}' phase; the protected review \
-                 gate is non-removable (extension model, layer 1)"
-            )));
-        }
-        assert_phase_unavoidable(&machine, &table, &protected_phase)?;
 
-        // What the COMPOSED seats open, each when a site first needs it: a
-        // base may be what carries the agent reference. A dialect phase's
-        // wrapper and steps consult the adapters, so they open here.
-        let mut agents = Opened::new(
+        let agents = assemble::open_agents(
             (library_root, adapters_root),
             &authority.definitions,
             egress_minimum,
             provisional_offices,
-        );
-        if uses_dialect {
-            agents.adapters()?;
-        }
+            uses_dialect,
+        )?;
 
-        // The dialect's `verify` wrapper, applied only AFTER the authoring
-        // census below (design D10 F2). Wrapping renames the wrapped seat's
-        // whole subtree, so a collision it creates or disguises must be
-        // decided against every authoring owner before any fact moves.
-        let wrapped_verify = if uses_dialect {
-            dialect.and_then(|dialect| match &dialect.verify {
-                crate::dialect::CommandOrUnsupported::Command(command) => Some(command),
-                crate::dialect::CommandOrUnsupported::Unsupported(_) => None,
-            })
-        } else {
-            None
-        };
-        // The resolved agent hands the wrapped verify seat carried, kept for
-        // the synthetic validator's hands law in the wrapper pass. Only
-        // `verify` is ever wrapped, so one slot answers.
-        let mut verify_agent_hands: Option<HandsSpec> = None;
+        let wrapped_verify = assemble::wrapped_verify(uses_dialect, dialect);
 
-        let mut seats = BTreeMap::new();
         let charters = Charters::default();
         // The one canonical family table (design D10 F1) is the compiler's
         // until the loop ends: every fact is written into an entrant of its
@@ -1446,460 +1380,49 @@ impl Bundle {
             &resolved.roots,
             &resolved.case_origin,
         );
-        for (phase, raw) in &resolved.seats {
-            // An inherited seat's `role` and `./`-prefixed argv resolve
-            // against the layer that WROTE them, found by name — the
-            // resolver never looked inside the seat to learn this.
-            let dir = &resolved.roots[resolved.seat_origin[phase]];
-            if !machine.phases.contains(phase) {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{phase}' names a phase the policy does not have"
-                )));
-            }
-            let shape = classify(phase, raw, &SEAT)?;
-            let results = raw
-                .get("results")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect::<Vec<_>>()
-                })
-                .filter(|r| !r.is_empty())
-                .ok_or_else(|| {
-                    CompileError::Invalid(format!("seat '{phase}' needs non-empty 'results'"))
-                })?;
-            for result in &results {
-                let covered = machine
-                    .rules
-                    .iter()
-                    .any(|rule| rule.from == *phase && rule.result == *result);
-                // Decision 0041 reserves the implementer's `oversized`
-                // verdict before ruling 6 seats triage. Until that phase
-                // exists there can be no edge to it; the unmatched verdict
-                // parks fail-closed. Once triage exists, ordinary coverage
-                // is mandatory and the roster test pins both bounded arms.
-                let reserved_oversized = phase == phase_name::IMPLEMENT
-                    && result == "oversized"
-                    && !machine
-                        .phases
-                        .iter()
-                        .any(|known| known == phase_name::TRIAGE);
-                if !covered && !reserved_oversized {
-                    return Err(CompileError::Invalid(format!(
-                        "seat '{phase}' may emit '{result}' but no rule covers it; \
-                         result variants without an outer rule are rejected"
-                    )));
-                }
-            }
-            let secrets = parse_secrets(phase, raw)?;
-            let at = SeatScope {
-                dir,
-                results: &results,
-                secrets: &secrets,
-            };
-            let (agent_seat, body, sequence_gate) =
-                compiler.parse_seat_body(at, phase, raw, shape)?;
-            // The dialect wrapper is applied after this loop, once every
-            // authoring owner is registered (design D10 F2). Record the
-            // agent hands the wrapped seat resolved so the synthetic
-            // validator's hands law sees the same site it always did.
-            if phase == phase_name::VERIFY && wrapped_verify.is_some() {
-                verify_agent_hands = agent_seat.as_ref().and_then(resolved_hands);
-            }
-            // Decision 0021, at the seat's own driver-bearing site. A
-            // panel or a sequence has none: its members and steps were
-            // each checked where they were built.
-            match &body {
-                SeatBody::Invocation(Invocation::Single { candidates, .. }) => {
-                    let hands = agent_seat.as_ref().and_then(resolved_hands);
-                    compiler.judge(at, phase, raw, candidates, hands)?;
-                }
-                SeatBody::Select { .. } => refuse_class_without_a_driver(phase, raw)?,
-                // A to-be-wrapped seat's class belongs to its members or
-                // its synthetic validator, exactly as it did when the
-                // wrapper ran inline; the wrapper pass applies the same
-                // refusal for a shape it cannot wrap.
-                _ if phase == phase_name::VERIFY && wrapped_verify.is_some() => {}
-                _ => refuse_class_without_a_driver(phase, raw)?,
-            }
-            // Decision 0006 bounds belong to the strategy seat, not the
-            // office it hires. A roster entry supplies the default, while
-            // an explicit seat limit (night-shift's one-attempt gates) wins.
-            let limits = if raw.get("limits").is_some() {
-                parse_limits(phase, raw)?
-            } else {
-                match agent_seat.as_ref().and_then(|agent_seat| agent_seat.limits) {
-                    Some(limits) => limits,
-                    None => parse_limits(phase, raw)?,
-                }
-            };
-            // Input provenance (decision 0007): every input the phase's
-            // rules reference must be engine-computed or supplied by
-            // this seat's declaration; a declaration may only name known,
-            // non-engine-owned evaluator inputs. An agent-resolved seat
-            // faces this lint exactly as an inline one does — its
-            // declaration is the agent's, or the 0007 default.
-            let referenced = machine.seat_inputs(phase);
-            let raw_inputs = match agent_seat
-                .as_ref()
-                .and_then(|agent_seat| agent_seat.inputs.clone())
-            {
-                Some(declared) => Some(json!(declared)),
-                None => raw.get("inputs").cloned(),
-            };
-            let inputs = match raw_inputs {
-                None => referenced.clone(),
-                Some(declared) => {
-                    let declared = declared
-                        .as_array()
-                        .map(|a| {
-                            a.iter()
-                                .filter_map(Value::as_str)
-                                .map(str::to_string)
-                                .collect::<Vec<_>>()
-                        })
-                        .ok_or_else(|| {
-                            CompileError::Invalid(format!(
-                                "seat '{phase}' inputs must be an array of strings"
-                            ))
-                        })?;
-                    for name in &declared {
-                        if is_engine_owned(name) {
-                            return Err(CompileError::Invalid(format!(
-                                "seat '{phase}' declares engine-owned input '{name}'; \
-                                 journal-computed truth is never accepted from a seat"
-                            )));
-                        }
-                        if !is_declarable(name) {
-                            return Err(CompileError::Invalid(format!(
-                                "seat '{phase}' declares unknown input '{name}'; known: \
-                                 the evaluator's closed vocabulary minus engine-owned"
-                            )));
-                        }
-                    }
-                    for needed in &referenced {
-                        if !declared.contains(needed) {
-                            return Err(CompileError::Invalid(format!(
-                                "phase '{phase}' rules reference input '{needed}' but \
-                                 seat '{phase}' does not declare it; the rule could \
-                                 never fire from seat data"
-                            )));
-                        }
-                    }
-                    declared
-                }
-            };
-            seats.insert(
-                phase.clone(),
-                Seat {
-                    has_gate: sequence_gate.unwrap_or_else(|| body.is_gate()),
-                    results,
-                    limits,
-                    inputs,
-                    secrets,
-                    body,
-                },
-            );
-        }
-        let SiteCompiler {
-            mut agents,
-            mut sites,
+        let (seats, verify_agent_hands) =
+            assemble::compile_seats(&mut compiler, &machine, &resolved, wrapped_verify)?;
+        let SiteCompiler { agents, sites, .. } = compiler;
+        let mut seated = assemble::Seated {
+            authority: &authority,
+            boundary,
+            resolved: &resolved,
+            agents,
+            sites,
+            seats,
+            verify_agent_hands,
+        };
+        seated.settle(&machine, adapters_root)?;
+        seated.wrap(wrapped_verify)?;
+        let assemble::Seated {
+            agents,
+            sites,
+            seats,
             ..
-        } = compiler;
-        agents.settle(&resolved.seats)?;
-        // Decision 0031 over the TYPED, flattened seats before the wrapper
-        // moves an address: one refusal names the whole repair set, and the
-        // maps it returns seed the manifest's `drivers` pin and the resume.
-        let (pin_drivers, inline_resume, resume_witness, inline_hands_notice) =
-            enforce_model_pins(&seats, agents.loaded())?;
-        for (label, value) in pin_drivers.into_iter().chain(resume_witness) {
-            site_facts(&mut sites, &label).pin_drivers = Some(value);
-        }
-        for (label, value) in inline_resume {
-            site_facts(&mut sites, &label).inline_resume = Some(value);
-        }
-        for (label, notice) in inline_hands_notice {
-            site_facts(&mut sites, &label).inline_hands_notice = Some(notice);
-        }
+        } = seated;
 
-        phases::seated_and_ruled(&machine, &seats)?;
-
-        // Decision 0065 ruling 5, over the COMPOSED seats and before the
-        // wrapper moves anything: every executable site — seat, member,
-        // step, selected body, inherited or not — resolves office asks
-        // minus seat subtractions against the realm's grants, once per
-        // provider candidate, and the outcome lands in the one canonical
-        // site family so relocation carries it like every other fact.
-        {
-            let (library, adapters) = (agents.library(), agents.capability_adapters());
-            for (phase, raw) in &resolved.seats {
-                // The layer that wrote the seat, as its agent's hands
-                // segment is expanded against (review return F1).
-                let dir = &resolved.roots[resolved.seat_origin[phase]];
-                record_capabilities(
-                    &authority,
-                    library,
-                    adapters,
-                    boundary,
-                    (dir, &resolved.roots, &resolved.case_origin),
-                    phase,
-                    raw,
-                    &mut sites,
-                )?;
-            }
-        }
-        // Decision 0069: a PRESENT adapters root that does not load is
-        // refused with the loader's own words, so a malformed discovery
-        // notice never passes itself off as an adapter that declares none.
-        // Judged after the capability pass, which already refuses a seat
-        // the failed load leaves with no valid denial, naming that same
-        // cause (decision 0066 ruling 1). An absent root reads as no notice.
-        if let Some(problem) = agents.unloadable().filter(|_| adapters_root.exists()) {
-            return Err(CompileError::Invalid(problem.to_string()));
-        }
-
-        // The authoring census (design D10 F2): every structural owner is
-        // registered, and a raw collision refused, BEFORE the wrapper
-        // changes an address or any destination fact is written. The
-        // within-body pass keeps its narrower diagnostic first, and the
-        // census then catches what wrapping would disguise or create.
-        refuse_aliasing_sites(&seats)?;
-        let census = owner_index(&seats)?;
-
-        let verify = phase_name::VERIFY;
-        if let Some(command) = wrapped_verify.filter(|_| seats.contains_key(verify)) {
-            // The wrapped seat's exact authoring owners — its own single
-            // label or its own panel members, never a prefix sweep that
-            // would also drag an unrelated literal phase onto a wrapper
-            // coordinate.
-            let (prior_body, moved) = {
-                let body = &seats
-                    .get(verify)
-                    .expect("the wrapper is applied only to a parsed verify seat")
-                    .body;
-                let executable = match body.selected(None) {
-                    Some((executable, _))
-                        if !matches!(executable, ExecutableBody::Sequence { .. }) =>
-                    {
-                        executable
-                    }
-                    _ => {
-                        return Err(CompileError::Invalid(
-                            "dialect verify currently requires a single or panel verify seat"
-                                .into(),
-                        ))
-                    }
-                };
-                let moved: Vec<(String, String, SiteKey)> =
-                    crate::engine::resume::owner_sites(executable, verify, None)
-                        .into_iter()
-                        .map(|owner| {
-                            let destination = match owner.tag() {
-                                None => "verify:checks".to_string(),
-                                Some(tag) => format!("verify:checks:{tag}"),
-                            };
-                            (owner.label(), destination, owner)
-                        })
-                        .collect();
-                let prior_body = match body {
-                    SeatBody::Invocation(invocation) => StepBody::Invocation(invocation.to_step()),
-                    _ => {
-                        return Err(CompileError::Invalid(
-                            "dialect verify currently requires a single or panel verify seat"
-                                .into(),
-                        ))
-                    }
-                };
-                (prior_body, moved)
-            };
-            // The validator's address is claimed against the WHOLE census,
-            // before any source is drained (operator ruling of 2026-09-30,
-            // unit 26c): its facts are written before the wrapped body's
-            // move, so a member named for it would take them along.
-            claim_address(
-                &census,
-                verify,
-                "verify:dialect-verify",
-                "the injected dialect validator",
-            )?;
-            // Drain every source reservation before claiming any
-            // destination: a member `x` beside `checks:x` has the second
-            // member's source as its destination, which stays legal.
-            let mut remaining = census;
-            for (source, _, _) in &moved {
-                remaining.remove(source);
-            }
-            for (_, destination, owner) in &moved {
-                claim_address(&remaining, verify, destination, &owner.describe())?;
-            }
-            let dialect_site = "verify:dialect-verify";
-            let synthetic = dialect_gate_site(dialect_site, boundary)?;
-            let verify_raw = &resolved.seats[verify];
-            let secrets = parse_secrets(verify, verify_raw)?;
-            let law = SiteLaw {
-                boundary,
-                dir: &resolved.roots[resolved.seat_origin[verify]],
-                agent_hands: verify_agent_hands.as_ref(),
-            };
-            enforce_model_policy(
-                dialect_site,
-                &synthetic,
-                &[],
-                &secrets,
-                &mut agents,
-                law,
-                &mut sites,
-            )?;
-            record_hands(dialect_site, &synthetic, None, &secrets, &mut sites)?;
-            // The one site the engine generated was written by no author
-            // and asks for nothing, and it still gets an explicit outcome
-            // through the same walk every authored site takes: "no
-            // capability" is a recorded fact, never a missing one (design
-            // D5). ONLY this site is given one here — an authored site the
-            // walk above missed keeps none, and a site with no outcome is
-            // refused at dispatch rather than launched on its defaults.
-            // And it is refused like one: an `exec` harness declared with
-            // a native power it cannot switch off does not seat the
-            // validator either (ruling 4).
-            {
-                // A dialect phase opened the adapters above, and the
-                // validator's gate law read them.
-                record_capabilities(
-                    &authority,
-                    agents.library(),
-                    agents.capability_adapters(),
-                    boundary,
-                    (law.dir, &resolved.roots, &resolved.case_origin),
-                    dialect_site,
-                    &synthetic,
-                    &mut sites,
-                )?;
-            }
-            // The generated validator declares no `tools`, and like every
-            // other visited executable it records that as a CHECKED
-            // unspecified value rather than an unvisited one (design
-            // D5.2; review return F3).
-            let unspecified = crate::agents::LocalTools::unspecified();
-            record_judged_tools(law.dir, dialect_site, unspecified, None, None, &mut sites);
-            relocate_verify_facts(&mut sites, &moved);
-            let prior = SequenceStep {
-                name: "checks".into(),
-                class: SeatClass::of(seats[verify].has_gate),
-                results: seats[verify].results.clone(),
-                body: prior_body,
-            };
-            seats.get_mut(verify).expect("parsed above").body = SeatBody::Sequence {
-                steps: vec![
-                    prior,
-                    SequenceStep {
-                        name: "dialect-verify".into(),
-                        class: SeatClass::Gate,
-                        results: dialect_results(verify)
-                            .into_iter()
-                            .map(str::to_string)
-                            .collect(),
-                        body: StepBody::Dialect {
-                            execution: DialectExecution {
-                                argv: command.argv.clone(),
-                                state: command.state.clone(),
-                            },
-                        },
-                    },
-                ],
-            };
-        }
-
-        refuse_global_aliasing(&seats)?;
-
-        let capability_sites = pins::capability_sites(&sites);
-        let consulted: Vec<String> = sites
-            .values()
-            .filter_map(|facts| facts.capabilities.as_ref())
-            .flat_map(|site| site.asks.asks.keys().chain(&site.asks.subtracted).cloned())
-            .chain(agents.library_asks())
-            .collect();
-        let mut capability_record = authority.manifest(&consulted);
-        capability_record["sites"] = Value::Object(capability_sites);
-
-        let select_records: Map<String, Value> = seats
-            .iter()
-            .filter_map(|(site, seat)| match &seat.body {
-                SeatBody::Select { .. } => Some((site.clone(), body_manifest(&seat.body))),
-                _ => None,
-            })
-            .collect();
-        // Decision 0035 addendum 2026-09-11: the adapter digests whose
-        // effortless listings exempted inline seats ride beside decision
-        // 0021's — un-listing a route moves the digest of every bundle
-        // it excused, and a bundle no listing excused keeps its shape.
-        // The manifest fields are serialization projections of the one
-        // canonical family table (design D10 F1), read in one place and
-        // never separately mutated.
-        let hands: BTreeMap<String, HandsSpec> = sites
-            .iter()
-            .filter_map(|(label, facts)| {
-                facts.hands_spec().map(|spec| (label.clone(), spec.clone()))
-            })
-            .collect();
-        let inline_resume: BTreeMap<String, Value> = sites
-            .iter()
-            .filter_map(|(label, facts)| {
-                facts
-                    .inline_resume
-                    .clone()
-                    .map(|value| (label.clone(), value))
-            })
-            .collect();
-        let records: Map<String, Value> = sites
-            .iter()
-            .filter_map(|(label, facts)| facts.record.clone().map(|record| (label.clone(), record)))
-            .collect();
-        let mut drivers: Map<String, Value> = Map::new();
-        fold_driver_facts(&mut drivers, &sites);
-        let drivers = (!drivers.is_empty()).then_some(&drivers);
-        // Design D7 (rebuild unit 16-fix-b, F3): every layer's identity is
-        // sealed from the buffers it was composed from and the charters its
-        // seats were bound to, ancestors first, so no consumed file is read
-        // again by a walk. The leaf's walk takes its own the same way, and
-        // each input must still stand as it was read or nothing seals.
-        // Rebuild unit 18-fix-b (council F2): who each charter's owner is
-        // was taken by the read that bound the charter, and the seal's check
-        // compares it; no later walk records another. Its return (council
-        // F2): a library charter, which no layer's walk pins, is checked by
-        // the read that bound it, owner included, before any identity is
-        // sealed.
-        for read in &agents.reads {
-            read.check()?;
-        }
-        resolved.seal(charters.into_inner())?;
+        let capability_record = assemble::capability_record(&authority, &agents, &sites);
+        let select_records = assemble::select_records(&seats);
+        let projections = assemble::projections(&sites);
+        let drivers = (!projections.drivers.is_empty()).then_some(&projections.drivers);
+        assemble::seal_layers(&agents.reads, &mut resolved, charters)?;
         let manifest = manifest_for(
             dir,
             &name,
             &resolved.chain,
-            Some(&records),
+            Some(&projections.records),
             drivers,
-            &hands,
+            &projections.hands,
             &select_records,
             boundary,
             Some(capability_record),
             &resolved.leaf_digests(),
         )?;
         resolved.check_leaf(manifest["files"].as_object().expect("manifest files"))?;
-        // Second council H6: every charter this compile bound, kept where a
-        // projection of the site facts cannot lose it, with each binding a
-        // site selected for its path (rebuild unit 17).
-        let mut charters = CharterPins::new();
-        for charter in sites.values().filter_map(|site| site.charter.clone()) {
-            charters
-                .entry(charter.path.clone())
-                .or_default()
-                .insert(charter);
-        }
+        let charters = assemble::charter_pins(&sites);
         Ok(Bundle {
-            hands,
-            inline_resume,
+            hands: projections.hands,
+            inline_resume: projections.inline_resume,
             sites,
             charters,
             name,

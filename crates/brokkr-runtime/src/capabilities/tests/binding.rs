@@ -7,7 +7,7 @@
 use super::*;
 
 /// The `mcp` binding's cause, pinned once for this module.
-pub(super) const MCP: &str =
+pub(crate) const MCP: &str =
     "realm 'private' grants capability 'library-docs' through dialect 'docs-mcp' \
                    of kind 'mcp', whose broker support is not implemented until decision 0065 \
                    slice two";
@@ -140,9 +140,19 @@ fn docs_at(root: &Path, egress: &str, minimum: Option<&str>) -> Authority {
 type Judged = (String, Vec<String>, Vec<(String, String)>);
 
 fn judged(authority: &Authority) -> Judged {
+    judged_under(authority, &[])
+}
+
+/// [`judged`], served by a candidate whose harness authenticates with
+/// `auth`.
+fn judged_under(authority: &Authority, auth: &[String]) -> Judged {
     let native = switchable();
+    let candidate = Serving {
+        auth,
+        ..serving(&native)
+    };
     let resolve =
-        |strength| authority.resolve(&asks(json!({"library-docs": strength})), &serving(&native));
+        |strength| authority.resolve(&asks(json!({"library-docs": strength})), &candidate);
     let wanted = resolve("wants").unwrap();
     (
         resolve("requires").unwrap_err(),
@@ -396,4 +406,159 @@ fn a_native_holding_is_unchanged_under_every_binding_minimum() {
         }
     }
     assert_eq!(observed, expected);
+}
+
+/// MB4's collision cause for `name` (U7d3), pinned once.
+pub(crate) fn collides(name: &str) -> String {
+    format!("MCP secret binding '{name}' collides with harness authentication")
+}
+
+/// `docs-mcp` past the fence binding `secrets`: its egress meets the absent
+/// minimum, so what follows MB4's collision check is the fence's words.
+pub(crate) fn binding_secrets(root: &Path, secrets: &[&str]) -> Authority {
+    let mut authority = past_the_fence(root, json!({"argv": ["/nonexistent/docs-mcp"]}));
+    let docs = authority.dialects.get_mut("library-docs").unwrap();
+    let DialectKind::Mcp(server) = &mut docs.kind else {
+        panic!("docs-mcp is an mcp dialect")
+    };
+    server.secrets = secrets.iter().map(|name| name.to_string()).collect();
+    authority
+}
+
+fn names(names: &[&str]) -> Vec<String> {
+    names.iter().map(|name| name.to_string()).collect()
+}
+
+/// MB4 at the serving candidate (U7d3): a secret the dialect binds that the
+/// candidate's harness reads to authenticate refuses a requires and drops a
+/// want with MB4's exact cause, whichever of its secrets it is. A name that
+/// collides with nothing, a harness that declares no name and a dialect that
+/// binds none pass the check, and the fence's own words are what follows.
+#[test]
+fn a_secret_colliding_with_harness_authentication_refuses_or_drops_and_any_other_passes() {
+    let root = cq1_root();
+    let rows: [(&[&str], &[&str], String); 5] = [
+        (&["DOCS_TOKEN"], &["DOCS_TOKEN"], collides("DOCS_TOKEN")),
+        (
+            &["DOCS_TOKEN", "SECOND_TOKEN"],
+            &["OTHER_KEY", "SECOND_TOKEN"],
+            collides("SECOND_TOKEN"),
+        ),
+        (&["DOCS_TOKEN"], &["OTHER_KEY"], MCP.to_string()),
+        (&["DOCS_TOKEN"], &[], MCP.to_string()),
+        (&[], &["DOCS_TOKEN"], MCP.to_string()),
+    ];
+    let observed: Vec<Judged> = rows
+        .iter()
+        .map(|(secrets, auth, _)| {
+            judged_under(&binding_secrets(root.path(), secrets), &names(auth))
+        })
+        .collect();
+    let expected: Vec<Judged> = rows.iter().map(|(_, _, cause)| lost(cause)).collect();
+    assert_eq!(observed, expected);
+}
+
+/// Each shipped adapter's authentication names (U7d3), as an independent
+/// literal: lanetally runs claude's harness and reads claude's names, dsh's
+/// are its route credentials, and exec reads none.
+const SHIPPED: [(&str, &[&str]); 5] = [
+    ("claude", &CLAUDE_AUTH),
+    (
+        "codex",
+        &["CODEX_ACCESS_TOKEN", "CODEX_API_KEY", "OPENAI_API_KEY"],
+    ),
+    (
+        "dsh",
+        &[
+            "DASHSCOPE_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "OPENROUTER_API_KEY",
+            "SPARK_API_KEY",
+        ],
+    ),
+    ("exec", &[]),
+    ("lanetally", &CLAUDE_AUTH),
+];
+
+/// Claude Code 2.1.299's provider credential variables.
+const CLAUDE_AUTH: [&str; 7] = [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_AWS_API_KEY",
+    "ANTHROPIC_FOUNDRY_API_KEY",
+    "ANTHROPIC_FOUNDRY_AUTH_TOKEN",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+];
+
+/// The shipped adapters, loaded as a compile loads them.
+fn shipped() -> crate::agents::Adapters {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters");
+    crate::agents::Adapters::load(&root).unwrap()
+}
+
+/// For each shipped adapter (U7d3): it loads exactly its measured names; a
+/// dialect binding each of them is refused or dropped with MB4's cause when
+/// that adapter serves; and a name it does not read, another adapter's
+/// included, collides with nothing, so an adapter that declares no name
+/// collides with nothing at all.
+#[test]
+fn each_shipped_adapter_collides_with_its_own_authentication_names_alone() {
+    let root = cq1_root();
+    let shipped = shipped();
+    let loaded: Vec<(&str, Vec<String>)> = SHIPPED
+        .map(|(provider, _)| {
+            (
+                provider,
+                shipped.adapter(provider).unwrap().harness_auth.clone(),
+            )
+        })
+        .into();
+    let declared: Vec<(&str, Vec<String>)> =
+        SHIPPED.map(|(provider, own)| (provider, names(own))).into();
+    assert_eq!(loaded, declared);
+    let (mut observed, mut expected) = (Vec::new(), Vec::new());
+    for (provider, own) in SHIPPED {
+        let auth = &shipped.adapter(provider).unwrap().harness_auth;
+        for secret in own.iter().chain(&["DOCS_TOKEN", "DEEPSEEK_API_KEY"]) {
+            let judged = judged_under(&binding_secrets(root.path(), &[secret]), auth);
+            observed.push((provider, *secret, judged));
+            let cause = match own.contains(secret) {
+                true => collides(secret),
+                false => MCP.to_string(),
+            };
+            expected.push((provider, *secret, lost(&cause)));
+        }
+    }
+    assert_eq!(observed, expected);
+}
+
+/// The serving adapter's names reach the check through the adapter-level
+/// assessment `brokkr doctor` submits too: the shipped dsh adapter's route
+/// key, bound by the dialect, refuses its plan with MB4's cause, and a key
+/// it does not read leaves the fence's own words.
+#[test]
+fn an_adapter_assessment_judges_the_collision_by_that_adapters_names() {
+    let root = cq1_root();
+    let shipped = shipped();
+    let dsh = shipped.adapter("dsh").unwrap();
+    let requests = json!({"library-docs": "requires"});
+    let requests = parse_requests("office 'researcher'", &requests).unwrap();
+    let assessed = |secret| {
+        let authority = binding_secrets(root.path(), &[secret]);
+        authority
+            .assess(dsh, "researcher", requests.clone())
+            .unwrap_err()
+    };
+    let refused = |cause: &str| {
+        format!(
+            "seat 'adapter-plan' (office 'researcher') in realm 'private': requires capability \
+             'library-docs' through dialect 'docs-mcp', but {cause}; the capability cannot be \
+             held under this grant"
+        )
+    };
+    assert_eq!(
+        [assessed("DEEPSEEK_API_KEY"), assessed("DOCS_TOKEN")],
+        [refused(&collides("DEEPSEEK_API_KEY")), refused(MCP)]
+    );
 }

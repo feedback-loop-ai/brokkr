@@ -263,15 +263,25 @@ pub enum Problem {
     Repeated(String),
 }
 
-/// Where the machine's host configuration is: `brokkr/host.json` under
+/// Where the machine's host configuration is: `host.json` in the
+/// machine's configuration directory ([`config_dir`]).
+pub fn host_file(xdg: Option<OsString>, home: Option<OsString>) -> Result<PathBuf, HostError> {
+    Ok(config_dir(xdg, home)?.join("host.json"))
+}
+
+/// The machine's configuration directory: `brokkr` under
 /// `$XDG_CONFIG_HOME`, else under `$HOME/.config`, on Linux and macOS
 /// alike. A value that is not an absolute directory is passed over, as
-/// the XDG base directory specification asks of a relative one.
-pub fn host_file(xdg: Option<OsString>, home: Option<OsString>) -> Result<PathBuf, HostError> {
+/// the XDG base directory specification asks of a relative one. The one
+/// root of `host.json` and of the personal shelf (#697).
+pub(crate) fn config_dir(
+    xdg: Option<OsString>,
+    home: Option<OsString>,
+) -> Result<PathBuf, HostError> {
     let absolute = |dir: Option<OsString>| dir.map(PathBuf::from).filter(|dir| dir.is_absolute());
     absolute(xdg)
         .or_else(|| absolute(home).map(|home| home.join(".config")))
-        .map(|root| root.join("brokkr").join("host.json"))
+        .map(|root| root.join("brokkr"))
         .ok_or(HostError::Unplaced)
 }
 
