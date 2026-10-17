@@ -39,8 +39,8 @@ test('a graph is read whole: a park rule has no next, a terminal no seat, and a 
 test('analytics carries each recipe of each realm through, its cost as Brokkr figured it and its frontier as Brokkr read it', () => {
   const doc = analyticsDoc({ recipes: [recipeRow(), recipeRow({ recipe: 'muninn', usd: null })] })
   assert.deepEqual(analyticsOf(doc).recipes, [
-    { realm: 'lanetally', recipe: 'self', runs: 4, done: 3, done_rate: 75, done_text: '75%', cost_per_run: { cost: { kind: 'reported', usd: 2 }, text: '$2.00', silent: ['codex'], note: 'claude only · codex report none' }, tokens_per_run: { text: '1.20M tok' }, on_frontier: true },
-    { realm: 'lanetally', recipe: 'muninn', runs: 4, done: 3, done_rate: 75, done_text: '75%', cost_per_run: { cost: { kind: 'not_reported' }, text: 'not reported', silent: ['dsh'], note: 'dsh reports none' }, tokens_per_run: { text: '1.20M tok' }, on_frontier: false },
+    { realm: 'lanetally', recipe: 'self', runs: 4, done: 3, done_rate: 75, done_text: '75%', cost_per_run: { cost: { kind: 'reported', usd: 2 }, text: '$2.00', silent: ['codex'], note: 'claude only · codex report none' }, tokens_per_run: { total: { text: '1.20M tok', absent: false, note: null }, input: { text: '1.18M', absent: false, note: null }, output: { text: '20k', absent: false, note: null }, cache_hit: { text: '95.0%', absent: false, note: null } }, on_frontier: true },
+    { realm: 'lanetally', recipe: 'muninn', runs: 4, done: 3, done_rate: 75, done_text: '75%', cost_per_run: { cost: { kind: 'not_reported' }, text: 'not reported', silent: ['dsh'], note: 'dsh reports none' }, tokens_per_run: { total: { text: '1.20M tok', absent: false, note: null }, input: { text: '1.18M', absent: false, note: null }, output: { text: '20k', absent: false, note: null }, cache_hit: { text: '95.0%', absent: false, note: null } }, on_frontier: false },
   ])
   const { recipes, ...before } = analyticsDoc()
   assert.ok(recipes.length > 0)

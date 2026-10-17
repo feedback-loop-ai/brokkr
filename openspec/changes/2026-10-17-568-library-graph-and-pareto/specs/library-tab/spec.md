@@ -46,3 +46,18 @@ The views SHALL draw only what `brokkr graph --json` and `brokkr analytics --jso
 
 - **WHEN** `brokkr graph --json` reports a `GraphView` version the console does not know
 - **THEN** the Graph view says which version it found, and draws nothing
+
+### Requirement: Tokens read one way on every surface
+
+Every surface that shows a seat's or a state's tokens SHALL read them from Brokkr's shared token figure, as `Σ total ↑ in ↓ out` with the cache hit beside them: the run view's seat row, the Library's state panel and Pareto table, the TUI's seat pane, and `brokkr graph`'s text. Where a surface has one cell, the cache hit SHALL follow the arrows in it.
+
+#### Scenario: A seat with cached input
+
+- **WHEN** a seat metered 1.19M input, 48k output and 1.19M cache reads
+- **THEN** the TUI's seat pane reads `Σ 1.24M tok ↑ 1.19M ↓ 48k · 99.9% cache`, and the console shows the same arrows with 99.9% as the cache hit
+
+#### Scenario: Nothing reported
+
+- **WHEN** a state's seats reported no tokens
+- **THEN** its tokens read as Brokkr's absence mark, with no arrows
+

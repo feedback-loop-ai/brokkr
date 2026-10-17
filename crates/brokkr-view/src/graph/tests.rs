@@ -623,16 +623,10 @@ fn a_states_cost_names_the_providers_that_reported_none() {
         review.cost.note.as_deref(),
         Some("claude only · codex report none")
     );
-    assert_eq!(
-        review.tokens,
-        StateTokens {
-            input: Some(18000),
-            output: Some(4000),
-            cache_read: Some(8000),
-            text: "22k tok · in 18k tok · out 4k tok · cache read 8k tok".into(),
-        }
-    );
-    assert_eq!(named(&view, "intake").tokens.text, ABSENT);
+    // Read apart as the run view's seats are: the cache hit is cache
+    // reads over input, worked out here and nowhere else.
+    assert_eq!(cells(&review.tokens), ["22k tok", "18k", "4k", "44.4%"]);
+    assert_eq!(cells(&named(&view, "intake").tokens), [ABSENT; 4]);
 }
 
 #[test]
@@ -666,8 +660,8 @@ fn a_seat_started_before_the_range_counts_where_and_when_it_metered() {
         ),
         ("$1.00", ["claude".to_string()].as_slice(), None)
     );
-    assert_eq!(review.tokens.text, "6k tok · in 5k tok · out 1k tok");
-    assert_eq!(named(&view, "implement").tokens.text, ABSENT);
+    assert_eq!(cells(&review.tokens), ["6k tok", "5k", "1k", ABSENT]);
+    assert_eq!(cells(&named(&view, "implement").tokens), [ABSENT; 4]);
 }
 
 #[test]
@@ -766,4 +760,14 @@ fn a_clock_that_is_no_time_is_refused() {
         refused.to_string(),
         "the clock read 'noon', which is not an RFC 3339 time"
     );
+}
+
+/// A token figure as its four cells read: total, input, output, cache hit.
+fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
+    [
+        &tokens.total.text,
+        &tokens.input.text,
+        &tokens.output.text,
+        &tokens.cache_hit.text,
+    ]
 }

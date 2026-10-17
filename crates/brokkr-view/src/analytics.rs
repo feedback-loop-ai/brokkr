@@ -316,18 +316,13 @@ pub struct RecipeRow {
     pub done_text: String,
     /// The reported cost over `runs`, with the harnesses behind it.
     pub cost_per_run: CostFigure,
-    pub tokens_per_run: TokensFigure,
+    /// The tokens a run spent, on average over `runs`, read apart as the
+    /// run view's seats are: total, input, output and the cache hit.
+    pub tokens_per_run: crate::TokenCells,
     /// Whether no other priced recipe of the realm reaches `done` at least
     /// as often for at most as much, one strictly; absent when this recipe
     /// reported no cost.
     pub on_frontier: Option<bool>,
-}
-
-/// A token count, or the absence mark when nothing metered one.
-#[derive(Serialize, Debug, PartialEq)]
-pub struct TokensFigure {
-    pub count: Option<u64>,
-    pub text: String,
 }
 
 #[derive(Serialize, Debug, PartialEq)]

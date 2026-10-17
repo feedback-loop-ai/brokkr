@@ -293,6 +293,17 @@ function cell(value, path) {
   return { text: text(value.text, `${path}.text`), absent: value.absent === true, note: optText(value.note, `${path}.note`) }
 }
 
+/** Tokens read apart as Brokkr gives them to every surface: total, in, out and the cache hit, each its own cell. */
+function tokenCells(value, path) {
+  object(value, path)
+  return {
+    total: cell(value.total, `${path}.total`),
+    input: cell(value.input, `${path}.input`),
+    output: cell(value.output, `${path}.output`),
+    cache_hit: cell(value.cache_hit, `${path}.cache_hit`),
+  }
+}
+
 /**
  * One seat of the run, with the figures the TUI's seat pane prints, each
  * Brokkr's own cell: model (claimed) and boundary, effort pinned and
@@ -312,12 +323,7 @@ function participant(value, path) {
     turns: cell(value.turns_cell, `${path}.turns_cell`),
     cost: cell(value.cost_cell, `${path}.cost_cell`),
     usage: cell(value.usage_cell, `${path}.usage_cell`),
-    tokens: ((tokens, at) => ({
-      total: cell(tokens.total, `${at}.total`),
-      input: cell(tokens.input, `${at}.input`),
-      output: cell(tokens.output, `${at}.output`),
-      cache_hit: cell(tokens.cache_hit, `${at}.cache_hit`),
-    }))(object(value.tokens, `${path}.tokens`), `${path}.tokens`),
+    tokens: tokenCells(value.tokens, `${path}.tokens`),
     model: cell(value.model, `${path}.model`),
     boundary: cell(value.boundary, `${path}.boundary`),
     effort: cell(value.effort, `${path}.effort`),
@@ -452,7 +458,7 @@ function recipeRow(value, path) {
     done_rate: count(value.done_rate, `${path}.done_rate`),
     done_text: text(value.done_text, `${path}.done_text`),
     cost_per_run: costFigure(value.cost_per_run, `${path}.cost_per_run`),
-    tokens_per_run: span(value.tokens_per_run, `${path}.tokens_per_run`),
+    tokens_per_run: tokenCells(value.tokens_per_run, `${path}.tokens_per_run`),
     on_frontier: value.on_frontier === true,
   }
 }
@@ -539,7 +545,7 @@ function graphState(value, path) {
     median: span(value.median, `${path}.median`),
     p90: span(value.p90, `${path}.p90`),
     cost: costFigure(value.cost, `${path}.cost`),
-    tokens: span(value.tokens, `${path}.tokens`),
+    tokens: tokenCells(value.tokens, `${path}.tokens`),
     seats: list(value.seats, `${path}.seats`, (seat, at) => ({
       key: text(object(seat, at).key, `${at}.key`),
       text: text(seat.text, `${at}.text`),

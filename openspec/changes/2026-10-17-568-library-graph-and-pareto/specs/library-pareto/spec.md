@@ -7,7 +7,7 @@
 - `done`, the runs that reached `done`;
 - `done_rate`, a percent;
 - `cost_per_run`: the reported cost over runs, absent when no seat of the recipe reported cost, with the `reporting` and `silent` providers;
-- `tokens_per_run`;
+- `tokens_per_run`, the shared token figure (total, input, output, cache hit) averaged over the runs;
 - `on_frontier`.
 
 The analytics view version SHALL move by one.

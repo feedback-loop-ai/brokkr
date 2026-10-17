@@ -33,7 +33,7 @@ Recipes also need a common scale. The Graph Pareto frontier plots each recipe's 
     - runs entered;
     - median time;
     - the seats and the models the latest run pinned;
-    - priced cost and tokens;
+    - priced cost, and tokens read as `Σ total ↑ in ↓ out` with the cache hit;
   - how runs ended:
     - `done`;
     - `stop` by each rule;
@@ -47,7 +47,7 @@ Recipes also need a common scale. The Graph Pareto frontier plots each recipe's 
   - runs that reached `done`;
   - done rate;
   - priced cost per run;
-  - tokens per run;
+  - tokens per run, read the same way;
   - the providers that reported no cost.
 
   The analytics view version moves by one.

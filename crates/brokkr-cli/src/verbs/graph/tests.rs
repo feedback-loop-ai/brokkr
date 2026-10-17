@@ -279,7 +279,7 @@ fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
     );
     assert_eq!(lines.len(), 1 + view.states.len() + view.rules.len() + 3);
     let intake = format!(
-        "state  {} · entered 2 · median 0m · p90 0m · not reported",
+        "state  {} · entered 2 · median 0m · p90 0m · not reported · —",
         first.from
     );
     assert!(lines.contains(&intake.as_str()), "{painted}");
@@ -313,7 +313,7 @@ fn a_recipe_only_runs_carry_is_drawn_from_them_and_its_live_run_named() {
         format!(
             "world / gone · {} → {now} · 1 runs\n\
              this recipe's table was not found in world\n\
-             state  work · entered 1 · median — · p90 — · not reported\n\
+             state  work · entered 1 · median — · p90 — · not reported · —\n\
              ends   0 done · 0 stop by a rule · 0 stopped by you · 1 open\n\
              live   Draw the graph · work\n",
             view.from

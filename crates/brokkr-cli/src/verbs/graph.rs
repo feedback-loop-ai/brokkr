@@ -296,8 +296,13 @@ fn paint(view: &GraphView) -> String {
     }
     for state in &view.states {
         out += &format!(
-            "state  {} · entered {} · median {} · p90 {} · {}\n",
-            state.name, state.entered, state.median.text, state.p90.text, state.cost.text
+            "state  {} · entered {} · median {} · p90 {} · {} · {}\n",
+            state.name,
+            state.entered,
+            state.median.text,
+            state.p90.text,
+            state.cost.text,
+            state.tokens.line()
         );
     }
     for rule in &view.rules {

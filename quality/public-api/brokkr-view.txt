@@ -588,6 +588,9 @@ pub brokkr_view::TokenCells::cache_hit: brokkr_view::Cell
 pub brokkr_view::TokenCells::input: brokkr_view::Cell
 pub brokkr_view::TokenCells::output: brokkr_view::Cell
 pub brokkr_view::TokenCells::total: brokkr_view::Cell
+impl brokkr_view::TokenCells
+pub fn brokkr_view::TokenCells::arrows(&self) -> alloc::string::String
+pub fn brokkr_view::TokenCells::line(&self) -> alloc::string::String
 pub struct brokkr_view::TokenUsage
 pub brokkr_view::TokenUsage::cache_read_tokens: core::option::Option<u64>
 pub brokkr_view::TokenUsage::cache_write_tokens: core::option::Option<u64>

@@ -46,7 +46,7 @@ Each state SHALL carry:
 - `entered`, the distinct runs that entered it in range;
 - the median and p90 time from its entry to the run's next phase entry or terminal event;
 - reported cost, with the providers that reported and the ones that did not;
-- input, output and cache-read tokens;
+- its tokens, summed and read apart as total, input, output and the cache hit;
 - the seats and the models the latest run in range pinned, by human name.
 
 #### Scenario: A state whose seat reports no cost

@@ -54,7 +54,7 @@ All figures are over the range.
 - **`entered`:** distinct runs that entered the state.
 - **`median_millis` and `p90_millis`:** time from a `phase/entered` to the run's next `phase/entered` or terminal event.
 - **`cost`:** the sum of reported `total_cost_usd` over the state's effects, as analytics' cost reads it. It carries the providers that reported and the ones that did not.
-- **`tokens`:** input, output and cache-read, summed.
+- **`tokens`:** summed, then read apart in the shared token figure (`TokenCells`): total, input, output and the cache hit. Every surface shows them the same way: `Σ total ↑ in ↓ out` with the cache hit beside them, as the run view's seats already do (D9).
 - **`seats`:** from the latest run's manifest `agents`. Each is a seat key (`design:positions:robustness`) with the provider and model it pinned, in human names (decision 0016).
 
 ## D5 — Ends and live runs
@@ -73,7 +73,7 @@ All figures are over the range.
 - `runs` and `done`;
 - `done_rate`, as a percent;
 - `cost_per_run`, the reported cost divided by runs, with `reporting` and `silent` providers;
-- `tokens_per_run`;
+- `tokens_per_run`, the shared token figure averaged over the runs (D9);
 - `on_frontier`: true when no other recipe of the same realm with runs has a done rate at least as high and a cost per run at most as low, with one of the two strictly better.
 
 **What is plotted.** A recipe whose cost is wholly unreported has `cost_per_run: null`. It is listed under the plot as "cost not reported", not plotted.
@@ -105,6 +105,24 @@ These are drawn on the boards but need recording that does not exist yet:
 - **the cast board and the charter studio**.
 
 The graph draws no escape markings and no bench actions in this slice.
+
+## D9 — Tokens read one way on every surface
+
+The operator asked for one token reading everywhere. The run view's seat
+row already gives it: `Σ total ↑ in ↓ out`, with the cache hit, the share
+of input served from cache, in its own column.
+
+- **Brokkr:** `TokenCells` is the one figure, worked out in one place.
+  - `GraphView`'s state tokens and analytics' `tokens_per_run` carry it.
+  - `TokenCells::arrows()` and `TokenCells::line()` give the text for a
+    surface with one cell.
+- **The console:** the Library's state panel shows Tokens and Cache hit
+  as two facts. The Pareto table gains a Cache hit column.
+- **The TUI:** the seat pane's tokens cell reads `Σ total ↑ in ↓ out ·
+  cache hit`, folded into one cell so an 80-column pane keeps every other
+  column whole. The old long form (`in … · out … · cache read … · cache
+  write … · reasoning …`) is gone from the pane.
+- **`brokkr graph`'s text:** each state line ends with the same reading.
 
 ## Testing
 

@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use super::facts::{in_range, Ending, RunFacts, Window};
 use super::figures::{cost_figure, total};
-use super::{RecipeRow, ReportedCost, TokensFigure};
-use crate::{fmt_tokens, js, ABSENT};
+use super::{RecipeRow, ReportedCost};
+use crate::{add_token, finish_usage, js, TokenUsage};
 
 /// The recipes' rows, by realm and then recipe, over the runs the range
 /// keeps; a run whose start names no recipe is in none.
@@ -89,11 +89,22 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
             .filter(|(at, _)| window.holds(*at))
             .map(|(_, usd)| *usd),
     );
-    let tokens: Option<u64> = sites
-        .clone()
-        .filter_map(|site| site.usage(&keeps).and_then(|usage| usage.total_tokens))
-        .reduce(u64::saturating_add);
-    let per_run = tokens.map(|tokens| js::round_half_up(tokens as f64 / count) as u64);
+    // The tokens a run spent: each kind summed over the range, then
+    // averaged over its runs, so the cache hit is the share it read.
+    let mut sum = TokenUsage::default();
+    for usage in sites.clone().filter_map(|site| site.usage(&keeps)) {
+        add_token(&mut sum.input_tokens, usage.input_tokens);
+        add_token(&mut sum.output_tokens, usage.output_tokens);
+        add_token(&mut sum.cache_read_tokens, usage.cache_read_tokens);
+    }
+    let per_run =
+        |tokens: Option<u64>| tokens.map(|tokens| js::round_half_up(tokens as f64 / count) as u64);
+    let averaged = TokenUsage {
+        input_tokens: per_run(sum.input_tokens),
+        output_tokens: per_run(sum.output_tokens),
+        cache_read_tokens: per_run(sum.cache_read_tokens),
+        ..TokenUsage::default()
+    };
     RecipeRow {
         realm: realm.to_string(),
         recipe: recipe.to_string(),
@@ -102,10 +113,7 @@ fn row(realm: &str, recipe: &str, runs: &[&RunFacts], window: Window) -> RecipeR
         done_rate,
         done_text: format!("{}%", js::round_half_up(done_rate)),
         cost_per_run: cost_figure(sites, &keeps, spent.map(|usd| usd / count)),
-        tokens_per_run: TokensFigure {
-            text: per_run.map_or_else(|| ABSENT.to_string(), fmt_tokens),
-            count: per_run,
-        },
+        tokens_per_run: crate::tokens::usage_cells(finish_usage(averaged).as_ref(), "").1,
         on_frontier: None,
     }
 }

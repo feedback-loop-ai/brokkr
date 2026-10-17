@@ -1227,7 +1227,8 @@ window.__ModuleLoader__.load({
           fact('Entered', String(state.entered), 'runs in range'),
           fact('Time', state.median.text, `median · p90 ${state.p90.text}`),
           fact('Cost', state.cost.text, silent),
-          fact('Tokens', state.tokens.text)),
+          fact('Tokens', tokensOf(state.tokens)),
+          fact('Cache hit', state.tokens.cache_hit)),
         h('div', { className: 'bk-lib-list', 'aria-label': 'Its rules' }, h('span', { className: 'bk-k' }, terminal ? 'Rules that end here' : 'Its rules'),
           rules.length === 0 ? h('div', { className: 'bk-note' }, 'No rule of this recipe leaves it.') : rules.map((rule) => h('div', { key: `${rule.from}\u0000${rule.id}`, className: 'bk-lib-rulerow', title: [rule.result, ...rule.when].filter((part) => part !== null).join(' · ') },
             h('span', { className: 'bk-lib-id' }, terminal ? `${rule.id} from ${rule.from}` : `${rule.id} → ${rule.next ?? 'parks'}`), h('strong', null, String(rule.count))))),
@@ -1350,12 +1351,13 @@ window.__ModuleLoader__.load({
           unreported.map((row) => (row.cost_per_run.note === null ? row.recipe : `${row.recipe} (${row.cost_per_run.note})`)).join(' · ')),
         unmeasured.length === 0 ? null : h('div', { className: 'bk-note', 'aria-label': 'Not measured yet' }, h('strong', null, 'not measured yet: '), `${unmeasured.join(' · ')} · no runs in this range`),
         h('div', { style: { overflowX: 'auto' } }, h('table', { className: 'bk-table' },
-          header(['Recipe', 'Runs', 'Done', 'Done rate', 'Cost a run', 'Tokens a run', 'Quadrant'], (index) => index > 0 && index < 6),
+          header(['Recipe', 'Runs', 'Done', 'Done rate', 'Cost a run', 'Tokens a run', 'Cache hit', 'Quadrant'], (index) => index > 0 && index < 7),
           h('tbody', null, rows.map((row) => h('tr', { key: row.recipe, onClick: () => open(row.recipe), style: { cursor: 'pointer' } },
             h('td', null, h('strong', null, row.recipe), row.on_frontier ? ' ' : null, row.on_frontier ? chip('on the frontier', 'bk-ship') : null),
             h('td', { className: 'n' }, String(row.runs)), h('td', { className: 'n' }, String(row.done)), h('td', { className: 'n' }, row.done_text),
             h('td', { className: 'n' }, row.cost_per_run.text, row.cost_per_run.note === null ? null : h('div', { className: 'bk-d' }, row.cost_per_run.note)),
-            h('td', { className: 'n' }, row.tokens_per_run.text),
+            h('td', { className: 'n' }, tokensOf(row.tokens_per_run)),
+            h('td', { className: 'n' }, row.tokens_per_run.cache_hit.text),
             h('td', null, reported(row) ? quadrantOf(row.done_rate, row.cost_per_run.cost.usd, targets) : 'cost not reported')))))))
     }
 

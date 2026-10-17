@@ -183,7 +183,7 @@ export function recipeRow(over = {}) {
     done_rate: 75,
     done_text: '75%',
     cost_per_run: costFigure(usd),
-    tokens_per_run: { count: 1_200_000, text: '1.20M tok' },
+    tokens_per_run: { total: cellOf('1.20M tok'), input: cellOf('1.18M'), output: cellOf('20k'), cache_hit: cellOf('95.0%') },
     on_frontier: usd === null ? null : true,
     ...rest,
   }
@@ -229,7 +229,7 @@ export function graphState(name, place = 'row', over = {}) {
     median: row ? { millis: 600_000, text: '10m' } : { millis: null, text: '—' },
     p90: row ? { millis: 1_200_000, text: '20m' } : { millis: null, text: '—' },
     cost: costFigure(null),
-    tokens: { input: null, output: null, cache_read: null, text: '—' },
+    tokens: { total: cellOf(null), input: cellOf(null), output: cellOf(null), cache_hit: cellOf(null) },
     seats: row ? [{ key: `${name}:main`, provider: 'claude', model: 'sonnet', text: `${name}:main · claude sonnet` }] : [],
     ...over,
   }
@@ -269,7 +269,7 @@ export function graphDoc(over = {}) {
         median: { millis: 1_800_000, text: '30m' },
         p90: { millis: 3_600_000, text: '1h 00m' },
         cost: costFigure(1.5),
-        tokens: { input: 1200, output: 300, cache_read: 1000, text: 'in 1k · out 300 · cache read 1k' },
+        tokens: { total: cellOf('1.5k tok'), input: cellOf('1.2k'), output: cellOf('300'), cache_hit: cellOf('83.3%') },
         seats: [seat('review:security', 'claude', 'opus'), seat('review:correctness', 'codex', 'gpt-5.5')],
       }),
       graphState('ship'),

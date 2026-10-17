@@ -152,7 +152,7 @@ const TRAIL_SKIP: [EventType; 3] = [
 
 /// One displayed scalar: its rendered text plus whether the journal
 /// carries it at all, and why not when it does not.
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq)]
 pub struct Cell {
     pub text: String,
     pub absent: bool,

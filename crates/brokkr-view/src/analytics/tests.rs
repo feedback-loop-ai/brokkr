@@ -769,10 +769,16 @@ fn a_recipes_cost_per_run_is_what_reported_over_all_its_runs() {
                 silent: vec!["codex".into(), "dsh".into()],
                 note: Some("claude only · codex and dsh report none".into()),
             },
-            tokens_per_run: TokensFigure {
-                count: Some(1000),
-                text: "1k tok".into()
-            },
+            tokens_per_run: crate::tokens::usage_cells(
+                Some(&crate::TokenUsage {
+                    input_tokens: Some(900),
+                    output_tokens: Some(100),
+                    total_tokens: Some(1000),
+                    ..crate::TokenUsage::default()
+                }),
+                ""
+            )
+            .1,
             on_frontier: Some(true),
         }]
     );
@@ -869,13 +875,7 @@ fn a_recipe_whose_seats_meter_no_tokens_states_the_absence() {
     checkpoint["input_tokens"] = Value::Null;
     checkpoint["output_tokens"] = Value::Null;
     let rows = recipes_of(&journals);
-    assert_eq!(
-        rows[0].tokens_per_run,
-        TokensFigure {
-            count: None,
-            text: ABSENT.into()
-        }
-    );
+    assert_eq!(cells(&rows[0].tokens_per_run), [ABSENT; 4]);
 }
 
 #[test]
@@ -899,8 +899,22 @@ fn a_seat_started_before_the_range_counts_what_it_metered_inside_it() {
         (
             cost.text.as_str(),
             cost.reporting.as_slice(),
-            rows[0].tokens_per_run.count
+            cells(&rows[0].tokens_per_run)
         ),
-        ("$1.00", ["claude".to_string()].as_slice(), Some(1000))
+        (
+            "$1.00",
+            ["claude".to_string()].as_slice(),
+            ["1k tok", "900", "100", ABSENT]
+        )
     );
+}
+
+/// A token figure as its four cells read: total, input, output, cache hit.
+fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
+    [
+        &tokens.total.text,
+        &tokens.input.text,
+        &tokens.output.text,
+        &tokens.cache_hit.text,
+    ]
 }

@@ -248,7 +248,9 @@ test('picking review shows its rules with their counts, the runs that entered, i
     'Entered4runs in range',
     'Time30mmedian · p90 1h 00m',
     'Cost$1.50claude only · codex report none',
-    'Tokensin 1k · out 300 · cache read 1k',
+    // Tokens read as the run view's seats read them: total and arrows, then the cache hit.
+    'TokensΣ 1.5k tok↑ 1.2k↓ 300',
+    'Cache hit83.3%',
   ])
   assert.equal(textOf(labelled(panel(), 'Its seats')), 'Seatsreview:security · claude opusreview:correctness · codex gpt-5.5')
   // The chip row picks as the boxes do, and says which state is picked; a terminal lists the rules that end there.
@@ -340,6 +342,15 @@ test('the step line joins Brokkr’s frontier points in order of cost, and the r
   assert.deepEqual(steps, [`M${self.cx} ${self.cy}H${lean.cx}V${lean.cy}H${frontier.cx}V${frontier.cy}`])
   assert.equal(textOf(labelled(tree, 'Cost not reported')), 'cost not reported: muninn (dsh reports none)')
   assert.equal(textOf(labelled(tree, 'Not measured yet')), 'not measured yet: charter · no runs in this range')
+})
+
+test('the figure table reads a run’s tokens as the run view’s seats do: total and arrows, then the cache hit in a column of its own', async () => {
+  const tree = (await onPareto()).tree()
+  const head = findAll(findAll(tree, (node) => node.type === 'thead')[0], (node) => node.type === 'th').map(textOf)
+  assert.deepEqual(head.slice(5, 7), ['Tokens a run', 'Cache hit'])
+  const lean = findAll(findAll(tree, (node) => node.type === 'tbody')[0], (node) => node.type === 'tr').find((tr) => textOf(tr).startsWith('lean'))
+  const cells = lean.children.map(textOf)
+  assert.deepEqual(cells.slice(5, 7), ['Σ 1.20M tok↑ 1.18M↓ 20k', '95.0%'])
 })
 
 test('clicking a recipe’s point opens its graph', async () => {

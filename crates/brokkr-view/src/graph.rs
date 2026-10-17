@@ -141,19 +141,11 @@ pub struct State {
     pub median: Span,
     pub p90: Span,
     pub cost: CostFigure,
-    pub tokens: StateTokens,
+    /// Its seats' tokens, summed and read apart as every console surface
+    /// reads them: total, input, output and the cache hit.
+    pub tokens: crate::TokenCells,
     /// The seats the latest run in the range pinned for it.
     pub seats: Vec<SeatPin>,
-}
-
-/// The tokens a state's seats metered, summed: a cache read is inside
-/// input already and never added to it (the [`crate::TokenUsage`] rule).
-#[derive(Serialize, Debug, PartialEq)]
-pub struct StateTokens {
-    pub input: Option<u64>,
-    pub output: Option<u64>,
-    pub cache_read: Option<u64>,
-    pub text: String,
 }
 
 /// One seat as the run's manifest pinned it: its key and the provider and

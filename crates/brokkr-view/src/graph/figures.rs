@@ -6,11 +6,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::facts::{GraphRun, Ruled, Scoped};
 use super::{Edge, Ends, GraphError, GraphQuery, GraphTable, GraphView, LiveRun, NeverFired};
-use super::{Place, RuleKind, SeatPin, State, StateTokens, Table, GRAPH_VIEW_VERSION};
+use super::{Place, RuleKind, SeatPin, State, Table, GRAPH_VIEW_VERSION};
 use crate::analytics::{cost_figure, middle, span, stamp, total, Ending, RuleCount, Window};
 use crate::clarify::{pins_of, Pins};
 use crate::fleet::STOP_PHASE;
-use crate::{add_token, finish_usage, js, usage_text, RuleSeverity, TokenUsage, ABSENT};
+use crate::{add_token, finish_usage, js, RuleSeverity, TokenUsage};
 
 /// The pinned file the table is written in, and the prefix a composed
 /// recipe pins each base layer under — `brokkr_runtime`'s
@@ -249,20 +249,18 @@ pub(super) fn p90(sorted: &[i64]) -> Option<i64> {
     rank.checked_sub(1).map(|index| sorted[index])
 }
 
-fn tokens(usages: impl Iterator<Item = TokenUsage>) -> StateTokens {
+/// The tokens a state's seats metered, summed (a cache read is inside
+/// input already and never added to it, the [`TokenUsage`] rule), read
+/// apart as the run view's seats are: the one place the cache hit is
+/// worked out.
+fn tokens(usages: impl Iterator<Item = TokenUsage>) -> crate::TokenCells {
     let mut sum = TokenUsage::default();
     for usage in usages {
         add_token(&mut sum.input_tokens, usage.input_tokens);
         add_token(&mut sum.output_tokens, usage.output_tokens);
         add_token(&mut sum.cache_read_tokens, usage.cache_read_tokens);
     }
-    let usage = finish_usage(sum);
-    StateTokens {
-        input: usage.as_ref().and_then(|usage| usage.input_tokens),
-        output: usage.as_ref().and_then(|usage| usage.output_tokens),
-        cache_read: usage.as_ref().and_then(|usage| usage.cache_read_tokens),
-        text: usage.map_or_else(|| ABSENT.to_string(), |usage| usage_text(&usage, "")),
-    }
+    crate::tokens::usage_cells(finish_usage(sum).as_ref(), "").1
 }
 
 /// The seats the latest run pinned for `phase`: those its manifest's
