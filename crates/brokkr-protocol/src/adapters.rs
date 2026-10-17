@@ -1657,13 +1657,13 @@ fn fold_stream_event(
             }
             // Claude's thinking is a session figure, on the session record only (decision
             // 0035 ruling 4), and a SUBSET of output_tokens (seat-record v6), else absent.
+            // Each result replaces the last's, as its output does: a queued turn ends anew.
             let output = session_meta.get("output_tokens").and_then(Value::as_u64);
-            if let Some(value) =
-                positive_count(event.pointer("/usage/output_tokens_details/thinking_tokens"))
-                    .filter(|value| output.is_some_and(|output| *value <= output))
-            {
-                session_meta.insert("reasoning_output_tokens".into(), Value::from(value));
-            }
+            let thought = event.pointer("/usage/output_tokens_details/thinking_tokens");
+            match positive_count(thought).filter(|v| output.is_some_and(|o| *v <= o)) {
+                Some(v) => session_meta.insert("reasoning_output_tokens".into(), v.into()),
+                None => session_meta.remove("reasoning_output_tokens"),
+            };
         }
         _ => {}
     }
