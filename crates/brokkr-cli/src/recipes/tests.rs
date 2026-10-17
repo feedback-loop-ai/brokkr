@@ -9,6 +9,24 @@ use brokkr_runtime::launch::LaunchError;
 use brokkr_runtime::{Invocation, Seat, SequenceStep, StepBody};
 use std::collections::BTreeMap;
 
+/// [`super::add`] onto a project library, as every install here is.
+pub(crate) fn add(
+    root: &Path,
+    dir: &Path,
+    source: &str,
+    name: &str,
+    path: Option<&str>,
+) -> Result<()> {
+    super::add(
+        root,
+        &ShelfPath::new(dir),
+        Origin::Project,
+        source,
+        name,
+        path,
+    )
+}
+
 fn bundle_with_sequence() -> Bundle {
     let step = |name: &str, result: &str| SequenceStep {
         name: name.into(),
@@ -152,7 +170,8 @@ fn root_discovery_listing_and_existing_destination_cover_refusals() {
 
     let recipes_file = empty.path().join("not-a-directory");
     std::fs::write(&recipes_file, "x").unwrap();
-    list(&workspace(), &recipes_file, false).unwrap();
+    let recipes_file = ShelfPath::new(recipes_file);
+    list(&workspace(), &recipes_file, false, Origin::Project).unwrap();
 
     let library = empty.path().join("library");
     std::fs::create_dir(&library).unwrap();
@@ -184,7 +203,8 @@ fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
     );
     // …and the listing that follows reads the same tree, so the recipe
     // it just accepted is not reported broken one command later.
-    list(&workspace(), library.path(), false).unwrap();
+    let shelf = ShelfPath::new(library.path());
+    list(&workspace(), &shelf, false, Origin::Project).unwrap();
 }
 
 fn installed(library: &Path) -> Vec<String> {
@@ -662,8 +682,8 @@ fn add_refuses_a_dir_it_cannot_read_the_way_to() {
     use std::os::unix::fs::PermissionsExt;
     let refused = |dir: &Path| {
         let refusal = add(&workspace(), dir, "unused", "node", None).unwrap_err();
-        match refusal.downcast::<PlacesError>() {
-            Ok(PlacesError::Unreadable { path, .. }) => path,
+        match refusal.downcast::<personal::Unshelved>() {
+            Ok(personal::Unshelved::Unread { at, .. }) => at,
             other => panic!("an unreadable refusal: {other:?}"),
         }
     };

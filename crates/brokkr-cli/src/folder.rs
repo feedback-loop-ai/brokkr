@@ -20,6 +20,8 @@ use brokkr_runtime::places::{self, Kind, Old, Places, PlacesError, BUNDLE, FOLDE
 use brokkr_runtime::places::{LIBRARY_STATE, RECIPES, SECRETS, STATE};
 use tracked::{listed_paths, tracked, Change, Unwatched};
 
+use crate::recipes::personal::ShelfPath;
+
 /// Why a verb refused before it opened anything, in the operator's words.
 #[derive(Debug)]
 pub(crate) enum FolderError {
@@ -400,29 +402,31 @@ impl Layout {
     }
 
     /// The recipe library a verb reads named recipes from ([`Layout::listing`]).
-    pub(crate) fn recipes(&self, flag: Option<PathBuf>) -> PathBuf {
+    pub(crate) fn recipes(&self, flag: Option<PathBuf>) -> ShelfPath {
         self.listing(flag).0
     }
 
     /// The recipe library a verb reads named recipes from: the flag, else
     /// the folder's shelf ([`Layout::shelf`]), else `recipes`; and whether
     /// it is that shelf, which lists nothing while nothing stands there.
-    pub(crate) fn listing(&self, flag: Option<PathBuf>) -> (PathBuf, bool) {
-        match (flag, self.shelf()) {
+    /// Normalised here, where every spelling enters ([`ShelfPath`], #697).
+    pub(crate) fn listing(&self, flag: Option<PathBuf>) -> (ShelfPath, bool) {
+        let (dir, shelf) = match (flag, self.shelf()) {
             (Some(flag), _) => (flag, false),
             (None, Some(shelf)) => (shelf, true),
             (None, None) => (RECIPES.into(), false),
-        }
+        };
+        (ShelfPath::new(dir), shelf)
     }
 
     /// Where `recipes add` installs, and the repository root it compiles
     /// against (#696 ruling 6): the folder's shelf, else `<root>/recipes`,
     /// at the root whichever directory it runs in. The one place an
     /// install's destination is chosen.
-    pub(crate) fn install_shelf(&self) -> (PathBuf, PathBuf) {
+    pub(crate) fn install_shelf(&self) -> (PathBuf, ShelfPath) {
         let root = self.0.root().to_path_buf();
         let shelf = self.shelf().unwrap_or_else(|| root.join(RECIPES));
-        (root, shelf)
+        (root, ShelfPath::new(shelf))
     }
 
     /// The folder's shelf of named recipes, `.brokkr/recipes` (#696), where
@@ -449,6 +453,9 @@ pub(crate) struct DoctorDefaults {
     pub(crate) agents: PathBuf,
     pub(crate) adapters: PathBuf,
     pub(crate) secrets: PathBuf,
+    /// The personal shelf this machine places (#697), whose recipes the
+    /// folder line is followed by; none until the verb reads the host's.
+    pub(crate) personal: Option<ShelfPath>,
 }
 
 /// A layout discovery found, as the runtime judged it, and its journal's
@@ -479,7 +486,13 @@ impl DoctorDefaults {
                 journal: layout.state_file(false, JOURNAL),
                 layout: layout.0,
             }),
+            personal: None,
         }
+    }
+
+    /// These defaults, reading the personal shelf `personal` (#697).
+    pub(crate) fn with_personal(self, personal: Option<ShelfPath>) -> DoctorDefaults {
+        DoctorDefaults { personal, ..self }
     }
 
     /// The journal every other verb would open, or why it has none:

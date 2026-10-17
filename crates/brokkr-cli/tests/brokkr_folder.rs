@@ -43,7 +43,7 @@ impl Ran {
         self.stderr.lines().next().unwrap_or_default()
     }
 
-    fn of(out: std::process::Output) -> Ran {
+    pub(crate) fn of(out: std::process::Output) -> Ran {
         let text = |bytes: Vec<u8>| String::from_utf8(bytes).unwrap();
         let code = out.status.code();
         let (stdout, stderr) = (text(out.stdout), text(out.stderr));
@@ -92,13 +92,22 @@ impl Repo {
         path
     }
 
-    /// `brokkr` standing in `dir`, relative to the root, created first.
+    /// `brokkr` standing in `dir`, relative to the root, created first,
+    /// with [`Repo::config`] for its configuration directory.
     pub(crate) fn command(&self, dir: &str) -> Command {
         let cwd = self.path(dir);
         std::fs::create_dir_all(&cwd).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
         command.current_dir(cwd).env("TMPDIR", &self.aside);
+        command.env("XDG_CONFIG_HOME", self.config());
         command
+    }
+
+    /// The `XDG_CONFIG_HOME` every `brokkr` here reads, beside the
+    /// repository: no host's own personal shelf (#697) or `host.json` is
+    /// read, and a test plants its own there.
+    pub(crate) fn config(&self) -> PathBuf {
+        self.aside.join("config")
     }
 
     /// `brokkr <args>` from `dir`, relative to the root, with `stdin`.

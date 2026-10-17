@@ -345,6 +345,38 @@ fn the_default_map_is_a_file_or_nothing() {
     assert!(matches!(refused, PlacesError::Unreadable { ref path, .. } if *path == map));
 }
 
+/// Every spelling of one entry is judged at the entry itself (#697): a
+/// link to nothing spelled with a trailing separator, or a trailing `.`,
+/// fails `NotFound` as the bare spelling does, never read as nothing
+/// there, and a file so spelled resolves to the file.
+#[test]
+fn an_entry_is_resolved_whatever_its_spelling() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let (link, file) = (root.join("link"), root.join("file"));
+    std::os::unix::fs::symlink("gone", &link).unwrap();
+    std::fs::write(&file, "").unwrap();
+    let spellings = |at: &Path| {
+        let at = at.display();
+        [
+            format!("{at}"),
+            format!("{at}/"),
+            format!("{at}/."),
+            format!("{at}//"),
+        ]
+    };
+    for spelled in spellings(&link) {
+        let unread = super::resolved(Path::new(&spelled)).unwrap_err();
+        assert_eq!(unread.kind(), std::io::ErrorKind::NotFound, "{spelled}");
+    }
+    for spelled in spellings(&file) {
+        let real = super::resolved(Path::new(&spelled)).unwrap();
+        assert_eq!(real.as_deref().map(Path::as_os_str), Some(file.as_os_str()));
+    }
+    let absent = super::resolved(&root.join("absent/")).unwrap();
+    assert_eq!(absent, None);
+}
+
 /// A workspace that is a file holds no map it can read: its place
 /// refuses as unreadable, never as no map.
 #[test]
@@ -473,4 +505,31 @@ fn a_folder_bundle_whose_layout_cannot_be_read_refuses_a_base() {
         )
     );
     assert!(pinned);
+}
+
+/// The personal shelf stands beside `host.json`, in the one directory
+/// `host_file` finds it in (#697): under `$XDG_CONFIG_HOME`, else
+/// `$HOME/.config`, and refused in its words where neither is absolute.
+#[test]
+fn the_personal_shelf_stands_beside_the_host_file() {
+    let placed = |xdg: Option<&str>, home: Option<&str>| {
+        let (xdg, home) = (xdg.map(Into::into), home.map(Into::into));
+        let shelf = super::personal_shelf(xdg.clone(), home.clone()).map_err(|e| e.to_string());
+        let host = crate::admission::host_file(xdg, home).map_err(|e| e.to_string());
+        (shelf, host.map(|file| file.with_file_name("recipes")))
+    };
+    for (xdg, home, shelf) in [
+        (Some("/x"), Some("/h"), "/x/brokkr/recipes"),
+        (None, Some("/h"), "/h/.config/brokkr/recipes"),
+        (Some("relative"), Some("/h"), "/h/.config/brokkr/recipes"),
+    ] {
+        let (found, beside) = placed(xdg, home);
+        assert_eq!(found, Ok(PathBuf::from(shelf)), "{xdg:?}");
+        assert_eq!(found, beside, "{xdg:?}");
+    }
+    let unplaced = "no host configuration can be found: neither XDG_CONFIG_HOME nor HOME \
+                    names an absolute directory";
+    let (found, beside) = placed(None, Some("relative"));
+    assert_eq!(found, Err(unplaced.to_string()));
+    assert_eq!(found, beside);
 }

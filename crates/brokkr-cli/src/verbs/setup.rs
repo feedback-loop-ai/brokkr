@@ -14,6 +14,7 @@ use brokkr_runtime::realms::World;
 
 use crate::cli_args::{CompileArgs, DoctorArgs, DriverArgs, FakeDriverArgs, InitArgs};
 use crate::folder::{DoctorDefaults, Layout};
+use crate::recipes::personal::Origin::Project;
 use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
@@ -74,7 +75,7 @@ pub(crate) fn doctor(
     let report = doctor::doctor(
         bundle.as_deref(),
         db.as_deref(),
-        &DoctorDefaults::of(cwd, secrets_file),
+        &DoctorDefaults::of(cwd, secrets_file).with_personal(recipes::personal::placed()),
         realms.as_deref(),
     );
     println!("{}", report.render());
@@ -124,16 +125,25 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
     match command {
         RecipesCmd::List { dir } => {
             let (dir, shelf) = layout.listing(dir);
-            recipes::list(found, &dir, shelf)?
+            recipes::personal::list(found, &dir, shelf)?
         }
-        RecipesCmd::Add { source, name, path } => {
+        RecipesCmd::Add {
+            source,
+            name,
+            path,
+            personal,
+        } => {
             let (root, shelf) = layout.install_shelf();
-            recipes::add(&root, &shelf, &source, &name, path.as_deref())?
+            let path = path.as_deref();
+            match personal {
+                true => recipes::personal::add(&root, &source, &name, path)?,
+                false => recipes::add(&root, &shelf, Project, &source, &name, path)?,
+            }
         }
         RecipesCmd::Show { name, dir } => {
             let recipe = BundleSource::Recipe {
+                recipes_dir: recipes::personal::holding(Some(&name), layout.recipes(dir))?,
                 name,
-                recipes_dir: layout.recipes(dir),
             };
             return print_compiled(workspace, &recipe.resolve()?);
         }

@@ -89,7 +89,9 @@ fn request(
 ) -> Result<LaunchRequest> {
     layout.state(escape)?;
     let typed = |path: Option<PathBuf>| path.map(|path| layout.typed(path));
-    let recipes_dir = layout.recipes(typed(recipes_dir));
+    // The project's shelf, else the personal one (#697).
+    let project = layout.recipes(typed(recipes_dir));
+    let recipes_dir = recipes::personal::holding(recipe.as_deref(), project)?;
     Ok(LaunchRequest {
         workspace: layout.workspace(),
         bundle: recipes::source(typed(bundle), recipe, recipes_dir, || layout.bundle())?,
