@@ -117,6 +117,9 @@ fn a_sink_that_takes_nothing_is_given_up_on_at_its_bound_and_one_that_reads_take
     while writer.write(b"x").is_ok() {}
     rustix::io::ioctl_fionbio(&writer, false).unwrap();
     let mode = rustix::fs::fcntl_getfl(&writer).unwrap();
+    // Five seconds, so a broker descheduled under load still says its
+    // last line (the operator's ruling of 2026-10-17, U6f3).
+    assert_eq!(TOLD, Duration::from_secs(5));
     let begun = Instant::now();
     let whole = told_to(&lines(), writer.try_clone().unwrap(), within(TOLD));
     let taken = begun.elapsed();

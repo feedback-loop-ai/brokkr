@@ -74,7 +74,7 @@ const TAIL_MAX: usize = 64 << 10;
 /// How long the broker's standard error may take what is written to it
 /// once the session ends: a fixed bound that nothing extends, and after
 /// which nothing waits.
-const TOLD: Duration = Duration::from_secs(1);
+const TOLD: Duration = Duration::from_secs(5);
 
 /// The most bytes the pipe is read for once the session ends.
 const CLOSING_MAX: usize = 16 * TAIL_MAX;

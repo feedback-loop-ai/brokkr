@@ -1243,6 +1243,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/engine/marks.rs` | U7c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-protocol/src/hands/evidence.rs` | U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/hands.rs` | U8a | The hands serve and exec verbs parse the carried artifact root |
+| `crates/brokkr-cli/src/broker/session/stderr.rs` | U6f1b, U6f3 | The closing bound is a fixed value that nothing extends |
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
@@ -1371,6 +1372,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U7d2 | U7d | Seal the brokered server set after provisioning; 36.1–36.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/panel.rs`; `crates/brokkr-runtime/src/engine/sequence.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U7d3 | U7d2 | Refuse secret bindings that collide with harness authentication; 36.1–36.2 | `adapters/*.json`; `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/agents/load.rs`; `crates/brokkr-runtime/src/agents.rs`; `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U8a | U7d3 | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-cli/src/hands.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-cli/src/lib.rs`; `crates/brokkr-protocol/src/probe/observe.rs`; `crates/brokkr-cli/src/doctor.rs` |
+| U6f3 | U8a | Give the broker's closing standard error five seconds; none | `crates/brokkr-cli/src/broker/session/stderr.rs` |
 | U8a2a | U8a | Hold the writer lease and durable reservations at dispatch; 38.3–38.4 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/sequence.rs` |
 | U8a2b | U8a2a | Exclude every managed writer from admitted server sources; 38.3–38.4 | `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine.rs` |
 | U8b | U8a2b | Stage retained responses before delivery; 39.1–39.2 | `crates/brokkr-cli/src/broker/output.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-protocol/src/broker/ledger.rs` |
@@ -2016,6 +2018,17 @@ Operator rulings 2026-10-17, after U8a's first run parked (0065-slice-two-unit-u
 Operator rulings 2026-10-17, after U8a's second run (0065-slice-two-unit-u8a-see-the--64473a79, built and signed as 7a96fd31, then blocked on scope): the hands serve and exec arguments that carry the artifact root are produced and parsed in three more files, which must change in the same commit as the engine's spawn: `crates/brokkr-cli/src/lib.rs` (the clap `HandsCommand` that cli/src/hands.rs consumes), `crates/brokkr-protocol/src/probe/observe.rs` (the adapter probe, which spawns `hands serve` through the serve arguments) and `crates/brokkr-cli/src/doctor.rs` (doctor's box probe through `hands::execute`). They join U8a's row. brokkr-cli's public API may rise by the two lines the new `artifacts` arguments measure, beside the protocol and runtime allowance.
 
 Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-runtime/src/engine/boundary_tests.rs`.
+
+### U6f3 — Give the broker's closing standard error five seconds
+
+Raise `TOLD` in crates/brokkr-cli/src/broker/session/stderr.rs, how long the broker's standard error may take what is written to it once the session ends, from one second to five. It stays a fixed bound that nothing extends, after which nothing waits: a harness that never reads its standard error now holds the broker's end for at most five seconds instead of one. Nothing else changes, and the public API does not.
+
+Operator ruling 2026-10-17: capability_broker::handoff::a_handoff_that_fails_after_the_lookup_starts_no_server lost the broker's last standard-error line three times in CI's exact-coverage shard (2026-10-15, #721, #723). There the broker runs under strace beside coverage instrumentation on a saturated runner, and was descheduled past the one-second bound, so the line was cut as late; the exit code was right. The remedy is the bound's value, not a test tolerance: the assertions stay exact.
+
+Closes no task; requirements [MB3](specs/mcp-capability-broker/spec.md) (the broker's end stays bounded).
+Proof: The bound test in stderr/tests.rs pins five seconds (a sink that takes nothing returns late no sooner than the bound and well before the next second), and restoring one second fails a test that names the value. The handoff test passes repeatedly with the CPU saturated, recorded with its run count and load.
+
+Owning tests: `crates/brokkr-cli/src/broker/session/stderr/tests.rs`, `crates/brokkr-cli/tests/capability_broker/handoff.rs`.
 
 ### U8a2a — Hold the writer lease and durable reservations at dispatch
 
