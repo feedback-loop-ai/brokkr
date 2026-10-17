@@ -206,6 +206,21 @@ pub struct Edge {
     pub count: usize,
     pub kind: RuleKind,
     pub text: String,
+    /// The runs that fired it in the range, the latest firing of each, the
+    /// newest first and at most [`LATEST_RUNS`]: what a picked transition
+    /// shows, so a failure leads to the runs that failed.
+    pub latest: Vec<RuleRun>,
+}
+
+/// How many of a rule's runs a picked transition lists.
+pub(crate) const LATEST_RUNS: usize = 5;
+
+/// One run that fired a rule: its id, its fleet label, and when.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct RuleRun {
+    pub run_id: String,
+    pub label: String,
+    pub at: String,
 }
 
 /// Every rule from one state to one next state, as one link: the runs it

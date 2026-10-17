@@ -1164,6 +1164,9 @@ window.__ModuleLoader__.load({
     const tip = (id, className) => h('marker', { key: id, id, viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 8, markerHeight: 8, markerUnits: 'userSpaceOnUse', orient: 'auto' },
       h('path', { d: 'M0 0L8 4L0 8z', className }))
 
+    /** What a picked transition is called in the Library's pick: `link:<from>→<next>`; a picked state is its name. */
+    const linkKey = (link) => `link:${link.from}→${link.next}`
+
     /** A link's outcomes as chips, side by side and centred on `(x, y)`: Brokkr's `<result> <count>`, each on its own ground so no line runs through it. */
     function chipsOf(link, x, y, tone) {
       let at = x - chipsWidth(link) / 2
@@ -1187,6 +1190,7 @@ window.__ModuleLoader__.load({
      */
     function StateMachine({ view, picked, pick, openRun }) {
       const { places, edges, width, height } = layoutOf(view)
+      const toggle = (key) => pick(picked === key ? null : key)
       const most = Math.max(1, ...view.links.map((link) => link.count))
       const end = view.states.find((state) => state.place === 'end')?.name ?? null
       const lines = []
@@ -1195,11 +1199,14 @@ window.__ModuleLoader__.load({
         const tone = `${link.count === 0 ? ' dormant' : ''}${link.next === 'stop' ? ' stop' : link.next === end ? ' done' : ''}`
         const ids = view.rules.filter((rule) => rule.from === link.from && rule.next === link.next).map((rule) => `${rule.id} ${rule.count}`)
         const key = `${link.from}→${link.next}`
-        lines.push(h('g', { key: `e${key}` },
+        const on = picked === linkKey(link)
+        lines.push(h('g', { key: `e${key}`, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-pressed': on, 'aria-label': `the transition ${link.from} → ${link.next}`, onClick: () => toggle(linkKey(link)) },
           h('title', null, [`${link.from} → ${link.next}`, link.text === '' ? 'never in range' : link.text, ...ids].join(' · ')),
-          h('path', { d, 'data-link': key, className: `bk-lib-edge${tone}`, style: { strokeWidth: edgeWidth(link.count, most), strokeDasharray: link.count === 0 ? '4 4' : undefined },
-            markerEnd: `url(#${link.next === 'stop' ? 'bk-lib-tip-stop' : 'bk-lib-tip'})` })))
-        if (link.count > 0) chips.push(h('g', { key: `c${key}`, 'data-link': key }, chipsOf(link, x, y, tone)))
+          h('path', { d, 'data-link': key, className: `bk-lib-edge${tone}${on ? ' sel' : ''}`, style: { strokeWidth: edgeWidth(link.count, most) + (on ? 1.5 : 0), strokeDasharray: link.count === 0 ? '4 4' : undefined },
+            markerEnd: `url(#${link.next === 'stop' ? 'bk-lib-tip-stop' : 'bk-lib-tip'})` }),
+          // A wide clear stroke over the line, so a thin one is easy to pick.
+          h('path', { d, className: 'bk-lib-hitline' })))
+        if (link.count > 0) chips.push(h('g', { key: `c${key}`, 'data-link': key, onClick: () => toggle(linkKey(link)) }, chipsOf(link, x, y, tone)))
       })
       const boxes = []
       for (const { state, x, y, width, height, cx } of places.values()) {
@@ -1235,28 +1242,55 @@ window.__ModuleLoader__.load({
           lines, boxes, chips))
     }
 
-    /** The picked state as the board's side panel reads it: its rules with their counts, its figures and its seats, each Brokkr's own. */
+    /** The panel beneath the graph, full width, for what is picked: a state, a transition, or a line saying what can be picked. */
+    const panelOf = (label, ...body) => h('section', { className: 'bk-cell bk-lib-panel', 'aria-label': label, 'aria-live': 'polite' }, ...body)
+
+    /** The picked state as the board's panel reads it: its figures, its rules with their counts, and its seats, each Brokkr's own. */
     function StatePanel({ view, name }) {
-      const panel = (...body) => h('aside', { className: 'bk-cell bk-lib-panel', 'aria-label': 'Selected state', 'aria-live': 'polite' }, ...body)
       const state = view.states.find((each) => each.name === name) ?? null
-      if (state === null) return panel(h('div', { className: 'bk-note' }, 'Pick a state to read its rules, its figures and its seats.'))
+      if (state === null) return panelOf('Selected', h('div', { className: 'bk-note' }, 'Pick a state or a transition in the graph to read it here.'))
       const terminal = state.place !== 'row'
       const rules = view.rules.filter((rule) => rule.from === state.name || (terminal && rule.next === state.name))
       const silent = state.cost.note ?? (state.cost.silent.length === 0 ? null : `${state.cost.silent.join(', ')} reported none`)
-      return panel(
-        h('span', { className: 'bk-k' }, terminal ? 'Terminal state' : 'State'),
-        h('h2', { className: 'bk-title' }, state.name),
+      return panelOf('Selected state',
+        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, terminal ? 'Terminal state' : 'State'), h('h2', { className: 'bk-title' }, state.name)),
         h('div', { className: 'bk-tiles' },
           fact('Entered', String(state.entered), 'runs in range'),
           fact('Time', state.median.text, `median · p90 ${state.p90.text}`),
           fact('Cost', state.cost.text, silent),
           fact('Tokens', tokensOf(state.tokens)),
           fact('Cache hit', state.tokens.cache_hit)),
-        h('div', { className: 'bk-lib-list', 'aria-label': 'Its rules' }, h('span', { className: 'bk-k' }, terminal ? 'Rules that end here' : 'Its rules'),
-          rules.length === 0 ? h('div', { className: 'bk-note' }, 'No rule of this recipe leaves it.') : rules.map((rule) => h('div', { key: `${rule.from}\u0000${rule.id}`, className: 'bk-lib-rulerow', title: [rule.result, ...rule.when].filter((part) => part !== null).join(' · ') },
-            h('span', { className: 'bk-lib-id' }, terminal ? `${rule.id} from ${rule.from}` : `${rule.id} → ${rule.next ?? 'parks'}`), h('strong', null, String(rule.count))))),
-        h('div', { className: 'bk-lib-list', 'aria-label': 'Its seats' }, h('span', { className: 'bk-k' }, 'Seats'),
-          state.seats.length === 0 ? h('div', { className: 'bk-note' }, 'Brokkr names no seat here.') : state.seats.map((seat) => h('div', { key: seat.key }, seat.text))))
+        h('div', { className: 'bk-lib-columns' },
+          h('div', { className: 'bk-lib-list', 'aria-label': 'Its rules' }, h('span', { className: 'bk-k' }, terminal ? 'Rules that end here' : 'Its rules'),
+            rules.length === 0 ? h('div', { className: 'bk-note' }, 'No rule of this recipe leaves it.') : rules.map((rule) => h('div', { key: `${rule.from}\u0000${rule.id}`, className: 'bk-lib-rulerow', title: [rule.result, ...rule.when].filter((part) => part !== null).join(' · ') },
+              h('span', { className: 'bk-lib-id' }, terminal ? `${rule.id} from ${rule.from}` : `${rule.id} → ${rule.next ?? 'parks'}`), h('strong', null, String(rule.count))))),
+          h('div', { className: 'bk-lib-list', 'aria-label': 'Its seats' }, h('span', { className: 'bk-k' }, 'Seats'),
+            state.seats.length === 0 ? h('div', { className: 'bk-note' }, 'Brokkr names no seat here.') : state.seats.map((seat) => h('div', { key: seat.key }, seat.text)))))
+    }
+
+    /**
+     * The picked transition: every rule joining its two states, the ones that
+     * never fired included, each with its result, its conditions in Brokkr's
+     * words, its severity and its count, and the latest runs that took it, so
+     * a failure leads to the runs that failed.
+     */
+    function TransitionPanel({ view, link, openRun }) {
+      const rules = view.rules.filter((rule) => rule.from === link.from && rule.next === link.next)
+      const dormant = rules.filter((rule) => rule.count === 0).length
+      const how = link.kind === 'back' ? 'back to an earlier state' : link.kind === 'self' ? 'back to itself' : link.kind === 'terminal' ? `ends the run in ${link.next}` : 'forward'
+      return panelOf('Selected transition',
+        h('div', { className: 'bk-row' }, h('span', { className: 'bk-k' }, 'Transition'), h('h2', { className: 'bk-title' }, `${link.from} → ${link.next}`), h('span', { className: 'bk-d' }, how)),
+        h('div', { className: 'bk-tiles' },
+          fact('Runs', String(link.count), 'moved in range'),
+          fact('Outcomes', link.text === '' ? 'never in range' : link.text),
+          fact('Rules', String(link.rules), dormant === 0 ? 'every one fired' : `${dormant} never fired`)),
+        h('div', { className: 'bk-lib-columns', 'aria-label': 'Its rules' }, rules.map((rule) => h('div', { key: rule.id, className: `bk-cell bk-lib-rule${rule.count === 0 ? ' dormant' : ''}` },
+          h('div', { className: 'bk-lib-rulerow' }, h('span', { className: 'bk-lib-id' }, rule.id), h('strong', null, String(rule.count))),
+          h('div', { className: 'bk-d' }, [rule.result === null ? null : `result ${rule.result}`, ...rule.when, rule.severity === null ? null : `severity ${rule.severity}`].filter((part) => part !== null).join(' · ')),
+          rule.latest.length === 0 ? h('div', { className: 'bk-note' }, 'No run took it in range.')
+            : h('div', { className: 'bk-lib-list', 'aria-label': `The runs that took ${rule.id}` }, h('span', { className: 'bk-k' }, rule.count > rule.latest.length ? `latest ${rule.latest.length} of ${rule.count}` : 'runs'),
+              rule.latest.map((run) => h('div', { key: run.run_id, className: 'bk-lib-rulerow' },
+                h('button', { type: 'button', className: 'bk-link', onClick: () => openRun(run.run_id) }, run.label), h('span', { className: 'bk-d' }, `${ago(run.at)} ago`))))))))
     }
 
     /** The Graph view: Brokkr's words for the recipe over the range, its state machine beside the picked state, and what lies beneath it. */
@@ -1276,9 +1310,10 @@ window.__ModuleLoader__.load({
         h('div', { key: 'stage', className: 'bk-lib-stage' },
           pane(`graph · ${view.recipe}`, 'The recipe’s graph', 'bk-lib-pane',
             view.states.length === 0 ? h('div', { className: 'bk-note' }, 'Brokkr drew no state for this recipe.') : h(StateMachine, { view, picked, pick, openRun }),
-            h('div', { className: 'bk-row', role: 'group', 'aria-label': 'Pick a state' }, view.states.map((state) => choice(state.name === picked, state.name, () => pick(state.name === picked ? null : state.name)))),
             beneath.length === 0 ? null : h('div', { className: 'bk-lib-beneath', 'aria-label': 'Beneath the graph' }, beneath)),
-          h(StatePanel, { view, name: picked })),
+          picked !== null && picked.startsWith('link:') && view.links.some((link) => linkKey(link) === picked)
+            ? h(TransitionPanel, { view, link: view.links.find((link) => linkKey(link) === picked), openRun })
+            : h(StatePanel, { view, name: picked })),
       ]
     }
 

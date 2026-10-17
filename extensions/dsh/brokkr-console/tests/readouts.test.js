@@ -30,7 +30,7 @@ test('the graph is read at its own wire version, 1, and any other is refused nam
 test('a graph is read whole: a park rule has no next, a terminal no seat, and a table not found says where', () => {
   const view = graphOf(graphDoc({ table: { kind: 'not_found', text: 'this recipe’s table was not found in brokkr' } }))
   assert.deepEqual(view.table, { kind: 'not_found', text: 'this recipe’s table was not found in brokkr' })
-  assert.deepEqual(view.rules.find((rule) => rule.id === 'REVIEW-HOLD'), { id: 'REVIEW-HOLD', from: 'review', next: null, result: 'hold', when: [], count: 1, kind: 'forward', text: 'REVIEW-HOLD · 1' })
+  assert.deepEqual(view.rules.find((rule) => rule.id === 'REVIEW-HOLD'), { id: 'REVIEW-HOLD', from: 'review', next: null, result: 'hold', when: [], severity: null, count: 1, kind: 'forward', text: 'REVIEW-HOLD · 1', latest: [] })
   assert.deepEqual(view.states.find((state) => state.name === 'stop').seats, [])
   assert.deepEqual(view.states.find((state) => state.name === 'review').cost, { cost: { kind: 'reported', usd: 1.5 }, text: '$1.50', silent: ['codex'], note: 'claude only · codex report none' })
   assert.throws(() => graphOf(graphDoc({ rules: [{ ...graphDoc().rules[0], kind: 'sideways' }] })), new ReadoutRefused('shape', 'rules[0].kind is not one of forward, self, back, terminal'))

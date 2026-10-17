@@ -237,7 +237,7 @@ export function graphState(name, place = 'row', over = {}) {
 
 /** One rule of a `GraphView`, its text Brokkr's `<ID> · <count>`. */
 export function graphRule(id, from, next, kind, count, over = {}) {
-  return { id, from, next, result: 'ok', when: [], severity: null, count, kind, text: `${id} · ${count}`, ...over }
+  return { id, from, next, result: 'ok', when: [], severity: null, count, kind, text: `${id} · ${count}`, latest: [], ...over }
 }
 
 /**
@@ -308,7 +308,10 @@ export function graphDoc(over = {}) {
       graphRule('IMPL-RETRY', 'implement', 'implement', 'self', 2, { result: 'broken' }),
       graphRule('IMPL-OK', 'implement', 'verify', 'forward', 6),
       graphRule('VERIFY-PASS', 'verify', 'review', 'forward', 4),
-      graphRule('VERIFY-FAIL', 'verify', 'stop', 'terminal', 3, { result: 'fail', when: ['not fixes_applied'], severity: 'normal' }),
+      graphRule('VERIFY-FAIL', 'verify', 'stop', 'terminal', 3, { result: 'fail', when: ['not fixes_applied'], severity: 'normal', latest: [
+        { run_id: 'flaky-gates-11aa22bb', label: 'Flaky gates', at: '2026-10-12T09:00:00Z' },
+        { run_id: 'cert-expiry-33cc44dd', label: 'Cert expiry', at: '2026-10-10T09:00:00Z' },
+      ] }),
       graphRule('REVIEW-OK', 'review', 'ship', 'forward', 2),
       graphRule('REVIEW-REFORGE', 'review', 'implement', 'back', 1, { result: 'fail' }),
       graphRule('REVIEW-CLEAN', 'review', 'verify', 'back', 0),

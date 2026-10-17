@@ -22,7 +22,7 @@ The Graph view SHALL draw:
 - back edges above the row;
 - `stop` beneath the row and `done` at its end.
 
-It SHALL draw the pulse on each live run's state. It SHALL list retired rules and the drift note beneath the graph when the view carries them. Picking a state SHALL show its rules with counts, its figures, and its seats.
+It SHALL draw the pulse on each live run's state. It SHALL list retired rules and the drift note beneath the graph when the view carries them. States and transitions SHALL be picked on the graph itself, with no separate row of tags. Picking a state SHALL show its rules with counts, its figures, and its seats. Picking a transition SHALL show every rule joining its states, those that never fired included, each with its result, conditions, severity and count, and the latest runs that took it, each opening in Realms. The panel for what is picked SHALL sit beneath the graph at its full width.
 
 #### Scenario: A rule that never fired
 
@@ -38,6 +38,11 @@ It SHALL draw the pulse on each live run's state. It SHALL list retired rules an
 
 - **WHEN** the operator picks `review`
 - **THEN** the side panel lists review's rules with their counts, the runs that entered, the median and p90 time, the cost with the providers that did not report, and the seats with their models
+
+#### Scenario: Picking a transition into stop
+
+- **WHEN** the operator picks the line from `review` to `stop`
+- **THEN** the panel beneath the graph lists `REVIEW-SECURITY-HOLD`, `REVIEW-RESIDUAL-ABOVE-MEDIUM` and `REVIEW-RESIDUAL-SECURITY` with their results, conditions, severities and counts, and under each the latest runs that took it, which open in Realms
 
 #### Scenario: A live run
 

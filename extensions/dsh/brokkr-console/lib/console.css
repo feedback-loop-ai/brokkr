@@ -224,9 +224,13 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-ask-row .bk-input{flex:1 1 260px;width:auto}
 /* The Library (change 2026-10-17-568): the recipe's state machine beside the picked state, and the Pareto plot. */
 .bk-library{gap:14px}
-.bk-lib-stage{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
-.bk-lib-pane{flex:999 1 760px;min-width:0}
-.bk-lib-panel{flex:1 1 300px;max-width:420px;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.bk-lib-stage{display:flex;flex-direction:column;gap:16px}
+.bk-lib-pane{min-width:0}
+.bk-lib-panel{padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+.bk-lib-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:12px;align-items:start}
+.bk-lib-rule{display:flex;flex-direction:column;gap:6px;padding:10px 12px}
+.bk-lib-rule.dormant{opacity:.7}
+.bk-lib-hitline{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
 .bk-lib-panel .bk-tiles{grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:8px}
 .bk-lib-list{display:flex;flex-direction:column;gap:4px;font-size:13px}
 .bk-lib-rulerow{display:flex;justify-content:space-between;gap:8px;font-variant-numeric:tabular-nums}
@@ -290,8 +294,10 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
   .bk-q .s{display:none}
   .bk-queue{grid-template-columns:minmax(0,1fr)}
   .bk-timeline{grid-template-columns:56px minmax(0,1fr)}
-  .bk-lib-panel{max-width:none}
   .bk-lib-views{margin-left:0}
 }
 .bk-lib-select{min-height:32px;width:auto;min-width:240px;max-width:360px;padding:0 8px;flex:0 1 auto}
 .bk-lib-recipe{align-items:center}
+/* The picked transition, over any tone it carries. */
+.bk-lib-edge.sel,.bk-lib-edge.stop.sel,.bk-lib-edge.done.sel{stroke:var(--bk-pick);opacity:1}
+.bk-lib-rule .bk-link{text-align:left}

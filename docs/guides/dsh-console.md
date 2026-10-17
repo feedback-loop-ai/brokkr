@@ -142,7 +142,10 @@ where every realm is.
   `security-hold 2`); a line whose rules never fired is faint, dashed and
   unlabelled; lines into `stop` are in the stop tone and the line into
   `done` in the done tone. Pick a recipe from the dropdown, the ones that
-  ran first with their runs. A live run's
+  ran first with their runs. Click a line to read its transition beneath
+  the graph: every rule behind it, the ones that never fired too, with its
+  conditions, severity and count, and the latest runs that took it, each
+  opening in Realms. A live run's
   state wears the pulse, and picking the pulse opens the run in Realms.
   Picking a state lists its rules with their counts, the runs that entered
   it, its median and 90th-percentile time, its cost with the providers that

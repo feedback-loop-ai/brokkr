@@ -36,6 +36,11 @@ Status: proposed. Fired by the operator on 2026-10-17. Each task closes on obser
 - [x] 5.3 Client: the recipe dropdown. `lib/client.js` `RecipePicker`; `tests/library.test.js`.
 - [x] 5.4 The question boxes hidden unless `BROKKR_CONSOLE_ASK=1`. `lib/host/config.js`, `lib/host/poller.js`, `lib/client.js`; `tests/client.test.js`, `tests/poller.test.js`.
 
+## 6. Transitions picked, the panel full width (D3)
+
+- [x] 6.1 `brokkr-view`: each rule's `latest` runs; test. `graph.rs` `RuleRun`, `graph/figures.rs` `latest`; `graph/tests.rs`.
+- [x] 6.2 Client: transitions clickable with a wide hit line, the picked one in the pick tone; the transition panel; no row of state tags; the panel beneath the graph, full width. `lib/client.js` `TransitionPanel`, `StatePanel`, `StateMachine`; `lib/host/readouts.js`; `tests/library.test.js`.
+
 ## 3. Docs and observation
 
 - [x] 3.1 The guide, the status row and `brokkr graph` in the CLI reference. `docs/guides/dsh-console.md`, `docs/status.md`, `docs/reference/cli.md`.

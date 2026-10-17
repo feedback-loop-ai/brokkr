@@ -204,7 +204,7 @@ test('one link per pair of states, as wide as the runs it moved, with the outcom
 })
 
 test('two rules into one state are one link, its outcomes by result with the most runs first', async () => {
-  const rules = graphDoc().rules.concat([{ id: 'REVIEW-ABOVE-MEDIUM', from: 'review', next: 'stop', result: 'residual', when: [], severity: null, count: 5, kind: 'terminal', text: 'REVIEW-ABOVE-MEDIUM · 5' }])
+  const rules = graphDoc().rules.concat([{ id: 'REVIEW-ABOVE-MEDIUM', from: 'review', next: 'stop', result: 'residual', when: [], severity: null, count: 5, kind: 'terminal', text: 'REVIEW-ABOVE-MEDIUM · 5', latest: [] }])
   const client = await onLibrary(answers({ [GRAPH]: graphOf(graphDoc({ rules })) }))
   const tree = client.tree()
   assert.equal(findAll(machine(tree), (node) => node.type === 'path' && node.props['data-link'] === 'review→stop').length, 1)
@@ -274,7 +274,7 @@ test('picking review shows its rules with their counts, the runs that entered, i
   const client = await onLibrary()
   const panel = () => labelled(client.tree(), 'Selected state')
   const rules = () => findAll(panel(), (node) => node.props.className === 'bk-lib-rulerow').map(textOf)
-  assert.match(textOf(panel()), /Pick a state/)
+  assert.match(textOf(labelled(client.tree(), 'Selected')), /Pick a state or a transition/)
   press(client.tree(), 'the state review')
   assert.deepEqual(rules(), ['REVIEW-OK → ship2', 'REVIEW-REFORGE → implement1', 'REVIEW-CLEAN → verify0', 'REVIEW-RESIDUAL-SECURITY → stop2', 'REVIEW-HOLD → parks1'])
   assert.deepEqual(findAll(panel(), (node) => String(node.props.className).startsWith('bk-cell bk-tile')).map(textOf), [
@@ -286,11 +286,30 @@ test('picking review shows its rules with their counts, the runs that entered, i
     'Cache hit83.3%',
   ])
   assert.equal(textOf(labelled(panel(), 'Its seats')), 'Seatsreview:security · claude opusreview:correctness · codex gpt-5.5')
-  // The chip row picks as the boxes do, and says which state is picked; a terminal lists the rules that end there.
-  const chips = () => buttons(labelled(client.tree(), 'Pick a state'))
-  assert.deepEqual(chips().filter((chip) => chip.props['aria-pressed']).map(textOf), ['review'])
-  chips().find((chip) => textOf(chip) === 'stop').props.onClick()
+  // There is no row of state tags: the boxes are what is picked. A terminal lists the rules that end there.
+  assert.equal(labelled(client.tree(), 'Pick a state'), undefined)
+  press(client.tree(), 'the state stop')
   assert.deepEqual(rules(), ['VERIFY-FAIL from verify3', 'REVIEW-RESIDUAL-SECURITY from review2', 'SHIP-DIRTY from ship0'])
+})
+
+test('picking a transition shows every rule behind it, the ones that never fired too, each with its conditions and the latest runs that took it, which open in Realms', async () => {
+  const client = await onLibrary()
+  press(client.tree(), 'the transition verify → stop')
+  const panel = labelled(client.tree(), 'Selected transition')
+  assert.match(textOf(panel), /^Transitionverify → stopends the run in stop/)
+  assert.deepEqual(findAll(panel, (node) => String(node.props.className).startsWith('bk-cell bk-tile')).map(textOf), ['Runs3moved in range', 'Outcomesfail 3', 'Rules1every one fired'])
+  const rule = findAll(panel, (node) => String(node.props.className).startsWith('bk-cell bk-lib-rule'))[0]
+  assert.match(textOf(rule), /^VERIFY-FAIL3result fail · not fixes_applied · severity normal/)
+  assert.deepEqual(buttons(labelled(rule, 'The runs that took VERIFY-FAIL')).map(textOf), ['Flaky gates', 'Cert expiry'])
+  assert.match(textOf(labelled(rule, 'The runs that took VERIFY-FAIL')), /^latest 2 of 3/)
+  // The picked transition is drawn in the pick tone; picking it again lets it go.
+  assert.match(edge(client.tree(), 'verify→stop').props.className, /\bsel\b/)
+  press(client.tree(), 'the transition verify → stop')
+  assert.equal(labelled(client.tree(), 'Selected transition'), undefined)
+  // A transition whose rules never fired lists them, with no run.
+  press(client.tree(), 'the transition review → verify')
+  assert.match(textOf(labelled(client.tree(), 'Selected transition')), /Rules1 1 never fired|Rules11 never fired/)
+  assert.match(textOf(labelled(client.tree(), 'Selected transition')), /No run took it in range/)
 })
 
 test('Brokkr’s words for the recipe head the graph, retired rules and the drift note lie beneath it, and a table not found is said', async () => {

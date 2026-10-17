@@ -57,6 +57,15 @@ The graph draws links, not rules. The operator saw one edge per rule as clutter:
 - **Placement:** a gap between neighbours is as wide as the widest chips any neighbour link carries. Fired arcs take the inner lanes. Chips into a terminal sit just under their state. No chip overlaps another or a state.
 - **Rule ids** are each link's title, and the state panel lists every rule with its count, dormant ones included.
 
+**Picking.** A state's box and a transition's line (with its chips) are what the operator clicks; there is no separate row of state tags. A picked transition opens its panel, which carries what the graph leaves out to stay legible:
+- every rule joining its two states, the ones that never fired included;
+- each rule's result, its conditions in Brokkr's words, its severity and its count;
+- the latest runs that took it.
+
+So a failure leads to the runs that failed. Each rule in the view carries `latest`: the runs that fired it in range, the latest firing of each, newest first, at most five, by run id, fleet label and time.
+
+**The panel** for a picked state or transition sits beneath the graph, full width: its figures in one row and its lists in columns. The graph keeps the whole width above it.
+
 ## D4 — Per-state figures
 
 All figures are over the range.

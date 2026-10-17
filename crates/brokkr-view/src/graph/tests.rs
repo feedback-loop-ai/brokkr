@@ -342,8 +342,17 @@ fn a_rule_that_fired_counts_its_rulings_in_the_range() {
             count: 3,
             kind: RuleKind::Terminal,
             text: "VERIFY-FAIL · 3".into(),
+            // The runs that failed verify, the newest first; a tie keeps
+            // run-id order.
+            latest: vec![
+                ran("r4", "2026-10-11T02:00:00Z"),
+                ran("r2", "2026-10-09T02:00:00Z"),
+                ran("r3", "2026-10-09T02:00:00Z"),
+            ],
         }
     );
+    // A rule that never fired lists no run.
+    assert!(rule(&view, "DESIGN-RETRY").latest.is_empty());
     assert_eq!(rule(&view, "REVIEW-AGAIN").when, ["not fixes_applied"]);
     assert_eq!(view.runs, 6);
 }
@@ -825,4 +834,13 @@ fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
         &tokens.output.text,
         &tokens.cache_hit.text,
     ]
+}
+
+/// One run of the fixture's feature that fired a rule `at`.
+fn ran(run_id: &str, at: &str) -> RuleRun {
+    RuleRun {
+        run_id: run_id.into(),
+        label: "feat".into(),
+        at: at.into(),
+    }
 }

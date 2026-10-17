@@ -6,7 +6,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::facts::{GraphRun, Ruled, Scoped};
 use super::{Edge, Ends, GraphError, GraphQuery, GraphTable, GraphView, LiveRun, NeverFired};
-use super::{Link, Outcome, Place, RuleKind, SeatPin, State, Table, GRAPH_VIEW_VERSION};
+use super::{
+    Link, Outcome, Place, RuleKind, RuleRun, SeatPin, State, Table, GRAPH_VIEW_VERSION, LATEST_RUNS,
+};
 use crate::analytics::{cost_figure, middle, span, stamp, total, Ending, RuleCount, Window};
 use crate::clarify::{pins_of, Pins};
 use crate::fleet::STOP_PHASE;
@@ -113,6 +115,30 @@ fn fired(runs: &[GraphRun], window: Window) -> Vec<(&Ruled, usize)> {
     fired
 }
 
+/// The runs that fired `id` in the range: the latest firing of each, the
+/// newest first, at most [`LATEST_RUNS`].
+fn latest(runs: &[GraphRun], window: Window, id: &str) -> Vec<RuleRun> {
+    let mut each: Vec<(i64, &GraphRun)> = runs
+        .iter()
+        .filter_map(|run| {
+            let fired = run
+                .rulings
+                .iter()
+                .filter(|ruled| ruled.rule_id == id && window.holds(ruled.at));
+            fired.map(|ruled| ruled.at).max().map(|at| (at, run))
+        })
+        .collect();
+    each.sort_by(|(a, x), (b, y)| b.cmp(a).then_with(|| x.run_id.cmp(&y.run_id)));
+    each.into_iter()
+        .take(LATEST_RUNS)
+        .map(|(at, run)| RuleRun {
+            run_id: run.run_id.clone(),
+            label: run.label.clone(),
+            at: stamp(at),
+        })
+        .collect()
+}
+
 fn edge(shape: &Shape, id: &str, from: &str, next: Option<&str>, count: usize) -> Edge {
     Edge {
         id: id.to_string(),
@@ -124,6 +150,7 @@ fn edge(shape: &Shape, id: &str, from: &str, next: Option<&str>, count: usize) -
         count,
         kind: shape.kind(from, next),
         text: format!("{id} · {count}"),
+        latest: Vec::new(),
     }
 }
 
@@ -133,11 +160,13 @@ fn rules(
     table: Option<GraphTable>,
     shape: &Shape,
     fired: &[(&Ruled, usize)],
+    (runs, window): (&[GraphRun], Window),
 ) -> (Vec<Edge>, Vec<RuleCount>) {
     let Some(table) = table else {
         let edges = fired.iter().map(|(ruled, count)| Edge {
             result: ruled.result.clone(),
             severity: ruled.severity,
+            latest: latest(runs, window, &ruled.rule_id),
             ..edge(
                 shape,
                 &ruled.rule_id,
@@ -153,6 +182,7 @@ fn rules(
         result: rule.result.clone(),
         when: rule.when_words(),
         severity: rule.next.as_ref().and(RuleSeverity::named(&rule.severity)),
+        latest: latest(runs, window, &rule.id),
         ..edge(
             shape,
             &rule.id,
@@ -440,7 +470,7 @@ pub fn graph(query: &GraphQuery) -> Result<GraphView, GraphError> {
         });
     }
     let shape = Shape::of(query.table, &runs);
-    let (rules, retired) = rules(query.table, &shape, &fired(&runs, window));
+    let (rules, retired) = rules(query.table, &shape, &fired(&runs, window), (&runs, window));
     let dormant = rules.iter().filter(|rule| rule.count == 0).count();
     let (drifted_runs, drift_text) = drift(query.table, &runs);
     Ok(GraphView {

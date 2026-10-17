@@ -562,9 +562,15 @@ function graphRule(value, path) {
     next: optText(value.next, `${path}.next`),
     result: optText(value.result, `${path}.result`),
     when: texts(value.when, `${path}.when`),
+    severity: optText(value.severity, `${path}.severity`),
     count: count(value.count, `${path}.count`),
     kind: word(value.kind, RULE_KINDS, `${path}.kind`),
     text: text(value.text, `${path}.text`),
+    latest: list(value.latest, `${path}.latest`, (run, at) => ({
+      run_id: text(object(run, at).run_id, `${at}.run_id`),
+      label: text(run.label, `${at}.label`),
+      at: text(run.at, `${at}.at`),
+    })),
   }
 }
 

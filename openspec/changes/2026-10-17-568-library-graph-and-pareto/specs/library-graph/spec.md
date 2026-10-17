@@ -4,7 +4,7 @@
 
 `brokkr graph --recipe <name>` SHALL resolve the recipe's policy table in the realm, as `brokkr recipes show` resolves it, or from a bundle directory whose `bundle.json` name is `<name>`. It SHALL read the journal's runs that carry that recipe name within `--range` (default `7d`), and emit `GraphView`. The view SHALL hold:
 - the states in `phases` order;
-- every rule with its `count` of `transition/decided` events in range;
+- every rule with its `count` of `transition/decided` events in range, and its `latest` runs: those that fired it in range, the latest firing of each, newest first, at most five;
 - per-state figures;
 - the runs' ends;
 - the live runs.
