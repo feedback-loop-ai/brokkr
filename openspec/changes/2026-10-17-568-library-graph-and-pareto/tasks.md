@@ -15,15 +15,21 @@ Status: proposed. Fired by the operator on 2026-10-17. Each task closes on obser
 
 ## 2. Plugin
 
-- [ ] 2.1 Host: `/api/graph?realm&recipe&range` runs `brokkr graph --json` with the runner's bounds. The analytics route passes the new version through. Tests.
-- [ ] 2.2 Client: the Library tab beside Analytics in both mounts, with the realm picker, the range, and Graph and Pareto (D7). Tests.
-- [ ] 2.3 Client: the Graph view (D3, D5), covering states with seats, edges by kind with width by count, dashed dormant rules, the stop tone, the pulse on live states, the picked state's panel, and retired rules with the drift note. Tests.
-- [ ] 2.4 Client: the Pareto view (D6), covering the four named quadrants at the targets, the boundaries going to the better quadrant, the frontier step line, recipes not plotted and not measured, and targets kept in storage that fall back when it is refused. Tests.
-- [ ] 2.5 Light and dark through the console's tokens. The version check refuses unknown versions with the version named.
+- [x] 2.1 Host: `/api/graph?realm&recipe&range` runs `brokkr graph --json` with the runner's bounds. The analytics route passes the new version through. Tests.
+- [x] 2.2 Client: the Library tab beside Analytics in both mounts, with the realm picker, the range, and Graph and Pareto (D7). Tests.
+- [x] 2.3 Client: the Graph view (D3, D5), covering states with seats, edges by kind with width by count, dashed dormant rules, the stop tone, the pulse on live states, the picked state's panel, and retired rules with the drift note. Tests.
+- [x] 2.4 Client: the Pareto view (D6), covering the four named quadrants at the targets, the boundaries going to the better quadrant, the frontier step line, recipes not plotted and not measured, and targets kept in storage that fall back when it is refused. Tests.
+- [x] 2.5 Light and dark through the console's tokens. The version check refuses unknown versions with the version named.
 
-2.1–2.5 are written (`lib/index.js`, `lib/host/brokkr.js`, `lib/host/readouts.js`, `lib/client.js`, `lib/console.css`; `tests/library.test.js`, `tests/readouts.test.js`) and stay open until `npm test` has run: the implement seat could not run node.
+2.1–2.5 are in `lib/index.js`, `lib/host/brokkr.js`, `lib/host/readouts.js`, `lib/client.js` and `lib/console.css`, with `tests/library.test.js` and `tests/readouts.test.js`. The implement seat could not run node, so `npm test` was run by hand afterwards: 170 of 170 pass, including the polish found on the operator's console (initial state first, the graph fitted to its pane, equal Pareto quadrants).
+
+## 4. Tokens one way everywhere (D9)
+
+- [x] 4.1 `brokkr-view`: `GraphView` state tokens and analytics `tokens_per_run` carry `TokenCells`; `TokenCells::arrows()` and `line()`; tests. `tokens.rs`, `graph/figures.rs`, `analytics/recipes.rs`; `tokens.rs` tests, `graph/tests.rs`, `analytics/tests.rs`. Public-API snapshot measured.
+- [x] 4.2 TUI: the seat pane's tokens cell reads `Σ total ↑ in ↓ out · cache hit`; `brokkr graph`'s text the same. `tui/seats.rs`, `verbs/graph.rs`; `tui/tests.rs` `a_seats_tokens_read_with_arrows_and_the_cache_hit`, the graph text tests.
+- [x] 4.3 Console: the state panel's Tokens and Cache hit; the Pareto table's Cache hit column; the host validates the cells. `lib/client.js`, `lib/host/readouts.js`; `tests/library.test.js`.
 
 ## 3. Docs and observation
 
 - [x] 3.1 The guide, the status row and `brokkr graph` in the CLI reference. `docs/guides/dsh-console.md`, `docs/status.md`, `docs/reference/cli.md`.
-- [ ] 3.2 The console loaded into an isolated DSH against a real journal, read-only, with both views observed and screenshots taken. The journal must be byte-identical before and after. Evidence goes under `evidence/`.
+- [x] 3.2 The console loaded into DSH against the real journals, read-only, with both views observed and screenshots taken; the brokkr journal byte-identical before and after. `evidence/dsh-0.2.0-rc.2/console/`. It ran in the operator's own DSH web rather than an isolated one, with nothing asked of a model and no command sent; the README says so.
