@@ -11,10 +11,16 @@
 
 use std::path::Path;
 
-use brokkr_core::fold::{fold, RunState};
+use brokkr_core::fold::{fold, FoldError, RunState};
 use brokkr_core::EventEnvelope;
 use brokkr_runtime::realms::Hearth;
 use brokkr_store::Store;
+
+mod kept;
+#[cfg(test)]
+mod kept_tests;
+
+pub(crate) use kept::{read_kept, KeptFleet};
 
 /// Why a listed run carries no state, and where its citation points.
 pub(crate) struct Quarantine {
@@ -48,22 +54,46 @@ pub(crate) struct ListedRun {
 impl ListedRun {
     /// The row every fleet surface builds this run's listing from.
     pub(crate) fn entry(&self) -> brokkr_view::RunEntry<'_> {
-        brokkr_view::RunEntry {
-            run_id: &self.run_id,
-            feature: &self.feature,
-            created_at: &self.created_at,
-            last_recorded_at: self.events.last().map(|event| event.recorded_at.as_str()),
-            state: self.state.as_ref().ok(),
-            detail: self
-                .state
-                .as_ref()
-                .err()
-                .map(|quarantine| brokkr_view::Refusal {
-                    acknowledgement: quarantine.acknowledgement.as_ref(),
-                    ..quarantine.kind.in_words(&quarantine.detail)
-                }),
-            residuals: &self.residuals,
-        }
+        entry(
+            Listing {
+                run_id: &self.run_id,
+                feature: &self.feature,
+                created_at: &self.created_at,
+            },
+            self.events.last().map(|event| event.recorded_at.as_str()),
+            self.state.as_ref(),
+            &self.residuals,
+        )
+    }
+}
+
+/// What the journal's `runs` table says of a run, borrowed.
+struct Listing<'a> {
+    run_id: &'a str,
+    feature: &'a str,
+    created_at: &'a str,
+}
+
+/// A run's listing row, whichever read holds the run: this read's
+/// [`ListedRun`] or the kept read's (#744), so the two cannot word a
+/// quarantine differently.
+fn entry<'a>(
+    listing: Listing<'a>,
+    last_recorded_at: Option<&'a str>,
+    state: Result<&'a RunState, &'a Quarantine>,
+    residuals: &'a [brokkr_view::ResidualFinding],
+) -> brokkr_view::RunEntry<'a> {
+    brokkr_view::RunEntry {
+        run_id: listing.run_id,
+        feature: listing.feature,
+        created_at: listing.created_at,
+        last_recorded_at,
+        state: state.ok(),
+        detail: state.err().map(|quarantine| brokkr_view::Refusal {
+            acknowledgement: quarantine.acknowledgement.as_ref(),
+            ..quarantine.kind.in_words(&quarantine.detail)
+        }),
+        residuals,
     }
 }
 
@@ -102,26 +132,7 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
     let runs = listed
         .into_iter()
         .map(|(run_id, feature, created_at)| {
-            let (events, state) = match store.load(&run_id) {
-                Ok(events) => {
-                    let state = fold(&events).map_err(|error| Quarantine {
-                        kind: brokkr_view::Quarantine::DoesNotFold,
-                        detail: error.to_string(),
-                        seq: error.seq(),
-                        acknowledgement: acknowledged(store, &run_id),
-                    });
-                    (events, state)
-                }
-                Err(error) => (
-                    Vec::new(),
-                    Err(Quarantine {
-                        kind: brokkr_view::Quarantine::DoesNotLoad,
-                        detail: error.to_string(),
-                        seq: 0,
-                        acknowledgement: acknowledged(store, &run_id),
-                    }),
-                ),
-            };
+            let (events, state) = read_run(store, &run_id);
             let residuals = brokkr_view::residual_findings(&run_id, &events);
             ListedRun {
                 run_id,
@@ -134,6 +145,38 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
         })
         .collect();
     HearthRead { runs, detail: None }
+}
+
+/// One run's journal read whole and folded, quarantined when it will not
+/// load or will not fold.
+fn read_run(store: &Store, run_id: &str) -> (Vec<EventEnvelope>, Result<RunState, Quarantine>) {
+    match store.load(run_id) {
+        Ok(events) => {
+            let state = fold(&events).map_err(|error| did_not_fold(store, run_id, &error));
+            (events, state)
+        }
+        Err(error) => (
+            Vec::new(),
+            Err(Quarantine {
+                kind: brokkr_view::Quarantine::DoesNotLoad,
+                detail: error.to_string(),
+                seq: 0,
+                acknowledgement: acknowledged(store, run_id),
+            }),
+        ),
+    }
+}
+
+/// The quarantine of a run whose journal loaded and would not fold,
+/// cited at the sequence the fold refused at — whether the fold was of
+/// the whole journal or carried onto what landed after it (#744).
+fn did_not_fold(store: &Store, run_id: &str, error: &FoldError) -> Quarantine {
+    Quarantine {
+        kind: brokkr_view::Quarantine::DoesNotFold,
+        detail: error.to_string(),
+        seq: error.seq(),
+        acknowledgement: acknowledged(store, run_id),
+    }
 }
 
 /// The acknowledgement standing on quarantined run `run_id` (#511). A
