@@ -858,15 +858,14 @@ pub fn run_boxed_in(
     bundle_root: Option<&Path>,
     command: &[String],
 ) -> Result<i32, String> {
-    let (mut with_self, mut sealed) = (spec.clone(), sealed.clone());
-    if let Ok(exe) = std::env::current_exe() {
-        sealed = sealed.beside(&exe);
-        with_self.binds.push(Bind {
-            path: exe.to_string_lossy().into_owned(),
-            mode: BindMode::Ro,
-            mask: Vec::new(),
-        });
-    }
+    let exe = std::env::current_exe().ok();
+    let sealed = exe.iter().fold(sealed.clone(), |at, exe| at.beside(exe));
+    let mut with_self = spec.clone();
+    with_self.binds.extend(exe.iter().map(|exe| Bind {
+        path: exe.to_string_lossy().into_owned(),
+        mode: BindMode::Ro,
+        mask: Vec::new(),
+    }));
     let scratch = session.join("call");
     let built = box_argv(
         &with_self,
