@@ -1744,7 +1744,7 @@ fn session_usage(part: &Build) -> Option<TokenUsage> {
         .collect();
     meter::once(&mut meters);
     let session = part.session.as_ref().map(Meter::of);
-    let by = Metering::of(&meters);
+    let by = Metering::of(&meters, session.as_ref());
     let turns = meters.iter().filter_map(|meter| meter.counted(by, false));
     sum_usage(turns.chain(session.and_then(|session| session.counted(by, true))))
 }

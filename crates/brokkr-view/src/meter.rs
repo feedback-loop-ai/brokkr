@@ -24,11 +24,13 @@ pub(crate) fn sum_usage(usages: impl Iterator<Item = TokenUsage>) -> Option<Toke
     finish_usage(sum)
 }
 
-/// One checkpoint's metering, read once: the tokens it carries, and
-/// whether it is one of its seat's turns.
+/// One checkpoint's metering, read once: the tokens it carries, whether
+/// it is one of its seat's turns, and whether, as a Claude session record
+/// reporting output, it settles the output its seat's turns streamed.
 #[derive(Clone)]
 pub(crate) struct Meter {
     turn: bool,
+    settles: bool,
     usage: Option<TokenUsage>,
 }
 
@@ -36,20 +38,33 @@ pub(crate) struct Meter {
 /// carries tokens, else its finishing `session` record alone. It is
 /// decided over all the seat's checkpoints, so a window holding only some
 /// of them never reads both, which would count the same work twice.
+///
+/// A Claude seat's turns are `Settled`: their input and cache figures are
+/// final, but a streamed line carries its message's output before it is
+/// final, and Claude reports what it spent thinking in its results alone.
+/// Its session record sums the results (each its own query's), so the
+/// seat's output and reasoning are that record's. Batch 2's implement
+/// seat streamed 2k output and its results reported 103,479.
 #[derive(Clone, Copy)]
 pub(crate) enum Metering {
     Turns,
+    Settled,
     Session,
 }
 
 impl Metering {
-    pub(crate) fn of<'a>(meters: impl IntoIterator<Item = &'a Meter>) -> Metering {
-        match meters
+    /// How a seat with `meters` and the session record `session` is read.
+    pub(crate) fn of<'a>(
+        meters: impl IntoIterator<Item = &'a Meter>,
+        session: Option<&Meter>,
+    ) -> Metering {
+        let turns = meters
             .into_iter()
-            .any(|meter| meter.turn && meter.usage.is_some())
-        {
-            true => Metering::Turns,
-            false => Metering::Session,
+            .any(|meter| meter.turn && meter.usage.is_some());
+        match (turns, session.is_some_and(|session| session.settles)) {
+            (true, true) => Metering::Settled,
+            (true, false) => Metering::Turns,
+            (false, _) => Metering::Session,
         }
     }
 }
@@ -80,22 +95,39 @@ pub(crate) fn once<'a>(meters: impl IntoIterator<Item = &'a mut Meter>) {
 
 impl Meter {
     pub(crate) fn of(checkpoint: &Value) -> Meter {
+        let step = checkpoint.get("step").and_then(Value::as_str);
+        let usage = token_usage(std::iter::once(checkpoint));
+        // `claude-code-` and `claude-lanetally-session-finished`: the
+        // driver's own step, the one mark a journal already written bears.
+        let claude = step
+            .is_some_and(|step| step.starts_with("claude-") && step.ends_with("-session-finished"));
         Meter {
-            turn: matches!(
-                checkpoint.get("step").and_then(Value::as_str),
-                Some("seat-turn" | "turn-completed")
-            ),
-            usage: token_usage(std::iter::once(checkpoint)),
+            turn: matches!(step, Some("seat-turn" | "turn-completed")),
+            settles: claude
+                && usage
+                    .as_ref()
+                    .is_some_and(|usage| usage.output_tokens.is_some()),
+            usage,
         }
     }
 
     /// The tokens this checkpoint adds to its seat metered `by`;
     /// `session` says whether it is the seat's session record.
     pub(crate) fn counted(&self, by: Metering, session: bool) -> Option<TokenUsage> {
-        let counts = match by {
-            Metering::Turns => self.turn,
-            Metering::Session => session,
-        };
-        self.usage.clone().filter(|_| counts)
+        let usage = self.usage.clone();
+        match by {
+            Metering::Turns => usage.filter(|_| self.turn),
+            Metering::Session => usage.filter(|_| session),
+            Metering::Settled if self.turn => usage.map(|usage| TokenUsage {
+                output_tokens: None,
+                reasoning_output_tokens: None,
+                ..usage
+            }),
+            Metering::Settled => usage.filter(|_| session).map(|usage| TokenUsage {
+                output_tokens: usage.output_tokens,
+                reasoning_output_tokens: usage.reasoning_output_tokens,
+                ..TokenUsage::default()
+            }),
+        }
     }
 }

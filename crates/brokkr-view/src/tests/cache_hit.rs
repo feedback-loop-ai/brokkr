@@ -71,24 +71,54 @@ pub(crate) fn streamed_turns() -> Vec<Value> {
     vec![first.clone(), first.clone(), untokened, first, second]
 }
 
+/// A Claude seat whose turns are [`streamed_turns`], closed by the
+/// session record `session`.
+fn streamed_seat(session: Value) -> Vec<EventEnvelope> {
+    let mut events = codex_journal(vec![]);
+    let succeeded = events.pop().unwrap();
+    events.pop();
+    let rows = streamed_turns().into_iter().chain([session]);
+    for (turn, mut checkpoint) in (1..).zip(rows) {
+        if checkpoint["step"] == "seat-turn" {
+            checkpoint["turn"] = json!(turn);
+        }
+        let payload = json!({"effect_id": "eff1", "attempt_id": "att1", "checkpoint": checkpoint});
+        let seq = events.len() as u64 + 1;
+        events.push(ev(seq, EventType::EffectCheckpointed, payload, T0));
+    }
+    events.push(succeeded);
+    events
+}
+
 #[test]
 fn a_claude_message_streamed_line_by_line_is_metered_once() {
     // Claude Code streams a message as one line per content block, each
     // repeating its usage, and the driver journaled a turn for each. The
     // first message's three repeats, an untokened tool use between them,
-    // are one message beside the second: 33,849 input, not 56,309.
-    let mut events = codex_journal(vec![]);
-    let session = events.pop().unwrap();
-    for (seq, mut checkpoint) in (3..).zip(streamed_turns()) {
-        checkpoint["turn"] = json!(seq - 2);
-        let payload = json!({"effect_id": "eff1", "attempt_id": "att1", "checkpoint": checkpoint});
-        events.insert(
-            seq as usize - 1,
-            ev(seq, EventType::EffectCheckpointed, payload, T0),
-        );
-    }
-    events.push(session);
+    // are one message beside the second: 33,849 input, not 56,309. Its
+    // session record reports no output to settle the turns' with.
+    let events = streamed_seat(json!({"step": "claude-code-session-finished"}));
     let view = run_view(&events, None);
     let cells = crate::analytics::tests::cells(&view.participants[0].tokens);
     assert_eq!(cells, ["34k tok", "34k", "19", "74.3%"]);
+}
+
+#[test]
+fn a_claude_seats_output_and_thinking_are_what_its_results_reported() {
+    // The streamed lines carried 19 output, their messages' before it was
+    // final. Claude Code 2.1.302's results reported 114 and 3, 43 of them
+    // thinking, summed on the session record: the seat's output is that,
+    // its input and cache still its turns', each message once.
+    let session = json!({"step": "claude-code-session-finished", "input_tokens": 33_849,
+                         "cache_read_tokens": 33_845, "cache_write_tokens": 11_695,
+                         "output_tokens": 117, "reasoning_output_tokens": 43});
+    let view = run_view(&streamed_seat(session), None);
+    let participant = &view.participants[0];
+    let cells = crate::analytics::tests::cells(&participant.tokens);
+    assert_eq!(cells, ["34k tok", "34k", "117", "74.3%"]);
+    assert!(
+        participant.usage_cell.text.ends_with("reasoning 43 tok"),
+        "{}",
+        participant.usage_cell.text
+    );
 }
