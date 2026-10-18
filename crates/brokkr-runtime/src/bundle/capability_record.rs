@@ -10,13 +10,46 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::{
-    admit_inline_launch, admit_native_sandbox, command_parts, dispatch_driver, expand_command, mcp,
-    pins, site_asks, site_facts, step_label, CapabilityAdapters, CompileError, McpIntent,
-    SeatClass, SiteFacts,
+    admit_inline_launch, admit_native_sandbox, command_parts, compose, dispatch_driver,
+    expand_command, mcp, pins, site_asks, site_facts, step_label, CapabilityAdapters, CompileError,
+    McpIntent, Opened, SeatClass, SiteFacts,
 };
 use crate::agents::Library;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::native_controls::{Origin, Segment};
+
+/// What one capability walk reads at every site it visits, in one
+/// parameter object (decision 0071 ruling 10): the authority it resolves
+/// against, the agent library and the adapters the seats opened, the
+/// realm's boundary, and the composition's layer roots with the layer
+/// that wrote each select case.
+pub(super) struct CapabilityWalk<'a> {
+    pub(super) authority: &'a crate::capabilities::Authority,
+    pub(super) library: Option<&'a Library>,
+    pub(super) adapters: CapabilityAdapters<'a>,
+    pub(super) boundary: Boundary,
+    pub(super) roots: &'a [PathBuf],
+    pub(super) case_origin: &'a BTreeMap<String, usize>,
+}
+
+impl<'a> CapabilityWalk<'a> {
+    /// The walk over `resolved`'s seats, through what `agents` opened.
+    pub(super) fn of(
+        authority: &'a crate::capabilities::Authority,
+        agents: &'a Opened<'_>,
+        boundary: Boundary,
+        resolved: &'a compose::Resolved,
+    ) -> Self {
+        CapabilityWalk {
+            authority,
+            library: agents.library(),
+            adapters: agents.capability_adapters(),
+            boundary,
+            roots: &resolved.roots,
+            case_origin: &resolved.case_origin,
+        }
+    }
+}
 
 /// One site as its capability arm reads it: the authority it resolves
 /// against, the adapters, the site's label and its declaration.
