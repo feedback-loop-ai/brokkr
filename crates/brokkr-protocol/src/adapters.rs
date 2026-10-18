@@ -20,6 +20,7 @@ use std::process::{Command, Stdio};
 use serde_json::{json, Map, Value};
 
 pub mod capability_calls;
+mod claude_fold;
 mod composite;
 mod discovery;
 mod dsh_effort;
@@ -47,6 +48,7 @@ use crate::secret;
 use crate::transcript::{dsh_transcript_root_under, Kind as TranscriptKind, Transcript};
 use crate::{Body, Message, ResultStatus};
 use capability_calls::Observation;
+use claude_fold::ClaudeFold;
 use dsh_stderr::redact_dsh_reasoning;
 use mcp::served;
 use start::start_prompt;
@@ -1520,10 +1522,9 @@ fn codex_refusal(event: &Value) -> Option<String> {
 /// Privacy invariant (journal is evidence, not transcript): checkpoints
 /// carry turn index, a ≤80-char tool name, and a ≤80-char target only —
 /// never message text, thinking, or full tool inputs.
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn fold_stream_event(
     event: &Value,
-    assistant_turns: &mut u64,
+    fold: &mut ClaudeFold,
     session_meta: &mut Map<String, Value>,
     transcript: &mut Transcript,
     emit: &mut impl FnMut(&Value),
@@ -1533,7 +1534,7 @@ fn fold_stream_event(
     // session has opened and decision 0016's mid-session boundary holds
     // unchanged. A refusal record emits no checkpoint and no usage, so
     // the structural fail-to-start predicate can see it.
-    if *assistant_turns == 0 {
+    if fold.turns == 0 {
         if let Some(reason) = claude_refusal(event) {
             return Some(reason);
         }
@@ -1556,8 +1557,8 @@ fn fold_stream_event(
             }
         }
         Some("assistant") => {
-            *assistant_turns += 1;
-            session_meta.insert("num_turns".into(), Value::from(*assistant_turns));
+            fold.turns += 1;
+            session_meta.insert("num_turns".into(), Value::from(fold.turns));
             let model = model_in_json(event);
             if let Some(model) = &model {
                 session_meta.insert("model".into(), Value::String(model.clone()));
@@ -1580,7 +1581,7 @@ fn fold_stream_event(
             }
             let mut base = Map::new();
             base.insert("step".into(), Value::String("seat-turn".into()));
-            base.insert("turn".into(), Value::from(*assistant_turns));
+            base.insert("turn".into(), Value::from(fold.turns));
             base.insert(
                 "model".into(),
                 Value::String(
@@ -1636,39 +1637,36 @@ fn fold_stream_event(
             }
         }
         Some("result") => {
-            if let Some(model) = model_in_json(event) {
-                session_meta.insert("model".into(), Value::String(model));
-            }
-            if let Some(effort) = effort_in_json(event) {
-                session_meta.insert("effort".into(), Value::String(effort));
-            }
-            if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-                transcript.record(session_id, session_meta, emit);
-            }
-            if let Some(value) = positive_count(event.get("num_turns")) {
-                session_meta.insert("num_turns".into(), Value::from(value));
-            }
-            if let Some(value) = positive_cost(event.get("total_cost_usd")) {
-                session_meta.insert("total_cost_usd".into(), Value::from(value));
-            }
-            // Claude's result usage is the harness's session aggregate,
-            // so it replaces the live sum rather than being added to it.
-            for (key, value) in claude_usage(event.get("usage")) {
-                session_meta.insert(key, value);
-            }
-            // Claude's thinking is a session figure, on the session record only (decision
-            // 0035 ruling 4), and a SUBSET of output_tokens (seat-record v6), else absent.
-            // Each result replaces the last's, as its output does: a queued turn ends anew.
-            let output = session_meta.get("output_tokens").and_then(Value::as_u64);
-            let thought = event.pointer("/usage/output_tokens_details/thinking_tokens");
-            match positive_count(thought).filter(|v| output.is_some_and(|o| *v <= o)) {
-                Some(v) => session_meta.insert("reasoning_output_tokens".into(), v.into()),
-                None => session_meta.remove("reasoning_output_tokens"),
-            };
+            fold_result_meta(event, session_meta, transcript, emit);
+            // A result's usage and turns are its own query's: each is
+            // added to the earlier results' and replaces the live sum.
+            fold.settle(event, session_meta);
         }
         _ => {}
     }
     None
+}
+
+/// What a claude or codex `result` names on the same terms: the model and
+/// effort, the session id as the transcript locator, and the money spent.
+fn fold_result_meta(
+    event: &Value,
+    session_meta: &mut Map<String, Value>,
+    transcript: &mut Transcript,
+    emit: &mut impl FnMut(&Value),
+) {
+    if let Some(model) = model_in_json(event) {
+        session_meta.insert("model".into(), Value::String(model));
+    }
+    if let Some(effort) = effort_in_json(event) {
+        session_meta.insert("effort".into(), Value::String(effort));
+    }
+    if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
+        transcript.record(session_id, session_meta, emit);
+    }
+    if let Some(value) = positive_cost(event.get("total_cost_usd")) {
+        session_meta.insert("total_cost_usd".into(), Value::from(value));
+    }
 }
 
 /// How deep below `<codex home>/sessions` the thread record may sit.
@@ -1953,20 +1951,9 @@ fn fold_codex_event(
         }
         // Conformance shims and older clients may provide only final metadata.
         Some("result") => {
-            if let Some(model) = model_in_json(event) {
-                session_meta.insert("model".into(), Value::String(model));
-            }
-            if let Some(effort) = effort_in_json(event) {
-                session_meta.insert("effort".into(), Value::String(effort));
-            }
-            if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
-                transcript.record(session_id, session_meta, emit);
-            }
+            fold_result_meta(event, session_meta, transcript, emit);
             if let Some(value) = positive_count(event.get("num_turns")) {
                 session_meta.insert("num_turns".into(), Value::from(value));
-            }
-            if let Some(value) = positive_cost(event.get("total_cost_usd")) {
-                session_meta.insert("total_cost_usd".into(), Value::from(value));
             }
         }
         _ => {}
@@ -2453,7 +2440,7 @@ fn invoke_stream_json(
     let stderr_thread = drain_stderr(&mut child);
     let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
-    let mut assistant_turns = 0u64;
+    let mut fold = ClaudeFold::default();
     // Decision 0053: the FIRST pre-turn refusal is the one reported, and
     // the fold keeps reading the whole stream after it. A latched
     // refusal is not a decision to stop listening: a harness that
@@ -2477,7 +2464,7 @@ fn invoke_stream_json(
             secret::mask_json(&mut event, bindings);
             let classified = fold_stream_event(
                 &event,
-                &mut assistant_turns,
+                &mut fold,
                 &mut session_meta,
                 &mut transcript,
                 &mut watch,
