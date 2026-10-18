@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use rustix::fs::{
-    flock, fstat, fsync, mkdirat, openat, renameat, renameat_with, unlinkat, AtFlags, FileType,
-    FlockOperation, Mode, OFlags, RenameFlags,
+    flock, fstat, fsync, linkat, mkdirat, openat, renameat, unlinkat, AtFlags, FileType,
+    FlockOperation, Mode, OFlags, Stat,
 };
 use rustix::io::Errno;
 use serde::de::DeserializeOwned;
@@ -23,18 +23,25 @@ use super::admission::{coordination, Unknown, LOCK, STAGED};
 use super::inventory::Budget;
 use super::{directory, owned, protected, Synced, Unprovisioned, REPLY_BYTES_MAX};
 
+/// What a record's predecessor is also named while a seal of it is not
+/// final: `name` with this after it, a second link to the very file that
+/// stood ([`seal_with`]).
+pub(super) const PRIOR: &str = ".old";
+
 /// The longest one wait for the lock lasts before the deadline is read
 /// again.
 const POLL: Duration = Duration::from_millis(10);
 
-/// Where a seal stands when it hands its hook the directory and the staged
-/// name ([`seal_with`]): its staged copy written and synced, before its
-/// last deadline check ahead of the commit; or committed, before the
-/// directory is synced and the deadline checked the last time.
+/// Where a seal stands when it hands its hook the directory and a name
+/// ([`seal_with`]): its staged copy written and synced, before its last
+/// deadline check ahead of the commit; committed, before the directory is
+/// synced and the deadline checked the last time; or undone, the record
+/// that stood put back, before the directory is synced again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
     Staged,
     Committed,
+    Undone,
 }
 
 /// What every record sealed below a root is handed at each [`Step`]; an
@@ -177,18 +184,16 @@ fn user() -> u32 {
     brokkr_protocol::hands::ids().0
 }
 
-/// The record `name` in the directory `dir` at `at`: this user's own
-/// regular file of one link, within MB3's request bound, and one closed
-/// record; or an unknown participant there.
+/// The record `name` in the directory `dir` at `at`, as it stands
+/// ([`standing`]): within MB3's request bound, and one closed record; or
+/// an unknown participant there.
 pub(super) fn read<T: DeserializeOwned>(
     dir: &OwnedFd,
     name: &str,
     at: &Path,
 ) -> Result<T, Unknown> {
     let refused = || Unknown::Participant(at.join(name));
-    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-    let file = openat(dir, name, flags, Mode::empty()).or(Err(refused()))?;
-    single(&file).ok_or_else(refused)?;
+    let file = standing(dir, name).ok_or_else(refused)?;
     let mut bytes = Vec::new();
     let file = std::fs::File::from(file);
     let read = file.take(REPLY_BYTES_MAX + 1).read_to_end(&mut bytes);
@@ -197,18 +202,65 @@ pub(super) fn read<T: DeserializeOwned>(
     serde_json::from_slice(&bytes).or(Err(refused()))
 }
 
+/// The file `name` in `dir` as it stands for every read: the one also
+/// named with [`PRIOR`] where that stands — the record a seal not yet
+/// final replaced, or the very file `name` is while that seal is between
+/// its link and its rename — or else the file `name`. Either is this
+/// user's own regular file, opened without following a link or blocking,
+/// of one link, or of two only where `name` is that same file; none
+/// otherwise (M2 of run four's second review).
+fn standing(dir: &OwnedFd, name: &str) -> Option<OwnedFd> {
+    let prior = format!("{name}{PRIOR}");
+    let named = regular_at(dir, name);
+    // `name` of two links whose prior was not yet there when looked for is
+    // a seal that linked it since: its prior is that file.
+    let linked = named.as_ref().is_some_and(|(_, stat)| stat.st_nlink == 2);
+    let kept = regular_at(dir, &prior).or_else(|| linked.then(|| regular_at(dir, &prior))?);
+    match (kept, named) {
+        (Some((file, stat)), named) => {
+            let one = |(_, at): (OwnedFd, Stat)| same(&at, &stat);
+            let linked = (stat.st_nlink == 2) & named.is_some_and(one);
+            ((stat.st_nlink == 1) | linked).then_some(file)
+        }
+        (None, named) => named
+            .filter(|(_, stat)| stat.st_nlink == 1)
+            .map(|(file, _)| file),
+    }
+}
+
+/// The file `name` in `dir` and its status, opened without following a
+/// link or blocking, where it is this user's own regular file.
+fn regular_at(dir: &OwnedFd, name: &str) -> Option<(OwnedFd, Stat)> {
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let file = openat(dir, name, flags, Mode::empty()).ok()?;
+    let stat = fstat(&file).ok()?;
+    let regular = FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile;
+    (regular & owned(&stat, user(), true)).then_some((file, stat))
+}
+
+/// Whether two statuses are of one file.
+fn same(one: &Stat, other: &Stat) -> bool {
+    (one.st_dev == other.st_dev) & (one.st_ino == other.st_ino)
+}
+
 /// `bytes` sealed as `name` in the directory `dir`, begun before `budget`'s
-/// deadline: written as a new owner-only file beside it, `name` with
-/// [`STAGED`] after it, synced and handed to `hook`; then, the deadline
-/// checked once more, committed ([`commit`]), handed to `hook` again, the
-/// directory synced and the deadline checked the last time. Nothing before
-/// the commit touches `name`, and a seal that fails or runs past the
-/// deadline after it is undone ([`undone`]): every failed or late seal
-/// leaves the record that stood exactly as it was, its bytes and its
-/// inode, or no record where none stood (H1; R1 of run four's review).
-/// What one cut short staged goes first, and one that cannot go is refused
-/// by the exclusive create; a staged name holds either the copy a seal is
-/// committing or the record it replaced, and only `name` is ever read.
+/// deadline. A seal of `name` cut short before it was final is undone
+/// first ([`restored`]). The bytes are written as a new owner-only file
+/// beside it ([`staged_as`]); then, the deadline checked once more,
+/// committed ([`commit`]): the record that stood linked as `name` with
+/// [`PRIOR`] after it, and the staged copy renamed over `name`. That is
+/// handed to `hook` again, the directory synced and the deadline checked;
+/// and the seal is final only once the prior name is removed and the
+/// directory synced again. Until then every read finds the record that
+/// stood ([`standing`]). A seal that fails or runs late after its commit is
+/// undone ([`undone`]): the record that stood renamed back, the same file,
+/// so its bytes and its inode, or the record made removed where none stood
+/// (H1; R1 of run four's review). One whose undoing fails refuses as
+/// unsealed, whatever cut it short, the record that stood still under its
+/// prior name for every read and for the next seal to put back (M2 of run
+/// four's second review). Only links, renames and removals within one
+/// directory, which every filesystem a protected root can stand on
+/// provides: no atomic exchange (M3).
 pub(super) fn seal_with(
     dir: &OwnedFd,
     name: &str,
@@ -217,14 +269,9 @@ pub(super) fn seal_with(
     hook: Hook,
 ) -> Result<(), Unknown> {
     budget.check()?;
+    restored(dir, name)?;
     let staged = format!("{name}{STAGED}");
-    let _ = unlinkat(dir, staged.as_str(), AtFlags::empty());
-    let flags = OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let file = openat(dir, staged.as_str(), flags, Mode::RUSR | Mode::WUSR);
-    let mut file = std::fs::File::from(file.or(Err(Unknown::Unsealed))?);
-    let written = (file.write_all(bytes).and_then(|()| file.sync_all()))
-        .and_then(|()| hook(Step::Staged, dir, &staged));
-    let committed = (written.or(Err(Unknown::Unsealed)))
+    let committed = (staged_as(dir, &staged, bytes, hook))
         .and_then(|()| budget.check())
         .and_then(|()| commit(dir, &staged, name));
     let stood = match committed {
@@ -238,41 +285,82 @@ pub(super) fn seal_with(
         hook(Step::Committed, dir, &staged).and_then(|()| fsync(dir).map_err(std::io::Error::from));
     let durable = (synced.or(Err(Unknown::Unsealed))).and_then(|()| budget.check());
     if let Err(refused) = durable {
-        undone(dir, &staged, name, stood);
-        return Err(refused);
+        let undone = undone(dir, name, stood, hook);
+        return Err(undone.map_or(Unknown::Unsealed, |()| refused));
     }
-    // What stood was replaced for good; a crash before it goes leaves it
-    // staged, for the next seal to remove.
-    let _ = unlinkat(dir, staged.as_str(), AtFlags::empty());
-    Ok(())
+    if !stood {
+        return Ok(());
+    }
+    let prior = format!("{name}{PRIOR}");
+    let finished = unlinkat(dir, prior.as_str(), AtFlags::empty()).and_then(|()| fsync(dir));
+    finished.or(Err(Unknown::Unsealed))
 }
 
-/// The staged copy committed as `name`: exchanged atomically with the
-/// record that stands there, which is kept under the staged name until the
-/// seal is final, so a seal undone puts that very file back; or, where
-/// none stands, renamed in. Whether one stood. A directory that cannot
-/// exchange two names refuses, never replacing a record it could not put
-/// back.
+/// `bytes` written as the new owner-only file `staged` in `dir`, synced
+/// and handed to `hook`: what a seal cut short staged goes first, and one
+/// that cannot go is refused by the exclusive create.
+fn staged_as(dir: &OwnedFd, staged: &str, bytes: &[u8], hook: Hook) -> Result<(), Unknown> {
+    let _ = unlinkat(dir, staged, AtFlags::empty());
+    let flags = OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let file = openat(dir, staged, flags, Mode::RUSR | Mode::WUSR);
+    let mut file = std::fs::File::from(file.or(Err(Unknown::Unsealed))?);
+    let written = (file.write_all(bytes).and_then(|()| file.sync_all()))
+        .and_then(|()| hook(Step::Staged, dir, staged));
+    written.or(Err(Unknown::Unsealed))
+}
+
+/// The staged copy committed as `name`: the record that stands there
+/// first linked under its prior name, so a seal undone puts that very file
+/// back, then the copy renamed over it; or, where none stands, renamed in.
+/// Whether one stood. Where the rename fails, the record still is `name`,
+/// and its second link goes.
 fn commit(dir: &OwnedFd, staged: &str, name: &str) -> Result<bool, Unknown> {
-    match renameat_with(dir, staged, dir, name, RenameFlags::EXCHANGE) {
-        Ok(()) => Ok(true),
-        Err(Errno::NOENT) => {
-            (renameat(dir, staged, dir, name).map(|()| false)).or(Err(Unknown::Unsealed))
-        }
-        Err(_) => Err(Unknown::Unsealed),
+    let prior = format!("{name}{PRIOR}");
+    let stood = match linkat(dir, name, dir, prior.as_str(), AtFlags::empty()) {
+        Ok(()) => true,
+        Err(Errno::NOENT) => false,
+        Err(_) => return Err(Unknown::Unsealed),
+    };
+    let renamed = renameat(dir, staged, dir, name);
+    if renamed.is_err() & stood {
+        let _ = unlinkat(dir, prior.as_str(), AtFlags::empty());
     }
+    renamed.map(|()| stood).or(Err(Unknown::Unsealed))
 }
 
 /// A seal that failed or ran late after its commit, undone: the record
-/// that `stood` exchanged back in and the copy that replaced it removed,
-/// or, where none stood, the record it made removed; the directory then
-/// synced again.
-fn undone(dir: &OwnedFd, staged: &str, name: &str, stood: bool) {
-    if stood {
-        let _ = renameat_with(dir, staged, dir, name, RenameFlags::EXCHANGE);
-        let _ = unlinkat(dir, staged, AtFlags::empty());
+/// that `stood` renamed back from its prior name over the copy that
+/// replaced it, or, where none stood, the record it made removed; then
+/// handed to `hook` and the directory synced again. Why not, where any of
+/// that fails: the record that stood is then still under its prior name.
+fn undone(dir: &OwnedFd, name: &str, stood: bool, hook: Hook) -> std::io::Result<()> {
+    let prior = format!("{name}{PRIOR}");
+    let put = if stood {
+        renameat(dir, prior.as_str(), dir, name)
     } else {
-        let _ = unlinkat(dir, name, AtFlags::empty());
-    }
-    let _ = fsync(dir);
+        unlinkat(dir, name, AtFlags::empty())
+    };
+    put.map_err(std::io::Error::from)?;
+    hook(Step::Undone, dir, name)?;
+    Ok(fsync(dir)?)
+}
+
+/// A seal of `name` in `dir` cut short before it was final, undone: the
+/// record that stood, still under its prior name, renamed back over
+/// `name`, or, where both names are already that one file (a seal cut
+/// short between its link and its rename), the second name removed; and
+/// the directory synced. Nothing where no prior name stands; refused where
+/// it cannot be undone.
+fn restored(dir: &OwnedFd, name: &str) -> Result<(), Unknown> {
+    let prior = format!("{name}{PRIOR}");
+    let Some((_, kept)) = regular_at(dir, &prior) else {
+        return Ok(());
+    };
+    let one = regular_at(dir, name).is_some_and(|(_, at)| same(&at, &kept));
+    let put = if one {
+        unlinkat(dir, prior.as_str(), AtFlags::empty())
+    } else {
+        renameat(dir, prior.as_str(), dir, name)
+    };
+    (put.and_then(|()| fsync(dir))).or(Err(Unknown::Unsealed))
 }

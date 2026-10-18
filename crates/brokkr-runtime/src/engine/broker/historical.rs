@@ -11,8 +11,8 @@
 //! `sha256/<hex>`, is one regular file of one link whose bytes digest to
 //! its name, within D5's entry bound and the startup deadline, read in
 //! bounded chunks with the deadline checked between them, and no larger
-//! than MB3's per-operation allowance, which bounds every response
-//! retention can publish, so hashing what was read is bounded too;
+//! than MB3's bound per response and canonical artifact
+//! ([`ARTIFACT_BYTES_MAX`]), so hashing what was read is bounded too;
 //! anything else refuses with CR2's cause.
 
 use std::io::Read;
@@ -27,7 +27,11 @@ use serde::{Deserialize, Serialize};
 use super::admission::{Claim, Conflict, Unadmitted, Unknown};
 use super::inventory::{hex, Budget};
 use super::root::Root;
-use super::REPLY_BYTES_MAX;
+
+/// MB3's bound of 8 MiB per response and canonical artifact, the largest
+/// any artifact retention publishes may be (M1 of run four's second
+/// review); its 1 MiB bound is the request's.
+const ARTIFACT_BYTES_MAX: u64 = 8 << 20;
 
 /// What a historical root's record begins with, in its worktree's
 /// directory.
@@ -136,15 +140,15 @@ pub(super) fn regular(path: &Path) -> Option<OwnedFd> {
 }
 
 /// Whether the artifact at `path` is one regular file of one link
-/// ([`regular`]) of at most MB3's allowance whose bytes' sha256 is its
-/// name: read a chunk at a time, each chunk handed to `chunked` and the
+/// ([`regular`]) of at most [`ARTIFACT_BYTES_MAX`] whose bytes' sha256 is
+/// its name: read a chunk at a time, each chunk handed to `chunked` and the
 /// deadline of `budget` checked after it (M2), never past one byte over
-/// the allowance, and what was read hashed once.
+/// the bound, and what was read hashed once.
 fn digested(path: &Path, budget: &Budget, chunked: Chunked<'_>) -> Result<(), Undigested> {
     let name = path.file_name().and_then(|name| name.to_str());
     let name = name.filter(|name| hex(name)).ok_or(Undigested::Corrupt)?;
     let file = std::fs::File::from(regular(path).ok_or(Undigested::Corrupt)?);
-    let mut file = file.take(REPLY_BYTES_MAX + 1);
+    let mut file = file.take(ARTIFACT_BYTES_MAX + 1);
     let (mut bytes, mut chunk) = (Vec::new(), vec![0; CHUNK]);
     loop {
         let read = file.read(&mut chunk).or(Err(Undigested::Corrupt))?;
@@ -155,7 +159,7 @@ fn digested(path: &Path, budget: &Budget, chunked: Chunked<'_>) -> Result<(), Un
         };
         bytes.extend_from_slice(read);
     }
-    let within = bytes.len() as u64 <= REPLY_BYTES_MAX;
+    let within = bytes.len() as u64 <= ARTIFACT_BYTES_MAX;
     let named = within & (canonical::sha256_bytes(&bytes) == name);
     named.then_some(()).ok_or(Undigested::Corrupt)
 }

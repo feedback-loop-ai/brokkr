@@ -10,8 +10,6 @@
 mod own_home;
 #[path = "support/witnesses.rs"]
 mod witnesses;
-#[path = "support/writers.rs"]
-mod writers;
 
 mod adoption;
 mod anchor_test;

@@ -18,7 +18,7 @@ use crate::capabilities::McpFence;
 #[cfg(target_os = "linux")]
 use crate::engine::broker::exclusion::{self, Shown};
 use crate::engine::broker::exclusion::{compared, Comparison};
-use crate::engine::broker::{historical, REPLY_BYTES_MAX};
+use crate::engine::broker::historical;
 
 /// The artifact root of a [`claim`] on `worktree`.
 fn artifacts(worktree: &Path) -> PathBuf {
@@ -377,17 +377,18 @@ fn a_deadline_that_passes_inside_an_artifacts_read_ends_its_verification() {
     );
 }
 
-/// R6 (run four's review): no response retention publishes is larger than
-/// MB3's per-operation allowance, so an artifact one byte over it is
-/// refused by CR2's cause even where its name is its bytes' digest, read no
-/// further than that one byte; one of exactly the allowance verifies.
+/// M1 (run four's second review): no artifact retention publishes is
+/// larger than MB3's 8 MiB per response and canonical artifact, so one of
+/// exactly 8 MiB verifies, and one a byte over is refused by CR2's cause
+/// even where its name is its bytes' digest, read no further than that one
+/// byte.
 #[test]
-fn an_artifact_past_the_reply_allowance_is_refused_though_its_name_digests_it() {
+fn an_artifact_past_the_artifact_bound_is_refused_though_its_name_digests_it() {
     let host = Host::new();
     let root = host.worktree("root");
     let digests = root.join("sha256");
     std::fs::create_dir_all(&digests).unwrap();
-    let allowance = usize::try_from(REPLY_BYTES_MAX).unwrap();
+    let allowance = 8 << 20;
     let exact = vec![1_u8; allowance];
     std::fs::write(digests.join(canonical::sha256_bytes(&exact)), &exact).unwrap();
     assert_eq!(
@@ -687,6 +688,8 @@ struct Endless {
     consumed: usize,
     /// Whether each record never ends either.
     unended: bool,
+    /// Whether each record is empty (L3 of run four's second review).
+    blank: bool,
 }
 
 #[cfg(target_os = "linux")]
@@ -699,6 +702,7 @@ impl Endless {
             served,
             consumed,
             unended,
+            blank: false,
         }
     }
 }
@@ -724,7 +728,8 @@ impl std::io::BufRead for Endless {
                 false => {
                     self.served += 1;
                     let id = self.served + 1;
-                    format!("{id} 0 8:1 / /m{id} rw - ext4 /dev/sda1 rw\n").into_bytes()
+                    let record = format!("{id} 0 8:1 / /m{id} rw - ext4 /dev/sda1 rw\n");
+                    if self.blank { "\n".into() } else { record }.into_bytes()
                 }
             };
         }
@@ -739,7 +744,8 @@ impl std::io::BufRead for Endless {
 
 /// The mount table is collected one record at a time, each counted and
 /// the deadline checked as it is read (M3): a table that never ends is
-/// read to record 65,537 and no further, and refused by D5's bound; a
+/// read to record 65,537 and no further, and refused by D5's bound, empty
+/// records counted as any other (L3 of run four's second review); a
 /// record that never ends is read no further than its own bound; a table
 /// whose deadline passed is not read at all; and each judgement refuses
 /// by its own cause.
@@ -750,6 +756,14 @@ fn the_mount_table_is_collected_one_record_at_a_time_within_its_bounds() {
     let mut endless = Endless::new(false);
     let shown = exclusion::once(&mut endless, 1, root, &Budget::new(soon()));
     assert_eq!((shown, endless.served), (Shown::TooMany, 65_537));
+    let mut blank = Endless::new(false);
+    blank.blank = true;
+    let shown = exclusion::once(&mut blank, 1, root, &Budget::new(soon()));
+    assert_eq!(
+        (shown, blank.served),
+        (Shown::TooMany, 65_537),
+        "empty records"
+    );
     let mut unended = Endless::new(true);
     let shown = exclusion::once(&mut unended, 1, root, &Budget::new(soon()));
     assert_eq!((shown, unended.consumed), (Shown::TooMany, (64 << 10) + 1));

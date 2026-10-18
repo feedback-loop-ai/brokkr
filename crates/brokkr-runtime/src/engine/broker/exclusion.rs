@@ -421,15 +421,16 @@ pub(super) fn once(table: &mut dyn BufRead, mount: u64, root: &Path, budget: &Bu
 }
 
 /// Every mount the table `table` names, read one record at a time and
-/// counted as it is read (M3): the record past D5's bound is the last one
-/// read ([`Shown::TooMany`]), as is one longer than [`RECORD_MAX`], so no
-/// more of a table than the bound is ever collected; the deadline is
-/// checked before each ([`Shown::Expired`]); a record that does not parse,
-/// or is not UTF-8, proves nothing ([`Shown::Elsewhere`]).
+/// counted as it is read (M3), an empty one as any other (L3 of run four's
+/// second review): the record past D5's bound is the last one read
+/// ([`Shown::TooMany`]), as is one longer than [`RECORD_MAX`], so no more
+/// of a table than the bound is ever collected; the deadline is checked
+/// before each ([`Shown::Expired`]); a record that does not parse, or is
+/// not UTF-8, proves nothing ([`Shown::Elsewhere`]).
 #[cfg(target_os = "linux")]
 fn mounts(table: &mut dyn BufRead, budget: &Budget) -> Result<Vec<Mount>, Shown> {
     use std::io::Read;
-    let (mut mounts, mut record) = (Vec::new(), Vec::new());
+    let (mut mounts, mut record, mut records) = (Vec::new(), Vec::new(), 0);
     loop {
         budget.check().or(Err(Shown::Expired))?;
         record.clear();
@@ -437,16 +438,14 @@ fn mounts(table: &mut dyn BufRead, budget: &Budget) -> Result<Vec<Mount>, Shown>
         if read.or(Err(Shown::Elsewhere))? == 0 {
             return Ok(mounts);
         }
-        let within = (record.len() as u64) <= RECORD_MAX;
+        records += 1;
+        let within = ((record.len() as u64) <= RECORD_MAX) & (records <= MOUNTS_MAX);
         within.then_some(()).ok_or(Shown::TooMany)?;
         let line = std::str::from_utf8(&record).or(Err(Shown::Elsewhere))?;
         let line = line.strip_suffix('\n').unwrap_or(line);
         if line.is_empty() {
             continue;
         }
-        (mounts.len() < MOUNTS_MAX)
-            .then_some(())
-            .ok_or(Shown::TooMany)?;
         mounts.push(parsed(line).ok_or(Shown::Elsewhere)?);
     }
 }

@@ -38,11 +38,17 @@ fn standing(at: &Path) -> (Vec<u8>, (u64, u64)) {
 }
 
 /// The reservation at `at` stands as `before` did, and nothing is staged
-/// beside it.
+/// or kept under its prior name beside it.
 fn kept(at: &Path, before: &(Vec<u8>, (u64, u64)), what: &str) {
     assert_eq!(&standing(at), before, "{what}: the reservation that stood");
     let staged = at.with_file_name("reservation.json.new");
     assert!(!staged.exists(), "{what}: no staged copy left");
+    assert!(!prior(at).exists(), "{what}: no prior name left");
+}
+
+/// The prior name of the reservation at `at`.
+fn prior(at: &Path) -> PathBuf {
+    at.with_file_name("reservation.json.old")
 }
 
 /// `millis` from now.
@@ -90,33 +96,117 @@ fn a_first_seal_that_fails_or_runs_late_leaves_no_record() {
     }
 }
 
-/// R1: a reseal in a directory that will not exchange two names is
-/// refused, and the record that stood is never replaced.
+/// R1, M3: a reseal in a directory that will not take a second name for
+/// the record that stood is refused, and that record is never replaced.
 #[test]
-fn a_reseal_that_cannot_exchange_keeps_the_reservation_that_stood() {
+fn a_reseal_that_cannot_link_the_record_that_stood_keeps_it() {
     let (host, at, before) = joining(Late::Deny);
     let joined = admit(
         &host.root,
         &open(&host.worktree("work"), ["run-a", "a2"]),
         soon(),
     );
-    let run = at.parent().unwrap();
-    std::fs::set_permissions(run, std::fs::Permissions::from_mode(0o700)).unwrap();
+    writable(&at);
     assert_eq!(joined, mb3(Unknown::Unsealed));
     assert_eq!(standing(&at), before, "the reservation that stood");
 }
 
+/// The directory of the reservation at `at` writable by its owner again.
+fn writable(at: &Path) {
+    let run = at.parent().unwrap();
+    std::fs::set_permissions(run, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+/// M2 (run four's second review): a reseal whose undoing itself fails —
+/// the rename back refused, or the directory's sync after it failing — is
+/// refused as unsealed, whatever cut it short. The reservation that stood
+/// is the one every read finds: its very file under its prior name where
+/// it could not be renamed back, or back at its name. The next seal puts
+/// that file back at its name before anything else, so even cut short it
+/// leaves it there; and the run's next attempt joins that reservation, not
+/// the refused one, leaving no prior name behind.
+#[test]
+fn a_reseal_whose_undoing_fails_leaves_the_reservation_that_stood_read() {
+    let spent = Duration::from_millis(600);
+    for (armed, how) in [
+        (Late::DenyCommitted(spent), "its rename back refused"),
+        (Late::FailUndone(spent), "its undoing's sync failed"),
+    ] {
+        let (host, at, before) = joining(armed);
+        let work = host.worktree("work");
+        let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), within(400));
+        writable(&at);
+        assert_eq!(joined, mb3(Unknown::Unsealed), "{how}");
+        let stood = if prior(&at).exists() {
+            prior(&at)
+        } else {
+            at.clone()
+        };
+        assert_eq!(
+            standing(&stood),
+            before,
+            "{how}: the reservation that stood"
+        );
+        let key = open(&work, ["run-a", "a2"]).repo;
+        let run = host.root.below(&[&key, "run-a"]).unwrap();
+        let read: Reservation = read(&run, RESERVATION, &at).unwrap();
+        assert_eq!(read, serde_json::from_slice(&before.0).unwrap(), "{how}");
+        // The next seal first puts that very file back: cut short before
+        // its own commit, it leaves the record that stood at its name.
+        LATE.set(Some(Late::Sleep(spent)));
+        let cut = admit(&host.root, &open(&work, ["run-a", "a3"]), within(400));
+        assert_eq!(cut, mb3(Unknown::Expired), "{how}");
+        kept(&at, &before, &format!("{how}, the next seal cut short"));
+        drop(host.admit(&open(&work, ["run-a", "a3"])).unwrap());
+        let joined = (vec!["a1".to_string(), "a3".to_string()], Vec::new());
+        assert_eq!(host.attempts(&work, "run-a"), joined, "{how}");
+        assert!(!prior(&at).exists(), "{how}: no prior name left");
+    }
+}
+
+/// M2: a seal cut short between its link of the record that stood and its
+/// rename, both names one file, is read as that record and undone by the
+/// run's next seal, which joins it and leaves no prior name.
+#[test]
+fn a_seal_cut_short_between_its_link_and_its_rename_is_undone_by_the_next() {
+    let (host, at, before) = stood();
+    let work = host.worktree("work");
+    std::fs::hard_link(&at, prior(&at)).unwrap();
+    drop(host.admit(&open(&work, ["run-a", "a2"])).unwrap());
+    let joined = (vec!["a1".to_string(), "a2".to_string()], Vec::new());
+    assert_eq!(host.attempts(&work, "run-a"), joined);
+    assert!(!prior(&at).exists(), "no prior name left");
+    assert_eq!(std::fs::metadata(&at).unwrap().nlink(), 1, "one link");
+    assert_ne!(standing(&at), before, "resealed");
+}
+
+/// M2: a prior name with no reservation beside it is no seal's, and is an
+/// unknown participant.
+#[test]
+fn a_prior_name_with_no_record_beside_it_is_an_unknown_participant() {
+    let (host, at, _) = stood();
+    std::fs::rename(&at, prior(&at)).unwrap();
+    let next = host.admit(&open(&host.worktree("work"), ["run-b", "b1"]));
+    assert_eq!(next, mb3(Unknown::Participant(prior(&at))));
+}
+
 /// A fresh host whose run `run-a` holds its attempt `a1` standing on the
-/// worktree `work`, the next seal on this thread armed by `armed`: the
-/// host, where the reservation stands, and how it stands.
-fn joining(armed: Late) -> (Host, PathBuf, (Vec<u8>, (u64, u64))) {
+/// worktree `work`: the host, where the reservation stands, and how it
+/// stands.
+fn stood() -> (Host, PathBuf, (Vec<u8>, (u64, u64))) {
     let host = Host::new();
     let work = host.worktree("work");
     drop(host.admit(&open(&work, ["run-a", "a1"])).unwrap());
     let at = host.reservation(&work, "run-a");
     let before = standing(&at);
-    LATE.set(Some(armed));
     (host, at, before)
+}
+
+/// [`stood`], the next seal on this thread armed by `armed`.
+fn joining(armed: Late) -> (Host, PathBuf, (Vec<u8>, (u64, u64))) {
+    let stood = stood();
+    LATE.set(Some(armed));
+    stood
 }
 
 /// A run's next attempt whose seal fails or runs late at its final steps

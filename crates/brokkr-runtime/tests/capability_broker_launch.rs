@@ -1,91 +1,104 @@
-//! Decision 0065 slice two, U8a2a (CR2, MB3): every dispatch takes its
-//! worktree's writer lease before its first writer starts, and holds it
-//! until its attempt has settled. Real engines, each in a process of its
-//! own on one protected HOME (`writers`): an already-running writer
-//! refuses a second run on its worktree, a disjoint worktree runs beside
-//! it, and of two runs started together on one worktree exactly one runs.
-//! Each is a production resolution proof, its root resolved from HOME
-//! (M5): the same behaviour on an injected root, on every TMPDIR, is
-//! `a_dispatch_on_a_held_worktree_fails_before_its_driver_starts`,
-//! `separate_worktrees_hold_their_leases_side_by_side`,
-//! `dispatch_holds_the_lease_while_its_driver_runs_and_releases_it_once_settled`
-//! and `simultaneous_admissions_on_one_worktree_admit_exactly_one`.
+//! Decision 0065 slice two, U8a2a (CR2, MB3; D6): the public engine
+//! resolves its writer lease's coordination root from its HOME alone,
+//! through the protected walk that judges every ancestor, as an installed
+//! `brokkr` does. These are the production resolution proofs, each run
+//! again in a child whose HOME is a fresh owner-only directory of its own
+//! ([`crate::own_home`]), so nothing here reads or writes the host's HOME.
+//! The lease's lifecycle across real engines — an already-running writer,
+//! two runs started together, an engine killed mid-attempt — is proved on
+//! an injected root, on any TMPDIR and never skipped, by
+//! `engine::broker::admission::tests::processes` (M4 of run four's second
+//! review), which these suites held until then.
 
-use crate::writers::{held_by, until, Coordination};
+use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
 
-/// An already-running writer refuses: while one run's driver works its
-/// worktree, a second run there fails its attempt by CR2's cause before its
-/// driver starts, and a run on another worktree completes beside it. Once
-/// the first settles, its lease is gone and the next run on its worktree
-/// completes, each reservation holding no attempt standing.
+use brokkr_runtime::{Bundle, Engine};
+use brokkr_store::Store;
+use serde_json::json;
+
+/// A `work` seat, the protected review, then done.
+const POLICY: &str = r#"{"phases": ["work", "review", "done"], "initial": "work",
+  "terminal": ["done"],
+  "rules": [{"id": "WORK-REVIEW", "from": "work", "result": "complete", "next": "review",
+             "reason": "worked"},
+            {"id": "REVIEW-DONE", "from": "review", "result": "clean", "next": "done",
+             "reason": "clean"}]}"#;
+
+/// Where a HOME whose every ancestor protects resolves it, a dispatch holds
+/// its lease in that HOME's own coordination root while its driver runs:
+/// the driver finds its run's reservation there. Skipped, with its reason,
+/// where this host has no location that protects a HOME: the one test here
+/// that needs one.
 #[test]
-fn a_running_writer_holds_its_worktree_and_a_disjoint_one_runs_beside_it() {
-    let Some(host) = Coordination::new() else {
+fn an_engine_holds_its_lease_in_the_root_its_home_resolves() {
+    let test = "capability_broker_launch::an_engine_holds_its_lease_in_the_root_its_home_resolves";
+    if !crate::own_home::in_own_home(test) {
         return;
-    };
-    let (shared, apart) = (host.worktree("shared"), host.worktree("apart"));
-    let (holding, refused) = (host.bundle("holding", true), host.bundle("refused", false));
-    let (beside, after) = (host.bundle("beside", false), host.bundle("after", false));
-    let first = host.start(&shared, &holding);
-    let lease = host.reservation(&shared, &first.run);
-    until("the first driver runs under its lease", || {
-        host.mark("holding").exists() && lease.exists()
-    });
-
-    let second = host.start(&shared, &refused);
-    let run = second.run.clone();
-    assert_eq!(second.ended(), "awaiting_operator");
-    assert_eq!(host.failures(&refused, &run), [held_by(&first.run)]);
-    assert!(!host.mark("refused").exists(), "its driver never started");
-
-    let third = host.start(&apart, &beside);
-    assert_eq!(third.ended(), "completed");
-    assert_eq!(
-        host.standing(&shared, &first.run).len(),
-        1,
-        "the first holds its worktree"
+    }
+    let home = home();
+    if !protects(&home) {
+        let required = brokkr_protocol::hands::boundary_evidence_required();
+        let reason = "no protected location for a HOME (TMPDIR; D6)";
+        brokkr_protocol::hands::skip_boundary_proof(required, reason);
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let work = std::fs::canonicalize(dir.path()).unwrap();
+    let key = brokkr_core::canonical::sha256_bytes(work.as_os_str().as_encoded_bytes());
+    let runs = home.join(".local/state/brokkr/capabilities").join(key);
+    let seen = work.join("seen");
+    let script = format!(
+        "[ -e '{}'/*/reservation.json ] && touch '{}'; exit 1",
+        runs.display(),
+        seen.display()
     );
-
-    std::fs::write(host.gate(), "").unwrap();
-    let first_run = first.run.clone();
-    assert_eq!(first.ended(), "completed");
+    driven(&work, &script);
     assert!(
-        host.standing(&shared, &first_run).is_empty(),
-        "released once settled"
+        seen.exists(),
+        "its driver ran under a lease in its HOME's root"
     );
-    let next = host.start(&shared, &after);
-    let next_run = next.run.clone();
-    assert_eq!(next.ended(), "completed");
-    assert!(host.standing(&shared, &next_run).is_empty());
 }
 
-/// Simultaneous starts on one worktree admit exactly one: of two runs
-/// whose drivers both wait, one holds the lease and runs, and the other
-/// fails by CR2's cause naming it, its driver never started.
-#[test]
-fn of_two_runs_started_together_on_one_worktree_exactly_one_runs() {
-    let Some(host) = Coordination::new() else {
-        return;
+/// The HOME this process stands in, canonical.
+pub(crate) fn home() -> PathBuf {
+    std::fs::canonicalize(std::env::var_os("HOME").unwrap()).unwrap()
+}
+
+/// A run whose `work` seat's driver runs `script` and fails, driven to its
+/// park by the public engine on the worktree `work`, journaled there.
+pub(crate) fn driven(work: &Path, script: &str) {
+    crate::own_home::required();
+    let bundle = work.join("bundle");
+    std::fs::create_dir_all(bundle.join("roles")).unwrap();
+    std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
+    std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
+    let seat = |result: &str, command: &[&str]| {
+        json!({"role": "roles/role.md", "results": [result],
+               "limits": {"max_attempts": 1, "timeout_seconds": 120},
+               "driver": {"command": command}})
     };
-    let shared = host.worktree("shared");
-    let (left, right) = (host.bundle("left", true), host.bundle("right", true));
-    let started = [host.start(&shared, &left), host.start(&shared, &right)];
-    let runs = [started[0].run.clone(), started[1].run.clone()];
-    until("one of them is refused", || {
-        let failed = |at: usize| !host.failures([&left, &right][at], &runs[at]).is_empty();
-        failed(0) || failed(1)
-    });
-    std::fs::write(host.gate(), "").unwrap();
-    let [first, second] = started;
-    let ends = [first.ended(), second.ended()];
-    let refused = usize::from(ends[0] == "completed");
-    assert_eq!(ends[1 - refused], "completed", "{ends:?}");
-    assert_eq!(ends[refused], "awaiting_operator");
-    let bundles = [&left, &right];
-    assert_eq!(
-        host.failures(bundles[refused], &runs[refused]),
-        [held_by(&runs[1 - refused])]
-    );
-    let marks = [host.mark("left"), host.mark("right")];
-    assert!(!marks[refused].exists() && marks[1 - refused].exists());
+    let seats = json!({"work": seat("complete", &["sh", "-c", script]),
+                       "review": seat("clean", &["false"])});
+    let document = json!({"name": "resolved", "policy": "policy.json", "seats": seats});
+    std::fs::write(bundle.join("bundle.json"), document.to_string()).unwrap();
+    let bundle = Bundle::compile(&bundle).unwrap();
+    let store = Store::open(&work.join("forge.db")).unwrap();
+    let mut engine = Engine::start(store, bundle, "resolved", Some(work.to_path_buf())).unwrap();
+    engine.drive().unwrap();
+}
+
+/// Whether `at` and every ancestor of it protect what lies below them:
+/// this user's or root's, writable by no one else unless root-owned and
+/// sticky, as the broker judges a HOME's ancestors.
+fn protects(at: &Path) -> bool {
+    let user = brokkr_protocol::hands::ids().0;
+    let judged = |at: &Path| {
+        std::fs::metadata(at).is_ok_and(|found| {
+            let (owner, mode) = (found.uid(), found.mode());
+            let sticky = (owner == 0) & (mode & 0o1000 != 0);
+            ((owner == user) | (owner == 0)) & ((mode & 0o022 == 0) | sticky)
+        })
+    };
+    at.ancestors().all(judged)
 }

@@ -1,65 +1,33 @@
-//! Decision 0065 slice two, U8a2a (CR2, MB3): a writer lease is a durable
-//! reservation in the protected inventory, released only once its
-//! attempt's owned processes have durably settled. Real engines, each in a
-//! process of its own on one protected HOME (`writers`): an engine killed
-//! mid-attempt, its driver surviving it, keeps its worktree reserved
-//! through the lock's release, the driver's own end and the run's resume,
-//! for none of them proves the attempt's tree over. A production
-//! resolution proof, its root resolved from HOME (M5): the same retention
-//! on an injected root, on every TMPDIR, is
-//! `a_lease_its_engine_never_released_keeps_refusing_with_the_lock_free`.
+//! Decision 0065 slice two, U8a2a (CR2, MB3; D6): where the public
+//! engine's HOME cannot be protected, nothing is recorded in it. A
+//! production resolution proof, run again in a child whose HOME is a fresh
+//! owner-only directory of its own ([`crate::own_home`]), which it then
+//! makes writable by its group; it runs on any TMPDIR and is never skipped.
+//! The durable reservation's retention through engine death, on an
+//! injected root, is
+//! `engine::broker::admission::tests::processes::an_engine_killed_mid_attempt_keeps_its_worktree_reserved`
+//! (M4 of run four's second review), which this suite held until then.
 
-use crate::writers::{held_by, until, Coordination};
+use std::os::unix::fs::PermissionsExt;
 
-/// Engine death with surviving payload retains the reservation: the
-/// killed engine's lease stands byte for byte, refusing a second run on
-/// its worktree by CR2's cause while its driver still runs, after that
-/// driver ends, and after the run is resumed and settles the attempt it
-/// lost as indeterminate.
+use crate::capability_broker_launch::{driven, home};
+
+/// A HOME its group may write cannot be protected, and with the fence
+/// standing a run that puts nothing at stake runs holding no lease (the
+/// operator's first ruling of 2026-10-18; C1): its driver runs, and the
+/// engine makes nothing under that HOME's state.
 #[test]
-fn an_engine_killed_mid_attempt_keeps_its_worktree_reserved() {
-    let Some(host) = Coordination::new() else {
+fn an_engine_whose_home_cannot_be_protected_records_nothing_in_it() {
+    let test = "capability_ledger::an_engine_whose_home_cannot_be_protected_records_nothing_in_it";
+    if !crate::own_home::in_own_home(test) {
         return;
-    };
-    let shared = host.worktree("shared");
-    let lost = host.bundle("lost", true);
-    let first = host.start(&shared, &lost);
-    let run = first.run.clone();
-    let lease = host.reservation(&shared, &run);
-    until("the first driver runs under its lease", || {
-        host.mark("lost").exists() && lease.exists()
-    });
-    let sealed = std::fs::read(&lease).unwrap();
-    first.killed();
-
-    let refused = |name: &str| {
-        let bundle = host.bundle(name, false);
-        let second = host.start(&shared, &bundle);
-        let second_run = second.run.clone();
-        assert_eq!(second.ended(), "awaiting_operator", "{name}");
-        assert_eq!(
-            host.failures(&bundle, &second_run),
-            [held_by(&run)],
-            "{name}"
-        );
-        assert!(
-            !host.mark(name).exists(),
-            "{name}: its driver never started"
-        );
-        assert_eq!(
-            std::fs::read(&lease).unwrap(),
-            sealed,
-            "{name}: the lease as sealed"
-        );
-    };
-    refused("while-it-runs");
-    // The surviving driver ends: its tree is gone, but nothing journaled
-    // says so.
-    std::fs::write(host.gate(), "").unwrap();
-    refused("once-it-ended");
-    assert_eq!(
-        host.resume(&shared, &lost, &run).ended(),
-        "awaiting_operator"
-    );
-    refused("after-the-resume");
+    }
+    let home = home();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o770)).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let work = std::fs::canonicalize(dir.path()).unwrap();
+    let ran = work.join("ran");
+    driven(&work, &format!("touch '{}'; exit 1", ran.display()));
+    assert!(ran.exists(), "its driver ran");
+    assert!(!home.join(".local").exists(), "nothing made in its HOME");
 }

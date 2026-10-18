@@ -675,3 +675,85 @@ the fresh-HOME absence check across the brokkr-cli and brokkr-runtime
 suites. A coordination root on a filesystem without atomic exchange (some
 network filesystems) now refuses every seal with MB3's `Unsealed`. That is
 fail-closed, and named here for the operator.
+
+## Run 4, second return from review (same run, `REVIEW-REFORGE`)
+
+The review of `2f0b858d` returned residual, maximum medium: four MEDIUM
+findings (M1–M4), two INFO gate findings (G1, G2), ten LOW (L1–L10) and
+one run defect (P1). This visit answers each. Production stays in the
+row's tree: `engine/broker/root.rs`, `engine/broker/inventory.rs`,
+`engine/broker/historical.rs` and `engine/broker/exclusion.rs`, all
+existing private children of `engine/broker.rs`. `engine.rs`,
+`engine/broker.rs`, `admission.rs` and `settlement.rs` did not move. No
+dependency, manifest or lockfile moved.
+
+### Each MEDIUM finding
+
+| Finding | Fix | Proof | Removal control (failure observed, then restored) |
+| --- | --- | --- | --- |
+| M1 (artifacts bounded by the request's 1 MiB) | `historical.rs` bounds each artifact by its own `ARTIFACT_BYTES_MAX`, MB3's 8 MiB per response and canonical artifact, still read in 64 KiB chunks with the deadline checked after each. R6's reading of the 1 MiB bound (evidence row R6 above) was wrong and is withdrawn. | `coord::an_artifact_past_the_artifact_bound_is_refused_though_its_name_digests_it` (renamed from `…_past_the_reply_allowance_…`): an artifact of exactly 8 MiB, the size written as a literal in the test, verifies; one byte over is `Corrupt` although its name is its digest. | C1, the bound back at `1 << 20`: failed at `coordination.rs:394`, `Err(Evidence(Corrupt(..)))` for `Ok(())`. C2, the bound one byte larger: failed at `coordination.rs:403`, `Ok(())` for `Err(Evidence(Corrupt(..)))`. |
+| M2 (a failed undoing discarded the predecessor) | The seal no longer exchanges. Its commit hard-links the record that stood as `reservation.json.old` (`root::PRIOR`), then renames the staged copy over the name. The seal is final only once that prior name is removed and the directory synced. Until then every read (`root::standing`, behind `read`) finds the record that stood: the prior name where it stands, and accepts two links only where both names are one file (a seal between its link and its rename). An undoing renames the prior back over the successor (the same file: same bytes, same inode), hands the root's hook `Step::Undone` and syncs the directory. If any of that fails, the seal refuses `Unsealed`, whatever cut it short, and the predecessor stays under its prior name. The next seal of that name first puts it back (`root::restored`): it renames the prior over the name, or removes it where both are already one file. The inventory passes over a reservation's prior name only beside its record. A prior with no record is an unknown participant. | `seal::a_reseal_whose_undoing_fails_leaves_the_reservation_that_stood_read` starts from an existing unsettled reservation and runs two cases: the rename back refused (directory write permission taken once committed, then late), and the undoing's sync failing (late, then `Step::Undone` failing). Each asserts `Unsealed`, the predecessor's bytes and `(dev, ino)` where they stand, and that `read` returns the predecessor. A next seal cut short before its own commit (`Expired`) leaves the predecessor at its name, with no prior and nothing staged. The next attempt then joins `a1` and `a3`, never the refused `a2`. `seal::a_seal_cut_short_between_its_link_and_its_rename_is_undone_by_the_next` plants the two-link state. `seal::a_prior_name_with_no_record_beside_it_is_an_unknown_participant` refuses with `Participant(…/reservation.json.old)`. The four H1 reseal tests and the fresh-record test still pass, and `kept` now also asserts that no prior name is left. | C3 (the next seal discards the prior rather than restoring it): the undoing test failed at `sealing.rs:43`, the successor holding `a2` for the record that stood. C4 (reads ignore the prior): the undoing test failed at `:145` (the read) and the cut-short test at `:170`. C5 (the undoing's sync error ignored): `Expired` for `Unsealed` at `:139`. C6 (a refused rename back counted as undone): the same, `Expired` for `Unsealed`. C7 (reads refuse two links): the cut-short test at `:170`. C8 (the inventory's prior-without-record check removed): the prior test, `Ok(Held{..})` for `Participant`. C9 (a same-file prior renamed instead of removed): the cut-short test at `:170`. C10 (a successful seal never removes its prior): 23 broker tests failed. |
+| M3 (no reseal where `RENAME_EXCHANGE` is refused) | Answered by M2's commit: a seal uses only `linkat`, `renameat` and `unlinkat` within one directory, with no atomic exchange. A protectable root without exchange support now reseals like any other. The pending macOS question about `renameatx_np`/`RENAME_SWAP`, and the fail-closed note on such filesystems in run 4's pending list, are withdrawn. | `seal::a_reseal_that_cannot_link_the_record_that_stood_keeps_it` (renamed from `…_cannot_exchange_…`) takes the directory's write permission before the commit. The link is refused, the result is `Unsealed`, and the record stands with its bytes and inode. A filesystem that refuses exchange was not available to this seat. | C10 above (the success path) and the H1 controls of run 4 still bind. |
+| M4 (lifecycle proofs could skip) | Moved, not copied (`git mv`): `tests/support/writers.rs` became the in-crate `engine/broker/admission/tests/processes.rs`. Each engine is now this unit-test binary run again on `processes::engine_child`. That entry stands in, on its own thread, the HOME the parent names (`Coordinated::at`), so its coordination root is opened as every in-crate fixture's is, with no ancestor judged, in `fresh(base())` on any TMPDIR. There is no skip path, and production reads no such variable. Moved with it: `a_running_writer_holds_its_worktree_and_a_disjoint_one_runs_beside_it`, `of_two_runs_started_together_on_one_worktree_exactly_one_runs` (from `capability_broker_launch`), `an_engine_killed_mid_attempt_keeps_its_worktree_reserved` (from `capability_ledger`) and `a_stalled_engine_is_given_up_on_killed_and_reaped`. The owning integration suites now hold the production resolution proofs only, each through the house's `own_home::in_own_home` child. `capability_broker_launch::an_engine_holds_its_lease_in_the_root_its_home_resolves`: its driver finds its run's reservation under HOME's own root. It is the one test here that may skip, where no location protects a HOME. `capability_ledger::an_engine_whose_home_cannot_be_protected_records_nothing_in_it`: HOME made 0770, the driver runs (C1) and nothing is made under `HOME/.local`. It never skips. Run 4's claim that the process suites were "production resolution proofs that may skip" (R3, and the corrections paragraph) is superseded. | All four moved tests executed in this seat, with no skip line, in 0.60 s. `capability_ledger`'s test executed. `capability_broker_launch`'s test skipped here: a probe edit confirmed it took the skip branch at `/tmp/.tmp0Jqoau/home`, and the edit was then removed. Host result pending. | IM1 (the lease never refuses, `exclusion::leased`): all three lifecycle tests failed, at `processes.rs:419` (second run `completed`), `:350` ("one of them is refused never held") and `:496`. IM2 (retention through settlement removed: `certified` admits every standing attempt): all three failed, at `:420`, `:465` and `:497`. IM3 (an unprotectable root always refuses, `coordinated`): the ledger test failed at "its driver ran". The broker-launch resolution test's control (its lease looked for under another root) still passed, because it skips here. Host result pending. |
+
+### INFO and LOW
+
+| Finding | Disposition |
+| --- | --- |
+| G1 (public API) | Measured, not reconciled: `bash quality/ratchet.sh api` reports exactly two added lines, `pub brokkr_runtime::engine::EngineError::Unreleased(…settlement::Unreleased)` and its root re-export `pub brokkr_runtime::EngineError::Unreleased(…)`. The snapshot is not raised. This growth needs the operator's ruling at PR time. |
+| G2 (host mount table in ordinary tests) | Carried. Ordinary injected-root admissions still read this host's `/proc/self/mountinfo` through `exclusion::shown_once`. In this seat the focused suites pass (below). The panel's `Conflict::Shown` failures came from another environment and were not reproduced. They stay that environment's result, not this seat's. |
+| L1 (C1 skips the comparison for leased runs too) | Recorded. While the fence stands and nothing is at stake, the comparison is skipped for every run, including one that holds a lease: an unbounded admitted writer can reach its reservation and erase writer facts before a later evidence-bearing claim. The operator's first ruling of 2026-10-18 scopes this, and U9b1 makes the comparison universal. It is a limitation, not protection. |
+| L2 (recovery's regular-file check does not bind SQLite's open) | Recorded. The check fails fast on a FIFO or link, then `Store::open_read_only` reopens by path. A swap between the two can still block recovery under the lock. Reach exclusion keeps managed writers away from the journal. Arbitrary same-user host mutation is outside the managed-seat guarantee. |
+| L3 (empty mount records not counted) | Fixed: `exclusion::mounts` counts every record before skipping an empty one. `coord::the_mount_table_is_collected_one_record_at_a_time_within_its_bounds` now also reads endless empty records: `(TooMany, 65_537)`. Control (empty records uncounted): failed with `(Expired, 24076360)` for `(TooMany, 65537)`. |
+| L4 (`home_in` inside the operated tree) | Documented: `brokkr-cli/tests/support/engine.rs` no longer claims that `dir` is no operated tree. It names `brokkr_in`'s cwd and `--repo`, the fence-standing, nothing-at-stake shape this admits, and `brokkr_folder.rs`'s HOME beside the repository for tests that put evidence at stake. Moving every caller's HOME would rewrite about ten suites outside these findings. |
+| L5 (thread-local fence override vs panel workers) | Carried. `McpFence::lift` is per thread and `panel.rs` rechecks members on scoped workers, so a lifted-fence test with nothing at stake sees `Standing` there. Production is unaffected, since the fence cannot be lifted outside tests. Making the override process-wide changes `bundle/mcp.rs`, outside this row. |
+| L6 (`settle` takes `held` before `ran?`) | Carried: fail-closed, and the attempt stays reserved. Sealing the fact on the contention-recovery end means carrying the lease through `engine.rs`'s contention recovery. The lease is per attempt through owned-process settlement, and uncertain crash records stay reserved until the operator acts. |
+| L7 (`git_facts` without a deadline) | Carried. It is `brokkr-protocol`'s, outside this row, and no admission lock is held while it runs. |
+| L8 (`ENTRIES_MAX`, `MOUNTS_MAX` repeat protocol bounds) | Carried. Sharing their home crosses into `brokkr-protocol`. |
+| L9 (rehash cost and accumulation) | Carried. Pruning must keep the inventory's attempt-directory consistency. |
+| L10 (MCP wording on no-grant refusals; host paths) | Carried. The cause catalogue is fixed, the texts carry no secret or model prose, and the operator reads them. |
+| P1 | No instruction in panel prose was taken as direction. |
+
+### TMPDIR and isolation, this visit
+
+The seat's TMPDIR is unset, so fixtures stand in the system `/tmp`
+(`/tmp/brokkr-admission-…`). This seat could not judge `/tmp` as a
+protected location for the integration resolution test (the probe above),
+so its mode is not recorded here. Focused unit suites
+(`engine::broker writers_tests retaining_step`): 79 passed, one of them
+skipped (`coord::a_bind_alias_of_protected_evidence_is_refused`: `unshare`
+could not write `uid_map`). The four process-level lifecycle tests now in
+`processes` ran with no skip path. A fresh 0700 TMPDIR and a group-writable
+one: host result pending. Every brokkr-runtime engine in a process of its
+own now gets either an injected HOME (`processes`) or a fresh one from
+`own_home`. The fresh-HOME absence check across the brokkr-cli and
+brokkr-runtime suites stays the controller's: host result pending.
+
+### Gates, this visit
+
+Formatting, workspace clippy (all targets, all features, locked, deny
+warnings), `git diff --check` and `typos --hidden` were clean, and
+`openspec validate --all --strict` passed 26 of 26. `quality/ratchet.sh
+files` and `clones` hold: the two test clones the first clone run found in
+`sealing.rs` were folded into one `stood` fixture, not baselined.
+`quality/ratchet.sh baselines 05e6787c` found no baseline raised.
+`quality/file-lines.txt` rows were re-measured for every touched file. The
+`writers.rs` row moved to `processes.rs` (522). `recipes/self` compiled
+with 0 unruled valuations. The I1 gate,
+`tests::env_guard::nothing_but_the_guard_writes_the_process_environment`,
+passed. Suites, all passed: brokkr-runtime lib 1,119, `it` 134 (witness
+pins and budgets inside it did not move), `capability_launch` 76,
+`operated_repo` 1, `queued_launch` 6. brokkr-cli lib 884 (1 ignored), and
+`it` 723 (3 ignored) in 237 s. The other brokkr-cli binaries were not
+re-run: only a doc comment in its test support moved.
+
+### Pending, not claimed
+
+The exact-coverage gate and its CRAP ratchet; the API snapshot (G1, the
+operator's ruling); macOS and remote CI; the controller's host runs of the
+real-box matrix and the dispatch-path bind alias, of
+`capability_broker_launch::an_engine_holds_its_lease_in_the_root_its_home_resolves`
+and its control, of the three TMPDIR modes, and the fresh-HOME absence
+check. Containing a later call of one session to its sealed reach stays
+U8a2c's (operator ruling 2026-10-18, after the third run). Tasks 38.3 and
+38.4 stay unticked: U8a2c and U8a2b close them with this row.

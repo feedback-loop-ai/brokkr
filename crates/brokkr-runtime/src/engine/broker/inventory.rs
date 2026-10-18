@@ -10,7 +10,9 @@
 //! alone and reached without following a link. A record written beside
 //! the one it becomes, its rename never done, is passed over: a writer
 //! starts only once its reservation is renamed in and synced, so such a
-//! record admitted none. Anything else, or anything that cannot be read,
+//! record admitted none. A reservation's prior name, which a seal not yet
+//! final keeps the record it replaced under, is read as the reservation
+//! and stands only beside it. Anything else, or anything that cannot be read,
 //! is a participant nothing can vouch for, and refuses with MB3's identity
 //! cause.
 
@@ -23,7 +25,7 @@ use rustix::fs::{openat, statat, AtFlags, Dir, FileType, Mode};
 
 use super::admission::{Reservation, Unknown, LOCK, RESERVATION, STAGED};
 use super::historical::{named, Historical};
-use super::root::read;
+use super::root::{read, PRIOR};
 use super::{directory, owned};
 
 /// MB3's entry bound, which the inventory's traversal shares (D5; operator
@@ -132,14 +134,24 @@ fn worktree(
 fn run(dir: &OwnedFd, at: &Path, budget: &mut Budget) -> Result<Option<Reservation>, Unknown> {
     let mut found: Option<Reservation> = None;
     let mut attempts = Vec::new();
-    let staged = format!("{RESERVATION}{STAGED}");
+    let (staged, prior) = (
+        format!("{RESERVATION}{STAGED}"),
+        format!("{RESERVATION}{PRIOR}"),
+    );
+    let mut kept = false;
     for (name, kind) in listed(dir, at, budget)? {
         match kind {
             FileType::RegularFile if name == RESERVATION => found = Some(read(dir, &name, at)?),
             FileType::RegularFile if name == staged => {}
+            FileType::RegularFile if name == prior => kept = true,
             FileType::Directory => attempts.push(name),
             _ => return Err(unknown(at, &name)),
         }
+    }
+    // A prior name stands only beside the record a seal not yet final
+    // replaced, which reads as that prior ([`read`]).
+    if kept & found.is_none() {
+        return Err(unknown(at, &prior));
     }
     let named = |name: &&String| {
         let names =

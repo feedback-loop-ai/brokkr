@@ -28,7 +28,12 @@ pub(crate) fn brokkr_in(dir: &Path) -> Command {
 /// `resume`, `rerun`), unless it gives it another, so its dispatches admit
 /// their attempts in a coordination root of the test's own, never under
 /// the operator's HOME (decision 0065 slice two, U8a2a). `dir` is the
-/// test's own and no tree a run operates.
+/// test's own, but may be the tree a run operates: [`brokkr_in`] stands in
+/// it, and some suites hand it as `--repo` too. That HOME is then inside
+/// the operated tree, which only the fence standing with nothing at stake
+/// admits (the operator's first ruling of 2026-10-18); a test that puts
+/// evidence at stake gives a HOME beside its repository instead, as
+/// `brokkr_folder.rs` does (L4 of run four's second review).
 pub(crate) fn home_in(dir: &Path) -> PathBuf {
     let home = dir.join("home");
     let mut made = std::fs::DirBuilder::new();

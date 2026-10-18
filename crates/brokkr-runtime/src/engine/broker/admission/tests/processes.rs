@@ -1,38 +1,41 @@
-//! Engines run in processes of their own on one protected HOME, each
-//! operating a worktree beside it, for the writer lease's two suites
-//! (decision 0065 slice two, U8a2a; CR2, MB3): `capability_broker_launch`
-//! and `capability_ledger`. Each engine is this test binary run again on
-//! [`engine_child`], told its journal, bundle and worktree through its
-//! environment, with the coordination HOME as its own. Nothing here reads
-//! or writes the host's HOME. Every wait on a child is bounded, and a
-//! child still running when its test unwinds is killed and reaped (M6).
+//! The writer lease's lifecycle across real engines, each in a process of
+//! its own (decision 0065 slice two, U8a2a; CR2, MB3; M4 of run four's
+//! second review): an already-running writer refuses a second run on its
+//! worktree and a disjoint worktree runs beside it; of two runs started
+//! together on one worktree exactly one runs; and an engine killed
+//! mid-attempt, its driver surviving it, keeps its worktree reserved
+//! through the lock's release, the driver's own end and the run's resume.
+//! Moved here from `capability_broker_launch` and `capability_ledger`,
+//! which now hold the production resolution proofs from HOME alone.
 //!
-//! These are the suites' production resolution proofs (M5): an engine in
-//! a process of its own is the public engine, which resolves its
-//! coordination root from HOME through the protected walk, judging every
-//! ancestor, as an installed `brokkr` does; no seam reaches across the
-//! process. So each needs a HOME whose ancestors protect, and is skipped
-//! with its reason where this host has none. The behaviour each proves is
-//! proved again, on every TMPDIR and never skipped, by the in-crate suites
-//! on an injected coordination root (`engine::broker::admission::tests`).
+//! Each engine is this unit-test binary run again on [`engine_child`], told
+//! its journal, bundle, worktree and HOME through its environment, which
+//! that test entry reads and stands in on its own thread as every fixture
+//! here stands one in ([`Coordinated::at`]): a coordination root opened
+//! with no ancestor judged, in a fresh owner-only directory on any TMPDIR,
+//! so none of these is ever skipped. Production reads no such variable.
+//! Nothing here reads or writes the host's HOME. Every wait on a child is
+//! bounded, and a child still running when its test unwinds is killed and
+//! reaped (M6).
 
 use std::io::{BufRead, BufReader};
-use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::time::{Duration, Instant};
 
-use brokkr_core::envelope::EventType;
 use brokkr_core::EventEnvelope;
-use brokkr_runtime::{Bundle, Engine};
 use brokkr_store::Store;
-use serde_json::json;
+
+use super::*;
+use crate::{Bundle, Engine};
 
 const DB: &str = "BROKKR_WRITERS_DB";
 const BUNDLE: &str = "BROKKR_WRITERS_BUNDLE";
 const WORKTREE: &str = "BROKKR_WRITERS_WORKTREE";
 const RUN: &str = "BROKKR_WRITERS_RUN";
+const HOME: &str = "BROKKR_WRITERS_HOME";
+
+/// The child entry every engine here is run on.
+const CHILD: &str = "engine::broker::admission::tests::processes::engine_child";
 
 /// A `work` phase, the protected `review` and done.
 const POLICY: &str = r#"{"phases": ["work", "review", "done"], "initial": "work",
@@ -43,7 +46,7 @@ const POLICY: &str = r#"{"phases": ["work", "review", "done"], "initial": "work"
              "reason": "clean"}]}"#;
 
 /// CR2's refusal of a worktree another run holds, as dispatch journals it.
-pub(crate) fn held_by(run: &str) -> String {
+fn held_by(run: &str) -> String {
     format!(
         "dispatch refused: capability evidence root cannot be protected from every managed \
          writer: run '{run}' holds this worktree, its writers not proven settled"
@@ -58,7 +61,7 @@ const PATIENCE: Duration = Duration::from_secs(120);
 /// four's review), with what it printed until then; the child is killed
 /// and reaped either way.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum Unnamed {
+enum Unnamed {
     #[error("the engine named no run within its patience: {0}")]
     Timeout(String),
     #[error("the engine ended before it named its run: {0}")]
@@ -70,8 +73,8 @@ pub(crate) enum Unnamed {
 /// their own reads them, and how long any wait on it may last. Dropped
 /// while the child still runs — a test that unwinds — it is killed and
 /// reaped.
-pub(crate) struct Running {
-    pub(crate) run: String,
+struct Running {
+    run: String,
     child: Child,
     lines: Receiver<String>,
     patience: Duration,
@@ -124,7 +127,7 @@ impl Running {
 
     /// Wait, within its patience, for the engine to end on its own; the
     /// word its run's status ended as.
-    pub(crate) fn ended(mut self) -> String {
+    fn ended(mut self) -> String {
         let deadline = Instant::now() + self.patience;
         let mut lines = String::new();
         loop {
@@ -159,7 +162,7 @@ impl Running {
     }
 
     /// Kill the engine outright, as a host that loses it would.
-    pub(crate) fn killed(mut self) {
+    fn killed(mut self) {
         self.child.kill().unwrap();
         self.child.wait().unwrap();
     }
@@ -175,64 +178,31 @@ impl Drop for Running {
     }
 }
 
-/// A protected HOME, the worktrees beside it, and the bundles and journals
-/// its engines run.
-pub(crate) struct Coordination {
+/// A HOME its engines' coordination root is opened in, the worktrees
+/// beside it, and the bundles and journals its engines run.
+struct Coordination {
     _dir: tempfile::TempDir,
     root: PathBuf,
 }
 
 impl Coordination {
-    /// A temporary root, owner-only and canonical, holding an owner-only
-    /// `home`, made where every ancestor protects a HOME, as production's
-    /// resolution of the coordination root from HOME asks (D6): the
-    /// target's own temporary directory, whatever TMPDIR names, else
-    /// TMPDIR, `/tmp` or `/var/tmp`. None where no such location exists or
-    /// none can be made in, the test then skipped with its reason (or
-    /// failed where this host must produce the evidence): an engine here
-    /// would hold no lease, and nothing these suites prove would be.
-    pub(crate) fn new() -> Option<Coordination> {
-        let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
-        let candidates = [
-            target,
-            std::env::temp_dir(),
-            "/tmp".into(),
-            "/var/tmp".into(),
-        ];
-        let canonical = candidates
-            .iter()
-            .filter_map(|at| std::fs::canonicalize(at).ok());
-        let mut protecting = canonical.filter(|at| protects(at));
-        let Some(dir) = protecting.find_map(|at| tempfile::tempdir_in(at).ok()) else {
-            let required = brokkr_protocol::hands::boundary_evidence_required();
-            let reason = "no protected location for a HOME (TMPDIR, /tmp, /var/tmp; D6)";
-            brokkr_protocol::hands::skip_boundary_proof(required, reason);
-            return None;
-        };
-        let root = std::fs::canonicalize(dir.path()).unwrap();
-        let private = || std::fs::Permissions::from_mode(0o700);
-        std::fs::set_permissions(&root, private()).unwrap();
-        std::fs::create_dir(root.join("home")).unwrap();
-        std::fs::set_permissions(root.join("home"), private()).unwrap();
-        Some(Coordination { _dir: dir, root })
-    }
-
-    /// The protected root under the HOME.
-    pub(crate) fn capabilities(&self) -> PathBuf {
-        self.root.join("home/.local/state/brokkr/capabilities")
+    /// A fresh owner-only directory in TMPDIR, canonical, whatever TMPDIR's
+    /// ancestors are, holding an owner-only `home` ([`fresh`]).
+    fn new() -> Coordination {
+        let dir = fresh(&base());
+        let root = dir.path().to_path_buf();
+        Coordination { _dir: dir, root }
     }
 
     /// Where `run` of the worktree `worktree` keeps its reservation.
-    pub(crate) fn reservation(&self, worktree: &Path, run: &str) -> PathBuf {
-        let key = brokkr_core::canonical::sha256_bytes(worktree.as_os_str().as_encoded_bytes());
-        self.capabilities()
-            .join(key)
-            .join(run)
-            .join("reservation.json")
+    fn reservation(&self, worktree: &Path, run: &str) -> PathBuf {
+        let key = canonical::sha256_bytes(worktree.as_os_str().as_bytes());
+        let root = coordination(&self.root.join("home"));
+        root.join(key).join(run).join(RESERVATION)
     }
 
     /// The worktree `name`, made.
-    pub(crate) fn worktree(&self, name: &str) -> PathBuf {
+    fn worktree(&self, name: &str) -> PathBuf {
         let worktree = self.root.join(name);
         std::fs::create_dir_all(&worktree).unwrap();
         worktree
@@ -240,19 +210,19 @@ impl Coordination {
 
     /// Where the driver of the bundle `name` leaves its mark once it
     /// starts.
-    pub(crate) fn mark(&self, name: &str) -> PathBuf {
+    fn mark(&self, name: &str) -> PathBuf {
         self.root.join(format!("{name}.ran"))
     }
 
     /// The file a waiting driver waits for.
-    pub(crate) fn gate(&self) -> PathBuf {
+    fn gate(&self) -> PathBuf {
         self.root.join("gate")
     }
 
     /// The bundle `name`: a `work` seat whose driver leaves its mark,
     /// waits for the gate where `waits`, then succeeds, and a review that
     /// is clean; one attempt each.
-    pub(crate) fn bundle(&self, name: &str, waits: bool) -> PathBuf {
+    fn bundle(&self, name: &str, waits: bool) -> PathBuf {
         let bundle = self.root.join(format!("bundles/{name}"));
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
         std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
@@ -283,30 +253,29 @@ impl Coordination {
     /// The engine of a new run of `bundle` on `worktree`, journaled in a
     /// journal of its bundle's own, started in a process of its own and
     /// read until it names its run.
-    pub(crate) fn start(&self, worktree: &Path, bundle: &Path) -> Running {
+    fn start(&self, worktree: &Path, bundle: &Path) -> Running {
         self.engine(worktree, bundle, None)
     }
 
     /// The engine of `run` resumed, as [`Coordination::start`] runs it.
-    pub(crate) fn resume(&self, worktree: &Path, bundle: &Path, run: &str) -> Running {
+    fn resume(&self, worktree: &Path, bundle: &Path, run: &str) -> Running {
         self.engine(worktree, bundle, Some(run))
     }
 
     fn engine(&self, worktree: &Path, bundle: &Path, run: Option<&str>) -> Running {
         let journal = bundle.with_extension("db");
+        let home = self.root.join("home");
         let mut command = Command::new(std::env::current_exe().unwrap());
-        command.args(["--exact", "writers::engine_child", "--nocapture"]);
-        command
-            .env("HOME", self.root.join("home"))
-            .env(DB, journal)
-            .env(BUNDLE, bundle);
+        command.args(["--exact", CHILD, "--nocapture"]);
+        command.env("HOME", &home).env(HOME, &home);
+        command.env(DB, journal).env(BUNDLE, bundle);
         command.env(WORKTREE, worktree).env_remove(RUN);
         run.map(|run| command.env(RUN, run));
         Running::started(command, PATIENCE).unwrap()
     }
 
     /// Every event `run` of `bundle` journaled.
-    pub(crate) fn events(&self, bundle: &Path, run: &str) -> Vec<EventEnvelope> {
+    fn events(&self, bundle: &Path, run: &str) -> Vec<EventEnvelope> {
         Store::open(&bundle.with_extension("db"))
             .unwrap()
             .load(run)
@@ -314,7 +283,7 @@ impl Coordination {
     }
 
     /// The error of every attempt `run` of `bundle` failed.
-    pub(crate) fn failures(&self, bundle: &Path, run: &str) -> Vec<String> {
+    fn failures(&self, bundle: &Path, run: &str) -> Vec<String> {
         let events = self.events(bundle, run);
         let failed = events
             .iter()
@@ -326,28 +295,11 @@ impl Coordination {
 
     /// The attempts `run` of `worktree` holds standing, by its
     /// reservation, which keeps its settled attempts' names beside them.
-    pub(crate) fn standing(&self, worktree: &Path, run: &str) -> Vec<String> {
+    fn standing(&self, worktree: &Path, run: &str) -> Vec<String> {
         let bytes = std::fs::read(self.reservation(worktree, run)).unwrap();
-        let held: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        let attempts = held["attempts"].as_object().unwrap();
-        attempts.keys().cloned().collect()
+        let held: Reservation = serde_json::from_slice(&bytes).unwrap();
+        held.attempts.into_keys().collect()
     }
-}
-
-/// Whether `at` and every ancestor of it protect what lies below them:
-/// this user's or root's, writable by no one else unless root-owned and
-/// sticky, as the broker judges a HOME's ancestors.
-fn protects(at: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    let user = brokkr_protocol::hands::ids().0;
-    let judged = |at: &Path| {
-        std::fs::metadata(at).is_ok_and(|found| {
-            let (owner, mode) = (found.uid(), found.mode());
-            let sticky = (owner == 0) & (mode & 0o1000 != 0);
-            ((owner == user) | (owner == 0)) & ((mode & 0o022 == 0) | sticky)
-        })
-    };
-    at.ancestors().all(judged)
 }
 
 /// M6: supervision is bounded and kills what it gives up on. A child that
@@ -392,7 +344,7 @@ fn reaped(pid: &Path) -> bool {
 }
 
 /// Wait up to thirty seconds for `holds`.
-pub(crate) fn until(what: &str, holds: impl Fn() -> bool) {
+fn until(what: &str, holds: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(30);
     while !holds() {
         assert!(Instant::now() < deadline, "{what} never held");
@@ -419,17 +371,20 @@ read -r done
     )
 }
 
-/// One engine, started or resumed, in its own process: inert without
-/// [`DB`], so a plain run of the suite passes over it.
+/// One engine, started or resumed, in its own process, its coordination
+/// root opened in the HOME it is told, as every fixture here stands one in:
+/// inert without [`DB`], so a plain run of the suite passes over it.
 #[test]
 fn engine_child() {
-    let (Ok(db), Ok(bundle), Ok(worktree)) = (
+    let (Ok(db), Ok(bundle), Ok(worktree), Ok(home)) = (
         std::env::var(DB),
         std::env::var(BUNDLE),
         std::env::var(WORKTREE),
+        std::env::var(HOME),
     ) else {
         return;
     };
+    let _stood = Coordinated::at(Path::new(&home));
     let bundle = Bundle::compile(Path::new(&bundle)).unwrap();
     let store = Store::open(Path::new(&db)).unwrap();
     let worktree = Some(PathBuf::from(worktree));
@@ -440,4 +395,128 @@ fn engine_child() {
     println!("run_id={}", engine.run_id);
     let end = engine.drive().unwrap();
     println!("status={}", end.state.run.status().as_str());
+}
+
+/// An already-running writer refuses: while one run's driver works its
+/// worktree, a second run there fails its attempt by CR2's cause before its
+/// driver starts, and a run on another worktree completes beside it. Once
+/// the first settles, its lease is gone and the next run on its worktree
+/// completes, each reservation holding no attempt standing.
+#[test]
+fn a_running_writer_holds_its_worktree_and_a_disjoint_one_runs_beside_it() {
+    let host = Coordination::new();
+    let (shared, apart) = (host.worktree("shared"), host.worktree("apart"));
+    let (holding, refused) = (host.bundle("holding", true), host.bundle("refused", false));
+    let (beside, after) = (host.bundle("beside", false), host.bundle("after", false));
+    let first = host.start(&shared, &holding);
+    let lease = host.reservation(&shared, &first.run);
+    until("the first driver runs under its lease", || {
+        host.mark("holding").exists() && lease.exists()
+    });
+
+    let second = host.start(&shared, &refused);
+    let run = second.run.clone();
+    assert_eq!(second.ended(), "awaiting_operator");
+    assert_eq!(host.failures(&refused, &run), [held_by(&first.run)]);
+    assert!(!host.mark("refused").exists(), "its driver never started");
+
+    let third = host.start(&apart, &beside);
+    assert_eq!(third.ended(), "completed");
+    assert_eq!(
+        host.standing(&shared, &first.run).len(),
+        1,
+        "the first holds its worktree"
+    );
+
+    std::fs::write(host.gate(), "").unwrap();
+    let first_run = first.run.clone();
+    assert_eq!(first.ended(), "completed");
+    assert!(
+        host.standing(&shared, &first_run).is_empty(),
+        "released once settled"
+    );
+    let next = host.start(&shared, &after);
+    let next_run = next.run.clone();
+    assert_eq!(next.ended(), "completed");
+    assert!(host.standing(&shared, &next_run).is_empty());
+}
+
+/// Simultaneous starts on one worktree admit exactly one: of two runs
+/// whose drivers both wait, one holds the lease and runs, and the other
+/// fails by CR2's cause naming it, its driver never started.
+#[test]
+fn of_two_runs_started_together_on_one_worktree_exactly_one_runs() {
+    let host = Coordination::new();
+    let shared = host.worktree("shared");
+    let (left, right) = (host.bundle("left", true), host.bundle("right", true));
+    let started = [host.start(&shared, &left), host.start(&shared, &right)];
+    let runs = [started[0].run.clone(), started[1].run.clone()];
+    until("one of them is refused", || {
+        let failed = |at: usize| !host.failures([&left, &right][at], &runs[at]).is_empty();
+        failed(0) || failed(1)
+    });
+    std::fs::write(host.gate(), "").unwrap();
+    let [first, second] = started;
+    let ends = [first.ended(), second.ended()];
+    let refused = usize::from(ends[0] == "completed");
+    assert_eq!(ends[1 - refused], "completed", "{ends:?}");
+    assert_eq!(ends[refused], "awaiting_operator");
+    let bundles = [&left, &right];
+    assert_eq!(
+        host.failures(bundles[refused], &runs[refused]),
+        [held_by(&runs[1 - refused])]
+    );
+    let marks = [host.mark("left"), host.mark("right")];
+    assert!(!marks[refused].exists() && marks[1 - refused].exists());
+}
+
+/// Engine death with surviving payload retains the reservation: the
+/// killed engine's lease stands byte for byte, refusing a second run on
+/// its worktree by CR2's cause while its driver still runs, after that
+/// driver ends, and after the run is resumed and settles the attempt it
+/// lost as indeterminate.
+#[test]
+fn an_engine_killed_mid_attempt_keeps_its_worktree_reserved() {
+    let host = Coordination::new();
+    let shared = host.worktree("shared");
+    let lost = host.bundle("lost", true);
+    let first = host.start(&shared, &lost);
+    let run = first.run.clone();
+    let lease = host.reservation(&shared, &run);
+    until("the first driver runs under its lease", || {
+        host.mark("lost").exists() && lease.exists()
+    });
+    let sealed = std::fs::read(&lease).unwrap();
+    first.killed();
+
+    let refused = |name: &str| {
+        let bundle = host.bundle(name, false);
+        let second = host.start(&shared, &bundle);
+        let second_run = second.run.clone();
+        assert_eq!(second.ended(), "awaiting_operator", "{name}");
+        assert_eq!(
+            host.failures(&bundle, &second_run),
+            [held_by(&run)],
+            "{name}"
+        );
+        assert!(
+            !host.mark(name).exists(),
+            "{name}: its driver never started"
+        );
+        assert_eq!(
+            std::fs::read(&lease).unwrap(),
+            sealed,
+            "{name}: the lease as sealed"
+        );
+    };
+    refused("while-it-runs");
+    // The surviving driver ends: its tree is gone, but nothing journaled
+    // says so.
+    std::fs::write(host.gate(), "").unwrap();
+    refused("once-it-ended");
+    assert_eq!(
+        host.resume(&shared, &lost, &run).ended(),
+        "awaiting_operator"
+    );
+    refused("after-the-resume");
 }

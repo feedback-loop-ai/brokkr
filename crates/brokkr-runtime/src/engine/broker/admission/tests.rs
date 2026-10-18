@@ -35,6 +35,7 @@ use crate::engine::tests::{
 use crate::engine::{spawn_site, SiteSpawn};
 
 mod coordination;
+mod processes;
 mod recovery;
 mod sealing;
 
@@ -55,8 +56,11 @@ enum Stand {
 /// What the next seal on a root this thread opened does at its final steps
 /// (H1; R1 of run four's review): before its commit, spends the time given,
 /// removes its staged copy so its commit fails, or takes the directory's
-/// write permission so it cannot exchange; once committed, spends the time
-/// given, or fails as its directory sync failing would.
+/// write permission so it cannot link the record that stood; once
+/// committed, spends the time given, fails as its directory sync failing
+/// would, or spends it with the directory's write permission taken, or
+/// spends it and then fails the sync of its undoing (M2 of run four's
+/// second review).
 #[derive(Debug, Clone, Copy)]
 enum Late {
     Sleep(Duration),
@@ -64,6 +68,9 @@ enum Late {
     Deny,
     SleepCommitted(Duration),
     FailCommitted,
+    DenyCommitted(Duration),
+    FailUndone(Duration),
+    Undoing,
 }
 
 thread_local! {
@@ -137,16 +144,27 @@ fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<()> {
         (Step::Staged, Some(Late::Unstage)) => {
             rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
         }
-        (Step::Staged, Some(Late::Deny)) => {
-            let kept = rustix::fs::Mode::RUSR | rustix::fs::Mode::XUSR;
-            rustix::fs::fchmod(dir, kept).unwrap()
+        (Step::Staged, Some(Late::Deny)) => denied(dir),
+        (Step::Committed, Some(Late::DenyCommitted(spent))) => {
+            denied(dir);
+            std::thread::sleep(spent)
         }
-        (Step::Committed, Some(Late::FailCommitted)) => {
+        (Step::Committed, Some(Late::FailUndone(spent))) => {
+            LATE.set(Some(Late::Undoing));
+            std::thread::sleep(spent)
+        }
+        (Step::Committed, Some(Late::FailCommitted)) | (Step::Undone, Some(Late::Undoing)) => {
             return Err(std::io::Error::other("the directory sync failed"))
         }
         (_, armed) => LATE.set(armed),
     }
     Ok(())
+}
+
+/// The directory `dir` left readable and searchable, but not writable.
+fn denied(dir: &OwnedFd) {
+    let kept = rustix::fs::Mode::RUSR | rustix::fs::Mode::XUSR;
+    rustix::fs::fchmod(dir, kept).unwrap()
 }
 
 /// `held`'s positive settlement fact sealed, and then its lease released,
