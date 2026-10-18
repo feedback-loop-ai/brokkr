@@ -1736,9 +1736,10 @@ fn token_usage<'a>(records: impl Iterator<Item = &'a Value>) -> Option<TokenUsag
 
 fn session_usage(part: &Build) -> Option<TokenUsage> {
     let checkpoints = part.checkpoints.iter();
-    let meters: Vec<Meter> = checkpoints
+    let mut meters: Vec<Meter> = checkpoints
         .map(|(checkpoint, _, _)| Meter::of(checkpoint))
         .collect();
+    meter::once(&mut meters);
     let session = part.session.as_ref().map(Meter::of);
     let by = Metering::of(&meters);
     let turns = meters.iter().filter_map(|meter| meter.counted(by, false));
