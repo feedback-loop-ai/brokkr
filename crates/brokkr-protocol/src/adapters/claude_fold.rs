@@ -32,6 +32,8 @@ pub(super) struct ClaudeFold {
     /// The session cost a resumed process started from, read before it
     /// launched; `None` on a cold launch or with nothing to restore.
     restored: Option<f64>,
+    /// The id of the message the last assistant line carried.
+    message: Option<String>,
 }
 
 impl ClaudeFold {
@@ -55,6 +57,18 @@ impl ClaudeFold {
             restored: session.and_then(|session| restored_cost(home, session)),
             ..ClaudeFold::default()
         }
+    }
+
+    /// Whether an assistant line is the message the line before it began.
+    /// Claude Code streams a message as a line per content block, each
+    /// repeating the message's id and its usage, so a fold that counted
+    /// every line read a seat's tokens two and a half times over (114
+    /// Claude seats in the swarmail journal: 774.6M input against their
+    /// transcripts' 315.1M). A line without an id is a message of its own.
+    pub(super) fn repeats(&mut self, id: Option<&str>) -> bool {
+        let repeat = id.is_some() && id == self.message.as_deref();
+        self.message = id.map(str::to_string);
+        repeat
     }
 
     /// One `result` folded: its usage, thinking count and turns added to
