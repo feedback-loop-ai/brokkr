@@ -777,7 +777,13 @@ the same pull request.
   rustix offers on Linux only. They now make it with the POSIX `mkfifo`
   utility (`made_fifo`). `every_directory_admission_makes_is_synced_in_its_parent`
   compared rustix's `st_dev`, an i32 on macOS, with std's u64. Its witness
-  now reads std's metadata.
+  now reads std's metadata. Once it compiled, macOS failed two proofs that
+  drive a boxed writer beside evidence through dispatch:
+  `provision_tests::an_attempt_whose_plans_cannot_be_provisioned_fails_before_any_driver_starts`
+  and `brokered_tests::dispatch_serves_each_site_the_whole_set_its_attempt_wrote`.
+  Off Linux no mount table is read, so the door refuses that writer first
+  (`exclusion::shown_once`, decision 0063). Both are now Linux only, as
+  their neighbours that need a box already are.
 - **Exact coverage** (8 lines, 6 branches and 3 functions, all in this
   unit's broker modules).
   - `exclusion::judged` now hands a boxed writer's sources to
