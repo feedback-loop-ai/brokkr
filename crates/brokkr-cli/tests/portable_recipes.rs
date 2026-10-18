@@ -103,7 +103,9 @@ fn installs_and_compiles(cli: &str) {
         let (code, _, stderr) =
             brokkr(&["recipes", "add", source.to_str().unwrap(), "--name", recipe]);
         assert_eq!(code, Some(0), "{cli} {recipe}: {stderr}");
-        let folder = repo.path().join(".brokkr");
+        // The binary reports canonical paths; macOS's temporary root
+        // (`/var`, a link to `/private/var`) is not spelled canonically.
+        let folder = repo.path().canonicalize().unwrap().join(".brokkr");
         assert_reported(&stderr, &folder, recipes, copied);
         let agents = folder.join("agents");
         let installed = format!(".brokkr/recipes/{recipe}");
