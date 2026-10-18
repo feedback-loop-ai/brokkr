@@ -21,6 +21,7 @@ use thiserror::Error;
 
 mod aggregate;
 mod assemble;
+mod capability_record;
 mod charters;
 pub mod compose;
 mod invocation;
@@ -31,6 +32,7 @@ mod phases;
 mod pins;
 mod reference;
 mod route_policy;
+mod sandbox;
 mod sequence;
 mod site_form;
 mod site_key;
@@ -38,6 +40,10 @@ mod tier;
 mod walk;
 
 pub use aggregate::Aggregate;
+use capability_record::{
+    nested_sites, record_agent_capabilities, record_dialect_capabilities,
+    record_inline_capabilities, CapabilitySite,
+};
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
 pub use invocation::Invocation;
@@ -46,6 +52,7 @@ use opened::Opened;
 use parse::{SeatScope, SiteCompiler};
 use reference::{agent_name, bind_charter, judge_mapped_hands, resolved_candidates, ReferenceAt};
 use route_policy::{judge_link, RouteLink};
+use sandbox::{inline_codex_fragment, judge_sandbox_link, refuse_authored_sandbox, SandboxAsk};
 use sequence::{sequence_steps, step_body, step_class, step_name, step_results, StepAt};
 use site_form::{classify, SiteRole, StepShape, STEP};
 #[cfg(test)]
@@ -2026,10 +2033,6 @@ fn record_judged_tools(
 /// result door. Beside it comes the adapter's permission template, as unit
 /// 5c places it, or `None` where the adapter declares none, and the
 /// fragment as the adapter declares it (rebuild unit 14a1).
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn lower_inline_sandbox(
     what: &str,
     raw: &Value,
@@ -2065,39 +2068,7 @@ fn lower_inline_sandbox(
              2026-09-25, inline Codex sandbox classes are narrowed; design D5.3)"
         )));
     }
-    // Operator ruling 1 of 2026-09-23: the engine composes the class as its
-    // own contribution, and nothing it composes is merged with or ordered
-    // against a control of the author's, read under the harness's grammar.
-    let grammar = brokkr_protocol::native_controls::grammar::grammar("codex")
-        .expect("the codex grammar is modelled");
-    let authored = grammar
-        .parse(brokkr_protocol::native_controls::harness_arguments(command))
-        .map_err(|problem| {
-            refuse(format!(
-                "while its authored command cannot be read: the 'codex' command grammar cannot \
-                 place argument {} ({}), whose token is not echoed because it can carry a value: \
-                 it {}. A control nobody can read is a control nobody can rule on, so it is \
-                 refused rather than passed through (decision 0066 ruling 6; operator ruling 1 \
-                 of 2026-09-23)",
-                problem.at + 1,
-                unplaced_label(grammar, &problem.token),
-                problem.cause
-            ))
-        })?;
-    if let Some((node, kind)) = authored
-        .nodes
-        .iter()
-        .find_map(|node| authored_sandbox_control(node).map(|kind| (node, kind)))
-    {
-        return Err(refuse(format!(
-            "while its authored command carries '{}' (argument {}), {kind}; the engine composes \
-             the typed class as its own contribution and a recipe authors no capability-bearing \
-             option beside it, so the site is refused rather than reconciled (operator ruling 1 \
-             of 2026-09-23; decision 0065 slice one, design D5.3)",
-            node.name(),
-            node.at + 1
-        )));
-    }
+    refuse_authored_sandbox(command, &refuse)?;
     let adapter = adapters
         .and_then(|adapters| adapters.adapter("codex"))
         .ok_or_else(|| {
@@ -2108,32 +2079,7 @@ fn lower_inline_sandbox(
                     .to_string(),
             )
         })?;
-    // Rebuild unit 5d-fix (chief F2): a gate delivers through the
-    // last-message door alone, captured into the engine-owned result path.
-    let (part, fragment, door) = match seat_class {
-        SeatClass::Gate => {
-            if adapter.harness.result != crate::agents::ResultDoor::LastMessage {
-                return Err(refuse(
-                    "at an inline Codex gate, but the codex adapter declares its \
-                     `hands.harness.result` door as 'file'; a gate delivers only through the \
-                     last-message door, the harness's capture of its final message into the \
-                     engine-owned result path, so file delivery is refused (decision 0046 ruling \
-                     4; operator ruling of 2026-09-25; rebuild unit 5d-fix)"
-                        .to_string(),
-                ));
-            }
-            (
-                "`hands.harness.gate` fragment",
-                adapter.harness.gate.as_deref(),
-                crate::agents::ResultDoor::LastMessage,
-            )
-        }
-        SeatClass::Work => (
-            "`hands.harness.work` fragment",
-            adapter.harness.work.as_deref(),
-            crate::agents::ResultDoor::File,
-        ),
-    };
+    let (part, fragment, door) = inline_codex_fragment(adapter, seat_class, &refuse)?;
     let fragment = fragment.unwrap_or(&[]);
     let whom = format!("seat '{what}'");
     match expressed_sandbox(&whom, part, fragment, Contribution::Written)? {
@@ -2276,20 +2222,7 @@ fn lower_inline_allow(
                 problem.cause
             ))
         })?;
-    if let Some((node, kind)) = authored
-        .nodes
-        .iter()
-        .find_map(|node| authored_capability_control(node).map(|kind| (node, kind)))
-    {
-        return Err(refuse(format!(
-            "while its authored command carries '{}' (argument {}), {kind}; the engine composes \
-             the typed list as its own contribution and a recipe authors no capability-bearing \
-             option beside it, so the site is refused rather than reconciled (operator ruling 1 \
-             of 2026-09-23; decision 0065 slice one, design D5.3)",
-            node.name(),
-            node.at + 1
-        )));
-    }
+    refuse_authored_control(&authored, authored_capability_control, "list", &refuse)?;
     let adapter = adapters
         .and_then(|adapters| adapters.adapter(&driver))
         .ok_or_else(|| {
@@ -2316,6 +2249,34 @@ type InlineAllow = (
     Option<Segment>,
     Option<brokkr_protocol::native_controls::ListFlag>,
 );
+
+/// Operator ruling 1 of 2026-09-23: the first option of an inline site's
+/// authored command that `control` names, beside the typed list or class
+/// the engine composes, refuses the site; `typed` says which it is. The
+/// one wording of [`lower_inline_allow`] and of an inline Codex sandbox's
+/// reading (#288, slice I).
+fn refuse_authored_control(
+    authored: &brokkr_protocol::native_controls::grammar::Command,
+    control: fn(&brokkr_protocol::native_controls::grammar::Node) -> Option<&'static str>,
+    typed: &str,
+    refuse: &impl Fn(String) -> CompileError,
+) -> Result<(), CompileError> {
+    if let Some((node, kind)) = authored
+        .nodes
+        .iter()
+        .find_map(|node| control(node).map(|kind| (node, kind)))
+    {
+        return Err(refuse(format!(
+            "while its authored command carries '{}' (argument {}), {kind}; the engine composes \
+             the typed {typed} as its own contribution and a recipe authors no capability-bearing \
+             option beside it, so the site is refused rather than reconciled (operator ruling 1 \
+             of 2026-09-23; decision 0065 slice one, design D5.3)",
+            node.name(),
+            node.at + 1
+        )));
+    }
+    Ok(())
+}
 
 /// What a capability-bearing option an author wrote at an inline typed
 /// site is (operator ruling 1 of 2026-09-23; rebuild units 5b-fix and
@@ -2617,10 +2578,6 @@ fn sandbox_fragment<'c>(
 /// under a boxed boundary, `hands.harness.gate` for a gate and
 /// `hands.harness.work` for a work seat under `harness`. Every link of the
 /// chain is judged, so a later candidate cannot hide behind the primary.
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn admit_local_sandbox(
     what: &str,
     raw: &Value,
@@ -2661,93 +2618,14 @@ fn admit_local_sandbox(
     }
     let seat_class = parse_class(what, raw)?;
     let adapters = agents.adapters()?;
+    let ask = SandboxAsk {
+        what,
+        requested,
+        boundary,
+        seat_class,
+    };
     for (index, candidate) in candidates.iter().enumerate() {
-        let link = index + 1;
-        let provider = &candidate.provider;
-        // The HARNESS is what the command dispatches, read off the command
-        // itself: a provider label is not evidence of a sandbox class.
-        let harness = dispatch_driver(&candidate.argv)
-            .unwrap_or_else(|| crate::capabilities::OPAQUE_HARNESS.to_string());
-        if harness != "codex" {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' but dispatches the \
-                 '{harness}' harness through provider '{provider}'; only the codex harness's own \
-                 `--sandbox` fragments express a sandbox class today, and a provider label, a \
-                 permission mode or an unmodelled driver is not evidence of one — refused under \
-                 the `{boundary}` boundary (design D5.3)"
-            )));
-        }
-        let adapter = adapters
-            .adapter(provider)
-            .expect("resolution mapped every link of the chain");
-        let Some((part, fragment)) = sandbox_fragment(boundary, seat_class, adapter, candidate)
-        else {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' under the `open` \
-                 boundary, where a work seat runs at the harness's own default and no engine \
-                 fragment expresses a class; a presumed provider default is not a representation \
-                 — refused (design D5.3)"
-            )));
-        };
-        if fragment.is_empty() {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests 'tools.sandbox' '{class}' under the \
-                 `{boundary}` boundary, but provider '{provider}' supplies no {part} to express \
-                 it; a missing fragment is not a representation — refused (design D5.3)"
-            )));
-        }
-        let whom = format!("seat '{what}' link {link}");
-        match expressed_sandbox(&whom, part, fragment, Contribution::Written)? {
-            Some(found) if found == class => {
-                // The fragment represents the class; the TABLE decides
-                // whether this path may hold it at all (review return F1).
-                let (admitted, site_kind) = admitted_sandbox(boundary, seat_class);
-                if requested != admitted {
-                    let admitted = admitted.name();
-                    return Err(CompileError::Invalid(format!(
-                        "seat '{what}' link {link} requests 'tools.sandbox' '{class}' at \
-                         {site_kind} under the `{boundary}` boundary, where decision 0065 slice \
-                         one admits only '{admitted}' (design D5.3: a box and a harness gate hold \
-                         read-only, harness work holds workspace-write); the {part} of provider \
-                         '{provider}' expresses '{class}' too, but adapter data is a \
-                         representation and not an authority, so a fragment cannot widen that \
-                         table — refused"
-                    )));
-                }
-            }
-            Some(found) => {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} \
-                     the engine selects for provider '{provider}' under the `{boundary}` boundary \
-                     expresses '{found}'; a fragment is neither called narrower nor clamped, the \
-                     typed class must match it exactly — refused (design D5.3)"
-                )))
-            }
-            None => {
-                return Err(CompileError::Invalid(format!(
-                    "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the {part} \
-                     the engine selects for provider '{provider}' under the `{boundary}` boundary \
-                     names no `--sandbox` class at all; a fragment that expresses nothing is not a \
-                     representation — refused (design D5.3)"
-                )))
-            }
-        }
-        // The other contributions must not carry a competing control: the
-        // authored part of the command is read after brokkr's own dispatch
-        // tokens, under the same grammar.
-        let (authored, _) = candidate.parts();
-        let authored = brokkr_protocol::native_controls::harness_arguments(authored);
-        if let Some(found) =
-            expressed_sandbox(&whom, "authored command", authored, Contribution::Written)?
-        {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' link {link} requests 'tools.sandbox' '{class}', but the authored \
-                 command of provider '{provider}' already carries `--sandbox` '{found}', a \
-                 competing control the selected {part} would stand beside; authored bytes cannot \
-                 supply or contest a typed representation — refused under the `{boundary}` \
-                 boundary (design D5.3)"
-            )));
-        }
+        judge_sandbox_link(&ask, index + 1, candidate, adapters)?;
     }
     Ok(())
 }
@@ -4618,10 +4496,6 @@ fn record_hands(
 /// case a later layer wrote by `override.cases` is walked in that layer's
 /// root, from `roots` by `case_origin`, as `parse_select` parses it.
 #[expect(clippy::too_many_arguments, reason = "decision 0065, #288")]
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn record_capabilities(
     authority: &crate::capabilities::Authority,
     library: Option<&Library>,
@@ -4633,81 +4507,18 @@ fn record_capabilities(
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
     let written = raw.get("capabilities");
+    let at = CapabilitySite {
+        authority,
+        adapters,
+        what,
+        raw,
+    };
     if let Some(name) = raw.get("agent").and_then(Value::as_str) {
-        let agent = library
-            .and_then(|library| library.agent(name))
-            .expect("the seat loop resolved this agent reference");
-        let asks = site_asks(what, raw, Some((name, &agent.capabilities)))?;
-        let chain = site_facts(sites, what).chain.clone();
-        // Under the harness boundary a hands site's candidates are composed
-        // with the `hands.harness.*` fragment of the seat's class.
-        let class = match (boundary, &agent.hands) {
-            (Boundary::Harness, Some(_)) => Some(asks.class),
-            _ => None,
-        };
-        let site = mcp::candidate_capabilities(authority, adapters, asks, &chain, class)?;
-        let facts = site_facts(sites, what);
-        // The EFFECTIVE class, an inherited office class included, as the
-        // local admission recorded it (design D5.6).
-        if let Some(requested) = facts.local.as_ref().and_then(|local| local.sandbox) {
-            admit_native_sandbox(what, requested, &site)?;
-        }
-        let notices = facts
-            .record
-            .as_mut()
-            .and_then(|record| record.get_mut("notices"))
-            .and_then(Value::as_array_mut)
-            .expect("an agent-backed site carries its resolution record");
-        for (candidate, outcome) in chain.iter().zip(&site.outcomes) {
-            for (capability, message) in &outcome.notices {
-                notices.push(
-                    crate::agents::Notice {
-                        agent: candidate.agent.clone(),
-                        provider: candidate.provider.clone(),
-                        model: candidate.model.clone(),
-                        capability: "capability".to_string(),
-                        item: capability.clone(),
-                        message: message.clone(),
-                    }
-                    .value(),
-                );
-            }
-        }
-        facts.seal(site, pins::agents(adapters, &chain));
-        return Ok(());
+        return record_agent_capabilities(&at, library, boundary, name, sites);
     }
     // A single site, by the same two keys `has_single` reads.
     if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
-        let asks = site_asks(what, raw, None)?;
-        let parts = command_parts(raw);
-        let driver = dispatch_driver(&parts);
-        let facts = site_facts(sites, what);
-        // Operator ruling (B) of 2026-09-27: an inline site with hands is
-        // served like an agent, so its dialect carries the `hands.workspace`
-        // fragment its driver's adapter declares, as `agents::compose`
-        // carries an agent's. Its hands are boxed: the hands law refuses an
-        // inline model harness's hands unboxed (decision 0046 ruling 4).
-        let declared = adapters
-            .adapters
-            .zip(driver.as_deref())
-            .and_then(|(adapters, driver)| adapters.adapter(driver))
-            .and_then(|adapter| adapter.hands.as_ref())
-            .filter(|_| facts.hands_spec().is_some());
-        if let (Some(dialect), Some(fragment)) = (facts.inline_dialect.as_mut(), declared) {
-            dialect.hands = fragment.clone();
-            // Rebuild unit 14a4a: the engine emits that fragment, expanded
-            // as an agent's `hands` segment is, and the plan types it.
-            facts.inline_hands = Some(Segment::new(Origin::Hands, &expand_command(dir, fragment)));
-        }
-        // U1f: the MCP set this serving intends, never read from its bytes.
-        facts.inline_mcp = Some(McpIntent::inline(driver.as_deref(), facts.hands_spec()));
-        let serving = mcp::InlineServing::of(facts, driver.as_deref(), &parts);
-        let site = mcp::inline_capabilities(authority, adapters, asks, &serving)?;
-        // Rebuild unit 5d-fix-b: an inline class the engine lowered is
-        // judged with its whole launch, the resolved native plan included.
-        admit_inline_launch(what, &parts, facts, &site)?;
-        facts.seal(site, pins::inline(raw, adapters));
-        return Ok(());
+        return record_inline_capabilities(&at, dir, sites);
     }
     if written.is_some() {
         return Err(CompileError::Invalid(format!(
@@ -4716,66 +4527,10 @@ fn record_capabilities(
              is the office the realm grants to (decision 0065 ruling 5)"
         )));
     }
-    // A dialect step runs the realm dialect's own validator through the
-    // exec driver: no author wrote its command and it asks for nothing,
-    // and it still gets an explicit outcome — "no capability" is a
-    // recorded fact, never a missing one (design D5). Only where the
-    // dialect supplied a validator: an unsupported `check` compiles to no
-    // site at all, and none is invented for it here.
     if raw.get("dialect").is_some() {
-        if sites.contains_key(what) {
-            // The validator judges: a gate, as its compiled step's `class`.
-            let asks = crate::capabilities::SiteAsks::at(SeatClass::Gate, what, None, None)
-                .map_err(CompileError::Invalid)?;
-            let facts = site_facts(sites, what);
-            facts.inline_mcp = Some(McpIntent::inline(Some("exec"), facts.hands_spec()));
-            let serving = mcp::InlineServing {
-                driver: Some("exec"),
-                argv: &[],
-                local: &[],
-                hands: &[],
-                intent: facts.inline_mcp,
-            };
-            let site = mcp::inline_capabilities(authority, adapters, asks, &serving)?;
-            facts.seal(site, pins::exec());
-        }
-        return Ok(());
+        return record_dialect_capabilities(&at, sites);
     }
-    let mut nested: Vec<(String, &Value, &Path)> = Vec::new();
-    if let Some(panel) = raw.get("panel").and_then(Value::as_object) {
-        nested.extend(
-            panel
-                .iter()
-                .map(|(member, raw)| (format!("{what}:{member}"), raw, dir)),
-        );
-    }
-    if let Some(sequence) = raw.get("sequence").and_then(Value::as_array) {
-        for (index, step) in sequence.iter().enumerate() {
-            nested.push((format!("{what}:{}", step_label(index, step)), step, dir));
-        }
-    }
-    if let Some(select) = raw.get("select").and_then(Value::as_object) {
-        // Each case in the layer that wrote it (second review return C1);
-        // the default stays with the seat's owner.
-        nested.extend(
-            select
-                .get("cases")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flatten()
-                .map(|(case, raw)| {
-                    let label = format!("{what}:{case}");
-                    let owner = case_origin
-                        .get(&label)
-                        .map_or(dir, |&index| roots[index].as_path());
-                    (label, raw, owner)
-                }),
-        );
-        if let Some(body) = select.get("default") {
-            nested.push((format!("{what}:default"), body, dir));
-        }
-    }
-    for (label, raw, dir) in nested {
+    for (label, raw, dir) in nested_sites(what, raw, (dir, roots, case_origin)) {
         record_capabilities(
             authority,
             library,
