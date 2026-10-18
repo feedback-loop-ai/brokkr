@@ -790,19 +790,30 @@ fn doctor_reads_the_shelf() {
     );
 }
 
-/// `recipes add --personal <source> --name mine` from `repo`'s root, each
-/// variable in `env` set to its value, or unset where it has none.
-fn add_personal(repo: &Repo, source: &Path, env: &[(&str, Option<&Path>)]) -> Ran {
-    let mut add = repo.command("");
-    add.args(["recipes", "add", "--personal", source.to_str().unwrap()]);
-    add.args(["--name", "mine"]);
+/// `brokkr <args>` from `repo`'s root, each variable in `env` set to its
+/// value, or unset where it has none.
+fn under(repo: &Repo, env: &[(&str, Option<&Path>)], args: &[&str]) -> Ran {
+    let mut command = repo.command("");
+    command.args(args);
     for (variable, value) in env {
         match value {
-            Some(value) => add.env(variable, value),
-            None => add.env_remove(variable),
+            Some(value) => command.env(variable, value),
+            None => command.env_remove(variable),
         };
     }
-    Ran::of(add.output().unwrap())
+    Ran::of(command.output().unwrap())
+}
+
+/// `recipes add --personal <source> --name <name>` from `repo`'s root,
+/// under `env` ([`under`]).
+fn add_named(repo: &Repo, source: &Path, name: &str, env: &[(&str, Option<&Path>)]) -> Ran {
+    let add = ["recipes", "add", "--personal", source.to_str().unwrap()];
+    under(repo, env, &[&add[..], &["--name", name]].concat())
+}
+
+/// [`add_named`] `mine`.
+fn add_personal(repo: &Repo, source: &Path, env: &[(&str, Option<&Path>)]) -> Ran {
+    add_named(repo, source, "mine", env)
 }
 
 /// `recipes add --personal` installs beside `host.json` (#697 rulings 1
@@ -935,6 +946,15 @@ fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
     assert_eq!((ran.code, ran.stderr), (Some(1), shadowed));
 }
 
+/// A [`shelved`] repository and the run `run --recipe x` delivered there.
+fn delivered_x() -> (Repo, String) {
+    let repo = shelved();
+    let ran = repo.brokkr("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let delivered = started(&ran);
+    (repo, delivered)
+}
+
 /// `--recipe` names a recipe, never a path (#697 ruling 2): a name that is
 /// not one plain recipe name, judged by its spelling, refuses on `run`,
 /// `resume`, `rerun`, `queue add` and `recipes show` before either shelf is
@@ -943,10 +963,7 @@ fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
 /// name on both shelves.
 #[test]
 fn a_recipe_name_that_is_a_path_refuses_on_every_verb() {
-    let repo = shelved();
-    let ran = repo.brokkr("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]);
-    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
-    let delivered = started(&ran);
+    let (repo, delivered) = delivered_x();
     let verbs = [
         vec!["run", "--feature", "f", "--no-view", "--recipe"],
         vec!["resume", "--run", &delivered, "--no-view", "--recipe"],
@@ -1026,6 +1043,39 @@ fn spelled(
     asked
 }
 
+/// The verbs that read the named recipe `x`: `recipes show`, then `run`,
+/// `resume` and `rerun` of the run `delivered`, and `queue add`.
+fn reading_x(delivered: &str) -> [Vec<&str>; 5] {
+    [
+        vec!["recipes", "show", "x"],
+        vec!["run", "--feature", "f", "--no-view", "--recipe", "x"],
+        vec!["resume", "--run", delivered, "--no-view", "--recipe", "x"],
+        vec!["rerun", "--run", delivered, "--recipe", "x"],
+        vec![
+            "queue",
+            "add",
+            "--feature",
+            "f",
+            "--reason",
+            "r",
+            "--recipe",
+            "x",
+        ],
+    ]
+}
+
+/// What the binary prints refusing the `origin` shelf `shelf`, spelled
+/// through `..` beneath `at`, the entry of it that stands (#726).
+fn climbing(origin: &str, shelf: &Path, at: &Path) -> String {
+    format!(
+        "error: the {origin} shelf {} climbs by '..' out of a directory that does not stand \
+         beneath {} (#726): a shelf spelled through what does not exist is never read as an \
+         empty one, so spell it without the '..'; nothing was run or installed\n",
+        shelf.display(),
+        at.display()
+    )
+}
+
 /// The runs `repo`'s journal holds and the queue it keeps, as listed.
 fn ledger(repo: &Repo) -> (String, String) {
     let runs = repo.brokkr("", &["runs", "--json"]);
@@ -1059,22 +1109,7 @@ fn a_shelf_that_cannot_be_read_refuses_on_every_verb() {
     let delivered = started(&ran);
     let shown = repo.brokkr("", &["recipes", "show", "x"]);
     assert_eq!(shown.code, Some(0), "{}", shown.stderr);
-    let verbs = [
-        vec!["recipes", "show", "x"],
-        vec!["run", "--feature", "f", "--no-view", "--recipe", "x"],
-        vec!["resume", "--run", &delivered, "--no-view", "--recipe", "x"],
-        vec!["rerun", "--run", &delivered, "--recipe", "x"],
-        vec![
-            "queue",
-            "add",
-            "--feature",
-            "f",
-            "--reason",
-            "r",
-            "--recipe",
-            "x",
-        ],
-    ];
+    let verbs = reading_x(&delivered);
     repo.bundle(personal.join("x").to_str().unwrap(), "px", completes());
     let state = |name: &str| {
         std::fs::read_dir(repo.config().with_file_name(name))
@@ -1148,4 +1183,269 @@ fn a_personal_install_judges_no_library_at_its_shelf() {
     );
     assert_eq!((ran.code, ran.stderr), (Some(0), added));
     assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("absent.json"));
+}
+
+/// How many entries the fake driver of the bundle named `name` keeps.
+fn kept(repo: &Repo, name: &str) -> usize {
+    let state = repo.config().with_file_name(format!("{name}.state"));
+    std::fs::read_dir(state).unwrap().count()
+}
+
+/// A project shelf spelled through `..` beneath a part that does not stand
+/// is never read as an empty one (#726): with `x` on both shelves,
+/// `.brokkr/recipes/sub/..`, with no `sub`, named by `--dir` on `recipes
+/// show` and by `--recipes-dir` on `run`, `resume`, `rerun` and `queue add`,
+/// refuses each, naming the shelf and the entry of it that stands, rather
+/// than taking the personal `x` past the refusal of a name on both: no run
+/// starts, nothing is queued, and neither fake driver keeps state.
+#[test]
+fn a_project_shelf_climbing_out_of_what_does_not_stand_refuses_on_every_verb() {
+    let (repo, delivered) = delivered_x();
+    let personal = repo.config().join("brokkr/recipes/x");
+    repo.bundle(personal.to_str().unwrap(), "px", completes());
+    let (state, listed) = ((kept(&repo, "x"), kept(&repo, "px")), ledger(&repo));
+    let spelled = ".brokkr/recipes/sub/..";
+    for verb in reading_x(&delivered) {
+        let (flag, shelf) = match verb[0] {
+            "recipes" => ("--dir", PathBuf::from(spelled)),
+            _ => ("--recipes-dir", repo.path(spelled)),
+        };
+        let ran = repo.brokkr("", &[&verb[..], &[flag, spelled]].concat());
+        let at = shelf.parent().and_then(Path::parent).unwrap();
+        let refused = climbing("project", &shelf, at);
+        assert_eq!((ran.code, ran.stderr), (Some(1), refused), "{verb:?}");
+    }
+    assert_eq!((kept(&repo, "x"), kept(&repo, "px")), state);
+    assert_eq!(ledger(&repo), listed);
+}
+
+/// Where this machine places no personal shelf, neither `XDG_CONFIG_HOME`
+/// nor `HOME` set, a project shelf that climbs or cannot be read still
+/// refuses before the recipe is taken (#697 ruling 2; #726): `recipes show`
+/// and `run` of `x` through `.brokkr/recipes/sub/..`, with no `sub`, and
+/// `recipes show` of `x` on the file `Cargo.toml`, each writing nothing and
+/// starting no run.
+#[test]
+fn a_project_shelf_refuses_with_no_personal_shelf_placed() {
+    let (repo, _) = delivered_x();
+    repo.write("Cargo.toml", "[workspace]\n");
+    let (listed, state) = (ledger(&repo), kept(&repo, "x"));
+    let before = repo.files();
+    let unplaced = [("XDG_CONFIG_HOME", None), ("HOME", None)];
+    let spelled = ".brokkr/recipes/sub/..";
+    let absolute = repo.path(spelled);
+    let run = ["run", "--recipe", "x", "--feature", "f", "--no-view"];
+    let unread = "error: the project shelf Cargo.toml cannot be read (#697): Cargo.toml: not a \
+                  directory; a shelf that cannot be read is never read as an empty one, so mend \
+                  or remove it; nothing was run or installed\n";
+    let cases = [
+        (
+            vec!["recipes", "show", "x", "--dir", spelled],
+            climbing("project", Path::new(spelled), Path::new(".brokkr/recipes")),
+        ),
+        (
+            [&run[..], &["--recipes-dir", absolute.to_str().unwrap()]].concat(),
+            climbing("project", &absolute, &repo.path(".brokkr/recipes")),
+        ),
+        (
+            vec!["recipes", "show", "x", "--dir", "Cargo.toml"],
+            unread.to_string(),
+        ),
+    ];
+    for (args, refused) in cases {
+        let ran = under(&repo, &unplaced, &args);
+        assert_eq!((ran.code, ran.stderr), (Some(1), refused), "{args:?}");
+        assert_eq!((repo.files(), kept(&repo, "x")), (before.clone(), state));
+    }
+    assert_eq!(ledger(&repo), listed);
+}
+
+/// Where this machine places no personal shelf, a project shelf without
+/// read permission refuses `queue add`, `recipes show` and `run` of `x` by
+/// the entry at the name, as it does with one placed (#697 ruling 2;
+/// #726), never read as absent: nothing is queued, no run starts, the
+/// driver keeps no state, and no file changes. A process that reads a
+/// mode-000 directory skips.
+#[test]
+fn an_unreadable_project_shelf_refuses_with_no_personal_shelf_placed() {
+    let (repo, _) = delivered_x();
+    let (listed, state) = (ledger(&repo), kept(&repo, "x"));
+    let before = repo.files();
+    let shelf = repo.path(".brokkr/recipes");
+    let unplaced = [("XDG_CONFIG_HOME", None), ("HOME", None)];
+    let verbs = [
+        vec![
+            "queue",
+            "add",
+            "--feature",
+            "f",
+            "--reason",
+            "r",
+            "--recipe",
+            "x",
+        ],
+        vec!["recipes", "show", "x"],
+        vec!["run", "--recipe", "x", "--feature", "f", "--no-view"],
+    ];
+    let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
+    std::fs::set_permissions(&shelf, mode(0o000)).unwrap();
+    let readable = std::fs::symlink_metadata(shelf.join("x")).is_ok();
+    let ran = verbs.clone().map(|args| under(&repo, &unplaced, &args));
+    std::fs::set_permissions(&shelf, mode(0o755)).unwrap();
+    if readable {
+        eprintln!("skipped: this process reads a mode-000 directory, as root does");
+        return;
+    }
+    let denied = format!(
+        "error: reading {}: Permission denied (os error 13)\n",
+        shelf.join("x").display()
+    );
+    let refused = ran.map(|ran| (ran.code, ran.stderr));
+    assert_eq!(refused, verbs.map(|_| (Some(1), denied.clone())));
+    assert_eq!(ledger(&repo), listed);
+    assert_eq!((repo.files(), kept(&repo, "x")), (before, state));
+}
+
+/// A personal shelf spelled through `..` beneath a part that does not
+/// stand, by `XDG_CONFIG_HOME` or by `HOME`, is never read as an empty one
+/// (#726): with `x` on both shelves, `run` of `x` refuses, naming the shelf
+/// and the entry of it that stands, rather than taking the project's `x`
+/// past the personal one, and no driver keeps state; `recipes add
+/// --personal` refuses alike, before it makes anything; `recipes list` and
+/// doctor warn of the shelf, and doctor's report keeps its exit.
+#[test]
+fn a_personal_shelf_climbing_out_of_what_does_not_stand_refuses() {
+    let repo = shelved();
+    repo.bundle("../mine-source", "mine", completes());
+    let source = repo.root.with_file_name("mine-source");
+    let config = repo.config();
+    let aside = config.parent().unwrap();
+    let home = aside.join("home");
+    for at in [&config, &home.join(".config")] {
+        repo.bundle(
+            at.join("brokkr/recipes/x").to_str().unwrap(),
+            "px",
+            completes(),
+        );
+    }
+    let healthy = repo.brokkr("", &["doctor"]).code;
+    let project = repo.path(".brokkr/recipes/x");
+    let digest = &digest(&repo, project.to_str().unwrap())[..12];
+    let line = format!(
+        "x\t{digest}\t3 phases\timplement, review\t\t\tproject\t{}\n",
+        project.display()
+    );
+    let (xdg, root) = (aside.join("nope/../config"), aside.join("nope/../home"));
+    let (sub, unset) = (config.join("sub/.."), ("XDG_CONFIG_HOME", None));
+    let spellings = [
+        (
+            vec![("XDG_CONFIG_HOME", Some(&*xdg))],
+            xdg.join("brokkr"),
+            aside,
+        ),
+        (
+            vec![("XDG_CONFIG_HOME", Some(&*sub))],
+            sub.join("brokkr"),
+            &*config,
+        ),
+        (
+            vec![unset, ("HOME", Some(&*root))],
+            root.join(".config/brokkr"),
+            aside,
+        ),
+    ];
+    for (env, placed, at) in spellings {
+        let shelf = placed.join("recipes");
+        let ran = under(
+            &repo,
+            &env,
+            &["run", "--recipe", "x", "--feature", "f", "--no-view"],
+        );
+        let refused = climbing("personal", &shelf, at);
+        assert_eq!(
+            (ran.code, ran.stderr),
+            (Some(1), refused.clone()),
+            "{env:?}"
+        );
+        assert_eq!((repo.seated("x"), repo.seated("px")), (false, false));
+        let added = add_personal(&repo, &source, &env);
+        assert_eq!((added.code, added.stderr), (Some(1), refused), "{env:?}");
+        assert!(!aside.join("nope").exists() && !config.join("sub").exists());
+        let absent = format!(
+            "{}: No such file or directory (os error 2)",
+            shelf.display()
+        );
+        let listed = under(&repo, &env, &["recipes", "list"]);
+        let warned = format!("{line}warning: recipes dir {absent}\n");
+        assert_eq!((listed.code, listed.stdout), (Some(0), warned), "{env:?}");
+        let doctor = under(&repo, &env, &["doctor"]);
+        let warn = format!("warn     personal shelf: {absent}");
+        let warns = doctor.stdout.lines().any(|l| l == warn);
+        assert_eq!((doctor.code, warns), (healthy, true), "{}", doctor.stdout);
+    }
+}
+
+/// A personal shelf below a name too long for the system to make, beneath
+/// a directory the install makes first, refuses its install naming the
+/// shelf and the name, and leaves the configuration directory's tree as it
+/// was (#726).
+#[test]
+fn a_personal_install_below_a_name_too_long_leaves_nothing() {
+    let repo = shelved();
+    repo.bundle("../mine-source", "mine", completes());
+    let source = repo.root.with_file_name("mine-source");
+    let before = repo.files();
+    let config = tempfile::tempdir().unwrap();
+    let long = "a".repeat(256);
+    let xdg = config.path().join("new").join(&long);
+    let ran = add_personal(&repo, &source, &[("XDG_CONFIG_HOME", Some(&xdg))]);
+    let cause = std::fs::create_dir(config.path().join(&long)).unwrap_err();
+    let refused = format!(
+        "error: the personal shelf {} cannot be made (#726): {}: {cause}; every directory made for \
+         it was removed again, so nothing was installed\n",
+        xdg.join("brokkr/recipes").display(),
+        xdg.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), refused));
+    assert_eq!(std::fs::read_dir(config.path()).unwrap().count(), 0);
+    assert_eq!(repo.files(), before);
+}
+
+/// `recipes add --personal` of a name the project shelf holds refuses at
+/// install, naming both paths, whether the recipe or a base it extends
+/// holds it, and one that is no plain name refuses by its own text, each
+/// making nothing on the personal side (#726).
+#[test]
+fn a_personal_install_of_a_name_the_project_shelf_holds_refuses() {
+    let repo = shelved();
+    repo.bundle("../x-source", "xs", completes());
+    repo.bundle("../lib/x", "xb", completes());
+    repo.write(
+        "../lib/leaf/bundle.json",
+        &json!({"name": "leaf", "extends": "x"}).to_string(),
+    );
+    let source = repo.root.with_file_name("x-source");
+    let before = repo.files();
+    let shelf = repo.config().join("brokkr/recipes");
+    let shadowing = format!(
+        "error: recipe 'x' stands on the project shelf, at {}, so installing it onto the personal \
+         shelf, at {}, would stand it on both (#726): neither shelf would win, so rename or remove \
+         one of them; nothing was installed\n",
+        repo.path(".brokkr/recipes/x").display(),
+        shelf.join("x").display()
+    );
+    let ran = add_named(&repo, &source, "x", &[]);
+    assert_eq!((ran.code, ran.stderr), (Some(1), shadowing.clone()));
+    let leaf = repo.root.with_file_name("lib").join("leaf");
+    let ran = add_named(&repo, &leaf, "leaf", &[]);
+    assert_eq!((ran.code, ran.stderr), (Some(1), shadowing));
+    let ran = add_named(&repo, &source, "../x", &[]);
+    let unplain = format!(
+        "error: --name '../x' is not one plain path component, so the recipe would not be one \
+         directory of {} (#675); nothing was written\n",
+        shelf.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), unplain));
+    assert!(!repo.config().exists());
+    assert_eq!(repo.files(), before);
 }

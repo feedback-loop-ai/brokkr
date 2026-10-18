@@ -14,7 +14,7 @@ use brokkr_runtime::realms::World;
 
 use crate::cli_args::{CompileArgs, DoctorArgs, DriverArgs, FakeDriverArgs, InitArgs};
 use crate::folder::{DoctorDefaults, Layout};
-use crate::recipes::personal::Origin::Project;
+use crate::recipes::personal::Onto::Project;
 use crate::{agents, doctor, init, muninn, recipes};
 use crate::{compiled_view, driver_payload, now_rfc3339};
 use crate::{world_and_hearths, AgentsCmd, Exit, MuninnCmd, RecipesCmd, SecretsCmd};
@@ -136,7 +136,10 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             let (root, shelf) = layout.install_shelf();
             let path = path.as_deref();
             match personal {
-                true => recipes::personal::add(&root, &source, &name, path)?,
+                true => {
+                    let project = layout.recipes(None);
+                    recipes::personal::add(&root, &project, &source, &name, path)?
+                }
                 false => recipes::add(&root, &shelf, Project, &source, &name, path)?,
             }
         }

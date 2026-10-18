@@ -1043,3 +1043,47 @@ warn     personal shelf: <personal>: <error>
 built after #696. The second slice builds composition across shelves
 (ruling 3), the origins of ruling 5 and their proof on resume, and
 extends this addendum.
+
+*Extension, 2026-10-17: the shelf follow-ups (#726).* Status: accepted
+— operator ruled 2026-10-18 (PR #737). It closes three of the LOWs the
+operator accepted on #697's first pull request.
+
+A shelf spelled through `..` beneath a part of it that does not stand is
+never read as an empty one, by ruling 2's rule. The kernel cannot
+resolve a `..` below a directory that does not exist, so it reported
+such a shelf absent, and an absent shelf read as an empty one:
+`--recipes-dir .brokkr/recipes/sub/..`, with no `sub`, took the personal
+recipe past the refusal of a name on both shelves, and
+`XDG_CONFIG_HOME=<root>/nope/../cfg` the project's. The part of a shelf
+beneath the nearest entry standing at it or above it, the current
+directory for a relative shelf, must hold no `..`. A shelf whose part
+does refuses, on either origin, every verb ruling 2 names and `recipes
+add --personal`, naming the shelf as spelled and that entry. A project
+shelf that climbs or cannot be read refuses with or without a personal
+shelf placed. A `..` beneath an entry that stands is the kernel's to
+resolve, as before.
+`recipes list` and doctor, which never refuse, warn of such a personal
+shelf by their `warning: recipes dir` and `warn personal shelf` lines,
+rather than showing no shelf.
+
+`recipes add --personal` makes the directories above the shelf one at a
+time, from the outermost, held by a guard that stands before the first
+is made. A directory that cannot be made, a name too long for the
+system included, refuses naming the shelf and that directory, and every
+directory made before it is removed.
+
+`recipes add --personal` refuses at install a name the project's shelf
+already holds, the shelf `--recipe` reads first, judged as resolution
+judges it: a project shelf, or an entry at the name, that cannot be read
+refuses by ruling 2's texts. Every name the install would copy is
+judged, the recipe's and each base its `extends` chain copies onto the
+personal shelf, before any is copied, so an install never makes a
+project recipe unavailable by copying its base. Whatever was made for
+the personal shelf is removed again. A name that is no plain name
+refuses by `add`'s own `--name` text.
+
+```text
+the <origin> shelf <shelf> climbs by '..' out of a directory that does not stand beneath <at> (#726): a shelf spelled through what does not exist is never read as an empty one, so spell it without the '..'; nothing was run or installed
+the personal shelf <shelf> cannot be made (#726): <directory>: <cause>; every directory made for it was removed again, so nothing was installed
+recipe '<name>' stands on the project shelf, at <project>/<name>, so installing it onto the personal shelf, at <personal>/<name>, would stand it on both (#726): neither shelf would win, so rename or remove one of them; nothing was installed
+```

@@ -9,6 +9,7 @@ use std::process::Command;
 
 use serde_json::Value;
 
+use crate::doc_samples::hermetic;
 use crate::workflow;
 
 #[path = "contributing/inline_copies.rs"]
@@ -73,11 +74,12 @@ fn the_sixty_second_table_is_the_recipe_library() {
     );
     let documented = guide_rows(&guide);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-        .args(["recipes", "list"])
-        .current_dir(&root)
-        .output()
-        .unwrap();
+    // A config home of its own, so no host's personal shelf (#697) adds rows.
+    let config = tempfile::tempdir().unwrap();
+    let mut list = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+    list.args(["recipes", "list"]).current_dir(&root);
+    hermetic(&mut list, config.path());
+    let output = list.output().unwrap();
     assert!(
         output.status.success(),
         "recipe listing failed: {}",
