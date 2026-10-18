@@ -29,6 +29,8 @@ mod opened;
 mod parse;
 mod phases;
 mod pins;
+mod reference;
+mod route_policy;
 mod sequence;
 mod site_form;
 mod site_key;
@@ -42,6 +44,8 @@ pub use invocation::Invocation;
 pub(crate) use mcp::{McpContribution, McpIntent};
 use opened::Opened;
 use parse::{SeatScope, SiteCompiler};
+use reference::{agent_name, bind_charter, judge_mapped_hands, resolved_candidates, ReferenceAt};
+use route_policy::{judge_link, RouteLink};
 use sequence::{sequence_steps, step_body, step_class, step_name, step_results, StepAt};
 use site_form::{classify, SiteRole, StepShape, STEP};
 #[cfg(test)]
@@ -50,9 +54,11 @@ pub(crate) use site_key::SiteKey;
 pub use tier::{ProvisionalRefusal, RealmLaw};
 use walk::{refuse_unlisted_consumed, walk_digests, walk_keys, Walk};
 
+#[cfg(test)]
+use crate::agents::{resolve_route, TrustTier};
 use crate::agents::{
-    resolve_route, route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition,
-    EgressClass, HandsNotice, Library, Lowering, Sandbox, TrustTier,
+    route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition, EgressClass,
+    HandsNotice, Library, Lowering, Sandbox,
 };
 use crate::dialect::{Dialect, DialectPhase};
 use crate::phase_name;
@@ -1702,10 +1708,6 @@ fn dialect_gate_site(what: &str, boundary: Boundary) -> Result<Value, CompileErr
 
 /// Resolve `"agent": "<name>"` into an ordinary seat body, and record
 /// the resolution under this invocation site.
-#[expect(
-    clippy::too_many_lines,
-    reason = "baseline 2026-09-29, decision 0065 slice one merged with main; split after #319"
-)]
 fn resolve_reference(
     compiler: &mut SiteCompiler<'_>,
     dir: &Path,
@@ -1716,13 +1718,7 @@ fn resolve_reference(
 ) -> Result<ResolvedSeat, CompileError> {
     let boundary = compiler.boundary;
     let SiteCompiler { agents, sites, .. } = compiler;
-    let name = raw
-        .get("agent")
-        .and_then(Value::as_str)
-        .filter(|name| !name.is_empty())
-        .ok_or_else(|| {
-            CompileError::Invalid(format!("seat '{what}' agent must be a non-empty string"))
-        })?;
+    let name = agent_name(what, raw)?;
     let (library, adapters) = agents.agent_roots()?;
     // Decision 0065 slice one (design D5.2): the site's own typed `tools`
     // narrows a PRIVATE clone of the office before composition. Shape is
@@ -1739,110 +1735,24 @@ fn resolve_reference(
     )
     .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
     let effective = report.agent.local();
-    // D33: judge every mapped hands link before resolving capability gaps.
-    // In particular dsh/LaneTally earn the tier refusal under namespace,
-    // and the missing harness.gate refusal under harness. An unmapped
-    // chain still receives the resolver's precise unmapped-model error.
-    if report.agent.hands.is_some() && report.entries.iter().all(|entry| entry.provider.is_some()) {
-        let candidates: Vec<Candidate> = report
-            .entries
-            .iter()
-            .map(|entry| Candidate {
-                agent: name.to_string(),
-                model: entry.model.clone(),
-                effort: entry.effort.clone(),
-                provider: entry.provider.clone().expect("mapped above"),
-                argv: entry.argv.clone(),
-                hands_fragment: entry.hands_fragment.clone(),
-                harness: entry.harness.clone(),
-                // The hands law reads argv, class and boundary; the
-                // resume assessment and the discovery notice are not its
-                // terms, and this projection is discarded after that
-                // judgment.
-                resume: Default::default(),
-                hands_notice: None,
-                // The entry's own lowering, refused or composed, never a
-                // valid empty one standing in for it (design D5.7).
-                lowering: entry.lowering.clone(),
-            })
-            .collect();
-        enforce_model_policy(
-            what,
-            raw,
-            &candidates,
-            secrets,
-            agents,
-            SiteLaw {
-                boundary,
-                dir,
-                agent_hands: report.agent.hands.as_ref(),
-            },
-            sites,
-        )?;
-    }
+    let at = ReferenceAt {
+        dir,
+        what,
+        raw,
+        secrets,
+        boundary,
+        name,
+    };
+    judge_mapped_hands(at, &report, agents, sites)?;
     let adapters = agents.adapters()?;
     let resolution = crate::agents::resolve_report(report, adapters)
         .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
     refuse_member_declarations(what, name, site, &resolution)?;
-    // The composed argv faces the SAME secret-reference lint as an inline
-    // one (decision 0012), and `{brokkr}` is expanded by the same
-    // function, so a resolved seat is an inline seat by construction.
-    let mut candidates = Vec::with_capacity(resolution.candidates.len());
-    for candidate in &resolution.candidates {
-        refuse_permission_pins(what, candidate, adapters)?;
-        lint_secret_refs(what, &candidate.argv, secrets)?;
-        candidates.push(Candidate {
-            agent: candidate.agent.clone(),
-            model: candidate.model.clone(),
-            effort: candidate.effort.clone(),
-            provider: candidate.provider.clone(),
-            argv: expand_command(dir, &candidate.argv),
-            hands_fragment: candidate.hands_fragment.clone(),
-            harness: candidate.harness.clone(),
-            resume: candidate.resume.clone(),
-            hands_notice: candidate.hands_notice.clone(),
-            lowering: expand_lowering(dir, &candidate.lowering),
-        });
-    }
+    let candidates = resolved_candidates(at, &resolution, adapters)?;
     site_facts(sites, what).record = Some(resolution.record.clone());
-    // Second council H6: the charter this site will be told, bound to the
-    // digest its library record pins, so the dispatch door can compare the
-    // bytes it is about to hand over against the bytes the compile read.
-    // Rebuild unit 17: its owner is the library the office was loaded
-    // from, with that library's own root, whether it stands outside the
-    // recipe or inside it.
-    // Rebuild unit 18-fix-b (council F1, F2): the pin is the binding of a
-    // bound read from the library's directory, which must supply the bytes
-    // the library record pins; a charter no such read binds is refused here
-    // rather than compiled into a seat every dispatch refuses.
-    let source = &resolution.charter_source;
-    let refused =
-        |clause: String| library_refusal(what, &resolution.agent, &source.reference, &clause);
-    let bound = match owned_input(&source.library, &source.reference) {
-        Ok(bound) if sha256_bytes(&bound.bytes) == source.digest => bound,
-        Ok(_) => {
-            return Err(refused(
-                "whose bytes changed after its library was loaded".into(),
-            ))
-        }
-        Err(InputFault::Missing(error)) => return Err(refused(missing_clause(&error))),
-        Err(InputFault::Place(place)) => return Err(refused(place.to_string())),
-    };
-    let owner = CharterOwner::Library {
-        agent: resolution.agent.clone(),
-        root: source.library.clone(),
-    };
-    let pin = CharterPin::of(owner, &source.reference, resolution.charter.clone(), &bound);
+    let (pin, read) = bind_charter(what, &resolution)?;
     site_facts(sites, what).charter = Some(pin);
-    // Rebuild unit 18-fix-b return (F2): the read is held until the seal,
-    // which checks it still stands, its owner included.
-    agents.reads.push(LibraryRead {
-        site: what.to_string(),
-        agent: resolution.agent.clone(),
-        reference: source.reference.clone(),
-        digest: source.digest.clone(),
-        held: bound.held,
-    });
+    agents.reads.push(read);
     // The capability pass judges exactly the chain this site will run
     // (decision 0065): one outcome per candidate, never their union.
     site_facts(sites, what).chain = candidates.clone();
@@ -3082,100 +2992,21 @@ fn enforce_route_policy(
             Some(provider) => format!("driver '{provider}'"),
             None => "an unnamed driver (the command is no driver dispatch)".to_string(),
         };
-        // Decision 0043 ruling 3: a deterministic `exec` command whose
-        // hands are boxed has no stochastic axis to distrust, and its
-        // blast radius is the box. It may hold a gate.
-        let boxed_exec = driver.as_deref() == Some("exec") && raw.get("hands").is_some();
-        if class == SeatClass::Gate
-            && !boxed_exec
-            && adapter.map(|a| a.trust_tier) != Some(TrustTier::Trusted)
-        {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' is gate class but seats {named}, which does not \
-                 hold the trusted tier; a gate seat IS the check, and nobody \
-                 stands behind the judges (decision 0021 ruling 2 — an \
-                 undeclared tier is untrusted)"
-            )));
-        }
-        // Decision 0041 ruling 3: trust authorises a provider, while
-        // `judges` authorises the particular abstract hire. Both must
-        // hold on every fallback link. A missing declaration is the
-        // empty set, just like an absent tier is untrusted.
-        if class == SeatClass::Gate && !boxed_exec {
-            let admitted = adapter
-                .zip(abstract_model.as_deref())
-                .is_some_and(|(adapter, model)| adapter.judges.iter().any(|judge| judge == model));
-            if !admitted {
-                let model = abstract_model.as_deref().unwrap_or(match pin {
-                    ModelPin::Absent => "<unpinned>",
-                    _ => "<unmapped>",
-                });
-                return Err(CompileError::Invalid(format!(
-                    "seat '{what}' gate link {link} names model '{model}', which {named} does not declare in 'judges' (decision 0041 ruling 3 — an absent declaration is empty)"
-                )));
-            }
-        }
-        // Where this site's material actually goes. Two kinds of
-        // not-knowing land on the floor for the one ruling-1 reason —
-        // an absent declaration is uncontracted — but a refusal has to
-        // tell them apart, so each names itself:
-        //
-        // - a driver NO adapter declares: the operator has said nothing
-        //   about this binary's endpoint at all;
-        // - a model pin this compiler cannot READ as one concrete id.
-        //   Ruling 2 gives an unprefixed id the adapter's own class
-        //   because an unprefixed id genuinely arrives at the
-        //   destination that class is the operator's word about. A site
-        //   that writes a pin has declined that default for somewhere
-        //   the machine cannot name, so the adapter's word no longer
-        //   covers it — reading the adapter's class here would clear an
-        //   unnameable route on the strength of a ruling about a
-        //   different one, the same fail-open ruling 2's asymmetry
-        //   exists to prevent. `enforce_model_pins` refuses this shape
-        //   first for the four model-bearing built-ins, all of which
-        //   take `--model`; an adapter the operator ADDS is not on that
-        //   list, and this refusal is what stands between it and its
-        //   adapter's clearance. It can stand there because the pin
-        //   above is read on that adapter's OWN declared `model_flag`
-        //   AND on `--model` (decision 0040 ruling 1): an adapter
-        //   taking `-m` has no second door to walk an unruled route
-        //   through, and no third one on the flag its real CLI also
-        //   honours. Nor a fourth by spelling — a word carrying either
-        //   flag in a form no reading covers arrives here as
-        //   `Unreadable` and is refused, rather than as the silence of
-        //   an argv that never named a destination at all.
-        let (reached, egress) = match (adapter, &pin) {
-            (Some(adapter), ModelPin::Concrete(model)) => {
-                destination(resolve_route(adapter, model))
-            }
-            // An argv naming no model leaves the binary on whatever its
-            // profile resolves, which carries no prefix — so it is
-            // literally the unprefixed case, and `resolve_route` stays
-            // the one place ruling 2's rule is written.
-            (Some(adapter), ModelPin::Absent) => destination(resolve_route(adapter, "")),
-            // Named on the flags the read actually used, and only
-            // those (decision 0040 ruling 3): no constant stands in for
-            // a flag this read did not touch.
-            (Some(_), ModelPin::Unreadable(flags)) => {
-                (unreadable_destination(flags), EgressClass::Uncontracted)
-            }
-            (None, _) => destination((None, EgressClass::Uncontracted)),
+        let at = RouteLink {
+            what,
+            link,
+            driver,
+            adapter,
+            abstract_model,
+            pin,
+            named,
         };
-        if !secrets.is_empty() && egress < minimum {
-            return Err(CompileError::Invalid(format!(
-                "seat '{what}' declares secret bindings {secrets:?} but seats \
-                 {named} {reached}, whose egress class is {}; this bundle binds \
-                 no secret below {} (decision 0021 ruling 4 as enacted by 0036 \
-                 ruling 4 — an undeclared class is uncontracted, and \
-                 'egress_minimum' is where the operator rules the bar)",
-                egress.name(),
-                minimum.name(),
-            )));
-        }
+        judge_link(&at, class, raw, secrets, minimum)?;
         // Both prohibitions passed, so an adapter answered for this
         // driver. Only an inline site is recorded: `candidates` is empty
         // exactly there.
-        if let (Some(provider), Some(adapter)) = (driver.filter(|_| candidates.is_empty()), adapter)
+        if let (Some(provider), Some(adapter)) =
+            (at.driver.filter(|_| candidates.is_empty()), at.adapter)
         {
             authorised.insert(provider, Value::String(adapter.digest.clone()));
         }
