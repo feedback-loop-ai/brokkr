@@ -3,7 +3,7 @@
   "description": "Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.",
   "cost": "low",
   "forced_crew": "decision 0041 ruling 7: a wager forces the arm it measures",
-  "extends": "fast",
+  "extends": "brokkr-fast",
   "override": {
     "bundle": [
       "description",

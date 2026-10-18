@@ -1,6 +1,6 @@
 # wager-harness-dsh — the GLM-flash arm
 
-`fast` with one seat changed, as
+`brokkr-fast` with one seat changed, as
 [`wager-harness`](../wager-harness/README.md) asks a wager to be built:
 the implement seat's driver is swapped and nothing else is. The
 experiment is one office, `agents/wager-glm-flash-implementer.json`, an
@@ -50,7 +50,7 @@ names the route: the dsh driver ends a failed seat's stderr tail with
 spark-glm/GLM-5.3-Flash-EXL3 on route spark-glm`. How dsh's own refusal
 is worded there has not been measured.
 
-Run as the harness README says: `brokkr run --recipe fast` for the
+Run as the harness README says: `brokkr run --recipe brokkr-fast` for the
 incumbent, `brokkr rerun --run <id> --recipe wager-harness-dsh` for
 this arm, `brokkr compare` for the trails, then judge the artifacts.
 

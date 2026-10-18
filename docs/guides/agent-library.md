@@ -24,6 +24,7 @@ the overlays the listing prints between them.
 ```
 $ brokkr agents list
 analyst	fable → sol → opus	SDD judge, read-only by charter: finds drift across the artifacts and the realm constitution.
+…
 chief-architect	fable → sol → opus → astra	Authors the dialect artifacts assigned to the chief and reconciles council positions during design.
 clarifier	opus → sol	SDD judge, read-only by charter: identifies every material ambiguity in the specification.
 …
@@ -44,7 +45,7 @@ review-chief	sol → fable → opus → astra	Review chief: checks the panel's f
 review-correctness	sol → opus	Review panel member: does the change do what it claims, and does the evidence support it?
 review-security	fable → sol → opus	Review panel member: the adversarial security read of the change.
 review-spec-compliance	opus → sol	Review panel member: does the delivered change satisfy the committed spec's acceptance criteria?
-reviewer	sol → fable → opus	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
+reviewer	fable → opus	The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.
 triage	fable → sol → opus	Rules the commission's delivery class from a closed vocabulary, fresh and blind.
 …
 ```

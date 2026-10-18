@@ -14,7 +14,7 @@ commands and conventions belong to the realm's house file.
 
 | | `recipes/fast` | `recipes/node` |
 |---|---|---|
-| Tools the drivers may run | `cargo`, `git`, … | `npm`, `npx`, `node`, `git`, … |
+| Tools the drivers may run | the folder's base offices' (`init` grants a cargo stack `cargo`, `git`, …) | the folder's base offices' (`init` grants an npm stack `npm`, `git`, …) |
 | Verifier runs | `cargo test --workspace` | `npm ci`, `npx tsc --noEmit`, `npm test` |
 | Reviewer reads for | Rust idiom, `crates/` | `package.json` scripts, ESM/CJS, `tsconfig.json` strictness, lockfile provenance |
 | House warnings | frozen contracts, `fixtures/` | `node_modules/` never committed, `npm ci` not `npm install`, no `npm publish` |
@@ -32,8 +32,8 @@ and change these, and only these:
 
 | Where | npm (shipped) | pnpm | yarn (berry) |
 |---|---|---|---|
-| `agents/node-implementer.json` and `agents/node-reviewer.json` — `tools.allow` | `"npm", "npx", "node", …` | `"pnpm", "node", …` | `"yarn", "node", …` |
-| Claude adapter data — `tool_permissions.names` | `npm`, `npx`, `node` mapped | add `"pnpm": "Bash(pnpm:*)"` | add `"yarn": "Bash(yarn:*)"` |
+| The folder's `implementer` and `reviewer` — `tools.allow` | `"npm", …`, as `init` writes it | `"pnpm", …`, as `init` writes it | `"yarn", …`, as `init` writes it |
+| The folder's claude adapter — `tool_permissions.names` | `npm` mapped, as `init` writes it | `pnpm` mapped, as `init` writes it | `yarn` mapped, as `init` writes it |
 | House rules and verifier — install | `npm ci` | `pnpm install --frozen-lockfile` | `yarn install --immutable` |
 | House rules and verifier — types | `npx tsc --noEmit` | `pnpm exec tsc --noEmit` | `yarn tsc --noEmit` |
 | House rules and verifier — tests | `npm test` | `pnpm test` | `yarn test` |
@@ -41,10 +41,12 @@ and change these, and only these:
 
 Both model seats hire library offices (#360): `node-implementer` and
 `node-reviewer`, overlays of `implementer` and `reviewer` with Node's
-charters, Fable then Opus at `high` as `fast`'s offices hire (the
-operator's ruling of 2026-10-09), and the npm
-tool list, each change of power stated under `replaces` with its reason.
-An office's tool list is typed data, not a flag. The engine lowers each
+charters. Neither writes a chain, tools or hands, so each hires the
+folder's base office whole (decision 0087 rulings 2 and 3): what `init`
+wrote for the agent CLI it found and the stack it recognised. `init`'s
+npm grant names neither `npx` nor `node`; a folder that wants them
+widens its claude adapter and its agents. An office's tool list is typed
+data, not a flag. The engine lowers each
 name through the adapter's mapping to the `--allowedTools` entry the
 harness reads, and adds the permission mode itself (decision 0065). A name
 the adapter does not map is refused at compile, for example `seat

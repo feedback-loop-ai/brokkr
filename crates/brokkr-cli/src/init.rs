@@ -295,8 +295,11 @@ write_result shipped
 /// One scaffolded agent's fixed identity: the name `bundle.json` seats it
 /// under (which is also the file's stem), the class of the seat it backs,
 /// the description and model chain its definition carries, and the 0006
-/// bounds the starter used to declare inline. The model chains are the
-/// repository's own library's: work leads with the stronger model where
+/// bounds the starter used to declare inline. The claude rows are a copy
+/// of the library's portable base, `agents/<office>.json`, which a
+/// published crate cannot include; `init_stacks` holds the two equal,
+/// byte for byte under claude with no stack (decision 0087 ruling 6).
+/// Work leads with the stronger model where
 /// the ship does, review reads adversarially, and the gate seats fall
 /// back rather than pretend. Each seat carries one chain per agent CLI
 /// `init` can scaffold for, in that CLI's adapter vocabulary, each link

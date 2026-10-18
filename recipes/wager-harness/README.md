@@ -8,9 +8,10 @@ recipe is that procedure, written down and made compilable.
 It is two things at once, and both matter:
 
 1. **A worked example.** `bundle.json` here is a real, listable,
-   digest-pinned recipe: `fast` with the implement seat's driver swapped
-   to `codex`. Compile it, run it, `brokkr compare` it against a `fast`
-   run of the same feature. It reproduces exactly what the deleted
+   digest-pinned recipe: `brokkr-fast` (Brokkr's own `fast`, decision
+   0087) with the implement seat's driver swapped to `codex`. Compile it,
+   run it, `brokkr compare` it against a `brokkr-fast` run of the same
+   feature. It reproduces exactly what the deleted
    `recipes/fast-codex` was during the wager
    ([the-wager.md](../../docs/essays/the-wager.md),
    [PR #85](https://github.com/feedback-loop-ai/brokkr/pull/85)),
@@ -24,7 +25,7 @@ It is two things at once, and both matter:
 ```json
 {
   "name": "wager-harness",
-  "extends": "fast",
+  "extends": "brokkr-fast",
   "override": { "bundle": ["description", "cost"], "seats": ["implement"] },
   "seats": {
     "implement": {
@@ -183,7 +184,7 @@ before you trust a comparison, not after.**
 ## Running the wager
 
 ```
-brokkr run    --recipe fast --repo . --feature "<the commission>"   # incumbent
+brokkr run    --recipe brokkr-fast --repo . --feature "<the commission>"   # incumbent
 brokkr rerun  --run <id> --recipe wager-harness                     # challenger
 brokkr compare <run-a> <run-b>                                      # trails, divergence, per-seat costs
 ```

@@ -602,7 +602,7 @@ fn add_refuses_a_definition_it_would_replace_or_cannot_read() {
     let ran = repo.brokkr("", &add);
     let refusal = format!(
         "error: recipe 'fast' does not compile (removed): bundle: agent 'fast-reviewer' ({}) \
-         extends 'absent' but writes no 'models'; an overlay states the chain it hires\n",
+         extends 'absent', which is not an agent in this library\n",
         repo.path(".brokkr/agents/fast-reviewer.json").display()
     );
     assert_eq!((ran.code, ran.stderr), (Some(1), refusal));

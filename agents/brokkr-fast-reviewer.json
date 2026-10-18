@@ -1,0 +1,8 @@
+{
+  "extends": "reviewer",
+  "models": ["fable", "opus"],
+  "efforts": {"fable": "high", "opus": "high"},
+  "inputs": ["has_security_residual", "max_residual_severity"],
+  "tools": {"allow": ["cargo", "git", "ls", "rg", "mkdir"]},
+  "replaces": {"tools": "the allow-list fast's own review seat always granted, in place of the box"}
+}

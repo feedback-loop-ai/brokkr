@@ -254,6 +254,31 @@ pub(crate) fn brokkr_with(
     (out.status.code(), text(&out.stdout), text(&out.stderr))
 }
 
+/// [`brokkr_with`] with the child's `HOME` and `XDG_CONFIG_HOME` under
+/// `aside`, a directory beside the repository, so no host's own
+/// configuration is read; an `init` runs with the agent CLI `cli` alone
+/// on PATH, so it scaffolds for that CLI whatever this host carries.
+pub(crate) fn brokkr_for(
+    cli: &str,
+    args: &[&str],
+    cwd: &Path,
+    aside: &Path,
+) -> (Option<i32>, String, String) {
+    let bins = aside.join("bins");
+    for dir in [&bins, &aside.join("home"), &aside.join("config")] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    std::fs::write(bins.join(cli), "").unwrap();
+    brokkr_with(args, cwd, |command| {
+        command
+            .env("HOME", aside.join("home"))
+            .env("XDG_CONFIG_HOME", aside.join("config"));
+        if args.first() == Some(&"init") {
+            command.env("PATH", &bins);
+        }
+    })
+}
+
 /// A fresh repository holding one fixture's marker files, not yet
 /// scaffolded.
 pub(crate) fn repository_of(fixture: &str) -> tempfile::TempDir {
@@ -1316,6 +1341,102 @@ fn init_scaffolds_each_dialect_detection_outcome() {
                 .is_file());
         } else {
             assert!(!bundle.join("dialects").exists(), "{case}");
+        }
+    }
+}
+
+/// The chains `init`'s table hires codex's and dsh's offices on, each link
+/// with its effort: written out again rather than read from `init.rs`,
+/// like every table here. Claude's chain is the library's own,
+/// `agents/<office>.json`, and dsh's reviewer stays on it, because dsh
+/// cannot hold a gate (decision 0021 ruling 2).
+type Chain = &'static [(&'static str, &'static str)];
+
+const CHAINS: &[(&str, &str, Chain)] = &[
+    ("codex", "intake", &[("sol", "medium"), ("terra", "high")]),
+    (
+        "codex",
+        "implementer",
+        &[("sol", "medium"), ("terra", "high")],
+    ),
+    ("codex", "reviewer", &[("sol", "medium")]),
+    ("dsh", "intake", &[("flash", "high"), ("pro", "high")]),
+    ("dsh", "implementer", &[("pro", "high"), ("flash", "high")]),
+];
+
+/// Decision 0087 ruling 1's projection of the library's portable base
+/// office for a folder `init` scaffolded for `cli` on `stack`: the hiring
+/// CLI's chain and efforts, a codex-hired office's hands, and a
+/// claude-hired office's stack tools.
+fn projected(cli: &str, office: &str, stack: Option<&str>) -> Value {
+    let library = crate::workspace_root::workspace().join("agents");
+    let mut definition = read_json(&library.join(format!("{office}.json")));
+    let hired = if (cli, office) == ("dsh", "reviewer") {
+        "claude"
+    } else {
+        cli
+    };
+    if let Some((.., chain)) = CHAINS.iter().find(|(c, o, _)| (*c, *o) == (hired, office)) {
+        definition["models"] = chain.iter().map(|(model, _)| *model).collect();
+        let efforts = chain
+            .iter()
+            .map(|(model, effort)| (model.to_string(), (*effort).into()));
+        definition["efforts"] = Value::Object(efforts.collect());
+    }
+    match (hired, stack) {
+        ("codex", _) => {
+            let binds = match stack {
+                Some("rust") => serde_json::json!([
+                    {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+                    {"path": "~/.rustup", "mode": "ro"},
+                ]),
+                _ => serde_json::json!([]),
+            };
+            definition["hands"] =
+                serde_json::json!({"kind": "workspace", "network": false, "binds": binds});
+        }
+        ("claude", Some(stack)) => {
+            let (_, work, gate) = TOOLS
+                .iter()
+                .find(|(fixture, ..)| *fixture == stack)
+                .unwrap();
+            let allow = if office == "reviewer" { gate } else { work };
+            definition["tools"] = serde_json::json!({"allow": allow, "mcp": []});
+        }
+        _ => {}
+    }
+    definition
+}
+
+/// Decision 0087 ruling 6: `init` writes the library's portable base.
+/// Under claude, codex and dsh, each with no stack, a cargo stack and an
+/// npm stack, every office it writes parses equal to `agents/<office>.json`
+/// after ruling 1's projection; under claude with no stack the projection
+/// is the identity, and the files are equal byte for byte.
+#[test]
+fn init_writes_the_librarys_portable_base_under_every_agent_cli() {
+    let library = crate::workspace_root::workspace().join("agents");
+    for cli in ["claude", "codex", "dsh"] {
+        for stack in [None, Some("rust"), Some("node-npm")] {
+            let repo = stack.map_or_else(repository, repository_of);
+            let aside = tempfile::tempdir().unwrap();
+            let (code, _, stderr) = brokkr_for(cli, &["init", "."], repo.path(), aside.path());
+            assert_eq!(code, Some(0), "{cli} {stack:?}: {stderr}");
+            let bundle = repo.path().join(".brokkr");
+            for office in ["intake", "implementer", "reviewer"] {
+                let case = format!("{cli} {stack:?} {office}");
+                assert_eq!(
+                    agent(&bundle, office),
+                    projected(cli, office, stack),
+                    "{case}"
+                );
+                let file = format!("{office}.json");
+                if (cli, stack) == ("claude", None) {
+                    let written = std::fs::read(bundle.join(DEFAULT_AGENTS_DIR).join(&file));
+                    let source = std::fs::read(library.join(&file));
+                    assert_eq!(written.unwrap(), source.unwrap(), "{case}");
+                }
+            }
         }
     }
 }
