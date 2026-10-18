@@ -190,6 +190,33 @@ row's overflow pages. An append to an acknowledged refused run moved its
 row to the `behind` lane with `acknowledged` 0, through the triggers alone.
 The scratch was removed after.
 
+**SQLite's own memory, measured after the third review.** dhat counts
+Rust's global allocator alone (`crates/brokkr-cli/tests/heap/support.rs:14`
+to `15`), and SQLite allocates beside it. A third scratch program
+(`rusqlite` 0.32.1 bundled, which printed SQLite 3.46.0) read SQLite's
+high-water by `sqlite3_status64(SQLITE_STATUS_MEMORY_USED)`, reset before
+each statement, on a reader at `PRAGMA cache_size = -256` over 4 KiB pages:
+
+| Read | SQLite's high-water above the reader's base |
+|---|---|
+| An acknowledgement's operator and reason cut by `substr` in the select, 1 MiB each | 2,114,384 B |
+| The same, 64 and 256 characters stored | 0 B |
+| The cut pair stored in a row whose 1 MiB value sits after it, selected alone | 8,736 B |
+| `GROUP BY` a 64-byte key over an index range: 24,000 rows in 9,000 groups; 240,000 in 9,000; 240,000 rows of a 4-byte key in 4 | 1,273,184 B; 1,129,240 B; 1,050,320 B |
+| The same three with `SQLITE_CONFIG_PMASZ` set to 8 pages before the first open | 537,168 B; 635,200 B; 371,608 B |
+| A median by `ORDER BY` the duration `LIMIT 2 OFFSET` the middle, over 20,000 and 200,000 runs, either PMA size | 176,032 B; 1,440,072 B |
+
+Both plans were an index range and `USE TEMP B-TREE FOR GROUP BY` (or
+`ORDER BY`). So a cut made in a select still reads the whole value inside
+SQLite. A cut made where the value is stored bounds it. `GROUP BY`'s
+sorter held about a megabyte however few its groups, from 24,000 rows to
+240,000. In the pinned
+`libsqlite3-sys-0.30.1/sqlite3/sqlite3.c`, as the third review read it,
+`SQLITE_SORTER_PMASZ` is 250 pages (`:22868`), the floor is that many
+pages (`:103795`), and the cache cap only raises it (`:103806`). The
+median's sort holds every row before its offset, so it grows with the
+window. The scratch was removed after.
+
 **The alternatives weighed.** (1) #744's kept read alone: the idle
 refresh is already free, but the first read and its memory still grow
 with the journal (81 MB, 0.48 s on 734,484 events). (2) A cache file
@@ -266,8 +293,8 @@ model the writer keeps in the journal's own file and transaction.
    | `refusal_seq`, `refusal_words` | a quarantined row's `?` and its detail (`fleet.rs:31` to `37`) | the `FoldError` and its seq (`fold.rs:169` to `205`), only when the fold refuses; the words cut to at most 512 bytes |
    | `folded_seq`, `folded_hash` | the seq column; ruling 5's check; the `behind` test (ruling 6) | the seq and hash of the last event the writer judged, whether its fold stood or refused: `RunState.seq`, `RunState.last_hash` (`fold.rs:139` to `140`) after a fold, the run's last sealed event after a refusal; null until a writer has judged the run |
    | `head_seq`, `head_hash`, `last_recorded_at` | the age as text | the last event's seq, hash and `recorded_at` (`crates/brokkr-cli/src/fleet.rs:55`), kept by ruling 3's trigger |
-   | `last_at_ms`, `order_at` | the order, the section and staleness (`fleet.rs:272` to `287`, `440` to `447`), which today parse `last_recorded_at`, or `created_at` while the run has no event, at every read | `last_at_ms` is that stamp's milliseconds by the one parse (`js::parse_millis`, `crates/brokkr-view/src/js.rs:179`), written by the writer with the folded columns, null when the stamp does not parse; `order_at` is generated, `COALESCE(last_at_ms, 9223372036854775807)` (ruling 6) |
-   | `acknowledged` | whether a quarantined run's acknowledgement stands at its head (`need`, `fleet.rs:418` to `424`) | an acknowledgement made at the row's head (`acknowledgement.rs:51` to `58`); ruling 3's triggers keep it |
+   | `last_at_ms`, `order_at` | the order, the section and staleness (`fleet.rs:272` to `287`, `440` to `447`), which today parse `last_recorded_at`, or `created_at` while the run has no event, at every read | `last_at_ms` is that stamp's milliseconds by the one parse (`js::parse_millis`, `crates/brokkr-view/src/js.rs:179`), and while the run has no event, `created_at`'s, as `section_of` falls back to it (`fleet.rs:282`); written by the writer with the folded columns, null when the stamp does not parse; `order_at` is generated, `COALESCE(last_at_ms, 9223372036854775807)` (ruling 6) |
+   | `acknowledged`, `ack_operator`, `ack_reason`, `ack_at` | whether a quarantined run's acknowledgement stands at its head (`need`, `fleet.rs:418` to `424`), and its line's who, why and when (`Acknowledgement::line`, `fleet.rs:123` to `128`) | an acknowledgement made at the row's head (`acknowledgement.rs:51` to `58`); ruling 3's triggers keep it, its operator, reason and time copied cut |
    | `lane` | nothing: the index key ruling 6 reads a range by | generated from the columns above (ruling 6) |
    | `feature`, `residuals`, and the whole value of every cut column, last in the row | `--json`'s and `brokkr runs`' lossless values, and nothing on a page | the `runs` row; the residual findings as `residual_findings` derives them; the fold's values before their cut |
 
@@ -281,18 +308,23 @@ model the writer keeps in the journal's own file and transaction.
    | `phase`, `rule_id`, `rule_from`, `hire_seat` | 64 bytes each, cut at a character boundary. Each is the recipe's or the table's own name, which the run's data states and no contract bounds | the whole value, last in the row |
    | `park_reason` | 256 bytes. `ParkReason::Stated` is free text (`crates/brokkr-core/src/fold/run.rs:66` to `70`) | the same |
    | `refusal_words` | 512 bytes | the same |
+   | `ack_operator`, `ack_reason`, `ack_at` | 64, 256 and 40 characters, cut by the trigger as SQLite's `substr` counts characters in text: at most 256, 1,024 and 160 bytes | the whole acknowledgement, in its own table |
    | `feature_line` | 1,024 bytes | the whole feature |
    | `created_at`, `last_recorded_at` | 40 bytes. A stamp the engine writes is about 30; `import` keeps a stamp as the export carries it | the whole stamp. No order, section or bound reads the text: they read `last_at_ms`, which the writer parsed from the whole stamp |
    | integers and hashes | fixed: eight bytes an integer, and `folded_hash`, 64 hex | none |
 
    The acknowledgement's `operator` and `reason`
    (`crates/brokkr-store/src/acknowledgement.rs:26` to `32`, `TEXT NOT
-   NULL`, unbounded) are read by key for an acknowledged row on the page,
-   cut in that select to 64 and 256 bytes; the whole pair stays in its
-   table, which `brokkr runs` and the run view read. So a refused row's
-   selected bytes are at most about 2.3 KiB, a folded row's about 1.9 KiB
+   NULL`, unbounded) are bounded as stored: ruling 3's trigger copies them
+   onto the row cut, and the page reads the copy, never the
+   acknowledgement's table. A cut in the page's select would bound
+   nothing, since `substr` reads the whole value inside SQLite first
+   (2,114,384 B for 1 MiB fields, against 8,736 B for the stored cut;
+   Context, SQLite's own memory). The whole pair stays in its table, which
+   `brokkr runs` and the run view read. So a refused row's
+   selected bytes are at most about 3.3 KiB, a folded row's about 1.9 KiB
    (the two exclude each other: a refusal has no fold), and a page and the
-   one ahead, 100 rows, at most about 230 KiB of row text whatever a run
+   one ahead, 100 rows, at most about 330 KiB of row text whatever a run
    holds. The whole values are the row's last columns and no page selects
    them, so SQLite reads none of them, nor their overflow pages: one
    parked run with a 1 MiB feature and 10,000 findings added 981 B to its
@@ -305,8 +337,9 @@ model the writer keeps in the journal's own file and transaction.
    ellipsis a title takes (`fleet.rs:473`). So the console is unchanged
    while every value fits its bound, as every fixture journal's does: the
    longest `rule_id`, `phase`, `from`, `seat` or `next` field there,
-   key and quotes included, is 40 characters, and the longest `reason`
-   168 (`grep -rhoE` over `fixtures/journals`, `sort -u`, `wc -L`). Past
+   key and quotes included, is 41 characters
+   (`"rule_id":"REVIEW-REFORGE-EXHAUSTED-DEBT"`), and the longest `reason`
+   169 (`grep -rhoE` over `fixtures/journals`, `sort -u`, `wc -L`). Past
    its bound, the console shows a value's first bytes and an ellipsis
    where today it shows more. That is an output change, put to the
    operator (Asked 5).
@@ -339,11 +372,12 @@ model the writer keeps in the journal's own file and transaction.
    not know, and parses `residual_open` into `Severity` alike.
    `residuals` is the canonical JSON of a closed list, read into its type
    with `deny_unknown_fields` at the edge (decision 0071 ruling 3). The
-   acknowledgement itself, who and why, stays in its own table
-   (`crates/brokkr-store/src/acknowledgement.rs:26`), read by key for an
-   acknowledged row on the page: it is bookkeeping beside the chain and
-   lapses when the journal moves (`fleet.rs:108` to `111`). The row
-   carries only whether one stands at its head, which is what places it.
+   acknowledgement itself, who and why, stays whole in its own table
+   (`crates/brokkr-store/src/acknowledgement.rs:26`), read by key by
+   `brokkr runs`, `--json` and the run view: it is bookkeeping beside the
+   chain and lapses when the journal moves (`fleet.rs:108` to `111`). The
+   row carries whether one stands at its head, which is what places it,
+   and the cut copy its line prints.
    A store refusal (`DoesNotLoad`) is never a row's fact: a writer wrote a
    chain that loads, and a reader that meets one says so live (ruling 5).
 
@@ -356,13 +390,17 @@ model the writer keeps in the journal's own file and transaction.
      insert into `runs` adds the run's summary row with nothing folded,
      and a trigger after each insert into `events` moves its
      `head_seq`, `head_hash` and `last_recorded_at`, sets `acknowledged`
-     to 0, and adds its `event_index` row, reading the type, attempt,
+     to 0 and clears the acknowledgement's copy, and adds its
+     `event_index` row, reading the type, attempt,
      member and time from the envelope by `json_extract`, as the store
      already reads a manifest's engine in SQL (`ENGINE_OF_RUN`,
      `lib.rs:280`). A trigger after each insert into
      `quarantine_acknowledgements` sets `acknowledged` to 1 on the run's
      row when the acknowledgement's head is the row's head, the same test
-     its standing query makes (`acknowledgement.rs:51` to `58`). So an
+     its standing query makes (`acknowledgement.rs:51` to `58`), and
+     copies its operator, reason and time onto the row cut to ruling 2's
+     bounds. That `substr` reads each whole value once, in the
+     acknowledging writer's transaction, never in a reader's. So an
      acknowledgement stands on the row exactly while it stands in its
      table, and lapses with the next append, as today. A trigger is part
      of the journal file, so every writer keeps these, an older binary's
@@ -376,8 +414,8 @@ model the writer keeps in the journal's own file and transaction.
      over the sealed events
      with `fold_onto`, and writes the run's folded columns and its seat
      rows from brokkr-core's pure projections of the result. Those
-     include `last_at_ms`, parsed from the head event's whole stamp by the
-     one parse, which slice 1 moves from `brokkr-view` (`js.rs:179`) into
+     include `last_at_ms`, parsed from the head event's whole stamp, or
+     `created_at` while the run has none, by the one parse, which slice 1 moves from `brokkr-view` (`js.rs:179`) into
      `brokkr-core` so the writer and `brokkr-view` call one function, and
      `folded_seq` and `folded_hash`, the head it judged. A run whose fold
      refuses (the backfill and the catch-up below can meet one) gets its
@@ -429,6 +467,26 @@ model the writer keeps in the journal's own file and transaction.
    recompute it, and what the chain refuses is corruption, which the
    doctor's sweep and every opened run still find. The full check moves to
    where a run is opened and to `brokkr doctor`; it does not leave.
+
+   **Every readout of one run opens it.** The run view (the console's run
+   level and detail pane, `inspect`, `seats`, `watch`, `/api/view/<run>`),
+   the seat view, `costs`, `compare` and `export` each read that run's
+   whole chain, verified, before anything else they read of it. That read
+   is bounded by the run, never by the journal, and refuses a corrupt run
+   exactly as today: each calls `Store::load` now (`inspect` and `seats`
+   through `run_view_of`, `crates/brokkr-cli/src/verbs/readouts.rs:101`;
+   the console through the fleet's read, `crates/brokkr-cli/src/fleet.rs:105`;
+   `compare.rs:25`; `ui.rs:123`; `run_view.rs:231`; `lib.rs:1438`; `export`
+   at `crates/brokkr-store/src/lib.rs:644`), which verifies the chain
+   (`lib.rs:626` to `640`), and each keeps that refusal and its error. So
+   the weakening above is the fleet's and the aggregates' alone: an
+   aggregate counts a run by its rows, where today's whole read counts a
+   corrupt run as unreadable. The binding is
+   `a_corrupt_run_is_refused_wherever_it_is_opened`, in `brokkr-cli`: a
+   fixture journal with one event below the head edited, refused by each
+   of those readouts with the `StoreError` variant it returns today. Its
+   removal control is a run view that reads the trail without the
+   opening, which then shows the run.
 
 6. **The fleet reads a page by keyset, and every page costs the same.**
    The summary is indexed `(lane, order_at DESC, run_id DESC)`. Both
@@ -544,26 +602,42 @@ model the writer keeps in the journal's own file and transaction.
      the end), which moves `VIEW_VERSION` from 23 to 24
      (`brokkr-view/src/lib.rs:128`). `/api/runs` takes the same two.
 
-7. **Every readout reads a projection, and states its page and its
-   bound.** Every page costs milliseconds and kilobytes of live heap,
-   whatever the journal's size; a readout that needs a run's whole history
-   says so, and is bounded by the run.
+7. **Every readout states what it reads, its page and its bound.** Every
+   page costs milliseconds and kilobytes of live heap, whatever the
+   journal's size; a readout that needs a run's whole history says so, and
+   is bounded by the run. Every readout but `graph` reads a projection.
 
    | Readout | Reads | Keys | Page | Bound |
    |---|---|---|---|---|
-   | The fleet: runs level, `brokkr runs`, `/api/runs`, the many-hearth fleet, Muninn's queue | `run_summary`; the acknowledgement by key | ruling 6's index; `head_of` per row | the visible rows and one page ahead, per hearth | ruling 9's numbers |
-   | The run view: run level and detail pane, `inspect`, `seats`, `watch`, `/api/view/<run>` | the run's summary row, its trail through `event_index`'s partial index and the events by key, its seat rows | `(run_id, seq)` | the trail whole; journal rows a page at a time by seq | the run's control events, about 5% of its events: 25 of 525 read in 0.11 ms, measured |
-   | Opening a run | the run's chain, verified streaming, one envelope held at a time | `(run_id, seq)` | none: a whole read | the run: at #744's rate, about 2.5 µs an event to hash, so about 18 ms for the 7,510-event run the benches size by (`crates/brokkr-cli/benches/budgets_lib.rs:23`) |
-   | The seat view: participant level, `brokkr transcript`, `/api/presentation`, `/api/transcript` | the seat row; its checkpoints through `event_index`'s stream index | `(run_id, attempt_id, member, seq)` | 50 checkpoints, newest first | a page of checkpoints; the transcript file keeps its own caps and heap budgets (`quality/heap-bytes.json`) |
-   | `brokkr costs`, `brokkr compare` | the seat rows of one or two runs; compare's trails | `(run_id, ...)` | the run's seats | the run's attempts |
-   | `brokkr analytics`, `brokkr graph`, Muninn's dossier | `run_summary`'s aggregate columns, `seat_summary`, and `event_index`'s dated rows, streamed, one row held at a time (below) | `run_summary (finished_ms)`; `seat_summary (started_ms)`; `event_index`'s checkpoint and park indexes | an aggregate, not a page | heap: at most 64 groups a figure, 256 KiB; time: the runs open or finished inside the window, their seats, and the dated facts inside it, never anything before it (ruling 9's exception) |
+   | The fleet: runs level, `brokkr runs`, `/api/runs`, the many-hearth fleet, Muninn's queue | `run_summary`, the acknowledgement's cut copy included | ruling 6's index; `head_of` per row | the visible rows and one page ahead, per hearth | ruling 9's numbers |
+   | Opening a run, first, by every readout of one run: the run view, `inspect`, `seats`, `watch`, `/api/view/<run>`, the seat view, `costs`, `compare` (ruling 5) | the run's chain, verified streaming, one envelope held at a time; a corrupt run refused as `Store::load` refuses it today | `(run_id, seq)` | none: a whole read | the run: at #744's rate, about 2.5 µs an event to hash, so about 18 ms for the 7,510-event run the benches size by (`crates/brokkr-cli/benches/budgets_lib.rs:23`) |
+   | The run view: run level and detail pane, `inspect`, `seats`, `watch`, `/api/view/<run>` | after its opening, the run's summary row, its trail through `event_index`'s partial index and the events by key, its seat rows | `(run_id, seq)` | the trail whole; journal rows a page at a time by seq | its opening, then the run's control events, about 5% of its events: 25 of 525 read in 0.11 ms, measured |
+   | The seat view: participant level, `brokkr transcript`, `/api/presentation`, `/api/transcript` | after its opening, the seat row; its checkpoints through `event_index`'s stream index | `(run_id, attempt_id, member, seq)` | 50 checkpoints, newest first | its opening, then a page of checkpoints; the transcript file keeps its own caps and heap budgets (`quality/heap-bytes.json`) |
+   | `brokkr costs`, `brokkr compare` | after their opening, the seat rows of one or two runs; compare's trails | `(run_id, ...)` | the run's seats | their opening, then the run's attempts |
+   | `brokkr analytics`, Muninn's dossier | `run_summary`'s aggregate columns, `seat_summary`, and `event_index`'s dated rows, streamed, one row held at a time (below) | `run_summary (finished_ms)`; `seat_summary (started_ms)`; `event_index`'s checkpoint index and park index | an aggregate, not a page | Brokkr's heap: at most 64 groups a figure, each key at its bound, and the medians' counts, 256 KiB; SQLite's: the page cache and `GROUP BY`'s sorter (ruling 9); time: the runs open or finished inside the window, their seats and the dated facts inside it, and the runs finished in the equal window before it, counted (ruling 9's exception) |
+   | `brokkr graph` | as today: every run of every hearth whole (`read_hearths`) | none | none | the journal, until a decision of its own (below) |
    | `export`, `anchor`, `import`, `replay`, `ledger`, `resume`, the engine's first turn | the run whole, chain verified | `(run_id, seq)` | none | the run |
    | `brokkr doctor`'s sweep | every run whole, one at a time | `(run_id, seq)` | none | the largest run in memory; the journal in time |
 
-   So three projections serve seven readouts: the fleet, Muninn's queue
-   and the aggregates share `run_summary`; the run view, the seat view,
-   costs, compare and the aggregates share `seat_summary`; the run view,
-   the seat view and the aggregates share `event_index`.
+   So three projections serve every readout but `graph`: the fleet,
+   Muninn's queue and the aggregates share `run_summary`; the run view,
+   the seat view, costs, compare and the aggregates share `seat_summary`;
+   the run view, the seat view and the aggregates share `event_index`.
+
+   **`graph` is a follow-up.** It reads what no projection here keeps:
+   each run's stays in its states (`stays`,
+   `crates/brokkr-view/src/graph/facts.rs:55` to `78`); its rulings, with
+   rule, phase, next state, result and severity (`rulings`, `:82` to
+   `99`); its manifest's pins, which drift compares for every run in the
+   window (`:143`; `drift`, `crates/brokkr-view/src/graph/figures.rs:251`
+   to `274`); and each spend's phase (`figures.rs:389` to `394`). A state's
+   entered count, median, p90, tokens and cost are derived from those
+   (`state`, `:376` to `413`). Its output is not bounded by count either:
+   it lists every open run of the recipe (`live`, `:499` to `505`) and,
+   when the table is not found, every state and rule its runs named
+   (`:50` to `69`, `:165` to `178`). Until a decision of its own rules
+   graph's projection, its indexes and its output's bound, `graph` reads
+   as today, and nothing here claims a budget for it.
 
    **What the aggregates read, and where it is kept.** Today's figures
    filter every fact by its own time, so a run's totals cannot answer
@@ -579,40 +653,95 @@ model the writer keeps in the journal's own file and transaction.
 
    | Fact | Read today | Kept as |
    |---|---|---|
-   | a run's realm, recipe, start, end, ending and its rule, implement visits | `facts` (`crates/brokkr-view/src/analytics/facts.rs:190`) | `run_summary`'s aggregate columns, whole, which no page selects: `realm`, `recipe`, `started_ms`, `finished_ms`, `ending`, `ending_rule`, `implement_visits`; indexed `(finished_ms)` |
+   | a run's realm, recipe, start, end, ending and its rule, implement visits | `facts` (`crates/brokkr-view/src/analytics/facts.rs:190`) | `run_summary`'s aggregate columns, which no page selects: `realm`, `recipe`, `started_ms`, `finished_ms`, `ending`, `ending_rule`, `implement_visits`, the three names cut as group keys (below); indexed `(finished_ms)` |
    | a run's review routes | `reviews` (`facts.rs:168`); `rework` reads the first, the second and whether any went back (`figures.rs:236` to `272`) | `review_first`, `review_second`, `review_back` on the same row |
-   | a park: its phase, start, answer and end | `parks` (`facts.rs:127`) | its `run/parked` row in `event_index`, with `phase`, `answered_ms` and `ended_ms` written when the operator next commands and when the run next moves, null while open and read as `now`; a partial index on `COALESCE(ended_ms, 9223372036854775807)` over parks, so a window reads the parks that end after it begins, which are those that overlap it |
+   | a park: its phase, start, answer and end | `parks` (`facts.rs:127`) | its `run/parked` row in `event_index`, with `phase`, `answered_ms` and `ended_ms` written when the operator next commands and when the run next moves, null while open and read as `now`, and `span_class`, written with `ended_ms`: the bit length of `ended_ms - at_ms` (0 to 63), or 64 while the park is open; a partial index `(span_class, at_ms)` over parks (below) |
    | a metered checkpoint: its time, cost, tokens, and whether it reported a cost or closed a session | `attempts` (`attempts.rs:112` to `140`) | its `effect/checkpointed` row in `event_index`, with `at_ms`, `usd`, `reported`, the token counts and `session`; a partial index `(at_ms)` over checkpoints |
-   | a seat's start, phase, provider and model | `Site` (`attempts.rs:28` to `36`) | `seat_summary`'s `started_ms`, `phase`, `provider`, `model`; indexed `(started_ms)` |
+   | a seat's start, phase, provider and model | `Site` (`attempts.rs:28` to `36`) | `seat_summary`'s `started_ms`, `phase`, `provider`, `model`, the three names cut as group keys (below); indexed `(started_ms)` |
 
-   So a window reads one range per index: the runs that ended in it and
-   the runs still open (the `running`, `parked` and `behind` lanes), the
-   seats that started in it, the checkpoints in it and the parks that
-   overlap it. A checkpoint is an event, so a window's time grows with
-   the checkpoints inside it: the aggregates read the window's events
-   and never an event before it. Two figures need more than a stream.
-   The median sorts every duration in the window (`median`,
-   `figures.rs:59` to `65`); it is read by SQLite, `ORDER BY` the
-   duration with `LIMIT 2 OFFSET` the middle, over the window's runs, in
-   SQLite's sorter under the reader's cache cap, and Brokkr holds the
-   middle two values. And a grouped figure holds one entry per distinct
-   group (`models`, `figures.rs:275` to `294`; `waiting_by_step`, `:210`;
-   `stopped_by_rule`, `:93`; the realm and recipe rows,
-   `crates/brokkr-view/src/analytics/recipes.rs:15`), and its groups are
-   open sets: a model is any name of 1 to 80 characters a harness reports
-   (`contracts/seat-record.v5.schema.json:19` to `32`), and a phase,
-   recipe, realm or rule is whatever the run's data named. So each
-   grouped figure holds at most **64 groups**: it counts its groups in
-   SQLite, `GROUP BY` over the window's range in the same capped sorter,
-   keeps the 64 its order ranks first, and prints the rest as one row,
-   "N more". That row is an output change, and only past 64 distinct
-   groups in one window: the fixture journals hold 4 distinct `model`
-   fields and 6 distinct `phase` fields (`grep -rhoE` over
-   `fixtures/journals`, `sort -u`, `wc -l`). The median and the group
-   counts are the second figures SQLite derives beside the lane, a bend
-   of decision 0071 ruling 7 for the same reason (a whole read is the
-   only other way), and ruling 9's `every_figure_is_its_whole_read`
-   holds them to `brokkr-view`'s derivation.
+   So a window `[from, to)` reads one range per index: the runs that
+   ended in it and the runs still open (the `running`, `parked` and
+   `behind` lanes), the seats that started in it, the checkpoints in it
+   and the parks that overlap it. A checkpoint is an event, so a window's
+   time grows with the checkpoints inside it. Two reads reach before the
+   window, and each is bounded:
+
+   - **The preceding window.** The headline's `previous` and `change`
+     count the runs shipped in the equal window before it,
+     `[from - span, from)` (`figures.rs:328` to `336`). That is one count
+     over the same `(finished_ms)` index, holding one integer, and its
+     time grows with the runs finished in that window alone.
+   - **The parks that overlap it.** A park overlaps the window when it
+     started before `to` and ended after `from` (`Window::overlap`,
+     `facts.rs:31` to `33`), an open one ending at `now`. One range on
+     either time alone visits every park on the far side of the other.
+     So the window reads one range per `span_class`: for each class `c`
+     below 64, `span_class = c AND at_ms >= from - 2^c AND at_ms < to`,
+     checking `ended_ms > from` on each row it visits, and for the open
+     parks, `span_class = 64 AND at_ms < to`. A park of class `c` lasts
+     less than `2^c`, so one that overlaps the window started within
+     `2^c` before it, and its class's range holds it. A park that starts
+     after the window is in no range. One that ended before the window is
+     visited only while it started within `2^c` of `from`, at most two a
+     run in each class, since a run's parks never overlap and each lasts
+     at least `2^(c-1)`. An open park is at most one a parked run.
+
+   Two figures need more than a stream.
+
+   - **The median is selected in Brokkr, never sorted.** It is the
+     headline's and each realm row's (`median`, `figures.rs:59` to `65`;
+     `realm_row`, `:309`). SQLite's `ORDER BY ... LIMIT 2 OFFSET` the
+     middle holds every row before its offset, 176,032 B at 20,000 runs
+     and 1,440,072 B at 200,000 (Context). A first pass over the window's
+     finished runs reads their count and their least and greatest
+     duration. Each later pass counts the durations inside the interval
+     that holds each middle rank into 64 buckets and narrows to the
+     bucket that holds it, until each middle rank is one value: at most
+     eleven passes after the first for any span a 64-bit duration takes.
+     A median holds two histograms of 64 counts, 1 KiB, and every realm's
+     median is selected in the same passes, at most 64 realms, 64 KiB.
+     `middle` (`figures.rs:42`) then takes the two values as today. The
+     passes are a pure function in `brokkr-view` handed each pass's
+     stream, a closure seam (decision 0071 ruling 2).
+   - **A grouped figure holds at most 64 groups, each by a bounded
+     key.** A grouped figure holds one entry per distinct group
+     (`models`, `figures.rs:275` to `294`; `waiting_by_step`, `:210`;
+     `stopped_by_rule`, `:93`; the providers of `cost_figure`, `:161` to
+     `164`; the realm and recipe rows,
+     `crates/brokkr-view/src/analytics/recipes.rs:15`), and its groups
+     are open sets whose names no contract bounds as read: a model is
+     whatever a record's `model` field says (`attempts.rs:125` to `127`),
+     and a phase, rule, realm, recipe or provider whatever the run's data
+     named (ruling 2). Today `waiting_by_step` copies a whole phase into
+     its row (`figures.rs:223` to `226`), so one 1 MiB phase would pass
+     the heap budget with one group. So every key is stored cut where it
+     is written, never cut in a query, which reads the whole value first
+     (Context): a model to 80 bytes, the seat record's `maxLength` for
+     it (`contracts/seat-record.v5.schema.json:28` to `32`), and a park's
+     phase, a seat's phase and provider, and a run's realm, recipe and
+     ending rule to 64 bytes at a character boundary, as ruling 2's names
+     are. Two names that agree to their bound are one group, printed cut
+     as ruling 2 prints a cut value. Each figure counts its groups in
+     SQLite, `GROUP BY` the stored key over the window's range, keeps the
+     64 its order ranks first, and prints the rest as one row, "N more".
+     A figure that counts runs per group (`waiting_by_step`'s `runs`)
+     groups by the key and then the run, and counts a change of run in
+     that order, never by a `DISTINCT` table. Both the "N more" row and a
+     cut key are output changes, only past 64 distinct groups in one
+     window or past a key's bound. The fixture journals hold 2 distinct
+     models, `opus` and `sonnet`, and 6 distinct phases (`grep -rhoE`
+     over `fixtures/journals`, `sort -u`), and their longest name field
+     is 41 characters (ruling 2).
+
+   The group counts are the second figure SQLite derives beside the lane,
+   a bend of decision 0071 ruling 7 for the same reason (a whole read is
+   the only other way). Ruling 9's `every_figure_is_its_whole_read` holds
+   them to `brokkr-view`'s derivation. `GROUP BY` runs in SQLite's sorter,
+   whose memory grows to 250 pages, about a megabyte, before it spills,
+   however few its groups (Context). Ruling 9 budgets it as SQLite's
+   share. Past that it spills to a temporary file SQLite opens and deletes, outside
+   the journal, so the reader still writes nothing to the journal
+   (decision 0014).
 
 8. **Migration and fallback; no contract moves.**
 
@@ -658,33 +787,44 @@ model the writer keeps in the journal's own file and transaction.
      (`.github/workflows/ci.yml:551`). The gate on time is the Callgrind
      form (`ci.yml:715` to `723`): a `fleet_page` bench beside the fold's
      in `budgets_lib.rs`, at both sizes, against the base.
-   - **Live heap.** At most 256 KiB of Brokkr's heap to read, derive and
-     paint one page and the one ahead: the read alone measured 92,112 B
-     at both sizes, and 42,235 to 42,490 B under the ruled key. The
-     binding is a dhat test of its own,
-     `crates/brokkr-cli/tests/heap_fleet.rs`, in the form of
-     `heap_claude.rs` (dhat allows one profiler per process), with its
-     budget in `quality/heap-bytes.json` at the measured peak plus a
-     tenth, never above 256 KiB, and an assertion that the peaks at
-     10,000 and 1,000,000 events are equal to the byte. Its journals carry
-     the rows that stretch a page, each value 1 MiB: a parked run's
-     feature, park reason, phase, rule id, ruling phase and seat; a
-     refused run's refusal words and its acknowledgement's operator and
-     reason; and 10,000 residual findings on a third. The test asserts
-     the page's peak equal to the byte to the same page with each of
-     those values cut to exactly its bound (ruling 2's table) and one
-     finding, so the row's bound is what holds the budget. Its removal
-     control is a page that selects the whole `park_reason`, whose peak
-     grows by the megabyte.
+   - **Live heap, Brokkr's and SQLite's.** A page's live heap is the sum
+     of two shares, each read by its own counter, since dhat sees Rust's
+     global allocator alone (Context). Brokkr's is at most 256 KiB to
+     read, derive and paint one page and the one ahead: the read alone
+     measured 92,112 B at both sizes, and 42,235 to 42,490 B under the
+     ruled key. SQLite's is its own high-water,
+     `sqlite3_status64(SQLITE_STATUS_MEMORY_USED)` through `rusqlite::ffi`,
+     from the reader's open to the painted page, at most 400 KiB: the
+     256 KiB page cache and the connection's statements, 363,288 B
+     measured under the ruled key (342,488 B under the earlier one). So a
+     page costs at most 656 KiB of live heap. The binding is a dhat test
+     of its own, `crates/brokkr-cli/tests/heap_fleet.rs`, in the form of
+     `heap_claude.rs` (dhat allows one profiler per process), which reads
+     SQLite's high-water beside dhat's peak. Both budgets sit in
+     `quality/heap-bytes.json` at the measured peak plus a tenth, never
+     above 256 and 400 KiB. The test asserts Brokkr's peaks at 10,000 and
+     1,000,000 events equal to the byte, and SQLite's within its budget at
+     both. Its journals carry the rows that stretch a page, each value
+     1 MiB: a parked run's feature, park reason, phase, rule id, ruling
+     phase and seat; a refused run's refusal words and its
+     acknowledgement's operator and reason; and 10,000 residual findings
+     on a third. The test asserts Brokkr's peak equal to the byte to the
+     same page with each of those values cut to exactly its bound (ruling
+     2's table) and one finding, so the row's bound is what holds the
+     budget. It holds SQLite's within its budget in both, not to the byte,
+     since a wide row's overflow changes how many leaf pages the page's
+     rows span. Its removal controls are a page that selects the whole
+     `park_reason`, whose Brokkr peak grows by the megabyte, and a page
+     that cuts the acknowledgement by `substr` from its own table, whose
+     SQLite high-water grows by about two megabytes (2,114,384 B measured,
+     Context).
    - **A page at every bound.** The 256 KiB is a page of ordinary rows.
-     A page whose every row fills every bound holds about 230 KiB of row
+     A page whose every row fills every bound holds about 330 KiB of row
      text before it is derived and painted (ruling 2), so it has a budget
      of its own: `heap_fleet.rs` reads a page of 100 such rows and holds
-     it at the measured peak plus a tenth, never above 640 KiB, the
-     1980s PC's whole memory. That number is proposed, not measured.
-   - **SQLite's share.** A fleet reader caps its page cache at 256 KiB,
-     so SQLite's memory stays within about 370 KB (363,288 B measured
-     under the ruled key; 342,488 B under the earlier one).
+     Brokkr's peak at the measured peak plus a tenth, never above
+     640 KiB, and SQLite's within its 400 KiB, since no selected value
+     passes 1,024 bytes. Those numbers are proposed, not measured.
    - **RSS.** Within 1 MiB of the floor, `brokkr runs` on an empty journal:
      at most 7.5 MB max RSS on the generated journal.
    - **Independence.** Each range's plan is pinned to the exact text
@@ -740,15 +880,19 @@ model the writer keeps in the journal's own file and transaction.
 
    **The other readouts' budgets**, each bound in its slice (ruling 11) in
    the same forms, a dhat test with its budget in
-   `quality/heap-bytes.json`, a pinned plan and a Callgrind bench:
+   `quality/heap-bytes.json`, a pinned plan and a Callgrind bench. Each
+   live heap below is Brokkr's share. SQLite's share beside it is the
+   reader's 256 KiB page cache and its statements, within the fleet's
+   400 KiB, save the aggregates' sorter, and each heap test reads it as
+   `heap_fleet.rs` does:
 
    | Readout | Time | Live heap | Bound by | Binding |
    |---|---|---|---|---|
-   | The run view, its first screen | 50 ms | 256 KiB and about 1 KiB per control event of the run (24,885 B for 25, measured) | the run's control events | `heap_run_view.rs`: the same run in a 10,000- and a 1,000,000-event journal, peaks equal to the byte; the trail's plan on the partial index |
-   | The seat view, a page of 50 checkpoints | 50 ms | 256 KiB and the largest checkpoint body on the page, each parsed into its row and dropped | the page's checkpoints | `heap_seat_view.rs`, the same two journals, peaks equal; the stream index's plan |
-   | `costs`, `compare` | 50 ms | 256 KiB for two runs of 100 seat rows each, about 200 B a row estimated | the runs' seats | `heap_costs.rs`, the same two journals, peaks equal |
+   | The run view, its first screen | 50 ms, its opening included | 256 KiB and about 1 KiB per control event of the run (24,885 B for 25, measured), after an opening that holds one envelope at a time | its opening's events, then the run's control events | `heap_run_view.rs`: the same run in a 10,000- and a 1,000,000-event journal, peaks equal to the byte; the trail's plan on the partial index |
+   | The seat view, a page of 50 checkpoints | 50 ms, its opening included | 256 KiB and the largest checkpoint body on the page, each parsed into its row and dropped, after its opening | its opening's events, then the page's checkpoints | `heap_seat_view.rs`, the same two journals, peaks equal; the stream index's plan |
+   | `costs`, `compare` | 50 ms, their openings included | 256 KiB for two runs of 100 seat rows each, about 200 B a row estimated, after their openings | their openings' events, then the runs' seats | `heap_costs.rs`, the same two journals, peaks equal |
    | Opening a run, chain verified | about 2.5 µs an event | one envelope at a time, at most 256 KiB and the largest envelope | the run's events | `heap_open.rs`: a 7,510-event run, peaks equal in both journals |
-   | The aggregates: `analytics`, `graph`, Muninn's dossier | 250 ms for a window of 20,000 runs, 240,000 seat rows and 240,000 checkpoints: the streamed scans measured 4.7 and 57 ms for the first two; the checkpoints and parks are unmeasured, and slice 4 measures them before the number is final | 256 KiB: the accumulators of at most 64 groups a figure and the median's middle two (732 B and 2,769 B measured for the scans at both sizes) | the window's runs, seats and dated facts, never anything before the window | `heap_aggregates.rs` at 2,000 and 20,000 runs, peaks equal to the byte, over a distribution of 2,000 and of 9,000 distinct models, phases and realms in the window, peaks equal to the byte (each past 64 and the same number of digits in its "N more"); a `fleet_aggregate` Callgrind bench over two journals whose windows hold the same facts and one of which adds a year of older runs, instruction counts equal; and `every_figure_is_its_whole_read` |
+   | The aggregates: `analytics`, Muninn's dossier | 250 ms for a window of 20,000 runs, 240,000 seat rows and 240,000 checkpoints: the streamed scans measured 4.7 and 57 ms for the first two; the checkpoints, the parks' 65 ranges and the medians' passes are unmeasured, and slice 4 measures them before the number is final | Brokkr's 256 KiB: the accumulators of at most 64 groups a figure, each key at its bound, and the medians' histograms, 64 KiB at most (732 B and 2,769 B measured for the scans at both sizes). SQLite's about 1.5 MiB: the 256 KiB page cache and `GROUP BY`'s sorter, 1,050,320 to 1,273,184 B measured (Context); proposed, and slice 4 fixes it on its own measurement | the window's runs, seats and dated facts, the parks within their class's reach of it, and the preceding window's finished runs, counted | `heap_aggregates.rs` at 2,000 and 20,000 runs, Brokkr's peaks equal to the byte and SQLite's within its share, over a distribution of 2,000 and of 9,000 distinct models, phases and realms in the window (each past 64 and the same number of digits in its "N more"), and over one whose every group key is 1 MiB beside one whose keys are cut to their bounds, Brokkr's peaks equal to the byte, its removal control a figure grouped by the whole phase, whose peak grows by the megabyte; `a_window_visits_only_the_parks_near_it`, in `brokkr-store`: one window held fixed while a year of later parks, and a year of older ones each shorter than half its distance from the window, are added, its park ranges' VM-step counts equal to the step, its removal control the one range on `COALESCE(ended_ms, 9223372036854775807) >= from`, whose count grows with the later parks; a `fleet_aggregate` Callgrind bench over two journals whose windows hold the same facts and one of which adds a year of runs older than the preceding window, instruction counts equal; and `every_figure_is_its_whole_read` |
 
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what
@@ -757,18 +901,23 @@ model the writer keeps in the journal's own file and transaction.
    window holds: the runs open or finished in it, their seats, and the
    checkpoints and parks inside it, as ruling 7 lists them, each read by
    one range of an index (analytics' day, week or month, `Range`,
-   `crates/brokkr-view/src/analytics.rs:39`). It never reads an event
-   before the window, so its time does not grow with the journal's age.
-   Its heap does not grow with the window: rows are streamed and
-   dropped, a grouped figure holds at most 64 groups, and the median
-   holds two values. The binding of its output is
+   `crates/brokkr-view/src/analytics.rs:39`). Before the window it reads
+   only the preceding window's finished runs, counted, and the parks
+   within their class's reach of its start (ruling 7), so its time does
+   not grow with the journal's age. Its heap does not grow with the
+   window: rows are streamed and dropped, a grouped figure holds at most
+   64 groups of bounded keys, a median holds two histograms of 64 counts,
+   and SQLite's sorter spills past its floor. The binding of its output is
    `every_figure_is_its_whole_read`, in `brokkr-cli`: over every fixture
    journal and the generated one, at each `Range`, every figure from the
-   projections equals today's `analytics` over the same runs read whole,
-   and past 64 groups the 64 kept and the "N more" row equal the first 64
-   of today's figure and the count of the rest. Its removal controls are
-   a spend filtered by its seat's start rather than its checkpoint's
-   time, and a median taken from the window's first half.
+   projections equals today's `analytics` over the same runs read whole.
+   Past 64 groups, the 64 kept and the "N more" row equal the first 64 of
+   today's figure and the count of the rest. Past a key's bound, the
+   figure equals today's over the same names cut to that bound. Its
+   removal controls are a spend filtered by its seat's start rather than
+   its checkpoint's time, a median taken from the window's first half,
+   and a `previous` counted over the window itself rather than the one
+   before it.
 
 10. **Checkpoint bodies stay where they are.** They are 95% of the
     operator's events (672 of 754 MiB) and 96.6% of the generated
@@ -798,13 +947,15 @@ model the writer keeps in the journal's own file and transaction.
       its index; the writer's fold through the append; the backfill;
       the `lane` and `order_at` key and the acknowledgement facet; ruling
       2's bounds, `create_run`'s run id check and the cut first line with
-      `a_cut_first_line_titles_as_its_feature`; the parse moved into
+      `a_cut_first_line_titles_as_its_feature`; the acknowledgement's cut
+      copy on the row; the parse moved into
       `brokkr-core`; the `behind` range read first and its catch-up at a
       writer's open; ruling 5's check; ruling 6's merged paging in the
       console, `brokkr runs`, `/api/runs` and Muninn's queue; ruling 4's
-      test and doctor check; ruling 9's fleet heap test with its wide rows
-      and its page at every bound, its plan and visited-row test, its
-      sections test, its lagging-row test and its bench. Acceptance: the
+      test and doctor check; ruling 9's fleet heap test with its wide rows,
+      its page at every bound and SQLite's share read beside dhat's, its
+      plan and visited-row test, its sections test, its lagging-row test
+      and its bench. Acceptance: the
       fleet's budgets hold on the generated journal; `brokkr runs --json`
       lists every fixture journal's runs with the same rows as today,
       ordered as ruled; an unmigrated journal reads through the kept
@@ -812,23 +963,31 @@ model the writer keeps in the journal's own file and transaction.
     - **Slice 2, the run and seat views.** `seat_summary` and
       `event_index`; the run view from the trail and the seat rows; the
       seat view's checkpoint pages; a run's chain verified streaming at
-      open. Acceptance: every run view and seat view equals today's on
-      every fixture journal, and ruling 9's run view, seat view and
-      opening budgets hold, bound by `heap_run_view.rs`,
-      `heap_seat_view.rs` and `heap_open.rs`.
+      its opening, which each view makes first (ruling 5). Acceptance:
+      every run view and seat view equals today's on every fixture
+      journal, `a_corrupt_run_is_refused_wherever_it_is_opened` holds for
+      them, and ruling 9's run view, seat view and opening budgets hold,
+      bound by `heap_run_view.rs`, `heap_seat_view.rs` and `heap_open.rs`.
     - **Slice 3, `inspect`, `seats`, `watch`, `transcript`, the console's
-      view routes, `costs` and `compare`** from the same projections.
-      Acceptance: their output equals today's on every fixture journal,
-      and ruling 9's `costs` budget holds, bound by `heap_costs.rs`.
+      view routes, `costs` and `compare`** from the same projections, each
+      after its opening. Acceptance: their output equals today's on every
+      fixture journal, each refuses a corrupt run as today by
+      `a_corrupt_run_is_refused_wherever_it_is_opened`, and ruling 9's
+      `costs` budget holds, bound by `heap_costs.rs`.
     - **Slice 4, the aggregates:** `run_summary`'s aggregate columns and
       `event_index`'s dated facts (ruling 7), with the readings of
-      `facts.rs` and `attempts.rs` moved into `brokkr-core`; `analytics`,
-      `graph` and Muninn's dossier from the rows, with the median and the
-      64-group bound read in SQLite; and the run selectors (decision 0015)
-      by a key range on `runs`. Acceptance: their output equals today's on
-      every fixture journal, `every_figure_is_its_whole_read` holds past
-      64 groups, and ruling 9's aggregate budget holds, bound by
-      `heap_aggregates.rs` and the `fleet_aggregate` bench.
+      `facts.rs` and `attempts.rs` moved into `brokkr-core`; `analytics`
+      and Muninn's dossier from the rows, with the group keys cut where
+      they are stored, the medians selected in passes, the 64-group bound
+      counted in SQLite, the parks read by span class and the preceding
+      window counted; and the run selectors (decision 0015) by a key range
+      on `runs`. `graph` is not in it (ruling 7). Acceptance: their output
+      equals today's on every fixture journal,
+      `every_figure_is_its_whole_read` holds past 64 groups and past a
+      key's bound, `a_window_visits_only_the_parks_near_it` holds, and
+      ruling 9's aggregate budgets hold, Brokkr's and SQLite's, bound by
+      `heap_aggregates.rs` and the `fleet_aggregate` bench, with SQLite's
+      share fixed on its measurement.
 
 ## Asked of the operator
 
@@ -846,9 +1005,12 @@ Each choice this decision makes, recommendation first:
    head and the event index for every writer, and `DATABASE_SCHEMA` stays
    1 (rulings 3 and 8). Or: the version moves to 2 and an older binary
    refuses the journal, for reading as well.
-4. **Integrity at fleet level.** The head check alone, with the full chain
-   check at a run's opening, at every verb that acts on a run, and in
-   `brokkr doctor` (ruling 5). Or: the console also verifies runs whole
+4. **Integrity at fleet level and in the aggregates.** The head check
+   alone, with the full chain
+   check at a run's opening, which every readout of one run makes first
+   (`inspect`, the run view, the seat view, `costs` and `compare`, each
+   refusing a corrupt run as today), at every verb that acts on a run,
+   and in `brokkr doctor` (ruling 5). Or: the console also verifies runs whole
    off its input loop, one an idle tick, marking each row with when it was
    last verified. Or: every body verified at the first fleet read, as
    0088 ruling 5 has it, which keeps the first read growing with the
@@ -858,7 +1020,8 @@ Each choice this decision makes, recommendation first:
    `import` holds it, and a row past it refused at the edge; names to 64
    bytes, the park reason to 256, the refusal's words to 512, the
    feature's first line to 1,024, stamps to 40, the acknowledgement's
-   operator and reason to 64 and 256 in the page's select; the residuals
+   operator and reason to 64 and 256 characters, copied cut onto the row
+   by its trigger; the residuals
    as their highest open severity and a count. The whole values are the
    row's last columns, read by key for `brokkr runs`, `--json` and the
    run view. A value past its bound shows cut, with an ellipsis, in the
@@ -893,29 +1056,38 @@ Each choice this decision makes, recommendation first:
 10. **The older runs' count.** Kept, counted by the index alone (ruling
     6). Or: "more older runs" with no number, which costs nothing.
 11. **The budgets.** 50 ms to the first fleet page, warm and measured;
-    256 KiB of live heap per page, held by dhat at two sizes with wide
-    rows on the page, and 640 KiB for a page whose every row fills every
-    bound, proposed and unmeasured; a 256 KiB page cache; RSS within
-    1 MiB of the floor; each range's plan pinned and its visited rows
+    live heap per page as Brokkr's share and SQLite's, 256 KiB held by
+    dhat and 400 KiB by SQLite's own high-water, at two sizes with wide
+    rows on the page, and 640 KiB of Brokkr's for a page whose every row
+    fills every bound, proposed and unmeasured; a 256 KiB page cache;
+    RSS within 1 MiB of the floor; each range's plan pinned and its visited rows
     bound; and the
     run view, seat view, `costs` and opening budgets of ruling 9's table,
     each bound in its slice. Or: other numbers.
-12. **The aggregates' exception.** `analytics`, `graph` and Muninn's
-    dossier read the dated facts ruling 7 names, so their output stays
-    today's; they hold 256 KiB whatever the fleet's size, with at most 64
-    groups a figure and the rest as one "N more" row, an output change
-    only past 64 distinct groups in a window; the median and those group
-    counts are read in SQLite, a bend of decision 0071 ruling 7 held by
-    `every_figure_is_its_whole_read`; and their time grows with what the
-    window holds, its checkpoints included, never with anything before it:
-    250 ms for a window of 20,000 runs, 240,000 seats and 240,000
-    checkpoints, proposed, its scans measured at 57 ms and its checkpoints
-    to be measured in slice 4 (rulings 7 and 9). Or: an explicit memory
-    exception in place of the 64-group bound, about one accumulator per
-    distinct group, which keeps every figure's output today's. Or: a kept
-    aggregate per hour, written at append, a fourth projection that bounds
-    their time by the window's hours, at the price of windows whose edges
-    fall on the hour, an output change.
+12. **The aggregates' exception.** `analytics` and Muninn's dossier read
+    the dated facts ruling 7 names, so their output stays today's. They
+    hold 256 KiB of Brokkr's heap whatever the fleet's size, with at most
+    64 groups a figure, each key cut where it is stored, and the rest as
+    one "N more" row: an output change only past 64 distinct groups in a
+    window or past a key's bound. The medians are selected in Brokkr by
+    counted passes. The group counts are read in SQLite, a bend of
+    decision 0071 ruling 7 held by `every_figure_is_its_whole_read`, and
+    SQLite's share is the page cache and `GROUP BY`'s sorter, about
+    1.5 MiB, proposed and fixed in slice 4. Their time grows with what
+    the window holds, its checkpoints included, and with the preceding
+    window's finished runs, counted, never with anything older: 250 ms
+    for a window of 20,000 runs, 240,000 seats and 240,000 checkpoints,
+    proposed, its scans measured at 57 ms and its checkpoints, parks and
+    passes to be measured in slice 4 (rulings 7 and 9). `graph` waits for
+    a decision of its own. Or: an explicit memory exception in place of
+    the 64-group bound, about one accumulator per distinct group, which
+    keeps every figure's output today's. Or: the sorter's floor lowered
+    by `SQLITE_CONFIG_PMASZ`, which measured 371,608 to 635,200 B at 8
+    pages but grew with the window's rows (Context). Or: a kept aggregate
+    per hour, written at append, a fourth projection that bounds their
+    time by the window's hours, at the price of windows whose edges fall
+    on the hour, an output change. Or: `graph`'s projection ruled here,
+    before slice 4.
 13. **Migration.** The first writer backfills a run per transaction, and a
     read-only reader falls back to the kept read until it has finished
     (ruling 8).
@@ -933,9 +1105,13 @@ Each choice this decision makes, recommendation first:
   the page that shows it, until a current writer catches it up; it is
   never placed by what it last folded to.
 - The aggregates are the one readout whose time grows with what it
-  counts: the runs, seats, checkpoints and parks inside its window, never
-  anything before it; their memory does not, and a figure past 64
-  distinct groups prints the rest as one row.
+  counts: the runs, seats, checkpoints and parks inside its window, and
+  the preceding window's finished runs, never anything older. Their
+  memory does not, beside the sorter's floor of about a megabyte in
+  SQLite, and a figure past 64 distinct groups prints the rest as one
+  row.
+- `brokkr graph` still reads every run whole, until a decision of its own
+  rules its projection.
 - A value past its column's bound shows cut in the console; `brokkr runs`
   and `--json` print it whole.
 - The journal file grows by a row per run, a row per participant and a
@@ -947,11 +1123,12 @@ Each choice this decision makes, recommendation first:
   presence, order, acknowledgement facet and index current through the
   triggers; its runs read whole until a current writer opens the journal.
 - A corrupt event below a run's head is no longer refused in the fleet. It
-  is refused when the run is opened, exported, resumed or swept by
+  is refused when the run is opened, by any readout of that run with
+  `inspect` among them, and when it is exported, resumed or swept by
   `brokkr doctor`.
 - The kept read of decision 0088 stays as the fallback for a journal
   without the model, and so for as long as a read-only reader can meet
   one.
 - Nothing under `contracts/`, `fixtures/`, `policy/` or `reference/` moves,
   and decision 0014 holds: every reader opens read-only and writes
-  nothing.
+  nothing to the journal.
