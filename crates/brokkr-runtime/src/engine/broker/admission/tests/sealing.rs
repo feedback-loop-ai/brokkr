@@ -2,9 +2,12 @@
 //! review): every operation that reseals one — a run's next attempt joining
 //! it, the engine marking a driver's cleanup unresolved, the positive
 //! settlement fact, the release, and recovery at a later admission — fails
-//! or runs late at its final steps in each of three ways ([`finals`]): past
-//! the deadline before its commit, past it once committed, and its
-//! directory sync failing once committed. Each case begins with a
+//! or runs late at its final steps before its commit in each of five ways
+//! ([`finals`]): past the deadline before its rename, past it once renamed
+//! in, its directory sync failing then, past it as it retires the record
+//! that stood, and that record's prior name not removed; and one whose
+//! last sync fails once committed reports itself committed (R1 of the
+//! fourth run, U8a2c). Each case begins with a
 //! reservation already standing, its attempt unsettled; after each, the
 //! reservation that stood is still there, the same bytes in the same inode,
 //! and no staged copy is left beside it. A positive fact that cannot be
@@ -16,6 +19,7 @@ use std::os::unix::fs::MetadataExt;
 use super::coordination::{died_after_its_end, settled_a1};
 use super::*;
 use crate::capabilities::McpFence;
+use crate::engine::broker::root::Commit;
 use crate::engine::broker::settlement::Unreleased;
 
 /// A fresh engine holding on `host` the lease of its run's attempt `a1` on
@@ -56,26 +60,37 @@ fn within(millis: u64) -> Instant {
     Instant::now() + Duration::from_millis(millis)
 }
 
-/// The three ways a seal fails or runs late at its final steps, each
-/// spending `millis` where it runs late: what arms it, the refusal it
-/// meets, and its name.
-fn finals(millis: u64) -> [(Late, Unknown, &'static str); 3] {
+/// The five ways a reseal fails or runs late at its final steps before its
+/// commit, each spending `millis` where it runs late: what arms it, the
+/// refusal it meets, and its name. A first seal meets the first three, its
+/// commit the rename in (R1 of the fourth run; U8a2c).
+fn finals(millis: u64) -> [(Late, Unknown, &'static str); 5] {
     let spent = Duration::from_millis(millis);
     [
         (
             Late::Sleep(spent),
             Unknown::Expired,
-            "late before its commit",
+            "late before its rename",
         ),
         (
             Late::SleepCommitted(spent),
             Unknown::Expired,
-            "late once committed",
+            "late once renamed in",
         ),
         (
             Late::FailCommitted,
             Unknown::Unsealed,
-            "its sync failed once committed",
+            "its sync failed once renamed in",
+        ),
+        (
+            Late::SleepRetiring(spent),
+            Unknown::Expired,
+            "late as it retires the record that stood",
+        ),
+        (
+            Late::FailRetiring,
+            Unknown::Unsealed,
+            "the prior name of the record that stood not removed",
         ),
     ]
 }
@@ -84,7 +99,7 @@ fn finals(millis: u64) -> [(Late, Unknown, &'static str); 3] {
 /// deadline at its final steps leaves no record and nothing staged.
 #[test]
 fn a_first_seal_that_fails_or_runs_late_leaves_no_record() {
-    for (armed, refused, how) in finals(150) {
+    for (armed, refused, how) in finals(150).into_iter().take(3) {
         let host = Host::new();
         let budget = Budget::new(within(100));
         LATE.set(Some(armed));
@@ -96,19 +111,27 @@ fn a_first_seal_that_fails_or_runs_late_leaves_no_record() {
     }
 }
 
-/// R1, M3: a reseal in a directory that will not take a second name for
-/// the record that stood is refused, and that record is never replaced.
+/// R1, M3; R3 (U8a2c): a reseal that cannot give the record that stood a
+/// second name — a file already at its prior name, the directory still
+/// writable, so the rename after the link stays possible — is refused,
+/// and that record is never replaced.
 #[test]
 fn a_reseal_that_cannot_link_the_record_that_stood_keeps_it() {
-    let (host, at, before) = joining(Late::Deny);
+    let (host, at, before) = joining(Late::Occupy);
     let joined = admit(
         &host.root,
         &open(&host.worktree("work"), ["run-a", "a2"]),
         soon(),
     );
-    writable(&at);
     assert_eq!(joined, mb3(Unknown::Unsealed));
     assert_eq!(standing(&at), before, "the reservation that stood");
+    assert_eq!(
+        std::fs::read(prior(&at)).unwrap(),
+        b"",
+        "the file planted, untouched"
+    );
+    std::fs::remove_file(prior(&at)).unwrap();
+    kept(&at, &before, "its link refused");
 }
 
 /// The directory of the reservation at `at` writable by its owner again.
@@ -253,12 +276,12 @@ fn a_late_release_keeps_the_reservation_that_stood() {
         let host = Host::new();
         let work = host.worktree("work");
         let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
-        proved(&held, soon()).unwrap();
+        assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
         let at = host.reservation(&work, "run-a");
         let before = standing(&at);
         LATE.set(Some(armed));
         let released = release(&held, within(400));
-        assert_eq!(released, mb3(refused).map(drop), "{how}");
+        assert_eq!(released, Err(Unadmitted::Identity(refused)), "{how}");
         kept(&at, &before, how);
     }
 }
@@ -293,7 +316,8 @@ fn a_release_without_its_positive_fact_is_refused() {
     let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
     let at = host.reservation(&work, "run-a");
     let before = standing(&at);
-    assert_eq!(release(&held, soon()), mb3(Unknown::Unproven).map(drop));
+    let unproven = Err(Unadmitted::Identity(Unknown::Unproven));
+    assert_eq!(release(&held, soon()), unproven);
     kept(&at, &before, "unproven");
 }
 
@@ -307,32 +331,168 @@ fn a_release_without_its_positive_fact_is_refused() {
 /// nothing at stake it does not.
 #[test]
 fn a_positive_fact_that_cannot_be_sealed_keeps_the_reservation() {
-    let unsealed = || Unreleased::from(Unadmitted::Identity(Unknown::Unsealed));
-    for (protects, lifted, fails) in [
-        (Protects::Nothing, false, false),
-        (Protects::Evidence, false, true),
-        (Protects::Nothing, true, true),
-    ] {
-        let how = format!("{protects:?}, the fence lifted: {lifted}");
+    for mut case in fenced() {
+        let at = case.host.reservation(&case.work, &case.run);
+        let before = standing(&at);
+        LATE.set(Some(Late::Unstage));
+        let how = case.how.clone();
+        assert_eq!(case.settles(), case.refused(Unknown::Unsealed), "{how}");
+        kept(&at, &before, &how);
+        let later = claim(&case.work, ["run-b", "b1"], Protects::Nothing, &[]);
+        let held = cr2(Conflict::Held(case.run.clone()));
+        assert_eq!(case.host.admit(&later), held, "{how}");
+    }
+}
+
+/// The fence rule's three cases: what the attempt protects, whether the
+/// fence is lifted as it settles, and whether a settlement refused then
+/// fails its run.
+const FENCED: [(Protects, bool, bool); 3] = [
+    (Protects::Nothing, false, false),
+    (Protects::Evidence, false, true),
+    (Protects::Nothing, true, true),
+];
+
+/// One case of [`FENCED`] on a fresh host: its name, an engine leasing
+/// its run's attempt `a1`, which ended and whose drivers settled, its
+/// worktree and run, whether the fence is lifted as it settles, and
+/// whether a settlement refused then fails its run.
+struct Fenced {
+    how: String,
+    host: Host,
+    _dir: tempfile::TempDir,
+    engine: Engine,
+    work: PathBuf,
+    run: String,
+    lifted: bool,
+    fails: bool,
+}
+
+/// Each case of [`FENCED`], made.
+fn fenced() -> impl Iterator<Item = Fenced> {
+    FENCED.into_iter().map(|(protects, lifted, fails)| {
         let host = Host::new();
         let (_dir, mut engine, work, run) = leasing(&host, protects);
         settled_a1(&mut engine, &run);
-        let at = host.reservation(&work, &run);
-        let before = standing(&at);
-        let lift = lifted.then(McpFence::lift);
-        LATE.set(Some(Late::Unstage));
-        let settled = engine.settle("a1", Ok(())).map_err(|error| match error {
-            EngineError::Unreleased(unreleased) => unreleased,
-            other => panic!("{how}: {other}"),
-        });
-        drop(lift);
-        assert_eq!(
-            settled,
-            if fails { Err(unsealed()) } else { Ok(()) },
-            "{how}"
-        );
-        kept(&at, &before, &how);
-        let later = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
-        assert_eq!(host.admit(&later), cr2(Conflict::Held(run)), "{how}");
+        Fenced {
+            how: format!("{protects:?}, the fence lifted: {lifted}"),
+            host,
+            _dir,
+            engine,
+            work,
+            run,
+            lifted,
+            fails,
+        }
+    })
+}
+
+impl Fenced {
+    /// Its engine's settlement ([`settles`]).
+    fn settles(&mut self) -> Result<(), Unreleased> {
+        settles(&mut self.engine, self.lifted, &self.how)
+    }
+
+    /// What its settlement returns where a seal is refused by `unknown`:
+    /// the run failed by MB3's identity cause where the fence rule asks it,
+    /// otherwise settled.
+    fn refused(&self, unknown: Unknown) -> Result<(), Unreleased> {
+        match self.fails {
+            true => Err(Unadmitted::Identity(unknown).into()),
+            false => Ok(()),
+        }
+    }
+}
+
+/// `engine`'s settlement of its attempt `a1`, the fence lifted as it
+/// settles where `lifted`: done, or the refusal it fails its run with.
+fn settles(engine: &mut Engine, lifted: bool, how: &str) -> Result<(), Unreleased> {
+    let lift = lifted.then(McpFence::lift);
+    let settled = engine.settle("a1", Ok(())).map_err(|error| match error {
+        EngineError::Unreleased(unreleased) => unreleased,
+        other => panic!("{how}: {other}"),
+    });
+    drop(lift);
+    settled
+}
+
+/// The reservation at `at`, read.
+fn reserved(at: &Path) -> Reservation {
+    serde_json::from_slice(&std::fs::read(at).unwrap()).unwrap()
+}
+
+/// R1 (U8a2a's fourth run, fixed by U8a2c): a reseal whose last directory
+/// sync fails once the record that stood is retired reports itself
+/// committed, never failed or late: its successor is the record every read
+/// finds and no prior name is left, for a run's next attempt joining it,
+/// the release, the engine marking a driver's cleanup unresolved, and
+/// recovery at a later admission alike; each lease it leaves is held
+/// unsynced.
+#[test]
+fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
+    let (host, at, before) = joining(Late::FailFinal);
+    let work = host.worktree("work");
+    let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), soon()).unwrap();
+    assert!(joined.unsynced, "joined: held unsynced");
+    assert_ne!(standing(&at), before, "joined: its successor stands");
+    let both = vec!["a1".to_string(), "a2".to_string()];
+    assert_eq!(host.attempts(&work, "run-a"), (both, Vec::new()));
+    assert!(!prior(&at).exists(), "joined: no prior name left");
+    assert_eq!(proved(&joined, soon()), Ok(Commit::Synced));
+    LATE.set(Some(Late::FailFinal));
+    assert_eq!(release(&joined, soon()), Ok(Commit::Unsynced), "released");
+    let released = (vec!["a1".to_string()], vec!["a2".to_string()]);
+    assert_eq!(host.attempts(&work, "run-a"), released);
+    assert!(!prior(&at).exists(), "released: no prior name left");
+    let host = Host::new();
+    let (_dir, mut engine, work, run) = leasing(&host, Protects::Nothing);
+    LATE.set(Some(Late::FailFinal));
+    let unresolved = Cleanup::Unresolved {
+        reason: Unsettled::Stdout,
+    };
+    witnessed_by(&mut engine.held, &unresolved, soon());
+    let marked = reserved(&host.reservation(&work, &run));
+    assert_eq!(
+        marked.attempts["a1"].cleanup,
+        Witnessed::Unresolved,
+        "marked"
+    );
+    assert!(
+        engine.held.as_ref().is_some_and(|held| held.unsynced),
+        "marked: held unsynced"
+    );
+    // Such a lease fails its run as it settles, under the fence rule.
+    settled_a1(&mut engine, &run);
+    let settled = settles(&mut engine, true, "marked");
+    let unsynced = Unreleased::from(Unadmitted::Identity(Unknown::Unsynced));
+    assert_eq!(settled, Err(unsynced), "marked: its run failed");
+    let host = Host::new();
+    let (_dir, _engine, work, run) = died_after_its_end(&host);
+    LATE.set(Some(Late::FailFinal));
+    let next = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
+    let recovered = admit(&host.root, &next, soon()).unwrap();
+    assert!(recovered.unsynced, "recovered: held unsynced");
+    let settled = (Vec::new(), vec!["a1".to_string()]);
+    assert_eq!(host.attempts(&work, &run), settled, "recovered");
+    assert!(
+        !prior(&host.reservation(&work, &run)).exists(),
+        "recovered: no prior name left"
+    );
+}
+
+/// R1: a settlement whose reseal commits without its directory proven
+/// synced releases its lease and fails its run under the fence rule, with
+/// MB3's identity cause: where evidence was at stake as it was admitted,
+/// and on every run once the fence is lifted; with the fence standing and
+/// nothing at stake it does not.
+#[test]
+fn an_unsynced_settlement_fails_its_run_under_the_fence_rule() {
+    for mut case in fenced() {
+        LATE.set(Some(Late::FailFinal));
+        let how = case.how.clone();
+        assert_eq!(case.settles(), case.refused(Unknown::Unsynced), "{how}");
+        let released = (Vec::new(), vec!["a1".to_string()]);
+        let now = case.host.attempts(&case.work, &case.run);
+        assert_eq!(now, released, "{how}: released");
     }
 }

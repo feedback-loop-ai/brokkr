@@ -17,6 +17,7 @@
 use std::path::Path;
 
 use brokkr_core::realms::Boundary;
+use brokkr_protocol::hands::Sealed;
 use brokkr_protocol::native_controls::{
     flatten, Origin, SealedAssessment, SealedBoundary, SealedBroker, SealedDialect, SealedFence,
     SealedIsolation, SealedServers, SealedServing, Transport,
@@ -61,12 +62,13 @@ pub fn serving_inputs(
 /// The serving inputs `spawn` is sealed with at the site `facts` describe
 /// ([`serving_inputs`]), with the brokers the attempt's provisioning sealed
 /// for this site, `provisioned`, and its hands segment expanded beside them
-/// under `workdir` and the run's artifact root ([`beside`]; U7d2, U8a).
+/// under `workdir`, the run's artifact root and the reach its box was
+/// built from ([`beside`]; U7d2, U8a, U8a2c).
 pub(super) fn served(
     spawn: &mut SiteSpawn,
     (link, facts): (Option<&Candidate>, Option<&SiteFacts>),
     boundary: Boundary,
-    worktree: (&Path, &Path),
+    worktree: (&Path, &Path, Option<&Sealed>),
     provisioned: &[SealedBroker],
 ) -> Result<SealedServing, Unsealed> {
     let serving = serving_with(link, facts, spawn.class, boundary, provisioned)?;
@@ -117,13 +119,14 @@ fn serving_with(
 /// `serving` seals, which the spawn carries expanded for the box's hands
 /// alone exactly once, is expanded again by the set's one builder
 /// ([`Transport::expand_beside`]) with the brokers beside the hands, under
-/// the executable, `workdir` and artifact root it was composed with. A
-/// spawn without brokers keeps its every byte; one whose hands segment is
-/// not that expansion refuses, and nothing is rebuilt around another.
+/// the executable, `workdir`, artifact root and sealed reach it was
+/// composed with. A spawn without brokers keeps its every byte; one whose
+/// hands segment is not that expansion, or that was composed with no
+/// sealed reach, refuses, and nothing is rebuilt around another.
 pub(super) fn beside(
     spawn: &mut SiteSpawn,
     serving: &SealedServing,
-    (workdir, artifacts): (&Path, &Path),
+    (workdir, artifacts, sealed): (&Path, &Path, Option<&Sealed>),
     brokers: &[SealedBroker],
 ) -> Result<(), Unsealed> {
     if brokers.is_empty() {
@@ -135,6 +138,7 @@ pub(super) fn beside(
         brokkr: &brokkr,
         workdir,
         artifacts,
+        sealed: sealed.ok_or(Unsealed::Unexpanded)?,
         spec,
     };
     let fragment = &serving.dialect.hands;

@@ -44,7 +44,7 @@ use super::admission::{
 use super::exclusion::{everywhere, reaches};
 use super::historical::regular;
 use super::inventory::Budget;
-use super::root::Root;
+use super::root::{Commit, Root};
 use super::startup;
 use crate::engine::{Engine, EngineError};
 
@@ -72,7 +72,9 @@ impl Engine {
     /// attempt that ended in an error, or whose fact or release cannot be
     /// sealed, keeps its reservation standing; the latter fails the run by
     /// [`Unreleased`] where the fence lifted, or the evidence at stake as
-    /// the attempt was admitted, asks it.
+    /// the attempt was admitted, asks it. So does a seal of its reservation
+    /// committed without its directory proven synced, as it was admitted,
+    /// marked or released (R1 of U8a2a's fourth run).
     pub(in crate::engine) fn settle(
         &mut self,
         attempt: &str,
@@ -84,11 +86,18 @@ impl Engine {
             return Ok(());
         };
         let events = self.store.load(&self.run_id)?;
-        if !proven(&held, &events, attempt) {
-            return Ok(());
-        }
         let deadline = startup(Instant::now(), Duration::MAX);
-        match proved(&held, deadline).and_then(|()| release(&held, deadline)) {
+        let released = if proven(&held, &events, attempt) {
+            proved(&held, deadline).and_then(|fact| Ok(fact.and(release(&held, deadline)?)))
+        } else {
+            Ok(Commit::Synced)
+        };
+        let unsynced = (Unknown::Unsynced).into();
+        let settled = released.and_then(|commit| match (commit, held.unsynced) {
+            (Commit::Synced, false) => Ok(()),
+            (Commit::Unsynced, _) | (_, true) => Err(unsynced),
+        });
+        match settled {
             Err(refused) if everywhere() | held.staked => Err(Unreleased(refused).into()),
             _ => Ok(()),
         }
@@ -99,7 +108,7 @@ impl Engine {
 /// reservation under the admission lock taken before `deadline` (M1);
 /// refused where the reservation no longer names the attempt standing, or
 /// names its cleanup unresolved.
-pub(super) fn proved(held: &Held, deadline: Instant) -> Result<(), Unadmitted> {
+pub(super) fn proved(held: &Held, deadline: Instant) -> Result<Commit, Unadmitted> {
     amend(held, deadline, |mut reservation| {
         let reserved = reservation.attempts.get_mut(&held.attempt);
         let reserved = reserved.ok_or(Unknown::Lost)?;
@@ -115,7 +124,9 @@ pub(super) fn proved(held: &Held, deadline: Instant) -> Result<(), Unadmitted> {
 /// unresolved, and its reservation is sealed saying so the first time
 /// (R2), under the admission lock taken before the startup deadline. A
 /// seal that fails leaves the engine's own copy unproven, so this engine
-/// still never releases it.
+/// still never releases it; one committed without its directory proven
+/// synced is kept on the lease, which then fails its run under the fence
+/// rule as it settles (R1 of U8a2a's fourth run).
 pub(in crate::engine) fn witnessed(held: &mut Option<Held>, cleanup: &Cleanup) {
     witnessed_by(held, cleanup, startup(Instant::now(), Duration::MAX));
 }
@@ -126,10 +137,10 @@ pub(super) fn witnessed_by(held: &mut Option<Held>, cleanup: &Cleanup, deadline:
         return;
     };
     if !std::mem::replace(&mut held.unproven, true) {
-        amend(held, deadline, |reservation| {
+        let marked = amend(held, deadline, |reservation| {
             Ok(unresolved(reservation, &held.attempt))
-        })
-        .ok();
+        });
+        held.unsynced |= marked == Ok(Commit::Unsynced);
     }
 }
 
@@ -168,20 +179,21 @@ fn ending(events: &[EventEnvelope], attempt: &str) -> Option<Ending> {
 
 /// Every reservation of `found`, each of its standing attempts its durable
 /// facts prove over ([`certified`]) moved to its settled ones and the
-/// reservation sealed again below `root`, all within `budget` (M7).
+/// reservation sealed again below `root`, all within `budget` (M7); and
+/// whether every seal it made was synced.
 pub(super) fn recovered(
     root: &Root,
     found: Vec<Reservation>,
     incoming: &[Writer],
     budget: &Budget,
-) -> Result<Vec<Reservation>, Unknown> {
+) -> Result<(Vec<Reservation>, Commit), Unknown> {
     // Every participant's writers, the incoming attempt's and every
     // standing one's: recovery trusts a reservation's journal only where
     // none of them could have forged its unkeyed hash chain (R2).
     let mut writers: Vec<Writer> = incoming.to_vec();
     writers.extend(found.iter().flat_map(Reservation::writers).cloned());
     let writers: Vec<&Writer> = writers.iter().collect();
-    let mut standing = Vec::with_capacity(found.len());
+    let (mut standing, mut commit) = (Vec::with_capacity(found.len()), Commit::Synced);
     for reservation in found {
         let proven = certified(&reservation, &writers, budget);
         budget.check()?;
@@ -191,10 +203,10 @@ pub(super) fn recovered(
         }
         let settle = |held, attempt: &String| settled(held, attempt);
         let recovered = proven.iter().try_fold(reservation, settle)?;
-        sealed(root, &recovered, budget)?;
+        commit = commit.and(sealed(root, &recovered, budget)?);
         standing.push(recovered);
     }
-    Ok(standing)
+    Ok((standing, commit))
 }
 
 /// The standing attempts of `reservation` whose engine sealed their

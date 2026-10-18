@@ -6813,36 +6813,6 @@ fn both(provider: &str, tool: &str) -> Refusal {
     form_refusal(provider, &format!("tool '{tool}' both admitted and denied"))
 }
 
-/// The typed hands declaration the fixtures' sites carry.
-static SPEC: crate::hands::HandsSpec = crate::hands::HandsSpec {
-    network: false,
-    binds: Vec::new(),
-};
-
-/// What the engine binds the box's hands to in the fixtures.
-fn transport() -> Transport<'static> {
-    Transport {
-        brokkr: std::path::Path::new("/bin/brokkr"),
-        workdir: std::path::Path::new("/w"),
-        artifacts: std::path::Path::new("/a"),
-        spec: &SPEC,
-    }
-}
-
-/// The MCP document [`transport`] binds, written out by hand.
-const MCP_DOCUMENT: &str = "{\"mcpServers\":{\"brokkr\":{\"args\":[\"hands\",\"serve\",\
-                            \"--workdir\",\"/w\",\"--artifacts\",\"/a\",\"--spec\",\
-                            \"{\\\"binds\\\":[],\\\"kind\\\":\
-                            \\\"workspace\\\",\\\"network\\\":false}\"],\"command\":\
-                            \"/bin/brokkr\"}}}";
-
-/// The server's arguments [`transport`] binds, as the TOML array Codex is
-/// handed, written out by hand.
-const SERVER_ARGUMENTS: &str = "[\"hands\",\"serve\",\"--workdir\",\"/w\",\"--artifacts\",\
-                                \"/a\",\"--spec\",\
-                                \"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\
-                                \\\"network\\\":false}\"]";
-
 /// The Claude adapter's measured `hands.workspace` fragment.
 const CLAUDE_HANDS: [&str; 7] = [
     "--tools",
@@ -11610,24 +11580,6 @@ const CODEX_WORK: [&str; 2] = ["--sandbox", "workspace-write"];
 /// The result path the engine owns in the fixtures.
 const RESULT: &str = "/r/result.json";
 
-/// A transport whose executable and workdir hold what a TOML basic string
-/// must escape: a literal backslash-u002f, a quote and a backslash (R2).
-fn escaped_transport() -> Transport<'static> {
-    Transport {
-        brokkr: std::path::Path::new("/opt/a\\u002fb/brokkr"),
-        workdir: std::path::Path::new("/w/a\"b\\c"),
-        artifacts: std::path::Path::new("/a"),
-        spec: &SPEC,
-    }
-}
-
-/// The Codex hands [`escaped_transport`] binds, as TOML text, written out
-/// by hand from TOML's basic-string escapes.
-const ESCAPED_COMMAND: &str = "mcp_servers.brokkr.command=\"/opt/a\\\\u002fb/brokkr\"";
-const ESCAPED_ARGUMENTS: &str = "[\"hands\",\"serve\",\"--workdir\",\"/w/a\\\"b\\\\c\",\
-                                 \"--artifacts\",\"/a\",\"--spec\",\"{\\\"binds\\\":[],\\\"kind\\\":\\\"workspace\\\",\
-                                 \\\"network\\\":false}\"]";
-
 /// Codex sealed launches (rebuild units 13-fix, 13-fix-b and 13-fix-c, R5):
 /// web search held, denied by its OFF, unanswered or under an unmeasured
 /// inventory; at an inline gate or work site, whose typed class lowers onto
@@ -12631,3 +12583,8 @@ mod servers;
 
 /// Every Codex TOML value decoding to itself (R2), moved here by U8a.
 mod toml;
+
+/// The fixtures' transports and their hand-written pins (U8a2c).
+mod transport;
+use transport::{escaped_transport, transport, ESCAPED_ARGUMENTS, ESCAPED_COMMAND};
+use transport::{MCP_DOCUMENT, REACH, SERVER_ARGUMENTS, SPEC};

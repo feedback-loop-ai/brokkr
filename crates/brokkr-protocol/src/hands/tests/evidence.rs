@@ -24,15 +24,6 @@ use super::*;
 /// A digest name the fixtures publish under; any name is a file here.
 const HEX: &str = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa";
 
-/// A canonical temporary root holding an existing worktree, `work`.
-fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
-    let work = root.join("work");
-    std::fs::create_dir(&work).unwrap();
-    (dir, root, work)
-}
-
 /// The artifact root `relative` below `base`, made as the engine makes it
 /// before launch: a recipe library's `.forge/artifacts` in its worktree,
 /// an adopter's `.brokkr/state/artifacts`, or one beside the worktree.
@@ -57,23 +48,19 @@ fn publish(artifacts: &Path, bytes: &str) -> PathBuf {
 }
 
 /// The workspace box over `work` handed `artifacts`, its private tree and
-/// session under `dir`.
+/// session under `dir`, built from the reach sealed for it there.
 fn boxed(
     spec: &HandsSpec,
     work: &Path,
     artifacts: &Path,
     dir: &Path,
 ) -> std::io::Result<Vec<String>> {
-    box_argv(
+    boxed_from(
         spec,
         work,
         artifacts,
-        &dir.join("home"),
-        &dir.join("scratch"),
-        OverlayWrites::Session(&dir.join("session")),
-        &GitFacts::default(),
-        None,
-        &one("true"),
+        &sealed(spec, work, &dir.join("home")),
+        dir,
     )
 }
 
@@ -193,35 +180,34 @@ fn a_writable_alias_of_the_artifact_root_refuses_the_box() {
         let built = boxed(&rw(&host, mode), &work, &artifacts, dir.path());
         assert_eq!(refused(built), Unprotected::Alias(host));
     }
-    let common = GitFacts {
-        common_dir: Some(root.clone()),
-        ..GitFacts::default()
-    };
+    // A linked worktree whose Git common directory holds its root.
+    let (main, linked) = (root.join("main"), root.join("linked"));
+    linked_worktree(&main, &linked);
+    let held = made(&main, ".git/evidence");
     let session = OverlayWrites::Session(&root);
     let spec = HandsSpec::default();
     let (home, scratch) = (root.join("home"), root.join("scratch"));
     let built = box_argv(
         &spec,
-        &work,
-        &artifacts,
-        &home,
+        &linked,
+        &held,
+        &sealed(&spec, &linked, &home),
         &scratch,
         session,
-        &common,
+        &[],
         None,
         &one("true"),
     );
-    assert_eq!(refused(built), Unprotected::Alias(root.clone()));
+    assert_eq!(refused(built), Unprotected::Alias(main.join(".git")));
     let inside = artifacts.join("scratch");
-    let none = GitFacts::default();
     let built = box_argv(
         &spec,
         &work,
         &artifacts,
-        &home,
+        &sealed(&spec, &work, &home),
         &inside,
         session,
-        &none,
+        &[],
         None,
         &one("true"),
     );
@@ -390,7 +376,7 @@ fn each_cause_states_the_managed_writer_refusal() {
     let artifacts = work.join(".forge/artifacts");
     std::fs::create_dir(work.join(".forge")).unwrap();
     std::os::unix::fs::symlink(&root, &artifacts).unwrap();
-    let (spec, none, absent) = (HandsSpec::default(), GitFacts::default(), root.join("none"));
+    let (spec, none, absent) = (HandsSpec::default(), &[], root.join("none"));
     let refusal = format!(
         "hands namespace: {cause}: '{}' is not a directory of its own",
         artifacts.display()
@@ -400,8 +386,9 @@ fn each_cause_states_the_managed_writer_refusal() {
         root.join("scratch"),
         Duration::from_secs(1),
     );
+    let reach = sealed(&spec, &work, &home);
     let called = execute_in(
-        &absent, &spec, &work, &artifacts, &home, &scratch, &root, &none, "true", timeout,
+        &absent, &spec, &work, &artifacts, &reach, &scratch, &root, none, "true", timeout,
     );
     assert_eq!(called, Err(refusal.clone()));
     let boxed = run_boxed_in(
@@ -409,9 +396,9 @@ fn each_cause_states_the_managed_writer_refusal() {
         &spec,
         &work,
         &artifacts,
-        &home,
+        &reach,
         &root,
-        &none,
+        none,
         None,
         &one("true"),
     );
@@ -421,9 +408,9 @@ fn each_cause_states_the_managed_writer_refusal() {
         &spec,
         &work,
         Path::new(""),
-        &home,
+        &reach,
         &root,
-        &none,
+        none,
         None,
         &one("true"),
     );
@@ -472,8 +459,17 @@ fn a_box_cannot_change_the_evidence_it_reads() {
     let spec = rw(&pad, "rw");
     let owner = Session::create_under(dir.path(), "test").unwrap();
     let long = Duration::from_secs(30);
+    let reach = sealed(&spec, &work, &root.join("home"));
     let run = |command: &str| {
-        let ran = execute(&spec, &work, &artifacts, owner.path(), command, long);
+        let ran = execute(
+            &spec,
+            &work,
+            &artifacts,
+            &reach,
+            owner.path(),
+            command,
+            long,
+        );
         ran.unwrap()
     };
     let held = [&artifact, &artifacts, &work.join(".forge")];
@@ -517,10 +513,17 @@ fn a_box_cannot_change_the_evidence_it_reads() {
         format!("echo forged > {a}; mv .forge forge-old; mv .forge/artifacts x; echo e > exec");
     let command = ["/bin/sh".to_string(), "-c".to_string(), script];
     let bwrap = require_bwrap().unwrap();
-    let (home, none) = (root.join("home"), GitFacts::default());
     let session = root.join("exec");
     let boxed = run_boxed_in(
-        &bwrap, &spec, &work, &artifacts, &home, &session, &none, None, &command,
+        &bwrap,
+        &spec,
+        &work,
+        &artifacts,
+        &reach,
+        &session,
+        &[],
+        None,
+        &command,
     );
     assert_eq!(boxed, Ok(0));
     assert_eq!(std::fs::read_to_string(work.join("exec")).unwrap(), "e\n");
@@ -553,6 +556,7 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
     let before = [identity(&artifact), identity(&artifacts)];
     let owner = Session::create_under(dir.path(), "test").unwrap();
     let (spec, long) = (HandsSpec::default(), Duration::from_secs(30));
+    let reach = sealed(&spec, &work, &root.join("home"));
     let a = artifact.display();
     for tamper in [
         format!("cat {a}"),
@@ -561,13 +565,23 @@ fn a_box_cannot_reach_a_root_outside_every_bind() {
         format!("rm {a}"),
         format!("touch {}/sha256/planted", artifacts.display()),
     ] {
-        let tried = execute(&spec, &work, &artifacts, owner.path(), &tamper, long).unwrap();
+        let tried = execute(
+            &spec,
+            &work,
+            &artifacts,
+            &reach,
+            owner.path(),
+            &tamper,
+            long,
+        );
+        let tried = tried.unwrap();
         assert_ne!(tried.exit_code, 0, "{tamper}: {}", tried.render());
     }
     let wrote = execute(
         &spec,
         &work,
         &artifacts,
+        &reach,
         owner.path(),
         "echo w > made",
         long,
@@ -602,16 +616,16 @@ fn a_protection_mount_that_cannot_be_made_refuses_the_command() {
         "-c".to_string(),
         format!("echo ran > {}", ran.display()),
     ];
-    let (spec, none) = (HandsSpec::default(), GitFacts::default());
+    let spec = HandsSpec::default();
     let (home, scratch) = (dir.path().join("home"), dir.path().join("scratch"));
     let built = box_argv(
         &spec,
         &work,
         &artifacts,
-        &home,
+        &sealed(&spec, &work, &home),
         &scratch,
         OverlayWrites::Ram,
-        &none,
+        &[],
         None,
         &command,
     );

@@ -158,7 +158,8 @@ impl Engine {
                     input["result_path"].as_str().unwrap_or_default(),
                 );
                 let (link, brokers) = (selection.get(&site), selection.brokers(&label));
-                self.mark_serving(&label, link, brokers, Some(&mut spawn), &mut input);
+                let served = (brokers, hands.as_ref());
+                self.mark_serving(&label, link, served, Some(&mut spawn), &mut input);
                 // Each member's OWN offer and stamps, never the panel's:
                 // selection is per site, not per aggregate (proposed
                 // decision 0056 ruling 1).

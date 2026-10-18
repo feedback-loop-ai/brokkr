@@ -870,13 +870,14 @@ Usage: brokkr hands <COMMAND>
 Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC on stdio); every call runs `bash -lc <command>` inside the box
 
 ```text
-Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS>
+Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH>
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--workdir <WORKDIR>` |  |  | The worktree, bound read-write at its own path |
 | `--artifacts <ARTIFACTS>` |  |  | The engine's artifact root, which the box never writes (U8a) |
+| `--reach <REACH>` |  |  | The reach sealed at admission as JSON, which every box is built from (U8a2c) |
 | `--spec <SPEC>` | `"workspace"` |  | The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]} |
 
 ## brokkr hands exec
@@ -884,13 +885,14 @@ Usage: brokkr hands serve [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS>
 Run one command whole inside the box with stdio passed through — how a deterministic `exec` seat holds a gate. Exits with the command's own code
 
 ```text
-Usage: brokkr hands exec [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS> <COMMAND>...
+Usage: brokkr hands exec [OPTIONS] --workdir <WORKDIR> --artifacts <ARTIFACTS> --reach <REACH> <COMMAND>...
 ```
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
 | `--workdir <WORKDIR>` |  |  | The worktree, bound read-write at its own path |
 | `--artifacts <ARTIFACTS>` |  |  | The engine's artifact root, as `serve` takes it |
+| `--reach <REACH>` |  |  | The reach sealed at admission, as `serve` takes it |
 | `--bundle-root <BUNDLE_ROOT>` |  |  | Strategy root, bound read-only at /runtime/bundle |
 | `--spec <SPEC>` | `"workspace"` |  | The box spec as JSON, as `serve` takes it |
 | `<COMMAND>...` |  |  | The command and its arguments, run inside the box |

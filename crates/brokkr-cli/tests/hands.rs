@@ -28,6 +28,22 @@ fn artifact_root(dir: &Path) -> PathBuf {
     artifacts
 }
 
+/// The reach a box of `spec` in `work` is sealed under `home`, as
+/// `--reach` carries it to both verbs (U8a2c).
+fn reach_of(spec: &brokkr_protocol::hands::HandsSpec, home: &Path, work: &Path) -> String {
+    use brokkr_protocol::hands::{git_facts, seal};
+    serde_json::to_string(&seal(spec, home, work, &git_facts(work))).unwrap()
+}
+
+/// [`reach_of`] the default box, its HOME beside the worktree.
+fn reach(work: &Path) -> String {
+    reach_of(
+        &Default::default(),
+        &work.parent().unwrap().join("home"),
+        work,
+    )
+}
+
 /// Ask the boundary itself, quietly, before a test claims it can build a box.
 /// Nesting is refused by the engine-owned marker, not by an accidental kernel
 /// policy or namespace nesting limit.
@@ -72,6 +88,8 @@ fn hands_serve_lists_one_tool_and_runs_it_in_the_box() {
             work_arg,
             "--artifacts",
             root_arg,
+            "--reach",
+            &reach(&work),
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -124,6 +142,8 @@ fn serving(tmp: &Path) -> (std::process::Child, PathBuf) {
             work_arg,
             "--artifacts",
             root_arg,
+            "--reach",
+            &reach(tmp),
         ])
         .env("TMPDIR", tmp)
         .stdin(Stdio::piped())
@@ -349,12 +369,14 @@ fn hands_exec_runs_the_command_whole_and_returns_its_code() {
     std::fs::create_dir_all(&work).unwrap();
     let secret = dir.path().join("secret");
     std::fs::write(&secret, "x").unwrap();
-    // `hands exec` over the worktree, beside the engine's artifact root.
+    // `hands exec` over the worktree, beside the engine's artifact root,
+    // built from the reach sealed for it.
+    let sealed = reach(&work);
     let exec = |rest: &[&str]| {
         let (work, artifacts) = (work.to_str().unwrap(), artifacts.to_str().unwrap());
         let mut command = Command::new(brokkr_bin());
         command.args(["hands", "exec", "--workdir", work, "--artifacts", artifacts]);
-        command.args(rest);
+        command.args(["--reach", &sealed]).args(rest);
         command
     };
     let ok = exec(&["--", "bash", "-c", "echo boxed > out.txt"])
@@ -433,11 +455,12 @@ fn the_box_private_tmp_and_home_are_owner_only_under_umask_002() {
     let seen = Command::new("sh")
         .args([
             "-c",
-            "umask 002; exec \"$0\" hands exec --workdir \"$1\" --artifacts \"$2\" -- \
-             stat -c '%a %n' /tmp /runtime/home",
+            "umask 002; exec \"$0\" hands exec --workdir \"$1\" --artifacts \"$2\" \
+             --reach \"$3\" -- stat -c '%a %n' /tmp /runtime/home",
             brokkr_bin(),
             work.to_str().unwrap(),
             artifact_root(dir.path()).to_str().unwrap(),
+            &reach(&work),
         ])
         .output()
         .unwrap();
@@ -531,6 +554,9 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
     .to_string();
     let work = verifier_workspace();
     let artifacts = artifact_root(work.path());
+    let parsed = brokkr_protocol::hands::HandsSpec::parse(&serde_json::from_str(&spec).unwrap());
+    // Sealed under the operator's HOME, which its toolchain binds name.
+    let sealed = reach_of(&parsed.unwrap(), Path::new(&home), work.path());
     for (failing, expected) in [(false, "pass"), (true, "fail")] {
         if failing {
             std::fs::write(work.path().join("FAIL"), "fail this named test\n").unwrap();
@@ -543,6 +569,8 @@ fn boxed_verify_seat_reports_pass_and_quotes_a_real_failure() {
                 work.path().to_str().unwrap(),
                 "--artifacts",
                 artifacts.to_str().unwrap(),
+                "--reach",
+                &sealed,
                 "--spec",
                 &spec,
                 "--",

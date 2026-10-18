@@ -449,7 +449,7 @@ fn marked(engine: &Engine, link: &Candidate, input: Value) -> (SiteSpawn, Value)
         None,
         Some(link),
         Path::new("/w"),
-        Path::new("/a"),
+        super::boundary_tests::sealed_tests::boxed(Path::new("/a")),
         &[],
         "/w/result.json",
         None,
@@ -776,7 +776,7 @@ fn a_prefixed_dispatch_is_sealed_with_the_drivers_extras_alone() {
         Some(&HandsSpec::default()),
         None,
         Path::new("/w"),
-        Path::new("/a"),
+        super::boundary_tests::sealed_tests::boxed(Path::new("/a")),
         &[],
         "/w/result.json",
         Some(&Unboxed {

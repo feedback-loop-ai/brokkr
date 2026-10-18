@@ -686,42 +686,7 @@ fn keep_refs(workspace: &std::path::Path, command: KeepRefsCmd) -> Result<ExitCo
     Ok(Exit::Completed.into())
 }
 
-#[derive(Subcommand, Debug)]
-pub enum HandsCommand {
-    /// Serve the one `workspace` tool over MCP (newline-delimited JSON-RPC
-    /// on stdio); every call runs `bash -lc <command>` inside the box.
-    Serve {
-        /// The worktree, bound read-write at its own path.
-        #[arg(long)]
-        workdir: PathBuf,
-        /// The engine's artifact root, which the box never writes (U8a).
-        #[arg(long)]
-        artifacts: PathBuf,
-        /// The box spec as JSON: {"kind":"workspace","network":…,"binds":[…]}.
-        #[arg(long, default_value = "\"workspace\"")]
-        spec: String,
-    },
-    /// Run one command whole inside the box with stdio passed through —
-    /// how a deterministic `exec` seat holds a gate. Exits with the
-    /// command's own code.
-    Exec {
-        /// The worktree, bound read-write at its own path.
-        #[arg(long)]
-        workdir: PathBuf,
-        /// The engine's artifact root, as `serve` takes it.
-        #[arg(long)]
-        artifacts: PathBuf,
-        /// Strategy root, bound read-only at /runtime/bundle.
-        #[arg(long)]
-        bundle_root: Option<PathBuf>,
-        /// The box spec as JSON, as `serve` takes it.
-        #[arg(long, default_value = "\"workspace\"")]
-        spec: String,
-        /// The command and its arguments, run inside the box.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
-        command: Vec<String>,
-    },
-}
+pub use hands::HandsCommand;
 
 #[cfg(test)]
 use brokkr_runtime::boundary::refuse_unboxable;

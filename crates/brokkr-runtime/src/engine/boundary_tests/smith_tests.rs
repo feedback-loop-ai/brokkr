@@ -89,7 +89,7 @@ fn compose_smith(
         Some(hands),
         Some(link),
         workdir,
-        Path::new("/a"),
+        boxed(Path::new("/a")),
         &bundle.roots,
         result_path.to_str().unwrap(),
         None,
@@ -106,11 +106,16 @@ fn engine_exe() -> String {
 /// The box the shipped smith declares, written out by hand: the expected
 /// side of every assertion below is a literal, never the serialiser.
 fn assert_serves_the_smiths_box(served: &[String], workdir: &Path) {
-    assert_eq!(served.len(), 8, "{served:?}");
+    assert_eq!(served.len(), 10, "{served:?}");
     let carried = ["--workdir", workdir.to_str().unwrap(), "--artifacts", "/a"];
-    let head = [&["hands", "serve"][..], &carried, &["--spec"]].concat();
-    assert_eq!(served[..7], head, "{served:?}");
-    let policy: Value = serde_json::from_str(&served[7]).expect("the spec is JSON");
+    let head = [
+        &["hands", "serve"][..],
+        &carried,
+        &["--reach", REACH_ARG, "--spec"],
+    ]
+    .concat();
+    assert_eq!(served[..9], head, "{served:?}");
+    let policy: Value = serde_json::from_str(&served[9]).expect("the spec is JSON");
     assert_eq!(
         policy,
         json!({

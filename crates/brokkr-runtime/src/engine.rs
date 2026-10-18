@@ -16,7 +16,7 @@ use brokkr_core::fold::{Cursor, ParkReason, Run, RunState};
 use brokkr_core::gate_moved_head::{self, MovedHead};
 use brokkr_core::realms::Boundary;
 use brokkr_core::EventEnvelope;
-use brokkr_protocol::hands::HandsSpec;
+use brokkr_protocol::hands::{HandsSpec, Sealed, SEALED_REACH};
 use brokkr_protocol::native_controls::{
     flatten, pin_fault, reassemble, AllowIntent, Application, Expected, HandsIntent, LaunchRecord,
     LocalExpectation, Origin, SandboxIntent, SealedBroker, SealedServing, Segment,
@@ -413,6 +413,8 @@ pub struct Engine {
     fence: Option<(u64, String)>,
     /// The writer lease the attempt in flight was admitted under (U8a2a).
     held: Option<broker::Held>,
+    /// The reach its admission sealed, which its every box is built from.
+    reach: broker::Authored,
 }
 
 pub(crate) fn verify_dispatch_bundle_bounds(
@@ -610,6 +612,7 @@ impl Engine {
             run_id,
             feature: feature.to_string(),
             repo: operated,
+            reach: Default::default(),
             world,
             current_cause: None,
             secrets_file: None,
@@ -654,6 +657,7 @@ impl Engine {
             run_id,
             feature: feature.to_string(),
             repo: operated_repo(repo),
+            reach: Default::default(),
             // A Looper-bound run pins a run-manifest/v2, whose bytes a
             // counterpart system reads; the map's pin belongs to the
             // v1→v5 local lineage. The CLI refuses the combination
@@ -718,6 +722,7 @@ impl Engine {
             run_id: run_id.to_string(),
             feature: feature.unwrap_or("unknown".to_string()),
             repo: operated_repo(repo),
+            reach: Default::default(),
             // Resume takes no map — and needs none. The world this run
             // believed in is pinned in the manifest just read, content
             // and all, so it is rehydrated from evidence rather than off
@@ -1199,18 +1204,25 @@ impl Engine {
         spawn: Option<&mut SiteSpawn>,
         input: &mut Value,
     ) {
-        self.mark_serving(label, link, &[], spawn, input);
+        self.mark_serving(
+            label,
+            link,
+            (&[], self.hands_for(label).as_ref()),
+            spawn,
+            input,
+        );
     }
 
     /// [`Engine::mark_capabilities`] with the brokers the attempt's
     /// provisioning sealed for this site (U7d2), its hands segment
     /// expanded beside them before the record is sealed
-    /// ([`isolation::beside`]).
+    /// ([`isolation::beside`]), and the reach sealed for its `hands`
+    /// written beside the artifact root (U8a2c).
     fn mark_serving(
         &self,
         label: &str,
         link: Option<&Candidate>,
-        brokers: &[SealedBroker],
+        (brokers, hands): (&[SealedBroker], Option<&HandsSpec>),
         spawn: Option<&mut SiteSpawn>,
         input: &mut Value,
     ) {
@@ -1254,10 +1266,10 @@ impl Engine {
             return;
         };
         let (workdir, artifacts) = (self.workdir(), artifact_root(&self.run_local()));
+        let reach = hands.and_then(|spec| self.reach.sealed(spec));
         let sealed = expected_state(outcome, link, facts).and_then(|expected| {
-            let site = (link, facts);
-            let served =
-                isolation::served(spawn, site, self.boundary, (&workdir, &artifacts), brokers);
+            let (site, boxed) = ((link, facts), (&*workdir, &*artifacts, reach));
+            let served = isolation::served(spawn, site, self.boundary, boxed, brokers);
             let serving = served.map_err(|unsealed| unsealed.to_string())?;
             spawn.seal(expected)?;
             spawn.serving = Some(serving);
@@ -1267,6 +1279,7 @@ impl Engine {
             Ok(()) => {
                 input["launch_arguments"] = spawn.launch_arguments();
                 input[ARTIFACT_ROOT] = json!(artifacts.to_string_lossy());
+                input[SEALED_REACH] = serde_json::to_value(reach).unwrap_or_default();
                 input[LAUNCH_RECORD] = spawn.launch_record();
                 input[SERVING_INPUTS] = spawn
                     .serving
@@ -1485,6 +1498,8 @@ impl Engine {
         let artifacts = artifact_root(&self.run_local());
         let boxed = boundary == BuiltBoundary::Namespace;
         let unrooted = boxed.then(|| make_root(&artifacts).err()).flatten();
+        // U8a2c: and the reach its admission sealed for these hands.
+        let sealed = hands.and_then(|spec| self.reach.sealed(spec));
         let mut spawn = SiteSpawn {
             // Rebuild unit 18: the site's own charter binding rides its
             // spawn to the dispatch door.
@@ -1497,7 +1512,7 @@ impl Engine {
                 hands,
                 link,
                 &workdir,
-                &artifacts,
+                (&artifacts, sealed),
                 &self.bundle.roots,
                 result_path,
                 unboxed.as_ref(),
@@ -1551,27 +1566,6 @@ impl Engine {
     #[cfg(not(target_os = "linux"))]
     fn network_narrowing(&mut self, _env: &BTreeMap<String, String>, _uid: u32, _gid: u32) -> bool {
         false
-    }
-
-    fn runtime_hands(&self, seat_name: &str) -> Option<brokkr_protocol::hands::HandsSpec> {
-        let mut spec = self.hands_for(seat_name)?;
-        let phase = seat_name
-            .split_once(':')
-            .map_or(seat_name, |(phase, _)| phase);
-        if phase == "ship" {
-            let workdir = std::fs::canonicalize(self.workdir()).unwrap_or_else(|_| self.workdir());
-            let journal =
-                std::fs::canonicalize(self.store.path()).unwrap_or(self.store.path().to_path_buf());
-            if !journal.starts_with(&workdir) {
-                let parent = journal.parent().unwrap_or(&journal);
-                spec.binds.push(brokkr_protocol::hands::Bind {
-                    path: parent.to_string_lossy().into_owned(),
-                    mode: brokkr_protocol::hands::BindMode::Ro,
-                    mask: Vec::new(),
-                });
-            }
-        }
-        Some(spec)
     }
 
     /// Conclude a single-driver attempt with its terminal effect event.
@@ -2929,6 +2923,9 @@ fn engine_hands(tokens: &[String]) -> Vec<Segment> {
 ///   operator's keys;
 /// - under `open`, a model site: the base driver argv and nothing of
 ///   Brokkr's.
+///
+/// `boxed` is what a box is handed: the run's artifact root (U8a) and the
+/// reach admission sealed for these hands (U8a2c).
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn compose_site(
     boundary: BuiltBoundary,
@@ -2937,7 +2934,7 @@ pub fn compose_site(
     hands: Option<&HandsSpec>,
     candidate: Option<&Candidate>,
     workdir: &Path,
-    artifacts: &Path,
+    boxed: (&Path, Option<&Sealed>),
     roots: &[PathBuf],
     result_path: &str,
     unboxed: Option<&Unboxed>,
@@ -2950,7 +2947,7 @@ pub fn compose_site(
         hands,
         candidate,
         workdir,
-        artifacts,
+        boxed,
         roots,
         result_path,
         unboxed,
@@ -2981,7 +2978,7 @@ pub fn compose_site_at(
     hands: Option<&HandsSpec>,
     candidate: Option<&Candidate>,
     workdir: &Path,
-    artifacts: &Path,
+    (artifacts, sealed): (&Path, Option<&Sealed>),
     roots: &[PathBuf],
     result_path: &str,
     unboxed: Option<&Unboxed>,
@@ -3018,7 +3015,7 @@ pub fn compose_site_at(
         hands,
         candidate,
         workdir,
-        artifacts,
+        boxed: (artifacts, sealed),
         roots,
         result_path,
         unboxed,
@@ -3038,7 +3035,7 @@ struct Composing<'a> {
     hands: Option<&'a HandsSpec>,
     candidate: Option<&'a Candidate>,
     workdir: &'a Path,
-    artifacts: &'a Path,
+    boxed: (&'a Path, Option<&'a Sealed>),
     roots: &'a [PathBuf],
     result_path: &'a str,
     unboxed: Option<&'a Unboxed>,
@@ -3051,7 +3048,7 @@ fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
         hands,
         candidate,
         workdir,
-        artifacts,
+        boxed,
         roots,
         result_path,
         unboxed,
@@ -3081,7 +3078,7 @@ fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
         // the recorded fragment `compose_site_at` appended last (rebuild
         // unit 14a4a).
         BuiltBoundary::Namespace => {
-            match hands_command(command, Some(spec), workdir, artifacts, roots) {
+            match hands_command(command, Some(spec), workdir, boxed, roots) {
                 Ok(mapped) => SiteSpawn::of(behind(mapped, &segments)),
                 Err(reason) => {
                     let mut spawn = SiteSpawn::of(segments);

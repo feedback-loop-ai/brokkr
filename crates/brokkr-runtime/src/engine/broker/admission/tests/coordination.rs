@@ -390,35 +390,46 @@ fn a_staged_historical_record_is_passed_over_by_the_inventory() {
     judged(host.admit(&later("b2")), None);
 }
 
-/// M2: a historical artifact is read and hashed a chunk at a time, the
-/// shared deadline checked after each, so the lock is never held past it
-/// by one artifact however large: a deadline that passes inside its first
-/// chunk's read ends the verification by MB3's identity cause, with no
+/// M2; R2 (U8a2c): a historical artifact is read and hashed a chunk at a
+/// time, the shared deadline checked once each chunk is hashed, so the
+/// lock is never held past it by one artifact however large, reading or
+/// hashing it: a deadline that passes inside its first chunk ends the
+/// verification by MB3's identity cause with that chunk hashed and no
 /// further chunk read; within its deadline the same artifact verifies,
-/// read to its end chunk by chunk.
+/// each chunk hashed as it is read, to its end: the digest handed on after
+/// each chunk is the digest of every byte read so far.
 #[test]
 fn a_deadline_that_passes_inside_an_artifacts_read_ends_its_verification() {
+    use sha2::Digest;
     let host = Host::new();
     let root = host.worktree("root");
-    let bytes = vec![7_u8; 3 * (64 << 10)];
+    let chunk = 64 << 10;
+    let bytes: Vec<u8> = (0..3 * chunk).map(|at| (at % 251) as u8).collect();
     let digests = root.join("sha256");
     std::fs::create_dir_all(&digests).unwrap();
     std::fs::write(digests.join(canonical::sha256_bytes(&bytes)), &bytes).unwrap();
-    let chunks = Cell::new(0);
-    let spent = || {
-        chunks.set(chunks.get() + 1);
+    let hashed = RefCell::new(Vec::new());
+    let read = |hasher: &sha2::Sha256| format!("{:x}", hasher.clone().finalize());
+    let spent = |hasher: &sha2::Sha256| {
+        hashed.borrow_mut().push(read(hasher));
         std::thread::sleep(Duration::from_millis(300));
     };
     let mut budget = Budget::new(Instant::now() + Duration::from_millis(200));
     let verified = historical::verified_with(&root, &mut budget, &spent);
     assert_eq!(verified, Err(Unadmitted::Identity(Unknown::Expired)));
-    assert_eq!(chunks.get(), 1, "no chunk read past the deadline");
-    chunks.set(0);
-    let counted = || chunks.set(chunks.get() + 1);
-    let verified = historical::verified_with(&root, &mut Budget::new(soon()), &counted);
+    let prefix = |chunks: usize| canonical::sha256_bytes(&bytes[..chunks * chunk]);
     assert_eq!(
-        (verified, chunks.get()),
-        (Ok(()), 4),
+        *hashed.borrow(),
+        [prefix(1)],
+        "one chunk hashed, none read past the deadline"
+    );
+    hashed.borrow_mut().clear();
+    let counted = |hasher: &sha2::Sha256| hashed.borrow_mut().push(read(hasher));
+    let verified = historical::verified_with(&root, &mut Budget::new(soon()), &counted);
+    let each = [prefix(1), prefix(2), prefix(3), prefix(3)];
+    assert_eq!(
+        (verified, hashed.take()),
+        (Ok(()), each.to_vec()),
         "three chunks and the end"
     );
 }
@@ -577,7 +588,7 @@ pub(super) fn died_after_its_end(host: &Host) -> (tempfile::TempDir, Engine, Pat
 /// engine gone before the release.
 pub(super) fn died_proved(host: &Host, died: &Claim) {
     let held = host.admit(died).unwrap();
-    proved(&held, soon()).unwrap();
+    assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
 }
 
 /// Append a genuine settled end for attempt `a1` of `run` to `engine`'s

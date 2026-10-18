@@ -75,7 +75,7 @@ mod inventory;
 mod observation;
 mod root;
 pub(super) mod settlement;
-pub(super) use admission::Held;
+pub(super) use admission::{Authored, Held};
 pub(super) use observation::{observed, Observed};
 
 /// One attempt's retention budget, which its retaining plans share (CR3).

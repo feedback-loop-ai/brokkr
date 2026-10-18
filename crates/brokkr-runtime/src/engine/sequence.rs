@@ -286,7 +286,8 @@ impl Engine {
             input["result_path"].as_str().unwrap_or_default(),
         );
         let brokers = run.selection.brokers(&at.label);
-        self.mark_serving(&at.label, link, brokers, Some(&mut spawn), &mut input);
+        let served = (brokers, hands.as_ref());
+        self.mark_serving(&at.label, link, served, Some(&mut spawn), &mut input);
         // A sequence step now HAS such an identity: proposed
         // decision 0056 ruling 1 gives it a structural site
         // key, so a work-class step rejoins its own session
@@ -408,7 +409,8 @@ impl Engine {
         // The generated validator holds nothing, and says so
         // (decision 0065; design D5).
         let brokers = run.selection.brokers(&at.label);
-        self.mark_serving(&at.label, None, brokers, Some(&mut spawn), &mut input);
+        let served = (brokers, hands.as_ref());
+        self.mark_serving(&at.label, None, served, Some(&mut spawn), &mut input);
         let driven = self.run_driver(
             run.effect_id,
             run.attempt_id,

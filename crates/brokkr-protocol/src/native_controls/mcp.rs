@@ -50,14 +50,16 @@ pub const ARTIFACT_ROOT: &str = "artifact_root";
 /// What the engine binds the box's hands to at spawn (decision 0043;
 /// rebuild unit 13-fix-b, R1): its own executable, which the harness spawns
 /// as `brokkr hands serve`, the site's workdir, the run-local artifact root
-/// the box keeps read-only (decision 0065 slice two, U8a; CR2) and its
-/// typed hands declaration. The transport's values are produced from
+/// the box keeps read-only (decision 0065 slice two, U8a; CR2), the reach
+/// sealed at admission that every box of it is built from (U8a2c; MB3) and
+/// its typed hands declaration. The transport's values are produced from
 /// these, never read from a record or a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Transport<'a> {
     pub brokkr: &'a std::path::Path,
     pub workdir: &'a std::path::Path,
     pub artifacts: &'a std::path::Path,
+    pub sealed: &'a crate::hands::Sealed,
     pub spec: &'a crate::hands::HandsSpec,
 }
 
@@ -178,7 +180,7 @@ impl Owed<'_> {
     fn args(&self) -> Vec<String> {
         match self {
             Owed::Hands(hands) => {
-                crate::hands::serve_args(hands.workdir, hands.artifacts, hands.spec)
+                crate::hands::serve_args(hands.workdir, hands.artifacts, hands.sealed, hands.spec)
             }
             Owed::Broker(broker) => [
                 "broker",
@@ -195,16 +197,19 @@ impl Owed<'_> {
 
     /// Whether `entry`, as a command was read to carry it, is exactly this
     /// server under the engine's `brokkr`: read field by field against the
-    /// sealed values, never compared with a rebuilt document.
+    /// sealed values, the sealed reach as the type it is (U8a2c), never
+    /// compared with a rebuilt document.
     fn is(&self, brokkr: &str, entry: &Entry) -> bool {
         let args: Vec<&str> = entry.args.iter().map(String::as_str).collect();
         let bound = match (self, &args[..]) {
             (
                 Owed::Hands(hands),
-                ["hands", "serve", "--workdir", workdir, "--artifacts", artifacts, "--spec", spec],
+                ["hands", "serve", "--workdir", workdir, "--artifacts", artifacts, "--reach", reach, "--spec", spec],
             ) => {
                 Some(*workdir) == hands.workdir.to_str()
                     && Some(*artifacts) == hands.artifacts.to_str()
+                    && serde_json::from_str(reach)
+                        .is_ok_and(|reach: crate::hands::Sealed| reach == *hands.sealed)
                     && serde_json::from_str(spec)
                         .is_ok_and(|spec: Value| spec == hands.spec.to_value())
             }
@@ -331,9 +336,10 @@ impl<'a> Servers<'a> {
     /// which stands in a TOML basic string, to the executable that string
     /// encodes (rebuild unit 13-fix-c, R2). A set without the box's hands
     /// serves no hands fragment, so nothing. `None` where the executable,
-    /// the workdir or the artifact root is not UTF-8, since no provider
-    /// value represents that path exactly and a lossy one would bind
-    /// another, and where the set cannot be served as sealed.
+    /// the workdir, the artifact root or a path of the sealed reach is not
+    /// UTF-8, since no provider value represents that path exactly and a
+    /// lossy one would bind another, and where the set cannot be served as
+    /// sealed.
     pub(super) fn expand(&self, fragment: &[String]) -> Option<Vec<String>> {
         let Some(hands) = self.hands else {
             return Some(Vec::new());
@@ -341,6 +347,7 @@ impl<'a> Servers<'a> {
         let brokkr = hands.brokkr.to_str()?;
         hands.workdir.to_str()?;
         hands.artifacts.to_str()?;
+        serde_json::to_string(hands.sealed).ok()?;
         let document = document(hands.brokkr, &self.named()?).to_string();
         let quoted: Vec<String> = (Owed::Hands(hands).args().iter())
             .map(|arg| format!("\"{}\"", toml_basic(arg)))

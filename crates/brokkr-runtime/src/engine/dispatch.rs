@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
+use brokkr_protocol::hands::HandsSpec;
 use brokkr_protocol::process::DriverProcess;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -83,7 +84,7 @@ impl Engine {
                 .body
                 .selected_is_gate(state.strategy.as_deref(), seat.has_gate),
         };
-        let (selection, single, started) = self.plan_attempt(events, &at, &mut input)?;
+        let (selection, started) = self.plan_attempt(events, &at, &mut input)?;
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
@@ -103,7 +104,7 @@ impl Engine {
             return Ok(());
         }
         let timed = (began, deadline, observed);
-        let ran = self.provisioned_body(&at, input, timed, selection, single);
+        let ran = self.provisioned_body(&at, input, timed, selection);
         self.settle(&attempt_id, ran)
     }
 
@@ -116,17 +117,19 @@ impl Engine {
         mut input: Value,
         (began, mut deadline, observed): (Instant, Duration, Observed),
         mut selection: Selection,
-        mut single: Option<SiteSpawn>,
     ) -> Result<(), EngineError> {
         let ids = [at.effect_id, at.attempt_id, at.site_name];
         if !self.provision(ids, &mut selection, (began, &mut deadline), observed)? {
             return Ok(());
         }
+        let hands = self.runtime_hands(at.site_name);
+        let mut single = self.compose_single(at, &selection, &input, hands.as_ref());
         // Sealed once its plans are provisioned, as members and steps are
         // (U7d2): the brokers it is served with are their pins.
         let brokers = selection.brokers(at.site_name);
         let link = selection.get(&None);
-        self.mark_serving(at.site_name, link, brokers, single.as_mut(), &mut input);
+        let served = (brokers, hands.as_ref());
+        self.mark_serving(at.site_name, link, served, single.as_mut(), &mut input);
         self.run_body(at, input, deadline, &selection, single)
     }
 
@@ -153,16 +156,40 @@ impl Engine {
         Ok(())
     }
 
+    /// The single driver's spawn, composed for the attempt `at` once it was
+    /// admitted, as its members and steps are, so its box is built from the
+    /// reach its admission sealed (U8a2c); none for a panel or a sequence.
+    /// The candidate it serves was selected before the durable start.
+    fn compose_single(
+        &mut self,
+        at: &Dispatch<'_>,
+        selection: &Selection,
+        input: &Value,
+        hands: Option<&HandsSpec>,
+    ) -> Option<SiteSpawn> {
+        let ExecutableBody::Invocation(Invocation::Single { command, .. }) = at.body else {
+            return None;
+        };
+        Some(self.compose_at(
+            Some(at.site_name),
+            at.attempt_id,
+            at.gate,
+            argv_for(selection, &None, command).to_vec(),
+            hands,
+            selection.get(&None),
+            input["result_path"].as_str().unwrap_or_default(),
+        ))
+    }
+
     /// Everything the attempt decides before its durable start: the
-    /// selection, the single driver's composed spawn, the executing
-    /// site's marks on `input`, and the `started` payload, with each
-    /// site's resume plan set on the selection.
+    /// selection, the executing site's marks on `input`, and the `started`
+    /// payload, with each site's resume plan set on the selection.
     fn plan_attempt(
         &mut self,
         events: &[EventEnvelope],
         at: &Dispatch<'_>,
         input: &mut Value,
-    ) -> Result<(Selection, Option<SiteSpawn>, Value), EngineError> {
+    ) -> Result<(Selection, Value), EngineError> {
         let driver_label = driver_label(at.body);
         // Which link of each agent's chain runs this attempt, decided
         // from journaled facts before anything spawns. The existing
@@ -170,25 +197,6 @@ impl Engine {
         // channel, and five consumers plus the engine would otherwise
         // have to parse a packed grammar to make a control decision.
         let (mut selection, provenance, chains) = select_candidates(events, at.effect_id, at.body);
-        // The single-driver argv is composed HERE, ahead of the durable
-        // start, because the session question is asked of it: which
-        // instance this attempt resolves to is part of what decides
-        // whether a prior session may be handed back to it.
-        let runtime_hands = self.runtime_hands(at.site_name);
-        let single = match at.body {
-            ExecutableBody::Invocation(Invocation::Single { command, .. }) => {
-                Some(self.compose_at(
-                    Some(at.site_name),
-                    at.attempt_id,
-                    at.gate,
-                    argv_for(&selection, &None, command).to_vec(),
-                    runtime_hands.as_ref(),
-                    selection.get(&None),
-                    input["result_path"].as_str().unwrap_or_default(),
-                ))
-            }
-            _ => None,
-        };
         // The delivery door is a spawn-time fact of the selected link
         // (decision 0046 ruling 4): it rides the input the driver reads,
         // beside the journal path a ship seat receives, and outside the
@@ -239,7 +247,7 @@ impl Engine {
             &started,
             started_here,
         );
-        Ok((selection, single, started))
+        Ok((selection, started))
     }
 
     /// Run the attempt's selected body: a panel's members, a sequence's

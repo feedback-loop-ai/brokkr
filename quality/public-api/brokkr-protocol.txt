@@ -485,6 +485,7 @@ impl brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::lines_with(&self, fn(&str) -> alloc::string::String) -> alloc::string::String
 impl core::fmt::Display for brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::Reaped::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_protocol::hands::Sealed
 pub struct brokkr_protocol::hands::ServerBox
 impl brokkr_protocol::hands::ServerBox
 pub fn brokkr_protocol::hands::ServerBox::entry(&mut self, u32) -> core::result::Result<brokkr_protocol::hands::ServerEntry, brokkr_protocol::broker::Refusal>
@@ -521,21 +522,23 @@ pub const brokkr_protocol::hands::BOUNDARY_IS_THE_REALMS: &str
 pub const brokkr_protocol::hands::HANDS_BOX_ENV: &str
 pub const brokkr_protocol::hands::HOST_TOOLCHAIN_BINDS: &[&str]
 pub const brokkr_protocol::hands::SANDBOX_BUNDLE: &str
+pub const brokkr_protocol::hands::SEALED_REACH: &str
 pub const brokkr_protocol::hands::SERVER_NAME: &str
 pub const brokkr_protocol::hands::TOOL_NAME: &str
 pub const brokkr_protocol::hands::UNPROTECTED_EVIDENCE: &str
 pub fn brokkr_protocol::hands::boundary_evidence_required() -> bool
-pub fn brokkr_protocol::hands::box_argv(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &std::path::Path, brokkr_protocol::hands::OverlayWrites<'_>, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::io::error::Result<alloc::vec::Vec<alloc::string::String>>
+pub fn brokkr_protocol::hands::box_argv(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &std::path::Path, brokkr_protocol::hands::OverlayWrites<'_>, &[(alloc::string::String, alloc::string::String)], core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::io::error::Result<alloc::vec::Vec<alloc::string::String>>
 pub fn brokkr_protocol::hands::bwrap_on(&std::ffi::os_str::OsStr) -> core::result::Result<std::path::PathBuf, alloc::string::String>
 pub fn brokkr_protocol::hands::drain_bounded<R: alloc::io::read::Read>(R) -> (alloc::vec::Vec<u8>, bool)
-pub fn brokkr_protocol::hands::execute(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
-pub fn brokkr_protocol::hands::execute_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
+pub fn brokkr_protocol::hands::drifted(&brokkr_protocol::hands::Sealed, &brokkr_protocol::hands::HandsSpec, &std::path::Path) -> core::option::Option<std::path::PathBuf>
+pub fn brokkr_protocol::hands::execute(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &std::path::Path, &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
+pub fn brokkr_protocol::hands::execute_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &std::path::Path, &std::path::Path, &[(alloc::string::String, alloc::string::String)], &str, core::time::Duration) -> core::result::Result<brokkr_protocol::hands::Executed, alloc::string::String>
 pub fn brokkr_protocol::hands::git_facts(&std::path::Path) -> brokkr_protocol::hands::GitFacts
 pub fn brokkr_protocol::hands::handle(&str, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &brokkr_protocol::hands::Executor) -> core::option::Option<serde_json::value::Value>
 pub fn brokkr_protocol::hands::home_dir(&alloc::collections::btree::map::BTreeMap<alloc::string::String, alloc::string::String>) -> std::path::PathBuf
 pub fn brokkr_protocol::hands::ids() -> (u32, u32)
 pub fn brokkr_protocol::hands::io_context<T>(core::io::error::Result<T>, &str) -> core::result::Result<T, alloc::string::String>
-pub fn brokkr_protocol::hands::mcp_config(&std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec) -> serde_json::value::Value
+pub fn brokkr_protocol::hands::mcp_config(&std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &brokkr_protocol::hands::HandsSpec) -> serde_json::value::Value
 pub fn brokkr_protocol::hands::namespace_join(&str, &std::path::Path) -> alloc::string::String
 pub fn brokkr_protocol::hands::network_prefix(u32, u32) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_protocol::hands::overlay_supported(&brokkr_protocol::hands::HandsSpec, &std::path::Path) -> core::result::Result<(), alloc::string::String>
@@ -546,10 +549,11 @@ pub fn brokkr_protocol::hands::probe_network_prefix(&alloc::collections::btree::
 pub fn brokkr_protocol::hands::reap_dead_sessions() -> brokkr_protocol::hands::Reaped
 pub fn brokkr_protocol::hands::require_bwrap() -> core::result::Result<std::path::PathBuf, alloc::string::String>
 pub fn brokkr_protocol::hands::require_bwrap_for(&brokkr_protocol::hands::HandsSpec) -> core::result::Result<std::path::PathBuf, alloc::string::String>
-pub fn brokkr_protocol::hands::run_boxed(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
-pub fn brokkr_protocol::hands::run_boxed_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
+pub fn brokkr_protocol::hands::run_boxed(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
+pub fn brokkr_protocol::hands::run_boxed_in(&std::path::Path, &brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &std::path::Path, &[(alloc::string::String, alloc::string::String)], core::option::Option<&std::path::Path>, &[alloc::string::String]) -> core::result::Result<i32, alloc::string::String>
+pub fn brokkr_protocol::hands::seal(&brokkr_protocol::hands::HandsSpec, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::GitFacts) -> brokkr_protocol::hands::Sealed
 pub fn brokkr_protocol::hands::serve<R: alloc::io::buf_read::BufRead, W: core::io::write::Write>(R, W, &std::path::Path, &std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec, &brokkr_protocol::hands::Executor) -> core::io::error::Result<()>
-pub fn brokkr_protocol::hands::serve_args(&std::path::Path, &std::path::Path, &brokkr_protocol::hands::HandsSpec) -> alloc::vec::Vec<alloc::string::String>
+pub fn brokkr_protocol::hands::serve_args(&std::path::Path, &std::path::Path, &brokkr_protocol::hands::Sealed, &brokkr_protocol::hands::HandsSpec) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_protocol::hands::server_environment() -> impl core::iter::traits::iterator::Iterator<Item = &'static str>
 pub fn brokkr_protocol::hands::skip_boundary_proof(bool, &str)
 pub fn brokkr_protocol::hands::tool_definition() -> serde_json::value::Value
@@ -900,6 +904,7 @@ pub brokkr_protocol::native_controls::Toolset::include: core::option::Option<all
 pub struct brokkr_protocol::native_controls::Transport<'a>
 pub brokkr_protocol::native_controls::Transport::artifacts: &'a std::path::Path
 pub brokkr_protocol::native_controls::Transport::brokkr: &'a std::path::Path
+pub brokkr_protocol::native_controls::Transport::sealed: &'a brokkr_protocol::hands::Sealed
 pub brokkr_protocol::native_controls::Transport::spec: &'a brokkr_protocol::hands::HandsSpec
 pub brokkr_protocol::native_controls::Transport::workdir: &'a std::path::Path
 impl brokkr_protocol::native_controls::Transport<'_>

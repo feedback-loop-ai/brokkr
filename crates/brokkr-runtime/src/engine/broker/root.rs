@@ -33,15 +33,41 @@ pub(super) const PRIOR: &str = ".old";
 const POLL: Duration = Duration::from_millis(10);
 
 /// Where a seal stands when it hands its hook the directory and a name
-/// ([`seal_with`]): its staged copy written and synced, before its last
-/// deadline check ahead of the commit; committed, before the directory is
-/// synced and the deadline checked the last time; or undone, the record
-/// that stood put back, before the directory is synced again.
+/// ([`seal_with`]): its staged copy written and synced, before its
+/// deadline check ahead of the rename; renamed in, before the directory is
+/// synced and the deadline checked; retiring the record that stood, before
+/// the deadline is checked the last time and its prior name removed, the
+/// commit; final, before the directory is synced once more; or undone, the
+/// record that stood put back, before the directory is synced again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
     Staged,
     Committed,
+    Retiring,
+    Final,
     Undone,
+}
+
+/// What a seal that committed reports (R1 of U8a2a's fourth run, fixed by
+/// U8a2c): its directory synced as it was committed, or not proven synced
+/// once its record that stood was retired, its successor then the record
+/// every read finds all the same; the latter fails the run under the fence
+/// rule where its caller asks it.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Commit {
+    Synced,
+    Unsynced,
+}
+
+impl Commit {
+    /// Synced only where both are.
+    pub(super) fn and(self, other: Commit) -> Commit {
+        match (self, other) {
+            (Commit::Synced, Commit::Synced) => Commit::Synced,
+            (Commit::Unsynced, _) | (_, Commit::Unsynced) => Commit::Unsynced,
+        }
+    }
 }
 
 /// What every record sealed below a root is handed at each [`Step`]; an
@@ -121,7 +147,7 @@ impl Root {
         name: &str,
         bytes: &[u8],
         budget: &Budget,
-    ) -> Result<(), Unknown> {
+    ) -> Result<Commit, Unknown> {
         seal_with(dir, name, bytes, budget, self.hook)
     }
 }
@@ -247,27 +273,31 @@ fn same(one: &Stat, other: &Stat) -> bool {
 /// deadline. A seal of `name` cut short before it was final is undone
 /// first ([`restored`]). The bytes are written as a new owner-only file
 /// beside it ([`staged_as`]); then, the deadline checked once more,
-/// committed ([`commit`]): the record that stood linked as `name` with
+/// renamed in ([`commit`]): the record that stood linked as `name` with
 /// [`PRIOR`] after it, and the staged copy renamed over `name`. That is
-/// handed to `hook` again, the directory synced and the deadline checked;
-/// and the seal is final only once the prior name is removed and the
-/// directory synced again. Until then every read finds the record that
-/// stood ([`standing`]). A seal that fails or runs late after its commit is
-/// undone ([`undone`]): the record that stood renamed back, the same file,
-/// so its bytes and its inode, or the record made removed where none stood
-/// (H1; R1 of run four's review). One whose undoing fails refuses as
-/// unsealed, whatever cut it short, the record that stood still under its
-/// prior name for every read and for the next seal to put back (M2 of run
-/// four's second review). Only links, renames and removals within one
-/// directory, which every filesystem a protected root can stand on
-/// provides: no atomic exchange (M3).
+/// handed to `hook` again, the directory synced and the deadline checked.
+/// A first seal is then committed. A reseal is committed only once the
+/// record that stood is retired ([`retired`]): the deadline checked the
+/// last time, its prior name removed, and the directory synced again.
+/// Until then every read finds the record that stood ([`standing`]). A
+/// seal that fails or runs late before its commit is undone ([`undone`]):
+/// the record that stood renamed back, the same file, so its bytes and its
+/// inode, or the record made removed where none stood (H1; R1 of run
+/// four's review). One whose undoing fails refuses as unsealed, whatever
+/// cut it short, the record that stood still under its prior name for
+/// every read and for the next seal to put back (M2 of run four's second
+/// review). Once committed, no seal reports failure or lateness: one whose
+/// directory is not proven synced after reports itself committed but
+/// [`Commit::Unsynced`] (R1 of the fourth run, U8a2c). Only links, renames
+/// and removals within one directory, which every filesystem a protected
+/// root can stand on provides: no atomic exchange (M3).
 pub(super) fn seal_with(
     dir: &OwnedFd,
     name: &str,
     bytes: &[u8],
     budget: &Budget,
     hook: Hook,
-) -> Result<(), Unknown> {
+) -> Result<Commit, Unknown> {
     budget.check()?;
     restored(dir, name)?;
     let staged = format!("{name}{STAGED}");
@@ -289,11 +319,29 @@ pub(super) fn seal_with(
         return Err(undone.map_or(Unknown::Unsealed, |()| refused));
     }
     if !stood {
-        return Ok(());
+        return Ok(Commit::Synced);
     }
+    retired(dir, name, budget, hook)
+}
+
+/// The reseal of `name` in `dir`, renamed in and synced, committed by
+/// retiring the record that stood: handed to `hook`, the deadline of
+/// `budget` checked the last time, and its prior name removed; whether the
+/// directory is then synced. One late or whose prior name cannot be
+/// removed is undone ([`undone`]) and refused, the record that stood still
+/// what every read finds.
+fn retired(dir: &OwnedFd, name: &str, budget: &Budget, hook: Hook) -> Result<Commit, Unknown> {
     let prior = format!("{name}{PRIOR}");
-    let finished = unlinkat(dir, prior.as_str(), AtFlags::empty()).and_then(|()| fsync(dir));
-    finished.or(Err(Unknown::Unsealed))
+    let retiring = (hook(Step::Retiring, dir, name).or(Err(Unknown::Unsealed)))
+        .and_then(|()| budget.check())
+        .and_then(|()| unlinkat(dir, prior.as_str(), AtFlags::empty()).or(Err(Unknown::Unsealed)));
+    if let Err(refused) = retiring {
+        let undone = undone(dir, name, true, hook);
+        return Err(undone.map_or(Unknown::Unsealed, |()| refused));
+    }
+    // Committed: its successor alone is the record, as every read finds it.
+    let synced = hook(Step::Final, dir, name).and_then(|()| Ok(fsync(dir)?));
+    Ok(synced.map_or(Commit::Unsynced, |()| Commit::Synced))
 }
 
 /// `bytes` written as the new owner-only file `staged` in `dir`, synced

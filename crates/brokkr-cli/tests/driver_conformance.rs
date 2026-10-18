@@ -2259,7 +2259,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         hands.as_ref(),
         Some(candidate),
         workdir.path(),
-        workdir.path().join("artifacts").as_path(),
+        (workdir.path().join("artifacts").as_path(), None),
         &[],
         result,
         None,

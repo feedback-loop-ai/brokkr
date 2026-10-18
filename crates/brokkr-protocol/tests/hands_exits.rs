@@ -13,7 +13,8 @@
 #[path = "../../../tests/support/env_guard.rs"]
 mod env_guard;
 
-use brokkr_protocol::hands::{execute_in, git_facts, run_boxed, run_boxed_in, GitFacts, HandsSpec};
+use brokkr_protocol::hands::{execute_in, git_facts, run_boxed, run_boxed_in, seal, Sealed};
+use brokkr_protocol::hands::{GitFacts, HandsSpec};
 use env_guard::EnvGuard;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -57,6 +58,17 @@ fn artifact_root(dir: &Path) -> PathBuf {
     artifacts
 }
 
+/// The reach a default box in `dir` is sealed, Git asked through the PATH
+/// in force (U8a2c).
+fn sealed(dir: &Path) -> Sealed {
+    seal(
+        &HandsSpec::default(),
+        &dir.join("home"),
+        dir,
+        &git_facts(dir),
+    )
+}
+
 /// A box killed by a signal has no exit code, and says so as `-1`, both
 /// through the bounded `execute_in` and the pass-through `run_boxed_in`.
 #[test]
@@ -64,18 +76,18 @@ fn a_box_killed_by_a_signal_reports_minus_one() {
     let _env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     let bwrap = stand_ins(dir.path(), 1).join("bwrap");
-    let (spec, facts) = (HandsSpec::default(), GitFacts::default());
-    let (home, session) = (dir.path().join("home"), dir.path().join("session"));
+    let (spec, reach) = (HandsSpec::default(), sealed(dir.path()));
+    let session = dir.path().join("session");
     let artifacts = artifact_root(dir.path());
     let executed = execute_in(
         &bwrap,
         &spec,
         dir.path(),
         &artifacts,
-        &home,
+        &reach,
         &dir.path().join("scratch"),
         &session,
-        &facts,
+        &[],
         "signal",
         Duration::from_secs(60),
     )
@@ -87,9 +99,9 @@ fn a_box_killed_by_a_signal_reports_minus_one() {
             &spec,
             dir.path(),
             &artifacts,
-            &home,
+            &reach,
             &session,
-            &facts,
+            &[],
             None,
             &command(text),
         )
@@ -105,12 +117,13 @@ fn run_boxed_returns_the_exit_code_of_the_box() {
     let mut env = EnvGuard::lock();
     let dir = tempfile::tempdir().unwrap();
     env.set("PATH", stand_ins(dir.path(), 1));
-    let artifacts = artifact_root(dir.path());
+    let (artifacts, reach) = (artifact_root(dir.path()), sealed(dir.path()));
     let run = |text: &str| {
         run_boxed(
             &HandsSpec::default(),
             dir.path(),
             &artifacts,
+            &reach,
             None,
             &command(text),
         )
@@ -130,12 +143,13 @@ fn run_boxed_refuses_when_its_session_cannot_be_made() {
     let file = dir.path().join("not-a-directory");
     std::fs::write(&file, "").unwrap();
     env.set("TMPDIR", &file);
-    let artifacts = artifact_root(dir.path());
+    let (artifacts, reach) = (artifact_root(dir.path()), sealed(dir.path()));
     assert_eq!(
         run_boxed(
             &HandsSpec::default(),
             dir.path(),
             &artifacts,
+            &reach,
             None,
             &command("0")
         ),
