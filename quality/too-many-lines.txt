@@ -6,9 +6,9 @@
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  106 crates/brokkr-core/src/policy.rs:427 parse_rule
  177 crates/brokkr-core/src/realms.rs:515 of
- 105 crates/brokkr-protocol/src/adapters.rs:1523 fold_stream_event
- 101 crates/brokkr-protocol/src/adapters.rs:4431 dsh_launch_with
- 317 crates/brokkr-protocol/src/adapters.rs:6493 run_seat_with
+ 105 crates/brokkr-protocol/src/adapters.rs:1524 fold_stream_event
+ 101 crates/brokkr-protocol/src/adapters.rs:4422 dsh_launch_with
+ 317 crates/brokkr-protocol/src/adapters.rs:6479 run_seat_with
  229 crates/brokkr-protocol/src/adapters/composite.rs:1346 pnpm_dependencies
  114 crates/brokkr-protocol/src/adapters/composite/image.rs:313 elf
  114 crates/brokkr-protocol/src/fake.rs:73 run_fake_session
@@ -51,12 +51,12 @@
  348 crates/brokkr-cli/tests/doctor_dsh_selection.rs:1220 terminal_path_lengths_refuse_before_doctor_probe
  391 crates/brokkr-cli/tests/doctor_dsh_selection.rs:2248 ignored_pnpm_values_are_admitted_as_syntax_through_the_built_doctor
  106 crates/brokkr-cli/tests/doctor_dsh_selection.rs:2764 a_dsh_alias_of_env_is_refused_and_an_admitted_alias_runs_as_selected
- 330 crates/brokkr-cli/tests/driver_conformance.rs:1412 conformance_across_all_builtin_adapters
- 146 crates/brokkr-cli/tests/driver_conformance.rs:2237 the_shipped_codex_harness_work_seat_rejoins_its_retry
- 113 crates/brokkr-cli/tests/driver_conformance.rs:2422 the_shipped_inline_codex_work_seat_rejoins_its_retry
+ 330 crates/brokkr-cli/tests/driver_conformance.rs:1393 conformance_across_all_builtin_adapters
+ 146 crates/brokkr-cli/tests/driver_conformance.rs:2218 the_shipped_codex_harness_work_seat_rejoins_its_retry
+ 113 crates/brokkr-cli/tests/driver_conformance.rs:2403 the_shipped_inline_codex_work_seat_rejoins_its_retry
  111 crates/brokkr-cli/tests/machine_proof.rs:257 triage
- 118 crates/brokkr-cli/tests/machine_proof.rs:1537 one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verbs
- 110 crates/brokkr-cli/tests/machine_proof.rs:2335 compare_aligns_two_runs_and_finds_the_review_divergence
+ 118 crates/brokkr-cli/tests/machine_proof.rs:1535 one_unfoldable_journal_is_quarantined_by_runs_and_still_fatal_to_its_own_verbs
+ 110 crates/brokkr-cli/tests/machine_proof.rs:2333 compare_aligns_two_runs_and_finds_the_review_divergence
  148 crates/brokkr-cli/tests/transcript_command.rs:1110 packed_dsh_members_coalesce_into_selectable_chunks
  119 crates/brokkr-cli/tests/transcript_privacy.rs:814 a_read_leaves_an_existing_frame_bearing_wal_as_it_found
  145 crates/brokkr-cli/tests/transcript_surfaces.rs:303 compare

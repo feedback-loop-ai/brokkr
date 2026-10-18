@@ -20,9 +20,10 @@ use super::{
     enforce_model_policy, fold_driver_facts, is_engine_owned, owner_index, parse_limits,
     parse_secrets, phases, pins, record_capabilities, record_hands, record_judged_tools,
     refuse_aliasing_sites, refuse_class_without_a_driver, refuse_global_aliasing,
-    relocate_verify_facts, resolved_hands, site_facts, CharterPins, Charters, CompileError,
-    Dialect, DialectExecution, ExecutableBody, Invocation, LibraryRead, Limits, Opened,
-    ResolvedSeat, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, SiteKey, SiteLaw, StepBody,
+    relocate_verify_facts, resolved_hands, site_facts, CapabilityWalk, CharterPins, Charters,
+    CompileError, Dialect, DialectExecution, ExecutableBody, Invocation, LibraryRead, Limits,
+    Opened, ResolvedSeat, Seat, SeatBody, SeatClass, SequenceStep, SiteFacts, SiteKey, SiteLaw,
+    StepBody,
 };
 use crate::agents::EgressClass;
 use crate::capabilities::{Authority, Definitions};
@@ -339,21 +340,12 @@ fn record_seat_capabilities(
     resolved: &compose::Resolved,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
-    let (library, adapters) = (agents.library(), agents.capability_adapters());
+    let walk = CapabilityWalk::of(authority, agents, boundary, resolved);
     for (phase, raw) in &resolved.seats {
         // The layer that wrote the seat, as its agent's hands
         // segment is expanded against (review return F1).
         let dir = &resolved.roots[resolved.seat_origin[phase]];
-        record_capabilities(
-            authority,
-            library,
-            adapters,
-            boundary,
-            (dir, &resolved.roots, &resolved.case_origin),
-            phase,
-            raw,
-            sites,
-        )?;
+        record_capabilities(&walk, dir, phase, raw, sites)?;
     }
     Ok(())
 }
@@ -503,16 +495,8 @@ impl Seated<'_, '_> {
         {
             // A dialect phase opened the adapters above, and the
             // validator's gate law read them.
-            record_capabilities(
-                self.authority,
-                self.agents.library(),
-                self.agents.capability_adapters(),
-                boundary,
-                (law.dir, &resolved.roots, &resolved.case_origin),
-                dialect_site,
-                &synthetic,
-                &mut self.sites,
-            )?;
+            let walk = CapabilityWalk::of(self.authority, &self.agents, boundary, resolved);
+            record_capabilities(&walk, law.dir, dialect_site, &synthetic, &mut self.sites)?;
         }
         // The generated validator declares no `tools`, and like every
         // other visited executable it records that as a CHECKED

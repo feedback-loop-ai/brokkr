@@ -42,7 +42,7 @@ mod walk;
 pub use aggregate::Aggregate;
 use capability_record::{
     nested_sites, record_agent_capabilities, record_dialect_capabilities,
-    record_inline_capabilities, CapabilitySite,
+    record_inline_capabilities, CapabilitySite, CapabilityWalk,
 };
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
@@ -65,7 +65,7 @@ use walk::{refuse_unlisted_consumed, walk_digests, walk_keys, Walk};
 use crate::agents::{resolve_route, TrustTier};
 use crate::agents::{
     route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition, EgressClass,
-    HandsNotice, Library, Lowering, Sandbox,
+    HandsNotice, Lowering, Sandbox,
 };
 use crate::dialect::{Dialect, DialectPhase};
 use crate::phase_name;
@@ -4494,27 +4494,24 @@ fn record_hands(
 /// site's agent record, where a skipped model link already is. `dir` is
 /// the directory an inline site's command was expanded against; a select
 /// case a later layer wrote by `override.cases` is walked in that layer's
-/// root, from `roots` by `case_origin`, as `parse_select` parses it.
-#[expect(clippy::too_many_arguments, reason = "decision 0065, #288")]
+/// root, from the walk's `roots` by its `case_origin`, as `parse_select`
+/// parses it.
 fn record_capabilities(
-    authority: &crate::capabilities::Authority,
-    library: Option<&Library>,
-    adapters: CapabilityAdapters<'_>,
-    boundary: Boundary,
-    (dir, roots, case_origin): (&Path, &[PathBuf], &BTreeMap<String, usize>),
+    walk: &CapabilityWalk<'_>,
+    dir: &Path,
     what: &str,
     raw: &Value,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
     let written = raw.get("capabilities");
     let at = CapabilitySite {
-        authority,
-        adapters,
+        authority: walk.authority,
+        adapters: walk.adapters,
         what,
         raw,
     };
     if let Some(name) = raw.get("agent").and_then(Value::as_str) {
-        return record_agent_capabilities(&at, library, boundary, name, sites);
+        return record_agent_capabilities(&at, walk.library, walk.boundary, name, sites);
     }
     // A single site, by the same two keys `has_single` reads.
     if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
@@ -4530,17 +4527,8 @@ fn record_capabilities(
     if raw.get("dialect").is_some() {
         return record_dialect_capabilities(&at, sites);
     }
-    for (label, raw, dir) in nested_sites(what, raw, (dir, roots, case_origin)) {
-        record_capabilities(
-            authority,
-            library,
-            adapters,
-            boundary,
-            (dir, roots, case_origin),
-            &label,
-            raw,
-            sites,
-        )?;
+    for (label, raw, dir) in nested_sites(what, raw, (dir, walk.roots, walk.case_origin)) {
+        record_capabilities(walk, dir, &label, raw, sites)?;
     }
     Ok(())
 }
@@ -5120,17 +5108,9 @@ fn unlisted(
 }
 
 /// The `(dev, ino)` `meta` describes.
-#[cfg(unix)]
 fn node(meta: &std::fs::Metadata) -> (u64, u64) {
     use std::os::unix::fs::MetadataExt;
     (meta.dev(), meta.ino())
-}
-
-/// As [`entry_of`]: any other host consumes nothing, and so never searches a
-/// skipped tree.
-#[cfg(not(unix))]
-fn node(_: &std::fs::Metadata) -> (u64, u64) {
-    (0, 0)
 }
 
 /// The refusal of a consumed input whose entry `key` the walk could not
@@ -5213,7 +5193,6 @@ type Entry = ((u64, u64), OsString);
 
 /// The entry `path` names: its directory, following links on the way, and
 /// its own name.
-#[cfg(unix)]
 fn entry_of(path: &Path) -> std::io::Result<Entry> {
     use std::os::unix::fs::MetadataExt;
     let parent = std::fs::metadata(path.parent().expect("a walked path has a parent"))?;
@@ -5225,7 +5204,6 @@ fn entry_of(path: &Path) -> std::io::Result<Entry> {
 /// `(dev, ino)` as a file a bound read held — with the entry it is. The
 /// entry itself is asked, never a link's target, so a link to a consumed
 /// file is walked as the link it is.
-#[cfg(unix)]
 fn consumed_entry<'a>(
     path: &Path,
     consumed: &'a BTreeMap<String, Supplied>,
@@ -5237,22 +5215,6 @@ fn consumed_entry<'a>(
         Some(supplied) => Ok(Some((supplied, entry_of(path)?))),
         None => Ok(None),
     }
-}
-
-/// No supported host lacks the identity; any other consumes nothing, since
-/// its every bound read refuses (design D7).
-#[cfg(not(unix))]
-fn entry_of(_: &Path) -> std::io::Result<Entry> {
-    Err(std::io::ErrorKind::Unsupported.into())
-}
-
-/// As [`entry_of`]: any other host consumes nothing.
-#[cfg(not(unix))]
-fn consumed_entry<'a>(
-    _: &Path,
-    _: &'a BTreeMap<String, Supplied>,
-) -> std::io::Result<Option<(&'a Supplied, Entry)>> {
-    Ok(None)
 }
 
 #[cfg(test)]
