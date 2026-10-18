@@ -5629,8 +5629,8 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
 }
 
 /// Rebuild unit 6 (task 6.1): the three Claude seats of the shipped
-/// `node` and `preflight` recipes (fast's two and node's hire library
-/// offices since #360) author no capability flag and
+/// `brokkr-fast` and `preflight` recipes (brokkr-fast's two hire library
+/// offices, Brokkr's own since decision 0087) author no capability flag and
 /// declare a typed allow instead. Each one, compiled from the shipped
 /// directory in a realm that grants nothing and composed and sealed by the
 /// engine's own functions, holds nothing; the engine emits the adapter's
@@ -5644,21 +5644,21 @@ fn every_site_of_every_shipped_bundle_holds_nothing_and_has_its_native_powers_de
 fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_limits() {
     let operator = Operator::new();
     let context = CapabilityContext::no_grants("private", operator.root());
-    let node = (
-        ["npm", "npx", "node", "git", "ls", "rg", "mkdir"],
-        "Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
+    let fast = (
+        ["cargo", "git", "ls", "rg", "mkdir"],
+        "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*),Bash(mkdir:*)",
     );
     let preflight = (
         &["cargo", "git", "ls", "rg"][..],
         "Bash(cargo:*),Bash(git:*),Bash(ls:*),Bash(rg:*)",
     );
     let seats = [
-        ("node", "implement", &node.0[..], node.1),
-        ("node", "review", &node.0[..], node.1),
-        ("preflight", "review", preflight.0, preflight.1),
+        ("brokkr-fast", "implement", &fast.0[..], fast.1, Some(3)),
+        ("brokkr-fast", "review", &fast.0[..], fast.1, Some(2)),
+        ("preflight", "review", preflight.0, preflight.1, None),
     ];
     let (mut observed, mut expected) = (serde_json::Map::new(), serde_json::Map::new());
-    for (recipe, seat, names, list) in seats {
+    for (recipe, seat, names, list, office) in seats {
         let bundle = Bundle::compile_with_capabilities(
             &workspace().join("recipes").join(recipe),
             &workspace().join("agents"),
@@ -5695,7 +5695,6 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
                 "final": try_launch(&bundle, seat, 0),
             }),
         );
-        let office = recipe == "node";
         let record = shipped_claude_record(names, list, office);
         expected.insert(format!("{recipe}/{seat}"), record);
     }
@@ -5705,23 +5704,23 @@ fn the_shipped_claude_recipes_seat_their_typed_allow_as_the_engines_exact_local_
 /// What a shipped Claude seat on Fable records and launches with its
 /// typed allow lowered to `list`. Inline (preflight's judge), the recipe
 /// authors the pins and the engine appends the adapter's template and the
-/// list. As a library office (node's and verify's since #360), the
-/// resolver composes the template, the pins and the list into the authored
-/// command, in that order: the same flags and limits, and an Opus fallback.
-fn shipped_claude_record(names: &[&str], list: &str, office: bool) -> Value {
+/// list. As a library office of `office` links (verify's and brokkr-fast's),
+/// the resolver composes the template, the pins and the list into the
+/// authored command, in that order: the same flags and limits, and fallbacks.
+fn shipped_claude_record(names: &[&str], list: &str, office: Option<usize>) -> Value {
     let pins = ["--model", "claude-fable-5-1", "--effort", "high"];
     let template = ["--permission-mode", "acceptEdits"];
     let local = ["--allowedTools", list];
     let (model, effort) = pins.split_at(2);
     let (authored, spawn, segments) = match office {
-        false => (
+        None => (
             pins.to_vec(),
             [&pins[..], &template, &local].concat(),
             json!([{"origin": "authored", "argv": pins},
                    {"origin": "template", "argv": template},
                    {"origin": "local", "argv": local}]),
         ),
-        true => (
+        Some(_) => (
             [&template[..], &pins, &local].concat(),
             [&template[..], &pins, &local].concat(),
             json!([{"origin": "template", "argv": template},
@@ -5747,7 +5746,7 @@ fn shipped_claude_record(names: &[&str], list: &str, office: bool) -> Value {
     );
     json!({
         "authored command": authored,
-        "held": if office { json!([0, 0]) } else { json!([0]) },
+        "held": vec![0; office.unwrap_or(1)],
         "spawn": spawn,
         "segments": segments,
         "local": {"allow": {"kind": "listed", "names": names},
@@ -5900,7 +5899,7 @@ fn the_shipped_verify_and_codex_recipes_seat_their_typed_restrictions_as_the_eng
     ];
     let names = ["cargo", "git", "ls", "rg", "gh-pr-view", "gh-run-view"];
     let expected = json!({
-        "verify/review": shipped_claude_record(&names, list, true),
+        "verify/review": shipped_claude_record(&names, list, Some(2)),
         "standby/implement": codex(&["--sandbox", "workspace-write"], "workspace-write", "file"),
         "standby/review": codex(&gate, "read-only", "last-message"),
         "review-first/review": codex(&gate, "read-only", "last-message"),
@@ -6048,6 +6047,7 @@ fn no_shipped_driver_command_authors_a_capability_bearing_option() {
         sweep(&workspace().join(dir), &mut observed);
     }
     let mut expected: std::collections::BTreeMap<String, Vec<String>> = [
+        "recipes/brokkr-fast",
         "recipes/fast",
         "recipes/gpt-flash",
         "recipes/landing",

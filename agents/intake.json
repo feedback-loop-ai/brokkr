@@ -1,22 +1,16 @@
 {
-  "description": "Frames a raw request into a recorded, actionable task before any code is written.",
   "charter": "charters/intake.md",
-  "models": [
-    "sonnet",
-    "opus"
-  ],
+  "description": "Frames a raw request into a recorded, actionable task before any code is written.",
   "efforts": {
-    "sonnet": "high",
-    "opus": "high"
-  },
-  "tools": {
-    "allow": [
-      "git"
-    ],
-    "mcp": []
+    "opus": "high",
+    "sonnet": "high"
   },
   "limits": {
     "max_attempts": 2,
     "timeout_seconds": 1800
-  }
+  },
+  "models": [
+    "sonnet",
+    "opus"
+  ]
 }

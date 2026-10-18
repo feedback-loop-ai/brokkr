@@ -45,12 +45,26 @@ fn bundle_dir(dir: &std::path::Path) -> std::path::PathBuf {
     bundle
 }
 
-#[test]
-fn attempt_in_flight_at_restart_parks_indeterminate() {
+/// The crash test's engine in a directory of its own, where this process
+/// is `test` run again under a HOME of its own ([`crate::own_home`]); none
+/// in the process that ran it so.
+fn started(test: &str) -> Option<(tempfile::TempDir, Engine)> {
+    if !crate::own_home::in_own_home(test) {
+        return None;
+    }
     let dir = tempfile::tempdir().unwrap();
     let bundle = Bundle::compile(&bundle_dir(dir.path())).unwrap();
     let store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let mut engine = Engine::start(store, bundle, "crash test", Some(dir.path().into())).unwrap();
+    let engine = Engine::start(store, bundle, "crash test", Some(dir.path().into())).unwrap();
+    Some((dir, engine))
+}
+
+#[test]
+fn attempt_in_flight_at_restart_parks_indeterminate() {
+    let test = "recovery::attempt_in_flight_at_restart_parks_indeterminate";
+    let Some((_dir, mut engine)) = started(test) else {
+        return;
+    };
     let run_id = engine.run_id.clone();
 
     // Simulate the journal of a process that died mid-attempt.
@@ -95,10 +109,10 @@ fn attempt_in_flight_at_restart_parks_indeterminate() {
 
 #[test]
 fn requested_effect_with_stale_input_refuses_to_execute() {
-    let dir = tempfile::tempdir().unwrap();
-    let bundle = Bundle::compile(&bundle_dir(dir.path())).unwrap();
-    let store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let mut engine = Engine::start(store, bundle, "crash test", Some(dir.path().into())).unwrap();
+    let test = "recovery::requested_effect_with_stale_input_refuses_to_execute";
+    let Some((_dir, mut engine)) = started(test) else {
+        return;
+    };
     let run_id = engine.run_id.clone();
 
     engine
@@ -131,8 +145,10 @@ fn requested_effect_with_stale_input_refuses_to_execute() {
     );
 }
 
-/// Drive `engine` to its end, which must be a park, and name its reason.
+/// Drive `engine` to its end, which must be a park, and name its reason;
+/// only in a process whose HOME is its own.
 fn drive_to_park(engine: &mut Engine) -> String {
+    crate::own_home::required();
     let end = engine.drive().unwrap();
     assert_eq!(end.state.run.status(), Status::AwaitingOperator);
     end.state.run.park_reason().unwrap().as_str().to_string()

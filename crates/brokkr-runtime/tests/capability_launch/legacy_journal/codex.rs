@@ -305,6 +305,10 @@ fn settles(engine: &Engine, events: &[EventEnvelope], status: Status) {
 /// attributed, and the run exports and verifies.
 #[test]
 fn a_codex_items_start_and_completion_count_once_and_a_new_item_is_its_own_call() {
+    let test = "legacy_journal::codex::a_codex_items_start_and_completion_count_once_and_a_new_item_is_its_own_call";
+    if !super::own_home::in_own_home(test) {
+        return;
+    }
     let items = [
         item(Some("item_1"), "web_search"),
         item(Some("item_2"), "web_search"),
@@ -355,6 +359,10 @@ fn a_codex_items_start_and_completion_count_once_and_a_new_item_is_its_own_call(
 /// and the parked run exports and verifies.
 #[test]
 fn an_unheld_or_unattributable_native_call_fails_its_attempt_through_the_shipped_drivers() {
+    let test = "legacy_journal::codex::an_unheld_or_unattributable_native_call_fails_its_attempt_through_the_shipped_drivers";
+    if !super::own_home::in_own_home(test) {
+        return;
+    }
     let site = |root: &Path, seat: &str| match seat {
         "switched" => json!({"agent": "switched", "limits": {"max_attempts": 2}}),
         _ => inline(root, seat, &item(None, "web_search")),

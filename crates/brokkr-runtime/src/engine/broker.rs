@@ -58,7 +58,7 @@ use brokkr_protocol::broker::{
 };
 use brokkr_protocol::hands::{self, BindMode, GitFacts, HandsSpec};
 use brokkr_protocol::native_controls::SealedBroker;
-use rustix::fs::{fstat, mkdirat, openat, Mode, OFlags, Stat, CWD};
+use rustix::fs::{fsync, mkdirat, openat, Mode, OFlags, Stat, CWD};
 use rustix::io::Errno;
 use rustix::process::{kill_process_group, Pid, Signal};
 use serde::Serialize;
@@ -67,6 +67,16 @@ use thiserror::Error;
 use super::marks::Brokered;
 use super::{site_label, Engine, EngineError, EventType, Selection};
 use crate::capabilities::{Admitted, Connection, Implementation};
+
+pub(super) mod admission;
+mod exclusion;
+mod historical;
+mod inventory;
+mod observation;
+mod root;
+pub(super) mod settlement;
+pub(super) use admission::Held;
+pub(super) use observation::{observed, Observed};
 
 /// One attempt's retention budget, which its retaining plans share (CR3).
 const BUDGET: u64 = 256 << 20;
@@ -258,30 +268,23 @@ struct Shared<'h> {
 
 impl Engine {
     /// Provision the plans of the attempt its effect, attempt and site
-    /// name ([`Engine::provisioned`]) on this host, each box surveyed by
-    /// [`surveyed`]. Whether the attempt may go on to spawn. The host is
-    /// read on every attempt, and consulted only by one that brokers a
-    /// holding. Provisioning has no cancellation source but the engine's
-    /// own end, which closes each survey's input and so ends the survey
-    /// with its group (operator ruling 2026-10-16): the deadline is its
-    /// one other bound.
+    /// name ([`Engine::provisioned`]) on the host as dispatch `observed`
+    /// it, each box surveyed by its survey. Whether the attempt may go on
+    /// to spawn. The host is read on every attempt, and consulted only by
+    /// one that brokers a holding. Provisioning has no cancellation source
+    /// but the engine's own end, which closes each survey's input and so
+    /// ends the survey with its group (operator ruling 2026-10-16): the
+    /// deadline is its one other bound, the attempt's one startup deadline
+    /// from `began`, when its admission began (U8a2a; M8).
     pub(super) fn provision(
         &mut self,
         ids: [&str; 3],
         selection: &mut Selection,
-        bound: &mut Duration,
+        (began, bound): (Instant, &mut Duration),
+        observed: Observed,
     ) -> Result<bool, EngineError> {
-        let began = Instant::now();
-        // A test drives dispatch's own call on a host it stood in, as
-        // `fence::tests::peer_between` reaches between a fold and an append.
-        #[cfg(test)]
-        if let Some((host, survey)) =
-            super::capability_tests::provision_tests::brokered_tests::stood_in()
-        {
-            return self.provision_with(ids, selection, (began, bound), Ok(host), survey);
-        }
-        let host = Host::of(std::env::vars_os(), std::env::current_exe());
-        self.provision_with(ids, selection, (began, bound), host, &surveyed)
+        let (host, survey) = (observed.host, observed.survey);
+        self.provision_with(ids, selection, (began, bound), host, survey)
     }
 
     /// [`Engine::provision`] on `host`, each box surveyed by `survey`
@@ -369,7 +372,16 @@ impl Engine {
         let plans: Vec<Plan> = (slots.iter().zip(&seals))
             .map(|(slot, seal)| self.plan(&shared, attempt, slot, seal))
             .collect::<Result<_, _>>()?;
-        let run = protected(&host.home, &below)?;
+        // Below the root the attempt was admitted in, reached from its
+        // handle, not from HOME again (U8a2a); a test that provisions an
+        // attempt it never admitted walks from HOME.
+        let run = match &self.held {
+            Some(held) => held
+                .coordination
+                .below(&below)
+                .or(Err(Unprovisioned::Root))?,
+            None => protected(&host.home, &below)?,
+        };
         let pins = written(&run, &shared.control, plans)?;
         let brokers = brokers(&slots, &seals, pins);
         Ok(Some(Sealed {
@@ -509,16 +521,22 @@ pub(super) fn reach(spec: &HandsSpec, home: &Path, workdir: &Path, git: &GitFact
     writable.extend(git.common_dir.clone().map(resolved));
     let mut readable = Vec::new();
     for bind in &spec.binds {
-        let host = match bind.path.strip_prefix("~/") {
-            Some(rest) => home.join(rest),
-            None => PathBuf::from(&bind.path),
-        };
+        let host = spelled(&bind.path, home);
         match bind.mode {
             BindMode::Rw => writable.push(resolved(host)),
             BindMode::Ro | BindMode::Overlay => readable.push(resolved(host)),
         }
     }
     Reach { writable, readable }
+}
+
+/// The host path a bind's authored `path` names, unresolved: its `~/` the
+/// host `home`, as the hands box binds it.
+fn spelled(path: &str, home: &Path) -> PathBuf {
+    match path.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => PathBuf::from(path),
+    }
 }
 
 /// `path` with every symlink resolved, or as spelled where it does not
@@ -656,9 +674,22 @@ fn directory() -> OFlags {
 /// root's and writable by no one else, unless root-owned and sticky; the
 /// protected root and everything below it is this user's alone. These are
 /// the directories the broker binds a locator through. The user is the
-/// engine's own, which every directory it makes is owned by.
+/// engine's own, which every directory it makes is owned by. A directory
+/// that gains a name is synced before the walk goes on (U8a2a; M9).
 fn protected(home: &Path, below: &[&str]) -> Result<OwnedFd, Unprovisioned> {
-    let user = hands::ids().0;
+    protected_with(home, below, &|parent| fsync(parent))
+}
+
+/// How a directory that gained a name is made durable: `fsync`, or a
+/// test's witness.
+type Synced<'s> = &'s dyn Fn(&OwnedFd) -> rustix::io::Result<()>;
+
+/// [`protected`], each directory that gained a name handed to `synced`.
+fn protected_with(
+    home: &Path,
+    below: &[&str],
+    synced: Synced<'_>,
+) -> Result<OwnedFd, Unprovisioned> {
     let home: Vec<&std::ffi::OsStr> = home.iter().skip(1).collect();
     let made = home.len();
     let private = made + PROTECTED_ROOT.len() - 1;
@@ -666,14 +697,7 @@ fn protected(home: &Path, below: &[&str]) -> Result<OwnedFd, Unprovisioned> {
         (home.into_iter()).chain(PROTECTED_ROOT.iter().chain(below).map(std::ffi::OsStr::new));
     let mut held = openat(CWD, "/", directory(), Mode::empty()).or(Err(Unprovisioned::Root))?;
     for (index, name) in names.enumerate() {
-        let plain = Path::new(name).file_name() == Some(name);
-        plain.then_some(()).ok_or(Unprovisioned::Root)?;
-        // A directory that stands already is judged as it stands.
-        let _ = (index >= made).then(|| mkdirat(&held, name, Mode::RWXU));
-        held = openat(&held, name, directory(), Mode::empty()).or(Err(Unprovisioned::Root))?;
-        let stat = fstat(&held).or(Err(Unprovisioned::Root))?;
-        let guarded = owned(&stat, user, index >= private);
-        guarded.then_some(()).ok_or(Unprovisioned::Root)?;
+        held = root::step(&held, name, (index >= made, index >= private), synced)?;
     }
     Ok(held)
 }

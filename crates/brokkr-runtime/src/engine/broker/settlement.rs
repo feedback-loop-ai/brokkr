@@ -1,0 +1,260 @@
+//! When an admitted attempt's lease is released (decision 0065 slice two,
+//! U8a2a; D6, #403): only on positive proof that every process it owned
+//! has settled, never on an end in error, an engine's death, a free lock,
+//! an event type alone or a field that is absent.
+//!
+//! The engine that ran the attempt holds that proof as #403 types it: the
+//! [`Cleanup`] each of its drivers' reports carried, which it witnesses as
+//! each driver ends. The moment it witnesses a driver whose cleanup is
+//! unresolved, it seals that into the attempt's own entry of the protected
+//! reservation ([`Witnessed::Unresolved`]), before the attempt's terminal
+//! event is journaled, and never releases the attempt. Once the attempt's
+//! body ran, its terminal event is journaled and every driver it ran ended
+//! settled, it seals the positive settlement fact there
+//! ([`Witnessed::Settled`], M1), and only then releases the attempt, which
+//! release refuses without that fact. A fact that cannot be sealed keeps
+//! the reservation standing, as a release that cannot be does, and under
+//! the fence rule fails the run with that refusal ([`Unreleased`]; R2 of
+//! run four's review).
+//!
+//! An engine that died before releasing leaves only durable facts: the
+//! reservation, and the journal it names, which recovery reads only for
+//! the crash between the positive fact and the release. Under the
+//! admission lock, each later admission releases an attempt only where its
+//! reservation holds that fact and its journal, opened read-only, shows a
+//! terminal event #403 journals only once its tree is proven over — a
+//! success or a failure, which [`brokkr_protocol::AttemptReport::settled_outcome`]
+//! yields only under [`Cleanup::Settled`]. An indeterminate end proves
+//! nothing there; nor does a journal that cannot be read, that is not a
+//! regular file, or that any participant's writer could have written (R2).
+//! Such an attempt keeps its reservation, and keeps refusing.
+
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use brokkr_core::envelope::EventType;
+use brokkr_core::EventEnvelope;
+use brokkr_protocol::Cleanup;
+use brokkr_store::Store;
+use thiserror::Error;
+
+use super::admission::{
+    amend, release, sealed, settled, Held, Reservation, Unadmitted, Unknown, Witnessed, Writer,
+};
+use super::exclusion::{everywhere, reaches};
+use super::historical::regular;
+use super::inventory::Budget;
+use super::root::Root;
+use super::startup;
+use crate::engine::{Engine, EngineError};
+
+/// How an attempt's terminal event ended it, as its settlement reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    /// A success or a failure: journaled only once its tree is proven over.
+    Certified,
+    /// An indeterminate end: nothing it carries, or lacks, proves the tree
+    /// over.
+    Uncertain,
+}
+
+/// An attempt whose owned processes this engine proved settled, but whose
+/// positive settlement fact or release could not be sealed: its
+/// reservation stands, refusing every later writer it would.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("the attempt settled, but its writer lease stands, for its settlement was not sealed: {0}")]
+pub struct Unreleased(#[from] Unadmitted);
+
+impl Engine {
+    /// Release the lease of the attempt `attempt`, which ended in `ran`,
+    /// where this engine proves it settled ([`proven`]): its positive
+    /// settlement fact sealed first ([`proved`]), then the release. An
+    /// attempt that ended in an error, or whose fact or release cannot be
+    /// sealed, keeps its reservation standing; the latter fails the run by
+    /// [`Unreleased`] where the fence lifted, or the evidence at stake as
+    /// the attempt was admitted, asks it.
+    pub(in crate::engine) fn settle(
+        &mut self,
+        attempt: &str,
+        ran: Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
+        let held = self.held.take();
+        ran?;
+        let Some(held) = held else {
+            return Ok(());
+        };
+        let events = self.store.load(&self.run_id)?;
+        if !proven(&held, &events, attempt) {
+            return Ok(());
+        }
+        let deadline = startup(Instant::now(), Duration::MAX);
+        match proved(&held, deadline).and_then(|()| release(&held, deadline)) {
+            Err(refused) if everywhere() | held.staked => Err(Unreleased(refused).into()),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// The lease `held`'s attempt's positive settlement fact sealed in its
+/// reservation under the admission lock taken before `deadline` (M1);
+/// refused where the reservation no longer names the attempt standing, or
+/// names its cleanup unresolved.
+pub(super) fn proved(held: &Held, deadline: Instant) -> Result<(), Unadmitted> {
+    amend(held, deadline, |mut reservation| {
+        let reserved = reservation.attempts.get_mut(&held.attempt);
+        let reserved = reserved.ok_or(Unknown::Lost)?;
+        let settling = reserved.cleanup != Witnessed::Unresolved;
+        settling.then_some(()).ok_or(Unknown::Unproven)?;
+        reserved.cleanup = Witnessed::Settled;
+        Ok(reservation)
+    })
+}
+
+/// A driver of the attempt in flight under the lease `held` ended with
+/// `cleanup` (#403): the lease is no longer proven settled where it is
+/// unresolved, and its reservation is sealed saying so the first time
+/// (R2), under the admission lock taken before the startup deadline. A
+/// seal that fails leaves the engine's own copy unproven, so this engine
+/// still never releases it.
+pub(in crate::engine) fn witnessed(held: &mut Option<Held>, cleanup: &Cleanup) {
+    witnessed_by(held, cleanup, startup(Instant::now(), Duration::MAX));
+}
+
+/// [`witnessed`], its seal taken before `deadline`.
+pub(super) fn witnessed_by(held: &mut Option<Held>, cleanup: &Cleanup, deadline: Instant) {
+    let (Some(held), Cleanup::Unresolved { .. }) = (held, cleanup) else {
+        return;
+    };
+    if !std::mem::replace(&mut held.unproven, true) {
+        amend(held, deadline, |reservation| {
+            Ok(unresolved(reservation, &held.attempt))
+        })
+        .ok();
+    }
+}
+
+/// `reservation` with its standing attempt `attempt` witnessed unresolved.
+fn unresolved(mut reservation: Reservation, attempt: &str) -> Reservation {
+    if let Some(reserved) = reservation.attempts.get_mut(attempt) {
+        reserved.cleanup = Witnessed::Unresolved;
+    }
+    reservation
+}
+
+/// Whether this engine proves the attempt `attempt` it held under `held`
+/// settled: every driver it ran ended settled, and its terminal event is
+/// journaled in `events`.
+fn proven(held: &Held, events: &[EventEnvelope], attempt: &str) -> bool {
+    !held.unproven & ending(events, attempt).is_some()
+}
+
+/// How the attempt `attempt`'s terminal event in `events` ended it, where
+/// one is journaled.
+fn ending(events: &[EventEnvelope], attempt: &str) -> Option<Ending> {
+    let ended = events.iter().rev().find(|event| {
+        let terminal = matches!(
+            event.event_type,
+            EventType::EffectSucceeded | EventType::EffectFailed | EventType::EffectIndeterminate
+        );
+        terminal & (event.attempt_id.as_deref() == Some(attempt))
+    })?;
+    let uncertain = ended.event_type == EventType::EffectIndeterminate;
+    Some(if uncertain {
+        Ending::Uncertain
+    } else {
+        Ending::Certified
+    })
+}
+
+/// Every reservation of `found`, each of its standing attempts its durable
+/// facts prove over ([`certified`]) moved to its settled ones and the
+/// reservation sealed again below `root`, all within `budget` (M7).
+pub(super) fn recovered(
+    root: &Root,
+    found: Vec<Reservation>,
+    incoming: &[Writer],
+    budget: &Budget,
+) -> Result<Vec<Reservation>, Unknown> {
+    // Every participant's writers, the incoming attempt's and every
+    // standing one's: recovery trusts a reservation's journal only where
+    // none of them could have forged its unkeyed hash chain (R2).
+    let mut writers: Vec<Writer> = incoming.to_vec();
+    writers.extend(found.iter().flat_map(Reservation::writers).cloned());
+    let writers: Vec<&Writer> = writers.iter().collect();
+    let mut standing = Vec::with_capacity(found.len());
+    for reservation in found {
+        let proven = certified(&reservation, &writers, budget);
+        budget.check()?;
+        if proven.is_empty() {
+            standing.push(reservation);
+            continue;
+        }
+        let settle = |held, attempt: &String| settled(held, attempt);
+        let recovered = proven.iter().try_fold(reservation, settle)?;
+        sealed(root, &recovered, budget)?;
+        standing.push(recovered);
+    }
+    Ok(standing)
+}
+
+/// The standing attempts of `reservation` whose engine sealed their
+/// positive settlement fact and whose terminal events its journal, opened
+/// read-only, certifies; none where it cannot be read.
+fn certified(reservation: &Reservation, writers: &[&Writer], budget: &Budget) -> Vec<String> {
+    if reservation.attempts.is_empty() {
+        return Vec::new();
+    }
+    let events =
+        journal(&reservation.journal, &reservation.run, writers, budget).unwrap_or_default();
+    let attempts = reservation.attempts.iter();
+    let certified = attempts.filter(|(attempt, reserved)| {
+        let proved = reserved.cleanup == Witnessed::Settled;
+        proved & (ending(&events, attempt) == Some(Ending::Certified))
+    });
+    certified.map(|(attempt, _)| attempt.clone()).collect()
+}
+
+/// The run `run`'s events in the journal at `path`, read only, waiting on
+/// it no longer than `budget` leaves. None where any participant's writer
+/// could reach the journal, its directory or a WAL sibling: an unkeyed
+/// hash chain a writer can forge proves nothing against it (R2); and none
+/// where the deadline passed, or the journal or a sibling that stands is
+/// not a regular file of one link, opened without following a link or
+/// blocking, so a FIFO in its place cannot hold the lock past the deadline
+/// (L5).
+fn journal(
+    path: &Path,
+    run: &str,
+    writers: &[&Writer],
+    budget: &Budget,
+) -> Option<Vec<EventEnvelope>> {
+    if reachable(path, writers) {
+        return None;
+    }
+    budget.check().ok()?;
+    let standing = |at: &PathBuf| std::fs::symlink_metadata(at).is_err() | regular(at).is_some();
+    let siblings = [sibling(path, "-wal"), sibling(path, "-shm")];
+    (regular(path).is_some() & siblings.iter().all(standing)).then_some(())?;
+    let mut store = Store::open_read_only(path).ok()?;
+    store.set_patience(budget.left()).ok()?;
+    store.load(run).ok()
+}
+
+/// The SQLite sibling of the journal at `path` that ends in `suffix`.
+fn sibling(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// Whether `path`, its directory, or its SQLite `-wal`/`-shm` siblings lie
+/// within any participant's writer reach.
+fn reachable(path: &Path, writers: &[&Writer]) -> bool {
+    let mut targets = vec![
+        path.to_path_buf(),
+        sibling(path, "-wal"),
+        sibling(path, "-shm"),
+    ];
+    targets.extend(path.parent().map(Path::to_path_buf));
+    targets.iter().any(|target| reaches(writers, target))
+}

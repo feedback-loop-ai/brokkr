@@ -14,7 +14,7 @@
 
 use std::path::{Path, PathBuf};
 
-use brokkr_runtime::{Adapters, Bundle, Library};
+use brokkr_runtime::{Adapters, Bundle};
 use serde_json::{json, Value};
 
 /// The model-backed seat `recipes/node` declares `class: "gate"`.
@@ -87,10 +87,9 @@ impl Fixture {
         let config: Value =
             serde_json::from_slice(&std::fs::read(root.join("bundle/bundle.json")).unwrap())
                 .expect("the recipe is JSON");
-        let library = Library::load(&workspace().join("agents")).expect("the shipped library");
         std::fs::create_dir_all(root.join("agents/charters")).unwrap();
         std::fs::write(root.join("agents/charters/probe.md"), "Probe charter.\n").unwrap();
-        let mut shipped: Vec<Vec<String>> = Vec::new();
+        let mut shipped: Vec<Option<Value>> = Vec::new();
         // Each model seat hires a library office since #360; the fixture's
         // library holds an office of that name hiring the fixture provider.
         // `verify` and `ship` are exec gates with no office.
@@ -98,13 +97,11 @@ impl Fixture {
             let Some(office) = body["agent"].as_str() else {
                 continue;
             };
-            shipped.push(
-                library
-                    .agent(office)
-                    .expect("a shipped office")
-                    .models
-                    .clone(),
-            );
+            let written: Value = serde_json::from_slice(
+                &std::fs::read(workspace().join(format!("agents/{office}.json"))).unwrap(),
+            )
+            .expect("a shipped office");
+            shipped.push(written.get("models").cloned());
             let provider = provider_for(seat);
             let definition = json!({
                 "description": "Seats the fixture provider in one of the Node recipe's seats.",
@@ -119,12 +116,13 @@ impl Fixture {
             .unwrap();
         }
         // Not WHICH model ships — that is `agents/` data and a ruling, not
-        // an engine fact — only that the recipe speaks with one voice, so
+        // an engine fact — only that the recipe names none: each office
+        // hires its folder's base chain (decision 0087 ruling 2), so
         // re-pointing its offices seat by seat is a fair rewrite.
-        assert_eq!(shipped.len(), 2, "node seats two model offices");
-        assert!(
-            shipped.windows(2).all(|pair| pair[0] == pair[1]),
-            "the recipe seats more than one chain: {shipped:?}"
+        assert_eq!(
+            shipped,
+            [None, None],
+            "node's two model offices write no chain"
         );
         fixture
     }

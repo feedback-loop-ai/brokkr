@@ -261,6 +261,7 @@ fn the_unruled_valuations_are_pinned_per_table() {
         ("policy/phase-machine.json", (57, 0)),
         ("recipes/self", (47, 0)),
         ("recipes/verify", (16, 0)),
+        ("recipes/brokkr-fast", (46, 0)),
         ("recipes/fast", (46, 0)),
         ("recipes/landing", (48, 0)),
         ("recipes/night-shift", (1072, 0)),
@@ -340,7 +341,7 @@ fn a_residual_rated_none_is_ruled_by_its_named_rule() {
     assert_eq!(ruled.remove("recipes/preflight"), Some(preflight));
     assert_eq!(ruled.remove("recipes/verify"), Some(verify));
     let delivery: BTreeSet<&str> = ruled.keys().map(String::as_str).collect();
-    assert_eq!(delivery.len(), 14, "{delivery:?}");
+    assert_eq!(delivery.len(), 15, "{delivery:?}");
     for (label, outcome) in ruled {
         assert_eq!(outcome, fast, "{label}");
     }

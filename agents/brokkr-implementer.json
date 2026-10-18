@@ -1,0 +1,7 @@
+{
+  "extends": "implementer",
+  "models": ["opus", "sonnet"],
+  "efforts": {"opus": "high", "sonnet": "high"},
+  "tools": {"allow": ["cargo", "git"], "mcp": []},
+  "replaces": {"tools": "Brokkr's own smith builds and commits a Rust workspace, so it is granted cargo and git"}
+}

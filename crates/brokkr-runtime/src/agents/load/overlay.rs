@@ -11,6 +11,10 @@
 //! - `models` replaces the base's chain, and `efforts` replaces its
 //!   efforts whole (absent, the overlay hires none): the base's efforts
 //!   are keyed by the base's candidates, which the overlay just replaced.
+//!   An overlay that writes neither hires its base's chain and efforts
+//!   whole, so a portable office follows whichever chain its folder's
+//!   base names; one that writes `efforts` without `models` is refused
+//!   (decision 0087 ruling 3).
 //! - `charter` replaces the base's charter, still contained in the same
 //!   library, and `inputs` the evaluator inputs the office declares.
 //! - `tools` and `hands` are the office's power. An overlay that writes
@@ -69,8 +73,8 @@ pub(super) fn effective(root: &Path, what: &str, source: Value) -> Result<Value,
     Ok(Value::Object(merged))
 }
 
-/// The base an overlay names under `extends`: a valid agent name, and only
-/// beside the `models` every overlay states.
+/// The base an overlay names under `extends`: a valid agent name, and
+/// never beside `efforts` without the `models` they are keyed by.
 fn extended(overlay: &Map<String, Value>, what: &str) -> Result<String, LibraryError> {
     let base_name = string(overlay, "extends", what)?;
     if !valid_name(&base_name) {
@@ -78,23 +82,27 @@ fn extended(overlay: &Map<String, Value>, what: &str) -> Result<String, LibraryE
             "{what} 'extends' names '{base_name}', which does not match {NAME_GRAMMAR}"
         ));
     }
-    if !overlay.contains_key("models") {
+    if overlay.contains_key("efforts") && !overlay.contains_key("models") {
         return invalid(format!(
-            "{what} extends '{base_name}' but writes no 'models'; an overlay states the \
-             chain it hires"
+            "{what} extends '{base_name}' and writes 'efforts' but no 'models'; efforts \
+             are keyed by the chain's candidates, so an overlay that writes them states \
+             the chain it hires"
         ));
     }
     Ok(base_name)
 }
 
-/// `models` and `efforts` replace the base's whole; `charter` and `inputs`
-/// replace it only when the overlay writes them.
+/// An overlay that writes `models` replaces the base's chain and efforts
+/// whole; one that writes neither inherits both. `charter` and `inputs`
+/// replace the base's only when the overlay writes them.
 fn merge_chain(merged: &mut Map<String, Value>, overlay: &Map<String, Value>) {
-    for key in ["models", "efforts"] {
-        match overlay.get(key) {
-            Some(value) => merged.insert(key.to_string(), value.clone()),
-            None => merged.remove(key),
-        };
+    if overlay.contains_key("models") {
+        for key in ["models", "efforts"] {
+            match overlay.get(key) {
+                Some(value) => merged.insert(key.to_string(), value.clone()),
+                None => merged.remove(key),
+            };
+        }
     }
     for key in ["charter", "inputs"] {
         if let Some(value) = overlay.get(key) {

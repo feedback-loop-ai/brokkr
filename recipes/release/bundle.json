@@ -29,7 +29,7 @@
       }
     },
     "review": {
-      "agent": "reviewer",
+      "agent": "brokkr-reviewer",
       "class": "gate",
       "results": [
         "clean",

@@ -21,6 +21,7 @@
 //! What is proved: both engines run to completion, both journals verify
 //! and fold, and neither process exits on Busy.
 
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -261,6 +262,14 @@ fn two_real_engines_share_one_journal_and_neither_exits_on_busy() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("realm.db");
     let bundle = write_bundle(dir.path());
+    // Each child engine is given an isolated, owner-only HOME, so its
+    // admission resolves its coordination root under this temporary tree
+    // and never the operator's real HOME (decision 0065 slice two, U8a2a).
+    let home = dir.path().join("home");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&home)
+        .unwrap();
     // The journal must exist before the churn thread can lock it; the
     // engines then race each other on everything that follows.
     drop(Store::open(&db).unwrap());
@@ -272,6 +281,11 @@ fn two_real_engines_share_one_journal_and_neither_exits_on_busy() {
     });
 
     let spawn = |role: &str| {
+        // Each engine operates a worktree of its own beside the one
+        // journal, as parallel lanes do: two runs on one worktree are
+        // serialized by its writer lease (decision 0065 slice two, U8a2a).
+        let worktree = dir.path().join(role);
+        std::fs::create_dir_all(&worktree).unwrap();
         Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -280,7 +294,8 @@ fn two_real_engines_share_one_journal_and_neither_exits_on_busy() {
             ])
             // The child starts without a repository, so it operates the
             // directory it stands in: the scratch one, never this tree.
-            .current_dir(dir.path())
+            .current_dir(&worktree)
+            .env("HOME", &home)
             .env(DB_VAR, &db)
             .env(BUNDLE_VAR, &bundle)
             .env(ROLE_VAR, role)

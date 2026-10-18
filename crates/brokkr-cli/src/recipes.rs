@@ -26,7 +26,7 @@ use brokkr_runtime::{Bundle, Invocation, SeatBody};
 mod agents;
 pub(crate) mod personal;
 mod sources;
-use personal::{Origin, Resolved, ShelfPath};
+use personal::{Onto, Origin, Resolved, ShelfPath};
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity), else the `implicit` one a
@@ -706,7 +706,7 @@ fn clone(source: &str, path: Option<&str>, clone: &Path) -> Result<PathBuf> {
 pub(crate) fn add(
     root: &Path,
     shelf: &ShelfPath,
-    origin: Origin,
+    onto: Onto<'_>,
     source: &str,
     name: &str,
     path: Option<&str>,
@@ -717,7 +717,7 @@ pub(crate) fn add(
         return Err(Unplain::Name { name, dir }.into());
     }
     let source = Source::judge(source, path)?;
-    let place = origin.place(shelf)?;
+    let place = onto.origin().place(shelf)?;
     let world = World::discover(root, None)?;
     let dest = dir.join(name);
     if std::fs::symlink_metadata(&dest).is_ok() {
@@ -727,14 +727,15 @@ pub(crate) fn add(
         );
     }
     let fetched = source.fetch()?;
-    install_held(root, dir, &place, name, fetched, world.as_ref(), origin)
+    install_held(root, dir, &place, name, fetched, world.as_ref(), onto)
 }
 
 /// [`add`]'s install, once judged: make and hold the library `dir`, which
 /// resolves to `place`, plan the recipes and the agents they name, refuse
-/// a planned recipe holding `place` or a folder bundle, copy them, and
-/// keep them only if every recipe compiles against `root`. The clone in
-/// `fetched` outlives the copies.
+/// a planned recipe the project shelf holds ([`Onto::unshadowing`]),
+/// holding `place` or a folder bundle, copy them, and keep them only if
+/// every recipe compiles against `root`. The clone in `fetched` outlives
+/// the copies.
 fn install_held(
     root: &Path,
     dir: &Path,
@@ -742,19 +743,20 @@ fn install_held(
     name: &str,
     Fetched(_clone, bundle, source_agents): Fetched,
     world: Option<&World>,
-    origin: Origin,
+    onto: Onto<'_>,
 ) -> Result<()> {
     // Declared before what it outlives: the copies are kept or removed while
     // the library is still held, and an empty one made here goes last.
     let _shelf = Shelf::make(dir, place)?;
     let planned = planned(&bundle, name, dir)?;
+    onto.unshadowing(&planned, dir)?;
     let sources: Vec<&Path> = planned.iter().map(|(_, source)| source.as_path()).collect();
     refuse_within(&sources, place)?;
     sources::refuse_folder_bundles(&sources)?;
     let library = places::Places::of(root)?.agents;
     let definitions = agents::definitions_of(root, world);
     // The personal shelf copies nothing into the repository (#697).
-    let source_agents = source_agents.filter(|_| origin == Origin::Project);
+    let source_agents = source_agents.filter(|_| onto.origin() == Origin::Project);
     let hires = agents::plan(&sources, source_agents.as_deref(), &library, &definitions)?;
     let mut installing = install(&planned, dir)?;
     agents::copy(&hires, &mut installing.1)?;

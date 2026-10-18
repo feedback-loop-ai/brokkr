@@ -2272,7 +2272,7 @@ fn carry_definitions(operated: &Path) {
     }
 }
 
-fn git_commit(repo: &Path, message: &str) -> String {
+pub(super) fn git_commit(repo: &Path, message: &str) -> String {
     if !repo.join(".git").exists() {
         crate::realms::tests::initialised(repo);
     }
@@ -5747,13 +5747,8 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
             &dir.path().canonicalize().unwrap(),
             single_body(command.clone()),
         );
-        let door = spawn_site(
-            &compiled,
-            &spawn,
-            &json!({}),
-            lossy,
-            std::time::Duration::from_secs(1),
-        );
+        let deadline = std::time::Duration::from_secs(1);
+        let door = spawn_site(&compiled, &spawn, &json!({}), lossy, deadline, None);
         assert_eq!(door.err(), Some(refusal.to_string()));
         assert_eq!(
             (spawn.argv, spawn.refusal),

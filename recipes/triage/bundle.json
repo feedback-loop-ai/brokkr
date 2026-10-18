@@ -23,8 +23,8 @@
       "select": {
         "on": "strategy",
         "cases": {
-          "chore": {"agent": "implementer", "class": "work"},
-          "feature": {"agent": "implementer", "class": "work"},
+          "chore": {"agent": "brokkr-implementer", "class": "work"},
+          "feature": {"agent": "brokkr-implementer", "class": "work"},
           "design": {"agent": "implementer-sdd", "class": "work"},
           "engine": {"agent": "implementer-engine", "class": "work"}
         }
@@ -37,7 +37,7 @@
       "select": {
         "on": "strategy",
         "cases": {
-          "chore": {"agent": "reviewer", "class": "gate"},
+          "chore": {"agent": "brokkr-reviewer", "class": "gate"},
           "feature": {
             "aggregate": "review-panel",
             "panel": {

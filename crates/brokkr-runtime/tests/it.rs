@@ -6,12 +6,16 @@
 
 // Support shared by several files, declared once: a file reaches it as
 // `crate::witnesses`.
+#[path = "support/own_home.rs"]
+mod own_home;
 #[path = "support/witnesses.rs"]
 mod witnesses;
 
 mod adoption;
 mod anchor_test;
 mod budgets;
+mod capability_broker_launch;
+mod capability_ledger;
 mod crucible_review_sequence;
 mod dispatch_seam;
 mod fenced_commands;

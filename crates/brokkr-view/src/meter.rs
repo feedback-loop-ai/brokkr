@@ -54,6 +54,30 @@ impl Metering {
     }
 }
 
+/// Each message metered once. Claude Code streams an assistant message
+/// as a line per content block, every line repeating the message's usage,
+/// and its driver journaled a turn with that usage for each line until it
+/// learned to carry it on the message's first line alone: a Claude seat's
+/// turns summed as written read its tokens two and a half times over. A
+/// turn whose usage is the one the seat's last metered turn carried is
+/// that message again, and meters nothing; a turn that carries none, as
+/// the tool uses after a message's first, is passed over. Two messages of
+/// one session do not report the same counts, since each reads the
+/// context the one before it grew. `meters` are one seat's, in order.
+pub(crate) fn once<'a>(meters: impl IntoIterator<Item = &'a mut Meter>) {
+    let mut last = None;
+    let metered = meters
+        .into_iter()
+        .filter(|meter| meter.turn && meter.usage.is_some());
+    for meter in metered {
+        if meter.usage == last {
+            meter.usage = None;
+        } else {
+            last.clone_from(&meter.usage);
+        }
+    }
+}
+
 impl Meter {
     pub(crate) fn of(checkpoint: &Value) -> Meter {
         Meter {

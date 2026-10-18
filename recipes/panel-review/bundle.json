@@ -15,7 +15,7 @@
         "resolved"
       ],
       "class": "work",
-      "agent": "intake"
+      "agent": "brokkr-intake"
     },
     "implement": {
       "results": [
@@ -25,7 +25,7 @@
         "oversized"
       ],
       "class": "work",
-      "agent": "implementer"
+      "agent": "brokkr-implementer"
     },
     "review": {
       "results": [

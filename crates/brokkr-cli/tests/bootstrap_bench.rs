@@ -123,6 +123,9 @@ pub(crate) struct Scaffold {
     pub(crate) stub: PathBuf,
     /// This process's PATH with the stub's directory first.
     pub(crate) path: OsString,
+    /// The HOME its runs are given, beside the stub: no tree a run
+    /// operates, and never the operator's (decision 0065 slice two, U8a2a).
+    pub(crate) home: PathBuf,
 }
 
 /// The [`Scaffold`], its `init` carrying what `configure` sets beside PATH.
@@ -182,6 +185,7 @@ pub(crate) fn scaffold_with(configure: impl Fn(&mut Command)) -> Scaffold {
         root: repo.to_path_buf(),
         stub,
         path,
+        home: crate::engine::toolchain_home_in(stubs.path()),
         _repo: dir,
         _stubs: stubs,
     }
@@ -211,6 +215,7 @@ fn a_pristine_scaffold_reaches_a_completed_run_with_no_agent() {
             "--feature",
             "bootstrap benchmark: reach one completed effect",
         ])
+        .env("HOME", &scaffold.home)
         .env("BROKKR_CLAUDE_BIN", stub)
         .current_dir(&src)
         .output()

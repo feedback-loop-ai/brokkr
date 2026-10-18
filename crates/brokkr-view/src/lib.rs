@@ -63,7 +63,10 @@ pub use fleet::{
     HearthEntries, Hire, Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict,
     TITLE_COLUMNS, VERDICT_COLUMNS,
 };
-pub use graph::{graph, GraphError, GraphQuery, GraphTable, GraphView, Table, GRAPH_VIEW_VERSION};
+pub use graph::{
+    graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
+    GRAPH_VIEW_VERSION,
+};
 use meter::{sum_usage, Meter, Metering};
 pub use participant::Subject;
 pub use scope::{
@@ -1736,9 +1739,10 @@ fn token_usage<'a>(records: impl Iterator<Item = &'a Value>) -> Option<TokenUsag
 
 fn session_usage(part: &Build) -> Option<TokenUsage> {
     let checkpoints = part.checkpoints.iter();
-    let meters: Vec<Meter> = checkpoints
+    let mut meters: Vec<Meter> = checkpoints
         .map(|(checkpoint, _, _)| Meter::of(checkpoint))
         .collect();
+    meter::once(&mut meters);
     let session = part.session.as_ref().map(Meter::of);
     let by = Metering::of(&meters);
     let turns = meters.iter().filter_map(|meter| meter.counted(by, false));

@@ -1268,25 +1268,19 @@ fn a_charter_that_moved_since_the_compile_refuses_the_dispatch() {
     let at = |bundle: &Bundle, seat: &str, role: &Path, input: Value| {
         let mut input = input;
         input["role_path"] = json!(role);
-        spawn_site(
-            bundle,
-            &charter_spawn(bundle, seat),
-            &input,
-            &root,
-            std::time::Duration::from_secs(5),
-        )
-        .map(|(_, input)| input[brokkr_protocol::native_controls::ROLE_TEXT].clone())
+        spawn_site(bundle, &charter_spawn(bundle, seat), &input, &root)
+            .map(|(_, input)| input[brokkr_protocol::native_controls::ROLE_TEXT].clone())
     };
     let door =
         |bundle: &Bundle, seat: &str, role: &Path| at(bundle, seat, role, json!({})).map(drop);
     // A spawn no compiled site owns carries no binding.
     let unbound = |bundle: &Bundle, role: &Path| {
+        let input = json!({"role_path": role});
         spawn_site(
             bundle,
             &SiteSpawn::inherit(vec!["true".into()]),
-            &json!({"role_path": role}),
+            &input,
             &root,
-            std::time::Duration::from_secs(5),
         )
         .map(drop)
     };
@@ -1504,7 +1498,6 @@ fn a_charter_replaced_during_or_after_the_dispatch_read_never_reaches_the_seat()
             &json!({"role_path": charter, "native_controls": {}, "result_path": "/r.json",
                     "allowed_results": ["complete"]}),
             &root,
-            std::time::Duration::from_secs(5),
         )
         .map(|(_, input)| input);
         READ_HOOK.with(|hook| *hook.borrow_mut() = None);
@@ -1672,19 +1665,15 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
         let outcomes: Vec<Result<String, String>> = bundles
             .iter()
             .map(|bundle| {
-                spawn_site(
-                    bundle,
-                    &charter_spawn(bundle, "work"),
-                    &json!({"role_path": role}),
-                    &root,
-                    std::time::Duration::from_secs(5),
+                let input = json!({"role_path": role});
+                spawn_site(bundle, &charter_spawn(bundle, "work"), &input, &root).map(
+                    |(_, input)| {
+                        input[brokkr_protocol::native_controls::ROLE_TEXT]
+                            .as_str()
+                            .expect("the door hands over the text it read")
+                            .to_string()
+                    },
                 )
-                .map(|(_, input)| {
-                    input[brokkr_protocol::native_controls::ROLE_TEXT]
-                        .as_str()
-                        .expect("the door hands over the text it read")
-                        .to_string()
-                })
             })
             .collect();
         assert_eq!(outcomes[0], outcomes[1], "standalone and inherited agree");
@@ -1739,7 +1728,6 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
             &charter_spawn(&bundles[0], "review"),
             &json!({"role_path": charter}),
             &root,
-            std::time::Duration::from_secs(5),
         )
         .map(drop),
         Err(
@@ -1763,7 +1751,6 @@ fn a_library_charter_that_moved_since_the_compile_refuses_the_dispatch() {
             &charter_spawn(&bundle, "work"),
             &json!({"role_path": charter}),
             &root,
-            std::time::Duration::from_secs(5),
         )
         .map(drop),
         Err(
@@ -2520,6 +2507,19 @@ fn owners_compiled(realm: &Path, charter: &str) -> Result<Bundle, String> {
     .map_err(|error| error.to_string())
 }
 
+/// The dispatch door as these tests call it, in place of the engine's: at
+/// `root` within five seconds, under no lease, as no dispatch admitted
+/// these spawns (U8a2a).
+fn spawn_site(bundle: &Bundle, spawn: &SiteSpawn, input: &Value, root: &Path) -> Spawned {
+    super::spawn_site(bundle, spawn, input, root, FIVE_SECONDS, None)
+}
+
+/// The deadline the door gives a spawn here.
+const FIVE_SECONDS: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// What the door returns.
+type Spawned = Result<(brokkr_protocol::process::DriverProcess, Value), String>;
+
 /// What `seat`'s dispatch door hands its driver, or why it refused. The
 /// driver would leave `marker`; a refusal must leave none.
 fn dispatched(bundle: &Bundle, seat: &str, marker: &Path) -> Result<Value, String> {
@@ -2535,7 +2535,6 @@ fn dispatched(bundle: &Bundle, seat: &str, marker: &Path) -> Result<Value, Strin
         },
         &json!({"role_path": role_path}),
         marker.parent().unwrap(),
-        std::time::Duration::from_secs(5),
     )
     .map(|(_, input)| input[brokkr_protocol::native_controls::ROLE_TEXT].clone());
     if outcome.is_err() {
@@ -3743,7 +3742,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
     let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
     let library = Library::load(&root.join("agents")).expect("the shipped library loads");
     let hands = library
-        .agent("reviewer")
+        .agent("brokkr-reviewer")
         .expect("the shipped reviewer")
         .hands
         .clone();
@@ -3770,7 +3769,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
         &library,
         &adapters,
         &Availability::unspecified(),
-        "reviewer",
+        "brokkr-reviewer",
         brokkr_core::realms::Boundary::Harness,
     )
     .unwrap();
@@ -3826,7 +3825,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
         &library,
         &adapters,
         &Availability::unspecified(),
-        "reviewer",
+        "brokkr-reviewer",
         brokkr_core::realms::Boundary::Namespace,
     )
     .unwrap();

@@ -33,16 +33,12 @@ fn is_house_tool_grant(agent: &str, tool: &str) -> bool {
         (agent, tool),
         ("chief-architect", "git")
             | (
-                "fast-implementer" | "fast-reviewer",
+                "brokkr-fast-implementer" | "brokkr-fast-reviewer",
                 "cargo" | "git" | "ls" | "rg" | "mkdir"
             )
             | ("implementer-sdd", "cargo" | "git")
-            | ("implementer", "cargo" | "git")
-            | ("intake", "git")
-            | (
-                "node-implementer" | "node-reviewer",
-                "npm" | "npx" | "node" | "git" | "ls" | "rg" | "mkdir"
-            )
+            | ("brokkr-implementer", "cargo" | "git")
+            | ("brokkr-intake", "git")
             | (
                 "verify-reviewer",
                 "cargo" | "git" | "ls" | "rg" | "gh-pr-view" | "gh-run-view"
@@ -233,8 +229,8 @@ fn hired_chains<'a>(site: String, body: &'a SeatBody, chains: &mut Vec<(String, 
 /// compiled body — either stands inline or hires an overlay whose chain
 /// holds exactly the forced model, with no fallback. A seat it inherits,
 /// or overlays only with the keys above, is not its forcing: a wager's arm
-/// judges with fast's review seat, which falls back (the operator's ruling
-/// of 2026-10-09).
+/// judges with brokkr-fast's review seat, which falls back (the operator's
+/// ruling of 2026-10-09).
 #[test]
 fn a_forced_crew_names_its_decision_and_hires_no_fallback() {
     let workspace = workspace();
@@ -288,25 +284,35 @@ fn compile(root: &Path, recipe: &str) -> Bundle {
     .unwrap_or_else(|error| panic!("{recipe} compiles: {error}"))
 }
 
-/// The fast offices and the chains they hire (#360, the operator's ruling 2
-/// of 2026-10-07): Fable at `high` first, the crew fast always seated
-/// inline, and a fallback behind it on every model seat.
+/// Brokkr's fast offices and the chains they hire (#360, the operator's
+/// ruling 2 of 2026-10-07, kept by decision 0087 ruling 4): Fable at `high`
+/// first, the crew fast always seated inline, and a fallback behind it on
+/// every model seat.
 const FAST_OFFICES: [(&str, &str, &[&str]); 2] = [
     (
         "implement",
-        "fast-implementer",
+        "brokkr-fast-implementer",
         &["fable", "opus", "sonnet"],
     ),
-    ("review", "fast-reviewer", &["fable", "opus"]),
+    ("review", "brokkr-fast-reviewer", &["fable", "opus"]),
 ];
 
-/// `node`'s and `verify`'s offices and the chains they hire (the operator's
-/// ruling (b) of 2026-10-09 on #360): Fable, then Opus, at `high`, as the
-/// fast offices fall back.
-const NODE_AND_VERIFY_OFFICES: [(&str, &str, &str, &[&str]); 3] = [
-    ("node", "implement", "node-implementer", &["fable", "opus"]),
+/// `node`'s reviewer and `verify`'s and the chains they hire (the
+/// operator's ruling (b) of 2026-10-09 on #360): Fable, then Opus, at
+/// `high`, as the fast offices fall back.
+const NODE_AND_VERIFY_OFFICES: [(&str, &str, &str, &[&str]); 2] = [
     ("node", "review", "node-reviewer", &["fable", "opus"]),
     ("verify", "review", "verify-reviewer", &["fable", "opus"]),
+];
+
+/// The portable recipes' offices (decision 0087 rulings 1 to 3): each
+/// writes no chain, so it hires its base's, the chain `init` writes under
+/// claude.
+const PORTABLE_OFFICES: [(&str, &str, &str, &[&str]); 4] = [
+    ("fast", "implement", "fast-implementer", &["opus", "sonnet"]),
+    ("fast", "review", "fast-reviewer", &["fable", "opus"]),
+    ("node", "implement", "node-implementer", &["opus", "sonnet"]),
+    ("node", "review", "node-reviewer", &["fable", "opus"]),
 ];
 
 /// A compiled seat hires `office` on exactly `chain`, every link at `high`.
@@ -332,13 +338,13 @@ fn assert_hires(bundle: &Bundle, recipe: &str, phase: &str, office: &str, chain:
     assert_eq!(hired, expected, "{recipe}:{phase}");
 }
 
-/// `fast` and `landing`, which inherits both of fast's model seats, hire
-/// the fast offices, so the default recipe falls back instead of parking
-/// when its first model is spent.
+/// `brokkr-fast` and `landing`, which inherits both of its model seats,
+/// hire Brokkr's fast offices, so Brokkr's default recipe falls back
+/// instead of parking when its first model is spent.
 #[test]
 fn fast_and_landing_hire_offices_that_fall_back_from_fable() {
     let root = workspace();
-    for recipe in ["fast", "landing"] {
+    for recipe in ["brokkr-fast", "landing"] {
         let bundle = compile(&root, recipe);
         for (phase, office, chain) in FAST_OFFICES {
             assert_hires(&bundle, recipe, phase, office, chain);
@@ -346,12 +352,22 @@ fn fast_and_landing_hire_offices_that_fall_back_from_fable() {
     }
 }
 
-/// `node` and `verify` hire their offices, so neither parks when Fable's
-/// limit is spent (the 2026-10-09 ruling).
+/// `node`'s reviewer and `verify`'s hire their offices, so neither parks
+/// when Fable's limit is spent (the 2026-10-09 ruling).
 #[test]
 fn node_and_verify_hire_offices_that_fall_back_from_fable() {
     let root = workspace();
     for (recipe, phase, office, chain) in NODE_AND_VERIFY_OFFICES {
+        assert_hires(&compile(&root, recipe), recipe, phase, office, chain);
+    }
+}
+
+/// `fast` and `node` hire their offices on the base's chain, the one the
+/// library's portable base names (decision 0087 rulings 2 and 3).
+#[test]
+fn the_portable_offices_hire_their_bases_chain() {
+    let root = workspace();
+    for (recipe, phase, office, chain) in PORTABLE_OFFICES {
         assert_hires(&compile(&root, recipe), recipe, phase, office, chain);
     }
 }
@@ -819,10 +835,12 @@ fn sol_is_capped_and_astra_is_a_chiefs_last_fallback() {
                 "{name} hires sol at {effort}, above its cap of high"
             );
         }
+        // An overlay that writes no chain hires its base's (decision 0087
+        // ruling 3), and the base is read here as its own file.
         let models: Vec<&str> = agent["models"]
             .as_array()
-            .unwrap()
-            .iter()
+            .into_iter()
+            .flatten()
             .filter_map(Value::as_str)
             .collect();
         if let Some(link) = models.iter().position(|model| *model == "astra") {
@@ -962,8 +980,11 @@ fn the_dsh_implement_lanes_pin_glm_flash_with_no_effort() {
 
 /// The agents a library holds for a consumer outside every shipped
 /// bundle, each with the seat that hires it. `muninn` is composed
-/// outside a bundle by `brokkr muninn` (decision 0020).
-const UNSEATED_CATALOGUE: [&str; 1] = ["muninn"];
+/// outside a bundle by `brokkr muninn` (decision 0020). `implementer`,
+/// `intake` and `reviewer` are the portable base: `brokkr init` writes them
+/// into every folder, whose `bundle.json` seats them, and every recipe
+/// here hires an overlay of them (decision 0087 rulings 1 and 4).
+const UNSEATED_CATALOGUE: [&str; 4] = ["muninn", "implementer", "intake", "reviewer"];
 
 /// Every recipe directory with a `bundle.json`, Brokkr's own included.
 fn shipped_bundle_dirs(root: &Path) -> Vec<PathBuf> {

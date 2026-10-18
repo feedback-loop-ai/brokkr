@@ -34,6 +34,8 @@ use super::{workspace, write};
 
 #[path = "legacy_journal/codex.rs"]
 mod codex;
+#[path = "../support/own_home.rs"]
+mod own_home;
 
 /// Set only by a wrapper's own command line, never by this process: the
 /// arguments the engine handed `driver claude` after its `--`, one a line.
@@ -250,8 +252,9 @@ fn rooted() -> (tempfile::TempDir, PathBuf) {
 }
 
 /// `bundle`'s run of `feature` in `world`, journaled under `root`, driven
-/// until it completes or parks.
+/// until it completes or parks; only in a process whose HOME is its own.
 fn drive(root: &Path, world: World, bundle: Bundle, feature: &str) -> (Engine, RunState) {
+    own_home::required();
     let store = Store::open(&root.join("forge.db")).unwrap();
     let repo = Some(root.join("work"));
     let mut engine = Engine::start_in_world(store, bundle, feature, repo, Some(world)).unwrap();
@@ -672,6 +675,10 @@ fn fences_the_attribution_group(store: &mut Store, run_id: &str) {
 /// observation is never attributed.
 #[test]
 fn every_site_shape_journals_its_legacy_native_rows_through_export_and_verify() {
+    let test = "legacy_journal::every_site_shape_journals_its_legacy_native_rows_through_export_and_verify";
+    if !own_home::in_own_home(test) {
+        return;
+    }
     let (_dir, root, mut engine) = driven(Some(LEGACY));
     let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();
@@ -727,6 +734,11 @@ fn exports_and_verifies(store: &Store, run_id: &str, count: usize, status: Statu
 /// store, and the run exports and verifies.
 #[test]
 fn every_site_shape_journals_the_engines_group_on_an_observed_held_call() {
+    let test =
+        "legacy_journal::every_site_shape_journals_the_engines_group_on_an_observed_held_call";
+    if !own_home::in_own_home(test) {
+        return;
+    }
     let (_dir, root, engine) = driven(Some(FORGED));
     let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();

@@ -18,11 +18,21 @@ runs unboxed in a rebuilt environment and no network denial is reported.
 Its two model seats hire library offices (the operator's ruling of
 2026-10-07, #360). `implement` seats `fast-implementer`, an overlay of
 `implementer` on the intakeless implementer charter, and `review` seats
-`fast-reviewer`, an overlay of `reviewer`; both hire Fable at `high` first,
-then Opus at `high` (the smith then Sonnet), under the `cargo`, `git`, `ls`,
-`rg` and `mkdir` allow-list, unboxed. When Fable cannot start, its limit spent,
-a seat falls back to the next link instead of parking, and so do `landing`'s,
-which inherits both seats.
+`fast-reviewer`, an overlay of `reviewer` that declares the review's
+inputs. Neither writes a chain, tools or hands, so each hires its base's
+(decision 0087 rulings 2 and 3): in a folder `brokkr init` made, what
+`init` wrote for the agent CLI it found. Brokkr's own runs hire fast's
+Brokkr picks through [`brokkr-fast`](../brokkr-fast/README.md), which
+`landing` and the wager harnesses extend.
+
+**Outside Brokkr, verify fails for now.** `fast` installs onto any
+folder's shelf (`brokkr recipes add <checkout>/recipes/fast --name
+fast`), but its verifier and shipper are still Brokkr's own: the verifier
+runs `scripts/lint-non-rust.sh` and the `recipes/self` compile under the
+Rust binds, and the shipper's notes name `.forge/ledger/`. So in another
+repository a `fast` run reaches implement and review, and its verify
+fails. Decision 0087's slice 3 gives `fast` a portable verifier and moves
+this one to `brokkr-fast`.
 
 A lint tool the verifier cannot reach, because it is not on the seat's
 `PATH` or does not report the version CI pins, is named in the verifier's

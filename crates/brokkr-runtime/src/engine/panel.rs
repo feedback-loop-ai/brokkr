@@ -16,6 +16,8 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup};
 use brokkr_store::Store;
 use serde_json::{json, Value};
 
+use super::broker::settlement::witnessed;
+use super::broker::Held;
 use super::{
     argv_for, checkpoints, copy_secret_binding_facts, failed_to_start, resume, spawn_site,
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Engine, EngineError,
@@ -198,7 +200,7 @@ impl Engine {
         let workdir = self.workdir();
         // Split the borrows: member threads run drivers, while the
         // main-thread receive loop below needs the store and causal cursor.
-        let bundle = &self.bundle;
+        let (bundle, held) = (&self.bundle, self.held.as_ref());
         let attempt = checkpoints::Attempt {
             run_id: &self.run_id,
             effect_id,
@@ -232,8 +234,9 @@ impl Engine {
                         let _ = sender.send((checkpoint_name.clone(), data.clone()));
                     };
                     scope.spawn(move || {
+                        let door = (bundle, held);
                         let report =
-                            run.report(bundle, &workdir, deadline, effect_id, attempt_id, forward);
+                            run.report(door, &workdir, deadline, effect_id, attempt_id, forward);
                         (name, report)
                     })
                 })
@@ -253,6 +256,9 @@ impl Engine {
                 .map(|h| h.join().expect("panel member thread"))
                 .collect()
         });
+        for (_, report) in &reports {
+            witnessed(&mut self.held, &report.cleanup);
+        }
         let settled = sink.settle()?;
         Ok(reports
             .into_iter()
@@ -361,17 +367,18 @@ impl MemberRun {
     /// This member's attempt, on its own worker thread: its driver run
     /// to a report, each checkpoint handed to `on_checkpoint` as it
     /// arrives. A member whose driver did not spawn reports a failure
-    /// that started nothing.
+    /// that started nothing. The door is handed the bundle and the lease
+    /// the attempt was admitted under (U8a2a).
     fn report(
         &self,
-        bundle: &Bundle,
+        (bundle, held): (&Bundle, Option<&Held>),
         workdir: &Path,
         deadline: std::time::Duration,
         effect_id: &str,
         attempt_id: &str,
         on_checkpoint: impl FnMut(&Value),
     ) -> AttemptReport {
-        match spawn_site(bundle, &self.spawn, &self.input, workdir, deadline) {
+        match spawn_site(bundle, &self.spawn, &self.input, workdir, deadline, held) {
             Err(e) => AttemptReport {
                 outcome: AttemptOutcome::Failed {
                     error: format!("member driver did not spawn: {e}"),

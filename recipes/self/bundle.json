@@ -15,7 +15,7 @@
         "security-hold"
       ],
       "class": "gate",
-      "agent": "reviewer"
+      "agent": "brokkr-reviewer"
     }
   }
 }

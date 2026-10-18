@@ -75,6 +75,11 @@ Every surface that shows a seat's or a state's tokens SHALL read them from Brokk
 - **WHEN** a seat metered 1.19M input, 48k output and 1.19M cache reads
 - **THEN** the TUI's seat pane reads `Σ 1.24M tok ↑ 1.19M ↓ 48k · 99.9% cache`, and the console shows the same arrows with 99.9% as the cache hit
 
+#### Scenario: A seat that wrote to its cache
+
+- **WHEN** a seat metered 20.21M input, all but 242 of them cache reads, and wrote 243k tokens to its cache
+- **THEN** its cache hit is 98.8%, the reads over the input and the writes together, because a written token is one the provider read uncached
+
 #### Scenario: Nothing reported
 
 - **WHEN** a state's seats reported no tokens
@@ -107,6 +112,21 @@ A run opened from the Library SHALL offer, first in its bar, a way back to the L
 - **WHEN** the operator, on `brokkr / self` over 30 days with `verify → stop` picked, opens a run that took `VERIFY-FAIL`, and then presses "← Library · brokkr / self"
 - **THEN** the Library shows `brokkr / self` over 30 days with `verify → stop` still picked
 
+### Requirement: A recipe that does not compile says so, and every recipe stays pickable
+
+When the graph's table is `refused`, the Graph view SHALL show a panel headed with Brokkr's words that the recipe does not compile against this Brokkr. Beneath the heading SHALL be the compiler's reason, one clause to a line and wrapped, then the bundle directory. With no state to draw, the view SHALL say there is no traffic to draw, and SHALL draw no tiles and no empty graph. The recipe picker SHALL list every recipe the realm's graph names, with or without runs, and SHALL mark each recipe in `does_not_compile`. When a graph cannot be read, the picker SHALL keep the recipes the realm's last graph named.
+
+#### Scenario: A realm whose recipes predate this Brokkr
+
+- **WHEN** lanetally has no runs in range and Brokkr draws `dependencies`, which does not compile
+- **THEN** the panel reads "dependencies doesn't compile against this Brokkr" with the adapter's refusal beneath it, and the picker lists `dependencies · doesn’t compile`, `fast` and `triage · doesn’t compile`, each of which can be picked
+
+#### Scenario: A graph that cannot be read
+
+- **WHEN** the operator picks `muninn` and its graph cannot be read
+- **THEN** the error is shown, and the picker still lists every recipe the realm's last graph named, those that never ran included
+
 ## Provenance
 
 - `2026-10-17-568-library-graph-and-pareto` — folded 2026-10-17
+- `2026-10-18-568-library-compile-refusal` — folded 2026-10-18

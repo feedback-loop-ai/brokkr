@@ -176,6 +176,12 @@ pub brokkr_view::GraphError::UnknownRecipe::realm: alloc::string::String
 pub brokkr_view::GraphError::UnknownRecipe::recipe: alloc::string::String
 impl core::fmt::Display for brokkr_view::GraphError
 pub fn brokkr_view::GraphError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_view::GraphResolution<'a>
+pub brokkr_view::GraphResolution::Compiled(brokkr_view::GraphTable<'a>)
+pub brokkr_view::GraphResolution::NotFound
+pub brokkr_view::GraphResolution::Refused
+pub brokkr_view::GraphResolution::Refused::bundle: &'a str
+pub brokkr_view::GraphResolution::Refused::reason: &'a str
 pub enum brokkr_view::Need
 pub brokkr_view::Need::Parked
 pub brokkr_view::Need::Quarantined(brokkr_view::Quarantine)
@@ -247,6 +253,10 @@ pub fn brokkr_view::Standing::label(self) -> &'static str
 pub enum brokkr_view::Table
 pub brokkr_view::Table::NotFound
 pub brokkr_view::Table::NotFound::text: alloc::string::String
+pub brokkr_view::Table::Refused
+pub brokkr_view::Table::Refused::bundle: alloc::string::String
+pub brokkr_view::Table::Refused::reason: alloc::string::String
+pub brokkr_view::Table::Refused::text: alloc::string::String
 pub brokkr_view::Table::Resolved
 pub enum brokkr_view::Unavailable
 pub brokkr_view::Unavailable::AnswerHere
@@ -341,17 +351,19 @@ pub brokkr_view::FleetView::count: usize
 pub brokkr_view::FleetView::realms: alloc::vec::Vec<brokkr_view::RealmRuns>
 pub brokkr_view::FleetView::view_version: u32
 pub struct brokkr_view::GraphQuery<'a>
+pub brokkr_view::GraphQuery::does_not_compile: &'a [alloc::string::String]
 pub brokkr_view::GraphQuery::hearths: &'a [brokkr_view::AnalyticsHearth<'a>]
 pub brokkr_view::GraphQuery::now: &'a str
 pub brokkr_view::GraphQuery::range: brokkr_view::Range
 pub brokkr_view::GraphQuery::realm: &'a str
 pub brokkr_view::GraphQuery::recipe: &'a str
 pub brokkr_view::GraphQuery::shelved: &'a [alloc::string::String]
-pub brokkr_view::GraphQuery::table: core::option::Option<brokkr_view::GraphTable<'a>>
+pub brokkr_view::GraphQuery::table: brokkr_view::GraphResolution<'a>
 pub struct brokkr_view::GraphTable<'a>
 pub brokkr_view::GraphTable::machine: &'a brokkr_core::policy::Machine
 pub brokkr_view::GraphTable::manifest: &'a serde_json::value::Value
 pub struct brokkr_view::GraphView
+pub brokkr_view::GraphView::does_not_compile: alloc::vec::Vec<alloc::string::String>
 pub brokkr_view::GraphView::drift_text: core::option::Option<alloc::string::String>
 pub brokkr_view::GraphView::drifted_runs: usize
 pub brokkr_view::GraphView::ends: brokkr_view::graph::Ends

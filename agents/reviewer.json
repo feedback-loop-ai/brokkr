@@ -1,36 +1,16 @@
 {
-  "description": "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
   "charter": "charters/reviewer.md",
-  "models": [
-    "sol",
-    "fable",
-    "opus"
-  ],
+  "description": "The single-seat reviewer: correctness and security in one pass, for recipes without a review panel.",
   "efforts": {
-    "sol": "high",
-    "fable": "xhigh",
-    "opus": "xhigh"
-  },
-  "hands": {
-    "kind": "workspace",
-    "network": false,
-    "binds": [
-      {
-        "path": "~/.cargo",
-        "mode": "overlay",
-        "mask": [
-          "credentials.toml",
-          "credentials"
-        ]
-      },
-      {
-        "path": "~/.rustup",
-        "mode": "ro"
-      }
-    ]
+    "fable": "high",
+    "opus": "high"
   },
   "limits": {
     "max_attempts": 2,
     "timeout_seconds": 3600
-  }
+  },
+  "models": [
+    "fable",
+    "opus"
+  ]
 }

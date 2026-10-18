@@ -225,6 +225,12 @@ What a driver has to do to participate:
 - **Treat a refused resume as a cold spawn, not a failure.** An unknown
   or expired session is not the attempt's fault: start cold, journal the
   refusal, and carry on.
+- **Journal this attempt's spend, not the session's.** A harness that
+  restores its session's running cost on a resume reports it inside
+  every result after it. Claude Code writes the session's cost to its
+  transcript as a `cost-state` record and restores the newest one on
+  `--resume`. The claude driver reads that record before it launches
+  and subtracts it, so the earlier attempt's cost is not counted twice.
 
 What the ENGINE checks before it offers you anything (decision 0030
 ruling 4, generalised by proposed decision 0056 rulings 1 and 2). Every
@@ -523,6 +529,13 @@ three subset/adjacent fields are displayed and never re-added. A surface
 that summed a subset a second time would inflate the figure the wager
 compares seats on, which is why the rule lives here rather than in each
 surface.
+
+The cache hit is the one share that reads `cache_write_tokens`: it is
+`cache_read_tokens` over `input_tokens + cache_write_tokens`. A written
+token is a prompt token the provider read uncached, which is a miss.
+Claude reports a few uncached input tokens a call and puts nearly every
+miss in its writes, so over `input_tokens` alone every Claude seat read
+about 100%. A harness that reports no writes is unchanged.
 
 The efforts are not summed at all: `effort` is one configured value per
 record, and a seat whose members ran at different levels reports all of

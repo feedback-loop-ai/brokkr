@@ -20,20 +20,33 @@ for (const [what, parse, doc] of [
   })
 }
 
-test('the graph is read at its own wire version, 1, and any other is refused naming the version found', () => {
+test('the graph is read at its own wire version, 2, and any other is refused naming the version found', () => {
   assert.equal(graphOf(graphDoc()).recipe, 'self')
-  assert.throws(() => graphOf(graphDoc({ view_version: 2 })), new ReadoutRefused('version', 'brokkr graph is at view version 2; this console paints version 1 only'))
+  for (const found of [1, 3]) {
+    assert.throws(() => graphOf(graphDoc({ view_version: found })), new ReadoutRefused('version', `brokkr graph is at view version ${found}; this console paints version 2 only`))
+  }
   // The shared wire's number is not the graph's.
-  assert.throws(() => graphOf(graphDoc({ view_version: 23 })), new ReadoutRefused('version', 'brokkr graph is at view version 23; this console paints version 1 only'))
+  assert.throws(() => graphOf(graphDoc({ view_version: 23 })), new ReadoutRefused('version', 'brokkr graph is at view version 23; this console paints version 2 only'))
 })
 
 test('a graph is read whole: a park rule has no next, a terminal no seat, and a table not found says where', () => {
   const view = graphOf(graphDoc({ table: { kind: 'not_found', text: 'this recipe’s table was not found in brokkr' } }))
-  assert.deepEqual(view.table, { kind: 'not_found', text: 'this recipe’s table was not found in brokkr' })
+  assert.deepEqual(view.table, { kind: 'not_found', text: 'this recipe’s table was not found in brokkr', reason: null, bundle: null })
+  assert.deepEqual(graphOf(graphDoc()).table, { kind: 'resolved', text: null, reason: null, bundle: null })
   assert.deepEqual(view.rules.find((rule) => rule.id === 'REVIEW-HOLD'), { id: 'REVIEW-HOLD', from: 'review', next: null, result: 'hold', when: [], severity: null, count: 1, kind: 'forward', text: 'REVIEW-HOLD · 1', latest: [] })
   assert.deepEqual(view.states.find((state) => state.name === 'stop').seats, [])
   assert.deepEqual(view.states.find((state) => state.name === 'review').cost, { cost: { kind: 'reported', usd: 1.5 }, text: '$1.50', silent: ['codex'], note: 'claude only · codex report none' })
   assert.throws(() => graphOf(graphDoc({ rules: [{ ...graphDoc().rules[0], kind: 'sideways' }] })), new ReadoutRefused('shape', 'rules[0].kind is not one of forward, self, back, terminal'))
+})
+
+test('a recipe that does not compile is read with the compiler’s reason and the bundle it refused, and the realm’s that do not are named', () => {
+  const table = { kind: 'refused', text: "triage doesn't compile against this Brokkr", reason: "dialect 'speckit' declares phase 'specify' validate unsupported (composed: triage -> fast)", bundle: 'recipes/triage' }
+  const view = graphOf(graphDoc({ recipe: 'triage', does_not_compile: ['self', 'triage'], table }))
+  assert.deepEqual([view.table, view.does_not_compile], [table, ['self', 'triage']])
+  assert.throws(() => graphOf(graphDoc({ table: { ...table, reason: undefined } })), new ReadoutRefused('shape', 'table.reason is not text'))
+  assert.throws(() => graphOf(graphDoc({ table: { ...table, bundle: 7 } })), new ReadoutRefused('shape', 'table.bundle is not text'))
+  assert.throws(() => graphOf(graphDoc({ does_not_compile: undefined })), new ReadoutRefused('shape', 'does_not_compile is not a list'))
+  assert.throws(() => graphOf(graphDoc({ table: { kind: 'broken' } })), new ReadoutRefused('shape', 'table.kind is not one of resolved, not_found, refused'))
 })
 
 test('analytics carries each recipe of each realm through, its cost as Brokkr figured it and its frontier as Brokkr read it', () => {
