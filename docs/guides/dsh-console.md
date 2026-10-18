@@ -154,7 +154,13 @@ where every realm is.
   earlier version of it, counted apart from the runs where only a base the
   recipe composes moved, which may have left the table as it is. A recipe
   whose table is not found in the realm is
-  drawn from the rules its runs fired, and says so.
+  drawn from the rules its runs fired, and says so. A recipe that does not
+  compile against this Brokkr, such as one from a library written for an
+  older Brokkr, says so above anything else: the compiler's reason one
+  clause to a line, naming the file it refused when there is one, then the
+  recipe's bundle directory. The rules its runs fired are still drawn
+  beneath it. The dropdown lists every recipe of the realm, with or
+  without runs, and marks each that does not compile.
 - **Pareto.** Each recipe of the realm with runs and a reported cost is a
   point, how often its runs reach `done` against what a run costs, from
   `brokkr analytics --json`'s `recipes`. Two targets you set (50% done and

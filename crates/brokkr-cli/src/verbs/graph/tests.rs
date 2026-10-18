@@ -82,6 +82,33 @@ fn asked<'a>(recipe: &'a str, now: &'a str) -> Asked<'a> {
     }
 }
 
+/// The bundle `compiles` holds for the recipe asked for.
+fn bundle_of(compiles: Compiles) -> Bundle {
+    let Compiled::Bundle(bundle) = compiles.asked else {
+        panic!("the recipe asked for compiled");
+    };
+    *bundle
+}
+
+/// What compiling a shelf on which nothing resolves found.
+fn unshelved() -> Compiles {
+    Compiles {
+        asked: Compiled::NotOnShelf,
+        refused: Vec::new(),
+    }
+}
+
+/// A folder `brokkr init` scaffolded, read through its links, with the
+/// harness it seats found under `bin`.
+fn adopter(dir: &Path) -> PathBuf {
+    let repo = std::fs::canonicalize(dir).unwrap();
+    let bins = repo.join("bin");
+    std::fs::create_dir(&bins).unwrap();
+    std::fs::write(bins.join("claude"), "").unwrap();
+    crate::init::init(&repo, bins.as_os_str(), "linux").unwrap();
+    repo
+}
+
 fn hearth(dir: &Path) -> Vec<Hearth> {
     vec![Hearth {
         realms: Vec::new(),
@@ -183,11 +210,7 @@ fn a_bundle_directory_is_found_by_the_name_its_bundle_json_gives_it() {
 #[test]
 fn an_adopters_implicit_bundle_resolves_and_is_drawn_with_its_dormant_rules() {
     let dir = tempfile::tempdir().unwrap();
-    let repo = std::fs::canonicalize(dir.path()).unwrap();
-    let bins = repo.join("bin");
-    std::fs::create_dir(&bins).unwrap();
-    std::fs::write(bins.join("claude"), "").unwrap();
-    crate::init::init(&repo, bins.as_os_str(), "linux").unwrap();
+    let repo = adopter(dir.path());
     // A visible bundle beside the folder still resolves after it.
     std::fs::create_dir(repo.join("other")).unwrap();
     std::fs::write(repo.join("other/bundle.json"), r#"{"name": "other"}"#).unwrap();
@@ -199,20 +222,28 @@ fn an_adopters_implicit_bundle_resolves_and_is_drawn_with_its_dormant_rules() {
             ("other".to_string(), repo.join("other")),
         ]
     );
-    let bundle = compiled(None, &repo, &shelf, "starter").unwrap().unwrap();
+    let compiles = compiled(None, &repo, &shelf, "starter").unwrap();
+    // The bundle beside it is a name and no recipe, so it does not compile.
+    assert_eq!(compiles.refused, ["other"]);
+    let bundle = bundle_of(compiles);
     let journal = repo.join(".brokkr/state");
     let first = &bundle.machine.rules[0];
     let mut events = vec![entered(&first.from)];
     events.extend(seat(&first.from, &first.result));
     Journal::at(&journal).run("live", &bundle.manifest, &events);
     let now = now_rfc3339();
+    let compiles = Compiles {
+        asked: Compiled::Bundle(Box::new(bundle.clone())),
+        refused: vec!["other".into()],
+    };
     let view = derive(
         &hearth(&journal),
-        Some(&bundle),
+        &compiles,
         &shelf,
         &asked("starter", &now),
     )
     .unwrap();
+    assert_eq!(view.does_not_compile, ["other"]);
     assert_eq!(
         (&view.table, view.runs, view.rules.len()),
         (&Table::Resolved, 1, bundle.machine.rules.len())
@@ -224,9 +255,7 @@ fn an_adopters_implicit_bundle_resolves_and_is_drawn_with_its_dormant_rules() {
 fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
     let repository = repository();
     let shelf = shelf(&repository).unwrap();
-    let bundle = compiled(None, &repository, &shelf, "self")
-        .unwrap()
-        .unwrap();
+    let bundle = bundle_of(compiled(None, &repository, &shelf, "self").unwrap());
     let first = &bundle.machine.rules[0];
     let next = first.next.as_deref().unwrap();
     // The same table, but its base layer as it was before it moved.
@@ -255,13 +284,11 @@ fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
     stopped.push((EventType::RunStopped, json!({})));
     journal.run("stopped", &moved, &stopped);
     let now = now_rfc3339();
-    let view = derive(
-        &hearth(dir.path()),
-        Some(&bundle),
-        &shelf,
-        &asked("self", &now),
-    )
-    .unwrap();
+    let compiles = Compiles {
+        asked: Compiled::Bundle(Box::new(bundle.clone())),
+        refused: Vec::new(),
+    };
+    let view = derive(&hearth(dir.path()), &compiles, &shelf, &asked("self", &now)).unwrap();
     assert_eq!(
         (view.recipe.as_str(), &view.table),
         ("self", &Table::Resolved)
@@ -269,7 +296,7 @@ fn a_composed_recipe_is_drawn_from_its_table_with_its_traffic_and_drift() {
     assert_eq!(view.drifted_runs, 1, "only the run under the earlier base");
     assert_eq!(
         serde_json::to_value(&view).unwrap()["view_version"],
-        json!(1)
+        json!(2)
     );
     let painted = paint(&view);
     let lines: Vec<&str> = painted.lines().collect();
@@ -306,7 +333,7 @@ fn a_recipe_only_runs_carry_is_drawn_from_them_and_its_live_run_named() {
     let gone = json!({"bundle_name": "gone"});
     journal.run("live", &gone, &[entered("work")]);
     let now = now_rfc3339();
-    let view = derive(&hearth(dir.path()), None, &[], &asked("gone", &now)).unwrap();
+    let view = derive(&hearth(dir.path()), &unshelved(), &[], &asked("gone", &now)).unwrap();
     let painted = paint(&view);
     assert_eq!(
         painted,
@@ -330,18 +357,140 @@ fn an_unknown_recipe_is_refused_naming_the_recipes_the_realm_knows() {
     let shelf = shelf(dir.path()).unwrap();
     let nothing = compiled(None, dir.path(), &shelf, "nosuch").unwrap();
     assert!(
-        nothing.is_none(),
+        matches!(nothing.asked, Compiled::NotOnShelf),
         "no table resolves for a name nothing gives"
     );
     let refused = derive(
         &hearth(dir.path()),
-        None,
+        &nothing,
         &shelf,
         &asked("nosuch", &now_rfc3339()),
     );
     assert_eq!(
         refused.unwrap_err().to_string(),
         "no recipe 'nosuch' in world: the recipes it knows are one and two"
+    );
+}
+
+#[test]
+fn a_recipe_that_does_not_compile_is_drawn_with_its_refusal_and_named_among_the_realms() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = adopter(dir.path());
+    // The adapter as a library written for an older Brokkr carries it: a
+    // key this Brokkr does not know.
+    let adapter = repo.join(".brokkr/adapters/claude.json");
+    let mut written: Value = serde_json::from_slice(&std::fs::read(&adapter).unwrap()).unwrap();
+    written["binding_grant"] = json!({"network": true});
+    std::fs::write(&adapter, serde_json::to_vec(&written).unwrap()).unwrap();
+    let shelf = shelf(&repo).unwrap();
+    let compiles = compiled(None, &repo, &shelf, "starter").unwrap();
+    assert_eq!(compiles.refused, ["starter"]);
+    let Compiled::Refused { reason, bundle } = &compiles.asked else {
+        panic!("the starter does not compile");
+    };
+    let named = format!(
+        "adapter 'claude' ({}) has unknown key 'binding_grant'; known keys: ",
+        adapter.display()
+    );
+    assert!(reason.starts_with(&named), "{reason}");
+    assert_eq!(bundle, ".brokkr");
+    let journal = tempfile::tempdir().unwrap();
+    Journal::at(journal.path());
+    let now = now_rfc3339();
+    let view = derive(
+        &hearth(journal.path()),
+        &compiles,
+        &shelf,
+        &asked("starter", &now),
+    )
+    .unwrap();
+    let text = "starter doesn't compile against this Brokkr";
+    assert_eq!(
+        (&view.table, &view.recipes, &view.does_not_compile),
+        (
+            &Table::Refused {
+                text: text.into(),
+                reason: reason.clone(),
+                bundle: ".brokkr".into(),
+            },
+            &vec!["starter".to_string()],
+            &vec!["starter".to_string()],
+        )
+    );
+    assert_eq!((view.runs, view.states.len()), (0, 0));
+    assert_eq!(
+        paint(&view),
+        format!(
+            "world / starter · {} → {now} · 0 runs\n{text}\n  {reason}\n  bundle .brokkr\n\
+             ends   0 done · 0 stop by a rule · 0 stopped by you · 0 open\n",
+            view.from
+        )
+    );
+}
+
+#[test]
+fn a_name_resolves_to_its_first_directory_and_is_compiled_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = adopter(dir.path());
+    // A bundle beside the folder giving the starter's name: no recipe, and
+    // never the one the name resolves to.
+    std::fs::create_dir(repo.join("again")).unwrap();
+    std::fs::write(repo.join("again/bundle.json"), r#"{"name": "starter"}"#).unwrap();
+    let shelf = shelf(&repo).unwrap();
+    assert_eq!(shelf.len(), 2);
+    let compiles = compiled(None, &repo, &shelf, "starter").unwrap();
+    assert_eq!(compiles.refused, Vec::<String>::new());
+    assert!(matches!(compiles.asked, Compiled::Bundle(_)));
+}
+
+#[test]
+fn a_refusal_reads_without_the_bundle_words_that_wrap_it() {
+    let composed = CompileError::Invalid("bundle: dialect 'speckit' declares phase 'specify' validate unsupported (composed: triage -> fast)".into());
+    assert_eq!(
+        reason_of(&composed),
+        "dialect 'speckit' declares phase 'specify' validate unsupported (composed: triage -> fast)"
+    );
+    let io = CompileError::Io(std::io::Error::other("gone"));
+    assert_eq!(reason_of(&io), "bundle io: gone");
+}
+
+#[test]
+fn a_refused_bundle_is_named_in_the_realms_folder_however_the_two_are_spelled() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = std::fs::canonicalize(dir.path()).unwrap().join("real");
+    std::fs::create_dir_all(real.join("recipes/x")).unwrap();
+    let link = dir.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    assert_eq!(within(&real.join("recipes/x"), &link), "recipes/x");
+    let elsewhere = dir.path().join("elsewhere");
+    assert_eq!(within(&elsewhere, &link), elsewhere.display().to_string());
+}
+
+#[test]
+fn a_realm_that_cannot_compile_any_recipe_fails_the_graph_rather_than_naming_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("tree");
+    std::fs::create_dir_all(folder.join("recipes/one")).unwrap();
+    let map = dir.path().join("realms.json");
+    std::fs::write(
+        &map,
+        r#"{"schema":"forge.realms/v3",
+            "realms":[{"name":"solo","path":"tree","default_branch":"main","dialect":"nosuch"}],
+            "journal":"j.db"}"#,
+    )
+    .unwrap();
+    let world = World::load(&map).unwrap();
+    let folder = world.path_of(&world.map.realms[0]);
+    let shelf = shelf(&folder).unwrap();
+    let failed = compiled(Some(&world), &folder, &shelf, "one")
+        .err()
+        .unwrap();
+    assert!(
+        matches!(
+            failed.downcast_ref::<LaunchError>(),
+            Some(LaunchError::World(_))
+        ),
+        "{failed}"
     );
 }
 

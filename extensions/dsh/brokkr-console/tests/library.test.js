@@ -62,12 +62,12 @@ test('Brokkr’s refusal of a recipe it does not know, and a graph at another ve
   const unknown = "no recipe 'nosuch' in brokkr: the recipes it knows are frontier and self"
   const { ask } = await hosted([
     { match: ['--recipe=nosuch'], responses: [{ code: 2, stderr: `${unknown}\n` }] },
-    { match: ['graph'], responses: [json(graphDoc({ view_version: 2 }))] },
+    { match: ['graph'], responses: [json(graphDoc({ view_version: 3 }))] },
   ])
   const refused = await ask({ realm: 'brokkr', recipe: 'nosuch' })
   assert.deepEqual([refused.status, JSON.parse(refused.body)], [502, { error: unknown }])
   const newer = await ask({ realm: 'brokkr', recipe: 'self' })
-  assert.deepEqual([newer.status, JSON.parse(newer.body)], [502, { error: 'brokkr graph is at view version 2; this console paints version 1 only' }])
+  assert.deepEqual([newer.status, JSON.parse(newer.body)], [502, { error: 'brokkr graph is at view version 3; this console paints version 2 only' }])
 })
 
 // ------------------------------------------------------------- the page
@@ -345,12 +345,76 @@ test('Brokkr’s words for the recipe head the graph, retired rules and the drif
 })
 
 test('a graph at a version the console does not know says which version it found, and draws nothing', async () => {
-  const words = 'brokkr graph is at view version 2; this console paints version 1 only'
-  assert.throws(() => graphOf(graphDoc({ view_version: 2 })), { message: words })
+  const words = 'brokkr graph is at view version 3; this console paints version 2 only'
+  assert.throws(() => graphOf(graphDoc({ view_version: 3 })), { message: words })
   const client = await onLibrary(answers({ [GRAPH]: refusedWith(words) }))
   assert.deepEqual(findAll(client.tree(), (node) => node.props.className === 'bk-error').map(textOf), [`The graph could not be read: ${words}`])
   assert.equal(machine(client.tree()), undefined)
   assert.equal(labelled(client.tree(), 'Selected state'), undefined)
+})
+
+// ------------------------------------------------- a recipe that does not compile
+
+const REASON = "adapter 'claude' (/home/op/lanetally/adapters/claude.json) has unknown key 'binding_grant'; known keys: provider, trust_tier, egress; the adapter data is where a driver's model mapping is declared"
+const refusedTable = (recipe) => ({ kind: 'refused', text: `${recipe} doesn't compile against this Brokkr`, reason: REASON, bundle: 'recipes/' + recipe })
+/** lanetally's graph as Brokkr draws it: three recipes, two of which do not compile against this Brokkr, none run. */
+const lanetally = (recipe, table) => graphOf(graphDoc({
+  realm: 'lanetally', recipe, recipes: ['dependencies', 'fast', 'triage'], does_not_compile: ['dependencies', 'triage'], table,
+  runs: 0, states: [], rules: [], links: [], live: [], retired: [], drifted_runs: 0, drift_text: null,
+}))
+const unrun = () => analyticsOf(analyticsDoc({ realms: [realmRow('lanetally')], recipes: [] }))
+const refusal = (tree) => labelled(tree, 'The recipe does not compile')
+
+test('a recipe that doesn’t compile says so in Brokkr’s words, its reason a clause to a line and the bundle it refused, and never reads as a recipe with no runs', async () => {
+  const client = await onLibrary(answers({ [ANALYTICS]: unrun(), [GRAPH]: lanetally('dependencies', refusedTable('dependencies')) }))
+  const tree = client.tree()
+  assert.equal(heading(tree), 'lanetally / dependencies')
+  const panel = refusal(tree)
+  assert.equal(textOf(findAll(panel, (node) => node.type === 'strong')[0]), "dependencies doesn't compile against this Brokkr")
+  const reason = findAll(panel, (node) => node.props.className === 'bk-lib-reason')[0]
+  assert.deepEqual(findAll(reason, (node) => node !== reason && node.type === 'div').map(textOf), [
+    "adapter 'claude' (/home/op/lanetally/adapters/claude.json) has unknown key 'binding_grant'",
+    'known keys: provider, trust_tier, egress',
+    "the adapter data is where a driver's model mapping is declared",
+  ])
+  assert.equal(textOf(findAll(panel, (node) => node.type === 'code')[0]), 'recipes/dependencies')
+  // Nothing else is drawn as if it were a recipe that merely has not run: no tiles, no empty machine, no error.
+  assert.deepEqual([labelled(tree, 'The recipe in range'), machine(tree), findAll(tree, (node) => node.props.className === 'bk-error')], [undefined, undefined, []])
+  assert.ok(textOf(tree).includes('No run of it in 7d, so there is no traffic to draw either.'))
+})
+
+test('every recipe of a realm with no runs stays listed and pickable, those that don’t compile marked, and picking one that compiles draws it', async () => {
+  const graphs = (url) => (url.includes('recipe=fast') ? lanetally('fast', { kind: 'resolved' }) : lanetally('dependencies', refusedTable('dependencies')))
+  const client = await onLibrary(answers({ [ANALYTICS]: unrun(), [GRAPH]: graphs }))
+  assert.deepEqual(recipeList(client.tree()), [['not run in range · 3', ['dependencies · doesn’t compile', 'fast', 'triage · doesn’t compile']]])
+  const picker = findAll(client.tree(), (node) => node.props.className === 'bk-row bk-lib-recipe')[0]
+  assert.equal(textOf(findAll(picker, (node) => node.props.className === 'bk-d')[0]), '3 recipes in this realm · 2 don’t compile against this Brokkr')
+  recipeSelect(client.tree()).onChange({ target: { value: 'fast' } })
+  await settled()
+  assert.deepEqual(fetched(client, GRAPH).at(-1), `${GRAPH}?recipe=fast&range=7d&realm=lanetally`)
+  assert.equal(heading(client.tree()), 'lanetally / fast')
+  assert.equal(refusal(client.tree()), undefined)
+  assert.deepEqual(recipeList(client.tree()), [['not run in range · 3', ['dependencies · doesn’t compile', 'fast', 'triage · doesn’t compile']]])
+})
+
+test('a recipe that doesn’t compile but ran in range still draws the rules its runs fired, beneath its refusal', async () => {
+  const client = await onLibrary(answers({ [GRAPH]: graphOf(graphDoc({ does_not_compile: ['self'], table: refusedTable('self') })) }))
+  const tree = client.tree()
+  assert.equal(textOf(findAll(refusal(tree), (node) => node.type === 'strong')[0]), "self doesn't compile against this Brokkr")
+  assert.notEqual(machine(tree), undefined)
+  assert.ok(recipeList(tree)[0][1].includes('self · 10 runs · doesn’t compile'))
+})
+
+test('a graph that could not be read leaves every recipe the realm’s last graph named to pick, not only those that ran', async () => {
+  const graphs = (url) => (url.includes('recipe=muninn') ? refusedWith('database is locked') : graphOf(graphDoc()))
+  const client = await onLibrary(answers({ [GRAPH]: graphs }))
+  recipeSelect(client.tree()).onChange({ target: { value: 'muninn' } })
+  await settled()
+  assert.deepEqual(findAll(client.tree(), (node) => node.props.className === 'bk-error').map(textOf), ['The graph could not be read: database is locked'])
+  assert.deepEqual(recipeList(client.tree()), [
+    ['ran in range · 5', ['self · 10 runs', 'frontier · 6 runs', 'leaky · 5 runs', 'lean · 4 runs', 'muninn · 2 runs']],
+    ['not run in range · 1', ['charter']],
+  ])
 })
 
 // ------------------------------------------------------------ the frontier

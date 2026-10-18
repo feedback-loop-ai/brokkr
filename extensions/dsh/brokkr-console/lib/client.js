@@ -1296,8 +1296,24 @@ window.__ModuleLoader__.load({
                 h('button', { type: 'button', className: 'bk-link', onClick: () => openRun(run.run_id) }, run.label), h('span', { className: 'bk-d' }, `${ago(run.at)} ago`))))))))
     }
 
+    /**
+     * A recipe that does not compile against this Brokkr, as Brokkr refused
+     * it: its words, the compiler's reason a clause to a line so the file it
+     * names reads whole, and the bundle directory it refused.
+     */
+    function Refusal({ table }) {
+      return h('section', { key: 'refused', className: 'bk-cell bk-lib-refused', role: 'status', 'aria-label': 'The recipe does not compile' },
+        h('strong', null, table.text),
+        h('span', { className: 'bk-d' }, 'Brokkr’s compiler refused it, so its table can’t be drawn until the recipe is brought up to date:'),
+        h('div', { className: 'bk-lib-reason' }, table.reason.split('; ').map((clause, index) => h('div', { key: index }, clause))),
+        h('span', { className: 'bk-d' }, 'Its bundle: ', h('code', { className: 'bk-lib-id' }, table.bundle)))
+    }
+
     /** The Graph view: Brokkr's words for the recipe over the range, its state machine beside the picked state, and what lies beneath it. */
     function RecipeGraph({ view, picked, pick, openRun }) {
+      const refused = view.table.kind === 'refused' ? h(Refusal, { key: 'refused', table: view.table }) : null
+      // A recipe that does not compile and ran nothing in range has nothing else to draw.
+      if (refused !== null && view.states.length === 0) return [refused, h('div', { key: 'idle', className: 'bk-note' }, `No run of it in ${view.range}, so there is no traffic to draw either.`)]
       const stray = view.live.filter((run) => run.state === null || !view.states.some((state) => state.name === run.state))
       const beneath = [
         view.retired.length === 0 ? null : h('div', { key: 'retired', className: 'bk-note' }, h('strong', null, 'Retired rules'), ` · fired in range, not in the table now: ${view.retired.map((rule) => `${rule.rule_id} · ${rule.count}`).join(' · ')}`),
@@ -1306,6 +1322,7 @@ window.__ModuleLoader__.load({
           stray.map((run) => h('button', { key: run.run_id, type: 'button', className: 'bk-link', onClick: () => openRun(run.run_id) }, run.label))),
       ].filter((part) => part !== null)
       return [
+        refused,
         h('section', { key: 'tiles', className: 'bk-tiles', 'aria-label': 'The recipe in range' },
           tile(`Runs · ${view.range}`, String(view.runs), view.ends.text),
           tile('Rules that never fired', view.never_fired.text, 'drawn dashed')),
@@ -1427,17 +1444,19 @@ window.__ModuleLoader__.load({
      * that ran in range first with their runs as Brokkr counts them, most
      * first, then the ones that did not, by name.
      */
-    function RecipePicker({ names, rows, recipe, choose }) {
+    function RecipePicker({ names, rows, broken, recipe, choose }) {
       const runs = new Map(rows.map((row) => [row.recipe, row.runs]))
       const ran = names.filter((name) => runs.has(name)).sort((a, b) => runs.get(b) - runs.get(a) || a.localeCompare(b))
       const idle = names.filter((name) => !runs.has(name)).sort((a, b) => a.localeCompare(b))
-      const option = (name) => h('option', { key: name, value: name }, runs.has(name) ? `${name} · ${runs.get(name)} ${runs.get(name) === 1 ? 'run' : 'runs'}` : name)
+      const counted = (name) => (runs.has(name) ? `${name} · ${runs.get(name)} ${runs.get(name) === 1 ? 'run' : 'runs'}` : name)
+      const option = (name) => h('option', { key: name, value: name }, broken.includes(name) ? `${counted(name)} · doesn’t compile` : counted(name))
       return h('label', { className: 'bk-row bk-lib-recipe' }, h('span', { className: 'bk-k' }, 'Recipe'),
         h('select', { className: 'bk-input bk-lib-select', 'aria-label': 'Recipe', value: recipe ?? '', onChange: (event) => choose(event.target.value) },
           recipe === null || names.includes(recipe) ? null : h('option', { value: recipe }, recipe),
           ran.length === 0 ? null : h('optgroup', { label: `ran in range · ${ran.length}` }, ran.map(option)),
           idle.length === 0 ? null : h('optgroup', { label: `not run in range · ${idle.length}` }, idle.map(option))),
-        h('span', { className: 'bk-d' }, `${names.length} ${names.length === 1 ? 'recipe' : 'recipes'} in this realm`))
+        h('span', { className: 'bk-d' }, `${names.length} ${names.length === 1 ? 'recipe' : 'recipes'} in this realm`,
+          broken.length === 0 ? '' : ` · ${broken.length} ${broken.length === 1 ? 'doesn’t' : 'don’t'} compile against this Brokkr`))
     }
 
     /** The realms Brokkr's figures name, in their order. */
@@ -1452,7 +1471,8 @@ window.__ModuleLoader__.load({
      * (`here`) when Brokkr lists it, else the first, and the recipe is the one
      * Brokkr draws when asked for none: the one with the most runs in range,
      * else the first the realm knows. The realm's known recipes, for the recipe picker and
-     * "not measured yet", are the ones that graph names, measured or not.
+     * "not measured yet", are the ones its last graph named, measured or not and compiling
+     * or not, so a recipe Brokkr refuses, or a graph that could not be read, leaves them all to pick.
      */
     function Library({ route, go, here, openRun }) {
       // The range and the pick live in the route, so a run opened from here can bring the operator back to exactly this.
@@ -1498,7 +1518,11 @@ window.__ModuleLoader__.load({
         if (at !== seen.at && picked !== null) pick(null)
         seen.at = at
       }, [realm, recipe])
-      const known = shown?.value?.recipes ?? null
+      // The realm's recipes as its last graph named them, so a graph that could not be read still leaves every recipe to pick.
+      const [shelves] = useState(new Map())
+      if (shown?.value) shelves.set(realm, { recipes: shown.value.recipes, broken: shown.value.does_not_compile })
+      const shelf = shelves.get(realm) ?? null
+      const known = shelf?.recipes ?? null
       const goTo = (change) => go({ realm, recipe: asked, sub, ...change })
       const names = known ?? rows.map((row) => row.recipe)
       const body = figures.range === range && figures.error !== null ? h('div', { className: 'bk-error' }, `Brokkr’s figures could not be read: ${figures.error}`)
@@ -1514,7 +1538,7 @@ window.__ModuleLoader__.load({
             realms.map((name) => choice(name === realm, name, () => go({ realm: name, recipe: null })))),
           ranges(range, setRange),
           h('span', { className: 'bk-row bk-lib-views', role: 'group', 'aria-label': 'View' }, choice(sub === 'graph', 'Graph', () => goTo({ sub: 'graph' })), choice(sub === 'pareto', 'Pareto', () => goTo({ sub: 'pareto' })))),
-        sub !== 'graph' || names.length === 0 ? null : h(RecipePicker, { names, rows, recipe, choose: (name) => goTo({ recipe: name }) }),
+        sub !== 'graph' || names.length === 0 ? null : h(RecipePicker, { names, rows, broken: shelf?.broken ?? [], recipe, choose: (name) => goTo({ recipe: name }) }),
         body)
     }
 

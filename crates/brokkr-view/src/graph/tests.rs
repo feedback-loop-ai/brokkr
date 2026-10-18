@@ -278,15 +278,39 @@ fn read_over(
     read_under(machine(), journals, recipe, table)
 }
 
-/// The graph of `recipe` over `journals`, under `machine` when `table`.
+/// How a test's recipe resolves: it compiled, it was not found, or it
+/// was refused in these words.
+#[derive(Clone, Copy)]
+enum Drawn {
+    Compiled,
+    NotFound,
+    Refused(&'static str),
+}
+
+impl From<bool> for Drawn {
+    fn from(table: bool) -> Drawn {
+        match table {
+            true => Drawn::Compiled,
+            false => Drawn::NotFound,
+        }
+    }
+}
+
+/// The graph of `recipe` over `journals`, under `machine` when it
+/// compiled. A refused recipe is listed, with `shelved`, as not compiling.
 fn read_under(
     machine: Machine,
     journals: Vec<(Journal, Option<RunState>)>,
     recipe: &str,
-    table: bool,
+    drawn: impl Into<Drawn>,
 ) -> Result<GraphView, GraphError> {
     let manifest = resolved();
     let runs = runs(&journals);
+    let drawn = drawn.into();
+    let refused: Vec<String> = match drawn {
+        Drawn::Refused(_) => vec!["shelved".to_string(), recipe.to_string()],
+        Drawn::Compiled | Drawn::NotFound => Vec::new(),
+    };
     let realms = vec!["alpha".to_string(), "beta".to_string()];
     let hearths = [
         AnalyticsHearth {
@@ -308,11 +332,19 @@ fn read_under(
         hearths: &hearths,
         recipe,
         realm: "alpha",
-        table: table.then_some(GraphTable {
-            machine: &machine,
-            manifest: &manifest,
-        }),
+        table: match drawn {
+            Drawn::Compiled => GraphResolution::Compiled(GraphTable {
+                machine: &machine,
+                manifest: &manifest,
+            }),
+            Drawn::NotFound => GraphResolution::NotFound,
+            Drawn::Refused(reason) => GraphResolution::Refused {
+                reason,
+                bundle: "recipes/self",
+            },
+        },
         shelved: &["shelved".to_string()],
+        does_not_compile: &refused,
         range: Range::Week,
         now: NOW,
     })
@@ -415,8 +447,9 @@ fn each_rule_has_its_kind_and_each_state_its_place() {
         ]
     );
     let wire = serde_json::to_value(&view).unwrap();
-    assert_eq!(wire["view_version"], json!(1));
+    assert_eq!(wire["view_version"], json!(2));
     assert_eq!(wire["table"], json!({"kind": "resolved"}));
+    assert_eq!(wire["does_not_compile"], json!([]));
     let words: Vec<&str> = (1..=7)
         .map(|at| {
             wire["rules"][at]
@@ -607,6 +640,38 @@ fn a_table_that_does_not_resolve_draws_only_the_fired_rules() {
     assert_eq!((view.retired.len(), view.drifted_runs), (0, 0));
     assert_eq!(named(&view, "done").place, Place::End);
     assert_eq!(named(&view, "stop").place, Place::Beneath);
+}
+
+#[test]
+fn a_recipe_that_does_not_compile_is_drawn_from_its_fired_rules_with_its_refusal() {
+    let reason = "adapter 'claude' (/realm/adapters/claude.json) has unknown key 'binding_grant'";
+    let view = read_under(machine(), fleet(), "self", Drawn::Refused(reason)).unwrap();
+    let not_found = read("self", false).unwrap();
+    assert_eq!(
+        view.table,
+        Table::Refused {
+            text: "self doesn't compile against this Brokkr".into(),
+            reason: reason.into(),
+            bundle: "recipes/self".into(),
+        }
+    );
+    assert_eq!(view.does_not_compile, ["self", "shelved"]);
+    assert_eq!(not_found.does_not_compile, Vec::<String>::new());
+    // What the runs fired is drawn as when no table resolved.
+    assert_eq!(
+        (&view.rules, &view.states),
+        (&not_found.rules, &not_found.states)
+    );
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        wire["table"],
+        json!({"kind": "refused", "text": "self doesn't compile against this Brokkr",
+               "reason": reason, "bundle": "recipes/self"})
+    );
+    assert_eq!(wire["does_not_compile"], json!(["self", "shelved"]));
+    // A recipe that resolves and does not compile needs no run to be drawn.
+    let idle = read_under(machine(), fleet(), "shelved", Drawn::Refused(reason)).unwrap();
+    assert_eq!((idle.runs, idle.rules.len(), idle.recipes.len()), (0, 0, 3));
 }
 
 #[test]
@@ -812,8 +877,9 @@ fn a_clock_that_is_no_time_is_refused() {
         hearths: &[],
         recipe: "self",
         realm: "alpha",
-        table: None,
+        table: GraphResolution::NotFound,
         shelved: &[],
+        does_not_compile: &[],
         range: Range::Day,
         now: "noon",
     })
