@@ -15,6 +15,8 @@ use super::*;
 use crate::bundle::StepBody;
 use crate::capabilities::CapabilityContext;
 
+mod writers_tests;
+
 thread_local! {
     /// The host `Engine::provision` reads on this thread, where a test
     /// stood one in ([`StoodIn`]).
@@ -90,7 +92,11 @@ impl Claude {
     /// `brokered` holding `library-docs`, or none where this host protects
     /// no HOME, the test `test` skipped.
     fn new(test: &str, seat: Value, brokered: &[&str]) -> Option<Claude> {
-        let mut fixture = Fixture::protected(test)?;
+        Fixture::protected(test).map(|fixture| Claude::of(fixture, seat, brokered))
+    }
+
+    /// [`Claude::new`] on `fixture`.
+    fn of(mut fixture: Fixture, seat: Value, brokered: &[&str]) -> Claude {
         let root = fixture.root.clone();
         let rule = |(id, result): (usize, &Value)| {
             json!({"id": format!("W{id}"), "from": "work", "result": result, "next": "review",
@@ -136,7 +142,7 @@ impl Claude {
             outcome.held.insert("library-docs".into(), docs.clone());
         }
         fixture.engine.bundle = bundle;
-        Some(Claude { fixture })
+        Claude { fixture }
     }
 
     /// The attempt `attempt` of `selection`'s sites provisioned on the
@@ -465,26 +471,81 @@ fn program(body: &mut SeatBody) -> &mut String {
 #[test]
 fn dispatch_serves_each_site_the_whole_set_its_attempt_wrote() {
     let test = "dispatch_serves_each_site_the_whole_set_its_attempt_wrote";
-    let mut step = site();
-    (step["name"], step["results"]) = (json!("only"), json!(["complete"]));
-    let after = json!({"name": "after", "role": "roles/role.md", "driver": {"command": ["true"]}});
-    let sequence = json!({"results": ["complete"], "sequence": [step, after]});
-    for (seat, label) in [(single(), "work"), (sequence, "work:only")] {
+    let mut after = after();
+    // A sibling step that retains nothing is still a managed writer, which
+    // a workspace box keeps from the attempt's evidence (U8a2a, CR2).
+    after["hands"] = site()["hands"].clone();
+    for (seat, label) in [(single(), "work"), (beside(after), "work:only")] {
         let Some(mut claude) = Claude::new(test, seat, &[label]) else {
             return;
         };
+        claude.executed();
         let root = claude.fixture.root.clone();
-        let engine = &mut claude.fixture.engine;
-        *program(&mut engine.bundle.seats.get_mut("work").unwrap().body) = recording(&root);
-        let host = StoodIn::new(claude.fixture.host());
-        let effect = requested(&claude.fixture.engine, "effect");
-        execute_work(&mut claude.fixture.engine, &[effect]).unwrap();
-        drop(host);
         let (argv, start) = recorded(&root);
         let attempt = start["attempt_id"].as_str().unwrap();
         let bin = shim(&root);
         claude.whole_set((label, &argv[..]), &start["input"], attempt, &bin);
     }
+}
+
+/// The step `after` a sequence's brokered step: inline, with no hands.
+fn after() -> Value {
+    json!({"name": "after", "role": "roles/role.md", "driver": {"command": ["true"]}})
+}
+
+/// A sequence seat of one brokered [`site`], `only`, and then `after`.
+fn beside(after: Value) -> Value {
+    let mut step = site();
+    (step["name"], step["results"]) = (json!("only"), json!(["complete"]));
+    json!({"results": ["complete"], "sequence": [step, after]})
+}
+
+impl Claude {
+    /// The work seat's effect executed as dispatch executes it, on the
+    /// fixture's stood-in host, its program the [`recording`] driver.
+    fn executed(&mut self) {
+        let root = self.fixture.root.clone();
+        let engine = &mut self.fixture.engine;
+        *program(&mut engine.bundle.seats.get_mut("work").unwrap().body) = recording(&root);
+        self.executed_as_is();
+    }
+
+    /// The work seat's effect executed as dispatch executes it, on the
+    /// fixture's stood-in host.
+    fn executed_as_is(&mut self) {
+        let _host = StoodIn::new(self.fixture.host());
+        let effect = requested(&self.fixture.engine, "effect");
+        execute_work(&mut self.fixture.engine, &[effect]).unwrap();
+    }
+}
+
+/// U8a2a (CR2): a step whose holding retains protects the attempt's
+/// evidence from its first writer on, so a zero-grant sibling step outside
+/// any box refuses the whole attempt by CR2's cause at admission, before
+/// anything is provisioned or any step's driver starts.
+#[test]
+fn a_retaining_step_beside_an_unboxed_sibling_starts_nothing() {
+    let test = "a_retaining_step_beside_an_unboxed_sibling_starts_nothing";
+    let Some(mut claude) = Claude::new(test, beside(after()), &["work:only"]) else {
+        return;
+    };
+    claude.executed();
+    let root = claude.fixture.root.clone();
+    let engine = &claude.fixture.engine;
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let failed = events.last().unwrap();
+    let (site, run) = ("work:after".into(), engine.run_id.clone());
+    let unboxed = super::super::super::broker::admission::Conflict::Unboxed { site, run };
+    let refusal = super::super::super::broker::admission::Unadmitted::Evidence(unboxed);
+    assert_eq!(failed.event_type, EventType::EffectFailed);
+    assert_eq!(failed.payload["error"], refusal.to_string());
+    assert!(
+        !root.join("driver.argv").exists(),
+        "no step's driver started"
+    );
+    // Nothing was provisioned: no attempt directory, so no plan to serve.
+    let provisioned = std::fs::read_dir(claude.fixture.run_dir()).map(|dir| dir.count());
+    assert!(provisioned.is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound));
 }
 
 /// R2 of U7d2's first review (MB4): the names a spawn removed are judged

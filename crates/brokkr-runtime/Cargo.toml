@@ -45,6 +45,11 @@ brokkr-protocol = { workspace = true }
 # (no retrieval): a new edge, not a new package or version.
 jsonschema = { workspace = true }
 regex = { workspace = true }
+# Decision 0065 slice two, U8a2a (M2): admission hashes a historical
+# artifact in bounded chunks, the startup deadline checked between them,
+# which needs an incremental digest. The workspace's own sha2, which
+# brokkr-core already takes: a new edge, not a new package or version.
+sha2 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

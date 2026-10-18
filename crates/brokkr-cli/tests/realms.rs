@@ -92,6 +92,7 @@ impl Workspace {
         crate::engine::library(self.path());
         let out = Command::new(brokkr())
             .args(args)
+            .env("HOME", crate::engine::home_in(self.path()))
             .current_dir(self.path())
             .output()
             .unwrap();

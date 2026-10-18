@@ -688,8 +688,13 @@ host-wide lease facility on main. A mechanism needing a fourth file is split
 before implementation; no deferred runtime recheck may replace this exclusion.
 The coordination root and lock are themselves protected control inputs for
 every writer, including zero-grant runs. A writer that could replace either
-cannot participate. Engines unable to establish the same coordination domain
+cannot participate (while the MCP
+compile fence stands, where evidence is at stake; unconditionally once U9b1
+lifts it: operator ruling 2026-10-18 under U8a2a). Engines unable to establish the same coordination domain
 refuse a source admission; operator migration must quiesce nonparticipants.
+Every box a writer is given is built from the reach sealed in its reservation:
+a source or Git directory that no longer resolves to its sealed identity
+refuses before that box starts (U8a2c, operator ruling 2026-10-18).
 
 U8a/U8a2 real namespace proofs must include a retaining member plus a zero-grant
 attacker, boxed exec, an already-running writer, historical artifacts, ancestor
@@ -1182,12 +1187,12 @@ At each PR recheck these paths and baseline counts against main.
 | File / baseline lines where oversized | Units | Coordination |
 | --- | --- | --- |
 | `crates/brokkr-protocol/src/native_controls.rs` (4539) | U1a, U1g2, U7a | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-protocol/src/native_controls/mcp.rs` | U1a, U1c, U7a, U7d, U8a, U7d2 | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-protocol/src/native_controls/mcp.rs` | U1a, U1c, U7a, U7d, U8a, U7d2, U8a2c | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/agents.rs` (1671) | U1b, U1f, U3b, U7b, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/load.rs` (1334) | U1b, U3b, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b, U1g1 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U1g0, U4c, U4f2, U6a, U7d, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d, U8a | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d, U8a, U8a2c | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/composite.rs` (4666) | U1c2 | #226 dsh composite identity; its declared-home seam must keep one owner |
 | `crates/brokkr-protocol/src/transcript.rs` | U1c2 | dsh home resolution; the transcript fold and the persistence check must read the same home |
 | `adapters/claude.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
@@ -1200,10 +1205,10 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
-| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a, U8a2c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
-| `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a, U8a2c | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/capabilities/gates.rs` | U3a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/agents/charter_data.rs` | U3b, U3c | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/bundle/charters.rs` | U3c | Recheck concurrent main edits and module registration before the row |
@@ -1230,7 +1235,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/capabilities/manifest.rs` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/secret.rs` (706 at this visit) | U6a, U6c7, U6c8, U6f1a, U6f1b | 0012 single-injector proof; no second plaintext accessor |
 | `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c5b, U6c6a, U6c8, U8g, U7c0b | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-cli/src/lib.rs` (1918) | U6b | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-cli/src/lib.rs` (1918) | U6b, U8a2c | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/broker.rs` | U6b, U6c, U6c2, U6c5b, U6c6a, U6e, U6f1b, U7c0b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/survey.rs` | U7c0b | New private child of broker.rs; the engine's provisioning observer, carrying no authority beyond observation |
 | `crates/brokkr-cli/src/broker/session.rs` | U6c2, U6c4, U6c5b, U6c5c, U6c6b, U6c8, U6d, U6e, U6f1a, U6f1b, U6f2, U8b | New module; keep protocol types shared, no duplicate policy |
@@ -1238,11 +1243,11 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-protocol/src/broker/ledger.rs` | U6d, U6f1a, U6f1b, U8b | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/broker/rpc.rs` | U6e, U6f1a, U6f1b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/output.rs` | U6f1a, U8b | New module; keep protocol types shared, no duplicate policy |
-| `crates/brokkr-protocol/src/hands.rs` (1267 at this visit) | U6c3, U6c4, U7a, U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2a, U8a2b, U8c, U8d, U8e, U7d2 | Protected inventory, cross-worktree admission lock and lifetime reservations; #403/#415 cleanup and ongoing splits |
+| `crates/brokkr-protocol/src/hands.rs` (1267 at this visit) | U6c3, U6c4, U7a, U8a, U8a2c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2a, U8a2b, U8c, U8d, U8e, U7d2, U8a2c | Protected inventory, cross-worktree admission lock and lifetime reservations; #403/#415 cleanup and ongoing splits |
 | `crates/brokkr-runtime/src/engine/marks.rs` | U7c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-protocol/src/hands/evidence.rs` | U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-cli/src/hands.rs` | U8a | The hands serve and exec verbs parse the carried artifact root |
+| `crates/brokkr-cli/src/hands.rs` | U8a, U8a2c | The hands serve and exec verbs parse the carried artifact root and sealed reach |
 | `crates/brokkr-cli/src/broker/session/stderr.rs` | U6f1b, U6f3 | The closing bound is a fixed value that nothing extends |
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
@@ -1374,7 +1379,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U8a | U7d3 | Protect artifact paths in workspace hands; 38.1–38.2 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/hands/evidence.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-cli/src/hands.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-cli/src/lib.rs`; `crates/brokkr-protocol/src/probe/observe.rs`; `crates/brokkr-cli/src/doctor.rs` |
 | U6f3 | U8a | Give the broker's closing standard error five seconds; none | `crates/brokkr-cli/src/broker/session/stderr.rs` |
 | U8a2a | U8a | Hold the writer lease and durable reservations at dispatch; 38.3–38.4 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/sequence.rs` |
-| U8a2b | U8a2a | Exclude every managed writer from admitted server sources; 38.3–38.4 | `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine.rs` |
+| U8a2c | U8a2a | Build every workspace box from the reach sealed at admission; 38.3–38.4 | `crates/brokkr-protocol/src/hands.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-cli/src/hands.rs`; `crates/brokkr-cli/src/lib.rs`; `crates/brokkr-protocol/src/probe/observe.rs`; `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs` |
+| U8a2b | U8a2c | Exclude every managed writer from admitted server sources; 38.3–38.4 | `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine.rs` |
 | U8b | U8a2b | Stage retained responses before delivery; 39.1–39.2 | `crates/brokkr-cli/src/broker/output.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-protocol/src/broker/ledger.rs` |
 | U8c | U8b | Publish verified content-addressed artifacts; 40.1–40.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/artifacts.rs` |
 | U8d | U8c, U4g | Fold settled calls through confirmed append; 41.1–41.2 | `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/capability_calls.rs`; `crates/brokkr-runtime/src/engine/checkpoints.rs` |
@@ -2042,18 +2048,35 @@ short-lived and owner-bound, protect its root from every writer and refuse
 unknown participation. Reservation release follows durable owned-process
 settlement, never just engine death or advisory unlock.
 
-Closes tasks 38.3 and 38.4 with U8a2b (operator ruling 2026-10-12); requirements [CR2](specs/capability-response-retention/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
+Closes tasks 38.3 and 38.4 with U8a2c and U8a2b (operator rulings 2026-10-12 and 2026-10-18); requirements [CR2](specs/capability-response-retention/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
 Proof: A retaining panel member plus zero-grant attacker and boxed exec cannot replace root/digest; an already-running writer refuses, abandoned ownership cannot outlive cleanup, later no-grant runs preserve old evidence, and separate worktrees remain independent.
 Independently remove reservation admission and
 settlement retention; a same-worktree artifact test proves neither.
 
+Operator ruling 2026-10-18, after U8a2a's first run held (0065-slice-two-unit-u8a2a-see-th-7599d54e, REVIEW-SECURITY-HOLD): U8a2a builds and proves the complete coordination comparison now. Every participant's writers are compared in both directions against the coordination root, its admission lock and reservations, and every protected or historical artifact root. A writer Brokkr cannot box (no boxed hands under the namespace boundary), or one whose reach could replace any of those, cannot participate and refuses with CR2's cause before dispatch. While `McpFence::current()` is `Standing` no bundle can retain, so these refusals apply where evidence is at stake: the incoming claim protects evidence, a standing reservation does, or a recorded historical root exists. Once the fence is lifted (U9b1, and tests through `McpFence::lift`) they apply to every participant on every run. The fence is the one home of this switch; admission adds no flag, setting or environment knob of its own. Consequence named for U9b1: from then on, seats Brokkr cannot box (macOS seatbelt today, the harness and open boundaries, sites without boxed hands) refuse on every run unless their reach is proved, and this joins U9b1's open operator rulings.
+
+Operator ruling 2026-10-18, after U8a2a's third run held (0065-slice-two-unit-u8a2a-see-th-88d31f37, REVIEW-SECURITY-HOLD): protocol hands builds each workspace box from what it reads again at every call (the authored bind sources, and the Git directories `git_facts` asks Git for in the worktree), so an admitted writer can change from inside its reach what a later box of its own mounts: a bind source replaced by a symlink, or the worktree's Git pointer or `commondir` rewritten. Refusing every writer able to do that would refuse every run in a linked Git worktree once U9b1 lifts the fence, and the remedy lies in hands, outside this row. That containment is split into U8a2c, which builds every box from the reach sealed at admission and refuses drift; it lands after U8a2a and before U8a2b, and so before U9b1 lifts the fence. U8a2a seals each writer's resolved reach in its reservation (every bind source and both Git directories, by canonical path and device/inode), compares it as D6 says and rechecks it at the dispatch door. It does not refuse a writer only because writes inside its reach could change what hands resolves at a later call: a refusal of replaceable authored sources it already makes may stay, but it is not that containment and need not be extended. Admission's exclusion is unchanged. Everything else D6 and the ruling above require of U8a2a stands, including protection of the coordination root, its lock and reservations, and every protected or historical artifact root.
+
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-runtime/tests/capability_ledger.rs`.
+
+### U8a2c — Build every workspace box from the reach sealed at admission
+
+Carry each writer's reach, as U8a2a sealed it in the writer's reservation, to hands, and build every box of that writer from it, so nothing a writer changes inside its reach after admission changes what a later box mounts. The sealed reach is every bind source and the worktree's Git directory and common directory, each by canonical path and device/inode. Hands takes each bind's source from its sealed canonical path rather than resolving the authored spelling again, and takes the Git directories from the sealed reach instead of asking Git for them at each call. Before each box starts, and again once its argv is final (as U8a's confirm does), it observes each sealed source and the worktree's Git pointer again; a source, ancestor or pointer that no longer resolves to its sealed identity refuses with MB3's identity cause before spawn. An unchanged writer's repeated calls run as before. No new authored HandsSpec key. Admission's exclusion (D6) is unchanged, and this does not replace it.
+
+The engine carries the sealed reach as U8a carries the artifact root: `Transport` gains it (checked field by field where a transport is compared), the hands serve and exec arguments carry it, and every engine `Transport` constructor passes it. The adapter probe and doctor's box probe, which admit nothing, seal their own reach the same way when they start. No path builds a box from unsealed reach: a missing or unreadable sealed reach refuses, never falls back to deriving it again.
+
+Closes tasks 38.3 and 38.4 with U8a2a and U8a2b (operator ruling 2026-10-18); requirements [CR2](specs/capability-response-retention/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
+Proof: In real namespaces, after admission a writer's own box replaces a bind source beneath its worktree, or an ancestor of one, by a symlink, rename or hardlink toward protected evidence or the coordination root, and separately rewrites the worktree's Git pointer or its per-worktree `commondir` to name another repository's Git directory. Its next workspace call and a following exec each refuse before spawn with MB3's exact cause, the protected bytes and the other repository unchanged, while an unchanged writer's repeated calls, legitimate worktree writes and commits run. Independently remove the sealed carriage (hands derives its reach again) and the drift check, each failing its own test.
+
+Operator ruling 2026-10-18, splitting this unit from U8a2a after U8a2a's third run held (0065-slice-two-unit-u8a2a-see-th-88d31f37, REVIEW-SECURITY-HOLD): protocol hands rebuilt each workspace box from what it read again at every call, so an admitted writer could redirect a later box of its own after the dispatch door's recheck, and refusing every writer able to do so would refuse every run in a linked Git worktree once U9b1 lifts the fence. The remedy belongs in hands, so it is its own unit, landing after U8a2a and before U8a2b and U9b1. Its row names the files U8a's carriage of the artifact root needed, with engine/broker.rs, where the reservation holds the sealed reach. Files frozen at their baselines (hands.rs, lib.rs, doctor.rs, engine.rs) grow only through new private child modules under the standing rule. The public API rise this needs is approved as measured, up to +10 lines across quality/public-api/brokkr-protocol.txt, brokkr-runtime.txt and brokkr-cli.txt together; a larger rise comes back to the operator.
+
+Owning tests: `crates/brokkr-protocol/src/hands/tests.rs`, `crates/brokkr-runtime/src/engine/boundary_tests.rs`.
 
 ### U8a2b — Exclude every managed writer from admitted server sources
 
 Carry all managed writers' effective reach in the admitted protection facts, including zero-grant siblings; any writer able to mutate an admitted server source through an alias fails the source-identity check before server lookup. Server boxing does not waive this coordination or protection of historical artifacts. Other worktrees remain parallel only when their admitted write reach is disjoint from these protected sources. Include their mapped identities/privileges in system write-exclusion admission. This coordinates current and concurrent writers; it does not authenticate earlier installed bytes after a past bind was removed (D5).
 
-Closes tasks 38.3 and 38.4 with U8a2a; requirements [CR2](specs/capability-response-retention/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
+Closes tasks 38.3 and 38.4 with U8a2a and U8a2c; requirements [CR2](specs/capability-response-retention/spec.md), [MB3](specs/mcp-capability-broker/spec.md).
 Proof: For source exclusion, test A-server/B-writer in both start orders, concurrent
 starts and engine death with surviving payload, using both program and system
 source aliases and a disjoint-worktree positive control. Assert MB3's exact
@@ -2138,7 +2161,10 @@ Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
 ### U9b1 — Enable the proved namespace path
 
-Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination. It also switches on U1g1's strict-isolation refusal (operator ruling 2026-10-07), once macOS shapes are measured and Codex's place in the roster is settled. With the fence lifted it runs U1f2's init_doctor/init_stacks matrix switched on, pinning SI2's exact diagnostics inside init's "scaffolded bundle failed to compile" wrapper (moved from U1g1 by operator ruling 2026-10-08). It also records SD4's fully cold Linux x86_64 samples, after dropping the dentry, inode and page caches, with both actual observations and the total, carried from U6f1b (operator ruling 2026-10-14).
+Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination;
+lifting the fence makes U8a2a's coordination refusals unconditional, so seats
+Brokkr cannot box then refuse on every run (operator ruling 2026-10-18). The lift
+also needs U8a2c's boxes built from the reach sealed at admission. It also switches on U1g1's strict-isolation refusal (operator ruling 2026-10-07), once macOS shapes are measured and Codex's place in the roster is settled. With the fence lifted it runs U1f2's init_doctor/init_stacks matrix switched on, pinning SI2's exact diagnostics inside init's "scaffolded bundle failed to compile" wrapper (moved from U1g1 by operator ruling 2026-10-08). It also records SD4's fully cold Linux x86_64 samples, after dropping the dentry, inode and page caches, with both actual observations and the total, carried from U6f1b (operator ruling 2026-10-14).
 
 The enabling matrix also traverses all boxed-server seams: singleton system and user-installed package entries with ordinary protected system hard links intact, SD4's measured host budgets, every reach mode and containment direction, resolution ancestors, hard links and bind aliases, store exclusion including empty/missing stores, bounded observation/readiness/handoff, and actual kernel shebang execution. Pin all pre-secret refusals to zero lookups/starts and distinguish later delivery/exec failures. A success-reporting harness cannot hide any zero-call box failure. Real Linux proof includes private tmpfs per server, local/shared network with hands still network-false, safe host loader environment, allowed loading bindings and cancellation at every startup window. macOS proves its existing refusal; no successful box is claimed there.
 Repeat MB3's two-worktree lifetime matrix and MB4's complete-frame/EOF

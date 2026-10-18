@@ -89,12 +89,16 @@ fn happy_script() -> Value {
 
 struct Ws {
     dir: tempfile::TempDir,
+    /// The HOME every `brokkr` here is given, apart from the workspace a
+    /// run operates (decision 0065 slice two, U8a2a).
+    home: tempfile::TempDir,
 }
 
 impl Ws {
     fn new() -> Ws {
         let ws = Ws {
             dir: tempfile::tempdir().unwrap(),
+            home: tempfile::tempdir().unwrap(),
         };
         std::fs::create_dir_all(ws.path().join("state")).unwrap();
         std::fs::write(
@@ -210,6 +214,7 @@ impl Ws {
         let mut command = Command::new(brokkr_bin());
         command.args(args).current_dir(self.path());
         command.env("XDG_CONFIG_HOME", self.path().join(".config"));
+        command.env("HOME", self.home.path());
         let ran = crate::brokkr_folder::Ran::of(command.output().unwrap());
         (ran.code, ran.stdout, ran.stderr)
     }

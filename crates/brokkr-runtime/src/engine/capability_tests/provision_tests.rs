@@ -131,7 +131,7 @@ impl Fixture {
     }
 
     /// [`Fixture::inline`] made in `base`.
-    fn inline_in(base: &Path) -> Fixture {
+    pub(super) fn inline_in(base: &Path) -> Fixture {
         let dir = tempfile::tempdir_in(base).unwrap();
         let (dir, mut engine) = canonical_engine_in(dir, single_body(vec!["driver".into()]));
         let root = std::fs::canonicalize(dir.path()).unwrap();

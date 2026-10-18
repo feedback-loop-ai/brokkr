@@ -3115,15 +3115,27 @@ fn make_proof_recorder(dir: &Path) -> PathBuf {
     path
 }
 
-fn run_proof_engine(
-    run_dir: &Path,
-    bundle: Bundle,
-) -> (Store, String, Vec<brokkr_core::envelope::EventEnvelope>) {
+/// The proof's engine over `run_dir/work`, journaled in `run_dir` and
+/// driven to its end in this process, its HOME the owner-only `run_dir`
+/// through the house guard: it admits its attempts in a coordination root
+/// under it, never under the operator's (decision 0065 slice two, U8a2a).
+fn proof_engine(env: &mut EnvGuard, run_dir: &Path, bundle: Bundle) -> Engine {
+    rustix::fs::chmod(run_dir, rustix::fs::Mode::RWXU).unwrap();
+    env.set("HOME", run_dir);
     std::fs::create_dir_all(run_dir.join("work")).unwrap();
     let store = Store::open(&run_dir.join("forge.db")).unwrap();
     let mut engine = Engine::start(store, bundle, "proofs", Some(run_dir.join("work"))).unwrap();
-    let run_id = engine.run_id.clone();
     let _ = engine.drive();
+    engine
+}
+
+fn run_proof_engine(
+    env: &mut EnvGuard,
+    run_dir: &Path,
+    bundle: Bundle,
+) -> (Store, String, Vec<brokkr_core::envelope::EventEnvelope>) {
+    let engine = proof_engine(env, run_dir, bundle);
+    let run_id = engine.run_id.clone();
     let events = engine.store.load(&run_id).unwrap();
     (engine.store, run_id, events)
 }
@@ -3146,11 +3158,8 @@ fn proof_launch_rows(
     rows
 }
 
-fn capture_proof_input(run_dir: &Path, bundle: Bundle, label: &str) -> Value {
-    std::fs::create_dir_all(run_dir.join("work")).unwrap();
-    let store = Store::open(&run_dir.join("forge.db")).unwrap();
-    let mut engine = Engine::start(store, bundle, "proofs", Some(run_dir.join("work"))).unwrap();
-    let _ = engine.drive();
+fn capture_proof_input(env: &mut EnvGuard, run_dir: &Path, bundle: Bundle, label: &str) -> Value {
+    proof_engine(env, run_dir, bundle);
     let mut seen = Vec::new();
     let dir = run_dir.join("starts");
     for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
@@ -3204,11 +3213,10 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
             &proof_shim_body(run_dir.path(), PROOF_OFFER),
         );
         env.set("BROKKR_CODEX_BIN", &shim);
-        env.set("HOME", run_dir.path());
         env.set("CODEX_HOME", run_dir.path().join("codex-home"));
         let member = proof_member_of(shape, wrapped);
-
-        let (mut store, run_id, events) = run_proof_engine(run_dir.path(), bundle.clone());
+        let ran = run_proof_engine(&mut env, run_dir.path(), bundle.clone());
+        let (mut store, run_id, events) = ran;
         let cold = proof_launch_rows(&events, member);
         let cold_row = cold
             .last()
@@ -3307,7 +3315,7 @@ fn the_compiled_live_inline_codex_shapes_rejoin_their_provider_confirmed_root() 
 /// hands site as known no-hands fails at the gate's own decision.
 #[test]
 fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
-    let _env = EnvGuard::lock();
+    let mut env = EnvGuard::lock();
     for (shape, wrapped) in [
         (ProofShape::HandsMember, true),
         (ProofShape::HandsMember, false),
@@ -3316,7 +3324,8 @@ fn the_compiled_hands_inline_codex_shapes_refuse_unavailable_confinement() {
         let run_dir = tempfile::tempdir().unwrap();
         let recorder = make_proof_recorder(run_dir.path());
         patch_proof_bundle(&mut bundle, &from, &recorder.to_string_lossy());
-        let input = capture_proof_input(run_dir.path(), bundle, proof_seat_label(shape, wrapped));
+        let label = proof_seat_label(shape, wrapped);
+        let input = capture_proof_input(&mut env, run_dir.path(), bundle, label);
 
         // The member's hands are served like an agent's (rebuild unit
         // 14a4a): the driver is handed the extras the engine composed.
