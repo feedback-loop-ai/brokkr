@@ -112,7 +112,7 @@
    682 crates/brokkr-protocol/src/transcript.rs
   1663 crates/brokkr-runtime/src/agents.rs
    369 crates/brokkr-runtime/src/agents/charter_data.rs
-  1310 crates/brokkr-runtime/src/agents/load.rs
+  1067 crates/brokkr-runtime/src/agents/load.rs
     73 crates/brokkr-runtime/src/agents/load/auth.rs
    611 crates/brokkr-runtime/src/agents/mcp.rs
    285 crates/brokkr-runtime/src/anchor.rs
