@@ -225,6 +225,12 @@ What a driver has to do to participate:
 - **Treat a refused resume as a cold spawn, not a failure.** An unknown
   or expired session is not the attempt's fault: start cold, journal the
   refusal, and carry on.
+- **Journal this attempt's spend, not the session's.** A harness that
+  restores its session's running cost on a resume reports it inside
+  every result after it. Claude Code writes the session's cost to its
+  transcript as a `cost-state` record and restores the newest one on
+  `--resume`. The claude driver reads that record before it launches
+  and subtracts it, so the earlier attempt's cost is not counted twice.
 
 What the ENGINE checks before it offers you anything (decision 0030
 ruling 4, generalised by proposed decision 0056 rulings 1 and 2). Every

@@ -1639,7 +1639,8 @@ fn fold_stream_event(
         Some("result") => {
             fold_result_meta(event, session_meta, transcript, emit);
             // A result's usage and turns are its own query's: each is
-            // added to the earlier results' and replaces the live sum.
+            // added to the earlier results' and replaces the live sum. Its
+            // cost is the process's, less what a resume restored.
             fold.settle(event, session_meta);
         }
         _ => {}
@@ -1648,7 +1649,7 @@ fn fold_stream_event(
 }
 
 /// What a claude or codex `result` names on the same terms: the model and
-/// effort, the session id as the transcript locator, and the money spent.
+/// effort, and the session id as the transcript locator.
 fn fold_result_meta(
     event: &Value,
     session_meta: &mut Map<String, Value>,
@@ -1663,9 +1664,6 @@ fn fold_result_meta(
     }
     if let Some(session_id) = event.get("session_id").and_then(Value::as_str) {
         transcript.record(session_id, session_meta, emit);
-    }
-    if let Some(value) = positive_cost(event.get("total_cost_usd")) {
-        session_meta.insert("total_cost_usd".into(), Value::from(value));
     }
 }
 
@@ -1954,6 +1952,9 @@ fn fold_codex_event(
             fold_result_meta(event, session_meta, transcript, emit);
             if let Some(value) = positive_count(event.get("num_turns")) {
                 session_meta.insert("num_turns".into(), Value::from(value));
+            }
+            if let Some(value) = positive_cost(event.get("total_cost_usd")) {
+                session_meta.insert("total_cost_usd".into(), Value::from(value));
             }
         }
         _ => {}
@@ -2429,6 +2430,8 @@ fn invoke_stream_json(
     emit: &mut impl FnMut(&Value),
 ) -> Result<Invocation, String> {
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession)?;
+    // Read before the process can write to the transcript it resumes.
+    let mut fold = ClaudeFold::rejoining(transcript.home(), hold.plan.rejoining.as_deref());
     let mut child = spawn_piped(command, workdir, bindings)?;
     {
         let mut stdin = child.stdin.take().expect("piped");
@@ -2440,7 +2443,6 @@ fn invoke_stream_json(
     let stderr_thread = drain_stderr(&mut child);
     let stdout = child.stdout.take().expect("piped");
     let mut session_meta = Map::new();
-    let mut fold = ClaudeFold::default();
     // Decision 0053: the FIRST pre-turn refusal is the one reported, and
     // the fold keeps reading the whole stream after it. A latched
     // refusal is not a decision to stop listening: a harness that

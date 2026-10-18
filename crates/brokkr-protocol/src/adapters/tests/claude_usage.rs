@@ -1,7 +1,8 @@
 //! Claude's result usage as the driver folds it into the session record:
-//! each result reports its own query, so the results are summed, and the
+//! each result reports its own query, so the results are summed, the
 //! thinking count is a subset of the output count or it is absent
-//! (seat-record v6; decision 0035 ruling 4).
+//! (seat-record v6; decision 0035 ruling 4), and a resumed process's cost
+//! is its own, less what `--resume` restored.
 
 use super::super::*;
 
@@ -111,4 +112,68 @@ fn a_queued_query_journals_beside_the_first_not_over_it() {
         [json!(3), json!(56_776), json!(56_768), json!(12_114)]
     );
     assert_eq!(meta["output_tokens"], 117);
+}
+
+/// A claude home holding one project whose transcript of `session` is
+/// `lines`, one record a line as Claude Code writes them.
+fn home_with(session: &str, lines: &[String]) -> tempfile::TempDir {
+    let home = tempfile::tempdir().unwrap();
+    let project = home.path().join("-work-repo");
+    std::fs::create_dir(&project).unwrap();
+    let body: String = lines.iter().map(|line| format!("{line}\n")).collect();
+    std::fs::write(project.join(format!("{session}.jsonl")), body).unwrap();
+    home
+}
+
+/// The cost a process rejoining `session` journals for a result of `total`.
+fn resumed_cost(home: &Path, session: &str, total: f64) -> Option<Value> {
+    let mut fold = ClaudeFold::rejoining(home, Some(session));
+    let mut meta = Map::new();
+    fold.settle(
+        &json!({"type": "result", "total_cost_usd": total}),
+        &mut meta,
+    );
+    meta.get("total_cost_usd").cloned()
+}
+
+#[test]
+fn a_resumed_process_journals_its_own_cost_not_the_session_it_restored() {
+    // Claude Code 2.1.302 on 2026-10-18: the session's newest cost-state
+    // said $0.0553188, and the resumed process's one short query ended in
+    // a result saying $0.057847, the restored cost and its own together.
+    let id = "a9db5870-28af-45b1-9e2d-f35a16b85394";
+    let state = |session: &str, cost: f64| {
+        let record = json!({"type": "cost-state", "sessionId": session, "totalCostUSD": cost});
+        record.to_string()
+    };
+    // Newest last. A cut-off line, a negative figure, a message naming the
+    // record's type and another session's record are none of them what
+    // was restored.
+    let home = home_with(
+        id,
+        &[
+            state(id, 0.012),
+            state(id, 0.055_318_8),
+            state("b0b0", 0.04),
+            json!({"type": "user", "message": {"content": "cost-state"}}).to_string(),
+            state(id, -1.0),
+            r#"{"type": "cost-state", "sessionId": "#.to_string(),
+        ],
+    );
+    assert_eq!(
+        resumed_cost(home.path(), id, 0.057_847),
+        Some(json!(0.057_847 - 0.055_318_8))
+    );
+    // A total below what was restored cannot be split, so it is absent.
+    assert_eq!(resumed_cost(home.path(), id, 0.05), None);
+    // With nothing restored, a result's cost is the process's own: no
+    // transcript of that session, no claude home, an id that is no id.
+    let nowhere = home.path().join("absent");
+    for (home, session) in [
+        (home.path(), "c0ffee"),
+        (&*nowhere, id),
+        (home.path(), "-r"),
+    ] {
+        assert_eq!(resumed_cost(home, session, 0.25), Some(json!(0.25)));
+    }
 }
