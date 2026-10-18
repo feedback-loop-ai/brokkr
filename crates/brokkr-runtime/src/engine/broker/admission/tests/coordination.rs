@@ -9,8 +9,7 @@
 //! judgement, which only Linux reads (decision 0063), so every test that
 //! admits one is Linux only.
 
-// Only the bind-alias proof shells out, and it runs on Linux alone.
-#[cfg(target_os = "linux")]
+// The bind-alias proof (Linux only) and the FIFO helper shell out.
 use std::process::Command;
 
 use super::*;
