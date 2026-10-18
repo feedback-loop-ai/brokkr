@@ -1,5 +1,17 @@
 use super::*;
 
+/// A fixture's git signs nothing, whatever the host's configuration says:
+/// a host with `tag.gpgsign` set made `git tag v1` an annotated, signed
+/// tag that wants a message, and every test that tagged failed before it
+/// reached the sandbox.
+const UNSIGNED: [(&str, &str); 5] = [
+    ("GIT_CONFIG_COUNT", "2"),
+    ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
+    ("GIT_CONFIG_VALUE_0", "false"),
+    ("GIT_CONFIG_KEY_1", "tag.gpgsign"),
+    ("GIT_CONFIG_VALUE_1", "false"),
+];
+
 /// True when a path git ANSWERED with and a path the test built name the
 /// same directory. Git resolves the directory it reports, and a temporary
 /// directory is not always reached by the spelling that made it: macOS
@@ -2311,33 +2323,24 @@ impl Repo {
         }
     }
 
+    /// The fixture's git in `cwd`, whatever it answers.
+    fn output(cwd: &Path, args: &[&str]) -> std::process::Output {
+        let mut git = Command::new("git");
+        git.args(args).current_dir(cwd).envs(UNSIGNED);
+        git.output().unwrap()
+    }
+
     fn run(cwd: &Path, args: &[&str]) -> String {
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .env("GIT_CONFIG_COUNT", "1")
-            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-            .env("GIT_CONFIG_VALUE_0", "false")
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
+        let out = Repo::output(cwd, args);
+        let refused = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "git {args:?}: {refused}");
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
     fn git(&self, cwd: &Path, args: &[&str]) -> String {
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .env("GIT_CONFIG_COUNT", "1")
-            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-            .env("GIT_CONFIG_VALUE_0", "false")
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
+        String::from_utf8_lossy(&Repo::output(cwd, args).stdout)
+            .trim()
+            .to_string()
     }
 
     /// One git command in the worktree with the PRIVATE store as its
@@ -2352,9 +2355,7 @@ impl Repo {
         let out = Command::new("git")
             .args(args)
             .current_dir(&self.worktree)
-            .env("GIT_CONFIG_COUNT", "1")
-            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-            .env("GIT_CONFIG_VALUE_0", "false")
+            .envs(UNSIGNED)
             .env("GIT_AUTHOR_NAME", "Host Operator")
             .env("GIT_AUTHOR_EMAIL", "host@example.invalid")
             .env("GIT_COMMITTER_NAME", "Host Operator")
@@ -2689,9 +2690,7 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
         let run = Command::new(&argv[0])
             .args(&argv[1..])
             .current_dir(&worktree)
-            .env("GIT_CONFIG_COUNT", "1")
-            .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-            .env("GIT_CONFIG_VALUE_0", "false")
+            .envs(UNSIGNED)
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&run.stdout);
@@ -2998,9 +2997,7 @@ fn a_linked_worktree_commits_under_the_dsh_profile_and_the_boundary_holds() {
     let run = Command::new(&argv[0])
         .args(&argv[1..])
         .current_dir(&standalone)
-        .env("GIT_CONFIG_COUNT", "1")
-        .env("GIT_CONFIG_KEY_0", "commit.gpgsign")
-        .env("GIT_CONFIG_VALUE_0", "false")
+        .envs(UNSIGNED)
         .output()
         .unwrap();
     assert!(
