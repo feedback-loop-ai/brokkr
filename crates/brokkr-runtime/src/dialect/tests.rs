@@ -270,11 +270,24 @@ fn a_dialect_failing_several_checks_reports_the_first_in_order() {
         for (pointer, plant, _) in &plants[first..] {
             *value.pointer_mut(pointer).unwrap() = plant.clone();
         }
-        assert_eq!(
-            refusal(value),
-            format!("dialect dialect.json is not usable: {}", plants[first].2)
-        );
+        match Dialect::parse("dialect.json", &serde_json::to_string(&value).unwrap()) {
+            Err(DialectError::Invalid { path, problem }) => {
+                assert_eq!(path, "dialect.json");
+                assert_eq!(problem, plants[first].2);
+            }
+            Err(other) => panic!("plant {first}: not an Invalid refusal: {other:?}"),
+            Ok(_) => panic!("plant {first}: the dialect was accepted"),
+        }
     }
+    // The variant's operator text, pinned once for this module.
+    let invalid = DialectError::Invalid {
+        path: "dialect.json".to_owned(),
+        problem: plants[0].2.to_owned(),
+    };
+    assert_eq!(
+        invalid.to_string(),
+        format!("dialect dialect.json is not usable: {}", plants[0].2)
+    );
 }
 
 #[test]
