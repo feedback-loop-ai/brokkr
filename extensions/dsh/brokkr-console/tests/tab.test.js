@@ -48,10 +48,17 @@ test('the tab opens on the realm its conversation’s folder belongs to, and say
   assert.match(text, /this conversation is in swarmail/)
   assert.match(text, /← All realms/)
   assert.match(text, /Finalize the gates/)
-  const switcher = findAll(client.tree(), (node) => node.props['aria-label'] === 'Realms')[0]
-  assert.deepEqual(buttons(switcher).map((button) => [textOf(button), button.props['aria-pressed']]), [['brokkr · 1', false], ['swarmail', true]])
-  buttons(switcher).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
+  // In a realm the context is that realm: no other realm is offered, only the way back to all of them.
+  const realmChips = (tree) => findAll(tree, (node) => node.type === 'nav' && node.props['aria-label'] === 'Realms')
+  assert.equal(realmChips(client.tree()).length, 0)
+  buttons(client.tree()).find((button) => textOf(button) === '← All realms').props.onClick()
+  buttons(client.tree()).find((button) => String(button.props.className).startsWith('bk-realm') && textOf(button).startsWith('brokkr')).props.onClick()
   assert.match(textOf(client.tree()), /Encrypt the token store/)
+  assert.equal(realmChips(client.tree()).length, 0)
+  // Nor inside a run: its context is its realm and the run.
+  buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
+  assert.match(textOf(client.tree()), /← brokkr’s runs/)
+  assert.equal(realmChips(client.tree()).length, 0)
 })
 
 test('a conversation in no realm gets every realm, and says why', async () => {

@@ -36,7 +36,7 @@ const TURNS = { seat: 'seat-security-1', turns: [{ role: 'assistant', ts: '2026-
 
 function onRun(view = reviewed(), answers = { [TRANSCRIPT]: TURNS }) {
   const client = mountClient('main', {}, answers)
-  client.push({ type: 'snapshot', workspace: '/w/console', fleet: fleetOf(fleetDoc([['brokkr', [row()]]])), overview: null, run: null })
+  client.push({ type: 'snapshot', workspace: '/w/console', ask: true, fleet: fleetOf(fleetDoc([['brokkr', [row()]]])), overview: null, run: null })
   buttons(client.tree()).find((button) => textOf(button).startsWith('brokkr')).props.onClick()
   buttons(client.tree()).find((button) => textOf(button).startsWith('Encrypt the token store')).props.onClick()
   client.push({ type: 'run', run: { realm: 'brokkr', run_id: RUN, view: runViewOf(view) } })

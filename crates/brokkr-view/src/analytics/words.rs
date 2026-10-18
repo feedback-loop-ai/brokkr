@@ -35,7 +35,7 @@ pub(super) fn change_text(change: i64, range: Range) -> String {
 }
 
 /// Names as a sentence lists them: `a`, `a and b`, `a, b and c`.
-pub(super) fn listed(names: &[String]) -> String {
+pub(crate) fn listed(names: &[String]) -> String {
     match names {
         [] => String::new(),
         [one] => one.clone(),
@@ -69,7 +69,7 @@ pub(super) fn date(day: i64) -> String {
 }
 
 /// An RFC 3339 stamp, to the second, for a time `parse_millis` read.
-pub(super) fn stamp(millis: i64) -> String {
+pub(crate) fn stamp(millis: i64) -> String {
     let seconds = millis.div_euclid(1_000);
     let of_day = seconds.rem_euclid(86_400);
     format!(

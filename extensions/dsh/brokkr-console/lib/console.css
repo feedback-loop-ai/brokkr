@@ -76,7 +76,6 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-muninn{padding:10px 12px;background:var(--bk-sunken);border:1px solid var(--bk-line);border-radius:10px;font-size:12px;line-height:17px;color:var(--bk-ink-2)}
 .bk-input{width:100%;box-sizing:border-box;font:inherit;font-size:14px;border:1px solid var(--bk-line-strong);border-radius:10px;padding:11px 12px;background:var(--bk-surface);color:var(--bk-ink)}
 .bk-bar{background:var(--bk-sunken);border-bottom:1px solid var(--bk-line);padding:10px 24px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-.bk-realms{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .bk-grp{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--bk-muted);padding:12px 8px 4px;border-bottom:1px solid var(--bk-line-soft)}
 .bk-runs{gap:0}
 .bk-filter{position:absolute;top:-17px;right:12px;width:min(260px,50%);padding:5px 10px;font-size:13px;border-radius:8px;background:var(--bk-canvas)}
@@ -223,6 +222,60 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-model{display:flex;flex-direction:column;line-height:17px}
 .bk-ask-here{margin-left:auto;min-height:30px;font-size:13px;flex:none;white-space:nowrap}
 .bk-ask-row .bk-input{flex:1 1 260px;width:auto}
+/* The Library (change 2026-10-17-568): the recipe's state machine beside the picked state, and the Pareto plot. */
+.bk-library{gap:14px}
+.bk-lib-stage{display:flex;flex-direction:column;gap:16px}
+.bk-lib-pane{min-width:0}
+.bk-lib-panel{padding:16px 18px;display:flex;flex-direction:column;gap:14px}
+.bk-lib-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:12px;align-items:start}
+.bk-lib-rule{display:flex;flex-direction:column;gap:6px;padding:10px 12px}
+.bk-lib-rule.dormant{opacity:.7}
+.bk-lib-hitline{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+.bk-lib-panel .bk-tiles{grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:8px}
+.bk-lib-list{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.bk-lib-rulerow{display:flex;justify-content:space-between;gap:8px;font-variant-numeric:tabular-nums}
+.bk-lib-id{font-family:'IBM Plex Mono',monospace;font-size:12px;overflow-wrap:anywhere}
+.bk-lib-beneath{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--bk-line-soft);padding-top:8px}
+.bk-lib-views{margin-left:auto;gap:6px}
+.bk-lib-graph{display:block;overflow:visible;font-family:'IBM Plex Sans',system-ui,sans-serif}
+.bk-lib-state{fill:var(--bk-surface);stroke:var(--bk-line-node);stroke-width:1.5}
+.bk-lib-state.end{fill:var(--bk-ok-fill);stroke:var(--bk-ok)}
+.bk-lib-state.beneath{fill:var(--bk-stop-fill)}
+.bk-lib-state.stop{fill:var(--bk-bad-fill);stroke:var(--bk-bad)}
+.bk-lib-state.sel{stroke:var(--bk-pick);stroke-width:3}
+.bk-lib-name{fill:var(--bk-ink);font-size:14px;font-weight:600}
+.bk-lib-name.stop{fill:var(--bk-bad-ink)}
+.bk-lib-seat{fill:var(--bk-ink-2);font-size:11px}
+.bk-lib-sub{fill:var(--bk-muted);font-size:11px}
+.bk-hit:hover .bk-lib-name,.bk-hit:focus-visible .bk-lib-name{fill:var(--bk-pick)}
+.bk-hit:focus-visible .bk-lib-state{stroke:var(--bk-pick);stroke-dasharray:3 3}
+/* An edge's width and dash are its count's, set on the path; only its tone is the sheet's. */
+.bk-lib-edge{fill:none;stroke:var(--bk-edge)}
+.bk-lib-edge.dormant{stroke:var(--bk-line-strong);opacity:.55}
+.bk-lib-edge.stop{stroke:var(--bk-halt)}
+.bk-lib-edge.stop.dormant{opacity:.45}
+.bk-lib-edge.done{stroke:var(--bk-ok)}
+.bk-lib-chip rect{fill:var(--bk-sunken);stroke:var(--bk-line-strong);stroke-width:1}
+.bk-lib-chip text{fill:var(--bk-ink-2);font-size:11px;font-weight:600;font-family:'IBM Plex Mono',monospace}
+.bk-lib-chip.stop rect{fill:var(--bk-bad-wash);stroke:var(--bk-halt)}
+.bk-lib-chip.stop text{fill:var(--bk-bad-ink)}
+.bk-lib-chip.done rect{fill:var(--bk-ok-fill);stroke:var(--bk-ok)}
+.bk-lib-chip.done text{fill:var(--bk-ok-ink)}
+.bk-lib-tip{fill:var(--bk-edge)}
+.bk-lib-tip.stop{fill:var(--bk-halt)}
+.bk-lib-plot{display:block;max-width:760px;font-family:'IBM Plex Sans',system-ui,sans-serif}
+.bk-lib-q.frontier{fill:var(--bk-ok-fill)}.bk-lib-q.costly{fill:var(--bk-run-fill)}.bk-lib-q.leaky{fill:var(--bk-warn-fill)}.bk-lib-q.dominated{fill:var(--bk-bad-wash)}
+.bk-lib-qname{font-size:12px;font-weight:600}
+.bk-lib-qname.frontier{fill:var(--bk-ok-ink)}.bk-lib-qname.costly{fill:var(--bk-run-ink)}.bk-lib-qname.leaky{fill:var(--bk-warn-ink)}.bk-lib-qname.dominated{fill:var(--bk-bad-ink)}
+.bk-lib-target{stroke:var(--bk-muted);stroke-width:2}
+.bk-lib-target-label{fill:var(--bk-muted);font-size:11px}
+.bk-lib-frontier{fill:none;stroke:var(--bk-phosphor);stroke-width:2;stroke-dasharray:6 4}
+.bk-lib-point{fill:var(--bk-accent);stroke:var(--bk-surface);stroke-width:2}
+.bk-lib-point.frontier{stroke:var(--bk-phosphor);stroke-width:3}
+.bk-lib-plabel{fill:var(--bk-ink);font-size:12px}
+.bk-hit:hover .bk-lib-plabel,.bk-hit:focus-visible .bk-lib-plabel{fill:var(--bk-pick)}
+.bk-lib-target-field{gap:4px;font-size:13px;color:var(--bk-ink-2)}
+.bk .bk-lib-target-input{width:88px;padding:5px 8px}
 .bk-error{padding:12px 14px;border:1px solid var(--bk-bad);border-radius:10px;background:var(--bk-bad-wash);color:var(--bk-bad-ink);font-size:13px}
 /* The conversation's tab is narrower than the full panel: the run list, the
    run and the assistant stack instead of sitting side by side. */
@@ -241,4 +294,10 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
   .bk-q .s{display:none}
   .bk-queue{grid-template-columns:minmax(0,1fr)}
   .bk-timeline{grid-template-columns:56px minmax(0,1fr)}
+  .bk-lib-views{margin-left:0}
 }
+.bk-lib-select{min-height:32px;width:auto;min-width:240px;max-width:360px;padding:0 8px;flex:0 1 auto}
+.bk-lib-recipe{align-items:center}
+/* The picked transition, over any tone it carries. */
+.bk-lib-edge.sel,.bk-lib-edge.stop.sel,.bk-lib-edge.done.sel{stroke:var(--bk-pick);opacity:1}
+.bk-lib-rule .bk-link{text-align:left}

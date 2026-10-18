@@ -1,0 +1,10 @@
+$ date -Is
+2026-10-17T15:11:32+03:00
+events          7086
+runs            35
+queue_entries   0
+operator/conclude events: 6
+16404dd83a90cf6de79b5a99cacb27a8eec138021ba132d0299b97a7a350123e  forge.db
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  forge.db-wal
+forge.db 12693504 bytes mtime 2026-10-17 14:55:15.044299113 +0300
+forge.db-wal 0 bytes mtime 2026-10-17 14:55:18.538351842 +0300

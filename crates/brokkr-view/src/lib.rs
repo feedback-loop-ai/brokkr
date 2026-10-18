@@ -26,14 +26,17 @@
 #![forbid(unsafe_code)]
 
 mod analytics;
+mod attempts;
 pub mod capability_calls;
 mod clarify;
 mod commands;
 mod compare;
 mod dashboard;
 mod fleet;
+mod graph;
 mod items;
 pub mod js;
+mod meter;
 mod participant;
 mod scope;
 mod tokens;
@@ -60,6 +63,8 @@ pub use fleet::{
     HearthEntries, Hire, Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict,
     TITLE_COLUMNS, VERDICT_COLUMNS,
 };
+pub use graph::{graph, GraphError, GraphQuery, GraphTable, GraphView, Table, GRAPH_VIEW_VERSION};
+use meter::{sum_usage, Meter, Metering};
 pub use participant::Subject;
 pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
@@ -119,7 +124,8 @@ use serde_json::Value;
 /// Bumped to 21 by #511: a run row gained its `acknowledgement`.
 /// Bumped to 22 by #568's console tab: a participant gained its
 /// `tokens`, the total, input, output and cache-hit cells.
-pub const VIEW_VERSION: u32 = 22;
+/// Bumped to 23 by #568's Library: the analytics readout gained `recipes`.
+pub const VIEW_VERSION: u32 = 23;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -146,7 +152,7 @@ const TRAIL_SKIP: [EventType; 3] = [
 
 /// One displayed scalar: its rendered text plus whether the journal
 /// carries it at all, and why not when it does not.
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq)]
 pub struct Cell {
     pub text: String,
     pub absent: bool,
@@ -1717,55 +1723,26 @@ fn finish_usage(mut usage: TokenUsage) -> Option<TokenUsage> {
 }
 
 fn token_usage<'a>(records: impl Iterator<Item = &'a Value>) -> Option<TokenUsage> {
-    let mut usage = TokenUsage::default();
-    for record in records {
-        add_token(
-            &mut usage.input_tokens,
-            record.get("input_tokens").and_then(Value::as_u64),
-        );
-        add_token(
-            &mut usage.output_tokens,
-            record.get("output_tokens").and_then(Value::as_u64),
-        );
-        add_token(
-            &mut usage.cache_read_tokens,
-            record.get("cache_read_tokens").and_then(Value::as_u64),
-        );
-        add_token(
-            &mut usage.cache_write_tokens,
-            record.get("cache_write_tokens").and_then(Value::as_u64),
-        );
-        add_token(
-            &mut usage.reasoning_output_tokens,
-            record
-                .get("reasoning_output_tokens")
-                .and_then(Value::as_u64),
-        );
-    }
-    finish_usage(usage)
+    let count = |record: &Value, key: &str| record.get(key).and_then(Value::as_u64);
+    sum_usage(records.map(|record| TokenUsage {
+        input_tokens: count(record, "input_tokens"),
+        output_tokens: count(record, "output_tokens"),
+        cache_read_tokens: count(record, "cache_read_tokens"),
+        cache_write_tokens: count(record, "cache_write_tokens"),
+        reasoning_output_tokens: count(record, "reasoning_output_tokens"),
+        total_tokens: None,
+    }))
 }
 
 fn session_usage(part: &Build) -> Option<TokenUsage> {
-    token_usage(
-        part.checkpoints
-            .iter()
-            .map(|(checkpoint, _, _)| checkpoint)
-            .filter(|checkpoint| {
-                matches!(
-                    checkpoint.get("step").and_then(Value::as_str),
-                    Some("seat-turn" | "turn-completed")
-                ) && [
-                    "input_tokens",
-                    "output_tokens",
-                    "cache_read_tokens",
-                    "cache_write_tokens",
-                    "reasoning_output_tokens",
-                ]
-                .iter()
-                .any(|key| checkpoint.get(*key).and_then(Value::as_u64).is_some())
-            }),
-    )
-    .or_else(|| token_usage(part.session.iter()))
+    let checkpoints = part.checkpoints.iter();
+    let meters: Vec<Meter> = checkpoints
+        .map(|(checkpoint, _, _)| Meter::of(checkpoint))
+        .collect();
+    let session = part.session.as_ref().map(Meter::of);
+    let by = Metering::of(&meters);
+    let turns = meters.iter().filter_map(|meter| meter.counted(by, false));
+    sum_usage(turns.chain(session.and_then(|session| session.counted(by, true))))
 }
 
 fn usage_text(usage: &TokenUsage, prefix: &str) -> String {

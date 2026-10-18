@@ -6878,6 +6878,30 @@ fn a_short_terminal_caps_the_graph_and_the_seats() {
     }
 }
 
+/// A seat's tokens read as the console's seat row reads them, total and
+/// arrows, with the cache hit beside them in the same cell.
+#[test]
+fn a_seats_tokens_read_with_arrows_and_the_cache_hit() {
+    let mut views = views();
+    let part = &mut views.run.as_mut().unwrap().participants[0];
+    let shown = |text: &str| brokkr_view::Cell {
+        text: text.to_string(),
+        absent: false,
+        note: None,
+    };
+    part.tokens = brokkr_view::TokenCells {
+        total: shown("1.24M tok"),
+        input: shown("1.19M"),
+        output: shown("48k"),
+        cache_hit: shown("99.9%"),
+    };
+    assert_eq!(
+        seat_texts(part)[5],
+        "Σ 1.24M tok ↑ 1.19M ↓ 48k · 99.9% cache"
+    );
+    assert_eq!(SEAT_COLUMNS[5], "tokens");
+}
+
 /// A seat column is as wide as its widest cell and no wider. The widest
 /// fixture label is 27 columns; the fixed 22 clipped it, and left the
 /// activity column holding the difference as air.
@@ -6899,17 +6923,9 @@ fn a_seat_column_fits_its_widest_cell() {
         widths[0],
         Constraint::Length(u16::try_from("participant".len()).unwrap())
     );
-    assert_eq!(widths[8], Constraint::Min(10));
-    let long = [[
-        "x".repeat(SEAT_COLUMN_MAX + 20),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-        String::new(),
-    ]];
+    assert_eq!(widths[FITTED], Constraint::Min(10));
+    let mut long: [[String; FITTED]; 1] = Default::default();
+    long[0][0] = "x".repeat(SEAT_COLUMN_MAX + 20);
     assert_eq!(
         seat_widths(&long)[0],
         Constraint::Length(u16::try_from(SEAT_COLUMN_MAX).unwrap()),

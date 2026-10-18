@@ -777,6 +777,7 @@ fn severity_of(name: &str, value: Option<&Value>) -> Result<Option<usize>, Unrea
 pub mod audit;
 mod errors;
 mod inputs;
+mod words;
 
 pub use errors::{Malformed, Place, RuleKey, TableKey, Unreadable};
 use inputs::{choice_keyed, count, names, vocabulary, Pick};

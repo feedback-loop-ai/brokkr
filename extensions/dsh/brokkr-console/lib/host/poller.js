@@ -45,10 +45,11 @@ async function settled(read) {
 }
 
 /**
- * @param {{brokkr: object, pollMs: number, workspace?: string}} parts
- *   `workspace` is the directory the console runs Brokkr in, where Ask Brokkr opens a session.
+ * @param {{brokkr: object, pollMs: number, workspace?: string, ask?: boolean}} parts
+ *   `workspace` is the directory the console runs Brokkr in, where Ask Brokkr opens a session;
+ *   `ask` shows the console's question boxes (`BROKKR_CONSOLE_ASK=1`), hidden otherwise.
  */
-export function pollerOf({ brokkr, pollMs, workspace = null }) {
+export function pollerOf({ brokkr, pollMs, workspace = null, ask = false }) {
   const clients = new Set()
   const state = { fleet: null, heads: new Map(), fleetText: null, day: null, overviewText: null, timer: null, busy: false }
 
@@ -86,6 +87,7 @@ export function pollerOf({ brokkr, pollMs, workspace = null }) {
       client.peer.send({
         type: 'snapshot',
         workspace,
+        ask,
         fleet: state.fleet,
         overview: view === 'realms' ? await overview(moved) : null,
         run: run === null ? null : await runOf(run),

@@ -5,7 +5,10 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 22
+export const VIEW_VERSION = 23
+
+/** The graph wire this console paints: `brokkr_view::GRAPH_VIEW_VERSION`, pinned apart from `VIEW_VERSION`. */
+export const GRAPH_VIEW_VERSION = 1
 
 /** The Muninn record version this console reads. */
 const MUNINN_RECORD_VERSION = 1
@@ -18,6 +21,10 @@ const COMMANDS = ['retry', 'stop', 'resume', 'conclude']
 const ACTIONS = ['dismiss_finding', 'talk_to_reviewer', 'hold', 'answer_here']
 const ADMISSIONS = ['admissible', 'waiting', 'held']
 const RANGES = ['24h', '7d', '30d']
+const COSTS = ['reported', 'not_reported']
+const PLACES = ['row', 'end', 'beneath']
+const RULE_KINDS = ['forward', 'self', 'back', 'terminal']
+const TABLES = ['resolved', 'not_found']
 
 /** A readout the console will not paint, with the operator's text. */
 export class ReadoutRefused extends Error {
@@ -95,12 +102,13 @@ export function jsonOf(ran, what) {
   }
 }
 
-function versioned(doc, what) {
+/** `doc`, refused unless it is at `version`: the shared view wire, or a readout's own (the graph's). */
+function versioned(doc, what, version = VIEW_VERSION) {
   object(doc, what)
-  if (doc.view_version !== VIEW_VERSION) {
+  if (doc.view_version !== version) {
     throw new ReadoutRefused(
       'version',
-      `${what} is at view version ${doc.view_version}; this console paints version ${VIEW_VERSION} only`,
+      `${what} is at view version ${doc.view_version}; this console paints version ${version} only`,
     )
   }
   return doc
@@ -285,6 +293,17 @@ function cell(value, path) {
   return { text: text(value.text, `${path}.text`), absent: value.absent === true, note: optText(value.note, `${path}.note`) }
 }
 
+/** Tokens read apart as Brokkr gives them to every surface: total, in, out and the cache hit, each its own cell. */
+function tokenCells(value, path) {
+  object(value, path)
+  return {
+    total: cell(value.total, `${path}.total`),
+    input: cell(value.input, `${path}.input`),
+    output: cell(value.output, `${path}.output`),
+    cache_hit: cell(value.cache_hit, `${path}.cache_hit`),
+  }
+}
+
 /**
  * One seat of the run, with the figures the TUI's seat pane prints, each
  * Brokkr's own cell: model (claimed) and boundary, effort pinned and
@@ -304,12 +323,7 @@ function participant(value, path) {
     turns: cell(value.turns_cell, `${path}.turns_cell`),
     cost: cell(value.cost_cell, `${path}.cost_cell`),
     usage: cell(value.usage_cell, `${path}.usage_cell`),
-    tokens: ((tokens, at) => ({
-      total: cell(tokens.total, `${at}.total`),
-      input: cell(tokens.input, `${at}.input`),
-      output: cell(tokens.output, `${at}.output`),
-      cache_hit: cell(tokens.cache_hit, `${at}.cache_hit`),
-    }))(object(value.tokens, `${path}.tokens`), `${path}.tokens`),
+    tokens: tokenCells(value.tokens, `${path}.tokens`),
     model: cell(value.model, `${path}.model`),
     boundary: cell(value.boundary, `${path}.boundary`),
     effort: cell(value.effort, `${path}.effort`),
@@ -417,6 +431,38 @@ export function muninnOf(doc) {
 
 const span = (value, path) => ({ text: text(object(value, path).text, `${path}.text`) })
 
+/**
+ * A cost as Brokkr figures it: its dollars when any seat reported them, its
+ * text, and the providers whose seats reported none (`silent`, with Brokkr's
+ * note naming them).
+ */
+function costFigure(value, path) {
+  object(value, path)
+  const kind = word(object(value.cost, `${path}.cost`).kind, COSTS, `${path}.cost.kind`)
+  return {
+    cost: kind === 'reported' ? { kind, usd: count(value.cost.usd, `${path}.cost.usd`) } : { kind },
+    text: text(value.text, `${path}.text`),
+    silent: texts(value.silent, `${path}.silent`),
+    note: optText(value.note, `${path}.note`),
+  }
+}
+
+/** One recipe of one realm over the range (design D6); `on_frontier` is Brokkr's reading, false where it gave none. */
+function recipeRow(value, path) {
+  object(value, path)
+  return {
+    realm: text(value.realm, `${path}.realm`),
+    recipe: text(value.recipe, `${path}.recipe`),
+    runs: count(value.runs, `${path}.runs`),
+    done: count(value.done, `${path}.done`),
+    done_rate: count(value.done_rate, `${path}.done_rate`),
+    done_text: text(value.done_text, `${path}.done_text`),
+    cost_per_run: costFigure(value.cost_per_run, `${path}.cost_per_run`),
+    tokens_per_run: tokenCells(value.tokens_per_run, `${path}.tokens_per_run`),
+    on_frontier: value.on_frontier === true,
+  }
+}
+
 function headline(value, path) {
   object(value, path)
   const shipped = object(value.shipped, `${path}.shipped`)
@@ -478,12 +524,105 @@ export function analyticsOf(doc) {
       refusal: text(value.refusal, `${path}.refusal`),
     })),
     not_recorded: texts(doc.not_recorded, 'not_recorded'),
+    recipes: list(doc.recipes, 'recipes', recipeRow),
   }
 }
 
-/** The range words `brokkr analytics --range` takes. */
+/** The range words `brokkr analytics --range` and `brokkr graph --range` take. */
 export function isRange(value) {
   return RANGES.includes(value)
+}
+
+// ------------------------------------------------------------------ graph
+
+/** A state of the recipe, where the view places it, and its figures over the range, each in Brokkr's words (design D4). */
+function graphState(value, path) {
+  object(value, path)
+  return {
+    name: text(value.name, `${path}.name`),
+    place: word(value.place, PLACES, `${path}.place`),
+    entered: count(value.entered, `${path}.entered`),
+    median: span(value.median, `${path}.median`),
+    p90: span(value.p90, `${path}.p90`),
+    cost: costFigure(value.cost, `${path}.cost`),
+    tokens: tokenCells(value.tokens, `${path}.tokens`),
+    seats: list(value.seats, `${path}.seats`, (seat, at) => ({
+      key: text(object(seat, at).key, `${at}.key`),
+      text: text(seat.text, `${at}.text`),
+    })),
+  }
+}
+
+/** A rule of the table, or one that fired where no table resolved: its edge, its count and Brokkr's `<ID> · <count>` (design D3). */
+function graphRule(value, path) {
+  object(value, path)
+  return {
+    id: text(value.id, `${path}.id`),
+    from: text(value.from, `${path}.from`),
+    next: optText(value.next, `${path}.next`),
+    result: optText(value.result, `${path}.result`),
+    when: texts(value.when, `${path}.when`),
+    severity: optText(value.severity, `${path}.severity`),
+    count: count(value.count, `${path}.count`),
+    kind: word(value.kind, RULE_KINDS, `${path}.kind`),
+    text: text(value.text, `${path}.text`),
+    latest: list(value.latest, `${path}.latest`, (run, at) => ({
+      run_id: text(object(run, at).run_id, `${at}.run_id`),
+      label: text(run.label, `${at}.label`),
+      at: text(run.at, `${at}.at`),
+    })),
+  }
+}
+
+/** The rules joining one state to one next state, as one link: the runs it moved, how many rules it joins, and each result that fired with its runs (design D3). */
+function graphLink(value, path) {
+  object(value, path)
+  return {
+    from: text(value.from, `${path}.from`),
+    next: text(value.next, `${path}.next`),
+    kind: word(value.kind, RULE_KINDS, `${path}.kind`),
+    count: count(value.count, `${path}.count`),
+    rules: count(value.rules, `${path}.rules`),
+    outcomes: list(value.outcomes, `${path}.outcomes`, (outcome, at) => ({
+      result: text(object(outcome, at).result, `${at}.result`),
+      count: count(outcome.count, `${at}.count`),
+      text: text(outcome.text, `${at}.text`),
+    })),
+    text: typeof value.text === 'string' ? value.text : text(value.text, `${path}.text`),
+  }
+}
+
+/**
+ * `brokkr graph --recipe <name> --json`: the recipe's state machine with the
+ * journal's traffic over the range, at the graph's own wire version. The
+ * client places it by `place` and `kind` and computes nothing of it.
+ */
+export function graphOf(doc) {
+  versioned(doc, 'brokkr graph', GRAPH_VIEW_VERSION)
+  const kind = word(object(doc.table, 'table').kind, TABLES, 'table.kind')
+  return {
+    realm: optText(doc.realm, 'realm'),
+    recipe: text(doc.recipe, 'recipe'),
+    range: word(doc.range, RANGES, 'range'),
+    recipes: texts(doc.recipes, 'recipes'),
+    table: { kind, text: kind === 'not_found' ? text(doc.table.text, 'table.text') : null },
+    runs: count(doc.runs, 'runs'),
+    states: list(doc.states, 'states', graphState),
+    rules: list(doc.rules, 'rules', graphRule),
+    links: list(doc.links, 'links', graphLink),
+    never_fired: span(doc.never_fired, 'never_fired'),
+    retired: list(doc.retired, 'retired', (value, path) => ({
+      rule_id: text(object(value, path).rule_id, `${path}.rule_id`),
+      count: count(value.count, `${path}.count`),
+    })),
+    drift_text: optText(doc.drift_text, 'drift_text'),
+    ends: span(doc.ends, 'ends'),
+    live: list(doc.live, 'live', (value, path) => ({
+      run_id: text(object(value, path).run_id, `${path}.run_id`),
+      label: text(value.label, `${path}.label`),
+      state: optText(value.state, `${path}.state`),
+    })),
+  }
 }
 
 // ------------------------------------------------------------- transcripts

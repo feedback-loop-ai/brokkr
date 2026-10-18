@@ -55,6 +55,13 @@ function bodyOf(req) {
 /** The request's query string. */
 const queryOf = (req) => new URLSearchParams(String(req.url).split('?')[1] ?? '')
 
+/** The range a readout is asked over: `7d` unless the query names one Brokkr takes. */
+function rangeOf(query) {
+  const range = query.get('range') ?? '7d'
+  if (!isRange(range)) throw new RequestRefused('the range is one of 24h, 7d or 30d')
+  return range
+}
+
 /** A handler for `method`, answering a refused request or readout with its text. */
 function handled(method, handle) {
   return async (req, res) => {
@@ -111,9 +118,21 @@ function routes({ brokkr, desk, here, locate, focus }) {
       `${BASE}/api/analytics`,
       async (req, res) => {
         const query = queryOf(req)
-        const range = query.get('range') ?? '7d'
-        if (!isRange(range)) throw new RequestRefused('the range is one of 24h, 7d or 30d')
-        send(res, 200, await brokkr.analytics(range, query.get('realm')))
+        send(res, 200, await brokkr.analytics(rangeOf(query), query.get('realm')))
+      },
+    ],
+    // The Library's Graph: one recipe of one realm (or of a one-hearth world, with no realm named);
+    // with no recipe named, the one Brokkr picks, so a realm none of whose recipes ran still lists them.
+    [
+      'GET',
+      `${BASE}/api/graph`,
+      async (req, res) => {
+        const query = queryOf(req)
+        const range = rangeOf(query)
+        const [recipe, realm] = [query.get('recipe'), query.get('realm')]
+        if (recipe !== null && !GRAMMAR.recipe.test(recipe)) throw new RequestRefused('a graph is asked for by its recipe’s name')
+        if (realm !== null && (realm === '' || realm.length > 256)) throw new RequestRefused('a realm is named in 1 to 256 characters')
+        send(res, 200, await brokkr.graph(realm, recipe, range))
       },
     ],
     [
@@ -132,7 +151,7 @@ function routes({ brokkr, desk, here, locate, focus }) {
 export function apply(ctx) {
   const config = configFrom(process.env, process.cwd())
   const brokkr = brokkrOf(config)
-  const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd })
+  const poller = pollerOf({ brokkr, pollMs: config.pollMs, workspace: config.cwd, ask: config.ask })
   const desk = deskOf({ brokkr, resume: config.resume, locate: poller.locate })
   const here = hereOf({ brokkr, workspace: config.cwd })
   const focus = focusOf()

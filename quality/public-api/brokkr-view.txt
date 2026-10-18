@@ -168,6 +168,14 @@ pub brokkr_view::CommandRefusal::Operator::refusal: brokkr_core::fold::Refusal
 pub brokkr_view::CommandRefusal::Parked
 impl serde_core::ser::Serialize for brokkr_view::CommandRefusal
 pub fn brokkr_view::CommandRefusal::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+pub enum brokkr_view::GraphError
+pub brokkr_view::GraphError::Clock(alloc::string::String)
+pub brokkr_view::GraphError::UnknownRecipe
+pub brokkr_view::GraphError::UnknownRecipe::known: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::GraphError::UnknownRecipe::realm: alloc::string::String
+pub brokkr_view::GraphError::UnknownRecipe::recipe: alloc::string::String
+impl core::fmt::Display for brokkr_view::GraphError
+pub fn brokkr_view::GraphError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_view::Need
 pub brokkr_view::Need::Parked
 pub brokkr_view::Need::Quarantined(brokkr_view::Quarantine)
@@ -236,6 +244,10 @@ pub brokkr_view::Standing::Shipped
 pub brokkr_view::Standing::Stopped
 impl brokkr_view::Standing
 pub fn brokkr_view::Standing::label(self) -> &'static str
+pub enum brokkr_view::Table
+pub brokkr_view::Table::NotFound
+pub brokkr_view::Table::NotFound::text: alloc::string::String
+pub brokkr_view::Table::Resolved
 pub enum brokkr_view::Unavailable
 pub brokkr_view::Unavailable::AnswerHere
 pub brokkr_view::Unavailable::DismissFinding
@@ -266,6 +278,7 @@ pub brokkr_view::Analytics::quarantined: alloc::vec::Vec<brokkr_view::analytics:
 pub brokkr_view::Analytics::range: brokkr_view::Range
 pub brokkr_view::Analytics::realm: core::option::Option<alloc::string::String>
 pub brokkr_view::Analytics::realms: alloc::vec::Vec<brokkr_view::analytics::RealmRow>
+pub brokkr_view::Analytics::recipes: alloc::vec::Vec<brokkr_view::analytics::RecipeRow>
 pub brokkr_view::Analytics::rework: brokkr_view::analytics::Rework
 pub brokkr_view::Analytics::to: alloc::string::String
 pub brokkr_view::Analytics::view_version: u32
@@ -327,6 +340,36 @@ pub struct brokkr_view::FleetView
 pub brokkr_view::FleetView::count: usize
 pub brokkr_view::FleetView::realms: alloc::vec::Vec<brokkr_view::RealmRuns>
 pub brokkr_view::FleetView::view_version: u32
+pub struct brokkr_view::GraphQuery<'a>
+pub brokkr_view::GraphQuery::hearths: &'a [brokkr_view::AnalyticsHearth<'a>]
+pub brokkr_view::GraphQuery::now: &'a str
+pub brokkr_view::GraphQuery::range: brokkr_view::Range
+pub brokkr_view::GraphQuery::realm: &'a str
+pub brokkr_view::GraphQuery::recipe: &'a str
+pub brokkr_view::GraphQuery::shelved: &'a [alloc::string::String]
+pub brokkr_view::GraphQuery::table: core::option::Option<brokkr_view::GraphTable<'a>>
+pub struct brokkr_view::GraphTable<'a>
+pub brokkr_view::GraphTable::machine: &'a brokkr_core::policy::Machine
+pub brokkr_view::GraphTable::manifest: &'a serde_json::value::Value
+pub struct brokkr_view::GraphView
+pub brokkr_view::GraphView::drift_text: core::option::Option<alloc::string::String>
+pub brokkr_view::GraphView::drifted_runs: usize
+pub brokkr_view::GraphView::ends: brokkr_view::graph::Ends
+pub brokkr_view::GraphView::from: alloc::string::String
+pub brokkr_view::GraphView::links: alloc::vec::Vec<brokkr_view::graph::Link>
+pub brokkr_view::GraphView::live: alloc::vec::Vec<brokkr_view::graph::LiveRun>
+pub brokkr_view::GraphView::never_fired: brokkr_view::graph::NeverFired
+pub brokkr_view::GraphView::range: brokkr_view::Range
+pub brokkr_view::GraphView::realm: alloc::string::String
+pub brokkr_view::GraphView::recipe: alloc::string::String
+pub brokkr_view::GraphView::recipes: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::GraphView::retired: alloc::vec::Vec<brokkr_view::analytics::RuleCount>
+pub brokkr_view::GraphView::rules: alloc::vec::Vec<brokkr_view::graph::Edge>
+pub brokkr_view::GraphView::runs: usize
+pub brokkr_view::GraphView::states: alloc::vec::Vec<brokkr_view::graph::State>
+pub brokkr_view::GraphView::table: brokkr_view::Table
+pub brokkr_view::GraphView::to: alloc::string::String
+pub brokkr_view::GraphView::view_version: u32
 pub struct brokkr_view::HearthEntries<'a>
 pub brokkr_view::HearthEntries::detail: core::option::Option<&'a str>
 pub brokkr_view::HearthEntries::entries: &'a [brokkr_view::RunEntry<'a>]
@@ -546,6 +589,9 @@ pub brokkr_view::TokenCells::cache_hit: brokkr_view::Cell
 pub brokkr_view::TokenCells::input: brokkr_view::Cell
 pub brokkr_view::TokenCells::output: brokkr_view::Cell
 pub brokkr_view::TokenCells::total: brokkr_view::Cell
+impl brokkr_view::TokenCells
+pub fn brokkr_view::TokenCells::arrows(&self) -> alloc::string::String
+pub fn brokkr_view::TokenCells::line(&self) -> alloc::string::String
 pub struct brokkr_view::TokenUsage
 pub brokkr_view::TokenUsage::cache_read_tokens: core::option::Option<u64>
 pub brokkr_view::TokenUsage::cache_write_tokens: core::option::Option<u64>
@@ -577,6 +623,7 @@ pub brokkr_view::What::badge_class: core::option::Option<alloc::string::String>
 pub brokkr_view::What::problem: core::option::Option<alloc::string::String>
 pub brokkr_view::What::text: alloc::string::String
 pub const brokkr_view::ABSENT: &str
+pub const brokkr_view::GRAPH_VIEW_VERSION: u32
 pub const brokkr_view::NO_BOUNDARY: &str
 pub const brokkr_view::TITLE_COLUMNS: usize
 pub const brokkr_view::VERDICT_COLUMNS: usize
@@ -589,6 +636,7 @@ pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
 pub fn brokkr_view::first_divergence(&[alloc::string::String], &[alloc::string::String]) -> core::option::Option<brokkr_view::FirstDivergence>
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
+pub fn brokkr_view::graph(&brokkr_view::GraphQuery<'_>) -> core::result::Result<brokkr_view::GraphView, brokkr_view::GraphError>
 pub fn brokkr_view::keeps_participant(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Participant) -> bool
 pub fn brokkr_view::keeps_phase(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Phase) -> bool
 pub fn brokkr_view::keeps_row(core::option::Option<&brokkr_view::Lens>, &brokkr_view::JournalRow) -> bool
