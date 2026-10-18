@@ -437,6 +437,7 @@ fn recording(dir: &Path) -> String {
 
 /// What [`recording`] in `dir` was spawned with and handed: its arguments,
 /// and its start message.
+#[cfg(target_os = "linux")]
 fn recorded(dir: &Path) -> (Vec<String>, Value) {
     let argv = std::fs::read(dir.join("driver.argv")).expect("the driver was spawned");
     let argv = argv.strip_suffix(&[0]).unwrap().split(|byte| *byte == 0);
@@ -468,6 +469,10 @@ fn program(body: &mut SeatBody) -> &mut String {
 /// the attempt on a stood-in host after its durable start, and the driver
 /// they spawn is handed exactly the whole set that attempt wrote, served
 /// cold, rejoined and as the cold replacement as the literal names it.
+/// Linux only: off Linux no mount table is read, so the dispatch door
+/// refuses every boxed writer beside evidence before anything spawns
+/// (decision 0063; U8a2a).
+#[cfg(target_os = "linux")]
 #[test]
 fn dispatch_serves_each_site_the_whole_set_its_attempt_wrote() {
     let test = "dispatch_serves_each_site_the_whole_set_its_attempt_wrote";
