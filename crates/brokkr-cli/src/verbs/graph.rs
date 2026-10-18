@@ -3,20 +3,24 @@
 //! `brokkr recipes show` resolves a name — the realm's shelf — or else from
 //! a bundle directory in the realm whose `bundle.json` names it, as `self`
 //! is in an adopter. With no recipe named it draws the realm's busiest, so
-//! the console reads a realm's known recipes before any has run. The
+//! the console reads a realm's known recipes before any has run. Every
+//! recipe on the shelf is compiled: one that does not compile against this
+//! Brokkr is drawn with the compiler's refusal and named among those that
+//! do not, so a library written for an older Brokkr still lists them. The
 //! figures are derived once, in [`brokkr_view::graph`]; this verb finds the
 //! table and the hearths, hands them over with the clock, and prints what
 //! comes back. It writes nothing (decision 0014).
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::Result;
-use brokkr_runtime::launch;
+use brokkr_runtime::launch::{self, LaunchError};
 use brokkr_runtime::realms::{Hearth, World};
-use brokkr_runtime::Bundle;
-use brokkr_view::{GraphQuery, GraphTable, GraphView, Query, Range, Table};
+use brokkr_runtime::{Bundle, CompileError};
+use brokkr_view::{GraphQuery, GraphResolution, GraphTable, GraphView, Query, Range, Table};
 use serde::Deserialize;
 
 use super::analytics::{printed, range, read_hearths};
@@ -178,19 +182,80 @@ fn shelf(folder: &Path) -> Result<Vec<(String, PathBuf)>> {
     Ok(found)
 }
 
-/// The recipe's table compiled where it resolves, if it does: on the one
-/// path `recipes show` compiles it on.
+/// How the recipe asked for resolved where the realm's shelf names it.
+enum Compiled {
+    /// Its table, compiled.
+    Bundle(Box<Bundle>),
+    /// No recipe of that name is on the shelf.
+    NotOnShelf,
+    /// It is on the shelf and does not compile against this Brokkr.
+    Refused { reason: String, bundle: String },
+}
+
+/// What compiling the realm's recipes found: how the one asked for
+/// resolved, and the names of every one that does not compile.
+struct Compiles {
+    asked: Compiled,
+    refused: Vec<String>,
+}
+
+/// A compile refusal in its own words, without the `bundle: ` its error
+/// wraps it in, once for the bundle and once more for a composed one's
+/// chain.
+fn reason_of(error: &CompileError) -> String {
+    let words = error.to_string();
+    let mut reason = words.as_str();
+    while let Some(rest) = reason.strip_prefix("bundle: ") {
+        reason = rest;
+    }
+    reason.to_string()
+}
+
+/// `dir` as a path in the realm's `folder` when it lies there, else whole:
+/// the two read through their links, as a shelf and a map can name one
+/// folder by two spellings.
+fn within(dir: &Path, folder: &Path) -> String {
+    let real = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let (dir, folder) = (real(dir), real(folder));
+    dir.strip_prefix(&folder)
+        .unwrap_or(&dir)
+        .display()
+        .to_string()
+}
+
+/// Each recipe on the shelf compiled where it resolves, on the one path
+/// `recipes show` compiles it on, the first directory of a name being the
+/// one it resolves to. A recipe that does not compile is named, never the
+/// graph's failure; any other failure to compile is.
 fn compiled(
     world: Option<&World>,
     folder: &Path,
     shelf: &[(String, PathBuf)],
     recipe: &str,
-) -> Result<Option<Bundle>> {
-    let Some((_, dir)) = shelf.iter().find(|(name, _)| name == recipe) else {
-        return Ok(None);
-    };
+) -> Result<Compiles> {
     let workspace = Layout::discover(folder)?.workspace();
-    Ok(Some(launch::compile_for(&workspace, dir, world, folder)?))
+    let mut compiles = Compiles {
+        asked: Compiled::NotOnShelf,
+        refused: Vec::new(),
+    };
+    let mut seen = BTreeSet::new();
+    for (name, dir) in shelf.iter().filter(|(name, _)| seen.insert(name)) {
+        let found = match launch::compile_for(&workspace, dir, world, folder) {
+            Ok(bundle) => Compiled::Bundle(Box::new(bundle)),
+            Err(LaunchError::Compile(error)) => {
+                compiles.refused.push(name.clone());
+                Compiled::Refused {
+                    reason: reason_of(&error),
+                    bundle: within(dir, folder),
+                }
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if name == recipe {
+            compiles.asked = found;
+        }
+    }
+    Ok(compiles)
 }
 
 /// What the view is asked for, beside the hearths.
@@ -201,25 +266,31 @@ struct Asked<'a> {
     now: &'a str,
 }
 
-/// The graph over `hearths`, drawn from `bundle`'s table when the recipe
-/// resolved.
+/// The graph over `hearths`, drawn from the asked recipe's table when it
+/// compiled.
 fn derive(
     hearths: &[Hearth],
-    bundle: Option<&Bundle>,
+    compiles: &Compiles,
     shelf: &[(String, PathBuf)],
     asked: &Asked,
 ) -> Result<GraphView> {
     let shelved: Vec<String> = shelf.iter().map(|(name, _)| name.clone()).collect();
+    let table = match &compiles.asked {
+        Compiled::Bundle(bundle) => GraphResolution::Compiled(GraphTable {
+            machine: &bundle.machine,
+            manifest: &bundle.manifest,
+        }),
+        Compiled::NotOnShelf => GraphResolution::NotFound,
+        Compiled::Refused { reason, bundle } => GraphResolution::Refused { reason, bundle },
+    };
     let view = read_hearths(hearths, |grouped| {
         brokkr_view::graph(&GraphQuery {
             hearths: grouped,
             recipe: asked.recipe,
             realm: asked.realm,
-            table: bundle.map(|bundle| GraphTable {
-                machine: &bundle.machine,
-                manifest: &bundle.manifest,
-            }),
+            table,
             shelved: &shelved,
+            does_not_compile: &compiles.refused,
             range: asked.range,
             now: asked.now,
         })
@@ -270,14 +341,14 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
         Some(recipe) => recipe,
         None => chosen(&hearths, &shelf, &realm, args.range, &now)?,
     };
-    let bundle = compiled(world.as_ref(), &folder, &shelf, &recipe)?;
+    let compiles = compiled(world.as_ref(), &folder, &shelf, &recipe)?;
     let asked = Asked {
         recipe: &recipe,
         realm: &realm,
         range: args.range,
         now: &now,
     };
-    let view = derive(&hearths, bundle.as_ref(), &shelf, &asked)?;
+    let view = derive(&hearths, &compiles, &shelf, &asked)?;
     printed(&view, args.json, paint)
 }
 
@@ -288,8 +359,14 @@ fn paint(view: &GraphView) -> String {
         "{} / {} · {} → {} · {} runs\n",
         view.realm, view.recipe, view.from, view.to, view.runs
     );
-    if let Table::NotFound { text } = &view.table {
-        out += &format!("{text}\n");
+    match &view.table {
+        Table::Resolved => {}
+        Table::NotFound { text } => out += &format!("{text}\n"),
+        Table::Refused {
+            text,
+            reason,
+            bundle,
+        } => out += &format!("{text}\n  {reason}\n  bundle {bundle}\n"),
     }
     for state in &view.states {
         out += &format!(

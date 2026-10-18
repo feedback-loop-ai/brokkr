@@ -235,6 +235,9 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-lib-list{display:flex;flex-direction:column;gap:4px;font-size:13px}
 .bk-lib-rulerow{display:flex;justify-content:space-between;gap:8px;font-variant-numeric:tabular-nums}
 .bk-lib-id{font-family:'IBM Plex Mono',monospace;font-size:12px;overflow-wrap:anywhere}
+.bk-lib-refused{display:flex;flex-direction:column;gap:8px;padding:14px 16px;background:var(--bk-warn-wash);box-shadow:inset 3px 0 0 var(--bk-warn)}
+.bk-lib-refused strong{color:var(--bk-warn-ink);font-size:15px}
+.bk-lib-reason{display:flex;flex-direction:column;gap:4px;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:18px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--bk-ink)}
 .bk-lib-beneath{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--bk-line-soft);padding-top:8px}
 .bk-lib-views{margin-left:auto;gap:6px}
 .bk-lib-graph{display:block;overflow:visible;font-family:'IBM Plex Sans',system-ui,sans-serif}

@@ -278,13 +278,14 @@ export function linksOf(rules) {
 export function graphDoc(over = {}) {
   const seat = (key, provider, model) => ({ key, provider, model, text: `${key} · ${provider} ${model}` })
   const doc = {
-    view_version: 1,
+    view_version: 2,
     realm: 'brokkr',
     recipe: 'self',
     range: '7d',
     from: '2026-10-06T09:00:00Z',
     to: '2026-10-13T09:00:00Z',
     recipes: ['charter', 'frontier', 'lean', 'leaky', 'muninn', 'self'],
+    does_not_compile: [],
     table: { kind: 'resolved' },
     runs: 10,
     states: [

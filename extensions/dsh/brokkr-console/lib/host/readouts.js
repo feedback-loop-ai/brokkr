@@ -8,7 +8,7 @@
 export const VIEW_VERSION = 23
 
 /** The graph wire this console paints: `brokkr_view::GRAPH_VIEW_VERSION`, pinned apart from `VIEW_VERSION`. */
-export const GRAPH_VIEW_VERSION = 1
+export const GRAPH_VIEW_VERSION = 2
 
 /** The Muninn record version this console reads. */
 const MUNINN_RECORD_VERSION = 1
@@ -24,7 +24,7 @@ const RANGES = ['24h', '7d', '30d']
 const COSTS = ['reported', 'not_reported']
 const PLACES = ['row', 'end', 'beneath']
 const RULE_KINDS = ['forward', 'self', 'back', 'terminal']
-const TABLES = ['resolved', 'not_found']
+const TABLES = ['resolved', 'not_found', 'refused']
 
 /** A readout the console will not paint, with the operator's text. */
 export class ReadoutRefused extends Error {
@@ -593,19 +593,37 @@ function graphLink(value, path) {
 }
 
 /**
+ * Whether the recipe's table resolved: Brokkr's words when it was not found,
+ * and when it does not compile against this Brokkr, the compiler's refusal
+ * and the bundle directory it refused.
+ */
+function graphTable(value, path) {
+  const kind = word(object(value, path).kind, TABLES, `${path}.kind`)
+  const refused = kind === 'refused'
+  return {
+    kind,
+    text: kind === 'resolved' ? null : text(value.text, `${path}.text`),
+    reason: refused ? text(value.reason, `${path}.reason`) : null,
+    bundle: refused ? text(value.bundle, `${path}.bundle`) : null,
+  }
+}
+
+/**
  * `brokkr graph --recipe <name> --json`: the recipe's state machine with the
  * journal's traffic over the range, at the graph's own wire version. The
  * client places it by `place` and `kind` and computes nothing of it.
+ * `does_not_compile` names the realm's recipes that do not compile against
+ * this Brokkr, so the picker can mark them.
  */
 export function graphOf(doc) {
   versioned(doc, 'brokkr graph', GRAPH_VIEW_VERSION)
-  const kind = word(object(doc.table, 'table').kind, TABLES, 'table.kind')
   return {
     realm: optText(doc.realm, 'realm'),
     recipe: text(doc.recipe, 'recipe'),
     range: word(doc.range, RANGES, 'range'),
     recipes: texts(doc.recipes, 'recipes'),
-    table: { kind, text: kind === 'not_found' ? text(doc.table.text, 'table.text') : null },
+    does_not_compile: texts(doc.does_not_compile, 'does_not_compile'),
+    table: graphTable(doc.table, 'table'),
     runs: count(doc.runs, 'runs'),
     states: list(doc.states, 'states', graphState),
     rules: list(doc.rules, 'rules', graphRule),

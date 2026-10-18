@@ -63,7 +63,10 @@ pub use fleet::{
     HearthEntries, Hire, Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict,
     TITLE_COLUMNS, VERDICT_COLUMNS,
 };
-pub use graph::{graph, GraphError, GraphQuery, GraphTable, GraphView, Table, GRAPH_VIEW_VERSION};
+pub use graph::{
+    graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
+    GRAPH_VIEW_VERSION,
+};
 use meter::{sum_usage, Meter, Metering};
 pub use participant::Subject;
 pub use scope::{

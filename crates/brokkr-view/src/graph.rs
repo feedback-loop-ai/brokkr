@@ -20,8 +20,10 @@ mod figures;
 pub use figures::graph;
 
 /// Wire version of [`GraphView`], its own: the console pins it beside the
-/// run, fleet and analytics views' shared version.
-pub const GRAPH_VIEW_VERSION: u32 = 1;
+/// run, fleet and analytics views' shared version. 2: a recipe that does
+/// not compile is a [`Table::Refused`], and `does_not_compile` names the
+/// realm's recipes that do not.
+pub const GRAPH_VIEW_VERSION: u32 = 2;
 
 /// The recipe's table as it resolves in the realm now: its machine, and
 /// the compiled manifest whose pins each run's are compared with.
@@ -31,17 +33,44 @@ pub struct GraphTable<'a> {
     pub manifest: &'a Value,
 }
 
+/// Where the recipe's table came from, or why there is none to draw.
+#[derive(Clone, Copy)]
+pub enum GraphResolution<'a> {
+    /// The recipe resolves in the realm and compiled.
+    Compiled(GraphTable<'a>),
+    /// No recipe of that name resolves in the realm.
+    NotFound,
+    /// The recipe resolves and does not compile against this Brokkr.
+    Refused {
+        /// The compiler's refusal, in its own words.
+        reason: &'a str,
+        /// The bundle directory it resolves to, as the realm names it.
+        bundle: &'a str,
+    },
+}
+
+impl<'a> GraphResolution<'a> {
+    /// The table, when the recipe compiled.
+    pub(crate) fn compiled(self) -> Option<GraphTable<'a>> {
+        match self {
+            GraphResolution::Compiled(table) => Some(table),
+            GraphResolution::NotFound | GraphResolution::Refused { .. } => None,
+        }
+    }
+}
+
 /// What the graph is asked for (decision 0071 ruling 10's parameter
 /// object).
 pub struct GraphQuery<'a> {
     pub hearths: &'a [AnalyticsHearth<'a>],
     pub recipe: &'a str,
     pub realm: &'a str,
-    /// `None` when the recipe does not resolve in the realm.
-    pub table: Option<GraphTable<'a>>,
+    pub table: GraphResolution<'a>,
     /// The recipes the realm resolves by name: its shelf and its bundle
     /// directories.
     pub shelved: &'a [String],
+    /// Those of them that do not compile against this Brokkr.
+    pub does_not_compile: &'a [String],
     pub range: Range,
     pub now: &'a str,
 }
@@ -94,6 +123,9 @@ pub struct GraphView {
     /// The realm's recipes: those it resolves by name and those its runs
     /// carry, sorted.
     pub recipes: Vec<String>,
+    /// Those of the realm's recipes that resolve and do not compile against
+    /// this Brokkr, sorted: each is still drawn, with its refusal.
+    pub does_not_compile: Vec<String>,
     pub table: Table,
     /// The runs the range keeps: those that ended in it, and those open.
     pub runs: usize,
@@ -115,12 +147,23 @@ pub struct GraphView {
     pub live: Vec<LiveRun>,
 }
 
-/// Whether the table was found where the recipe resolves.
+/// Whether the table was found where the recipe resolves, and compiled.
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Table {
     Resolved,
-    NotFound { text: String },
+    NotFound {
+        text: String,
+    },
+    /// The recipe resolves and its bundle does not compile against this
+    /// Brokkr: only the rules its runs fired are drawn.
+    Refused {
+        text: String,
+        /// The compiler's refusal, in its own words.
+        reason: String,
+        /// The bundle directory the recipe resolves to.
+        bundle: String,
+    },
 }
 
 /// Where a state sits (design D3): in the row, initial first then in `phases` order, at the

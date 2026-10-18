@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::facts::{GraphRun, Ruled, Scoped};
+use super::GraphResolution;
 use super::{Edge, Ends, GraphError, GraphQuery, GraphTable, GraphView, LiveRun, NeverFired};
 use super::{
     Link, Outcome, Place, RuleKind, RuleRun, SeatPin, State, Table, GRAPH_VIEW_VERSION, LATEST_RUNS,
@@ -444,6 +445,21 @@ fn ends(runs: &[GraphRun]) -> Ends {
     }
 }
 
+/// Whether the table resolved, and Brokkr's words when it did not.
+fn table_of(query: &GraphQuery) -> Table {
+    match query.table {
+        GraphResolution::Compiled(_) => Table::Resolved,
+        GraphResolution::NotFound => Table::NotFound {
+            text: format!("this recipe's table was not found in {}", query.realm),
+        },
+        GraphResolution::Refused { reason, bundle } => Table::Refused {
+            text: format!("{} doesn't compile against this Brokkr", query.recipe),
+            reason: reason.to_string(),
+            bundle: bundle.to_string(),
+        },
+    }
+}
+
 /// The recipe's graph for `query`: its table's states and rules with the
 /// traffic of the runs the range ending at `now` keeps.
 pub fn graph(query: &GraphQuery) -> Result<GraphView, GraphError> {
@@ -456,17 +472,19 @@ pub fn graph(query: &GraphQuery) -> Result<GraphView, GraphError> {
     let Scoped { runs, carried } = Scoped::read(query, window);
     let known = carried.iter().chain(query.shelved).cloned();
     let recipes: Vec<String> = known.collect::<BTreeSet<String>>().into_iter().collect();
-    if query.table.is_none() && !carried.contains(query.recipe) {
+    let table = query.table.compiled();
+    let unresolved = matches!(query.table, GraphResolution::NotFound);
+    if unresolved && !carried.contains(query.recipe) {
         return Err(GraphError::UnknownRecipe {
             recipe: query.recipe.to_string(),
             realm: query.realm.to_string(),
             known: recipes,
         });
     }
-    let shape = Shape::of(query.table, &runs);
-    let (rules, retired) = rules(query.table, &shape, &fired(&runs, window), (&runs, window));
+    let shape = Shape::of(table, &runs);
+    let (rules, retired) = rules(table, &shape, &fired(&runs, window), (&runs, window));
     let dormant = rules.iter().filter(|rule| rule.count == 0).count();
-    let (drifted_runs, drift_text) = drift(query.table, &runs);
+    let (drifted_runs, drift_text) = drift(table, &runs);
     Ok(GraphView {
         view_version: GRAPH_VIEW_VERSION,
         realm: query.realm.to_string(),
@@ -475,12 +493,11 @@ pub fn graph(query: &GraphQuery) -> Result<GraphView, GraphError> {
         from: stamp(window.from),
         to: query.now.to_string(),
         recipes,
-        table: match query.table {
-            Some(_) => Table::Resolved,
-            None => Table::NotFound {
-                text: format!("this recipe's table was not found in {}", query.realm),
-            },
-        },
+        does_not_compile: (query.does_not_compile.iter().cloned())
+            .collect::<BTreeSet<String>>()
+            .into_iter()
+            .collect(),
+        table: table_of(query),
         runs: runs.len(),
         states: (shape.phases.iter())
             .map(|phase| state(&shape, &runs, phase, window))
