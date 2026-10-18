@@ -19,7 +19,7 @@ use brokkr_core::envelope::EventType;
 use brokkr_protocol::hands::{Bind, BindMode, HandsSpec};
 use brokkr_protocol::process::Unsettled;
 use brokkr_protocol::Cleanup;
-use rustix::fs::{flock, fstat, AtFlags, FlockOperation};
+use rustix::fs::{flock, AtFlags, FlockOperation};
 use serde_json::json;
 
 use super::*;
@@ -786,9 +786,12 @@ fn every_directory_admission_makes_is_synced_in_its_parent() {
     };
     std::fs::remove_dir_all(host.home.join(".local")).unwrap();
     let synced = RefCell::new(Vec::new());
+    // Read through std's metadata, whose device is a u64 on every
+    // platform: rustix's `st_dev` is an i32 on macOS.
     let witness = |dir: &std::os::fd::OwnedFd| {
-        let stat = fstat(dir)?;
-        synced.borrow_mut().push((stat.st_dev, stat.st_ino));
+        let found = std::fs::File::from(dir.try_clone().unwrap()).metadata();
+        let found = found.unwrap();
+        synced.borrow_mut().push((found.dev(), found.ino()));
         Ok(())
     };
     super::super::protected_with(&host.home, &["repo", "run"], &witness).unwrap();
@@ -935,6 +938,89 @@ fn the_door_refuses_a_lease_whose_reach_was_redirected() {
     assert_eq!(recheck(&staked), redirected, "evidence at stake");
     let _lift = crate::capabilities::McpFence::lift();
     assert_eq!(recheck(&held), redirected, "fence lifted");
+}
+
+/// A boxed writer held with no sealed reach, as no box admission builds
+/// is, is redirected at the door by the first path its box is built from
+/// now, its worktree: what was never sealed never rechecks clean.
+#[test]
+fn a_box_held_with_no_sealed_reach_is_redirected_by_its_worktree() {
+    let host = Host::new();
+    let work = host.worktree("work");
+    let incoming = claim(&work, ["run-a", "a1"], Protects::Nothing, &[]);
+    let mut held = host.admit(&incoming).unwrap();
+    let spec = HandsSpec {
+        network: false,
+        binds: Vec::new(),
+    };
+    held.authored = Authored {
+        home: host.home.clone(),
+        boxes: vec![(spec, Reach::Unbounded)],
+    };
+    let worktree = std::fs::canonicalize(&work).unwrap();
+    assert_eq!(redirected(&held), Some(worktree));
+}
+
+/// A claim names its artifact root and journal as far as each resolves:
+/// canonical where it stands, its parent's canonical path with its own
+/// name where only the parent stands, and as spelled where neither does.
+#[test]
+fn a_claims_paths_resolve_as_far_as_they_stand() {
+    let host = Host::new();
+    let parent = host.worktree("parent");
+    let canonical = std::fs::canonicalize(&parent).unwrap();
+    assert_eq!(beside(&parent), canonical, "where it stands");
+    assert_eq!(
+        beside(&parent.join("unmade")),
+        canonical.join("unmade"),
+        "where only its parent stands"
+    );
+    let neither = parent.join("gone").join("unmade");
+    assert_eq!(beside(&neither), neither, "where neither stands");
+}
+
+/// Two handles are one coordination root where they were opened at one
+/// path, and two where at two.
+#[test]
+fn two_handles_are_one_root_only_where_opened_at_one_path() {
+    let (one, two) = (Host::new(), Host::new());
+    assert!(opened(&one.home) == opened(&one.home), "one path");
+    assert!(opened(&one.home) != opened(&two.home), "two paths");
+}
+
+/// R2: a lease's reservation is sealed unresolved the first time a driver
+/// of its attempt ends unresolved, and not again at a second such end; a
+/// lease whose attempt its reservation no longer holds standing is sealed
+/// again unchanged.
+#[test]
+fn an_unresolved_end_is_sealed_once_and_changes_no_attempt_not_standing() {
+    use std::os::unix::fs::MetadataExt;
+    let host = Host::new();
+    let work = host.worktree("work");
+    let incoming = claim(&work, ["run-a", "a1"], Protects::Nothing, &[]);
+    let mut held = Some(host.admit(&incoming).unwrap());
+    let unresolved = Cleanup::Unresolved {
+        reason: Unsettled::Stdout,
+    };
+    let at = host.reservation(&work, "run-a");
+    let sealed = |at: &Path| {
+        let found = std::fs::metadata(at).unwrap();
+        (std::fs::read(at).unwrap(), found.ino())
+    };
+    witnessed(&mut held, &unresolved);
+    let first = sealed(&at);
+    let read: Reservation = serde_json::from_slice(&first.0).unwrap();
+    assert_eq!(read.attempts["a1"].cleanup, Witnessed::Unresolved);
+    witnessed(&mut held, &unresolved);
+    assert_eq!(sealed(&at), first, "sealed once");
+    let mut gone = held.map(|held| Held {
+        attempt: "a9".into(),
+        unproven: false,
+        ..held
+    });
+    witnessed(&mut gone, &unresolved);
+    assert_eq!(sealed(&at).0, first.0, "no attempt not standing changed");
+    assert_eq!(gone.map(|held| held.unproven), Some(true));
 }
 
 /// `git` run with `args` in `repo`, which must succeed.

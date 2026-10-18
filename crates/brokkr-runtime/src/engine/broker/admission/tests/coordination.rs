@@ -330,18 +330,65 @@ fn historical_artifacts_are_verified_against_their_names() {
 /// never blocking the admission on an open that waits for a writer.
 #[test]
 fn a_fifo_artifact_refuses_without_blocking() {
-    use rustix::fs::{mknodat, FileType, Mode, CWD};
     let host = Host::new();
     let dir = host.worktree("root");
     let digests = dir.join("sha256");
     std::fs::create_dir_all(&digests).unwrap();
     let fifo = digests.join(canonical::sha256_bytes(b"x"));
-    mknodat(CWD, &fifo, FileType::Fifo, Mode::RUSR | Mode::WUSR, 0).unwrap();
+    made_fifo(&fifo);
     let mut budget = Budget::new(soon());
     assert_eq!(
         historical::verified(&dir, &mut budget),
         Err(Unadmitted::Evidence(Conflict::Corrupt(fifo)))
     );
+}
+
+/// A FIFO made at `at` by the POSIX `mkfifo` utility, on every platform
+/// this suite runs on: rustix offers `mknodat` on Linux only.
+fn made_fifo(at: &Path) {
+    let made = Command::new("mkfifo").arg(at).status();
+    assert!(
+        made.is_ok_and(|made| made.success()),
+        "mkfifo {}",
+        at.display()
+    );
+}
+
+/// A historical root whose digests cannot be looked at, as where the root
+/// is no directory, refuses with CR2's cause.
+#[test]
+fn a_historical_root_that_is_no_directory_refuses() {
+    let host = Host::new();
+    let root = host.dir.path().join("root");
+    std::fs::write(&root, b"x").unwrap();
+    assert_eq!(
+        historical::verified(&root, &mut Budget::new(soon())),
+        Err(Unadmitted::Evidence(Conflict::Corrupt(root.join("sha256"))))
+    );
+}
+
+/// A historical record staged beside a worktree's records and never
+/// renamed into place, as a seal that died before its commit leaves one,
+/// is no unknown entry: a later admission's inventory passes over it, as
+/// it refuses any other file there.
+#[test]
+fn a_staged_historical_record_is_passed_over_by_the_inventory() {
+    let host = Host::new();
+    let (kept, other) = (host.worktree("kept"), host.worktree("other"));
+    let _held = host.admit(&claim(&kept, ["run-a", "a1"], Protects::Nothing, &[]));
+    let repo = canonical::sha256_bytes(kept.as_os_str().as_bytes());
+    let repo = host.root().join(repo);
+    let staged = format!("{}{STAGED}", historical::name(&artifacts(&kept)));
+    std::fs::write(repo.join(staged), b"{").unwrap();
+    let later = |attempt: &str| claim(&other, ["run-b", attempt], Protects::Nothing, &[]);
+    std::fs::write(repo.join("unknown"), b"{").unwrap();
+    let refused = host.admit(&later("b1"));
+    assert!(
+        matches!(refused, Err(Unadmitted::Identity(_))),
+        "{refused:?}"
+    );
+    std::fs::remove_file(repo.join("unknown")).unwrap();
+    judged(host.admit(&later("b2")), None);
 }
 
 /// M2: a historical artifact is read and hashed a chunk at a time, the
@@ -413,13 +460,12 @@ fn an_artifact_past_the_artifact_bound_is_refused_though_its_name_digests_it() {
 /// prove nothing at once, and the attempt keeps its reservation.
 #[test]
 fn a_journal_that_is_no_regular_file_proves_nothing_at_once() {
-    use rustix::fs::{mknodat, FileType, Mode, CWD};
     let host = Host::new();
     let (_dir, mut engine) = engine(single_body(Vec::new()));
     let run = engine.run_id.clone();
     settled_a1(&mut engine, &run);
     let fifo = host.dir.path().join("fifo.db");
-    mknodat(CWD, &fifo, FileType::Fifo, Mode::RUSR | Mode::WUSR, 0).unwrap();
+    made_fifo(&fifo);
     let link = host.dir.path().join("link.db");
     std::os::unix::fs::symlink(engine.store.path(), &link).unwrap();
     for (name, journal) in [("link", link), ("fifo", fifo)] {
@@ -612,8 +658,9 @@ fn an_uncertain_survivor_keeps_its_reservation_and_refuses() {
 /// The mount table's judgement (H4): a root is shown once where no other
 /// mount of its device shows a part holding it or inside it; a bind of
 /// its parent elsewhere, a bind of a part inside it, a mount of its device
-/// whose root is no path, a mount the table does not name, and a table
-/// that does not parse each prove nothing.
+/// whose root is no path, its own mount's root no path, a root outside its
+/// own mount's point, a mount the table does not name, and a table that
+/// does not parse each prove nothing.
 #[cfg(target_os = "linux")]
 #[test]
 fn the_mount_table_shows_a_root_once_or_proves_nothing() {
@@ -654,6 +701,16 @@ fn the_mount_table_shows_a_root_once_or_proves_nothing() {
         once(table, 7, path("/var/run/x")),
         elsewhere,
         "a mount of its device with no path"
+    );
+    assert_eq!(
+        once(table, 6, path("/run/netns/x/y")),
+        elsewhere,
+        "its own mount's root no path"
+    );
+    assert_eq!(
+        once(table, 3, path("/var/x")),
+        elsewhere,
+        "a root outside its own mount's point"
     );
     assert_eq!(
         once(table, 9, path("/tmp/x")),

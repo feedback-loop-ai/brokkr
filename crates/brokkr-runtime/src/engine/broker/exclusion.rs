@@ -136,16 +136,16 @@ fn participated(
     for participant in &participants {
         for writer in &participant.writers {
             budget.check()?;
-            judged(participant, writer, roots)?;
-            replaceable(participant, writer, &writable)?;
+            let sources = judged(participant, writer, roots)?;
+            replaceable(participant, writer, sources, &writable)?;
             boxed |= writer.reach != Reach::Unbounded;
         }
     }
     Ok(boxed)
 }
 
-/// Whether every source `writer`'s box binds apart, of any mode, as
-/// authored, is anchored outside every participant's writable reach, its
+/// Whether every source `sources` of `writer`'s box binds apart, of any
+/// mode, as authored, is anchored outside every participant's writable reach, its
 /// own included, so no managed writer can replace it, or any directory or
 /// symlink on its way, before the box is rebuilt from the authored sources
 /// (R1). A source is replaceable where the directory holding it, or
@@ -155,11 +155,9 @@ fn participated(
 fn replaceable(
     participant: &Participant<'_>,
     writer: &Writer,
+    sources: &[PathBuf],
     writable: &[Guarded],
 ) -> Result<(), Conflict> {
-    let Reach::Boxed { sources, .. } = &writer.reach else {
-        return Ok(());
-    };
     let held = |at: &Path| {
         let parent = at
             .parent()
@@ -254,13 +252,17 @@ fn participants<'a>(comparison: &Comparison<'a>) -> Vec<Participant<'a>> {
 }
 
 /// Whether `writer` of `participant` can be kept from every root of
-/// `roots` but its own run's artifact root, which its box overlays.
-fn judged(
+/// `roots` but its own run's artifact root, which its box overlays: the
+/// sources its box binds apart where it can, for [`replaceable`].
+fn judged<'w>(
     participant: &Participant<'_>,
-    writer: &Writer,
+    writer: &'w Writer,
     roots: &[Guarded],
-) -> Result<(), Conflict> {
-    let Reach::Boxed { writable, .. } = &writer.reach else {
+) -> Result<&'w [PathBuf], Conflict> {
+    let Reach::Boxed {
+        writable, sources, ..
+    } = &writer.reach
+    else {
         return Err(Conflict::Unboxed {
             site: writer.site.clone(),
             run: participant.run.to_string(),
@@ -278,7 +280,7 @@ fn judged(
             });
         }
     }
-    Ok(())
+    Ok(sources)
 }
 
 /// Whether any writer of `writers` could write `path`: an unbounded writer

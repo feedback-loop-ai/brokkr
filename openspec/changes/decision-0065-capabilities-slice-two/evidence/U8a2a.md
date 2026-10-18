@@ -766,3 +766,34 @@ R2 hashing outside the shared deadline, R3 the link-failure proof) as debt
 carried into U8a2c, approved the two-line API rise above, and had the unit
 land by hand after the controller's host check. The run was stopped on that
 ruling. design.md records it in U8a2a's and U8a2c's sections.
+
+### The controller's fixes after CI on #745
+
+CI's first run on #745 (39137185272) found three things neither the seats
+nor the controller's host check could see. All three were fixed by hand on
+the same pull request.
+
+- **macOS.** Two tests made their FIFO with rustix's `mknodat`, which
+  rustix offers on Linux only. They now make it with the POSIX `mkfifo`
+  utility (`made_fifo`). `every_directory_admission_makes_is_synced_in_its_parent`
+  compared rustix's `st_dev`, an i32 on macOS, with std's u64. Its witness
+  now reads std's metadata.
+- **Exact coverage** (8 lines, 6 branches and 3 functions, all in this
+  unit's broker modules).
+  - `exclusion::judged` now hands a boxed writer's sources to
+    `replaceable`. `replaceable` no longer matches again a reach that
+    `judged` has already refused as unbounded, so the dead arm is gone.
+  - The rest is covered by new tests:
+    - `a_box_held_with_no_sealed_reach_is_redirected_by_its_worktree`;
+    - `a_claims_paths_resolve_as_far_as_they_stand`;
+    - `two_handles_are_one_root_only_where_opened_at_one_path`;
+    - `an_unresolved_end_is_sealed_once_and_changes_no_attempt_not_standing`;
+    - `coord::a_historical_root_that_is_no_directory_refuses`;
+    - `coord::a_staged_historical_record_is_passed_over_by_the_inventory`;
+    - two more cases in `coord::the_mount_table_shows_a_root_once_or_proves_nothing`:
+      its own mount's root no path, and a root outside its own mount's point.
+  - A local `cargo +nightly-2026-09-05 llvm-cov --branch` run of the
+    broker tests hits every line, branch and function the gate listed.
+- **Binary size.** The release binary measured 30,256,664 bytes, past the
+  30 MB ceiling (main stood at 29,953,392). The operator raised the
+  ceiling to 32 MB on 2026-10-18, in `quality/binary-size.json`.
