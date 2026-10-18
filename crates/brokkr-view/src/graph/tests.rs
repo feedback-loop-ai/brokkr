@@ -5,6 +5,7 @@
 
 use super::figures::p90;
 use super::*;
+use crate::analytics::tests::{cells, Builds};
 use crate::fleet::tests::ruled;
 use crate::tests::{ev, state};
 use crate::{AnalyticsRun, ABSENT};
@@ -55,6 +56,15 @@ struct Journal {
     events: Vec<EventEnvelope>,
 }
 
+impl Builds for Journal {
+    fn then(mut self, event_type: EventType, payload: serde_json::Value, at: &str) -> Journal {
+        let mut event = ev(self.events.len() as u64 + 1, event_type, payload, at);
+        event.run_id = self.run_id.to_string();
+        self.events.push(event);
+        self
+    }
+}
+
 impl Journal {
     /// A run of `recipe` in `realm` started at `at`, pinning `pins`.
     fn started(run_id: &'static str, recipe: &str, realm: &str, at: &str) -> Journal {
@@ -78,17 +88,6 @@ impl Journal {
             manifest[key] = value.clone();
         }
         self
-    }
-
-    fn then(mut self, event_type: EventType, payload: serde_json::Value, at: &str) -> Journal {
-        let mut event = ev(self.events.len() as u64 + 1, event_type, payload, at);
-        event.run_id = self.run_id.to_string();
-        self.events.push(event);
-        self
-    }
-
-    fn entered(self, phase: &str, at: &str) -> Journal {
-        self.then(EventType::PhaseEntered, json!({"phase": phase}), at)
     }
 
     fn ruled(self, rule: &str, from: &str, next: &str, at: &str) -> Journal {
@@ -824,16 +823,6 @@ fn a_clock_that_is_no_time_is_refused() {
         refused.to_string(),
         "the clock read 'noon', which is not an RFC 3339 time"
     );
-}
-
-/// A token figure as its four cells read: total, input, output, cache hit.
-fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
-    [
-        &tokens.total.text,
-        &tokens.input.text,
-        &tokens.output.text,
-        &tokens.cache_hit.text,
-    ]
 }
 
 /// One run of the fixture's feature that fired a rule `at`.

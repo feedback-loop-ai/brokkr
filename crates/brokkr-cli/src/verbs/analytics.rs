@@ -53,13 +53,43 @@ pub(crate) fn range(word: &str) -> Result<Range, RangeRefused> {
     word.parse().map_err(RangeRefused)
 }
 
+/// The cross-run readouts, flattened into the top-level verbs so the
+/// command line reads as it always has, and dispatched as one group.
+#[derive(clap::Subcommand)]
+pub(crate) enum CrossRunCmd {
+    /// What the runs did across every hearth, for a range and an optional
+    /// realm: shipped, start to end, waiting on you, rework, cost and
+    /// served models. `--json` emits the view model.
+    Analytics(AnalyticsArgs),
+    /// One recipe's state machine and its traffic over a range. `--json` emits the view model.
+    Graph(super::graph::GraphArgs),
+}
+
+/// Each cross-run readout to its verb.
+pub(crate) fn cross_run(workspace: &Path, command: CrossRunCmd) -> Result<ExitCode> {
+    match command {
+        CrossRunCmd::Analytics(args) => analytics(workspace, args),
+        CrossRunCmd::Graph(args) => super::graph::graph(workspace, args),
+    }
+}
+
 /// `brokkr analytics`: the readout for the range ending now.
 pub(crate) fn analytics(workspace: &Path, args: AnalyticsArgs) -> Result<ExitCode> {
     let hearths = hearths_of(workspace, args.realms, args.db)?;
     let view = derive(&hearths, args.range, args.realm.as_deref(), &now_rfc3339())?;
-    match args.json {
-        true => println!("{}", serde_json::to_string_pretty(&view)?),
-        false => print!("{}", paint(&view)),
+    printed(&view, args.json, paint)
+}
+
+/// A cross-run readout's view printed as `--json` asks: verbatim, or as
+/// the verb paints it. `analytics` and `graph` alike.
+pub(crate) fn printed<T: serde::Serialize>(
+    view: &T,
+    json: bool,
+    paint: impl FnOnce(&T) -> String,
+) -> Result<ExitCode> {
+    match json {
+        true => println!("{}", serde_json::to_string_pretty(view)?),
+        false => print!("{}", paint(view)),
     }
     Ok(Exit::Completed.into())
 }

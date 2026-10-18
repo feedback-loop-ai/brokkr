@@ -8,8 +8,8 @@ use clap::Parser;
 use serde_json::{json, Value};
 
 use super::*;
-use crate::verbs::analytics::RangeRefused;
-use crate::{Cli, Cmd};
+use crate::verbs::analytics::CrossRunCmd;
+use crate::{Cli, Cmd, Exit};
 
 /// The repository root: its `recipes/` holds `self`, which composes
 /// `panel-review` over its base.
@@ -393,19 +393,11 @@ fn the_verb_prints_the_view_as_lines_or_verbatim() {
 
 #[test]
 fn clap_takes_the_recipe_and_refuses_a_range_outside_the_three() {
-    let refused = Cli::try_parse_from(["brokkr", "graph", "--recipe", "self", "--range", "2d"])
-        .err()
-        .expect("2d is no range");
-    assert_eq!(refused.kind(), clap::error::ErrorKind::ValueValidation);
-    let source = std::error::Error::source(&refused)
-        .and_then(|source| source.downcast_ref::<RangeRefused>())
-        .map(|refused| refused.0.to_string());
-    assert_eq!(
-        source.as_deref(),
-        Some("unknown range '2d': one of 24h, 7d or 30d")
-    );
+    // The range is analytics' own parser, refusal and all (its tests).
+    let refused = Cli::try_parse_from(["brokkr", "graph", "--recipe", "self", "--range", "2d"]);
+    assert!(refused.is_err(), "2d is no range");
     let unnamed = Cli::try_parse_from(["brokkr", "graph"]).unwrap();
-    let Cmd::Graph(args) = unnamed.command else {
+    let Cmd::CrossRun(CrossRunCmd::Graph(args)) = unnamed.command else {
         panic!("brokkr graph is the graph verb");
     };
     assert_eq!(args.recipe, None, "Brokkr picks the recipe");

@@ -19,6 +19,24 @@ struct Journal {
     events: Vec<EventEnvelope>,
 }
 
+/// A journal built event by event: each fixture appends with its own
+/// `then`, and enters a phase the one way. The graph's fixture shares it.
+pub(crate) trait Builds: Sized {
+    fn then(self, event_type: EventType, payload: Value, at: &str) -> Self;
+
+    fn entered(self, phase: &str, at: &str) -> Self {
+        self.then(EventType::PhaseEntered, json!({"phase": phase}), at)
+    }
+}
+
+impl Builds for Journal {
+    fn then(mut self, event_type: EventType, payload: Value, at: &str) -> Journal {
+        let seq = self.events.len() as u64 + 1;
+        self.events.push(ev(seq, event_type, payload, at));
+        self
+    }
+}
+
 impl Journal {
     /// A run started at `at`, pinned to `realm` when one is named.
     fn started(realm: Option<&str>, at: &str) -> Journal {
@@ -32,16 +50,6 @@ impl Journal {
             json!({"feature": "f", "manifest": manifest}),
             at,
         )
-    }
-
-    fn then(mut self, event_type: EventType, payload: Value, at: &str) -> Journal {
-        let seq = self.events.len() as u64 + 1;
-        self.events.push(ev(seq, event_type, payload, at));
-        self
-    }
-
-    fn entered(self, phase: &str, at: &str) -> Journal {
-        self.then(EventType::PhaseEntered, json!({"phase": phase}), at)
     }
 
     fn ruled(self, from: &str, next: Option<&str>, at: &str) -> Journal {
@@ -910,7 +918,7 @@ fn a_seat_started_before_the_range_counts_what_it_metered_inside_it() {
 }
 
 /// A token figure as its four cells read: total, input, output, cache hit.
-fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
+pub(crate) fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
     [
         &tokens.total.text,
         &tokens.input.text,

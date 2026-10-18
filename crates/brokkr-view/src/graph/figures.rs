@@ -12,7 +12,7 @@ use super::{
 use crate::analytics::{cost_figure, middle, span, stamp, total, Ending, RuleCount, Window};
 use crate::clarify::{pins_of, Pins};
 use crate::fleet::STOP_PHASE;
-use crate::{add_token, finish_usage, js, RuleSeverity, TokenUsage};
+use crate::{js, RuleSeverity, TokenUsage};
 
 /// The pinned file the table is written in, and the prefix a composed
 /// recipe pins each base layer under — `brokkr_runtime`'s
@@ -344,13 +344,7 @@ pub(super) fn p90(sorted: &[i64]) -> Option<i64> {
 /// apart as the run view's seats are: the one place the cache hit is
 /// worked out.
 fn tokens(usages: impl Iterator<Item = TokenUsage>) -> crate::TokenCells {
-    let mut sum = TokenUsage::default();
-    for usage in usages {
-        add_token(&mut sum.input_tokens, usage.input_tokens);
-        add_token(&mut sum.output_tokens, usage.output_tokens);
-        add_token(&mut sum.cache_read_tokens, usage.cache_read_tokens);
-    }
-    crate::tokens::usage_cells(finish_usage(sum).as_ref(), "").1
+    crate::tokens::usage_cells(crate::meter::sum_usage(usages).as_ref(), "").1
 }
 
 /// The seats the latest run pinned for `phase`: those its manifest's

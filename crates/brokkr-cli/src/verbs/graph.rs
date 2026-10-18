@@ -19,11 +19,11 @@ use brokkr_runtime::Bundle;
 use brokkr_view::{GraphQuery, GraphTable, GraphView, Query, Range, Table};
 use serde::Deserialize;
 
-use super::analytics::{range, read_hearths};
+use super::analytics::{printed, range, read_hearths};
 use crate::folder::Layout;
 use crate::recipes::listed;
 use crate::recipes::personal::ShelfPath;
-use crate::{fleet_of, now_rfc3339, Exit, Invocation};
+use crate::{fleet_of, now_rfc3339, Invocation};
 
 #[derive(clap::Args)]
 #[group(skip)]
@@ -278,11 +278,7 @@ pub(crate) fn graph(workspace: &Path, args: GraphArgs) -> Result<ExitCode> {
         now: &now,
     };
     let view = derive(&hearths, bundle.as_ref(), &shelf, &asked)?;
-    match args.json {
-        true => println!("{}", serde_json::to_string_pretty(&view)?),
-        false => print!("{}", paint(&view)),
-    }
-    Ok(Exit::Completed.into())
+    printed(&view, args.json, paint)
 }
 
 /// One line per state and per rule, then the rest the view states,
