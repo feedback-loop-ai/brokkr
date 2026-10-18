@@ -1799,16 +1799,28 @@ fn an_answer_that_with_the_callers_own_id_passes_mb3s_bound_ends_the_session() {
         assert_eq!(harness.next(), Some(limit(list_over)));
         assert_eq!(harness.next(), None);
     };
-    let ran = conversed(answering_with(tools.clone(), body.clone()), conversation);
+    // Four frames at the bound pass through the masker and the canonical
+    // writer. Under coverage instrumentation that outlasts `conversed`'s ten
+    // seconds even on a hosted runner, and the session then ends at its
+    // deadline before the refusal is written. The bound is what this proves,
+    // not the time, so each session here is given a minute.
+    let patient = || within(Duration::from_secs(60));
+    let answering = answering_with(tools.clone(), body.clone());
+    let ran = session(answering, None, patient(), conversation);
     let succeeded = vec![("lookup", Some(Outcome::Succeeded))];
     let ended = Err(Ended::Failed(Fatal::Failed(Failure::Response)));
     assert_eq!(ran.ended, ended);
     assert_eq!(ran.proved, failed(succeeded, Failure::Response));
-    let ran = conversed(answering_with(tools, body), move |harness| {
-        harness.send(&lookup(call_over.clone()));
-        assert_eq!(harness.next(), Some(limit(call_over)));
-        assert_eq!(harness.next(), None);
-    });
+    let ran = session(
+        answering_with(tools, body),
+        None,
+        patient(),
+        move |harness| {
+            harness.send(&lookup(call_over.clone()));
+            assert_eq!(harness.next(), Some(limit(call_over)));
+            assert_eq!(harness.next(), None);
+        },
+    );
     lookup_failed("a call's answer", ran, Failure::Response);
 }
 
