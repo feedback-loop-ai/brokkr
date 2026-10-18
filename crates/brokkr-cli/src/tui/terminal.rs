@@ -146,12 +146,7 @@ fn arrive(
     // from that arm's fresh read (see `classify_refresh`).
     match classify_refresh(displayed, fresh.transcript.as_ref()) {
         Refresh::Absent => {}
-        Refresh::Invalidated => {
-            tui.turn = None;
-            tui.reading = None;
-            tui.reading_transcript = false;
-            tui.read_offset = 0;
-        }
+        Refresh::Invalidated => unread(tui),
         // A notice-only refresh leaves the turns alone but still
         // changes what a door must say: recompose an open
         // transcript door from the fresh shared read so the pane
@@ -170,6 +165,45 @@ fn arrive(
     // nothing to say clears the last sentence.
     tui.status = fresh.note.clone();
     fresh
+}
+
+/// The displayed turns are gone: the cursor over them and an open
+/// overlay go with them, before anything else is shown.
+fn unread(tui: &mut Tui) {
+    tui.turn = None;
+    tui.reading = None;
+    tui.reading_transcript = false;
+    tui.read_offset = 0;
+}
+
+/// What a displayed frame was read for: the hearth, the run and the
+/// participant the shell asked about when it arrived (#744).
+#[derive(Clone, PartialEq, Eq)]
+struct ReadFor {
+    tab: usize,
+    run: Option<String>,
+    key: Option<String>,
+}
+
+/// The displayed frame held to what the shell asks about now, while the
+/// read for it is still out: a frame read for another hearth is the
+/// empty one the first read is drawn over, and one read for another run
+/// or participant keeps none of that run's view or that participant's
+/// prose, as the first load of what is asked has none. What is left then
+/// stands for what is asked.
+fn held_to(tui: &mut Tui, views: &mut Views, shown: &mut ReadFor, asked: ReadFor) {
+    if *shown == asked {
+        return;
+    }
+    if shown.tab != asked.tab {
+        *views = Views::empty();
+    }
+    if shown.run != asked.run {
+        views.run = None;
+    }
+    views.transcript = None;
+    unread(tui);
+    *shown = asked;
 }
 
 /// How a session of the console closed (#508).
@@ -294,14 +328,25 @@ where
     B::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut views = Views::empty();
-    // The hearth `views` was read from: a frame is never drawn under the
-    // tab of another (#744).
-    let mut shown = tui.tab;
+    // What `views` was read for: a frame is never drawn under the tab,
+    // the run or the participant of another (#744). The empty frame holds
+    // nothing of anything, so it stands for what is first asked, and no
+    // participant is asked about over a frame that lists none.
+    let mut shown = ReadFor {
+        tab: tui.tab,
+        run: asked_run(tui, &views),
+        key: None,
+    };
     let mut failures = 0usize;
     for _ in 0..max_iterations {
         let subject = subject_of(tui, &views);
         let vanishing_key = subject.as_ref().map(|subject| subject.key.clone());
         let asked = asked_run(tui, &views);
+        let asking = ReadFor {
+            tab: tui.tab,
+            run: asked.clone(),
+            key: vanishing_key.clone(),
+        };
         let ask = Ask {
             run: asked.as_deref(),
             subject,
@@ -316,15 +361,12 @@ where
         if let Polled::Answered(answer) = source(ask).into() {
             let key = vanishing_key.as_deref();
             if taken(tui, &mut views, *answer, key, &mut failures)? {
-                shown = tui.tab;
+                shown = asking.clone();
             }
         }
-        // The hearth left behind: until the one entered answers, the
-        // frame is the empty one the first read is drawn over.
-        if shown != tui.tab {
-            views = Views::empty();
-            shown = tui.tab;
-        }
+        // What the shell has left behind: until what it asks about now
+        // answers, the frame draws none of it.
+        held_to(tui, &mut views, &mut shown, asking);
         settle(tui, &views);
         // Ruled over the frame just read, so the frame that first shows
         // the run settled is drawn, and keyed, as ended. The next frame

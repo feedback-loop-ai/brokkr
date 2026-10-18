@@ -6,6 +6,7 @@ use brokkr_core::EventType;
 use serde_json::json;
 
 use super::*;
+use crate::fleet::kept_tests::{without_its_first_event, FIRST_EVENT_GONE};
 use crate::tests::running_store;
 
 /// The checkpoints the selected run carries beside its opening events.
@@ -106,4 +107,24 @@ fn the_fleet_cadence_reads_nothing_of_a_journal_that_has_not_moved() {
         frame(&db, &mut kept, "selected", true),
         (selected + 1, moved)
     );
+}
+
+/// The open run is read again with the fleet when the journal beneath
+/// the console is replaced by one that keeps its head and lost its first
+/// event: the fleet's cadence draws no run, as the whole read loads none,
+/// where a `moved` that asks only the head draws the run kept from the
+/// journal that was replaced.
+#[test]
+fn the_open_run_is_read_again_from_a_journal_replaced_beneath_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    checkpointing(&db, "selected");
+    let mut kept = Kept::default();
+    let (_, drawn) = frame(&db, &mut kept, "selected", true);
+    assert_ne!(drawn, "null");
+
+    std::fs::rename(without_its_first_event(&db, "selected"), &db).unwrap();
+    assert_eq!(frame(&db, &mut kept, "selected", false), (0, "null".into()));
+    let rows = brokkr_view::run_rows(&kept.fleet.entries());
+    assert_eq!(rows.runs[0].detail.as_deref(), Some(FIRST_EVENT_GONE));
 }

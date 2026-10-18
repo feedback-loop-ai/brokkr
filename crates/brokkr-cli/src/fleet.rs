@@ -18,7 +18,7 @@ use brokkr_store::Store;
 
 mod kept;
 #[cfg(test)]
-mod kept_tests;
+pub(crate) mod kept_tests;
 
 pub(crate) use kept::{read_kept, KeptFleet};
 

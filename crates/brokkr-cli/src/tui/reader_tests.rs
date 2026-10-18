@@ -298,6 +298,82 @@ fn a_hearth_entered_draws_none_of_the_hearth_left_while_its_read_is_out() {
     assert!(!drawn.contains("run-7"), "none of the first: {drawn}");
 }
 
+/// The frame the shell draws once `keys` are pressed over seat `eff-i`
+/// of `run-7`, entered from its seats pane and its prose drawn, with
+/// every read after that seat's own still out; and where the keys left
+/// the shell. A source still reading is a source that has not answered,
+/// so the slow source is one that stops answering.
+fn drawn_while_out(keys: &[Key]) -> (String, Tui) {
+    let mut out = false;
+    let mut slow = |ask: Ask| -> Polled {
+        if out {
+            return Polled::Pending;
+        }
+        let key = ask.subject.map(|subject| subject.key);
+        out = key.as_deref() == Some("eff-i");
+        let transcript = key.map(|_| super::tests::read_of(super::tests::turns_of(2), false));
+        Ok(Some(Views {
+            transcript,
+            ..views()
+        }))
+        .into()
+    };
+    let mut tui = super::tests::at_seats("eff-i");
+    script(&[&[Key::Enter, Key::Enter][..], keys].concat());
+    let mut terminal = Terminal::new(TestBackend::new(160, 48)).unwrap();
+    let iterations = keys.len() + 3;
+    drive(&mut terminal, &test_ops(), &mut slow, &mut tui, iterations).unwrap();
+    assert!(out, "the seat's own read answered");
+    assert!(SCRIPT.lock().unwrap().is_empty(), "every key was read");
+    (lines_of(terminal.backend().buffer()).join("\n"), tui)
+}
+
+/// While a read is out, the frame drawn is the one the selection was
+/// read for or none of it: seat `eff-d` entered draws none of `eff-i`'s
+/// prose, and `run-old` entered none of `run-7`'s view — its trail's
+/// rows, which no fleet row names — until their own reads answer. Without holding the frame to what it was read for, the seat
+/// is drawn over the other's prose and the run under the other's view.
+#[test]
+fn a_selection_entered_draws_none_of_the_one_left_while_its_read_is_out() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let mut reading = super::tests::at_seats("eff-i");
+    for key in [Key::Enter, Key::Enter] {
+        apply(&mut reading, &views(), key);
+    }
+    let prose = Views {
+        transcript: Some(super::tests::read_of(super::tests::turns_of(2), false)),
+        ..views()
+    };
+    let shown = super::tests::frame_of(&reading, &prose, 160, 48);
+    assert!(shown.contains("prose of turn"), "what eff-i draws: {shown}");
+    let shown = super::tests::frame_of(&super::tests::at_run(), &views(), 160, 48);
+    assert!(shown.contains("phase/entered"), "what run-7 draws: {shown}");
+
+    // Up to the run, the seat scope cleared, down to the next seat, and in.
+    let into = [Key::Escape, Key::Escape, Key::Down, Key::Enter, Key::Enter];
+    let (drawn, tui) = drawn_while_out(&into);
+    assert_eq!(
+        (tui.level, tui.seat.as_deref()),
+        (Level::Participant, Some("eff-d"))
+    );
+    assert!(
+        !drawn.contains("prose of turn"),
+        "no prose of eff-i: {drawn}"
+    );
+
+    // Up to the fleet, down to the next run, in, and onto its seats.
+    let left = [Key::Escape, Key::Escape, Key::Escape, Key::Down, Key::Enter];
+    let (drawn, tui) = drawn_while_out(&[&left[..], &[Key::Tab, Key::Enter]].concat());
+    assert_eq!(
+        (tui.level, tui.run.as_deref()),
+        (Level::Run, Some("run-old"))
+    );
+    assert!(
+        !drawn.contains("phase/entered"),
+        "no view of run-7: {drawn}"
+    );
+}
+
 /// The console closes the moment its shell does, with a read still out:
 /// a run view's Ctrl+C is raised once the console has returned, and a
 /// peer holding the write lock must not hold the operator's stop for the

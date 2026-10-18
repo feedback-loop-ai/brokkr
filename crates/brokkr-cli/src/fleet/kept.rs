@@ -16,16 +16,21 @@
 //!
 //! **Fail closed to a whole read.** A run the suffix read cannot carry —
 //! a gap, a head the journal no longer holds, a journal replaced beneath
-//! the reader — is read whole again, exactly as [`super::read_hearth`]
-//! reads it, and never shown as it was. A quarantined run has no fold to
-//! carry, so it is read whole again whenever its journal's head moves,
-//! and at every refresh when what refused it was timing rather than the
-//! journal's bytes ([`lasting`]).
+//! the reader, even one that holds every kept head — is read whole again,
+//! exactly as [`super::read_hearth`] reads it, and never shown as it was.
+//! A quarantined run has no fold to carry, so it is read whole again
+//! whenever its journal's head moves, and at every refresh when what
+//! refused it was timing rather than the journal's bytes ([`lasting`]).
 //! What a kept run stands on is the store's own premise for the suffix
 //! read: events are append-only by trigger, and the head is compared on
-//! sequence and hash both.
+//! sequence and hash both. The suffix read re-reads no row below the
+//! head, so the premise holds only of the file the runs were read from:
+//! the kept fleet is bound to that file ([`Journal`]), and a journal at
+//! the same path that is not it drops every kept run, whatever heads its
+//! runs still hold.
 
 use std::collections::HashMap;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use brokkr_core::fold::{fold_onto, RunState};
@@ -42,6 +47,9 @@ type Listed = (String, String, String);
 /// journal's listing order.
 #[derive(Default)]
 pub(crate) struct KeptFleet {
+    /// The journal file the runs were read from, as it stood when the
+    /// last refresh began; `None` before the first.
+    journal: Option<Journal>,
     runs: Vec<(Listed, KeptRun)>,
 }
 
@@ -51,8 +59,15 @@ impl KeptFleet {
     /// landed since the last one and not with the journal. A refresh the
     /// store refuses is this refresh's refusal: a listing refused leaves
     /// the runs kept as they were, and a whole read refused leaves nothing
-    /// kept, so the next refresh reads every run whole.
+    /// kept, so the next refresh reads every run whole. A journal that is
+    /// not the file the runs were kept from ([`Self::replaced`]) has every
+    /// run read whole now.
     pub(crate) fn refresh(&mut self, store: &Store) -> Result<usize, StoreError> {
+        let journal = Journal::at(store.path());
+        if !self.stands_on(journal) {
+            self.runs.clear();
+        }
+        self.journal = journal;
         let listed = store.list_runs()?;
         let mut kept: HashMap<String, KeptRun> = self
             .runs
@@ -82,6 +97,21 @@ impl KeptFleet {
             self.runs.push((listing, run));
         }
         Ok(read)
+    }
+
+    /// Whether runs are kept from a journal file that `store`'s is not:
+    /// another file, by device and inode, or one shorter than it was, or
+    /// one that cannot be stated. A fleet that has kept nothing yet was
+    /// read from no file, and none replaced it.
+    pub(crate) fn replaced(&self, store: &Store) -> bool {
+        self.journal.is_some() && !self.stands_on(Journal::at(store.path()))
+    }
+
+    /// Whether what the kept runs carry stands on the file `now`.
+    fn stands_on(&self, now: Option<Journal>) -> bool {
+        self.journal
+            .zip(now)
+            .is_some_and(|(kept, now)| kept.holds(now))
     }
 
     /// The rows every fleet surface builds this hearth's listing from.
@@ -118,6 +148,39 @@ pub(crate) fn read_kept(journal: &Path) -> (KeptFleet, Option<String>) {
         .and_then(|store| fleet.refresh(&store))
         .err();
     (fleet, refused.map(|error| error.to_string()))
+}
+
+/// The journal file a kept fleet was read from: the file at the
+/// journal's path by device and inode, and its length then. A journal
+/// moved, copied or created into place is another inode; one copied over
+/// the old file in place keeps the inode, and is told by a length shorter
+/// than the one read, because a journal the store keeps only grows (no
+/// writer of it vacuums). What it cannot tell is a rewrite in place that
+/// keeps or grows the length, and the store records no stamp of its own
+/// that would.
+#[derive(Clone, Copy)]
+struct Journal {
+    device: u64,
+    inode: u64,
+    length: u64,
+}
+
+impl Journal {
+    /// The file at `path` now, or `None` when it cannot be stated, which
+    /// no kept fleet stands on.
+    fn at(path: &Path) -> Option<Journal> {
+        let file = std::fs::metadata(path).ok()?;
+        Some(Journal {
+            device: file.dev(),
+            inode: file.ino(),
+            length: file.len(),
+        })
+    }
+
+    /// Whether `now` is still this file, grown or not.
+    fn holds(self, now: Journal) -> bool {
+        (self.device, self.inode) == (now.device, now.inode) && now.length >= self.length
+    }
 }
 
 /// The most connections that read whole runs at once. A whole read is

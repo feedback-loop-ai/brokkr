@@ -378,6 +378,81 @@ fn a_run_whose_head_the_journal_no_longer_holds_is_read_whole() {
     assert_eq!(kept_rows(&kept), whole_rows(&db));
 }
 
+/// What the whole read says of a run whose first event is gone.
+pub(crate) const FIRST_EVENT_GONE: &str = "chain: event 2: seq is not contiguous (expected 1)";
+
+/// `db`'s journal, its connections all closed, copied beside it with
+/// `run_id`'s first event gone and every other row as it was: the run's
+/// head, seq and hash both, is still the copy's. Where the copy is.
+pub(crate) fn without_its_first_event(db: &Path, run_id: &str) -> std::path::PathBuf {
+    let copy = db.with_extension("copy");
+    std::fs::copy(db, &copy).unwrap();
+    let journal = rusqlite::Connection::open(&copy).unwrap();
+    journal
+        .execute_batch("DROP TRIGGER events_append_only_delete")
+        .unwrap();
+    let delete = "DELETE FROM events WHERE run_id = ?1 AND seq = 1";
+    assert_eq!(journal.execute(delete, [run_id]).unwrap(), 1);
+    copy
+}
+
+/// A journal replaced beneath the reader by one that lost a run's first
+/// event and kept its head is read whole, and the run shown quarantined
+/// as the whole read shows it — moved into place, a new inode of the same
+/// length, or copied over the old file in place, the same inode grown
+/// shorter. The suffix read alone confirms the head and carries the run
+/// on with nothing read: a `refresh` that ignores the journal's identity
+/// shows it folded at seq 2, and one that ignores its length does so for
+/// the copy.
+#[test]
+fn a_journal_replaced_beneath_the_reader_is_read_whole_though_it_holds_the_kept_head() {
+    for in_place in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("forge.db");
+        running_store(&db, "r1");
+        let pad = json!({"pad": "x".repeat(1 << 16)});
+        Store::open(&db)
+            .unwrap()
+            .create_run("padding", "a manifest to drop", "test", &pad)
+            .unwrap();
+        let mut kept = KeptFleet::default();
+        assert_eq!(refreshed(&mut kept, &db), 2);
+        let head = Store::open_read_only(&db).unwrap().head_hash("r1").unwrap();
+        let before = std::fs::metadata(&db).unwrap();
+
+        let copy = without_its_first_event(&db, "r1");
+        let journal = rusqlite::Connection::open(&copy).unwrap();
+        journal
+            .execute("DELETE FROM runs WHERE run_id = 'padding'", [])
+            .unwrap();
+        if in_place {
+            journal.execute_batch("VACUUM").unwrap();
+        }
+        drop(journal);
+        match in_place {
+            true => drop(std::fs::copy(&copy, &db).unwrap()),
+            false => std::fs::rename(&copy, &db).unwrap(),
+        }
+        use std::os::unix::fs::MetadataExt;
+        let after = std::fs::metadata(&db).unwrap();
+        assert_eq!(after.ino() == before.ino(), in_place, "the same file");
+        assert_eq!(after.len() < before.len(), in_place, "grown shorter");
+        let store = Store::open_read_only(&db).unwrap();
+        assert_eq!(store.head_hash("r1").unwrap(), head, "the kept head stands");
+        drop(store);
+
+        assert_eq!(refreshed(&mut kept, &db), 0, "a whole read, refused");
+        let entries = kept.entries();
+        let words = entries[0].detail.map(|refusal| refusal.words);
+        assert_eq!(
+            (entries.len(), words),
+            (1, Some(FIRST_EVENT_GONE)),
+            "in place: {in_place}"
+        );
+        assert_eq!(kept_rows(&kept), whole_rows(&db));
+    }
+}
+
 /// A load refused by timing rather than by the journal's bytes — here
 /// SQLite's own error over a row it cannot read as text, standing in for
 /// a peer's lock — quarantines its run for that refresh only, and one

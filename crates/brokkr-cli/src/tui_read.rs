@@ -148,7 +148,8 @@ pub(crate) struct Kept {
 /// **both** seq and hash — a rewritten journal at equal seq is the
 /// tamper case `anchor` exists for, and a console should redraw rather
 /// than sit blind. The fleet is the kept read (#744): a refresh reads
-/// only what landed since the last one.
+/// only what landed since the last one, from the journal file it was kept
+/// from.
 fn read_views(
     db: &Path,
     // Whether this world has exactly one hearth. A one-hearth world
@@ -194,7 +195,10 @@ fn read_views(
     let home = crate::local_projects_home();
     let (transcript, transcript_changed) =
         resolve_transcript(&ask, seen, &secrets, home.as_deref());
-    let moved = current != kept.head;
+    // A journal that is not the file the fleet was kept from has moved,
+    // whatever head the open run still holds in it: the selected run is
+    // read whole again with the fleet.
+    let moved = current != kept.head || kept.fleet.replaced(&store);
     if !(ask.force || ask.fleet || moved || transcript_changed) {
         // Nothing has moved: the console keeps the frame it has, and
         // nothing is re-folded at four polls a second.

@@ -39,13 +39,17 @@ column, or an index, to `events`, which is a schema change.
    one after three appends 3.
 2. **What cannot be carried is read whole, never shown stale.** A gap, a
    head the journal no longer holds, or a journal swapped beneath the
-   reader is read whole. A refusal is kept at its head only when the
+   reader is read whole. Swapped is the file at the journal's path being
+   another, by device and inode, or shorter than the one read, whatever
+   heads its runs hold; a rewrite in place that keeps or grows its length
+   is not seen. A refusal is kept at its head only when the
    journal's own bytes made it (a broken chain, envelope text that is not
    JSON, a row before the chain); a refusal of timing (a peer's lock,
    SQLite's own error) is read again at the next refresh. Binding:
    `fleet::kept::lasting`, matched exhaustively over `StoreError`, and
    its kept test, which reads one of each kind made readable beneath an
-   unmoved head.
+   unmoved head; and the kept and `tui_read` tests of a journal replaced
+   by one that keeps a run's head and lost its first event.
 3. **The selected run is kept too.** While its head stands and no rebuild
    is asked, the fleet's cadence derives the open run's view from the
    journal already read, and reads none of it. Binding: the
