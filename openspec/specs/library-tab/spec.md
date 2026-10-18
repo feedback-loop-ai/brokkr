@@ -75,6 +75,11 @@ Every surface that shows a seat's or a state's tokens SHALL read them from Brokk
 - **WHEN** a seat metered 1.19M input, 48k output and 1.19M cache reads
 - **THEN** the TUI's seat pane reads `Σ 1.24M tok ↑ 1.19M ↓ 48k · 99.9% cache`, and the console shows the same arrows with 99.9% as the cache hit
 
+#### Scenario: A seat that wrote to its cache
+
+- **WHEN** a seat metered 20.21M input, all but 242 of them cache reads, and wrote 243k tokens to its cache
+- **THEN** its cache hit is 98.8%, the reads over the input and the writes together, because a written token is one the provider read uncached
+
 #### Scenario: Nothing reported
 
 - **WHEN** a state's seats reported no tokens

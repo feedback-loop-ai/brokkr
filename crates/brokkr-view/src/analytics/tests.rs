@@ -917,6 +917,23 @@ fn a_seat_started_before_the_range_counts_what_it_metered_inside_it() {
     );
 }
 
+#[test]
+fn a_recipes_cache_hit_counts_its_cache_writes_as_misses() {
+    // Each run read 800 of its 900 input from cache and wrote 100 more to
+    // it, as a Claude seat does: 800 of every 1,000 prompt tokens hit.
+    let mut journals = recipe_runs("alpha", "self", (1, 1), "claude", Some(1.0));
+    for (journal, _) in &mut journals {
+        let checkpoint = &mut journal.events[2].payload["checkpoint"];
+        checkpoint["cache_read_tokens"] = json!(800);
+        checkpoint["cache_write_tokens"] = json!(100);
+    }
+    let rows = recipes_of(&journals);
+    assert_eq!(
+        cells(&rows[0].tokens_per_run),
+        ["1k tok", "900", "100", "80.0%"]
+    );
+}
+
 /// A token figure as its four cells read: total, input, output, cache hit.
 pub(crate) fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
     [

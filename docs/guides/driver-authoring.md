@@ -524,6 +524,13 @@ that summed a subset a second time would inflate the figure the wager
 compares seats on, which is why the rule lives here rather than in each
 surface.
 
+The cache hit is the one share that reads `cache_write_tokens`: it is
+`cache_read_tokens` over `input_tokens + cache_write_tokens`. A written
+token is a prompt token the provider read uncached, which is a miss.
+Claude reports a few uncached input tokens a call and puts nearly every
+miss in its writes, so over `input_tokens` alone every Claude seat read
+about 100%. A harness that reports no writes is unchanged.
+
 The efforts are not summed at all: `effort` is one configured value per
 record, and a seat whose members ran at different levels reports all of
 them rather than reducing to one. The view carries the plan's **pin** and

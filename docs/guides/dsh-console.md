@@ -110,8 +110,9 @@ where every realm is.
   no seat yet. The pick stays as the run moves.
 - **A seat.** As the TUI's participant pane reads it: the model it claims
   and its boundary, effort pinned and applied, tokens as Σ total · ↑ in ·
-  ↓ out, the cache hit (cache reads over input, from `brokkr inspect`), cost,
-  turns and attempts, and its transcript, newest last, read again whenever
+  ↓ out, the cache hit (cache reads over input and cache writes, from
+  `brokkr inspect`), cost, turns and attempts, and its transcript, newest
+  last, read again whenever
   the run moves so a working seat's follows its tail. Beside the model the
   harness reported serving, the seat carries what its plan selected in
   `brokkr inspect`'s own provenance line, the one the TUI prints after
