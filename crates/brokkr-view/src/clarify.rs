@@ -4,9 +4,12 @@
 //! from the journal's bytes alone, parsed once into a type here; the
 //! disk is never read and a path is never guessed (decision 0071 ruling 1).
 
+use std::collections::BTreeMap;
+
 use brokkr_core::fold::{RunState, Status};
 use brokkr_core::{EventEnvelope, EventType};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::fleet::{last_rule, ruling_parked};
 
@@ -134,6 +137,42 @@ fn pin(events: &[EventEnvelope]) -> Option<Pin> {
 /// event is not a start or names none; never guessed from anything else.
 pub(crate) fn recipe(events: &[EventEnvelope]) -> Option<String> {
     manifest(events)?.bundle_name
+}
+
+/// What a manifest pins that a recipe's graph reads (#568, the Library's
+/// D2 and D4): its files' digests and the agents its seats hired. Parsed
+/// apart from [`Manifest`], so a pin this reader cannot type leaves the
+/// realm and the recipe readable, and states no pin rather than a guess.
+#[derive(Deserialize, Default)]
+pub(crate) struct Pins {
+    #[serde(default)]
+    pub(crate) files: BTreeMap<String, String>,
+    #[serde(default)]
+    pub(crate) agents: BTreeMap<String, Hired>,
+}
+
+/// One seat's agent resolution, as far as the graph names it.
+#[derive(Deserialize)]
+pub(crate) struct Hired {
+    #[serde(default)]
+    pub(crate) provider: Option<String>,
+    #[serde(default)]
+    pub(crate) model: Option<String>,
+}
+
+/// The pins of a manifest: a compiled bundle's, or a run's start's.
+pub(crate) fn pins_of(manifest: &Value) -> Pins {
+    Pins::deserialize(manifest).unwrap_or_default()
+}
+
+/// The pins `run/started` carries, none when the first event is no start.
+pub(crate) fn pins(events: &[EventEnvelope]) -> Pins {
+    let first = events
+        .first()
+        .filter(|event| event.event_type == EventType::RunStarted);
+    first
+        .and_then(|event| event.payload.get("manifest"))
+        .map_or_else(Pins::default, pins_of)
 }
 
 /// The realm the run was started in, as its world pin names it.

@@ -178,7 +178,10 @@ The console plugin in `extensions/dsh/brokkr-console/` targets DSH
 beside Chat and Trajectory, on the realm `brokkr realms` places the
 conversation's folder in, and from DSH's left panel; it follows DSH's light
 or dark theme. It paints `brokkr runs`, `inspect`, `transcript`, `realms`,
-`queue list`, `muninn list` and `analytics` from their `--json` output, and
+`queue list`, `muninn list`, `analytics` and `graph` from their `--json`
+output, the last two in a read-only Library tab that draws a recipe's state
+machine with the traffic on its rules and plots a realm's recipes on the
+Graph Pareto frontier, and
 presses `brokkr operator retry` and `stop`, `brokkr resume` (under the
 recipe the run's start recorded) and `brokkr conclude`, after re-reading
 the run's head. DSH's model reads Brokkr through four read-only tools the
@@ -196,6 +199,8 @@ parked run, hold a parked run or start a queued run; it shows those as not
 available yet, with Brokkr's reason. It does not open a named spec file,
 because Brokkr does not record one, and it does not tell a quiet run from a
 running one ([#568](https://github.com/feedback-loop-ai/brokkr/issues/568)).
+The Library draws no escapes and benches no seat: Brokkr records neither
+which check owns which kind of defect nor a seat's work order by its digest.
 
 ## Recipes that need a local route
 

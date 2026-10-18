@@ -38,5 +38,9 @@ export function configFrom(env, cwd) {
     pollMs: Number.isFinite(poll) && poll > 0 ? Math.max(poll, POLL_FLOOR_MS) : POLL_MS,
     stateDir: join(tmpdir(), `brokkr-console-${process.getuid()}`),
     resume: resumeSource(env),
+    // The console's question boxes (Ask Brokkr, Ask about this run) are
+    // hidden until the operator turns them on: the experience is to be
+    // thought through again before it is shown by default.
+    ask: env.BROKKR_CONSOLE_ASK === '1',
   }
 }

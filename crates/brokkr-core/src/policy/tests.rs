@@ -1511,3 +1511,36 @@ fn an_unmatched_pair_and_an_unreadable_input_are_two_outcomes() {
         Outcome::Unmatched
     );
 }
+
+/// A rule's conditions read as the graph labels its edge (#568): each
+/// kind in its own words, in the table's key order, and none for a rule
+/// that rules its pair unconditionally.
+#[test]
+fn a_rules_conditions_read_in_brokkrs_words() {
+    let when = json!({
+        "consecutive_failures_gte": 2,
+        "fixes_applied": false,
+        "has_security_residual": true,
+        "max_residual_severity_above": "low",
+        "strategy_in": ["chore", "feature"],
+    });
+    let machine = Machine::from_table(&with_rule("when", Some(when))).unwrap();
+    assert_eq!(
+        machine.rules[0].when_words(),
+        [
+            "consecutive_failures ≥ 2",
+            "not fixes_applied",
+            "has_security_residual",
+            "max_residual_severity above low",
+            "strategy in chore, feature",
+        ]
+    );
+    let at_most = json!({"max_residual_severity_at_most": "medium"});
+    let machine = Machine::from_table(&with_rule("when", Some(at_most))).unwrap();
+    assert_eq!(
+        machine.rules[0].when_words(),
+        ["max_residual_severity at most medium"]
+    );
+    let bare = Machine::from_table(&table(rule())).unwrap();
+    assert_eq!(bare.rules[0].when_words(), Vec::<String>::new());
+}

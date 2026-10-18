@@ -8,22 +8,23 @@ use brokkr_core::residual::ResidualPhase;
 use brokkr_core::{EventEnvelope, EventType};
 
 use super::{AnalyticsRun, QuarantinedHearth, Query};
-use crate::clarify::pinned_realm;
+use crate::attempts::{attempts, Attempts, Site};
+use crate::clarify::{pinned_realm, recipe};
 use crate::fleet::{last_rule, standing_of, STOP_PHASE};
-use crate::{field, js, reported_cost, Standing};
+use crate::{field, js, Standing};
 
 /// The phase whose visits count a run's rework.
 const IMPLEMENT_PHASE: &str = "implement";
 
 /// A half-open span of time: its first moment held, its last not.
 #[derive(Clone, Copy)]
-pub(super) struct Window {
-    pub(super) from: i64,
-    pub(super) to: i64,
+pub(crate) struct Window {
+    pub(crate) from: i64,
+    pub(crate) to: i64,
 }
 
 impl Window {
-    pub(super) fn holds(self, at: i64) -> bool {
+    pub(crate) fn holds(self, at: i64) -> bool {
         at >= self.from && at < self.to
     }
 
@@ -34,7 +35,7 @@ impl Window {
 
 /// How a finished run ended.
 #[derive(Clone, PartialEq, Eq)]
-pub(super) enum Ending {
+pub(crate) enum Ending {
     Shipped,
     ByRule(Option<String>),
     ByOperator,
@@ -55,17 +56,13 @@ pub(super) struct Park {
     pub(super) ended: i64,
 }
 
-/// One invocation site of one attempt that an agent resolution chose.
-pub(super) struct Site {
-    pub(super) at: i64,
-    pub(super) provider: String,
-    pub(super) model: Option<String>,
-    pub(super) reported: bool,
-}
-
 pub(super) struct RunFacts {
     pub(super) realm: String,
+    /// The recipe the run started under, when its start names one.
+    pub(super) recipe: Option<String>,
     readable: bool,
+    /// Still running or parked: not concluded.
+    pub(super) open: bool,
     pub(super) started: Option<i64>,
     pub(super) finished: Option<(i64, Ending)>,
     pub(super) parks: Vec<Park>,
@@ -73,6 +70,13 @@ pub(super) struct RunFacts {
     pub(super) reviews: Vec<Route>,
     pub(super) costs: Vec<(i64, f64)>,
     pub(super) sites: Vec<Site>,
+}
+
+/// The runs a range keeps: those that ended inside it, and those still
+/// open. The one reading of "in range" the per-recipe figures and the
+/// recipe's graph share.
+pub(crate) fn in_range(finished: Option<i64>, open: bool, window: Window) -> bool {
+    open || finished.is_some_and(|ended| window.holds(ended))
 }
 
 fn at(event: &EventEnvelope) -> Option<i64> {
@@ -90,9 +94,17 @@ fn ending(state: &RunState) -> Option<Ending> {
     }
 }
 
+/// Whether the run is still running or parked: it has not ended.
+pub(crate) fn is_open(state: &RunState) -> bool {
+    ending(state).is_none()
+}
+
 /// When the run finished and how: its terminal event's time, read beside
 /// the fold's standing.
-fn finished(events: &[EventEnvelope], state: Option<&RunState>) -> Option<(i64, Ending)> {
+pub(crate) fn finished(
+    events: &[EventEnvelope],
+    state: Option<&RunState>,
+) -> Option<(i64, Ending)> {
     let ending = state.and_then(ending)?;
     let terminal = events.iter().rev().find(|event| {
         matches!(
@@ -175,85 +187,13 @@ fn reviews(events: &[EventEnvelope]) -> Vec<Route> {
     routes
 }
 
-/// The sites an agent resolution chose (decision 0016), with the model
-/// each reported and whether it reported a cost, and every reported cost
-/// with its time: the checkpoint records [`reported_cost`] reads, as
-/// `brokkr costs` sums them.
-#[derive(Default)]
-struct Seats<'a> {
-    costs: Vec<(i64, f64)>,
-    sites: Vec<Site>,
-    by_site: BTreeMap<(&'a str, Option<&'a str>), usize>,
-}
-
-impl<'a> Seats<'a> {
-    fn read(events: &'a [EventEnvelope]) -> Seats<'a> {
-        let mut seats = Seats::default();
-        for event in events {
-            let (Some(time), Some(attempt)) = (at(event), field(&event.payload, "attempt_id"))
-            else {
-                continue;
-            };
-            let payload = &event.payload;
-            match event.event_type {
-                EventType::EffectStarted => seats.started(time, attempt, payload),
-                EventType::EffectCheckpointed => {
-                    seats.recorded(time, attempt, payload.get("checkpoint"), true);
-                }
-                EventType::EffectSucceeded => {
-                    seats.recorded(time, attempt, payload.get("result"), false);
-                }
-                _ => {}
-            }
-        }
-        seats
-    }
-
-    /// One attempt's provenance entries, a site each.
-    fn started(&mut self, time: i64, attempt: &'a str, payload: &'a serde_json::Value) {
-        let entries = payload.get("provenance").and_then(|list| list.as_array());
-        for entry in entries.into_iter().flatten() {
-            let Some(provider) = field(entry, "provider") else {
-                continue;
-            };
-            self.by_site
-                .insert((attempt, field(entry, "member")), self.sites.len());
-            self.sites.push(Site {
-                at: time,
-                provider: provider.to_string(),
-                model: None,
-                reported: false,
-            });
-        }
-    }
-
-    /// One record of an attempt: the model it names, and its cost when it
-    /// is a checkpoint.
-    fn recorded(
-        &mut self,
-        time: i64,
-        attempt: &'a str,
-        record: Option<&'a serde_json::Value>,
-        priced: bool,
-    ) {
-        let Some(record) = record else { return };
-        let cost = priced.then(|| reported_cost(record)).flatten();
-        self.costs.extend(cost.map(|cost| (time, cost)));
-        let key = (attempt, field(record, "member"));
-        if let Some(site) = self.by_site.get(&key).map(|slot| &mut self.sites[*slot]) {
-            if let Some(model) = field(record, "model") {
-                site.model = Some(model.to_string());
-            }
-            site.reported |= cost.is_some();
-        }
-    }
-}
-
 fn facts(run: &AnalyticsRun, label: &str, now: i64) -> RunFacts {
-    let Seats { costs, sites, .. } = Seats::read(run.events);
+    let Attempts { costs, sites } = attempts(run.events);
     RunFacts {
         realm: pinned_realm(run.events).unwrap_or_else(|| label.to_string()),
+        recipe: recipe(run.events),
         readable: run.state.is_some(),
+        open: run.state.is_some_and(is_open),
         started: run.events.first().and_then(at),
         finished: finished(run.events, run.state),
         parks: parks(run.events, now),
@@ -262,7 +202,7 @@ fn facts(run: &AnalyticsRun, label: &str, now: i64) -> RunFacts {
             .and_then(|state| state.visits.get(IMPLEMENT_PHASE).copied())
             .unwrap_or(0),
         reviews: reviews(run.events),
-        costs,
+        costs: costs.iter().map(|spend| (spend.at, spend.usd)).collect(),
         sites,
     }
 }

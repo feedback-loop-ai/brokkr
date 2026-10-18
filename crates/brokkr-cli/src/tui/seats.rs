@@ -21,7 +21,7 @@ pub(super) fn draw_seats(
         .iter()
         .filter(|part| brokkr_view::keeps_participant(lens, part))
         .collect();
-    let texts: Vec<[String; 8]> = kept.iter().map(|part| seat_texts(part)).collect();
+    let texts: Vec<[String; FITTED]> = kept.iter().map(|part| seat_texts(part)).collect();
     let mut rows: Vec<Row> = Vec::new();
     for (part, fixed) in kept.iter().zip(&texts) {
         // `activity.text` IS the model's composition of `tool` and
@@ -80,9 +80,12 @@ pub(super) fn draw_seats(
     );
 }
 
-/// The seats pane's columns, in order. The first eight are fitted to
-/// their content; the last takes what remains.
-pub(super) const SEAT_COLUMNS: [&str; 9] = [
+/// The seats pane's columns, in order. The first [`FITTED`] are fitted
+/// to their content; the last takes what remains. Tokens read as the
+/// console's seat row reads them, `Σ total ↑ in ↓ out`, with the cache
+/// hit beside them in the same cell, so an 80-column pane keeps every
+/// other column whole.
+pub(super) const SEAT_COLUMNS: [&str; FITTED + 1] = [
     "participant",
     "status",
     "attempts",
@@ -94,13 +97,16 @@ pub(super) const SEAT_COLUMNS: [&str; 9] = [
     "activity",
 ];
 
+/// The columns fitted to their content: every one but the activity.
+pub(super) const FITTED: usize = 8;
+
 /// No fitted column grows past this, so one runaway label cannot push
 /// the activity column off the pane.
 pub(super) const SEAT_COLUMN_MAX: usize = 40;
 
 /// A seat's fitted cells, in [`SEAT_COLUMNS`] order minus the activity
 /// column. Every text is the model's own; this pane places it.
-pub(super) fn seat_texts(part: &Participant) -> [String; 8] {
+pub(super) fn seat_texts(part: &Participant) -> [String; FITTED] {
     let pair = render::served_text(&part.served);
     [
         part.label.clone(),
@@ -108,7 +114,7 @@ pub(super) fn seat_texts(part: &Participant) -> [String; 8] {
         part.attempts.to_string(),
         part.turns_cell.text.clone(),
         part.cost_cell.text.clone(),
-        part.usage_cell.text.clone(),
+        part.tokens.line(),
         pair.model.as_str().to_string(),
         pair.boundary.as_str().to_string(),
     ]
@@ -122,8 +128,8 @@ pub(super) fn seat_texts(part: &Participant) -> [String; 8] {
 /// most of a wide screen of air. Fitting is a measurement of what is
 /// listed, so no cell is clipped that the pane had room to show, and
 /// the provenance line under a seat keeps the widest column it needs.
-pub(super) fn seat_widths(texts: &[[String; 8]]) -> Vec<Constraint> {
-    let mut widths: Vec<Constraint> = (0..8)
+pub(super) fn seat_widths(texts: &[[String; FITTED]]) -> Vec<Constraint> {
+    let mut widths: Vec<Constraint> = (0..FITTED)
         .map(|index| {
             let widest = texts
                 .iter()

@@ -4,8 +4,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { analyticsOf, fleetOf, ONE_HEARTH, ReadoutRefused, runViewOf } from '../lib/host/readouts.js'
-import { analyticsDoc, fleetDoc, provenance, row, runViewDoc, seat } from './support/world.js'
+import { analyticsOf, fleetOf, graphOf, ONE_HEARTH, ReadoutRefused, runViewOf } from '../lib/host/readouts.js'
+import { analyticsDoc, fleetDoc, graphDoc, provenance, recipeRow, row, runViewDoc, seat } from './support/world.js'
 
 for (const [what, parse, doc] of [
   ['brokkr runs', fleetOf, fleetDoc([['brokkr', [row()]]])],
@@ -14,14 +14,41 @@ for (const [what, parse, doc] of [
 ]) {
   test(`${what} at another view version is refused, not painted`, () => {
     assert.throws(
-      () => parse({ ...doc, view_version: 23 }),
-      new ReadoutRefused('version', `${what} is at view version 23; this console paints version 22 only`),
+      () => parse({ ...doc, view_version: 22 }),
+      new ReadoutRefused('version', `${what} is at view version 22; this console paints version 23 only`),
     )
   })
 }
 
+test('the graph is read at its own wire version, 1, and any other is refused naming the version found', () => {
+  assert.equal(graphOf(graphDoc()).recipe, 'self')
+  assert.throws(() => graphOf(graphDoc({ view_version: 2 })), new ReadoutRefused('version', 'brokkr graph is at view version 2; this console paints version 1 only'))
+  // The shared wire's number is not the graph's.
+  assert.throws(() => graphOf(graphDoc({ view_version: 23 })), new ReadoutRefused('version', 'brokkr graph is at view version 23; this console paints version 1 only'))
+})
+
+test('a graph is read whole: a park rule has no next, a terminal no seat, and a table not found says where', () => {
+  const view = graphOf(graphDoc({ table: { kind: 'not_found', text: 'this recipe’s table was not found in brokkr' } }))
+  assert.deepEqual(view.table, { kind: 'not_found', text: 'this recipe’s table was not found in brokkr' })
+  assert.deepEqual(view.rules.find((rule) => rule.id === 'REVIEW-HOLD'), { id: 'REVIEW-HOLD', from: 'review', next: null, result: 'hold', when: [], severity: null, count: 1, kind: 'forward', text: 'REVIEW-HOLD · 1', latest: [] })
+  assert.deepEqual(view.states.find((state) => state.name === 'stop').seats, [])
+  assert.deepEqual(view.states.find((state) => state.name === 'review').cost, { cost: { kind: 'reported', usd: 1.5 }, text: '$1.50', silent: ['codex'], note: 'claude only · codex report none' })
+  assert.throws(() => graphOf(graphDoc({ rules: [{ ...graphDoc().rules[0], kind: 'sideways' }] })), new ReadoutRefused('shape', 'rules[0].kind is not one of forward, self, back, terminal'))
+})
+
+test('analytics carries each recipe of each realm through, its cost as Brokkr figured it and its frontier as Brokkr read it', () => {
+  const doc = analyticsDoc({ recipes: [recipeRow(), recipeRow({ recipe: 'muninn', usd: null })] })
+  assert.deepEqual(analyticsOf(doc).recipes, [
+    { realm: 'lanetally', recipe: 'self', runs: 4, done: 3, done_rate: 75, done_text: '75%', cost_per_run: { cost: { kind: 'reported', usd: 2 }, text: '$2.00', silent: ['codex'], note: 'claude only · codex report none' }, tokens_per_run: { total: { text: '1.20M tok', absent: false, note: null }, input: { text: '1.18M', absent: false, note: null }, output: { text: '20k', absent: false, note: null }, cache_hit: { text: '95.0%', absent: false, note: null } }, on_frontier: true },
+    { realm: 'lanetally', recipe: 'muninn', runs: 4, done: 3, done_rate: 75, done_text: '75%', cost_per_run: { cost: { kind: 'not_reported' }, text: 'not reported', silent: ['dsh'], note: 'dsh reports none' }, tokens_per_run: { total: { text: '1.20M tok', absent: false, note: null }, input: { text: '1.18M', absent: false, note: null }, output: { text: '20k', absent: false, note: null }, cache_hit: { text: '95.0%', absent: false, note: null } }, on_frontier: false },
+  ])
+  const { recipes, ...before } = analyticsDoc()
+  assert.ok(recipes.length > 0)
+  assert.throws(() => analyticsOf(before), new ReadoutRefused('shape', 'recipes is not a list'))
+})
+
 test('a one-hearth listing is one hearth with no journal to name', () => {
-  const fleet = fleetOf({ view_version: 22, runs: [row()], count: 1 })
+  const fleet = fleetOf({ view_version: 23, runs: [row()], count: 1 })
   assert.deepEqual(fleet.hearths.map((hearth) => [hearth.realm, hearth.journal, hearth.runs.length]), [[ONE_HEARTH, null, 1]])
 })
 

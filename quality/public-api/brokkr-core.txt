@@ -549,6 +549,8 @@ pub brokkr_core::policy::Rule::reason: alloc::string::String
 pub brokkr_core::policy::Rule::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Rule::result: alloc::string::String
 pub brokkr_core::policy::Rule::severity: alloc::string::String
+impl brokkr_core::policy::Rule
+pub fn brokkr_core::policy::Rule::when_words(&self) -> alloc::vec::Vec<alloc::string::String>
 pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
 pub const brokkr_core::policy::CONSECUTIVE_FAILURES: &str
 pub const brokkr_core::policy::COUNTER_INPUTS: [&str; 1]
