@@ -182,7 +182,7 @@ While a run is driven, its active nodes SHALL strike and throw a halo, as ui.htm
 
 ### Requirement: A participant's tokens are read apart
 
-`brokkr inspect --json`'s participants SHALL carry `tokens`: `total` (`3.99M tok`), `input` (`3.98M`), `output` (`14k`) and `cache_hit`, cache reads over input to one decimal; each a cell, absent with its reason when the harness reported nothing to read. The view's wire version SHALL be 22.
+`brokkr inspect --json`'s participants SHALL carry `tokens`: `total` (`3.99M tok`), `input` (`3.98M`), `output` (`14k`) and `cache_hit`, cache reads over input and cache writes to one decimal; each a cell, absent with its reason when the harness reported nothing to read. The view's wire version SHALL be 22.
 
 #### Scenario: A codex seat
 
