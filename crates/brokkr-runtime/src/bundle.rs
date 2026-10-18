@@ -3412,7 +3412,6 @@ enum Step {
 
 /// A handle a resolution stands in, with the name it was looked up by and
 /// the `(dev, ino)` it holds.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 type Hold = (std::fs::File, OsString, (u64, u64));
 
 /// What one bound read observed, and the handles its resolution ended
@@ -3662,7 +3661,6 @@ const REPLACED: &str = "which was replaced while it was read: the file the read 
 /// return F2). A listing that cannot be opened or ends in error is an error:
 /// the caller fails closed. The calls are rustix's safe ones (operator ruling
 /// 2026-09-29: this crate forbids `unsafe`, decision 0071 ruling 1).
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn names_in(handle: &std::fs::File) -> std::io::Result<Vec<OsString>> {
     use std::os::unix::ffi::OsStrExt;
     let mut names = Vec::new();
@@ -3679,7 +3677,6 @@ fn names_in(handle: &std::fs::File) -> std::io::Result<Vec<OsString>> {
 /// A handle on the directory at `path`, reached as a path is (a pinned
 /// tree's contained linked directory included), which opens nothing but a
 /// directory and never waits.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn directory(path: &Path) -> std::io::Result<std::fs::File> {
     use rustix::fs::{Mode, OFlags};
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NONBLOCK | OFlags::CLOEXEC;
@@ -3688,28 +3685,8 @@ fn directory(path: &Path) -> std::io::Result<std::fs::File> {
 
 /// A handle on the directory `name` inside the directory `parent` holds,
 /// never following a link it names.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn directory_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<std::fs::File> {
     open_at(parent, name, rustix::fs::OFlags::DIRECTORY)
-}
-
-/// No supported host lacks a listing through a handle (decision 0063); any
-/// other refuses rather than listing a layer by its path.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn directory(_: &Path) -> std::io::Result<std::fs::File> {
-    Err(std::io::ErrorKind::Unsupported.into())
-}
-
-/// As [`directory`]: any other host lists nothing.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn directory_at(_: &std::fs::File, _: &OsStr) -> std::io::Result<std::fs::File> {
-    Err(std::io::ErrorKind::Unsupported.into())
-}
-
-/// As [`directory`]: any other host lists nothing.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn names_in(_: &std::fs::File) -> std::io::Result<Vec<OsString>> {
-    Err(std::io::ErrorKind::Unsupported.into())
 }
 
 /// Open `name` inside the directory `parent` holds, non-blocking, never
@@ -3717,7 +3694,6 @@ fn names_in(_: &std::fs::File) -> std::io::Result<Vec<OsString>> {
 /// met on the way to an input is refused by the handle's kind, never waited
 /// on. No-follow: each link on the way is seen, its text read, and followed
 /// by this code.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn open_at(
     parent: &std::fs::File,
     name: &OsStr,
@@ -3729,7 +3705,6 @@ fn open_at(
 }
 
 /// The text of the link `name` inside the directory `parent` holds.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn link_at(parent: &std::fs::File, name: &OsStr) -> std::io::Result<OsString> {
     use std::os::unix::ffi::OsStringExt;
     let text = rustix::fs::readlinkat(parent, name, Vec::new())?;
@@ -3755,7 +3730,6 @@ fn unopened(error: std::io::Error) -> InputFault {
 /// Put `text`'s names on `pending`, the first on top, each marked `written`
 /// or not. An absolute `text` restarts at the layer's directory, which it
 /// must stand under; a relative one continues from the current handle.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn queue(
     root: &Path,
     text: &Path,
@@ -3790,7 +3764,6 @@ fn queue(
 /// layer's directory itself is the handle `open` gives: by its path at
 /// compile ([`by_path`]), and at dispatch through [`owner_read`]'s check
 /// that it is still the directory the compile bound.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn observe(root: &Path, open: Opener<'_>, reference: &Path) -> Result<Observation, InputFault> {
     use std::os::unix::fs::MetadataExt;
     let identity = |file: &std::fs::File| file.metadata().map(|meta| (meta.dev(), meta.ino()));
@@ -3865,16 +3838,6 @@ fn observe(root: &Path, open: Opener<'_>, reference: &Path) -> Result<Observatio
         },
         owner,
     })
-}
-
-/// No supported host lacks the resolution; any other refuses rather than
-/// reading an input it cannot bind (design D7).
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn observe(_: &Path, _: Opener<'_>, _: &Path) -> Result<Observation, InputFault> {
-    Err(Place::of(
-        FaultKind::Unbound,
-        "which this host cannot read through a handle bound to its contained target",
-    ))
 }
 
 /// How a resolution is given its layer's directory: [`by_path`], or reached
@@ -3983,7 +3946,6 @@ const OWNER_REPLACED: &str = "whose owner's directory, or a directory above it, 
 /// opened by the stored path. The handle comes with the [`OwnerIdentity`] of
 /// the directories it was reached through. A directory on the way that is
 /// there but cannot be opened is named (rebuild unit 18-fix-b, F3).
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn owner_directory(root: &Path) -> Result<(std::fs::File, OwnerIdentity), InputFault> {
     use std::os::unix::fs::MetadataExt;
     let identity = |file: &std::fs::File| {
@@ -4039,15 +4001,6 @@ const UNREACHED_REMEDY: &str = "The compile opens every directory from '/' down 
                                 owner, so that directory must be readable by the user who \
                                 compiles; grant it, or compile from a realm under directories \
                                 that user can read (decision 0065 slice one, design D7)";
-
-/// No supported host lacks the lookup; any other binds no owner.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn owner_directory(_: &Path) -> Result<(std::fs::File, OwnerIdentity), InputFault> {
-    Err(Place::of(
-        FaultKind::Unbound,
-        "which this host cannot read through a handle bound to its owner",
-    ))
-}
 
 /// The owner's directory at `root`, reached by [`owner_directory`], with who
 /// it is.

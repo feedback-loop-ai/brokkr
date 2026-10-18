@@ -223,6 +223,60 @@ fn every_checked_dialect_boundary_is_named() {
     }
 }
 
+/// A dialect that fails several checks reports the first in `check`'s
+/// order (#288 slice K): each plant below breaks one check, in that order,
+/// and the refusal moves to the next check as each earlier plant is lifted.
+#[test]
+fn a_dialect_failing_several_checks_reports_the_first_in_order() {
+    let plants = [
+        (
+            "/archive/instructions",
+            json!(null),
+            "a 'brokkr.dialect/v3' archive command names the instruction it carries",
+        ),
+        (
+            "/name",
+            json!(" "),
+            "name, tool binary, measured version and install package must be non-empty",
+        ),
+        (
+            "/phases/design/steps",
+            json!([]),
+            "phase 'design' is unfilled",
+        ),
+        (
+            "/order/0/before",
+            json!("ghost"),
+            "order names unassigned artifact 'ghost'",
+        ),
+        (
+            "/phases/clarify/taxonomy",
+            json!(" "),
+            "phase 'clarify' has no taxonomy",
+        ),
+        (
+            "/phases/specify/steps/0/instructions",
+            json!("/absolute.md"),
+            "instruction path '/absolute.md' must be relative and remain beside its dialect",
+        ),
+        (
+            "/verify/argv/0",
+            json!("{unknown}"),
+            "argv token '{unknown}' uses an unknown placeholder",
+        ),
+    ];
+    for first in 0..plants.len() {
+        let mut value = openspec();
+        for (pointer, plant, _) in &plants[first..] {
+            *value.pointer_mut(pointer).unwrap() = plant.clone();
+        }
+        assert_eq!(
+            refusal(value),
+            format!("dialect dialect.json is not usable: {}", plants[first].2)
+        );
+    }
+}
+
 #[test]
 fn a_realm_path_dialect_loads_beside_its_instructions_and_missing_prose_is_refused() {
     let dir = tempfile::tempdir().unwrap();
