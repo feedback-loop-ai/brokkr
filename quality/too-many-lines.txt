@@ -6,7 +6,6 @@
  140 crates/brokkr-core/src/dispatch.rs:241 verify
  106 crates/brokkr-core/src/policy.rs:427 parse_rule
  177 crates/brokkr-core/src/realms.rs:515 of
- 105 crates/brokkr-protocol/src/adapters.rs:1524 fold_stream_event
  101 crates/brokkr-protocol/src/adapters.rs:4422 dsh_launch_with
  317 crates/brokkr-protocol/src/adapters.rs:6479 run_seat_with
  229 crates/brokkr-protocol/src/adapters/composite.rs:1346 pnpm_dependencies

@@ -71,10 +71,10 @@ fn claude_fold_journals_file_paths_only_and_bash_stays_targetless() {
     // The 0012 amendment leaves the claude fold untouched: a Bash
     // tool_use (model-authored command) journals NO target; only
     // input.file_path ever becomes one.
-    let mut turns = 0;
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
+    let mut turns = ClaudeFold::default();
     let event = json!({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "name": "Bash",
          "input": {"command": "curl -H 'auth: hunter22' https://x"}},
@@ -233,7 +233,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
         boxed.find("## Result contract").unwrap() < boxed.find("mcp__brokkr__workspace").unwrap()
     );
 
-    let mut turns = 0;
+    let mut turns = ClaudeFold::default();
     let mut meta = Map::new();
     let mut emitted = Vec::new();
     let mut claude_transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
@@ -284,7 +284,7 @@ fn adapter_vocabulary_prompt_and_fold_edges_are_closed() {
     ] {
         fold_codex_event(
             &event,
-            &mut turns,
+            &mut turns.turns,
             &mut meta,
             &mut codex_transcript,
             &mut echo,
@@ -884,7 +884,7 @@ fn init_journals_the_shared_transcript_checkpoint_with_the_id() {
     // journal — so the transcript drilldowns could not locate, let
     // alone live-stream, the prose being written. init carries the id
     // in the first stream message; it is journaled immediately.
-    let mut turns = 0;
+    let mut turns = ClaudeFold::default();
     let mut meta = serde_json::Map::new();
     let mut emitted: Vec<serde_json::Value> = Vec::new();
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
@@ -9142,7 +9142,7 @@ fn claude_fold_journals_a_toolless_turn_once_and_a_nameless_tool_use() {
     // calls nothing, and a tool_use whose name the harness omitted.
     // The first must still journal its turn exactly once, from the
     // base record; the second keeps its target and gains no empty tool.
-    let mut turns = 0;
+    let mut turns = ClaudeFold::default();
     let mut meta = Map::new();
     let mut emitted: Vec<Value> = Vec::new();
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
@@ -9448,7 +9448,7 @@ fn codex_pre_session_refusals_are_machine_events_not_prose() {
 fn a_refusal_is_classified_only_before_the_first_counted_turn() {
     let refusal = json!({"type":"assistant","isApiErrorMessage":true,"error":"rate_limit",
         "message":{"content":[{"type":"text","text":"limit"}]}});
-    let mut turns = 0;
+    let mut turns = ClaudeFold::default();
     let mut meta = Map::new();
     let mut transcript = Transcript::resolve(TranscriptKind::None).unwrap();
     let mut emitted: Vec<Value> = Vec::new();
@@ -9469,7 +9469,7 @@ fn a_refusal_is_classified_only_before_the_first_counted_turn() {
         &mut transcript,
         &mut |c| emitted.push(c.clone()),
     );
-    assert_eq!(turns, 1);
+    assert_eq!(turns.turns, 1);
     assert!(
         fold_stream_event(&refusal, &mut turns, &mut meta, &mut transcript, &mut |c| {
             emitted.push(c.clone())

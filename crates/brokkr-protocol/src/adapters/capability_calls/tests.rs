@@ -182,7 +182,7 @@ fn claude_rows(blocks: Vec<Value>) -> Vec<Value> {
         "usage": {"input_tokens": 13, "output_tokens": 2}, "content": blocks}});
     let refused = fold_stream_event(
         &event,
-        &mut 0,
+        &mut super::super::ClaudeFold::default(),
         &mut Map::new(),
         &mut transcript,
         &mut |row| {
