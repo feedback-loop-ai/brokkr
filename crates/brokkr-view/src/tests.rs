@@ -6,7 +6,7 @@ use serde_json::json;
 #[path = "../../../tests/support/envelope.rs"]
 pub(crate) mod envelope_builder;
 use envelope_builder::EnvelopeBuilder;
-mod cache_hit;
+pub(crate) mod cache_hit;
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;
 use run_state::{run_state, standing};

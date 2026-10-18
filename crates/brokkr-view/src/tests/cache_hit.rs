@@ -59,3 +59,36 @@ fn a_seats_token_cells_are_its_usage_read_apart() {
         ]
     );
 }
+
+/// One Claude message's turn rows as a driver journaled each streamed
+/// line: the probe's usage of 2026-10-18, with an untokened tool use.
+pub(crate) fn streamed_turns() -> Vec<Value> {
+    let first = json!({"step": "seat-turn", "input_tokens": 11_230, "cache_read_tokens": 11_228,
+                       "cache_write_tokens": 11_389, "output_tokens": 16});
+    let second = json!({"step": "seat-turn", "input_tokens": 22_619, "cache_read_tokens": 22_617,
+                        "cache_write_tokens": 306, "output_tokens": 3});
+    let untokened = json!({"step": "seat-turn", "tool": "Read"});
+    vec![first.clone(), first.clone(), untokened, first, second]
+}
+
+#[test]
+fn a_claude_message_streamed_line_by_line_is_metered_once() {
+    // Claude Code streams a message as one line per content block, each
+    // repeating its usage, and the driver journaled a turn for each. The
+    // first message's three repeats, an untokened tool use between them,
+    // are one message beside the second: 33,849 input, not 56,309.
+    let mut events = codex_journal(vec![]);
+    let session = events.pop().unwrap();
+    for (seq, mut checkpoint) in (3..).zip(streamed_turns()) {
+        checkpoint["turn"] = json!(seq - 2);
+        let payload = json!({"effect_id": "eff1", "attempt_id": "att1", "checkpoint": checkpoint});
+        events.insert(
+            seq as usize - 1,
+            ev(seq, EventType::EffectCheckpointed, payload, T0),
+        );
+    }
+    events.push(session);
+    let view = run_view(&events, None);
+    let cells = crate::analytics::tests::cells(&view.participants[0].tokens);
+    assert_eq!(cells, ["34k tok", "34k", "19", "74.3%"]);
+}

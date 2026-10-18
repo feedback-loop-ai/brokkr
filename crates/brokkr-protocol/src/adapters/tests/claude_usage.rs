@@ -58,12 +58,12 @@ fn a_later_result_adds_its_thinking_and_output_to_the_earlier_ones() {
 }
 
 /// One assistant message as Claude Code streams it: a line per content
-/// block, each repeating the message's usage.
-fn message(blocks: &[&str], read: u64, write: u64, output: u64) -> Vec<Value> {
+/// block, each repeating the message's id and usage.
+fn message(id: &str, blocks: &[&str], read: u64, write: u64, output: u64) -> Vec<Value> {
     let usage = json!({"input_tokens": 2, "cache_read_input_tokens": read,
         "cache_creation_input_tokens": write, "output_tokens": output});
     let line = |block: &&str| {
-        json!({"type": "assistant", "message": {"model": "claude-sonnet-5-5",
+        json!({"type": "assistant", "message": {"id": id, "model": "claude-sonnet-5-5",
             "usage": usage, "content": [{"type": block, "name": "Bash"}]}})
     };
     blocks.iter().map(line).collect()
@@ -81,10 +81,10 @@ fn a_queued_query_journals_beside_the_first_not_over_it() {
             "cache_read_input_tokens": read, "cache_creation_input_tokens": write,
             "output_tokens": output}})
     };
-    let mut stream = message(&["thinking", "tool_use"], 11_228, 11_389, 16);
-    stream.extend(message(&["text"], 22_617, 306, 3));
+    let mut stream = message("msg_a", &["thinking", "tool_use"], 11_228, 11_389, 16);
+    stream.extend(message("msg_b", &["text"], 22_617, 306, 3));
     stream.push(result(2, 33_845, 11_695, 114));
-    stream.extend(message(&["text"], 22_923, 419, 3));
+    stream.extend(message("msg_c", &["text"], 22_923, 419, 3));
     let mut fold = ClaudeFold::default();
     let mut meta = Map::new();
     let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
@@ -112,6 +112,39 @@ fn a_queued_query_journals_beside_the_first_not_over_it() {
         [json!(3), json!(56_776), json!(56_768), json!(12_114)]
     );
     assert_eq!(meta["output_tokens"], 117);
+}
+
+#[test]
+fn a_message_streamed_line_by_block_is_one_turn_counted_once() {
+    // Claude Code 2.1.302 streamed its first message as a thinking line
+    // and a tool_use line, each repeating the message's id and usage. They
+    // are one turn, its usage on the first checkpoint and in the live sum
+    // once; the next message is the next turn.
+    let mut stream = message("msg_a", &["thinking", "tool_use"], 11_228, 11_389, 16);
+    stream.extend(message("msg_b", &["text"], 22_617, 306, 3));
+    let mut fold = ClaudeFold::default();
+    let mut meta = Map::new();
+    let mut transcript = Transcript::resolve(TranscriptKind::ClaudeSession).unwrap();
+    let mut rows = Vec::new();
+    for event in &stream {
+        let mut emit = |row: &Value| rows.push(row.clone());
+        fold_stream_event(event, &mut fold, &mut meta, &mut transcript, &mut emit);
+    }
+    let turns: Vec<_> = rows
+        .iter()
+        .map(|row| (row["turn"].clone(), row.get("cache_read_tokens").cloned()))
+        .collect();
+    let read = |count: u64| Some(json!(count));
+    assert_eq!(
+        turns,
+        [
+            (json!(1), read(11_228)),
+            (json!(1), None),
+            (json!(2), read(22_617))
+        ]
+    );
+    let live = [&meta["num_turns"], &meta["cache_read_tokens"]];
+    assert_eq!(live, [&json!(2), &json!(11_228 + 22_617)]);
 }
 
 /// A claude home holding one project whose transcript of `session` is

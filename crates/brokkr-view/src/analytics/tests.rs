@@ -934,6 +934,27 @@ fn a_recipes_cache_hit_counts_its_cache_writes_as_misses() {
     );
 }
 
+#[test]
+fn a_recipes_claude_messages_are_metered_once_whatever_lines_carried_them() {
+    // The driver journaled a turn for each line Claude Code streamed, each
+    // repeating its message's usage: the attempt walk meters each message
+    // once, as the run view does, and not its session record beside them.
+    let (mut journal, state) = recipe_run("alpha", "self", Fate::Open, "claude", Some(1.0));
+    for checkpoint in crate::tests::cache_hit::streamed_turns() {
+        let payload = json!({"effect_id": "e", "attempt_id": "s1", "checkpoint": checkpoint});
+        journal = journal.then(
+            EventType::EffectCheckpointed,
+            payload,
+            "2026-10-10T00:20:00Z",
+        );
+    }
+    let rows = recipes_of(&[(journal, state)]);
+    assert_eq!(
+        cells(&rows[0].tokens_per_run),
+        ["34k tok", "34k", "19", "74.3%"]
+    );
+}
+
 /// A token figure as its four cells read: total, input, output, cache hit.
 pub(crate) fn cells(tokens: &crate::TokenCells) -> [&str; 4] {
     [

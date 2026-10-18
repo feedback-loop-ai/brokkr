@@ -1557,7 +1557,10 @@ fn fold_stream_event(
             }
         }
         Some("assistant") => {
-            fold.turns += 1;
+            // A message streams a line per content block, each repeating
+            // its id and usage: a repeat is its turn again, usage counted.
+            let repeat = fold.repeats(event.pointer("/message/id").and_then(Value::as_str));
+            fold.turns += u64::from(!repeat);
             session_meta.insert("num_turns".into(), Value::from(fold.turns));
             let model = model_in_json(event);
             if let Some(model) = &model {
@@ -1571,7 +1574,7 @@ fn fold_stream_event(
             if let Some(effort) = &effort {
                 session_meta.insert("effort".into(), Value::String(effort.clone()));
             }
-            let usage = claude_usage(event.pointer("/message/usage"));
+            let usage = claude_usage(event.pointer("/message/usage").filter(|_| !repeat));
             for (key, value) in &usage {
                 add_usage(
                     session_meta,

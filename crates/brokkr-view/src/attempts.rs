@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use brokkr_core::{EventEnvelope, EventType};
 use serde_json::Value;
 
-use crate::meter::{sum_usage, Meter, Metering};
+use crate::meter::{self, sum_usage, Meter, Metering};
 use crate::{field, js, reported_cost, TokenUsage};
 
 /// One checkpoint of a site, read once at its edge.
@@ -145,6 +145,7 @@ fn settle(mut site: Site) -> Site {
     for (index, metered) in site.metered.iter_mut().enumerate() {
         metered.session = Some(index) == last;
     }
+    meter::once(site.metered.iter_mut().map(|metered| &mut metered.meter));
     site.by = Metering::of(site.metered.iter().map(|metered| &metered.meter));
     site
 }
