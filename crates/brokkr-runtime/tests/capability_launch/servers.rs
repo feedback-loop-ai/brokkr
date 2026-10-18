@@ -5,9 +5,14 @@
 //! composition carries the box's hands alone, so a broker set sealed beside
 //! it refuses before any spawn, and no grant is enabled here.
 
+use brokkr_protocol::hands::Sealed;
 use brokkr_protocol::native_controls::{SealedBroker, SealedServers, SealedServing};
 
 use super::*;
+
+/// The reach the launches here are composed with and the driver binds where
+/// the input carries none: the one that seals nothing (U8a2c).
+pub(super) static REACH: std::sync::LazyLock<Sealed> = std::sync::LazyLock::new(Sealed::default);
 
 /// The brokers `carried` seals beside the box's hands, none for any other
 /// server set.
@@ -125,6 +130,7 @@ pub(super) fn checked_against(
                 brokkr: &brokkr,
                 workdir: Path::new("/w"),
                 artifacts: Path::new("/a"),
+                sealed: &REACH,
                 spec,
             }),
             brokers: sealed_brokers(carried),

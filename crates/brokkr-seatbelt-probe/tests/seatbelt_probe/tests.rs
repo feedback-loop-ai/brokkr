@@ -1892,7 +1892,8 @@ fn a_unit_that_covers_a_toolchain_spelling_or_control_target_fails() {
 
 #[test]
 fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
-    use brokkr_protocol::hands::{box_argv, Bind, BindMode, GitFacts, HandsSpec, OverlayWrites};
+    use brokkr_protocol::hands::OverlayWrites;
+    use brokkr_protocol::hands::{box_argv, git_facts, seal, Bind, BindMode, HandsSpec};
     use std::path::PathBuf;
 
     let inputs = fixed_inputs();
@@ -1906,12 +1907,10 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
     // The box observes an existing worktree and the artifact root in it (U8a).
     let (session, work) = (scratch.join("session"), scratch.join("work"));
     std::fs::create_dir_all(work.join("artifacts")).unwrap();
-    let varied: [(HandsSpec, PathBuf, GitFacts); 3] = [
-        (
-            HandsSpec::default(),
-            PathBuf::from("/Users/runner"),
-            GitFacts::default(),
-        ),
+    // The second and third boxes stand in a repository, the reach each is
+    // built from sealed as it stands (U8a2c).
+    let varied: [(HandsSpec, PathBuf, bool); 3] = [
+        (HandsSpec::default(), PathBuf::from("/Users/runner"), false),
         (
             HandsSpec {
                 network: false,
@@ -1922,10 +1921,7 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
                 }],
             },
             PathBuf::from("/home/other"),
-            GitFacts {
-                common_dir: Some(PathBuf::from("/Users/runner/work/.git")),
-                ..Default::default()
-            },
+            true,
         ),
         (
             HandsSpec {
@@ -1937,21 +1933,22 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
                 }],
             },
             PathBuf::from("/Users/runner"),
-            GitFacts {
-                common_dir: Some(inputs.payload_root.clone().into()),
-                ..Default::default()
-            },
+            true,
         ),
     ];
-    for (spec, home, git) in varied {
+    for (spec, home, repository) in varied {
+        let mut init = std::process::Command::new("git");
+        let init = init.args(["init", "-q"]).current_dir(&work);
+        assert!(!repository || init.status().unwrap().success());
+        let git = git_facts(&work);
         let argv = box_argv(
             &spec,
             &work,
             &work.join("artifacts"),
-            &home,
+            &seal(&spec, &home, &work, &git),
             &scratch,
             OverlayWrites::Session(&session),
-            &git,
+            &git.identity,
             None,
             &["true".to_string()],
         )
@@ -1965,7 +1962,7 @@ fn the_check_verdict_does_not_depend_on_hands_spec_home_or_git_facts() {
             .iter()
             .map(|source| source.to_string())
             .collect();
-        if let Some(shared) = &git.common_dir {
+        if let Some(shared) = git.common_dir.and_then(|shared| shared.canonicalize().ok()) {
             expected.push(shared.join("config").to_string_lossy().into_owned());
         }
         for bind in &spec.binds {

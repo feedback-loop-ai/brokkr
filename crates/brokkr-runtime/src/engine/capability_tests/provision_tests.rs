@@ -915,14 +915,15 @@ fn the_sealed_reach_names_each_hands_root_where_the_hands_box_binds_it() {
     let command = ["true".to_string()];
     let artifacts = fixture.root.join("artifacts");
     std::fs::create_dir_all(&artifacts).unwrap();
+    let observed = brokkr_protocol::hands::git_facts(&workdir);
     let argv = brokkr_protocol::hands::box_argv(
         &spec,
         &workdir,
         &artifacts,
-        &home,
+        &brokkr_protocol::hands::seal(&spec, &home, &workdir, &observed),
         &scratch,
         OverlayWrites::Ram,
-        &git,
+        &git.identity,
         None,
         &command,
     );

@@ -14,6 +14,7 @@ use crate::bundle::{HandsState, McpIntent, SiteFacts};
 use crate::realms::World;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_protocol::hands::network_prefix;
+use sealed_tests::{boxed, boxed_a, REACH_ARG};
 
 impl Engine {
     /// [`Self::compose_at`] over argv no compiled site owns: the boundary
@@ -27,6 +28,8 @@ impl Engine {
         link: Option<&Candidate>,
         result_path: &str,
     ) -> SiteSpawn {
+        // Its reach sealed as admission seals it (U8a2c).
+        hands.inspect(|spec| self.sealed_for(Path::new("/home/fixture"), spec));
         self.compose_at(None, attempt_id, gate, command, hands, link, result_path)
     }
 }
@@ -377,7 +380,7 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
             Some(&spec),
             link,
             workdir,
-            Path::new("/a"),
+            boxed_a(),
             &roots,
             "/r/p.json",
             Some(&Unboxed {
@@ -414,7 +417,7 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
                     "--sandbox",
                     "read-only",
                     "-c",
-                    r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/work","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#,
+                    r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/work","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#,
                 ])
             ),
         ]
@@ -440,6 +443,8 @@ fn every_boundary_arm_carries_the_links_segments_and_labels_its_own_as_hands() {
                     "/work",
                     "--artifacts",
                     "/a",
+                    "--reach",
+                    REACH_ARG,
                     "--spec",
                     spec_json,
                     "--bundle-root",
@@ -581,7 +586,7 @@ fn the_driver_extras_begin_after_the_engines_prefix_and_the_verbs_own_escape() {
             Some(&spec),
             None,
             Path::new("/work"),
-            Path::new("/a"),
+            boxed_a(),
             &[PathBuf::from("/bundle")],
             "/r/p.json",
             Some(&Unboxed {
@@ -726,7 +731,7 @@ fn compose_site_follows_the_boundary_and_the_class() {
     assert_eq!(unboxed.argv, base);
     // Every site below but the last composes over the same worktree,
     // artifact root, bundle and result path.
-    let artifacts = Path::new("/a");
+    let artifacts = boxed_a();
     let site = |boundary, class, argv, spec, link, prepared| {
         let result = "/r/p.json";
         compose_site(
@@ -981,48 +986,6 @@ fn compose_site_follows_the_boundary_and_the_class() {
     assert_eq!(network_prefix_if(true, 1, 2), network_prefix(1, 2));
 }
 
-#[test]
-fn retiring_confine_leaves_plain_seat_member_and_step_argv_untouched() {
-    let command: Vec<String> = [
-        "driver",
-        "--model",
-        "m",
-        "--effort",
-        "high",
-        "{prompt_file}",
-    ]
-    .into_iter()
-    .map(str::to_string)
-    .collect();
-    let (_dir, mut engine) = super::tests::engine(single_body(command.clone()));
-    for boundary in brokkr_core::realms::BOUNDARIES {
-        engine.boundary = boundary;
-        let single = engine.compose("attempt", false, command.clone(), None, None, "result.json");
-        assert_eq!(
-            single,
-            SiteSpawn {
-                class: Some(SeatClass::Work),
-                ..SiteSpawn::inherit(command.clone())
-            }
-        );
-        // The member composer is shared by a panel and a panel step.
-        for (site, prefix) in [("work", ""), ("work:check", "check:")] {
-            let runs = engine.member_runs(
-                "attempt",
-                site,
-                &[member("judge", command.clone())],
-                &json!({"judge":{"role_path":"role.md","result_path":"result.json"}}),
-                &json!({}),
-                &json!({}),
-                &Selection::new(),
-                prefix,
-                false,
-            );
-            assert_eq!(runs[0].spawn, single);
-        }
-    }
-}
-
 /// The dispatch `recipes/fast`'s verify seat, self's too, becomes under `harness` on
 /// Linux with the probe passing, token for token; with an empty prefix,
 /// the compiled command alone under both `harness` and `open`. These are
@@ -1062,7 +1025,7 @@ fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
         Some(spec),
         None,
         Path::new("/repo"),
-        Path::new("/a"),
+        boxed_a(),
         &bundle.roots,
         "/r/p.json",
         Some(&Unboxed {
@@ -1099,7 +1062,7 @@ fn the_unboxed_exec_dispatch_composes_the_expected_argv_and_rewalk_directory() {
             Some(spec),
             None,
             Path::new("/repo"),
-            Path::new("/a"),
+            boxed_a(),
             &bundle.roots,
             "/r/p.json",
             Some(&Unboxed::default()),
@@ -1175,7 +1138,7 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
             None,
             None,
             Path::new("/repo"),
-            Path::new("/a"),
+            boxed_a(),
             std::slice::from_ref(&root),
             "/result.json",
             None,
@@ -1191,7 +1154,7 @@ fn exec_composition_keeps_the_canonical_pin_separate_from_the_script_argument() 
                 Some(&spec),
                 None,
                 Path::new("/repo"),
-                Path::new("/a"),
+                boxed_a(),
                 std::slice::from_ref(&root),
                 "/result.json",
                 None,
@@ -3177,7 +3140,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
         Some(&HandsSpec::default()),
         None,
         dir.path(),
-        Path::new("/a"),
+        boxed_a(),
         std::slice::from_ref(&layer),
         "/r/p.json",
         None,
@@ -3558,6 +3521,7 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
     // first step carry each step's word.
     let (_dir, mut engine) = super::tests::engine(single_body(vec!["driver".into()]));
     super::tests::set_site_hands(&mut engine.bundle, "work:second", HandsSpec::default());
+    engine.sealed_for(Path::new("/home/fixture"), &HandsSpec::default());
     let step = |name: &str, results: Vec<&str>, result: &str| SequenceStep {
         name: name.into(),
         class: SeatClass::Gate,
@@ -3791,7 +3755,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
         hands.as_ref(),
         Some(candidate),
         workdir.path(),
-        Path::new("/a"),
+        boxed_a(),
         &[],
         result_path,
         None,
@@ -3909,8 +3873,9 @@ fn a_resume_under_another_word_is_refused_naming_boundary() {
 /// The judge's door: the last message (moved to a child module by U1g2).
 mod door_tests;
 /// The artifact root the engine makes and an exec seat's box cannot
-/// change (U8a).
+/// change (U8a), and the reach every box is built from (U8a2c).
 mod evidence_tests;
+pub(in crate::engine) mod sealed_tests;
 
 #[test]
 fn every_panel_spawn_rechecks_its_layer_and_journals_a_moved_member_failure() {

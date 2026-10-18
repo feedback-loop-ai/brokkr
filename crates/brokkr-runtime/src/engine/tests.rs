@@ -1,3 +1,4 @@
+use super::boundary_tests::sealed_tests::{boxed, boxed_a, REACH_ARG};
 use super::conclude_tests::invariant;
 use super::*;
 use crate::agents::HarnessHands;
@@ -2065,7 +2066,7 @@ fn git_helpers_fail_closed_and_a_site_without_hands_composes_its_own_argv() {
             command.clone(),
             None,
             dir.path(),
-            Path::new("/a"),
+            boxed_a(),
             &[dir.path().to_path_buf()]
         ),
         Ok(command)
@@ -5611,13 +5612,7 @@ fn fixes_docs_only_is_absent_when_the_question_has_no_answer() {
 fn a_site_without_hands_spawns_its_command_untouched() {
     let command = vec!["claude".to_string(), "--model".to_string(), "x".to_string()];
     assert_eq!(
-        hands_command(
-            command.clone(),
-            None,
-            Path::new("/work"),
-            Path::new("/a"),
-            &[]
-        ),
+        hands_command(command.clone(), None, Path::new("/work"), boxed_a(), &[]),
         Ok(command)
     );
 }
@@ -5641,7 +5636,7 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
         ],
         Some(&spec),
         Path::new("/work"),
-        Path::new("/a"),
+        boxed_a(),
         &[],
     )
     .unwrap();
@@ -5657,7 +5652,7 @@ fn a_model_seat_with_hands_gets_the_server_config_expanded_into_its_argv() {
     let toml = argv[6].strip_prefix("mcp_servers.brokkr.args=").unwrap();
     assert!(
         toml.starts_with(
-            "[\"hands\",\"serve\",\"--workdir\",\"/work\",\"--artifacts\",\"/a\",\"--spec\",\""
+            "[\"hands\",\"serve\",\"--workdir\",\"/work\",\"--artifacts\",\"/a\",\"--reach\",\""
         ),
         "{toml}"
     );
@@ -5689,18 +5684,19 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
     ]
     .map(String::from)
     .to_vec();
-    let argv = hands_command(fragment.clone(), Some(&spec), workdir, Path::new("/a"), &[]).unwrap();
+    let argv = hands_command(fragment.clone(), Some(&spec), workdir, boxed_a(), &[]).unwrap();
     let brokkr = std::env::current_exe().unwrap();
     let transport = brokkr_protocol::native_controls::Transport {
         brokkr: &brokkr,
         workdir,
         artifacts: Path::new("/a"),
+        sealed: boxed(workdir).1.unwrap(),
         spec: &spec,
     };
     assert_eq!(Some(argv.clone()), transport.expand(&fragment));
     assert_eq!(
         argv[5],
-        r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/w\\\"\t\n\u0001\u007F\b\f\r","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
+        r#"mcp_servers.brokkr.args=["hands","serve","--workdir","/w\\\"\t\n\u0001\u007F\b\f\r","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
     );
     assert_eq!(
         argv[3],
@@ -5715,12 +5711,13 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
         let refusal = "dispatch refused: the site's workdir '/w\u{fffd}' is not UTF-8, so no \
                        argument names it exactly and a lossy path would name another (rebuild \
                        unit 13-fix-c, R2; rebuild unit 14a2; U8a, H1)";
+        let root = boxed(lossy);
         assert_eq!(
-            hands_command(fragment.clone(), Some(&spec), Path::new("/w"), lossy, &[]),
+            hands_command(fragment.clone(), Some(&spec), Path::new("/w"), root, &[]),
             Err(Unnamed::Artifacts(lossy.into()))
         );
         assert_eq!(
-            hands_command(fragment.clone(), Some(&spec), lossy, Path::new("/a"), &[]),
+            hands_command(fragment.clone(), Some(&spec), lossy, boxed_a(), &[]),
             Err(Unnamed::Workdir(lossy.into()))
         );
         let command: Vec<String> = ["/bin/brokkr", "driver", "codex", "--"]
@@ -5735,7 +5732,7 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
             Some(&spec),
             None,
             lossy,
-            Path::new("/a"),
+            boxed_a(),
             &[],
             "",
             None,
@@ -5762,13 +5759,7 @@ fn only_an_exec_dispatch_is_boxed_whole() {
     let spec = brokkr_protocol::hands::HandsSpec::default();
     let short = vec!["true".to_string()];
     assert_eq!(
-        hands_command(
-            short.clone(),
-            Some(&spec),
-            Path::new("/w"),
-            Path::new("/a"),
-            &[]
-        ),
+        hands_command(short.clone(), Some(&spec), Path::new("/w"), boxed_a(), &[]),
         Ok(short)
     );
     let not_a_dispatch = vec!["a".to_string(), "b".to_string(), "exec".to_string()];
@@ -5777,7 +5768,7 @@ fn only_an_exec_dispatch_is_boxed_whole() {
             not_a_dispatch.clone(),
             Some(&spec),
             Path::new("/w"),
-            Path::new("/a"),
+            boxed_a(),
             &[],
         ),
         Ok(not_a_dispatch)
@@ -5788,7 +5779,7 @@ fn only_an_exec_dispatch_is_boxed_whole() {
             other_driver.clone(),
             Some(&spec),
             Path::new("/w"),
-            Path::new("/a"),
+            boxed_a(),
             &[],
         ),
         Ok(other_driver)
@@ -5811,7 +5802,7 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         inner,
         Some(&spec),
         Path::new("/work"),
-        Path::new("/a"),
+        boxed_a(),
         &[PathBuf::from("/bundle")],
     )
     .unwrap();
@@ -5821,12 +5812,12 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         .into_owned();
     assert_eq!(&argv[..3], [exe.as_str(), "hands", "exec"]);
     assert_eq!(&argv[3..7], ["--workdir", "/work", "--artifacts", "/a"]);
-    assert_eq!(argv[7], "--spec");
-    assert_eq!(&argv[9..11], ["--bundle-root", "/bundle"]);
-    assert_eq!(argv[11], "--");
-    assert_eq!(argv[12], "/usr/local/bin/brokkr");
-    assert_eq!(argv[17], "/runtime/bundle/scripts/verify.sh");
-    assert_eq!(argv[18], "{prompt_file}");
+    assert_eq!(&argv[7..10], ["--reach", REACH_ARG, "--spec"]);
+    assert_eq!(&argv[11..13], ["--bundle-root", "/bundle"]);
+    assert_eq!(argv[13], "--");
+    assert_eq!(argv[14], "/usr/local/bin/brokkr");
+    assert_eq!(argv[19], "/runtime/bundle/scripts/verify.sh");
+    assert_eq!(argv[20], "{prompt_file}");
 
     // The helper also remains total for an invented bundle with no
     // roots; production bundles always carry at least their leaf root.
@@ -5841,12 +5832,12 @@ fn an_exec_seat_with_hands_is_boxed_whole() {
         rootless_inner.clone(),
         Some(&spec),
         Path::new("/work"),
-        Path::new("/a"),
+        boxed_a(),
         &[],
     )
     .unwrap();
-    assert_eq!(rootless[9], "--");
-    assert_eq!(&rootless[10..], &rootless_inner);
+    assert_eq!(rootless[11], "--");
+    assert_eq!(&rootless[12..], &rootless_inner);
 }
 
 /// A driver that streams the given checkpoints, then the terminal

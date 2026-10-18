@@ -14724,6 +14724,7 @@ pub(super) fn sealed_pair(mut input: Value, extra: &[String], seal: Seal) -> Val
         },
     };
     (input["launch_record"], input[ARTIFACT_ROOT]) = (record.value(), json!("/a"));
+    input[crate::hands::SEALED_REACH] = serde_json::to_value(super::mcp::tests::reach()).unwrap();
     input[SERVING_INPUTS] = super::mcp::tests::dispatched(seal.dialect, seal.pins, seal.spec);
     input
 }
@@ -16532,9 +16533,8 @@ fn claude_admits_only_held_native_tools_beside_its_hands() {
     // The expected document is an independent literal, never the
     // transport's own expansion (NC6): only the test's executable, the
     // canonical fixture value `{brokkr}` binds, is substituted.
-    let exe = std::env::current_exe().unwrap();
-    let exe = exe.to_str().unwrap();
-    let serve = r#"["hands","serve","--workdir","/w","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+    let exe = String::from(std::env::current_exe().unwrap().to_str().unwrap());
+    let serve = r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"/h\",\"worktree\":{\"path\":\"/w\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
     let document = format!(r#"{{"mcpServers":{{"brokkr":{{"args":{serve},"command":"{exe}"}}}}}}"#);
     let document = document.as_str();
     let head = s(&[

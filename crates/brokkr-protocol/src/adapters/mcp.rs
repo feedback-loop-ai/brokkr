@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::{claude_restriction_control, last_message_door, placed, ResumeGate, ServingShape};
+use crate::hands::{Sealed, SEALED_REACH};
 use crate::native_controls::{
     SealedAssessment, SealedBoundary, SealedBroker, SealedFence, SealedIsolation, SealedServers,
     SealedServing, Transport, ARTIFACT_ROOT, SERVING_INPUTS,
@@ -157,23 +158,32 @@ fn engine_executable() -> PathBuf {
     std::env::current_exe().unwrap_or_default()
 }
 
-/// The box's hands bound to `brokkr`, `workdir` and the artifact root the
-/// engine wrote beside the sealed inputs (U8a), where those declare them;
-/// `None` where the site has none. A root the input lacks binds none, so
-/// no hands server matches it.
+/// The box's hands bound to `brokkr`, `workdir`, the artifact root the
+/// engine wrote beside the sealed inputs (U8a) and the `reach` it sealed
+/// ([`sealed_reach`]; U8a2c), where those declare them; `None` where the
+/// site has none. A root the input lacks binds none, matching no server.
 fn hands_transport<'a>(
     sealed: &'a SealedServing,
-    brokkr: &'a Path,
-    workdir: &'a str,
+    (brokkr, workdir): (&'a Path, &'a str),
     input: &'a Value,
+    reach: &'a Sealed,
 ) -> Option<Transport<'a>> {
     let artifacts = input.get(ARTIFACT_ROOT).and_then(Value::as_str);
     sealed.spec.as_ref().map(|spec| Transport {
         brokkr,
         workdir: Path::new(workdir),
         artifacts: Path::new(artifacts.unwrap_or_default()),
+        sealed: reach,
         spec,
     })
+}
+
+/// The reach the engine sealed for the box's hands, read from the input as
+/// its type (U8a2c); one absent or unread seals nothing, which no hands
+/// server the engine composes carries and no box is built from.
+fn sealed_reach(input: &Value) -> Sealed {
+    let carried = input.get(SEALED_REACH).cloned().map(serde_json::from_value);
+    carried.and_then(Result::ok).unwrap_or_default()
 }
 
 /// Rebuild units 14 and 15 (operator ruling 2 of 2026-09-23; design D6):
@@ -237,8 +247,8 @@ pub(super) fn served(
         .filter(|segment| segment.origin == Origin::Authored)
         .flat_map(|segment| segment.argv.iter().cloned())
         .collect();
-    let brokkr = engine_executable();
-    let hands = hands_transport(sealed, &brokkr, chosen.workdir, input);
+    let (brokkr, reach) = (engine_executable(), sealed_reach(input));
+    let hands = hands_transport(sealed, (&brokkr, chosen.workdir), input, &reach);
     let built = edge.built.get().map_or(&[][..], Vec::as_slice);
     let server = hands.filter(|_| sealed_servers(sealed) == SealedServers::Hands);
     let servers = &sealed.isolation.servers;

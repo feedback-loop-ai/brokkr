@@ -49,7 +49,7 @@ use thiserror::Error;
 use super::exclusion::{compared, everywhere, staked, Comparison};
 use super::historical::recorded;
 use super::inventory::{inventory, Budget};
-use super::root::{locked, read, Root};
+use super::root::{locked, read, Commit, Root};
 use super::settlement::recovered;
 use super::{startup, Observed, PROTECTED_ROOT};
 use crate::bundle::ExecutableBody;
@@ -149,6 +149,8 @@ pub(in crate::engine) enum Unknown {
     Participant(PathBuf),
     #[error("the attempt's reservation could not be sealed")]
     Unsealed,
+    #[error("the attempt's reservation was committed, but its directory was not proven synced")]
+    Unsynced,
     #[error("the attempt's reservation no longer stands")]
     Lost,
     #[error("the attempt's reservation holds no proof that its owned processes settled")]
@@ -228,10 +230,15 @@ pub(super) struct Writer {
 /// each read-write bind) and its read-only and overlay bind sources, each
 /// as it resolves; every source hands binds apart (the worktree, a Git
 /// common directory outside it, each bind) as authored, unresolved (R1);
-/// and its sealed resolution ([`Source`]); or everything its user can,
-/// outside one. The authored sources are kept so a source a managed writer
-/// could replace with a symlink before its box is rebuilt is refused at
-/// admission.
+/// and the reach its every box is built from, sealed ([`hands::Sealed`]:
+/// the worktree, its Git directory and Git common directory as Git names
+/// them, and each bind's source, each by canonical path and by device and
+/// inode; operator ruling 2026-10-18, after U8a2a's third run); or
+/// everything its user can, outside one. The authored sources are kept so
+/// a source a managed writer could replace with a symlink before its box
+/// is rebuilt is refused at admission. The dispatch door observes the
+/// sealed reach again before every spawn ([`recheck`]), and hands before
+/// every box (U8a2c).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub(super) enum Reach {
@@ -239,23 +246,9 @@ pub(super) enum Reach {
         writable: Vec<PathBuf>,
         readable: Vec<PathBuf>,
         sources: Vec<PathBuf>,
-        sealed: Vec<Source>,
+        sealed: Box<hands::Sealed>,
     },
     Unbounded,
-}
-
-/// One path a writer's box is built from, as admission resolved it
-/// (operator ruling 2026-10-18, after U8a2a's third run): the worktree, its
-/// Git directory and Git common directory as Git names them, and each
-/// bind's source, in that order, each by canonical path and by device and
-/// inode; no identity where it does not resolve. The dispatch door
-/// observes them again before every spawn ([`recheck`]); U8a2c builds
-/// every box from them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Source {
-    pub(super) path: PathBuf,
-    pub(super) identity: Option<(u64, u64)>,
 }
 
 impl Reservation {
@@ -289,11 +282,23 @@ pub(super) struct Claim {
 
 /// What each boxed writer's reach is rebuilt from at the door (R1): the
 /// HOME a bind's `~/` named, and each boxed writer's authored hands beside
-/// the reach admission sealed from them.
+/// the reach admission sealed from them, which the engine builds every box
+/// of those hands from (U8a2c).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct Authored {
+pub(in crate::engine) struct Authored {
     pub(super) home: PathBuf,
     pub(super) boxes: Vec<(HandsSpec, Reach)>,
+}
+
+impl Authored {
+    /// The reach sealed for a box of the hands `spec`; none where admission
+    /// sealed none for them, and so no box of them is built.
+    pub(in crate::engine) fn sealed(&self, spec: &HandsSpec) -> Option<&hands::Sealed> {
+        self.boxes.iter().find_map(|(authored, reach)| match reach {
+            Reach::Boxed { sealed, .. } if authored == spec => Some(&**sealed),
+            Reach::Boxed { .. } | Reach::Unbounded => None,
+        })
+    }
 }
 
 impl Claim {
@@ -307,8 +312,10 @@ impl Claim {
 /// its release: the coordination root it stands in and where in it, the
 /// artifact root's identity as admitted where the attempt protects it,
 /// whether any driver it ran ended with its tree not proven over (#403),
-/// whether evidence was at stake when it was admitted, and what the door
-/// rebuilds its boxed writers' reach from.
+/// whether evidence was at stake when it was admitted, whether a seal of
+/// its reservation committed without its directory proven synced (R1 of
+/// U8a2a's fourth run, which fails its run under the fence rule), and what
+/// the door rebuilds its boxed writers' reach from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::engine) struct Held {
     pub(super) coordination: Arc<Root>,
@@ -318,6 +325,7 @@ pub(in crate::engine) struct Held {
     pub(super) root: Option<(PathBuf, (u64, u64))>,
     pub(super) unproven: bool,
     pub(super) staked: bool,
+    pub(super) unsynced: bool,
     pub(super) workdir: PathBuf,
     pub(super) authored: Authored,
 }
@@ -356,7 +364,9 @@ impl Engine {
     /// [`Engine::admit`] under `coordination`, before `deadline`. A claim
     /// admitted under a lease holds it on the engine; one that proceeds
     /// holding none (C1) records that it took no reservation; one refused
-    /// fails the attempt before any driver starts.
+    /// fails the attempt before any driver starts. Either way the reach the
+    /// claim sealed for each boxed writer is the one every box of the
+    /// attempt is built from (U8a2c); a claim refused leaves none.
     pub(super) fn admit_in(
         &mut self,
         (home, root): Coordination<'_>,
@@ -365,10 +375,12 @@ impl Engine {
         selection: &Selection,
         deadline: Instant,
     ) -> Result<bool, EngineError> {
+        self.reach = Authored::default();
         let claim = match self.claim(&home, [attempt, site], body, selection) {
             Ok(claim) => claim,
             Err(refusal) => return self.refuse_admission(effect, attempt, refusal),
         };
+        self.reach = claim.authored.clone();
         let admitted = match coordinated(root(), &claim) {
             Ok(Some(root)) => admit(&Arc::new(root), &claim, deadline),
             Ok(None) => return self.unreserved(),
@@ -458,7 +470,10 @@ impl Engine {
 
     /// Every site of `body` as a writer: boxed to its hands' writable reach
     /// where its label holds hands under `namespace`, otherwise unbounded;
-    /// and each boxed writer's authored hands beside its reach.
+    /// and each boxed writer's authored hands beside its reach. A member or
+    /// a step is composed from its site's own hands, which the ship phase's
+    /// journal bind widens here, so those are sealed beside them too: every
+    /// box the attempt composes is built from a reach sealed here (U8a2c).
     fn writers(
         &self,
         home: &Path,
@@ -473,6 +488,10 @@ impl Engine {
             let label = site_label(site, &at);
             let reach = match self.runtime_hands(&label).filter(|_| boxed) {
                 Some(spec) => {
+                    if let Some(own) = self.hands_for(&label).filter(|own| *own != spec) {
+                        let sealed = boxed_reach(&own, home, workdir, &git);
+                        boxes.push((own, sealed));
+                    }
                     let reach = boxed_reach(&spec, home, workdir, &git);
                     boxes.push((spec, reach.clone()));
                     reach
@@ -487,7 +506,7 @@ impl Engine {
 
 /// The reach of a box of the authored hands `spec`, as hands builds it
 /// from them now ([`super::reach`]), the sources it binds apart, as
-/// authored, and every path it is built from, sealed ([`Source`]). Hands
+/// authored, and every path it is built from, sealed ([`hands::seal`]). Hands
 /// binds the Git common directory apart, read-write, only where it lies
 /// outside the worktree, so it is then a writable root of its own; inside
 /// it, it is the worktree's own, not a source the box is rebuilt from, so
@@ -512,26 +531,13 @@ pub(super) fn boxed_reach(
         .map(|bind| super::spelled(&bind.path, home));
     let sources = std::iter::once(workdir.to_path_buf())
         .chain(apart)
-        .chain(binds.clone());
-    let git = git.git_dir.iter().chain(&git.common_dir).cloned();
-    let sealed = std::iter::once(workdir.to_path_buf())
-        .chain(git)
         .chain(binds);
     Reach::Boxed {
         writable: reach.writable,
         readable: reach.readable,
         sources: sources.collect(),
-        sealed: sealed.map(source).collect(),
+        sealed: Box::new(hands::seal(spec, home, workdir, git)),
     }
-}
-
-/// `path` as a box's sealed source: canonical where it resolves, and its
-/// device and inode where it stands.
-fn source(path: PathBuf) -> Source {
-    let path = super::resolved(path);
-    let found = std::fs::metadata(&path).ok();
-    let identity = found.map(|found| (found.dev(), found.ino()));
-    Source { path, identity }
 }
 
 /// C1 (operator ruling 2026-10-18): the coordination root `root` resolved
@@ -600,7 +606,7 @@ pub(super) fn admit_with(
     let _lock = locked(root.dir(), deadline)?;
     let mut budget = Budget::new(deadline);
     let found = inventory(root.dir(), root.path(), &mut budget)?;
-    let standing = recovered(root, found.standing, &claim.reserved.writers, &budget)?;
+    let (standing, mut commit) = recovered(root, found.standing, &claim.reserved.writers, &budget)?;
     let comparison = Comparison {
         claim,
         standing: &standing,
@@ -615,9 +621,9 @@ pub(super) fn admit_with(
         Protects::Nothing => None,
     };
     if claim.protects() & !found.historical.contains(&claim.artifacts) {
-        recorded(root, claim, &budget)?;
+        commit = commit.and(recorded(root, claim, &budget)?);
     }
-    sealed(root, &joined(claim, standing), &budget)?;
+    commit = commit.and(sealed(root, &joined(claim, standing), &budget)?);
     Ok(Held {
         coordination: Arc::clone(root),
         repo: claim.repo.clone(),
@@ -626,6 +632,7 @@ pub(super) fn admit_with(
         root: artifacts,
         unproven: false,
         staked,
+        unsynced: commit == Commit::Unsynced,
         workdir: claim.workdir.clone(),
         authored: claim.authored.clone(),
     })
@@ -664,12 +671,13 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
     let ours = (standing.repo == held.repo) & (standing.run == held.run);
     let ours = ours & standing.attempts.contains_key(&held.attempt);
     ours.then_some(()).ok_or(Unknown::Lost)?;
-    // Hands builds every box from what it resolves at that call, so a path
-    // that resolves elsewhere now than when it was sealed — a bind source
-    // swapped, the worktree's Git pointer or `commondir` rewritten — was
-    // redirected since admission; refused, as the comparison's refusals
-    // are, where the fence or the evidence at stake asks it. Holding a
-    // later call of one running driver to the sealed reach is U8a2c's.
+    // Hands builds every box from the reach sealed, and refuses one that
+    // no longer resolves as sealed (U8a2c); a path that resolves elsewhere
+    // now than when it was sealed — a bind source swapped, the worktree's
+    // Git pointer or `commondir` rewritten — was redirected since
+    // admission, and the door refuses it before the driver too, as the
+    // comparison's refusals are, where the fence or the evidence at stake
+    // asks it.
     if let Some(moved) = redirected(held).filter(|_| everywhere() | held.staked) {
         return Err(Conflict::Redirected(moved).into());
     }
@@ -683,23 +691,15 @@ pub(in crate::engine) fn recheck(held: &Held) -> Result<(), Unadmitted> {
     Ok(())
 }
 
-/// The first path of `held`'s boxed writers' sealed sources that, observed
-/// again from their authored hands and from Git, no longer resolves as
-/// sealed: the one sealed in its place, or, where only one of the two
-/// names a path there, that path; none where every one resolves as sealed.
+/// The first path of `held`'s boxed writers' sealed reach that, observed
+/// again as hands observes it before every box ([`hands::drifted`]), no
+/// longer resolves as sealed; a box held with none sealed is redirected by
+/// its worktree, for what was never sealed never rechecks clean; none
+/// where every one resolves as sealed.
 fn redirected(held: &Held) -> Option<PathBuf> {
-    let authored = &held.authored;
-    let git = (!authored.boxes.is_empty()).then(|| hands::git_facts(&held.workdir))?;
-    let sealed = |reach: &Reach| match reach {
-        Reach::Boxed { sealed, .. } => sealed.clone(),
-        Reach::Unbounded => Vec::new(),
-    };
-    authored.boxes.iter().find_map(|(spec, was)| {
-        let now = sealed(&boxed_reach(spec, &authored.home, &held.workdir, &git));
-        let was = sealed(was);
-        let at = (0..was.len().max(now.len())).find(|&at| was.get(at) != now.get(at))?;
-        let moved = was.get(at).or(now.get(at));
-        moved.map(|source| source.path.clone())
+    (held.authored.boxes.iter()).find_map(|(spec, was)| match was {
+        Reach::Boxed { sealed, .. } => hands::drifted(sealed, spec, &held.workdir),
+        Reach::Unbounded => Some(held.workdir.clone()),
     })
 }
 
@@ -714,7 +714,7 @@ fn reserved_at(held: &Held) -> Result<(std::os::fd::OwnedFd, PathBuf), Unknown> 
 /// `deadline`: its attempt moved from its run's standing attempts to its
 /// settled ones, and the reservation sealed again, only where the
 /// reservation holds the attempt's positive settlement fact (M1).
-pub(super) fn release(held: &Held, deadline: Instant) -> Result<(), Unadmitted> {
+pub(super) fn release(held: &Held, deadline: Instant) -> Result<Commit, Unadmitted> {
     amend(held, deadline, |reservation| {
         settled(reservation, &held.attempt)
     })
@@ -727,13 +727,12 @@ pub(super) fn amend(
     held: &Held,
     deadline: Instant,
     amended: impl FnOnce(Reservation) -> Result<Reservation, Unknown>,
-) -> Result<(), Unadmitted> {
+) -> Result<Commit, Unadmitted> {
     let _lock = locked(held.coordination.dir(), deadline)?;
     let (run, at) = reserved_at(held)?;
     let reservation: Reservation = read(&run, RESERVATION, &at)?;
     let budget = Budget::new(deadline);
-    sealed(&held.coordination, &amended(reservation)?, &budget)?;
-    Ok(())
+    Ok(sealed(&held.coordination, &amended(reservation)?, &budget)?)
 }
 
 /// `reservation` with its standing attempt `attempt` settled, where its
@@ -771,7 +770,7 @@ pub(super) fn sealed(
     root: &Root,
     reservation: &Reservation,
     budget: &Budget,
-) -> Result<(), Unknown> {
+) -> Result<Commit, Unknown> {
     let run = root.below(&[reservation.repo.as_str(), reservation.run.as_str()])?;
     let bytes = serde_json::to_vec(reservation).or(Err(Unknown::Unsealed))?;
     root.seal(&run, RESERVATION, &bytes, budget)

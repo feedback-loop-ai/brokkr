@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 
 use super::plan::{Step, Transcripts, UserConfig, PROMPT};
 use super::ProbeError;
-use crate::hands::{mcp_config, serve_args, HandsSpec};
+use crate::hands::{git_facts, mcp_config, seal, serve_args, HandsSpec, Sealed};
 use crate::process::Launched;
 use crate::secret::bind_environment;
 use crate::secret::{mask_bytes, BoundSecret};
@@ -135,6 +135,9 @@ pub(crate) struct Scratch {
     /// The artifact root the hands server is handed, beside the repository
     /// and so outside the box's every mount (U8a).
     artifacts: PathBuf,
+    /// The reach the probe's boxes are built from, sealed as the world is
+    /// laid out: the probe admits nothing, so it seals its own (U8a2c).
+    sealed: Sealed,
     /// The spellings of the root a CLI may print, longest first, so a
     /// canonical `/private/var/…` is replaced before the `/var/…` inside it.
     spellings: Vec<String>,
@@ -163,11 +166,13 @@ impl Scratch {
         ];
         spellings.retain(|spelling| !spelling.is_empty());
         spellings.sort_by_key(|spelling| std::cmp::Reverse(spelling.len()));
+        let sealed = seal(&HandsSpec::default(), &home, &repo, &git_facts(&repo));
         Ok(Scratch {
             _root: root,
             home,
             repo,
             artifacts,
+            sealed,
             spellings,
         })
     }
@@ -234,10 +239,11 @@ impl Runner<'_> {
         let spec = HandsSpec::default();
         let repo = self.scratch.repo.to_string_lossy();
         let (work, artifacts) = (&self.scratch.repo, &self.scratch.artifacts);
-        let mcp_json = mcp_config(self.brokkr, work, artifacts, &spec).to_string();
+        let sealed = &self.scratch.sealed;
+        let mcp_json = mcp_config(self.brokkr, work, artifacts, sealed, &spec).to_string();
         // A JSON array of strings is a TOML inline array of basic strings.
         let args_toml =
-            serde_json::to_string(&serve_args(work, artifacts, &spec)).unwrap_or_default();
+            serde_json::to_string(&serve_args(work, artifacts, sealed, &spec)).unwrap_or_default();
         let brokkr = self.brokkr.to_string_lossy();
         template
             .iter()

@@ -43,7 +43,7 @@ fn document(brokkr: &str) -> String {
 /// capability and its plan digest's one repeated character.
 fn document_at(brokkr: &str, workdir: &str, brokers: &[(&str, char)]) -> String {
     let hands = format!(
-        r#"["hands","serve","--workdir","{workdir}","--artifacts","/a","--spec","{{\"binds\":[],\"kind\":\"workspace\",\"network\":false}}"]"#
+        r#"["hands","serve","--workdir","{workdir}","--artifacts","/a","--reach","{{\"home\":\"/h\",\"worktree\":{{\"path\":\"/w\",\"identity\":null}},\"git\":null,\"binds\":[]}}","--spec","{{\"binds\":[],\"kind\":\"workspace\",\"network\":false}}"]"#
     );
     let broker = |(name, digest): &(&str, char)| {
         format!(

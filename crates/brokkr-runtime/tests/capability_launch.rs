@@ -262,7 +262,7 @@ fn try_launch(bundle: &Bundle, label: &str, candidate: usize) -> Result<Vec<Stri
         bundle.hands.get(label),
         facts.chain.get(candidate),
         Path::new("/w"),
-        Path::new("/a"),
+        (Path::new("/a"), Some(&servers::REACH)),
         &[],
         "/w/result.json",
         None,
@@ -468,7 +468,7 @@ fn sealing_at(
         bundle.hands.get(label),
         link,
         Path::new(workdir),
-        Path::new("/a"),
+        (Path::new("/a"), Some(&servers::REACH)),
         &[],
         &format!("{workdir}/result.json"),
         None,
@@ -539,7 +539,7 @@ fn rejoin(bundle: &Bundle, label: &str, shim: &Path) -> Vec<String> {
         bundle.hands.get(label),
         facts.chain.first(),
         Path::new("/w"),
-        Path::new("/a"),
+        (Path::new("/a"), Some(&servers::REACH)),
         &[],
         "/w/result.json",
         None,
@@ -895,7 +895,7 @@ fn a_compiled_links_origins_reach_its_sealed_record_and_copied_bytes_stay_author
 
 /// The box's `hands serve` arguments at `/w` for a workspace hands with no
 /// binds and no network, as the fixtures declare it.
-const HANDS_SERVE: &str = r#"["hands","serve","--workdir","/w","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
+const HANDS_SERVE: &str = r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#;
 
 /// The shipped Codex adapter's `hands.workspace` fragment as the box serves
 /// it at `/w`: an independent literal, never production's own expansion
@@ -3011,7 +3011,7 @@ fn inline_codex_launching(
         None,
         None,
         Path::new("/w"),
-        Path::new("/a"),
+        (Path::new("/a"), Some(&servers::REACH)),
         &[],
         "/w/result.json",
         None,
@@ -11405,7 +11405,7 @@ fn a_restricted_grant_reaches_only_cq1s_outcomes_at_every_boxed_codex_site_shape
     let command = format!("mcp_servers.brokkr.command=\"{exe}\"");
     let args = format!(
         "mcp_servers.brokkr.args={}",
-        r#"["hands","serve","--workdir","/w","--artifacts","/a","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
+        r#"["hands","serve","--workdir","/w","--artifacts","/a","--reach","{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}","--spec","{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"]"#
     );
     let boxed = [
         "--sandbox",

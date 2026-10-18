@@ -11,6 +11,7 @@ mod evidence;
 mod launcher;
 #[cfg(target_os = "linux")]
 mod provision;
+mod sealed;
 mod server;
 #[cfg(target_os = "linux")]
 mod sources;
@@ -31,22 +32,101 @@ fn artifact_root(dir: &Path) -> PathBuf {
     root
 }
 
-/// The argv of a workspace box over `dir`: its workdir at `work`, its
-/// private tree and its session under `dir` (`box_argv` makes them), no
-/// git facts and no bundle — the skeleton most argv pins start from.
-/// #570 moved it here out of its second copy.
-fn workspace_argv(spec: &HandsSpec, work: &Path, dir: &Path) -> std::io::Result<Vec<String>> {
+/// The reach a box of `spec` in `work` is built from, sealed now under
+/// `home` as admission seals it, Git asked where its directories are
+/// (U8a2c).
+fn sealed(spec: &HandsSpec, work: &Path, home: &Path) -> Sealed {
+    seal(spec, home, work, &git_facts(work))
+}
+
+/// A canonical temporary root holding an existing worktree, `work`.
+fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let work = root.join("work");
+    std::fs::create_dir(&work).unwrap();
+    (dir, root, work)
+}
+
+/// The argv of a workspace box of `spec` over `work`, handed `artifacts`
+/// and built from `reach`, its private tree and its session under `dir`
+/// (`box_argv` makes them), no git identity and no bundle (U8a2c).
+fn boxed_from(
+    spec: &HandsSpec,
+    work: &Path,
+    artifacts: &Path,
+    reach: &Sealed,
+    dir: &Path,
+) -> std::io::Result<Vec<String>> {
+    // Bound first: Rust 1.88, the MSRV, does not extend a temporary's life
+    // into a struct literal.
+    let session = dir.join("session");
+    let writes = OverlayWrites::Session(&session);
+    let scratch = dir.join("scratch");
     box_argv(
         spec,
         work,
-        &artifact_root(dir),
-        &dir.join("home"),
-        &dir.join("scratch"),
-        OverlayWrites::Session(&dir.join("session")),
-        &GitFacts::default(),
+        artifacts,
+        reach,
+        &scratch,
+        writes,
+        &[],
         None,
         &one("true"),
     )
+}
+
+/// The argv of a workspace box over `dir`: its workdir at `work`, its
+/// reach sealed under `dir/home` ([`boxed_from`]) — the skeleton most argv
+/// pins start from. #570 moved it here out of its second copy.
+fn workspace_argv(spec: &HandsSpec, work: &Path, dir: &Path) -> std::io::Result<Vec<String>> {
+    let reach = sealed(spec, work, &dir.join("home"));
+    boxed_from(spec, work, &artifact_root(dir), &reach, dir)
+}
+
+/// `git` run with `args` in `repo`, which must succeed.
+fn git(repo: &Path, args: &[&str]) {
+    let ran = Command::new("git").args(args).current_dir(repo).output();
+    let ran = ran.unwrap();
+    assert!(
+        ran.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+}
+
+/// A repository at `repo` with one commit, made by an identity of its own.
+fn committed(repo: &Path) {
+    std::fs::create_dir_all(repo).unwrap();
+    git(repo, &["init", "-q"]);
+    std::fs::write(repo.join("file"), "base\n").unwrap();
+    git(repo, &["add", "file"]);
+    let who = [
+        "-c",
+        "user.name=Seat",
+        "-c",
+        "user.email=seat@example.invalid",
+    ];
+    git(
+        repo,
+        &[&who[..], &["commit", "-qm", "base", "--no-gpg-sign"]].concat(),
+    );
+}
+
+/// A repository at `main` with one commit, and a linked worktree of it,
+/// detached, at `linked`.
+fn linked_worktree(main: &Path, linked: &Path) {
+    committed(main);
+    git(
+        main,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            &linked.to_string_lossy(),
+        ],
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -184,15 +264,16 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
             {"path": "~/.npm", "mode": "overlay"}
         ]
     }));
-    let none = GitFacts::default();
-    // A box beside the engine's artifact root, its overlays in the session.
+    let none: &[(String, String)] = &[];
+    // A box beside the engine's artifact root, its overlays in the session,
+    // built from the reach sealed for it in its workdir as it stands.
     let build = |spec, workdir: &Path, scratch: &Path, git, bundle: Option<&Path>| {
         let writes = OverlayWrites::Session(&session);
         box_argv(
             spec,
             workdir,
             &artifacts,
-            &home,
+            &sealed(spec, workdir, &home),
             scratch,
             writes,
             git,
@@ -200,20 +281,29 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
             &one("true"),
         )
     };
-    let argv = build(&spec, &workdir, &scratch, &none, Some(&bundle)).unwrap();
+    let argv = build(&spec, &workdir, &scratch, none, Some(&bundle)).unwrap();
     let text = argv.join(" ");
     assert_eq!(argv[0], "bwrap");
     assert!(text.contains("--unshare-net"), "no network by default");
     assert!(text.contains("--clearenv"));
     assert!(text.contains("--setenv BROKKR_HANDS_BOX 1"));
     assert!(!text.contains("--bind / /"), "never the host root");
-    assert!(text.contains(&format!("--bind {w} {w}", w = workdir.display())));
+    // Each source is bound from the path sealed for it (U8a2c), canonical,
+    // at the path the box names it by: they differ where the temporary
+    // directory lies behind a link, as macOS's /var does.
+    let real = |path: &Path| std::fs::canonicalize(path).unwrap();
+    let w = workdir.display();
+    assert!(
+        text.contains(&format!("--bind {} {w}", real(&workdir).display())),
+        "{text}"
+    );
     assert!(text.contains(&format!("--ro-bind {} {SANDBOX_BUNDLE}", bundle.display())));
     let upper = session.join("overlay/0/upper");
     let work = session.join("overlay/0/work");
     assert!(
         text.contains(&format!(
-            "--overlay-src {c} --overlay {u} {k} {c}",
+            "--overlay-src {s} --overlay {u} {k} {c}",
+            s = real(&cargo).display(),
             c = cargo.display(),
             u = upper.display(),
             k = work.display()
@@ -232,6 +322,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         !text.contains("absent.toml"),
         "a mask over nothing binds nothing"
     );
+    // An absent source is bound as spelled, sealed with no identity.
     assert!(text.contains(&format!(
         "--ro-bind-try {r} {r}",
         r = home.join(".rustup").display()
@@ -252,38 +343,36 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
 
     // A primary checkout: the git dir sits inside the worktree, so it is
     // not bound again, but its hooks are hidden and its config read-only.
-    let inside = GitFacts {
-        git_dir: Some(workdir.join(".git")),
-        common_dir: Some(workdir.join(".git")),
-        identity: vec![("GIT_AUTHOR_NAME".into(), "Seat".into())],
-    };
-    let argv = build(&spec, &workdir, &scratch, &inside, None).unwrap();
+    let primary = dir.path().join("main");
+    committed(&primary);
+    let identity = [("GIT_AUTHOR_NAME".to_string(), "Seat".to_string())];
+    let argv = build(&spec, &primary, &scratch, &identity, None).unwrap();
     let text = argv.join(" ");
     assert!(!text.contains(&format!(
         "--bind {g} {g}",
-        g = workdir.join(".git").display()
+        g = primary.join(".git").display()
     )));
-    assert!(text.contains(&format!("--tmpfs {}", workdir.join(".git/hooks").display())));
+    assert!(text.contains(&format!("--tmpfs {}", primary.join(".git/hooks").display())));
     assert!(text.contains(&format!(
-        "--ro-bind-try {c} {c}",
-        c = workdir.join(".git/config").display()
+        "--ro-bind-try {s} {c}",
+        s = real(&primary).join(".git/config").display(),
+        c = primary.join(".git/config").display()
     )));
     assert!(text.contains("--setenv GIT_AUTHOR_NAME Seat"));
 
     // A `git worktree`: the common dir is elsewhere and must be bound.
-    let common = dir.path().join("main/.git");
-    let outside = GitFacts {
-        git_dir: Some(common.join("worktrees/wt")),
-        common_dir: Some(common.clone()),
-        identity: Vec::new(),
-    };
-    let argv = build(&spec, &workdir, &scratch, &outside, None).unwrap();
+    let (second, linked) = (dir.path().join("second"), dir.path().join("wt"));
+    linked_worktree(&second, &linked);
+    // Git names the common directory by its canonical path, as the
+    // worktree's own `.git` file records it, so the box binds it there.
+    let common = real(&second.join(".git"));
+    let argv = build(&spec, &linked, &scratch, none, None).unwrap();
     let text = argv.join(" ");
     assert!(text.contains(&format!("--bind {g} {g}", g = common.display())));
     assert!(text.contains(&format!("--tmpfs {}", common.join("hooks").display())));
 
     let open = spec_of(json!({"kind": "workspace", "network": true}));
-    let argv = build(&open, &workdir, &scratch, &none, None).unwrap();
+    let argv = build(&open, &workdir, &scratch, none, None).unwrap();
     assert!(!argv.iter().any(|part| part == "--unshare-net"));
 
     // A relative workdir is bound and entered at its absolute path — a
@@ -291,7 +380,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     // and shadow /runtime before the bundle mounts there — and the empty
     // path, which has no absolute form, is an error rather than a box
     // rooted nowhere.
-    let relative = build(&open, Path::new("."), &scratch, &none, None).unwrap();
+    let relative = build(&open, Path::new("."), &scratch, none, None).unwrap();
     let here = std::path::absolute(".").unwrap();
     let here = namespace_path(&here);
     let relative_text = relative.join(" ");
@@ -301,23 +390,23 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     );
     assert!(relative_text.contains(&format!("--chdir {here} --")));
     assert!(!relative.iter().any(|part| part == "."));
-    assert!(build(&open, Path::new(""), &scratch, &none, None).is_err());
+    assert!(build(&open, Path::new(""), &scratch, none, None).is_err());
 
     // A scratch that cannot be created is an error, never a half box;
     // and so is an overlay layer that cannot be made.
     let blocked = dir.path().join("file");
     std::fs::write(&blocked, "").unwrap();
-    assert!(build(&open, &workdir, &blocked.join("etc"), &none, None).is_err());
+    assert!(build(&open, &workdir, &blocked.join("etc"), none, None).is_err());
     let overlay_only =
         spec_of(json!({"kind": "workspace", "binds": [{"path": "/opt/x", "mode": "overlay"}]}));
     assert!(box_argv(
         &overlay_only,
         &workdir,
         &artifacts,
-        &home,
+        &sealed(&overlay_only, &workdir, &home),
         &scratch,
         OverlayWrites::Session(&blocked.join("session")),
-        &none,
+        none,
         None,
         &one("true")
     )
@@ -370,19 +459,18 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
     std::fs::create_dir_all(&cargo).unwrap();
     std::fs::write(cargo.join("credentials.toml"), "secret").unwrap();
     let (work, bundle) = (root.join("work"), root.join("bundle"));
+    // A linked worktree, its Git common directory outside it.
+    let (main, common) = (root.join("main"), root.join("main/.git"));
+    linked_worktree(&main, &work);
     let artifacts = artifact_root(&work.join(".forge"));
     let (scratch, session) = (root.join("scratch"), root.join("session"));
-    let common = root.join("main/.git");
-    let git = GitFacts {
-        git_dir: Some(common.join("worktrees/wt")),
-        common_dir: Some(common.clone()),
-        identity: vec![("GIT_AUTHOR_NAME".into(), "Seat".into())],
-    };
+    let git = [("GIT_AUTHOR_NAME".to_string(), "Seat".to_string())];
     let spec = spec_of(json!({"kind": "workspace", "binds": [
         {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml"]},
         {"path": "/opt/tools", "mode": "ro"},
         {"path": "/opt/pad", "mode": "rw"}
     ]}));
+    let reach = sealed(&spec, &work, &home);
     let (bwrap, record) = recording_bwrap(&root);
     let expected =
         |scratch: &Path, net: &str, bundle: &str, overlay: String, exec: &str, run: &str| {
@@ -438,7 +526,7 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
     // One call of the workspace tool: its session's overlays, no bundle.
     let timeout = Duration::from_secs(30);
     let called = execute_in(
-        &bwrap, &spec, &work, &artifacts, &home, &scratch, &session, &git, "true", timeout,
+        &bwrap, &spec, &work, &artifacts, &reach, &scratch, &session, &git, "true", timeout,
     );
     assert_eq!(called.unwrap().exit_code, 0);
     let run = "/bin/bash -lc true";
@@ -454,7 +542,7 @@ fn the_workspace_and_exec_argv_keep_their_exact_order_and_identity() {
         &exec_spec,
         &work,
         &artifacts,
-        &home,
+        &sealed(&exec_spec, &work, &home),
         &session,
         &git,
         Some(bundle.as_path()),
@@ -825,16 +913,26 @@ fn transport_errors_surface_instead_of_being_swallowed() {
 fn the_harness_config_names_this_binary_and_the_spec() {
     let spec = spec_of(json!({"kind": "workspace", "network": true}));
     let (work, artifacts) = (Path::new("/work"), Path::new("/state/artifacts"));
-    let config = mcp_config(Path::new("/usr/local/bin/brokkr"), work, artifacts, &spec);
+    let reach = seal(&spec, Path::new("/home"), work, &GitFacts::default());
+    let brokkr = Path::new("/usr/local/bin/brokkr");
+    let config = mcp_config(brokkr, work, artifacts, &reach, &spec);
     assert_eq!(
         config["mcpServers"][SERVER_NAME]["command"],
         "/usr/local/bin/brokkr"
     );
-    let args = serve_args(work, artifacts, &spec);
-    let carried = ["--workdir", "/work", "--artifacts", "/state/artifacts"];
-    assert_eq!(&args[..6], [&["hands", "serve"][..], &carried].concat());
+    let args = serve_args(work, artifacts, &reach, &spec);
+    let carried = [
+        "--workdir",
+        "/work",
+        "--artifacts",
+        "/state/artifacts",
+        "--reach",
+    ];
+    assert_eq!(&args[..7], [&["hands", "serve"][..], &carried].concat());
+    assert_eq!(serde_json::from_str::<Sealed>(&args[7]).unwrap(), reach);
+    assert_eq!(args[8], "--spec");
     assert_eq!(
-        HandsSpec::parse(&serde_json::from_str(&args[7]).unwrap()).unwrap(),
+        HandsSpec::parse(&serde_json::from_str(&args[9]).unwrap()).unwrap(),
         spec
     );
     assert_eq!(config["mcpServers"][SERVER_NAME]["args"], json!(args));
@@ -862,13 +960,15 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     std::fs::write(&host_secret, "never\n").unwrap();
     let spec = HandsSpec::default();
     let owner = Session::create_under(dir.path(), "test").unwrap();
-    let session = owner.path().to_path_buf();
-    let long = Duration::from_secs(30);
-    let artifacts = artifact_root(dir.path());
+    let (long, artifacts) = (Duration::from_secs(30), artifact_root(dir.path()));
     // The workspace tool over the worktree and session, beside the
-    // engine's artifact root.
+    // engine's artifact root, built from the reach sealed for it.
     let run = |spec: &HandsSpec, command: &str, timeout| {
-        execute(spec, &workdir, &artifacts, &session, command, timeout).unwrap()
+        let (reach, at) = (
+            sealed(spec, &workdir, &dir.path().join("home")),
+            owner.path(),
+        );
+        execute(spec, &workdir, &artifacts, &reach, at, command, timeout).unwrap()
     };
 
     let seen = run(&spec, "cat note.txt && echo $HOME && pwd", long);
@@ -927,16 +1027,16 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
     );
 
     // A bwrap that is not there, and a scratch that cannot be made.
-    let none = GitFacts::default();
+    let reach = sealed(&spec, &workdir, dir.path());
     let missing = execute_in(
         &dir.path().join("no-bwrap"),
         &spec,
         &workdir,
         &artifacts,
-        dir.path(),
+        &reach,
         &dir.path().join("scratch"),
-        &session,
-        &none,
+        owner.path(),
+        &[],
         "true",
         Duration::from_secs(1),
     )
@@ -949,10 +1049,10 @@ fn the_box_hides_the_host_and_holds_the_worktree() {
         &spec,
         &workdir,
         &artifacts,
-        dir.path(),
+        &reach,
         &file.join("scratch"),
-        &session,
-        &none,
+        owner.path(),
+        &[],
         "true",
         Duration::from_secs(1),
     )
@@ -974,16 +1074,17 @@ fn an_exec_box_writes_its_overlays_to_ram() {
     std::fs::write(tool.join("cargo"), "host\n").unwrap();
     let path = tool.to_string_lossy().into_owned();
     let spec = spec_of(json!({"kind": "workspace", "binds": [{"path": path, "mode": "overlay"}]}));
-    let (home, none) = (dir.path().join("home"), GitFacts::default());
+    let (home, none) = (dir.path().join("home"), &[]);
     let (scratch, artifacts) = (dir.path().join("scratch"), artifact_root(dir.path()));
+    let reach = sealed(&spec, &workdir, &home);
     let built = box_argv(
         &spec,
         &workdir,
         &artifacts,
-        &home,
+        &reach,
         &scratch,
         OverlayWrites::Ram,
-        &none,
+        none,
         None,
         &one("true"),
     );
@@ -992,9 +1093,13 @@ fn an_exec_box_writes_its_overlays_to_ram() {
         .iter()
         .position(|part| part == "--overlay-src")
         .unwrap();
+    // The overlay's source is the path sealed for it (U8a2c), canonical; it
+    // lands where the spec names it.
+    let source = std::fs::canonicalize(&tool).unwrap();
+    let source = source.to_string_lossy();
     assert_eq!(
         argv[at..at + 4],
-        ["--overlay-src", &path, "--tmp-overlay", &path]
+        ["--overlay-src", &*source, "--tmp-overlay", &path]
     );
     if !can_create_namespace() {
         skip_boundary_proof(
@@ -1008,7 +1113,7 @@ fn an_exec_box_writes_its_overlays_to_ram() {
     let command = ["/bin/sh".to_string(), "-c".to_string(), write];
     let bwrap = require_bwrap().unwrap();
     let ran = run_boxed_in(
-        &bwrap, &spec, &workdir, &artifacts, &home, &session, &none, None, &command,
+        &bwrap, &spec, &workdir, &artifacts, &reach, &session, none, None, &command,
     );
     assert_eq!(ran, Ok(0), "the box sees its own write");
     assert_eq!(
@@ -1077,13 +1182,12 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     std::fs::write(hooks.join("pre-commit"), "#!/bin/sh\nexit 0\n").unwrap();
 
     let facts = git_facts(&worktree);
-    assert_eq!(
-        facts.common_dir.as_deref(),
-        Some(main.join(".git").as_path())
-    );
+    // Git names the common directory by its canonical path.
+    let common = std::fs::canonicalize(main.join(".git")).unwrap();
+    assert_eq!(facts.common_dir.as_deref(), Some(common.as_path()));
     assert_eq!(
         facts.git_dir.as_deref(),
-        Some(main.join(".git/worktrees/wt").as_path()),
+        Some(common.join("worktrees/wt").as_path()),
         "the per-worktree directory is distinct from the shared one"
     );
     assert!(facts
@@ -1105,7 +1209,12 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     let owner = Session::create_under(dir.path(), "git").unwrap();
     let session = owner.path().to_path_buf();
     let (long, artifacts) = (Duration::from_secs(30), artifact_root(dir.path()));
-    let run = |command: &str| execute(&spec, &worktree, &artifacts, &session, command, long);
+    let reach = sealed(&spec, &worktree, dir.path());
+    let run = |command: &str| {
+        execute(
+            &spec, &worktree, &artifacts, &reach, &session, command, long,
+        )
+    };
     let status = run("git status --porcelain && echo ok").unwrap();
     assert_eq!(status.exit_code, 0, "{}", status.render());
     let committed = run(

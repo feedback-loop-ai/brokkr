@@ -9,6 +9,7 @@
 //! driven too, on a host a test stands in for its provisioning
 //! ([`stood_in`]).
 
+use brokkr_protocol::hands::SEALED_REACH;
 use brokkr_protocol::native_controls::{SealedBroker, SealedServers, SERVING_INPUTS};
 
 use super::*;
@@ -161,6 +162,9 @@ impl Claude {
     fn composed(&mut self, attempt: &str) -> SiteSpawn {
         let engine = &mut self.fixture.engine;
         let hands = engine.runtime_hands("work");
+        // Its reach sealed as its admission seals it (U8a2c).
+        let home = self.fixture.root.join("home");
+        (hands.iter()).for_each(|spec| engine.sealed_for(&home, spec));
         let seat = &engine.bundle.seats["work"].body;
         let SeatBody::Invocation(Invocation::Single { command, .. }) = seat else {
             panic!("the seat is single");
@@ -182,7 +186,14 @@ impl Claude {
     fn marked(&self, spawn: &mut SiteSpawn, brokers: &[SealedBroker]) -> Value {
         let mut input = json!({"context": {}});
         let engine = &self.fixture.engine;
-        engine.mark_serving("work", None, brokers, Some(spawn), &mut input);
+        let hands = engine.runtime_hands("work");
+        engine.mark_serving(
+            "work",
+            None,
+            (brokers, hands.as_ref()),
+            Some(spawn),
+            &mut input,
+        );
         input
     }
 
@@ -241,10 +252,12 @@ impl Claude {
             std::env::current_exe().unwrap(),
             self.fixture.engine.workdir(),
         );
-        // The root the engine made and wrote beside the sealed inputs (U8a).
+        // The root the engine made and wrote beside the sealed inputs (U8a),
+        // and the reach it sealed (U8a2c).
         let artifacts = PathBuf::from(input[controls::ARTIFACT_ROOT].as_str().unwrap());
         assert_eq!(artifacts, artifact_root(&self.fixture.engine.run_local()));
         assert!(artifacts.is_dir(), "made before launch");
+        let reach = serde_json::from_value(input[SEALED_REACH].clone()).unwrap();
         let SealedServers::Brokered(brokers) = &sealed.isolation.servers else {
             panic!("the seat is brokered");
         };
@@ -270,6 +283,7 @@ impl Claude {
                     brokkr: &brokkr,
                     workdir: &workdir,
                     artifacts: &artifacts,
+                    sealed: &reach,
                     spec,
                 }),
                 brokers,
@@ -325,13 +339,19 @@ fn cold(program: &str, document: &str) -> Vec<String> {
 
 /// The whole set's document at `workdir`, the box's hands and, beside them,
 /// `broker` on its own plan, both run by this test binary, written out by
-/// hand; `None` for the hands alone.
+/// hand; `None` for the hands alone. The hands carry the reach sealed for
+/// them under the fixture's HOME beside `workdir`, sealed here on its own
+/// (U8a2c).
 fn document(workdir: &Path, broker: Option<&SealedBroker>) -> String {
     let exe = std::env::current_exe().unwrap();
+    let home = workdir.parent().unwrap().join("home");
+    let git = brokkr_protocol::hands::git_facts(workdir);
+    let sealed = brokkr_protocol::hands::seal(&HandsSpec::default(), &home, workdir, &git);
+    let reach = serde_json::to_string(&serde_json::to_string(&sealed).unwrap()).unwrap();
     let (exe, workdir) = (exe.to_str().unwrap(), workdir.to_str().unwrap());
     let spec = r#"{\"binds\":[],\"kind\":\"workspace\",\"network\":false}"#;
     let hands = format!(
-        r#""brokkr":{{"args":["hands","serve","--workdir","{workdir}","--artifacts","{workdir}/.forge/artifacts","--spec","{spec}"],"command":"{exe}"}}"#
+        r#""brokkr":{{"args":["hands","serve","--workdir","{workdir}","--artifacts","{workdir}/.forge/artifacts","--reach",{reach},"--spec","{spec}"],"command":"{exe}"}}"#
     );
     let broker = broker.map_or_else(String::new, |broker| {
         format!(
@@ -667,6 +687,12 @@ fn each_panel_member_is_served_the_set_its_own_site_was_provisioned() {
         panic!("the seat is a panel");
     };
     let (meta, context) = (&input["members"], &input["context"]);
+    // Each member's reach sealed as its admission seals it (U8a2c).
+    let home = claude.fixture.root.join("home");
+    for label in ["work:docs", "work:plain"] {
+        let hands = claude.fixture.engine.hands_for(label).unwrap();
+        claude.fixture.engine.sealed_for(&home, &hands);
+    }
     let runs = (claude.fixture.engine).member_runs(
         "attempt-1",
         "work",
@@ -790,9 +816,15 @@ fn a_broker_set_that_is_not_the_provisioned_one_refuses_its_spawn() {
         spec: None,
         ..sealed.clone()
     };
-    for (serving, broker) in [(&sealed, &unbare), (&handless, &broker)] {
+    // U8a2c: and a spawn composed with no sealed reach.
+    let reach = serde_json::from_value(input[SEALED_REACH].clone()).unwrap();
+    for (serving, broker, reach) in [
+        (&sealed, &unbare, Some(&reach)),
+        (&handless, &broker, Some(&reach)),
+        (&sealed, &broker, None),
+    ] {
         let mut again = spawn.clone();
-        let worktree = (workdir.as_path(), Path::new("/a"));
+        let worktree = (workdir.as_path(), Path::new("/a"), reach);
         let expanded = beside(&mut again, serving, worktree, std::slice::from_ref(broker));
         assert_eq!(expanded, Err(Unsealed::Unexpanded));
         assert_eq!(again.argv, spawn.argv);

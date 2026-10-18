@@ -536,6 +536,9 @@ fn a_dialect_step_is_composed_and_marked_at_its_own_site() {
         plant(bundle.sites.get_mut("design:validate").unwrap());
         let store = Store::open(&root.join(format!("{index}.db"))).unwrap();
         let mut engine = Engine::start(store, bundle, "f", Some(root.clone())).unwrap();
+        // The step's reach sealed as its admission seals it (U8a2c).
+        let hands = engine.hands_for("design:validate").unwrap();
+        engine.sealed_for(&root.join("home"), &hands);
         let dispatch = json!({"feature": "f", "phase": "design", "workdir": root,
             "allowed_results": ["drafted", "fail"], "house_rules": "",
             "context": {"results": {"design": {"result": "drafted", "inputs": {"change": "c"}}}},

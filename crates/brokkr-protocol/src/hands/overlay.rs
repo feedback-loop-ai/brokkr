@@ -36,16 +36,18 @@ pub enum OverlayWrites<'a> {
     Ram,
 }
 
-/// The argv of the overlay bind at `index` over `host`, its writes where
-/// `writes` says. A session's layer is made before the box starts, and a
-/// layer that cannot be made is an error, never a writable bind.
+/// The argv of the overlay bind at `index` over `host`, its lower layer
+/// `lower`, the source sealed for it (U8a2c), and its writes where `writes`
+/// says. A session's layer is made before the box starts, and a layer that
+/// cannot be made is an error, never a writable bind.
 pub(super) fn overlay_argv(
+    lower: &Path,
     host: &Path,
     index: usize,
     writes: OverlayWrites<'_>,
 ) -> std::io::Result<Vec<String>> {
     let host_path = |path: &Path| path.to_string_lossy().into_owned();
-    let mut argv = vec!["--overlay-src".to_string(), host_path(host)];
+    let mut argv = vec!["--overlay-src".to_string(), host_path(lower)];
     match writes {
         OverlayWrites::Session(session) => {
             let layer = session.join("overlay").join(index.to_string());

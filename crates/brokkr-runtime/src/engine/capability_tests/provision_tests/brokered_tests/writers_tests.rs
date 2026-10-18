@@ -330,8 +330,11 @@ fn dispatched(claude: &mut Claude, case: &str, (spec, attack): (&HandsSpec, &str
     let work = std::fs::canonicalize(engine.workdir()).unwrap();
     let artifacts = crate::engine::boxed::artifact_root(&engine.run_local());
     let exec = ["brokkr", "driver", "exec", "--", "/bin/sh", "-c", attack].map(String::from);
-    let argv =
-        crate::engine::boxed::hands_command(exec.to_vec(), Some(spec), &work, &artifacts, &[]);
+    // Its reach sealed as its admission seals it, under the fixture's HOME.
+    let git = brokkr_protocol::hands::git_facts(&work);
+    let reach = brokkr_protocol::hands::seal(spec, &claude.fixture.root.join("home"), &work, &git);
+    let boxed = (artifacts.as_path(), Some(&reach));
+    let argv = crate::engine::boxed::hands_command(exec.to_vec(), Some(spec), &work, boxed, &[]);
     let repo = canonical::sha256_bytes(work.as_os_str().as_encoded_bytes());
     let home = claude
         .fixture
@@ -383,7 +386,9 @@ fn boxed_attacker() {
     let standing = reservation["attempts"]
         .as_object()
         .is_some_and(|map| !map.is_empty());
-    let ran = brokkr_protocol::hands::run_boxed(&spec, &work, &artifacts, None, &argv[inner..]);
+    let reach = serde_json::from_str(&flag("--reach")).unwrap();
+    let ran =
+        brokkr_protocol::hands::run_boxed(&spec, &work, &artifacts, &reach, None, &argv[inner..]);
     let mark = json!({"standing": standing, "ran": ran.is_ok()});
     std::fs::write(request.with_extension("ran"), mark.to_string()).unwrap();
 }

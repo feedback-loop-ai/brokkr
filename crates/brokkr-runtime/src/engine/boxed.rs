@@ -6,7 +6,8 @@
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
-use brokkr_protocol::hands::{HandsSpec, UNPROTECTED_EVIDENCE};
+use brokkr_protocol::broker::Refusal;
+use brokkr_protocol::hands::{HandsSpec, Sealed, UNPROTECTED_EVIDENCE};
 use brokkr_protocol::native_controls::Transport;
 use thiserror::Error;
 
@@ -19,6 +20,33 @@ const ARTIFACTS: &str = "artifacts";
 pub(super) fn artifact_root(run_local: &Path) -> PathBuf {
     let root = run_local.join(ARTIFACTS);
     std::path::absolute(&root).unwrap_or(root)
+}
+
+impl super::Engine {
+    /// The hands a single seat's box is built from, and every seat's reach
+    /// is reserved by: its site's own, and under `ship` the journal's
+    /// directory read-only where the journal lies outside the worktree.
+    /// Moved here from `engine.rs`, frozen at its baseline, by U8a2c.
+    pub(super) fn runtime_hands(&self, seat_name: &str) -> Option<HandsSpec> {
+        let mut spec = self.hands_for(seat_name)?;
+        let phase = seat_name
+            .split_once(':')
+            .map_or(seat_name, |(phase, _)| phase);
+        if phase == "ship" {
+            let workdir = std::fs::canonicalize(self.workdir()).unwrap_or_else(|_| self.workdir());
+            let journal =
+                std::fs::canonicalize(self.store.path()).unwrap_or(self.store.path().to_path_buf());
+            if !journal.starts_with(&workdir) {
+                let parent = journal.parent().unwrap_or(&journal);
+                spec.binds.push(brokkr_protocol::hands::Bind {
+                    path: parent.to_string_lossy().into_owned(),
+                    mode: brokkr_protocol::hands::BindMode::Ro,
+                    mask: Vec::new(),
+                });
+            }
+        }
+        Some(spec)
+    }
 }
 
 /// Why the engine cannot hand a box its artifact root, in the operator's
@@ -76,6 +104,15 @@ pub(crate) enum Unnamed {
     Artifacts(PathBuf),
     #[error("dispatch refused: the bundle root '{}' {LOSSY}", .0.display())]
     Bundle(PathBuf),
+    /// No reach was sealed for the box's hands at admission, or one that no
+    /// argument names exactly: MB3's identity cause, never a box built from
+    /// a reach derived again (U8a2c).
+    #[error(
+        "dispatch refused: {}: the box's reach was not sealed at admission, or is not UTF-8, so \
+         no box of these hands is built from it (U8a2c)",
+        Refusal::Identity
+    )]
+    Unsealed,
     /// `Transport::expand` names no other refusal for the box's hands
     /// alone; kept so one it adds later refuses rather than spawns.
     #[error("dispatch refused: the box's hands cannot be expanded into the seat's command")]
@@ -93,20 +130,23 @@ fn named(path: &Path, unnamed: fn(PathBuf) -> Unnamed) -> Result<&str, Unnamed> 
 /// harness spawns is `brokkr hands serve` on this very executable. An
 /// `exec` dispatch is boxed whole instead: `brokkr hands exec` builds the
 /// namespace at run time and passes the driver's stdio straight through.
-/// Either is handed `artifacts`, the run's artifact root (U8a). A site
-/// without hands gets its command back untouched.
+/// Either is handed `artifacts`, the run's artifact root (U8a), and
+/// `sealed`, the reach admission sealed for these hands, which every box
+/// of them is built from (U8a2c); a box with none refuses. A site without
+/// hands gets its command back untouched.
 ///
 /// Rebuild unit 14a2: a model seat's tokens are expanded by
 /// [`Transport::expand`], the one TOML-safe encoder the final check
 /// expects them from, so the spawn and the check cannot disagree on an
 /// escape. Before either argv is built, the executable, the workdir, the
-/// artifact root and an exec dispatch's bundle root must each be UTF-8,
-/// or the spawn refuses by the path that is not ([`Unnamed`]).
+/// artifact root, the sealed reach and an exec dispatch's bundle root must
+/// each be UTF-8, or the spawn refuses by the path that is not
+/// ([`Unnamed`]).
 pub(crate) fn hands_command(
     command: Vec<String>,
     hands: Option<&HandsSpec>,
     workdir: &Path,
-    artifacts: &Path,
+    (artifacts, sealed): (&Path, Option<&Sealed>),
     roots: &[PathBuf],
 ) -> Result<Vec<String>, Unnamed> {
     let Some(spec) = hands else {
@@ -116,6 +156,8 @@ pub(crate) fn hands_command(
     let exe = named(&brokkr, Unnamed::Executable)?;
     let work = named(workdir, Unnamed::Workdir)?;
     let evidence = named(artifacts, Unnamed::Artifacts)?;
+    let sealed = sealed.ok_or(Unnamed::Unsealed)?;
+    let reach = serde_json::to_string(sealed).or(Err(Unnamed::Unsealed))?;
     let is_exec = command.len() >= 3 && command[1] == "driver" && command[2] == "exec";
     if is_exec {
         let bundle_root = roots
@@ -143,7 +185,16 @@ pub(crate) fn hands_command(
             })
             .collect::<Vec<_>>();
         let spec = spec.to_value().to_string();
-        let verb = ["hands", "exec", "--workdir", work, "--artifacts", evidence];
+        let verb = [
+            "hands",
+            "exec",
+            "--workdir",
+            work,
+            "--artifacts",
+            evidence,
+            "--reach",
+            &reach,
+        ];
         let mut boxed: Vec<String> = std::iter::once(exe)
             .chain(verb)
             .chain(["--spec", &spec])
@@ -162,6 +213,7 @@ pub(crate) fn hands_command(
         brokkr: &brokkr,
         workdir,
         artifacts,
+        sealed,
         spec,
     }
     .expand(&command)

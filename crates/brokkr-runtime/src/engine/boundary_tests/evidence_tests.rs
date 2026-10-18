@@ -120,7 +120,7 @@ fn an_exec_seat_whose_artifact_root_is_not_utf8_refuses_before_any_argv() {
     assert_eq!(root.to_string_lossy(), decoy.to_str().unwrap());
     let seat = ["/usr/local/bin/brokkr", "driver", "exec", "--", "true"].map(String::from);
     let (seat, spec) = (seat.to_vec(), HandsSpec::default());
-    let refused = hands_command(seat.clone(), Some(&spec), &work, &root, &[]);
+    let refused = hands_command(seat.clone(), Some(&spec), &work, boxed(&root), &[]);
     assert_eq!(refused, Err(Unnamed::Artifacts(root.clone())));
     let lossy = "is not UTF-8, so no argument names it exactly and a lossy path would name \
                  another (rebuild unit 13-fix-c, R2; rebuild unit 14a2; U8a, H1)";
@@ -137,7 +137,7 @@ fn an_exec_seat_whose_artifact_root_is_not_utf8_refuses_before_any_argv() {
         Some(&spec),
         None,
         &work,
-        &root,
+        boxed(&root),
         &[],
         "",
         None,
@@ -145,7 +145,7 @@ fn an_exec_seat_whose_artifact_root_is_not_utf8_refuses_before_any_argv() {
     assert_eq!((spawn.argv, spawn.refusal), (seat.clone(), Some(text)));
     let bundle = base.join(std::ffi::OsStr::from_bytes(b"bundle\xff"));
     let roots = std::slice::from_ref(&bundle);
-    let refused = hands_command(seat, Some(&spec), &work, &decoy, roots);
+    let refused = hands_command(seat, Some(&spec), &work, boxed(&decoy), roots);
     assert_eq!(refused, Err(Unnamed::Bundle(bundle)));
     for (unnamed, text) in [
         (
@@ -197,10 +197,14 @@ fn a_zero_grant_exec_box_keeps_historical_evidence_without_an_authored_key() {
     let mut inner: Vec<String> = seat.map(String::from).to_vec();
     inner.push(tamper.clone());
     let spec = HandsSpec::default();
-    let argv = hands_command(inner, Some(&spec), &work, &artifacts, &[]).unwrap();
+    let home = dir.path().join("home");
+    let reach = brokkr_protocol::hands::seal(&spec, &home, &work, &GitFacts::default());
+    let carried = (artifacts.as_path(), Some(&reach));
+    let argv = hands_command(inner, Some(&spec), &work, carried, &[]).unwrap();
     let (work_arg, root_arg) = (work.display().to_string(), artifacts.display().to_string());
+    let reach_arg = serde_json::to_string(&reach).unwrap();
     assert_eq!(
-        argv[1..8],
+        argv[1..10],
         [
             "hands",
             "exec",
@@ -208,15 +212,17 @@ fn a_zero_grant_exec_box_keeps_historical_evidence_without_an_authored_key() {
             &work_arg,
             "--artifacts",
             &root_arg,
+            "--reach",
+            &reach_arg,
             "--spec"
         ]
     );
-    let authored: Value = serde_json::from_str(&argv[8]).unwrap();
+    let authored: Value = serde_json::from_str(&argv[10]).unwrap();
     assert_eq!(
         authored,
         json!({"kind": "workspace", "network": false, "binds": []})
     );
-    assert_eq!(argv[14..], ["/bin/sh", "-c", tamper.as_str()]);
+    assert_eq!(argv[16..], ["/bin/sh", "-c", tamper.as_str()]);
     let probe = require_bwrap().ok().filter(|bwrap| {
         Command::new(bwrap)
             .args(["--ro-bind", "/", "/", "--", "true"])
@@ -244,18 +250,20 @@ fn a_zero_grant_exec_box_keeps_historical_evidence_without_an_authored_key() {
     };
     let before = identities();
     let spec = HandsSpec::parse(&authored).unwrap();
-    let (home, session) = (dir.path().join("home"), dir.path().join("session"));
-    let none = GitFacts::default();
+    let session = dir.path().join("session");
+    // The box is built from the reach the argv carries, as `hands exec`
+    // builds it (U8a2c).
+    let sealed: brokkr_protocol::hands::Sealed = serde_json::from_str(&argv[8]).unwrap();
     let boxed = run_boxed_in(
         &bwrap,
         &spec,
         Path::new(&argv[4]),
         Path::new(&argv[6]),
-        &home,
+        &sealed,
         &session,
-        &none,
+        &[],
         None,
-        &argv[14..],
+        &argv[16..],
     );
     assert_eq!(boxed, Ok(0));
     assert_eq!(std::fs::read_to_string(work.join("made")).unwrap(), "w\n");

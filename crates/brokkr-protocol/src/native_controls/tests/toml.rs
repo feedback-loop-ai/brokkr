@@ -130,6 +130,7 @@ fn every_codex_transport_value_decodes_as_toml_to_exactly_itself() {
             brokkr: path,
             workdir: path,
             artifacts: path,
+            sealed: &REACH,
             spec: &SPEC,
         };
         let expanded = bound
@@ -145,7 +146,7 @@ fn every_codex_transport_value_decodes_as_toml_to_exactly_itself() {
             .expect("an arguments assignment");
         assert_eq!(
             toml_strings(arguments),
-            Some(crate::hands::serve_args(path, path, &SPEC)),
+            Some(crate::hands::serve_args(path, path, &REACH, &SPEC)),
             "{value:?}"
         );
     }
@@ -173,6 +174,12 @@ fn a_transport_path_that_is_not_utf8_binds_no_hands() {
     let unrepresentable = std::path::Path::new(std::ffi::OsStr::from_bytes(b"/opt/\xff/brokkr"));
     let boxed = codex_hands(&CODEX_HANDS);
     let cold = boxed.served(&CODEX_LEAD);
+    // U8a2c: a sealed reach naming such a path has no exact value either.
+    let (work, none) = (
+        std::path::Path::new("/w"),
+        crate::hands::GitFacts::default(),
+    );
+    let lossy = crate::hands::seal(&SPEC, unrepresentable, work, &none);
     for bound in [
         Transport {
             brokkr: unrepresentable,
@@ -184,6 +191,10 @@ fn a_transport_path_that_is_not_utf8_binds_no_hands() {
         },
         Transport {
             artifacts: unrepresentable,
+            ..transport()
+        },
+        Transport {
+            sealed: &lossy,
             ..transport()
         },
     ] {

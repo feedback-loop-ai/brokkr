@@ -9,11 +9,11 @@
 //! every later admission reads every one of them. Where admission relies
 //! on a root's evidence, every artifact it consults there,
 //! `sha256/<hex>`, is one regular file of one link whose bytes digest to
-//! its name, within D5's entry bound and the startup deadline, read in
-//! bounded chunks with the deadline checked between them, and no larger
-//! than MB3's bound per response and canonical artifact
-//! ([`ARTIFACT_BYTES_MAX`]), so hashing what was read is bounded too;
-//! anything else refuses with CR2's cause.
+//! its name, within D5's entry bound and the startup deadline, read and
+//! hashed in bounded chunks, the deadline checked once each chunk is
+//! hashed (R2 of U8a2a's fourth run, fixed by U8a2c), and no larger than
+//! MB3's bound per response and canonical artifact
+//! ([`ARTIFACT_BYTES_MAX`]); anything else refuses with CR2's cause.
 
 use std::io::Read;
 use std::os::fd::OwnedFd;
@@ -23,10 +23,11 @@ use std::path::{Path, PathBuf};
 use brokkr_core::canonical;
 use rustix::fs::{fstat, openat, FileType, Mode, OFlags, CWD};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::admission::{Claim, Conflict, Unadmitted, Unknown};
 use super::inventory::{hex, Budget};
-use super::root::Root;
+use super::root::{Commit, Root};
 
 /// MB3's bound of 8 MiB per response and canonical artifact, the largest
 /// any artifact retention publishes may be (M1 of run four's second
@@ -48,9 +49,11 @@ const DIGESTS: &str = "sha256";
 /// again (M2).
 const CHUNK: usize = 64 << 10;
 
-/// What each chunk read is handed before the deadline is checked again:
-/// nothing in production; a test's own, to spend the deadline there.
-pub(super) type Chunked<'c> = &'c dyn Fn();
+/// What each chunk is handed once it is hashed, before the deadline is
+/// checked again: the digest of the bytes hashed so far. Nothing in
+/// production; a test's own, to spend the deadline there or read what was
+/// hashed.
+pub(super) type Chunked<'c> = &'c dyn Fn(&Sha256);
 
 /// One historical root's record: the artifact root, as it resolved when
 /// it first protected evidence.
@@ -82,7 +85,7 @@ pub(super) fn named(file: &str) -> Option<&str> {
 
 /// `claim`'s artifact root recorded as historical in its worktree's
 /// directory below `root` ([`Root::seal`]), within `budget`'s deadline.
-pub(super) fn recorded(root: &Root, claim: &Claim, budget: &Budget) -> Result<(), Unknown> {
+pub(super) fn recorded(root: &Root, claim: &Claim, budget: &Budget) -> Result<Commit, Unknown> {
     let repo = root.below(&[&claim.repo])?;
     let record = Historical {
         artifacts: claim.artifacts.clone(),
@@ -96,7 +99,7 @@ pub(super) fn recorded(root: &Root, claim: &Claim, budget: &Budget) -> Result<()
 /// with CR2's cause by the first that is not, or that cannot be read, and
 /// with MB3's identity cause where the deadline passes first.
 pub(super) fn verified(root: &Path, budget: &mut Budget) -> Result<(), Unadmitted> {
-    verified_with(root, budget, &|| {})
+    verified_with(root, budget, &|_| {})
 }
 
 /// [`verified`], `chunked` handed each chunk read: the house `_with` seam
@@ -141,25 +144,26 @@ pub(super) fn regular(path: &Path) -> Option<OwnedFd> {
 
 /// Whether the artifact at `path` is one regular file of one link
 /// ([`regular`]) of at most [`ARTIFACT_BYTES_MAX`] whose bytes' sha256 is
-/// its name: read a chunk at a time, each chunk handed to `chunked` and the
-/// deadline of `budget` checked after it (M2), never past one byte over
-/// the bound, and what was read hashed once.
+/// its name: read and hashed a chunk at a time, the digest so far handed
+/// to `chunked` and the deadline of `budget` checked once each is hashed
+/// (M2; R2), never past one byte over the bound, nothing kept but the
+/// digest.
 fn digested(path: &Path, budget: &Budget, chunked: Chunked<'_>) -> Result<(), Undigested> {
     let name = path.file_name().and_then(|name| name.to_str());
     let name = name.filter(|name| hex(name)).ok_or(Undigested::Corrupt)?;
     let file = std::fs::File::from(regular(path).ok_or(Undigested::Corrupt)?);
     let mut file = file.take(ARTIFACT_BYTES_MAX + 1);
-    let (mut bytes, mut chunk) = (Vec::new(), vec![0; CHUNK]);
+    let (mut hasher, mut hashed, mut chunk) = (Sha256::new(), 0_u64, vec![0; CHUNK]);
     loop {
         let read = file.read(&mut chunk).or(Err(Undigested::Corrupt))?;
-        chunked();
+        hasher.update(&chunk[..read]);
+        hashed += read as u64;
+        chunked(&hasher);
         budget.check().or(Err(Undigested::Expired))?;
-        let Some(read) = chunk.get(..read).filter(|read| !read.is_empty()) else {
+        if read == 0 {
             break;
-        };
-        bytes.extend_from_slice(read);
+        }
     }
-    let within = bytes.len() as u64 <= ARTIFACT_BYTES_MAX;
-    let named = within & (canonical::sha256_bytes(&bytes) == name);
+    let named = (hashed <= ARTIFACT_BYTES_MAX) & (format!("{:x}", hasher.finalize()) == name);
     named.then_some(()).ok_or(Undigested::Corrupt)
 }

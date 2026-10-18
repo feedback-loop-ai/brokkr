@@ -33,15 +33,21 @@ use serde_json::{json, Map, Value};
 
 mod environment;
 mod evidence;
+mod git;
 mod namespace;
 mod overlay;
+mod sealed;
 mod session;
 use environment::box_environment;
 pub use evidence::UNPROTECTED_EVIDENCE;
+#[cfg(test)]
+use git::parse_git_dirs;
+use git::{git_dirs, git_identity};
+pub use git::{git_facts, GitFacts};
 #[rustfmt::skip] pub use namespace::{entry::ServerEntry, namespace_join, server_environment, ServerBox, ServerProfile, ServerProgram};
 use namespace::{namespace_path, Mount, Namespace, Profile};
-use overlay::overlay_argv;
 pub use overlay::{overlay_supported_with, OverlayWrites};
+pub use sealed::{drifted, seal, Sealed, SEALED_REACH};
 pub use session::{reap_dead_sessions, Reaped, Session, SessionError};
 
 /// The boxed tool Brokkr serves. Claude Code names it `mcp__brokkr__workspace`.
@@ -274,93 +280,6 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
     }
 }
 
-/// What the host knows about the worktree's git that the box must be
-/// told, gathered OUTSIDE the box before it is built (decision 0043
-/// ruling 6): where the two git directories are, and who the seat
-/// commits as.
-///
-/// A repository has two identities, and a linked `git worktree` makes
-/// the difference load-bearing: `--git-dir` names the per-worktree
-/// directory (the one holding this worktree's `index` and `HEAD`), while
-/// `--git-common-dir` names the shared one (the main checkout's `.git`,
-/// holding `objects`, `refs` and `config`). A primary checkout has one
-/// path for both.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct GitFacts {
-    /// The per-worktree git directory, absolute. Inside the worktree for
-    /// a primary checkout; under the shared `.git/worktrees/<name>` for
-    /// a linked worktree. `None` when the workdir is not a repository.
-    pub git_dir: Option<PathBuf>,
-    /// The shared git directory, absolute — the main checkout's `.git`
-    /// for a linked worktree. `None` when the workdir is not a repository.
-    pub common_dir: Option<PathBuf>,
-    /// `user.name` and `user.email` as the host resolves them, as the
-    /// environment entries git reads them from.
-    pub identity: Vec<(String, String)>,
-}
-
-/// Read the git facts from the host. Never errors: a workdir that is not
-/// a repository simply carries none, and the box then has no git to
-/// mask.
-pub fn git_facts(workdir: &Path) -> GitFacts {
-    let git = |args: &[&str]| -> Option<String> {
-        let out = Command::new("git")
-            .args(args)
-            .current_dir(workdir)
-            .output()
-            .ok()?;
-        out.status
-            .success()
-            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
-            .filter(|text| !text.is_empty())
-    };
-    let (git_dir, common_dir) = match Command::new("git")
-        .args([
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-dir",
-            "--git-common-dir",
-        ])
-        .current_dir(workdir)
-        .output()
-    {
-        Ok(out) if out.status.success() => parse_git_dirs(&String::from_utf8_lossy(&out.stdout)),
-        _ => (None, None),
-    };
-    let mut identity = Vec::new();
-    for (env, key) in [("NAME", "user.name"), ("EMAIL", "user.email")] {
-        if let Some(value) = git(&["config", key]) {
-            identity.push((format!("GIT_AUTHOR_{env}"), value.clone()));
-            identity.push((format!("GIT_COMMITTER_{env}"), value));
-        }
-    }
-    GitFacts {
-        git_dir,
-        common_dir,
-        identity,
-    }
-}
-
-/// The two git directories `git rev-parse --git-dir --git-common-dir`
-/// printed: one path per line, in the order asked, and no trim — a path
-/// may end in a space. A path that itself spans a line makes the output
-/// ambiguous, and an ambiguous git directory is no git directory: both
-/// stay `None` and the box has no git to bind.
-fn parse_git_dirs(reported: &str) -> (Option<PathBuf>, Option<PathBuf>) {
-    let mut lines = reported.lines();
-    match (lines.next(), lines.next(), lines.next()) {
-        (Some(git_dir), Some(common_dir), None)
-            if !git_dir.is_empty() && !common_dir.is_empty() =>
-        {
-            (
-                Some(PathBuf::from(git_dir)),
-                Some(PathBuf::from(common_dir)),
-            )
-        }
-        _ => (None, None),
-    }
-}
-
 /// The host toolchain every box binds read-only, at the same path, where it
 /// exists. The namespace builder iterates exactly this item for its
 /// `--ro-bind-try` system binds, a server box keeping of `/etc/ssl` only
@@ -405,18 +324,20 @@ pub const HOST_TOOLCHAIN_BINDS: &[&str] = &[
 /// engine's run-local artifact root, which the box never writes (U8a).
 /// `scratch` holds this call's generated identity files and private home
 /// and tmp; `writes` says where the upper layers of overlay binds live: a
-/// session's are the seat's to remove when it ends. The namespace, its
-/// toolchain and its identity are `namespace::Namespace`'s; the workspace's
-/// own mounts and environment are ordered here.
+/// session's are the seat's to remove when it ends. `sealed` is the reach
+/// the box is built from (U8a2c), its `~/` the sealed HOME; `identity` who
+/// the seat commits as. The namespace, its toolchain and its identity are
+/// `namespace::Namespace`'s; the workspace's own mounts and environment are
+/// ordered here.
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn box_argv(
     spec: &HandsSpec,
     workdir: &Path,
     artifacts: &Path,
-    home: &Path,
+    sealed: &Sealed,
     scratch: &Path,
     writes: OverlayWrites<'_>,
-    git: &GitFacts,
+    identity: &[(String, String)],
     bundle_root: Option<&Path>,
     command: &[String],
 ) -> std::io::Result<Vec<String>> {
@@ -437,6 +358,8 @@ pub fn box_argv(
     // U8a: the engine's own facts of the evidence, observed before any
     // mount and never authored; no writable mount may alias it.
     let mut protected = evidence::Protected::observe(artifacts, workdir)?;
+    // U8a2c: the reach sealed for the box, observed again before any mount.
+    sealed.confirm(spec, workdir)?;
     for private in [&private_home, &private_tmp] {
         protected.exclude(private)?;
     }
@@ -445,7 +368,8 @@ pub fn box_argv(
     // rather than hidden beneath it.
     namespace.mount(Mount::Bind, &private_home, SANDBOX_HOME);
     namespace.mount(Mount::Bind, &private_tmp, "/tmp");
-    namespace.mount_in_place(Mount::Bind, workdir);
+    let worktree = sealed.worktree();
+    namespace.mount(Mount::Bind, worktree, &namespace_path(workdir));
     if let Some(bundle_root) = bundle_root {
         let target = namespace_path(Path::new(SANDBOX_BUNDLE));
         namespace.mount(Mount::RoBind, bundle_root, &target);
@@ -479,53 +403,44 @@ pub fn box_argv(
     // 0054). Narrowing THIS write set the same way is a change under
     // decision 0043 and takes its own number — see 0054's consequences,
     // which record it rather than fixing it silently.
-    if let Some(common) = &git.common_dir {
-        if !common.starts_with(workdir) {
+    //
+    // U8a2c: both directories are the sealed reach's, never Git's answer
+    // now; one inside the worktree is where the box sees the worktree.
+    if let Some(common) = sealed.common() {
+        let inside = common
+            .strip_prefix(worktree)
+            .ok()
+            .map(|rest| workdir.join(rest));
+        if inside.is_none() {
             protected.exclude(common)?;
             namespace.mount_in_place(Mount::Bind, common);
         }
-        namespace.tmpfs(&namespace_join(&namespace_path(common), Path::new("hooks")));
-        namespace.mount_in_place(Mount::RoBindTry, &common.join("config"));
+        let seen = inside.unwrap_or_else(|| common.to_path_buf());
+        namespace.tmpfs(&namespace_join(&namespace_path(&seen), Path::new("hooks")));
+        let config = namespace_path(&seen.join("config"));
+        namespace.mount(Mount::RoBindTry, &common.join("config"), &config);
     }
     // U8a: each directory between the worktree and an artifact root it
     // holds is a mount of its own, so no write in the box renames it.
     for ancestor in protected.ancestors() {
         namespace.mount_in_place(Mount::Bind, ancestor);
     }
-    for (index, bind) in spec.binds.iter().enumerate() {
-        let host = expand_home(&bind.path, home);
-        if bind.mode != BindMode::Ro {
-            protected.exclude(&host)?;
-        }
-        match bind.mode {
-            BindMode::Ro => namespace.mount_in_place(Mount::RoBindTry, &host),
-            BindMode::Rw => namespace.mount_in_place(Mount::BindTry, &host),
-            BindMode::Overlay => namespace.overlay(overlay_argv(&host, index, writes)?),
-        }
-        for name in &bind.mask {
-            let masked = host.join(name);
-            // A mask over a file that is not there would make bwrap
-            // create it on the host to mount over; only what exists is
-            // hidden.
-            if masked.exists() {
-                let target = namespace_path(&masked);
-                namespace.mount(Mount::RoBind, Path::new("/dev/null"), &target);
-            }
-        }
-    }
+    sealed::mount_binds(&mut namespace, &mut protected, spec, sealed, writes)?;
     // U8a: a root the worktree holds read-only, after every writable
     // mount; one outside every writable mount is never mounted at all.
     if let Some(root) = protected.held() {
         namespace.mount_in_place(Mount::RoBind, root);
     }
-    for (key, value) in box_environment(spec, home) {
+    for (key, value) in box_environment(spec, sealed.home()) {
         namespace.setenv(key, &value);
     }
-    for (key, value) in &git.identity {
+    for (key, value) in identity {
         namespace.setenv(key, value);
     }
-    // U8a (L1): what was observed is observed again as the argv is final.
+    // U8a (L1), U8a2c: what was observed is observed again as the argv is
+    // final, the evidence and the sealed reach alike.
     protected.confirm()?;
+    sealed.confirm(spec, workdir)?;
     Ok(namespace.enter(workdir, command))
 }
 
@@ -750,7 +665,8 @@ pub fn io_context<T>(result: std::io::Result<T>, doing: &str) -> Result<T, Strin
 
 /// The executor the server calls per tool invocation, with the spec, the
 /// workdir, the artifact root and the session: production hands it
-/// [`execute`]; a test hands it a stub.
+/// [`execute`] over the reach the server was sealed (U8a2c); a test hands
+/// it a stub.
 pub type Executor =
     dyn Fn(&HandsSpec, &Path, &Path, &Path, &str, Duration) -> Result<Executed, String>;
 
@@ -812,23 +728,23 @@ fn rendered(bytes: &[u8], truncated: bool) -> String {
 }
 
 /// Run one `bash -lc <command>` inside the box, bounded in time and
-/// output. This call's scratch is removed afterwards; `session` is the
-/// caller's.
+/// output, built from the reach `sealed` (U8a2c). This call's scratch is
+/// removed afterwards; `session` is the caller's.
 pub fn execute(
     spec: &HandsSpec,
     workdir: &Path,
     artifacts: &Path,
+    sealed: &Sealed,
     session: &Path,
     command: &str,
     timeout: Duration,
 ) -> Result<Executed, String> {
     let bwrap = require_bwrap_for(spec)?;
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let scratch = session.join(format!("call-{}", uuid::Uuid::new_v4()));
     io_context(std::fs::create_dir_all(&scratch), "scratch")?;
-    let git = git_facts(workdir);
+    let identity = git_identity(workdir);
     let result = execute_in(
-        &bwrap, spec, workdir, artifacts, &home, &scratch, session, &git, command, timeout,
+        &bwrap, spec, workdir, artifacts, sealed, &scratch, session, &identity, command, timeout,
     );
     let _ = std::fs::remove_dir_all(&scratch);
     result
@@ -840,10 +756,10 @@ pub fn execute_in(
     spec: &HandsSpec,
     workdir: &Path,
     artifacts: &Path,
-    home: &Path,
+    sealed: &Sealed,
     scratch: &Path,
     session: &Path,
-    git: &GitFacts,
+    identity: &[(String, String)],
     command: &str,
     timeout: Duration,
 ) -> Result<Executed, String> {
@@ -854,7 +770,7 @@ pub fn execute_in(
     ];
     let writes = OverlayWrites::Session(session);
     let built = box_argv(
-        spec, workdir, artifacts, home, scratch, writes, git, None, &inner,
+        spec, workdir, artifacts, sealed, scratch, writes, identity, None, &inner,
     );
     let argv = io_context(built, "namespace")?;
     let spawned = Command::new(bwrap)
@@ -901,60 +817,64 @@ pub fn execute_in(
 /// binary is bound read-only so the command may be a `brokkr driver …`
 /// dispatch. Returns the child's exit code. The box is single-shot, so
 /// its overlay binds write to RAM (`OverlayWrites::Ram`) and its session
-/// holds only the call's scratch (#504).
+/// holds only the call's scratch (#504). It is built from the reach
+/// `sealed` (U8a2c).
 pub fn run_boxed(
     spec: &HandsSpec,
     workdir: &Path,
     artifacts: &Path,
+    sealed: &Sealed,
     bundle_root: Option<&Path>,
     command: &[String],
 ) -> Result<i32, String> {
     let bwrap = require_bwrap_for(spec)?;
-    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
     let session = Session::create("exec")?;
-    let git = git_facts(workdir);
+    let identity = git_identity(workdir);
     run_boxed_in(
         &bwrap,
         spec,
         workdir,
         artifacts,
-        &home,
+        sealed,
         session.path(),
-        &git,
+        &identity,
         bundle_root,
         command,
     )
 }
 
+/// [`run_boxed`] under `bwrap` in `session`. The engine's own executable is
+/// sealed beside the writer's reach as the box is built, for it is no
+/// writer's reach ([`Sealed::beside`]).
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn run_boxed_in(
     bwrap: &Path,
     spec: &HandsSpec,
     workdir: &Path,
     artifacts: &Path,
-    home: &Path,
+    sealed: &Sealed,
     session: &Path,
-    git: &GitFacts,
+    identity: &[(String, String)],
     bundle_root: Option<&Path>,
     command: &[String],
 ) -> Result<i32, String> {
+    let exe = std::env::current_exe().ok();
+    let sealed = exe.iter().fold(sealed.clone(), |at, exe| at.beside(exe));
     let mut with_self = spec.clone();
-    with_self
-        .binds
-        .extend(std::env::current_exe().ok().map(|exe| Bind {
-            path: exe.to_string_lossy().into_owned(),
-            mode: BindMode::Ro,
-            mask: Vec::new(),
-        }));
+    with_self.binds.extend(exe.iter().map(|exe| Bind {
+        path: exe.to_string_lossy().into_owned(),
+        mode: BindMode::Ro,
+        mask: Vec::new(),
+    }));
     let scratch = session.join("call");
     let built = box_argv(
         &with_self,
         workdir,
         artifacts,
-        home,
+        &sealed,
         &scratch,
         OverlayWrites::Ram,
-        git,
+        identity,
         bundle_root,
         command,
     );
@@ -995,18 +915,31 @@ pub fn tool_definition() -> Value {
 /// The MCP config a harness is handed to reach this server alone: one
 /// entry, `brokkr`, running this very binary, as the engine's one MCP
 /// builder writes it (decision 0065 slice two, U7a).
-pub fn mcp_config(brokkr: &Path, workdir: &Path, artifacts: &Path, spec: &HandsSpec) -> Value {
+pub fn mcp_config(
+    brokkr: &Path,
+    workdir: &Path,
+    artifacts: &Path,
+    sealed: &Sealed,
+    spec: &HandsSpec,
+) -> Value {
     let transport = crate::native_controls::Transport {
         brokkr,
         workdir,
         artifacts,
+        sealed,
         spec,
     };
     transport.document()
 }
 
-/// The `brokkr hands serve …` argument vector a harness spawns.
-pub fn serve_args(workdir: &Path, artifacts: &Path, spec: &HandsSpec) -> Vec<String> {
+/// The `brokkr hands serve …` argument vector a harness spawns. A sealed
+/// reach that is not UTF-8 is carried empty, which no hands server reads.
+pub fn serve_args(
+    workdir: &Path,
+    artifacts: &Path,
+    sealed: &Sealed,
+    spec: &HandsSpec,
+) -> Vec<String> {
     vec![
         "hands".to_string(),
         "serve".to_string(),
@@ -1014,6 +947,8 @@ pub fn serve_args(workdir: &Path, artifacts: &Path, spec: &HandsSpec) -> Vec<Str
         workdir.to_string_lossy().into_owned(),
         "--artifacts".to_string(),
         artifacts.to_string_lossy().into_owned(),
+        "--reach".to_string(),
+        serde_json::to_string(sealed).unwrap_or_default(),
         "--spec".to_string(),
         spec.to_value().to_string(),
     ]
