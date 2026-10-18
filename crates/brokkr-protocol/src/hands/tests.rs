@@ -58,7 +58,10 @@ fn boxed_from(
     reach: &Sealed,
     dir: &Path,
 ) -> std::io::Result<Vec<String>> {
-    let writes = OverlayWrites::Session(&dir.join("session"));
+    // Bound first: Rust 1.88, the MSRV, does not extend a temporary's life
+    // into a struct literal.
+    let session = dir.join("session");
+    let writes = OverlayWrites::Session(&session);
     let scratch = dir.join("scratch");
     box_argv(
         spec,
