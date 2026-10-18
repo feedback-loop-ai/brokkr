@@ -249,6 +249,7 @@ pub(crate) fn runs(workspace: &Path, RunsArgs { realms, db, json }: RunsArgs) ->
         .next()
         .expect("a world resolves to at least one hearth")
         .journal;
+    let before = fleet::Journal::at(&db);
     let store = open_journal(&db, Access::Read)?;
     // A fleet listing survives one corrupt journal: that run
     // becomes a quarantined row carrying the refusal's own words,
@@ -258,7 +259,7 @@ pub(crate) fn runs(workspace: &Path, RunsArgs { realms, db, json }: RunsArgs) ->
     // once it is folded, rather than every run's held at once.
     let mut fleet = fleet::KeptFleet::default();
     fleet
-        .refresh(&store)
+        .refresh(&store, before)
         .map_err(|error| anyhow::Error::msg(error.to_string()))?;
     let view = brokkr_view::run_rows(&fleet.entries());
     if json {

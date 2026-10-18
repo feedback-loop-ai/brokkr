@@ -11,7 +11,7 @@ use brokkr_store::{Attribution, Store};
 use serde_json::{json, Value};
 
 use super::kept::rules;
-use super::{read_hearth, read_journal, read_kept, KeptFleet, ListedRun};
+use super::{read_hearth, read_journal, read_kept, Journal, KeptFleet, ListedRun};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{broken_chain_store, poisoned_store, running_store};
 
@@ -32,7 +32,9 @@ fn kept_rows(kept: &KeptFleet) -> String {
 /// One refresh of `kept` over a fresh read-only connection, as the
 /// console opens one each refresh: how many events it read.
 fn refreshed(kept: &mut KeptFleet, db: &Path) -> usize {
-    kept.refresh(&Store::open_read_only(db).unwrap()).unwrap()
+    let before = Journal::at(db);
+    kept.refresh(&Store::open_read_only(db).unwrap(), before)
+        .unwrap()
 }
 
 /// Append `event_type` with `payload` to `run_id` as the engine would.
@@ -385,28 +387,105 @@ pub(crate) const FIRST_EVENT_GONE: &str = "chain: event 2: seq is not contiguous
 /// `run_id`'s first event gone and every other row as it was: the run's
 /// head, seq and hash both, is still the copy's. Where the copy is.
 pub(crate) fn without_its_first_event(db: &Path, run_id: &str) -> std::path::PathBuf {
+    copied_past(
+        db,
+        "events_append_only_delete",
+        &format!("DELETE FROM events WHERE run_id = '{run_id}' AND seq = 1"),
+    )
+}
+
+/// What the whole read says of a run whose first event was rewritten.
+const FIRST_EVENT_REWRITTEN: &str = "chain: event 1: event_hash does not match canonical content";
+
+/// [`without_its_first_event`], with the first event's time rewritten
+/// rather than its row gone: every row count, and the head, as they were.
+fn with_its_first_event_rewritten(db: &Path, run_id: &str) -> std::path::PathBuf {
+    copied_past(
+        db,
+        "events_append_only_update",
+        &format!(
+            "UPDATE events SET envelope =
+                 json_set(envelope, '$.recorded_at', '2000-01-01T00:00:00Z')
+             WHERE run_id = '{run_id}' AND seq = 1"
+        ),
+    )
+}
+
+/// `db`'s journal copied beside it, with `trigger` dropped and `change`
+/// made to exactly one row of the copy. Where the copy is.
+fn copied_past(db: &Path, trigger: &str, change: &str) -> std::path::PathBuf {
     let copy = db.with_extension("copy");
     std::fs::copy(db, &copy).unwrap();
     let journal = rusqlite::Connection::open(&copy).unwrap();
     journal
-        .execute_batch("DROP TRIGGER events_append_only_delete")
+        .execute_batch(&format!("DROP TRIGGER {trigger}"))
         .unwrap();
-    let delete = "DELETE FROM events WHERE run_id = ?1 AND seq = 1";
-    assert_eq!(journal.execute(delete, [run_id]).unwrap(), 1);
+    assert_eq!(journal.execute(change, []).unwrap(), 1);
     copy
 }
 
-/// A journal replaced beneath the reader by one that lost a run's first
-/// event and kept its head is read whole, and the run shown quarantined
-/// as the whole read shows it — moved into place, a new inode of the same
-/// length, or copied over the old file in place, the same inode grown
-/// shorter. The suffix read alone confirms the head and carries the run
-/// on with nothing read: a `refresh` that ignores the journal's identity
-/// shows it folded at seq 2, and one that ignores its length does so for
-/// the copy.
+/// How a damaged journal is put where the reader's was.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Swap {
+    /// Moved into place: a new inode of the same length.
+    Moved,
+    /// Vacuumed, and copied over the old file in place: the same inode,
+    /// grown shorter.
+    Shorter,
+    /// Copied over the old file in place unvacuumed, which keeps its
+    /// length, and its modification time put back as `cp -p` puts it:
+    /// the same inode, the same length and the same modification time,
+    /// only the change time moved.
+    InPlace,
+}
+
+/// Put `copy` where `db` is, as `swap` says.
+pub(crate) fn swapped_in(copy: &Path, db: &Path, swap: Swap) {
+    if swap == Swap::Shorter {
+        let journal = rusqlite::Connection::open(copy).unwrap();
+        journal.execute_batch("VACUUM").unwrap();
+    }
+    let modified = std::fs::metadata(db).unwrap().modified().unwrap();
+    // A coarse file clock (a kernel without fine-grained timestamps)
+    // stamps writes up to a tick apart, and ticks are at most 10 ms: the
+    // copy waits out two, so its change time is not its predecessor's.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    match swap {
+        Swap::Moved => std::fs::rename(copy, db).unwrap(),
+        Swap::Shorter => drop(std::fs::copy(copy, db).unwrap()),
+        Swap::InPlace => {
+            std::fs::copy(copy, db).unwrap();
+            let file = std::fs::File::options().write(true).open(db).unwrap();
+            file.set_modified(modified).unwrap();
+        }
+    }
+}
+
+/// A journal replaced beneath the reader by one that kept a run's head
+/// and lost its first event, or had it rewritten, is read whole, and the
+/// run shown quarantined as the whole read shows it, whichever way it was
+/// put in place ([`Swap`]). The suffix read alone confirms the head and
+/// carries the run on with nothing read, showing it folded at seq 2: so
+/// does a `refresh` that skips the count of the rows below each kept head,
+/// or that asks the file's modification time and not its change time
+/// whether it was written, for the lost event copied over in place; one
+/// that ignores the journal's identity, for the rewritten event moved into
+/// place; and one that ignores its length, for the rewritten event grown
+/// shorter. A rewritten event copied over in place at its length is not
+/// told (decision 0088 ruling 2), and is not asked here.
 #[test]
 fn a_journal_replaced_beneath_the_reader_is_read_whole_though_it_holds_the_kept_head() {
-    for in_place in [false, true] {
+    use std::os::unix::fs::MetadataExt;
+    type Damage = fn(&Path, &str) -> std::path::PathBuf;
+    let lost: Damage = without_its_first_event;
+    let rewritten: Damage = with_its_first_event_rewritten;
+    for (damage, swap, refusal) in [
+        (lost, Swap::Moved, FIRST_EVENT_GONE),
+        (lost, Swap::Shorter, FIRST_EVENT_GONE),
+        (lost, Swap::InPlace, FIRST_EVENT_GONE),
+        (rewritten, Swap::Moved, FIRST_EVENT_REWRITTEN),
+        (rewritten, Swap::Shorter, FIRST_EVENT_REWRITTEN),
+    ] {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("forge.db");
         running_store(&db, "r1");
@@ -420,23 +499,28 @@ fn a_journal_replaced_beneath_the_reader_is_read_whole_though_it_holds_the_kept_
         let head = Store::open_read_only(&db).unwrap().head_hash("r1").unwrap();
         let before = std::fs::metadata(&db).unwrap();
 
-        let copy = without_its_first_event(&db, "r1");
+        let copy = damage(&db, "r1");
         let journal = rusqlite::Connection::open(&copy).unwrap();
         journal
             .execute("DELETE FROM runs WHERE run_id = 'padding'", [])
             .unwrap();
-        if in_place {
-            journal.execute_batch("VACUUM").unwrap();
-        }
         drop(journal);
-        match in_place {
-            true => drop(std::fs::copy(&copy, &db).unwrap()),
-            false => std::fs::rename(&copy, &db).unwrap(),
-        }
-        use std::os::unix::fs::MetadataExt;
+        swapped_in(&copy, &db, swap);
         let after = std::fs::metadata(&db).unwrap();
-        assert_eq!(after.ino() == before.ino(), in_place, "the same file");
-        assert_eq!(after.len() < before.len(), in_place, "grown shorter");
+        assert_eq!(
+            after.ino() == before.ino(),
+            swap != Swap::Moved,
+            "the same file"
+        );
+        assert_eq!(
+            after.len() < before.len(),
+            swap == Swap::Shorter,
+            "grown shorter"
+        );
+        if swap == Swap::InPlace {
+            let modified = |file: &std::fs::Metadata| (file.mtime(), file.mtime_nsec());
+            assert_eq!(modified(&after), modified(&before), "as cp -p leaves it");
+        }
         let store = Store::open_read_only(&db).unwrap();
         assert_eq!(store.head_hash("r1").unwrap(), head, "the kept head stands");
         drop(store);
@@ -444,12 +528,33 @@ fn a_journal_replaced_beneath_the_reader_is_read_whole_though_it_holds_the_kept_
         assert_eq!(refreshed(&mut kept, &db), 0, "a whole read, refused");
         let entries = kept.entries();
         let words = entries[0].detail.map(|refusal| refusal.words);
-        assert_eq!(
-            (entries.len(), words),
-            (1, Some(FIRST_EVENT_GONE)),
-            "in place: {in_place}"
-        );
+        let case = format!("{swap:?}: {refusal}");
+        assert_eq!((entries.len(), words), (1, Some(refusal)), "{case}");
         assert_eq!(kept_rows(&kept), whole_rows(&db));
+    }
+}
+
+/// A read is bound to the journal file only when the file stated before
+/// its store opened is still the file once the read is done. A swap
+/// between the two is planted both ways — the file stated before is a
+/// copy beside the journal, and then the store reads the copy — and each
+/// time the next refresh reads every run whole: 2 events, not 0. Binding
+/// the read to the statement after it alone carries the runs in the
+/// first, and to the one before it alone in the second.
+#[test]
+fn a_read_whose_journal_was_another_by_the_time_it_was_done_is_read_whole_next() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    running_store(&db, "r1");
+    let copy = dir.path().join("copy.db");
+    std::fs::copy(&db, &copy).unwrap();
+    for (stated, read) in [(&copy, &db), (&db, &copy)] {
+        let mut kept = KeptFleet::default();
+        let store = Store::open_read_only(read).unwrap();
+        assert_eq!(kept.refresh(&store, Journal::at(stated)).unwrap(), 2);
+        let next = refreshed(&mut kept, &db);
+        assert_eq!(next, 2, "stated {stated:?}, read {read:?}");
+        assert_eq!(refreshed(&mut kept, &db), 0, "and bound");
     }
 }
 
@@ -516,10 +621,11 @@ fn a_whole_read_that_cannot_open_its_connection_refuses_the_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     running_store(&db, "r1");
+    let before = Journal::at(&db);
     let store = Store::open_read_only(&db).unwrap();
     std::fs::remove_file(&db).unwrap();
     let mut kept = KeptFleet::default();
-    let refused = kept.refresh(&store).unwrap_err();
+    let refused = kept.refresh(&store, before).unwrap_err();
     assert_eq!(
         refused.to_string(),
         Store::open_read_only(&db).err().unwrap().to_string()

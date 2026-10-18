@@ -20,7 +20,7 @@ mod kept;
 #[cfg(test)]
 pub(crate) mod kept_tests;
 
-pub(crate) use kept::{read_kept, KeptFleet};
+pub(crate) use kept::{read_kept, Journal, KeptFleet};
 
 /// Why a listed run carries no state, and where its citation points.
 pub(crate) struct Quarantine {

@@ -7,6 +7,12 @@ use rusqlite::{params, OptionalExtension};
 
 use crate::{patiently, Store, StoreError, HEAD_OF_RUN};
 
+/// The rows of each `[run_id, seq]` pair of the JSON array `?1` at or
+/// below its seq, one primary-key range each, in the array's order.
+const ROWS_THROUGH: &str = "SELECT (SELECT count(*) FROM events
+         WHERE run_id = head.value ->> 0 AND seq <= head.value ->> 1)
+     FROM json_each(?1) AS head ORDER BY head.key";
+
 impl Store {
     /// What landed on a run after a head the caller already loaded and
     /// verified, `(seq, hash)`: the events past `seq`, verified as the
@@ -49,6 +55,23 @@ impl Store {
             let events = self.rows(run_id, Some(head))?;
             verify_chain_after(run_id, seq, hash, &events)?;
             Ok(events)
+        })
+    }
+
+    /// How many rows each run of `heads` holds at or below its seq, in
+    /// `heads`' order: one query, counted over the `(run_id, seq)` key with
+    /// no envelope read. A chain verified from seq 1 to a head holds
+    /// exactly that head's seq of rows, so a reader that keeps what it read
+    /// and is about to ask only past the head (#744) learns here whether a
+    /// row below it is gone. A run the journal lacks holds none.
+    pub fn rows_through(&self, heads: &[(&str, u64)]) -> Result<Vec<u64>, StoreError> {
+        let heads = serde_json::to_string(heads)?;
+        patiently("count", self.patience, || {
+            Ok(self
+                .conn
+                .prepare(ROWS_THROUGH)?
+                .query_map(params![heads], |r| r.get::<_, u64>(0))?
+                .collect::<Result<Vec<_>, _>>()?)
         })
     }
 

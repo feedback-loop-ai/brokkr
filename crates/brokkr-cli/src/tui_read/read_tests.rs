@@ -6,7 +6,7 @@ use brokkr_core::EventType;
 use serde_json::json;
 
 use super::*;
-use crate::fleet::kept_tests::{without_its_first_event, FIRST_EVENT_GONE};
+use crate::fleet::kept_tests::{swapped_in, without_its_first_event, Swap, FIRST_EVENT_GONE};
 use crate::tests::running_store;
 
 /// The checkpoints the selected run carries beside its opening events.
@@ -111,20 +111,34 @@ fn the_fleet_cadence_reads_nothing_of_a_journal_that_has_not_moved() {
 
 /// The open run is read again with the fleet when the journal beneath
 /// the console is replaced by one that keeps its head and lost its first
-/// event: the fleet's cadence draws no run, as the whole read loads none,
-/// where a `moved` that asks only the head draws the run kept from the
-/// journal that was replaced.
+/// event, moved into place or copied over it in place at its length: the
+/// fleet's cadence draws no run, as the whole read loads none, where a
+/// `moved` that asks only the head draws the run kept from the journal
+/// that was moved, and a `run_of` that does not read the run whole when
+/// the fleet does draws it from the one copied over.
 #[test]
 fn the_open_run_is_read_again_from_a_journal_replaced_beneath_it() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    checkpointing(&db, "selected");
-    let mut kept = Kept::default();
-    let (_, drawn) = frame(&db, &mut kept, "selected", true);
-    assert_ne!(drawn, "null");
+    use std::os::unix::fs::MetadataExt;
+    for swap in [Swap::Moved, Swap::InPlace] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("forge.db");
+        checkpointing(&db, "selected");
+        let mut kept = Kept::default();
+        let (_, drawn) = frame(&db, &mut kept, "selected", true);
+        assert_ne!(drawn, "null");
+        let before = std::fs::metadata(&db).unwrap();
 
-    std::fs::rename(without_its_first_event(&db, "selected"), &db).unwrap();
-    assert_eq!(frame(&db, &mut kept, "selected", false), (0, "null".into()));
-    let rows = brokkr_view::run_rows(&kept.fleet.entries());
-    assert_eq!(rows.runs[0].detail.as_deref(), Some(FIRST_EVENT_GONE));
+        swapped_in(&without_its_first_event(&db, "selected"), &db, swap);
+        let after = std::fs::metadata(&db).unwrap();
+        let same = after.ino() == before.ino();
+        assert_eq!(same, swap == Swap::InPlace, "{swap:?}");
+        assert_eq!(after.len(), before.len(), "{swap:?}: the same length");
+        assert_eq!(
+            frame(&db, &mut kept, "selected", false),
+            (0, "null".into()),
+            "{swap:?}"
+        );
+        let rows = brokkr_view::run_rows(&kept.fleet.entries());
+        assert_eq!(rows.runs[0].detail.as_deref(), Some(FIRST_EVENT_GONE));
+    }
 }

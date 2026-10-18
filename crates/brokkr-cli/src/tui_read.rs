@@ -13,7 +13,7 @@ use brokkr_runtime::realms::Hearth;
 use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead};
 
-use crate::fleet::KeptFleet;
+use crate::fleet::{Journal, KeptFleet};
 use crate::{local_transcript, tui};
 
 /// The in-memory stamp of the selected transcript source: the subject
@@ -179,6 +179,9 @@ fn read_views(
     // operator named, opens read-only for this refresh. Transcript
     // reading must not enable WAL, migrate columns or repair guards on
     // the journal it came to read (transcript-reading's inertness rule).
+    // The journal file is stated before the store opens it, so a file
+    // swapped in before the open is not taken for the one stated.
+    let before = Journal::at(db);
     let store = Store::open_read_only(db)?;
     let current = match ask.run {
         Some(run) => Some(store.head_hash(run)?),
@@ -198,7 +201,7 @@ fn read_views(
     // A journal that is not the file the fleet was kept from has moved,
     // whatever head the open run still holds in it: the selected run is
     // read whole again with the fleet.
-    let moved = current != kept.head || kept.fleet.replaced(&store);
+    let moved = current != kept.head || kept.fleet.replaced(before);
     if !(ask.force || ask.fleet || moved || transcript_changed) {
         // Nothing has moved: the console keeps the frame it has, and
         // nothing is re-folded at four polls a second.
@@ -211,7 +214,7 @@ fn read_views(
     // ride along as the row's detail.
     kept.read = kept
         .fleet
-        .refresh(&store)
+        .refresh(&store, before)
         .map_err(|error| anyhow::Error::msg(error.to_string()))?;
     let run = run_of(&store, ask.run, ask.force || moved, kept);
     let transcript = reconciled(
@@ -245,9 +248,10 @@ struct Selected {
 }
 
 /// Run `run`'s view, derived from the journal kept for it while its head
-/// stands and no rebuild is asked, so the fleet's cadence reads none of
-/// the run; read whole and folded otherwise. A run that would not load
-/// keeps nothing, so the next frame reads it again.
+/// stands, no rebuild is asked and the fleet carried it, so the fleet's
+/// cadence reads none of the run; read whole and folded otherwise, as the
+/// fleet reads a run whose journal it cannot carry. A run that would not
+/// load keeps nothing, so the next frame reads it again.
 fn run_of(
     store: &Store,
     run: Option<&str>,
@@ -256,6 +260,7 @@ fn run_of(
 ) -> Option<brokkr_view::RunView> {
     let standing = kept.run.take();
     let run = run?;
+    let rebuild = rebuild || kept.fleet.was_read_whole(run);
     let selected = match standing.filter(|selected| !rebuild && selected.run == run) {
         Some(selected) => selected,
         None => {

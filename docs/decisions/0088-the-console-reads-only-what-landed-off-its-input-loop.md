@@ -38,18 +38,50 @@ column, or an index, to `events`, which is a schema change.
    (99.9% checkpoints): the first refresh reads 500,000, an idle one 0,
    one after three appends 3.
 2. **What cannot be carried is read whole, never shown stale.** A gap, a
-   head the journal no longer holds, or a journal swapped beneath the
-   reader is read whole. Swapped is the file at the journal's path being
+   head the journal no longer holds, a journal swapped beneath the
+   reader, or a run that lost a row below its head is read whole, and
+   the open run with it. Swapped is the file at the journal's path being
    another, by device and inode, or shorter than the one read, whatever
-   heads its runs hold; a rewrite in place that keeps or grows its length
-   is not seen. A refusal is kept at its head only when the
+   heads its runs hold. The file is stated before the store is opened
+   and again after the read; a read whose two statements are not the
+   same file is bound to none, and every run is read whole at the next
+   refresh. When the same file has been written since the last refresh,
+   by its length, modification time or change time (which any write
+   moves, whatever `cp -p` puts back), each kept run's rows at or below
+   its head are counted over the `(run_id, seq)` key, and a run whose
+   count is not its head's seq is read whole. The count reads no
+   envelope: one query, 18 ms over the generated journal's 1,164 runs
+   and 734,484 events, which a refresh of a written file pays (34 ms
+   where an idle one takes 15 ms) and an idle one does not. A refusal is
+   kept at its head only when the
    journal's own bytes made it (a broken chain, envelope text that is not
    JSON, a row before the chain); a refusal of timing (a peer's lock,
    SQLite's own error) is read again at the next refresh. Binding:
    `fleet::kept::lasting`, matched exhaustively over `StoreError`, and
    its kept test, which reads one of each kind made readable beneath an
-   unmoved head; and the kept and `tui_read` tests of a journal replaced
-   by one that keeps a run's head and lost its first event.
+   unmoved head; the kept and `tui_read` tests of a journal replaced by
+   one that keeps a run's head and lost its first event, moved into
+   place, vacuumed shorter, or copied over in place at its length with
+   its modification time put back; the kept test of a first event
+   rewritten, moved into place or vacuumed shorter; the kept test of a
+   read whose two statements differ; and the store's test of
+   `Store::rows_through`.
+
+   **What the kept read still cannot see**, and the operator rules on: a
+   row below a kept head whose content changed in place, at the same row
+   count and the same head, in a file that keeps its inode and is not
+   shorter. Only a writer that defeats the append-only triggers makes
+   one, which is deliberate, or storage corruption that SQLite reads
+   without error. Narrower still, a write in place at the file's length
+   that lands within one tick of the file clock after its previous write
+   leaves both its times as they were, a window of milliseconds on a
+   kernel without fine-grained timestamps, and its count is not asked.
+   The whole read sees both: `inspect` and `export` load the run whole
+   and refuse it, `brokkr runs` reads every run whole at each invocation,
+   and a console reads every run whole at its first refresh and the run
+   it enters whole when it is entered. A console already open goes on
+   showing the fleet's row as it was folded until the run's head moves,
+   and `r` reads the open run whole but not the fleet.
 3. **The selected run is kept too.** While its head stands and no rebuild
    is asked, the fleet's cadence derives the open run's view from the
    journal already read, and reads none of it. Binding: the
