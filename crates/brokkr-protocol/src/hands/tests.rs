@@ -288,13 +288,22 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     assert!(text.contains("--clearenv"));
     assert!(text.contains("--setenv BROKKR_HANDS_BOX 1"));
     assert!(!text.contains("--bind / /"), "never the host root");
-    assert!(text.contains(&format!("--bind {w} {w}", w = workdir.display())));
+    // Each source is bound from the path sealed for it (U8a2c), canonical,
+    // at the path the box names it by: they differ where the temporary
+    // directory lies behind a link, as macOS's /var does.
+    let real = |path: &Path| std::fs::canonicalize(path).unwrap();
+    let w = workdir.display();
+    assert!(
+        text.contains(&format!("--bind {} {w}", real(&workdir).display())),
+        "{text}"
+    );
     assert!(text.contains(&format!("--ro-bind {} {SANDBOX_BUNDLE}", bundle.display())));
     let upper = session.join("overlay/0/upper");
     let work = session.join("overlay/0/work");
     assert!(
         text.contains(&format!(
-            "--overlay-src {c} --overlay {u} {k} {c}",
+            "--overlay-src {s} --overlay {u} {k} {c}",
+            s = real(&cargo).display(),
             c = cargo.display(),
             u = upper.display(),
             k = work.display()
@@ -313,6 +322,7 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
         !text.contains("absent.toml"),
         "a mask over nothing binds nothing"
     );
+    // An absent source is bound as spelled, sealed with no identity.
     assert!(text.contains(&format!(
         "--ro-bind-try {r} {r}",
         r = home.join(".rustup").display()
@@ -344,7 +354,8 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     )));
     assert!(text.contains(&format!("--tmpfs {}", primary.join(".git/hooks").display())));
     assert!(text.contains(&format!(
-        "--ro-bind-try {c} {c}",
+        "--ro-bind-try {s} {c}",
+        s = real(&primary).join(".git/config").display(),
         c = primary.join(".git/config").display()
     )));
     assert!(text.contains("--setenv GIT_AUTHOR_NAME Seat"));
@@ -352,7 +363,9 @@ fn the_namespace_is_built_from_an_empty_root_and_binds_what_the_spec_names() {
     // A `git worktree`: the common dir is elsewhere and must be bound.
     let (second, linked) = (dir.path().join("second"), dir.path().join("wt"));
     linked_worktree(&second, &linked);
-    let common = second.join(".git");
+    // Git names the common directory by its canonical path, as the
+    // worktree's own `.git` file records it, so the box binds it there.
+    let common = real(&second.join(".git"));
     let argv = build(&spec, &linked, &scratch, none, None).unwrap();
     let text = argv.join(" ");
     assert!(text.contains(&format!("--bind {g} {g}", g = common.display())));
@@ -1080,9 +1093,13 @@ fn an_exec_box_writes_its_overlays_to_ram() {
         .iter()
         .position(|part| part == "--overlay-src")
         .unwrap();
+    // The overlay's source is the path sealed for it (U8a2c), canonical; it
+    // lands where the spec names it.
+    let source = std::fs::canonicalize(&tool).unwrap();
+    let source = source.to_string_lossy();
     assert_eq!(
         argv[at..at + 4],
-        ["--overlay-src", &path, "--tmp-overlay", &path]
+        ["--overlay-src", &*source, "--tmp-overlay", &path]
     );
     if !can_create_namespace() {
         skip_boundary_proof(
@@ -1165,13 +1182,12 @@ fn git_works_in_the_box_and_cannot_plant_a_hook() {
     std::fs::write(hooks.join("pre-commit"), "#!/bin/sh\nexit 0\n").unwrap();
 
     let facts = git_facts(&worktree);
-    assert_eq!(
-        facts.common_dir.as_deref(),
-        Some(main.join(".git").as_path())
-    );
+    // Git names the common directory by its canonical path.
+    let common = std::fs::canonicalize(main.join(".git")).unwrap();
+    assert_eq!(facts.common_dir.as_deref(), Some(common.as_path()));
     assert_eq!(
         facts.git_dir.as_deref(),
-        Some(main.join(".git/worktrees/wt").as_path()),
+        Some(common.join("worktrees/wt").as_path()),
         "the per-worktree directory is distinct from the shared one"
     );
     assert!(facts
