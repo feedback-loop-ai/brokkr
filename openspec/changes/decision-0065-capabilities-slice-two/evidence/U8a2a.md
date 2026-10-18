@@ -700,7 +700,7 @@ dependency, manifest or lockfile moved.
 
 | Finding | Disposition |
 | --- | --- |
-| G1 (public API) | Measured, not reconciled: `bash quality/ratchet.sh api` reports exactly two added lines, `pub brokkr_runtime::engine::EngineError::Unreleased(…settlement::Unreleased)` and its root re-export `pub brokkr_runtime::EngineError::Unreleased(…)`. The snapshot is not raised. This growth needs the operator's ruling at PR time. |
+| G1 (public API) | Measured, not reconciled: `bash quality/ratchet.sh api` reports exactly two added lines, `pub brokkr_runtime::engine::EngineError::Unreleased(…settlement::Unreleased)` and its root re-export `pub brokkr_runtime::EngineError::Unreleased(…)`. The operator approved these two lines on 2026-10-18 after the fourth run parked, and the controller raised `quality/public-api/brokkr-runtime.txt` by exactly them (`ratchet.sh api`: "public API holds"). |
 | G2 (host mount table in ordinary tests) | Carried. Ordinary injected-root admissions still read this host's `/proc/self/mountinfo` through `exclusion::shown_once`. In this seat the focused suites pass (below). The panel's `Conflict::Shown` failures came from another environment and were not reproduced. They stay that environment's result, not this seat's. |
 | L1 (C1 skips the comparison for leased runs too) | Recorded. While the fence stands and nothing is at stake, the comparison is skipped for every run, including one that holds a lease: an unbounded admitted writer can reach its reservation and erase writer facts before a later evidence-bearing claim. The operator's first ruling of 2026-10-18 scopes this, and U9b1 makes the comparison universal. It is a limitation, not protection. |
 | L2 (recovery's regular-file check does not bind SQLite's open) | Recorded. The check fails fast on a FIFO or link, then `Store::open_read_only` reopens by path. A swap between the two can still block recovery under the lock. Reach exclusion keeps managed writers away from the journal. Arbitrary same-user host mutation is outside the managed-seat guarantee. |
@@ -749,11 +749,20 @@ re-run: only a doc comment in its test support moved.
 
 ### Pending, not claimed
 
-The exact-coverage gate and its CRAP ratchet; the API snapshot (G1, the
-operator's ruling); macOS and remote CI; the controller's host runs of the
+The exact-coverage gate and its CRAP ratchet; macOS and remote CI; the controller's host runs of the
 real-box matrix and the dispatch-path bind alias, of
 `capability_broker_launch::an_engine_holds_its_lease_in_the_root_its_home_resolves`
 and its control, of the three TMPDIR modes, and the fresh-HOME absence
 check. Containing a later call of one session to its sealed reach stays
 U8a2c's (operator ruling 2026-10-18, after the third run). Tasks 38.3 and
 38.4 stay unticked: U8a2c and U8a2b close them with this row.
+
+### The operator's ruling on the fourth run
+
+The fourth run (0065-slice-two-unit-u8a2a-see-th-3a0cc19c) parked at
+REVIEW-REFORGE-EXHAUSTED-MEDIUM with no high finding. On 2026-10-18 the
+operator accepted its three medium residuals (R1 the reseal's last step,
+R2 hashing outside the shared deadline, R3 the link-failure proof) as debt
+carried into U8a2c, approved the two-line API rise above, and had the unit
+land by hand after the controller's host check. The run was stopped on that
+ruling. design.md records it in U8a2a's and U8a2c's sections.
