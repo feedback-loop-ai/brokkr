@@ -1044,8 +1044,8 @@ built after #696. The second slice builds composition across shelves
 (ruling 3), the origins of ruling 5 and their proof on resume, and
 extends this addendum.
 
-*Extension, 2026-10-17: the shelf follow-ups (#726).* Status: proposed;
-only the operator accepts this text. It closes three of the LOWs the
+*Extension, 2026-10-17: the shelf follow-ups (#726).* Status: accepted
+— operator ruled 2026-10-18 (PR #737). It closes three of the LOWs the
 operator accepted on #697's first pull request.
 
 A shelf spelled through `..` beneath a part of it that does not stand is
@@ -1058,8 +1058,10 @@ recipe past the refusal of a name on both shelves, and
 beneath the nearest entry standing at it or above it, the current
 directory for a relative shelf, must hold no `..`. A shelf whose part
 does refuses, on either origin, every verb ruling 2 names and `recipes
-add --personal`, naming the shelf as spelled and that entry. A `..`
-beneath an entry that stands is the kernel's to resolve, as before.
+add --personal`, naming the shelf as spelled and that entry. A project
+shelf that climbs or cannot be read refuses with or without a personal
+shelf placed. A `..` beneath an entry that stands is the kernel's to
+resolve, as before.
 `recipes list` and doctor, which never refuse, warn of such a personal
 shelf by their `warning: recipes dir` and `warn personal shelf` lines,
 rather than showing no shelf.

@@ -1219,6 +1219,47 @@ fn a_project_shelf_climbing_out_of_what_does_not_stand_refuses_on_every_verb() {
     assert_eq!(ledger(&repo), listed);
 }
 
+/// Where this machine places no personal shelf, neither `XDG_CONFIG_HOME`
+/// nor `HOME` set, a project shelf that climbs or cannot be read still
+/// refuses before the recipe is taken (#697 ruling 2; #726): `recipes show`
+/// and `run` of `x` through `.brokkr/recipes/sub/..`, with no `sub`, and
+/// `recipes show` of `x` on the file `Cargo.toml`, each writing nothing and
+/// starting no run.
+#[test]
+fn a_project_shelf_refuses_with_no_personal_shelf_placed() {
+    let (repo, _) = delivered_x();
+    repo.write("Cargo.toml", "[workspace]\n");
+    let (listed, state) = (ledger(&repo), kept(&repo, "x"));
+    let before = repo.files();
+    let unplaced = [("XDG_CONFIG_HOME", None), ("HOME", None)];
+    let spelled = ".brokkr/recipes/sub/..";
+    let absolute = repo.path(spelled);
+    let run = ["run", "--recipe", "x", "--feature", "f", "--no-view"];
+    let unread = "error: the project shelf Cargo.toml cannot be read (#697): Cargo.toml: not a \
+                  directory; a shelf that cannot be read is never read as an empty one, so mend \
+                  or remove it; nothing was run or installed\n";
+    let cases = [
+        (
+            vec!["recipes", "show", "x", "--dir", spelled],
+            climbing("project", Path::new(spelled), Path::new(".brokkr/recipes")),
+        ),
+        (
+            [&run[..], &["--recipes-dir", absolute.to_str().unwrap()]].concat(),
+            climbing("project", &absolute, &repo.path(".brokkr/recipes")),
+        ),
+        (
+            vec!["recipes", "show", "x", "--dir", "Cargo.toml"],
+            unread.to_string(),
+        ),
+    ];
+    for (args, refused) in cases {
+        let ran = under(&repo, &unplaced, &args);
+        assert_eq!((ran.code, ran.stderr), (Some(1), refused), "{args:?}");
+        assert_eq!((repo.files(), kept(&repo, "x")), (before.clone(), state));
+    }
+    assert_eq!(ledger(&repo), listed);
+}
+
 /// A personal shelf spelled through `..` beneath a part that does not
 /// stand, by `XDG_CONFIG_HOME` or by `HOME`, is never read as an empty one
 /// (#726): with `x` on both shelves, `run` of `x` refuses, naming the shelf

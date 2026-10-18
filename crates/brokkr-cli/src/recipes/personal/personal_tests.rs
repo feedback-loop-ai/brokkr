@@ -334,6 +334,22 @@ fn a_shelf_climbing_out_of_what_does_not_stand_refuses() {
     assert_eq!(resolved.place, root.join("cfg/brokkr/recipes"));
 }
 
+/// With no personal shelf placed, a project shelf climbing out of what
+/// does not stand still refuses before the recipe is taken (#726).
+#[test]
+fn a_climbing_project_shelf_refuses_with_no_personal_shelf() {
+    let (_dir, project, _) = shelves(&["x"], &[]);
+    let shelf = project.join("sub/..");
+    let refused = holding_in("x", shelf.clone(), None).unwrap_err();
+    let climbed = matches!(&refused, Unshelved::Climbing { origin: Origin::Project, shelf: of, at }
+        if *of == shelf && *at == project);
+    assert!(climbed, "{refused:?}");
+    assert_eq!(
+        refused.to_string(),
+        climbing(Origin::Project, &shelf, &project)
+    );
+}
+
 /// The directories an install makes for a shelf are each held from before
 /// the first is made: a component too long to make, below one the install
 /// made, refuses naming the shelf and the directory, and leaves the tree

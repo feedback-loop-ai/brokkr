@@ -319,10 +319,10 @@ fn holding_in(
     project: ShelfPath,
     personal: Option<&ShelfPath>,
 ) -> Result<PathBuf, Unshelved> {
+    resolving(Origin::Project, &project)?;
     let Some(personal) = personal else {
         return Ok(project.into_path());
     };
-    resolving(Origin::Project, &project)?;
     resolving(Origin::Personal, personal)?;
     let (project, personal) = (project.path(), personal.path());
     match (stands(project, name)?, stands(personal, name)?) {
