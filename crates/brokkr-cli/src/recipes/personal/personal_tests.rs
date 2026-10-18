@@ -379,6 +379,27 @@ fn a_directory_that_cannot_be_made_removes_every_one_made() {
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 }
 
+/// A directory another install made between the judging and the making,
+/// as two first installs at once do, stands: it is not made and never
+/// removed, and the install goes on; a file made there still refuses (#726).
+#[test]
+fn a_directory_made_meanwhile_stands() {
+    let dir = tempfile::tempdir().unwrap();
+    let (outer, inner) = (dir.path().join("config"), dir.path().join("config/brokkr"));
+    let shelf = inner.join("recipes");
+    std::fs::create_dir(&outer).unwrap();
+    let made = Made::making(&shelf, [outer.as_path(), inner.as_path()].into_iter()).unwrap();
+    assert_eq!(made.0, std::slice::from_ref(&inner));
+    drop(made);
+    assert_eq!((outer.is_dir(), inner.exists()), (true, false));
+    std::fs::remove_dir(&outer).unwrap();
+    std::fs::write(&outer, "").unwrap();
+    let refused = Made::making(&shelf, [outer.as_path(), inner.as_path()].into_iter()).err();
+    let made = matches!(&refused, Some(Unshelved::Unmade { shelf: of, at, cause })
+        if *of == shelf && *at == outer && cause.kind() == std::io::ErrorKind::AlreadyExists);
+    assert!(made, "{refused:?}");
+}
+
 /// An install onto the personal shelf whose plan holds a name the project
 /// shelf holds, the recipe's or a base's, refuses naming both paths
 /// (#726); a plan of names it does not hold, and any plan onto the project

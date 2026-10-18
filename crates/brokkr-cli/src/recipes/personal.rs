@@ -453,15 +453,29 @@ impl Made {
             .ancestors()
             .take_while(|dir| !matches!(places::entry(dir), Ok(Some(_))))
             .collect();
+        Made::making(shelf, missing.into_iter().rev())
+    }
+
+    /// Make each of `missing`, outermost first, for `shelf`. One another
+    /// process made as a directory since it was judged missing stands, so
+    /// it is not made here and never removed, as `create_dir_all` judges it.
+    fn making<'a>(
+        shelf: &Path,
+        missing: impl Iterator<Item = &'a Path>,
+    ) -> Result<Made, Unshelved> {
         let mut made = Made(Vec::new());
-        for dir in missing.into_iter().rev() {
-            let unmade = |cause| Unshelved::Unmade {
-                shelf: shelf.to_path_buf(),
-                at: dir.to_path_buf(),
-                cause,
-            };
-            std::fs::create_dir(dir).map_err(unmade)?;
-            made.0.push(dir.to_path_buf());
+        for dir in missing {
+            match std::fs::create_dir(dir) {
+                Ok(()) => made.0.push(dir.to_path_buf()),
+                Err(cause) if cause.kind() == ErrorKind::AlreadyExists && dir.is_dir() => {}
+                Err(cause) => {
+                    return Err(Unshelved::Unmade {
+                        shelf: shelf.to_path_buf(),
+                        at: dir.to_path_buf(),
+                        cause,
+                    })
+                }
+            }
         }
         Ok(made)
     }
