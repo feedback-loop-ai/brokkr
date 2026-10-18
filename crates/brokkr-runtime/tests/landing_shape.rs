@@ -105,8 +105,9 @@ fn landing_is_fast_entered_at_classify_and_nothing_else() {
             .iter()
             .map(|ancestor| ancestor.name.as_str())
             .collect::<Vec<_>>(),
-        ["fast"],
-        "landing extends fast and nothing between"
+        ["brokkr-fast", "fast"],
+        "landing extends brokkr-fast, fast on Brokkr's offices (decision 0087 \
+         ruling 4), and nothing between"
     );
     assert_ne!(
         policy_digest(&landing.manifest),

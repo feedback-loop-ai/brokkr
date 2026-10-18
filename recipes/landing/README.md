@@ -1,6 +1,7 @@
 # landing — the machine finishes what you wrote by hand
 
-`fast`'s crew, entered at a gate that reads instead of writes:
+`fast`'s crew, through `brokkr-fast`'s offices (decision 0087 ruling 4),
+entered at a gate that reads instead of writes:
 `classify` → `verify` (code only) → `review` → `ship` → `done`, with
 `implement` standing behind them as the remediation seat. The branch
 already exists — you wrote it, a session wrote it with you, a ruling put

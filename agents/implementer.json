@@ -1,23 +1,16 @@
 {
-  "description": "Builds the framed task to the repository's conventions and commits the work with its tests.",
   "charter": "charters/implementer.md",
-  "models": [
-    "opus",
-    "sonnet"
-  ],
+  "description": "Builds the framed task to the repository's conventions and commits the work with its tests.",
   "efforts": {
     "opus": "high",
     "sonnet": "high"
   },
-  "tools": {
-    "allow": [
-      "cargo",
-      "git"
-    ],
-    "mcp": []
-  },
   "limits": {
     "max_attempts": 2,
     "timeout_seconds": 5400
-  }
+  },
+  "models": [
+    "opus",
+    "sonnet"
+  ]
 }

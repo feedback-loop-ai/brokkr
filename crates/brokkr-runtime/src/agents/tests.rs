@@ -2952,7 +2952,7 @@ fn the_shipped_adapters_declare_their_harness_as_the_record_says() {
         &library,
         &adapters,
         &Availability::unspecified(),
-        "reviewer",
+        "brokkr-reviewer",
     )
     .expect("the reviewer resolves");
     let sol = resolution

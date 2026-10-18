@@ -46,9 +46,15 @@ use witnesses::Witnesses;
 /// `intake-sdd`, which no recipe seated after `recipes/sdd` was retired.
 /// #360 seats `fast` on two overlays of the roster, `fast-implementer` and
 /// `fast-reviewer`, and moves six inline sites onto overlays in its second
-/// slice ([`SINGLE_LINK_OFFICES`]).
-const AGENTS: [&str; 42] = [
+/// slice ([`SINGLE_LINK_OFFICES`]). Decision 0087 ruling 4 moves Brokkr's
+/// own picks onto five `brokkr-*` overlays of the portable base.
+const AGENTS: [&str; 47] = [
     "analyst",
+    "brokkr-fast-implementer",
+    "brokkr-fast-reviewer",
+    "brokkr-implementer",
+    "brokkr-intake",
+    "brokkr-reviewer",
     "chief-architect",
     "clarifier",
     "fast-implementer",
@@ -174,7 +180,12 @@ fn the_library_holds_the_decision_0041_roster() {
     // seats always declared.
     for name in AGENTS {
         let inputs = library.agent(name).unwrap().inputs.clone();
-        let reviewers = ["fast-reviewer", "node-reviewer", "verify-reviewer"];
+        let reviewers = [
+            "brokkr-fast-reviewer",
+            "fast-reviewer",
+            "node-reviewer",
+            "verify-reviewer",
+        ];
         let expected = reviewers.contains(&name).then(|| {
             vec![
                 "has_security_residual".into(),

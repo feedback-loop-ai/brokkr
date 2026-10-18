@@ -1,0 +1,8 @@
+{
+  "extends": "implementer",
+  "charter": "charters/implementer-intakeless.md",
+  "models": ["fable", "opus", "sonnet"],
+  "efforts": {"fable": "high", "opus": "high", "sonnet": "high"},
+  "tools": {"allow": ["cargo", "git", "ls", "rg", "mkdir"]},
+  "replaces": {"tools": "fast's smith also lists, searches and makes directories, as fast's own seat always granted"}
+}

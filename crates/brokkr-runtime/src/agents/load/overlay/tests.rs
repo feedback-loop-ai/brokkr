@@ -133,6 +133,28 @@ fn an_overlay_inherits_the_power_it_does_not_name_and_hires_no_stale_effort() {
     assert_eq!(narrow.hands, library.agent("boxed").unwrap().hands);
 }
 
+/// An overlay that writes no chain hires its base's chain and efforts
+/// whole (decision 0087 ruling 3), so a portable office follows the chain
+/// its folder's base names.
+#[test]
+fn an_overlay_that_writes_no_chain_hires_its_bases_chain_and_efforts() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "portable",
+        &json!({"extends": "base", "charter": "charters/other.md"}),
+    );
+    let library = fixture.library();
+    let portable = library.agent("portable").unwrap();
+    assert_eq!(portable.models, ["opus", "sonnet"]);
+    let efforts: Vec<(&str, &str)> = portable
+        .efforts
+        .iter()
+        .map(|(model, effort)| (model.as_str(), effort.as_str()))
+        .collect();
+    assert_eq!(efforts, [("opus", "high"), ("sonnet", "high")]);
+    assert_eq!(portable.charter, fixture.root.join("charters/other.md"));
+}
+
 /// A replacement written with its reason stands, a charter override is
 /// still a charter of this library, and declared inputs are the office's.
 #[test]
@@ -189,9 +211,10 @@ fn an_overlay_that_hides_a_change_or_reaches_past_one_level_is_refused() {
              charter, inputs, tools, hands, replaces",
         ),
         (
-            json!({"extends": "base"}),
-            "<scoped> extends 'base' but writes no 'models'; an overlay states the chain \
-             it hires",
+            json!({"extends": "base", "efforts": {"opus": "high"}}),
+            "<scoped> extends 'base' and writes 'efforts' but no 'models'; efforts are \
+             keyed by the chain's candidates, so an overlay that writes them states the \
+             chain it hires",
         ),
         (
             json!({"extends": "absent", "models": ["opus"]}),

@@ -3742,7 +3742,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
     let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
     let library = Library::load(&root.join("agents")).expect("the shipped library loads");
     let hands = library
-        .agent("reviewer")
+        .agent("brokkr-reviewer")
         .expect("the shipped reviewer")
         .hands
         .clone();
@@ -3769,7 +3769,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
         &library,
         &adapters,
         &Availability::unspecified(),
-        "reviewer",
+        "brokkr-reviewer",
         brokkr_core::realms::Boundary::Harness,
     )
     .unwrap();
@@ -3825,7 +3825,7 @@ fn the_shipped_codex_harness_work_seat_composes_the_preserved_rejoin() {
         &library,
         &adapters,
         &Availability::unspecified(),
-        "reviewer",
+        "brokkr-reviewer",
         brokkr_core::realms::Boundary::Namespace,
     )
     .unwrap();

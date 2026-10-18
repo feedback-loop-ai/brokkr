@@ -57,11 +57,12 @@ fn the_challenger_implements_under_the_incumbents_charter_byte_for_byte() {
 
 /// Checklist items 5 and 7: same limits, one seat overridden. Everything
 /// the challenger's bundle does not restate is inherited, so the seats
-/// are compared here against `fast`'s own compiled values rather than
-/// against numbers copied into this test.
+/// are compared here against `brokkr-fast`'s own compiled values, the
+/// recipe the wager extends (decision 0087 ruling 4), rather than against
+/// numbers copied into this test.
 #[test]
 fn exactly_one_seat_differs_and_it_differs_only_in_its_driver() {
-    let incumbent = compile("recipes/fast");
+    let incumbent = compile("recipes/brokkr-fast");
     let challenger = compile("recipes/wager-harness");
 
     assert_eq!(

@@ -1,0 +1,7 @@
+{
+  "extends": "intake",
+  "models": ["sonnet", "opus"],
+  "efforts": {"sonnet": "high", "opus": "high"},
+  "tools": {"allow": ["git"], "mcp": []},
+  "replaces": {"tools": "Brokkr's own intake reads the repository's history before it frames, so it is granted git"}
+}

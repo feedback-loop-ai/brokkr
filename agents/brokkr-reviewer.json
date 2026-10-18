@@ -1,0 +1,10 @@
+{
+  "extends": "reviewer",
+  "models": ["sol", "fable", "opus"],
+  "efforts": {"sol": "high", "fable": "xhigh", "opus": "xhigh"},
+  "hands": {"kind": "workspace", "network": false, "binds": [
+    {"path": "~/.cargo", "mode": "overlay", "mask": ["credentials.toml", "credentials"]},
+    {"path": "~/.rustup", "mode": "ro"}
+  ]},
+  "replaces": {"hands": "Brokkr's own single reviewer is boxed with the Rust toolchain it runs the workspace's suite with"}
+}

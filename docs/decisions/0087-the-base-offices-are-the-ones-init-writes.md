@@ -1,9 +1,10 @@
 # 0087 — The library's base offices are the ones `init` writes, and Brokkr's own needs are offices of their own
 
-Status: proposed
+Status: accepted — operator ruled 2026-10-18 (PR #740), every choice asked taken as recommended
 Date: 2026-10-18
 
-Built: unbuilt (#717) — this is the first step the operator's ruling of 2026-10-17 asks for; the build follows in ruling 8's slices
+Built: partial (#717) — slice 1 (ruling 8) built rulings 1 to 4, 6 and 7; slices 2 and 3 are unbuilt
+Amends: 0078
 
 ## Context
 
@@ -103,10 +104,10 @@ runs keep them in offices of their own.
   offices request today, through Brokkr's own adapters.
 - **#360's overlay rule.** Ruling 3 asks for one change to it.
 
-The header carries no `Amends` pointer: the index test pairs every pointer
-with its counterpart (`crates/brokkr-cli/tests/decisions_index.rs`,
-`pointers_are_paired`), and this proposal does not edit an accepted
-decision's text. The pair is added to both files when the operator accepts.
+The header carries the `Amends: 0078` pointer, added on acceptance with
+its counterpart in 0078's header: the index test pairs every pointer with
+its counterpart (`crates/brokkr-cli/tests/decisions_index.rs`,
+`pointers_are_paired`).
 
 ## Rulings
 
@@ -174,8 +175,11 @@ decision's text. The pair is added to both files when the operator accepts.
    One that writes `efforts` without `models` is refused, because efforts
    are keyed by the chain's candidates. Every other rule of #360 stands:
    powers change only under a reason, a reason for nothing is refused, and
-   an overlay extends one level. This is what lets `fast` compile under
-   codex and dsh, where no claude name maps.
+   an overlay extends one level. Under codex this is what lets `fast`
+   compile, because no claude name maps there. Under dsh `init` hires the
+   reviewer from claude (`init.rs:352-358`), so the folder holds
+   `adapters/claude.json` and claude's names map; there inheritance is what
+   makes the work overlays follow `init`'s dsh chain rather than claude's.
 
 4. **Brokkr's own needs are offices under other names.** The Brokkr-only
    layer is five overlays of the portable base, each restating today's

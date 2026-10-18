@@ -2225,7 +2225,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
     let adapters = Adapters::load(&root.join("adapters")).expect("the shipped adapters load");
     let library = Library::load(&root.join("agents")).expect("the shipped library loads");
     let hands = library
-        .agent("reviewer")
+        .agent("brokkr-reviewer")
         .expect("the shipped reviewer")
         .hands
         .clone();
@@ -2237,7 +2237,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         &library,
         &adapters,
         &Availability::unspecified(),
-        "reviewer",
+        "brokkr-reviewer",
     )
     .expect("the shipped reviewer resolves");
     let candidate = resolution

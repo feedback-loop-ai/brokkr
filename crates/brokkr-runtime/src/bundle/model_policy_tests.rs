@@ -2770,8 +2770,10 @@ fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_script
         Boundary::Harness,
     )
     .expect("the inherited verify seat resolves against fast");
+    // The wager extends `brokkr-fast`, which extends `fast` (decision 0087
+    // ruling 4): the verify seat is fast's, two layers down.
     let fast_dir = root.join("recipes/fast").canonicalize().unwrap();
-    assert_eq!(wager.roots[1], fast_dir);
+    assert_eq!(wager.roots[2], fast_dir);
     let SeatBody::Invocation(Invocation::Single { command, .. }) = &wager.seats["verify"].body
     else {
         panic!("the inherited verify seat is a single exec site")
@@ -3866,8 +3868,10 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
     // Seventeen with GPT/Flash, which inherits triage's dialect steps.
     // Eighteen with review-first (decision 0060): fast's constitution
     // entered at verify, boxed exec gates only, so it compiles under
-    // harness like `fast`.
-    assert_eq!(dirs.len(), 18, "{dirs:?}");
+    // harness like `fast`. Nineteen with `recipes/brokkr-fast` (decision
+    // 0087 ruling 4): `fast` on Brokkr's offices, unboxed model seats, so
+    // it compiles under harness like `fast`.
+    assert_eq!(dirs.len(), 19, "{dirs:?}");
     let dialect_bundles = ["recipes/gpt-flash", "recipes/night-shift", "recipes/triage"];
 
     // Namespace is exactly today.
@@ -3945,7 +3949,7 @@ fn every_shipped_bundle_compiles_under_harness_once_the_fragments_are_measured()
             }
         }
     }
-    assert_eq!(compiled.len(), 15, "{compiled:?}");
+    assert_eq!(compiled.len(), 16, "{compiled:?}");
 
     // Second half: the adapters as they stand.
     let shipped = Adapters::load(&root.join("adapters")).unwrap();

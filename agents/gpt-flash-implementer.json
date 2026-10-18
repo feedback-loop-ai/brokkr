@@ -1,6 +1,5 @@
 {
   "extends": "implementer",
   "models": ["flash"],
-  "efforts": {"flash": "high"},
-  "replaces": {"tools": "flash is served by dsh, which expresses no tool list, so this smith runs without the base's cargo and git allow-list"}
+  "efforts": {"flash": "high"}
 }

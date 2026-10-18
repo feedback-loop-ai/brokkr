@@ -1,0 +1,13 @@
+{
+  "name": "brokkr-fast",
+  "description": "Brokkr's own fast: fast's table and scripts, with its two model seats hiring Brokkr's offices (decision 0087 ruling 4).",
+  "extends": "fast",
+  "override": {
+    "bundle": ["description"],
+    "seats": ["implement", "review"]
+  },
+  "seats": {
+    "implement": {"agent": "brokkr-fast-implementer", "class": "work", "results": ["complete", "broken", "blocked", "oversized"], "limits": {"max_attempts": 2, "timeout_seconds": 5400}},
+    "review": {"agent": "brokkr-fast-reviewer", "class": "gate", "results": ["clean", "residual", "security-hold"], "limits": {"max_attempts": 2, "timeout_seconds": 3600}}
+  }
+}

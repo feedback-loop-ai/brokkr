@@ -877,8 +877,10 @@ fn a_shipped_recipe_is_refused_once_a_model_it_hires_turns_provisional() {
     let root = shipped();
     let copy = shipped_adapters_with(|adapter| {
         if adapter["provider"] == "claude" {
-            let id = adapter["models"]["fable"].clone();
-            adapter["models"]["fable"] = json!({"id": id, "tier": "provisional"});
+            // Fast's smith leads with Opus, its base's chain, since
+            // decision 0087 ruling 2.
+            let id = adapter["models"]["opus"].clone();
+            adapter["models"]["opus"] = json!({"id": id, "tier": "provisional"});
         }
     });
     let fast = Bundle::compile_under(
@@ -893,7 +895,7 @@ fn a_shipped_recipe_is_refused_once_a_model_it_hires_turns_provisional() {
             ProvisionalRefusal::Unlisted {
                 seat: "implement".into(),
                 link: 1,
-                model: "fable".into(),
+                model: "opus".into(),
                 adapter: "claude".into(),
                 // Fast's smith is a library office since #360.
                 office: Some("fast-implementer".into()),

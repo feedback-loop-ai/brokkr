@@ -1,7 +1,7 @@
 # wager-harness-muse — the Muse Spark arm
 
 [`wager-harness`](../wager-harness/README.md)'s pattern, copied as it
-asks to be: `fast` with the implement seat's driver swapped, and
+asks to be: `brokkr-fast` with the implement seat's driver swapped, and
 nothing else. The one office of experiment here is
 `agents/muse-implementer.json`, an overlay of `implementer` whose chain
 holds Muse alone and resolves to
@@ -66,7 +66,7 @@ and no gate — the same standing as the deepseek arm.
   — and is the proof the contributor terms, not the standard ones,
   were the ones billed.
 
-Run as the harness README says: `brokkr run --recipe fast` for the
+Run as the harness README says: `brokkr run --recipe brokkr-fast` for the
 incumbent, `brokkr rerun --run <id> --recipe wager-harness-muse` for
 this arm, `brokkr compare` for the trails, then judge the artifacts.
 
