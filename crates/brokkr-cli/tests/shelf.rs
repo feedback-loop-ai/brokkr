@@ -1260,6 +1260,52 @@ fn a_project_shelf_refuses_with_no_personal_shelf_placed() {
     assert_eq!(ledger(&repo), listed);
 }
 
+/// Where this machine places no personal shelf, a project shelf without
+/// read permission refuses `queue add`, `recipes show` and `run` of `x` by
+/// the entry at the name, as it does with one placed (#697 ruling 2;
+/// #726), never read as absent: nothing is queued, no run starts, the
+/// driver keeps no state, and no file changes. A process that reads a
+/// mode-000 directory skips.
+#[test]
+fn an_unreadable_project_shelf_refuses_with_no_personal_shelf_placed() {
+    let (repo, _) = delivered_x();
+    let (listed, state) = (ledger(&repo), kept(&repo, "x"));
+    let before = repo.files();
+    let shelf = repo.path(".brokkr/recipes");
+    let unplaced = [("XDG_CONFIG_HOME", None), ("HOME", None)];
+    let verbs = [
+        vec![
+            "queue",
+            "add",
+            "--feature",
+            "f",
+            "--reason",
+            "r",
+            "--recipe",
+            "x",
+        ],
+        vec!["recipes", "show", "x"],
+        vec!["run", "--recipe", "x", "--feature", "f", "--no-view"],
+    ];
+    let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
+    std::fs::set_permissions(&shelf, mode(0o000)).unwrap();
+    let readable = std::fs::symlink_metadata(shelf.join("x")).is_ok();
+    let ran = verbs.clone().map(|args| under(&repo, &unplaced, &args));
+    std::fs::set_permissions(&shelf, mode(0o755)).unwrap();
+    if readable {
+        eprintln!("skipped: this process reads a mode-000 directory, as root does");
+        return;
+    }
+    let denied = format!(
+        "error: reading {}: Permission denied (os error 13)\n",
+        shelf.join("x").display()
+    );
+    let refused = ran.map(|ran| (ran.code, ran.stderr));
+    assert_eq!(refused, verbs.map(|_| (Some(1), denied.clone())));
+    assert_eq!(ledger(&repo), listed);
+    assert_eq!((repo.files(), kept(&repo, "x")), (before, state));
+}
+
 /// A personal shelf spelled through `..` beneath a part that does not
 /// stand, by `XDG_CONFIG_HOME` or by `HOME`, is never read as an empty one
 /// (#726): with `x` on both shelves, `run` of `x` refuses, naming the shelf

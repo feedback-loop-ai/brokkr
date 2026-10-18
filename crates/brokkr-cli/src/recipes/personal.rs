@@ -312,8 +312,8 @@ pub(crate) fn holding(recipe: Option<&str>, project: ShelfPath) -> Result<PathBu
 /// stands there alone, and `project` where it stands on neither, whose
 /// launch refuses it as not installed. Something standing at the name on
 /// both shelves refuses ([`Unshelved::Shadowed`]), and so does an entry
-/// that cannot be read, and, before either is read, a shelf that cannot
-/// be ([`resolving`]).
+/// that cannot be read, with no personal shelf as with one (#726), and,
+/// before either is read, a shelf that cannot be ([`resolving`]).
 fn holding_in(
     name: &str,
     project: ShelfPath,
@@ -321,6 +321,7 @@ fn holding_in(
 ) -> Result<PathBuf, Unshelved> {
     resolving(Origin::Project, &project)?;
     let Some(personal) = personal else {
+        stands(project.path(), name)?;
         return Ok(project.into_path());
     };
     resolving(Origin::Personal, personal)?;

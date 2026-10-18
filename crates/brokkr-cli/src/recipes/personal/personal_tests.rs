@@ -235,7 +235,8 @@ fn a_shelf_spelled_through_its_entry_is_judged_at_it() {
 }
 
 /// An entry at the name that cannot be read refuses by its path, never
-/// read as absent. A process that reads a mode-000 directory skips.
+/// read as absent, with a personal shelf given and with none (#726). A
+/// process that reads a mode-000 directory skips.
 #[test]
 fn a_shelf_that_cannot_be_read_refuses() {
     let (_dir, project, personal) = shelves(&[], &["mine"]);
@@ -243,19 +244,22 @@ fn a_shelf_that_cannot_be_read_refuses() {
     let mode = |bits| std::os::unix::fs::PermissionsExt::from_mode(bits);
     std::fs::set_permissions(&project, mode(0o000)).unwrap();
     let readable = std::fs::symlink_metadata(project.join("mine")).is_ok();
-    let held = holding_in("mine", project.clone(), Some(&personal));
+    let held =
+        [Some(&*personal), None].map(|personal| holding_in("mine", project.clone(), personal));
     std::fs::set_permissions(&project, mode(0o755)).unwrap();
     if readable {
         eprintln!("skipped: this process reads a mode-000 directory, as root does");
         return;
     }
-    let refused = held.unwrap_err();
-    assert!(matches!(refused, Unshelved::Unreadable(_)));
     let denied = format!(
         "reading {}: Permission denied (os error 13)",
         project.join("mine").display()
     );
-    assert_eq!(refused.to_string(), denied);
+    for (held, placed) in held.into_iter().zip([true, false]) {
+        let refused = held.unwrap_err();
+        assert!(matches!(refused, Unshelved::Unreadable(_)), "{placed}");
+        assert_eq!(refused.to_string(), denied, "{placed}");
+    }
 }
 
 /// The origin column's words and doctor's.
