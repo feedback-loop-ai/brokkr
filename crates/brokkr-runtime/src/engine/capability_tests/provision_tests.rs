@@ -131,7 +131,7 @@ impl Fixture {
     }
 
     /// [`Fixture::inline`] made in `base`.
-    fn inline_in(base: &Path) -> Fixture {
+    pub(super) fn inline_in(base: &Path) -> Fixture {
         let dir = tempfile::tempdir_in(base).unwrap();
         let (dir, mut engine) = canonical_engine_in(dir, single_body(vec!["driver".into()]));
         let root = std::fs::canonicalize(dir.path()).unwrap();
@@ -1101,6 +1101,7 @@ fn each_member_provisions_its_own_selected_links_holdings_under_its_own_site() {
 /// Execute the fixture's attempt under a capturing driver and check it
 /// fails after its durable start with exactly `error`, the driver never
 /// started.
+#[cfg(target_os = "linux")]
 fn refused_at_launch(mut fixture: Fixture, error: &Unprovisioned) {
     let captured = fixture.root.join("started.json");
     let result = json!({"result": "complete"});
@@ -1124,7 +1125,10 @@ fn refused_at_launch(mut fixture: Fixture, error: &Unprovisioned) {
 /// U7c (SD3, CR3): an attempt whose plans cannot be provisioned fails after
 /// its durable start with the refusal's own words, and no driver starts:
 /// an oversized allocation, and a wanted holding without its seal, both
-/// before the host is consulted.
+/// before the host is consulted. Linux only: off Linux no mount table is
+/// read, so the dispatch door refuses every boxed writer beside evidence
+/// before anything is provisioned (decision 0063; U8a2a).
+#[cfg(target_os = "linux")]
 #[test]
 fn an_attempt_whose_plans_cannot_be_provisioned_fails_before_any_driver_starts() {
     let mut fixture = Fixture::inline();

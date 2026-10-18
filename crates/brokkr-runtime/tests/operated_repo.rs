@@ -14,6 +14,9 @@ use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "support/own_home.rs"]
+mod own_home;
+
 const POLICY: &str = r#"{
   "phases": ["work", "review", "ship", "done", "stop"],
   "initial": "work",
@@ -106,6 +109,7 @@ fn repository(dir: &Path, name: &str) -> PathBuf {
 }
 
 fn run(dir: &Path, gate: &str, repo: Option<PathBuf>) -> (Status, Option<String>) {
+    own_home::required();
     let store = Store::open(&dir.join(format!("forge-{}.db", uuid()))).unwrap();
     let mut engine = Engine::start(store, bundle(dir, gate), "operated", repo).unwrap();
     let end = engine.drive().unwrap();
@@ -126,8 +130,16 @@ fn uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// The engines this binary's one test drives in its own process admit
+/// their attempts in a coordination root under a HOME of the test's own,
+/// never the operator's (decision 0065 slice two, U8a2a): it runs again in
+/// a child process whose HOME that is.
 #[test]
 fn without_repo_the_guards_read_the_directory_the_run_stands_in() {
+    let test = "without_repo_the_guards_read_the_directory_the_run_stands_in";
+    if !own_home::in_own_home(test) {
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     for (mode, repo) in [("dot", Some(PathBuf::from("."))), ("none", None)] {
         // A dirty worktree parks ship, named or not.

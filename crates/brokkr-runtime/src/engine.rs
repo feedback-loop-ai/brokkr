@@ -22,7 +22,7 @@ use brokkr_protocol::native_controls::{
     LocalExpectation, Origin, SandboxIntent, SealedBroker, SealedServing, Segment,
     TemplateExpectation, ARTIFACT_ROOT, SERVING_INPUTS,
 };
-use brokkr_protocol::process::{DriverProcess, SpawnEnv};
+use brokkr_protocol::process::SpawnEnv;
 use brokkr_protocol::AttemptOutcome;
 use brokkr_store::{Store, StoreError};
 use serde_json::{json, Map, Value};
@@ -31,8 +31,8 @@ use uuid::Uuid;
 
 use crate::agents::{Candidate, Lowering, ResultDoor};
 use crate::bundle::{
-    charters_as_started, charters_intact, layer_drift, site_charter_text, Bundle, CharterPin,
-    ExecutableBody, HandsState, Seat, SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
+    charters_as_started, charters_intact, Bundle, CharterPin, ExecutableBody, HandsState, Seat,
+    SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
 };
 use crate::dialect::DialectPhase;
 use crate::phase_name;
@@ -51,6 +51,7 @@ mod capability_calls;
 mod checkpoints;
 mod decide;
 mod dispatch;
+use dispatch::spawn_site;
 mod fence;
 mod input;
 mod isolation;
@@ -209,6 +210,10 @@ pub enum EngineError {
     Invariant(&'static str, String),
     #[error("dispatch: {0}")]
     Dispatch(#[from] brokkr_core::dispatch::DispatchError),
+    /// Decision 0065 slice two, U8a2a (D6, M1): an attempt's settlement
+    /// could not be sealed where the fence rule asks it; its lease stands.
+    #[error(transparent)]
+    Unreleased(#[from] broker::settlement::Unreleased),
     #[error("realms: {0}")]
     World(#[from] crate::realms::WorldError),
     /// Decision 0046 ruling 1, at the engine's own door: the bundle was
@@ -406,6 +411,8 @@ pub struct Engine {
     /// The head the next append must still find, as [`fence::tip_of`]
     /// took it (decision 0029); `None` while an attempt is in flight.
     fence: Option<(u64, String)>,
+    /// The writer lease the attempt in flight was admitted under (U8a2a).
+    held: Option<broker::Held>,
 }
 
 pub(crate) fn verify_dispatch_bundle_bounds(
@@ -612,6 +619,7 @@ impl Engine {
             replay: Default::default(),
             held_outcome: None,
             fence: None,
+            held: None,
         })
     }
 
@@ -659,6 +667,7 @@ impl Engine {
             replay: Default::default(),
             held_outcome: None,
             fence: None,
+            held: None,
         })
     }
 
@@ -724,6 +733,7 @@ impl Engine {
             replay,
             held_outcome: None,
             fence: None,
+            held: None,
         })
     }
 
@@ -1686,12 +1696,13 @@ impl Engine {
             );
         }
         let stamp = plan.map(|plan| plan.context.clone());
-        // The door returns the input the driver is actually sent: the same
-        // object, with the charter text it verified carried in it.
-        let (process, input) = match spawn_site(&self.bundle, spawn, &input, &workdir, deadline) {
-            Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
-            Ok(started) => started,
-        };
+        // The door returns the very input the driver is sent, its verified charter text in it.
+        let held = self.held.as_ref();
+        let (process, input) =
+            match spawn_site(&self.bundle, spawn, &input, &workdir, deadline, held) {
+                Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
+                Ok(started) => started,
+            };
         // A checkpoint the seat-record fence refuses (decision 0034, ruling
         // 6) does not stop the driver, which would only lose its stderr,
         // but the attempt is already lost: no later checkpoint is journaled,
@@ -1736,6 +1747,7 @@ impl Engine {
                 sink.offer("", checkpoint, call);
             },
         )?;
+        broker::settlement::witnessed(&mut self.held, &report.cleanup);
         Ok(DriverRun::Ran(report))
     }
 
@@ -2179,78 +2191,6 @@ fn start_failure_fields(payload: &mut Value, selection: &Selection, sites: Vec<S
     }
     payload["start_failure"] = Value::Bool(true);
     payload["start_failure_sites"] = Value::Array(journaled);
-}
-
-/// Every driver-bearing site uses this door, including concurrent panel
-/// members. Re-walk immediately before spawning; the interval to exec is
-/// the accepted residual of decision 0046 ruling 4.
-fn spawn_site(
-    bundle: &Bundle,
-    spawn: &SiteSpawn,
-    input: &Value,
-    workdir: &Path,
-    deadline: std::time::Duration,
-) -> Result<(DriverProcess, Value), String> {
-    if let Some(reason) = &spawn.refusal {
-        return Err(reason.clone());
-    }
-    // The input arrives here after its last merge: the launch record in it
-    // must be the one sealed for this spawn, and reassemble the argv about
-    // to be launched (design D5.7).
-    verify_record(spawn, input)?;
-    // Decision 0066 ruling 5: the driver renders the prompt from the role
-    // file it is handed, so the file is judged here, against the pin the
-    // compile took, immediately before the driver that will read it.
-    //
-    // Second council H6: and the TEXT that read produced rides the input
-    // from here, because a driver that reopened the path would read
-    // whatever it said by then. An exec site has no charter to load into
-    // a prompt; everything else answers to a pin, the layer's file map or
-    // the library record.
-    //
-    // Rebuild unit 18 (design D7): the charter checked is the one the
-    // compile bound to THIS site, carried on its spawn, through its owner's
-    // bound read — owner, target and bytes — and the text handed over is
-    // that read's buffer, written here after every merge. An input that
-    // arrives already carrying charter text refuses rather than being
-    // overwritten into looking verified: a recipe, a result or a context
-    // cannot supply what the seat is told.
-    if input
-        .get(brokkr_protocol::native_controls::ROLE_TEXT)
-        .is_some()
-    {
-        return Err(format!(
-            "dispatch refused: the input arrived carrying charter text ('{}') before the \
-             dispatch door read one; what a seat is told is read only here, from the charter \
-             the compile bound to its site (decision 0066 ruling 5)",
-            brokkr_protocol::native_controls::ROLE_TEXT
-        ));
-    }
-    let mut input = input.clone();
-    let role = input["role_path"].as_str().unwrap_or_default().to_string();
-    if !role.is_empty() || spawn.charter.is_some() {
-        match site_charter_text(bundle, spawn.charter.as_ref(), Path::new(&role)) {
-            Err((owner, key)) => {
-                return Err(format!(
-                    "dispatch refused: a charter of {owner} moved since the compile ({key}); \
-                     what a seat is told must be the bytes the bundle's identity names \
-                     (decision 0066 ruling 5)"
-                ))
-            }
-            Ok(text) => input[brokkr_protocol::native_controls::ROLE_TEXT] = Value::String(text),
-        }
-    }
-    if let Some(layer) = &spawn.rewalk {
-        if let Some((layer, key)) = layer_drift(bundle, layer) {
-            return Err(format!(
-                "unboxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); \
-                 the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
-            ));
-        }
-    }
-    DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
-        .map(|process| (process, input))
-        .map_err(|error| error.to_string())
 }
 
 /// One composed invocation (decision 0046 ruling 4; design DD18): the

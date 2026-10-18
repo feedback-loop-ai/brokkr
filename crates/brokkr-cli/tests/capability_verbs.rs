@@ -138,11 +138,12 @@ impl Workspace {
 
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String) {
         crate::engine::library(self.path());
-        let out = Command::new(env!("CARGO_BIN_EXE_brokkr"))
-            .args(args)
-            .current_dir(self.path())
-            .output()
-            .unwrap();
+        // The operated repository is `repo/`, so the HOME beside it is no
+        // tree a run operates.
+        let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
+        command.env("HOME", crate::engine::home_in(self.path()));
+        let out = command.args(args).current_dir(self.path()).output();
+        let out = out.unwrap();
         (
             out.status.code(),
             String::from_utf8_lossy(&out.stderr).into_owned(),

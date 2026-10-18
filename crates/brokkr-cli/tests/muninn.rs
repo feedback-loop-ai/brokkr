@@ -37,12 +37,16 @@ const POLICY: &str = r#"{
 /// a scripted `forge-driver/v1` participant standing in for the harness.
 struct Workspace {
     dir: tempfile::TempDir,
+    /// The HOME every `brokkr` here is given, apart from the fleet's
+    /// repositories (decision 0065 slice two, U8a2a).
+    home: tempfile::TempDir,
 }
 
 impl Workspace {
     fn new() -> Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
+            home: tempfile::tempdir().unwrap(),
         };
         for sub in [
             "bundle",
@@ -229,6 +233,7 @@ impl Workspace {
         crate::engine::library(self.path());
         Command::new(brokkr_bin())
             .args(args)
+            .env("HOME", self.home.path())
             .current_dir(self.path())
             .output()
             .unwrap()

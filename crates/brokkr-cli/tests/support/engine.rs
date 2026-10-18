@@ -2,18 +2,61 @@
 //! hands trees of its TMPDIR and says each on its stderr (#415), so an
 //! engine on the shared TMPDIR says a tree another test left there, and a
 //! test that reads its run's stderr exactly reads that line too (#646).
-//! Each engine here gets a TMPDIR of its own.
+//! Each engine here gets a TMPDIR of its own, and a HOME of its own, in
+//! which its dispatches admit their attempts, never the operator's
+//! (decision 0065 slice two, U8a2a).
 
-use std::path::Path;
+use std::os::unix::fs::DirBuilderExt;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// `brokkr` run in `dir`, which is its TMPDIR too: its start reaps only
-/// the trees of `dir`. `dir` is marked a recipe library first ([`library`]).
+/// the trees of `dir`. Its HOME is [`home_in`] `dir`, unless the test
+/// gives it another. `dir` is marked a recipe library first ([`library`]).
 pub(crate) fn brokkr_in(dir: &Path) -> Command {
     library(dir);
     let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    command.current_dir(dir).env("TMPDIR", dir);
     command
+        .current_dir(dir)
+        .env("TMPDIR", dir)
+        .env("HOME", home_in(dir));
+    command
+}
+
+/// `dir/home`, owner-only, made where it is missing: the HOME a test gives
+/// every `brokkr` it launches on a path that can dispatch (`run`,
+/// `resume`, `rerun`), unless it gives it another, so its dispatches admit
+/// their attempts in a coordination root of the test's own, never under
+/// the operator's HOME (decision 0065 slice two, U8a2a). `dir` is the
+/// test's own, but may be the tree a run operates: [`brokkr_in`] stands in
+/// it, and some suites hand it as `--repo` too. That HOME is then inside
+/// the operated tree, which only the fence standing with nothing at stake
+/// admits (the operator's first ruling of 2026-10-18); a test that puts
+/// evidence at stake gives a HOME beside its repository instead, as
+/// `brokkr_folder.rs` does (L4 of run four's second review).
+pub(crate) fn home_in(dir: &Path) -> PathBuf {
+    let home = dir.join("home");
+    let mut made = std::fs::DirBuilder::new();
+    made.recursive(true).mode(0o700).create(&home).unwrap();
+    home
+}
+
+/// [`home_in`] `dir`, each toolchain directory a shipped recipe's hands
+/// bind from HOME (`~/.cargo`, `~/.rustup`, `~/.npm`) linked in it to the
+/// one under this process's HOME where that stands: the box still binds
+/// the toolchain, and the coordination root is still the test's own.
+pub(crate) fn toolchain_home_in(dir: &Path) -> PathBuf {
+    let home = home_in(dir);
+    let operator = std::env::var_os("HOME").map(PathBuf::from);
+    for tool in [".cargo", ".rustup", ".npm"] {
+        let own = operator.as_ref().map(|operator| operator.join(tool));
+        let linked = home.join(tool);
+        let missing = std::fs::symlink_metadata(&linked).is_err();
+        if let Some(own) = own.filter(|own| own.exists() & missing) {
+            std::os::unix::fs::symlink(own, linked).unwrap();
+        }
+    }
+    home
 }
 
 /// Run in the fixture's environment and preserve the complete failure

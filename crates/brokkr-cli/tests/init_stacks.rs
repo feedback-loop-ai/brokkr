@@ -246,8 +246,12 @@ pub(crate) fn brokkr_with(
         )
         .unwrap();
     }
+    // A HOME of its own, beside the stubs, unless `configure` gives it
+    // another (decision 0065 slice two, U8a2a).
+    let home = crate::engine::toolchain_home_in(stubs.path());
     let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
-    command.args(args).env("PATH", path).current_dir(cwd);
+    command.args(args).env("PATH", path).env("HOME", home);
+    command.current_dir(cwd);
     configure(&mut command);
     let out = command.output().unwrap();
     let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();

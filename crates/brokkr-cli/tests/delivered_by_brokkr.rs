@@ -218,6 +218,7 @@ fn deliver_in(
     crate::engine::library(side);
     let out = Command::new(brokkr_bin())
         .args(&args)
+        .env("HOME", crate::engine::home_in(side))
         .current_dir(side)
         .output()
         .unwrap();

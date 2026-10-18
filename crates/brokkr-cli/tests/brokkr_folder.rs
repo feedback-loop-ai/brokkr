@@ -93,13 +93,15 @@ impl Repo {
     }
 
     /// `brokkr` standing in `dir`, relative to the root, created first,
-    /// with [`Repo::config`] for its configuration directory.
+    /// with [`Repo::config`] for its configuration directory and a HOME of
+    /// its own beside the repository ([`crate::engine::home_in`]).
     pub(crate) fn command(&self, dir: &str) -> Command {
         let cwd = self.path(dir);
         std::fs::create_dir_all(&cwd).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_brokkr"));
         command.current_dir(cwd).env("TMPDIR", &self.aside);
         command.env("XDG_CONFIG_HOME", self.config());
+        command.env("HOME", crate::engine::home_in(&self.aside));
         command
     }
 

@@ -77,6 +77,9 @@ fn gate_seat(verdicts: &[&str]) -> Value {
 
 struct Workspace {
     dir: tempfile::TempDir,
+    /// The HOME every `brokkr` here is given, apart from the workspace a
+    /// run operates (decision 0065 slice two, U8a2a).
+    home: tempfile::TempDir,
 }
 
 impl Workspace {
@@ -84,9 +87,7 @@ impl Workspace {
     /// hands running the bundle's own `./scripts/gate.sh`, and a v4 map
     /// naming the workspace itself as a realm under `boundary`.
     fn new(boundary: &str) -> Workspace {
-        let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
-        };
+        let ws = Workspace::fresh();
         let bundle = ws.bundle_dir();
         std::fs::create_dir_all(bundle.join("scripts")).unwrap();
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
@@ -143,6 +144,12 @@ impl Workspace {
         self.path().join("forge.db")
     }
 
+    /// An empty workspace and the HOME beside it.
+    fn fresh() -> Workspace {
+        let (dir, home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        Workspace { dir, home }
+    }
+
     fn brokkr(&self, args: &[&str]) -> (Option<i32>, String, String) {
         crate::engine::library(self.path());
         self.unmarked(args)
@@ -153,6 +160,7 @@ impl Workspace {
         let out = Command::new(brokkr_bin())
             .args(args)
             .env("GH_TOKEN", FIXTURE_GH_TOKEN)
+            .env("HOME", self.home.path())
             .current_dir(self.path())
             .output()
             .unwrap();
@@ -301,9 +309,7 @@ fn the_gate_fixture_reads_windows_result_paths_from_its_prompt() {
 #[test]
 fn init_in_the_realm_runs_unboxed_gates_after_journal_results_and_source_writes() {
     for boundary in ["harness", "open"] {
-        let ws = Workspace {
-            dir: tempfile::tempdir().unwrap(),
-        };
+        let ws = Workspace::fresh();
         let git = |args: &[&str]| {
             let output = Command::new("git")
                 .args(args)

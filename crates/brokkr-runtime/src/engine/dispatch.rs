@@ -5,19 +5,22 @@
 //! [`Engine::execute`] reads as that sequence, in order; the pieces it is
 //! split into stand beside it here, in the order it reaches them.
 
-use std::time::Duration;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::RunState;
 use brokkr_core::EventEnvelope;
+use brokkr_protocol::process::DriverProcess;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use super::broker::{admission, observed, Held, Observed};
 use super::{
-    argv_for, arms_effect_gate_head, git_head, phase_of, select_candidates, Engine, EngineError,
-    Selection, SiteSpawn, RESULTS,
+    argv_for, arms_effect_gate_head, git_head, phase_of, select_candidates, verify_record, Engine,
+    EngineError, Selection, SiteSpawn, RESULTS,
 };
-use crate::bundle::{ExecutableBody, Invocation};
+use crate::bundle::{layer_drift, site_charter_text, Bundle, ExecutableBody, Invocation};
 
 /// One attempt of a requested effect, as [`Engine::execute`] names it
 /// before anything spawns: the effect, the attempt, the seat and the case
@@ -80,7 +83,7 @@ impl Engine {
                 .body
                 .selected_is_gate(state.strategy.as_deref(), seat.has_gate),
         };
-        let (mut selection, mut single, started) = self.plan_attempt(events, &at, &mut input)?;
+        let (selection, single, started) = self.plan_attempt(events, &at, &mut input)?;
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
@@ -88,17 +91,43 @@ impl Engine {
         }
         self.append(EventType::EffectStarted, started, Some(attempt_id.clone()))?;
         std::fs::create_dir_all(self.run_local().join(RESULTS)).ok();
-        let mut deadline = Duration::from_secs(seat.limits.timeout_seconds);
+        let deadline = Duration::from_secs(seat.limits.timeout_seconds);
         let ids = [effect_id, attempt_id.as_str(), site_name.as_str()];
-        if !self.provision(ids, &mut selection, &mut deadline)? {
+        // U8a2a (CR2, MB3): the attempt's whole writer reach is reserved on
+        // its worktree before anything of it is provisioned or spawns, and
+        // released only once its owned processes are proven settled. Both
+        // admission and provisioning decide on one observation of the host
+        // and spend one startup deadline from here.
+        let (began, observed) = (Instant::now(), observed());
+        if !self.admit(ids, body, &selection, (began, deadline), &observed)? {
+            return Ok(());
+        }
+        let timed = (began, deadline, observed);
+        let ran = self.provisioned_body(&at, input, timed, selection, single);
+        self.settle(&attempt_id, ran)
+    }
+
+    /// The admitted attempt's plans provisioned on the host as `observed`,
+    /// and its body run on what provisioning left of its `deadline`, which
+    /// began at `began`.
+    fn provisioned_body(
+        &mut self,
+        at: &Dispatch<'_>,
+        mut input: Value,
+        (began, mut deadline, observed): (Instant, Duration, Observed),
+        mut selection: Selection,
+        mut single: Option<SiteSpawn>,
+    ) -> Result<(), EngineError> {
+        let ids = [at.effect_id, at.attempt_id, at.site_name];
+        if !self.provision(ids, &mut selection, (began, &mut deadline), observed)? {
             return Ok(());
         }
         // Sealed once its plans are provisioned, as members and steps are
         // (U7d2): the brokers it is served with are their pins.
-        let brokers = selection.brokers(&site_name);
+        let brokers = selection.brokers(at.site_name);
         let link = selection.get(&None);
-        self.mark_serving(&site_name, link, brokers, single.as_mut(), &mut input);
-        self.run_body(&at, input, deadline, &selection, single)
+        self.mark_serving(at.site_name, link, brokers, single.as_mut(), &mut input);
+        self.run_body(at, input, deadline, &selection, single)
     }
 
     /// The world changed between request and execution (bundle edit,
@@ -267,6 +296,86 @@ impl Engine {
             }
         }
     }
+}
+
+/// Every driver-bearing site uses this door, including concurrent panel
+/// members. Re-walk immediately before spawning; the interval to exec is
+/// the accepted residual of decision 0046 ruling 4. Moved here from
+/// `engine.rs` by U8a2a, which rechecks at it that the lease `held` its
+/// attempt was admitted under still stands (CR2, MB3): every dispatch
+/// admits its attempt before its body runs, and only a test that calls a
+/// body or this door directly holds none.
+pub(super) fn spawn_site(
+    bundle: &Bundle,
+    spawn: &SiteSpawn,
+    input: &Value,
+    workdir: &Path,
+    deadline: std::time::Duration,
+    held: Option<&Held>,
+) -> Result<(DriverProcess, Value), String> {
+    if let Some(reason) = &spawn.refusal {
+        return Err(reason.clone());
+    }
+    if let Some(held) = held {
+        admission::recheck(held).map_err(|refusal| refusal.to_string())?;
+    }
+    // The input arrives here after its last merge: the launch record in it
+    // must be the one sealed for this spawn, and reassemble the argv about
+    // to be launched (design D5.7).
+    verify_record(spawn, input)?;
+    // Decision 0066 ruling 5: the driver renders the prompt from the role
+    // file it is handed, so the file is judged here, against the pin the
+    // compile took, immediately before the driver that will read it.
+    //
+    // Second council H6: and the TEXT that read produced rides the input
+    // from here, because a driver that reopened the path would read
+    // whatever it said by then. An exec site has no charter to load into
+    // a prompt; everything else answers to a pin, the layer's file map or
+    // the library record.
+    //
+    // Rebuild unit 18 (design D7): the charter checked is the one the
+    // compile bound to THIS site, carried on its spawn, through its owner's
+    // bound read — owner, target and bytes — and the text handed over is
+    // that read's buffer, written here after every merge. An input that
+    // arrives already carrying charter text refuses rather than being
+    // overwritten into looking verified: a recipe, a result or a context
+    // cannot supply what the seat is told.
+    if input
+        .get(brokkr_protocol::native_controls::ROLE_TEXT)
+        .is_some()
+    {
+        return Err(format!(
+            "dispatch refused: the input arrived carrying charter text ('{}') before the \
+             dispatch door read one; what a seat is told is read only here, from the charter \
+             the compile bound to its site (decision 0066 ruling 5)",
+            brokkr_protocol::native_controls::ROLE_TEXT
+        ));
+    }
+    let mut input = input.clone();
+    let role = input["role_path"].as_str().unwrap_or_default().to_string();
+    if !role.is_empty() || spawn.charter.is_some() {
+        match site_charter_text(bundle, spawn.charter.as_ref(), Path::new(&role)) {
+            Err((owner, key)) => {
+                return Err(format!(
+                    "dispatch refused: a charter of {owner} moved since the compile ({key}); \
+                     what a seat is told must be the bytes the bundle's identity names \
+                     (decision 0066 ruling 5)"
+                ))
+            }
+            Ok(text) => input[brokkr_protocol::native_controls::ROLE_TEXT] = Value::String(text),
+        }
+    }
+    if let Some(layer) = &spawn.rewalk {
+        if let Some((layer, key)) = layer_drift(bundle, layer) {
+            return Err(format!(
+                "unboxed exec dispatch refused: layer '{layer}' moved since the compile ({key}); \
+                 the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
+            ));
+        }
+    }
+    DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
+        .map(|process| (process, input))
+        .map_err(|error| error.to_string())
 }
 
 /// The input digest recorded when `effect_id` was requested.

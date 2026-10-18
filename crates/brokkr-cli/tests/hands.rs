@@ -615,6 +615,7 @@ fn shipped_exec_site(tmp: &Path) -> std::process::Output {
         ])
         .current_dir(&root)
         .env("TMPDIR", tmp)
+        .env("HOME", crate::engine::toolchain_home_in(journal.path()))
         .output()
         .unwrap()
 }
@@ -847,7 +848,10 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
       ]}"#,
     )
     .unwrap();
-    let home = std::env::var("HOME").unwrap();
+    // The run's own HOME, its toolchain linked in: the box binds the
+    // toolchain from where the run's HOME names it.
+    let home = crate::engine::toolchain_home_in(journal.path());
+    let home = home.display();
     let hands = serde_json::json!({"kind":"workspace","network":false,"binds":[
         {"path":format!("{home}/.cargo"),"mode":"overlay","mask":["credentials.toml","credentials"]},
         {"path":format!("{home}/.rustup"),"mode":"ro"}
@@ -895,6 +899,7 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
         ])
         .current_dir(work.path())
         .env("TMPDIR", tmp)
+        .env("HOME", home.to_string())
         .output()
         .unwrap();
     (work, output)
