@@ -244,13 +244,48 @@ fn pressed(tui: &mut Tui, views: &Views, key: Key) -> Option<Closed> {
     })
 }
 
+/// A read's answer, taken: the frame it brings arrives in place of
+/// `views`, and `failures` counts the unreadable reads in a row. Whether
+/// a frame arrived.
+fn taken(
+    tui: &mut Tui,
+    views: &mut Views,
+    answer: Result<Refreshed>,
+    vanishing_key: Option<&str>,
+    failures: &mut usize,
+) -> Result<bool> {
+    match answer {
+        Ok(Some(fresh)) => {
+            *views = arrive(tui, views.transcript.as_ref(), fresh, vanishing_key);
+            *failures = 0;
+            Ok(true)
+        }
+        Ok(None) => {
+            *failures = 0;
+            Ok(false)
+        }
+        Err(error) => {
+            // A transient store error (SQLITE_BUSY while a `brokkr run`
+            // holds the write lock) is a frame that says so, with keys
+            // still live. A persistent one gives up.
+            *failures += 1;
+            tui.status = Some(format!("the journal is not readable right now: {error}"));
+            anyhow::ensure!(
+                *failures < crate::WATCH_TRANSIENT_FRAMES,
+                "giving up after {failures} unreadable polls: {error}"
+            );
+            Ok(false)
+        }
+    }
+}
+
 /// The bounded shell: draw, poll, apply, repeat. Everything impure it
 /// touches arrives as a parameter, so the whole loop — its quit arm, its
 /// error arm and its transient-busy arms — runs under `TestBackend`.
-pub(super) fn drive<B: Backend>(
+pub(super) fn drive<B: Backend, P: Into<Polled>>(
     terminal: &mut Terminal<B>,
     ops: &TerminalOps,
-    source: &mut dyn FnMut(Ask) -> Result<Refreshed>,
+    source: &mut dyn FnMut(Ask) -> P,
     tui: &mut Tui,
     max_iterations: usize,
 ) -> Result<Closed>
@@ -259,6 +294,9 @@ where
     B::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut views = Views::empty();
+    // The hearth `views` was read from: a frame is never drawn under the
+    // tab of another (#744).
+    let mut shown = tui.tab;
     let mut failures = 0usize;
     for _ in 0..max_iterations {
         let subject = subject_of(tui, &views);
@@ -273,28 +311,19 @@ where
             // tab's journal is neither polled nor opened.
             tab: tui.tab,
         };
-        match source(ask) {
-            Ok(Some(fresh)) => {
-                views = arrive(
-                    tui,
-                    views.transcript.as_ref(),
-                    fresh,
-                    vanishing_key.as_deref(),
-                );
-                failures = 0;
+        // A read still out (`Polled::Pending`) is neither read nor
+        // refused: the give-up bound counts reads.
+        if let Polled::Answered(answer) = source(ask).into() {
+            let key = vanishing_key.as_deref();
+            if taken(tui, &mut views, *answer, key, &mut failures)? {
+                shown = tui.tab;
             }
-            Ok(None) => failures = 0,
-            Err(error) => {
-                // A transient store error (SQLITE_BUSY while a `brokkr
-                // run` holds the write lock) is a frame that says so,
-                // with keys still live. A persistent one gives up.
-                failures += 1;
-                tui.status = Some(format!("the journal is not readable right now: {error}"));
-                anyhow::ensure!(
-                    failures < crate::WATCH_TRANSIENT_FRAMES,
-                    "giving up after {failures} unreadable polls: {error}"
-                );
-            }
+        }
+        // The hearth left behind: until the one entered answers, the
+        // frame is the empty one the first read is drawn over.
+        if shown != tui.tab {
+            views = Views::empty();
+            shown = tui.tab;
         }
         settle(tui, &views);
         // Ruled over the frame just read, so the frame that first shows
@@ -329,7 +358,7 @@ where
 /// One session of the console on a terminal: every environment fact and
 /// every terminal call arrives here as a field, so the whole of [`start`]
 /// executes in tests as well as in production.
-pub(crate) struct Session<'a, B, R> {
+pub(crate) struct Session<'a, B, R, P> {
     /// Whether the journal is on disk: a read never creates one.
     pub db_is_file: bool,
     /// The run `--run` named, opened at its level; `Esc` then walks the
@@ -348,7 +377,8 @@ pub(crate) struct Session<'a, B, R> {
     pub animate: bool,
     pub backend: B,
     pub restore: R,
-    pub source: &'a mut dyn FnMut(Ask) -> Result<Refreshed>,
+    /// The refresh source: one on the loop, or one read off it.
+    pub source: &'a mut dyn FnMut(Ask) -> P,
     pub max_iterations: usize,
     /// What the session watches besides its keys (#508).
     pub watched: Watched,
@@ -360,7 +390,9 @@ pub(crate) struct Session<'a, B, R> {
 /// production. Nothing here exits the process outright — that would run
 /// past the guard's `Drop` and leave a terminal in raw mode — so the TUI
 /// returns how it closed, and its caller what that means.
-pub(crate) fn start<B: Backend, R: Write>(session: Session<'_, B, R>) -> Result<Closed>
+pub(crate) fn start<B: Backend, R: Write, P: Into<Polled>>(
+    session: Session<'_, B, R, P>,
+) -> Result<Closed>
 where
     B::Error: std::error::Error + Send + Sync + 'static,
 {

@@ -2,9 +2,9 @@
 //! source once a tick and draws whatever it gets, so a source that takes
 //! seconds — the first fold of a large journal, a peer holding the write
 //! lock — used to hold every key for as long. [`behind`] runs the source
-//! on a thread of its own and hands the shell one that never waits: a
-//! frame that has arrived, or none yet, and the keys stay live either
-//! way, the first load included.
+//! on a thread of its own and hands the shell one that never waits: an
+//! answer that has arrived, or [`Polled::Pending`], and the keys stay
+//! live either way, the first load included.
 //!
 //! **No ask is lost.** While a read is out, the shell's later asks are
 //! folded into the one owed next: the newest selection, still owing any
@@ -22,30 +22,31 @@ use super::*;
 /// a source that never waits for it. A panic in `source` is carried back
 /// and resumed on `body`'s thread, so the console unwinds through its
 /// terminal guard exactly as when the source ran on the loop. The thread
-/// is joined when `body` returns, once the read in hand, if any, is done.
+/// is never joined: when `body` returns, the console closes at once — a
+/// run view's Ctrl+C is raised then — and the read in hand, if any, ends
+/// on its own, its answer unread, before the thread does. A read writes
+/// nothing (decision 0014), so nothing is left half done.
 pub(crate) fn behind<T>(
-    mut source: impl FnMut(Ask) -> Result<Refreshed> + Send,
-    body: impl FnOnce(&mut dyn FnMut(Ask) -> Result<Refreshed>) -> T,
+    mut source: impl FnMut(Ask) -> Result<Refreshed> + Send + 'static,
+    body: impl FnOnce(&mut dyn FnMut(Ask) -> Polled) -> T,
 ) -> T {
     let (asks, asked) = channel::<Asked>();
     let (answers, answered) = channel::<Answer>();
-    std::thread::scope(|scope| {
-        scope.spawn(move || {
-            // Until the shell's end is dropped, which ends the asks.
-            for ask in asked {
-                let answer = std::panic::catch_unwind(AssertUnwindSafe(|| source(ask.ask())));
-                // The shell's end outlives every ask it sent.
-                let _ = answers.send((ask, answer));
-            }
-        });
-        let mut reader = Reader {
-            asks,
-            answered,
-            reading: false,
-            owed: None,
-        };
-        body(&mut |ask| reader.ask(&ask))
-    })
+    std::thread::spawn(move || {
+        // Until the shell's end is dropped, which ends the asks.
+        for ask in asked {
+            let answer = std::panic::catch_unwind(AssertUnwindSafe(|| source(ask.ask())));
+            // A shell that has closed reads no answer.
+            let _ = answers.send((ask, answer));
+        }
+    });
+    let mut reader = Reader {
+        asks,
+        answered,
+        reading: false,
+        owed: None,
+    };
+    body(&mut |ask| reader.ask(&ask))
 }
 
 /// A read's answer, beside the ask it answers.
@@ -108,9 +109,9 @@ struct Reader {
 }
 
 impl Reader {
-    /// The shell's ask: the frame that has arrived for it, or none yet.
-    /// The read owed goes out as soon as none is.
-    fn ask(&mut self, ask: &Ask) -> Result<Refreshed> {
+    /// The shell's ask: the answer that has arrived for it, or
+    /// [`Polled::Pending`]. The read owed goes out as soon as none is.
+    fn ask(&mut self, ask: &Ask) -> Polled {
         let latest = Asked::of(ask);
         let mut owed = match self.owed.take() {
             Some(earlier) => latest.owing(&earlier),
@@ -122,12 +123,14 @@ impl Reader {
             true => self.answered.try_recv().ok(),
             false => None,
         };
-        let mut frame = Ok(None);
+        // A frame dropped for a selection the shell has left is no answer
+        // to what it asks now: still pending, and the next read forced.
+        let mut polled = Polled::Pending;
         if let Some((asked, answer)) = arrived {
             self.reading = false;
             let answer = answer.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
             match asked.frames(&owed) {
-                true => frame = answer,
+                true => polled = answer.into(),
                 false => owed.force = true,
             }
         }
@@ -139,6 +142,6 @@ impl Reader {
                 self.reading = true;
             }
         }
-        frame
+        polled
     }
 }

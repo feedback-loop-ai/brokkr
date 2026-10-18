@@ -18,7 +18,9 @@
 //! a gap, a head the journal no longer holds, a journal replaced beneath
 //! the reader — is read whole again, exactly as [`super::read_hearth`]
 //! reads it, and never shown as it was. A quarantined run has no fold to
-//! carry, so it is read whole again whenever its journal's head moves.
+//! carry, so it is read whole again whenever its journal's head moves,
+//! and at every refresh when what refused it was timing rather than the
+//! journal's bytes ([`lasting`]).
 //! What a kept run stands on is the store's own premise for the suffix
 //! read: events are append-only by trigger, and the head is compared on
 //! sequence and hash both.
@@ -30,7 +32,7 @@ use brokkr_core::fold::{fold_onto, RunState};
 use brokkr_core::{EventEnvelope, EventType};
 use brokkr_store::{Store, StoreError};
 
-use super::{acknowledged, did_not_fold, entry, read_run, Listing, Quarantine};
+use super::{acknowledged, did_not_fold, entry, judged, Listing, Quarantine};
 
 /// What the journal's `runs` table lists a run as: its id, feature and
 /// creation stamp, in [`Store::list_runs`]'s order.
@@ -186,7 +188,13 @@ impl KeptRun {
     /// how many events that read.
     fn whole(store: &Store, run_id: &str) -> (KeptRun, usize) {
         let head = store.head_hash(run_id).ok();
-        let (events, state) = read_run(store, run_id);
+        let loaded = store.load(run_id);
+        // A refusal kept at a head is a refusal of the journal's bytes,
+        // which the same head refuses again. One of timing — a peer's
+        // lock, an I/O error — is this refresh's only: kept at no head,
+        // so the next refresh reads the run whole again.
+        let head = head.filter(|_| loaded.as_ref().err().is_none_or(lasting));
+        let (events, state) = judged(store, run_id, loaded);
         let run = KeptRun {
             last_recorded_at: events.last().map(|event| event.recorded_at.clone()),
             read: match state {
@@ -252,6 +260,29 @@ impl KeptRun {
             self.residuals = brokkr_view::residual_findings(run_id, &self.rulings);
         }
         self
+    }
+}
+
+/// Whether a load refused with `error` was refused by the journal's own
+/// bytes, which refuse it again for as long as its head stands. Anything
+/// else — a peer's lock, SQLite's own error, a run the store cannot find
+/// — may read cleanly next time, so it is never kept. Matched
+/// exhaustively, so a new refusal is decided here: the tests read a
+/// broken chain kept and a refusal of timing read again.
+fn lasting(error: &StoreError) -> bool {
+    match error {
+        StoreError::Json(_) | StoreError::Chain(_) | StoreError::RowBeforeChain { .. } => true,
+        StoreError::Sqlite(_)
+        | StoreError::RunNotFound(_)
+        | StoreError::RunExists(_)
+        | StoreError::SeatRecord(_)
+        | StoreError::SchemaMismatch { .. }
+        | StoreError::AppendConflict { .. }
+        | StoreError::HeadMoved { .. }
+        | StoreError::UnknownHead { .. }
+        | StoreError::Queue(_)
+        | StoreError::AlreadyAcknowledged { .. }
+        | StoreError::Contended { .. } => false,
     }
 }
 

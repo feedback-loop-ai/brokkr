@@ -7,7 +7,8 @@
 use std::path::Path;
 
 use anyhow::Result;
-use brokkr_core::fold::fold;
+use brokkr_core::fold::{fold, RunState};
+use brokkr_core::EventEnvelope;
 use brokkr_runtime::realms::Hearth;
 use brokkr_store::Store;
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead};
@@ -129,12 +130,17 @@ fn refreshed_subject(prior: &tui::Subject, view: &brokkr_view::RunView) -> Optio
 }
 
 /// What the console keeps of one hearth between refreshes: the head of
-/// the run it last read, and the fleet's kept rows (#744). Nothing here
-/// is persisted; it lives as long as the console's source does.
+/// the run it last read and that run's journal, and the fleet's kept rows
+/// (#744). Nothing here is persisted; it lives as long as the console's
+/// source does.
 #[derive(Default)]
 pub(crate) struct Kept {
     head: Option<(u64, String)>,
+    run: Option<Selected>,
     fleet: KeptFleet,
+    /// The events the last frame read, the fleet's and the run's: the
+    /// work a refresh paid for.
+    read: usize,
 }
 
 /// One refresh for `brokkr tui`: the only place a store is opened on that
@@ -199,13 +205,11 @@ fn read_views(
     // whole fleet table because one old run is corrupt. The absence mark
     // is `RunRow.status_known`'s job (0001), and the refusal's own words
     // ride along as the row's detail.
-    kept.fleet
+    kept.read = kept
+        .fleet
         .refresh(&store)
         .map_err(|error| anyhow::Error::msg(error.to_string()))?;
-    let run = ask.run.and_then(|run| store.load(run).ok()).map(|events| {
-        let state = fold(&events).ok();
-        brokkr_view::run_view(&events, state.as_ref())
-    });
+    let run = run_of(&store, ask.run, ask.force || moved, kept);
     let transcript = reconciled(
         Reconcile {
             prior: ask.subject.as_ref(),
@@ -226,6 +230,44 @@ fn read_views(
         // A journal that was read has nothing to say about itself.
         note: None,
     }))
+}
+
+/// The selected run as the console last read it: its journal and what
+/// that folded to.
+struct Selected {
+    run: String,
+    events: Vec<EventEnvelope>,
+    state: Option<RunState>,
+}
+
+/// Run `run`'s view, derived from the journal kept for it while its head
+/// stands and no rebuild is asked, so the fleet's cadence reads none of
+/// the run; read whole and folded otherwise. A run that would not load
+/// keeps nothing, so the next frame reads it again.
+fn run_of(
+    store: &Store,
+    run: Option<&str>,
+    rebuild: bool,
+    kept: &mut Kept,
+) -> Option<brokkr_view::RunView> {
+    let standing = kept.run.take();
+    let run = run?;
+    let selected = match standing.filter(|selected| !rebuild && selected.run == run) {
+        Some(selected) => selected,
+        None => {
+            let events = store.load(run).ok()?;
+            kept.read += events.len();
+            let state = fold(&events).ok();
+            Selected {
+                run: run.to_string(),
+                events,
+                state,
+            }
+        }
+    };
+    let view = brokkr_view::run_view(&selected.events, selected.state.as_ref());
+    kept.run = Some(selected);
+    Some(view)
 }
 
 /// The frame of a hearth whose journal is not there yet: an empty fleet
@@ -310,7 +352,7 @@ pub(crate) fn tui_views(
 ) -> Result<tui::Refreshed> {
     let mut kept = Kept {
         head: head.take(),
-        fleet: KeptFleet::default(),
+        ..Kept::default()
     };
     let views = read_views(db, sole, ask, &mut kept, seen, clock);
     *head = kept.head;
@@ -345,3 +387,6 @@ pub(crate) fn tui_source(
         )
     }
 }
+
+#[cfg(test)]
+mod read_tests;

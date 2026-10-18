@@ -17,7 +17,7 @@ pub(super) fn console<'a, R: Write>(
     restore: R,
     source: &'a mut dyn FnMut(Ask) -> Result<Refreshed>,
     max: usize,
-) -> Session<'a, TestBackend, R> {
+) -> Session<'a, TestBackend, R, Result<Refreshed>> {
     Session {
         db_is_file,
         run: None,

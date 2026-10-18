@@ -378,6 +378,62 @@ fn a_run_whose_head_the_journal_no_longer_holds_is_read_whole() {
     assert_eq!(kept_rows(&kept), whole_rows(&db));
 }
 
+/// A load refused by timing rather than by the journal's bytes — here
+/// SQLite's own error over a row it cannot read as text, standing in for
+/// a peer's lock — quarantines its run for that refresh only, and one
+/// refused by the bytes (envelope text that is not JSON) is kept for as
+/// long as its head stands. Both rows are then made readable beneath an
+/// unmoved head, past the append fence: the next refresh reads the first
+/// whole again and shows it folded, with nothing appended, and leaves the
+/// second as it was. A `lasting` that answers true for SQLite's error
+/// reads 0; one that answers false for a torn envelope reads 2.
+#[test]
+fn a_refusal_is_kept_at_its_head_only_when_the_journals_bytes_made_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    drop(Store::open(&db).unwrap());
+    let journal = rusqlite::Connection::open(&db).unwrap();
+    let mut texts = Vec::new();
+    for (run_id, planted) in [("locked", "CAST(?3 AS BLOB)"), ("torn", "'{'")] {
+        let started = chain(
+            run_id,
+            std::iter::once((EventType::RunStarted, json!({"feature": run_id}))),
+        );
+        let text = serde_json::to_string(&started[0]).unwrap();
+        plant_run(&journal, run_id, "{}").unwrap();
+        let insert = format!(
+            "INSERT INTO events (run_id, seq, event_hash, envelope)
+             SELECT ?1, 1, ?2, {planted} WHERE length(?3) > 0"
+        );
+        let row = rusqlite::params![run_id, started[0].event_hash, text];
+        journal.execute(&insert, row).unwrap();
+        texts.push((run_id, text));
+    }
+    let state = |kept: &KeptFleet, run_id: &str| {
+        let entries = kept.entries();
+        let row = entries.iter().find(|entry| entry.run_id == run_id);
+        row.unwrap().state.map(|state| state.seq)
+    };
+
+    let mut kept = KeptFleet::default();
+    assert_eq!(refreshed(&mut kept, &db), 0);
+    assert_eq!((state(&kept, "locked"), state(&kept, "torn")), (None, None));
+    assert_eq!(kept_rows(&kept), whole_rows(&db));
+
+    journal
+        .execute_batch("DROP TRIGGER events_append_only_update")
+        .unwrap();
+    for (run_id, text) in texts {
+        let repair = "UPDATE events SET envelope = ?2 WHERE run_id = ?1";
+        journal.execute(repair, [run_id, &text]).unwrap();
+    }
+    assert_eq!(refreshed(&mut kept, &db), 1, "only the timing read again");
+    assert_eq!(
+        (state(&kept, "locked"), state(&kept, "torn")),
+        (Some(1), None)
+    );
+}
+
 /// A whole read's own connection that will not open is the refresh's
 /// refusal, in the store's words, and nothing is kept from it.
 #[test]

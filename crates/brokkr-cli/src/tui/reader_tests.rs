@@ -37,22 +37,38 @@ fn asking<'a>(
 }
 
 /// The first frame that arrives for `ask`, asking again until one does.
-fn arrived(
-    source: &mut dyn FnMut(Ask) -> Result<Refreshed>,
-    ask: &dyn Fn() -> Ask<'static>,
-) -> Views {
+fn arrived(source: &mut dyn FnMut(Ask) -> Polled, ask: &dyn Fn() -> Ask<'static>) -> Views {
     for _ in 0..1000 {
-        if let Some(views) = source(ask()).unwrap() {
-            return views;
+        if let Polled::Answered(answer) = source(ask()) {
+            if let Some(views) = (*answer).unwrap() {
+                return views;
+            }
         }
         std::thread::sleep(Duration::from_millis(10));
     }
     panic!("no frame arrived in ten seconds");
 }
 
+/// Whether the shell's ask found its read still out.
+fn pending(polled: Polled) -> bool {
+    matches!(polled, Polled::Pending)
+}
+
 /// What a source was asked, read by read: the run, and whether the read
 /// was forced and the fleet's cadence due.
 type Asked = Arc<Mutex<Vec<(Option<String>, bool, bool)>>>;
+
+/// What the source was asked once it has been asked `reads` times: the
+/// reader thread outlives the console, so its last ask may land after.
+fn asked_by(asked: &Asked, reads: usize) -> Vec<(Option<String>, bool, bool)> {
+    for _ in 0..500 {
+        if asked.lock().unwrap().len() >= reads {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    asked.lock().unwrap().clone()
+}
 
 /// An ask the shell makes, by name.
 type Asking = fn() -> Ask<'static>;
@@ -87,11 +103,13 @@ fn a_key_redraws_while_the_first_read_is_still_out() {
     let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
     let answered = Arc::new(AtomicBool::new(false));
     let (open, gate) = channel::<()>();
+    let (finished, read) = channel::<()>();
     let slow = {
         let answered = Arc::clone(&answered);
         move |_: Ask| {
             let _ = gate.recv_timeout(Duration::from_secs(5));
             answered.store(true, Ordering::SeqCst);
+            let _ = finished.send(());
             Ok(Some(views()))
         }
     };
@@ -112,7 +130,11 @@ fn a_key_redraws_while_the_first_read_is_still_out() {
         assert!(!frame.contains("run-7"), "over the empty fleet: {frame}");
         open.send(()).unwrap();
     });
-    assert!(answered.load(Ordering::SeqCst), "the read finished");
+    assert_eq!(
+        read.recv_timeout(Duration::from_secs(5)),
+        Ok(()),
+        "the read finished"
+    );
 }
 
 /// While a read is out the shell keeps asking, and what those asks owe —
@@ -124,10 +146,10 @@ fn asks_made_while_a_read_is_out_are_owed_by_the_next_read() {
     let (open, gate) = channel::<()>();
     behind(gated(gate, &asked), |source| {
         let ask = |force, fleet| asking(0, Some("a"), None, force, fleet);
-        assert!(source(ask(false, false)).unwrap().is_none(), "sent");
+        assert!(pending(source(ask(false, false))), "sent");
         // Out: each of these is owed, and none goes to the source yet.
         for (force, fleet) in [(false, false), (false, false), (true, true), (false, false)] {
-            assert!(source(ask(force, fleet)).unwrap().is_none());
+            assert!(pending(source(ask(force, fleet))));
         }
         open.send(()).unwrap();
         let first = arrived(source, &|| ask(false, false));
@@ -135,7 +157,7 @@ fn asks_made_while_a_read_is_out_are_owed_by_the_next_read() {
         open.send(()).unwrap();
     });
     assert_eq!(
-        *asked.lock().unwrap(),
+        asked_by(&asked, 2),
         vec![
             (Some("a".to_string()), false, false),
             (Some("a".to_string()), true, true)
@@ -169,16 +191,136 @@ fn a_frame_read_for_what_the_shell_has_left_is_dropped_and_the_next_read_forced(
         // is dropped whenever it lands, after the shell has moved.
         let (_, gate) = channel::<()>();
         let shown = behind(gated(gate, &asked), |source| {
-            assert!(source(before()).unwrap().is_none(), "sent");
+            assert!(pending(source(before())), "sent");
             arrived(source, &after)
         });
         let after = after();
         assert_eq!(shown.note.as_deref(), after.run, "only the frame asked for");
-        let forced: Vec<bool> = asked.lock().unwrap().iter().map(|ask| ask.1).collect();
+        let forced: Vec<bool> = asked_by(&asked, 3).iter().map(|ask| ask.1).collect();
         // The read for `before`; the forced one that replaced its frame;
         // and the next, sent as that frame was shown.
         assert_eq!(forced, vec![false, true, false]);
     }
+}
+
+/// A journal that stays unreadable ends the console after the give-up
+/// bound's reads, however many polls each read spans: a read still out
+/// counts for nothing, where it used to read as a clean one and reset the
+/// count, so a failure slower than a poll never gave up. Counting a
+/// pending poll as a clean read (resetting the count when no answer has
+/// arrived) runs the loop out instead.
+#[test]
+fn a_journal_that_stays_unreadable_gives_up_however_slow_each_read_is() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    let slow = |_: Ask| -> Result<Refreshed> {
+        std::thread::sleep(Duration::from_millis(20));
+        anyhow::bail!("database is locked")
+    };
+    script(&[]);
+    let gave_up = behind(slow, |source| {
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        drive(
+            &mut terminal,
+            &test_ops(),
+            source,
+            &mut Tui::new(None),
+            2_000,
+        )
+    });
+    assert_eq!(
+        gave_up.map_err(|error| error.to_string()),
+        Err("giving up after 5 unreadable polls: database is locked".to_string())
+    );
+}
+
+/// The polls a test's shell has made, and whether the first hearth's
+/// read has answered.
+static POLLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static FIRST_READ: AtomicBool = AtomicBool::new(false);
+
+/// The shell's poll with the first hearth's frame drawn before any key:
+/// the first poll waits for that read to answer and reads no key, the
+/// second holds the script's key once the frame it answered is drawn,
+/// and the rest read none.
+fn first_frame_then_key(_: Duration) -> std::io::Result<bool> {
+    match POLLS.fetch_add(1, Ordering::SeqCst) {
+        0 => {
+            for _ in 0..500 {
+                if FIRST_READ.load(Ordering::SeqCst) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            // The answer is on its way to the shell once the source has
+            // returned it.
+            std::thread::sleep(Duration::from_millis(100));
+            Ok(false)
+        }
+        _ => Ok(!SCRIPT.lock().unwrap().is_empty()),
+    }
+}
+
+/// A frame is never drawn under another hearth's tab: the shell draws
+/// the first hearth's fleet, moves to the second, whose read is still
+/// out, and draws the empty frame the first load is drawn over rather
+/// than the first hearth's runs. Without the clearing, `run-7` of the
+/// hearth left stays on the screen under the hearth entered.
+#[test]
+fn a_hearth_entered_draws_none_of_the_hearth_left_while_its_read_is_out() {
+    let _serialized = TERMINAL.lock().unwrap_or_else(|error| error.into_inner());
+    POLLS.store(0, Ordering::SeqCst);
+    FIRST_READ.store(false, Ordering::SeqCst);
+    let (open, gate) = channel::<()>();
+    let hearths = move |ask: Ask| -> Result<Refreshed> {
+        match ask.tab {
+            0 => FIRST_READ.store(true, Ordering::SeqCst),
+            _ => drop(gate.recv()),
+        }
+        Ok(Some(views()))
+    };
+    script(&[Key::Char('2')]);
+    let ops = TerminalOps {
+        poll: first_frame_then_key,
+        ..test_ops()
+    };
+    let (drawn, tab) = behind(hearths, |source| {
+        let mut terminal = Terminal::new(TestBackend::new(160, 48)).unwrap();
+        let tabs = vec!["alpha".to_string(), "beta".to_string()];
+        let mut tui = Tui::over(None, tabs, 0);
+        drive(&mut terminal, &ops, source, &mut tui, 3).unwrap();
+        (lines_of(terminal.backend().buffer()).join("\n"), tui.tab)
+    });
+    drop(open);
+    assert_eq!(POLLS.load(Ordering::SeqCst), 3);
+    assert!(SCRIPT.lock().unwrap().is_empty(), "the key was read");
+    assert_eq!(tab, 1);
+    assert!(drawn.contains("beta"), "under the second tab: {drawn}");
+    assert!(!drawn.contains("run-7"), "none of the first: {drawn}");
+}
+
+/// The console closes the moment its shell does, with a read still out:
+/// a run view's Ctrl+C is raised once the console has returned, and a
+/// peer holding the write lock must not hold the operator's stop for the
+/// store's patience. Joining the reader thread as the console closes
+/// waits out the read instead.
+#[test]
+fn the_console_closes_without_waiting_for_the_read_in_hand() {
+    let (open, gate) = channel::<()>();
+    let (closed, shut) = channel::<()>();
+    let held = move |_: Ask| -> Result<Refreshed> {
+        let _ = gate.recv();
+        Ok(None)
+    };
+    let shell = std::thread::spawn(move || {
+        behind(held, |source| {
+            assert!(pending(source(asking(0, None, None, true, false))));
+        });
+        closed.send(()).unwrap();
+    });
+    let waited = shut.recv_timeout(Duration::from_secs(5));
+    drop(open);
+    shell.join().unwrap();
+    assert_eq!(waited, Ok(()), "closed with the read still out");
 }
 
 /// A read that panics is not a reader that quietly stopped: the panic

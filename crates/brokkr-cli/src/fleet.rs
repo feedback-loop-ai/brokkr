@@ -150,7 +150,17 @@ pub(crate) fn read_hearth(store: &Store) -> HearthRead {
 /// One run's journal read whole and folded, quarantined when it will not
 /// load or will not fold.
 fn read_run(store: &Store, run_id: &str) -> (Vec<EventEnvelope>, Result<RunState, Quarantine>) {
-    match store.load(run_id) {
+    judged(store, run_id, store.load(run_id))
+}
+
+/// Run `run_id` as `loaded` left it: folded, or quarantined when it did
+/// not load or does not fold.
+fn judged(
+    store: &Store,
+    run_id: &str,
+    loaded: Result<Vec<EventEnvelope>, brokkr_store::StoreError>,
+) -> (Vec<EventEnvelope>, Result<RunState, Quarantine>) {
+    match loaded {
         Ok(events) => {
             let state = fold(&events).map_err(|error| did_not_fold(store, run_id, &error));
             (events, state)
