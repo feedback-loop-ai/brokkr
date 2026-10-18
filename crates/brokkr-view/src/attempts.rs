@@ -146,7 +146,9 @@ fn settle(mut site: Site) -> Site {
         metered.session = Some(index) == last;
     }
     meter::once(site.metered.iter_mut().map(|metered| &mut metered.meter));
-    site.by = Metering::of(site.metered.iter().map(|metered| &metered.meter));
+    let session = site.metered.iter().find(|metered| metered.session);
+    let meters = site.metered.iter().map(|metered| &metered.meter);
+    site.by = Metering::of(meters, session.map(|metered| &metered.meter));
     site
 }
 
