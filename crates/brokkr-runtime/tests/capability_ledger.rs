@@ -4,7 +4,10 @@
 //! process of its own on one protected HOME (`writers`): an engine killed
 //! mid-attempt, its driver surviving it, keeps its worktree reserved
 //! through the lock's release, the driver's own end and the run's resume,
-//! for none of them proves the attempt's tree over.
+//! for none of them proves the attempt's tree over. A production
+//! resolution proof, its root resolved from HOME (M5): the same retention
+//! on an injected root, on every TMPDIR, is
+//! `a_lease_its_engine_never_released_keeps_refusing_with_the_lock_free`.
 
 use crate::writers::{held_by, until, Coordination};
 

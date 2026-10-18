@@ -13,9 +13,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use rustix::fs::{
-    flock, fstat, fsync, mkdirat, openat, renameat, unlinkat, AtFlags, FileType, FlockOperation,
-    Mode, OFlags,
+    flock, fstat, fsync, mkdirat, openat, renameat, renameat_with, unlinkat, AtFlags, FileType,
+    FlockOperation, Mode, OFlags, RenameFlags,
 };
+use rustix::io::Errno;
 use serde::de::DeserializeOwned;
 
 use super::admission::{coordination, Unknown, LOCK, STAGED};
@@ -26,12 +27,22 @@ use super::{directory, owned, protected, Synced, Unprovisioned, REPLY_BYTES_MAX}
 /// again.
 const POLL: Duration = Duration::from_millis(10);
 
-/// What every record sealed below a root is handed once its staged copy is
-/// written and synced, before the seal's last deadline check and its
-/// commit ([`seal_with`]): the directory and the staged name. Nothing in
-/// production ([`unhooked`]); a unit test's own, on a root it opened, to
-/// spend the deadline or fail the seal there (H1).
-pub(super) type Hook = fn(&OwnedFd, &str);
+/// Where a seal stands when it hands its hook the directory and the staged
+/// name ([`seal_with`]): its staged copy written and synced, before its
+/// last deadline check ahead of the commit; or committed, before the
+/// directory is synced and the deadline checked the last time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Step {
+    Staged,
+    Committed,
+}
+
+/// What every record sealed below a root is handed at each [`Step`]; an
+/// error it returns fails that step as the step's own write or sync
+/// failing would. Nothing in production ([`unhooked`]); a unit test's own,
+/// on a root it opened, to spend the deadline or fail the seal there (H1;
+/// R1 of run four's review).
+pub(super) type Hook = fn(Step, &OwnedFd, &str) -> std::io::Result<()>;
 
 /// The coordination root, opened, and the hook its seals run.
 #[derive(Debug)]
@@ -109,7 +120,9 @@ impl Root {
 }
 
 /// Production's hook: nothing.
-fn unhooked(_: &OwnedFd, _: &str) {}
+fn unhooked(_: Step, _: &OwnedFd, _: &str) -> std::io::Result<()> {
+    Ok(())
+}
 
 /// The directory `name` in `parent`: one plain name, made owner-only where
 /// `make` and missing, `parent` then handed to `synced`, entered without
@@ -187,15 +200,15 @@ pub(super) fn read<T: DeserializeOwned>(
 /// `bytes` sealed as `name` in the directory `dir`, begun before `budget`'s
 /// deadline: written as a new owner-only file beside it, `name` with
 /// [`STAGED`] after it, synced and handed to `hook`; then, the deadline
-/// checked once more, renamed in over the record it replaces, and the
-/// directory synced. The rename is the seal's one commit, and nothing
-/// before it touches `name`: a seal that fails, or runs past the deadline,
-/// before it withdraws only its staged copy, so the record that stood
-/// stands as it was, its bytes and its inode (H1; R3). What one cut short
-/// staged goes first; one that cannot go is refused by the exclusive
-/// create. Only a renamed record is ever read, so a staged one names
-/// nothing that ran. A directory sync that fails after the commit refuses
-/// too, its record the one renamed in.
+/// checked once more, committed ([`commit`]), handed to `hook` again, the
+/// directory synced and the deadline checked the last time. Nothing before
+/// the commit touches `name`, and a seal that fails or runs past the
+/// deadline after it is undone ([`undone`]): every failed or late seal
+/// leaves the record that stood exactly as it was, its bytes and its
+/// inode, or no record where none stood (H1; R1 of run four's review).
+/// What one cut short staged goes first, and one that cannot go is refused
+/// by the exclusive create; a staged name holds either the copy a seal is
+/// committing or the record it replaced, and only `name` is ever read.
 pub(super) fn seal_with(
     dir: &OwnedFd,
     name: &str,
@@ -209,14 +222,57 @@ pub(super) fn seal_with(
     let flags = OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
     let file = openat(dir, staged.as_str(), flags, Mode::RUSR | Mode::WUSR);
     let mut file = std::fs::File::from(file.or(Err(Unknown::Unsealed))?);
-    let written = file.write_all(bytes).and_then(|()| file.sync_all());
-    hook(dir, &staged);
+    let written = (file.write_all(bytes).and_then(|()| file.sync_all()))
+        .and_then(|()| hook(Step::Staged, dir, &staged));
     let committed = (written.or(Err(Unknown::Unsealed)))
         .and_then(|()| budget.check())
-        .and_then(|()| renameat(dir, staged.as_str(), dir, name).or(Err(Unknown::Unsealed)));
-    if let Err(refused) = committed {
-        let _ = unlinkat(dir, staged.as_str(), AtFlags::empty());
+        .and_then(|()| commit(dir, &staged, name));
+    let stood = match committed {
+        Ok(stood) => stood,
+        Err(refused) => {
+            let _ = unlinkat(dir, staged.as_str(), AtFlags::empty());
+            return Err(refused);
+        }
+    };
+    let synced =
+        hook(Step::Committed, dir, &staged).and_then(|()| fsync(dir).map_err(std::io::Error::from));
+    let durable = (synced.or(Err(Unknown::Unsealed))).and_then(|()| budget.check());
+    if let Err(refused) = durable {
+        undone(dir, &staged, name, stood);
         return Err(refused);
     }
-    fsync(dir).or(Err(Unknown::Unsealed))
+    // What stood was replaced for good; a crash before it goes leaves it
+    // staged, for the next seal to remove.
+    let _ = unlinkat(dir, staged.as_str(), AtFlags::empty());
+    Ok(())
+}
+
+/// The staged copy committed as `name`: exchanged atomically with the
+/// record that stands there, which is kept under the staged name until the
+/// seal is final, so a seal undone puts that very file back; or, where
+/// none stands, renamed in. Whether one stood. A directory that cannot
+/// exchange two names refuses, never replacing a record it could not put
+/// back.
+fn commit(dir: &OwnedFd, staged: &str, name: &str) -> Result<bool, Unknown> {
+    match renameat_with(dir, staged, dir, name, RenameFlags::EXCHANGE) {
+        Ok(()) => Ok(true),
+        Err(Errno::NOENT) => {
+            (renameat(dir, staged, dir, name).map(|()| false)).or(Err(Unknown::Unsealed))
+        }
+        Err(_) => Err(Unknown::Unsealed),
+    }
+}
+
+/// A seal that failed or ran late after its commit, undone: the record
+/// that `stood` exchanged back in and the copy that replaced it removed,
+/// or, where none stood, the record it made removed; the directory then
+/// synced again.
+fn undone(dir: &OwnedFd, staged: &str, name: &str, stood: bool) {
+    if stood {
+        let _ = renameat_with(dir, staged, dir, name, RenameFlags::EXCHANGE);
+        let _ = unlinkat(dir, staged, AtFlags::empty());
+    } else {
+        let _ = unlinkat(dir, name, AtFlags::empty());
+    }
+    let _ = fsync(dir);
 }

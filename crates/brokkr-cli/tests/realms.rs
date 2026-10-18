@@ -37,6 +37,7 @@ impl Workspace {
         let ws = Workspace {
             dir: tempfile::tempdir().unwrap(),
         };
+        std::fs::create_dir(ws.path()).unwrap();
         let bundle = ws.path().join("bundle");
         std::fs::create_dir_all(bundle.join("roles")).unwrap();
         std::fs::create_dir_all(ws.path().join("state")).unwrap();
@@ -82,17 +83,22 @@ impl Workspace {
         ws
     }
 
-    fn path(&self) -> &Path {
-        self.dir.path()
+    /// The workspace, `ws` in the temporary directory, whose HOME stands
+    /// beside it there ([`Workspace::run`]).
+    fn path(&self) -> PathBuf {
+        self.dir.path().join("ws")
     }
 
     /// Every invocation runs FROM the workspace, so `./realms.json` is
-    /// discovered exactly as an operator standing there would find it.
+    /// discovered exactly as an operator standing there would find it. Its
+    /// HOME lies outside the tree a run operates (L3 of U8a2a's fourth
+    /// review): a coordination root inside it would be in its writers'
+    /// reach.
     fn run(&self, args: &[&str]) -> (Option<i32>, String, String) {
-        crate::engine::library(self.path());
+        crate::engine::library(&self.path());
         let out = Command::new(brokkr())
             .args(args)
-            .env("HOME", crate::engine::home_in(self.path()))
+            .env("HOME", crate::engine::home_in(self.dir.path()))
             .current_dir(self.path())
             .output()
             .unwrap();

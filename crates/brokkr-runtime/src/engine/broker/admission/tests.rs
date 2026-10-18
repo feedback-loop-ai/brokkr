@@ -25,7 +25,7 @@ use serde_json::json;
 use super::*;
 use crate::bundle::{SeatBody, SequenceStep};
 use crate::engine::broker::inventory::Budget;
-use crate::engine::broker::root::seal_with;
+use crate::engine::broker::root::{seal_with, Step};
 use crate::engine::broker::settlement::{proved, witnessed, witnessed_by};
 use crate::engine::broker::{owned, surveyed, Host as Hosting, Surveyor, Unprovisioned};
 use crate::engine::tests::{
@@ -52,13 +52,18 @@ enum Stand {
     Host,
 }
 
-/// What the next seal on a root this thread opened does with its staged
-/// copy before its commit (H1): spends the time given, or removes it so
-/// its rename fails.
+/// What the next seal on a root this thread opened does at its final steps
+/// (H1; R1 of run four's review): before its commit, spends the time given,
+/// removes its staged copy so its commit fails, or takes the directory's
+/// write permission so it cannot exchange; once committed, spends the time
+/// given, or fails as its directory sync failing would.
 #[derive(Debug, Clone, Copy)]
 enum Late {
     Sleep(Duration),
     Unstage,
+    Deny,
+    SleepCommitted(Duration),
+    FailCommitted,
 }
 
 thread_local! {
@@ -123,14 +128,25 @@ pub(in crate::engine) fn opened(home: &Path) -> Root {
     Root::opened(dir, path, late).expect("an owner-only root")
 }
 
-/// The hook of every root a test opens: what [`LATE`] arms, at the next
-/// seal on this thread, and then nothing.
-fn late(dir: &OwnedFd, staged: &str) {
-    match LATE.take() {
-        Some(Late::Sleep(spent)) => std::thread::sleep(spent),
-        Some(Late::Unstage) => rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap(),
-        None => {}
+/// The hook of every root a test opens: what [`LATE`] arms, at the step of
+/// the next seal on this thread it names, and then nothing.
+fn late(step: Step, dir: &OwnedFd, staged: &str) -> std::io::Result<()> {
+    match (step, LATE.take()) {
+        (Step::Staged, Some(Late::Sleep(spent)))
+        | (Step::Committed, Some(Late::SleepCommitted(spent))) => std::thread::sleep(spent),
+        (Step::Staged, Some(Late::Unstage)) => {
+            rustix::fs::unlinkat(dir, staged, AtFlags::empty()).unwrap()
+        }
+        (Step::Staged, Some(Late::Deny)) => {
+            let kept = rustix::fs::Mode::RUSR | rustix::fs::Mode::XUSR;
+            rustix::fs::fchmod(dir, kept).unwrap()
+        }
+        (Step::Committed, Some(Late::FailCommitted)) => {
+            return Err(std::io::Error::other("the directory sync failed"))
+        }
+        (_, armed) => LATE.set(armed),
     }
+    Ok(())
 }
 
 /// `held`'s positive settlement fact sealed, and then its lease released,

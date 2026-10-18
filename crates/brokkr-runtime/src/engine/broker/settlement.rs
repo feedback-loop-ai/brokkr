@@ -13,7 +13,9 @@
 //! settled, it seals the positive settlement fact there
 //! ([`Witnessed::Settled`], M1), and only then releases the attempt, which
 //! release refuses without that fact. A fact that cannot be sealed keeps
-//! the reservation standing, as a release that cannot be does.
+//! the reservation standing, as a release that cannot be does, and under
+//! the fence rule fails the run with that refusal ([`Unreleased`]; R2 of
+//! run four's review).
 //!
 //! An engine that died before releasing leaves only durable facts: the
 //! reservation, and the journal it names, which recovery reads only for
@@ -34,11 +36,12 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::EventEnvelope;
 use brokkr_protocol::Cleanup;
 use brokkr_store::Store;
+use thiserror::Error;
 
 use super::admission::{
     amend, release, sealed, settled, Held, Reservation, Unadmitted, Unknown, Witnessed, Writer,
 };
-use super::exclusion::reaches;
+use super::exclusion::{everywhere, reaches};
 use super::historical::regular;
 use super::inventory::Budget;
 use super::root::Root;
@@ -55,12 +58,21 @@ enum Ending {
     Uncertain,
 }
 
+/// An attempt whose owned processes this engine proved settled, but whose
+/// positive settlement fact or release could not be sealed: its
+/// reservation stands, refusing every later writer it would.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("the attempt settled, but its writer lease stands, for its settlement was not sealed: {0}")]
+pub struct Unreleased(#[from] Unadmitted);
+
 impl Engine {
     /// Release the lease of the attempt `attempt`, which ended in `ran`,
     /// where this engine proves it settled ([`proven`]): its positive
     /// settlement fact sealed first ([`proved`]), then the release. An
     /// attempt that ended in an error, or whose fact or release cannot be
-    /// sealed, keeps its reservation standing.
+    /// sealed, keeps its reservation standing; the latter fails the run by
+    /// [`Unreleased`] where the fence lifted, or the evidence at stake as
+    /// the attempt was admitted, asks it.
     pub(in crate::engine) fn settle(
         &mut self,
         attempt: &str,
@@ -72,15 +84,14 @@ impl Engine {
             return Ok(());
         };
         let events = self.store.load(&self.run_id)?;
-        if proven(&held, &events, attempt) {
-            // Either seal failing leaves the reservation standing, which
-            // refuses rather than admits: nothing here is lost.
-            let deadline = startup(Instant::now(), Duration::MAX);
-            proved(&held, deadline)
-                .and_then(|()| release(&held, deadline))
-                .ok();
+        if !proven(&held, &events, attempt) {
+            return Ok(());
         }
-        Ok(())
+        let deadline = startup(Instant::now(), Duration::MAX);
+        match proved(&held, deadline).and_then(|()| release(&held, deadline)) {
+            Err(refused) if everywhere() | held.staked => Err(Unreleased(refused).into()),
+            _ => Ok(()),
+        }
     }
 }
 

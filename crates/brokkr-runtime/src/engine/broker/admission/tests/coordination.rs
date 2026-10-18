@@ -18,7 +18,7 @@ use crate::capabilities::McpFence;
 #[cfg(target_os = "linux")]
 use crate::engine::broker::exclusion::{self, Shown};
 use crate::engine::broker::exclusion::{compared, Comparison};
-use crate::engine::broker::historical;
+use crate::engine::broker::{historical, REPLY_BYTES_MAX};
 
 /// The artifact root of a [`claim`] on `worktree`.
 fn artifacts(worktree: &Path) -> PathBuf {
@@ -377,6 +377,34 @@ fn a_deadline_that_passes_inside_an_artifacts_read_ends_its_verification() {
     );
 }
 
+/// R6 (run four's review): no response retention publishes is larger than
+/// MB3's per-operation allowance, so an artifact one byte over it is
+/// refused by CR2's cause even where its name is its bytes' digest, read no
+/// further than that one byte; one of exactly the allowance verifies.
+#[test]
+fn an_artifact_past_the_reply_allowance_is_refused_though_its_name_digests_it() {
+    let host = Host::new();
+    let root = host.worktree("root");
+    let digests = root.join("sha256");
+    std::fs::create_dir_all(&digests).unwrap();
+    let allowance = usize::try_from(REPLY_BYTES_MAX).unwrap();
+    let exact = vec![1_u8; allowance];
+    std::fs::write(digests.join(canonical::sha256_bytes(&exact)), &exact).unwrap();
+    assert_eq!(
+        historical::verified(&root, &mut Budget::new(soon())),
+        Ok(())
+    );
+    let over = vec![2_u8; allowance + 1];
+    let at = digests.join(canonical::sha256_bytes(&over));
+    std::fs::write(&at, &over).unwrap();
+    // Whatever order the directory lists them in, the refusal is the
+    // one-over artifact's.
+    assert_eq!(
+        historical::verified(&root, &mut Budget::new(soon())),
+        Err(Unadmitted::Evidence(Conflict::Corrupt(at)))
+    );
+}
+
 /// L5: recovery opens a reservation's journal only where it is a regular
 /// file of one link, opened without following a link or blocking: a FIFO
 /// in its place, which SQLite's own open would wait on past every deadline,
@@ -520,13 +548,17 @@ pub(super) fn settled_a1(engine: &mut Engine, run: &str) {
     appended.unwrap();
 }
 
-/// R2: a reservation whose journal stands inside a writer's reach is not
-/// trusted, because that writer could forge its unkeyed hash chain. Even a
-/// genuine settled end written there does not release the reservation,
-/// which keeps refusing; a journal outside every writer's reach releases
+/// R2; M1 and R2 of run four's review: a reservation whose journal stands
+/// inside a writer's reach is not trusted, because that writer could forge
+/// its unkeyed hash chain. No attempt ever ran here: the attempt's
+/// positive fact is sealed, and a settled end for it is forged into the
+/// engine's actual sealed journal, the very journal its reservation names,
+/// as a writer reaching it could append one. It does not release the
+/// reservation, which keeps refusing; a journal outside every writer's
+/// reach releases
 /// (`a_crash_after_a_certified_end_is_recovered_at_the_next_admission`).
 #[test]
-fn a_settled_end_in_a_reachable_journal_does_not_release_the_reservation() {
+fn an_end_forged_into_a_reachable_journal_with_no_attempt_behind_it_keeps_its_reservation() {
     let host = Host::new();
     let (_dir, mut engine) = engine(single_body(Vec::new()));
     let (work, run) = (host.worktree("work"), engine.run_id.clone());

@@ -522,13 +522,12 @@ impl Claude {
 /// U8a2a (CR2): a step whose holding retains protects the attempt's
 /// evidence from its first writer on, so a zero-grant sibling step outside
 /// any box refuses the whole attempt by CR2's cause at admission, before
-/// anything is provisioned or any step's driver starts.
+/// anything is provisioned or any step's driver starts. On any TMPDIR (R3
+/// of run four's review): admission opens the root it is handed with no
+/// ancestor judged, and refuses before provisioning reads the HOME.
 #[test]
 fn a_retaining_step_beside_an_unboxed_sibling_starts_nothing() {
-    let test = "a_retaining_step_beside_an_unboxed_sibling_starts_nothing";
-    let Some(mut claude) = Claude::new(test, beside(after()), &["work:only"]) else {
-        return;
-    };
+    let mut claude = Claude::of(Fixture::inline(), beside(after()), &["work:only"]);
     claude.executed();
     let root = claude.fixture.root.clone();
     let engine = &claude.fixture.engine;

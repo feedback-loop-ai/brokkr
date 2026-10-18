@@ -4,6 +4,12 @@
 //! own on one protected HOME (`writers`): an already-running writer
 //! refuses a second run on its worktree, a disjoint worktree runs beside
 //! it, and of two runs started together on one worktree exactly one runs.
+//! Each is a production resolution proof, its root resolved from HOME
+//! (M5): the same behaviour on an injected root, on every TMPDIR, is
+//! `a_dispatch_on_a_held_worktree_fails_before_its_driver_starts`,
+//! `separate_worktrees_hold_their_leases_side_by_side`,
+//! `dispatch_holds_the_lease_while_its_driver_runs_and_releases_it_once_settled`
+//! and `simultaneous_admissions_on_one_worktree_admit_exactly_one`.
 
 use crate::writers::{held_by, until, Coordination};
 

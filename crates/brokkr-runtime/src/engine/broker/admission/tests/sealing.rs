@@ -1,26 +1,31 @@
-//! Sealing a reservation again (U8a2a; H1, M1): every operation that
-//! reseals one — a run's next attempt joining it, the engine marking a
-//! driver's cleanup unresolved, the positive settlement fact, the release,
-//! and recovery at a later admission — commits only by its rename, after
-//! its last deadline check. Each case below begins with a reservation
-//! already standing, its attempt unsettled, and fails or runs past the
-//! deadline at that final step; the reservation that stood is still there,
-//! the same bytes in the same inode, and no staged copy is left beside it.
-//! A positive fact that cannot be sealed keeps the reservation standing,
-//! and a release without one is refused.
+//! Sealing a reservation again (U8a2a; H1, M1; R1 and R2 of run four's
+//! review): every operation that reseals one — a run's next attempt joining
+//! it, the engine marking a driver's cleanup unresolved, the positive
+//! settlement fact, the release, and recovery at a later admission — fails
+//! or runs late at its final steps in each of three ways ([`finals`]): past
+//! the deadline before its commit, past it once committed, and its
+//! directory sync failing once committed. Each case begins with a
+//! reservation already standing, its attempt unsettled; after each, the
+//! reservation that stood is still there, the same bytes in the same inode,
+//! and no staged copy is left beside it. A positive fact that cannot be
+//! sealed keeps the reservation standing and, where the fence rule asks it,
+//! fails the run that settles; a release without one is refused.
 
 use std::os::unix::fs::MetadataExt;
 
 use super::coordination::{died_after_its_end, settled_a1};
 use super::*;
+use crate::capabilities::McpFence;
+use crate::engine::broker::settlement::Unreleased;
 
 /// A fresh engine holding on `host` the lease of its run's attempt `a1` on
-/// its own worktree, the reservation naming that engine's own journal: the
-/// engine's directory, the engine, the worktree and the run.
-fn leasing(host: &Host) -> (tempfile::TempDir, Engine, PathBuf, String) {
+/// its own worktree, protecting `protects`, the reservation naming that
+/// engine's own journal: the engine's directory, the engine, the worktree
+/// and the run.
+fn leasing(host: &Host, protects: Protects) -> (tempfile::TempDir, Engine, PathBuf, String) {
     let (dir, mut engine) = engine(single_body(Vec::new()));
     let (work, run) = (worktree(&engine), engine.run_id.clone());
-    let mut leased = claim(&work, [&run, "a1"], Protects::Nothing, &[]);
+    let mut leased = claim(&work, [&run, "a1"], protects, &[]);
     leased.journal = std::fs::canonicalize(engine.store.path()).unwrap();
     engine.held = Some(host.admit(&leased).unwrap());
     (dir, engine, work, run)
@@ -40,102 +45,153 @@ fn kept(at: &Path, before: &(Vec<u8>, (u64, u64)), what: &str) {
     assert!(!staged.exists(), "{what}: no staged copy left");
 }
 
-/// The next seal on this thread spends `millis` before its commit.
-fn spends(millis: u64) {
-    LATE.set(Some(Late::Sleep(Duration::from_millis(millis))));
-}
-
 /// `millis` from now.
 fn within(millis: u64) -> Instant {
     Instant::now() + Duration::from_millis(millis)
 }
 
-/// R3: a first seal that would finish past the shared deadline is never
-/// renamed in, so it names nothing.
-#[test]
-fn a_seal_that_would_finish_past_the_deadline_is_never_committed() {
-    let host = Host::new();
-    let budget = Budget::new(within(100));
-    spends(150);
-    let sealed = seal_with(host.root.dir(), "probe.json", b"{}", &budget, late);
-    assert_eq!(sealed, Err(Unknown::Expired));
-    let staged = host.root().join("probe.json.new");
-    assert!(!host.root().join("probe.json").exists() & !staged.exists());
+/// The three ways a seal fails or runs late at its final steps, each
+/// spending `millis` where it runs late: what arms it, the refusal it
+/// meets, and its name.
+fn finals(millis: u64) -> [(Late, Unknown, &'static str); 3] {
+    let spent = Duration::from_millis(millis);
+    [
+        (
+            Late::Sleep(spent),
+            Unknown::Expired,
+            "late before its commit",
+        ),
+        (
+            Late::SleepCommitted(spent),
+            Unknown::Expired,
+            "late once committed",
+        ),
+        (
+            Late::FailCommitted,
+            Unknown::Unsealed,
+            "its sync failed once committed",
+        ),
+    ]
 }
 
-/// A run's next attempt whose seal runs past the deadline at its commit is
-/// refused, and the reservation of its earlier, unsettled attempt stands
-/// as it was.
+/// R3, R1: a first seal that fails or would finish past the shared
+/// deadline at its final steps leaves no record and nothing staged.
 #[test]
-fn a_late_join_keeps_the_reservation_that_stood() {
+fn a_first_seal_that_fails_or_runs_late_leaves_no_record() {
+    for (armed, refused, how) in finals(150) {
+        let host = Host::new();
+        let budget = Budget::new(within(100));
+        LATE.set(Some(armed));
+        let sealed = seal_with(host.root.dir(), "probe.json", b"{}", &budget, late);
+        assert_eq!(sealed, Err(refused), "{how}");
+        let staged = host.root().join("probe.json.new");
+        assert!(!host.root().join("probe.json").exists(), "{how}: no record");
+        assert!(!staged.exists(), "{how}: nothing staged");
+    }
+}
+
+/// R1: a reseal in a directory that will not exchange two names is
+/// refused, and the record that stood is never replaced.
+#[test]
+fn a_reseal_that_cannot_exchange_keeps_the_reservation_that_stood() {
+    let (host, at, before) = joining(Late::Deny);
+    let joined = admit(
+        &host.root,
+        &open(&host.worktree("work"), ["run-a", "a2"]),
+        soon(),
+    );
+    let run = at.parent().unwrap();
+    std::fs::set_permissions(run, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert_eq!(joined, mb3(Unknown::Unsealed));
+    assert_eq!(standing(&at), before, "the reservation that stood");
+}
+
+/// A fresh host whose run `run-a` holds its attempt `a1` standing on the
+/// worktree `work`, the next seal on this thread armed by `armed`: the
+/// host, where the reservation stands, and how it stands.
+fn joining(armed: Late) -> (Host, PathBuf, (Vec<u8>, (u64, u64))) {
     let host = Host::new();
     let work = host.worktree("work");
     drop(host.admit(&open(&work, ["run-a", "a1"])).unwrap());
     let at = host.reservation(&work, "run-a");
     let before = standing(&at);
-    spends(600);
-    let joined = admit(&host.root, &open(&work, ["run-a", "a2"]), within(400));
-    assert_eq!(joined, mb3(Unknown::Expired));
-    kept(&at, &before, "join");
+    LATE.set(Some(armed));
+    (host, at, before)
 }
 
-/// The engine's mark of a driver's unresolved cleanup that runs past its
-/// deadline at its commit leaves the reservation as it stood; the engine's
+/// A run's next attempt whose seal fails or runs late at its final steps
+/// is refused, and the reservation of its earlier, unsettled attempt stands
+/// as it was.
+#[test]
+fn a_late_join_keeps_the_reservation_that_stood() {
+    for (armed, refused, how) in finals(600) {
+        let (host, at, before) = joining(armed);
+        let next = open(&host.worktree("work"), ["run-a", "a2"]);
+        assert_eq!(admit(&host.root, &next, within(400)), mb3(refused), "{how}");
+        kept(&at, &before, how);
+    }
+}
+
+/// The engine's mark of a driver's unresolved cleanup that fails or runs
+/// late at its final steps leaves the reservation as it stood; the engine's
 /// own copy is unproven all the same, so its settlement, the attempt's end
 /// journaled, never releases the attempt.
 #[test]
 fn a_late_unresolved_mark_keeps_the_reservation_that_stood() {
-    let host = Host::new();
-    let (_dir, mut engine, work, run) = leasing(&host);
-    let at = host.reservation(&work, &run);
-    let before = standing(&at);
-    spends(600);
-    let unresolved = Cleanup::Unresolved {
-        reason: Unsettled::Stdout,
-    };
-    witnessed_by(&mut engine.held, &unresolved, within(400));
-    kept(&at, &before, "unresolved");
-    settled_a1(&mut engine, &run);
-    engine.settle("a1", Ok(())).unwrap();
-    kept(&at, &before, "settled after");
+    for (armed, _, how) in finals(600) {
+        let host = Host::new();
+        let (_dir, mut engine, work, run) = leasing(&host, Protects::Nothing);
+        let at = host.reservation(&work, &run);
+        let before = standing(&at);
+        LATE.set(Some(armed));
+        let unresolved = Cleanup::Unresolved {
+            reason: Unsettled::Stdout,
+        };
+        witnessed_by(&mut engine.held, &unresolved, within(400));
+        kept(&at, &before, how);
+        settled_a1(&mut engine, &run);
+        engine.settle("a1", Ok(())).unwrap();
+        kept(&at, &before, &format!("{how}, settled after"));
+    }
 }
 
-/// A release that runs past its deadline at its commit is refused, and the
-/// reservation, its positive fact sealed, stands as it was.
+/// A release that fails or runs late at its final steps is refused, and
+/// the reservation, its positive fact sealed, stands as it was.
 #[test]
 fn a_late_release_keeps_the_reservation_that_stood() {
-    let host = Host::new();
-    let work = host.worktree("work");
-    let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
-    proved(&held, soon()).unwrap();
-    let at = host.reservation(&work, "run-a");
-    let before = standing(&at);
-    spends(600);
-    assert_eq!(release(&held, within(400)), mb3(Unknown::Expired).map(drop));
-    kept(&at, &before, "release");
+    for (armed, refused, how) in finals(600) {
+        let host = Host::new();
+        let work = host.worktree("work");
+        let held = host.admit(&open(&work, ["run-a", "a1"])).unwrap();
+        proved(&held, soon()).unwrap();
+        let at = host.reservation(&work, "run-a");
+        let before = standing(&at);
+        LATE.set(Some(armed));
+        let released = release(&held, within(400));
+        assert_eq!(released, mb3(refused).map(drop), "{how}");
+        kept(&at, &before, how);
+    }
 }
 
-/// Recovery that runs past the deadline at its commit, at a later run's
+/// Recovery that fails or runs late at its final steps, at a later run's
 /// admission, refuses that run, and the recovered run's reservation — its
 /// positive fact sealed, its certified end in a protected journal — stands
 /// as it was.
 #[test]
 fn a_late_recovery_keeps_the_reservation_that_stood() {
-    let host = Host::new();
-    let (_dir, _engine, work, run) = died_after_its_end(&host);
-    let at = host.reservation(&work, &run);
-    let before = standing(&at);
-    spends(1_500);
-    let next = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
-    assert_eq!(
-        admit(&host.root, &next, within(1_000)),
-        mb3(Unknown::Expired)
-    );
-    kept(&at, &before, "recovery");
-    assert!(
-        !host.reservation(&work, "run-b").exists(),
-        "nothing of it sealed"
-    );
+    for (armed, refused, how) in finals(1_500) {
+        let host = Host::new();
+        let (_dir, _engine, work, run) = died_after_its_end(&host);
+        let at = host.reservation(&work, &run);
+        let before = standing(&at);
+        LATE.set(Some(armed));
+        let next = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
+        let admitted = admit(&host.root, &next, within(1_000));
+        assert_eq!(admitted, mb3(refused), "{how}");
+        kept(&at, &before, how);
+        let sealed = host.reservation(&work, "run-b").exists();
+        assert!(!sealed, "{how}: nothing of it sealed");
+    }
 }
 
 /// M1: a release needs the attempt's positive settlement fact; without it
@@ -151,21 +207,42 @@ fn a_release_without_its_positive_fact_is_refused() {
     kept(&at, &before, "unproven");
 }
 
-/// M1: an engine whose positive settlement fact cannot be sealed, its
+/// M1, R2: an engine whose positive settlement fact cannot be sealed, its
 /// attempt ended and its drivers settled, does not release the attempt:
 /// its reservation stands as it was, and a later run on its worktree is
 /// refused by its lease, the end in its protected journal proving nothing
-/// without the fact.
+/// without the fact. Under the fence rule the settlement fails the run
+/// with the typed refusal: where evidence was at stake as it was admitted,
+/// and on every run once the fence is lifted; with the fence standing and
+/// nothing at stake it does not.
 #[test]
 fn a_positive_fact_that_cannot_be_sealed_keeps_the_reservation() {
-    let host = Host::new();
-    let (_dir, mut engine, work, run) = leasing(&host);
-    settled_a1(&mut engine, &run);
-    let at = host.reservation(&work, &run);
-    let before = standing(&at);
-    LATE.set(Some(Late::Unstage));
-    engine.settle("a1", Ok(())).unwrap();
-    kept(&at, &before, "the fact");
-    let later = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
-    assert_eq!(host.admit(&later), cr2(Conflict::Held(run)));
+    let unsealed = || Unreleased::from(Unadmitted::Identity(Unknown::Unsealed));
+    for (protects, lifted, fails) in [
+        (Protects::Nothing, false, false),
+        (Protects::Evidence, false, true),
+        (Protects::Nothing, true, true),
+    ] {
+        let how = format!("{protects:?}, the fence lifted: {lifted}");
+        let host = Host::new();
+        let (_dir, mut engine, work, run) = leasing(&host, protects);
+        settled_a1(&mut engine, &run);
+        let at = host.reservation(&work, &run);
+        let before = standing(&at);
+        let lift = lifted.then(McpFence::lift);
+        LATE.set(Some(Late::Unstage));
+        let settled = engine.settle("a1", Ok(())).map_err(|error| match error {
+            EngineError::Unreleased(unreleased) => unreleased,
+            other => panic!("{how}: {other}"),
+        });
+        drop(lift);
+        assert_eq!(
+            settled,
+            if fails { Err(unsealed()) } else { Ok(()) },
+            "{how}"
+        );
+        kept(&at, &before, &how);
+        let later = claim(&work, ["run-b", "b1"], Protects::Nothing, &[]);
+        assert_eq!(host.admit(&later), cr2(Conflict::Held(run)), "{how}");
+    }
 }

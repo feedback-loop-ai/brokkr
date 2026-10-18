@@ -6,6 +6,15 @@
 //! environment, with the coordination HOME as its own. Nothing here reads
 //! or writes the host's HOME. Every wait on a child is bounded, and a
 //! child still running when its test unwinds is killed and reaped (M6).
+//!
+//! These are the suites' production resolution proofs (M5): an engine in
+//! a process of its own is the public engine, which resolves its
+//! coordination root from HOME through the protected walk, judging every
+//! ancestor, as an installed `brokkr` does; no seam reaches across the
+//! process. So each needs a HOME whose ancestors protect, and is skipped
+//! with its reason where this host has none. The behaviour each proves is
+//! proved again, on every TMPDIR and never skipped, by the in-crate suites
+//! on an injected coordination root (`engine::broker::admission::tests`).
 
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
@@ -45,6 +54,17 @@ pub(crate) fn held_by(run: &str) -> String {
 /// end: far past what one run here takes, and far short of forever.
 const PATIENCE: Duration = Duration::from_secs(120);
 
+/// Why a child engine was given up on before it named its run (R7 of run
+/// four's review), with what it printed until then; the child is killed
+/// and reaped either way.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum Unnamed {
+    #[error("the engine named no run within its patience: {0}")]
+    Timeout(String),
+    #[error("the engine ended before it named its run: {0}")]
+    Ended(String),
+}
+
 /// One run of an engine in a process of its own: the run, the child still
 /// running or ended, the lines of its standard output as a thread of
 /// their own reads them, and how long any wait on it may last. Dropped
@@ -62,7 +82,7 @@ impl Running {
     /// thread of its own, and read until a line names its run, all within
     /// `patience`; why not where it names none in time or ends first, the
     /// child then killed and reaped.
-    fn started(mut command: Command, patience: Duration) -> Result<Running, String> {
+    fn started(mut command: Command, patience: Duration) -> Result<Running, Unnamed> {
         let mut child = (command.stdout(Stdio::piped()).stderr(Stdio::null()))
             .spawn()
             .unwrap();
@@ -86,8 +106,13 @@ impl Running {
         let mut seen = String::new();
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
-            let line = (running.lines.recv_timeout(left))
-                .map_err(|error| format!("the engine named no run ({error:?}): {seen}"))?;
+            let line = running
+                .lines
+                .recv_timeout(left)
+                .map_err(|error| match error {
+                    RecvTimeoutError::Timeout => Unnamed::Timeout(seen.clone()),
+                    RecvTimeoutError::Disconnected => Unnamed::Ended(seen.clone()),
+                })?;
             if let Some(run) = line.strip_prefix("run_id=") {
                 running.run = run.to_string();
                 return Ok(running);
@@ -160,13 +185,20 @@ pub(crate) struct Coordination {
 impl Coordination {
     /// A temporary root, owner-only and canonical, holding an owner-only
     /// `home`, made where every ancestor protects a HOME, as production's
-    /// resolution of the coordination root from HOME asks (D6): TMPDIR,
-    /// else `/tmp`, else `/var/tmp`. None where no such location exists or
+    /// resolution of the coordination root from HOME asks (D6): the
+    /// target's own temporary directory, whatever TMPDIR names, else
+    /// TMPDIR, `/tmp` or `/var/tmp`. None where no such location exists or
     /// none can be made in, the test then skipped with its reason (or
     /// failed where this host must produce the evidence): an engine here
     /// would hold no lease, and nothing these suites prove would be.
     pub(crate) fn new() -> Option<Coordination> {
-        let candidates = [std::env::temp_dir(), "/tmp".into(), "/var/tmp".into()];
+        let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+        let candidates = [
+            target,
+            std::env::temp_dir(),
+            "/tmp".into(),
+            "/var/tmp".into(),
+        ];
         let canonical = candidates
             .iter()
             .filter_map(|at| std::fs::canonicalize(at).ok());
@@ -335,8 +367,9 @@ fn a_stalled_engine_is_given_up_on_killed_and_reaped() {
     let patience = Duration::from_millis(300);
     let began = Instant::now();
     let refused = Running::started(stalled(""), patience).err();
-    let unnamed = "the engine named no run (Timeout): ";
-    assert_eq!(refused.as_deref(), Some(unnamed));
+    assert_eq!(refused, Some(Unnamed::Timeout(String::new())));
+    let said = Unnamed::Timeout("seen\n".into()).to_string();
+    assert_eq!(said, "the engine named no run within its patience: seen\n");
     assert!(
         began.elapsed() < Duration::from_secs(10),
         "within its patience"
@@ -349,11 +382,13 @@ fn a_stalled_engine_is_given_up_on_killed_and_reaped() {
     assert!(reaped(&pid), "killed and reaped on unwind");
 }
 
-/// Whether the process whose id the file `pid` holds is gone, reaped.
+/// Whether the process whose id the file `pid` holds is gone, reaped: no
+/// process holds that id (L5 of run four's review), not merely one this
+/// test may not signal.
 fn reaped(pid: &Path) -> bool {
     let pid = std::fs::read_to_string(pid).unwrap();
     let pid = rustix::process::Pid::from_raw(pid.trim().parse().unwrap()).unwrap();
-    rustix::process::test_kill_process(pid).is_err()
+    rustix::process::test_kill_process(pid) == Err(rustix::io::Errno::SRCH)
 }
 
 /// Wait up to thirty seconds for `holds`.

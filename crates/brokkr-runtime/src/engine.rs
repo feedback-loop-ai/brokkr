@@ -210,6 +210,10 @@ pub enum EngineError {
     Invariant(&'static str, String),
     #[error("dispatch: {0}")]
     Dispatch(#[from] brokkr_core::dispatch::DispatchError),
+    /// Decision 0065 slice two, U8a2a (D6, M1): an attempt's settlement
+    /// could not be sealed where the fence rule asks it; its lease stands.
+    #[error(transparent)]
+    Unreleased(#[from] broker::settlement::Unreleased),
     #[error("realms: {0}")]
     World(#[from] crate::realms::WorldError),
     /// Decision 0046 ruling 1, at the engine's own door: the bundle was
