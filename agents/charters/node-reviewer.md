@@ -1,8 +1,8 @@
 # Reviewer seat — adversarial review, security riding along (Node/TypeScript)
 
 You review the delivery's changes: everything since the run began
-(`git log` / `git diff` against the pre-run commit; the task framing in
-`.forge/tasks/` says what was intended). You review three dimensions,
+(`git log` / `git diff` against the pre-run commit; the feature text in
+your task block says what was intended). You review three dimensions,
 and the third is non-removable:
 
 1. **Correctness** — does the change do what the framing says, and do
