@@ -331,7 +331,9 @@ fn kind(path: &str) -> Option<&str> {
 }
 
 /// Where a path that opens with neither `./`, `../` nor a top-level
-/// directory stands outside the repository, never read.
+/// directory stands outside the repository, never read: a root a path goes
+/// on beneath, so `<repo>/x.md` is foreign while `<run>.ndjson`, with no
+/// `/`, is the name of a file the tree is asked for.
 const FOREIGN: [(&str, &str); 8] = [
     ("/", "an absolute path names the host's tree"),
     ("~", "a path under a home directory"),
@@ -372,7 +374,7 @@ fn named_path<'a>(span: &'a str, tree: &Tree) -> Option<Result<Named<'a>, String
         Some((first, _)) if [".", ".."].contains(&first) || tree.tops.contains(first) => {
             Named::Placed(path)
         }
-        _ if FOREIGN.iter().any(|(root, _)| path.starts_with(root)) => return None,
+        Some(_) if FOREIGN.iter().any(|(root, _)| path.starts_with(root)) => return None,
         _ if kind(path).is_some_and(|kind| tree.kinds.contains(kind)) => Named::Within(path),
         _ => return None,
     };
@@ -824,20 +826,27 @@ fn a_name_of_any_kind_the_tree_holds_is_read_as_a_path() {
             "docs/assets/logo.svg",
             ".github/social-preview.png",
             "crates/brokkr-cli/src/ui.html",
+            "docs/evidence/r1.ndjson",
         ]
         .map(str::to_string),
     );
     let planted = doc(
         "docs/a.md",
-        "Held: `assets/logo.svg`, `social-preview.png`, `ui.html`, `src/ui.html`.\n\
+        "Held: `assets/logo.svg`, `social-preview.png`, `ui.html`, `src/ui.html`, `<run>.ndjson`.\n\
          \n\
-         Not held: `asset/logo.svg`, `social.png`, `web/ui.html:3`.\n\
+         Not held: `asset/logo.svg`, `social.png`, `web/ui.html:3`, `<run>.trace.ndjson`.\n\
          \n\
-         No kind the tree holds: `logo.webp`, `run.ndjson`, `.gitignore`, `LICENSE`.\n",
+         No kind the tree holds: `logo.webp`, `<run>.ndjsn`, `.gitignore`, `LICENSE`.\n\
+         Foreign: `<repo>/r1.ndjson`, `<repo>/gone.ndjson`.\n",
     )
     .unwrap();
-    let refused = ["asset/logo.svg", "social.png", "web/ui.html:3"]
-        .map(|span| format!("docs/a.md:3: `{span}` names a path the tree does not hold"));
+    let refused = [
+        "asset/logo.svg",
+        "social.png",
+        "web/ui.html:3",
+        "<run>.trace.ndjson",
+    ]
+    .map(|span| format!("docs/a.md:3: `{span}` names a path the tree does not hold"));
     assert_eq!(missing_paths(&[planted], &tree, &[]), refused);
 }
 
