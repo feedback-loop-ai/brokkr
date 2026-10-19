@@ -458,14 +458,13 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
     // surface that draws a road per name draws one road.
     assert_eq!(named("implement")["returns"], json!(["review"]));
 
-    // The loop's other two legs are recorded as returns too — entering
-    // `verify` from `implement` a second time IS a transition into a
-    // phase already entered — and neither is a road the rail can draw:
-    // a road is drawn LEFTWARD, and both of those departures lie left
-    // of where they land. The page drops them on geometry, exactly as
-    // the TUI's rail does, and one road is left.
-    assert_eq!(named("verify")["returns"], json!(["implement"]));
-    assert_eq!(named("review")["returns"], json!(["verify"]));
+    // The loop's other two legs are forward steps of a second pass:
+    // entering `verify` from `implement` again lands to the right of
+    // where it leaves, so the model records no road for it (#568). The
+    // page still drops anything rightward on geometry, as the TUI's
+    // rail does, and one road is left either way.
+    assert_eq!(named("verify")["returns"], json!([]));
+    assert_eq!(named("review")["returns"], json!([]));
     let order: Vec<&str> = rail
         .iter()
         .map(|phase| phase["name"].as_str().unwrap())
@@ -765,7 +764,7 @@ fn the_console_serves_the_boundary_and_paints_the_pair() {
 
     let view = handle(&db, "/api/view/r1");
     let parsed: Value = serde_json::from_str(&view.body).unwrap();
-    assert_eq!(parsed["view_version"], 23);
+    assert_eq!(parsed["view_version"], 24);
     let seat = &parsed["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["text"], "harness");

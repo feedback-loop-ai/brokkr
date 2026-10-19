@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 23
+export const VIEW_VERSION = 24
 
 /** The graph wire this console paints: `brokkr_view::GRAPH_VIEW_VERSION`, pinned apart from `VIEW_VERSION`. */
 export const GRAPH_VIEW_VERSION = 2
@@ -317,6 +317,8 @@ function participant(value, path) {
     label: text(value.label, `${path}.label`),
     member: optText(value.member, `${path}.member`),
     phase: optText(value.phase, `${path}.phase`),
+    // Which visit to its phase the seat was asked in, from 1, as Brokkr counted it.
+    visit: maybe(value.visit, `${path}.visit`, count),
     status: text(value.status, `${path}.status`),
     working: value.working === true,
     attempts: count(value.attempts, `${path}.attempts`),

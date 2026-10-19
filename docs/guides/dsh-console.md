@@ -89,14 +89,19 @@ where every realm is.
 - **One run.** Laid out as panes, as `brokkr tui` lays them out: the graph
   across the width with the control plane on it; why the run waits beside
   the reader; every seat in one table beneath; the timeline, folded, at the
-  foot. The bar above names the run and lists every realm.
+  foot. The bar above names the run, how many runs are running in its realm,
+  and lists every realm.
 - **The graph.** The rail `brokkr tui` draws: Brokkr's phases left to right,
   each step a dot on the rail, the members of one step (review positions,
   say) in a bracket above and below it, phase names under the rail, and the
   current phase boxed in the colour of the run's status ("NOW · REVIEW"). A
   road runs back beneath wherever Brokkr recorded a return ("sent back to
   implement by review · REVIEW-REFORGE"), solid, as Brokkr's own dashboard
-  draws a road that was taken. A wide graph scrolls sideways and opens on
+  draws a road that was taken. A return is a ruling that lands earlier on
+  the rail than the phase it leaves: the forward steps of a second pass and
+  a phase ruled onto itself are visits, not roads. Each road takes a lane of
+  its own below the phase names, the shortest nearest, its label on a line
+  of its own. A wide graph scrolls sideways and opens on
   the current phase. While the run is driven its active step wears Brokkr's
   pulse, the dot striking and a halo spreading as in `brokkr ui`; the
   console's mark and the left-panel icon strike while any run is running.
@@ -104,7 +109,9 @@ where every realm is.
 - **Picking.** Click a step, an arrow between phases, or a phase's name;
   click again to let go. A step shows its seat. An arrow shows the ruling
   that moved the run (its rule, result and words) and the seat behind it. A
-  phase picks every step in it and narrows the seats table to its own. With
+  phase picks every step in it and narrows the seats table to its own. A
+  seat asked in a later visit to its phase says which ("implement · visit
+  2"), from the visit Brokkr counted for it. With
   nothing picked the reader shows where the run is now: the phase Brokkr
   marks current and the latest seat in it, or the phase alone while it has
   no seat yet. The pick stays as the run moves.

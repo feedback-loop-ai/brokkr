@@ -445,6 +445,12 @@ window.__ModuleLoader__.load({
 
     /** The TUI's rail, in pixels: label width per character, dot radius, the gap an arrow spans, a member's offset. */
     const RAIL = { char: 7.4, dot: 6, gap: 46, member: 50, pad: 18 }
+    /**
+     * The roads back beneath the phase names, in pixels: where an arc leaves and lands
+     * (below the names, never through them), the first arc's lowest point, the lane each
+     * further road takes, and a label's drop below its arc and width per character.
+     */
+    const ROAD = { clear: 16, first: 34, lane: 30, label: 14, char: 6.2 }
     const clip = (text, most = 22) => (text.length > most ? `${text.slice(0, most - 1)}…` : text)
     const widthOf = (text) => Math.ceil(clip(text).length * RAIL.char)
     /** The dot each node wears, by Brokkr's closed state-class set (the TUI's `class_for_node`). */
@@ -488,8 +494,21 @@ window.__ModuleLoader__.load({
         return { ...rank, start, dotX, end, bracket, ys: rank.column.nodes.map((_, at) => y + (at - (count - 1) / 2) * RAIL.member) }
       })
       const names = y + spread + 40
-      const roads = spans.flatMap((span) => span.phase.returns.map((from) => ({ to: span, from: spans.find((each) => each.phase.name === from) ?? null }))).filter((road) => road.from !== null)
-      return { status, placed, spans, roads, y, spread, names, width: x - RAIL.gap + RAIL.pad, height: names + (roads.length > 0 ? 56 : 14) }
+      // Each road back takes a lane of its own, the shortest nearest the names so the arcs
+      // nest, and its label a line of its own beneath its arc, kept inside the rail.
+      const roads = spans.flatMap((span) => span.phase.returns.map((from) => ({ to: span, from: spans.find((each) => each.phase.name === from) ?? null })))
+        .filter((road) => road.from !== null)
+        .map((road) => ({ ...road, sx: placed[road.from.last].dotX, rx: placed[road.to.first].dotX }))
+        .sort((a, b) => Math.abs(a.sx - a.rx) - Math.abs(b.sx - b.rx))
+        .map((road, lane) => {
+          const ruling = rulingOf(view, road.from.phase.name, road.to.phase.name)
+          const label = `sent back to ${road.to.phase.name} by ${road.from.phase.name}${ruling === null || ruling.ruling.rule === null ? '' : ` · ${ruling.ruling.rule}`}`
+          const half = Math.ceil(label.length * ROAD.char) / 2
+          return { ...road, label, half, bottom: names + ROAD.first + lane * ROAD.lane, mid: Math.max((road.sx + road.rx) / 2, RAIL.pad + half) }
+        })
+      const width = Math.max(x - RAIL.gap + RAIL.pad, ...roads.map((road) => road.mid + road.half + RAIL.pad))
+      const height = roads.length === 0 ? names + 14 : roads.at(-1).bottom + ROAD.label + 8
+      return { status, placed, spans, roads, y, spread, names, width, height }
     }
 
     /** What is picked: a phase `{phase}`, a step `{phase, key}`, or an arrow `{arrow: {from, to}}`. */
@@ -584,15 +603,17 @@ window.__ModuleLoader__.load({
         ink.push(h('g', { key: `phase${span.phase.name}`, className: 'bk-hit', role: 'button', tabIndex: 0, 'aria-label': `the phase ${span.phase.name}`, onClick: () => toggle({ phase: span.phase.name }) },
           h('text', { x: placed[span.first].start, y: names, className: 'bk-phase-name' }, `${span.phase.name.toUpperCase()}${visits}${strategy}`)))
       }
-      // Each road back beneath, solid: it was taken.
+      // Each road back beneath the names, solid: it was taken. It leaves from under the phase
+      // that sent the run back and lands, arrowhead up, under the phase it sent it to. Every arc
+      // is drawn before any label, so a label's halo keeps a crossing arc off its words.
+      const top = names + ROAD.clear
       roads.forEach((road, index) => {
-        const [sx, rx] = [placed[road.from.last].dotX, placed[road.to.first].dotX]
-        const dip = names + 26 + index * 6
-        const ruling = rulingOf(view, road.from.phase.name, road.to.phase.name)
-        const loop = road.from === road.to ? 26 : 0
-        ink.push(h('path', { key: `rb${index}`, d: `M${sx + loop} ${names + 6}C${sx + loop} ${dip} ${rx - loop} ${dip} ${rx - loop} ${y + spread + 14}`, className: 'bk-edge back', markerEnd: 'url(#bk-tip)' }),
-          h('text', { key: `rbt${index}`, x: Math.min(sx, rx) + Math.abs(sx - rx) / 2, y: dip + 16, textAnchor: 'middle', className: 'bk-node-sub' },
-            `sent back to ${road.to.phase.name} by ${road.from.phase.name}${ruling === null || ruling.ruling.rule === null ? '' : ` · ${ruling.ruling.rule}`}`))
+        // A cubic whose controls sit at `dip` bottoms out three quarters of the way down to them.
+        const dip = top + (road.bottom - top) * 4 / 3
+        ink.push(h('path', { key: `rb${index}`, d: `M${road.sx} ${top}C${road.sx} ${dip} ${road.rx} ${dip} ${road.rx} ${top}`, className: 'bk-edge back', markerEnd: 'url(#bk-tip)' }))
+      })
+      roads.forEach((road, index) => {
+        ink.push(h('text', { key: `rbt${index}`, x: road.mid, y: road.bottom + ROAD.label, textAnchor: 'middle', className: 'bk-node-sub bk-road-label' }, road.label))
       })
       return h('div', { className: 'bk-graph', ref: (element) => reveal(element, view, rail) },
         h('svg', { width: rail.width, height: rail.height, className: 'bk-rail', role: 'group', 'aria-label': 'Run graph' },
@@ -768,6 +789,9 @@ window.__ModuleLoader__.load({
       typeof value === 'string' || value.text === undefined ? h('span', { className: 'bk-fact' }, value) : h('span', { className: 'bk-fact' }, value.text),
       value.absent === true && value.note !== null ? h('span', { className: 'bk-d' }, value.note) : note === null ? null : h('span', { className: 'bk-d' }, note))
 
+    /** Which pass a seat belongs to, after the first: Brokkr counts each seat's visit to its phase. */
+    const visitOf = (seat) => (seat.visit !== null && seat.visit > 1 ? h('span', { className: 'bk-seat-visit' }, ` · visit ${seat.visit}`) : null)
+
     /**
      * A seat as the TUI's participant pane reads it, with its tokens read
      * apart. What its plan selected is Brokkr's own provenance line
@@ -775,7 +799,7 @@ window.__ModuleLoader__.load({
      */
     function SeatFacts({ seat }) {
       return h('div', { className: 'bk-seat' },
-        h('div', { className: 'bk-row' }, h('strong', null, seat.label), chip(seat.status, seat.working ? 'bk-run' : 'bk-stop'),
+        h('div', { className: 'bk-row' }, h('strong', null, seat.label, visitOf(seat)), chip(seat.status, seat.working ? 'bk-run' : 'bk-stop'),
           h('span', { className: 'bk-note' }, `${seat.model.text} (claimed) · ${seat.boundary.text} · effort pinned ${seat.effort_pin.text}, applied ${seat.effort.text}`)),
         seat.activity.absent ? null : h('div', { className: 'bk-note' }, seat.activity.text),
         h('div', { className: 'bk-tiles' },
@@ -905,7 +929,7 @@ window.__ModuleLoader__.load({
         ])
     }
 
-    /** Every seat of the run in one table, as the TUI's seat pane lists them; a picked phase shows only its own. */
+    /** Every seat of the run in one table, as the TUI's seat pane lists them; a picked phase shows only its own, each later pass named. */
     function Seats({ view, focus, picked, pick }) {
       const phase = picked !== null && picked.key === undefined && picked.arrow === undefined ? picked.phase : null
       const seats = view.participants.filter((seat) => phase === null || seat.phase === phase)
@@ -917,7 +941,7 @@ window.__ModuleLoader__.load({
             const on = behind.has(seat.key)
             const open = () => pick({ phase: seat.phase, key: seat.key })
             return [
-              h('button', { key: `s${seat.key}`, type: 'button', className: `bk-seat-name${on ? ' on' : ''}`, onClick: open }, on ? '▸ ' : '', seat.label),
+              h('button', { key: `s${seat.key}`, type: 'button', className: `bk-seat-name${on ? ' on' : ''}`, onClick: open }, on ? '▸ ' : '', seat.label, visitOf(seat)),
               h('span', { key: `st${seat.key}`, className: seat.working ? 'bk-live-word' : 'bk-muted' }, seat.status),
               h('span', { key: `t${seat.key}` }, tokensOf(seat.tokens)),
               h('span', { key: `c${seat.key}` }, seat.tokens.cache_hit.text),
@@ -989,7 +1013,7 @@ window.__ModuleLoader__.load({
           row !== null && cameFrom !== null ? h('button', { type: 'button', className: 'bk-link', onClick: cameFrom.go }, `← ${cameFrom.label}`) : null,
           h('button', { type: 'button', className: 'bk-link', onClick: row === null ? back : () => select(null) }, row === null ? '← All realms' : cameFrom !== null ? `${hearth.realm}’s runs` : `← ${hearth.realm}’s runs`),
           h('span', { style: { fontSize: 17, fontWeight: 600 } }, row === null ? hearth.realm : label),
-          h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null),
+          h('span', { className: 'bk-note' }, `${runningIn(hearth.runs)} running${row === null ? '' : ` in ${hearth.realm}`}`), needs > 0 ? chip(`${needs} need${needs === 1 ? 's' : ''} you`, 'bk-park') : null),
         row === null
           ? h('main', { className: 'bk-main' }, h(RunList, { hearth, selected: runId, select }))
           : h(Run, { hearth, row, run: state.run, see, picked, pick }),

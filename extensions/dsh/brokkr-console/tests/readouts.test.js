@@ -14,8 +14,8 @@ for (const [what, parse, doc] of [
 ]) {
   test(`${what} at another view version is refused, not painted`, () => {
     assert.throws(
-      () => parse({ ...doc, view_version: 22 }),
-      new ReadoutRefused('version', `${what} is at view version 22; this console paints version 23 only`),
+      () => parse({ ...doc, view_version: 23 }),
+      new ReadoutRefused('version', `${what} is at view version 23; this console paints version 24 only`),
     )
   })
 }
@@ -61,7 +61,7 @@ test('analytics carries each recipe of each realm through, its cost as Brokkr fi
 })
 
 test('a one-hearth listing is one hearth with no journal to name', () => {
-  const fleet = fleetOf({ view_version: 23, runs: [row()], count: 1 })
+  const fleet = fleetOf({ view_version: 24, runs: [row()], count: 1 })
   assert.deepEqual(fleet.hearths.map((hearth) => [hearth.realm, hearth.journal, hearth.runs.length]), [[ONE_HEARTH, null, 1]])
 })
 

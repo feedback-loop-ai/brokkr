@@ -270,6 +270,40 @@ test('the road back is solid, with the forward arrowhead and the ruling that sen
   assert.match(textOf(rail(client.tree())), /sent back to implement by review · REVIEW-REFORGE/)
 })
 
+/** Implement sent back twice, by verify and by review, each road with its ruling. */
+const reforged = () => runViewDoc({
+  phases: ['implement', 'verify', 'review'].map((name, at) => ({ name, strategy: null, visits: at === 0 ? 3 : 2, current: at === 2, plain: true, columns: [], returns: at === 0 ? ['review', 'verify'] : [] })),
+  participants: [['implement', 1], ['verify', 1], ['review', 1], ['implement', 2], ['verify', 2], ['implement', 3], ['verify', 3], ['review', 2]]
+    .map(([phase, visit], at) => seat({ key: `seat-${phase}-${at}`, label: phase, phase, visit })),
+  journal: [ruled(9, 'review', 'implement', 'REVIEW-REFORGE'), ruled(10, 'verify', 'implement', 'VERIFY-FAIL')],
+})
+
+test('several roads back each take a lane below the phase names, their labels a line apart and inside the rail', () => {
+  const graph = rail(onRun(reforged()).tree())
+  const names = findAll(graph, (node) => node.props.className === 'bk-phase-name')[0].props.y
+  const labels = findAll(graph, (node) => String(node.props.className).includes('bk-road-label'))
+  assert.deepEqual(labels.map(textOf), ['sent back to implement by verify · VERIFY-FAIL', 'sent back to implement by review · REVIEW-REFORGE'], 'the shorter road nests nearest the names')
+  const [inner, outer] = labels.map((label) => label.props.y)
+  assert.ok(outer - inner >= 16, 'a text line apart at least')
+  assert.ok(graph.props.height >= outer + 4, 'the rail is tall enough for its last label')
+  assert.ok(labels.every((label) => label.props.x > 0), 'no label runs off the rail’s left edge')
+  for (const back of findAll(graph, (node) => node.props.className === 'bk-edge back')) {
+    const ys = back.props.d.match(/-?\d+(\.\d+)?/g).map(Number).filter((_, at) => at % 2 === 1)
+    assert.ok(ys.every((value) => value > names + 4), `${back.props.d} keeps below the phase names at ${names}`)
+  }
+})
+
+test('a seat of a later pass says which visit it belongs to; a first pass reads as it did', () => {
+  const table = seats(onRun(reforged()).tree())
+  assert.deepEqual(buttons(table).map(textOf), ['implement', 'verify', 'review', 'implement · visit 2', 'verify · visit 2', 'implement · visit 3', 'verify · visit 3', '▸ review · visit 2'], 'the now seat is marked as ever')
+  assert.doesNotMatch(textOf(seats(onRun().tree())), /visit/)
+})
+
+test('an open run’s header says the running count is its realm’s', () => {
+  const header = findAll(onRun().tree(), (node) => node.props.className === 'bk-bar')[0]
+  assert.match(textOf(header), /0 running in brokkr/)
+})
+
 test('a rail wider than its pane opens scrolled to the current phase, once per run', () => {
   const client = onRun()
   const scroller = findAll(client.tree(), (node) => node.props.className === 'bk-graph')[0]
