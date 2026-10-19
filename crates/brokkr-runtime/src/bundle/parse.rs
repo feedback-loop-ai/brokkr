@@ -17,16 +17,19 @@ use super::{
     resolve_reference, Aggregate, Candidate, Charters, CompileError, Dialect, Invocation, Opened,
     PanelMember, ResolvedSeat, SeatBody, SeatClass, SiteFacts, SiteLaw, SELECT_STRATEGIES,
 };
+use crate::argv::Executable;
 
 /// One compile's site parser. It owns the compile's two accumulators —
 /// what the sites opened, which the resolver reads, and the canonical site
 /// family every fact is written into — and borrows what every site is
-/// judged against: the boundary, the realm's dialect, the charters bound so
-/// far, and the layer roots with each select case's origin among them.
+/// judged against: the boundary, the engine executable a `{brokkr}` expands
+/// to, the realm's dialect, the charters bound so far, and the layer roots
+/// with each select case's origin among them.
 pub(super) struct SiteCompiler<'a> {
     pub(super) agents: Opened<'a>,
     pub(super) sites: BTreeMap<String, SiteFacts>,
     pub(super) boundary: Boundary,
+    pub(super) engine: &'a Executable,
     pub(super) dialect: Option<&'a Dialect>,
     pub(super) charters: &'a Charters,
     pub(super) roots: &'a [PathBuf],
@@ -47,7 +50,7 @@ impl<'a> SiteCompiler<'a> {
     /// A compiler with no site written yet.
     pub(super) fn new(
         agents: Opened<'a>,
-        boundary: Boundary,
+        (boundary, engine): (Boundary, &'a Executable),
         dialect: Option<&'a Dialect>,
         charters: &'a Charters,
         roots: &'a [PathBuf],
@@ -57,6 +60,7 @@ impl<'a> SiteCompiler<'a> {
             agents,
             sites: BTreeMap::new(),
             boundary,
+            engine,
             dialect,
             charters,
             roots,
@@ -116,7 +120,7 @@ impl<'a> SiteCompiler<'a> {
         let written = self.inline_written(at, phase, raw, true)?;
         Ok(SeatBody::Invocation(Invocation::Single {
             role_path: parse_role(at.dir, phase, raw, self.charters, &mut self.sites)?,
-            command: parse_command(at.dir, phase, raw, at.secrets)?,
+            command: parse_command((self.engine, at.dir), phase, raw, at.secrets)?,
             candidates: Vec::new(),
             written,
             class: parse_class(phase, raw)?,
@@ -206,7 +210,7 @@ impl<'a> SiteCompiler<'a> {
         let class = self.judge(at, what, raw, &[], None)?;
         Ok(SeatBody::Invocation(Invocation::Single {
             role_path: parse_role(at.dir, what, raw, self.charters, &mut self.sites)?,
-            command: parse_command(at.dir, what, raw, at.secrets)?,
+            command: parse_command((self.engine, at.dir), what, raw, at.secrets)?,
             candidates: Vec::new(),
             written,
             class,
@@ -278,7 +282,7 @@ impl<'a> SiteCompiler<'a> {
                 let written = self.inline_written(at, &site, raw, false)?;
                 (
                     parse_role(at.dir, &site, raw, self.charters, &mut self.sites)?,
-                    parse_command(at.dir, &site, raw, at.secrets)?,
+                    parse_command((self.engine, at.dir), &site, raw, at.secrets)?,
                     Vec::new(),
                     None,
                     written,
@@ -325,7 +329,8 @@ impl<'a> SiteCompiler<'a> {
             self.agents.read_for_inline_driver();
         }
         let adapters = self.agents.loaded();
-        record_inline_tools(at.dir, what, raw, seat, &written, adapters, &mut self.sites)?;
+        let expand = (self.engine, at.dir);
+        record_inline_tools(expand, what, raw, seat, &written, adapters, &mut self.sites)?;
         Ok(written)
     }
 

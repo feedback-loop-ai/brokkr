@@ -15,19 +15,21 @@ use super::{
     McpIntent, Opened, SeatClass, SiteFacts,
 };
 use crate::agents::Library;
+use crate::argv::Executable;
 use brokkr_core::realms::Boundary;
 use brokkr_protocol::native_controls::{Origin, Segment};
 
 /// What one capability walk reads at every site it visits, in one
 /// parameter object (decision 0071 ruling 10): the authority it resolves
 /// against, the agent library and the adapters the seats opened, the
-/// realm's boundary, and the composition's layer roots with the layer
-/// that wrote each select case.
+/// realm's boundary, the engine executable a `{brokkr}` expands to, and the
+/// composition's layer roots with the layer that wrote each select case.
 pub(super) struct CapabilityWalk<'a> {
     pub(super) authority: &'a crate::capabilities::Authority,
     pub(super) library: Option<&'a Library>,
     pub(super) adapters: CapabilityAdapters<'a>,
     pub(super) boundary: Boundary,
+    pub(super) engine: &'a Executable,
     pub(super) roots: &'a [PathBuf],
     pub(super) case_origin: &'a BTreeMap<String, usize>,
 }
@@ -37,7 +39,7 @@ impl<'a> CapabilityWalk<'a> {
     pub(super) fn of(
         authority: &'a crate::capabilities::Authority,
         agents: &'a Opened<'_>,
-        boundary: Boundary,
+        (boundary, engine): (Boundary, &'a Executable),
         resolved: &'a compose::Resolved,
     ) -> Self {
         CapabilityWalk {
@@ -45,6 +47,7 @@ impl<'a> CapabilityWalk<'a> {
             library: agents.library(),
             adapters: agents.capability_adapters(),
             boundary,
+            engine,
             roots: &resolved.roots,
             case_origin: &resolved.case_origin,
         }
@@ -120,11 +123,11 @@ pub(super) fn record_agent_capabilities(
 }
 
 /// A single inline site, by the same two keys `has_single` reads: its map
-/// is its own office's asks, served as its driver serves it. `dir` is the
-/// directory its command was expanded against.
+/// is its own office's asks, served as its driver serves it. `engine` and
+/// `dir` are what its command was expanded against.
 pub(super) fn record_inline_capabilities(
     at: &CapabilitySite<'_>,
-    dir: &Path,
+    (engine, dir): (&Executable, &Path),
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
     let CapabilitySite {
@@ -152,7 +155,10 @@ pub(super) fn record_inline_capabilities(
         dialect.hands = fragment.clone();
         // Rebuild unit 14a4a: the engine emits that fragment, expanded
         // as an agent's `hands` segment is, and the plan types it.
-        facts.inline_hands = Some(Segment::new(Origin::Hands, &expand_command(dir, fragment)));
+        facts.inline_hands = Some(Segment::new(
+            Origin::Hands,
+            &expand_command(engine, dir, fragment),
+        ));
     }
     // U1f: the MCP set this serving intends, never read from its bytes.
     facts.inline_mcp = Some(McpIntent::inline(driver.as_deref(), facts.hands_spec()));

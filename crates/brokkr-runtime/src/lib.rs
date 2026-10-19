@@ -7,6 +7,7 @@
 pub mod admission;
 pub mod agents;
 pub mod anchor;
+pub mod argv;
 pub mod boundary;
 pub mod bundle;
 pub mod capabilities;

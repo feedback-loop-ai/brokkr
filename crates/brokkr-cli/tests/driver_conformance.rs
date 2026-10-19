@@ -12,9 +12,9 @@ use std::process::{Command, Stdio};
 use brokkr_core::{fold::OperatorCommand::Retry, realms::Boundary};
 use brokkr_protocol::adapters::capability_calls::{Observation, OBSERVATION_KEY};
 use brokkr_runtime::agents::{Adapters, Availability, Library};
-use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::engine::{compose_site, BuiltBoundary};
 use brokkr_runtime::Invocation::{Panel, Single};
+use brokkr_runtime::{argv::Executable, dialect::Dialect};
 use brokkr_runtime::{
     operator_command, resolve_agent, Bundle, Engine, SeatBody, SeatClass, StepBody,
 };
@@ -2259,7 +2259,7 @@ fn the_shipped_codex_harness_work_seat_rejoins_its_retry() {
         hands.as_ref(),
         Some(candidate),
         workdir.path(),
-        (workdir.path().join("artifacts").as_path(), None),
+        (&Executable::current(), Path::new("/a"), None),
         &[],
         result,
         None,

@@ -374,16 +374,10 @@ fn dsh_served(bundle: &mut Bundle, label: &str, link: &Candidate) -> PathBuf {
     path
 }
 
+/// The engine suite's bundle, named, seated and pinned as this suite's.
 fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
     Bundle {
-        dialect_prompts: Default::default(),
         name: "resume".into(),
-        description: String::new(),
-        cost: String::new(),
-        dir: dir.to_path_buf(),
-        roots: vec![dir.to_path_buf()],
-        boundary: Boundary::Namespace,
-        chain: Vec::new(),
         machine: machine(),
         seats,
         manifest: json!({
@@ -391,11 +385,7 @@ fn bundle(dir: &Path, seats: BTreeMap<String, Seat>) -> Bundle {
             "driver_protocol":1, "bundle_name":"resume",
             "files":{"bundle.json":"b".repeat(64)}
         }),
-        protected_phase: "review".into(),
-        hands: std::collections::BTreeMap::new(),
-        inline_resume: std::collections::BTreeMap::new(),
-        sites: Default::default(),
-        charters: Default::default(),
+        ..super::tests::bundle(dir, super::tests::single_body(Vec::new()))
     }
 }
 

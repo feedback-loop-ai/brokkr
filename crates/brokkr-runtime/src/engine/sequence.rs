@@ -374,15 +374,10 @@ impl Engine {
             );
         }
         let change = nearest_change.unwrap_or("");
-        let command = std::iter::once(
-            std::env::current_exe()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned(),
-        )
-        .chain(["driver", "exec", "--"].into_iter().map(str::to_string))
-        .chain(expand_dialect_argv(&execution.argv, change))
-        .collect::<Vec<_>>();
+        let command = std::iter::once(self.bundle.executable.lossy())
+            .chain(["driver", "exec", "--"].into_iter().map(str::to_string))
+            .chain(expand_dialect_argv(&execution.argv, change))
+            .collect::<Vec<_>>();
         let site = Some(at.step.name.clone());
         let mut input = run.driver_input(at, &json!(""));
         input["dialect_exec"] = json!({

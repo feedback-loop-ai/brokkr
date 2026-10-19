@@ -1170,12 +1170,9 @@ pub fn declared_template(driver: &[String]) -> TemplateExpectation {
 /// emits no permission template — the same reading that refuses to place
 /// an opaque driver's tail behind an inline command.
 pub fn permission_template(argv: &[String]) -> &[String] {
-    match argv {
-        [_, marker, _, rest @ ..] if marker == "driver" => match rest {
-            [escape, tail @ ..] if escape == "--" => tail,
-            _ => rest,
-        },
-        _ => &[],
+    match crate::argv::Dispatch::of(argv) {
+        crate::argv::Dispatch::Driver { tail, .. } => tail,
+        crate::argv::Dispatch::Raw => &[],
     }
 }
 
@@ -1189,8 +1186,10 @@ pub fn permission_template(argv: &[String]) -> &[String] {
 /// no template that could stand behind that command, and is refused.
 pub fn inline_template(adapter: &Adapter, kind: &str) -> Result<Option<Segment>, String> {
     let driver = driver_template(adapter);
-    match driver.argv.as_slice() {
-        [_, marker, dispatched, ..] if marker == "driver" && dispatched == kind => {
+    match crate::argv::Dispatch::of(&driver.argv) {
+        crate::argv::Dispatch::Driver {
+            kind: dispatched, ..
+        } if dispatched == kind => {
             let template = brokkr_protocol::native_controls::harness_arguments(&driver.argv);
             Ok((!template.is_empty()).then(|| Segment::new(driver.origin, template)))
         }

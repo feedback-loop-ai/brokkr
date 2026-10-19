@@ -640,6 +640,27 @@ fn an_altered_sealed_broker_refuses_at_the_final_boundary() {
     }
 }
 
+/// #349, ask 8: the hands and the broker beside them are run by the engine
+/// executable the bundle carries, which the box's hands were composed with
+/// and the whole set is expanded under again — never a binary read anew.
+#[test]
+fn the_whole_set_is_run_by_the_executable_the_bundle_carries() {
+    let test = "the_whole_set_is_run_by_the_executable_the_bundle_carries";
+    let Some(mut claude) = Claude::new(test, single(), &["work"]) else {
+        return;
+    };
+    let injected = "/opt/brokkr-test";
+    claude.fixture.engine.bundle.executable = crate::argv::Executable(Some(injected.into()));
+    let (_, spawn, _) = claude.dispatched("attempt-1");
+    let broker = claude.written("attempt-1");
+    let exe = std::env::current_exe().unwrap();
+    let whole = document(&claude.fixture.engine.workdir(), Some(&broker));
+    let whole = whole.replace(exe.to_str().unwrap(), injected);
+    let config = spawn.argv.iter().position(|part| part == "--mcp-config");
+    let served = config.map(|at| spawn.argv[at + 1].clone());
+    assert_eq!((spawn.refusal, served), (None, Some(whole)));
+}
+
 /// A seat whose outcome holds no brokered capability seals the hands set
 /// alone, provisions nothing, and keeps every byte of the command composed
 /// for it: the driver serves the hands-only literal.
@@ -824,7 +845,12 @@ fn a_broker_set_that_is_not_the_provisioned_one_refuses_its_spawn() {
         (&sealed, &broker, None),
     ] {
         let mut again = spawn.clone();
-        let worktree = (workdir.as_path(), Path::new("/a"), reach);
+        let worktree = (
+            &*crate::argv::tests::ENGINE,
+            workdir.as_path(),
+            Path::new("/a"),
+            reach,
+        );
         let expanded = beside(&mut again, serving, worktree, std::slice::from_ref(broker));
         assert_eq!(expanded, Err(Unsealed::Unexpanded));
         assert_eq!(again.argv, spawn.argv);

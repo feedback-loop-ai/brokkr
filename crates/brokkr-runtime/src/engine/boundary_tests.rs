@@ -14,7 +14,7 @@ use crate::bundle::{HandsState, McpIntent, SiteFacts};
 use crate::realms::World;
 use brokkr_core::canonical::sha256_bytes;
 use brokkr_protocol::hands::network_prefix;
-use sealed_tests::{boxed, boxed_a, REACH_ARG};
+use sealed_tests::{boxed, boxed_a, ENGINE, REACH_ARG};
 
 impl Engine {
     /// [`Self::compose_at`] over argv no compiled site owns: the boundary
@@ -699,7 +699,7 @@ fn the_compiles_expansion_keeps_every_segments_origin() {
         Segment::new(Origin::Hands, &strings(&["--sandbox", "read-only"])),
     ]);
     assert_eq!(
-        crate::bundle::expand_lowering(Path::new("/bundle"), &written),
+        crate::bundle::expand_lowering(&ENGINE, Path::new("/bundle"), &written),
         composed(vec![
             Segment::new(Origin::Template, &strings(&[&exe, "driver", "codex", "--"])),
             Segment::new(Origin::Local, &strings(&["/bundle/scripts/check.sh", ""])),
@@ -708,7 +708,7 @@ fn the_compiles_expansion_keeps_every_segments_origin() {
     );
     for never in [Lowering::Unavailable, Lowering::Refused(intent.clone())] {
         assert_eq!(
-            crate::bundle::expand_lowering(Path::new("/bundle"), &never),
+            crate::bundle::expand_lowering(&ENGINE, Path::new("/bundle"), &never),
             never
         );
     }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::argv::tests::ENGINE;
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -749,7 +750,7 @@ fn panel_and_sequence_parsers_refuse_every_ambiguous_shape() {
     let dir = fixture.root.as_path();
     let results = vec!["pass".to_string(), "fail".to_string()];
     let (charters, origin, ns) = (Charters::default(), BTreeMap::new(), Boundary::Namespace);
-    let compiler = || SiteCompiler::new(unopened(), ns, None, &charters, &[], &origin);
+    let compiler = || SiteCompiler::new(unopened(), (ns, &ENGINE), None, &charters, &[], &origin);
     let at = SeatScope {
         dir,
         results: &results,
@@ -871,9 +872,9 @@ fn role_secret_command_and_confinement_boundaries_are_explicit() {
         assert!(parse_secrets("work", &raw).is_err());
     }
 
-    assert!(parse_command(dir, "work", &json!({}), &[]).is_err());
+    assert!(parse_command((&ENGINE, dir), "work", &json!({}), &[]).is_err());
     let command = parse_command(
-        dir,
+        (&ENGINE, dir),
         "work",
         &json!({"driver":{"command":["{brokkr}", "./tool", "plain"]}}),
         &[],
@@ -1350,12 +1351,9 @@ fn compiler_accepts_nondefault_positive_limits() {
 
 #[test]
 fn explicit_inputs_suffixes_and_manifest_nonfiles_are_deterministic() {
+    assert_eq!(expand::brokkr_executable(None), "brokkr");
     assert_eq!(
-        brokkr_executable(Err(std::io::Error::other("missing"))),
-        "brokkr"
-    );
-    assert_eq!(
-        brokkr_executable(Ok(PathBuf::from("/tmp/brokkr"))),
+        expand::brokkr_executable(Some(Path::new("/tmp/brokkr"))),
         "/tmp/brokkr"
     );
     assert!(is_declarable("fixes_applied"));
@@ -1927,4 +1925,38 @@ fn a_recipe_reached_through_a_linked_ancestor_compiles_and_still_refuses_a_repla
         std::fs::rename(&away, &path).unwrap();
         assert_eq!(doors(), (Ok(true), Ok(run.clone())), "{path:?} restored");
     }
+}
+
+/// #349, ask 8: a compile expands every `{brokkr}` to the engine executable
+/// it is handed — the bare word where it could not be read — and carries
+/// that value to the engine; the manifest, which names no argv, does not
+/// move with it. The default entry hands it this test binary's own.
+#[test]
+fn a_compile_expands_brokkr_to_the_executable_it_is_handed() {
+    let fixture = Fixture::new();
+    let mut config = Fixture::config();
+    config["seats"]["work"]["driver"]["command"] =
+        json!(["{brokkr}", "driver", "exec", "--", "true"]);
+    let entered = fixture.compile(&config, &Fixture::policy()).unwrap();
+    // As the default entry compiles: no realm, no grant, the default roots.
+    let compiled = |engine: &Executable| {
+        let (agents, adapters) = (DEFAULT_AGENTS_DIR, DEFAULT_ADAPTERS_DIR);
+        let roots = (Path::new(agents), Path::new(adapters));
+        let (unmapped, root) = (crate::capabilities::UNMAPPED, Path::new(""));
+        let none = crate::capabilities::CapabilityContext::no_grants(unmapped, root);
+        let law = Boundary::Namespace;
+        Bundle::compile_as(engine, &fixture.root, roots, None, None, law, &none).unwrap()
+    };
+    let injected = Executable(Some(PathBuf::from("/opt/brokkr-test")));
+    let bundles = [&entered, &compiled(&injected), &compiled(&Executable(None))];
+    let engine = bundles.map(|bundle| match &bundle.seats["work"].body {
+        SeatBody::Invocation(Invocation::Single { command, .. }) => command[0].clone(),
+        other => panic!("work is single: {other:?}"),
+    });
+    let current = ENGINE.path().unwrap().to_string_lossy().into_owned();
+    assert_eq!(engine, [current.as_str(), "/opt/brokkr-test", "brokkr"]);
+    let carried = bundles.map(|bundle| bundle.executable.clone());
+    assert_eq!(carried, [ENGINE.clone(), injected, Executable(None)]);
+    let manifests = bundles.map(|bundle| bundle.manifest_digest());
+    assert_eq!(manifests, [(); 3].map(|()| entered.manifest_digest()));
 }
