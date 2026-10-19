@@ -362,7 +362,7 @@
    443 crates/brokkr-runtime/src/engine/capability_tests/call_tests.rs
   1150 crates/brokkr-runtime/src/engine/capability_tests/provision_tests.rs
    850 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/brokered_tests.rs
-  1492 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/brokered_tests/writers_tests.rs
+  1505 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/brokered_tests/writers_tests.rs
     70 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/discovery_tests.rs
    654 crates/brokkr-runtime/src/engine/capability_tests/provision_tests/survey_tests.rs
    167 crates/brokkr-runtime/src/engine/capability_tests/resume_tests.rs

@@ -1065,6 +1065,10 @@ fn serving_dispatch() {
     let named = format!("{}\n{}\n", claude.fixture.root.display(), engine.run_id);
     std::fs::write(dir.join("fixture"), named).unwrap();
     claude.attacked();
+    // The seat waits to be killed, so a dispatch that returns never stood it:
+    // say why, for the parent to show.
+    let (event, payload) = last(&claude.fixture.engine);
+    panic!("the dispatch returned before its seat stood: {event:?} {payload}");
 }
 
 /// The fixture root and run [`serving_dispatch`] named in `dir`.
@@ -1284,15 +1288,24 @@ fn dispatched_engine(dir: &Path, payload: &Payload) -> (Killed, (PathBuf, String
     }
     let mut engine = std::process::Command::new(std::env::current_exe().unwrap());
     engine.args(["--exact", SERVER, "--nocapture", "--test-threads=1"]);
+    let said = std::fs::File::create(dir.join("engine.err")).unwrap();
     let engine = engine.env(SERVED, dir).stdout(std::process::Stdio::null());
-    let mut engine = Killed(engine.stderr(std::process::Stdio::null()).spawn().unwrap());
+    let mut engine = Killed(engine.stderr(said).spawn().unwrap());
     let (pid, deadline) = (
         dir.join("seat.pid"),
         Instant::now() + Duration::from_secs(60),
     );
+    // What the engine and, where it served one, its broker said, for a
+    // failure to name.
+    let said = || {
+        let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+        format!("{}{}", read("engine.err"), read("broker.out"))
+    };
     while !pid.exists() {
-        assert_eq!(engine.0.try_wait().unwrap(), None, "the engine ended");
-        assert!(Instant::now() < deadline, "the seat never started");
+        let ended = engine.0.try_wait().unwrap();
+        assert!(ended.is_none(), "the engine ended ({ended:?}): {}", said());
+        let started = Instant::now() < deadline;
+        assert!(started, "the seat never started: {}", said());
         std::thread::sleep(Duration::from_millis(20));
     }
     let served = boxed.then(|| {
