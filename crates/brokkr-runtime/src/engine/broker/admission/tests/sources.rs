@@ -190,7 +190,7 @@ fn exposed(site: &str, run: &str, served: &Path) -> Result<Held, Unadmitted> {
 /// alias, the input a refusal names, and the bytes that must stay as they
 /// are.
 fn aliases(host: &Host, docs: &Path) -> [(PathBuf, PathBuf, PathBuf); 3] {
-    let system = first_root(Path::new("/usr/bin")).unwrap();
+    let system = first_root(Path::new("/usr/bin"), &[]).unwrap();
     let shell = std::fs::canonicalize("/bin/sh").unwrap();
     let links = host.dir.path().join("srv/links");
     [
@@ -294,45 +294,74 @@ fn a_survey_starts_without_the_loaders_environment_on_the_launchers_directories(
     assert_eq!(server, OsString::from("/usr/local/bin:/usr/bin:/bin"));
 }
 
-/// The first operating-system root ([`SYSTEM_ROOTS`], in order) `writable`
-/// lies at, above or below as the host lays it out: each compared where it
-/// resolves, a path that does not stand by its nearest ancestor that does.
-fn first_root(writable: &Path) -> Option<PathBuf> {
+/// The operating system's own roots, as the operator's ruling of
+/// 2026-10-19 names them (D6), in the order a refusal names the first:
+/// written here, never read from [`SYSTEM_ROOTS`], so a root production
+/// omits is still a case of the matrix that proves them.
+const OPERATOR_ROOTS: &str =
+    "/usr /bin /sbin /lib /lib32 /lib64 /libx32 /etc /dev /boot /proc /sys";
+
+/// The first operating-system root ([`OPERATOR_ROOTS`], in order)
+/// `writable` lies at, above or below as the host lays it out, the bind
+/// mounts `binds` (each `(root, point)`) shown: each compared where it
+/// resolves, a path that does not stand by its nearest ancestor that does,
+/// and then, where it lies at or below the point of a bind, the longest,
+/// where that bind's root does, so a directory bound from `/etc` lies
+/// within `/etc` as its mount shows it.
+fn first_root(writable: &Path, binds: &[(&Path, &Path)]) -> Option<PathBuf> {
     let laid = |path: &Path| {
-        let (at, rest) = path
-            .ancestors()
-            .find_map(|at| Some((std::fs::canonicalize(at).ok()?, path.strip_prefix(at).ok()?)))?;
-        Some(at.join(rest))
+        let standing =
+            |at: &Path| Some((std::fs::canonicalize(at).ok()?, path.strip_prefix(at).ok()?));
+        let (at, rest) = path.ancestors().find_map(standing).unwrap();
+        let at = at.join(rest);
+        let mut under: Vec<_> = binds
+            .iter()
+            .filter(|(_, point)| at.starts_with(point))
+            .collect();
+        under.sort_by_key(|(_, point)| point.components().count());
+        match under.last() {
+            Some((root, point)) => root.join(at.strip_prefix(point).unwrap()),
+            None => at,
+        }
     };
-    let writes = laid(writable)?;
+    let writes = laid(writable);
     let related = |root: &&str| {
-        let root = laid(Path::new(root)).unwrap_or_else(|| PathBuf::from(root));
+        let root = laid(Path::new(root));
         writes.starts_with(&root) | root.starts_with(&writes)
     };
-    SYSTEM_ROOTS.into_iter().find(related).map(PathBuf::from)
+    OPERATOR_ROOTS.split(' ').find(related).map(PathBuf::from)
 }
 
 /// Run four's H2, under the operator's ruling of 2026-10-19 (D6): a writer
-/// whose root lies at, above or below each operating-system root — the
-/// loader, `/etc/ld.so.preload`, system libraries, programs and device
-/// nodes among what they hold — is refused by MB3's identity cause naming
-/// the first root it reaches: writer first, by the lease's first extension,
-/// before any survey; server first, before anything of it is sealed. Its
-/// reach is injected; nothing of the roots is written. A writer apart from
-/// them, beside the server, is admitted, and the extension commits.
+/// whose root lies at, above or below each operating-system root the
+/// operator named ([`OPERATOR_ROOTS`]) — the loader, `/etc/ld.so.preload`,
+/// system libraries, programs and device nodes among what they hold — is
+/// refused by MB3's identity cause naming the first root it reaches: writer
+/// first, by the lease's first extension, before any survey; server first,
+/// before anything of it is sealed. Its reach is injected; nothing of the
+/// roots is written. The mount table is shown, whatever this host's own
+/// binds, as one filesystem with `/etc` bound at `sysalias` beside the
+/// HOME, so each root's own case names it where it resolves, and a writer
+/// within that bind, which no path or link leads into `/etc`, is named by
+/// `/etc` as its mount shows it. A writer apart from them, beside the
+/// server, is admitted, and the extension commits. Then production's roots
+/// are the operator's, in order.
 #[test]
 fn a_writer_reaching_an_operating_system_root_is_refused_before_the_survey() {
     let host = Host::new();
     let (a, b) = (host.worktree("a"), host.worktree("b"));
     let boot = bootstrap(&host);
-    let mut writers = vec![PathBuf::from("/")];
-    for root in SYSTEM_ROOTS.map(PathBuf::from) {
+    let sysalias = plain(&host, "sysalias");
+    let binds = [(Path::new("/etc"), sysalias.as_path())];
+    let _shown = Shown::with(&[(2, binds[0].0, binds[0].1)]);
+    let mut writers = vec![PathBuf::from("/"), sysalias.join("brokkr-u8a2b")];
+    for root in OPERATOR_ROOTS.split(' ').map(PathBuf::from) {
         writers.extend([root.join("brokkr-u8a2b"), root]);
     }
     let held = host.admit(&writing(&a, ["run-a", "a1"], &[&a])).unwrap();
     assert_eq!(extend(&held, fixed(&boot)), Ok(Commit::Synced));
     for (index, writable) in writers.iter().enumerate() {
-        let named = first_root(writable).unwrap();
+        let named = first_root(writable, &binds).unwrap();
         let incoming = writing(&b, ["run-b", &format!("b{index}")], &[&b, writable]);
         assert_eq!(
             host.admit(&incoming),
@@ -346,7 +375,7 @@ fn a_writer_reaching_an_operating_system_root_is_refused_before_the_survey() {
     }
     freed(&held);
     for (index, writable) in writers.iter().enumerate() {
-        let named = first_root(writable).unwrap();
+        let named = first_root(writable, &binds).unwrap();
         let extension = writer_first(&host, pair(&host, index), writable, fixed(&boot));
         assert_eq!(
             extension,
@@ -357,6 +386,8 @@ fn a_writer_reaching_an_operating_system_root_is_refused_before_the_survey() {
     let apart = host.dir.path().join("srv");
     let extension = writer_first(&host, pair(&host, writers.len()), &apart, fixed(&boot));
     assert_eq!(extension, Ok(Commit::Synced));
+    let operators: Vec<&str> = OPERATOR_ROOTS.split(' ').collect();
+    assert_eq!(SYSTEM_ROOTS.to_vec(), operators);
 }
 
 /// Links named `links`, each `(name, target)`, `name` beside the HOME.
@@ -382,13 +413,18 @@ fn written(host: &Host, name: &str) -> PathBuf {
 /// (`lib -> usr/lib`), an alternatives chain (`usr/bin/x ->
 /// ../../etc/alternatives/x -> ./../../usr/lib/x/libc`) — then where it
 /// resolves, as the input it is, each once; a route that meets a component
-/// that does not stand runs on as spelled, `..` and all.
+/// that does not stand is reserved there and walked no further, `..` and
+/// all. Run five's L1: `srv/a/missing/../../x` is reserved at
+/// `srv/a/missing`, never at `srv/x`, so a writer confined to `srv/a`,
+/// which could make `missing` a link leading it to `srv/a/x`, is refused
+/// by MB3's identity cause naming it.
 #[test]
 fn every_link_on_an_inputs_route_is_reserved() {
     let host = Host::new();
     let d = host.dir.path();
     let resolver = written(&host, "opt/resolver/resolv.conf");
     let libc = written(&host, "usr/lib/x/libc");
+    let climbing = plain(&host, "srv/a");
     let absolute = resolver.display().to_string();
     linked(
         &host,
@@ -408,8 +444,10 @@ fn every_link_on_an_inputs_route_is_reserved() {
         Served::Entries(d.join("dangling")),
         // A link given as an input is routed as a source: all met above.
         Served::Link(d.join("lib/x/libc")),
+        Served::Source(climbing.join("missing/../../x")),
     ];
     let link = |name: &str| Served::Link(d.join(name));
+    let missing = climbing.join("missing");
     let expected = vec![
         link("etc/resolv.conf"),
         link("srv/links/resolver"),
@@ -419,9 +457,14 @@ fn every_link_on_an_inputs_route_is_reserved() {
         link("usr/bin/x"),
         link("etc/alternatives/x"),
         link("dangling"),
-        Served::Entries(d.join("opt")),
+        Served::Entries(d.join("missing")),
+        Served::Source(missing.clone()),
     ];
-    assert_eq!(routed(&inputs, &Budget::new(soon())), Ok(expected));
+    let budget = Budget::new(soon());
+    assert_eq!(routed(&inputs, &budget), Ok(expected.clone()));
+    let writer = boxed("work", &[&climbing]);
+    let compared = kept([("run-b", &writer)], &expected, shown, &budget);
+    assert_eq!(compared, Err(exposing("work", "run-b", &missing)));
 }
 
 /// A route is never reserved short: one of D5's [`HOPS_MAX`] symlinks is
@@ -737,10 +780,13 @@ fn shown_in_either_order(
 #[test]
 fn every_fixed_input_is_reserved_before_the_survey() {
     let host = Host::new();
-    // Outside the temporary directory, as an installed one lies.
+    // Outside the temporary directory, as an installed one lies; not
+    // standing, it is reserved at its first missing component.
     let boot = PathBuf::from("/opt/brokkr-u8a2b/bin/brokkr");
     let temporary = crate::engine::broker::resolved(std::env::temp_dir());
-    let mut cases = vec![(boot.parent().unwrap().to_path_buf(), boot.clone())];
+    let missing = boot.ancestors().take_while(|at| !at.exists()).last();
+    let missing = missing.unwrap().to_path_buf();
+    let mut cases = vec![(boot.parent().unwrap().to_path_buf(), missing)];
     cases.push((temporary.clone(), temporary));
     if Path::new(SERVER_RESOLVER).exists() {
         // A root through a link toward the resolver writes where it
@@ -750,7 +796,7 @@ fn every_fixed_input_is_reserved_before_the_survey() {
     }
     for (index, (writable, served)) in cases.iter().enumerate() {
         // A resolver within `/etc` is the root's to refuse (D6).
-        let served = first_root(writable).unwrap_or(served.clone());
+        let served = first_root(writable, &[]).unwrap_or(served.clone());
         let extension = writer_first(&host, pair(&host, index), writable, fixed(&boot));
         assert_eq!(extension, Err(exposing("work", "run-b", &served).into()));
     }
@@ -1397,10 +1443,9 @@ fn a_dangling_earlier_candidate_is_refused_before_anything_launches_through_it()
         let serves = || lookup(vec![early.clone(), found.clone()]);
         let paths = (later.as_path(), other.as_path());
         refused_in_either_order(&host, pair(&host, index), paths, &dangling, &serves);
-        assert!(
-            std::fs::symlink_metadata(&dangling).is_err(),
-            "still dangling"
-        );
+        let absent = std::fs::symlink_metadata(&dangling).map(|_| ());
+        let kind = absent.map_err(|error| error.kind());
+        assert_eq!(kind, Err(std::io::ErrorKind::NotFound), "still dangling");
     }
 }
 

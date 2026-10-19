@@ -29,10 +29,13 @@ unit's host inputs (2026-10-19, recorded in `design.md`'s D6 and U8a2b).
 Run 5 (`0065-slice-two-unit-u8a2b-see-th-a582e9f9`) started from run 4's
 whole change, staged uncommitted on main at `bd15e9b0` with 38.3 and 38.4
 unticked again, and answers them under "Run 5: the operating system's
-roots, every candidate, and the loader's environment", in the commit that
-carries this file. Rows that name run 1, run 2, run 3, run 4 or an earlier
-commit record those; everything else was observed in run 5's seat on the
-tree committed with this file. U8a2b is the last of the three units that share tasks 38.3 and 38.4
+roots, every candidate, and the loader's environment" (commit `dff1ab11`).
+Its review returned the unit to implement on one MEDIUM (the
+operating-system-root proof) and three LOWs, two of them this unit's,
+answered under "Run 5's review, as answered", in the commit that carries
+this file. Rows that name run 1, run 2, run 3, run 4, `dff1ab11` or an
+earlier commit record those; everything else was observed in run 5's seat
+on the tree committed with this file. U8a2b is the last of the three units that share tasks 38.3 and 38.4
 (U8a2a, U8a2c, U8a2b), so both are ticked with this file, their remote and
 host checks kept pending below.
 
@@ -46,7 +49,7 @@ staged. They are recorded design, not work of this unit.
 | File | Change |
 | --- | --- |
 | `crates/brokkr-runtime/src/engine/broker.rs` (row) | Declares the child `sources`. `provisioned` extends the attempt's lease to every fixed server input and every launch (run 4) before any survey spawns, and to the program trees beside them once the surveys answer, before the attempt's directory or any plan is written; every seal of those extensions is folded into a `Cell<Commit>` that `provision_with` owns and marks on the lease whatever provisioning then returns (run 1's L1). `Sealed` no longer carries the fact. `Unprovisioned::Unadmitted` carries MB3's refusal. `Commit` is re-exported for the provisioning tests. Each extension goes through `sources::held_extended`. Run 5: `surveyed` spawns the survey under `env_clear` with `sources::surveying`'s environment. 779 → 800 lines, at the ceiling. |
-| `engine/broker/sources.rs` (new private child of `broker.rs`, which this would take past 800 lines; operator rule of 2026-10-11) | `Served` (a source, a directory reserved for its own entries, or a link met on a route), `SYSTEM_ROOTS` (run 5: the operating system's roots), `launchers` (run 5: the box launcher's candidates, `hands::ServerBox::launchers`), `fixed`/`fixed_with` (the fixed inputs as spelled, and, run 5, every launcher candidate), `surveying` (run 5: the survey's environment), `launches`/`launches_with` (run 5: every candidate of each launch, `hands::ServerProgram::candidates`), `served` (the program trees, and each launch's candidates again), `HOPS_MAX`, `Unroutable` (run 5: why a route cannot be reserved), `routed`/`route`/`hop`/`lexical` (each input's route, run 3), `kept` (run 5: every writer compared with the roots first), `writes` (run 4: a link guarded as its own entry), `unserved`, `extended`/`extended_with` (routing beside what the attempt reserved before), `held_extended` (an attempt holding no lease refused once the fence lifts), `holding`, and on Linux the mount-table identity: `Table` (`reaches`, `parts`, `own`), `Part`, `anchored`, `observed`, `read`; off Linux an uninhabited `Table` and an `observed` that refuses. 618 lines. |
+| `engine/broker/sources.rs` (new private child of `broker.rs`, which this would take past 800 lines; operator rule of 2026-10-11) | `Served` (a source, a directory reserved for its own entries, or a link met on a route), `SYSTEM_ROOTS` (run 5: the operating system's roots), `launchers` (run 5: the box launcher's candidates, `hands::ServerBox::launchers`), `fixed`/`fixed_with` (the fixed inputs as spelled, and, run 5, every launcher candidate), `surveying` (run 5: the survey's environment), `launches`/`launches_with` (run 5: every candidate of each launch, `hands::ServerProgram::candidates`), `served` (the program trees, and each launch's candidates again), `HOPS_MAX`, `Unroutable` (run 5: why a route cannot be reserved), `routed`/`route`/`hop`/`lexical` (each input's route, run 3), `kept` (run 5: every writer compared with the roots first), `writes` (run 4: a link guarded as its own entry), `unserved`, `extended`/`extended_with` (routing beside what the attempt reserved before), `held_extended` (an attempt holding no lease refused once the fence lifts), `holding`, and on Linux the mount-table identity: `Table` (`reaches`, `parts`, `own`), `Part`, `anchored`, `observed`, `read`; off Linux an uninhabited `Table` and an `observed` that refuses. 622 lines (618 at `dff1ab11`; run 5's review: `route` stops at a missing component). |
 | `engine/broker/admission.rs` (existing child) | `Reserved.serves: Vec<Served>`, `Reservation::serves`, `Unknown::Serving`, `Unknown::Unconfined`, `Unknown::Unmounted` and (run 3) `Unknown::Unrouted`, which (run 5) carries its `Unroutable` cause, its text on one attribute line; `admit_with` compares the incoming writers with every reserved input after the CR2 comparison and before anything is sealed. `coordination()` moved to `root.rs`, to make room. 777 → 796 lines. |
 | `engine/broker/root.rs` (existing child) | The mount observation is the root's own seam, beside its seal hook: `Mounts`, the `mounts` field (production `sources::observed`), `Root::mounts`, and `Root::opened` taking it for a unit test's root; `coordination()` lives here now; `Commit` is `pub(in crate::engine)`. 414 → 450 lines. |
 | `engine/broker/exclusion.rs` (existing child) | `Guarded`, `Guarded::of`, `covers`, `beneath`, `Mount` and its fields, `mounts` and `MOUNTINFO` made `pub(super)` for `sources`, unchanged in behaviour: the mount table is parsed in one place. Run 3: the one mount-identity derivation, `mounted_on` (the `statx` mount id) and `part` (the mount of that id, its root joined with the path below its point), which `once`, `shown_once` and `sources::Table::own` all read. 511 lines. |
@@ -89,7 +92,8 @@ program tree. `sources::fixed` names the first four as spelled, the
 temporary directory for its own entries, and (run 5) every candidate of the
 launcher's discovery, `hands::ServerBox::launchers`: the bare name `bwrap`
 in each server `PATH` directory, whether or not it stands, so a dangling
-candidate ahead of the one found is reserved where it would lead.
+candidate ahead of the one found is reserved at its first component that
+does not stand (since run 5's review; it was reserved where it would lead).
 `sources::launches` (run 5) names every candidate of each launch,
 `hands::ServerProgram::candidates`: an absolute launch as written, a bare
 name in each server `PATH` directory, again whether or not it stands. Both
@@ -453,8 +457,9 @@ Every candidate (run 4's H1). The engine reserves, by its whole route and
 before any survey, every candidate of the launcher's discovery
 (`ServerBox::launchers`) and of each launch's lookup
 (`ServerProgram::candidates`), dangling ones included. A dangling one is
-reserved where it would lead, since `route` walks on as spelled past a
-component that does not stand. A writer able to make it live is refused.
+reserved at its first component that does not stand, where `route` stops
+(run 5's review, L1; at `dff1ab11` it walked on as spelled). A writer able
+to make it live is refused.
 The guidance asked that the server box's bubblewrap be found on the server
 `PATH` by engine, survey and broker alike. The engine and the survey do
 that: the survey is spawned with `PATH` set to the candidates' directories.
@@ -525,6 +530,65 @@ Every host path resolved while a server box is surveyed, built and launched:
 | The operator's store and the attempt's control roots | the broker resolves the store's own route at serve time (MB4) | Not box sources: the box mounts neither, and excludes both. The control root is the coordination root U8a2a protects. |
 | The trusted HOME | the survey, classifying a program tree | Not a box source, and never mounted. |
 
+## Run 5's review, as answered
+
+The review of `dff1ab11` found production holding all twelve roots and
+refusing every writer it tried; its findings are about the proof and one
+route shape.
+
+M1, the operating-system-root proof. Two defects, both answered in
+`adm::src::a_writer_reaching_an_operating_system_root_is_refused_before_the_survey`.
+First, its cases and its oracle came from production's `SYSTEM_ROOTS`, so a
+root omitted there left the matrix too. The test now writes the operator's
+twelve roots itself (`OPERATOR_ROOTS`, one string, in production's order),
+builds every case and the oracle from it, and ends by pinning `SYSTEM_ROOTS`
+equal to it. Replacing `/dev` in `SYSTEM_ROOTS` with a second `/usr`
+compiles and fails the matrix at `/dev/brokkr-u8a2b`, before the pin
+(removal controls below). Second, the oracle `first_root` compared canonical
+paths only, while production also compares identities and the mount
+table's parts. The reviewer's box binds `/bin` from `/usr/bin`, so
+production named `/usr` where the oracle named `/bin`. The test now shows
+the mount table itself (`Shown`), whatever the host's own binds: one
+filesystem at `/`, and `/etc` bound at `sysalias` beside the HOME.
+`first_root` takes the same binds and reads each path where it resolves,
+then through the longest bind it lies in. A writer within `sysalias` is
+refused naming `/etc`, which only a bind-aware oracle names. Each root's
+own case is named where it resolves on the host: on a host whose `/bin`
+resolves into `/usr`, as here, `/bin`'s cases are named `/usr`, and its
+omission is caught by the pin rather than by the matrix. The other uses of
+`first_root` (`aliases`' system case, `every_fixed_input…`) read the real
+table and pass no bind.
+
+L1, an absent component then `..`. `route` walked on lexically past a
+component that does not stand, so `srv/a/missing/../../x` reserved
+`srv/x`, although a writer confined to `srv/a` could make `missing` a link
+and lead the input to `srv/a/x`. `route` now stops at the first component
+that does not stand and reserves it, as the input's kind. No managed writer
+can make that component stand without writing the directory it would lie
+in, which lies above it, so every route its rest could take is covered.
+This refuses more, never less: with no `..` after it, everything at, above
+or below the path it walked on to lies at, above or below that component.
+`every_link_on_an_inputs_route_is_reserved` binds the counterexample. Every
+other dangling route the suites assert misses only its last component, so
+its reservation is the same path as before, and those tests pass unchanged.
+Two expectations moved: that test's
+link toward `missing/../opt`, now reserved at `missing` rather than `opt`,
+and `every_fixed_input…`'s absent bootstrap (`/opt/brokkr-u8a2b/bin/brokkr`),
+now reserved at `/opt/brokkr-u8a2b`.
+
+L2. The dangling test asserts its target's `symlink_metadata` is exactly
+`Err(NotFound)`, so a permission or other observation failure no longer
+counts as absence.
+
+L3, the identity tree under the serving process's `TMPDIR`, stays carried
+to U9b1 as before (Notes and residuals). L4 is the review's ruling on its
+own panel's prose and asks nothing of this unit. The INFO on the broker's
+operator-`PATH` discovery is fail-closed and unchanged.
+
+Production moved only in `engine/broker/sources.rs` (`route` and two doc
+paragraphs), 618 → 622 lines. No public item, witness pin, suppression or
+other production file moved.
+
 ## Tests
 
 `adm::src` is `engine::broker::admission::tests::sources` (Linux only, as it
@@ -549,7 +613,8 @@ hooks). The owning suites `tests/capability_broker_launch.rs` and
 
 Since run 5 the system column's writer, a link toward `/usr/bin`, is refused
 by the operating-system root it reaches, named `/usr` (in `adm::src`
-through `first_root`, the test's own reading of the host's layout), before
+through `first_root`, the test's own reading of the host's layout, given no
+bind), before
 any reserved input is compared. The same rows therefore prove the roots'
 refusal server first, writer first, for simultaneous starts, through engine
 death and through uncertain settlement.
@@ -605,15 +670,15 @@ The other proofs:
 | Test | What it asserts |
 | --- | --- |
 | `adm::src::a_servers_fixed_inputs_are_the_bootstrap_the_system_and_the_resolver` | Run 3: `fixed` is the bootstrap, then every toolchain source and the resolver, each as spelled, then `Entries(<temporary directory>)` as spelled; each is reserved by its route. Run 5: then every launcher candidate, standing or not, as `Source` (`fixed_with`'s exact list with two candidates and with none), and `fixed` is `fixed_with` over `ServerBox::launchers()`. |
-| `adm::src::a_writer_reaching_an_operating_system_root_is_refused_before_the_survey` (run 5, ruling 3) | For each of the twelve roots, a writer at it and one below it (`<root>/brokkr-u8a2b`), and one at `/` above them all, each its reach injected: server first, an incoming writer is refused naming the first root it reaches (`first_root`), nothing of it sealed; writer first, it refuses the lease's first extension of `fixed`, before any survey, its reservation as it stood. A writer apart (`srv`) beside them extends. Nothing of the roots is written. |
-| `adm::src::a_dangling_earlier_candidate_is_refused_before_anything_launches_through_it` (run 5, run 4's H1) | For the launcher's discovery (`fixed_with`) and a bare launch's (`launches_with`), candidates `[early/<name> -> srv/later/<name>` dangling, `usr/bin/<name>]`: a writer confined to `srv/later` is refused server first naming `srv/later/<name>`, nothing of it sealed, and refuses the extension before any survey writer first; one confined to `srv/other` is admitted beside and extended beside (`refused_in_either_order`); the candidate stays dangling. |
+| `adm::src::a_writer_reaching_an_operating_system_root_is_refused_before_the_survey` (run 5, ruling 3; run 5's review, M1) | The twelve roots are the test's own literal, `OPERATOR_ROOTS`, the operator's list in production's order, never read from `SYSTEM_ROOTS`. For each, a writer at it and one below it (`<root>/brokkr-u8a2b`), one at `/` above them all, and one within `sysalias`, a bind of `/etc` the injected mount table shows beside the HOME, each its reach injected: server first, an incoming writer is refused naming the first root it reaches as `first_root` reads it (each path where it resolves, then through the longest bind it lies in), nothing of it sealed; writer first, it refuses the lease's first extension of `fixed`, before any survey, its reservation as it stood. A writer apart (`srv`) beside them extends. Last, `SYSTEM_ROOTS` equals `OPERATOR_ROOTS`, in order. Nothing of the roots is written. |
+| `adm::src::a_dangling_earlier_candidate_is_refused_before_anything_launches_through_it` (run 5, run 4's H1) | For the launcher's discovery (`fixed_with`) and a bare launch's (`launches_with`), candidates `[early/<name> -> srv/later/<name>` dangling, `usr/bin/<name>]`: a writer confined to `srv/later` is refused server first naming `srv/later/<name>`, nothing of it sealed, and refuses the extension before any survey writer first; one confined to `srv/other` is admitted beside and extended beside (`refused_in_either_order`); the candidate stays dangling, its target's `symlink_metadata` `Err(NotFound)` exactly (run 5's review, L2). |
 | `adm::src::a_survey_starts_without_the_loaders_environment_on_the_launchers_directories` (run 5) | `surveying` over `LD_PRELOAD`, `PATH=/opt/early:/usr/bin`, `HOME`, `LD_LIBRARY_PATH` and `OLD_LD_PATH` with two candidates is exactly `[HOME, OLD_LD_PATH, PATH=/usr/local/bin:/bin]`; with none, the inherited `PATH` kept in place; and the production candidates' directories join to `/usr/local/bin:/usr/bin:/bin`. |
 | `survey_tests::a_survey_is_spawned_without_the_loaders_environment` (run 5, `engine::capability_tests::provision_tests`) | In a child of the test binary whose environment holds `LD_BROKKR_U8A2B` (and cargo's own `LD_LIBRARY_PATH`) and a `PATH` led by `/opt/brokkr-u8a2b`, `surveyed` spawns a stand-in that records `env`: it answers `Unanswered`, and the record holds no `LD_*` line and exactly `PATH=/usr/local/bin:/usr/bin:/bin`. |
 | `launcher::a_launcher_found_as_no_reserved_candidate_never_runs` (run 5, protocol `hands::tests::launcher`) | `ServerBox::launchers()` is exactly `/usr/local/bin/bwrap`, `/usr/bin/bwrap`, `/bin/bwrap`. This host's own bubblewrap found through a link `early/bwrap` in a fixture directory, as a serving `PATH` could lead to it, is refused `(Err(Identity), 0)`, never run; found as its candidate, `(Ok(()), 1)`. Skipped, with its reason, where the host's bubblewrap is no candidate. |
 | `launcher::the_launchers_version_runs_with_no_environment` (run 5) | A stand-in script run through its handle as `launcher::version` runs bubblewrap reports, from `env`, no variable this process holds but those its own shell sets. |
 | `server::a_server_box_stands_without_the_seats_or_the_hosts_private_paths` (run 5's assertion) | Beside its existing checks, bubblewrap's own `/proc/<pid>/environ` is empty once the box reports ready, so no `LD_*` reached it; the helper reports variable names only, never values. It ran here in a real box. |
 | CLI `capability_broker::observer::a_launcher_a_managed_writer_owns_refuses_before_it_ever_runs` (unchanged, cited) | End to end, a broker whose own `PATH` leads with a planted `stall/bwrap` refuses with MB3's identity cause, and the planted launcher never ran. |
-| `adm::src::every_link_on_an_inputs_route_is_reserved` (run 3) | `routed`'s exact list for a resolver-like chain (a relative link, then an absolute one), a directory link above the input (`lib -> usr/lib`), an alternatives chain (`usr/bin/x -> ../../etc/alternatives/x -> ./../../usr/lib/x/libc`, its final already reserved, so once) and a dangling link toward `missing/../opt` reserved for its entries: every link by its path, then each final as its input's kind; a link given as an input routes as a source. |
+| `adm::src::every_link_on_an_inputs_route_is_reserved` (run 3) | `routed`'s exact list for a resolver-like chain (a relative link, then an absolute one), a directory link above the input (`lib -> usr/lib`), an alternatives chain (`usr/bin/x -> ../../etc/alternatives/x -> ./../../usr/lib/x/libc`, its final already reserved, so once) and a dangling link toward `missing/../opt` reserved for its entries: every link by its path, then each final as its input's kind; a link given as an input routes as a source. Since run 5's review (L1): the dangling link's route is reserved at `missing`, and `srv/a/missing/../../x` as `Source(srv/a/missing)`, never `srv/x`; a writer confined to `srv/a` is refused by `kept` naming `srv/a/missing`. |
 | `adm::src::a_route_past_its_bound_or_unread_refuses_and_reserves_nothing_less` (run 3) | A chain of exactly `HOPS_MAX` links routes whole (41 entries, the file last); one more → `Unrouted(<input>, Hops)`; an input spelled `hops/file` and one spelled empty → `Unrouted(<spelled>, Relative)` (run 5, L3); one beneath a regular file (`ENOTDIR`) → `Unrouted(<input>, Unread)`; a spent deadline → `Expired`; an extension whose bootstrap route is over the bound → `Identity(Unrouted(…, Hops))`, the reservation byte for byte as it stood. |
 | `adm::src::a_writer_confined_to_a_link_on_a_fixed_route_is_refused_in_either_order` (run 3) | For a chain of file links (`boot1 -> srv/links/brokkr -> …`), a directory link toward a directory link (`lib -> srv/links/lib -> ../../usr/lib`) and an alternatives chain (`usr/bin/brokkr -> ../../etc/alternatives/brokkr -> …`), each the bootstrap of the first extension (the one before any survey): a writer confined to the directory holding the middle link is refused server first and refuses the extension writer first, naming that link; one confined to `srv/other` is admitted beside and extended beside. |
 | `adm::src::a_link_swapped_between_the_survey_and_the_extension_still_refuses` (run 3) | A standing writer confined to `srv/links`, kept from every fixed route, swaps the launch's middle link toward another program while the survey resolves the launch (which sees the swap), and back; the program extension is refused naming that link. |
@@ -626,7 +691,7 @@ The other proofs:
 | `adm::src::the_box_launchers_route_and_every_candidate_before_it_are_reserved` (run 4, the second HIGH; renamed in run 5) | The launcher found as `srv/links/bwrap -> opt/bwrap/bwrap` after a candidate `early/bwrap` that does not stand (through `fixed_with`): a writer confined to `srv/links` is refused server first naming `srv/links/bwrap`, and refuses the extension writer first; one confined to `early` likewise, naming `early/bwrap` (run 5: the candidate, where run 4 reserved the directory's entries). One confined to `srv/other` is admitted beside and extended beside, nothing of a refused attempt is sealed, and the launcher's bytes are unchanged. Its body is `refused_in_either_order`, shared with the dangling test. |
 | `adm::src::a_link_is_guarded_as_its_own_entry_not_as_what_it_names` (run 4, the link LOW) | The route of `users/u/srv/bin/server` through `users -> var/users` is exactly `[Link(users), Source(var/users/u/srv/bin/server)]`. A writer of `var/users/u/other` is kept; one holding the link's directory is refused naming `users`; one of the program's directory is refused naming the program. |
 | `server::every_server_search_directory_lies_in_a_system_source` (run 4; run 5's INFO) | Every directory of `SERVER_PATH` lies in a `HOST_TOOLCHAIN_BINDS` source by `Path` components: the list of those that do not is empty, and `/usr/localx` lies in no `/usr/local`. |
-| `adm::src::every_fixed_input_is_reserved_before_the_survey` | A standing writer of the bootstrap's directory, of the temporary directory itself, or of a link toward `/etc/resolv.conf` refuses the first extension naming exactly that input: since run 4, for the resolver, the file it resolves to, which that writer writes. |
+| `adm::src::every_fixed_input_is_reserved_before_the_survey` | A standing writer of the bootstrap's directory, of the temporary directory itself, or of a link toward `/etc/resolv.conf` refuses the first extension naming exactly that input: since run 4, for the resolver, the file it resolves to, which that writer writes; since run 5's review, for the bootstrap, which does not stand there, its first missing component (`/opt/brokkr-u8a2b` on this host, computed from the bootstrap's ancestors). |
 | `adm::src::a_bind_of_a_sources_subtree_is_refused_in_either_order` | H1, injected table: a root within a bind of the package's `bin` is refused server first and refuses the extension writer first; within the same bind of a directory beside the package, admitted and extended. |
 | `adm::src::a_source_bound_beneath_a_writable_root_is_refused_in_either_order` | H1, injected table: a root holding a bind of the package beneath it, refused in both orders; holding a bind of a directory beside it, admitted. |
 | `adm::src::a_mount_table_that_proves_nothing_keeps_no_writer` | A table that does not parse → `Unmounted(<first input>)`; one naming no mount a root lies on, or a mount whose root is no path → `Unmounted(<root>)`; 65,537 records → `Bounds`; a spent deadline → `Expired`; the temporary directory bound beneath a writable root → `Serving` naming it. |
@@ -671,7 +736,8 @@ its launch); `Claude::exposed` names the launch. No test moved between
 files.
 
 Run 5's fixture changes: `adm::src::first_root` reads which root a writer
-reaches on this host's layout; `aliases`' system case and
+reaches on this host's layout (since run 5's review, through the binds a
+test shows, from the test's own `OPERATOR_ROOTS`); `aliases`' system case and
 `every_fixed_input…` name a writer by it where it reaches one. The launcher
 test and the dangling test share `refused_in_either_order`. The bare-launch
 test gives `launches_with` its candidates rather than a located file. The
@@ -795,12 +861,12 @@ Run 5's controls follow. Each mutation compiled, was run against exactly the
 tests named, failed as shown, and was restored. `diff` against a copy taken
 before each mutation showed every production file back byte for byte. The
 restored tree then passed the whole runtime crate, the protocol crate and the
-CLI suites listed under "At this head (run 5)". `<d>` is the test's own root;
+CLI suites listed under "At `dff1ab11` (run 5)". `<d>` is the test's own root;
 line numbers are as each failing run reported them.
 
 | Test | Mutation | Failed, with the assertion |
 | --- | --- | --- |
-| `adm::src::a_writer_reaching_an_operating_system_root_is_refused_before_the_survey` (ruling 3) | `kept` compares no root (`roots.iter().take(0)`) | sources.rs:331, at `"/"`: `left: Err(Identity(Serving { site: "work", run: "run-b", served: "<d>/boot/brokkr" }))`, `right: Err(Identity(Serving { …, served: "/usr" }))`. |
+| `adm::src::a_writer_reaching_an_operating_system_root_is_refused_before_the_survey` (ruling 3; recorded at `dff1ab11`, and by itself no proof of the twelve, as run 5's review found: see the rows after this table) | `kept` compares no root (`roots.iter().take(0)`) | sources.rs:331, at `"/"`: `left: Err(Identity(Serving { site: "work", run: "run-b", served: "<d>/boot/brokkr" }))`, `right: Err(Identity(Serving { …, served: "/usr" }))`. |
 | `adm::src::a_dangling_earlier_candidate…` and `adm::src::the_box_launchers_route_and_every_candidate…` (the launcher's candidates) | `fixed_with` reserves only a candidate that stands (`.filter(\|found\| found.is_file())`) | both, after `refused_in_either_order` was shared: `left: Ok(Held { … })`, `right: Err(Identity(Serving { …, served: "<d>/srv/later/bwrap" }))` and `… served: "<d>/early/bwrap" }))`. |
 | `adm::src::a_dangling_earlier_candidate…` and `adm::src::every_candidate_of_a_launch_is_reserved` (a launch's candidates) | `launches_with` keeps only a candidate that stands | the dangling test at `server`: `left: Ok(Held { … })`, `right: Err(Identity(Serving { …, served: "<d>/srv/later/server" }))`; sources.rs:255: `left: [Source("/usr/bin/sh"), Source("/bin/sh")]`, `right:` the seven candidates. |
 | `adm::src::a_survey_starts_without_the_loaders_environment…` and `survey_tests::a_survey_is_spawned_without_the_loaders_environment` (the loader's variables) | `surveying`'s `loaded` always false | sources.rs:279: `left:` the list with `LD_PRELOAD` and `LD_LIBRARY_PATH`; survey_tests.rs:253, in the child: `left: ["LD_LIBRARY_PATH=…", "LD_BROKKR_U8A2B=1"]`, `right: []`. |
@@ -812,6 +878,23 @@ line numbers are as each failing run reported them.
 | `launcher::the_launchers_version_runs_with_no_environment` | `version` drops `env_clear` | launcher.rs:1461: `left:` this process's variable names (`CARGO_PKG_NAME`, `LD_LIBRARY_PATH`, `PATH`, …), `right: []`. |
 | `server::a_server_box_stands_without_the_seats_or_the_hosts_private_paths` (bubblewrap's launch) | `namespace/entry.rs`'s launch drops `env_clear` (a control only; that file is restored and not in this diff) | server.rs:822: `left: ([114, 101, 97, 100, 121], ["AI_AGENT", "CARGO", …])`, `right: ([…], [])`. |
 | `server::every_server_search_directory_lies_in_a_system_source` (the INFO) | the comparison back to `str::starts_with` | server.rs:1061: `a component, not a prefix of one`. |
+
+Run 5's review's controls, each run against `adm::src` (alone, or the one
+test named), failed as shown and restored; the restored tree passed all 30
+tests of `adm::src` and the whole runtime crate:
+
+| Test | Mutation | Failed, with the assertion |
+| --- | --- | --- |
+| `adm::src::a_writer_reaching_an_operating_system_root_is_refused_before_the_survey` (M1, one root omitted) | `SYSTEM_ROOTS`' `"/dev"` replaced by a second `"/usr"`, compiling | sources.rs:358, at `"/dev/brokkr-u8a2b"`: `left: Ok(Held { …, run: "run-b", attempt: "b17", … })`, `right: Err(Identity(Serving { site: "work", run: "run-b", served: "/dev" }))`, before the closing pin was reached. |
+| the same test (M1, the oracle's binds) | the test's `first_root` given no bind (`&[]`) in the server-first loop | sources.rs:359, `first_root(…).unwrap()` on `None`, at the writer within `sysalias`: a bind-blind oracle names no root for it, though production refuses it naming `/etc`. |
+| `adm::src::every_link_on_an_inputs_route_is_reserved` and `adm::src::every_fixed_input_is_reserved_before_the_survey` (L1) | `route` walks on past a missing component (`continue` for `break`) | sources.rs:459 (`routed`'s exact list) and sources.rs:796 (the bootstrap's missing component); the other 28 passed. |
+| `adm::src::a_dangling_earlier_candidate…` (L2) | the dangling candidate's target written before the assertion (a test-side control: no production path writes it) | sources.rs:1444: `left: Ok(())`, `right: Err(NotFound)`, `still dangling`. |
+
+A first form of the oracle control, with the injected table binding `/bin`
+from `/usr/bin` as the reviewer's box lays it out, did not fail: on this
+host a bind shown at `/bin` changed nothing, so `/bin` does not resolve to
+itself here. That is why the test's bind is `/etc` at `sysalias`, which
+binds on every host.
 
 Run 5 first had the broker find its launcher on the server `PATH`
 (`Host::serving`). The control replacing that discovery with
@@ -830,9 +913,36 @@ evidence and the coordination root.
 
 ## Gates and measurements
 
-### At this head (run 5)
+### At this head (run 5's review, answered)
 
-Observed in run 5's seat on the tree committed with this file. The format
+Observed in run 5's seat after the review's answer, on the tree committed
+with this file. Only brokkr-runtime's code moved. Format was clean, and so
+was the workspace clippy with all targets and features, locked, warnings
+denied. `cargo +1.88 check --workspace --all-targets --all-features`
+finished. brokkr-runtime passed whole: lib 1,177, `it` 135 (its
+`witness_digests::` unblessed among them, so no witness or compose pin
+moved), `capability_launch` 76, `operated_repo` 1, `queued_launch` 6.
+`adm::src` with `provision_tests`, run alone with `--nocapture`, printed no
+line containing `skipped` (79 passed). brokkr-cli's `it` (all features,
+locked) passed 732 with 3 ignored and failed one:
+`capability_broker::protocol::a_server_that_never_answers_ends_at_the_startup_deadline`,
+at its 29–32-second elapsed bound (protocol.rs:674; the elapsed value was
+not captured), under the full suite's parallel load. It passed alone
+(31.5 s for the test binary). That test drives the CLI broker's own
+deadline, which this change does not reach. `typos --hidden` over the
+touched trees and `git diff --check` were clean, and `openspec validate
+--all --strict` passed 29 of 29. `compile --bundle recipes/self` reported
+47 valuations over 11 groups, 0 unruled. The rows of the two moved files are set from
+`wc -l`: sources.rs 622 and admission/tests/sources.rs 1,483. No function
+crosses 100 lines and no suppression moved. `quality/ratchet.sh` (`files`,
+`clones`, `api`) could not be run in this seat, whose sandbox asked for an
+approval no one could give: pending, for the controller's host run. The
+change adds no public item, so `api` cannot move. The protocol crate did
+not move and was not re-run.
+
+### At `dff1ab11` (run 5)
+
+Observed in run 5's seat on the tree committed at `dff1ab11`. The format
 check was clean. The workspace clippy with `--all-targets --all-features
 --locked -- -D warnings` was clean once one real-box test's added assertion
 had been folded into its existing `ready` check (it first crossed 100

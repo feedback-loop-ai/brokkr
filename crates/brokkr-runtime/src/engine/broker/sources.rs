@@ -26,9 +26,9 @@
 //! program trees, the fixed inputs kept beside them. Each input is reserved
 //! by its route ([`routed`]): every symlink met on its way, component by
 //! component within D5's [`HOPS_MAX`] hops and the deadline, as well as
-//! where it resolves, or where a dangling one would lead, so a writer that
-//! could replace any link of the route, or make a dangling candidate live,
-//! is refused too; a link is guarded as its own entry, so a writer apart
+//! where it resolves, or, for a dangling one, its first component that does
+//! not stand, so a writer that could replace any link of the route, or make
+//! a dangling candidate live, is refused too; a link is guarded as its own entry, so a writer apart
 //! from the directory it lies in, and from where it leads, is not. Every
 //! later admission compares its incoming writers with the roots and every
 //! input a standing attempt reserved ([`kept`]). In either order, and for
@@ -386,10 +386,13 @@ pub(in crate::engine) enum Unroutable {
 /// path it lies at; then where the input resolves, as the input it is. A
 /// route that is not absolute, meets a component that cannot be read, or
 /// meets more than [`HOPS_MAX`] symlinks refuses by MB3's identity cause
-/// naming the input and why ([`Unroutable`]), never reserving less; one
-/// that meets a component that does not stand runs on as spelled, so a
-/// dangling candidate is reserved where it would lead. Within `budget`'s
-/// deadline.
+/// naming the input and why ([`Unroutable`]), never reserving less. One
+/// that meets a component that does not stand is reserved there, as the
+/// input it is, and walked no further: no managed writer can make that
+/// component stand without writing the directory it would lie in, which
+/// lies above it, so no writer admitted beside it can make the rest of the
+/// spelling lead anywhere, `..` and all. A dangling candidate is so
+/// reserved at its first missing component. Within `budget`'s deadline.
 pub(super) fn routed(inputs: &[Served], budget: &Budget) -> Result<Vec<Served>, Unknown> {
     let mut routes = Vec::new();
     for input in inputs {
@@ -411,11 +414,11 @@ fn route(input: &Served, budget: &Budget) -> Result<Vec<Served>, Unknown> {
     let unrouted = |why| Unknown::Unrouted(spelled.to_path_buf(), why);
     let relative = || unrouted(Unroutable::Relative);
     spelled.is_absolute().then_some(()).ok_or_else(relative)?;
-    let (mut met, mut at, mut absent) = (Vec::new(), PathBuf::new(), false);
+    let (mut met, mut at) = (Vec::new(), PathBuf::new());
     let mut pending: Vec<OsString> = spelled.iter().rev().map(OsStr::to_os_string).collect();
     while let Some(part) = pending.pop() {
         budget.check()?;
-        if (part == "..") | (part == ".") | absent {
+        if (part == "..") | (part == ".") {
             at = lexical(at, &part);
             continue;
         }
@@ -429,7 +432,8 @@ fn route(input: &Served, budget: &Budget) -> Result<Vec<Served>, Unknown> {
             }
             Ok(None) => at = next,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                (at, absent) = (next, true)
+                at = next;
+                break;
             }
             Err(_) => return Err(unrouted(Unroutable::Unread)),
         }
