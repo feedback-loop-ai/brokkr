@@ -1040,7 +1040,8 @@ fn serving_dispatch() {
     let harness = "'\"$0\" \"$@\"; exit $?'";
     let serves = |setpriv: &str| {
         format!(
-            "{BROKER}='{0}' exec '{setpriv}' --no-new-privs /bin/sh -c {harness} /bin/sh -c \
+            "{BROKER}='{0}' RUST_BACKTRACE=1 exec '{setpriv}' --no-new-privs /bin/sh -c {harness} \
+             /bin/sh -c \
              {harness} '{1}' --exact {BROKER_TEST} --nocapture --test-threads=1 \
              > '{0}/broker.out' 2>&1",
             dir.display(),
@@ -1091,11 +1092,16 @@ fn lease_dir(root: &Path, run: &str) -> PathBuf {
 /// `run` pins, its bytes checked against the pin, as a broker binds it.
 #[cfg(target_os = "linux")]
 fn pinned(run: &Path) -> brokkr_protocol::broker::Plan {
-    let entries = std::fs::read_dir(run)
-        .unwrap()
-        .map(|entry| entry.unwrap().path());
-    let attempt = entries.filter(|path| path.is_dir()).last().unwrap();
-    let inventory = std::fs::read(attempt.join("inventory.json")).unwrap();
+    let entries = std::fs::read_dir(run).unwrap();
+    let entries = entries.map(|entry| entry.unwrap().path().join("inventory.json"));
+    let inventories: Vec<PathBuf> = entries.filter(|path| path.is_file()).collect();
+    let [inventory] = &inventories[..] else {
+        panic!(
+            "one attempt in {} holds an inventory: {inventories:?}",
+            run.display()
+        );
+    };
+    let inventory = std::fs::read(inventory).unwrap();
     let inventory: brokkr_protocol::broker::Inventory = serde_json::from_slice(&inventory).unwrap();
     let [pin] = &inventory.plans[..] else {
         panic!("one plan is pinned");
@@ -1126,11 +1132,24 @@ fn serving_broker() {
     let Some(dir) = std::env::var_os(BROKER).map(PathBuf::from) else {
         return;
     };
-    let (root, run) = named(&dir);
-    let plan = pinned(&lease_dir(&root, &run));
-    let Err(unserved) = served_box(&dir, &root, &plan);
-    // The child's one diagnostic: its parent reads only this text.
-    standing(&dir, &json!({ "refused": unserved.to_string() }));
+    let serving = std::panic::AssertUnwindSafe(|| {
+        let (root, run) = named(&dir);
+        let plan = pinned(&lease_dir(&root, &run));
+        let Err(unserved) = served_box(&dir, &root, &plan);
+        unserved.to_string()
+    });
+    // The child's one diagnostic, whether it refused or panicked: its
+    // parent reads only this text.
+    let said = match std::panic::catch_unwind(serving) {
+        Ok(refused) => json!({ "refused": refused }),
+        Err(panicked) => {
+            let text = panicked.downcast_ref::<String>().cloned();
+            let text =
+                text.or_else(|| panicked.downcast_ref::<&str>().map(|text| text.to_string()));
+            json!({ "panicked": text })
+        }
+    };
+    standing(&dir, &said);
 }
 
 /// Why [`served_box`] stood no box: MB3's refusal, as the protocol made
