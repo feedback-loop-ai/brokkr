@@ -320,12 +320,15 @@ fn path_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || "._-/<>{}*…+@".contains(c)
 }
 
-/// The kinds of file a name is read by when the doc leaves unsaid which
-/// directory holds it: `README.md`, `scripts/coverage-exact.sh`'s
-/// `coverage-exact.sh`, `layering/scan.rs`.
-const FILE_KINDS: [&str; 9] = [
-    "md", "rs", "json", "sh", "toml", "yml", "yaml", "txt", "lock",
-];
+/// The kind of file a path names, by which a name is read when the doc
+/// leaves unsaid which directory holds it: what follows the last `.` of
+/// its last segment when a name stands before it, so `README.md`,
+/// `layering/scan.rs` and `social-preview.png` have one and `.gitignore`
+/// and `CHANGELOG` none. [`Tree::kinds`] holds every kind the tree does.
+fn kind(path: &str) -> Option<&str> {
+    let (name, kind) = path.rsplit('/').next()?.rsplit_once('.')?;
+    (!name.is_empty()).then_some(kind)
+}
 
 /// Where a path that opens with neither `./`, `../` nor a top-level
 /// directory stands outside the repository, never read.
@@ -348,9 +351,8 @@ enum Named<'a> {
     /// From the root or the doc's directory, as [`resolved`] reads it: it
     /// opens with `./`, `../` or a top-level directory the tree tracks.
     Placed(&'a str),
-    /// Under any directory: the name of a file of one of the
-    /// [`FILE_KINDS`], or a path ending in one, whose start the doc leaves
-    /// unsaid.
+    /// Under any directory: the name of a file of a [`kind`] the tree
+    /// holds, or a path ending in one, whose start the doc leaves unsaid.
     Within(&'a str),
 }
 
@@ -358,7 +360,7 @@ enum Named<'a> {
 /// [`Named`] by how it opens, its `:line` or `#anchor` suffix dropped. A
 /// word this cannot read as a path is an `Err`: a character no path here
 /// carries, a suffix that is no line, or a placeholder nothing closes.
-fn named_path<'a>(span: &'a str, tops: &BTreeSet<String>) -> Option<Result<Named<'a>, String>> {
+fn named_path<'a>(span: &'a str, tree: &Tree) -> Option<Result<Named<'a>, String>> {
     if span.contains(char::is_whitespace) {
         return None;
     }
@@ -367,16 +369,12 @@ fn named_path<'a>(span: &'a str, tops: &BTreeSet<String>) -> Option<Result<Named
         .split_once(':')
         .map_or((path, None), |(path, at)| (path, Some(at)));
     let named = match path.split_once('/') {
-        Some((first, _)) if [".", ".."].contains(&first) || tops.contains(first) => {
+        Some((first, _)) if [".", ".."].contains(&first) || tree.tops.contains(first) => {
             Named::Placed(path)
         }
         _ if FOREIGN.iter().any(|(root, _)| path.starts_with(root)) => return None,
-        _ => match path.rsplit('/').next()?.rsplit_once('.') {
-            Some((name, kind)) if !name.is_empty() && FILE_KINDS.contains(&kind) => {
-                Named::Within(path)
-            }
-            _ => return None,
-        },
+        _ if kind(path).is_some_and(|kind| tree.kinds.contains(kind)) => Named::Within(path),
+        _ => return None,
     };
     let lined =
         line.is_none_or(|at| !at.is_empty() && at.chars().all(|c| c.is_ascii_digit() || c == '-'));
@@ -444,26 +442,32 @@ fn fills(pattern: &[char], name: &[char]) -> bool {
 }
 
 /// The tracked tree: every tracked file and every directory above one,
-/// and the top-level directories.
+/// the top-level directories, and the [`kind`] of every file.
 struct Tree {
     entries: BTreeSet<String>,
     tops: BTreeSet<String>,
+    kinds: BTreeSet<String>,
 }
 
 impl Tree {
     fn of(files: impl IntoIterator<Item = String>) -> Tree {
-        let mut entries = BTreeSet::new();
+        let (mut entries, mut kinds) = (BTreeSet::new(), BTreeSet::new());
         for file in files {
             for (at, _) in file.match_indices('/') {
                 entries.insert(file[..at].to_string());
             }
+            kinds.extend(kind(&file).map(str::to_string));
             entries.insert(file);
         }
         let tops = entries
             .iter()
             .filter_map(|entry| entry.split_once('/').map(|(top, _)| top.to_string()))
             .collect();
-        Tree { entries, tops }
+        Tree {
+            entries,
+            tops,
+            kinds,
+        }
     }
 
     /// Whether the tree holds `path`, a pattern filled by any entry: from
@@ -493,11 +497,41 @@ impl Tree {
 /// the doc (or the directory of docs, `""` for any), the path it names (or
 /// the start of it), and why. An allowance that covers nothing fails, so
 /// none outlives its text.
-const ABSENT: [(&str, &str, &str); 20] = [
+const ABSENT: [(&str, &str, &str); 26] = [
     (
         "",
         "credentials.toml",
         "a credential file the box masks in a home directory",
+    ),
+    (
+        "",
+        "hands.harness.work",
+        "an adapter's bundle key, whose last word is a kind the tree holds",
+    ),
+    (
+        "docs/guides/read-surfaces.md",
+        ".jsonl.zstd",
+        "the suffix of DSH's compressed session encoding, which names no file",
+    ),
+    (
+        "docs/status.md",
+        "session.v3.jsonl",
+        "a dsh 0.1.5 session file under a seat's own root",
+    ),
+    (
+        "extensions/dsh/PROVENANCE.md",
+        "dsh.bundle.patch",
+        "a DSH loader key, whose last word is a kind the tree holds",
+    ),
+    (
+        "packaging/README.md",
+        "Formula/brokkr.rb",
+        "the formula in the sibling `homebrew-tap` repository",
+    ),
+    (
+        "packaging/README.md",
+        "tools/go.mod",
+        "a module pin the page weighs and no file carries",
     ),
     (
         "",
@@ -630,7 +664,7 @@ fn resolved(path: &str, here: Option<&str>) -> Result<Vec<String>, String> {
 /// path the tree does not hold, read as its [`Named`] says, or it cannot
 /// be read. `None` when it names no path or a path the tree holds.
 fn unheld(span: &str, tree: &Tree, here: Option<&str>) -> Option<String> {
-    let held = named_path(span, &tree.tops)?.and_then(|named| match named {
+    let held = named_path(span, tree)?.and_then(|named| match named {
         Named::Placed(path) => {
             resolved(path, here).map(|paths| paths.iter().any(|path| tree.holds(path, true)))
         }
@@ -697,6 +731,7 @@ fn a_path_the_tree_does_not_hold_is_refused() {
             "recipes/fast/bundle.json",
             "recipes/fast/scripts/verify-seat.sh",
             "scripts/coverage-exact.sh",
+            "crates/brokkr-cli/src/main.rs",
         ]
         .map(str::to_string),
     );
@@ -782,6 +817,30 @@ fn a_path_the_tree_does_not_hold_is_refused() {
     );
 }
 
+#[test]
+fn a_name_of_any_kind_the_tree_holds_is_read_as_a_path() {
+    let tree = Tree::of(
+        [
+            "docs/assets/logo.svg",
+            ".github/social-preview.png",
+            "crates/brokkr-cli/src/ui.html",
+        ]
+        .map(str::to_string),
+    );
+    let planted = doc(
+        "docs/a.md",
+        "Held: `assets/logo.svg`, `social-preview.png`, `ui.html`, `src/ui.html`.\n\
+         \n\
+         Not held: `asset/logo.svg`, `social.png`, `web/ui.html:3`.\n\
+         \n\
+         No kind the tree holds: `logo.webp`, `run.ndjson`, `.gitignore`, `LICENSE`.\n",
+    )
+    .unwrap();
+    let refused = ["asset/logo.svg", "social.png", "web/ui.html:3"]
+        .map(|span| format!("docs/a.md:3: `{span}` names a path the tree does not hold"));
+    assert_eq!(missing_paths(&[planted], &tree, &[]), refused);
+}
+
 /// The comment that marks the next block's Brokkr versions illustrative: a
 /// sample whose version is beside its point.
 const ILLUSTRATIVE: &str = "<!-- illustrative version -->";
@@ -797,8 +856,9 @@ struct Spelling {
 }
 
 /// A word a version follows past a [`gap`]: `brokkr 0.12.0`, `Brokkr
-/// **0.12.0**`, `Brokkr version 0.12.0`, the word ending one line and the
-/// version opening the next.
+/// **0.12.0**`, `Brokkr version: 0.12.0`, `Brokkr release 0.12.0`, a
+/// table's `| Brokkr | 0.12.0 |`, the word ending one line and the version
+/// opening the next.
 const fn word(before: &'static str) -> Spelling {
     Spelling {
         before,
@@ -809,15 +869,19 @@ const fn word(before: &'static str) -> Spelling {
 }
 
 /// The text after the gap that parts a word from the version it names:
-/// whitespace, line breaks included, inline markup (`*`, `_`, `` ` ``) and
-/// a `version` word. `None` when nothing parts them.
+/// whitespace, line breaks included, inline markup (`*`, `_`, `` ` ``),
+/// label punctuation (`:`, a table cell's `|`) and a `version` or
+/// `release` word. `None` when nothing parts them.
 fn gap(text: &str) -> Option<&str> {
-    let parts = |c: char| c.is_whitespace() || "*_`".contains(c);
+    let parts = |c: char| c.is_whitespace() || "*_`:|".contains(c);
     let rest = text.trim_start_matches(parts);
     if rest.len() == text.len() {
         return None;
     }
-    Some(match rest.strip_prefix("version") {
+    let label = ["version", "release"]
+        .into_iter()
+        .find_map(|label| rest.strip_prefix(label));
+    Some(match label {
         Some(after) if after.starts_with(parts) => after.trim_start_matches(parts),
         _ => rest,
     })
@@ -1025,6 +1089,28 @@ fn a_stale_version_is_refused_unless_marked_illustrative() {
     assert_eq!(
         stale_versions(&[quoted], "0.12.0"),
         ["docs/guides/q.md:1: states Brokkr 0.11.0; the workspace is 0.12.0"]
+    );
+    let labelled = doc(
+        "docs/guides/l.md",
+        "Brokkr: 0.11.0, Brokkr version: 0.10.0 and Brokkr release 0.9.0.\n\
+         \n\
+         | Tool | Version |\n\
+         | --- | --- |\n\
+         | Brokkr | 0.8.0 |\n\
+         \n\
+         Brokkr: 0.12, Brokkr release notes, brokkr::cli and Brokkr v0.7.0.\n",
+    )
+    .unwrap();
+    assert_eq!(
+        stale_versions(&[labelled], "0.12.0"),
+        [
+            "docs/guides/l.md:1: states Brokkr 0.11.0; the workspace is 0.12.0",
+            "docs/guides/l.md:1: states Brokkr 0.10.0; the workspace is 0.12.0",
+            "docs/guides/l.md:1: states Brokkr 0.9.0; the workspace is 0.12.0",
+            "docs/guides/l.md:5: states Brokkr 0.8.0; the workspace is 0.12.0",
+            "docs/guides/l.md:7: `Brokkr` is followed by no version this can read",
+            "docs/guides/l.md:7: states Brokkr 0.7.0; the workspace is 0.12.0",
+        ]
     );
     assert_eq!(version("0.1.5-rc.1. More"), Some(("0.1.5-rc.1", ". More")));
     assert_eq!(version("v0.12.0 release"), Some(("0.12.0", " release")));
