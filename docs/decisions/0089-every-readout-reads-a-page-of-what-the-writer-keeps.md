@@ -1,6 +1,6 @@
 # 0089 — Every readout reads a page of what the writer keeps: one summary row per run, a row per seat, and an index of every event
 
-Status: proposed
+Status: accepted — operator ruled 2026-10-19 (PR #769), every choice asked taken as recommended
 Date: 2026-10-18
 
 Built: unbuilt (#753)
