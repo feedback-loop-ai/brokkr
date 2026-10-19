@@ -1219,3 +1219,7 @@ D5's trust limit stands: this coordinates current and concurrent managed
 writers; it does not authenticate bytes installed earlier through a writable
 bind since removed, nor guard against the operator's own host writes or
 older engines that do not participate.
+
+## The controller's fix after CI
+
+CI's exact coverage gate on #778 (run 39266573379) counted 64,636 of 64,637 lines and 8,301 of 8,302 functions. The uncovered line was the route walk's helper `lexical`, whose arm joining a plain name could never run, because `route` called it only for `.` and `..`. The uncovered function was `Table::parts`'s `unproven` closure, for a mount at or below a writable root whose root is no path. The controller folded `lexical` into `route` (`.` passes, `..` pops the parent, as before) and added that mount table to `a_mount_table_that_proves_nothing_keeps_no_writer`, which refuses it with MB3's identity cause naming the writable root. This landed by hand under the operator's ruling of 2026-10-19 ("A"). On the host, a branch coverage run of the broker tests (`cargo +nightly-2026-09-05 llvm-cov --branch`) hits both, and all 113 broker tests pass apart from the bind-alias proof this host's AppArmor blocks. Clippy with `-D warnings`, `cargo +1.88 check`, fmt and the files ratchet are clean, and `quality/file-lines.txt` records the two files' new counts.

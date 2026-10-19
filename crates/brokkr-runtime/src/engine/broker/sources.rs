@@ -418,8 +418,13 @@ fn route(input: &Served, budget: &Budget) -> Result<Vec<Served>, Unknown> {
     let mut pending: Vec<OsString> = spelled.iter().rev().map(OsStr::to_os_string).collect();
     while let Some(part) = pending.pop() {
         budget.check()?;
-        if (part == "..") | (part == ".") {
-            at = lexical(at, &part);
+        // Each part taken as spelled: `.` nothing, `..` the parent, `/`
+        // staying itself.
+        if part == "." {
+            continue;
+        }
+        if part == ".." {
+            at.pop();
             continue;
         }
         let next = at.join(&part);
@@ -448,19 +453,6 @@ fn hop(next: &Path) -> std::io::Result<Option<PathBuf>> {
     let found = std::fs::symlink_metadata(next)?;
     let link = found.file_type().is_symlink();
     link.then(|| std::fs::read_link(next)).transpose()
-}
-
-/// `at` with `part` taken as spelled: `..` its parent, `/` staying itself;
-/// `.` nothing; any other name joined.
-fn lexical(mut at: PathBuf, part: &OsStr) -> PathBuf {
-    match part.as_encoded_bytes() {
-        b".." => {
-            at.pop();
-        }
-        b"." => {}
-        _ => at.push(part),
-    }
-    at
 }
 
 /// Whether every writer of `writers`, each named with its run, is kept

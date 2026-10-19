@@ -869,6 +869,15 @@ fn a_mount_table_that_proves_nothing_keeps_no_writer() {
         unmounted(&b),
         "a root that is no path"
     );
+    let nested = format!(
+        "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 0:4 net:[4026531840] {} rw - nsfs nsfs rw\n",
+        b.join("ns").display()
+    );
+    assert_eq!(
+        compared(nested),
+        unmounted(&b),
+        "a mount below a writable root whose root is no path"
+    );
     assert_eq!(compared("\n".repeat(65_537)), Err(Unknown::Bounds));
     let spent = Budget::new(Instant::now());
     let read = read(&mut "".as_bytes(), &spent, &first, Box::new(|_| Some(1)));
