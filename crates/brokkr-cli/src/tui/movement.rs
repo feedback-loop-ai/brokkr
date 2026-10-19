@@ -86,7 +86,45 @@ pub(super) fn fleet_sections<'a>(tui: &Tui, views: &'a Views) -> Listed<'a> {
     if !drawn.is_empty() {
         kept.push((Section::Older, drawn.to_vec()));
     }
-    (kept, rest.len())
+    (kept, rest.len() + views.unread.older)
+}
+
+/// The one line "needs you" counts the runs behind their summary by,
+/// past those a refresh reads whole (decision 0089 ruling 6), when any
+/// are: none is placed by its stale row, and none is dropped silently.
+pub(super) fn behind_line(views: &Views) -> Option<String> {
+    let behind = views.unread.behind;
+    (behind > 0).then(|| {
+        format!("{behind} more runs behind their summary, unread until a writer catches them up")
+    })
+}
+
+/// The list lines that count takes: its own, and the heading of "needs
+/// you" when no run listed there draws it.
+fn behind_lines(kept: &[(Section, Vec<&RunRow>)], views: &Views) -> usize {
+    let headed = kept
+        .iter()
+        .any(|(section, rows)| *section == Section::NeedsYou && !rows.is_empty());
+    match behind_line(views) {
+        None => 0,
+        Some(_) if headed => 1,
+        Some(_) => 2,
+    }
+}
+
+/// How many of the fleet's rows the list asks to be read (decision 0089
+/// ruling 6): every run while `a` lists the older ones or a filter
+/// searches them all, and otherwise the page the cursor is on and the
+/// one ahead, so the list reads a page further as the cursor reaches it.
+pub(super) fn asked_rows(tui: &Tui, views: &Views) -> usize {
+    if tui.all || !tui.filter.is_empty() {
+        return usize::MAX;
+    }
+    let cursor = tui.cursor[0].as_deref();
+    let mut runs = views.runs.runs.iter();
+    let at = runs.position(|row| Some(row.run_id.as_str()) == cursor);
+    let page = brokkr_view::PAGE_ROWS;
+    brokkr_view::AHEAD_ROWS + page * (at.unwrap_or(0) / page)
 }
 
 /// How many of `older` runs the list draws below the sections it keeps:
@@ -103,6 +141,7 @@ fn older_room(tui: &Tui, views: &Views, kept: &[(Section, Vec<&RunRow>)], older:
         usize::from(!rows.is_empty()) + drawn
     };
     let used: usize = kept.iter().map(|(_, rows)| lines(rows)).sum();
+    let used = used + behind_lines(kept, views);
     let left = inside.saturating_sub(used + 1);
     match older <= left {
         true => older,

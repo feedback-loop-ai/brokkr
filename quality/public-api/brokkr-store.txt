@@ -63,6 +63,13 @@ pub brokkr_store::QueueRefusal::UnknownEntry(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::UnknownWait(brokkr_store::EntryId)
 pub brokkr_store::QueueRefusal::Unmeasured
 pub brokkr_store::QueueRefusal::Unmeasured::entry: brokkr_store::EntryId
+pub enum brokkr_store::RowRefusal
+pub brokkr_store::RowRefusal::Column(alloc::string::String)
+pub brokkr_store::RowRefusal::RunIdPastBound
+pub brokkr_store::RowRefusal::Severity(alloc::string::String)
+pub brokkr_store::RowRefusal::Status(alloc::string::String)
+impl core::convert::From<rusqlite::error::Error> for brokkr_store::RowRefusal
+pub fn brokkr_store::RowRefusal::from(rusqlite::error::Error) -> brokkr_store::RowRefusal
 pub enum brokkr_store::SeatRecordVersion
 pub brokkr_store::SeatRecordVersion::V1
 pub brokkr_store::SeatRecordVersion::V2
@@ -198,6 +205,14 @@ impl brokkr_store::Store
 pub fn brokkr_store::Store::arrival(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::Arrival>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::import_run(&mut self, &str, &serde_json::value::Value, &std::path::Path) -> core::result::Result<brokkr_store::Adoption, brokkr_store::ImportError>
 impl brokkr_store::Store
+pub fn brokkr_store::Store::behind(&self, usize) -> core::result::Result<(alloc::vec::Vec<alloc::string::String>, u64), brokkr_store::StoreError>
+pub fn brokkr_store::Store::counted(&self, &brokkr_core::page::Range) -> core::result::Result<u64, brokkr_store::StoreError>
+pub fn brokkr_store::Store::listing(&self, &str) -> core::result::Result<(alloc::string::String, alloc::string::String), brokkr_store::StoreError>
+pub fn brokkr_store::Store::pages(&self) -> core::result::Result<bool, brokkr_store::StoreError>
+pub fn brokkr_store::Store::section(&self, &[brokkr_core::page::Range], core::option::Option<(i64, &str)>, usize) -> core::result::Result<alloc::vec::Vec<brokkr_store::Paged>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::stands_at(&self, &str, (u64, &str)) -> core::result::Result<bool, brokkr_store::StoreError>
+pub fn brokkr_store::Store::whole(&self, &mut brokkr_core::page::Row) -> core::result::Result<brokkr_core::page::Whole, brokkr_store::StoreError>
+impl brokkr_store::Store
 pub fn brokkr_store::Store::carry(&mut self, brokkr_core::summary::Account)
 pub fn brokkr_store::Store::summary_disagreements(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Disagreement>, brokkr_store::StoreError>
 impl brokkr_store::Store
@@ -211,6 +226,10 @@ pub fn brokkr_store::Store::queue_entry(&self, brokkr_store::EntryId) -> core::r
 pub fn brokkr_store::Store::queue_latch(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_list(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::QueueEntry>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::queue_repin(&mut self, brokkr_store::EntryId, &str, brokkr_store::Seen, brokkr_store::Attribution<'_>) -> core::result::Result<(), brokkr_store::StoreError>
+pub struct brokkr_store::Unread
+pub brokkr_store::Unread::order_at: i64
+pub brokkr_store::Unread::run_id: alloc::string::String
+pub brokkr_store::Unread::why: brokkr_store::RowRefusal
 pub struct brokkr_store::Wait
 pub brokkr_store::Wait::entry: brokkr_store::EntryId
 pub brokkr_store::Wait::on: brokkr_store::WaitOn
@@ -220,7 +239,10 @@ impl core::str::traits::FromStr for brokkr_store::Wait
 pub type brokkr_store::Wait::Err = brokkr_store::NotAWait
 pub fn brokkr_store::Wait::from_str(&str) -> core::result::Result<Self, Self::Err>
 pub const brokkr_store::DATABASE_SCHEMA: u32
+pub const brokkr_store::RUN_ID_MAX: usize
+pub fn brokkr_store::place_of(&brokkr_store::Paged) -> (i64, &str)
 pub fn brokkr_store::redact_export(&str) -> core::result::Result<alloc::string::String, serde_json::error::Error>
 pub fn brokkr_store::validate_seat_record(&serde_json::value::Value, u64, brokkr_store::SeatRecordVersion) -> core::result::Result<(), brokkr_store::SeatRecordError>
 pub fn brokkr_store::verified_events(&str) -> core::result::Result<(alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_core::fold::RunState), brokkr_store::VerifyError>
 pub fn brokkr_store::verify_export(&str) -> core::result::Result<brokkr_core::fold::RunState, brokkr_store::VerifyError>
+pub type brokkr_store::Paged = core::result::Result<brokkr_core::page::Row, brokkr_store::Unread>

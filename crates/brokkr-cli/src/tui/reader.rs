@@ -59,6 +59,7 @@ struct Asked {
     force: bool,
     fleet: bool,
     tab: usize,
+    rows: usize,
 }
 
 impl Asked {
@@ -69,6 +70,7 @@ impl Asked {
             force: ask.force,
             fleet: ask.fleet,
             tab: ask.tab,
+            rows: ask.rows,
         }
     }
 
@@ -79,6 +81,7 @@ impl Asked {
             force: self.force,
             fleet: self.fleet,
             tab: self.tab,
+            rows: self.rows,
         }
     }
 

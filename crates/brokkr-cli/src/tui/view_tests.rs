@@ -117,6 +117,7 @@ fn the_console_view_decides_no_scope() {
         force: true,
         fleet: false,
         tab: 0,
+        rows: brokkr_view::AHEAD_ROWS,
     };
     let views =
         crate::tui_read::tui_views(&db, true, ask, &mut None, &mut None, || NOW.to_string())

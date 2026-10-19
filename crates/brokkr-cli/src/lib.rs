@@ -37,9 +37,14 @@ mod verbs;
 
 // Test seams, hidden from documentation and outside the CLI's supported
 // surface: the renderers the binary serves, for 11.2's cross-surface proof,
-// and the TUI frame #342's CPU budget draws.
+// and the TUI frames #342's CPU budget and decision 0089's fleet budgets
+// draw.
 #[doc(hidden)]
-pub use crate::{budget_frame::run_frame_for_budget, tui::transcript_surfaces_for_test};
+pub use crate::budget_frame::{
+    fleet_frame_for_budget, fleet_page_for_budget, run_frame_for_budget,
+};
+#[doc(hidden)]
+pub use crate::tui::transcript_surfaces_for_test;
 #[doc(hidden)]
 pub use local_transcript::read_local;
 #[doc(hidden)]
@@ -181,8 +186,9 @@ enum Cmd {
     /// Synchronize a Looper-bound run over the authenticated producer API.
     /// The API key is read from an environment variable and is never stored.
     Bridge(BridgeArgs),
-    /// List runs in the workspace database: one clamped line per run,
-    /// newest first. `--json` emits the view model for scripts.
+    /// List runs in the workspace database: one clamped line per run, the
+    /// fleet's sections in order and each by last activity, read a page at
+    /// a time. `--json` emits the view model for scripts.
     Runs(RunsArgs),
     /// List the world (decision 0023): each realm with its path, default
     /// branch and current HEAD, and the journal the world writes.

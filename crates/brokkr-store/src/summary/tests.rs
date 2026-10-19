@@ -442,16 +442,7 @@ fn older_journal() -> (tempfile::TempDir, std::path::PathBuf) {
         .unwrap();
     let path = store.path().to_path_buf();
     drop(store);
-    rusqlite::Connection::open(&path)
-        .unwrap()
-        .execute_batch(
-            "DROP TABLE run_summary;
-             DROP TRIGGER run_summary_of_a_run;
-             DROP TRIGGER run_summary_of_an_event;
-             DROP TRIGGER run_summary_of_an_acknowledgement;
-             DELETE FROM meta WHERE key = 'run_summary_backfill';",
-        )
-        .unwrap();
+    crate::test_support::unmigrate(&rusqlite::Connection::open(&path).unwrap()).unwrap();
     (dir, path)
 }
 

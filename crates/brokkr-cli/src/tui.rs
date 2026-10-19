@@ -181,7 +181,7 @@ use self::terminal::*;
 pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
 pub(crate) use self::reader::behind;
-pub(crate) use self::state::{Ask, DriveEnd, Refreshed, Subject, Tui, Views, Watched};
+pub(crate) use self::state::{Ask, DriveEnd, Refreshed, Subject, Tui, Unread, Views, Watched};
 pub(crate) use self::terminal::{production_ops, start, Closed, Session};
 
 #[cfg(test)]

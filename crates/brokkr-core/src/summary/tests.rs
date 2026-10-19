@@ -213,6 +213,21 @@ fn a_parked_run_reads_its_ruling_its_reason_and_its_open_residuals() {
     );
 }
 
+/// The `residuals` column reads back into the findings that wrote it, and
+/// a key no finding states refuses (decision 0089 ruling 2).
+#[test]
+fn the_residuals_column_reads_back_as_its_findings() {
+    let column = Summary::of(&Account::whole("run", &parked()), LISTING).residuals;
+    let read: Vec<Stated> = serde_json::from_str(&column).unwrap();
+    assert_eq!(read.len(), 3);
+    assert_eq!(serde_json::to_value(&read).unwrap().to_string(), column);
+    let mark = read[0].superseded.as_ref().unwrap();
+    assert_eq!((mark.seq, mark.by.run_id.as_str()), (13, "other"));
+    let extra = column.replacen("\"input\"", "\"extra\":1,\"input\"", 1);
+    let refused = serde_json::from_str::<Vec<Stated>>(&extra).unwrap_err();
+    assert!(refused.to_string().starts_with("unknown field `extra`"));
+}
+
 #[test]
 fn an_account_carried_event_by_event_is_the_account_read_whole() {
     let events = parked();

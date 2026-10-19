@@ -179,6 +179,44 @@ pub(crate) fn cli(command: Cmd) -> Cli {
     Cli { command }
 }
 
+/// A world of two hearths in `dir`, `alpha` and `beta`, each its own
+/// journal: its map written as `realms.json`.
+pub(crate) fn two_hearths(dir: &std::path::Path) {
+    let map = json!({
+        "schema": "forge.realms/v2",
+        "realms": [
+            {"name": "alpha", "path": ".", "default_branch": "main", "journal": "alpha.db"},
+            {"name": "beta", "path": ".", "default_branch": "main", "journal": "beta.db"},
+        ],
+        "journal": "alpha.db",
+    });
+    std::fs::write(dir.join("realms.json"), map.to_string()).unwrap();
+}
+
+/// `brokkr inspect r1` over the journal at `db`, as `json` asks.
+fn inspect_r1(db: &std::path::Path, json: bool) -> Cmd {
+    Cmd::Inspect(InspectArgs {
+        run: "r1".into(),
+        realms: None,
+        db: Some(db.to_path_buf()),
+        json,
+        phase: None,
+        seat: None,
+    })
+}
+
+/// `brokkr runs` over the world `realms` and `db` name, every run listed.
+pub(crate) fn every_run(realms: Option<PathBuf>, db: Option<PathBuf>, json: bool) -> Cmd {
+    let (limit, after) = (None, None);
+    Cmd::Runs(RunsArgs {
+        realms,
+        db,
+        json,
+        limit,
+        after,
+    })
+}
+
 #[test]
 fn ledger_command_renders_to_stdout_or_the_repository() {
     let dir = tempfile::tempdir().unwrap();
@@ -404,7 +442,6 @@ pub(crate) fn bundled(bundle: std::path::PathBuf) -> DeliveryArgs {
 }
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
@@ -448,18 +485,7 @@ fn summaries_costs_inspect_export_and_error_closures_are_exercised() {
         .unwrap(),
         ExitCode::SUCCESS
     );
-    assert_eq!(
-        run(cli(Cmd::Inspect(InspectArgs {
-            run: "r1".into(),
-            realms: None,
-            db: Some(db.clone()),
-            json: false,
-            phase: None,
-            seat: None,
-        })))
-        .unwrap(),
-        ExitCode::SUCCESS
-    );
+    assert_eq!(run(cli(inspect_r1(&db, false))).unwrap(), ExitCode::SUCCESS);
     let out = dir.path().join("export");
     assert_eq!(
         run(cli(Cmd::Export(ExportArgs {
@@ -767,6 +793,14 @@ fn ui_and_tui_open_the_journal_the_map_names() {
         run_tui,
     )
     .unwrap();
+    let opened = tui_opens(dir.path());
+    let world = dir.path().join("state/world.db");
+    assert_eq!(served, Some(world.clone()));
+    assert_eq!(opened, Some(vec![world]));
+}
+
+/// The journals `brokkr tui` opens in the world at `dir`, one a hearth.
+fn tui_opens(dir: &std::path::Path) -> Option<Vec<PathBuf>> {
     let mut opened = None;
     run_with(
         cli(Cmd::Tui(TuiArgs {
@@ -774,7 +808,7 @@ fn ui_and_tui_open_the_journal_the_map_names() {
             realms: None,
             db: None,
         })),
-        dir.path(),
+        dir,
         ui::serve,
         None,
         None,
@@ -784,9 +818,7 @@ fn ui_and_tui_open_the_journal_the_map_names() {
         },
     )
     .unwrap();
-    let world = dir.path().join("state/world.db");
-    assert_eq!(served, Some(world.clone()));
-    assert_eq!(opened, Some(vec![world]));
+    opened
 }
 
 /// #374: where the realms name two hearths, `tui` opens both and `ui`,
@@ -795,36 +827,8 @@ fn ui_and_tui_open_the_journal_the_map_names() {
 #[test]
 fn ui_refuses_a_world_of_two_hearths_that_tui_reads_whole() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("realms.json"),
-        json!({
-            "schema": "forge.realms/v2",
-            "realms": [
-                {"name": "alpha", "path": ".", "default_branch": "main", "journal": "alpha.db"},
-                {"name": "beta", "path": ".", "default_branch": "main", "journal": "beta.db"},
-            ],
-            "journal": "alpha.db",
-        })
-        .to_string(),
-    )
-    .unwrap();
-    let mut opened = None;
-    run_with(
-        cli(Cmd::Tui(TuiArgs {
-            run: None,
-            realms: None,
-            db: None,
-        })),
-        dir.path(),
-        ui::serve,
-        None,
-        None,
-        |hearths, _, _| {
-            opened = Some(hearths.into_iter().map(|hearth| hearth.journal).collect());
-            Ok(tui::Closed::Quit)
-        },
-    )
-    .unwrap();
+    two_hearths(dir.path());
+    let opened = tui_opens(dir.path());
     let (alpha, beta) = (dir.path().join("alpha.db"), dir.path().join("beta.db"));
     assert_eq!(opened, Some(vec![alpha.clone(), beta.clone()]));
     let refused = run_with(
@@ -1780,14 +1784,7 @@ fn every_reading_verb_in_an_empty_directory_refuses_and_creates_nothing() {
                 redact: false,
             }),
         ),
-        (
-            "runs",
-            Cmd::Runs(RunsArgs {
-                realms: None,
-                db: Some(db.clone()),
-                json: false,
-            }),
-        ),
+        ("runs", every_run(None, Some(db.clone()), false)),
         (
             "compare",
             Cmd::Compare(CompareArgs {
@@ -2151,6 +2148,7 @@ fn a_vanished_participant_clears_the_same_frames_transcript() {
         }),
         force: true,
         fleet: false,
+        rows: brokkr_view::AHEAD_ROWS,
     };
     let views = tui_views(&db, true, ask, &mut head, &mut seen, clock)
         .unwrap()
@@ -2210,6 +2208,7 @@ fn the_console_masks_a_bound_value_the_dsh_session_file_holds() {
         }),
         force: true,
         fleet: false,
+        rows: brokkr_view::AHEAD_ROWS,
     };
     let clock = || "2026-01-01T00:07:03Z".to_string();
     let views = tui_views(&db, true, ask, &mut None, &mut None, clock)
@@ -2334,6 +2333,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         subject: None,
         force,
         fleet,
+        rows: brokkr_view::AHEAD_ROWS,
     };
     let mut head = None;
 
@@ -2526,6 +2526,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
             }),
             force: true,
             fleet: false,
+            rows: brokkr_view::AHEAD_ROWS,
         },
         &mut head,
         &mut None,
@@ -2613,6 +2614,7 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
         subject: Some(subject(locator, working)),
         force: false,
         fleet: false,
+        rows: brokkr_view::AHEAD_ROWS,
     };
     let turn = |text: &str| {
         format!("{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":\"{text}\"}}}}\n")
@@ -2631,6 +2633,7 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
             subject: Some(subject("abcd-1234", true)),
             force: true,
             fleet: false,
+            rows: brokkr_view::AHEAD_ROWS,
         },
         &mut head,
         &mut seen,
@@ -2796,6 +2799,7 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
             subject: Some(subject("abcd-1234", false)),
             force: true,
             fleet: false,
+            rows: brokkr_view::AHEAD_ROWS,
         },
         &mut head,
         &mut seen,
@@ -2815,26 +2819,10 @@ fn the_readouts_render_and_scope_from_the_one_derivation() {
 
     for json in [false, true] {
         assert_eq!(
-            run(cli(Cmd::Runs(RunsArgs {
-                realms: None,
-                db: Some(db.clone()),
-                json,
-            })))
-            .unwrap(),
+            run(cli(every_run(None, Some(db.clone()), json))).unwrap(),
             ExitCode::SUCCESS
         );
-        assert_eq!(
-            run(cli(Cmd::Inspect(InspectArgs {
-                run: "r1".into(),
-                realms: None,
-                db: Some(db.clone()),
-                json,
-                phase: None,
-                seat: None,
-            })))
-            .unwrap(),
-            ExitCode::SUCCESS
-        );
+        assert_eq!(run(cli(inspect_r1(&db, json))).unwrap(), ExitCode::SUCCESS);
     }
     // The scoping verbs the console's clicks became.
     assert_eq!(
@@ -3066,12 +3054,7 @@ fn one_unfoldable_journal_is_quarantined_by_the_fleet_and_fatal_to_its_own_verbs
 
     for json in [false, true] {
         assert_eq!(
-            run(cli(Cmd::Runs(RunsArgs {
-                realms: None,
-                db: Some(db.clone()),
-                json,
-            })))
-            .unwrap(),
+            run(cli(every_run(None, Some(db.clone()), json))).unwrap(),
             ExitCode::SUCCESS,
             "the fleet listing survives the poisoned run"
         );
@@ -3185,12 +3168,7 @@ fn one_broken_chain_is_one_quarantined_row_on_every_fleet_surface() {
 
     // `runs`: the listing no longer exits 1 on the broken run.
     assert_eq!(
-        run(cli(Cmd::Runs(RunsArgs {
-            realms: None,
-            db: Some(db.clone()),
-            json: true,
-        })))
-        .unwrap(),
+        run(cli(every_run(None, Some(db.clone()), true))).unwrap(),
         ExitCode::SUCCESS
     );
 
@@ -3201,6 +3179,7 @@ fn one_broken_chain_is_one_quarantined_row_on_every_fleet_surface() {
         subject: None,
         force: true,
         fleet: false,
+        rows: brokkr_view::AHEAD_ROWS,
     };
     let views = tui_views(&db, true, ask, &mut None, &mut None, now_rfc3339)
         .unwrap()
@@ -3285,15 +3264,7 @@ fn runs_lists_a_many_hearth_world_grouped_by_realm() {
         .to_string(),
     )
     .unwrap();
-    let code = run_in(
-        dir.path(),
-        cli(Cmd::Runs(RunsArgs {
-            realms: None,
-            db: None,
-            json: false,
-        })),
-    )
-    .unwrap();
+    let code = run_in(dir.path(), cli(every_run(None, None, false))).unwrap();
     assert_eq!(code, ExitCode::SUCCESS);
 }
 
@@ -3424,11 +3395,7 @@ fn a_named_map_that_is_not_there_refuses_before_anything_opens() {
     let nowhere = dir.path().join("nowhere.json");
     let refusal = run_in(
         unmapped(),
-        cli(Cmd::Runs(RunsArgs {
-            realms: Some(nowhere.clone()),
-            db: None,
-            json: true,
-        })),
+        cli(every_run(Some(nowhere.clone()), None, true)),
     )
     .unwrap_err()
     .to_string();
@@ -3616,24 +3583,11 @@ fn import_adopts_an_export_and_the_readouts_cannot_tell_it_apart() {
     // Both readouts run over the adopted journal like any other.
     for json in [false, true] {
         assert_eq!(
-            run(cli(Cmd::Runs(RunsArgs {
-                realms: None,
-                db: Some(adopted.clone()),
-                json,
-            })))
-            .unwrap(),
+            run(cli(every_run(None, Some(adopted.clone()), json))).unwrap(),
             ExitCode::SUCCESS
         );
         assert_eq!(
-            run(cli(Cmd::Inspect(InspectArgs {
-                run: "r1".into(),
-                realms: None,
-                db: Some(adopted.clone()),
-                json,
-                phase: None,
-                seat: None,
-            })))
-            .unwrap(),
+            run(cli(inspect_r1(&adopted, json))).unwrap(),
             ExitCode::SUCCESS
         );
     }
@@ -4274,15 +4228,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     );
     // `brokkr runs --json` prints the finding and its mark (ruling 3).
     assert_eq!(
-        run_in(
-            unmapped(),
-            cli(Cmd::Runs(RunsArgs {
-                realms: None,
-                db: Some(db.clone()),
-                json: true,
-            })),
-        )
-        .unwrap(),
+        run_in(unmapped(), cli(every_run(None, Some(db.clone()), true)),).unwrap(),
         ExitCode::SUCCESS,
     );
 
@@ -4468,6 +4414,7 @@ fn a_refreshed_run_re_resolves_changed_authority_before_display() {
             subject: Some(subject),
             force: true,
             fleet: false,
+            rows: brokkr_view::AHEAD_ROWS,
         },
         &mut head,
         &mut seen,

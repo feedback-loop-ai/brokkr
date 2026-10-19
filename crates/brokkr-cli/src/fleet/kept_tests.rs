@@ -423,11 +423,7 @@ pub(crate) const UNLISTED: &str = "sqlite: no such table: runs";
 #[test]
 fn runs_over_a_journal_whose_runs_cannot_be_listed_refuses_in_the_stores_words() {
     let dir = tempfile::tempdir().unwrap();
-    let runs = crate::Cmd::Runs(crate::cli_args::RunsArgs {
-        realms: None,
-        db: Some(unlisted(dir.path())),
-        json: true,
-    });
+    let runs = crate::tests::every_run(None, Some(unlisted(dir.path())), true);
     let refused = crate::run(crate::tests::cli(runs)).unwrap_err();
     assert_eq!(refused.to_string(), UNLISTED);
 }

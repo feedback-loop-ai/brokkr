@@ -28,6 +28,7 @@ use brokkr_store::Store;
 use brokkr_view::transcript::{Selection, ValidReference};
 use serde_json::{json, Value};
 
+use crate::fleet::PageRefused;
 use crate::local_transcript::{self, Discovery};
 use limits::{Deadline, Exceeded, Limits, Slots, Unread};
 
@@ -54,6 +55,71 @@ fn server_error(detail: String) -> Response {
         content_type: "application/json",
         body: json!({"error": detail}).to_string(),
     }
+}
+
+fn bad_request(detail: String) -> Response {
+    Response {
+        status: "400 Bad Request",
+        content_type: "application/json",
+        body: json!({"error": detail}).to_string(),
+    }
+}
+
+/// `/api/runs`: every run, the fleet's sections in order and each by last
+/// activity, as `RunsView.runs` — ordering is a derivation rule and not
+/// something each surface reverses for itself. Asked `limit=N` or
+/// `after=CURSOR`, one page as `brokkr runs --json --limit` prints it,
+/// with its `next` (decision 0089 ruling 6).
+///
+/// The same fleet grace the table gives: a run whose journal does not
+/// load or fold is a quarantined row carrying the refusal, never a
+/// missing row. A journal that cannot list its runs at all is refused the
+/// way one that cannot open is, never an empty fleet.
+fn runs(db: &Path, store: &Store, query: Option<&str>) -> Response {
+    let asked = match query.map(page_asked).transpose() {
+        Ok(asked) => asked,
+        Err(refused) => return bad_request(refused.to_string()),
+    };
+    let mut pages = crate::fleet::Pages::default();
+    if let Err(error) = pages.refresh(store, crate::fleet::Journal::at(db), usize::MAX) {
+        return server_error(error.to_string());
+    }
+    let now = crate::now_rfc3339();
+    let lister = crate::fleet::Lister {
+        pages: &pages,
+        store,
+        now: &now,
+    };
+    let body = match asked {
+        None => lister.rows().map(|rows| serde_json::to_string(&rows)),
+        Some((after, limit)) => lister
+            .paged(after.as_ref(), limit)
+            .map(|view| serde_json::to_string(&view)),
+    };
+    match body {
+        Ok(body) => ok("application/json", body.expect("run rows serialize")),
+        Err(error) => server_error(error.to_string()),
+    }
+}
+
+/// The page a query asks for: `limit=N`, at least one, and `after=CURSOR`,
+/// each at most once and in any order, or the words of what it is not.
+fn page_asked(query: &str) -> Result<(Option<brokkr_view::Cursor>, usize), PageRefused> {
+    let mut asked = (None, crate::fleet::PAGE_ROWS);
+    for pair in query.split('&') {
+        match pair.split_once('=') {
+            Some(("limit", limit)) => {
+                asked.1 = limit
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|limit| *limit > 0)
+                    .ok_or_else(|| PageRefused::Limit(limit.to_string()))?;
+            }
+            Some(("after", after)) => asked.0 = Some(crate::fleet::cursor(after)?),
+            _ => return Err(PageRefused::Query(pair.to_string())),
+        }
+    }
+    Ok(asked)
 }
 
 fn not_found(what: &str) -> Response {
@@ -97,27 +163,11 @@ pub fn handle(db: &Path, path: &str) -> Response {
     if let Some(rest) = path.strip_prefix("/api/transcript/") {
         return participant_transcript(db, &store, rest);
     }
-    if path == "/api/runs" {
-        // The page receives `RunsView.runs` — already newest first,
-        // because ordering is a derivation rule and not something each
-        // surface reverses for itself.
-        //
-        // The same fleet grace the table gives: a run whose journal does
-        // not load or fold is a quarantined row carrying the refusal,
-        // never a missing row. A journal that cannot list its runs at
-        // all is refused the way one that cannot open is, never an
-        // empty fleet.
-        let listed = match crate::fleet::read_hearth(&store).listed() {
-            Ok(listed) => listed,
-            Err(detail) => return server_error(detail),
-        };
-        let entries: Vec<brokkr_view::RunEntry> =
-            listed.iter().map(crate::fleet::ListedRun::entry).collect();
-        let view = brokkr_view::run_rows(&entries);
-        return ok(
-            "application/json",
-            serde_json::to_string(&view.runs).expect("run rows serialize"),
-        );
+    if let Some(query) = path
+        .strip_prefix("/api/runs")
+        .filter(|rest| rest.is_empty() || rest.starts_with('?'))
+    {
+        return runs(db, &store, query.strip_prefix('?'));
     }
     if let Some(run_id) = path.strip_prefix("/api/view/") {
         let events = match store.load(run_id) {

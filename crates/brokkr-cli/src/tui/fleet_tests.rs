@@ -1021,6 +1021,53 @@ fn the_older_runs_say_how_to_show_them_and_how_to_fold_them() {
     assert!(!frame.contains("needs you     a"), "{frame}");
 }
 
+/// Decision 0089 ruling 6: the list asks for the page its cursor is on
+/// and the one ahead, and for every run while `a` or a filter shows them
+/// all; the older runs its pages left unread are counted with the ones
+/// it folds; and the runs behind their summary past those a refresh read
+/// are one line in "needs you", which heads it when no run there is listed.
+#[test]
+fn the_list_reads_a_page_ahead_and_counts_what_its_pages_left_unread() {
+    let mut views = fleet_to_act_on();
+    let mut tui = Tui::new(None);
+    assert_eq!(asked_rows(&tui, &views), 100);
+    let listed = views.runs.runs[0].clone();
+    for at in 0..60 {
+        let mut more = listed.clone();
+        more.run_id = format!("more-{at:02}");
+        views.runs.runs.push(more);
+    }
+    tui.cursor[0] = Some("more-49".to_string());
+    assert_eq!(asked_rows(&tui, &views), 150);
+    tui.all = true;
+    assert_eq!(asked_rows(&tui, &views), usize::MAX);
+    tui.all = false;
+    tui.filter = "more".to_string();
+    assert_eq!(asked_rows(&tui, &views), usize::MAX);
+    let mut views = fleet_to_act_on();
+    views.unread = Unread {
+        older: 5,
+        behind: 151,
+    };
+    let frame = frame_of(&Tui::new(None), &views, 160, 30);
+    assert!(frame.contains("│7 older runs: press a to show"), "{frame}");
+    // The count line, just under the heading of "needs you".
+    let headed = |views: &Views| {
+        let behind = "151 more runs behind their summary, unread until a writer catches them up";
+        let frame = frame_of(&Tui::new(None), views, 160, 30);
+        let lines: Vec<&str> = frame.lines().collect();
+        let at = lines.iter().position(|line| line.contains(behind));
+        at.map(|at| lines[at - 1].contains("│needs you"))
+    };
+    assert_eq!(headed(&views), Some(true));
+    let now = views.now.clone();
+    views
+        .runs
+        .runs
+        .retain(|row| brokkr_view::need(row, &now).is_none());
+    assert_eq!(headed(&views), Some(true));
+}
+
 /// Every `timeout_seconds` a JSON value states, at any depth.
 fn deadlines(value: &Value, found: &mut Vec<u64>) {
     match value {

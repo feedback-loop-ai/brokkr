@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::envelope::{EventEnvelope, EventType};
@@ -144,7 +144,8 @@ pub fn residuals(events: &[EventEnvelope]) -> Vec<Residual<'_>> {
 /// Where a supersede says a finding is closed: the fact a run's journal
 /// carries at `seq`, in `realm` when the annotation named one (decision
 /// 0047 ruling 1).
-#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Citation {
     pub realm: Option<String>,
     pub run_id: String,
@@ -154,7 +155,8 @@ pub struct Citation {
 /// The operator's word that a residual finding is closed elsewhere, as
 /// the journal carries it: the annotation's own seq, what it cites, and
 /// who wrote it, when and why, `None` where the annotation says nothing.
-#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Mark {
     pub seq: u64,
     pub by: Citation,

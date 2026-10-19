@@ -220,47 +220,65 @@ pub(crate) fn runs(view: &RunsView, now: &str, style: &Style) -> String {
 /// a many-hearth listing is the SAME rendering repeated under a heading
 /// rather than a second implementation of a run line.
 fn run_lines(view_runs: &[RunRow], now: &str, style: &Style) -> String {
-    let mut rows: Vec<[Safe; 6]> = Vec::new();
-    let mut codes: Vec<&'static str> = Vec::new();
-    let mut details: Vec<Vec<String>> = Vec::new();
-    for run in view_runs {
-        let status = match &run.status {
-            Some(status) => status.clone(),
-            None => "?".to_string(),
-        };
-        let phase = match &run.phase {
-            Some(phase) => phase.clone(),
-            None => "-".to_string(),
-        };
-        let seq = match run.seq {
-            Some(seq) => format!("seq {seq}"),
-            None => "seq -".to_string(),
-        };
-        let age = match brokkr_view::age(&run.created_at, now) {
-            Some(age) => age,
-            None => brokkr_view::ABSENT.to_string(),
-        };
-        codes.push(status_code(&status));
-        details.push(under_row(run));
-        rows.push([
-            Safe::new(&run.run_id),
-            Safe::new(&status),
-            Safe::new(&phase),
-            Safe::new(&seq),
-            Safe::new(&age),
-            Safe::new(&run.feature),
-        ]);
-    }
     let mut widths = [0usize; 5];
-    for row in &rows {
+    widen(&mut widths, view_runs, now);
+    lines_within(view_runs, &widths, now, style)
+}
+
+/// A run's six cells: id, status, phase, seq, age and feature.
+fn run_cells(run: &RunRow, now: &str) -> [Safe; 6] {
+    let status = match &run.status {
+        Some(status) => status.clone(),
+        None => "?".to_string(),
+    };
+    let phase = match &run.phase {
+        Some(phase) => phase.clone(),
+        None => "-".to_string(),
+    };
+    let seq = match run.seq {
+        Some(seq) => format!("seq {seq}"),
+        None => "seq -".to_string(),
+    };
+    let age = match brokkr_view::age(&run.created_at, now) {
+        Some(age) => age,
+        None => brokkr_view::ABSENT.to_string(),
+    };
+    [
+        Safe::new(&run.run_id),
+        Safe::new(&status),
+        Safe::new(&phase),
+        Safe::new(&seq),
+        Safe::new(&age),
+        Safe::new(&run.feature),
+    ]
+}
+
+/// `widths` widened to the widest of each sized column in `runs`: a
+/// listing written a page at a time sizes its columns over every page
+/// first, so every page lines up as one batch would.
+pub(crate) fn widen(widths: &mut [usize; 5], runs: &[RunRow], now: &str) {
+    for run in runs {
+        let cells = run_cells(run, now);
         for (index, width) in widths.iter_mut().enumerate() {
-            *width = (*width).max(row[index].width());
+            *width = (*width).max(cells[index].width());
         }
     }
+}
+
+/// The lines `runs` render to, each sized column `widths` wide; the
+/// feature takes what is left.
+pub(crate) fn lines_within(
+    runs: &[RunRow],
+    widths: &[usize; 5],
+    now: &str,
+    style: &Style,
+) -> String {
     let used = widths.iter().sum::<usize>() + widths.len();
     let remaining = style.width.saturating_sub(used);
     let mut out = String::new();
-    for ((row, code), detail) in rows.iter().zip(codes).zip(&details) {
+    for run in runs {
+        let row = run_cells(run, now);
+        let code = status_code(run.status.as_deref().unwrap_or("?"));
         let mut line = String::new();
         for (index, width) in widths.iter().enumerate() {
             let piece = row[index].padded(*width);
@@ -275,8 +293,8 @@ fn run_lines(view_runs: &[RunRow], now: &str, style: &Style) -> String {
             line.push_str(&brokkr_view::clamp(row[5].as_str(), remaining));
         }
         push_line(&mut out, &line);
-        for under in detail {
-            push_line(&mut out, under);
+        for under in under_row(run) {
+            push_line(&mut out, &under);
         }
     }
     out

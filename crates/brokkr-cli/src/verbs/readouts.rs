@@ -234,14 +234,28 @@ pub(crate) fn replay(
     Ok(Exit::Completed.into())
 }
 
-/// `brokkr runs`: one line per run, newest first — grouped by realm when
-/// the world has several hearths.
-pub(crate) fn runs(workspace: &Path, RunsArgs { realms, db, json }: RunsArgs) -> Result<ExitCode> {
+/// `brokkr runs`: one line per run, the fleet's sections in order and
+/// each by last activity — grouped by realm when the world has several
+/// hearths. One hearth is read a page at a time (decision 0089).
+pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
+    let RunsArgs {
+        realms,
+        db,
+        json,
+        limit,
+        after,
+    } = args;
     let hearths = hearths_of(workspace, realms, db)?;
     // A world with several hearths lists each one under its own
     // realm; a world with one is byte-for-byte the listing it
     // always was, down to opening its journal the same way.
     if hearths.len() > 1 {
+        anyhow::ensure!(
+            limit.is_none() && after.is_none(),
+            "--limit and --after page one hearth's runs, and this world has {} hearths: name \
+             one journal with --db",
+            hearths.len()
+        );
         return runs_fleet(&hearths, json);
     }
     let db = hearths
@@ -254,21 +268,27 @@ pub(crate) fn runs(workspace: &Path, RunsArgs { realms, db, json }: RunsArgs) ->
     // A fleet listing survives one corrupt journal: that run
     // becomes a quarantined row carrying the refusal's own words,
     // and the rest of the fleet is still listed. The journal is
-    // never touched — the refusal is reported. Read the kept way,
-    // as the console reads it (#744): each run's events are let go
-    // once it is folded, rather than every run's held at once.
-    let mut fleet = fleet::KeptFleet::default();
-    fleet
-        .refresh(&store, before)
+    // never touched — the refusal is reported. Read a page at a time
+    // from the summary, every run behind it read whole; a journal
+    // the summary does not page yet is read the kept way (#744).
+    let mut pages = fleet::Pages::default();
+    pages
+        .refresh(&store, before, usize::MAX)
         .map_err(|error| anyhow::Error::msg(error.to_string()))?;
-    let view = brokkr_view::run_rows(&fleet.entries());
-    if json {
-        println!("{}", serde_json::to_string_pretty(&view)?);
-    } else {
-        print!(
-            "{}",
-            render::runs(&view, &now_rfc3339(), &render::Style::detect())
-        );
+    let now = now_rfc3339();
+    let listing = fleet::Lister {
+        pages: &pages,
+        store: &store,
+        now: &now,
+    };
+    let (style, mut out) = (render::Style::detect(), std::io::stdout().lock());
+    match (limit, after.as_ref()) {
+        (None, None) if json => listing.every_json(&mut out)?,
+        (None, None) => listing.every_text(&mut out, &style)?,
+        (limit, after) => {
+            let limit = limit.map_or(fleet::PAGE_ROWS, |limit| limit as usize);
+            listing.one(&mut out, (after, limit), json, &style)?;
+        }
     }
     Ok(Exit::Completed.into())
 }

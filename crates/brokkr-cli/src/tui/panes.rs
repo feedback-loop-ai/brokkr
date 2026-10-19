@@ -190,6 +190,11 @@ fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
             listed.push((section, members));
         }
     }
+    let behind = behind_line(views);
+    let headed = listed.first().map(|(section, _)| *section);
+    if behind.is_some() && headed != Some(Section::NeedsYou) {
+        listed.insert(0, (Section::NeedsYou, Vec::new()));
+    }
     let widths = fleet_widths(area.width);
     let columns = usize::from(widths[3]);
     let mut rows: Vec<Row> = Vec::new();
@@ -198,6 +203,10 @@ fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
     for (section, members) in listed {
         rows.push(heading(tui, section));
         height += 1;
+        if let Some(line) = behind.as_deref().filter(|_| section == Section::NeedsYou) {
+            rows.push(counted(&brokkr_view::title_within(line, columns)));
+            height += 1;
+        }
         for (row, lines) in members {
             let chosen = cursor == Some(row.run_id.as_str());
             if chosen {
@@ -230,6 +239,13 @@ fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
 /// A section the list draws, each of its runs with its title cell's
 /// lines.
 type Drawn<'a> = (Section, Vec<(&'a RunRow, Vec<String>)>);
+
+/// A line the list counts runs by rather than listing them, in the
+/// title's column.
+fn counted(line: &str) -> Row<'static> {
+    let dim = Style::new().add_modifier(Modifier::DIM);
+    Row::new([cell("", dim), cell("", dim), cell("", dim), cell(line, dim)])
+}
 
 /// A section's heading: its name, and over the older runs `a` showed,
 /// in the verdict's column, the key that folds them again (#503).

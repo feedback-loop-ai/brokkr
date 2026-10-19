@@ -11,14 +11,19 @@ use crate::fleet::kept_tests::{
     UNLISTED,
 };
 use crate::tests::running_store;
+use brokkr_store::test_support::unmigrate;
 
 /// The checkpoints the selected run carries beside its opening events.
 const CHECKPOINTS: usize = 200;
 
-/// Append `event_type` with `payload` to `run_id` as the engine would.
+/// Append `event_type` with `payload` to `run_id` as the engine would,
+/// handing the store the fold it appends onto, so the run's summary is
+/// kept at its head (decision 0089 ruling 3).
 fn append(db: &Path, run_id: &str, event_type: EventType, payload: serde_json::Value) {
-    Store::open(db)
-        .unwrap()
+    let mut store = Store::open(db).unwrap();
+    let events = store.load(run_id).unwrap();
+    store.carry(brokkr_core::summary::Account::whole(run_id, &events));
+    store
         .append_next(run_id, event_type, payload, None, None)
         .unwrap();
 }
@@ -57,6 +62,7 @@ fn frame(db: &Path, kept: &mut Kept, run: &str, force: bool) -> (usize, String) 
         force,
         fleet: true,
         tab: 0,
+        rows: AHEAD_ROWS,
     };
     let views = read_views(db, true, ask, kept, &mut None, || "now".to_string())
         .unwrap()
@@ -67,8 +73,9 @@ fn frame(db: &Path, kept: &mut Kept, run: &str, force: bool) -> (usize, String) 
 
 /// The acceptance at the console's own source: with a run selected, the
 /// fleet's cadence over a journal that has not moved reads no event, the
-/// run's or the fleet's, and draws the run as it drew it. What lands in
-/// another run is read alone; what lands in the selected run reads it
+/// run's or the fleet's, and draws the run as it drew it. The fleet is a
+/// page of the summary (decision 0089), which reads no event: what lands
+/// in another run reads none; what lands in the selected run reads it
 /// again; and `r` reads it whole. Loading the selected run at every frame
 /// (a `run_of` that keeps nothing) reads its 204 events at the idle tick.
 #[test]
@@ -81,11 +88,7 @@ fn the_fleet_cadence_reads_nothing_of_a_journal_that_has_not_moved() {
     let mut kept = Kept::default();
 
     let (read, drawn) = frame(&db, &mut kept, "selected", true);
-    assert_eq!(
-        read,
-        selected + 2 + selected,
-        "the fleet whole, and the run"
-    );
+    assert_eq!(read, selected, "the run, and none of the fleet's events");
     assert_eq!(frame(&db, &mut kept, "selected", false), (0, drawn.clone()));
 
     append(
@@ -94,7 +97,7 @@ fn the_fleet_cadence_reads_nothing_of_a_journal_that_has_not_moved() {
         EventType::PhaseEntered,
         json!({"phase": "on"}),
     );
-    assert_eq!(frame(&db, &mut kept, "selected", false), (1, drawn.clone()));
+    assert_eq!(frame(&db, &mut kept, "selected", false), (0, drawn.clone()));
 
     append(
         &db,
@@ -103,7 +106,7 @@ fn the_fleet_cadence_reads_nothing_of_a_journal_that_has_not_moved() {
         json!({"effect_id": "eff"}),
     );
     let (read, moved) = frame(&db, &mut kept, "selected", false);
-    assert_eq!(read, 1 + selected + 1, "what landed, and the run again");
+    assert_eq!(read, selected + 1, "the run again");
     assert_ne!(moved, drawn);
     assert_eq!(frame(&db, &mut kept, "selected", false), (0, moved.clone()));
     assert_eq!(
@@ -137,11 +140,13 @@ fn the_open_run_is_read_again_from_a_journal_replaced_beneath_it() {
 }
 
 /// A console open on a checkpointing run, `selected`, in a fresh journal
-/// under `dir`, its first frame drawn: where the journal is, and what the
-/// console keeps.
+/// under `dir` as a binary from before the summary left it, so the fleet
+/// is the kept read (decision 0089 ruling 8), its first frame drawn:
+/// where the journal is, and what the console keeps.
 fn opened(dir: &Path) -> (std::path::PathBuf, Kept) {
     let db = dir.join("forge.db");
     checkpointing(&db, "selected");
+    unmigrate(&rusqlite::Connection::open(&db).unwrap()).unwrap();
     let mut kept = Kept::default();
     let (_, drawn) = frame(&db, &mut kept, "selected", true);
     assert_ne!(drawn, "null");
@@ -154,9 +159,27 @@ fn opened(dir: &Path) -> (std::path::PathBuf, Kept) {
 fn read_again(db: &Path, kept: &mut Kept, case: &str) {
     let drawn = frame(db, kept, "selected", false);
     assert_eq!(drawn, (0, "null".into()), "{case}");
-    let rows = brokkr_view::run_rows(&kept.fleet.entries());
-    let words = rows.runs[0].detail.as_deref();
+    let Pages::Kept { rows, .. } = &kept.fleet else {
+        panic!("{case}: a journal the summary does not page is read the kept way");
+    };
+    let words = rows[0].detail.as_deref();
     assert_eq!(words, Some(FIRST_EVENT_GONE), "{case}");
+}
+
+/// On a journal the summary pages, a row lost below the selected run's
+/// head is not seen by the fleet, whose page checks a row against its
+/// run's head alone (decision 0089 ruling 5), but the opened run is: its
+/// rows are counted at every frame, and it is read again and refused.
+#[test]
+fn the_opened_run_is_read_again_when_a_row_below_its_head_is_lost() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    checkpointing(&db, "selected");
+    let mut kept = Kept::default();
+    assert_ne!(frame(&db, &mut kept, "selected", true).1, "null");
+    let _held = lost_in_its_log(&db, "selected");
+    assert_eq!(frame(&db, &mut kept, "selected", false), (0, "null".into()));
+    assert!(matches!(kept.fleet, Pages::Summary(_)));
 }
 
 /// The open run is read again with the fleet when its first event is lost
@@ -184,6 +207,7 @@ fn a_journal_whose_runs_cannot_be_listed_refuses_the_frame_in_the_stores_words()
         force: false,
         fleet: true,
         tab: 0,
+        rows: AHEAD_ROWS,
     };
     let refused = read_views(&db, true, ask, &mut Kept::default(), &mut None, || {
         "now".to_string()

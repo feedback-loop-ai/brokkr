@@ -28,6 +28,17 @@ pub(crate) struct Views {
     /// would have counted toward the give-up bound and ended the
     /// console over a realm that has simply not run yet.
     pub note: Option<String>,
+    /// What the fleet's pages leave unread (decision 0089 ruling 6).
+    pub unread: Unread,
+}
+
+/// The runs a frame's pages did not read: the older ones past them,
+/// counted by the summary's index, and the runs behind their summary past
+/// those a refresh reads whole, which "needs you" counts in one line.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub(crate) struct Unread {
+    pub older: usize,
+    pub behind: u64,
 }
 
 impl Views {
@@ -36,14 +47,11 @@ impl Views {
     pub(crate) fn empty() -> Views {
         Views {
             now: String::new(),
-            runs: RunsView {
-                view_version: brokkr_view::VIEW_VERSION,
-                runs: Vec::new(),
-                count: 0,
-            },
+            runs: RunsView::of(Vec::new()),
             run: None,
             transcript: None,
             note: None,
+            unread: Unread::default(),
         }
     }
 }
@@ -89,6 +97,10 @@ pub(crate) struct Ask<'a> {
     /// visited has had no store opened for it — the laziness is the
     /// absence of a question, not a cache.
     pub tab: usize,
+    /// How many of the fleet's rows the list asks to be read: the page
+    /// the cursor is on and the one ahead, or every run while `a` shows
+    /// the older ones or a filter searches them (decision 0089 ruling 6).
+    pub rows: usize,
 }
 
 // -------------------------------------------------------------- the state

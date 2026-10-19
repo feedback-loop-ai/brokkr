@@ -11,7 +11,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::canonical::ZERO_HASH;
 use crate::envelope::EventEnvelope;
@@ -22,16 +22,16 @@ use crate::stamp::parse_millis;
 
 /// The bound of a name a run's data states: a phase, a rule id, the phase
 /// that ruled, a seat (decision 0089 ruling 2).
-pub(crate) const NAME_BYTES: usize = 64;
+pub const NAME_BYTES: usize = 64;
 
 /// The bound of a park's reason, which `ParkReason::Stated` leaves free.
-pub(crate) const PARK_REASON_BYTES: usize = 256;
+pub const PARK_REASON_BYTES: usize = 256;
 
 /// The bound of a refusal's words.
-pub(crate) const REFUSAL_BYTES: usize = 512;
+pub const REFUSAL_BYTES: usize = 512;
 
 /// The bound of the feature's first line, the title's source.
-pub(crate) const FEATURE_LINE_BYTES: usize = 1024;
+pub const FEATURE_LINE_BYTES: usize = 1024;
 
 /// The bound of a stamp: `created_at` and `last_recorded_at`.
 pub const STAMP_BYTES: usize = 40;
@@ -82,7 +82,7 @@ pub struct Bounded {
 
 impl Bounded {
     /// `text` within `bytes`.
-    pub(crate) fn within(text: &str, bytes: usize) -> Bounded {
+    pub fn within(text: &str, bytes: usize) -> Bounded {
         let held = cut(text, bytes);
         Bounded {
             cut: held.to_string(),
@@ -102,15 +102,18 @@ struct Finding {
 }
 
 /// A finding as the summary's `residuals` column states it: its claim's
-/// input and value by name, and the mark that closes it.
-#[derive(Serialize)]
-struct Stated<'a> {
-    seq: u64,
-    phase: &'static str,
-    rule_id: Option<&'a str>,
-    input: &'static str,
-    value: &'static str,
-    superseded: Option<&'a Mark>,
+/// input and value by name, and the mark that closes it. The column is
+/// written from it and read back into it, a closed shape (decision 0071
+/// ruling 3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stated {
+    pub seq: u64,
+    pub phase: String,
+    pub rule_id: Option<String>,
+    pub input: String,
+    pub value: String,
+    pub superseded: Option<Mark>,
 }
 
 /// What a writer holds of a run: the run's head as it last judged it, the
@@ -324,16 +327,16 @@ fn hired(state: &RunState) -> Option<Hired> {
 /// The account's findings as the `residuals` column states them, as
 /// canonical JSON.
 fn stated(account: &Account) -> String {
-    let findings: Vec<Stated<'_>> = account
+    let findings: Vec<Stated> = account
         .findings
         .iter()
         .map(|finding| Stated {
             seq: finding.seq,
-            phase: finding.phase.as_str(),
-            rule_id: finding.rule_id.as_deref(),
-            input: finding.claim.input(),
-            value: finding.claim.value(),
-            superseded: account.marks.get(&finding.seq),
+            phase: finding.phase.as_str().to_string(),
+            rule_id: finding.rule_id.clone(),
+            input: finding.claim.input().to_string(),
+            value: finding.claim.value().to_string(),
+            superseded: account.marks.get(&finding.seq).cloned(),
         })
         .collect();
     // Through a value, so its keys sort: the canonical form (`canonical`).

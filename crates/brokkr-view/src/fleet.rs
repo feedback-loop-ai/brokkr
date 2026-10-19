@@ -5,6 +5,7 @@
 //! 0013); a renderer lays them out and derives none of them.
 
 use brokkr_core::fold::{RunState, Status};
+use brokkr_core::page::newest_first;
 use brokkr_core::policy::Severity;
 use brokkr_core::residual;
 use brokkr_core::stamp::parse_millis;
@@ -12,11 +13,11 @@ use serde::Serialize;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    fmt_dur, ruled, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT,
+    fmt_millis, ruled, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT,
     KNOWN_STATUS, VIEW_VERSION,
 };
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct RunRow {
     pub run_id: String,
     pub status: Option<String>,
@@ -57,6 +58,13 @@ pub struct RunRow {
     /// The seat the run's current effect is hired to, and which attempt
     /// of it, while an effect is requested or in flight (#503).
     pub hire: Option<Hire>,
+    /// Where the row lists within its section (decision 0089 ruling 6):
+    /// the milliseconds of its last stamp, or of `created_at` while the
+    /// run has no event, by the one parse, and `i64::MAX` where that does
+    /// not read. Its section and its staleness read it too, so a page read
+    /// from the summary's index and a whole read list a run alike.
+    #[serde(skip)]
+    pub order_at: i64,
 }
 
 /// A seat at work on a run's current effect, as the fold's cursor
@@ -281,9 +289,8 @@ fn section_of(row: &RunRow, now: &str) -> Section {
     if row.acknowledgement.is_some() {
         return Section::Older;
     }
-    let moved = row.last_recorded_at.as_deref().unwrap_or(&row.created_at);
-    match (parse_millis(moved), parse_millis(now)) {
-        (Some(moved), Some(now)) if now - moved >= RECENT_MILLIS => Section::Older,
+    match parse_millis(now) {
+        Some(now) if row.order_at <= now.saturating_sub(RECENT_MILLIS) => Section::Older,
         _ => Section::Recent,
     }
 }
@@ -440,10 +447,10 @@ pub fn at_work<'a>(row: &'a RunRow, now: &str) -> Option<&'a Hire> {
 /// How long the run's journal has been silent, rendered, when that is
 /// past the staleness bound.
 fn silence(row: &RunRow, now: &str) -> Option<String> {
-    let last = row.last_recorded_at.as_deref()?;
-    let silent = parse_millis(now)? - parse_millis(last)?;
+    row.last_recorded_at.as_ref()?;
+    let silent = parse_millis(now)?.checked_sub(row.order_at)?;
     match silent > STALE_AFTER_SECONDS * 1000 {
-        true => fmt_dur(last, now),
+        true => fmt_millis(silent),
         false => None,
     }
 }
@@ -545,9 +552,65 @@ fn fitting(text: &str, columns: usize) -> usize {
 
 // --------------------------------------------------------- the verdict
 
+/// What a verdict is derived from, whichever read holds the run: its fold
+/// read whole, or its summary row, which states these as the fold does
+/// (decision 0089 ruling 2), so the two derive one verdict.
+#[derive(Clone, Copy)]
+pub(crate) struct Facts<'a> {
+    pub(crate) status: Status,
+    pub(crate) phase: Option<&'a str>,
+    /// The last ruling that names its rule, present or null: the rule id
+    /// where present, the phase that ruled, and whether it routed on.
+    pub(crate) ruling: Option<(Option<&'a str>, &'a str, bool)>,
+    pub(crate) park_reason: Option<&'a str>,
+}
+
+impl<'a> Facts<'a> {
+    pub(crate) fn of(state: &'a RunState) -> Facts<'a> {
+        Facts {
+            status: state.run.status(),
+            phase: state.phase.as_deref(),
+            ruling: ruled(state.last_decision.as_ref()).map(|decision| {
+                let routes = decision.next.present().is_some();
+                let rule = decision.rule_id.present().map(String::as_str);
+                (rule, decision.from.as_str(), routes)
+            }),
+            park_reason: state.run.park_reason().map(|reason| reason.as_str()),
+        }
+    }
+
+    fn standing(self) -> Standing {
+        match self.status {
+            Status::Running => Standing::Running,
+            Status::AwaitingOperator => Standing::Parked,
+            Status::Completed => Standing::Shipped,
+            Status::Stopped if self.phase == Some(STOP_PHASE) => Standing::Stopped,
+            Status::Stopped => Standing::OperatorStopped,
+        }
+    }
+
+    /// The last ruling's rule id and the phase that ruled, when it names a
+    /// rule at all.
+    fn last_rule(self) -> Option<(&'a str, Option<&'a str>)> {
+        let (rule, from, _) = self.ruling?;
+        Some((rule?, Some(from)))
+    }
+
+    /// The last ruling routed nowhere, so it is what parked the run — the
+    /// fold's own test for a rule-driven park. A park on an exhausted
+    /// attempt limit or a lost attempt follows a ruling that routed on.
+    fn ruling_parked(self) -> bool {
+        self.ruling.is_some_and(|(_, _, routes)| !routes)
+    }
+}
+
 fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
-    let residual = open_severity(residuals);
-    let Some(state) = state else {
+    verdict_of(state.map(Facts::of), open_severity(residuals))
+}
+
+/// The verdict `facts` and the highest open residual derive.
+pub(crate) fn verdict_of(facts: Option<Facts<'_>>, residual: Option<Severity>) -> Verdict {
+    let Some(facts) = facts else {
         return Verdict {
             standing: Standing::Quarantined,
             rule: None,
@@ -556,10 +619,10 @@ fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
             text: "does not fold".to_string(),
         };
     };
-    let standing = standing_of(state);
+    let standing = facts.standing();
     let rule = match standing {
-        Standing::Shipped | Standing::Stopped => last_rule(state),
-        Standing::Parked if ruling_parked(state) => last_rule(state),
+        Standing::Shipped | Standing::Stopped => facts.last_rule(),
+        Standing::Parked if facts.ruling_parked() => facts.last_rule(),
         Standing::Parked
         | Standing::Running
         | Standing::OperatorStopped
@@ -576,36 +639,25 @@ fn verdict(state: Option<&RunState>, residuals: &[ResidualFinding]) -> Verdict {
         standing,
         rule: rule.map(|(rule, _)| rule.to_string()),
         residual,
-        reason: state
-            .run
-            .park_reason()
-            .map(|reason| reason.as_str().to_string()),
+        reason: facts.park_reason.map(str::to_string),
         text,
     }
 }
 
 pub(crate) fn standing_of(state: &RunState) -> Standing {
-    match state.run.status() {
-        Status::Running => Standing::Running,
-        Status::AwaitingOperator => Standing::Parked,
-        Status::Completed => Standing::Shipped,
-        Status::Stopped if state.phase.as_deref() == Some(STOP_PHASE) => Standing::Stopped,
-        Status::Stopped => Standing::OperatorStopped,
-    }
+    Facts::of(state).standing()
 }
 
 /// The last ruling's rule id and the phase that ruled, when it names a
 /// rule at all.
 pub(crate) fn last_rule(state: &RunState) -> Option<(&str, Option<&str>)> {
-    let decision = state.last_decision.as_ref()?;
-    Some((decision.rule_id.present()?, Some(decision.from.as_str())))
+    Facts::of(state).last_rule()
 }
 
-/// The last ruling routed nowhere, so it is what parked the run — the
-/// fold's own test for a rule-driven park. A park on an exhausted
-/// attempt limit or a lost attempt follows a ruling that routed on.
+/// Whether the last ruling, naming its rule, routed nowhere: what parked
+/// the run ([`Facts::ruling_parked`]).
 pub(crate) fn ruling_parked(state: &RunState) -> bool {
-    ruled(state.last_decision.as_ref()).is_some_and(|decision| decision.next.present().is_none())
+    Facts::of(state).ruling_parked()
 }
 
 /// A rule id without the prefix naming the phase that ruled it —
@@ -634,7 +686,8 @@ fn open_severity(residuals: &[ResidualFinding]) -> Option<Severity> {
 
 // ------------------------------------------------------------ run rows
 
-fn run_row(entry: &RunEntry) -> RunRow {
+/// The row of one run read whole.
+pub fn run_row(entry: &RunEntry) -> RunRow {
     let status = entry
         .state
         .map(|state| state.run.status().as_str().to_string());
@@ -665,6 +718,7 @@ fn run_row(entry: &RunEntry) -> RunRow {
         title: title(entry.feature),
         verdict: verdict(entry.state, entry.residuals),
         hire: entry.state.and_then(hire),
+        order_at: order_at(entry.last_recorded_at, entry.created_at),
     }
 }
 
@@ -678,17 +732,14 @@ fn hire(state: &RunState) -> Option<Hire> {
     })
 }
 
-/// Run rows, newest first. Ordering is a derivation rule, not something
-/// each surface reverses for itself.
+/// Run rows, by last activity, newest first, then run id (decision 0089
+/// ruling 6): the order a page lists each section in, by the same
+/// function, so a paged read and a whole read list a run alike. Ordering
+/// is a derivation rule, not something each surface reverses for itself.
 pub fn run_rows(entries: &[RunEntry]) -> RunsView {
     let mut runs: Vec<RunRow> = entries.iter().map(run_row).collect();
-    runs.reverse();
-    let count = runs.len();
-    RunsView {
-        view_version: VIEW_VERSION,
-        runs,
-        count,
-    }
+    runs.sort_by(|a, b| newest_first(a.place()).cmp(&newest_first(b.place())));
+    RunsView::of(runs)
 }
 
 /// One hearth as a fleet reader hands it over: the realm it belongs to,
@@ -726,6 +777,13 @@ pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
         count,
     }
 }
+
+mod page;
+use page::order_at;
+pub use page::{
+    page, ranges, section_of_rows, summary_row, Cursor, CursorError, Page, Paged, AHEAD_ROWS,
+    PAGE_ROWS,
+};
 
 #[cfg(test)]
 pub(crate) mod tests;

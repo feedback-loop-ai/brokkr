@@ -271,6 +271,22 @@ fn a_status_reads_as_its_one_word() {
     assert_eq!(Status::Stopped.as_str(), "stopped");
 }
 
+/// A summary row's status word reads back as the status that wrote it,
+/// and a word no status takes reads as none (decision 0089 ruling 2).
+#[test]
+fn a_status_word_reads_back_as_its_status() {
+    let all = [
+        Status::Running,
+        Status::AwaitingOperator,
+        Status::Completed,
+        Status::Stopped,
+    ];
+    for status in all {
+        assert_eq!(Status::named(status.as_str()), Some(status));
+    }
+    assert_eq!(Status::named("parked"), None);
+}
+
 /// Every refusal names the position it refused at. A fleet read cites
 /// that number as the quarantined run's one stated fact, so a reader —
 /// or the operator's aide — can go to the journal and check it.

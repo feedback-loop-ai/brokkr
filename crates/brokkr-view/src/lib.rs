@@ -59,9 +59,10 @@ pub use compare::{
 use dashboard::dashboard;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
-    at_work, fleet_rows, need, run_rows, sections, title, title_within, wrap, Acknowledgement,
-    HearthEntries, Hire, Need, Quarantine, Refusal, RunRow, Section, Standing, Verdict,
-    TITLE_COLUMNS, VERDICT_COLUMNS,
+    at_work, fleet_rows, need, page, ranges, run_row, run_rows, section_of_rows, sections,
+    summary_row, title, title_within, wrap, Acknowledgement, Cursor, CursorError, HearthEntries,
+    Hire, Need, Page, Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS,
+    PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
@@ -81,6 +82,7 @@ use brokkr_core::decision::Decision as Decided;
 use brokkr_core::fold::RunState;
 use brokkr_core::realms::Boundary;
 use brokkr_core::residual::{closings, residuals, Mark, Residual};
+use brokkr_core::summary::Stated;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
 use serde_json::Value;
@@ -129,7 +131,9 @@ use serde_json::Value;
 /// `tokens`, the total, input, output and cache-hit cells.
 /// Bumped to 23 by #568's Library: the analytics readout gained `recipes`.
 /// Bumped to 24 by #568's run view: a participant gained its `visit`.
-pub const VIEW_VERSION: u32 = 24;
+/// Bumped to 25 by #753 (decision 0089 ruling 6): a page of runs gained
+/// `next`, and a section lists its runs by last activity.
+pub const VIEW_VERSION: u32 = 25;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -190,6 +194,22 @@ pub struct RunsView {
     pub view_version: u32,
     pub runs: Vec<RunRow>,
     pub count: usize,
+    /// Where the next page starts, when one page was asked for (decision
+    /// 0089 ruling 6); a listing of every run states none.
+    #[serde(flatten)]
+    pub page: Option<Paged>,
+}
+
+impl RunsView {
+    /// Every run of `runs`, listed whole.
+    pub fn of(runs: Vec<RunRow>) -> RunsView {
+        RunsView {
+            view_version: VIEW_VERSION,
+            count: runs.len(),
+            runs,
+            page: None,
+        }
+    }
 }
 
 /// One hearth's runs, under the realm name they belong to (decision 0026
@@ -695,7 +715,12 @@ fn result_token(payload: &Value) -> Option<&str> {
 pub fn fmt_dur(from_iso: &str, to_iso: &str) -> Option<String> {
     let to = brokkr_core::stamp::parse_millis(to_iso)?;
     let from = brokkr_core::stamp::parse_millis(from_iso)?;
-    let millis = to - from;
+    fmt_millis(to - from)
+}
+
+/// `millis` humanized as [`fmt_dur`] humanizes the time between two
+/// stamps, and nothing for a negative span.
+pub(crate) fn fmt_millis(millis: i64) -> Option<String> {
     if millis < 0 {
         return None;
     }
@@ -794,7 +819,15 @@ pub fn cited(by: &SupersededBy) -> String {
 /// (decision 0047 ruling 3), and what an annotation does not say reads
 /// as the absence mark.
 fn supersedes(events: &[EventEnvelope]) -> BTreeMap<u64, Superseded> {
-    let marked = |mark: Mark| Superseded {
+    closings(events)
+        .into_iter()
+        .map(|(finding, mark)| (finding, superseded_of(mark)))
+        .collect()
+}
+
+/// A mark as every surface shows it, the absence mark where it is silent.
+fn superseded_of(mark: Mark) -> Superseded {
+    Superseded {
         seq: mark.seq,
         by: SupersededBy {
             realm: mark.by.realm,
@@ -804,11 +837,7 @@ fn supersedes(events: &[EventEnvelope]) -> BTreeMap<u64, Superseded> {
         reason: mark.reason.unwrap_or_else(|| ABSENT.to_string()),
         operator: mark.operator.unwrap_or_else(|| ABSENT.to_string()),
         recorded_at: mark.recorded_at,
-    };
-    closings(events)
-        .into_iter()
-        .map(|(finding, mark)| (finding, marked(mark)))
-        .collect()
+    }
 }
 
 /// One residual finding, with the journal fact it was read from.
@@ -851,7 +880,7 @@ pub struct ResidualFinding {
 /// again afterwards changes nothing about a mark already written
 /// (ruling 2).
 pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<ResidualFinding> {
-    let marks = supersedes(events);
+    let marks: BTreeMap<u64, Mark> = closings(events).into_iter().collect();
     residuals(events)
         .into_iter()
         .map(|claim| {
@@ -860,26 +889,50 @@ pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<Residual
                 phase,
                 claim,
             } = claim;
-            let (phase, input, value) = (phase.as_str(), claim.input(), claim.value());
-            let seq = ruling.seq;
-            let rule_id = display_or_mark(ruling.payload.get("rule_id"));
-            let superseded = marks.get(&seq).cloned();
-            let mark = match &superseded {
-                Some(mark) => format!(" · superseded by {}", cited(&mark.by)),
-                None => String::new(),
-            };
-            ResidualFinding {
-                run_id: run_id.to_string(),
-                seq,
-                phase: phase.to_string(),
-                line: format!("{run_id} seq {seq} · {phase} · {rule_id} · {input}: {value}{mark}"),
-                rule_id,
-                input: input.to_string(),
-                value: value.to_string(),
-                superseded,
-            }
+            stated_finding(
+                run_id,
+                Stated {
+                    seq: ruling.seq,
+                    phase: phase.as_str().to_string(),
+                    rule_id: Some(display_or_mark(ruling.payload.get("rule_id"))),
+                    input: claim.input().to_string(),
+                    value: claim.value().to_string(),
+                    superseded: marks.get(&ruling.seq).cloned(),
+                },
+            )
         })
         .collect()
+}
+
+/// A residual finding of run `run_id` as every surface shows it, from the
+/// finding as its summary's `residuals` column states it (decision 0089
+/// ruling 2) or as [`residual_findings`] reads it from the journal: the
+/// one rendering of its line.
+pub(crate) fn stated_finding(run_id: &str, stated: Stated) -> ResidualFinding {
+    let Stated {
+        seq,
+        phase,
+        rule_id,
+        input,
+        value,
+        superseded,
+    } = stated;
+    let rule_id = rule_id.unwrap_or_else(|| "?".to_string());
+    let superseded = superseded.map(superseded_of);
+    let mark = match &superseded {
+        Some(mark) => format!(" · superseded by {}", cited(&mark.by)),
+        None => String::new(),
+    };
+    ResidualFinding {
+        run_id: run_id.to_string(),
+        seq,
+        line: format!("{run_id} seq {seq} · {phase} · {rule_id} · {input}: {value}{mark}"),
+        phase,
+        rule_id,
+        input,
+        value,
+        superseded,
+    }
 }
 
 /// The finding a fleet read raises for a run whose journal does not

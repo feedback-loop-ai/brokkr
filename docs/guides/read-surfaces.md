@@ -201,7 +201,12 @@ a passing argv test upgrades neither.
 
 ### `brokkr runs` — the fleet
 
-One clamped line per run, newest first. The samples from here to
+One clamped line per run: the fleet's sections in order, needs you,
+running, last 24h and older, each by last activity, newest first. The
+journal is read a page at a time from each run's summary row (decision
+0089), so a listing costs a page of rows however many events the journal
+holds; `--limit N` prints one page and the command for the next, `--after`
+takes a page's cursor, and `--json` states it as `next`. The samples from here to
 `seats` read the run the [quickstart's Step 3](quickstart.md#step-3--brokkr-run)
 drives, the `claude` CLI stubbed, with its id's hash, its duration and
 your host's places elided.

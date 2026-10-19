@@ -33,6 +33,7 @@ fn asking<'a>(
         force,
         fleet,
         tab,
+        rows: brokkr_view::AHEAD_ROWS,
     }
 }
 

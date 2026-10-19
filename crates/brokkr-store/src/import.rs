@@ -80,7 +80,7 @@ pub struct Adoption {
 /// three times over; it exists because the id becomes a path component
 /// on the next export, and a bound is cheaper than the error that would
 /// otherwise come back from the filesystem.
-pub(crate) const RUN_ID_MAX: usize = 128;
+pub const RUN_ID_MAX: usize = 128;
 
 /// What a run id may contain for this journal to adopt it.
 ///
