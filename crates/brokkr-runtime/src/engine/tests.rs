@@ -169,13 +169,13 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         dir: dir.to_path_buf(),
         roots: vec![dir.to_path_buf()],
         boundary: Boundary::Namespace,
+        executable: crate::argv::tests::ENGINE.clone(),
         chain: Vec::new(),
         machine: machine(),
         seats,
         manifest: json!({
             "engine":ENGINE_VERSION, "event_schema":1, "database_schema":1,
-            "driver_protocol":1, "bundle_name":"test",
-            "files":{"bundle.json":"a".repeat(64)}
+            "driver_protocol":1, "bundle_name":"test", "files":{"bundle.json":"a".repeat(64)}
         }),
         protected_phase: "review".into(),
         hands: BTreeMap::new(),
@@ -5690,7 +5690,7 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
         brokkr: &brokkr,
         workdir,
         artifacts: Path::new("/a"),
-        sealed: boxed(workdir).1.unwrap(),
+        sealed: boxed(workdir).2.unwrap(),
         spec: &spec,
     };
     assert_eq!(Some(argv.clone()), transport.expand(&fragment));

@@ -18,12 +18,15 @@ use super::{
     InputFault, LibraryRead, SiteFacts, SiteLaw,
 };
 use crate::agents::{Adapters, Candidate, Report, Resolution};
+use crate::argv::Executable;
 
-/// One agent reference as its site wrote it: the directory of the layer
-/// that declared the site, the site and its declaration, the secrets it
+/// One agent reference as its site wrote it: the engine executable and the
+/// directory of the layer that declared the site, which its `{brokkr}` and
+/// `./` tokens expand to, the site and its declaration, the secrets it
 /// binds, the boundary the bundle compiles under, and the agent it names.
 #[derive(Clone, Copy)]
 pub(super) struct ReferenceAt<'s> {
+    pub(super) engine: &'s Executable,
     pub(super) dir: &'s Path,
     pub(super) what: &'s str,
     pub(super) raw: &'s Value,
@@ -57,6 +60,7 @@ pub(super) fn judge_mapped_hands(
         secrets,
         boundary,
         name,
+        ..
     } = at;
     // D33: judge every mapped hands link before resolving capability gaps.
     // In particular dsh/LaneTally earn the tier refusal under namespace,
@@ -110,7 +114,11 @@ pub(super) fn resolved_candidates(
     adapters: &Adapters,
 ) -> Result<Vec<Candidate>, CompileError> {
     let ReferenceAt {
-        dir, what, secrets, ..
+        engine,
+        dir,
+        what,
+        secrets,
+        ..
     } = at;
     // The composed argv faces the SAME secret-reference lint as an inline
     // one (decision 0012), and `{brokkr}` is expanded by the same
@@ -124,12 +132,12 @@ pub(super) fn resolved_candidates(
             model: candidate.model.clone(),
             effort: candidate.effort.clone(),
             provider: candidate.provider.clone(),
-            argv: expand_command(dir, &candidate.argv),
+            argv: expand_command(engine, dir, &candidate.argv),
             hands_fragment: candidate.hands_fragment.clone(),
             harness: candidate.harness.clone(),
             resume: candidate.resume.clone(),
             hands_notice: candidate.hands_notice.clone(),
-            lowering: expand_lowering(dir, &candidate.lowering),
+            lowering: expand_lowering(engine, dir, &candidate.lowering),
         });
     }
     Ok(candidates)

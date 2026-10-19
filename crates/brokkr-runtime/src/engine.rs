@@ -30,6 +30,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::agents::{Candidate, Lowering, ResultDoor};
+use crate::argv::Executable;
 use crate::bundle::{
     charters_as_started, charters_intact, Bundle, CharterPin, ExecutableBody, HandsState, Seat,
     SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
@@ -1268,7 +1269,8 @@ impl Engine {
         let (workdir, artifacts) = (self.workdir(), artifact_root(&self.run_local()));
         let reach = hands.and_then(|spec| self.reach.sealed(spec));
         let sealed = expected_state(outcome, link, facts).and_then(|expected| {
-            let (site, boxed) = ((link, facts), (&*workdir, &*artifacts, reach));
+            let site = (link, facts);
+            let boxed = (&self.bundle.executable, &*workdir, &*artifacts, reach);
             let served = isolation::served(spawn, site, self.boundary, boxed, brokers);
             let serving = served.map_err(|unsealed| unsealed.to_string())?;
             spawn.seal(expected)?;
@@ -1512,7 +1514,7 @@ impl Engine {
                 hands,
                 link,
                 &workdir,
-                (&artifacts, sealed),
+                (&self.bundle.executable, &artifacts, sealed),
                 &self.bundle.roots,
                 result_path,
                 unboxed.as_ref(),
@@ -2824,8 +2826,8 @@ pub(crate) fn network_prefix_if(passes: bool, uid: u32, gid: u32) -> Vec<String>
 
 /// Is this argv a `<engine> driver exec -- …` dispatch? The engine token
 /// itself is not matched on, as the compiler never matches on it.
-fn is_exec_dispatch(command: &[String]) -> bool {
-    command.len() >= 3 && command[1] == "driver" && command[2] == "exec"
+pub(crate) fn is_exec_dispatch(command: &[String]) -> bool {
+    crate::argv::Dispatch::of(command).is_exec()
 }
 
 /// The directory holding the first script token compile expanded from
@@ -2924,8 +2926,9 @@ fn engine_hands(tokens: &[String]) -> Vec<Segment> {
 /// - under `open`, a model site: the base driver argv and nothing of
 ///   Brokkr's.
 ///
-/// `boxed` is what a box is handed: the run's artifact root (U8a) and the
-/// reach admission sealed for these hands (U8a2c).
+/// `boxed` is what a box is handed: the engine executable, which also fills
+/// a harness fragment's `{brokkr}` (#349), the run's artifact root (U8a)
+/// and the reach admission sealed for these hands (U8a2c).
 #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
 pub fn compose_site(
     boundary: BuiltBoundary,
@@ -2934,7 +2937,7 @@ pub fn compose_site(
     hands: Option<&HandsSpec>,
     candidate: Option<&Candidate>,
     workdir: &Path,
-    boxed: (&Path, Option<&Sealed>),
+    boxed: (&Executable, &Path, Option<&Sealed>),
     roots: &[PathBuf],
     result_path: &str,
     unboxed: Option<&Unboxed>,
@@ -2978,7 +2981,7 @@ pub fn compose_site_at(
     hands: Option<&HandsSpec>,
     candidate: Option<&Candidate>,
     workdir: &Path,
-    (artifacts, sealed): (&Path, Option<&Sealed>),
+    (engine, artifacts, sealed): (&Executable, &Path, Option<&Sealed>),
     roots: &[PathBuf],
     result_path: &str,
     unboxed: Option<&Unboxed>,
@@ -3015,7 +3018,7 @@ pub fn compose_site_at(
         hands,
         candidate,
         workdir,
-        boxed: (artifacts, sealed),
+        boxed: (engine, artifacts, sealed),
         roots,
         result_path,
         unboxed,
@@ -3035,7 +3038,7 @@ struct Composing<'a> {
     hands: Option<&'a HandsSpec>,
     candidate: Option<&'a Candidate>,
     workdir: &'a Path,
-    boxed: (&'a Path, Option<&'a Sealed>),
+    boxed: (&'a Executable, &'a Path, Option<&'a Sealed>),
     roots: &'a [PathBuf],
     result_path: &'a str,
     unboxed: Option<&'a Unboxed>,
@@ -3088,10 +3091,7 @@ fn compose_segments(site: &Composing<'_>, segments: Vec<Segment>) -> SiteSpawn {
             }
         }
         BuiltBoundary::Harness => {
-            let brokkr = std::env::current_exe()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
+            let brokkr = boxed.0.lossy();
             let fragment = candidate.and_then(|candidate| match class {
                 SeatClass::Gate => candidate.harness.gate.as_deref(),
                 SeatClass::Work => candidate.harness.work.as_deref(),

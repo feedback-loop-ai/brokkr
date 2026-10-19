@@ -24,6 +24,7 @@ mod assemble;
 mod capability_record;
 mod charters;
 pub mod compose;
+mod expand;
 mod invocation;
 mod mcp;
 mod opened;
@@ -46,6 +47,8 @@ use capability_record::{
 };
 use charters::parse_role;
 use compose::{Ancestor, COMPOSE_PREFIX};
+pub use expand::expand_command;
+pub(crate) use expand::expand_lowering;
 pub use invocation::Invocation;
 pub(crate) use mcp::{McpContribution, McpIntent};
 use opened::Opened;
@@ -62,11 +65,12 @@ pub use tier::{ProvisionalRefusal, RealmLaw};
 use walk::{refuse_unlisted_consumed, walk_digests, walk_keys, Walk};
 
 #[cfg(test)]
-use crate::agents::{resolve_route, TrustTier};
+use crate::agents::{resolve_route, Lowering, TrustTier};
 use crate::agents::{
-    route_is_effortless, Adapter, Adapters, Availability, Candidate, Composition, EgressClass,
-    HandsNotice, Lowering, Sandbox,
+    route_is_effortless, Adapter, Adapters, Availability, Candidate, EgressClass, HandsNotice,
+    Sandbox,
 };
+use crate::argv::{Dispatch, Executable};
 use crate::dialect::{Dialect, DialectPhase};
 use crate::phase_name;
 use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
@@ -604,6 +608,10 @@ pub struct Bundle {
     /// hands site in the manifest's `boundary` map, and the one word the
     /// engine composes every site with hands from (design DD3).
     pub boundary: Boundary,
+    /// The engine executable every `{brokkr}` was expanded to (#349, ask
+    /// 8), carried to the engine so its spawns name the same binary.
+    /// Machine-local, so never digested.
+    pub executable: Executable,
     /// The composition chain, nearest ancestor first (decision 0017).
     /// Empty unless the recipe extends another.
     pub chain: Vec<Ancestor>,
@@ -708,13 +716,16 @@ fn resolved_hands(seat: &ResolvedSeat) -> Option<HandsSpec> {
 /// The model-bearing built-in named by one written driver command
 /// ([`command_parts`]). Custom drivers own their own contract; exec has no
 /// model to pin.
-fn built_in_model_driver(command: &[String]) -> Option<&'static str> {
-    if command.get(1).map(String::as_str) != Some("driver") {
+pub(crate) fn built_in_model_driver(command: &[String]) -> Option<&'static str> {
+    let Dispatch::Driver {
+        kind: dispatched, ..
+    } = Dispatch::of(command)
+    else {
         return None;
-    }
+    };
     ["claude", "lanetally", "codex", "dsh"]
         .into_iter()
-        .find(|kind| command.get(2).map(String::as_str) == Some(*kind))
+        .find(|kind| dispatched == *kind)
 }
 
 /// What one inline command's argv says about one pin — the model pin on
@@ -1301,6 +1312,23 @@ impl Bundle {
         law: impl Into<RealmLaw>,
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
+        let roots = (library_root, adapters_root);
+        let engine = Executable::current();
+        Self::compile_as(&engine, dir, roots, realm_name, dialect, law, capabilities)
+    }
+
+    /// [`Bundle::compile_with_capabilities`] for the engine executable
+    /// `engine`, the one value its every `{brokkr}` expands to and the
+    /// compiled bundle carries to the engine (#349, ask 8).
+    pub(crate) fn compile_as(
+        engine: &Executable,
+        dir: &Path,
+        roots: (&Path, &Path),
+        realm_name: Option<&str>,
+        dialect: Option<&Dialect>,
+        law: impl Into<RealmLaw>,
+        capabilities: &crate::capabilities::CapabilityContext,
+    ) -> Result<Bundle, CompileError> {
         let dir = dir
             .canonicalize()
             .map_err(|e| CompileError::Invalid(format!("bundle dir {}: {e}", dir.display())))?;
@@ -1309,50 +1337,38 @@ impl Bundle {
         // composition happened (decision 0017).
         let resolved = compose::resolve_unsealed(&dir)?;
         let note = resolved.chain_note();
-        Bundle::assemble(
-            &dir,
-            resolved,
-            library_root,
-            adapters_root,
-            realm_name,
-            dialect,
-            law.into(),
-            capabilities,
-        )
-        // A composed bundle's failure is wrapped ONCE with the chain: a
-        // capability keeps its raw words, a policy refusal its type.
-        .map_err(|error| match (note, error) {
-            (Some(note), CompileError::Capability(reason)) => {
-                CompileError::Capability(format!("bundle: {reason} ({note})"))
-            }
-            (Some(note), CompileError::Policy(error)) => {
-                CompileError::ComposedPolicy(Box::new(error), note)
-            }
-            (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
-            (None, error) => error,
-        })
+        let realm = (realm_name, dialect, law.into());
+        Bundle::assemble(&dir, resolved, roots, engine, realm, capabilities)
+            // A composed bundle's failure is wrapped ONCE with the chain: a
+            // capability keeps its raw words, a policy refusal its type.
+            .map_err(|error| match (note, error) {
+                (Some(note), CompileError::Capability(reason)) => {
+                    CompileError::Capability(format!("bundle: {reason} ({note})"))
+                }
+                (Some(note), CompileError::Policy(error)) => {
+                    CompileError::ComposedPolicy(Box::new(error), note)
+                }
+                (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
+                (None, error) => error,
+            })
     }
 
     /// The agent roots ride through: composition resolves the bundle,
     /// then agent references inside the RESOLVED seats resolve against
-    /// the library and adapters (decisions 0016 and 0017 layered).
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "baseline 2026-09, #288; decision 0065 adds the capability context"
-    )]
+    /// the library and adapters (decisions 0016 and 0017 layered), and
+    /// every `{brokkr}` expands to `engine`.
     fn assemble(
         dir: &Path,
         mut resolved: compose::Resolved,
-        library_root: &Path,
-        adapters_root: &Path,
-        realm_name: Option<&str>,
-        dialect: Option<&Dialect>,
-        RealmLaw {
-            boundary,
-            provisional_offices,
-        }: RealmLaw,
+        (library_root, adapters_root): (&Path, &Path),
+        engine: &Executable,
+        (realm_name, dialect, law): (Option<&str>, Option<&Dialect>, RealmLaw),
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
+        let RealmLaw {
+            boundary,
+            provisional_offices,
+        } = law;
         // Decision 0065 (design D4 steps 1 and 2): the operated realm's
         // grants are judged BEFORE any seat is looked at — every
         // definition, every selected dialect, every restriction, and the
@@ -1391,7 +1407,7 @@ impl Bundle {
         // map; a wrapper moves entrants.
         let mut compiler = SiteCompiler::new(
             agents,
-            boundary,
+            (boundary, engine),
             dialect,
             &charters,
             &resolved.roots,
@@ -1403,6 +1419,7 @@ impl Bundle {
         let mut seated = assemble::Seated {
             authority: &authority,
             boundary,
+            engine,
             resolved: &resolved,
             agents,
             sites,
@@ -1448,6 +1465,7 @@ impl Bundle {
             dir: dir.to_path_buf(),
             roots: resolved.roots,
             boundary,
+            executable: engine.clone(),
             chain: resolved.chain,
             machine,
             seats,
@@ -1723,7 +1741,7 @@ fn resolve_reference(
     secrets: &[String],
     site: SiteRole,
 ) -> Result<ResolvedSeat, CompileError> {
-    let boundary = compiler.boundary;
+    let (boundary, engine) = (compiler.boundary, compiler.engine);
     let SiteCompiler { agents, sites, .. } = compiler;
     let name = agent_name(what, raw)?;
     let (library, adapters) = agents.agent_roots()?;
@@ -1743,6 +1761,7 @@ fn resolve_reference(
     .map_err(|e| CompileError::Invalid(format!("seat '{what}': {e}")))?;
     let effective = report.agent.local();
     let at = ReferenceAt {
+        engine,
         dir,
         what,
         raw,
@@ -1930,7 +1949,7 @@ fn decode_site_tools(what: &str, raw: &Value) -> Result<crate::agents::LocalTool
 /// driver is lowered by [`lower_inline_sandbox`]; everywhere else it keeps
 /// its refusal.
 fn record_inline_tools(
-    dir: &Path,
+    expand: (&Executable, &Path),
     what: &str,
     raw: &Value,
     seat: bool,
@@ -1959,7 +1978,7 @@ fn record_inline_tools(
         }
         None => None,
     };
-    record_judged_tools(dir, what, local, lowered, sandboxed, sites);
+    record_judged_tools(expand, what, local, lowered, sandboxed, sites);
     Ok(())
 }
 
@@ -1968,7 +1987,7 @@ fn record_inline_tools(
 /// dialect validator declares no `tools`, so it records the unspecified
 /// declaration here directly (operator ruling of 2026-09-30, unit 26c).
 fn record_judged_tools(
-    dir: &Path,
+    (engine, dir): (&Executable, &Path),
     what: &str,
     local: crate::agents::LocalTools,
     lowered: Option<InlineAllow>,
@@ -1981,7 +2000,7 @@ fn record_judged_tools(
     // engine's contribution names this machine's paths as the command does.
     let expanded = |segment: Segment| Segment {
         origin: segment.origin,
-        argv: expand_command(dir, &segment.argv),
+        argv: expand_command(engine, dir, &segment.argv),
     };
     // A seat's allow and its sandbox never both lower: the one lowers only
     // for claude and lanetally, the other only for codex. Whichever did
@@ -2007,7 +2026,9 @@ fn record_judged_tools(
     // fact, beside and never read back from the segment to be emitted.
     let lowers = lowered.is_some() || sandboxed.is_some();
     facts.declared_template = lowers.then(|| match &template {
-        Some(declared) => TemplateExpectation::Declared(expand_command(dir, &declared.argv)),
+        Some(declared) => {
+            TemplateExpectation::Declared(expand_command(engine, dir, &declared.argv))
+        }
         None => TemplateExpectation::None,
     });
     facts.inline_local = lowered.map(|lowered| crate::agents::LocalLowering {
@@ -2745,10 +2766,10 @@ fn refuse_class_without_a_driver(what: &str, raw: &Value) -> Result<(), CompileE
 /// of the binary it means, and both are the same dispatch. `None` for any other shape: a raw process is a driver that
 /// declares nothing, which decision 0021 reads as untrusted and
 /// ungranted rather than as exempt.
-fn dispatch_driver(parts: &[String]) -> Option<String> {
-    match parts {
-        [_, marker, name, ..] if marker == "driver" => Some(name.clone()),
-        _ => None,
+pub(crate) fn dispatch_driver(parts: &[String]) -> Option<String> {
+    match Dispatch::of(parts) {
+        Dispatch::Driver { kind, .. } => Some(kind.to_string()),
+        Dispatch::Raw => None,
     }
 }
 
@@ -4468,7 +4489,7 @@ fn record_capabilities(
     }
     // A single site, by the same two keys `has_single` reads.
     if ["driver", "role"].iter().any(|key| raw.get(key).is_some()) {
-        return record_inline_capabilities(&at, dir, sites);
+        return record_inline_capabilities(&at, (walk.engine, dir), sites);
     }
     if written.is_some() {
         return Err(CompileError::Invalid(format!(
@@ -4685,7 +4706,7 @@ fn command_parts(raw: &Value) -> Vec<String> {
 }
 
 fn parse_command(
-    dir: &Path,
+    (engine, dir): (&Executable, &Path),
     what: &str,
     raw: &Value,
     secrets: &[String],
@@ -4697,7 +4718,7 @@ fn parse_command(
         )));
     }
     lint_secret_refs(what, &parts, secrets)?;
-    Ok(expand_command(dir, &parts))
+    Ok(expand_command(engine, dir, &parts))
 }
 
 /// Constitutional lint (decision 0012): every `{{secret:` occurrence in
@@ -4722,67 +4743,6 @@ fn lint_secret_refs(what: &str, parts: &[String], secrets: &[String]) -> Result<
         }
     }
     Ok(())
-}
-
-/// `{brokkr}` is this engine's own executable (built-in drivers) and
-/// `./`-prefixed entries are bundle-relative. Composed argv is expanded
-/// by this same function, which is why a resolved seat's command is an
-/// inline seat's command by construction — and why the manifest record
-/// carries names, never argv: the expansion is machine-local.
-///
-/// Public because a seat composed OUTSIDE a bundle — Muninn's, under
-/// decision 0020 — must expand the same tokens from the same code
-/// rather than from a second copy of this rule.
-pub fn expand_command(dir: &Path, parts: &[String]) -> Vec<String> {
-    parts
-        .iter()
-        .map(|part| {
-            if part == "{brokkr}" {
-                return brokkr_executable(std::env::current_exe());
-            }
-            match part.strip_prefix("./") {
-                Some(rel) => dir.join(rel).to_string_lossy().into_owned(),
-                None => part.clone(),
-            }
-        })
-        .collect()
-}
-
-/// [`expand_command`] over a composition, one segment at a time (design
-/// D5.7): each token keeps the origin of the segment that supplied it, and
-/// because the expansion is token for token, the expanded segments are
-/// exactly the expanded argv, in order. A lowering that never composed
-/// has nothing to expand.
-pub(crate) fn expand_lowering(dir: &Path, lowering: &Lowering) -> Lowering {
-    match lowering {
-        Lowering::Composed(composition) => Lowering::Composed(Composition {
-            segments: composition
-                .segments
-                .iter()
-                .map(|segment| Segment {
-                    origin: segment.origin,
-                    argv: expand_command(dir, &segment.argv),
-                })
-                .collect(),
-            // Rebuild unit 5c-fix2: the declared template is expanded as
-            // its segment is, so the seal compares like with like.
-            template: match &composition.template {
-                TemplateExpectation::None => TemplateExpectation::None,
-                TemplateExpectation::Declared(argv) => {
-                    TemplateExpectation::Declared(expand_command(dir, argv))
-                }
-            },
-            ..composition.clone()
-        }),
-        other => other.clone(),
-    }
-}
-
-fn brokkr_executable(current: std::io::Result<PathBuf>) -> String {
-    match current {
-        Ok(path) => path.to_string_lossy().into_owned(),
-        Err(_) => "brokkr".to_string(),
-    }
 }
 
 /// Fold every site's pinned driver digests into the manifest's `drivers`

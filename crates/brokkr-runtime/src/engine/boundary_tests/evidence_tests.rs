@@ -199,7 +199,7 @@ fn a_zero_grant_exec_box_keeps_historical_evidence_without_an_authored_key() {
     let spec = HandsSpec::default();
     let home = dir.path().join("home");
     let reach = brokkr_protocol::hands::seal(&spec, &home, &work, &GitFacts::default());
-    let carried = (artifacts.as_path(), Some(&reach));
+    let carried = (&*ENGINE, artifacts.as_path(), Some(&reach));
     let argv = hands_command(inner, Some(&spec), &work, carried, &[]).unwrap();
     let (work_arg, root_arg) = (work.display().to_string(), artifacts.display().to_string());
     let reach_arg = serde_json::to_string(&reach).unwrap();

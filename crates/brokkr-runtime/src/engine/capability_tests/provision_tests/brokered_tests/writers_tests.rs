@@ -333,7 +333,11 @@ fn dispatched(claude: &mut Claude, case: &str, (spec, attack): (&HandsSpec, &str
     // Its reach sealed as its admission seals it, under the fixture's HOME.
     let git = brokkr_protocol::hands::git_facts(&work);
     let reach = brokkr_protocol::hands::seal(spec, &claude.fixture.root.join("home"), &work, &git);
-    let boxed = (artifacts.as_path(), Some(&reach));
+    let boxed = (
+        &*crate::argv::tests::ENGINE,
+        artifacts.as_path(),
+        Some(&reach),
+    );
     let argv = crate::engine::boxed::hands_command(exec.to_vec(), Some(spec), &work, boxed, &[]);
     let repo = canonical::sha256_bytes(work.as_os_str().as_encoded_bytes());
     let home = claude

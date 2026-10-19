@@ -11,6 +11,8 @@ use brokkr_protocol::hands::{HandsSpec, Sealed, UNPROTECTED_EVIDENCE};
 use brokkr_protocol::native_controls::Transport;
 use thiserror::Error;
 
+use crate::argv::Executable;
+
 /// The artifact root's name in the run-local directory (decision 0083):
 /// retained responses are published at `artifacts/sha256/<hex>` there.
 const ARTIFACTS: &str = "artifacts";
@@ -126,8 +128,8 @@ fn named(path: &Path, unnamed: fn(PathBuf) -> Unnamed) -> Result<&str, Unnamed> 
 
 /// Decision 0043: put a site's hands in the box. A model seat's argv has
 /// the adapter's fragment already; its two tokens are expanded here,
-/// where the workdir and this binary's path are known — the MCP server a
-/// harness spawns is `brokkr hands serve` on this very executable. An
+/// where the workdir and `engine`, this binary's path, are known — the MCP
+/// server a harness spawns is `brokkr hands serve` on that executable. An
 /// `exec` dispatch is boxed whole instead: `brokkr hands exec` builds the
 /// namespace at run time and passes the driver's stdio straight through.
 /// Either is handed `artifacts`, the run's artifact root (U8a), and
@@ -146,20 +148,19 @@ pub(crate) fn hands_command(
     command: Vec<String>,
     hands: Option<&HandsSpec>,
     workdir: &Path,
-    (artifacts, sealed): (&Path, Option<&Sealed>),
+    (engine, artifacts, sealed): (&Executable, &Path, Option<&Sealed>),
     roots: &[PathBuf],
 ) -> Result<Vec<String>, Unnamed> {
     let Some(spec) = hands else {
         return Ok(command);
     };
-    let brokkr = std::env::current_exe().unwrap_or_default();
-    let exe = named(&brokkr, Unnamed::Executable)?;
+    let brokkr = engine.or_empty();
+    let exe = named(brokkr, Unnamed::Executable)?;
     let work = named(workdir, Unnamed::Workdir)?;
     let evidence = named(artifacts, Unnamed::Artifacts)?;
     let sealed = sealed.ok_or(Unnamed::Unsealed)?;
     let reach = serde_json::to_string(sealed).or(Err(Unnamed::Unsealed))?;
-    let is_exec = command.len() >= 3 && command[1] == "driver" && command[2] == "exec";
-    if is_exec {
+    if super::is_exec_dispatch(&command) {
         let bundle_root = roots
             .iter()
             .find(|root| {
@@ -210,7 +211,7 @@ pub(crate) fn hands_command(
         return Ok(boxed);
     }
     Transport {
-        brokkr: &brokkr,
+        brokkr,
         workdir,
         artifacts,
         sealed,

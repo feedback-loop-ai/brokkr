@@ -174,7 +174,7 @@ pub(super) fn step_body(
             let sites = &mut compiler.sites;
             StepBody::Invocation(Invocation::Single {
                 role_path: parse_role(at.dir, what, step_raw, compiler.charters, sites)?,
-                command: parse_command(at.dir, what, step_raw, at.secrets)?,
+                command: parse_command((compiler.engine, at.dir), what, step_raw, at.secrets)?,
                 candidates: Vec::new(),
                 written,
                 class: (),
@@ -251,7 +251,7 @@ fn dialect_step(
     // local field (design D5.2), judged against the command the
     // validator actually runs.
     record_inline_tools(
-        at.dir,
+        (compiler.engine, at.dir),
         what,
         step_raw,
         false,

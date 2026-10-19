@@ -123,7 +123,7 @@ fn a_selected_sequence_holds_no_dialect_step() {
     for (operation, expected) in refusals {
         let compiler = &mut SiteCompiler::new(
             crate::bundle::tests::unopened(),
-            Boundary::Namespace,
+            (Boundary::Namespace, &crate::argv::tests::ENGINE),
             Some(&dialect),
             &charters,
             &[],

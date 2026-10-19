@@ -10,6 +10,8 @@ use std::sync::LazyLock;
 use brokkr_protocol::hands::Sealed;
 
 use super::*;
+pub(in crate::engine) use crate::argv::tests::ENGINE;
+use crate::argv::Executable;
 
 /// The reach the argv fixtures' boxes are composed with: the one that
 /// seals nothing, which hands builds no box from, so only the argv tests
@@ -20,15 +22,23 @@ static REACH: LazyLock<Sealed> = LazyLock::new(Sealed::default);
 pub(in crate::engine) const REACH_ARG: &str =
     "{\"home\":\"\",\"worktree\":{\"path\":\"\",\"identity\":null},\"git\":null,\"binds\":[]}";
 
-/// What a box is handed in the argv fixtures: `artifacts` and [`REACH`].
-pub(in crate::engine) fn boxed(artifacts: &Path) -> (&Path, Option<&'static Sealed>) {
-    (artifacts, Some(&REACH))
+/// What a box is handed in the argv fixtures: the test binary's own
+/// [`ENGINE`], `artifacts` and [`REACH`].
+pub(in crate::engine) fn boxed(
+    artifacts: &Path,
+) -> (&'static Executable, &Path, Option<&'static Sealed>) {
+    (&ENGINE, artifacts, Some(&REACH))
 }
 
 /// [`boxed`] at the fixtures' artifact root, `/a`.
-pub(in crate::engine) fn boxed_a() -> (&'static Path, Option<&'static Sealed>) {
+pub(in crate::engine) fn boxed_a() -> (&'static Executable, &'static Path, Option<&'static Sealed>)
+{
     boxed(Path::new("/a"))
 }
+
+/// The engine executable every box, harness fragment and dialect step is
+/// composed with (#349, ask 8).
+mod executable_tests;
 
 /// A seat, member or step without hands is sealed no reach and needs none:
 /// it composes its own argv untouched under every boundary. Moved here

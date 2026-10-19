@@ -26,6 +26,7 @@ use super::{
     StepBody,
 };
 use crate::agents::EgressClass;
+use crate::argv::Executable;
 use crate::capabilities::{Authority, Definitions};
 use crate::dialect::Command;
 use crate::phase_name;
@@ -336,11 +337,11 @@ fn pin_drivers(
 fn record_seat_capabilities(
     authority: &Authority,
     agents: &Opened<'_>,
-    boundary: Boundary,
+    at: (Boundary, &Executable),
     resolved: &compose::Resolved,
     sites: &mut BTreeMap<String, SiteFacts>,
 ) -> Result<(), CompileError> {
-    let walk = CapabilityWalk::of(authority, agents, boundary, resolved);
+    let walk = CapabilityWalk::of(authority, agents, at, resolved);
     for (phase, raw) in &resolved.seats {
         // The layer that wrote the seat, as its agent's hands
         // segment is expanded against (review return F1).
@@ -351,13 +352,15 @@ fn record_seat_capabilities(
 }
 
 /// One compile once its seats are read, in one parameter object (decision
-/// 0071 ruling 10): the realm's authority and boundary, the composition,
-/// what the sites opened, the one canonical site family, the seats, and
-/// the agent hands the wrapped verify seat resolved. Each phase after the
-/// seat loop is one of its methods.
+/// 0071 ruling 10): the realm's authority and boundary, the engine
+/// executable a `{brokkr}` expands to, the composition, what the sites
+/// opened, the one canonical site family, the seats, and the agent hands
+/// the wrapped verify seat resolved. Each phase after the seat loop is one
+/// of its methods.
 pub(super) struct Seated<'s, 'a> {
     pub(super) authority: &'s Authority,
     pub(super) boundary: Boundary,
+    pub(super) engine: &'s Executable,
     pub(super) resolved: &'s compose::Resolved,
     pub(super) agents: Opened<'a>,
     pub(super) sites: BTreeMap<String, SiteFacts>,
@@ -381,7 +384,7 @@ impl Seated<'_, '_> {
         record_seat_capabilities(
             self.authority,
             &self.agents,
-            self.boundary,
+            (self.boundary, self.engine),
             self.resolved,
             &mut self.sites,
         )?;
@@ -495,7 +498,8 @@ impl Seated<'_, '_> {
         {
             // A dialect phase opened the adapters above, and the
             // validator's gate law read them.
-            let walk = CapabilityWalk::of(self.authority, &self.agents, boundary, resolved);
+            let at = (boundary, self.engine);
+            let walk = CapabilityWalk::of(self.authority, &self.agents, at, resolved);
             record_capabilities(&walk, law.dir, dialect_site, &synthetic, &mut self.sites)?;
         }
         // The generated validator declares no `tools`, and like every
@@ -504,7 +508,7 @@ impl Seated<'_, '_> {
         // D5.2; review return F3).
         let unspecified = crate::agents::LocalTools::unspecified();
         record_judged_tools(
-            law.dir,
+            (self.engine, law.dir),
             dialect_site,
             unspecified,
             None,
