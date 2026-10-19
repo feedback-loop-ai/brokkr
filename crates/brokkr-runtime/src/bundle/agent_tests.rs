@@ -6664,6 +6664,7 @@ fn a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified() {
 }
 mod charter_tests;
 mod gate_tests;
+mod hire_order_tests;
 mod mcp_tests;
 mod opened_tests;
 mod sandbox_tests;

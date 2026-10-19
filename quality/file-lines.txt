@@ -110,7 +110,7 @@
    337 crates/brokkr-protocol/src/secret/handoff.rs
    150 crates/brokkr-protocol/src/secret/store.rs
    682 crates/brokkr-protocol/src/transcript.rs
-  1663 crates/brokkr-runtime/src/agents.rs
+  1554 crates/brokkr-runtime/src/agents.rs
    369 crates/brokkr-runtime/src/agents/charter_data.rs
   1067 crates/brokkr-runtime/src/agents/load.rs
     73 crates/brokkr-runtime/src/agents/load/auth.rs
@@ -119,7 +119,7 @@
    168 crates/brokkr-runtime/src/boundary.rs
   5185 crates/brokkr-runtime/src/bundle.rs
    136 crates/brokkr-runtime/src/bundle/charters.rs
-  1099 crates/brokkr-runtime/src/bundle/compose.rs
+  1021 crates/brokkr-runtime/src/bundle/compose.rs
    657 crates/brokkr-runtime/src/bundle/mcp.rs
   1939 crates/brokkr-runtime/src/capabilities.rs
    132 crates/brokkr-runtime/src/capabilities/attribution.rs
