@@ -43,8 +43,10 @@ node card: every seat's driver runs `bun install`, which executes your
 dependency tree's lifecycle scripts, and `verify` installs before
 `review` has read the diff. That exposure is bun's and npm's alike.
 
-There is no shipped `recipes/bun`. If you want the maintained
-`recipes/node` shape under bun, copy it and swap the install,
+There is no shipped `recipes/bun`. If you want the maintained, portable
+`recipes/node` shape under bun
+([decision 0087](../../decisions/0087-the-base-offices-are-the-ones-init-writes.md)
+ruling 5), copy it and swap the install,
 type-check and test commands plus the lockfile name in its charters —
 the swap points are tabulated in
 [`recipes/node/README.md`](../../../recipes/node/README.md).

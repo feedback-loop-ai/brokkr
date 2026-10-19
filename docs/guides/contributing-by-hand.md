@@ -312,6 +312,7 @@ cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
 ```
 
 Each prints the resolved manifest and its content digest, and exits 0.
+Both `self` and `verify` are Brokkr-only recipes (decision 0087 ruling 5).
 This is the constitutional lint: compilation is where the structural
 laws are enforced, so a bundle that compiles is one whose review gate is
 unavoidable, whose aggregates match their declared results, whose
@@ -508,7 +509,8 @@ if you think they are at risk:
 ## The pre-flight: let the machine review you first
 
 Before you open the pull request, have the machine review the branch.
-`recipes/preflight` seats Brokkr's own `verify` and `review` agents —
+`recipes/preflight`, a Brokkr-only recipe (decision 0087 ruling 5),
+seats Brokkr's own `verify` and `review` agents —
 the same two that judge the machine's own work — and points them at an
 unmerged branch:
 
@@ -563,7 +565,7 @@ before a human spends their attention on them.
 Everything above is what a hand-authored branch has to satisfy. Since
 decision 0051 you do not have to run it yourself to propose the branch:
 light `brokkr run --recipe landing --repo . --feature "landing: <what
-the branch is>"` on it. A gate of seconds reads the branch's class
+the branch is>"` on it (`landing` is Brokkr-only: decision 0087 ruling 5). A gate of seconds reads the branch's class
 against `.github/delivery-classes.json`; prose goes straight to the
 review seat, code goes through the verifier first — `cargo fmt --all
 -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy
@@ -998,7 +1000,9 @@ the anatomy of `bundle.json`, the policy grammar, composition and
 digests — and from a worked example: `recipes/fast` (the flat case),
 `recipes/triage` (selected singles, panels, and sequences), `recipes/night-shift`
 (composition through `extends`), `recipes/node` (a different language),
-`recipes/preflight` (a two-seat table that rules and stops).
+`recipes/preflight` (a two-seat table that rules and stops). Of these,
+`fast` and `node` are portable and the rest Brokkr-only (decision 0087
+ruling 5).
 
 To add an adapter, start from
 [`driver-authoring.md`](driver-authoring.md) for

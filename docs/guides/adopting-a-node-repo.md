@@ -70,39 +70,48 @@ hand.
 
 ## The files your repo needs
 
-**Two routes, and only one runs on main.** A repository with a
-`.brokkr/` folder, from the quickstart's step 2, keeps named recipes on
-the folder's shelf, `.brokkr/recipes/<name>/` (decision
+**Two routes.** A repository with a `.brokkr/` folder, from the
+quickstart's step 2, keeps named recipes on the folder's shelf,
+`.brokkr/recipes/<name>/` (decision
 [0083](../decisions/0083-an-adopters-brokkr-lives-in-one-folder.md)'s
 addendum of 2026-10-16). `brokkr recipes add` installs there from
 anywhere in the repository, with `fast`, the base `node` extends, and
-copies the agents both seat, with their charters and the capability
-definitions they request, into the folder. Today the compile refuses,
-because `fast-reviewer` extends Brokkr's `reviewer` and the one `init`
-wrote is another definition, and the install is removed whole:
+copies the agents both seat, with their charters, into the folder.
+`node` and `fast` are Brokkr's two portable recipes (decision
+[0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)
+ruling 5): their agents extend the `implementer` and `reviewer` that
+`init` wrote, so the install compiles against the folder's own offices
+and adapters:
 
 ```
 $ brokkr recipes add ~/src/brokkr/recipes/node --name node
-error: recipe 'node' does not compile (removed): bundle: bundle: agent 'fast-reviewer' (/home/you/src/your-node-repo/.brokkr/agents/fast-reviewer.json) 'replaces' gives a reason for 'hands', which neither it writes nor 'reviewer' declares (composed: node -> fast)
+added recipe 'node' (…) at /home/you/my-app/.brokkr/recipes/node
+added recipe 'fast' (…) at /home/you/my-app/.brokkr/recipes/fast
+added charter charters/implementer-intakeless.md of agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/charters/implementer-intakeless.md
+added charter charters/node-implementer.md of agent 'node-implementer' at /home/you/my-app/.brokkr/agents/charters/node-implementer.md
+added charter charters/node-reviewer.md of agent 'node-reviewer' at /home/you/my-app/.brokkr/agents/charters/node-reviewer.md
+added agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/fast-implementer.json
+added agent 'fast-reviewer' at /home/you/my-app/.brokkr/agents/fast-reviewer.json
+added agent 'node-implementer' at /home/you/my-app/.brokkr/agents/node-implementer.json
+added agent 'node-reviewer' at /home/you/my-app/.brokkr/agents/node-reviewer.json
 ```
 
-One set of base agents that `init` and Brokkr's recipes share is
-[#717](https://github.com/feedback-loop-ai/brokkr/issues/717), not built
-yet.
+Then `brokkr run --recipe node --feature "…"` from anywhere in the
+repository, and the folder's map and journal serve it.
 
-The rest of this guide is the route that runs, which makes your
+The rest of this guide is the other route, which makes your
 repository a recipe library. A `recipes/<name>/bundle.json` at the root
 is a library's mark, and a library keeps its own layout (the operator's
 ruling of 2026-10-13): `realms.json`, `adapters/`, `agents/`,
 `capabilities/` and `recipes/` at the root, and run state in `.forge/`,
-with no `.brokkr/` folder. Until #717 it takes Brokkr's agent library
-whole, by hand.
+with no `.brokkr/` folder and no `init` to write its base agents, so it
+takes Brokkr's agent library whole, by hand.
 
 Brokkr resolves its data relative to the **workspace** it is invoked in
 — your repository root:
 
 ```
-your-node-repo/
+my-app/
 ├── recipes/node/          # the recipe, and recipes/fast/, the base it extends
 ├── adapters/claude.json   # which drivers your world trusts
 ├── agents/                # the agent library the recipes' seats hire from
@@ -117,7 +126,7 @@ your-node-repo/
 
 ```
 git clone https://github.com/feedback-loop-ai/brokkr ~/src/brokkr
-cd your-node-repo
+cd my-app
 mkdir -p adapters && cp ~/src/brokkr/adapters/claude.json adapters/
 ```
 
@@ -147,7 +156,7 @@ the compile refuses, and the install removes everything it copied,
 
 ```
 $ brokkr recipes add ~/src/brokkr/recipes/node --name node
-error: recipe 'node' does not compile (removed): bundle: bundle: agent 'fast-implementer' (/home/you/src/your-node-repo/agents/fast-implementer.json) extends 'implementer', which is not an agent in this library (composed: node -> fast)
+error: recipe 'node' does not compile (removed): bundle: bundle: agent 'fast-implementer' (/home/you/my-app/agents/fast-implementer.json) extends 'implementer', which is not an agent in this library (composed: node -> fast)
 ```
 
 So copy Brokkr's agent library whole, and its definitions with it:
@@ -170,8 +179,8 @@ error: recipe 'node' does not compile (removed): bundle: bundle: agent 'research
 
 ```
 $ brokkr recipes add ~/src/brokkr/recipes/node --name node
-added recipe 'node' (<digest>) at /home/you/src/your-node-repo/recipes/node
-added recipe 'fast' (<digest>) at /home/you/src/your-node-repo/recipes/fast
+added recipe 'node' (…) at /home/you/my-app/recipes/node
+added recipe 'fast' (…) at /home/you/my-app/recipes/fast
 ```
 
 `node` extends `fast`, and a base resolves from the library its recipe

@@ -51,19 +51,26 @@ wager-harness-dsh	…	6 phases	implement, review, ship, verify	medium	Driver eva
 wager-harness-muse	…	6 phases	implement, review, ship, verify	low	Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.	project	recipes/wager-harness-muse
 ```
 
-| Recipe | Reach for it when | The difference it states |
-|---|---|---|
-| [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base the composed recipes below extend |
-| [`landing`](../../recipes/landing/README.md) | a branch that already exists — yours, a session's, a ruling's — needs judging and shipping | `extends fast` entered at a classify gate: prose goes to review, code to verify, no first implement; the smith is the remediation seat the returns reach (decision 0051) |
-| [`triage`](../../recipes/triage/README.md) | routing a commission by delivery class | `extends fast`: the triage result selects the later offices, with the five-phase SDD route included for the classes that need it |
-| [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying. Its dsh lane pins GLM-5.3 Flash on the `spark-glm` route, so it runs only on a host serving that route |
-| [`standby`](../../recipes/standby/README.md) | delivering while one vendor's account is out of limit | `extends fast`: both model seats pinned inline to codex `sol` (`gpt-6.1-sol`), `fast`'s verify and ship gates unchanged (boxed under a `namespace` boundary, pinned scripts run unboxed under `harness`); a hedge forces its crew, so it takes no fallback |
-| [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
-| [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | running the same driver wager through DSH | `extends fast`: only the implement seat moves, so the judging seats stay comparable. Runs only on a host serving the `spark-glm` route, for the same GLM-5.3 Flash lane |
-| [`wager-harness-muse`](../../recipes/wager-harness-muse/README.md) | the same wager on Muse Spark 1.3, contributor terms, through dsh | `extends fast`: only the implement seat moves, to a third vendor at `xhigh` |
-| [`node`](../../recipes/node/README.md) | a Node/TypeScript repository | `fast`'s constitution with JavaScript drivers and charters |
-| [`panel-review`](../../recipes/panel-review) | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
-| [`preflight`](../../recipes/preflight/README.md) | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
+| Recipe | Class | Reach for it when | The difference it states |
+|---|---|---|---|
+| [`fast`](../../recipes/fast) | portable | the default delivery: implement → verify → review → ship | the base the composed recipes below extend |
+| [`landing`](../../recipes/landing/README.md) | Brokkr-only | a branch that already exists — yours, a session's, a ruling's — needs judging and shipping | `extends brokkr-fast` entered at a classify gate: prose goes to review, code to verify, no first implement; the smith is the remediation seat the returns reach (decision 0051) |
+| [`triage`](../../recipes/triage/README.md) | Brokkr-only | routing a commission by delivery class | `extends fast`: the triage result selects the later offices, with the five-phase SDD route included for the classes that need it |
+| [`night-shift`](../../recipes/night-shift/README.md) | Brokkr-only | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying. Its dsh lane pins GLM-5.3 Flash on the `spark-glm` route, so it runs only on a host serving that route |
+| [`standby`](../../recipes/standby/README.md) | Brokkr-only | delivering while one vendor's account is out of limit | `extends fast`: both model seats pinned inline to codex `sol` (`gpt-6.1-sol`), `fast`'s verify and ship gates unchanged (boxed under a `namespace` boundary, pinned scripts run unboxed under `harness`); a hedge forces its crew, so it takes no fallback |
+| [`wager-harness`](../../recipes/wager-harness/README.md) | Brokkr-only | weighing a new driver for a trust-tier promotion | `extends brokkr-fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
+| [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | Brokkr-only | running the same driver wager through DSH | `extends brokkr-fast`: only the implement seat moves, so the judging seats stay comparable. Runs only on a host serving the `spark-glm` route, for the same GLM-5.3 Flash lane |
+| [`wager-harness-muse`](../../recipes/wager-harness-muse/README.md) | Brokkr-only | the same wager on Muse Spark 1.3, contributor terms, through dsh | `extends brokkr-fast`: only the implement seat moves, to a third vendor at `xhigh` |
+| [`node`](../../recipes/node/README.md) | portable | a Node/TypeScript repository | `fast`'s constitution with JavaScript drivers and charters |
+| [`panel-review`](../../recipes/panel-review) | Brokkr-only | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
+| [`preflight`](../../recipes/preflight/README.md) | Brokkr-only | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
+
+The class is decision
+[0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)'s
+ruling 5, which gives each recipe's reason. A portable recipe installs
+onto the shelf of any folder `brokkr init` made, its seats hiring that
+folder's offices; a Brokkr-only one is written for Brokkr's own runs.
+Every recipe the library lists and this table leaves out is Brokkr-only.
 
 Nine entries carry pinned manifest digests in
 `crates/brokkr-runtime/tests/witness_digests.rs`; the rest are covered

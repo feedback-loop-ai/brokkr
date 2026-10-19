@@ -130,7 +130,8 @@ measurement lands; and `recipes/release`, whose `implement` office
 declares hands and reaches claude without a measured `hands.harness.work`
 fragment before compilation reaches the review gate. The pin test in
 `crates/brokkr-runtime/src/bundle/model_policy_tests.rs` is the record of
-that split.
+that split. Of these recipes only `fast` and `node` are portable; the
+rest are Brokkr-only (decision 0087 ruling 5).
 
 ```text
 $ brokkr --version
@@ -375,8 +376,10 @@ triage	<digest>	12 phases	analyze[check>judge], clarify[check>judge], design[pos
 ```
 
 The twelve hex characters after the name are the leading bytes of the
-recipe's content digest. Use `--recipe <name>` instead of a bundle to
-run one of these; `--recipes-dir` says where the library lives (in a
+recipe's content digest. Of the library's recipes, `fast` and `node` are
+portable and the rest Brokkr-only, as
+[Try another recipe](#try-another-recipe) says. Use `--recipe <name>`
+instead of a bundle to run one of these; `--recipes-dir` says where the library lives (in a
 library, `recipes`), so a library is used from its own root, or named:
 `brokkr run --recipe <name> --recipes-dir <library>/recipes`. A
 repository with a `.brokkr/` folder keeps its own named recipes on the
@@ -601,8 +604,8 @@ adopt a repository you did not write:
   `.brokkr/adapters/claude.json`, yours to read and edit. A maintained
   recipe brings no adapters with it: `brokkr recipes add` copies onto
   the folder the agents and charters a recipe names, never an adapter,
-  and an install whose compile refuses is removed whole, as
-  [Try another recipe](#try-another-recipe) shows.
+  and an install whose compile refuses is removed whole.
+  [Try another recipe](#try-another-recipe) shows one that compiles.
 - **Know what you are granting.** Every seat's driver may run your
   project's toolchain, so every seat — the gates included — executes
   third-party code by design. In a Node repo `npm ci` runs the
@@ -684,16 +687,28 @@ root its library stands in, and into this repository's, which is
 `.brokkr/capabilities/` beside the `realms.json` that `init` writes. It
 refuses before writing anything when one already there differs, naming
 each, and replaces nothing of yours.
-Brokkr's own recipes do not install into a fresh folder yet: their
-agents extend Brokkr's `implementer` and `reviewer`, and the ones `init`
-wrote are other definitions, so
+
+Two of Brokkr's own recipes, `fast` and `node`, are **portable**: their
+agents extend the `implementer` and `reviewer` that `init` writes and
+write no chain, tools or hands of their own, so each model seat hires what
+`init` wrote for the agent CLI it found. From a clone of Brokkr, in a
+fresh folder:
 
 ```
 $ brokkr recipes add ~/src/brokkr/recipes/fast --name fast
-error: recipe 'fast' does not compile (removed): bundle: agent 'fast-reviewer' (/home/you/src/app/.brokkr/agents/fast-reviewer.json) 'replaces' gives a reason for 'hands', which neither it writes nor 'reviewer' declares
+added recipe 'fast' (…) at /home/you/my-app/.brokkr/recipes/fast
+added charter charters/implementer-intakeless.md of agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/charters/implementer-intakeless.md
+added agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/fast-implementer.json
+added agent 'fast-reviewer' at /home/you/my-app/.brokkr/agents/fast-reviewer.json
 ```
 
-and the install is removed whole, the agents it copied with it.
+`fast`'s verifier is still Brokkr's own, so in another repository its
+verify fails until decision 0087's slice 3 gives it a portable one
+([`recipes/fast/README.md`](../../recipes/fast/README.md)). The other
+seventeen recipes in Brokkr's `recipes/` are **Brokkr-only**, written
+for Brokkr's own runs and realm. Decision
+[0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)'s
+ruling 5 gives each recipe's class and its reason.
 
 ### The escape hatches
 
