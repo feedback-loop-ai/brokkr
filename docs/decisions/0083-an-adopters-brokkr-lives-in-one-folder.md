@@ -822,10 +822,12 @@ that refuses, and a source map that cannot be read, refuse by the
 join the one plan with the agents and charters, by its rules: planned
 before anything is written, walked without following a link, at the
 source and at the workspace: every directory between the workspace's
-root and each file, `.brokkr/`, `agents/`, `agents/charters/` and
-`capabilities/` among them, is judged as the entry itself and refused by
-the third text below where it is a link, to anything or nothing, inside
-the root or outside it (#735); the workspace's own entry for each file,
+root and each file, `agents/`, `agents/charters/` and `capabilities/`
+among them, is judged as the entry itself and refused by the third text
+below where it is a link, to anything or nothing, inside the root or
+outside it (#735), while a `.brokkr/` folder that is a link is refused
+before any plan by this decision's folder rule, in its own words; the
+workspace's own entry for each file,
 an agent's and a charter's too, is opened once without following a link
 and judged by that handle's own status, so the entry judged is the file
 compared (#735), compared only where it is a plain file, and refused by
