@@ -9,6 +9,7 @@
 //! configuration directory [`Repo::config`].
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -630,13 +631,7 @@ fn add_refuses_a_destination_that_is_no_plain_file() {
     let refused = |at: &Path| {
         let before = repo.files();
         let ran = repo.brokkr("", &add);
-        let occupied = format!(
-            "error: the workspace's {} is a link, or not a plain file, where recipes add would \
-             copy one; recipes add neither reads through nor replaces it (#703): remove it; \
-             nothing was written\n",
-            at.display()
-        );
-        assert_eq!((ran.code, ran.stderr), (Some(1), occupied));
+        assert_eq!((ran.code, ran.stderr), (Some(1), occupied(at)));
         assert_eq!(repo.files(), before);
         assert!(!repo.path(".brokkr/recipes").exists());
     };
@@ -659,6 +654,104 @@ fn add_refuses_a_destination_that_is_no_plain_file() {
     std::fs::remove_dir(&definition).unwrap();
     let ran = repo.brokkr("", &add);
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+}
+
+/// What `recipes add` says of the workspace's `at`, where it would copy a
+/// file, when `at` is a link or not a plain file (#703).
+fn occupied(at: &Path) -> String {
+    format!(
+        "error: the workspace's {} is a link, or not a plain file, where recipes add would copy \
+         one; recipes add neither reads through nor replaces it (#703): remove it; nothing was \
+         written\n",
+        at.display()
+    )
+}
+
+/// `brokkr <args>` at `repo`'s root, failed rather than waited on past
+/// `limit`: the child is polled against a deadline and killed there.
+fn within(repo: &Repo, args: &[&str], limit: Duration) -> Ran {
+    use std::process::Stdio;
+    let mut command = repo.command("");
+    command.args(args).stdin(Stdio::null());
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + limit;
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("brokkr {} did not end within {limit:?}", args.join(" "));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Ran::of(child.wait_with_output().unwrap())
+}
+
+/// A socket and a FIFO where `recipes add` would copy a capability
+/// definition are not plain files, and refuse by name (#779): a bound
+/// socket, which open(2) never reaches (`ENXIO` on Linux, `EOPNOTSUPP` on
+/// macOS), and a FIFO, opened without waiting for a writer and refused by
+/// its status, run against a deadline so a wait fails rather than hangs.
+/// Nothing is installed or copied, no shelf is made, and each entry stands
+/// as it was.
+#[test]
+fn add_refuses_a_socket_or_a_fifo_at_a_destination() {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+    let (repo, fast) = library_of_fast();
+    requesting(&repo, &fast.join("../.."));
+    let add = ["recipes", "add", "--name=fast", fast.to_str().unwrap()];
+    let definition = repo.path(".brokkr/capabilities/web-fetch.json");
+    std::fs::create_dir_all(definition.parent().unwrap()).unwrap();
+    // Each is planted after the files are read: reading a FIFO waits.
+    let before = repo.files();
+    let refused = |is: fn(&std::fs::FileType) -> bool| {
+        let planted = std::fs::symlink_metadata(&definition).unwrap();
+        let ran = within(&repo, &add, Duration::from_secs(60));
+        assert_eq!((ran.code, ran.stderr), (Some(1), occupied(&definition)));
+        assert!(!repo.path(".brokkr/recipes").exists());
+        let standing = std::fs::symlink_metadata(&definition).unwrap();
+        assert!(is(&standing.file_type()));
+        assert_eq!(standing.ino(), planted.ino());
+        std::fs::remove_file(&definition).unwrap();
+        assert_eq!(repo.files(), before);
+    };
+    // Bound at the root and moved in, because a socket's path is capped.
+    let bound = repo.path("s");
+    let _listener = std::os::unix::net::UnixListener::bind(&bound).unwrap();
+    std::fs::rename(&bound, &definition).unwrap();
+    refused(std::fs::FileType::is_socket);
+    let made = std::process::Command::new("mkfifo")
+        .arg(&definition)
+        .status();
+    assert!(made.is_ok_and(|made| made.success()), "mkfifo");
+    refused(std::fs::FileType::is_fifo);
+}
+
+/// A plain file standing where a directory on the way to a destination is
+/// due refuses by name before anything is written (#779), never read as
+/// nothing standing: `.brokkr/capabilities` a file. Nothing is installed or
+/// copied, no shelf is made, and the file stands as it was.
+#[test]
+fn add_refuses_a_destination_beneath_a_plain_file() {
+    let (repo, fast) = library_of_fast();
+    requesting(&repo, &fast.join("../.."));
+    repo.write(".brokkr/capabilities", "a file\n");
+    let before = repo.files();
+    let ran = repo.brokkr(
+        "",
+        &["recipes", "add", "--name=fast", fast.to_str().unwrap()],
+    );
+    let blocked = format!(
+        "error: the workspace's {} is not a directory, where recipes add would copy a file \
+         beneath it; recipes add does not replace it (#779): remove it; nothing was written\n",
+        repo.path(".brokkr/capabilities").display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), blocked));
+    assert_eq!(repo.files(), before);
+    assert!(!repo.path(".brokkr/recipes").exists());
 }
 
 /// A folder directory on the way to where `recipes add` would copy a file

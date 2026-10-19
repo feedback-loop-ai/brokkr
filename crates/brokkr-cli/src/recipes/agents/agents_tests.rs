@@ -305,8 +305,8 @@ fn plan_refuses_a_destination_that_is_no_plain_file() {
 /// link refuses by name before any byte is compared (#735), the link left
 /// as it stands: the library linked to a directory inside the root, a
 /// charter's directory in it linked outside the root, and the capability
-/// definitions linked inside. A file where the library is due is nothing
-/// standing, which the copy refuses.
+/// definitions linked inside. A file where the library is due refuses by
+/// name too, left as it stands (#779).
 #[test]
 fn plan_refuses_a_destination_beneath_a_linked_directory() {
     let (_dir, source, library) = libraries();
@@ -334,8 +334,11 @@ fn plan_refuses_a_destination_beneath_a_linked_directory() {
     assert_eq!((entries(&inside), entries(outside.path())), (0, 0));
     std::fs::remove_dir(&library).unwrap();
     write(&library, "a file");
-    let planned = planned(&source, &library, seats);
-    assert_eq!(planned.map(|hires| hires.len()), Ok(3));
+    let blocked = Err(Hiring::Blocked {
+        path: library.clone(),
+    });
+    assert_eq!(planned(&source, &library, seats), blocked);
+    assert_eq!(std::fs::read_to_string(&library).unwrap(), "a file");
 }
 
 /// An entry on the walk, or a definition, this process cannot read refuses
@@ -445,6 +448,11 @@ fn each_refusal_says_what_was_not_written() {
             "the workspace's /s/a.json is a link, where recipes add would copy a file beneath it; \
              recipes add neither reads through nor replaces it (#735): remove it; nothing was \
              written",
+        ),
+        (
+            Hiring::Blocked { path: path.clone() },
+            "the workspace's /s/a.json is not a directory, where recipes add would copy a file \
+             beneath it; recipes add does not replace it (#779): remove it; nothing was written",
         ),
         (
             Hiring::Differs {
