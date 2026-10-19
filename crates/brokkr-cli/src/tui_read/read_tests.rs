@@ -7,7 +7,8 @@ use serde_json::json;
 
 use super::*;
 use crate::fleet::kept_tests::{
-    lost_in_its_log, swapped_in, without_its_first_event, Swap, FIRST_EVENT_GONE,
+    lost_in_its_log, swapped_in, unlisted, without_its_first_event, Swap, FIRST_EVENT_GONE,
+    UNLISTED,
 };
 use crate::tests::running_store;
 
@@ -169,4 +170,25 @@ fn the_open_run_is_read_again_when_a_row_is_lost_in_the_write_ahead_log() {
     let (db, mut kept) = opened(dir.path());
     let _held = lost_in_its_log(&db, "selected");
     read_again(&db, &mut kept, "in the log");
+}
+
+/// A journal whose runs the store cannot list is the frame's refusal, in
+/// the store's own words: the console draws no fleet it could not read.
+#[test]
+fn a_journal_whose_runs_cannot_be_listed_refuses_the_frame_in_the_stores_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = unlisted(dir.path());
+    let ask = tui::Ask {
+        run: None,
+        subject: None,
+        force: false,
+        fleet: true,
+        tab: 0,
+    };
+    let refused = read_views(&db, true, ask, &mut Kept::default(), &mut None, || {
+        "now".to_string()
+    })
+    .err()
+    .expect("a fleet the store cannot list is refused");
+    assert_eq!(refused.to_string(), UNLISTED);
 }

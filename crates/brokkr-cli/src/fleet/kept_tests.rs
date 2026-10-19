@@ -401,6 +401,37 @@ fn a_run_whose_head_the_journal_no_longer_holds_is_read_whole() {
 /// What the whole read says of a run whose first event is gone.
 pub(crate) const FIRST_EVENT_GONE: &str = "chain: event 2: seq is not contiguous (expected 1)";
 
+/// A journal in `dir` that opens, its schema recorded, but holds no
+/// `runs` table: the store refuses to list its runs. Where it is.
+pub(crate) fn unlisted(dir: &Path) -> std::path::PathBuf {
+    let db = dir.join("forge.db");
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO meta (key, value) VALUES ('database_schema', '1');",
+        )
+        .unwrap();
+    db
+}
+
+/// What the store says of a journal it cannot list the runs of.
+pub(crate) const UNLISTED: &str = "sqlite: no such table: runs";
+
+/// `brokkr runs` over a journal whose runs the store cannot list is the
+/// verb's refusal, in the store's own words, as the console's frame is.
+#[test]
+fn runs_over_a_journal_whose_runs_cannot_be_listed_refuses_in_the_stores_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let runs = crate::Cmd::Runs(crate::cli_args::RunsArgs {
+        realms: None,
+        db: Some(unlisted(dir.path())),
+        json: true,
+    });
+    let refused = crate::run(crate::tests::cli(runs)).unwrap_err();
+    assert_eq!(refused.to_string(), UNLISTED);
+}
+
 /// `db`'s journal, its connections all closed, copied beside it with
 /// `run_id`'s first event gone and every other row as it was: the run's
 /// head, seq and hash both, is still the copy's. Where the copy is.
