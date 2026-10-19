@@ -443,12 +443,8 @@ window.__ModuleLoader__.load({
 
     // ----------------------------------------------------------- the rail
 
-    /**
-     * The TUI's rail, in pixels: label width per character (a phase name's, spaced capitals, wider), dot radius, the gap an arrow spans, a
-     * member's offset, the margin, and the most an arrow between phases may grow when the pane
-     * has room to spare (so a four-phase run fills a wide pane without stretching absurdly).
-     */
-    const RAIL = { char: 7.4, name: 7.6, dot: 6, gap: 46, member: 50, pad: 18, stretch: 560 }
+    /** The TUI's rail, in pixels: label width per character (a phase name's, spaced capitals, wider), dot radius, the least gap an arrow spans, a member's offset, the margin. */
+    const RAIL = { char: 7.4, name: 7.6, dot: 6, gap: 46, member: 50, pad: 18 }
     /**
      * The roads back beneath the phase names, in pixels: how far below the names a road leaves
      * and lands, the first lane, each further lane, a road's slot along its phase, a corner's
@@ -557,11 +553,12 @@ window.__ModuleLoader__.load({
         const start = placed[last.first]?.start ?? x
         return { placed, edge: Math.max(x, start + Math.ceil(phaseName(last.phase).length * RAIL.name), start + widthOf(`NOW · ${last.phase.name}`) + 12) }
       }
-      // A pane wider than the rail at its least spacing spreads the phases to fill it, up to
-      // the cap per arrow; a narrower one keeps the least spacing and scrolls.
+      // A pane wider than the rail at its least spacing spreads the phases to fill it, the
+      // room to spare shared among the arrows between phases; a narrower one keeps the least
+      // spacing and scrolls.
       const least = lay(0)
       const joins = spans.length - 1
-      const extra = room === null || joins === 0 ? 0 : Math.floor(Math.min(RAIL.stretch, Math.max(0, (room - RAIL.pad - least.edge) / joins)))
+      const extra = room === null || joins === 0 ? 0 : Math.floor(Math.max(0, (room - RAIL.pad - least.edge) / joins))
       const { placed, edge } = extra === 0 ? least : lay(extra)
       const names = y + spread + 40
       const roads = roadsOf(spans, placed, names, edge, ROAD.slot + Math.min(ROAD.slot, Math.floor(extra / 20)))

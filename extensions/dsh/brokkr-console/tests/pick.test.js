@@ -309,8 +309,8 @@ function drawn(view, width = null) {
   return rail(client.tree())
 }
 
-/** The pane widths every road check holds at: unmeasured, a narrow pane, a laptop and a 32-inch screen. */
-const WIDTHS = [null, 700, 1366, 2560]
+/** The pane widths every road check holds at: unmeasured, a narrow pane, a laptop, a 32-inch screen and a 4K one. */
+const WIDTHS = [null, 700, 1366, 2560, 3840]
 
 /** `tangled` at every width in `WIDTHS`; the unmeasured drawing is returned. */
 function untangled(view) {
@@ -358,7 +358,7 @@ test('three nested roads, out of and into the same phases, stay clear of one ano
   untangled(returning(['implement', 'verify', 'review', 'ship'], { implement: [road('ship')], verify: [road('review')], review: [road('ship')] }))
 })
 
-test('the rail fills a wide pane, up to a cap per arrow, and its roads then say their whole sentence', () => {
+test('the rail fills a wide pane at any width, and its roads then say their whole sentence', () => {
   const four = returning(['implement', 'verify', 'review', 'ship'], { implement: [road('verify', 1, ['VERIFY-FAIL']), road('review', 1, ['REVIEW-REFORGE'])] })
   const least = drawn(four).props.width
   for (const width of [1366, 2560]) {
@@ -368,7 +368,13 @@ test('the rail fills a wide pane, up to a cap per arrow, and its roads then say 
     assert.deepEqual(labels.sort(), ['sent back to implement by review · REVIEW-REFORGE ×1', 'sent back to implement by verify · VERIFY-FAIL ×1'])
   }
   const huge = drawn(four, 8000).props.width
-  assert.ok(huge < 8000 / 2 && huge > least, `a short rail stops at its cap (${huge})`)
+  assert.ok(huge <= 8000 && huge >= 8000 * 0.9, `a short rail fills even an 8000-pixel pane (${huge})`)
+  const three = returning(['implement', 'verify', 'review'], { implement: [road('verify', 1, ['VERIFY-FAIL']), road('review', 1, ['REVIEW-REFORGE'])] })
+  const six = returning(['intake', 'implement', 'verify', 'review', 'ship', 'done'], { implement: [road('review', 2, ['REVIEW-REFORGE'])] })
+  for (const run of [three, six]) {
+    const spans = drawn(run, 3840).props.width
+    assert.ok(spans <= 3840 && spans >= 3840 * 0.9, `${spans} spans at least 90% of a 4K pane`)
+  }
   assert.equal(drawn(four, 400).props.width, least, 'a pane narrower than the rail keeps the least spacing, and scrolls')
 })
 

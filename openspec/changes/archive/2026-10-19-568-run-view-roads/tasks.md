@@ -13,7 +13,7 @@ Status: proposed. Asked for by the operator on 2026-10-19.
 - [x] 2.1 Roads read as `{from, taken, rules}`. `lib/host/readouts.js`; `tests/support/world.js`.
 - [x] 2.2 Square, nested roads from their own slots, labels clear of every road, counted; tests for one, two and three roads, two into one phase. `lib/client.js`; `tests/pick.test.js`.
 
-- [x] 2.3 The rail laid out against its pane's measured width, filling a wide pane up to a cap per arrow, re-laid on resize; a narrow pane keeps the least spacing and scrolls; tests at several widths. `lib/client.js`; `tests/pick.test.js`.
+- [x] 2.3 The rail laid out against its pane's measured width, filling a wide pane at any width, re-laid on resize; a narrow pane keeps the least spacing and scrolls; tests at several widths. `lib/client.js`; `tests/pick.test.js`.
 
 ## 3. Docs
 
