@@ -659,9 +659,7 @@ impl Store {
                 attempt_id.clone(),
             )
         })?;
-        self.settle(settled);
-        #[cfg(any(test, feature = "test-support"))]
-        self.binding.wrote(run_id);
+        self.settle(run_id, settled);
         Ok(envelope)
     }
 

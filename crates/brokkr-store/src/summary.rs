@@ -45,6 +45,9 @@ const LANE: &str = "CASE
 /// The meta key that records the backfill finished (ruling 8).
 const BACKFILLED: &str = "run_summary_backfill";
 
+/// A row's place in the page index's order: its `order_at` and run id.
+type Place = (i64, String);
+
 const TABLE: [&str; 1] = ["run_summary"];
 const INDEX: [&str; 1] = ["run_summary_page"];
 const TRIGGERS: [&str; 4] = [
@@ -460,8 +463,8 @@ pub enum Disagreement {
         run_id: String,
         column: &'static str,
     },
-    /// The row stands at its head, and the run does not load, so no fold
-    /// stands behind the row.
+    /// The run does not load, so no fold stands behind its row, whether
+    /// the row stands at its head or behind it.
     Unread { run_id: String, error: StoreError },
 }
 
@@ -470,7 +473,8 @@ pub enum Disagreement {
 #[derive(Debug)]
 pub(crate) enum Compared {
     Agrees,
-    /// The row is behind its head: a lag, which the next writer refolds.
+    /// The row is behind its head and the run loads: a lag, which the
+    /// next writer refolds.
     Behind,
     Disagrees(Disagreement),
 }
@@ -485,11 +489,9 @@ impl std::fmt::Display for Disagreement {
                 "run '{run_id}': its summary row stands at its head, and its {column} is not \
                  its fold's"
             ),
-            Disagreement::Unread { run_id, error } => write!(
-                f,
-                "run '{run_id}': its summary row stands at its head, and the run does not load: \
-                 {error}"
-            ),
+            Disagreement::Unread { run_id, error } => {
+                write!(f, "run '{run_id}' does not load: {error}")
+            }
         }
     }
 }
@@ -509,13 +511,18 @@ impl Store {
         self.binding.carried();
     }
 
-    /// Keep what a committed append left the carried account as.
-    pub(crate) fn settle(&mut self, settled: Settled) {
+    /// Keep what a committed append to `run_id` left the carried account
+    /// as, and hold the run to its fold when a test's store drops.
+    pub(crate) fn settle(&mut self, run_id: &str, settled: Settled) {
         match settled {
             Settled::Kept => {}
             Settled::Lost => self.carried = None,
             Settled::Carried(carried) => self.carried = Some(*carried),
         }
+        #[cfg(any(test, feature = "test-support"))]
+        self.binding.wrote(run_id);
+        #[cfg(not(any(test, feature = "test-support")))]
+        let _ = run_id;
     }
 
     /// Refold every run whose row is behind its head, one run per
@@ -523,7 +530,8 @@ impl Store {
     /// writable open makes it. It spends no patience: a peer's lock ends
     /// it, writing nothing more, and the next open carries on where it
     /// stopped, since a refolded row is no longer behind. A run that does
-    /// not load stays behind, for a reader to read whole and refuse live.
+    /// not load stays behind, for a reader to read whole and refuse live,
+    /// and for the doctor's sweep to name.
     pub(crate) fn catch_up(&mut self) -> Result<(), StoreError> {
         let patience = self.patience;
         self.set_patience(std::time::Duration::ZERO)?;
@@ -537,27 +545,22 @@ impl Store {
 
     /// The refold, with `between` run on this connection after each run is
     /// read and before its transaction: the instant a peer's append makes
-    /// the read stale, which the tests stage there.
+    /// the read stale, which the tests stage there. The behind runs are
+    /// read by their place one run at a time, no cursor held across a
+    /// write, so the memory is the largest run's however many fell behind.
     fn refold_behind_with(
         &mut self,
         mut between: impl FnMut(&Connection),
     ) -> Result<(), StoreError> {
-        let behind: Vec<String> = self
-            .conn
-            .prepare(
-                "SELECT run_id FROM run_summary WHERE lane = 'behind'
-                 ORDER BY order_at DESC, run_id DESC",
-            )?
-            .query_map([], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-        for run_id in behind {
-            let Ok(events) = self.load(&run_id) else {
-                continue;
-            };
-            let account = Account::whole(&run_id, &events);
-            between(&self.conn);
-            let conn = &mut self.conn;
-            patiently("catch_up", self.patience, || refold_once(conn, &account))?;
+        let mut after: Option<Place> = None;
+        while let Some(place) = self.behind_after(after.as_ref())? {
+            if let Ok(events) = self.load(&place.1) {
+                let account = Account::whole(&place.1, &events);
+                between(&self.conn);
+                let conn = &mut self.conn;
+                patiently("catch_up", self.patience, || refold_once(conn, &account))?;
+            }
+            after = Some(place);
         }
         let finished: Option<String> = self
             .conn
@@ -574,10 +577,11 @@ impl Store {
         Ok(())
     }
 
-    /// Every run whose summary row stands at its head and disagrees with
-    /// the run's fold read whole, one run at a time, so the memory is the
-    /// largest run's (ruling 4): what `brokkr doctor` names as failures.
-    /// A row behind its head is a lag, not a disagreement, and is passed.
+    /// Every run read whole, one run at a time, so the memory is the
+    /// largest run's (ruling 4), whose row disagrees with its fold or
+    /// which does not load: what `brokkr doctor` names as failures. A run
+    /// that loads and whose row is behind its head is a lag, not a
+    /// disagreement, and is passed.
     pub fn summary_disagreements(&self) -> Result<Vec<Disagreement>, StoreError> {
         let mut found = Vec::new();
         self.each_run_compared(|_, compared| {
@@ -621,9 +625,36 @@ impl Store {
         Ok(next.optional()?)
     }
 
+    /// The first behind run past `after` in the page index's own order,
+    /// `(order_at DESC, run_id DESC)`, or the first of all: each a search
+    /// of the index (ruling 6's cursor), never a sort of the lane, so the
+    /// walk reads the lane once.
+    fn behind_after(&self, after: Option<&Place>) -> Result<Option<Place>, StoreError> {
+        let place = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?));
+        let next = match after {
+            None => self.conn.query_row(
+                "SELECT order_at, run_id FROM run_summary WHERE lane = 'behind'
+                 ORDER BY order_at DESC, run_id DESC LIMIT 1",
+                [],
+                place,
+            ),
+            Some((order_at, run_id)) => self.conn.query_row(
+                "SELECT order_at, run_id FROM run_summary
+                 WHERE lane = 'behind' AND (order_at, run_id) < (?1, ?2)
+                 ORDER BY order_at DESC, run_id DESC LIMIT 1",
+                params![order_at, run_id],
+                place,
+            ),
+        };
+        Ok(next.optional()?)
+    }
+
     /// How `run_id`'s row stands against its fold, read in one read
     /// transaction, so every read sees one snapshot of the journal and a
     /// peer's append between two of them cannot pass for a disagreement.
+    /// The run is read whole before its row's place is judged, so a run
+    /// that does not load is named whether its row stands at its head or
+    /// behind it (ruling 7: the doctor's sweep reads every run whole).
     /// `between` runs after the run is loaded and before its row is
     /// compared: the instant such an append lands, which the tests stage.
     pub(crate) fn compared(
@@ -644,13 +675,13 @@ impl Store {
         let Some((folded, head)) = heads else {
             return Ok(Compared::Disagrees(Disagreement::Missing { run_id }));
         };
-        if folded != Some(head) {
-            return Ok(Compared::Behind);
-        }
         let events = match self.load(&run_id) {
             Ok(events) => events,
             Err(error) => return Ok(Compared::Disagrees(Disagreement::Unread { run_id, error })),
         };
+        if folded != Some(head) {
+            return Ok(Compared::Behind);
+        }
         between();
         let listed = Listed::of(&self.conn, &run_id)?;
         let summary = Summary::of(&Account::whole(&run_id, &events), listed.listing());

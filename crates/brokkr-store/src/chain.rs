@@ -172,7 +172,7 @@ impl Store {
                 attempt_id.clone(),
             )
         })?;
-        self.settle(settled);
+        self.settle(run_id, settled);
         Ok(chain)
     }
 

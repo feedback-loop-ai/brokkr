@@ -1,7 +1,7 @@
 //! `brokkr doctor`'s summary check (decision 0089 ruling 4): a run whose
 //! summary row stands at its head and is not its fold's is a failure,
-//! named with its first differing column; a journal whose rows agree adds
-//! no line.
+//! named with its first differing column, as is a run that does not load
+//! wherever its row stands; a journal whose rows agree adds no line.
 
 use std::path::{Path, PathBuf};
 
@@ -74,13 +74,47 @@ fn a_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_column() {
     assert_eq!(
         report.lines[1..],
         [
-            "MISSING  summary: run 'corrupt': its summary row stands at its head, and the run \
-             does not load: chain: event 1: event_hash does not match canonical content",
+            "MISSING  summary: run 'corrupt' does not load: chain: event 1: event_hash does not \
+             match canonical content",
             "MISSING  summary: run 'edited': its summary row stands at its head, and its \
              phase is not its fold's",
             "MISSING  summary: run 'gone' has no summary row",
         ]
     );
+}
+
+/// The frozen broken-chain journal, planted in `db` as a writer from
+/// before the summary leaves it: its run and events, nothing folded.
+fn plant_broken_chain(db: &Path) {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/journals/conclude-broken-chain-hand-built.ndjson");
+    let conn = rusqlite::Connection::open(db).unwrap();
+    brokkr_store::test_support::plant_run(&conn, "conclude-broken-chain-hand-built", "{}").unwrap();
+    for line in std::fs::read_to_string(fixture).unwrap().lines() {
+        let event = serde_json::from_str(line).unwrap();
+        brokkr_store::test_support::plant_envelope(&conn, &event).unwrap();
+    }
+}
+
+/// A run that does not load is a failure whether its row stands behind
+/// its head, which no open's catch-up can fold, or at it, as a row folded
+/// before the chain broke beneath it would stand (decision 0089 ruling 7:
+/// the doctor's sweep reads every run whole).
+#[test]
+fn a_run_that_does_not_load_is_a_failure_behind_its_head_and_at_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = journal(dir.path(), &["healthy"]);
+    plant_broken_chain(&db);
+    let unread = "MISSING  summary: run 'conclude-broken-chain-hand-built' does not load: \
+                  chain: event 11: event_hash does not match canonical content";
+    let to_its_head = "UPDATE run_summary SET folded_seq = head_seq, folded_hash = head_hash";
+    for (place, statements) in [("behind its head", ""), ("at its head", to_its_head)] {
+        edit(&db, statements);
+        let mut report = report();
+        report_database(&mut report, Ok(&db));
+        assert!(!report.healthy, "{place}");
+        assert_eq!(report.lines[1..], [unread], "{place}");
+    }
 }
 
 #[test]

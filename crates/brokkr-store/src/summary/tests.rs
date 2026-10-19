@@ -468,7 +468,7 @@ fn backfilled(store: &Store) -> Option<String> {
 }
 
 #[test]
-fn a_read_only_open_of_an_older_journal_migrates_and_writes_nothing() {
+fn a_read_only_open_of_an_older_journal_migrates_nothing() {
     let (_dir, path) = older_journal();
     let reader = Store::open_read_only(&path).unwrap();
     assert!(!summary_intact(&reader.conn).unwrap());
@@ -539,6 +539,7 @@ fn a_catch_up_passes_a_run_that_does_not_load_and_one_that_moved() {
     let (_dir, mut store) = store();
     started(&mut store, "r1");
     started(&mut store, "r2");
+    let (_, started_hash) = store.head_hash("r2").unwrap();
     planted(&store, "r1", EventType::PhaseEntered, json!({"phase": "a"}));
     planted(&store, "r2", EventType::PhaseEntered, json!({"phase": "b"}));
     let raw = rusqlite::Connection::open(store.path()).unwrap();
@@ -564,6 +565,11 @@ fn a_catch_up_passes_a_run_that_does_not_load_and_one_that_moved() {
     assert_eq!(
         (lane(&store, "r1"), lane(&store, "r2")),
         (text("behind"), text("behind"))
+    );
+    // The account r2 was read at is not its head's: nothing folded moved.
+    assert_eq!(
+        row(&store, "r2", "folded_seq, folded_hash, phase"),
+        [Value::Integer(1), text(&started_hash), Value::Null]
     );
     lags(&mut store, &["r1", "r2"]);
 }
@@ -696,6 +702,33 @@ fn a_writer_store_that_lost_its_account_is_still_checked_when_it_is_dropped() {
         EventType::PhaseEntered,
         json!({"phase": "b"}),
     );
+    assert!(store.carried.is_none(), "the account was lost");
+}
+
+/// A run a store wrote only through a chain is held to its fold too: the
+/// chain that lost the account leaves its run behind, and is named.
+#[test]
+#[should_panic(expected = "a summary row disagrees with its run's fold: [\"r1: behind its head\"]")]
+fn a_writer_store_that_lost_its_account_in_a_chain_is_checked_when_it_is_dropped() {
+    let (_dir, mut creator) = store();
+    started(&mut creator, "r1");
+    let mut store = reopened(creator);
+    store.carry(Account::whole("r1", &store.load("r1").unwrap()));
+    planted(&store, "r1", EventType::PhaseEntered, json!({"phase": "a"}));
+    let rows = [json!({"phase": "b"})];
+    let chain = store
+        .append_chain(
+            "r1",
+            EventType::PhaseEntered,
+            Rows {
+                rows: &rows,
+                payload: &Json::clone,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(chain.appended.len(), 1);
     assert!(store.carried.is_none(), "the account was lost");
 }
 

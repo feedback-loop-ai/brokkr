@@ -39,10 +39,12 @@ pub(super) fn report_database(report: &mut Report, db: Result<&Path, &FolderErro
 }
 
 /// Every run whose summary row stands at its head and is not its fold's
-/// (decision 0089 ruling 4), read one run at a time after the open has
-/// caught up what fell behind: each a failure, since such a row is a bug
-/// or an edit and never a lag. A summary the journal cannot be read for
-/// at all is one too. A journal whose every row agrees adds no line.
+/// (decision 0089 ruling 4), and every run that does not load wherever
+/// its row stands (ruling 7: the sweep reads every run whole), read one
+/// run at a time after the open has caught up what fell behind: each a
+/// failure, since such a row is a bug or an edit and never a lag, and
+/// such a run is corrupt. A summary the journal cannot be read for at all
+/// is one too. A journal whose every row agrees adds no line.
 fn report_summaries(report: &mut Report, store: &Store) {
     match store.summary_disagreements() {
         Ok(found) => {
