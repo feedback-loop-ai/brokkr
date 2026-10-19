@@ -574,6 +574,73 @@ fn a_catch_up_passes_a_run_that_does_not_load_and_one_that_moved() {
     lags(&mut store, &["r1", "r2"]);
 }
 
+/// A trigger that refuses each statement `refusing` names with `message`:
+/// a refusal of the store itself, which no peer's lock makes.
+fn refused(store: &Store, refusing: &str, message: &str) {
+    let refusal =
+        format!("CREATE TRIGGER refusing {refusing} BEGIN SELECT RAISE(ABORT, '{message}'); END;");
+    store.conn.execute_batch(&refusal).unwrap();
+}
+
+/// A store's catch-up refused by `message`, which it returns rather than
+/// passing (ruling 5: a store it cannot write fails closed).
+fn assert_refused(caught: Result<(), StoreError>, message: &str) {
+    let error = caught.unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            StoreError::Sqlite(rusqlite::Error::SqliteFailure(failure, Some(said)))
+                if failure.code == rusqlite::ErrorCode::ConstraintViolation && said == message
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.to_string(), format!("sqlite: {message}"));
+}
+
+#[test]
+fn a_catch_up_returns_a_refused_refold_and_writes_nothing_folded() {
+    let (_dir, mut store) = store();
+    started(&mut store, "r1");
+    planted(&store, "r1", EventType::PhaseEntered, json!({"phase": "a"}));
+    refused(
+        &store,
+        "BEFORE UPDATE OF folded_seq ON run_summary",
+        "the summary refuses",
+    );
+    assert_refused(store.catch_up(), "the summary refuses");
+    assert_eq!(
+        row(&store, "r1", "folded_seq, lane"),
+        [Value::Integer(1), text("behind")]
+    );
+    lags(&mut store, &["r1"]);
+}
+
+#[test]
+fn a_catch_up_returns_a_backfill_it_cannot_record() {
+    let (_dir, mut store) = store();
+    store
+        .conn
+        .execute("DELETE FROM meta WHERE key = ?1", [BACKFILLED])
+        .unwrap();
+    refused(&store, "BEFORE INSERT ON meta", "the meta refuses");
+    assert_refused(store.catch_up(), "the meta refuses");
+    assert_eq!(backfilled(&store), None);
+}
+
+#[test]
+fn a_listing_of_a_run_the_journal_does_not_carry_is_refused() {
+    let (_dir, store) = store();
+    let error = Listed::of(&store.conn, "unknown").unwrap_err();
+    assert!(
+        matches!(
+            error,
+            StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows)
+        ),
+        "{error:?}"
+    );
+    assert_eq!(error.to_string(), "sqlite: Query returned no rows");
+}
+
 #[test]
 fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
     let (_dir, mut store) = store();
