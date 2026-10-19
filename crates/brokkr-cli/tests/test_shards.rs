@@ -220,7 +220,7 @@ const SHARDS: [&str; 6] = [
     "--test heap_claude --test heap_codex --test heap_dsh",
     "--bin brokkr --test driver_conformance --test transcript_surfaces --test hands_exits \
      --test secret_drop --test capability_launch --test operated_repo --test queued_launch \
-     --test seatbelt_lifetime_probe",
+     --test seatbelt_lifetime_probe --test summary_heap",
     "--doc",
     "--test it -- capability_broker::",
 ];

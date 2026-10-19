@@ -81,6 +81,6 @@ fn every_run_reads_as_its_fold() {
     );
     assert_eq!(
         crate::test_support::every_run_reads_as_its_fold(&store),
-        Vec::<String>::new()
+        ["conclude-broken-chain-hand-built: behind its head"]
     );
 }

@@ -10,30 +10,79 @@
 //! Compiled for this crate's own tests and behind the `test-support`
 //! feature, which only dev-dependencies enable.
 
+use std::collections::BTreeSet;
+
 use brokkr_core::canonical::ZERO_HASH;
 use brokkr_core::envelope::EventEnvelope;
 use rusqlite::{params, Connection, ToSql};
 
 use crate::import::INSERT_EVENT;
+use crate::summary::Compared;
 use crate::{Disagreement, Store};
 
-/// Every run whose summary row stands at its head reads as its fold
-/// (decision 0089 ruling 4): each such run folded whole, and its row
-/// compared with the summary of that fold, column for column. What
-/// disagrees is named with its first differing column; a run that does
-/// not load is passed, since no fold stands behind it to compare, and a
-/// row behind its head is a lag the next writer catches up. A journal the
-/// check cannot read at all is the test's own business, and names none.
+/// Every run's summary row stands at its head and reads as its fold
+/// (decision 0089 ruling 4): each run folded whole, and its row compared
+/// with the summary of that fold, column for column. Stricter than
+/// `brokkr doctor`, which passes a lag: a test's writers each hand over
+/// their fold, so here a row behind its head is named, as is a run with
+/// no row, a run that does not load, and a row's first differing column.
+/// A journal the comparison cannot read panics, naming why.
 pub fn every_run_reads_as_its_fold(store: &Store) -> Vec<String> {
-    let found = store.summary_disagreements().unwrap_or_default();
+    let mut found = Vec::new();
+    let compared =
+        store.each_run_compared(|run_id, compared| found.extend(named(run_id, compared)));
+    read(compared);
     found
-        .into_iter()
-        .filter_map(|disagreement| match disagreement {
-            Disagreement::Missing { run_id } => Some(format!("{run_id}: no summary row")),
-            Disagreement::Column { run_id, column } => Some(format!("{run_id}: {column}")),
-            Disagreement::Unread { .. } => None,
-        })
-        .collect()
+}
+
+/// What `compared` names `run_id` by, `run: what its row reads as`, or
+/// `None` where the row reads as its fold.
+fn named(run_id: &str, compared: Compared) -> Option<String> {
+    let words = match compared {
+        Compared::Agrees => return None,
+        Compared::Behind => "behind its head".to_string(),
+        Compared::Disagrees(Disagreement::Missing { .. }) => "no summary row".to_string(),
+        Compared::Disagrees(Disagreement::Column { column, .. }) => column.to_string(),
+        Compared::Disagrees(Disagreement::Unread { error, .. }) => {
+            format!("does not load: {error}")
+        }
+    };
+    Some(format!("{run_id}: {words}"))
+}
+
+/// What the comparison read, or a panic naming why it could not.
+fn read<T>(compared: Result<T, crate::StoreError>) -> T {
+    compared.unwrap_or_else(|error| panic!("the summary comparison reads: {error}"))
+}
+
+/// What a store is held to when it drops: whether it was ever handed a
+/// writer's fold, the runs it wrote, by creating or appending, and those
+/// its test names as lagging.
+#[derive(Debug, Default)]
+pub(crate) struct Binding {
+    carried: bool,
+    wrote: BTreeSet<String>,
+    lagging: BTreeSet<String>,
+}
+
+impl Binding {
+    /// Record that the store was handed a writer's fold.
+    pub(crate) fn carried(&mut self) {
+        self.carried = true;
+    }
+
+    /// Record that the store wrote `run_id`.
+    pub(crate) fn wrote(&mut self, run_id: &str) {
+        self.wrote.insert(run_id.to_string());
+    }
+}
+
+/// Name `run_ids` as runs this test leaves behind their heads, or not
+/// loading, on purpose: the drop check passes them, and holds every
+/// other run the store wrote to [`every_run_reads_as_its_fold`].
+pub fn lags(store: &mut Store, run_ids: &[&str]) {
+    let named = run_ids.iter().map(|run_id| run_id.to_string());
+    store.binding.lagging.extend(named);
 }
 
 /// The lane `run_id`'s summary row is read from (decision 0089 ruling 6),
@@ -50,16 +99,25 @@ pub fn lane(store: &Store, run_id: &str) -> Option<String> {
         .ok()
 }
 
-/// After every test that wrote through a store carrying a writer's
-/// account, an engine scenario among them, every run that store's
-/// journal carries reads as its fold. Not while a test is already
-/// failing: its own panic is the one to report.
+/// After every test that wrote through a store a writer's fold was ever
+/// handed to, whether or not it still carries it, an engine scenario or
+/// an operator verb among them, every run that store wrote stands at its
+/// head and reads as its fold, as [`every_run_reads_as_its_fold`] reads
+/// it, but the runs the test named by [`lags`]: a write the writer did
+/// not hand its fold to leaves its run behind, and is named. A store no
+/// fold was handed to writes as a binary from before the summary does,
+/// and is not held. Not while a test is already failing: its own panic
+/// is the one to report.
 impl Drop for Store {
     fn drop(&mut self) {
-        if self.carried.is_none() || std::thread::panicking() {
+        if !self.binding.carried || std::thread::panicking() {
             return;
         }
-        let disagreeing = every_run_reads_as_its_fold(self);
+        let binding = &self.binding;
+        let checked = binding.wrote.difference(&binding.lagging);
+        let disagreeing: Vec<String> = checked
+            .filter_map(|run_id| named(run_id, read(self.compared(run_id, || {}))))
+            .collect();
         assert!(
             disagreeing.is_empty(),
             "a summary row disagrees with its run's fold: {disagreeing:?}"

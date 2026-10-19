@@ -4,7 +4,7 @@
 //! every row that stands at its head reads as its fold.
 
 use super::*;
-use crate::test_support::{every_run_reads_as_its_fold, plant_envelope, plant_run};
+use crate::test_support::{every_run_reads_as_its_fold, lags, plant_envelope, plant_run};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{store, write_lock_on};
 use crate::{Attribution, Rows};
@@ -565,6 +565,7 @@ fn a_catch_up_passes_a_run_that_does_not_load_and_one_that_moved() {
         (lane(&store, "r1"), lane(&store, "r2")),
         (text("behind"), text("behind"))
     );
+    lags(&mut store, &["r1", "r2"]);
 }
 
 #[test]
@@ -602,16 +603,21 @@ fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
     assert_eq!(
         named,
         [
-            "edited residual_count",
             "corrupt unread: chain: event 1: event_hash does not match canonical content",
+            "edited residual_count",
             "gone missing",
         ]
     );
     assert_eq!(
         every_run_reads_as_its_fold(&store),
-        ["edited: residual_count", "gone: no summary row"]
+        [
+            "corrupt: does not load: chain: event 1: event_hash does not match canonical content",
+            "edited: residual_count",
+            "gone: no summary row",
+            "lagging: behind its head",
+        ]
     );
-    store.carried = None;
+    lags(&mut store, &["corrupt", "edited", "gone", "lagging"]);
 }
 
 #[test]
@@ -647,4 +653,57 @@ fn a_writer_store_dropped_while_its_test_fails_reports_that_failure() {
         failed.downcast_ref::<&str>(),
         Some(&"the test's own failure")
     );
+}
+
+/// A peer's append that lands between the comparison's reads is not a
+/// disagreement: the run is loaded and its row compared within one
+/// snapshot, so a healthy journal with a live writer passes the doctor.
+#[test]
+fn a_comparison_reads_one_snapshot_while_a_peer_appends() {
+    let (_dir, mut store) = store();
+    started(&mut store, "r1");
+    let mut peer = Store::open(store.path()).unwrap();
+    peer.carry(Account::whole("r1", &peer.load("r1").unwrap()));
+    let compared = store
+        .compared("r1", || {
+            let entered = json!({"phase": "implement"});
+            append(&mut peer, "r1", EventType::PhaseEntered, entered);
+        })
+        .unwrap();
+    assert!(matches!(compared, Compared::Agrees), "{compared:?}");
+    assert_eq!(row(&store, "r1", "folded_seq"), [Value::Integer(2)]);
+    assert_eq!(every_run_reads_as_its_fold(&store), Vec::<String>::new());
+}
+
+/// A store that carried an account and lost it to a peer's append is
+/// still held to its journal when it drops, and a row it left behind its
+/// head is named.
+#[test]
+#[should_panic(expected = "a summary row disagrees with its run's fold: [\"r1: behind its head\"]")]
+fn a_writer_store_that_lost_its_account_is_still_checked_when_it_is_dropped() {
+    let (_dir, mut store) = store();
+    started(&mut store, "r1");
+    let mut peer = Store::open(store.path()).unwrap();
+    append(
+        &mut peer,
+        "r1",
+        EventType::PhaseEntered,
+        json!({"phase": "a"}),
+    );
+    append(
+        &mut store,
+        "r1",
+        EventType::PhaseEntered,
+        json!({"phase": "b"}),
+    );
+    assert!(store.carried.is_none(), "the account was lost");
+}
+
+#[test]
+#[should_panic(expected = "the summary comparison reads: sqlite: no such table: run_summary")]
+fn a_comparison_that_cannot_read_panics_rather_than_passing() {
+    let (_dir, store) = store();
+    plant_run(&store.conn, "r1", "{}").unwrap();
+    store.conn.execute_batch("DROP TABLE run_summary").unwrap();
+    every_run_reads_as_its_fold(&store);
 }

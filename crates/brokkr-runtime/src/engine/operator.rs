@@ -8,8 +8,7 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
-    acceptance_refusal, concluded, fold, Cursor, FoldError, OperatorCommand, Refusal, Run,
-    RunState, Status,
+    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, Run, RunState, Status,
 };
 use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
@@ -83,15 +82,24 @@ fn read_back(store: &mut Store, run_id: &str) -> Result<RunState, EngineError> {
     Ok(folded(store, run_id)?.0)
 }
 
-/// The run as a deciding fold reads it, and the head a write decided on
-/// that reading must still find. The store carries the account into the
-/// verb's writes, so each writes the run's summary (decision 0089 ruling 3).
+/// The run's journal as it stands now, [`decided`].
 fn folded(store: &mut Store, run_id: &str) -> Result<(RunState, Head), EngineError> {
     let events = store.load(run_id)?;
-    let account = Account::whole(run_id, &events);
-    let state = account.state().map_err(FoldError::clone)?.clone();
+    decided(store, run_id, &events)
+}
+
+/// The run as a deciding fold reads `events`, and the head a write decided
+/// on that reading must still find. The store carries the account into the
+/// verb's writes, so each writes the run's summary (decision 0089 ruling 3).
+fn decided(
+    store: &mut Store,
+    run_id: &str,
+    events: &[EventEnvelope],
+) -> Result<(RunState, Head), EngineError> {
+    let account = Account::whole(run_id, events);
+    let state = account.state().map_err(Clone::clone)?.clone();
     store.carry(account);
-    Ok((state, Head::tip(&events)))
+    Ok((state, Head::tip(events)))
 }
 
 /// The command id an operator event carries.
@@ -694,10 +702,9 @@ pub(super) fn apply_fenced_windows(
     if let Some(receipt) = receipt::journaled(store, run_id, &events, command_id, operator)? {
         return Ok(receipt);
     }
-    let state = fold(&events)?;
     // The head this fold read: the one the wire's cursor is checked
     // against, and the one the command must still find (decision 0029).
-    let head = Head::tip(&events);
+    let (state, head) = decided(store, run_id, &events)?;
     let cursor_holds = head.seq == wire.expected_seq && head.hash == wire.expected_hash;
     let rejection = fenced_refusal(&state, wire.command, cursor_holds);
     before_command(store);

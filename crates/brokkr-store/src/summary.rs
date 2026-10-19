@@ -465,6 +465,16 @@ pub enum Disagreement {
     Unread { run_id: String, error: StoreError },
 }
 
+/// How one run's row stands against its fold: the doctor keeps only what
+/// disagrees, and the tests' binding names a row behind its head too.
+#[derive(Debug)]
+pub(crate) enum Compared {
+    Agrees,
+    /// The row is behind its head: a lag, which the next writer refolds.
+    Behind,
+    Disagrees(Disagreement),
+}
+
 /// The words `brokkr doctor` names a disagreement by.
 impl std::fmt::Display for Disagreement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -495,6 +505,8 @@ impl Store {
             account,
             listed: None,
         });
+        #[cfg(any(test, feature = "test-support"))]
+        self.binding.carried();
     }
 
     /// Keep what a committed append left the carried account as.
@@ -568,15 +580,58 @@ impl Store {
     /// A row behind its head is a lag, not a disagreement, and is passed.
     pub fn summary_disagreements(&self) -> Result<Vec<Disagreement>, StoreError> {
         let mut found = Vec::new();
-        for (run_id, _, _) in self.list_runs()? {
-            if let Some(disagreement) = self.disagreement(run_id)? {
+        self.each_run_compared(|_, compared| {
+            if let Compared::Disagrees(disagreement) = compared {
                 found.push(disagreement);
             }
-        }
+        })?;
         Ok(found)
     }
 
-    fn disagreement(&self, run_id: String) -> Result<Option<Disagreement>, StoreError> {
+    /// Compare every run's row with its fold, in run id order, handing
+    /// each run id and its outcome to `each` as it is read: the runs are
+    /// read by their key one id at a time, so nothing of a run outlives
+    /// its comparison.
+    pub(crate) fn each_run_compared(
+        &self,
+        mut each: impl FnMut(&str, Compared),
+    ) -> Result<(), StoreError> {
+        let mut after: Option<String> = None;
+        while let Some(run_id) = self.run_after(after.as_deref())? {
+            each(&run_id, self.compared(&run_id, || {})?);
+            after = Some(run_id);
+        }
+        Ok(())
+    }
+
+    /// The first run id past `after`, or the first of all.
+    fn run_after(&self, after: Option<&str>) -> Result<Option<String>, StoreError> {
+        let next = match after {
+            None => self.conn.query_row(
+                "SELECT run_id FROM runs ORDER BY run_id LIMIT 1",
+                [],
+                |row| row.get(0),
+            ),
+            Some(after) => self.conn.query_row(
+                "SELECT run_id FROM runs WHERE run_id > ?1 ORDER BY run_id LIMIT 1",
+                [after],
+                |row| row.get(0),
+            ),
+        };
+        Ok(next.optional()?)
+    }
+
+    /// How `run_id`'s row stands against its fold, read in one read
+    /// transaction, so every read sees one snapshot of the journal and a
+    /// peer's append between two of them cannot pass for a disagreement.
+    /// `between` runs after the run is loaded and before its row is
+    /// compared: the instant such an append lands, which the tests stage.
+    pub(crate) fn compared(
+        &self,
+        run_id: &str,
+        between: impl FnOnce(),
+    ) -> Result<Compared, StoreError> {
+        let _snapshot = self.conn.unchecked_transaction()?;
         let heads: Option<(Option<i64>, i64)> = self
             .conn
             .query_row(
@@ -585,23 +640,27 @@ impl Store {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
+        let run_id = run_id.to_string();
         let Some((folded, head)) = heads else {
-            return Ok(Some(Disagreement::Missing { run_id }));
+            return Ok(Compared::Disagrees(Disagreement::Missing { run_id }));
         };
         if folded != Some(head) {
-            return Ok(None);
+            return Ok(Compared::Behind);
         }
         let events = match self.load(&run_id) {
             Ok(events) => events,
-            Err(error) => return Ok(Some(Disagreement::Unread { run_id, error })),
+            Err(error) => return Ok(Compared::Disagrees(Disagreement::Unread { run_id, error })),
         };
+        between();
         let listed = Listed::of(&self.conn, &run_id)?;
         let summary = Summary::of(&Account::whole(&run_id, &events), listed.listing());
         let standing = standing(&self.conn, &run_id)?;
         let mut expected = written(&summary);
         expected.extend(kept(&summary, standing.as_ref()));
-        let column = self.first_difference(&run_id, &expected)?;
-        Ok(column.map(|column| Disagreement::Column { run_id, column }))
+        Ok(match self.first_difference(&run_id, &expected)? {
+            Some(column) => Compared::Disagrees(Disagreement::Column { run_id, column }),
+            None => Compared::Agrees,
+        })
     }
 
     /// The first of `expected`'s columns whose value on `run_id`'s row is

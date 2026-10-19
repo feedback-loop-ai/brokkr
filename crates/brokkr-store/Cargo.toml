@@ -19,6 +19,12 @@ workspace = true
 [[test]]
 name = "it"
 
+# Installs a counting allocator as the process's global allocator and
+# measures the peak heap of the doctor's summary comparison (decision
+# 0089 ruling 4): another file's allocations would count against it.
+[[test]]
+name = "summary_heap"
+
 [features]
 # Row planting for tests that need a journal the store would never write
 # (#354). Only dev-dependencies enable it.

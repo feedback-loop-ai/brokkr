@@ -74,11 +74,11 @@ fn a_row_at_its_head_that_is_not_its_fold_s_is_a_failure_named_by_its_column() {
     assert_eq!(
         report.lines[1..],
         [
+            "MISSING  summary: run 'corrupt': its summary row stands at its head, and the run \
+             does not load: chain: event 1: event_hash does not match canonical content",
             "MISSING  summary: run 'edited': its summary row stands at its head, and its \
              phase is not its fold's",
             "MISSING  summary: run 'gone' has no summary row",
-            "MISSING  summary: run 'corrupt': its summary row stands at its head, and the run \
-             does not load: chain: event 1: event_hash does not match canonical content",
         ]
     );
 }

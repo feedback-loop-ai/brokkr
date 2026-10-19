@@ -1,7 +1,7 @@
 use super::*;
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{Cursor, Run};
-use brokkr_store::test_support::{every_run_reads_as_its_fold, lane};
+use brokkr_store::test_support::{every_run_reads_as_its_fold, lags, lane};
 use brokkr_store::StoreError;
 use serde_json::json;
 
@@ -65,6 +65,7 @@ fn a_turn_reads_only_what_landed_since_the_last() {
         ),
         "{whole}"
     );
+    lags(&mut store, &["r1"]);
 }
 
 /// A replay is one run's: asked for another, it reads that run whole

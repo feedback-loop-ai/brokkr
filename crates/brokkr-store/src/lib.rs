@@ -216,6 +216,9 @@ pub struct Store {
     /// carries over what it seals and writes the run's summary from
     /// ([`Store::carry`]; decision 0089 ruling 3).
     carried: Option<summary::Carried>,
+    /// What the tests' binding holds this store to when it drops.
+    #[cfg(any(test, feature = "test-support"))]
+    binding: test_support::Binding,
 }
 
 /// Refuse a run id the journal already carries, as
@@ -381,6 +384,8 @@ impl Store {
             path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
             carried: None,
+            #[cfg(any(test, feature = "test-support"))]
+            binding: Default::default(),
         };
         store.catch_up()?;
         Ok(store)
@@ -425,6 +430,8 @@ impl Store {
             path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
             carried: None,
+            #[cfg(any(test, feature = "test-support"))]
+            binding: Default::default(),
         })
     }
 
@@ -488,6 +495,11 @@ impl Store {
             account: Account::empty(run_id),
             listed: Some(listed),
         });
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            self.binding.carried();
+            self.binding.wrote(run_id);
+        }
         Ok(())
     }
 
@@ -648,6 +660,8 @@ impl Store {
             )
         })?;
         self.settle(settled);
+        #[cfg(any(test, feature = "test-support"))]
+        self.binding.wrote(run_id);
         Ok(envelope)
     }
 

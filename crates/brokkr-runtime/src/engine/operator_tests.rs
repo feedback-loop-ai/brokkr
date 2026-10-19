@@ -315,6 +315,23 @@ fn an_operator_verb_writes_the_summary_of_the_fold_it_decided_on() {
     );
 }
 
+/// The bridge's verb, from a store opened for it as the bridge opens one,
+/// writes the summary of the fold it decided on too: its command and
+/// acceptance leave the row at its head.
+#[test]
+fn a_bridge_command_writes_the_summary_of_the_fold_it_decided_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bridge.db");
+    drop(super::tests::parked_store(&path, "bridge"));
+    let mut store = Store::open(&path).unwrap();
+    let (seq, hash) = store.head_hash("bridge").unwrap();
+    let wire = super::tests::looper("looper-command", "retry", seq, &hash);
+    let retried = apply_fenced_operator_command(&mut store, "bridge", &wire).unwrap();
+    assert!(matches!(retried, FencedCommandOutcome::Accepted { .. }));
+    let lane = brokkr_store::test_support::lane(&store, "bridge");
+    assert_eq!(lane.as_deref(), Some("running"));
+}
+
 /// A bridge refusal whose head moves on every turn is not re-decided
 /// forever: after `FENCE_ATTEMPTS` lost turns it refuses with the drift
 /// named, and nothing of the command is written.

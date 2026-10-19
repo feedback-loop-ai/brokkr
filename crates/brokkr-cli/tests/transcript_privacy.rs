@@ -60,6 +60,7 @@ fn world() -> World {
             .append_next("r222", event_type, payload, None, None)
             .unwrap();
     }
+    drop(store);
     let world = World { dir, db, home };
     let mut store = Store::open(&world.db).unwrap();
     store

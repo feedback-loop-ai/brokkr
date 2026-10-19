@@ -4,14 +4,14 @@
 //! with a disposition, and no `operator/accepted` ever follows it.
 
 use brokkr_core::envelope::EventType;
-use brokkr_core::fold::{fold, Status};
+use brokkr_core::fold::Status;
 use brokkr_core::residual::{residuals, SUPERSEDE};
 use brokkr_core::EventEnvelope;
 use brokkr_store::Store;
 use serde_json::json;
 use uuid::Uuid;
 
-use super::{fenced_append, read_back, EngineError, Head};
+use super::{decided, fenced_append, read_back, EngineError};
 
 /// What `brokkr operator supersede` says, as the operator typed it
 /// (decision 0047 ruling 1): which of this run's residual findings are
@@ -76,7 +76,7 @@ pub(in crate::engine) fn operator_supersede_racing(
     // byte for byte as it found it.
     let refused = EngineError::SupersedeRefused;
     let events = store.load(run_id)?;
-    let state = fold(&events)?;
+    let (state, head) = decided(store, run_id, &events)?;
     if !matches!(state.run.status(), Status::Completed | Status::Stopped) {
         return Err(refused(format!(
             "run '{run_id}' is {}, not completed or stopped; on a run that is still \
@@ -123,7 +123,6 @@ pub(in crate::engine) fn operator_supersede_racing(
             ask.by_seq, ask.by_run
         )));
     }
-    let head = Head::tip(&events);
     let payload = json!({
         "command_id": Uuid::new_v4().to_string(),
         "command": SUPERSEDE,
