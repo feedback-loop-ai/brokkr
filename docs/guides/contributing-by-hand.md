@@ -312,6 +312,7 @@ cargo run --locked -p brokkr-cli -- compile --bundle recipes/verify
 ```
 
 Each prints the resolved manifest and its content digest, and exits 0.
+Both `self` and `verify` are Brokkr-only recipes (decision 0087 ruling 5).
 This is the constitutional lint: compilation is where the structural
 laws are enforced, so a bundle that compiles is one whose review gate is
 unavoidable, whose aggregates match their declared results, whose

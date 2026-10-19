@@ -88,7 +88,8 @@ and one that changes either without a reason does not load. An overlay
 extends a base office, one level, never another overlay. This is the one
 way to force a crew: an office that must not fall back is an overlay whose
 chain holds exactly the forced models. `fast`'s two offices and the
-`gpt-flash-*` crew are overlays.
+`gpt-flash-*` crew are overlays: `fast`'s are portable, and the
+`gpt-flash-*` crew is Brokkr-only (decision 0087 ruling 5).
 
 The `release-manager` follows a portable release process. The realm's **Release
 configuration** supplies the version sources, documentation targets, checks and

@@ -111,7 +111,7 @@ Brokkr resolves its data relative to the **workspace** it is invoked in
 — your repository root:
 
 ```
-your-node-repo/
+my-app/
 ├── recipes/node/          # the recipe, and recipes/fast/, the base it extends
 ├── adapters/claude.json   # which drivers your world trusts
 ├── agents/                # the agent library the recipes' seats hire from
@@ -126,7 +126,7 @@ your-node-repo/
 
 ```
 git clone https://github.com/feedback-loop-ai/brokkr ~/src/brokkr
-cd your-node-repo
+cd my-app
 mkdir -p adapters && cp ~/src/brokkr/adapters/claude.json adapters/
 ```
 
