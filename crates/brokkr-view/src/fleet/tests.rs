@@ -4,7 +4,7 @@
 use super::*;
 use crate::tests::state;
 use crate::{Superseded, SupersededBy};
-use brokkr_core::fold::{ParkReason, Run};
+use brokkr_core::fold::{Cursor, ParkReason, Run};
 use serde_json::{json, Value};
 
 const NOW: &str = "2026-01-02T00:00:00Z";
@@ -767,4 +767,42 @@ fn a_title_takes_the_columns_it_is_given() {
     assert_eq!(title_within(feature, 200), first, "wider than sixty");
     assert_eq!(title_within(feature, 30), "#403 macOS fix, round 9: PR…");
     assert_eq!(title(feature), title_within(feature, TITLE_COLUMNS));
+}
+
+/// The summary row keeps a feature's first line cut to 1,024 bytes
+/// (decision 0089 ruling 2), and the title is derived from that cut as it
+/// is from the whole feature: at every width up to 256 columns, save for
+/// a line made mostly of zero-width marks, whose cut keeps only marks.
+/// Its removal control is a cut at a byte rather than a character
+/// boundary, which fails on the three-byte line.
+#[test]
+fn a_cut_first_line_titles_as_its_feature() {
+    let mebibyte = 1 << 20;
+    let words = "a fleet title of ordinary words ".repeat(mebibyte / 32);
+    let wide = "€".repeat(mebibyte / 3);
+    let features = [
+        "#753 a short feature\nwith a second line".to_string(),
+        words,
+        wide,
+        "\n   \n\t\nthe first line that says anything\nand then more".to_string(),
+    ];
+    for feature in &features {
+        let cut = brokkr_core::summary::feature_line(feature);
+        for columns in [TITLE_COLUMNS, 256] {
+            assert_eq!(
+                title_within(cut, columns),
+                title_within(feature, columns),
+                "{columns} columns of {}",
+                feature.chars().take(12).collect::<String>()
+            );
+        }
+    }
+    let joiner = char::from_u32(0x200d).expect("the zero-width joiner");
+    let marked = format!("{}the words after them", joiner.to_string().repeat(2000));
+    let cut = brokkr_core::summary::feature_line(&marked);
+    assert_eq!(
+        title_within(cut, TITLE_COLUMNS),
+        joiner.to_string().repeat(341)
+    );
+    assert_eq!(title_within(&marked, TITLE_COLUMNS), marked);
 }

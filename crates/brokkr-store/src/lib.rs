@@ -80,6 +80,7 @@ mod read;
 mod redact;
 mod schema;
 mod seat_record;
+mod summary;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 
@@ -93,8 +94,11 @@ pub use queue::{
 pub use redact::{redact_export, Redactor};
 pub use schema::DATABASE_SCHEMA;
 pub use seat_record::{validate_seat_record, SeatRecordError, SeatRecordVersion};
+pub use summary::Disagreement;
 
+use brokkr_core::summary::{Account, Summary};
 use chain::{fence, seal_and_insert};
+use import::RUN_ID_MAX;
 use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
 
 /// How long any statement waits for a peer's write lock before giving
@@ -139,6 +143,11 @@ pub enum StoreError {
     RunNotFound(String),
     #[error("run '{0}' already exists")]
     RunExists(String),
+    /// A run id longer than a journal carries (decision 0089 ruling 2).
+    #[error(
+        "a run id is at most {RUN_ID_MAX} bytes; this one is {length}, and nothing was recorded"
+    )]
+    RunIdTooLong { length: usize },
     #[error("chain: {0}")]
     Chain(#[from] ChainError),
     #[error(transparent)]
@@ -203,6 +212,10 @@ pub struct Store {
     /// never one each. [`BUSY_TIMEOUT`] unless a caller says otherwise;
     /// see [`Store::set_patience`].
     patience: std::time::Duration,
+    /// The writer's account of the run it appends to, which each append
+    /// carries over what it seals and writes the run's summary from
+    /// ([`Store::carry`]; decision 0089 ruling 3).
+    carried: Option<summary::Carried>,
 }
 
 /// Refuse a run id the journal already carries, as
@@ -252,23 +265,20 @@ fn create_run_once(
     bundle_name: &str,
     manifest: &str,
     origin: Option<&str>,
-) -> Result<(), StoreError> {
+) -> Result<summary::Listed, StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     refuse_existing(&tx, run_id)?;
+    let listed = summary::Listed::new(feature, &now_rfc3339());
+    let created_at = listed.listing().created_at;
     tx.execute(
         "INSERT INTO runs (run_id, feature, bundle_name, manifest, created_at, origin_host)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            run_id,
-            feature,
-            bundle_name,
-            manifest,
-            now_rfc3339(),
-            origin
-        ],
+        params![run_id, feature, bundle_name, manifest, created_at, origin],
     )?;
+    let empty = Summary::of(&Account::empty(run_id), listed.listing());
+    summary::write(&tx, run_id, &empty)?;
     tx.commit()?;
-    Ok(())
+    Ok(listed)
 }
 
 /// The `engine` a run's manifest names, or NULL where it names none: a
@@ -299,16 +309,17 @@ const HEAD_OF_RUN: &str = "SELECT (SELECT event_hash FROM events WHERE run_id = 
 /// The two refusals it can return, [`StoreError::HeadMoved`] and
 /// [`StoreError::AppendConflict`], leave here untouched. They are not
 /// busy errors, so [`patiently`] does not look at them — which is what
-/// keeps a fence a fence.
+/// keeps a fence a fence. The writer's carried account is judged against
+/// the head found, in the same transaction ([`summary::judge`]).
 fn append_once(
-    conn: &mut Connection,
+    (conn, carried): (&mut Connection, Option<&summary::Carried>),
     run_id: &str,
     expected_head: Option<(u64, &str)>,
     event_type: EventType,
     payload: Value,
     causation_id: Option<String>,
     attempt_id: Option<String>,
-) -> Result<EventEnvelope, StoreError> {
+) -> Result<(EventEnvelope, summary::Settled), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let (last_seq, previous_hash) = head_of(&tx, run_id)?;
     if let Some((expected_seq, expected_hash)) = expected_head {
@@ -327,14 +338,16 @@ fn append_once(
     let envelope = seal_and_insert(
         &tx,
         run_id,
-        (last_seq, previous_hash),
+        (last_seq, previous_hash.clone()),
         event_type,
         payload,
         causation_id,
         attempt_id,
     )?;
+    let found = (last_seq, previous_hash.as_str());
+    let settled = summary::judge(&tx, carried, found, std::slice::from_ref(&envelope))?;
     tx.commit()?;
-    Ok(envelope)
+    Ok((envelope, settled))
 }
 
 impl Store {
@@ -363,11 +376,14 @@ impl Store {
         ensure_wal(&conn)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         patiently("migrate", BUSY_TIMEOUT, || Store::migrate(&mut conn))?;
-        Ok(Store {
+        let mut store = Store {
             conn,
             path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
-        })
+            carried: None,
+        };
+        store.catch_up()?;
+        Ok(store)
     }
 
     /// The whole budget every operation of this store spends on a peer's
@@ -408,6 +424,7 @@ impl Store {
             conn,
             path: path.to_path_buf(),
             patience: BUSY_TIMEOUT,
+            carried: None,
         })
     }
 
@@ -448,10 +465,15 @@ impl Store {
         manifest: &Value,
         origin: impl FnOnce() -> Option<String>,
     ) -> Result<(), StoreError> {
+        if run_id.len() > RUN_ID_MAX {
+            return Err(StoreError::RunIdTooLong {
+                length: run_id.len(),
+            });
+        }
         let manifest = serde_json::to_string(manifest)?;
         let origin = origin();
         let conn = &mut self.conn;
-        patiently("create_run", self.patience, || {
+        let listed = patiently("create_run", self.patience, || {
             create_run_once(
                 conn,
                 run_id,
@@ -460,7 +482,13 @@ impl Store {
                 &manifest,
                 origin.as_deref(),
             )
-        })
+        })?;
+        // Whoever creates a run holds its fold: the run with no event.
+        self.carried = Some(summary::Carried {
+            account: Account::empty(run_id),
+            listed: Some(listed),
+        });
+        Ok(())
     }
 
     /// Is this run still being driven from where it started — the same
@@ -607,10 +635,10 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<EventEnvelope, StoreError> {
-        let conn = &mut self.conn;
-        patiently("append", self.patience, || {
+        let (conn, carried) = (&mut self.conn, self.carried.as_ref());
+        let (envelope, settled) = patiently("append", self.patience, || {
             append_once(
-                conn,
+                (conn, carried),
                 run_id,
                 expected_head,
                 event_type,
@@ -618,7 +646,9 @@ impl Store {
                 causation_id.clone(),
                 attempt_id.clone(),
             )
-        })
+        })?;
+        self.settle(settled);
+        Ok(envelope)
     }
 
     /// Load and verify the full journal of a run. A journal that fails

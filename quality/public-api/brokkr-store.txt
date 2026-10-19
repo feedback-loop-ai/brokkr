@@ -1,5 +1,16 @@
 # produced by quality/measure.sh with cargo-public-api 0.52.0 on nightly-2026-09-05, -sss
 pub mod brokkr_store
+pub enum brokkr_store::Disagreement
+pub brokkr_store::Disagreement::Column
+pub brokkr_store::Disagreement::Column::column: &'static str
+pub brokkr_store::Disagreement::Column::run_id: alloc::string::String
+pub brokkr_store::Disagreement::Missing
+pub brokkr_store::Disagreement::Missing::run_id: alloc::string::String
+pub brokkr_store::Disagreement::Unread
+pub brokkr_store::Disagreement::Unread::error: brokkr_store::StoreError
+pub brokkr_store::Disagreement::Unread::run_id: alloc::string::String
+impl core::fmt::Display for brokkr_store::Disagreement
+pub fn brokkr_store::Disagreement::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_store::EntryState
 pub brokkr_store::EntryState::Claimed
 pub brokkr_store::EntryState::Claimed::run: alloc::string::String
@@ -81,6 +92,8 @@ pub brokkr_store::StoreError::RowBeforeChain
 pub brokkr_store::StoreError::RowBeforeChain::run_id: alloc::string::String
 pub brokkr_store::StoreError::RowBeforeChain::seq: i64
 pub brokkr_store::StoreError::RunExists(alloc::string::String)
+pub brokkr_store::StoreError::RunIdTooLong
+pub brokkr_store::StoreError::RunIdTooLong::length: usize
 pub brokkr_store::StoreError::RunNotFound(alloc::string::String)
 pub brokkr_store::StoreError::SchemaMismatch
 pub brokkr_store::StoreError::SchemaMismatch::found: u32
@@ -184,6 +197,9 @@ pub fn brokkr_store::Store::started_here(&self, &str) -> core::result::Result<bo
 impl brokkr_store::Store
 pub fn brokkr_store::Store::arrival(&self, &str) -> core::result::Result<core::option::Option<brokkr_store::Arrival>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::import_run(&mut self, &str, &serde_json::value::Value, &std::path::Path) -> core::result::Result<brokkr_store::Adoption, brokkr_store::ImportError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::carry(&mut self, brokkr_core::summary::Account)
+pub fn brokkr_store::Store::summary_disagreements(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Disagreement>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::rows_through(&self, &[(&str, u64)]) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>

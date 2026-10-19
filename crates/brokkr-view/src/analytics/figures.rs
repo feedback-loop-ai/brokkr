@@ -10,7 +10,7 @@ use super::{Analytics, AnalyticsError, CostFigure, Day, Headline, ModelShare, Qu
 use super::{ReportedCost, Rework, RuleCount, Shipped, Span, StepWait, StoppedByRule, Waiting};
 use super::{DAY_MILLIS, NOT_RECORDED};
 use crate::attempts::{Keeps, Site};
-use crate::{js, ABSENT, VIEW_VERSION};
+use crate::{ABSENT, VIEW_VERSION};
 
 /// The runs that finished inside `window`, with when and how.
 fn finished_in<'a>(
@@ -318,8 +318,8 @@ fn realm_row(scoped: &Scoped, realm: &str, window: Window) -> RealmRow {
 /// The analytics readout for `query`: every figure the console paints,
 /// derived once from the hearths' journals, for the range ending at `now`.
 pub fn analytics(query: &Query) -> Result<Analytics, AnalyticsError> {
-    let now =
-        js::parse_millis(query.now).ok_or_else(|| AnalyticsError::Clock(query.now.to_string()))?;
+    let now = brokkr_core::stamp::parse_millis(query.now)
+        .ok_or_else(|| AnalyticsError::Clock(query.now.to_string()))?;
     let span = query.range.millis();
     let window = Window {
         from: now - span,

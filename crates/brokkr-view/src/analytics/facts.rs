@@ -11,7 +11,7 @@ use super::{AnalyticsRun, QuarantinedHearth, Query};
 use crate::attempts::{attempts, Attempts, Site};
 use crate::clarify::{pinned_realm, recipe};
 use crate::fleet::{last_rule, standing_of, STOP_PHASE};
-use crate::{field, js, Standing};
+use crate::{field, Standing};
 
 /// The phase whose visits count a run's rework.
 const IMPLEMENT_PHASE: &str = "implement";
@@ -80,7 +80,7 @@ pub(crate) fn in_range(finished: Option<i64>, open: bool, window: Window) -> boo
 }
 
 fn at(event: &EventEnvelope) -> Option<i64> {
-    js::parse_millis(&event.recorded_at)
+    brokkr_core::stamp::parse_millis(&event.recorded_at)
 }
 
 fn ending(state: &RunState) -> Option<Ending> {

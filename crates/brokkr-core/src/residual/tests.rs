@@ -99,3 +99,111 @@ fn no_claim_without_a_residual_ruling_that_states_one() {
     ];
     assert_eq!(claims(&events), Vec::new());
 }
+
+fn superseding(seq: u64, args: Value) -> EventEnvelope {
+    event(
+        seq,
+        EventType::OperatorCommanded,
+        json!({"command": "supersede", "operator": "op", "args": args}),
+    )
+}
+
+#[test]
+fn a_supersede_reads_its_mark_and_the_findings_it_closes() {
+    let annotation = superseding(
+        9,
+        json!({"by": {"realm": "east", "run_id": "other", "seq": 4}, "findings": [2, "x", 3],
+               "reason": "fixed there"}),
+    );
+    assert_eq!(
+        closing_of(&annotation),
+        Some((
+            Mark {
+                seq: 9,
+                by: Citation {
+                    realm: Some("east".into()),
+                    run_id: "other".into(),
+                    seq: 4,
+                },
+                reason: Some("fixed there".into()),
+                operator: Some("op".into()),
+                recorded_at: "2026-01-01T00:00:00Z".into(),
+            },
+            vec![2, 3],
+        ))
+    );
+    let bare = event(
+        9,
+        EventType::OperatorCommanded,
+        json!({"command": "supersede", "args": {"by": {"run_id": "other", "seq": 4}, "findings": []}}),
+    );
+    let (mark, findings) = closing_of(&bare).unwrap();
+    assert_eq!(
+        (mark.by.realm, mark.reason, mark.operator),
+        (None, None, None)
+    );
+    assert_eq!(findings, Vec::<u64>::new());
+}
+
+#[test]
+fn no_closing_without_a_supersede_whose_citation_reads() {
+    let cited = json!({"by": {"run_id": "other", "seq": 4}, "findings": [2]});
+    let retry = event(
+        9,
+        EventType::OperatorCommanded,
+        json!({"command": "retry", "args": cited}),
+    );
+    let ruling = event(
+        9,
+        EventType::TransitionDecided,
+        json!({"command": "supersede", "args": cited}),
+    );
+    let unread = [
+        json!({"findings": [2]}),
+        json!({"by": {"seq": 4}, "findings": [2]}),
+        json!({"by": {"run_id": "other"}, "findings": [2]}),
+        json!({"by": {"run_id": "other", "seq": 4}, "findings": 2}),
+    ];
+    assert_eq!(closing_of(&retry), None);
+    assert_eq!(closing_of(&ruling), None);
+    for args in unread {
+        assert_eq!(closing_of(&superseding(9, args.clone())), None, "{args}");
+    }
+}
+
+#[test]
+fn a_finding_closed_twice_carries_the_last_mark() {
+    let first = superseding(
+        5,
+        json!({"by": {"run_id": "a", "seq": 1}, "findings": [2, 3]}),
+    );
+    let last = superseding(6, json!({"by": {"run_id": "b", "seq": 1}, "findings": [3]}));
+    let marks = closings(&[first, last, ruled(7, "verify", json!({}))]);
+    let by: Vec<(u64, u64, &str)> = marks
+        .iter()
+        .map(|(finding, mark)| (*finding, mark.seq, mark.by.run_id.as_str()))
+        .collect();
+    assert_eq!(by, vec![(2, 5, "a"), (3, 6, "b")]);
+}
+
+#[test]
+fn the_open_severity_is_the_highest_an_unclosed_finding_states() {
+    let open = |findings: &[(Option<Severity>, bool)]| open_severity(findings.iter().copied());
+    assert_eq!(
+        open(&[(Some(Severity::Low), false), (Some(Severity::High), false)]),
+        Some(Severity::High)
+    );
+    assert_eq!(
+        open(&[(Some(Severity::Low), false), (Some(Severity::High), true)]),
+        Some(Severity::Low),
+        "a closed finding is open no longer"
+    );
+    assert_eq!(open(&[(None, false), (Some(Severity::None), false)]), None);
+    assert_eq!(open(&[]), None);
+    assert_eq!(
+        Claim::MaxSeverity(Severity::Medium).severity(),
+        Some(Severity::Medium)
+    );
+    assert_eq!(Claim::SecurityResidual.severity(), None);
+    assert_eq!(Claim::HighRiskUncovered.severity(), None);
+}

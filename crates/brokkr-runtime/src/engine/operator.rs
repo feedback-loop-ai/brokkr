@@ -8,8 +8,10 @@
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
-    acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, Run, RunState, Status,
+    acceptance_refusal, concluded, fold, Cursor, FoldError, OperatorCommand, Refusal, Run,
+    RunState, Status,
 };
+use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Store, StoreError};
 use serde_json::{json, Value};
@@ -77,15 +79,19 @@ fn fenced_append(
 
 /// The proof every verb takes before it answers: what it just wrote
 /// reads back.
-fn read_back(store: &Store, run_id: &str) -> Result<RunState, EngineError> {
-    Ok(fold(&store.load(run_id)?)?)
+fn read_back(store: &mut Store, run_id: &str) -> Result<RunState, EngineError> {
+    Ok(folded(store, run_id)?.0)
 }
 
 /// The run as a deciding fold reads it, and the head a write decided on
-/// that reading must still find.
-fn folded(store: &Store, run_id: &str) -> Result<(RunState, Head), EngineError> {
+/// that reading must still find. The store carries the account into the
+/// verb's writes, so each writes the run's summary (decision 0089 ruling 3).
+fn folded(store: &mut Store, run_id: &str) -> Result<(RunState, Head), EngineError> {
     let events = store.load(run_id)?;
-    Ok((fold(&events)?, Head::tip(&events)))
+    let account = Account::whole(run_id, &events);
+    let state = account.state().map_err(FoldError::clone)?.clone();
+    store.carry(account);
+    Ok((state, Head::tip(&events)))
 }
 
 /// The command id an operator event carries.

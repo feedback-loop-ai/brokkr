@@ -15,6 +15,57 @@ use brokkr_core::envelope::EventEnvelope;
 use rusqlite::{params, Connection, ToSql};
 
 use crate::import::INSERT_EVENT;
+use crate::{Disagreement, Store};
+
+/// Every run whose summary row stands at its head reads as its fold
+/// (decision 0089 ruling 4): each such run folded whole, and its row
+/// compared with the summary of that fold, column for column. What
+/// disagrees is named with its first differing column; a run that does
+/// not load is passed, since no fold stands behind it to compare, and a
+/// row behind its head is a lag the next writer catches up. A journal the
+/// check cannot read at all is the test's own business, and names none.
+pub fn every_run_reads_as_its_fold(store: &Store) -> Vec<String> {
+    let found = store.summary_disagreements().unwrap_or_default();
+    found
+        .into_iter()
+        .filter_map(|disagreement| match disagreement {
+            Disagreement::Missing { run_id } => Some(format!("{run_id}: no summary row")),
+            Disagreement::Column { run_id, column } => Some(format!("{run_id}: {column}")),
+            Disagreement::Unread { .. } => None,
+        })
+        .collect()
+}
+
+/// The lane `run_id`'s summary row is read from (decision 0089 ruling 6),
+/// or `None` for a run with no row: how a test sees that a writer left the
+/// row at its head rather than behind it.
+pub fn lane(store: &Store, run_id: &str) -> Option<String> {
+    store
+        .conn
+        .query_row(
+            "SELECT lane FROM run_summary WHERE run_id = ?1",
+            [run_id],
+            |row| row.get(0),
+        )
+        .ok()
+}
+
+/// After every test that wrote through a store carrying a writer's
+/// account, an engine scenario among them, every run that store's
+/// journal carries reads as its fold. Not while a test is already
+/// failing: its own panic is the one to report.
+impl Drop for Store {
+    fn drop(&mut self) {
+        if self.carried.is_none() || std::thread::panicking() {
+            return;
+        }
+        let disagreeing = every_run_reads_as_its_fold(self);
+        assert!(
+            disagreeing.is_empty(),
+            "a summary row disagrees with its run's fold: {disagreeing:?}"
+        );
+    }
+}
 
 /// Plant a `runs` row carrying this manifest text verbatim, valid JSON or
 /// not: a run as a foreign or older writer left it, with no origin and no

@@ -21,7 +21,6 @@ pub brokkr_view::capability_calls::CapabilityCall::tool: alloc::string::String
 pub const brokkr_view::capability_calls::UNRECORDED: &str
 pub mod brokkr_view::js
 pub fn brokkr_view::js::len(&str) -> usize
-pub fn brokkr_view::js::parse_millis(&str) -> core::option::Option<i64>
 pub fn brokkr_view::js::round_half_up(f64) -> i64
 pub fn brokkr_view::js::slice(&str, usize, usize) -> alloc::string::String
 pub fn brokkr_view::js::to_display(core::option::Option<&serde_json::value::Value>) -> alloc::string::String

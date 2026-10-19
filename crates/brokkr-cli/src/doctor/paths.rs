@@ -26,11 +26,33 @@ pub(super) struct Paths<'a> {
 /// created: doctor reports and never refuses (decision 0046's Addendum).
 pub(super) fn report_database(report: &mut Report, db: Result<&Path, &FolderError>) {
     match db.map(|db| (db, Store::open(db))) {
-        Ok((db, Ok(_))) => report.ok(
-            "database",
-            format!("{} opens (WAL, append-only triggers)", db.display()),
-        ),
+        Ok((db, Ok(store))) => {
+            report.ok(
+                "database",
+                format!("{} opens (WAL, append-only triggers)", db.display()),
+            );
+            report_summaries(report, &store);
+        }
         Ok((db, Err(e))) => report.missing("database", format!("{}: {e}", db.display())),
         Err(none) => report.warn("database", format!("none: {none}")),
     }
 }
+
+/// Every run whose summary row stands at its head and is not its fold's
+/// (decision 0089 ruling 4), read one run at a time after the open has
+/// caught up what fell behind: each a failure, since such a row is a bug
+/// or an edit and never a lag. A summary the journal cannot be read for
+/// at all is one too. A journal whose every row agrees adds no line.
+fn report_summaries(report: &mut Report, store: &Store) {
+    match store.summary_disagreements() {
+        Ok(found) => {
+            for disagreement in found {
+                report.missing("summary", disagreement.to_string());
+            }
+        }
+        Err(error) => report.missing("summary", format!("not read: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests;
