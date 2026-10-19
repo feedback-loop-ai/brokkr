@@ -336,7 +336,11 @@ fn a_positive_fact_that_cannot_be_sealed_keeps_the_reservation() {
         let before = standing(&at);
         LATE.set(Some(Late::Unstage));
         let how = case.how.clone();
-        assert_eq!(case.settles(), case.refused(Unknown::Unsealed), "{how}");
+        assert_eq!(
+            case.settles(),
+            case.refused(Unreleased::standing, Unknown::Unsealed),
+            "{how}"
+        );
         kept(&at, &before, &how);
         let later = claim(&case.work, ["run-b", "b1"], Protects::Nothing, &[]);
         let held = cr2(Conflict::Held(case.run.clone()));
@@ -393,12 +397,17 @@ impl Fenced {
         settles(&mut self.engine, self.lifted, &self.how)
     }
 
-    /// What its settlement returns where a seal is refused by `unknown`:
-    /// the run failed by MB3's identity cause where the fence rule asks it,
-    /// otherwise settled.
-    fn refused(&self, unknown: Unknown) -> Result<(), Unreleased> {
+    /// What its settlement returns where a seal is refused by `unknown`,
+    /// its lease left as `left` says (L1 of U8a2c's review): the run failed
+    /// by MB3's identity cause where the fence rule asks it, otherwise
+    /// settled.
+    fn refused(
+        &self,
+        left: fn(Unadmitted) -> Unreleased,
+        unknown: Unknown,
+    ) -> Result<(), Unreleased> {
         match self.fails {
-            true => Err(Unadmitted::Identity(unknown).into()),
+            true => Err(left(Unadmitted::Identity(unknown))),
             false => Ok(()),
         }
     }
@@ -464,7 +473,8 @@ fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
     // Such a lease fails its run as it settles, under the fence rule.
     settled_a1(&mut engine, &run);
     let settled = settles(&mut engine, true, "marked");
-    let unsynced = Unreleased::from(Unadmitted::Identity(Unknown::Unsynced));
+    // Its lease was never released, its cleanup unresolved (L1).
+    let unsynced = Unreleased::standing(Unadmitted::Identity(Unknown::Unsynced));
     assert_eq!(settled, Err(unsynced), "marked: its run failed");
     let host = Host::new();
     let (_dir, _engine, work, run) = died_after_its_end(&host);
@@ -480,6 +490,25 @@ fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
     );
 }
 
+/// L1 of U8a2c's review: a settlement that fails its run says whether its
+/// lease stands or was released, in the operator's words.
+#[test]
+fn a_failed_settlement_says_whether_its_lease_was_released() {
+    let cause = || Unadmitted::Identity(Unknown::Unsynced);
+    let mb3 = "dispatch refused: MCP server box filesystem identity is not protected: the \
+               attempt's reservation was committed, but its directory was not proven synced";
+    let standing = "the attempt's writer lease stands, for its settlement was not sealed";
+    let released = "the attempt's writer lease was released, but a seal of its reservation \
+                    was not proven durable";
+    let cases = [
+        (Unreleased::standing(cause()), standing),
+        (Unreleased::released(cause()), released),
+    ];
+    for (unreleased, text) in cases {
+        assert_eq!(unreleased.to_string(), format!("{text}: {mb3}"));
+    }
+}
+
 /// R1: a settlement whose reseal commits without its directory proven
 /// synced releases its lease and fails its run under the fence rule, with
 /// MB3's identity cause: where evidence was at stake as it was admitted,
@@ -487,10 +516,15 @@ fn a_reseal_whose_last_sync_fails_reports_itself_committed() {
 /// nothing at stake it does not.
 #[test]
 fn an_unsynced_settlement_fails_its_run_under_the_fence_rule() {
+    // Its release committed, so its lease was released (L1).
     for mut case in fenced() {
         LATE.set(Some(Late::FailFinal));
         let how = case.how.clone();
-        assert_eq!(case.settles(), case.refused(Unknown::Unsynced), "{how}");
+        assert_eq!(
+            case.settles(),
+            case.refused(Unreleased::released, Unknown::Unsynced),
+            "{how}"
+        );
         let released = (Vec::new(), vec!["a1".to_string()]);
         let now = case.host.attempts(&case.work, &case.run);
         assert_eq!(now, released, "{how}: released");

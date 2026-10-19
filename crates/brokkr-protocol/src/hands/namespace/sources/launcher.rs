@@ -28,7 +28,7 @@ use std::process::{Command, Stdio};
 
 use rustix::fs::FileType;
 
-use super::super::{spellings, Observed, Profile, ServerProfile};
+use super::super::{spellings, Observed, Profile, ServerBox, ServerProfile, ServerProgram};
 use super::host::store::{exposed, showing, spelled, table, top};
 use super::host::{acl, excluded, opened, readable, resolve, route, Credentials, Hop, Host, Owned};
 use super::{owned, stat_at, Kind, Presence, Role, Source};
@@ -51,6 +51,18 @@ impl Checked {
             role: Role::Support,
             presence: Presence::Required,
         }
+    }
+}
+
+impl ServerBox {
+    /// Every file a server box's launcher may be, in order, whether or not
+    /// one stands, the engine reserving each by its route (U8a2b): the bare
+    /// name `bwrap` as a server's launch is looked up, in each directory of
+    /// the server `PATH`. The engine starts its survey on exactly these
+    /// directories, and a launcher found as any other file, as a broker's
+    /// own `PATH` may lead to, never runs (`checked`).
+    pub fn launchers() -> Vec<PathBuf> {
+        ServerProgram::candidates("bwrap")
     }
 }
 
@@ -84,10 +96,13 @@ pub(in crate::hands) fn launched(
 /// its route resolves to, a regular file whose canonical place lies in the
 /// server box's protected system set and, by its handle's facts, writable
 /// by no managed writer ([`fit`]), a rule stricter than a support file's,
-/// and an ELF executable the loader runs only protected code for
-/// ([`elf`]). Identity's cause otherwise. A test alone may grant a place
-/// outside the set its membership (`host.admitted`), so an image it plants
-/// is decided by its headers; no other build has the grant.
+/// an ELF executable the loader runs only protected code for ([`elf`]),
+/// and found as one of the candidates the engine reserved by their routes
+/// ([`ServerBox::launchers`]; U8a2b), whatever `PATH` found it. Identity's
+/// cause otherwise. A test alone may grant a place outside the set its
+/// membership, and a launcher found elsewhere a candidate's
+/// (`host.admitted`), so an image it plants is decided by its headers and
+/// a route it lays by its hops; no other build has the grant.
 fn checked(found: PathBuf, host: &Host<'_>) -> Result<Checked, Refusal> {
     let (resolved, fd, facts) = opened(&found, host)?;
     let owned = owned(&facts, acl(fd.as_fd()));
@@ -99,6 +114,8 @@ fn checked(found: PathBuf, host: &Host<'_>) -> Result<Checked, Refusal> {
     ok.then_some(()).ok_or(Refusal::Identity)?;
     let dir = resolved.place.parent().ok_or(Refusal::Identity)?;
     elf(fd.as_fd(), dir, host).map_err(|_| Refusal::Identity)?;
+    let reserved = granted | ServerBox::launchers().contains(&found);
+    reserved.then_some(()).ok_or(Refusal::Identity)?;
     let chain = resolved.chain;
     Ok(Checked { found, fd, chain })
 }

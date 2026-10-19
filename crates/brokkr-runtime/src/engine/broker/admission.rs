@@ -19,9 +19,10 @@
 //! ([`super::settlement::recovered`]), and the incoming attempt's complete
 //! writer reach — every site of its body, each member, step and fallback
 //! by the hands its label holds, whether or not it brokers anything — is
-//! compared with every participant ([`super::exclusion`]). Its reservation
-//! is then sealed (written beside, synced, renamed in, its directory
-//! synced), and an artifact root that protects evidence for the first time
+//! compared with every participant ([`super::exclusion`]) and with every
+//! MCP server source a standing attempt reserved ([`super::sources`]). Its
+//! reservation is then sealed (written beside, synced, renamed in, its
+//! directory synced), and an artifact root that protects evidence for the first time
 //! recorded as historical, all before the lock is released and before
 //! anything spawns, within one startup deadline that provisioning then
 //! shares. The common dispatch door rechecks that it still stands, and
@@ -51,7 +52,8 @@ use super::historical::recorded;
 use super::inventory::{inventory, Budget};
 use super::root::{locked, read, Commit, Root};
 use super::settlement::recovered;
-use super::{startup, Observed, PROTECTED_ROOT};
+use super::sources::{unserved, Served, Unroutable};
+use super::{startup, Observed};
 use crate::bundle::ExecutableBody;
 use crate::engine::boxed::{artifact_root, make_root, Unrooted};
 use crate::engine::{
@@ -155,6 +157,24 @@ pub(in crate::engine) enum Unknown {
     Lost,
     #[error("the attempt's reservation holds no proof that its owned processes settled")]
     Unproven,
+    #[error(
+        "site '{site}' of run '{run}' can write '{}', which an MCP server's box is built from",
+        .served.display()
+    )]
+    Serving {
+        site: String,
+        run: String,
+        served: PathBuf,
+    },
+    #[error(
+        "site '{site}' of run '{run}' writes outside a workspace box, its privilege not \
+         confined, beside an MCP server's sources"
+    )]
+    Unconfined { site: String, run: String },
+    #[error("the mount table does not prove where '{}' lies beside a managed writer", .0.display())]
+    Unmounted(PathBuf),
+    #[error("the route of '{}', which an MCP server's box is built from, {}", .0.display(), .1)]
+    Unrouted(PathBuf, Unroutable),
 }
 
 impl From<Conflict> for Unadmitted {
@@ -186,14 +206,17 @@ pub(super) struct Reservation {
 }
 
 /// What one attempt reserved: whether it protects evidence, the reach of
-/// every writer its body may start, and what its engine witnessed of its
-/// drivers' cleanup, sealed as it witnesses it (R2; M1).
+/// every writer its body may start, what its engine witnessed of its
+/// drivers' cleanup, sealed as it witnesses it (R2; M1), and the sources
+/// its MCP servers are built from, none where it brokers nothing (U8a2b).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Reserved {
     pub(super) protects: Protects,
     pub(super) writers: Vec<Writer>,
     pub(super) cleanup: Witnessed,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) serves: Vec<Served>,
 }
 
 /// What the engine has witnessed of an attempt's drivers' cleanup (#403):
@@ -263,6 +286,11 @@ impl Reservation {
     pub(super) fn protects(&self) -> bool {
         (self.attempts.values()).any(|reserved| reserved.protects == Protects::Evidence)
     }
+
+    /// Every MCP server source its standing attempts reserved (U8a2b).
+    pub(super) fn serves(&self) -> impl Iterator<Item = &Served> {
+        self.attempts.values().flat_map(|reserved| &reserved.serves)
+    }
 }
 
 /// One attempt's claim on its worktree, which admission compares and
@@ -280,13 +308,12 @@ pub(super) struct Claim {
     pub(super) authored: Authored,
 }
 
-/// What each boxed writer's reach is rebuilt from at the door (R1): the
-/// HOME a bind's `~/` named, and each boxed writer's authored hands beside
-/// the reach admission sealed from them, which the engine builds every box
-/// of those hands from (U8a2c).
+/// What each boxed writer's reach is rebuilt from at the door (R1): each
+/// boxed writer's authored hands beside the reach admission sealed from
+/// them, the HOME a bind's `~/` named sealed in it, which the engine builds
+/// every box of those hands from (U8a2c).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(in crate::engine) struct Authored {
-    pub(super) home: PathBuf,
     pub(super) boxes: Vec<(HandsSpec, Reach)>,
 }
 
@@ -460,11 +487,9 @@ impl Engine {
                 protects,
                 writers,
                 cleanup,
+                serves: Vec::new(),
             },
-            authored: Authored {
-                home: home.to_path_buf(),
-                boxes,
-            },
+            authored: Authored { boxes },
         })
     }
 
@@ -614,6 +639,7 @@ pub(super) fn admit_with(
         coordination: root.path(),
     };
     compared(&comparison, &mut budget)?;
+    unserved(claim, &standing, root.mounts(), &budget)?;
     let staked = staked(&comparison);
     between();
     let artifacts = match claim.reserved.protects {
@@ -745,13 +771,6 @@ pub(super) fn settled(mut reservation: Reservation, attempt: &str) -> Result<Res
     reservation.attempts.remove(attempt);
     reservation.settled.insert(attempt.to_string());
     Ok(reservation)
-}
-
-/// The protected root's path under `home`.
-pub(super) fn coordination(home: &Path) -> PathBuf {
-    PROTECTED_ROOT
-        .iter()
-        .fold(home.to_path_buf(), |path, name| path.join(name))
 }
 
 /// The directory `path`'s device and inode, where it is a directory of its

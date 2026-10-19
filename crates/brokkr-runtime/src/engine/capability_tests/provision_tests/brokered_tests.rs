@@ -22,14 +22,26 @@ thread_local! {
     /// The host `Engine::provision` reads on this thread, where a test
     /// stood one in ([`StoodIn`]).
     static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
+    /// How many boxes this thread's stood-in provisioning surveyed.
+    static SURVEYED: Cell<usize> = const { Cell::new(0) };
 }
 
 /// The host dispatch's own provisioning reads on this thread, with the
-/// survey's stand-in ([`observing`]), where a test stood one in; none
-/// otherwise, and the real host is read.
+/// survey's stand-in ([`observing`]), each box it surveys counted, where a
+/// test stood one in; none otherwise, and the real host is read.
 pub(in crate::engine) fn stood_in() -> Option<(Host, Surveyor<'static>)> {
     let host = HOST.with_borrow(Clone::clone)?;
-    Some((host, &observing))
+    Some((host, &counted))
+}
+
+/// [`observing`], counted.
+fn counted(
+    bootstrap: &Path,
+    request: &Survey,
+    deadline: Instant,
+) -> Result<Provisioned, Unprovisioned> {
+    SURVEYED.set(SURVEYED.get() + 1);
+    observing(bootstrap, request, deadline)
 }
 
 /// A host stood in for this thread's provisioning until dropped, on return

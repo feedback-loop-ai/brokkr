@@ -8,7 +8,22 @@
 //! two runs started together, an engine killed mid-attempt — is proved on
 //! an injected root, on any TMPDIR and never skipped, by
 //! `engine::broker::admission::tests::processes` (M4 of run four's second
-//! review), which these suites held until then.
+//! review), which these suites held until then. U8a2b's exclusion of every
+//! managed writer from an admitted server's program and system sources and
+//! from every link on their routes — server first, writer first,
+//! simultaneous starts, a dispatched engine killed with its seat or its
+//! server box alive, an uncertain settlement, a disjoint worktree, binds
+//! the mount table shows — needs a server provisioned under a held lease,
+//! which no public engine can do while the compile fence stands, and the
+//! library's own seams (an injected root and mount table, seal hooks), so
+//! it is proved in `engine::broker::admission::tests::sources` and, through
+//! dispatch and provisioning, in
+//! `engine::capability_tests::provision_tests::brokered_tests::writers_tests`.
+//! So are the operator's 2026-10-19 rulings on its host inputs (D6): a
+//! writer at, above or below an operating-system root, and one able to make
+//! a dangling launcher or launch candidate live, refused before any survey;
+//! and the survey started without the loader's `LD_*`, in
+//! `engine::capability_tests::provision_tests::survey_tests`.
 
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};

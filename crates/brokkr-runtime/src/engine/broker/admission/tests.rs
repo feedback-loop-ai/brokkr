@@ -25,9 +25,11 @@ use serde_json::json;
 use super::*;
 use crate::bundle::{SeatBody, SequenceStep};
 use crate::engine::broker::inventory::Budget;
-use crate::engine::broker::root::{seal_with, Commit, Step, PRIOR};
+use crate::engine::broker::root::{coordination, seal_with, Commit, Step, PRIOR};
 use crate::engine::broker::settlement::{proved, witnessed, witnessed_by};
-use crate::engine::broker::{owned, surveyed, Host as Hosting, Surveyor, Unprovisioned};
+use crate::engine::broker::{
+    owned, surveyed, Host as Hosting, Surveyor, Unprovisioned, PROTECTED_ROOT,
+};
 use crate::engine::tests::{
     capturing_driver_command, draft_then_finish, engine, execute_work, member, requested,
     set_site_hands, single_body,
@@ -39,6 +41,15 @@ mod processes;
 mod reach;
 mod recovery;
 mod sealing;
+// U8a2b's proofs read the mount table, which only Linux has (decision 0063).
+#[cfg(target_os = "linux")]
+mod sources;
+#[cfg(not(target_os = "linux"))]
+use crate::engine::broker::sources::observed as shown;
+#[cfg(target_os = "linux")]
+use sources::shown;
+#[cfg(target_os = "linux")]
+pub(in crate::engine) use sources::{leased, proven_settled, standing_writer, unsynced_next};
 
 /// Where admission reads its coordination on a thread under test.
 #[derive(Clone)]
@@ -139,7 +150,7 @@ pub(in crate::engine) fn opened(home: &Path) -> Root {
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
     let flags = rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY;
     let dir = rustix::fs::open(&path, flags, rustix::fs::Mode::empty()).unwrap();
-    Root::opened(dir, path, late).expect("an owner-only root")
+    Root::opened(dir, path, (late, shown)).expect("an owner-only root")
 }
 
 /// The hook of every root a test opens: what [`LATE`] arms, at the step of
@@ -383,6 +394,7 @@ fn claim(
             protects,
             writers: writers.to_vec(),
             cleanup: Witnessed::Settling,
+            serves: Vec::new(),
         },
         authored: Authored::default(),
     }
@@ -430,7 +442,6 @@ impl Engine {
     pub(in crate::engine) fn sealed_for(&mut self, home: &Path, spec: &HandsSpec) {
         let workdir = std::fs::canonicalize(self.workdir()).unwrap();
         let reach = boxed_reach(spec, home, &workdir, &hands::git_facts(&workdir));
-        self.reach.home = home.to_path_buf();
         self.reach.boxes.push((spec.clone(), reach));
     }
 }
@@ -499,6 +510,12 @@ fn every_refusal_reads_as_its_cause() {
         (Unknown::Unsynced.into(), format!("{mb3}: the attempt's reservation was committed, but its directory was not proven synced")),
         (Unknown::Lost.into(), format!("{mb3}: the attempt's reservation no longer stands")),
         (Unknown::Unproven.into(), format!("{mb3}: the attempt's reservation holds no proof that its owned processes settled")),
+        (Unknown::Serving { site: "work:m".into(), run: "a".into(), served: "/s".into() }.into(), format!("{mb3}: site 'work:m' of run 'a' can write '/s', which an MCP server's box is built from")),
+        (Unknown::Unconfined { site: "work".into(), run: "a".into() }.into(), format!("{mb3}: site 'work' of run 'a' writes outside a workspace box, its privilege not confined, beside an MCP server's sources")),
+        (Unknown::Unmounted("/s".into()).into(), format!("{mb3}: the mount table does not prove where '/s' lies beside a managed writer")),
+        (Unknown::Unrouted("s".into(), Unroutable::Relative).into(), format!("{mb3}: the route of 's', which an MCP server's box is built from, is not absolute, as a relative or empty PATH entry or a relative TMPDIR names it")),
+        (Unknown::Unrouted("/s".into(), Unroutable::Unread).into(), format!("{mb3}: the route of '/s', which an MCP server's box is built from, meets a component that cannot be read")),
+        (Unknown::Unrouted("/s".into(), Unroutable::Hops).into(), format!("{mb3}: the route of '/s', which an MCP server's box is built from, meets more than 40 symlinks")),
     ];
     for (refusal, text) in cases {
         let refusal: Unadmitted = refusal;
@@ -951,7 +968,6 @@ fn the_door_refuses_a_lease_whose_reach_was_redirected() {
     };
     let mut incoming = claim(&work, ["run-a", "a1"], Protects::Nothing, &[writer]);
     incoming.authored = Authored {
-        home: host.home.clone(),
         boxes: vec![(spec, reach)],
     };
     // A disjoint, unreplaceable source is admitted with nothing at stake.
@@ -991,7 +1007,6 @@ fn a_box_held_with_no_sealed_reach_is_redirected_by_its_worktree() {
         binds: Vec::new(),
     };
     held.authored = Authored {
-        home: host.home.clone(),
         boxes: vec![(spec, Reach::Unbounded)],
     };
     let worktree = std::fs::canonicalize(&work).unwrap();
@@ -1116,7 +1131,7 @@ fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
         reach: reach.clone(),
     };
     let mut incoming = claim(&linked, ["run-a", "a1"], Protects::Nothing, &[writer]);
-    (incoming.authored.home, incoming.authored.boxes) = (host.home.clone(), vec![(spec, reach)]);
+    incoming.authored.boxes = vec![(spec, reach)];
     let held = host.admit(&incoming).unwrap();
     let (dir, engine) = engine(single_body(Vec::new()));
     let door = |name: &str| {
@@ -1295,6 +1310,22 @@ fn the_hosts_home_is_read_only_where_nothing_stood_in() {
     refused_with(&mut engine, Unrooted::Foreign(artifacts).into());
 }
 
+/// An engine whose work seat is a sequence, a boxed draft step and then a
+/// finishing panel whose member `m1` binds `bound` read-write, every
+/// step's driver touching the file it returns beside the engine's
+/// directory, which no step's driver must start.
+fn sequenced(bound: &Path) -> (tempfile::TempDir, Engine, PathBuf) {
+    let (dir, mut engine) = engine(single_body(Vec::new()));
+    let ran = dir.path().join("ran");
+    let touch = driver(&format!("touch '{}'", ran.display()));
+    let members = vec![member("m1", touch.clone())];
+    let steps: Vec<SequenceStep> = draft_then_finish("role.md", touch, &["drafted"], members);
+    engine.bundle.seats.get_mut("work").unwrap().body = SeatBody::Sequence { steps };
+    set_site_hands(&mut engine.bundle, "work:draft", hands(&[]));
+    set_site_hands(&mut engine.bundle, "work:finish:m1", hands(&[bound]));
+    (dir, engine, ran)
+}
+
 /// The union of a sequence's writer reach is reserved before its first
 /// step: a panel member of its last step whose bind reaches another run's
 /// protected evidence refuses the whole attempt before the first step's
@@ -1307,18 +1338,7 @@ fn a_sequence_reserves_every_steps_reach_before_its_first() {
     let kept = host.worktree("kept");
     let protecting = claim(&kept, ["run-s", "s1"], Protects::Evidence, &[]);
     let _held = host.admit(&protecting).unwrap();
-    let (dir, mut engine) = engine(single_body(Vec::new()));
-    let ran = dir.path().join("ran");
-    let touch = driver(&format!("touch '{}'", ran.display()));
-    let members = vec![member("m1", touch.clone())];
-    let steps: Vec<SequenceStep> = draft_then_finish("role.md", touch, &["drafted"], members);
-    engine.bundle.seats.get_mut("work").unwrap().body = SeatBody::Sequence { steps };
-    set_site_hands(&mut engine.bundle, "work:draft", hands(&[]));
-    set_site_hands(
-        &mut engine.bundle,
-        "work:finish:m1",
-        hands(&[&kept.join(".forge")]),
-    );
+    let (_dir, mut engine, ran) = sequenced(&kept.join(".forge"));
     let effect = requested(&engine, "effect");
     execute_work(&mut engine, &[effect]).unwrap();
     let artifacts = kept.join(".forge/artifacts");
@@ -1640,4 +1660,21 @@ fn the_artifact_root_holds_evidence_only_where_anything_stands_in_it() {
     let below = file.join("artifacts");
     let unmade = Unrooted::Unmade(below.clone(), std::io::ErrorKind::NotADirectory);
     assert_eq!(evidence(&below), Err(unmade));
+}
+
+/// Off Linux no mount table is read, so no boxed writer is kept from an
+/// MCP server's inputs (U8a2b; decision 0063): the extension of a lease
+/// held by one is refused by MB3's identity cause naming the first input.
+#[cfg(not(target_os = "linux"))]
+#[test]
+fn off_linux_no_boxed_writer_is_kept_from_a_servers_inputs() {
+    use crate::engine::broker::sources::{extended, fixed};
+    let host = Host::new();
+    let work = host.worktree("a");
+    let writers = [boxed("work", &[&work])];
+    let held = host.admit(&claim(&work, ["run-a", "a1"], Protects::Nothing, &writers));
+    let bootstrap = host.dir.path().join("brokkr");
+    let commits = Cell::new(Commit::Synced);
+    let extension = extended(&held.unwrap(), fixed(&bootstrap), soon(), &commits);
+    assert_eq!(extension, Err(Unknown::Unmounted(bootstrap).into()));
 }

@@ -58,12 +58,54 @@ enum Ending {
     Uncertain,
 }
 
-/// An attempt whose owned processes this engine proved settled, but whose
-/// positive settlement fact or release could not be sealed: its
-/// reservation stands, refusing every later writer it would.
+/// Why an attempt's settlement fails its run (L1 of U8a2c's review): its
+/// lease was never released — its owned processes not proven settled, or
+/// its positive settlement fact or release not sealed — so its reservation
+/// stands, refusing every later writer it would; or its release committed,
+/// but a seal of its reservation, its release's own or an earlier one, was
+/// not proven durable.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("the attempt settled, but its writer lease stands, for its settlement was not sealed: {0}")]
-pub struct Unreleased(#[from] Unadmitted);
+#[error("{}: {}", .lease.said(), .cause)]
+pub struct Unreleased {
+    lease: Lease,
+    cause: Unadmitted,
+}
+
+/// Whether a failed settlement left its lease standing or released it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lease {
+    Standing,
+    Released,
+}
+
+impl Lease {
+    /// What the operator is told of it.
+    fn said(self) -> &'static str {
+        match self {
+            Lease::Standing => {
+                "the attempt's writer lease stands, for its settlement was not sealed"
+            }
+            Lease::Released => {
+                "the attempt's writer lease was released, but a seal of its reservation was not \
+                 proven durable"
+            }
+        }
+    }
+}
+
+impl Unreleased {
+    /// A settlement refused by `cause`, its lease left standing.
+    pub(in crate::engine) fn standing(cause: Unadmitted) -> Unreleased {
+        let lease = Lease::Standing;
+        Unreleased { lease, cause }
+    }
+
+    /// A settlement whose release committed, a seal not proven by `cause`.
+    pub(in crate::engine) fn released(cause: Unadmitted) -> Unreleased {
+        let lease = Lease::Released;
+        Unreleased { lease, cause }
+    }
+}
 
 impl Engine {
     /// Release the lease of the attempt `attempt`, which ended in `ran`,
@@ -87,18 +129,23 @@ impl Engine {
         };
         let events = self.store.load(&self.run_id)?;
         let deadline = startup(Instant::now(), Duration::MAX);
-        let released = if proven(&held, &events, attempt) {
-            proved(&held, deadline).and_then(|fact| Ok(fact.and(release(&held, deadline)?)))
-        } else {
-            Ok(Commit::Synced)
+        // How the release committed, where one was made.
+        let released = match proven(&held, &events, attempt) {
+            true => proved(&held, deadline)
+                .and_then(|fact| Ok(Some(fact.and(release(&held, deadline)?)))),
+            false => Ok(None),
         };
-        let unsynced = (Unknown::Unsynced).into();
-        let settled = released.and_then(|commit| match (commit, held.unsynced) {
-            (Commit::Synced, false) => Ok(()),
-            (Commit::Unsynced, _) | (_, true) => Err(unsynced),
-        });
+        let unsynced = || Unadmitted::from(Unknown::Unsynced);
+        let settled = match (released, held.unsynced) {
+            (Ok(Some(Commit::Synced) | None), false) => Ok(()),
+            (Ok(Some(Commit::Synced)), true) | (Ok(Some(Commit::Unsynced)), _) => {
+                Err(Unreleased::released(unsynced()))
+            }
+            (Ok(None), true) => Err(Unreleased::standing(unsynced())),
+            (Err(refused), _) => Err(Unreleased::standing(refused)),
+        };
         match settled {
-            Err(refused) if everywhere() | held.staked => Err(Unreleased(refused).into()),
+            Err(unreleased) if everywhere() | held.staked => Err(unreleased.into()),
             _ => Ok(()),
         }
     }

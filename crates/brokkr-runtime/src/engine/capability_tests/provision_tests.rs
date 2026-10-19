@@ -5,7 +5,7 @@
 //! box is surveyed by `brokkr broker survey` under the startup deadline
 //! ([`survey_tests`]); here a stand-in answers as the survey would.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
@@ -19,7 +19,7 @@ use brokkr_protocol::broker::{
 use brokkr_protocol::hands::{Bind, BindMode, GitFacts, OverlayWrites, ServerProgram};
 
 use super::super::broker::{
-    left, owned, reach, share, startup, stored, Attempt, Host, Surveyor, Unprovisioned,
+    left, owned, reach, share, startup, stored, Attempt, Commit, Host, Surveyor, Unprovisioned,
 };
 use super::super::tests::{execute_work, requested};
 use super::call_tests::planned;
@@ -258,7 +258,8 @@ impl Fixture {
             site: "work",
         };
         let deadline = Instant::now() + Duration::from_secs(60);
-        let sealed = (self.engine).provisioned(&attempt, &selected(), host, (survey, deadline));
+        let (surveyor, commits) = ((survey, deadline), &Cell::new(Commit::Synced));
+        let sealed = (self.engine).provisioned(&attempt, &selected(), host, surveyor, commits);
         sealed.map(|made| made.map(|sealed| sealed.control))
     }
 
@@ -1078,7 +1079,8 @@ fn each_member_provisions_its_own_selected_links_holdings_under_its_own_site() {
         Instant::now() + Duration::from_secs(60),
     );
     let host = Ok(fixture.host());
-    let control = (fixture.engine).provisioned(&attempt, &selection, host, surveyor);
+    let commits = &Cell::new(Commit::Synced);
+    let control = (fixture.engine).provisioned(&attempt, &selection, host, surveyor, commits);
     let (_, plans) = sealed(&control.unwrap().unwrap().control);
     let owned: Vec<[&Value; 3]> = (plans.iter())
         .map(|plan| {

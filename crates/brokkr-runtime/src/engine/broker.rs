@@ -41,6 +41,7 @@
 //! capability and kept on the attempt's selection by site label, from which
 //! the site's serving inputs are sealed only once the plans exist.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -64,6 +65,7 @@ use rustix::process::{kill_process_group, Pid, Signal};
 use serde::Serialize;
 use thiserror::Error;
 
+pub(super) use self::root::Commit;
 use super::marks::Brokered;
 use super::{site_label, Engine, EngineError, EventType, Selection};
 use crate::capabilities::{Admitted, Connection, Implementation};
@@ -75,6 +77,7 @@ mod inventory;
 mod observation;
 mod root;
 pub(super) mod settlement;
+mod sources;
 pub(super) use admission::{Authored, Held};
 pub(super) use observation::{observed, Observed};
 
@@ -146,6 +149,10 @@ pub(super) enum Unprovisioned {
     Write,
     #[error("the trusted bootstrap cannot be read")]
     Bootstrap,
+    /// A managed writer can write a source the attempt's servers are built
+    /// from, or the lease could not be extended to them (U8a2b; MB3).
+    #[error(transparent)]
+    Unadmitted(#[from] admission::Unadmitted),
 }
 
 /// Each retaining plan's share of the attempt's budget: the budget divided
@@ -308,8 +315,12 @@ impl Engine {
             attempt,
             site,
         };
-        let surveyor = (survey, startup(began, *bound));
-        let provisioned = self.provisioned(attempt, selection, host, surveyor);
+        let (surveyor, commits) = ((survey, startup(began, *bound)), Cell::new(Commit::Synced));
+        let provisioned = self.provisioned(attempt, selection, host, surveyor, &commits);
+        // Kept whatever provisioning returns, once a seal committed (L1).
+        if let Some(held) = &mut self.held {
+            held.unsynced |= commits.get() == Commit::Unsynced;
+        }
         let remaining = provisioned.and_then(|made| {
             let left = |sealed: Sealed| Ok((sealed.brokers, left(*bound, began, Instant::now())?));
             made.map(left).transpose()
@@ -338,13 +349,15 @@ impl Engine {
     /// holding. The budget and every holding's seal are judged
     /// before the host is consulted, a host that could not be read refusing
     /// only an attempt that brokers a holding, and every plan is sealed
-    /// before anything is made.
+    /// before anything is made. Every seal of the attempt's lease is folded
+    /// into `commits` as it is made.
     pub(super) fn provisioned(
         &self,
         attempt: &Attempt<'_>,
         selection: &Selection,
         host: Result<Host, Unprovisioned>,
         (survey, deadline): (Surveyor<'_>, Instant),
+        commits: &Cell<Commit>,
     ) -> Result<Option<Sealed>, Unprovisioned> {
         let slots = self.slots(attempt.site, selection);
         let retaining = slots.iter().filter(|slot| slot.retained()).count();
@@ -369,17 +382,19 @@ impl Engine {
             workdir,
             repo: repo.clone(),
         };
+        // The lease holds every fixed input and launch before any survey
+        // spawns, the program trees once the surveys answer (U8a2b).
+        let extend = |serves| sources::held_extended(self.held.as_ref(), serves, deadline, commits);
+        let fixed = sources::fixed(&host.bootstrap);
+        let launches = sources::launches(seals.iter().map(|seal| seal.argv));
+        extend([fixed.clone(), launches].concat())?;
         let plans: Vec<Plan> = (slots.iter().zip(&seals))
             .map(|(slot, seal)| self.plan(&shared, attempt, slot, seal))
             .collect::<Result<_, _>>()?;
-        // Below the root the attempt was admitted in, reached from its
-        // handle, not from HOME again (U8a2a); a test that provisions an
-        // attempt it never admitted walks from HOME.
+        extend(sources::served(fixed, &plans))?;
+        // Below the admitted root, from its handle, not HOME again (U8a2a).
         let run = match &self.held {
-            Some(held) => held
-                .coordination
-                .below(&below)
-                .or(Err(Unprovisioned::Root))?,
+            Some(held) => (held.coordination.below(&below)).or(Err(Unprovisioned::Root))?,
             None => protected(&host.home, &below)?,
         };
         let pins = written(&run, &shared.control, plans)?;
@@ -429,6 +444,8 @@ impl Engine {
             home: host.home.clone(),
             reach: reach(&spec, &host.home, &shared.workdir, &shared.git),
             network: seal.admitted.network,
+            // Every managed writer's mapped uid, its privilege confined, as
+            // the lease's extension proves before anything starts (U8a2b).
             writers: vec![host.writer],
         };
         let provisioned = (shared.survey)(&host.bootstrap, &request, shared.deadline)?;
@@ -568,7 +585,8 @@ pub(super) fn stored(store: &Path) -> Result<PathBuf, Unprovisioned> {
 }
 
 /// The bootstrap at `bootstrap` run as `brokkr broker survey` of
-/// `request`, in a process group of its own, and its one reply received
+/// `request`, in a process group of its own, on the server `PATH` without
+/// the loader's `LD_*` ([`sources::surveying`]), and its one reply received
 /// before the startup `deadline`; its input then closed and its whole
 /// group killed and reaped whatever it answered, so a blocked filesystem
 /// call ends with it and no worker outlives it. Until then the engine
@@ -588,8 +606,11 @@ pub(super) fn surveyed(
 ) -> Result<Provisioned, Unprovisioned> {
     let mut line = serde_json::to_vec(request).or(Err(Unprovisioned::Unanswered))?;
     line.push(b'\n');
+    let environment = sources::surveying(std::env::vars_os(), &sources::launchers());
     let started = Command::new(bootstrap)
         .args(["broker", "survey"])
+        .env_clear()
+        .envs(environment)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
