@@ -754,10 +754,10 @@ fn install_held(
     refuse_within(&sources, place)?;
     sources::refuse_folder_bundles(&sources)?;
     let library = places::Places::of(root)?.agents;
-    let definitions = agents::definitions_of(root, world);
+    let defined = agents::definitions_of(root, world);
     // The personal shelf copies nothing into the repository (#697).
     let source_agents = source_agents.filter(|_| onto.origin() == Origin::Project);
-    let hires = agents::plan(&sources, source_agents.as_deref(), &library, &definitions)?;
+    let hires = agents::plan(&sources, source_agents.as_deref(), root, &library, &defined)?;
     let mut installing = install(&planned, dir)?;
     agents::copy(&hires, &mut installing.1)?;
     let digests = verify(root, &installing, world)?;

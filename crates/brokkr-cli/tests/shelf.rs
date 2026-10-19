@@ -661,6 +661,44 @@ fn add_refuses_a_destination_that_is_no_plain_file() {
     assert_eq!(ran.code, Some(0), "{}", ran.stderr);
 }
 
+/// A folder directory on the way to where `recipes add` would copy a file
+/// is judged as the entry itself (#735): `.brokkr/agents/charters` linked
+/// to a directory inside the repository, and `.brokkr/capabilities` linked
+/// to one outside it, each refuse the install by name and are never walked
+/// through. Nothing is installed or copied, no shelf is made, and each
+/// link stands as it was.
+#[test]
+fn add_refuses_a_destination_beneath_a_linked_directory() {
+    let (repo, fast) = library_of_fast();
+    let library = fast.join("../..").canonicalize().unwrap();
+    requesting(&repo, &library);
+    let (charters, inside) = (repo.path(".brokkr/agents/charters"), repo.path("charters"));
+    let add = ["recipes", "add", "--name=fast", fast.to_str().unwrap()];
+    let refused = |at: &Path, target: &Path| {
+        std::os::unix::fs::symlink(target, at).unwrap();
+        let before = repo.files();
+        let ran = repo.brokkr("", &add);
+        let linked = format!(
+            "error: the workspace's {} is a link, where recipes add would copy a file beneath \
+             it; recipes add neither reads through nor replaces it (#735): remove it; nothing \
+             was written\n",
+            at.display()
+        );
+        assert_eq!((ran.code, ran.stderr), (Some(1), linked));
+        assert_eq!(repo.files(), before);
+        assert!(!repo.path(".brokkr/recipes").exists());
+        assert_eq!(std::fs::read_link(at).unwrap(), target);
+    };
+    std::fs::rename(&charters, &inside).unwrap();
+    refused(&charters, &inside);
+    std::fs::remove_file(&charters).unwrap();
+    std::fs::rename(&inside, &charters).unwrap();
+    let outside = library.with_file_name("outside");
+    std::fs::create_dir(&outside).unwrap();
+    refused(&repo.path(".brokkr/capabilities"), &outside);
+    assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+}
+
 /// The library route of the Node guide's flow 3 (#703): a repository with
 /// no folder, holding `adapters/` and `agents/` by hand, installs onto its
 /// root's `recipes/` and copies a requested definition into its root's
