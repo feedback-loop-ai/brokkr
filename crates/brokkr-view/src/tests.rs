@@ -1527,7 +1527,11 @@ fn the_rail_records_the_road_back_once_per_pair_and_only_where_it_was_taken() {
             (
                 phase.name.as_str(),
                 phase.visits,
-                phase.returns.iter().map(String::as_str).collect(),
+                phase
+                    .returns
+                    .iter()
+                    .map(|road| road.from.as_str())
+                    .collect(),
             )
         })
         .collect();

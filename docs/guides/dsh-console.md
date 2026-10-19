@@ -97,11 +97,16 @@ where every realm is.
   current phase boxed in the colour of the run's status ("NOW · REVIEW"). A
   road runs back beneath wherever Brokkr recorded a return ("sent back to
   implement by review · REVIEW-REFORGE"), solid, as Brokkr's own dashboard
-  draws a road that was taken. A return is a ruling that lands earlier on
-  the rail than the phase it leaves: the forward steps of a second pass and
-  a phase ruled onto itself are visits, not roads. Each road takes a lane of
-  its own below the phase names, the shortest nearest, its label on a line
-  of its own. A wide graph scrolls sideways and opens on
+  draws a road that was taken, with how many times it was ("×2"). A return
+  is a ruling that lands earlier on the rail than the phase it leaves: the
+  forward steps of a second pass and a phase ruled onto itself are visits,
+  not roads. Roads run square below the phase names, down, across and up,
+  each from its own departure to its own arrowhead, nested so the longest
+  runs outermost and no road crosses another's label. A label says as much
+  as its room allows (the whole sentence, then who sent it back with the
+  rule, then the rule) and the whole sentence on hover. The graph fills the
+  pane's width, spreading its phases up to a cap, and lays itself out again
+  as the pane resizes. A graph wider than its pane scrolls sideways and opens on
   the current phase. While the run is driven its active step wears Brokkr's
   pulse, the dot striking and a halo spreading as in `brokkr ui`; the
   console's mark and the left-panel icon strike while any run is running.

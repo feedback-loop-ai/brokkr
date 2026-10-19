@@ -136,7 +136,7 @@ The console SHALL draw in a light set of colours, and in a dark set whenever DSH
 
 ### Requirement: The run graph is Brokkr's phases, steps and roads back
 
-The graph SHALL draw the run as `brokkr tui` draws it: the run view's phases left to right on one rail, each phase's steps in order as dots, the members of one step in a bracket above and below the rail, phase names under it, and the current phase boxed in the colour of the run's status. A phase with no recorded steps SHALL be one dot coloured as the TUI's `class_for_phase` colours it, and no state word Brokkr did not give SHALL be shown. A road back SHALL be drawn beneath for each phase `returns` names, solid and in the rail's own colour, with the ruling that sent it back. `returns` SHALL name only a ruling whose `next` stands strictly before its `from` on the rail, whose order is first entry: a forward step into a phase entered before, and a phase ruled onto itself, SHALL NOT be a road back. Each road SHALL take a lane of its own below the phase names, leaving and landing below them, its label at least a text line from any other, and the graph SHALL be tall enough for its last label.
+The graph SHALL draw the run as `brokkr tui` draws it: the run view's phases left to right on one rail, each phase's steps in order as dots, the members of one step in a bracket above and below the rail, phase names under it, and the current phase boxed in the colour of the run's status. A phase with no recorded steps SHALL be one dot coloured as the TUI's `class_for_phase` colours it, and no state word Brokkr did not give SHALL be shown. A road back SHALL be drawn beneath for each road in a phase's `returns`, solid and in the rail's own colour, with the rules that sent the run back and how many times it was taken. `returns` SHALL name only a ruling whose `next` stands strictly before its `from` on the rail, whose order is first entry: a forward step into a phase entered before, and a phase ruled onto itself, SHALL NOT be a road back. Each road SHALL run square below the phase names, down, across its lane and up, from a departure and to a landing of its own, so no two roads share an arrowhead; roads SHALL nest, the longest outermost. No label SHALL meet any road, and the graph SHALL be tall and wide enough for every label. A label SHALL say as much as its room allows, and the whole sentence on hover. The graph SHALL lay itself out against its pane's width as the pane resizes: in a wider pane it SHALL spread the phases to fill it, each arrow between phases growing up to a cap; in a narrower pane it SHALL keep the least spacing and scroll to the current phase.
 
 #### Scenario: Review positions
 
@@ -150,8 +150,8 @@ The graph SHALL draw the run as `brokkr tui` draws it: the run view's phases lef
 
 #### Scenario: Two roads into one phase
 
-- **WHEN** implement was sent back by verify and by review
-- **THEN** two roads are drawn below the phase names, the shorter nearer, each label on a line of its own
+- **WHEN** implement was sent back once by verify (VERIFY-FAIL) and once by review (REVIEW-REFORGE)
+- **THEN** two roads land on two arrowheads under implement, the road from review outside the road from verify, and neither crosses the other's label, which reads "by verify · VERIFY-FAIL ×1" or the whole sentence
 
 ### Requirement: A pick on the graph shows its seats as the TUI reads them
 
@@ -227,3 +227,4 @@ The reader SHALL show the seat's transcript through `brokkr transcript --json`, 
 - `2026-10-13-568-operator-console-slice-one` — folded 2026-10-14
 - `2026-10-14-568-console-view-tab` — folded 2026-10-14
 - `2026-10-19-568-run-view-returns` — folded 2026-10-19
+- `2026-10-19-568-run-view-roads` — folded 2026-10-19

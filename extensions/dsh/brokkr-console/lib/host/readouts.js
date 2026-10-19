@@ -272,8 +272,14 @@ function phase(value, path) {
     visits: count(value.visits, `${path}.visits`),
     current: value.current === true,
     columns: list(value.columns, `${path}.columns`, column),
-    returns: texts(value.returns, `${path}.returns`),
+    returns: list(value.returns, `${path}.returns`, road),
   }
+}
+
+/** A road back into a phase: the phase that sent the run back, how often, and the rules that did, the latest last. */
+function road(value, path) {
+  object(value, path)
+  return { from: text(value.from, `${path}.from`), taken: count(value.taken, `${path}.taken`), rules: texts(value.rules, `${path}.rules`) }
 }
 
 function visit(value, path) {

@@ -1,12 +1,14 @@
 //! #568's run view: a road back is a ruling that lands strictly earlier on
-//! the rail than the phase it leaves, and a seat says which visit to its
-//! phase it was asked in. Synthetic journals only.
+//! the rail than the phase it leaves, counted with the rules that ruled it,
+//! and a seat says which visit to its phase it was asked in. Synthetic
+//! journals only.
 //! A child of the owning `tests.rs`, which sits at its line baseline.
 
 use super::*;
 
 /// One phase entered, one seat asked in it, and the ruling that leaves it.
-/// `None` for `next` is the run's end: no transition after the last seat.
+/// `None` for `next` is the run's end: no transition after the last seat,
+/// and an empty rule is a ruling that records none.
 fn pass(events: &mut Vec<EventEnvelope>, phase: &str, next: Option<(&str, &str)>) {
     let seq = events.len() as u64 + 1;
     let effect = format!("eff{seq}");
@@ -23,12 +25,11 @@ fn pass(events: &mut Vec<EventEnvelope>, phase: &str, next: Option<(&str, &str)>
         T0,
     ));
     if let Some((next, rule)) = next {
-        events.push(ev(
-            seq + 2,
-            EventType::TransitionDecided,
-            json!({"from": phase, "next": next, "rule_id": rule}),
-            T1,
-        ));
+        let mut ruling = json!({"from": phase, "next": next});
+        if !rule.is_empty() {
+            ruling["rule_id"] = json!(rule);
+        }
+        events.push(ev(seq + 2, EventType::TransitionDecided, ruling, T1));
     }
 }
 
@@ -48,11 +49,12 @@ fn walk(steps: &[Step]) -> Vec<EventEnvelope> {
     events
 }
 
-/// Each phase as `name ×visits ← returns`.
+/// Each phase as `name ×visits ← from ×taken RULES, …`.
 fn roads(view: &RunView) -> Vec<String> {
+    let road = |road: &Road| format!("{} ×{} {}", road.from, road.taken, road.rules.join("/"));
     let line = |phase: &Phase| {
-        let from = phase.returns.join(", ");
-        format!("{} ×{} ← {from}", phase.name, phase.visits)
+        let from: Vec<String> = phase.returns.iter().map(road).collect();
+        format!("{} ×{} ← {}", phase.name, phase.visits, from.join(", "))
     };
     view.phases.iter().map(line).collect()
 }
@@ -84,7 +86,7 @@ fn one_reforge_then_a_forward_pass_and_ship_twice_is_one_road_back() {
     assert_eq!(
         roads(&view),
         [
-            "implement ×2 ← review",
+            "implement ×2 ← review ×1 REVIEW-REFORGE",
             "verify ×2 ← ",
             "review ×2 ← ",
             "ship ×2 ← "
@@ -127,7 +129,7 @@ fn two_different_returns_are_two_roads_into_implement_in_journal_order() {
     assert_eq!(
         roads(&view),
         [
-            "implement ×4 ← review, verify",
+            "implement ×4 ← review ×2 REVIEW-REFORGE, verify ×1 VERIFY-FAIL",
             "verify ×3 ← ",
             "review ×2 ← "
         ]
@@ -197,5 +199,43 @@ fn a_seat_with_no_phase_or_one_not_yet_entered_has_no_visit() {
     assert_eq!(
         seats(&view),
         [("intake", None), ("loose", None), ("intake", Some(1))]
+    );
+}
+
+#[test]
+fn a_road_taken_under_several_rules_counts_every_taking_and_names_each_rule_once_latest_last() {
+    // Review sends the run back by REVIEW-REFORGE, then by another rule,
+    // then by a ruling that records none, then by REVIEW-REFORGE again.
+    let back = |rule| ("review", Some(("implement", rule)));
+    let view = run_view(
+        &walk(&[
+            IMPL_OK,
+            VERIFY_PASS,
+            REFORGE,
+            IMPL_OK,
+            VERIFY_PASS,
+            back("REVIEW-SECURITY"),
+            IMPL_OK,
+            VERIFY_PASS,
+            back(""),
+            IMPL_OK,
+            VERIFY_PASS,
+            REFORGE,
+            ("implement", None),
+        ]),
+        None,
+    );
+    assert_eq!(
+        roads(&view),
+        [
+            "implement ×5 ← review ×4 REVIEW-SECURITY/REVIEW-REFORGE",
+            "verify ×4 ← ",
+            "review ×4 ← "
+        ]
+    );
+    let wire = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        wire["phases"][0]["returns"],
+        json!([{"from": "review", "taken": 4, "rules": ["REVIEW-SECURITY", "REVIEW-REFORGE"]}])
     );
 }

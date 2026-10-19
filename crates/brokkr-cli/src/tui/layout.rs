@@ -404,8 +404,8 @@ fn span_of(built: &[Built], start: usize, end: usize, connector: usize) -> usize
 pub(super) fn returns_of(phases: &[Phase]) -> Vec<(usize, usize)> {
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     for (to, phase) in phases.iter().enumerate() {
-        for source in &phase.returns {
-            match phases.iter().position(|other| other.name == *source) {
+        for road in &phase.returns {
+            match phases.iter().position(|other| other.name == road.from) {
                 Some(from) if from > to => pairs.push((to, from)),
                 _ => {}
             }

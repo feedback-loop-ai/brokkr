@@ -4508,7 +4508,14 @@ fn segment<'a>(plan: &'a Plan, key: &str) -> &'a Seg {
 /// the fact `brokkr-view` derives from the ruling, never from `visits`.
 fn returned(phase: Phase, sources: &[&str]) -> Phase {
     Phase {
-        returns: sources.iter().map(|name| name.to_string()).collect(),
+        returns: sources
+            .iter()
+            .map(|name| brokkr_view::Road {
+                from: name.to_string(),
+                taken: 1,
+                rules: Vec::new(),
+            })
+            .collect(),
         ..phase
     }
 }

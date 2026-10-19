@@ -136,7 +136,7 @@ export function runViewDoc(over = {}) {
     ruling: { rule_id: 'REVIEW-SECURITY-RESIDUAL', severity_class: 'awaiting_operator', from: 'review', next: '', result: null, inputs: [], problem: null, superseded: null },
     participants: [],
     live: [],
-    phases: [{ name: 'implement', strategy: null, visits: 2, current: false, plain: true, columns: [], returns: ['review'] }],
+    phases: [{ name: 'implement', strategy: null, visits: 2, current: false, plain: true, columns: [], returns: [{ from: 'review', taken: 1, rules: ['REVIEW-REFORGE'] }] }],
     notices: [],
     boundary: { word: { text: '—', absent: true, note: null }, unboxed: false, text: '' },
     journal: [journalRow(seq, 'transition/decided', {}, 'review parked the run')],

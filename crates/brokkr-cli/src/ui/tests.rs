@@ -454,9 +454,14 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
 
     // And the road itself, already on the wire: the phase whose ruling
     // sent the run back, named on the phase it landed in. Two reforgings
-    // were taken and ONE name is carried — the model deduped it, so a
-    // surface that draws a road per name draws one road.
-    assert_eq!(named("implement")["returns"], json!(["review"]));
+    // were taken and ONE road is carried, with its count — the model
+    // deduped it, so a surface that draws a road per entry draws one.
+    let roads = named("implement")["returns"].clone();
+    assert_eq!(roads.as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        (&roads[0]["from"], &roads[0]["taken"]),
+        (&json!("review"), &json!(2))
+    );
 
     // The loop's other two legs are forward steps of a second pass:
     // entering `verify` from `implement` again lands to the right of
@@ -482,7 +487,7 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(move |source| (to, index(source.as_str().unwrap())))
+                .map(move |road| (to, index(road["from"].as_str().unwrap())))
         })
         .filter(|(to, from)| from > to)
         .collect();
@@ -492,7 +497,7 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
         "one road: from beneath the phase that ruled to beneath the phase it landed in"
     );
     assert!(page.contains("function returnPairs(rail)"));
-    assert!(page.contains("for (const source of phase.returns)"));
+    assert!(page.contains("for (const road of phase.returns)"));
     assert!(page.contains("if (from > to) roads.push([to, from]);"));
     assert!(
         page.contains("const roads = returnPairs(rail);"),
@@ -565,7 +570,7 @@ fn the_road_back_is_never_inferred_from_a_repeated_visit() {
     }
     // `findIndex` returns -1 for a departure the rail never drew, which
     // the same `from > to` test drops — one rule, both arms.
-    assert!(PAGE.contains("const from = rail.findIndex((other) => other.name === source);"));
+    assert!(PAGE.contains("const from = rail.findIndex((other) => other.name === road.from);"));
 }
 
 /// Decision 0019: the console wears the new name and keeps the motto.
