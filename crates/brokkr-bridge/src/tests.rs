@@ -185,8 +185,16 @@ impl ProducerTransport for MockTransport {
 /// fence: the checkpoint an engine from before decision 0034's ruling 6
 /// could write, carrying prose the bridge must still withhold on the way
 /// out. The fence refuses this row today; the journals that already hold
-/// one are the reason the bridge's redaction stays tested.
-fn plant_unfenced(db: &std::path::Path, run_id: &str, payload: Value, now: OffsetDateTime) {
+/// one are the reason the bridge's redaction stays tested. No writer folds
+/// a planted row, so `store` is told the run lags its head (decision 0089
+/// ruling 4).
+fn plant_unfenced(
+    store: &mut Store,
+    db: &std::path::Path,
+    run_id: &str,
+    payload: Value,
+    now: OffsetDateTime,
+) {
     let envelope = EnvelopeBuilder::new(EventType::EffectCheckpointed, payload)
         .run(run_id)
         .event_id("planted-1")
@@ -195,6 +203,7 @@ fn plant_unfenced(db: &std::path::Path, run_id: &str, payload: Value, now: Offse
         .sealed();
     brokkr_store::test_support::plant_envelope(&rusqlite::Connection::open(db).unwrap(), &envelope)
         .unwrap();
+    brokkr_store::test_support::lags(store, &[run_id]);
 }
 
 #[test]
@@ -207,6 +216,7 @@ fn sync_replays_from_server_cursor_without_sqlite_or_transcript_exposure() {
         .create_run("forge-run-1", "084-f", "fast", &manifest)
         .unwrap();
     plant_unfenced(
+        &mut store,
         &db,
         "forge-run-1",
         json!({
