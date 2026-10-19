@@ -121,6 +121,9 @@ pub(super) enum Hiring {
     /// file is due, is a link, to anything or nothing: never walked
     /// through (#735).
     Linked { path: PathBuf },
+    /// The workspace's entry at `path`, between its root and where a file
+    /// is due, stands and is not a directory: never replaced (#779).
+    Blocked { path: PathBuf },
     /// Files the workspace already holds that differ from the source's, or
     /// cannot be compared with them.
     Differs { paths: Vec<PathBuf> },
@@ -189,6 +192,13 @@ impl std::fmt::Display for Hiring {
                  written",
                 path.display()
             ),
+            Hiring::Blocked { path } => write!(
+                formatter,
+                "the workspace's {} is not a directory, where recipes add would copy a file \
+                 beneath it; recipes add does not replace it (#779): remove it; nothing was \
+                 written",
+                path.display()
+            ),
             Hiring::Differs { paths } => {
                 let paths: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
                 write!(
@@ -238,9 +248,9 @@ pub(super) fn definitions_of(root: &Path, world: Option<&World>) -> PathBuf {
 /// cannot be read, and a charter or a definition the source lacks, which
 /// the copy would bind to whatever the workspace holds there
 /// ([`Hiring::Uncharted`], [`Hiring::Undefined`]), a destination that
-/// is a link or not a plain file ([`Hiring::Occupied`]), and one beneath a
-/// directory below the workspace's `root` that is a link
-/// ([`Hiring::Linked`]). An agent name `source` lacks, and a capability
+/// is a link or not a plain file ([`Hiring::Occupied`]), and one beneath an
+/// entry below the workspace's `root` that is a link ([`Hiring::Linked`])
+/// or not a directory ([`Hiring::Blocked`]). An agent name `source` lacks, and a capability
 /// name outside the grammar, are the compile's to judge.
 pub(super) fn plan(
     recipes: &[&Path],
@@ -435,8 +445,9 @@ fn unread(path: &Path, cause: &dyn std::fmt::Display) -> Hiring {
 /// `hires` without the files the workspace's library already holds byte
 /// for byte, or the refusal naming each it holds otherwise. Each directory
 /// between `root` and a destination is judged as the entry itself, and one
-/// that is a link refuses ([`Hiring::Linked`]); each destination is judged
-/// on the one handle its bytes are read from ([`standing`]).
+/// that is a link, or not a directory, refuses ([`unlinked`]); each
+/// destination is judged on the one handle its bytes are read from
+/// ([`standing`]).
 fn held(root: &Path, hires: Vec<Hire>) -> Result<Vec<Hire>, Hiring> {
     let (mut needed, mut differs) = (Vec::new(), Vec::new());
     for hire in hires {
@@ -456,10 +467,11 @@ fn held(root: &Path, hires: Vec<Hire>) -> Result<Vec<Hire>, Hiring> {
     }
 }
 
-/// Refuse the first directory, from `root` down, on the way to `to` that
-/// is a link ([`Hiring::Linked`]), or that cannot be inspected; `root`
-/// itself, and what stands above it, are the workspace's. A destination
-/// not below `root` has every directory above it judged (fail closed).
+/// Refuse the first entry, from `root` down, on the way to `to` that is a
+/// link ([`Hiring::Linked`]), that stands and is not a directory
+/// ([`Hiring::Blocked`], #779), or that cannot be inspected; `root` itself,
+/// and what stands above it, are the workspace's. A destination not below
+/// `root` has every directory above it judged (fail closed).
 fn unlinked(root: &Path, to: &Path) -> Result<(), Hiring> {
     let mut between: Vec<&Path> = to
         .ancestors()
@@ -469,8 +481,10 @@ fn unlinked(root: &Path, to: &Path) -> Result<(), Hiring> {
     between.reverse();
     for at in between {
         let found = brokkr_runtime::places::entry(at).map_err(|e| unread(at, &e))?;
-        if found.is_some_and(|entry| entry.is_symlink()) {
-            return Err(Hiring::Linked { path: at.into() });
+        match found {
+            Some(entry) if entry.is_symlink() => return Err(Hiring::Linked { path: at.into() }),
+            Some(entry) if !entry.is_dir() => return Err(Hiring::Blocked { path: at.into() }),
+            _ => {}
         }
     }
     Ok(())
@@ -480,8 +494,9 @@ fn unlinked(root: &Path, to: &Path) -> Result<(), Hiring> {
 /// handle opened without following a link, so the entry judged is the file
 /// read: `None` where nothing stands, or nothing can because a parent is a
 /// file; else the bytes read from that handle. A link there, to anything or
-/// nothing, and anything but a plain file by that handle's own status,
-/// refuse ([`Hiring::Occupied`]), as does an entry that cannot be opened.
+/// nothing, a socket, which no open reaches, and anything but a plain file
+/// by that handle's own status, refuse ([`Hiring::Occupied`]), as does an
+/// entry that cannot be opened.
 fn standing(at: &Path) -> Result<Option<std::io::Result<Vec<u8>>>, Hiring> {
     use rustix::fs::{Mode, OFlags};
     use rustix::io::Errno;
@@ -491,7 +506,10 @@ fn standing(at: &Path) -> Result<Option<std::io::Result<Vec<u8>>>, Hiring> {
     let file = match rustix::fs::open(at, flags, Mode::empty()) {
         Ok(handle) => std::fs::File::from(handle),
         Err(Errno::NOENT | Errno::NOTDIR) => return Ok(None),
-        Err(Errno::LOOP) => return Err(Hiring::Occupied { path: at.into() }),
+        // LOOP: a link; NXIO (Linux) and OPNOTSUPP (macOS): a socket (#779).
+        Err(Errno::LOOP | Errno::NXIO | Errno::OPNOTSUPP) => {
+            return Err(Hiring::Occupied { path: at.into() })
+        }
         Err(errno) => return Err(unread(at, &std::io::Error::from(errno))),
     };
     if !file.metadata().is_ok_and(|status| status.is_file()) {
