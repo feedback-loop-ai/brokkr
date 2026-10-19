@@ -111,9 +111,27 @@ fn a_harness_fragment_names_the_executable_it_is_handed() {
 
 /// A dialect step dispatches `<engine> driver exec --` through the
 /// executable its bundle carries: a recording stand-in, staged beside and
-/// renamed in, writes the argv it was spawned with.
+/// renamed in, writes the argv it was spawned with. An unreadable one
+/// spawns the empty spelling, which never starts, and the stand-in records
+/// nothing.
 #[test]
 fn a_dialect_step_dispatches_through_the_executable_its_bundle_carries() {
+    let (stand_in, spawned, _) = dialect_step_through(|stand_in| Some(stand_in.into()));
+    let stand_in = stand_in.to_str().unwrap();
+    let argv = strings(&[stand_in, "driver", "exec", "--", "true"]);
+    assert_eq!(spawned, Some(argv));
+    let (_, spawned, error) = dialect_step_through(|_| None);
+    let failed = "sequence step 'validate': driver did not spawn: failed to spawn driver  driver \
+                  exec -- true: No such file or directory (os error 2)";
+    assert_eq!((spawned, error), (None, json!(failed)));
+}
+
+/// The stand-in, the argv it recorded if it was reached, and the last
+/// journaled error, of a dialect step whose bundle carries the executable
+/// `carried` names given the stand-in's path.
+fn dialect_step_through(
+    carried: impl FnOnce(&Path) -> Option<PathBuf>,
+) -> (PathBuf, Option<Vec<String>>, Value) {
     let (kept, mut engine) = crate::engine::tests::engine(single_body(strings(&["driver"])));
     let record = kept.path().join("argv");
     let staged = kept.path().join("brokkr-test.staged");
@@ -125,7 +143,7 @@ fn a_dialect_step_dispatches_through_the_executable_its_bundle_carries() {
     std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).unwrap();
     let stand_in = kept.path().join("brokkr-test");
     std::fs::rename(&staged, &stand_in).unwrap();
-    engine.bundle.executable = Executable(Some(stand_in.clone()));
+    engine.bundle.executable = Executable(carried(&stand_in));
     let step = SequenceStep {
         name: "validate".into(),
         results: strings(&["drafted", "fail"]),
@@ -158,9 +176,7 @@ fn a_dialect_step_dispatches_through_the_executable_its_bundle_carries() {
     // Any other executable is not the stand-in, and records nothing.
     let recorded = std::fs::read_to_string(&record).ok();
     let spawned = recorded.map(|argv| argv.lines().map(str::to_string).collect());
-    let stand_in = stand_in.to_str().unwrap();
-    assert_eq!(
-        spawned,
-        Some(strings(&[stand_in, "driver", "exec", "--", "true"]))
-    );
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let error = events.last().unwrap().payload["error"].clone();
+    (stand_in, spawned, error)
 }
