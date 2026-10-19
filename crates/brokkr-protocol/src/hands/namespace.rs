@@ -12,6 +12,7 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use super::SERVER_RESOLVER as RESOLV_CONF; // the name `sources` reads it by
 use super::{ids, Session, HANDS_BOX_ENV, HOST_TOOLCHAIN_BINDS, SANDBOX_HOME};
 use crate::broker::{Network, Reach, Refusal, Sources, Tree};
 
@@ -89,9 +90,6 @@ pub(super) enum Resolver {
     Files,
     Dns,
 }
-
-/// The one host resolver file a networked server box binds.
-const RESOLV_CONF: &str = "/etc/resolv.conf";
 
 /// One box's bubblewrap argv, built in mount order: a later mount shadows
 /// an earlier one, so the order the calls are made in is the boundary.
@@ -379,7 +377,7 @@ const SYSTEM_BINS: [&str; 6] = [
 
 /// The fixed search path a server's bare launch name is found on, and the
 /// `PATH` its box sets: never the cwd or an ambient `PATH` (MB3, MB4).
-const SERVER_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
+pub(in crate::hands) const SERVER_PATH: &str = "/usr/local/bin:/usr/bin:/bin";
 
 /// MB4's fixed server environment beside the [`HANDS_BOX_ENV`] marker
 /// every box opens with, in the order it is set.
@@ -435,7 +433,12 @@ impl ServerProgram {
     /// The program `launch` names, against the trusted canonical host
     /// `home`, or MB3's program-tree cause.
     pub fn resolve(launch: &str, home: &Path) -> Result<ServerProgram, Refusal> {
-        let named = located(launch).ok_or(Refusal::ProgramTree)?;
+        let runnable = |path: &PathBuf| {
+            path.metadata()
+                .is_ok_and(|held| held.is_file() & (held.permissions().mode() & 0o111 != 0))
+        };
+        let named = ServerProgram::candidates(launch).into_iter().find(runnable);
+        let named = named.ok_or(Refusal::ProgramTree)?;
         let executable = std::fs::canonicalize(&named).ok();
         let executable = executable.ok_or(Refusal::ProgramTree)?;
         let tree = layout(&executable, home)?;
@@ -455,25 +458,22 @@ impl ServerProgram {
     pub fn tree(&self) -> &Tree {
         &self.tree
     }
-}
 
-/// The file `launch` names: an absolute path as written, or a bare name
-/// on [`SERVER_PATH`]; a relative path holding a `/` names nothing. Only
-/// an executable regular file, symlinks followed, is named.
-fn located(launch: &str) -> Option<PathBuf> {
-    let candidates = match (launch.starts_with('/'), launch.contains('/')) {
-        (true, _) => vec![PathBuf::from(launch)],
-        (false, true) => Vec::new(),
-        (false, false) => SERVER_PATH
-            .split(':')
-            .map(|dir| Path::new(dir).join(launch))
-            .collect(),
-    };
-    let runnable = |path: &PathBuf| {
-        path.metadata()
-            .is_ok_and(|held| held.is_file() & (held.permissions().mode() & 0o111 != 0))
-    };
-    candidates.into_iter().find(runnable)
+    /// Every host file `launch` may name as a box's lookup finds it, in
+    /// order, whether or not one stands, the engine reserving each by its
+    /// route (U8a2b): an absolute path as written, or a bare name in each
+    /// directory of the server `PATH`; a relative path holding a `/` names
+    /// nothing. The first that is an executable regular file, symlinks
+    /// followed, is the one named ([`ServerProgram::resolve`]).
+    pub fn candidates(launch: &str) -> Vec<PathBuf> {
+        match (launch.starts_with('/'), launch.contains('/')) {
+            (true, _) => vec![PathBuf::from(launch)],
+            (false, true) => Vec::new(),
+            (false, false) => (SERVER_PATH.split(':'))
+                .map(|dir| Path::new(dir).join(launch))
+                .collect(),
+        }
+    }
 }
 
 /// MB3's closed distinction over a canonical executable: directly in a

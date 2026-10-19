@@ -212,6 +212,55 @@ fn only_one_closed_reply_of_the_surveys_own_bootstrap_is_an_answer() {
     );
 }
 
+/// Set in the child [`a_survey_is_spawned_without_the_loaders_environment`]
+/// re-executes this test binary in: a loader variable of its own.
+#[cfg(target_os = "linux")]
+const LOADED: &str = "LD_BROKKR_U8A2B";
+
+/// Run four's H1 and H2 at the spawn (U8a2b; D6, operator ruling
+/// 2026-10-19): an engine whose environment holds a loader variable and a
+/// `PATH` of its own starts its survey without the first and on the server
+/// `PATH`, as the environment its stand-in records shows. That engine is a
+/// child of this test binary, the one whose environment differs, so no
+/// other test meets it. Linux only: off it no launcher is a candidate, and
+/// the survey keeps the engine's `PATH`.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_survey_is_spawned_without_the_loaders_environment() {
+    if std::env::var_os(LOADED).is_none() {
+        let module = "engine::capability_tests::provision_tests::survey_tests";
+        let test = format!("{module}::a_survey_is_spawned_without_the_loaders_environment");
+        let inherited = std::env::var("PATH").unwrap_or_default();
+        let child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &test])
+            .env(LOADED, "1")
+            .env("PATH", format!("/opt/brokkr-u8a2b:{inherited}"))
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let shown = String::from_utf8_lossy(&child.stdout);
+        assert!(shown.contains("test result: ok. 1 passed;"), "{shown}");
+        return;
+    }
+    let dir = private_dir();
+    let recorded = dir.path().join("environment");
+    let script = stand_in(dir.path(), &format!("env > '{}'", recorded.display()));
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let answer = surveyed(&script, &request(&scratch()), deadline);
+    assert_eq!(answer, Err(Unprovisioned::Unanswered));
+    let recorded = std::fs::read_to_string(recorded).unwrap();
+    let loaded: Vec<&str> = recorded
+        .lines()
+        .filter(|line| line.starts_with("LD_"))
+        .collect();
+    assert_eq!(loaded, Vec::<&str>::new());
+    let path: Vec<&str> = recorded
+        .lines()
+        .filter(|line| line.starts_with("PATH="))
+        .collect();
+    assert_eq!(path, ["PATH=/usr/local/bin:/usr/bin:/bin"]);
+}
+
 /// The binary cargo built beside this test binary, the one `brokkr` a
 /// workspace build makes, where it is current: no file its dep-info names,
 /// and no workspace source a library built in its profile names

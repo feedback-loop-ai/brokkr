@@ -6,7 +6,13 @@
 //! The durable reservation's retention through engine death, on an
 //! injected root, is
 //! `engine::broker::admission::tests::processes::an_engine_killed_mid_attempt_keeps_its_worktree_reserved`
-//! (M4 of run four's second review), which this suite held until then.
+//! (M4 of run four's second review), which this suite held until then; a
+//! server's sources' retention through a real dispatched engine's death
+//! (U8a2b), its seat or its real server box alive, is
+//! `engine::capability_tests::provision_tests::brokered_tests::writers_tests::a_dispatched_engine_killed_while_its_seat_lives_keeps_its_servers_sources`
+//! and `…::a_dispatched_engine_killed_while_its_server_box_lives_keeps_its_sources`,
+//! and through uncertain settlement
+//! `engine::broker::admission::tests::sources::a_free_lock_or_an_uncertain_settlement_releases_no_source`.
 
 use std::os::unix::fs::PermissionsExt;
 

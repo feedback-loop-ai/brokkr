@@ -55,14 +55,14 @@ struct Participant<'a> {
 
 /// A root nothing may replace, as observed now: its device and inode, and
 /// its ancestors' too, where it stands.
-struct Guarded {
+pub(super) struct Guarded {
     path: PathBuf,
     seen: Option<Seen>,
 }
 
 impl Guarded {
     /// `path`, as observed now.
-    fn of(path: PathBuf) -> Guarded {
+    pub(super) fn of(path: PathBuf) -> Guarded {
         Guarded {
             seen: Seen::of(&path),
             path,
@@ -189,7 +189,7 @@ fn writable<'w>(writers: impl Iterator<Item = &'w Writer>) -> Vec<Guarded> {
 
 /// Whether `path` lies at or below the writable root `root`: by canonical
 /// path, or by `root`'s identity among `path`'s ancestors'.
-fn beneath(path: &Guarded, root: &Guarded) -> bool {
+pub(super) fn beneath(path: &Guarded, root: &Guarded) -> bool {
     let identical = match (&path.seen, &root.seen) {
         (Some(path), Some(root)) => path.chain.contains(&root.own()),
         _ => false,
@@ -303,7 +303,7 @@ pub(super) fn reaches(writers: &[&Writer], path: &Path) -> bool {
 /// it, by canonical path, or by the identity of either and the other's
 /// ancestors, which a symlink, a bind alias or a second spelling cannot
 /// hide.
-fn covers(writable: &Path, root: &Guarded) -> bool {
+pub(super) fn covers(writable: &Path, root: &Guarded) -> bool {
     let writable = resolved(writable.to_path_buf());
     let lexical = writable.starts_with(&root.path) | root.path.starts_with(&writable);
     let identical = match (Seen::of(&writable), &root.seen) {
@@ -319,14 +319,36 @@ fn covers(writable: &Path, root: &Guarded) -> bool {
 /// within `budget`'s deadline ([`refusal`]).
 #[cfg(target_os = "linux")]
 fn shown_once(root: &Path, budget: &Budget) -> Result<(), Unadmitted> {
-    use rustix::fs::{statx, AtFlags, StatxFlags, CWD};
     let shown = || Conflict::Shown(root.to_path_buf());
-    let mount = statx(CWD, root, AtFlags::empty(), StatxFlags::MNT_ID).or(Err(shown()))?;
-    let named = mount.stx_mask & StatxFlags::MNT_ID.bits() != 0;
-    named.then_some(()).ok_or_else(shown)?;
+    let mount = mounted_on(root).ok_or_else(shown)?;
     let table = std::fs::File::open(MOUNTINFO).or(Err(shown()))?;
     let mut table = std::io::BufReader::new(table);
-    refusal(once(&mut table, mount.stx_mnt_id, root, budget), root)
+    refusal(once(&mut table, mount, root, budget), root)
+}
+
+/// The id of the mount `path` lies on, as `statx` names it: the one lookup
+/// both this comparison and the sources' make.
+#[cfg(target_os = "linux")]
+pub(super) fn mounted_on(path: &Path) -> Option<u64> {
+    use rustix::fs::{statx, AtFlags, StatxFlags, CWD};
+    let found = statx(CWD, path, AtFlags::empty(), StatxFlags::MNT_ID).ok()?;
+    let named = found.stx_mask & StatxFlags::MNT_ID.bits() != 0;
+    named.then_some(found.stx_mnt_id)
+}
+
+/// The mount of `mounts` whose id is `id`, which `path` lies on, and the
+/// part of its device's filesystem `path` is there: the mount's root joined
+/// with `path` below its point. None where no such mount is named, its
+/// root is no path, or `path` does not lie below its point. The one
+/// derivation both this comparison and the sources' ([`super::sources`])
+/// read a part by.
+#[cfg(target_os = "linux")]
+pub(super) fn part<'m>(mounts: &'m [Mount], id: u64, path: &Path) -> Option<(&'m Mount, PathBuf)> {
+    let own = mounts.iter().find(|each| each.id == id)?;
+    let (Some(root), Ok(below)) = (&own.root, path.strip_prefix(&own.point)) else {
+        return None;
+    };
+    Some((own, root.join(below)))
 }
 
 /// No mount table is read off Linux: a root is never proved shown once,
@@ -365,7 +387,7 @@ pub(super) fn refusal(shown: Shown, root: &Path) -> Result<(), Unadmitted> {
 
 /// The mount table this namespace reads.
 #[cfg(target_os = "linux")]
-const MOUNTINFO: &str = "/proc/self/mountinfo";
+pub(super) const MOUNTINFO: &str = "/proc/self/mountinfo";
 
 /// The most mounts a table may name, D5's mount bound.
 #[cfg(target_os = "linux")]
@@ -381,11 +403,11 @@ const RECORD_MAX: u64 = 64 << 10;
 /// where.
 #[cfg(target_os = "linux")]
 #[derive(Debug, PartialEq, Eq)]
-struct Mount {
-    id: u64,
-    dev: String,
-    root: Option<PathBuf>,
-    point: PathBuf,
+pub(super) struct Mount {
+    pub(super) id: u64,
+    pub(super) dev: String,
+    pub(super) root: Option<PathBuf>,
+    pub(super) point: PathBuf,
 }
 
 /// Whether the mount table `table` shows `root`, which lies on the mount
@@ -401,13 +423,9 @@ pub(super) fn once(table: &mut dyn BufRead, mount: u64, root: &Path, budget: &Bu
         Ok(mounts) => mounts,
         Err(shown) => return shown,
     };
-    let Some(own) = mounts.iter().find(|each| each.id == mount) else {
+    let Some((own, part)) = part(&mounts, mount, root) else {
         return Shown::Elsewhere;
     };
-    let (Some(own_root), Ok(rest)) = (&own.root, root.strip_prefix(&own.point)) else {
-        return Shown::Elsewhere;
-    };
-    let part = own_root.join(rest);
     let apart = |each: &Mount| {
         let shown = |at: &PathBuf| part.starts_with(at) | at.starts_with(&part);
         each.root.as_ref().is_some_and(|at| !shown(at))
@@ -430,7 +448,7 @@ pub(super) fn once(table: &mut dyn BufRead, mount: u64, root: &Path, budget: &Bu
 /// before each ([`Shown::Expired`]); a record that does not parse, or is
 /// not UTF-8, proves nothing ([`Shown::Elsewhere`]).
 #[cfg(target_os = "linux")]
-fn mounts(table: &mut dyn BufRead, budget: &Budget) -> Result<Vec<Mount>, Shown> {
+pub(super) fn mounts(table: &mut dyn BufRead, budget: &Budget) -> Result<Vec<Mount>, Shown> {
     use std::io::Read;
     let (mut mounts, mut record, mut records) = (Vec::new(), Vec::new(), 0);
     loop {

@@ -246,6 +246,16 @@ impl Ground {
         }
     }
 
+    /// [`Ground::host`] where the launcher is found through links the test
+    /// lays: granted a candidate's place (U8a2b), so its route is decided
+    /// by its hops, as a candidate's own route is.
+    fn laid(&self) -> Host<'_> {
+        Host {
+            admitted: &|_| true,
+            ..self.host()
+        }
+    }
+
     /// What preparing the box on `host` for the seat `seat` and the
     /// `sealed` writers answers, and how many more runs the stand-in
     /// counted meanwhile.
@@ -312,7 +322,7 @@ fn the_launcher_runs_once_admitted_through_the_handle_kept() {
     let live = Host {
         found: &found,
         run: &run,
-        ..ground.host()
+        ..ground.laid()
     };
     let admitted = launching(program, &live, &seat, &[]);
     // Its link renamed over by one to another protected ELF file once its
@@ -327,7 +337,7 @@ fn the_launcher_runs_once_admitted_through_the_handle_kept() {
         between: &swap,
         found: &found,
         run: &run,
-        ..ground.host()
+        ..ground.laid()
     };
     let again = launching(program, &swapping, &seat, &[]);
     let reports = reports.take();
@@ -516,7 +526,7 @@ fn a_launcher_its_observation_refuses_never_runs() {
                 between,
                 opening,
                 found: &found,
-                ..ground.host()
+                ..ground.laid()
             };
             ground.refusing(&host, seat, &[])
         };
@@ -592,7 +602,7 @@ fn the_route_a_launcher_was_found_by_is_admitted_before_it_runs() {
         let host = Host {
             mountinfo: &mountinfo,
             found: &found,
-            ..ground.host()
+            ..ground.laid()
         };
         ground.refusing(&host, seat, &[])
     };
@@ -647,7 +657,7 @@ fn a_route_that_changes_once_admitted_refuses_before_the_launcher_runs() {
     let host = Host {
         mountinfo: &mountinfo,
         found: &found,
-        ..ground.host()
+        ..ground.laid()
     };
     let answer = ground.refusing(&host, &reach(&[], &[]), &[]);
     assert_eq!((answer, reads.get()), ((Err(Refusal::Identity), 0), 2));
@@ -1388,4 +1398,70 @@ fn each_loader_input_names_itself_in_its_refusal() {
     ]
     .map(|input| format!("the box launcher's {input} is not in the protected system set"));
     assert_eq!(causes, named);
+}
+
+/// The box launcher's candidates as the engine reserves them by their
+/// routes (U8a2b, run four's H1): the bare name `bwrap` in each directory
+/// of the server `PATH`, in order, whether or not it stands. A launcher
+/// found as any other file — the host's own bubblewrap through a link in a
+/// directory a serving process's `PATH` could lead with, as `/opt/early/bwrap
+/// -> /usr/bin/bwrap` — is refused by MB3's identity cause before it ever
+/// runs; found as its candidate, the same launcher is admitted and runs.
+#[test]
+fn a_launcher_found_as_no_reserved_candidate_never_runs() {
+    let candidates = ["/usr/local/bin/bwrap", "/usr/bin/bwrap", "/bin/bwrap"];
+    assert_eq!(ServerBox::launchers(), candidates.map(PathBuf::from));
+    let Some((ground, bwrap)) = Ground::launched() else {
+        return;
+    };
+    if !ServerBox::launchers().contains(&bwrap) {
+        let reason = "this host's bubblewrap lies on no server PATH directory";
+        return skip_boundary_proof(boundary_evidence_required(), reason);
+    }
+    let early = ground.fixture.link("early/bwrap", &bwrap);
+    let seat = reach(&[], &[]);
+    let answer = |found: &Path| {
+        let found = super::sources::named(found);
+        let host = Host {
+            found: &found,
+            ..ground.host()
+        };
+        ground.refusing(&host, &seat, &[])
+    };
+    assert_eq!(answer(&early), (Err(Refusal::Identity), 0), "early");
+    assert_eq!(answer(&bwrap), (Ok(()), 1), "a candidate");
+}
+
+/// The launcher's version is asked under a cleared environment, so the
+/// loader's `LD_*` never reaches it (U8a2b, run four's H2): a stand-in run
+/// through its handle as the launcher is reports no variable this process
+/// holds but those its own shell sets.
+#[test]
+fn the_launchers_version_runs_with_no_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let (source, stand) = (dir.path().join("env.sh"), dir.path().join("stand-in"));
+    std::fs::write(&source, "#!/bin/sh\nenv\n").unwrap();
+    let mode = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+    std::fs::set_permissions(&source, mode).unwrap();
+    // Copied by a child, so no fork of this process holds it for writing.
+    let copied = std::process::Command::new("/bin/cp")
+        .arg(&source)
+        .arg(&stand)
+        .status();
+    assert_eq!(copied.unwrap().code(), Some(0));
+    let fd = std::fs::File::open(&stand).unwrap();
+    let reported = version(fd.as_fd());
+    let shells = ["PWD", "SHLVL", "_", "OLDPWD"];
+    let held: Vec<String> = std::env::vars_os()
+        .filter_map(|(name, _)| name.into_string().ok())
+        .filter(|name| !shells.contains(&name.as_str()))
+        .collect();
+    assert!(!held.is_empty(), "this process holds an environment");
+    let named = |line: &str| line.split('=').next().unwrap_or_default().to_string();
+    let leaked: Vec<String> = reported
+        .lines()
+        .map(named)
+        .filter(|name| held.contains(name))
+        .collect();
+    assert_eq!(leaked, Vec::<String>::new());
 }

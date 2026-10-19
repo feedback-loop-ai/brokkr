@@ -279,7 +279,8 @@ fn expand_home(path: &str, home: &Path) -> PathBuf {
         None => PathBuf::from(path),
     }
 }
-
+/// The one host resolver file a server box binds on a shared network (MB3).
+pub const SERVER_RESOLVER: &str = "/etc/resolv.conf";
 /// The host toolchain every box binds read-only, at the same path, where it
 /// exists. The namespace builder iterates exactly this item for its
 /// `--ro-bind-try` system binds, a server box keeping of `/etc/ssl` only
