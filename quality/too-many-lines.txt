@@ -19,7 +19,6 @@
  173 crates/brokkr-runtime/src/agents/load.rs:767 parse_adapter
  101 crates/brokkr-runtime/src/agents/load.rs:1008 resume_assessment
  240 crates/brokkr-runtime/src/capabilities.rs:1491 native_plan
- 127 crates/brokkr-runtime/src/dialect.rs:434 check
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
  178 crates/brokkr-view/src/lib.rs:1009 scan_participants
  150 crates/brokkr-view/src/lib.rs:1820 participants
