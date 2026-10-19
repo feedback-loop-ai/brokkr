@@ -28,7 +28,11 @@ brokkr compare <a> <b>                              # journal-backed A/B
   decision trails with first divergence, per-seat costs, verdict
   deltas. A pure read over two journals; works on live runs.
   Recipes **compose**: `night-shift` extends `triage`, overriding only
-  its attempt limits and dsh implement seat. A derived selector may
+  its attempt limits and dsh implement seat. Of the recipes this tour
+  names, `fast` is portable and `panel-review`, `triage` and
+  `night-shift` are Brokkr-only
+  ([decision 0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)
+  ruling 5). A derived selector may
   override one named case with `override.cases`.
   Named things merge by name; redefining one the base has needs an
   explicit marker, so an accidental collision fails compilation instead

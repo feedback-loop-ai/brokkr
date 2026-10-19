@@ -565,7 +565,7 @@ before a human spends their attention on them.
 Everything above is what a hand-authored branch has to satisfy. Since
 decision 0051 you do not have to run it yourself to propose the branch:
 light `brokkr run --recipe landing --repo . --feature "landing: <what
-the branch is>"` on it. A gate of seconds reads the branch's class
+the branch is>"` on it (`landing` is Brokkr-only: decision 0087 ruling 5). A gate of seconds reads the branch's class
 against `.github/delivery-classes.json`; prose goes straight to the
 review seat, code goes through the verifier first — `cargo fmt --all
 -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy
