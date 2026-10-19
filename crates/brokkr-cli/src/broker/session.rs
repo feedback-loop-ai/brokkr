@@ -25,7 +25,9 @@
 //! looked up and handed over, and the server started (U6c8), initialized
 //! (U6e) and served (U6f1b). A bound plan's ledger is opened first, handed
 //! to the session and closed with its first cause, or Clean ([`lifetime`],
-//! U6d); an unbound plan has none.
+//! U6d); an unbound plan has none. A retaining plan's ledger stages its
+//! responses beside it, under its share of the attempt's ([`retaining`],
+//! U8b).
 //! The plan and where it lies stay here; only the shared protocol types
 //! leave.
 
@@ -49,6 +51,7 @@ pub(super) use readiness::{polled, timely, Link, Pace, Startup};
 
 pub(super) mod lifetime;
 mod readiness;
+mod retaining;
 pub(super) mod stderr;
 
 /// The protected root's components below the host HOME (D6).
@@ -426,9 +429,8 @@ fn identity(intent: &BoxIntent, server: &ServerBox) -> Result<(), Refusal> {
 
 /// A cause the observer hands back, by its name on the socket: every
 /// refusal it can meet once the broker has screened the plan. A binding
-/// name's is the broker's own, and the retention cause is the broker's
-/// once the bindings guard the ledger, before any MCP message reaches its
-/// server, so neither has one; a name not here is no record.
+/// name's is the broker's own, so it has none; a name not here is no
+/// record.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum Cause {

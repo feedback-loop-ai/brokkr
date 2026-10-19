@@ -1,7 +1,7 @@
 //! What the harness is told (decision 0065 slice two, U6e, U6f1b; MB3,
 //! SD3): whole frames in order, bounded while they wait, never begun past
-//! their deadlines, and written as fast as the harness takes them; and for
-//! a retained plan nothing, nor anything to its server.
+//! their deadlines, and written as fast as the harness takes them; and a
+//! retained plan served as any other.
 
 use std::cell::RefCell;
 use std::io::{PipeReader, Read, Write};
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::ledger::{recover, Disposition, Failure, Ledger, Outcome};
-use brokkr_protocol::broker::{Plan, Refusal};
+use brokkr_protocol::broker::Plan;
 use rustix::io::Errno;
 use serde_json::{json, Value};
 
@@ -595,25 +595,35 @@ fn a_turn_that_writes_part_of_an_answer_never_waits() {
 }
 
 #[test]
-fn a_retained_plan_is_refused_before_its_server_or_its_harness_is_told_anything() {
-    // SD3's retention cause, before any MCP message is exchanged: the
-    // server reads no frame, initialize included, and the harness's stdio
-    // is never taken (U6f1b).
+fn a_retained_plan_is_initialized_and_served_as_any_other() {
+    // SD3's retention refusal is gone with U8b: a retaining plan's server
+    // is initialized, and its harness, which ends at once, served, its
+    // ledger closed Clean with nothing staged.
     let mut plan = super::plan();
     plan.retained = true;
     let (mut input, mut output, server) = fake(mcp());
     let mut stderr = Drain::new(pipe().0, &[]);
-    let opened = Ledger::open_with(|_: &[u8]| Ok(()), (&plan.owner, DIGEST), &[]);
-    let mut ledger = opened.unwrap();
+    let (mut ledger, appended) = in_memory(&plan);
+    ledger.retain_with(|_, _: &[u8]| unreachable!("nothing is staged"), 1);
     let edge = Edge {
         bindings: &[],
         stderr: &mut stderr,
     };
     let link = (&mut input, &mut output);
     let attempt = (&plan, within(Duration::from_secs(10)));
-    let untaken = || unreachable!("the harness's stdio is never taken");
-    let ended = initialized(link, &mut ledger, edge, attempt, untaken);
+    let null = |write| {
+        std::fs::File::options()
+            .write(write)
+            .read(!write)
+            .open("/dev/null")
+    };
+    let ended = initialized(link, &mut ledger, edge, attempt, || {
+        (null(false), null(true))
+    });
+    let ended = settled(ledger, ended);
     drop((input, output));
-    let refused = Err(Ended::Refused(Refusal::RetentionIncomplete));
-    assert_eq!((ended, server.join().unwrap().0), (refused, vec![]));
+    let frames = server.join().unwrap().0;
+    let (lifecycle, _) = recover(&appended.borrow(), &plan.owner, DIGEST);
+    let served = (Ok(()), super::initialization(), Some(&Disposition::Clean));
+    assert_eq!((ended, frames, lifecycle.closed()), served);
 }

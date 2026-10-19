@@ -8,13 +8,15 @@
    657 crates/brokkr-cli/src/broker/bootstrap.rs
    105 crates/brokkr-cli/src/broker/bootstrap/handshake.rs
    399 crates/brokkr-cli/src/broker/output.rs
-   787 crates/brokkr-cli/src/broker/rpc.rs
-   767 crates/brokkr-cli/src/broker/rpc/calls.rs
+   786 crates/brokkr-cli/src/broker/rpc.rs
+   693 crates/brokkr-cli/src/broker/rpc/calls.rs
     85 crates/brokkr-cli/src/broker/rpc/calls/outbox.rs
+   139 crates/brokkr-cli/src/broker/rpc/calls/request.rs
    216 crates/brokkr-cli/src/broker/rpc/pieces.rs
-   775 crates/brokkr-cli/src/broker/session.rs
-   307 crates/brokkr-cli/src/broker/session/lifetime.rs
+   777 crates/brokkr-cli/src/broker/session.rs
+   314 crates/brokkr-cli/src/broker/session/lifetime.rs
    622 crates/brokkr-cli/src/broker/session/readiness.rs
+    59 crates/brokkr-cli/src/broker/session/retaining.rs
    353 crates/brokkr-cli/src/broker/session/stderr.rs
    144 crates/brokkr-cli/src/broker/survey.rs
     51 crates/brokkr-cli/src/budget_frame.rs
@@ -74,8 +76,9 @@
    800 crates/brokkr-protocol/src/adapters/mcp.rs
    607 crates/brokkr-protocol/src/adapters/route_overlay.rs
     27 crates/brokkr-protocol/src/adapters/start.rs
-   397 crates/brokkr-protocol/src/broker.rs
-   631 crates/brokkr-protocol/src/broker/ledger.rs
+   392 crates/brokkr-protocol/src/broker.rs
+   677 crates/brokkr-protocol/src/broker/ledger.rs
+   179 crates/brokkr-protocol/src/broker/ledger/retention.rs
   1543 crates/brokkr-protocol/src/dsh_sandbox.rs
    218 crates/brokkr-protocol/src/fake.rs
   1094 crates/brokkr-protocol/src/hands.rs
@@ -175,11 +178,13 @@
    339 crates/brokkr-cli/src/boundary/tests.rs
    872 crates/brokkr-cli/src/broker/bootstrap/tests.rs
    398 crates/brokkr-cli/src/broker/rpc/pieces/tests.rs
-  1972 crates/brokkr-cli/src/broker/rpc/tests.rs
-   524 crates/brokkr-cli/src/broker/rpc/tests/delivery.rs
-  1481 crates/brokkr-cli/src/broker/rpc/tests/masking.rs
+  1983 crates/brokkr-cli/src/broker/rpc/tests.rs
+   629 crates/brokkr-cli/src/broker/rpc/tests/delivery.rs
+  1508 crates/brokkr-cli/src/broker/rpc/tests/masking.rs
+   356 crates/brokkr-cli/src/broker/rpc/tests/retention.rs
    254 crates/brokkr-cli/src/broker/session/lifetime/tests.rs
   1052 crates/brokkr-cli/src/broker/session/readiness/tests.rs
+   121 crates/brokkr-cli/src/broker/session/retaining/tests.rs
    312 crates/brokkr-cli/src/broker/session/stderr/tests.rs
    148 crates/brokkr-cli/src/broker/survey/tests.rs
   1631 crates/brokkr-cli/src/cli_reference_tests.rs
@@ -215,14 +220,14 @@
    407 crates/brokkr-cli/tests/boundary_readouts.rs
    802 crates/brokkr-cli/tests/boundary_verbs.rs
     61 crates/brokkr-cli/tests/budget_frame.rs
-  1987 crates/brokkr-cli/tests/capability_broker.rs
+  1990 crates/brokkr-cli/tests/capability_broker.rs
    452 crates/brokkr-cli/tests/capability_broker/cleanup.rs
    951 crates/brokkr-cli/tests/capability_broker/handoff.rs
-  1030 crates/brokkr-cli/tests/capability_broker/ledger.rs
-  1041 crates/brokkr-cli/tests/capability_broker/observer.rs
-   694 crates/brokkr-cli/tests/capability_broker/protocol.rs
+  1028 crates/brokkr-cli/tests/capability_broker/ledger.rs
+  1044 crates/brokkr-cli/tests/capability_broker/observer.rs
+   760 crates/brokkr-cli/tests/capability_broker/protocol.rs
    314 crates/brokkr-cli/tests/capability_broker/readiness.rs
-   983 crates/brokkr-cli/tests/capability_broker/serving.rs
+   972 crates/brokkr-cli/tests/capability_broker/serving.rs
    255 crates/brokkr-cli/tests/capability_broker/survey.rs
    720 crates/brokkr-cli/tests/capability_verbs.rs
   1862 crates/brokkr-cli/tests/contributing.rs
@@ -294,7 +299,7 @@
    236 crates/brokkr-protocol/src/adapters/notice_tests/discovery_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
  18938 crates/brokkr-protocol/src/adapters/tests.rs
-   225 crates/brokkr-protocol/src/broker/ledger/tests.rs
+   438 crates/brokkr-protocol/src/broker/ledger/tests.rs
    326 crates/brokkr-protocol/src/broker/tests.rs
   3127 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
    153 crates/brokkr-protocol/src/fake/tests.rs

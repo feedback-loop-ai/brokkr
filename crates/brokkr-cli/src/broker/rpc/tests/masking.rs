@@ -1,9 +1,8 @@
 //! The output edge (decision 0065 slice two, U6f1a; MB4, CR2, SD3): every
 //! response masked by the shared masker and prepared once, read exactly,
 //! and refused with MB4's cause where a bound secret cannot be masked away;
-//! the server's standard error drained and masked across reads. Serving
-//! still refuses before any of it reaches a real harness, so all of it is
-//! proved through the private call path.
+//! the server's standard error drained and masked across reads; and,
+//! retained, the very masked bytes staged, or, refused, nothing (U8b).
 
 use std::io::Write;
 use std::sync::mpsc::channel;
@@ -16,6 +15,7 @@ use serde_json::{json, Value};
 
 use super::super::output::{checked, correlated, framed, named, prepared, watched, Kind, Named};
 use super::super::{Fatal, Fault, Id, Reply, ATOMIC, TIMEOUT};
+use super::retention::{self, retained};
 use super::PLAN;
 use super::{
     admitted, answering_with, call, edged, failed, initializing, mcp, mcp_but, pipe, plan,
@@ -118,6 +118,7 @@ fn heard(
 /// error.
 fn masked_by(plan: super::Plan) -> Beside {
     Beside {
+        retain: retained(&plan),
         plan,
         bindings: bound(),
         stderr: Vec::new(),
@@ -177,6 +178,10 @@ fn masking_failed<C: std::fmt::Debug + PartialEq>(case: C, ran: &Ran, line: &[u8
     let failure = failed(vec![("lookup", Some(Outcome::Failed))], Failure::Masking);
     let ended = Err(Ended::Failed(MASKING));
     assert_eq!((&case, &ran.ended, &ran.proved), (&case, &ended, &failure));
+    // Refused before anything is staged, retained or not: its Terminal
+    // cites no digest (U8b).
+    let (staged, cited) = (retention::staged().len(), retention::responses(&ran.ledger));
+    assert_eq!((&case, staged, cited), (&case, 0, vec![Value::Null]));
 }
 
 /// The bytes `line` holds, read as JSON.
@@ -289,8 +294,27 @@ fn the_canary_as_text_is_masked_and_an_unrelated_number_is_kept_exactly() {
                             "structuredContent": structured("[secret:DOCS_PIN]", "[secret:DOCS_TOKEN]")});
         assert_eq!(
             (retained, read(&lines[0])),
-            (retained, result(&json!("1"), masked))
+            (retained, result(&json!("1"), masked.clone()))
         );
+        // Retained, its very masked bytes are staged and cited (U8b), and
+        // delivered beside the harness's id.
+        let object = canonical::to_bytes(&json!({"result": masked}));
+        let enveloped = [&br#"{"jsonrpc":"2.0","id":"1","#[..], &object[1..], b"\n"].concat();
+        let cite = json!({"sha256": canonical::sha256_bytes(&object), "bytes": object.len()});
+        let (cites, stages) = match retained {
+            true => (vec![cite], vec![object]),
+            false => (vec![Value::Null], vec![]),
+        };
+        let staged: Vec<_> = retention::staged()
+            .into_iter()
+            .map(|staged| staged.1)
+            .collect();
+        let kept = (
+            lines[0] == enveloped,
+            retention::responses(&ran.ledger),
+            staged,
+        );
+        assert_eq!((retained, kept), (retained, (true, cites, stages)));
         let succeeded = admitted(vec![("lookup", Some(Outcome::Succeeded))]);
         assert_eq!(
             (retained, ran.ended, ran.proved),
@@ -752,8 +776,10 @@ fn a_bound_number_spelled_otherwise_fails_its_forwarded_call_unmasked() {
     ];
     let retained = cases.map(|case| [(case, false), (case, true)]);
     for ((value, said, serialized), retained) in retained.into_iter().flatten() {
+        let plan = retaining(retained);
         let beside = Beside {
-            plan: retaining(retained),
+            retain: retention::retained(&plan),
+            plan,
             bindings: bound_as(&[("NUMBER", value)]),
             stderr: Vec::new(),
         };
@@ -859,6 +885,7 @@ fn beside(named: &[(&str, &str)]) -> Beside {
         plan: plan(),
         bindings: bound_as(named),
         stderr: Vec::new(),
+        retain: None,
     }
 }
 
