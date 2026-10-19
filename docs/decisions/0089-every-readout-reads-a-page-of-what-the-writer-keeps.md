@@ -102,7 +102,7 @@ inserts in `brokkr-store`: `seal_and_insert`
 (`crates/brokkr-store/src/chain.rs:50`), which both the single append
 (`append_once`, `lib.rs:303`) and the chained one (`chain_once`,
 `chain.rs:108`) call, and `import_run`
-(`crates/brokkr-store/src/import.rs:118`). A run row reaches `runs` at
+(`crates/brokkr-store/src/import.rs:267`). A run row reaches `runs` at
 `lib.rs:259` and `import.rs:191`. Their callers are the engine
 (`crates/brokkr-runtime/src/engine.rs:598`, `:642`; its fenced append at
 `crates/brokkr-runtime/src/engine/fence.rs:68` and `:80`; its checkpoint
@@ -687,16 +687,23 @@ model the writer keeps in the journal's own file and transaction.
      (`crates/brokkr-core/src/envelope.rs:5` to `6`): a command stamped
      after the run's next event, across a clock stepped back, keeps
      waiting time past the park's end. So the window reads one range per
-     `span_class`: for each class `c` below 64, `span_class = c AND at_ms
-     >= from - 2^c AND at_ms < to`, checking `max(answered_ms, ended_ms) >
-     from` on each row it visits, and for the open parks, `span_class =
-     64 AND at_ms < to`. A park of class `c` reaches less than `2^c` past
-     its start, so one that overlaps the window started within `2^c`
-     before it, and its class's range holds it. A park that starts after
-     the window is in no range.
-   - **The parks just before it.** A park whose reach ends before the
-     window is visited, and rejected, only while it started within `2^c`
-     of `from`. Its reach is at least `2^(c-1)`, so it ended within
+     `span_class`: for each class `c` from 1 to 63, `span_class = c AND
+     at_ms >= from - 2^c AND at_ms < to`, checking `max(answered_ms,
+     ended_ms) > from` on each row it visits, and for the open parks,
+     `span_class = 64 AND at_ms < to`. A park of class `c` reaches less
+     than `2^c` past its start, so one that overlaps the window started
+     within `2^c` before it, and its class's range holds it. A park that
+     starts after the window is in no range. A park of class 0, zero-length
+     or ended before it started across a clock stepped back, is in no
+     range either: it reaches no later than its start, so its overlap with
+     any window is nothing (`Window::overlap` floors at zero, `facts.rs:31`
+     to `33`), and every figure that reads a park adds only its overlap
+     (`waited`, `figures.rs:68` to `76`; `waiting_by_step`, `:214` to
+     `216`, counts a park only past zero).
+   - **The parks just before it.** A park of class `c` whose reach ends
+     before the window is visited, and rejected, only while it started
+     within `2^c` of `from`. Since `c` is at least 1, its reach is at
+     least `2^(c-1)`, so it ended within
      `2^(c-1)` before `from`, within its own length of the window. That
      band is the one read before the window that is not a count: at most
      two parks a run in each class while its clock runs forward, since
@@ -914,11 +921,11 @@ model the writer keeps in the journal's own file and transaction.
 
    | Readout | Time | Live heap | Bound by | Binding |
    |---|---|---|---|---|
-   | The run view, its first screen | 50 ms, its opening included | Brokkr's: 256 KiB and the run's control envelopes as parsed (24,885 B for 25, measured), after an opening that holds one envelope at a time. SQLite's: the page cache, its statements and the largest control envelope | its opening's events, then the run's control events | `heap_run_view.rs`: the same run in a 10,000- and a 1,000,000-event journal, peaks equal to the byte, and with one park's reason stretched to 1 MiB; the trail's plan on the partial index |
+   | The run view, its first screen | 50 ms, its opening included | Brokkr's: 256 KiB and the run's control envelopes as parsed (24,885 B for 25, measured), after an opening that holds one envelope at a time. SQLite's: the page cache, its statements and the largest of its control envelopes, its summary row's whole last columns and its acknowledgement's whole pair, each read by key (ruling 2) | its opening's events, then the run's control events | `heap_run_view.rs`: the same run in a 10,000- and a 1,000,000-event journal, peaks equal to the byte, and with one park's reason stretched to 1 MiB; the trail's plan on the partial index |
    | The seat view, a page of 50 checkpoints | 50 ms, its opening included | Brokkr's: 256 KiB and the largest checkpoint body on the page, each parsed into its row and dropped, after its opening. SQLite's: the page cache, its statements and the largest checkpoint envelope on the page | its opening's events, then the page's checkpoints | `heap_seat_view.rs`, the same two journals, peaks equal, and with one checkpoint on the page stretched to 1 MiB; the stream index's plan |
    | `costs`, `compare` | 50 ms, their openings included | Brokkr's: 256 KiB for two runs of 100 seat rows each, about 200 B a row estimated, after their openings. SQLite's: their openings' | their openings' events, then the runs' seats | `heap_costs.rs`, the same two journals, peaks equal |
    | Opening a run, chain verified | about 2.5 µs an event | Brokkr's: one envelope at a time, at most 256 KiB and the largest envelope. SQLite's: the page cache, its statements and the largest envelope | the run's events | `heap_open.rs`: a 7,510-event run, peaks equal in both journals, and with one envelope stretched to 1 MiB |
-   | The aggregates: `analytics`, Muninn's dossier | 250 ms for a window of 20,000 runs, 240,000 seat rows and 240,000 checkpoints: the streamed scans measured 4.7 and 57 ms for the first two; the checkpoints, the parks' 65 ranges and the medians' passes are unmeasured, and slice 4 measures them before the number is final | Brokkr's 256 KiB: the accumulators of at most 64 groups a figure, each key at its bound, and the medians' histograms, 64 KiB at most (732 B and 2,769 B measured for the scans at both sizes). SQLite's about 1.5 MiB: the 256 KiB page cache and `GROUP BY`'s sorter, 1,050,320 to 1,273,184 B measured (Context); proposed, and slice 4 fixes it on its own measurement | the window's runs, seats and dated facts, the parks that overlap it or ended within their own length of its start, and the preceding window's finished runs, counted | `heap_aggregates.rs` at 2,000 and 20,000 runs, Brokkr's peaks equal to the byte and SQLite's within its share, over a distribution of 2,000 and of 9,000 distinct models, phases and realms in the window (each past 64 and the same number of digits in its "N more"), and over one whose every group key is 1 MiB beside one whose keys are cut to their bounds, Brokkr's peaks equal to the byte, its removal control a figure grouped by the whole phase, whose peak grows by the megabyte; `a_window_visits_only_the_parks_near_it`, in `brokkr-store`: one window held fixed while a year of later parks, and a year of older ones each shorter than half its distance from the window, are added, its park ranges' VM-step counts equal to the step, and then k parks added inside ruling 7's band, each ended before `from` within its own length, which grow the count by exactly k times what one adds, so the band is every earlier park the window visits; its removal control the one range on `COALESCE(ended_ms, 9223372036854775807) >= from`, whose count grows with the later parks; a `fleet_aggregate` Callgrind bench over two journals whose windows hold the same facts and one of which adds a year of runs older than the preceding window, instruction counts equal; and `every_figure_is_its_whole_read` |
+   | The aggregates: `analytics`, Muninn's dossier | 250 ms for a window of 20,000 runs, 240,000 seat rows and 240,000 checkpoints: the streamed scans measured 4.7 and 57 ms for the first two; the checkpoints, the parks' 64 ranges and the medians' passes are unmeasured, and slice 4 measures them before the number is final | Brokkr's 256 KiB: the accumulators of at most 64 groups a figure, each key at its bound, and the medians' histograms, 64 KiB at most (732 B and 2,769 B measured for the scans at both sizes). SQLite's about 1.5 MiB: the 256 KiB page cache and `GROUP BY`'s sorter, 1,050,320 to 1,273,184 B measured (Context); proposed, and slice 4 fixes it on its own measurement | the window's runs, seats and dated facts, the parks that overlap it or ended within their own length of its start, and the preceding window's finished runs, counted | `heap_aggregates.rs` at 2,000 and 20,000 runs, Brokkr's peaks equal to the byte and SQLite's within its share, over a distribution of 2,000 and of 9,000 distinct models, phases and realms in the window (each past 64 and the same number of digits in its "N more"), and over one whose every group key is 1 MiB beside one whose keys are cut to their bounds, Brokkr's peaks equal to the byte, its removal control a figure grouped by the whole phase, whose peak grows by the megabyte; `a_window_visits_only_the_parks_near_it`, in `brokkr-store`: one window held fixed while a year of later parks, and a year of older ones each shorter than half its distance from the window, are added, its park ranges' VM-step counts equal to the step, and then k parks added inside ruling 7's band, each ended before `from` within its own length, which grow the count by exactly k times what one adds, so the band is every earlier park the window visits, and then 10,000 parks of class 0 at `from - 1` and inside the window, zero-length and ended a year before they started, which leave the count equal to the step; its removal controls the one range on `COALESCE(ended_ms, 9223372036854775807) >= from`, whose count grows with the later parks, and a class-0 range on `at_ms >= from - 1`, whose count grows with the class-0 parks; a `fleet_aggregate` Callgrind bench over two journals whose windows hold the same facts and one of which adds a year of runs older than the preceding window, instruction counts equal; and `every_figure_is_its_whole_read` |
 
    **The aggregates are the one exception, and it is put to the
    operator.** Each answers a question about every run in a window: what
@@ -932,7 +939,7 @@ model the writer keeps in the journal's own file and transaction.
    ended within their own length of its start (ruling 7's band). So its
    time grows with the journal's age only through parks long enough to
    reach that near the window; a park that ended further back than its
-   own length is never visited. Its heap does not grow with the
+   own length, or reaches no later than its start, is never visited. Its heap does not grow with the
    window: rows are streamed and dropped, a grouped figure holds at most
    64 groups of bounded keys, a median holds two histograms of 64 counts,
    and SQLite's sorter spills past its floor. The binding of its output is
