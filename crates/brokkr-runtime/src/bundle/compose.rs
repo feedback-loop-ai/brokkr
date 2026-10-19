@@ -25,6 +25,7 @@ use serde_json::{Map, Value};
 use super::CompileError;
 
 mod forced_crew;
+mod layers;
 mod markers;
 
 use markers::{Markers, Overriding};
@@ -225,7 +226,8 @@ fn valid_recipe_name(name: &str) -> bool {
 /// Walk the chain leaf-first, each layer's own `extends` read from its
 /// own `bundle.json`. A repeated directory is a cycle and names the
 /// whole loop in order; a chain longer than [`MAX_LAYERS`] names the
-/// chain so far.
+/// chain so far. Its steps, reading one layer and reaching its base, are
+/// in `bundle/compose/layers.rs`.
 fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
     let mut layers: Vec<Layer> = Vec::new();
     // Canonical from the leaf down, so every recorded dir is comparable
@@ -244,54 +246,7 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
                 loop_names.join(" -> ")
             )));
         }
-        let file = dir.join("bundle.json");
-        // Read STRICTLY from the layer's own bytes (decision 0065, design
-        // D3): a seat's capability requests are written here, and an
-        // ordinary JSON map keeps the last copy of a repeated key — so a
-        // `"requires"` followed by a `"wants"` under one name, or a second
-        // `capabilities` field, would weaken a requirement before any
-        // validation saw it. Every layer is read this way, so a leaf that
-        // replaces a seat cannot hide what its ancestor wrote twice.
-        // The document is consumed like any active input (design D7): ONE
-        // bound read, whose buffer is parsed here and whose digest the
-        // layer's walk must pin before its identity is sealed.
-        let bound = super::bound_input(&dir, "bundle.json").map_err(|fault| match fault {
-            super::InputFault::Missing(error) => CompileError::Io(error),
-            super::InputFault::Place(place) => invalid(format!(
-                "{}: the layer's declaring document, {place}. What a run is composed from must \
-                 be what its identity names, so it is refused (decision 0065 slice one, design \
-                 D7)",
-                file.display()
-            )),
-        })?;
-        let (read, bytes) = Pinned::of(bound);
-        let text = String::from_utf8(bytes).map_err(std::io::Error::other)?;
-        let parsed = brokkr_core::canonical::parse_strict(&text)
-            .map_err(|problem| invalid(format!("{}: {problem}", file.display())))?;
-        let document: Map<String, Value> = serde_json::from_value(parsed)?;
-        let name = document
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or_else(|| invalid(format!("{} missing 'name'", file.display())))?
-            .to_string();
-        if let Some(prior) = layers.iter().find(|layer| layer.name == name) {
-            return Err(invalid(format!(
-                "{} declares name '{name}', which its ancestor {} already declares; \
-                 a derived recipe states its own name so runs, manifests and \
-                 dispatch pins never report a base's name under a derived digest",
-                file.display(),
-                prior.file.display()
-            )));
-        }
-        let extends = document.get("extends").cloned();
-        layers.push(Layer {
-            name,
-            reached_as: reached_as.clone(),
-            dir: dir.clone(),
-            file: file.clone(),
-            document,
-            read,
-        });
+        let (file, extends) = layers::read_layer(&mut layers, &dir, &reached_as)?;
         if layers.len() > MAX_LAYERS {
             return Err(invalid(format!(
                 "composition chain is deeper than {MAX_LAYERS} layers: {}",
@@ -305,35 +260,7 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         let Some(extends) = extends else {
             return Ok(layers);
         };
-        let base = base_of(&file, &extends)?;
-        // The library is the leaf directory's parent, what a recipe library already is and what
-        // `brokkr recipes add` installs into before it compile-verifies the copy, or a `.brokkr`
-        // folder's shelf (#696): `places::base_library`, the one judgement of a layer's library.
-        // `dir` is already canonical, so the library is asked for directly, never through `..`.
-        let library = crate::places::base_library(&dir)?;
-        let candidate = library.join(base);
-        if !candidate.is_dir() {
-            return Err(invalid(format!(
-                "{}: extends '{base}', which is not a recipe in {}",
-                file.display(),
-                library.display()
-            )));
-        }
-        // A base must BE in the library, not merely be reachable from
-        // it: `brokkr recipes add` already refuses symlinks, and a
-        // composed base is bind-mounted read-only into every confined
-        // seat, so a link pointing outside would widen that mount.
-        let resolved = candidate.canonicalize()?;
-        if resolved.parent() != Some(library.as_path()) {
-            return Err(invalid(format!(
-                "{}: extends '{base}', which resolves outside the library to {}; \
-                 a base is composed from and mounted into confined seats, so it \
-                 must be a real directory in {}",
-                file.display(),
-                resolved.display(),
-                library.display()
-            )));
-        }
+        let (base, resolved) = layers::reach_base(&dir, &file, &extends)?;
         reached_as = Some(base.to_string());
         dir = resolved;
     }

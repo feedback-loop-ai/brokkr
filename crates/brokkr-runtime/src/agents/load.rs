@@ -24,9 +24,12 @@ use super::{
 };
 use crate::bundle::Limits;
 
+mod adapter;
+mod agent;
 mod auth;
 mod models;
 mod overlay;
+mod resume;
 
 /// The grammar every agent, model, provider and MCP server name obeys.
 /// Quoted verbatim in rejection messages so a reader can act on them.
@@ -474,57 +477,18 @@ fn parse_agent(root: &Path, name: &str, path: &Path) -> Result<Agent, LibraryErr
         ],
         &what,
     )?;
-    // Decision 0065 ruling 1: what the office asks for, by abstract name.
-    // Syntax only here — whether each name has a definition is the
-    // operator's configuration to answer, at lint and at compile.
-    let capabilities = match map.get("capabilities") {
-        None => Default::default(),
-        Some(raw) => crate::capabilities::parse_requests(&format!("agent '{name}'"), raw)
-            .map_err(LibraryError::Invalid)?,
-    };
-    let description = string(map, "description", &what)?;
-    let charter_rel = string(map, "charter", &what)?;
-    let charter = contained(root, &charter_rel, &what)?;
-    let charter_bytes = std::fs::read(&charter)?;
-    let models = string_array(map, "models", &what)?;
-    if models.is_empty() {
-        return invalid(format!(
-            "{what} 'models' is empty; an agent names at least one model"
-        ));
-    }
-    named(&models, "models", &what)?;
-    // A charter names the effort it hires exactly as it names the model
-    // (decision 0035 ruling 5), keyed by the candidate it belongs to
-    // rather than positionally: a chain reordered in review must not
-    // silently re-hire every seat at a different level. Whether a
-    // candidate NEEDS one is not knowable here — it depends on the
-    // adapter that ends up serving it — so this only refuses an effort
-    // named for a candidate that is not in the chain at all.
-    let efforts = map.get("efforts").map(|_| name_map(map, "efforts", &what));
-    let efforts = efforts.transpose()?.unwrap_or_default();
-    for candidate in efforts.keys() {
-        if !models.contains(candidate) {
-            return invalid(format!(
-                "{what} 'efforts' names an effort for '{candidate}', which is not \
-                 in its 'models' chain [{}]",
-                models.join(", ")
-            ));
-        }
-    }
+    let capabilities = agent::capabilities(map, name)?;
+    let agent::Office {
+        description,
+        charter_rel,
+        charter,
+        charter_bytes,
+    } = agent::office(root, map, &what)?;
+    let (models, efforts) = agent::chain(map, &what)?;
     let LocalTools { allow, sandbox } = parse_tools(map, &what)?;
-    // Decision 0043: one boxed tool instead of a list, refused where a malformed list is.
-    let hands = match map.get("hands") {
-        None => None,
-        Some(raw) => Some(
-            brokkr_protocol::hands::HandsSpec::parse(raw)
-                .map_err(|problem| LibraryError::Invalid(format!("{what} 'hands': {problem}")))?,
-        ),
-    };
+    let hands = agent::hands(map, &what)?;
     let limits = parse_limits(map, &what)?;
-    let inputs = match map.get("inputs") {
-        None => None,
-        Some(_) => Some(string_array(map, "inputs", &what)?),
-    };
+    let inputs = agent::inputs(map, &what)?;
     super::charter_data::check_office(&charter_bytes, &capabilities, &what, &charter_rel)?;
     Ok(Agent {
         name: name.to_string(),
@@ -763,7 +727,6 @@ const ADAPTER_KEYS: [&str; 20] = [
     "native_capabilities",
 ];
 
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     let what = models::described(name, path);
     if !valid_name(name) {
@@ -772,166 +735,31 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
     let source = read_json(path)?;
     let map = object(&source, &what)?;
     only_keys(map, &ADAPTER_KEYS, &what)?;
-    // Every adapter is authority data: its native capabilities (decision
-    // 0065 ruling 4) and its models' tiers (decision 0075 ruling
-    // 5) alike, so a key written twice anywhere in the file is a refusal
-    // rather than whichever copy came second.
-    let text = std::fs::read_to_string(path)?;
-    brokkr_core::canonical::parse_strict(&text)
-        .map_err(|problem| LibraryError::Invalid(format!("{what}: {problem}")))?;
-    let native = crate::capabilities::NativeInventory::parse(&what, map.get("native_capabilities"))
-        .map_err(LibraryError::Invalid)?;
-    let provider = string(map, "provider", &what)?;
-    if provider != name {
-        return invalid(format!(
-            "{what} declares provider '{provider}' but the file is named \
-             '{name}.json'; the file name is the provider name"
-        ));
-    }
-    let binary = string(map, "binary", &what)?;
-    let driver = string_array(map, "driver", &what)?;
-    if driver.is_empty() {
-        return invalid(format!("{what} 'driver' is empty; it is the invocation"));
-    }
-    // Rebuild unit 11: both declared halves parse under the grammar of the
-    // harness this adapter dispatches, here, whether or not a realm uses
-    // them (operator ruling 2).
-    native
-        .check_declared(&what, crate::capabilities::harness_of(&driver))
-        .map_err(LibraryError::Invalid)?;
-    let (models, provisional) = models::models(map, &what)?;
-    let judges = match map.get("judges") {
-        Some(_) => string_array(map, "judges", &what)?,
-        None => Vec::new(),
-    };
-    named(&judges, "judges", &what)?;
-    for judge in &judges {
-        if !models.contains_key(judge) {
-            return invalid(format!(
-                "{what} declares judge '{judge}' but maps no model with that abstract name"
-            ));
-        }
-    }
-    // Three legal shapes, two outcomes. `"unsupported"` and a declared
-    // gap BOTH yield `None` — the refusal in `compose` is identical, so
-    // no seat gains power by the reason existing. What the reason buys
-    // is that a future reader learns the gap was MEASURED against the
-    // provider's CLI, not defaulted by whoever wrote the file first.
-    let (tool_permissions, tool_permissions_gap) = match capability(map, "tool_permissions", &what)?
-    {
-        None => (None, None),
-        Some(value) => {
-            let raw = object(value, &format!("{what} 'tool_permissions'"))?;
-            if raw.contains_key("unsupported") {
-                only_keys(raw, &["unsupported"], &format!("{what} 'tool_permissions'"))?;
-                (
-                    None,
-                    Some(string(
-                        raw,
-                        "unsupported",
-                        &format!("{what} 'tool_permissions'"),
-                    )?),
-                )
-            } else {
-                only_keys(
-                    raw,
-                    &["flag", "separator", "names"],
-                    &format!("{what} 'tool_permissions'"),
-                )?;
-                (
-                    Some(ToolPermissions {
-                        flag: string(raw, "flag", &format!("{what} 'tool_permissions'"))?,
-                        separator: string(raw, "separator", &format!("{what} 'tool_permissions'"))?,
-                        names: name_map(raw, "names", &format!("{what} 'tool_permissions'"))?,
-                    }),
-                    None,
-                )
-            }
-        }
-    };
-    let mcp = McpSupport::decode(&what, capability(map, "mcp", &what)?, &driver)?;
-    let hint = match map.get("hint") {
-        None => None,
-        Some(_) => Some(string(map, "hint", &what)?),
-    };
-    let model_flag = pin_flag(map, "model_flag", &what)?;
-    // The effort vocabulary this provider declares (decision 0035
-    // ruling 5), read beside the flag that expresses it. Required, and
-    // required even when empty, for the reason `model_flag` is: an
-    // absent declaration would read as "effortless" and quietly excuse
-    // every seat this provider serves from the pin — which is the
-    // implicit default ruling 1 exists to refuse.
-    let efforts = string_array(map, "efforts", &what)?;
-    named(&efforts, "efforts", &what)?;
-    // Decision 0035 addendum 2026-09-11: routes measured as refusing
-    // every reasoning level, mapped to the measurement that listed
-    // them. Absent is no such route — an absent declaration excuses
-    // nothing, which is the implicit-default refusal ruling 1 exists
-    // for. Keys obey the route grammar, like `routes` and
-    // `credentials`; values are non-empty evidence strings.
-    let effortless_routes = match map.get("effortless_routes") {
-        None => BTreeMap::new(),
-        Some(declared) => {
-            let Some(entries) = declared.as_object() else {
-                return invalid(format!(
-                    "{what} 'effortless_routes' must be an object of route name → measurement"
-                ));
-            };
-            let mut out = BTreeMap::new();
-            for (route, value) in entries {
-                if !route_name(route) {
-                    return invalid(format!(
-                        "{what} 'effortless_routes' names '{route}', which does not match {ROUTE_GRAMMAR}"
-                    ));
-                }
-                match value.as_str() {
-                    Some(text) if !text.is_empty() => {
-                        out.insert(route.clone(), text.to_string());
-                    }
-                    _ => {
-                        return invalid(format!(
-                            "{what} 'effortless_routes.{route}' must be a non-empty string naming the measurement"
-                        ))
-                    }
-                }
-            }
-            out
-        }
-    };
-    // Decision 0043: how the provider puts its hands in the box, or the
-    // measured reason it cannot. The same three legal shapes as
-    // `tool_permissions`, for the same reason.
-    // Absent is legal here, unlike `tool_permissions`: the key arrived
-    // with decision 0043, and an adapter written before it — including
-    // every `brokkr init` scaffold in the field — must keep compiling.
-    // Absent reads as unsupported with no reason, fail-closed.
-    let (hands, hands_gap, harness, hands_notice) =
-        match map.get("hands").map(|_| capability(map, "hands", &what)) {
-            None | Some(Ok(None)) => (None, None, HarnessHands::default(), None),
-            Some(Err(error)) => return Err(error),
-            Some(Ok(Some(value))) => {
-                let raw = object(value, &format!("{what} 'hands'"))?;
-                if raw.contains_key("unsupported") {
-                    no_notice_without_workspace(raw, &what)?;
-                    only_keys(raw, &["unsupported"], &format!("{what} 'hands'"))?;
-                    (
-                        None,
-                        Some(string(raw, "unsupported", &format!("{what} 'hands'"))?),
-                        HarnessHands::default(),
-                        None,
-                    )
-                } else {
-                    only_keys(
-                        raw,
-                        &["workspace", "harness", "notice"],
-                        &format!("{what} 'hands'"),
-                    )?;
-                    let workspace = string_array(raw, "workspace", &format!("{what} 'hands'"))?;
-                    let notice = hands_notice(raw, &workspace, &what)?;
-                    (Some(workspace), None, harness_hands(raw, &what)?, notice)
-                }
-            }
-        };
+    let adapter::Invocation {
+        native,
+        provider,
+        binary,
+        driver,
+    } = adapter::invocation(name, map, path, &what)?;
+    let adapter::Served {
+        models,
+        provisional,
+        judges,
+    } = adapter::served(map, &what)?;
+    let (tool_permissions, tool_permissions_gap) = adapter::tool_permissions(map, &what)?;
+    let mcp = adapter::mcp(map, &what, &driver)?;
+    let adapter::Pinning {
+        hint,
+        model_flag,
+        efforts,
+        effortless_routes,
+    } = adapter::pinning(map, &what)?;
+    let adapter::Hands {
+        hands,
+        hands_gap,
+        harness,
+        hands_notice,
+    } = adapter::hands(map, &what)?;
     let resume = resume_assessment(map, &what)?;
     let credentials = auth::credentials(map, &what)?;
     let mcp = mcp.admit(&McpContext {
@@ -941,12 +769,20 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         harness: &harness,
         resume: &resume,
     })?;
+    let adapter::Settled {
+        trust_tier,
+        egress,
+        routes,
+        harness_auth,
+        effort_flag,
+        digest,
+    } = adapter::settled(map, &credentials, path, &what)?;
     Ok(Adapter {
         provider,
-        trust_tier: trust_tier(map, &what)?,
-        egress: adapter_egress(map, &what)?,
-        routes: routes(map, &what)?,
-        harness_auth: auth::harness_auth(map, &credentials, &what)?,
+        trust_tier,
+        egress,
+        routes,
+        harness_auth,
         credentials,
         binary,
         hint,
@@ -956,7 +792,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         judges,
         model_flag,
         efforts,
-        effort_flag: pin_flag(map, "effort_flag", &what)?,
+        effort_flag,
         effortless_routes,
         tool_permissions,
         tool_permissions_gap,
@@ -967,7 +803,7 @@ fn parse_adapter(name: &str, path: &Path) -> Result<Adapter, LibraryError> {
         mcp,
         resume,
         native,
-        digest: sha256_bytes(&std::fs::read(path)?),
+        digest,
     })
 }
 
@@ -1004,7 +840,6 @@ pub(super) const RESUME_TEXT_LIMIT: usize = 400;
 /// entry is not malformed: it IS the honest declaration, and refusing it
 /// would make the preparatory declarations of an unmeasured shape
 /// unwritable. Neither outcome ever enables resume.
-#[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn resume_assessment(
     map: &Map<String, Value>,
     what: &str,
@@ -1027,88 +862,7 @@ fn resume_assessment(
             ));
         }
         let what = format!("{what} '{name}'");
-        let raw = object(value, &what)?;
-        only_keys(
-            raw,
-            &[
-                "status",
-                "identity",
-                "classes",
-                "boundaries",
-                "hands",
-                "evidence",
-                "limitations",
-                "reason",
-            ],
-            &what,
-        )?;
-        let status = match raw.get("status").and_then(Value::as_str) {
-            Some("unmeasured") => ResumeStatus::Unmeasured,
-            Some("unsupported") => ResumeStatus::Unsupported,
-            Some("supported") => ResumeStatus::Supported,
-            _ => {
-                return invalid(format!(
-                    "{what} needs 'status': one of unmeasured, unsupported, supported"
-                ))
-            }
-        };
-        let identity = resume_identity(raw, &what)?;
-        let classes = string_array(raw, "classes", &what)?;
-        named(&classes, "classes", &what)?;
-        let boundaries = string_array(raw, "boundaries", &what)?;
-        let hands = string(raw, "hands", &what)?;
-        let evidence = resume_evidence(raw, &what)?;
-        let limitations = match raw.get("limitations") {
-            None => Vec::new(),
-            Some(_) => string_array(raw, "limitations", &what)?,
-        };
-        for limitation in &limitations {
-            bounded_reason(limitation, "limitations", &what)?;
-        }
-        let reason = match raw.get("reason") {
-            None => None,
-            Some(_) => {
-                let reason = string(raw, "reason", &what)?;
-                bounded_reason(&reason, "reason", &what)?;
-                Some(reason)
-            }
-        };
-        // The two rules that keep a declaration from enabling itself.
-        if status == ResumeStatus::Supported {
-            if !identity.is_measured() {
-                return invalid(format!(
-                    "{what} is 'supported' with an unknown identity; only a MEASURED identity \
-                     can support enablement, because the per-invocation version check needs a \
-                     pinned version to compare the observed one against"
-                ));
-            }
-            if !evidence.complete() {
-                return invalid(format!(
-                    "{what} is 'supported' and must name all four evidence references — \
-                     interface, restrictions, root, accounting; one of them does not imply \
-                     the others"
-                ));
-            }
-        }
-        if status == ResumeStatus::Unsupported && reason.is_none() {
-            return invalid(format!(
-                "{what} is 'unsupported' and needs its measured 'reason'; \"we looked and it \
-                 cannot\" is a different statement from \"nobody looked\""
-            ));
-        }
-        assessed.insert(
-            name.clone(),
-            ResumeShape {
-                status,
-                identity,
-                classes,
-                boundaries,
-                hands,
-                evidence,
-                limitations,
-                reason,
-            },
-        );
+        assessed.insert(name.clone(), resume::shape(value, &what)?);
     }
     Ok(ResumeAssessment::new(assessed))
 }
@@ -1308,3 +1062,6 @@ fn harness_hands(hands: &Map<String, Value>, what: &str) -> Result<HarnessHands,
         result,
     })
 }
+
+#[cfg(test)]
+mod tests;
