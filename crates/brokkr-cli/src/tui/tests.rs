@@ -25,6 +25,13 @@ pub(super) const NOW: &str = "2026-01-01T00:07:03Z";
 
 // -------------------------------------------------------------- fixtures
 
+/// The console's read of the one-hearth journal `db`, frame by frame, at
+/// the test clock.
+pub(super) fn reading(db: &Path) -> impl FnMut(Ask) -> Result<Refreshed> + '_ {
+    let mut head = None;
+    move |ask| crate::tui_read::tui_views(db, true, ask, &mut head, &mut None, || NOW.to_string())
+}
+
 fn ev(seq: u64, event_type: EventType, payload: Value, at: &str) -> EventEnvelope {
     EnvelopeBuilder::new(event_type, payload)
         .run("run-7")
@@ -2882,9 +2889,7 @@ fn a_whole_tui_session_writes_nothing_at_all() {
         Key::Escape,
         Key::Quit,
     ]);
-    let mut head = None;
-    let mut source =
-        |ask: Ask| crate::tui_views(&db, true, ask, &mut head, &mut None, || NOW.to_string());
+    let mut source = reading(&db);
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     let mut tui = Tui::new(None);
     let code = drive(&mut terminal, &test_ops(), &mut source, &mut tui, 40).unwrap();
@@ -4868,6 +4873,37 @@ fn leaving_a_hearth_leaves_the_run_that_was_open_in_it() {
     assert!(tui.force, "the new hearth's journal has not been read yet");
 }
 
+/// A world of two hearths, realms `alpha` and `beta`, journaled at the
+/// two paths.
+fn alpha_and_beta(alpha: &Path, beta: &Path) -> Vec<Hearth> {
+    vec![
+        Hearth {
+            realms: vec!["alpha".to_string()],
+            journal: alpha.to_path_buf(),
+        },
+        Hearth {
+            realms: vec!["beta".to_string()],
+            journal: beta.to_path_buf(),
+        },
+    ]
+}
+
+/// The tabbed console over `hearths`, driven through `keys`: which hearth
+/// each refresh asked about, and the console as the keys left it.
+fn asking_tabs(hearths: Vec<Hearth>, keys: &[Key]) -> (Vec<usize>, Tui) {
+    let mut asked: Vec<usize> = Vec::new();
+    let mut inner = crate::tui_read::tui_source(hearths);
+    let mut source = |ask: Ask| {
+        asked.push(ask.tab);
+        inner(ask)
+    };
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    script(keys);
+    let mut tui = tabbed_tui(&["alpha", "beta"]);
+    drive(&mut terminal, &test_ops(), &mut source, &mut tui, 6).unwrap();
+    (asked, tui)
+}
+
 /// Stores open lazily and only the ACTIVE hearth is polled: a tab nobody
 /// visits is never asked about, so its journal is never opened — and
 /// when it is visited, it is opened READ-ONLY, so a console still
@@ -4880,31 +4916,8 @@ fn an_unvisited_hearth_is_never_asked_about_and_no_read_creates_a_journal() {
     crate::tests::running_store(&alpha, "run-a");
     // Never created, and it must stay that way.
     let beta = dir.path().join("beta.db");
-    let hearths = [
-        Hearth {
-            realms: vec!["alpha".to_string()],
-            journal: alpha.clone(),
-        },
-        Hearth {
-            realms: vec!["beta".to_string()],
-            journal: beta.clone(),
-        },
-    ];
 
-    let mut heads = vec![None, None];
-    let mut seen = None;
-    let mut asked: Vec<usize> = Vec::new();
-    {
-        let mut inner = crate::tui_source(&hearths, &mut heads, &mut seen);
-        let mut source = |ask: Ask| {
-            asked.push(ask.tab);
-            inner(ask)
-        };
-        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
-        script(&[Key::Down, Key::Quit]);
-        let mut tui = tabbed_tui(&["alpha", "beta"]);
-        drive(&mut terminal, &test_ops(), &mut source, &mut tui, 6).unwrap();
-    }
+    let (asked, _) = asking_tabs(alpha_and_beta(&alpha, &beta), &[Key::Down, Key::Quit]);
     assert!(!asked.is_empty());
     assert!(
         asked.iter().all(|tab| *tab == 0),
@@ -4913,29 +4926,17 @@ fn an_unvisited_hearth_is_never_asked_about_and_no_read_creates_a_journal() {
     assert!(!beta.exists(), "an unvisited hearth's journal was opened");
 
     // Visiting it asks about it — and still creates nothing.
-    let mut heads = vec![None, None];
-    let mut seen = None;
-    let mut asked: Vec<usize> = Vec::new();
-    {
-        let mut inner = crate::tui_source(&hearths, &mut heads, &mut seen);
-        let mut source = |ask: Ask| {
-            asked.push(ask.tab);
-            inner(ask)
-        };
-        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
-        script(&[Key::Char(']'), Key::Quit]);
-        let mut tui = tabbed_tui(&["alpha", "beta"]);
-        drive(&mut terminal, &test_ops(), &mut source, &mut tui, 6).unwrap();
-        // A hearth with no journal yet is a frame that says so, with the
-        // keys still live and nothing counted against the give-up bound.
-        assert!(
-            tui.status
-                .as_deref()
-                .is_some_and(|said| said.contains("no journal yet")),
-            "the empty hearth said so: {:?}",
-            tui.status
-        );
-    }
+    let keys = [Key::Char(']'), Key::Quit];
+    let (asked, tui) = asking_tabs(alpha_and_beta(&alpha, &beta), &keys);
+    // A hearth with no journal yet is a frame that says so, with the
+    // keys still live and nothing counted against the give-up bound.
+    assert!(
+        tui.status
+            .as_deref()
+            .is_some_and(|said| said.contains("no journal yet")),
+        "the empty hearth said so: {:?}",
+        tui.status
+    );
     assert!(asked.contains(&1), "the visited hearth was asked about");
     assert!(!beta.exists(), "a read created a journal");
     assert!(!dir.path().join("beta.db-wal").exists());
@@ -4955,20 +4956,8 @@ fn a_hearth_with_no_journal_yet_is_empty_and_does_not_end_the_console() {
     let alpha = dir.path().join("alpha.db");
     crate::tests::running_store(&alpha, "run-a");
     let beta = dir.path().join("beta.db");
-    let hearths = [
-        Hearth {
-            realms: vec!["alpha".to_string()],
-            journal: alpha.clone(),
-        },
-        Hearth {
-            realms: vec!["beta".to_string()],
-            journal: beta.clone(),
-        },
-    ];
 
-    let mut heads = vec![None, None];
-    let mut seen = None;
-    let mut source = crate::tui_source(&hearths, &mut heads, &mut seen);
+    let mut source = crate::tui_read::tui_source(alpha_and_beta(&alpha, &beta));
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     script(&[Key::Char(']')]);
     let mut tui = tabbed_tui(&["alpha", "beta"]);
@@ -5232,9 +5221,9 @@ fn refresh_subject(
     subject: Subject,
     force: bool,
     head: &mut Option<(u64, String)>,
-    seen: &mut Option<crate::SourceStamp>,
+    seen: &mut Option<crate::tui_read::SourceStamp>,
 ) -> Option<Views> {
-    crate::tui_views(
+    crate::tui_read::tui_views(
         db,
         true,
         Ask {

@@ -19,6 +19,7 @@ pub(super) const SOURCE: &str = concat!(
     include_str!("painter.rs"),
     include_str!("panes.rs"),
     include_str!("participant.rs"),
+    include_str!("reader.rs"),
     include_str!("seats.rs"),
     include_str!("state.rs"),
     include_str!("style.rs"),

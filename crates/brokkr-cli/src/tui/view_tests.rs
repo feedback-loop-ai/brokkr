@@ -4,7 +4,7 @@
 //! Ctrl+C means.
 
 use super::snapshot_tests::settings;
-use super::tests::{lines_of, script, test_ops, views, NOW, SCRIPT, TERMINAL};
+use super::tests::{lines_of, reading, script, test_ops, views, NOW, SCRIPT, TERMINAL};
 use super::*;
 use ratatui::backend::TestBackend;
 
@@ -17,7 +17,7 @@ pub(super) fn console<'a, R: Write>(
     restore: R,
     source: &'a mut dyn FnMut(Ask) -> Result<Refreshed>,
     max: usize,
-) -> Session<'a, TestBackend, R> {
+) -> Session<'a, TestBackend, R, Result<Refreshed>> {
     Session {
         db_is_file,
         run: None,
@@ -96,9 +96,7 @@ fn the_run_view_is_the_frame_tui_run_draws() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     crate::tests::running_store(&db, "run-on-disk");
-    let mut head = None;
-    let mut source =
-        |ask: Ask| crate::tui_views(&db, true, ask, &mut head, &mut None, || NOW.to_string());
+    let mut source = reading(&db);
     let (_, tui_run, _) = opened("run-on-disk", Watched::Console, &mut source, 2);
     let (_, run_view, _) = opened("run-on-disk", driven(None), &mut source, 2);
     let drawn = tui_run.to_string();
@@ -120,9 +118,10 @@ fn the_console_view_decides_no_scope() {
         fleet: false,
         tab: 0,
     };
-    let views = crate::tui_views(&db, true, ask, &mut None, &mut None, || NOW.to_string())
-        .unwrap()
-        .expect("the forced frame is built");
+    let views =
+        crate::tui_read::tui_views(&db, true, ask, &mut None, &mut None, || NOW.to_string())
+            .unwrap()
+            .expect("the forced frame is built");
     assert_eq!(views.run.expect("the run is read").scopes, None);
 }
 

@@ -20,7 +20,8 @@ use brokkr_runtime::realms::Hearth;
 use brokkr_runtime::Engine;
 
 use crate::tui::{self, Closed, DriveEnd, Watched};
-use crate::{drive_to_end, open_journal, render, tui_source, Access, Exit};
+use crate::tui_read::tui_source;
+use crate::{drive_to_end, open_journal, render, Access, Exit};
 
 /// Whether a verb opens the run view: on a terminal, its stdin and its
 /// stdout both, unless `--no-view` asked for today's output there. The
@@ -69,31 +70,32 @@ pub(crate) fn console(
     tab: usize,
     watched: Watched,
 ) -> Result<Closed> {
-    let mut heads: Vec<Option<(u64, String)>> = vec![None; hearths.len()];
-    let mut seen = None;
     let db_is_file = hearths.iter().any(|hearth| hearth.journal.is_file());
     // A world with one hearth names no tabs, and the console draws none.
     let tabs: Vec<String> = match hearths.len() {
         0 | 1 => Vec::new(),
         _ => hearths.iter().map(Hearth::label).collect(),
     };
-    let mut source = tui_source(&hearths, &mut heads, &mut seen);
-    tui::start(tui::Session {
-        db_is_file,
-        run,
-        tabs,
-        tab,
-        ops: tui::production_ops(),
-        is_tty: std::io::stdout().is_terminal(),
-        // Animation is enabled exactly when colour is, through the same
-        // pure rule `brokkr runs` uses: NO_COLOR, TERM=dumb and a
-        // non-tty all yield a still graph. No new flag, no new env var.
-        animate: render::Style::detect().color,
-        backend: ratatui::backend::CrosstermBackend::new(std::io::stdout()),
-        restore: std::io::stdout(),
-        source: &mut source,
-        max_iterations: usize::MAX,
-        watched,
+    // Read on a thread of its own, so a key never waits for the journal
+    // (#744).
+    tui::behind(tui_source(hearths), |source| {
+        tui::start(tui::Session {
+            db_is_file,
+            run,
+            tabs,
+            tab,
+            ops: tui::production_ops(),
+            is_tty: std::io::stdout().is_terminal(),
+            // Animation is enabled exactly when colour is, through the same
+            // pure rule `brokkr runs` uses: NO_COLOR, TERM=dumb and a
+            // non-tty all yield a still graph. No new flag, no new env var.
+            animate: render::Style::detect().color,
+            backend: ratatui::backend::CrosstermBackend::new(std::io::stdout()),
+            restore: std::io::stdout(),
+            source,
+            max_iterations: usize::MAX,
+            watched,
+        })
     })
 }
 

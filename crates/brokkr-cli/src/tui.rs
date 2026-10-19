@@ -148,6 +148,7 @@ mod movement;
 mod painter;
 mod panes;
 mod participant;
+mod reader;
 mod seats;
 mod state;
 mod style;
@@ -179,6 +180,7 @@ use self::terminal::*;
 // source builds, the draw path the budget frame measures, and the entry.
 pub(crate) use self::panes::draw;
 pub use self::participant::transcript_surfaces_for_test;
+pub(crate) use self::reader::behind;
 pub(crate) use self::state::{Ask, DriveEnd, Refreshed, Subject, Tui, Views, Watched};
 pub(crate) use self::terminal::{production_ops, start, Closed, Session};
 
@@ -187,6 +189,9 @@ mod columns_tests;
 
 #[cfg(test)]
 mod fleet_tests;
+
+#[cfg(test)]
+mod reader_tests;
 
 #[cfg(test)]
 mod snapshot_tests;

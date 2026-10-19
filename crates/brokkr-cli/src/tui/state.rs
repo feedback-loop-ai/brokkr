@@ -52,6 +52,23 @@ impl Views {
 /// not moved, keep the frame you have".
 pub(crate) type Refreshed = Option<Views>;
 
+/// What the shell's source has for it at one poll (#744). A source on
+/// the loop has always answered; one read off it may not have yet, and
+/// a read still out is neither a read that found nothing new nor one
+/// that failed: it counts for and against nothing.
+pub(crate) enum Polled {
+    /// A read answered, as a source on the loop answers.
+    Answered(Box<Result<Refreshed>>),
+    /// A read is still out.
+    Pending,
+}
+
+impl From<Result<Refreshed>> for Polled {
+    fn from(answer: Result<Refreshed>) -> Polled {
+        Polled::Answered(Box::new(answer))
+    }
+}
+
 /// The selected transcript subject, as the view derives it once for every
 /// surface (#351).
 pub(crate) use brokkr_view::Subject;
