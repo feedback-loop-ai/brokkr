@@ -508,7 +508,8 @@ if you think they are at risk:
 ## The pre-flight: let the machine review you first
 
 Before you open the pull request, have the machine review the branch.
-`recipes/preflight` seats Brokkr's own `verify` and `review` agents —
+`recipes/preflight`, a Brokkr-only recipe (decision 0087 ruling 5),
+seats Brokkr's own `verify` and `review` agents —
 the same two that judge the machine's own work — and points them at an
 unmerged branch:
 
@@ -998,7 +999,9 @@ the anatomy of `bundle.json`, the policy grammar, composition and
 digests — and from a worked example: `recipes/fast` (the flat case),
 `recipes/triage` (selected singles, panels, and sequences), `recipes/night-shift`
 (composition through `extends`), `recipes/node` (a different language),
-`recipes/preflight` (a two-seat table that rules and stops).
+`recipes/preflight` (a two-seat table that rules and stops). Of these,
+`fast` and `node` are portable and the rest Brokkr-only (decision 0087
+ruling 5).
 
 To add an adapter, start from
 [`driver-authoring.md`](driver-authoring.md) for
