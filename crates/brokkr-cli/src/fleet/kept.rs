@@ -28,9 +28,11 @@
 //! the kept fleet is bound to that file ([`Journal`]), stated before its
 //! store is opened and again after the read, and a journal at the same
 //! path that is not it drops every kept run, whatever heads its runs
-//! still hold. The same file written beneath the reader — a copy over it
-//! in place, which keeps the inode and may keep the length — has its
-//! rows below each kept head counted ([`recount`]), and a run short of
+//! still hold. The same file may still have been written beneath the
+//! reader — a copy over it in place, which keeps the inode and may keep
+//! the length, or a change committed into its write-ahead log, which
+//! leaves the file itself untouched until a checkpoint — so every refresh
+//! counts the rows below each kept head ([`recount`]), and a run short of
 //! its head's seq is read whole.
 
 use std::collections::{HashMap, HashSet};
@@ -72,8 +74,9 @@ impl KeptFleet {
     /// whole read refused leaves nothing kept, so the next refresh reads
     /// every run whole. A journal that is not the file the runs were kept
     /// from ([`Self::replaced`]) has every run read whole now; one that is
-    /// but has been written since has its kept runs counted ([`recount`]).
-    /// The runs are bound to `before` only when the file is still it once
+    /// has its kept runs counted ([`recount`]) at every refresh, whatever
+    /// its file's clocks say, because a write the store commits lands in
+    /// its write-ahead log and leaves the journal file as it was. The runs are bound to `before` only when the file is still it once
     /// the read is done: otherwise every run is read whole at the next
     /// refresh.
     pub(crate) fn refresh(
@@ -81,22 +84,16 @@ impl KeptFleet {
         store: &Store,
         before: Option<Journal>,
     ) -> Result<usize, StoreError> {
-        let written = match self.journal.zip(before) {
-            Some((kept, now)) if kept.holds(now) => !kept.unwritten(now),
-            _ => {
-                self.runs.clear();
-                false
-            }
-        };
+        if !self.stands_on(before) {
+            self.runs.clear();
+        }
         let listed = store.list_runs()?;
         let mut kept: HashMap<String, KeptRun> = self
             .runs
             .drain(..)
             .map(|((run_id, _, _), run)| (run_id, run))
             .collect();
-        if written {
-            recount(store, &mut kept)?;
-        }
+        recount(store, &mut kept)?;
         let carried: Vec<Option<(KeptRun, usize)>> = listed
             .iter()
             .map(|(run_id, _, _)| {
@@ -185,20 +182,16 @@ pub(crate) fn read_kept(journal: &Path) -> (KeptFleet, Option<String>) {
 }
 
 /// The journal file a kept fleet was read from: the file at the
-/// journal's path by device and inode, its length, and when it was last
-/// written. A journal moved, copied or created into place is another
-/// inode; one copied over the old file in place keeps the inode, and is
-/// told by a length shorter than the one read, because a journal the store
-/// keeps only grows (no writer of it vacuums), or else by its modification
-/// and change times, the change time moving at any write whatever the
-/// modification time is set back to (`cp -p`).
-#[derive(Clone, Copy, PartialEq)]
+/// journal's path by device and inode, and its length. A journal moved,
+/// copied or created into place is another inode; one copied over the old
+/// file in place keeps the inode, and is told by a length shorter than
+/// the one read, because a journal the store keeps only grows (no writer
+/// of it vacuums), or else by the count of its rows ([`recount`]).
+#[derive(Clone, Copy)]
 pub(crate) struct Journal {
     device: u64,
     inode: u64,
     length: u64,
-    modified: (i64, i64),
-    changed: (i64, i64),
 }
 
 impl Journal {
@@ -210,20 +203,12 @@ impl Journal {
             device: file.dev(),
             inode: file.ino(),
             length: file.len(),
-            modified: (file.mtime(), file.mtime_nsec()),
-            changed: (file.ctime(), file.ctime_nsec()),
         })
     }
 
     /// Whether `now` is still this file, grown or not.
     fn holds(self, now: Journal) -> bool {
         (self.device, self.inode) == (now.device, now.inode) && now.length >= self.length
-    }
-
-    /// Whether `now`, the same file, has not been written since this was
-    /// stated: its length and both its times as they were.
-    fn unwritten(self, now: Journal) -> bool {
-        self == now
     }
 }
 
@@ -232,7 +217,9 @@ impl Journal {
 /// its seq (a chain verified from seq 1 holds exactly that many). The
 /// suffix read confirms only the head's own row, so such a run would be
 /// carried on rows that are gone; dropped, it is read whole. A refused
-/// run carries no fold, and is read whole when its head moves.
+/// run carries no fold, and is read whole when its head moves. The count
+/// reads the key's index entries and no event, so it adds nothing to the
+/// events a refresh reads.
 fn recount(store: &Store, kept: &mut HashMap<String, KeptRun>) -> Result<(), StoreError> {
     let heads: Vec<(&str, u64)> = kept
         .iter()

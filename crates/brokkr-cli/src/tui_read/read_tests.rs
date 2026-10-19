@@ -6,7 +6,9 @@ use brokkr_core::EventType;
 use serde_json::json;
 
 use super::*;
-use crate::fleet::kept_tests::{swapped_in, without_its_first_event, Swap, FIRST_EVENT_GONE};
+use crate::fleet::kept_tests::{
+    lost_in_its_log, swapped_in, without_its_first_event, Swap, FIRST_EVENT_GONE,
+};
 use crate::tests::running_store;
 
 /// The checkpoints the selected run carries beside its opening events.
@@ -121,11 +123,7 @@ fn the_open_run_is_read_again_from_a_journal_replaced_beneath_it() {
     use std::os::unix::fs::MetadataExt;
     for swap in [Swap::Moved, Swap::InPlace] {
         let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("forge.db");
-        checkpointing(&db, "selected");
-        let mut kept = Kept::default();
-        let (_, drawn) = frame(&db, &mut kept, "selected", true);
-        assert_ne!(drawn, "null");
+        let (db, mut kept) = opened(dir.path());
         let before = std::fs::metadata(&db).unwrap();
 
         swapped_in(&without_its_first_event(&db, "selected"), &db, swap);
@@ -133,12 +131,42 @@ fn the_open_run_is_read_again_from_a_journal_replaced_beneath_it() {
         let same = after.ino() == before.ino();
         assert_eq!(same, swap == Swap::InPlace, "{swap:?}");
         assert_eq!(after.len(), before.len(), "{swap:?}: the same length");
-        assert_eq!(
-            frame(&db, &mut kept, "selected", false),
-            (0, "null".into()),
-            "{swap:?}"
-        );
-        let rows = brokkr_view::run_rows(&kept.fleet.entries());
-        assert_eq!(rows.runs[0].detail.as_deref(), Some(FIRST_EVENT_GONE));
+        read_again(&db, &mut kept, &format!("{swap:?}"));
     }
+}
+
+/// A console open on a checkpointing run, `selected`, in a fresh journal
+/// under `dir`, its first frame drawn: where the journal is, and what the
+/// console keeps.
+fn opened(dir: &Path) -> (std::path::PathBuf, Kept) {
+    let db = dir.join("forge.db");
+    checkpointing(&db, "selected");
+    let mut kept = Kept::default();
+    let (_, drawn) = frame(&db, &mut kept, "selected", true);
+    assert_ne!(drawn, "null");
+    (db, kept)
+}
+
+/// The fleet's next frame over `db` draws no run, as the whole read loads
+/// none, and shows the run quarantined in the whole read's words. `case`
+/// names the case.
+fn read_again(db: &Path, kept: &mut Kept, case: &str) {
+    let drawn = frame(db, kept, "selected", false);
+    assert_eq!(drawn, (0, "null".into()), "{case}");
+    let rows = brokkr_view::run_rows(&kept.fleet.entries());
+    let words = rows.runs[0].detail.as_deref();
+    assert_eq!(words, Some(FIRST_EVENT_GONE), "{case}");
+}
+
+/// The open run is read again with the fleet when its first event is lost
+/// into the write-ahead log of a connection held open, the journal file
+/// untouched: the fleet's cadence draws no run and shows the whole read's
+/// quarantine, where a `refresh` that counts only when the journal file's
+/// length or times moved draws the run as it was kept.
+#[test]
+fn the_open_run_is_read_again_when_a_row_is_lost_in_the_write_ahead_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let (db, mut kept) = opened(dir.path());
+    let _held = lost_in_its_log(&db, "selected");
+    read_again(&db, &mut kept, "in the log");
 }

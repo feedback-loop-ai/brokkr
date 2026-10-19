@@ -339,6 +339,27 @@ fn the_kept_rows_are_the_whole_reads_rows_as_the_journal_moves() {
     assert_eq!(kept_rows(&kept), whole_rows(&db));
 }
 
+/// A fleet kept from a journal under `dir` that holds one running run,
+/// `r1`, read once: where the journal is, and the fleet.
+fn kept_running(dir: &Path) -> (std::path::PathBuf, KeptFleet) {
+    let db = dir.join("forge.db");
+    running_store(&db, "r1");
+    let mut kept = KeptFleet::default();
+    assert_eq!(refreshed(&mut kept, &db), 2);
+    (db, kept)
+}
+
+/// The next refresh of `kept` over `db` reads its one run whole and is
+/// refused in `refusal`'s words, its rows the whole read's. `case` names
+/// the case.
+fn read_whole_and_refused(kept: &mut KeptFleet, db: &Path, refusal: &str, case: &str) {
+    assert_eq!(refreshed(kept, db), 0, "{case}: a whole read, refused");
+    let entries = kept.entries();
+    let words = entries[0].detail.map(|refusal| refusal.words);
+    assert_eq!((entries.len(), words), (1, Some(refusal)), "{case}");
+    assert_eq!(kept_rows(kept), whole_rows(db), "{case}");
+}
+
 /// A journal replaced beneath the reader holds a different chain for the
 /// same run: the head the kept fold stands at is not its row any more,
 /// so the run is read whole — three events, not the one past the old
@@ -346,10 +367,7 @@ fn the_kept_rows_are_the_whole_reads_rows_as_the_journal_moves() {
 #[test]
 fn a_run_whose_head_the_journal_no_longer_holds_is_read_whole() {
     let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    running_store(&db, "r1");
-    let mut kept = KeptFleet::default();
-    assert_eq!(refreshed(&mut kept, &db), 2);
+    let (db, mut kept) = kept_running(dir.path());
 
     for file in ["forge.db", "forge.db-wal", "forge.db-shm"] {
         let _ = std::fs::remove_file(dir.path().join(file));
@@ -446,10 +464,6 @@ pub(crate) fn swapped_in(copy: &Path, db: &Path, swap: Swap) {
         journal.execute_batch("VACUUM").unwrap();
     }
     let modified = std::fs::metadata(db).unwrap().modified().unwrap();
-    // A coarse file clock (a kernel without fine-grained timestamps)
-    // stamps writes up to a tick apart, and ticks are at most 10 ms: the
-    // copy waits out two, so its change time is not its predecessor's.
-    std::thread::sleep(std::time::Duration::from_millis(20));
     match swap {
         Swap::Moved => std::fs::rename(copy, db).unwrap(),
         Swap::Shorter => drop(std::fs::copy(copy, db).unwrap()),
@@ -467,8 +481,7 @@ pub(crate) fn swapped_in(copy: &Path, db: &Path, swap: Swap) {
 /// put in place ([`Swap`]). The suffix read alone confirms the head and
 /// carries the run on with nothing read, showing it folded at seq 2: so
 /// does a `refresh` that skips the count of the rows below each kept head,
-/// or that asks the file's modification time and not its change time
-/// whether it was written, for the lost event copied over in place; one
+/// for the lost event copied over in place; one
 /// that ignores the journal's identity, for the rewritten event moved into
 /// place; and one that ignores its length, for the rewritten event grown
 /// shorter. A rewritten event copied over in place at its length is not
@@ -525,13 +538,54 @@ fn a_journal_replaced_beneath_the_reader_is_read_whole_though_it_holds_the_kept_
         assert_eq!(store.head_hash("r1").unwrap(), head, "the kept head stands");
         drop(store);
 
-        assert_eq!(refreshed(&mut kept, &db), 0, "a whole read, refused");
-        let entries = kept.entries();
-        let words = entries[0].detail.map(|refusal| refusal.words);
         let case = format!("{swap:?}: {refusal}");
-        assert_eq!((entries.len(), words), (1, Some(refusal)), "{case}");
-        assert_eq!(kept_rows(&kept), whole_rows(&db));
+        read_whole_and_refused(&mut kept, &db, refusal, &case);
     }
+}
+
+/// The journal file's length, and its modification and change times.
+fn clocks(db: &Path) -> (u64, (i64, i64), (i64, i64)) {
+    use std::os::unix::fs::MetadataExt;
+    let file = std::fs::metadata(db).unwrap();
+    let modified = (file.mtime(), file.mtime_nsec());
+    (file.len(), modified, (file.ctime(), file.ctime_nsec()))
+}
+
+/// `run_id`'s first event deleted from `db` past the append fence, by a
+/// read-write connection held open with the loss in its write-ahead log
+/// and no checkpoint, as any connection under the 1000-page
+/// auto-checkpoint leaves a small commit. The journal file itself is not
+/// written: its length and both its times are as they were, and the log
+/// holds the loss. The connection, to hold for as long as the loss must
+/// stay in the log.
+pub(crate) fn lost_in_its_log(db: &Path, run_id: &str) -> rusqlite::Connection {
+    let before = clocks(db);
+    let held = rusqlite::Connection::open(db).unwrap();
+    held.execute_batch(
+        "PRAGMA wal_autocheckpoint = 0;
+         DROP TRIGGER events_append_only_delete;",
+    )
+    .unwrap();
+    let loss = "DELETE FROM events WHERE run_id = ?1 AND seq = 1";
+    assert_eq!(held.execute(loss, [run_id]).unwrap(), 1);
+    assert_eq!(clocks(db), before, "the journal file is not written");
+    let log = std::fs::metadata(db.with_extension("db-wal")).unwrap();
+    assert!(log.len() > 0, "the loss is in the log");
+    held
+}
+
+/// A row lost below a kept head through the store's own write path — a
+/// commit into the write-ahead log of a connection held open, the journal
+/// file untouched — is seen at the next refresh: the run is read whole and
+/// shown quarantined as the whole read shows it. A `refresh` that counts
+/// only when the journal file's length or times moved carries the run
+/// folded at seq 2.
+#[test]
+fn a_row_lost_in_the_write_ahead_log_is_read_whole_at_the_next_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let (db, mut kept) = kept_running(dir.path());
+    let _held = lost_in_its_log(&db, "r1");
+    read_whole_and_refused(&mut kept, &db, FIRST_EVENT_GONE, "in the log");
 }
 
 /// A read is bound to the journal file only when the file stated before
