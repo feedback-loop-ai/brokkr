@@ -116,6 +116,11 @@ fn an_adapter_step_failing_two_adjacent_reads_reports_the_earlier() {
             json!({"native_capabilities": 7, "provider": "codex"}),
             "{what} 'native_capabilities' at '': it does not satisfy '/type'",
         ),
+        // the native inventory, then the provider's own string read.
+        (
+            json!({"native_capabilities": 7, "provider": 7}),
+            "{what} 'native_capabilities' at '': it does not satisfy '/type'",
+        ),
         // the provider's file name, then the binary.
         (
             json!({"provider": "codex", "binary": 7}),
