@@ -1,6 +1,6 @@
 # 0088 — The console reads only what landed, off its input loop, and the fleet still verifies every body
 
-Status: proposed
+Status: accepted — operator ruled 2026-10-19 (PR #770), every choice asked taken as recommended, ruling 2's residual in the widened words below
 Date: 2026-10-18
 
 Built: built
@@ -73,18 +73,21 @@ column, or an index, to `events`, which is a schema change.
    read whose two statements differ; and the store's test of
    `Store::rows_through`.
 
-   **What the kept read still cannot see**, and the operator rules on: a
-   row below a kept head whose content changed in place, at the same row
-   count and the same head, in a file that keeps its inode and is not
-   shorter, whatever path the write took, the write-ahead log included.
+   **What the kept read still cannot see**, a LOW residual the operator
+   accepted on 2026-10-19 (PR #770): rows at or below a kept head changed
+   in place at the same row count and the same head, the head's own row
+   included, in a file that keeps its inode and is not shorter, whatever
+   path the write took, the write-ahead log included.
    Only a writer that defeats the append-only triggers makes one, which
    is deliberate, or storage corruption that SQLite reads without error.
    The whole read sees it: `inspect` and `export` load the run whole
    and refuse it, `brokkr runs` reads every run whole at each invocation,
    and a console reads every run whole at its first refresh and the run
-   it enters whole when it is entered. A console already open goes on
-   showing the fleet's row as it was folded until the run's head moves,
-   and `r` reads the open run whole but not the fleet.
+   it enters whole when it is entered. The class persists until a whole
+   read: a console already open goes on showing the fleet's row as it was
+   folded, and a later append is read as the continuation of that fold
+   without the rows beneath it being read again. `r` reads the open run
+   whole but not the fleet.
 3. **The selected run is kept too.** While its head stands and no rebuild
    is asked, the fleet's cadence derives the open run's view from the
    journal already read, and reads none of it. Binding: the
