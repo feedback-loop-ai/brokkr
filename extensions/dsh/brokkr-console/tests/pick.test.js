@@ -302,30 +302,16 @@ function runsOf(d) {
 const meets = (a, b) => a.left <= b.right && b.left <= a.right && a.top <= b.bottom && b.top <= a.bottom
 
 /** Every road's path and every road label on the rail, checked: no label touches any road, and every road stays below the names. */
-/** The run graph as a pane `width` pixels wide draws it, or before the pane is measured. */
-function drawn(view, width = null) {
-  const client = onRun(view)
-  if (width !== null) findAll(client.tree(), (node) => node.props.className === 'bk-graph')[0].props.ref({ dataset: {}, clientWidth: width, scrollLeft: 0 })
-  return rail(client.tree())
-}
-
-/** The pane widths every road check holds at: unmeasured, a narrow pane, a laptop, a 32-inch screen and a 4K one. */
-const WIDTHS = [null, 700, 1366, 2560, 3840]
-
-/** `tangled` at every width in `WIDTHS`; the unmeasured drawing is returned. */
+/** Every road's path and every road label on the rail, checked: no label touches any road, every road stays below the names, and no two roads share an arrowhead. */
 function untangled(view) {
-  return WIDTHS.map((width) => tangled(view, width))[0]
-}
-
-function tangled(view, width) {
-  const graph = drawn(view, width)
+  const graph = rail(onRun(view).tree())
   const names = findAll(graph, (node) => node.props.className === 'bk-phase-name')[0].props.y
   const paths = findAll(graph, (node) => node.props.className === 'bk-edge back')
   const labels = findAll(graph, (node) => String(node.props.className).includes('bk-road-label'))
   for (const label of labels) {
     const box = labelBox(label)
     assert.ok(box.left >= 0 && box.right <= graph.props.width && box.bottom <= graph.props.height, `${textOf(label)} sits inside the rail`)
-    for (const path of paths) assert.ok(runsOf(path.props.d).every((run) => !meets(box, run)), `${textOf(label)} is clear of ${path.props.d} at ${width}`)
+    for (const path of paths) assert.ok(runsOf(path.props.d).every((run) => !meets(box, run)), `${textOf(label)} is clear of ${path.props.d}`)
   }
   for (const path of paths) assert.ok(runsOf(path.props.d).every((run) => run.top > names + 4), `${path.props.d} keeps below the phase names`)
   const landings = paths.map((path) => runsOf(path.props.d).at(-1).left)
@@ -356,26 +342,6 @@ test('three nested roads, out of and into the same phases, stay clear of one ano
   }))
   untangled(returning(['implement', 'verify', 'review', 'ship'], { implement: [road('verify'), road('review'), road('ship')] }))
   untangled(returning(['implement', 'verify', 'review', 'ship'], { implement: [road('ship')], verify: [road('review')], review: [road('ship')] }))
-})
-
-test('the rail fills a wide pane at any width, and its roads then say their whole sentence', () => {
-  const four = returning(['implement', 'verify', 'review', 'ship'], { implement: [road('verify', 1, ['VERIFY-FAIL']), road('review', 1, ['REVIEW-REFORGE'])] })
-  const least = drawn(four).props.width
-  for (const width of [1366, 2560]) {
-    const graph = drawn(four, width)
-    assert.ok(graph.props.width <= width && graph.props.width >= width * 0.8, `${graph.props.width} fills most of ${width}`)
-    const labels = findAll(graph, (node) => String(node.props.className).includes('bk-road-label')).map(textOf)
-    assert.deepEqual(labels.sort(), ['sent back to implement by review · REVIEW-REFORGE ×1', 'sent back to implement by verify · VERIFY-FAIL ×1'])
-  }
-  const huge = drawn(four, 8000).props.width
-  assert.ok(huge <= 8000 && huge >= 8000 * 0.9, `a short rail fills even an 8000-pixel pane (${huge})`)
-  const three = returning(['implement', 'verify', 'review'], { implement: [road('verify', 1, ['VERIFY-FAIL']), road('review', 1, ['REVIEW-REFORGE'])] })
-  const six = returning(['intake', 'implement', 'verify', 'review', 'ship', 'done'], { implement: [road('review', 2, ['REVIEW-REFORGE'])] })
-  for (const run of [three, six]) {
-    const spans = drawn(run, 3840).props.width
-    assert.ok(spans <= 3840 && spans >= 3840 * 0.9, `${spans} spans at least 90% of a 4K pane`)
-  }
-  assert.equal(drawn(four, 400).props.width, least, 'a pane narrower than the rail keeps the least spacing, and scrolls')
 })
 
 test('a seat of a later pass says which visit it belongs to; a first pass reads as it did', () => {

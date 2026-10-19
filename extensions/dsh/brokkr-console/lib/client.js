@@ -443,7 +443,7 @@ window.__ModuleLoader__.load({
 
     // ----------------------------------------------------------- the rail
 
-    /** The TUI's rail, in pixels: label width per character (a phase name's, spaced capitals, wider), dot radius, the least gap an arrow spans, a member's offset, the margin. */
+    /** The TUI's rail, in pixels: label width per character (a phase name's, spaced capitals, wider), dot radius, the gap an arrow spans, a member's offset, the margin. */
     const RAIL = { char: 7.4, name: 7.6, dot: 6, gap: 46, member: 50, pad: 18 }
     /**
      * The roads back beneath the phase names, in pixels: how far below the names a road leaves
@@ -479,7 +479,7 @@ window.__ModuleLoader__.load({
      * its lane takes: the whole sentence when it fits, else who sent it back with the rules and
      * count, else the rules and count. The whole sentence is the label's title.
      */
-    function roadsOf(spans, placed, names, edge, step) {
+    function roadsOf(spans, placed, names, edge) {
       const index = (span) => spans.indexOf(span)
       const roads = spans.flatMap((span) => span.phase.returns.map((road) => ({ ...road, to: span, source: spans.find((each) => each.phase.name === road.from) ?? null })))
         .filter((road) => road.source !== null && index(road.source) > index(road.to))
@@ -487,7 +487,7 @@ window.__ModuleLoader__.load({
       for (const span of spans) {
         const leaving = roads.filter((road) => road.source === span).sort((a, b) => a.reach - b.reach)
         const landing = roads.filter((road) => road.to === span).sort((a, b) => b.reach - a.reach)
-        const at = (slot) => placed[span.first].dotX + slot * step
+        const at = (slot) => placed[span.first].dotX + slot * ROAD.slot
         leaving.forEach((road, slot) => { road.depart = at(slot) })
         landing.forEach((road, slot) => { road.land = at(leaving.length + slot) })
       }
@@ -521,7 +521,7 @@ window.__ModuleLoader__.load({
      * step in a bracket above and below the rail, phase names under it, the
      * current phase boxed, and each road back beneath.
      */
-    function railOf(view, room = null) {
+    function railOf(view) {
       const status = view.summary?.status ?? null
       const ranks = []
       const spans = []
@@ -534,34 +534,24 @@ window.__ModuleLoader__.load({
       }
       const spread = (Math.max(1, ...ranks.map((rank) => rank.column.nodes.length)) - 1) * RAIL.member / 2
       const y = 34 + spread
-      // The ranks at the least spacing, each arrow between phases `extra` longer.
-      const lay = (extra) => {
-        let x = RAIL.pad
-        const placed = ranks.map((rank, at) => {
-          if (at > 0) x += RAIL.gap + (rank.phase === ranks[at - 1].phase ? 0 : extra)
-          const count = rank.column.nodes.length
-          const bracket = count > 1
-          const labels = Math.max(...rank.column.nodes.map((node) => widthOf(node.label)), rank.column.label === null ? 0 : widthOf(rank.column.label) - 20)
-          const start = x
-          const dotX = start + (bracket ? 22 : 0) + RAIL.dot
-          const end = dotX + RAIL.dot + 6 + labels + (bracket ? 18 : 0)
-          x = end
-          return { ...rank, start, dotX, end, bracket, ys: rank.column.nodes.map((_, at) => y + (at - (count - 1) / 2) * RAIL.member) }
-        })
-        // The last phase's name and its NOW box may reach past its steps.
-        const last = spans.at(-1)
-        const start = placed[last.first]?.start ?? x
-        return { placed, edge: Math.max(x, start + Math.ceil(phaseName(last.phase).length * RAIL.name), start + widthOf(`NOW · ${last.phase.name}`) + 12) }
-      }
-      // A pane wider than the rail at its least spacing spreads the phases to fill it, the
-      // room to spare shared among the arrows between phases; a narrower one keeps the least
-      // spacing and scrolls.
-      const least = lay(0)
-      const joins = spans.length - 1
-      const extra = room === null || joins === 0 ? 0 : Math.floor(Math.max(0, (room - RAIL.pad - least.edge) / joins))
-      const { placed, edge } = extra === 0 ? least : lay(extra)
+      let x = RAIL.pad
+      const placed = ranks.map((rank, at) => {
+        if (at > 0) x += RAIL.gap
+        const count = rank.column.nodes.length
+        const bracket = count > 1
+        const labels = Math.max(...rank.column.nodes.map((node) => widthOf(node.label)), rank.column.label === null ? 0 : widthOf(rank.column.label) - 20)
+        const start = x
+        const dotX = start + (bracket ? 22 : 0) + RAIL.dot
+        const end = dotX + RAIL.dot + 6 + labels + (bracket ? 18 : 0)
+        x = end
+        return { ...rank, start, dotX, end, bracket, ys: rank.column.nodes.map((_, at) => y + (at - (count - 1) / 2) * RAIL.member) }
+      })
+      // The last phase's name and its NOW box may reach past its steps.
+      const last = spans.at(-1)
+      const reach = last === undefined ? x : placed[last.first].start
+      const edge = last === undefined ? x : Math.max(x, reach + Math.ceil(phaseName(last.phase).length * RAIL.name), reach + widthOf(`NOW · ${last.phase.name}`) + 12)
       const names = y + spread + 40
-      const roads = roadsOf(spans, placed, names, edge, ROAD.slot + Math.min(ROAD.slot, Math.floor(extra / 20)))
+      const roads = roadsOf(spans, placed, names, edge)
       const width = Math.max(edge + RAIL.pad, ...roads.map((road) => road.depart + RAIL.pad))
       const height = roads.length === 0 ? names + 14 : Math.max(...roads.map((road) => road.y)) + ROAD.hang + 8
       return { status, placed, spans, roads, y, spread, names, width, height }
@@ -584,29 +574,8 @@ window.__ModuleLoader__.load({
       if (x > element.clientWidth) element.scrollLeft = x - element.clientWidth + RAIL.gap
     }
 
-    /**
-     * The width the rail's pane gives it, measured from its element and followed as the pane
-     * resizes; `null` until measured. `watch` is the element's ref.
-     */
-    function usePaneWidth() {
-      const [room, setRoom] = useState(null)
-      const [held] = useState(() => ({ element: null, observer: null }))
-      useEffect(() => () => held.observer?.disconnect(), [])
-      const watch = (element) => {
-        if (element === null || element === held.element) return
-        held.element = element
-        held.observer?.disconnect()
-        if (element.clientWidth > 0) setRoom(element.clientWidth)
-        if (typeof ResizeObserver !== 'function') return
-        held.observer = new ResizeObserver(() => setRoom(element.clientWidth))
-        held.observer.observe(element)
-      }
-      return [room, watch]
-    }
-
     function Rail({ view, picked, pick }) {
-      const [room, watch] = usePaneWidth()
-      const rail = railOf(view, room)
+      const rail = railOf(view)
       const { status, placed, spans, roads, y, spread, names } = rail
       const driven = status === 'running'
       const toggle = (next) => pick(samePick(picked, next) ? null : next)
@@ -688,7 +657,7 @@ window.__ModuleLoader__.load({
           h('g', { key: `rbt${index}` }, h('title', null, road.full),
             h('text', { x: road.x, y: road.y + ROAD.hang, textAnchor: 'middle', className: 'bk-node-sub bk-road-label' }, road.label)))
       })
-      return h('div', { className: 'bk-graph', ref: (element) => { watch(element); reveal(element, view, rail) } },
+      return h('div', { className: 'bk-graph', ref: (element) => reveal(element, view, rail) },
         h('svg', { width: rail.width, height: rail.height, className: 'bk-rail', role: 'group', 'aria-label': 'Run graph' },
           h('defs', null,
             h('marker', { id: 'bk-tip', viewBox: '0 0 8 8', refX: 7, refY: 4, markerWidth: 7, markerHeight: 7, orient: 'auto' }, h('path', { d: 'M0 0L8 4L0 8z', className: 'bk-tip' })),
