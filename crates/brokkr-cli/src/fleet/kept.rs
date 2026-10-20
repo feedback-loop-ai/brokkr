@@ -396,6 +396,7 @@ fn lasting(error: &StoreError) -> bool {
         StoreError::Sqlite(_)
         | StoreError::RunNotFound(_)
         | StoreError::RunExists(_)
+        | StoreError::RunIdTooLong { .. }
         | StoreError::SeatRecord(_)
         | StoreError::SchemaMismatch { .. }
         | StoreError::AppendConflict { .. }

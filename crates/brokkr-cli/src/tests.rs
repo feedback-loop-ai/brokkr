@@ -3713,8 +3713,8 @@ fn conclude_fixture_store(db: &std::path::Path, name: &str) {
         .unwrap(),
     )
     .unwrap();
-    let mut store = Store::open(db).unwrap();
-    store
+    Store::open(db)
+        .unwrap()
         .create_run(name, "fixture", "self", &manifest)
         .unwrap();
     let connection = rusqlite::Connection::open(db).unwrap();

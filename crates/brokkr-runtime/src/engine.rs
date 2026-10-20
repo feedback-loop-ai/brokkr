@@ -678,7 +678,7 @@ impl Engine {
 
     /// Resume uses the exact pinned bundle or refuses with a diagnostic.
     pub fn resume(
-        store: Store,
+        mut store: Store,
         bundle: Bundle,
         run_id: &str,
         repo: Option<PathBuf>,
@@ -709,7 +709,7 @@ impl Engine {
         // for itself is tampering, and refuses before any charter is read.
         let world = crate::realms::World::from_manifest(&pinned)?;
         let mut replay = replay::Replay::default();
-        let feature = replay.caught_up(&store, run_id)?.feature;
+        let feature = replay.caught_up(&mut store, run_id)?.feature;
         let started = replay
             .events
             .first()
@@ -780,7 +780,7 @@ impl Engine {
     fn drive_once(&mut self) -> Result<Option<DriveEnd>, EngineError> {
         // Lent to the turn, and handed back only by a turn that ends well.
         let mut replay = std::mem::take(&mut self.replay);
-        let state = replay.caught_up(&self.store, &self.run_id)?;
+        let state = replay.caught_up(&mut self.store, &self.run_id)?;
         (self.current_cause, self.fence) = fence::tip_of(&replay.events);
         match &state.run {
             Run::Completed | Run::Stopped | Run::AwaitingOperator { .. } => {
@@ -854,7 +854,7 @@ impl Engine {
         };
         let reason = format!("journal contention: {store_error}");
         let held = self.held_outcome.take();
-        let mut state = self.replay.caught_up(&self.store, &self.run_id)?;
+        let mut state = self.replay.caught_up(&mut self.store, &self.run_id)?;
         if let Run::Running(Cursor::EffectInFlight {
             effect_id,
             attempt_id,
@@ -869,7 +869,7 @@ impl Engine {
             let settled =
                 json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": reason});
             self.append(EventType::EffectIndeterminate, settled, Some(attempt_id))?;
-            state = self.replay.caught_up(&self.store, &self.run_id)?;
+            state = self.replay.caught_up(&mut self.store, &self.run_id)?;
         }
         if !matches!(
             state.run,
@@ -880,7 +880,7 @@ impl Engine {
         (self.current_cause, self.fence) = fence::tip_of(&self.replay.events);
         let parked = json!({"reason": reason, "evidence": {}});
         self.append(EventType::RunParked, parked, None)?;
-        let state = self.replay.caught_up(&self.store, &self.run_id)?;
+        let state = self.replay.caught_up(&mut self.store, &self.run_id)?;
         Ok(Some(DriveEnd {
             state,
             gaps: Vec::new(),

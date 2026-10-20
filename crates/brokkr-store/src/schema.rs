@@ -7,6 +7,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
 use crate::queue::{migrate_queue, queue_intact};
+use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
 
 pub const DATABASE_SCHEMA: u32 = 1;
@@ -164,7 +165,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Four additive repairs, each a READ in the steady state — the
+    // Five additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -186,6 +187,12 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // or one that lost the table or a guard on it, gets them.
     let missing = !acknowledgements_intact(conn)?;
     repair_if(conn, missing, migrate_acknowledgements)?;
+    // Fifth: a journal from before the run summary (decision 0089), or
+    // one that lost its table, index or a trigger, gets them, and a row
+    // for every run it carries, kept at its head and folded by the
+    // backfill that follows the open ([`Store::catch_up`]).
+    let missing = !summary_intact(conn)?;
+    repair_if(conn, missing, migrate_summary)?;
     let missing = !guards_intact(conn)?;
     repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
 }
@@ -215,6 +222,8 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     migrate_sidecar_columns(&tx)?;
     migrate_queue(&tx)?;
     migrate_acknowledgements(&tx)?;
+    migrate_summary(&tx)?;
+    mark_backfilled(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
         [&DATABASE_SCHEMA.to_string()],

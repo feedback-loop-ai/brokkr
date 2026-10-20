@@ -7,8 +7,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
 use crate::{
-    head_of, now_rfc3339, patiently, seat_record, SeatRecordError, SeatRecordVersion, Store,
-    StoreError, ENGINE_OF_RUN,
+    head_of, now_rfc3339, patiently, seat_record, summary, SeatRecordError, SeatRecordVersion,
+    Store, StoreError, ENGINE_OF_RUN,
 };
 
 /// The seat-record fence (decision 0034, ruling 6), inside the transaction
@@ -104,17 +104,20 @@ pub struct Rows<'a, T> {
 /// [`Store::append_chain`]'s one transaction, as a body [`patiently`] may
 /// run again: every fact it writes is derived inside it, as
 /// [`Store::append_next`]'s is. The rows before a refused one are
-/// committed; any other error rolls back the whole chain.
+/// committed; any other error rolls back the whole chain. The writer's
+/// carried account is judged over the rows that landed
+/// ([`summary::judge`]).
 fn chain_once<T>(
-    conn: &mut Connection,
+    (conn, carried): (&mut Connection, Option<&summary::Carried>),
     run_id: &str,
     event_type: EventType,
     rows: &Rows<'_, T>,
     causation_id: Option<String>,
     attempt_id: Option<String>,
-) -> Result<Chain, StoreError> {
+) -> Result<(Chain, summary::Settled), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let mut head = head_of(&tx, run_id)?;
+    let found = head_of(&tx, run_id)?;
+    let mut head = found.clone();
     let mut cause = causation_id;
     let mut chain = Chain {
         appended: Vec::new(),
@@ -139,8 +142,9 @@ fn chain_once<T>(
         cause = Some(event.event_id.clone());
         chain.appended.push(event);
     }
+    let settled = summary::judge(&tx, carried, (found.0, &found.1), &chain.appended)?;
     tx.commit()?;
-    Ok(chain)
+    Ok((chain, settled))
 }
 
 impl Store {
@@ -157,17 +161,19 @@ impl Store {
         causation_id: Option<String>,
         attempt_id: Option<String>,
     ) -> Result<Chain, StoreError> {
-        let conn = &mut self.conn;
-        patiently("append", self.patience, || {
+        let (conn, carried) = (&mut self.conn, self.carried.as_ref());
+        let (chain, settled) = patiently("append", self.patience, || {
             chain_once(
-                conn,
+                (conn, carried),
                 run_id,
                 event_type,
                 &rows,
                 causation_id.clone(),
                 attempt_id.clone(),
             )
-        })
+        })?;
+        self.settle(run_id, settled);
+        Ok(chain)
     }
 
     /// [`Store::append_chain`], spending none of this store's patience: a

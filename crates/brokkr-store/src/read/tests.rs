@@ -157,6 +157,7 @@ fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
     plant(dir.path(), "copy-at-zero", 0, &first);
     plant(dir.path(), "unparseable", 0, "not an envelope");
     plant(dir.path(), "negative", -5, &second);
+    test_support::lags(&mut store, &["copy-at-zero", "unparseable", "negative"]);
     for (run_id, refusal) in [
         (
             "copy-at-zero",

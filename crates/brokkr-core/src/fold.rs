@@ -99,6 +99,32 @@ pub enum Cursor {
     Stop,
 }
 
+impl Cursor {
+    /// The seat hired for the current effect and how many of its attempts
+    /// have failed, while the effect is requested or in flight: the one
+    /// reading the summary row and the fleet's hire both make.
+    pub fn hire(&self) -> Option<(&str, u64)> {
+        match self {
+            Cursor::ExecuteEffect {
+                seat,
+                failed_attempts,
+                ..
+            }
+            | Cursor::EffectInFlight {
+                seat,
+                failed_attempts,
+                ..
+            } => Some((seat, *failed_attempts)),
+            Cursor::Start
+            | Cursor::EnterPhase { .. }
+            | Cursor::RequestEffect
+            | Cursor::Decide { .. }
+            | Cursor::Park { .. }
+            | Cursor::Stop => None,
+        }
+    }
+}
+
 /// The cursor as readouts and refusals name it: the variant and the ids
 /// and count that place it, never a seat's result or a park's free text.
 /// `Debug` stays the whole value, for the replay check.
@@ -166,7 +192,7 @@ pub struct RunState {
     pub pending_command: Option<(String, String)>,
 }
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Clone, Error, PartialEq)]
 pub enum FoldError {
     #[error("journal is empty")]
     Empty,

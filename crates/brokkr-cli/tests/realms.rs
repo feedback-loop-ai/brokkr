@@ -669,6 +669,7 @@ fn journal_run(db: &Path, run_id: &str, broken: bool) {
         let events = store.load(run_id).unwrap();
         let conn = rusqlite::Connection::open(db).unwrap();
         brokkr_store::test_support::plant_broken_link(&conn, &events[1], 3).unwrap();
+        brokkr_store::test_support::lags(&mut store, &[run_id]);
     }
 }
 
