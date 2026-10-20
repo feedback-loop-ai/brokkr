@@ -18,7 +18,8 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use super::*;
-use crate::fleet::{read_hearth, ListedRun, Lister, AHEAD_ROWS, PAGE_ROWS};
+use crate::fleet::listing::Lister;
+use crate::fleet::{list_hearth, read_hearth, ListedRun, AHEAD_ROWS, PAGE_ROWS};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 
 const NOW: &str = "2026-10-20T00:00:00Z";
@@ -201,6 +202,45 @@ fn whole_rows(db: &Path) -> Vec<RunRow> {
     brokkr_view::run_rows(&entries).runs
 }
 
+/// `rows` as the whole read lists them by section at [`NOW`].
+fn arranged(rows: &[RunRow]) -> Vec<RunRow> {
+    let sections = brokkr_view::sections(rows, NOW).into_iter();
+    sections
+        .flat_map(|(_, rows)| rows.into_iter().cloned())
+        .collect()
+}
+
+/// What `write` prints of the hearth at `db` at [`NOW`], listed as `brokkr
+/// runs` lists it, in one read: every run when `every`, else a page.
+fn printed(
+    db: &Path,
+    every: bool,
+    write: impl FnOnce(&Lister<'_>, &mut Vec<u8>) -> anyhow::Result<()>,
+) -> String {
+    let store = Store::open_read_only(db).unwrap();
+    let mut out = Vec::new();
+    let journal = (Journal::at(db), NOW);
+    list_hearth(&store, journal, every, |lister| write(lister, &mut out)).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+/// The table's style here: no colour, 120 columns.
+const STYLE: crate::render::Style = crate::render::Style {
+    color: false,
+    width: 120,
+};
+
+/// Every run of the hearth at `db`, in its JSON and its table, is `view`.
+fn lists_every_run_as(db: &Path, view: &brokkr_view::RunsView) {
+    let json = printed(db, true, |lister, out| lister.every_json(out));
+    assert_eq!(
+        json,
+        format!("{}\n", serde_json::to_string_pretty(view).unwrap())
+    );
+    let text = printed(db, true, |lister, out| lister.every_text(out, &STYLE));
+    assert_eq!(text, crate::render::runs(view, NOW, &STYLE));
+}
+
 /// What `rows` list under each section at `now`, by id.
 fn sectioned(rows: &[RunRow], now: &str) -> Vec<(Section, Vec<String>)> {
     brokkr_view::sections(rows, now)
@@ -306,13 +346,46 @@ fn folded(db: &Path, plant_with: impl FnOnce(&rusqlite::Connection)) {
 /// `event_type` appended to `run_id` as an older writer appends it: its
 /// summary row is left behind its head.
 fn appended_by_an_older_writer(db: &Path, run_id: &str, event_type: EventType, payload: Value) {
+    appended_at(db, run_id, (event_type, payload), NOW);
+}
+
+/// [`appended_by_an_older_writer`], the event stamped `at`.
+fn appended_at(db: &Path, run_id: &str, step: (EventType, Value), at: &str) {
     let head = Store::open_read_only(db)
         .unwrap()
         .head_hash(run_id)
         .unwrap();
     let conn = rusqlite::Connection::open(db).unwrap();
-    for event in chained(run_id, head, vec![(event_type, payload)], NOW) {
+    for event in chained(run_id, head, vec![step], at) {
         plant_envelope(&conn, &event).unwrap();
+    }
+}
+
+/// The generated runs at `db`, and 230 more a current writer folded
+/// running and an older one then moved, so they stand behind their
+/// summary: a quarter each refused, still running (fresh, or stale),
+/// finished within the day and finished days ago. A refresh reads the
+/// hundred last by run id; the rest list in every section, among rows
+/// that stand at their heads.
+fn behind_in_every_section(db: &Path) {
+    drop(Store::open(db).unwrap());
+    generated(db);
+    folded(db, |conn| {
+        for n in 0..230 {
+            let at = stamp(now() - 10 * DAY);
+            plant(conn, &format!("lag-{n:03}"), Shape::Running, &at);
+        }
+    });
+    for n in 0..230 {
+        let ago = n * 3 * MINUTE;
+        let accepted = json!({"command_id": "none", "operator": "op", "reason": "r"});
+        let (step, at) = match n % 4 {
+            0 => ((EventType::OperatorAccepted, accepted), ago),
+            1 => ((EventType::PhaseEntered, json!({"phase": "review"})), ago),
+            2 => ((EventType::RunCompleted, json!({})), ago),
+            _ => ((EventType::RunCompleted, json!({})), 2 * DAY + ago),
+        };
+        appended_at(db, &format!("lag-{n:03}"), step, &stamp(now() - at));
     }
 }
 
@@ -470,8 +543,7 @@ fn a_behind_run_a_writer_catches_up_between_the_reads_lists_once() {
 /// Ruling 6: one page of `brokkr runs` or `/api/runs` reads at most a
 /// page and one ahead of the runs behind their summary and counts the
 /// rest, which its JSON states and its table prints as one line; every
-/// run, asked of either, lists each run once, and reads the runs past
-/// those a refresh's worth at a time.
+/// run, asked of either, lists each run once.
 #[test]
 fn a_page_asked_reads_at_most_a_page_ahead_of_the_runs_behind() {
     let dir = tempfile::tempdir().unwrap();
@@ -486,10 +558,7 @@ fn a_page_asked_reads_at_most_a_page_ahead_of_the_runs_behind() {
         let run_id = format!("behind-{n:03}");
         appended_by_an_older_writer(&db, &run_id, EventType::RunCompleted, json!({}));
     }
-    let style = crate::render::Style {
-        color: false,
-        width: 120,
-    };
+    let style = STYLE;
     let listed = |asked: (bool, Option<u32>)| {
         let mut out = Vec::new();
         let asked = (asked.0, asked.1, None);
@@ -518,19 +587,79 @@ fn a_page_asked_reads_at_most_a_page_ahead_of_the_runs_behind() {
         (5, &json!(130))
     );
     assert_eq!(once(&served("/api/runs")), 230);
+}
+
+/// Ruling 6: every run, of a hearth with more runs behind their summary
+/// than a refresh reads, lists as the whole read lists it, in its JSON
+/// and its table alike: the runs past those a refresh reads each in the
+/// section its fold places it in and at its place there, among the rows
+/// that stand at their heads.
+#[test]
+fn every_run_lists_the_runs_behind_past_a_refresh_where_the_whole_read_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    behind_in_every_section(&db);
     let store = Store::open_read_only(&db).unwrap();
-    let pages = Pages::listing(&store, Journal::at(&db)).unwrap();
-    assert_eq!(pages.unread(), 130);
-    // Read by the place each row stood at, and listed by its fold's: each
-    // completed at one stamp, so newest first by run id.
-    let mut batches = Vec::new();
-    let each = |rows: Vec<RunRow>| {
-        batches.push((rows.len(), rows[0].run_id.clone()));
-        Ok::<_, StoreError>(())
+    assert_eq!(
+        Pages::listing(&store, Journal::at(&db)).unwrap().unread(),
+        130
+    );
+    let whole = whole_rows(&db);
+    for (section, ids) in sectioned(&whole, NOW) {
+        let past = ids
+            .iter()
+            .filter(|id| id.starts_with("lag-") && id.as_str() < "lag-130");
+        let held = ids.iter().filter(|id| !id.starts_with("lag-"));
+        assert!(past.count() > 0 && held.count() > 0, "{section:?}: {ids:?}");
+    }
+    lists_every_run_as(&db, &brokkr_view::RunsView::of(arranged(&whole)));
+}
+
+/// What a listing writes, with `between` run before its first write: a
+/// writer that moves the journal while the listing is printed.
+struct Between<F: FnOnce()> {
+    out: Vec<u8>,
+    between: Option<F>,
+}
+
+impl<F: FnOnce()> std::io::Write for Between<F> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if let Some(between) = self.between.take() {
+            between();
+        }
+        self.out.write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Ruling 6: a listing of every run is one read of the journal, so a
+/// current writer that catches every run behind its summary up while
+/// the listing prints, after the runs past a refresh are keyed and
+/// before any page is read, moves no run: each lists once, where the
+/// whole read lists it.
+#[test]
+fn every_run_lists_once_however_a_writer_catches_the_runs_behind_up_meanwhile() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    behind_in_every_section(&db);
+    let view = brokkr_view::RunsView::of(arranged(&whole_rows(&db)));
+    let store = Store::open_read_only(&db).unwrap();
+    let mut out = Between {
+        out: Vec::new(),
+        between: Some(|| drop(Store::open(&db).unwrap())),
     };
-    pages.each_past_behind(&store, NOW, each).unwrap();
-    let first = |n: usize, run_id: &str| (n, run_id.to_string());
-    assert_eq!(batches, [first(100, "behind-199"), first(30, "behind-229")]);
+    let journal = (Journal::at(&db), NOW);
+    list_hearth(&store, journal, true, |lister| lister.every_json(&mut out)).unwrap();
+    let lane = brokkr_store::test_support::lane;
+    let caught = (lane(&store, "lag-000"), lane(&store, "lag-129"));
+    assert_eq!(caught, (Some("refused".into()), Some("running".into())));
+    assert_eq!(
+        String::from_utf8(out.out).unwrap(),
+        format!("{}\n", serde_json::to_string_pretty(&view).unwrap())
+    );
 }
 
 /// Ruling 8: a reader that cannot write reads a journal the summary does
@@ -549,6 +678,11 @@ fn a_journal_the_summary_does_not_page_is_read_the_kept_way() {
     assert_eq!(read, 210);
     let listed = paged(&pages, &store, NOW, 3, true);
     assert_eq!(by_section(&listed), sectioned(&whole, NOW));
+    let every = brokkr_view::RunsView::of(arranged(&whole));
+    assert_eq!(
+        printed(&db, true, |lister, out| lister.every_json(out)),
+        format!("{}\n", serde_json::to_string_pretty(&every).unwrap())
+    );
     let older = brokkr_view::sections(&whole, NOW)[3].1.len();
     assert_eq!(
         (pages.older(&store, NOW).unwrap(), pages.unread()),
@@ -581,39 +715,18 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
     let db = dir.path().join("forge.db");
     fixture_journal(&db);
     generated(&db);
-    let arranged: Vec<RunRow> = brokkr_view::sections(&whole_rows(&db), NOW)
-        .into_iter()
-        .flat_map(|(_, rows)| rows.into_iter().cloned())
-        .collect();
+    let arranged = arranged(&whole_rows(&db));
     assert!(arranged.len() > PAGE_ROWS);
-    let (store, pages, _) = refreshed(&db, usize::MAX);
-    let lister = Lister {
-        pages: &pages,
-        store: &store,
-        now: NOW,
-    };
-    let style = crate::render::Style {
-        color: false,
-        width: 120,
-    };
-    let printed = |write: &dyn Fn(&mut Vec<u8>)| {
-        let mut out = Vec::new();
-        write(&mut out);
-        String::from_utf8(out).unwrap()
-    };
+    let style = STYLE;
     let ids: Vec<String> = arranged.iter().map(|row| row.run_id.clone()).collect();
-    let view = brokkr_view::RunsView::of(arranged);
-    let json = printed(&|out| lister.every_json(out).unwrap());
-    assert_eq!(
-        json,
-        format!("{}\n", serde_json::to_string_pretty(&view).unwrap())
-    );
-    let text = printed(&|out| lister.every_text(out, &style).unwrap());
-    assert_eq!(text, crate::render::runs(&view, NOW, &style));
+    lists_every_run_as(&db, &brokkr_view::RunsView::of(arranged));
     let mut walked = Vec::new();
     let mut after: Option<brokkr_view::Cursor> = None;
     loop {
-        let one = printed(&|out| lister.one(out, (after.as_ref(), 30), true, &style).unwrap());
+        let page = (after.as_ref(), 30);
+        let one = printed(&db, false, |lister, out| {
+            lister.one(out, page, true, &style)
+        });
         let page: Value = serde_json::from_str(&one).unwrap();
         let runs = page["runs"].as_array().unwrap();
         walked.extend(
@@ -626,7 +739,9 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
         }
     }
     assert_eq!(walked, ids);
-    let table = printed(&|out| lister.one(out, (None, 1), false, &style).unwrap());
+    let table = printed(&db, false, |lister, out| {
+        lister.one(out, (None, 1), false, &style)
+    });
     let first = format!(
         "next page  brokkr runs --limit 1 --after needs-you:{}:park-new\n",
         now() - HOUR
@@ -641,16 +756,9 @@ fn brokkr_runs_lists_an_empty_hearth_as_none() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     drop(Store::open(&db).unwrap());
-    let (store, pages, _) = refreshed(&db, usize::MAX);
-    let lister = Lister {
-        pages: &pages,
-        store: &store,
-        now: NOW,
-    };
-    let mut out = Vec::new();
-    lister.every_json(&mut out).unwrap();
+    let out = printed(&db, true, |lister, out| lister.every_json(out));
     let none = serde_json::to_string_pretty(&brokkr_view::RunsView::of(Vec::new())).unwrap();
-    assert_eq!(String::from_utf8(out).unwrap(), format!("{none}\n"));
+    assert_eq!(out, format!("{none}\n"));
 }
 
 /// `--after` takes a page's `next` and refuses text that names no place in

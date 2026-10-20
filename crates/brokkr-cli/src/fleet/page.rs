@@ -6,8 +6,9 @@
 //! its fold says. The runs behind their summary are read whole before a
 //! page is, at most [`AHEAD_ROWS`] a refresh, kept between refreshes
 //! while each head stands, and placed among the page's rows by their own
-//! facts; a listing of every run reads the rest a refresh's worth at a
-//! time after its pages. A journal the summary does not page yet, read by a
+//! facts; a listing of every run keys the rest a refresh's worth at a
+//! time, and reads each whole again where its page reaches its key. A
+//! journal the summary does not page yet, read by a
 //! reader that cannot migrate it, is read the kept way (#744) and paged
 //! in memory by the same sections.
 
@@ -54,6 +55,9 @@ pub(crate) struct Behind {
     /// Where in the behind lane the runs the last refresh read end, while
     /// the lane holds more past them.
     past: Option<(i64, String)>,
+    /// The runs behind past those, for a listing of every run: each the
+    /// section its fold lists it under and its place there, newest first.
+    tail: Vec<(Section, i64, String)>,
 }
 
 impl Pages {
@@ -95,6 +99,21 @@ impl Pages {
     pub(crate) fn listing(store: &Store, before: Option<Journal>) -> Result<Pages, StoreError> {
         let mut pages = Pages::default();
         pages.refresh(store, before, brokkr_view::AHEAD_ROWS)?;
+        Ok(pages)
+    }
+
+    /// [`Pages::listing`] for a listing of every run at `now`: the runs
+    /// behind past those it read whole are keyed too, so each lists in
+    /// its section at its place, read whole again when a page reaches it.
+    pub(crate) fn every(
+        store: &Store,
+        before: Option<Journal>,
+        now: &str,
+    ) -> Result<Pages, StoreError> {
+        let mut pages = Pages::listing(store, before)?;
+        if let Pages::Summary(kept) = &mut pages {
+            kept.key_the_tail(store, now)?;
+        }
         Ok(pages)
     }
 
@@ -160,33 +179,6 @@ impl Pages {
             Pages::Summary(kept) => kept.unread,
             Pages::Kept { .. } => 0,
         }
-    }
-
-    /// The runs behind their summary past those the last refresh read,
-    /// [`AHEAD_ROWS`] at a time, each batch read whole and handed to
-    /// `each` in the order its folds list at `now`: how a listing of
-    /// every run lists each run behind, after its pages, holding at most a
-    /// refresh's worth of them at once (ruling 6).
-    pub(crate) fn each_past_behind<E: From<StoreError>>(
-        &self,
-        store: &Store,
-        now: &str,
-        mut each: impl FnMut(Vec<RunRow>) -> Result<(), E>,
-    ) -> Result<(), E> {
-        let mut from = match self {
-            Pages::Summary(kept) => kept.past.clone(),
-            Pages::Kept { .. } => None,
-        };
-        while let Some((at, key)) = from.take() {
-            let (listed, beyond) = store.behind(Some((at, &key)), brokkr_view::AHEAD_ROWS)?;
-            let mut rows = Vec::with_capacity(listed.len());
-            for (_, run_id) in &listed {
-                rows.push(read_whole(store, run_id)?.0);
-            }
-            from = listed.into_iter().last().filter(|_| beyond > 0);
-            each(brokkr_view::in_sections(rows, now))?;
-        }
-        Ok(())
     }
 
     /// Whether the last refresh read run `run_id` whole.
@@ -272,6 +264,47 @@ impl Behind {
         Ok(read)
     }
 
+    /// Key each run behind past those the refresh read, [`AHEAD_ROWS`] at
+    /// a time, by the section its fold lists it under at `now` and its
+    /// place there, holding no run's read past its key (ruling 6).
+    fn key_the_tail(&mut self, store: &Store, now: &str) -> Result<(), StoreError> {
+        let mut from = self.past.clone();
+        while let Some((at, key)) = from.take() {
+            let (listed, beyond) = store.behind(Some((at, &key)), brokkr_view::AHEAD_ROWS)?;
+            for (_, run_id) in &listed {
+                let row = read_whole(store, run_id)?.0;
+                let (order_at, run_id) = row.place();
+                let section = brokkr_view::section_of(&row, now);
+                self.tail.push((section, order_at, run_id.to_string()));
+            }
+            from = listed.into_iter().last().filter(|_| beyond > 0);
+        }
+        self.tail.sort_by(|(_, a, a_id), (_, b, b_id)| {
+            newest_first((*a, a_id)).cmp(&newest_first((*b, b_id)))
+        });
+        Ok(())
+    }
+
+    /// Up to `wanted` of the runs keyed past those the refresh read that
+    /// list under `section` below `after` and that `ask` keeps, each read
+    /// whole again at its key.
+    fn tail_of(
+        &self,
+        store: &Store,
+        ask: Ask<'_>,
+        (section, after): (Section, Option<Place<'_>>),
+        wanted: usize,
+    ) -> Result<Vec<RunRow>, StoreError> {
+        let keyed = self.tail.iter().filter(|(listed, order_at, run_id)| {
+            *listed == section && after.is_none_or(|after| (*order_at, run_id.as_str()) < after)
+        });
+        keyed
+            .map(|(_, _, run_id)| Ok(read_whole(store, run_id)?.0))
+            .filter(|read| read.as_ref().map_or(true, |row| (ask.keep)(row)))
+            .take(wanted)
+            .collect()
+    }
+
     /// Whether the runs kept were read from the file `now`.
     fn stands_on(&self, now: Option<Journal>) -> bool {
         self.journal
@@ -282,7 +315,7 @@ impl Behind {
     /// Up to `wanted` rows of `section` below `after` that `ask` keeps:
     /// its ranges of the summary's index, each row checked against its
     /// run's head, merged with the runs behind their summary that list
-    /// there. A run this refresh read as behind is listed by that read
+    /// there, those read and those keyed past them. A run this refresh read as behind is listed by that read
     /// alone, wherever its row stands now: a writer that catches it up
     /// between the two reads moves its row into another range, and the
     /// run lists once (ruling 6).
@@ -324,6 +357,7 @@ impl Behind {
         let held = (wanted, ask.keep);
         let behind = brokkr_view::section_of_rows(&self.rows, section, ask.now, after, held);
         rows.extend(behind);
+        rows.extend(self.tail_of(store, ask, (section, after), wanted)?);
         rows.sort_by(|a, b| newest_first(a.place()).cmp(&newest_first(b.place())));
         rows.truncate(wanted);
         Ok(rows)

@@ -284,7 +284,9 @@ pub fn sections<'a>(rows: &'a [RunRow], now: &str) -> Vec<(Section, Vec<&'a RunR
         .collect()
 }
 
-fn section_of(row: &RunRow, now: &str) -> Section {
+/// The section `row` lists under at `now`, by its own facts: where every
+/// read places a row, from a page or whole.
+pub fn section_of(row: &RunRow, now: &str) -> Section {
     if need(row, now).is_some() {
         return Section::NeedsYou;
     }
@@ -787,8 +789,8 @@ pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
 mod page;
 use page::order_at;
 pub use page::{
-    behind_line, in_sections, page, ranges, section_of_rows, summary_row, window, Cursor,
-    CursorError, Page, Paged, AHEAD_ROWS, PAGE_ROWS,
+    behind_line, page, ranges, section_of_rows, summary_row, window, Cursor, CursorError, Page,
+    Paged, AHEAD_ROWS, PAGE_ROWS,
 };
 
 #[cfg(test)]

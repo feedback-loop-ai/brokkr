@@ -266,6 +266,25 @@ impl Store {
         Ok(finished.is_some())
     }
 
+    /// `read`, every statement it makes reading the journal as it stood
+    /// at the first of them: one snapshot, so a listing that a writer
+    /// moves the journal under reads one membership of its lanes, and
+    /// lists each run once and none nowhere (ruling 6). A read already
+    /// inside one is refused in SQLite's words, never read as two.
+    pub fn as_one_read<T, E: From<StoreError>>(
+        &self,
+        read: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        let snapshot = self
+            .conn
+            .unchecked_transaction()
+            .map_err(StoreError::from)?;
+        let read = read();
+        // A read writes nothing, so its end is the same either way.
+        drop(snapshot);
+        read
+    }
+
     /// Up to `limit` rows of `ranges`, below `after` when given, merged
     /// into the section's one order. Each range's statement is stepped
     /// only as far as the merge takes from it, and one row ahead.

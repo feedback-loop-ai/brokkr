@@ -401,3 +401,31 @@ fn a_listing_is_read_by_its_run_s_key() {
     let missing = store.listing("nope").unwrap_err();
     assert!(matches!(missing, StoreError::RunNotFound(ref run) if run == "nope"));
 }
+
+/// Ruling 6: a read made as one sees the journal as it stood at its first
+/// statement, whatever a writer appends meanwhile, and the next read sees
+/// the append; the read's own refusal is its result, and a read made as
+/// one inside another is refused in SQLite's words.
+#[test]
+fn a_read_made_as_one_reads_one_snapshot() {
+    let (_dir, store) = one(Width::Narrow, Standing::Running);
+    let writer = rusqlite::Connection::open(store.path()).unwrap();
+    let behind = lane(Lane::Behind, None);
+    let counted = store.as_one_read(|| {
+        let before = store.counted(&behind)?;
+        plant_event(&writer, "run", &5, &"f".repeat(64), "{}").unwrap();
+        Ok::<_, StoreError>((before, store.counted(&behind)?))
+    });
+    assert_eq!(counted.unwrap(), (0, 0));
+    assert_eq!(store.counted(&behind).unwrap(), 1);
+    let refused = store.as_one_read(|| Err::<(), _>(StoreError::RunNotFound("gone".into())));
+    assert!(matches!(refused, Err(StoreError::RunNotFound(ref run)) if run == "gone"));
+    let nested = store.as_one_read(|| store.as_one_read(|| Ok::<_, StoreError>(())));
+    let Err(StoreError::Sqlite(refused)) = nested else {
+        panic!("a read inside a read is refused: {nested:?}");
+    };
+    assert_eq!(
+        refused.to_string(),
+        "cannot start a transaction within a transaction"
+    );
+}

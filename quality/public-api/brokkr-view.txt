@@ -690,7 +690,6 @@ pub fn brokkr_view::first_divergence(&[alloc::string::String], &[alloc::string::
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::graph(&brokkr_view::GraphQuery<'_>) -> core::result::Result<brokkr_view::GraphView, brokkr_view::GraphError>
-pub fn brokkr_view::in_sections(alloc::vec::Vec<brokkr_view::RunRow>, &str) -> alloc::vec::Vec<brokkr_view::RunRow>
 pub fn brokkr_view::keeps_participant(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Participant) -> bool
 pub fn brokkr_view::keeps_phase(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Phase) -> bool
 pub fn brokkr_view::keeps_row(core::option::Option<&brokkr_view::Lens>, &brokkr_view::JournalRow) -> bool
@@ -709,6 +708,7 @@ pub fn brokkr_view::run_row(&brokkr_view::RunEntry<'_>) -> brokkr_view::RunRow
 pub fn brokkr_view::run_rows(&[brokkr_view::RunEntry<'_>]) -> brokkr_view::RunsView
 pub fn brokkr_view::run_view(&[brokkr_core::envelope::EventEnvelope], core::option::Option<&brokkr_core::fold::RunState>) -> brokkr_view::RunView
 pub fn brokkr_view::seat_costs(&[brokkr_core::envelope::EventEnvelope]) -> (alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_view::SeatCost>, f64)
+pub fn brokkr_view::section_of(&brokkr_view::RunRow, &str) -> brokkr_view::Section
 pub fn brokkr_view::section_of_rows(&[brokkr_view::RunRow], brokkr_view::Section, &str, core::option::Option<brokkr_core::page::Place<'_>>, (usize, &dyn core::ops::function::Fn(&brokkr_view::RunRow) -> bool)) -> alloc::vec::Vec<brokkr_view::RunRow>
 pub fn brokkr_view::sections<'a>(&'a [brokkr_view::RunRow], &str) -> alloc::vec::Vec<(brokkr_view::Section, alloc::vec::Vec<&'a brokkr_view::RunRow>)>
 pub fn brokkr_view::short_target(&str) -> alloc::string::String

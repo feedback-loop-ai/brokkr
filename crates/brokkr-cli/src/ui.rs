@@ -82,24 +82,16 @@ fn runs(db: &Path, store: &Store, query: Option<&str>) -> Response {
         Err(refused) => return bad_request(refused.to_string()),
     };
     // A refresh reads at most a page and one ahead of the runs behind the
-    // summary and counts the rest, which every run lists a refresh's
-    // worth at a time (decision 0089 ruling 6).
-    let pages = match crate::fleet::Pages::listing(store, crate::fleet::Journal::at(db)) {
-        Ok(pages) => pages,
-        Err(error) => return server_error(error.to_string()),
-    };
+    // summary and counts the rest, which every run keys and lists at
+    // their places, all of it one read (decision 0089 ruling 6).
     let now = crate::now_rfc3339();
-    let lister = crate::fleet::Lister {
-        pages: &pages,
-        store,
-        now: &now,
-    };
-    let body = match asked {
+    let journal = (crate::fleet::Journal::at(db), now.as_str());
+    let body = crate::fleet::list_hearth(store, journal, asked.is_none(), |lister| match &asked {
         None => lister.rows().map(|rows| serde_json::to_string(&rows)),
         Some((after, limit)) => lister
-            .paged(after.as_ref(), limit)
+            .paged(after.as_ref(), *limit)
             .map(|view| serde_json::to_string(&view)),
-    };
+    });
     match body {
         Ok(body) => ok("application/json", body.expect("run rows serialize")),
         Err(error) => server_error(error.to_string()),

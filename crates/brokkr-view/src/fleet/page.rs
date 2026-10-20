@@ -352,16 +352,6 @@ fn placed(rows: &mut [(Section, RunRow)], now: &str) {
     }
 }
 
-/// `rows` in the order a fleet read whole lists them at `now`: the
-/// sections in [`Section::ORDER`], each newest first.
-pub fn in_sections(mut rows: Vec<RunRow>, now: &str) -> Vec<RunRow> {
-    rows.sort_by(|a, b| {
-        let a_at = (rank(super::section_of(a, now)), newest_first(a.place()));
-        a_at.cmp(&(rank(super::section_of(b, now)), newest_first(b.place())))
-    });
-    rows
-}
-
 /// Up to `wanted` of `rows`, listed whole and in their order, that list
 /// under `section` at `now` and below `after` and that `keep` keeps: a
 /// section of a fleet read whole, for a reader of a journal no summary

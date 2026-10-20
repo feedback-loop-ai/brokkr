@@ -1,8 +1,9 @@
 //! `brokkr runs` read and written a page at a time (decision 0089 ruling
 //! 6), so its memory is a page of rows and the largest run's whole values
 //! however many runs the hearth holds. With no flag it lists every run, in
-//! the shape it always printed, and the runs behind their summary past the
-//! hundred its pages place after them, a hundred at a time; `--limit`
+//! the shape it always printed, the runs behind their summary past the
+//! hundred a refresh reads each listed at its place, and all of it one
+//! read of the journal; `--limit`
 //! prints one page, `--after` the page after a cursor, and their JSON
 //! states `next`.
 
@@ -12,7 +13,7 @@ use anyhow::Result;
 use brokkr_store::Store;
 use brokkr_view::{Cursor, Page, Paged, RunRow, RunsView, VIEW_VERSION};
 
-use super::{Ask, Pages, PAGE_ROWS};
+use super::{Ask, Journal, Pages, PAGE_ROWS};
 use crate::render::{self, Style};
 
 /// Why an ask names no page, at the edge it was typed at: `--after`, or
@@ -47,11 +48,36 @@ pub(crate) fn cursor(text: &str) -> Result<Cursor, PageRefused> {
     text.parse().map_err(PageRefused::Cursor)
 }
 
+/// `list`, handed the lister of the hearth `store` opens, its journal file
+/// `before` it was opened, at `now`: of every run when `every`, else of a
+/// page. It is one read of the journal, so the runs behind their summary,
+/// the pages and the runs keyed past those are one membership whatever a
+/// writer catches up meanwhile, and each run lists once (ruling 6).
+pub(crate) fn list_hearth<T>(
+    store: &Store,
+    (before, now): (Option<Journal>, &str),
+    every: bool,
+    list: impl FnOnce(&Lister<'_>) -> Result<T>,
+) -> Result<T> {
+    store.as_one_read(|| {
+        let pages = match every {
+            true => Pages::every(store, before, now),
+            false => Pages::listing(store, before),
+        };
+        let pages = pages.map_err(|error| anyhow::Error::msg(error.to_string()))?;
+        list(&Lister {
+            pages: &pages,
+            store,
+            now,
+        })
+    })
+}
+
 /// One hearth's pages, as `brokkr runs` reads them: every value whole.
 pub(crate) struct Lister<'a> {
-    pub(crate) pages: &'a Pages,
-    pub(crate) store: &'a Store,
-    pub(crate) now: &'a str,
+    pages: &'a Pages,
+    store: &'a Store,
+    now: &'a str,
 }
 
 impl Lister<'_> {
@@ -65,9 +91,7 @@ impl Lister<'_> {
         page.map_err(|error| anyhow::Error::msg(error.to_string()))
     }
 
-    /// Every page from the first, each handed to `each` in turn, then the
-    /// runs behind their summary past those the pages placed, a refresh's
-    /// worth at a time, each batch in its folds' order (ruling 6).
+    /// Every page from the first, each handed to `each` in turn.
     fn each_page(&self, mut each: impl FnMut(Vec<RunRow>) -> Result<()>) -> Result<()> {
         let mut after = None;
         loop {
@@ -75,10 +99,9 @@ impl Lister<'_> {
             each(page.rows.into_iter().map(|(_, row)| row).collect())?;
             match page.next {
                 Some(next) => after = Some(next),
-                None => break,
+                None => return Ok(()),
             }
         }
-        self.pages.each_past_behind(self.store, self.now, each)
     }
 
     /// Every run, the sections in order, read a page at a time.

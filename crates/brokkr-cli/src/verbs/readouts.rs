@@ -286,24 +286,20 @@ pub(crate) fn hearth_runs(
     // from the summary; a journal the summary does not page yet is read
     // the kept way (#744). A refresh reads at most a page and one ahead
     // of the runs behind the summary whole and counts the rest; the
-    // listing of every run then lists the rest a refresh's worth at a
-    // time (ruling 6).
-    let pages = fleet::Pages::listing(&store, before)
-        .map_err(|error| anyhow::Error::msg(error.to_string()))?;
+    // listing of every run keys the rest and lists each at its place, all
+    // of it one read of the journal (ruling 6).
     let now = now_rfc3339();
-    let listing = fleet::Lister {
-        pages: &pages,
-        store: &store,
-        now: &now,
-    };
-    match (limit, after) {
-        (None, None) if json => listing.every_json(out),
-        (None, None) => listing.every_text(out, style),
-        (limit, after) => {
-            let limit = limit.map_or(fleet::PAGE_ROWS, |limit| limit as usize);
-            listing.one(out, (after, limit), json, style)
+    let every = limit.is_none() && after.is_none();
+    fleet::list_hearth(&store, (before, &now), every, |listing| {
+        match (limit, after) {
+            (None, None) if json => listing.every_json(out),
+            (None, None) => listing.every_text(out, style),
+            (limit, after) => {
+                let limit = limit.map_or(fleet::PAGE_ROWS, |limit| limit as usize);
+                listing.one(out, (after, limit), json, style)
+            }
         }
-    }
+    })
 }
 
 /// `brokkr runs` over several hearths: each journal's runs under its realm.
