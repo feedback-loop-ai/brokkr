@@ -689,7 +689,9 @@ fn add_refuses_a_dir_it_cannot_read_the_way_to() {
     let refused = |dir: &Path| {
         let refusal = add(&workspace(), dir, "unused", "node", None).unwrap_err();
         match refusal.downcast::<personal::Unshelved>() {
-            Ok(personal::Unshelved::Unread { at, .. }) => at,
+            Ok(personal::Unshelved::Unreadable(places::PlacesError::ShelfUnread {
+                at, ..
+            })) => at,
             other => panic!("an unreadable refusal: {other:?}"),
         }
     };

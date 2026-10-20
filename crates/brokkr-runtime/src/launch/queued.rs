@@ -309,6 +309,9 @@ impl QueuedLaunch {
         }?;
         let request = LaunchRequest {
             bundle: anchored(&workspace, &self.bundle),
+            // queued-launch/v1 holds no selected shelf (#697), so an entry
+            // composes across its workspace's own.
+            shelf: None,
             journal,
             repo: Some(self.operated(&workspace)),
             secrets: self.secrets.map(at),

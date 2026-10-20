@@ -1280,6 +1280,7 @@ pub brokkr_runtime::launch::LaunchRequest::host_path: std::ffi::os_str::OsString
 pub brokkr_runtime::launch::LaunchRequest::journal: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchRequest::repo: core::option::Option<std::path::PathBuf>
 pub brokkr_runtime::launch::LaunchRequest::secrets: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::launch::LaunchRequest::shelf: core::option::Option<std::path::PathBuf>
 pub brokkr_runtime::launch::LaunchRequest::workspace: std::path::PathBuf
 pub struct brokkr_runtime::launch::NewRun
 pub brokkr_runtime::launch::NewRun::dispatch: core::option::Option<std::path::PathBuf>
@@ -1301,6 +1302,7 @@ pub fn brokkr_runtime::launch::QueuedLaunch::of(&brokkr_runtime::launch::LaunchR
 pub fn brokkr_runtime::launch::QueuedLaunch::rebuild(self, std::path::PathBuf, std::ffi::os_str::OsString) -> core::result::Result<(brokkr_runtime::launch::LaunchRequest, brokkr_runtime::launch::NewRun), brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::capability_context(&std::path::Path, core::option::Option<&brokkr_runtime::realms::World>, core::option::Option<&brokkr_core::realms::Realm>, &std::path::Path) -> brokkr_runtime::capabilities::CapabilityContext
 pub fn brokkr_runtime::launch::compile_for(&std::path::Path, &std::path::Path, core::option::Option<&brokkr_runtime::realms::World>, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::launch::LaunchError>
+pub fn brokkr_runtime::launch::compile_on(&std::path::Path, (&std::path::Path, core::option::Option<&std::path::Path>), core::option::Option<&brokkr_runtime::realms::World>, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::rerun(brokkr_runtime::launch::LaunchRequest, &str, core::option::Option<brokkr_runtime::realms::World>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::resume(brokkr_runtime::launch::LaunchRequest, &str) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::start(brokkr_runtime::launch::LaunchRequest, brokkr_runtime::launch::NewRun, &mut dyn core::ops::function::FnMut(&str)) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
@@ -1339,6 +1341,15 @@ pub brokkr_runtime::places::PlacesError::NoPlace::cwd: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::NoPlace::root: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::NotADirectory
 pub brokkr_runtime::places::PlacesError::NotADirectory::root: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::ShelfClimbs
+pub brokkr_runtime::places::PlacesError::ShelfClimbs::at: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::ShelfClimbs::origin: brokkr_runtime::places::Origin
+pub brokkr_runtime::places::PlacesError::ShelfClimbs::shelf: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::ShelfUnread
+pub brokkr_runtime::places::PlacesError::ShelfUnread::at: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::ShelfUnread::cause: core::io::error::Error
+pub brokkr_runtime::places::PlacesError::ShelfUnread::origin: brokkr_runtime::places::Origin
+pub brokkr_runtime::places::PlacesError::ShelfUnread::shelf: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::Unreadable
 pub brokkr_runtime::places::PlacesError::Unreadable::path: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::Unreadable::source: core::io::error::Error
@@ -1374,6 +1385,10 @@ pub brokkr_runtime::places::Places::agents: std::path::PathBuf
 pub brokkr_runtime::places::Places::recipes: std::path::PathBuf
 impl brokkr_runtime::places::Places
 pub fn brokkr_runtime::places::Places::of(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Places, brokkr_runtime::places::PlacesError>
+pub struct brokkr_runtime::places::ResolvedShelf<'a>
+pub brokkr_runtime::places::ResolvedShelf::at: &'a std::path::Path
+pub brokkr_runtime::places::ResolvedShelf::place: std::path::PathBuf
+pub brokkr_runtime::places::ResolvedShelf::real: std::path::PathBuf
 pub const brokkr_runtime::places::BUNDLE: &str
 pub const brokkr_runtime::places::FOLDER: &str
 pub const brokkr_runtime::places::JOURNAL: &str
@@ -1386,6 +1401,7 @@ pub fn brokkr_runtime::places::folder_bundle(&std::path::Path) -> core::result::
 pub fn brokkr_runtime::places::personal_shelf(core::option::Option<std::ffi::os_str::OsString>, core::option::Option<std::ffi::os_str::OsString>) -> core::result::Result<std::path::PathBuf, brokkr_runtime::admission::HostError>
 pub fn brokkr_runtime::places::personal_shelf_here() -> core::result::Result<std::path::PathBuf, brokkr_runtime::admission::HostError>
 pub fn brokkr_runtime::places::resolved(&std::path::Path) -> core::io::error::Result<core::option::Option<std::path::PathBuf>>
+pub fn brokkr_runtime::places::resolving_shelf(brokkr_runtime::places::Origin, &std::path::Path) -> core::result::Result<brokkr_runtime::places::ResolvedShelf<'_>, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::root(&std::path::Path) -> core::result::Result<std::path::PathBuf, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::run_local(core::option::Option<&std::path::Path>, &std::path::Path) -> std::path::PathBuf
 pub fn brokkr_runtime::places::state_of(&std::path::Path) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>

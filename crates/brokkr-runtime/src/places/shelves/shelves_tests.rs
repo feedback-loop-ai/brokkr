@@ -40,10 +40,13 @@ impl Shelved {
     /// The shelves a compile from the repository reads, with the personal
     /// one placed.
     fn shelves(&self) -> Shelves {
-        Shelves::of(
-            &Layout::discover(&self.repo).unwrap(),
-            Some(self.personal.clone()),
-        )
+        self.selecting(None)
+    }
+
+    /// [`Shelved::shelves`] with the `project` shelf selected, if any.
+    fn selecting(&self, project: Option<&Path>) -> Shelves {
+        let layout = Layout::discover(&self.repo).unwrap();
+        Shelves::of(&layout, project, Some(self.personal.clone()))
     }
 
     fn project(&self, name: &str) -> PathBuf {
@@ -145,7 +148,11 @@ fn a_personal_recipe_composes_over_the_folders_bundle() {
 
     let bare = shelved.repo.with_file_name("bare");
     std::fs::create_dir_all(bare.join(".git")).unwrap();
-    let shelves = Shelves::of(&Layout::discover(&bare).unwrap(), Some(shelved.personal));
+    let shelves = Shelves::of(
+        &Layout::discover(&bare).unwrap(),
+        None,
+        Some(shelved.personal),
+    );
     let unfoldered = refused(resolve_unsealed(&mine, &shelves));
     let layer = mine.clone();
     assert_eq!(
@@ -257,7 +264,7 @@ fn a_personal_recipe_reads_its_own_shelf() {
     assert_eq!(refused(shelved.resolve(&lost)).to_string(), nowhere);
 
     let team = recipe(&shelved.project("team"), "team", Some("gone"));
-    let unplaced = Shelves::of(&Layout::discover(&shelved.repo).unwrap(), None);
+    let unplaced = Shelves::of(&Layout::discover(&shelved.repo).unwrap(), None, None);
     let missing = format!(
         "bundle: {}: extends 'gone', which is not a recipe in {}",
         team.join("bundle.json").display(),
@@ -269,19 +276,102 @@ fn a_personal_recipe_reads_its_own_shelf() {
     );
 }
 
-/// A project shelf that cannot be read is never read as an empty one: a
-/// personal recipe's base there refuses with the entry's own error.
+/// A shelf that cannot be read is never read as an empty one (#697 ruling
+/// 2): the project shelf, read for a personal layer's base on its own
+/// shelf, and the personal one, read for a project layer's missing base,
+/// each a link to nothing, a looping link or a file, refuse in `--recipe`'s
+/// words, naming the shelf. A shelf nothing stands at, no entry and no
+/// link, is an empty one: the personal base is taken, or the project's
+/// missing base is no recipe.
 #[test]
-fn an_unreadable_project_shelf_refuses_a_personal_base() {
+fn an_unreadable_shelf_refuses_every_read_of_it() {
     let shelved = Shelved::new(None);
-    let shelf = shelved.repo.join(".brokkr/recipes");
-    std::fs::remove_dir_all(&shelf).unwrap();
-    std::os::unix::fs::symlink("recipes", &shelf).unwrap();
-    let mine = recipe(&shelved.personal.join("mine"), "mine", Some("fast"));
-    let fast = shelf.join("fast");
-    let cause = std::fs::symlink_metadata(&fast).unwrap_err();
-    let text = format!("bundle: reading {}: {cause}", fast.display());
-    assert_eq!(refused(shelved.resolve(&mine)).to_string(), text);
+    let own = recipe(&shelved.personal.join("own"), "own", None);
+    let mine = recipe(&shelved.personal.join("mine"), "mine", Some("own"));
+    let team = recipe(&shelved.project("team"), "team", Some("gone"));
+    let project = shelved.repo.join(".brokkr/recipes");
+    let missing = format!(
+        "bundle: {}: extends 'gone', which is not a recipe in {}",
+        team.join("bundle.json").display(),
+        project.display()
+    );
+    let dangles: fn(&Path) = |shelf| std::os::unix::fs::symlink("gone", shelf).unwrap();
+    let loops: fn(&Path) = |shelf| std::os::unix::fs::symlink("recipes", shelf).unwrap();
+    let file: fn(&Path) = |shelf| std::fs::write(shelf, "").unwrap();
+    let sides = [
+        ("project", &project, &mine, Ok(vec![mine.clone(), own])),
+        ("personal", &shelved.personal, &team, Err(missing)),
+    ];
+    for (origin, shelf, leaf, empty) in sides {
+        let kept = shelf.with_extension("kept");
+        std::fs::rename(shelf, &kept).unwrap();
+        for plant in [dangles, loops, file] {
+            plant(shelf);
+            let cause = std::fs::canonicalize(shelf)
+                .map_or_else(|cause| cause.to_string(), |_| "not a directory".to_string());
+            let text = format!(
+                "bundle: the {origin} shelf {} cannot be read (#697): {}: {cause}; a shelf that \
+                 cannot be read is never read as an empty one, so mend or remove it; nothing was \
+                 run or installed",
+                shelf.display(),
+                shelf.display()
+            );
+            assert_eq!(refused(shelved.resolve(leaf)).to_string(), text);
+            std::fs::remove_file(shelf).unwrap();
+        }
+        let read = shelved.resolve(leaf);
+        let read = read
+            .map(|resolved| resolved.roots)
+            .map_err(|e| e.to_string());
+        assert_eq!(read, empty, "{origin}");
+        std::fs::rename(&kept, shelf).unwrap();
+    }
+}
+
+/// The project shelf a compile is given is the one it composes across
+/// (#697 ruling 3), in place of the workspace's own: a personal layer's
+/// base is read there, a name on it and on the personal shelf refuses,
+/// and a recipe on it naming a personal one refuses as a project's. On the
+/// workspace's own shelf, which holds no `quick`, each reads otherwise.
+#[test]
+fn a_selected_project_shelf_is_the_one_composed_across() {
+    let shelved = Shelved::new(None);
+    let own = shelved.repo.join("own");
+    let quick = recipe(&own.join("quick"), "quick", None);
+    let mine = recipe(&shelved.personal.join("mine"), "mine", Some("quick"));
+    let selected = shelved.selecting(Some(&own));
+    let resolved = resolve_unsealed(&mine, &selected).unwrap();
+    assert_eq!(resolved.roots, [mine.clone(), quick]);
+    assert_eq!(resolved.origins, [Origin::Personal, Origin::Project]);
+    let unselected = |leaf: &Path| refused(shelved.resolve(leaf)).to_string();
+    let not_in = |leaf: &Path, base: &str, library: &Path| {
+        let file = leaf.join("bundle.json");
+        let (file, library) = (file.display(), library.display());
+        format!("bundle: {file}: extends '{base}', which is not a recipe in {library}")
+    };
+    assert_eq!(unselected(&mine), not_in(&mine, "quick", &shelved.personal));
+
+    recipe(&shelved.personal.join("only"), "only", None);
+    let team = recipe(&own.join("team"), "team", Some("only"));
+    let refusal = refused(resolve_unsealed(&team, &selected));
+    let (base, personal) = ("only".into(), shelved.personal.join("only"));
+    let layer = team.clone();
+    let named = ShelfRefusal::ProjectNamesPersonal(Named {
+        layer,
+        base,
+        personal,
+    });
+    assert_eq!(shelf_refusal(&refusal), &named);
+    assert_eq!(unselected(&team), not_in(&team, "only", &own));
+
+    std::fs::create_dir(shelved.personal.join("quick")).unwrap();
+    let refusal = refused(resolve_unsealed(&mine, &selected));
+    let shadowed = ShelfRefusal::Shadowed {
+        name: "quick".into(),
+        project: own.join("quick"),
+        personal: shelved.personal.join("quick"),
+    };
+    assert_eq!(shelf_refusal(&refusal), &shadowed);
 }
 
 /// Each origin's one word, which the journal records and every surface

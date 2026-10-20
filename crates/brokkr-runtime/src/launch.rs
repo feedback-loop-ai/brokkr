@@ -54,6 +54,10 @@ pub struct LaunchRequest {
     pub workspace: PathBuf,
     /// The bundle to compile.
     pub bundle: BundleSource,
+    /// The project shelf the operator selected, `--recipes-dir`, which the
+    /// bundle composes across in place of the workspace's own (#697 ruling
+    /// 3); `None` composes across the workspace's.
+    pub shelf: Option<PathBuf>,
     /// The journal the run is written to; created when absent.
     pub journal: PathBuf,
     /// The operated repository. When `None`, a new run's bundle compiles
@@ -259,7 +263,8 @@ pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> 
     let manifest = store.manifest(run)?;
     let dir = request.bundle.resolve()?;
     let repo = request.repo.as_deref().unwrap_or(&request.workspace);
-    let bundle = compile_from_manifest(&request.workspace, &dir, &manifest, repo)
+    let leaf = (dir.as_path(), request.shelf.as_deref());
+    let bundle = compile_from_manifest(&request.workspace, leaf, &manifest, repo)
         .map_err(|error| unreproducible(run, error))?;
     refuse_unboxable(&bundle, &request.host_path)?;
     let mut engine = Engine::resume(store, bundle, run, request.repo)?;
@@ -310,7 +315,8 @@ fn refuse_realms_with_dispatch(run: &NewRun) -> Result<(), LaunchError> {
 fn admit_new(request: &LaunchRequest, world: Option<&World>) -> Result<Bundle, LaunchError> {
     fence_crossings(world, &request.workspace)?;
     let dir = request.bundle.resolve()?;
-    let bundle = compile_for(&request.workspace, &dir, world, request.operated())?;
+    let leaf = (dir.as_path(), request.shelf.as_deref());
+    let bundle = compile_on(&request.workspace, leaf, world, request.operated())?;
     refuse_unboxable(&bundle, &request.host_path)?;
     Ok(bundle)
 }
@@ -385,9 +391,22 @@ pub fn compile_for(
     world: Option<&World>,
     repo: &Path,
 ) -> Result<Bundle, LaunchError> {
+    compile_on(workspace, (dir, None), world, repo)
+}
+
+/// [`compile_for`] of the bundle at `leaf`'s directory, composed across
+/// `leaf`'s project shelf, the one the operator selected, else the
+/// workspace's own (#697 ruling 3): what a run and `recipes show` compile,
+/// so each composes across the shelf its `--recipe` was read from.
+pub fn compile_on(
+    workspace: &Path,
+    leaf: (&Path, Option<&Path>),
+    world: Option<&World>,
+    repo: &Path,
+) -> Result<Bundle, LaunchError> {
     let realm = world.and_then(|world| world.realm_for(repo));
     let name = realm.map_or(UNMAPPED, |realm| realm.name.as_str());
-    compile_in_realm(workspace, dir, world, realm, name, repo)
+    compile_in_realm(workspace, leaf, world, realm, name, repo)
 }
 
 /// The capability context one compile authorises against (decision 0065;
@@ -415,10 +434,11 @@ pub fn capability_context(
 }
 
 /// Resume's compile: against the world and realm embedded in the run,
-/// never against whatever the workspace's map happens to hold today.
+/// never against whatever the workspace's map happens to hold today, and
+/// across the project shelf `leaf` names, as a new run's ([`compile_on`]).
 fn compile_from_manifest(
     workspace: &Path,
-    dir: &Path,
+    leaf: (&Path, Option<&Path>),
     manifest: &Value,
     repo: &Path,
 ) -> Result<Bundle, LaunchError> {
@@ -427,7 +447,8 @@ fn compile_from_manifest(
         // Its definitions are re-read where they were read when it
         // started: under the operated repository, never the recipe's home
         // and never a map that has appeared in the workspace since.
-        let (places, shelves) = shelved(workspace)?;
+        let (dir, shelf) = leaf;
+        let (places, shelves) = shelved(workspace, shelf)?;
         return Ok(Bundle::compile_unmapped_on(
             (dir, &shelves),
             &places.agents,
@@ -446,7 +467,7 @@ fn compile_from_manifest(
     // is not borrowed. The definitions and dialects are re-read from the
     // pinned source's directory and must reproduce the pinned digests, or
     // the manifest comparison refuses the resume with capabilities named.
-    compile_in_realm(workspace, dir, Some(&world), realm, name, repo)
+    compile_in_realm(workspace, leaf, Some(&world), realm, name, repo)
 }
 
 /// A resume whose pinned capability authority cannot be REPRODUCED here —
@@ -480,10 +501,11 @@ fn unreproducible(run: &str, error: LaunchError) -> LaunchError {
 /// The bundle compiled in the realm `name`: its dialect, its boundary,
 /// or none and `namespace` when the world names no such realm, the
 /// world's provisional offices (decision 0075 ruling 5), and the
-/// capability grants of that realm for the operated `repo`.
+/// capability grants of that realm for the operated `repo`, composed
+/// across `leaf`'s project shelf ([`compile_on`]).
 fn compile_in_realm(
     workspace: &Path,
-    dir: &Path,
+    (dir, shelf): (&Path, Option<&Path>),
     world: Option<&World>,
     realm: Option<&Realm>,
     name: &str,
@@ -493,7 +515,7 @@ fn compile_in_realm(
         Some((world, realm)) => world.dialect_for_realm(realm)?,
         None => None,
     };
-    let (places, shelves) = shelved(workspace)?;
+    let (places, shelves) = shelved(workspace, shelf)?;
     Ok(Bundle::compile_as(
         &crate::argv::Executable::current(),
         (dir, &shelves),
@@ -506,12 +528,13 @@ fn compile_in_realm(
 }
 
 /// The places of `workspace` and the shelves a compile from it composes
-/// across (#697 ruling 3): its own, and the personal shelf this process's
-/// environment places, if it places one.
-fn shelved(workspace: &Path) -> Result<(Places, Shelves), PlacesError> {
+/// across (#697 ruling 3): the project `shelf` the operator selected, else
+/// its own, and the personal shelf this process's environment places, if
+/// it places one.
+fn shelved(workspace: &Path, shelf: Option<&Path>) -> Result<(Places, Shelves), PlacesError> {
     let layout = Layout::discover(workspace)?;
     let personal = crate::places::personal_shelf_here().ok();
-    Ok((layout.places(), Shelves::of(&layout, personal)))
+    Ok((layout.places(), Shelves::of(&layout, shelf, personal)))
 }
 
 #[cfg(test)]

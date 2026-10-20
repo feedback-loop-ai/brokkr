@@ -94,83 +94,32 @@ impl Origin {
     }
 }
 
-/// Where a shelf resolves ([`resolving`]).
-pub(super) struct Resolved<'a> {
-    /// The nearest entry standing at the shelf or above it.
-    pub(super) at: &'a Path,
-    /// The directory `at` resolves to, every link resolved.
-    pub(super) real: PathBuf,
-    /// The shelf beneath `real`, the rest of its path still to be made.
-    pub(super) place: PathBuf,
-}
-
 /// Judge the `origin` shelf `shelf` before anything on it is read or
-/// written (#697): the nearest entry standing at it or above it must
-/// resolve to a directory ([`places::resolved`], the judgement the default
-/// map takes too), so nothing standing at the shelf is an empty one, and
-/// a link to nothing, a looping link, a file, or an entry whose metadata
-/// cannot be read refuses ([`Unshelved::Unread`]), never read as an empty
-/// shelf. A relative shelf nothing stands at or above resolves as itself.
-/// The shelf comes normalised ([`ShelfPath`]), so the entry judged is the
-/// entry itself, never the target a trailing separator reads through. The
-/// part of the shelf beneath that entry, the current directory for a
-/// relative one, holds no `..` ([`climbs`]).
-pub(super) fn resolving(origin: Origin, shelf: &ShelfPath) -> Result<Resolved<'_>, Unshelved> {
-    let shelf = shelf.path();
-    for at in shelf.ancestors() {
-        let unread = |cause| Unshelved::Unread {
-            origin,
-            shelf: shelf.to_path_buf(),
-            at: at.to_path_buf(),
-            cause,
-        };
-        match places::resolved(at) {
-            Ok(None) => {}
-            Ok(Some(real)) if real.is_dir() => {
-                let rest = shelf
-                    .strip_prefix(at)
-                    .expect("an ancestor prefixes its path");
-                climbs(origin, shelf, at, rest)?;
-                // Collected from its parts, so an empty `rest` leaves no trailing `/`.
-                let place = real.join(rest).components().collect();
-                return Ok(Resolved { at, real, place });
-            }
-            Ok(Some(_)) => return Err(unread(ErrorKind::NotADirectory.into())),
-            Err(cause) => return Err(unread(cause)),
-        }
-    }
-    climbs(origin, shelf, Path::new("."), shelf)?;
-    let (real, place) = (shelf.to_path_buf(), shelf.to_path_buf());
-    Ok(Resolved {
-        at: shelf,
-        real,
-        place,
-    })
+/// written (#697), by the runtime's one judgement, which every compile's
+/// read of a shelf takes too ([`places::resolving_shelf`]): a shelf that
+/// cannot be read, or one spelled through `..` beneath what does not stand
+/// (#726), refuses ([`Unshelved::Unreadable`]), never read as an empty
+/// one. The shelf comes normalised ([`ShelfPath`]), so the entry judged is
+/// the entry itself, never the target a trailing separator reads through.
+pub(super) fn resolving(
+    origin: Origin,
+    shelf: &ShelfPath,
+) -> Result<places::ResolvedShelf<'_>, Unshelved> {
+    places::resolving_shelf(origin.into(), shelf.path()).map_err(Unshelved::Unreadable)
 }
 
-/// Refuse the `origin` shelf `shelf` where `rest`, its part beneath `at`,
-/// the nearest entry standing at it or above it, holds a `..` (#726): the
-/// first part of `rest` does not stand, so the kernel reports the shelf
-/// absent, and a shelf read as absent there would be an empty one, past
-/// the refusal of a name on both shelves ([`Unshelved::Shadowed`]). A `..`
-/// beneath a standing entry is in `at`, where the kernel resolves it.
-fn climbs(origin: Origin, shelf: &Path, at: &Path, rest: &Path) -> Result<(), Unshelved> {
-    match rest.components().any(|part| part == Component::ParentDir) {
-        true => Err(Unshelved::Climbing {
-            origin,
-            shelf: shelf.to_path_buf(),
-            at: at.to_path_buf(),
-        }),
-        false => Ok(()),
+impl From<Origin> for places::Origin {
+    fn from(origin: Origin) -> places::Origin {
+        match origin {
+            Origin::Project => places::Origin::Project,
+            Origin::Personal => places::Origin::Personal,
+        }
     }
 }
 
 impl fmt::Display for Origin {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Origin::Project => places::Origin::Project.word(),
-            Origin::Personal => places::Origin::Personal.word(),
-        })
+        formatter.write_str(places::Origin::from(*self).word())
     }
 }
 
@@ -188,23 +137,9 @@ pub(crate) enum Unshelved {
         project: PathBuf,
         personal: PathBuf,
     },
-    /// An entry at the name that cannot be read, never taken as absent.
+    /// An entry at the name, or a shelf ([`resolving`]), that cannot be
+    /// read, never taken as absent or as an empty shelf.
     Unreadable(PlacesError),
-    /// A shelf that cannot be read ([`resolving`]): what stands `at` it,
-    /// or above it, does not resolve to a directory, for its `cause`.
-    Unread {
-        origin: Origin,
-        shelf: PathBuf,
-        at: PathBuf,
-        cause: std::io::Error,
-    },
-    /// A shelf spelled through `..` beneath `at`, the nearest entry of it
-    /// that stands ([`climbs`]).
-    Climbing {
-        origin: Origin,
-        shelf: PathBuf,
-        at: PathBuf,
-    },
     /// An install of a name the project shelf holds (#726), which
     /// resolution would refuse ([`Unshelved::Shadowed`]).
     Shadowing {
@@ -245,27 +180,6 @@ impl fmt::Display for Unshelved {
                 formatter,
             ),
             Unshelved::Unreadable(refused) => fmt::Display::fmt(refused, formatter),
-            Unshelved::Unread {
-                origin,
-                shelf,
-                at,
-                cause,
-            } => write!(
-                formatter,
-                "the {origin} shelf {} cannot be read (#697): {}: {cause}; a shelf that cannot \
-                 be read is never read as an empty one, so mend or remove it; nothing was run \
-                 or installed",
-                shelf.display(),
-                at.display()
-            ),
-            Unshelved::Climbing { origin, shelf, at } => write!(
-                formatter,
-                "the {origin} shelf {} climbs by '..' out of a directory that does not stand \
-                 beneath {} (#726): a shelf spelled through what does not exist is never read as \
-                 an empty one, so spell it without the '..'; nothing was run or installed",
-                shelf.display(),
-                at.display()
-            ),
             Unshelved::Shadowing {
                 name,
                 project,

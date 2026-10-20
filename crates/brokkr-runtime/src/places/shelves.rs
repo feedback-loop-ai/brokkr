@@ -8,7 +8,7 @@
 //! personal recipe, and naming one refuses ([`ShelfRefusal`]).
 
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use thiserror::Error;
 
@@ -118,24 +118,134 @@ pub struct Named {
     pub personal: PathBuf,
 }
 
-/// The shelves one compile composes across, each where it resolves: the
-/// project's, the folder's own bundle where the workspace is a folder
-/// repository, and the personal one where the machine places it. A shelf
-/// nothing stands at is none. One that does not resolve is kept as
-/// spelled, so a layer is never judged to stand on it and every entry read
-/// on it is judged as spelled, refusing where it cannot be read. The
-/// default is no shelf at all: every layer composes from its own library.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct Shelves {
-    project: Option<PathBuf>,
-    folder: Option<PathBuf>,
-    personal: Option<PathBuf>,
+/// Where a shelf resolves ([`resolving_shelf`]).
+#[derive(Debug, PartialEq, Eq)]
+pub struct ResolvedShelf<'a> {
+    /// The nearest entry standing at the shelf or above it.
+    pub at: &'a Path,
+    /// The directory `at` resolves to, every link resolved.
+    pub real: PathBuf,
+    /// The shelf beneath `real`, the rest of its path still to be made.
+    pub place: PathBuf,
 }
 
-/// Where `shelf` resolves, or `shelf` itself where it does not.
-fn real(shelf: PathBuf) -> Option<PathBuf> {
-    let found = resolved(&shelf);
-    found.unwrap_or(Some(shelf))
+/// Judge the `origin` shelf `shelf` before anything on it is read or
+/// written (#697): the nearest entry standing at it or above it must
+/// resolve to a directory ([`resolved`], the judgement the default map
+/// takes too), so nothing standing at the shelf is an empty one, and a
+/// link to nothing, a looping link, a file, or an entry whose metadata
+/// cannot be read refuses ([`PlacesError::ShelfUnread`]), never read as an
+/// empty shelf. A relative shelf nothing stands at or above resolves as
+/// itself. The entry judged is the entry itself, never the target a
+/// trailing separator reads through, since each ancestor is rebuilt from
+/// its components. The part of the shelf beneath that entry, the current
+/// directory for a relative one, holds no `..` (`climbs`). The one
+/// judgement `--recipe`, `recipes add` and every compile's reads of a
+/// shelf (`Shelves`) take.
+pub fn resolving_shelf(origin: Origin, shelf: &Path) -> Result<ResolvedShelf<'_>, PlacesError> {
+    for at in shelf.ancestors() {
+        let unread = |cause| PlacesError::ShelfUnread {
+            origin,
+            shelf: shelf.to_path_buf(),
+            at: at.to_path_buf(),
+            cause,
+        };
+        match resolved(at) {
+            Ok(None) => {}
+            Ok(Some(real)) if real.is_dir() => {
+                let rest = shelf
+                    .strip_prefix(at)
+                    .expect("an ancestor prefixes its path");
+                climbs(origin, shelf, at, rest)?;
+                // Collected from its parts, so an empty `rest` leaves no trailing `/`.
+                let place = real.join(rest).components().collect();
+                return Ok(ResolvedShelf { at, real, place });
+            }
+            Ok(Some(_)) => return Err(unread(std::io::ErrorKind::NotADirectory.into())),
+            Err(cause) => return Err(unread(cause)),
+        }
+    }
+    climbs(origin, shelf, Path::new("."), shelf)?;
+    let (real, place) = (shelf.to_path_buf(), shelf.to_path_buf());
+    Ok(ResolvedShelf {
+        at: shelf,
+        real,
+        place,
+    })
+}
+
+/// Refuse the `origin` shelf `shelf` where `rest`, its part beneath `at`,
+/// the nearest entry standing at it or above it, holds a `..` (#726): the
+/// first part of `rest` does not stand, so the kernel reports the shelf
+/// absent, and a shelf read as absent there would be an empty one, past
+/// the refusal of a name on both shelves ([`ShelfRefusal::Shadowed`]). A
+/// `..` beneath a standing entry is in `at`, where the kernel resolves it.
+fn climbs(origin: Origin, shelf: &Path, at: &Path, rest: &Path) -> Result<(), PlacesError> {
+    match rest.components().any(|part| part == Component::ParentDir) {
+        true => Err(PlacesError::ShelfClimbs {
+            origin,
+            shelf: shelf.to_path_buf(),
+            at: at.to_path_buf(),
+        }),
+        false => Ok(()),
+    }
+}
+
+/// The shelves one compile composes across: the project's, the folder's
+/// own bundle where the workspace is a folder repository, and the personal
+/// one where the machine places it. The default is no shelf at all: every
+/// layer composes from its own library.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Shelves {
+    project: Option<Shelf>,
+    folder: Option<PathBuf>,
+    personal: Option<Shelf>,
+}
+
+/// One shelf of a compile: its `origin`, the shelf as `spelled`, and where
+/// it resolved when the compile began, if it could be read, which a
+/// layer's origin is judged by. A shelf that cannot be read then is never
+/// one a layer stands on, and every read of it judges it again
+/// ([`Shelf::read`]), so it refuses there, never read as an empty one
+/// (#697).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Shelf {
+    origin: Origin,
+    spelled: PathBuf,
+    real: Option<PathBuf>,
+}
+
+impl Shelf {
+    fn of(origin: Origin, spelled: PathBuf) -> Shelf {
+        let mut shelf = Shelf {
+            origin,
+            spelled,
+            real: None,
+        };
+        shelf.real = shelf.read().ok();
+        shelf
+    }
+
+    /// Where the shelf stands as a read finds it now ([`resolving_shelf`]):
+    /// the directory it resolves to, or where nothing stands at it, its
+    /// place beneath the nearest entry that stands, at which nothing does.
+    /// One that cannot be read refuses, in `--recipe`'s words.
+    fn read(&self) -> Result<PathBuf, CompileError> {
+        match resolving_shelf(self.origin, &self.spelled) {
+            Ok(found) => Ok(found.place),
+            Err(refused) => Err(CompileError::Invalid(refused.to_string())),
+        }
+    }
+
+    /// Where a read of `shelf`, if a compile has one, finds it.
+    fn reading(shelf: &Option<Shelf>) -> Result<Option<PathBuf>, CompileError> {
+        shelf.as_ref().map(Shelf::read).transpose()
+    }
+
+    /// Where `shelf`, if a compile has one, resolved when it began.
+    fn stood(shelf: &Option<Shelf>) -> Option<&Path> {
+        shelf.as_ref().and_then(|shelf| shelf.real.as_deref())
+    }
 }
 
 /// Whether anything stands at `path`, judged as the entry itself. An entry
@@ -150,14 +260,21 @@ fn stands(path: PathBuf) -> Result<(bool, PathBuf), CompileError> {
 }
 
 impl Shelves {
-    /// The shelves a compile from the workspace `layout` composes across,
-    /// with the `personal` shelf this machine places, if any.
-    pub(crate) fn of(layout: &Layout, personal: Option<PathBuf>) -> Shelves {
+    /// The shelves a compile from the workspace `layout` composes across:
+    /// the `project` shelf the operator selected, else the workspace's own
+    /// (#697 ruling 3), and the `personal` shelf this machine places, if
+    /// any.
+    pub(crate) fn of(
+        layout: &Layout,
+        project: Option<&Path>,
+        personal: Option<PathBuf>,
+    ) -> Shelves {
         let folder = (layout.kind() == Kind::Folder).then(|| layout.root().join(FOLDER));
+        let project = project.map_or_else(|| layout.places().recipes, Path::to_path_buf);
         Shelves {
-            project: real(layout.places().recipes),
+            project: Some(Shelf::of(Origin::Project, project)),
             folder,
-            personal: personal.and_then(real),
+            personal: personal.map(|shelf| Shelf::of(Origin::Personal, shelf)),
         }
     }
 
@@ -167,11 +284,11 @@ impl Shelves {
     pub(crate) fn origin(&self, dir: &Path) -> Result<Origin, CompileError> {
         let judged =
             folder_bundle(dir).map_err(|refused| CompileError::Invalid(refused.to_string()));
-        let parent = Some(dir.parent().unwrap_or(dir).to_path_buf());
+        let parent = Some(dir.parent().unwrap_or(dir));
         Ok(match judged? {
             Some(_) => Origin::Folder,
-            None if parent == self.personal => Origin::Personal,
-            None if parent == self.project => Origin::Project,
+            None if parent == Shelf::stood(&self.personal) => Origin::Personal,
+            None if parent == Shelf::stood(&self.project) => Origin::Project,
             None => Origin::Library,
         })
     }
@@ -188,12 +305,12 @@ impl Shelves {
     /// (#697 rulings 2 and 3): its own shelf, its parent, where the name
     /// stands there alone, else the project's where it stands there. A
     /// name with an entry on both refuses before anything at it is read
-    /// ([`ShelfRefusal::Shadowed`]), and an entry that cannot be read
-    /// refuses.
+    /// ([`ShelfRefusal::Shadowed`]), and an entry, or a project shelf, that
+    /// cannot be read refuses.
     pub(crate) fn personal_library(&self, dir: &Path, base: &str) -> Result<PathBuf, CompileError> {
         let personal = dir.parent().unwrap_or(dir);
         let (mine, at) = stands(personal.join(base))?;
-        let Some(project) = &self.project else {
+        let Some(project) = &Shelf::reading(&self.project)? else {
             return Ok(personal.to_path_buf());
         };
         match (mine, stands(project.join(base))?) {
@@ -209,8 +326,9 @@ impl Shelves {
 
     /// Refuse a project or folder layer at `dir` whose base `base`, which
     /// its own library does not hold, stands on the personal shelf (#697
-    /// ruling 3): no project layer composes from it. A personal or library
-    /// layer refuses nothing here.
+    /// ruling 3): no project layer composes from it, and a personal shelf
+    /// that cannot be read refuses. A personal or library layer refuses
+    /// nothing here.
     pub(crate) fn refuse_personal(
         &self,
         origin: Origin,
@@ -222,7 +340,7 @@ impl Shelves {
             Origin::Folder => ShelfRefusal::FolderNamesPersonal,
             Origin::Personal | Origin::Library => return Ok(()),
         };
-        let Some(shelf) = &self.personal else {
+        let Some(shelf) = Shelf::reading(&self.personal)? else {
             return Ok(());
         };
         match stands(shelf.join(base))? {

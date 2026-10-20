@@ -999,6 +999,12 @@ when it was queued.
 its layers across the workspace's shelves: the project's, the folder's
 own bundle, and the personal shelf this process's environment places
 (`places::personal_shelf_here`, the one read the CLI's verbs take too).
+The project shelf is the one `--recipes-dir` on `run`, `resume` and
+`rerun`, or `--dir` on `recipes show`, selects, where one does
+(`launch::compile_on`), else the workspace's own, so a personal recipe
+composes across the shelf its `--recipe` was read beside. A queued
+launch holds no selected shelf, so it composes across its workspace's
+own.
 Each layer's origin is judged by where its directory stands: the
 folder's bundle by the one judgement of a layout, else `personal` or
 `project` where its parent is that shelf, else `library`. The origin
@@ -1030,9 +1036,14 @@ the project recipe at <root>/.brokkr/recipes/<name> extends '<base>', which stan
 the folder's bundle at <root>/.brokkr extends '<base>', which stands only on the personal shelf, at <personal>/<base> (#697): the folder's bundle never extends a personal recipe, since teammates and CI could not compile it, so put '<base>' on the project shelf or extend a recipe there
 ```
 
-A project shelf that cannot be read refuses a personal layer's base with
-the entry's own `reading <path>: <cause>`, never read as an empty one.
-`recipes add --personal` copies a base its plan reaches as before, but
+A shelf a compile reads is judged by ruling 2's one rule
+(`places::resolving_shelf`) each time it is read: the project shelf for a
+personal layer's base, and the personal one for a project layer's base
+its own shelf lacks. One that cannot be read refuses in ruling 2's words
+under the compiler's `bundle: `, on `compile --bundle` and `run --bundle`
+as on every verb that names a recipe, never read as an empty one; a
+shelf with nothing standing at it, no entry and no link, is an empty
+one. `recipes add --personal` copies a base its plan reaches as before, but
 never `.brokkr`, which the compile reaches in the workspace. Nothing
 installed or edited on the personal shelf moves the folder bundle's
 digest or any library bundle's, since the folder's walk skips its shelf

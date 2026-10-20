@@ -89,12 +89,16 @@ fn request(
 ) -> Result<LaunchRequest> {
     layout.state(escape)?;
     let typed = |path: Option<PathBuf>| path.map(|path| layout.typed(path));
-    // The project's shelf, else the personal one (#697).
-    let project = layout.recipes(typed(recipes_dir));
+    // The project's shelf, else the personal one (#697); a shelf the flag
+    // selects is the one the bundle composes across too (ruling 3).
+    let selected = typed(recipes_dir);
+    let project = layout.recipes(selected.clone());
+    let shelf = selected.map(|_| project.path().to_path_buf());
     let recipes_dir = recipes::personal::holding(recipe.as_deref(), project)?;
     Ok(LaunchRequest {
         workspace: layout.workspace(),
         bundle: recipes::source(typed(bundle), recipe, recipes_dir, || layout.bundle())?,
+        shelf,
         journal,
         repo: typed(repo).or_else(|| layout.operated()),
         secrets: typed(secrets_file),

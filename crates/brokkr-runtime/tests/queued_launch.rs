@@ -145,6 +145,7 @@ impl Fleet {
         let request = LaunchRequest {
             workspace: self.workspace(name),
             bundle: BundleSource::Dir(bundle.into()),
+            shelf: None,
             journal: self.journal(),
             repo: Some(".".into()),
             secrets: Some("secrets.env".into()),
@@ -175,6 +176,7 @@ impl Fleet {
         let request = LaunchRequest {
             workspace,
             bundle: BundleSource::Dir(bundle),
+            shelf: None,
             journal: self.journal(),
             repo: None,
             secrets: None,

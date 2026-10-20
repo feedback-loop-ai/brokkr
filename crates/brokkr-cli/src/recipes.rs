@@ -19,14 +19,14 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use brokkr_runtime::launch::{compile_for, BundleSource};
-use brokkr_runtime::places::{self, Kind, FOLDER};
+use brokkr_runtime::places::{self, Kind, ResolvedShelf, FOLDER};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, Invocation, SeatBody};
 
 mod agents;
 pub(crate) mod personal;
 mod sources;
-use personal::{Onto, Origin, Resolved, ShelfPath};
+use personal::{Onto, Origin, ShelfPath};
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity), else the `implicit` one a
@@ -640,7 +640,7 @@ fn reach(clone: &Path, path: &str) -> Result<PathBuf, AtPath> {
 /// and a nested repository below a folder, refuse. A layout that cannot
 /// be read refuses in its own words (fail closed). The `place` `dir`
 /// resolves to is returned.
-fn refuse_folder(Resolved { at, real, place }: Resolved) -> Result<PathBuf> {
+fn refuse_folder(ResolvedShelf { at, real, place }: ResolvedShelf) -> Result<PathBuf> {
     let resolved = real
         .ancestors()
         .filter(|real| !at.ancestors().any(|s| s == *real));

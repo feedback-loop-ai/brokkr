@@ -30,6 +30,7 @@ fn request(bundle: BundleSource) -> LaunchRequest {
     LaunchRequest {
         workspace: PathBuf::from("/work"),
         bundle,
+        shelf: None,
         journal: PathBuf::from("/work/forge.db"),
         repo: Some(PathBuf::from("/repo")),
         secrets: Some(PathBuf::from("secrets.env")),
