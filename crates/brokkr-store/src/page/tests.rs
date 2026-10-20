@@ -368,6 +368,15 @@ fn a_read_the_journal_cannot_answer_is_refused_in_sqlite_s_words() {
     assert_eq!(gone.to_string(), "sqlite: Query returned no rows");
     store.conn.execute_batch("DROP TABLE run_summary").unwrap();
     let uncounted = store.counted(&lane(Lane::Behind, None)).unwrap_err();
+    assert!(
+        matches!(
+            &uncounted,
+            StoreError::Sqlite(rusqlite::Error::SqliteFailure(failure, Some(said)))
+                if failure.code == rusqlite::ErrorCode::Unknown
+                    && said == "no such table: run_summary"
+        ),
+        "{uncounted:?}"
+    );
     assert_eq!(uncounted.to_string(), "sqlite: no such table: run_summary");
 }
 
