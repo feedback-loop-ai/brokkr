@@ -129,14 +129,21 @@ Adopted from simplicity alone:
   and every readout already do what S14 asked for. Robustness's "typed
   carry evidence" is kept where it binds: one `thiserror` enum in the
   runtime whose `Display` is the verb's text and the journaled reason.
-- **Every member named needs no special case** (cut 7). The identity facts
-  are asked of the attempts a verdict is read from or through; with none,
-  they are vacuous, which is S18 stated as the rule rather than beside it.
-  The visit's records are read by the reader before the compile and before
-  any name (D2, D4), so a record that does not read refuses the all-named
-  retry as it refuses any member retry, at the command and at the drive
-  (S24, C1); the all-named case is not exempted, since that would move the
-  reader after the names and reverse S23's order.
+- **Every member named is R4 item 4's stated short-circuit** (cut 7,
+  corrected on clarify's pass after S24, C6). It does not fall out of the
+  identity facts as vacuous: with no verdict carried, the head now's shape,
+  the tree now and item 5's four shape facts about the parked attempt
+  (`NoAttemptEnded`, `Succeeded`, `EndedAtLaterStep`, `NoRecord`) would
+  still be asked and would refuse a dirty tree, a park at the chief and a
+  parked attempt with no record, which the spec's scenarios `Every member
+  named` and `Every member named on a run parked at a later step` admit.
+  So once the names resolve to every member, the rule returns the
+  all-fresh plan and asks nothing below item 4 (S18, task 4.2). The visit's
+  records are read by the reader before the compile and before any name
+  (D2, D4), so a record that does not read refuses the all-named retry as
+  it refuses any member retry, at the command and at the drive (S24, C1);
+  the all-named case is not exempted from the reader, since that would
+  move the reader after the names and reverse S23's order.
 - **`resume`'s argument defaulting is reused** (section 1). The member form
   builds its `LaunchRequest` through the same `request`
   (`crates/brokkr-cli/src/verbs/delivery.rs:79`) `resume` uses, with
@@ -656,6 +663,10 @@ built by a builder and a synthetic panel bundle:
   the marker's mark dropped from the test;
 - the read-through: the same member stuck twice carries by the first
   attempt; mutation: the entry's source replaced by the carrying attempt;
+- every member named: on a dirty tree, a moved head and a park at the
+  chief, the rule returns the all-fresh plan and asks nothing below item 4;
+  mutation: the short-circuit removed, so the dirty tree (or the park at
+  the chief) refuses;
 - `RecordUnread` on a `settled_members` that is not an object, on a
   `tree` with a fifth word and on a `head` end outside the shape, raised by
   the reader before any fact; mutation: the parse falling back to "no
