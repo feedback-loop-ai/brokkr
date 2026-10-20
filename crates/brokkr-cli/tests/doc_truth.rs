@@ -4,7 +4,8 @@
 //!
 //! A living doc is a tracked Markdown file that `status_pages::is_record`
 //! does not call a record, outside the [`FROZEN`] surfaces. Each is read as
-//! blocks: a paragraph, list or table between blank lines, or a fenced
+//! blocks: a paragraph, list or table between lines blank inside their
+//! blockquote markers, a deeper quote opening its own, or a fenced
 //! block whole, in a blockquote or not, closed only by a line of its own
 //! fence character at least as long and nothing else. Four rules hold them:
 //!
@@ -53,8 +54,9 @@ fn is_living(path: &str) -> bool {
     !status_pages::is_record(path) && !FROZEN.iter().any(|(frozen, _)| path.starts_with(frozen))
 }
 
-/// A paragraph, list or table between blank lines, or the inside of a
-/// fenced block: its text and the line its text starts on.
+/// A paragraph, list or table between blank lines, as [`blocks`] reads
+/// them, or the inside of a fenced block: its text and the line its text
+/// starts on.
 pub(crate) struct Block {
     pub(crate) first: usize,
     pub(crate) text: String,
@@ -130,12 +132,14 @@ impl Fence {
 }
 
 /// A Markdown text's blocks, each line's text inside its blockquote
-/// markers, or why it cannot be read.
+/// markers, or why it cannot be read. A line is blank by its text inside
+/// those markers, so a bare `>` parts two blocks of one quote, and a line
+/// quoted deeper than the open block opens one of its own, as CommonMark's
+/// blockquote interrupts a paragraph; a line quoted less runs on lazily.
 fn blocks(text: &str) -> Result<Vec<Block>, String> {
     let mut blocks: Vec<Block> = Vec::new();
-    let (mut fence, mut open) = (None::<Fence>, false);
+    let (mut fence, mut open) = (None::<Fence>, None::<usize>);
     for (at, line) in text.lines().enumerate() {
-        let trimmed = line.trim();
         if let Some(opened) = fence {
             let (depth, inside) = unquoted(line, opened.depth);
             if depth < opened.depth {
@@ -152,18 +156,18 @@ fn blocks(text: &str) -> Result<Vec<Block>, String> {
         }
         let (depth, inside) = unquoted(line, usize::MAX);
         if let Some(opened) = Fence::opened_by(inside, depth) {
-            (fence, open) = (Some(opened), false);
+            (fence, open) = (Some(opened), None);
             blocks.push(Block {
                 first: at + 2,
                 text: String::new(),
                 fenced: true,
             });
-        } else if trimmed.is_empty() {
-            open = false;
-        } else if open {
+        } else if inside.trim().is_empty() {
+            open = None;
+        } else if open.is_some_and(|open| depth <= open) {
             push_line(blocks.last_mut().expect("an open block"), inside);
         } else {
-            open = true;
+            open = Some(depth);
             blocks.push(Block {
                 first: at + 1,
                 text: inside.to_string(),
@@ -257,7 +261,7 @@ fn a_fence_closes_only_on_its_own_marker_inside_its_quote() {
     assert_eq!(
         read("> Quoted:\n>\n> ```sh\n> brokkr 0.1.0\n>   `a/b`\n> ```\n> after\n"),
         Ok(vec![
-            (1, "Quoted:\n".to_string(), false),
+            (1, "Quoted:".to_string(), false),
             (4, "brokkr 0.1.0\n  `a/b`".to_string(), true),
             (7, "after".to_string(), false),
         ])
@@ -879,21 +883,22 @@ const fn word(before: &'static str) -> Spelling {
 
 /// The text after the gap that parts a word from the version it names:
 /// whitespace, line breaks included, inline markup (`*`, `_`, `` ` ``),
-/// label punctuation (`:`, a table cell's `|`) and a `version` or
-/// `release` word. `None` when nothing parts them.
+/// label punctuation (`:`, a table cell's `|`) and a `version`,
+/// `versions`, `release`, `releases` or `released` word. `None` when
+/// nothing parts them.
 fn gap(text: &str) -> Option<&str> {
     let parts = |c: char| c.is_whitespace() || "*_`:|".contains(c);
     let rest = text.trim_start_matches(parts);
     if rest.len() == text.len() {
         return None;
     }
-    let label = ["version", "release"]
+    let label = ["version", "versions", "release", "releases", "released"]
         .into_iter()
-        .find_map(|label| rest.strip_prefix(label));
-    Some(match label {
-        Some(after) if after.starts_with(parts) => after.trim_start_matches(parts),
-        _ => rest,
-    })
+        .find_map(|label| {
+            rest.strip_prefix(label)
+                .filter(|after| after.starts_with(parts))
+        });
+    Some(label.map_or(rest, |after| after.trim_start_matches(parts)))
 }
 
 /// The spellings that state Brokkr's own version. One with an opener is
@@ -927,7 +932,8 @@ fn opened<'a>(text: &'a str, open: &str) -> Option<&'a str> {
         .try_fold(text, |rest, c| rest.trim_start().strip_prefix(c))
 }
 
-/// The version `text` opens with (`0.12.0`, `v0.12.0`, `0.1.5-rc.1`),
+/// The version `text` opens with (`0.12.0`, `v0.12.0`, `0.1.5-rc.1`,
+/// `0.12.0+build.123`), its pre-release and build metadata included,
 /// without its `v`, and the text after it.
 fn version(text: &str) -> Option<(&str, &str)> {
     let bare = text.strip_prefix('v').unwrap_or(text);
@@ -948,14 +954,17 @@ fn version(text: &str) -> Option<(&str, &str)> {
     if parts < 3 {
         return None;
     }
-    let tail = bare[end..].strip_prefix('-').map_or(0, |pre| {
-        let label = pre
-            .split(|c: char| !c.is_ascii_alphanumeric() && c != '.')
-            .next()
-            .unwrap_or_default();
-        1 + label.trim_end_matches('.').len()
-    });
-    let end = end + tail;
+    let label = |at: usize, mark: char| {
+        bare[at..].strip_prefix(mark).map_or(0, |label| {
+            let label = label
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '.')
+                .next()
+                .unwrap_or_default();
+            1 + label.trim_end_matches('.').len()
+        })
+    };
+    let end = end + label(end, '-');
+    let end = end + label(end, '+');
     let rest = &bare[end..];
     let joined = rest.starts_with(|c: char| c.is_ascii_alphanumeric())
         || rest
@@ -1126,6 +1135,38 @@ fn a_stale_version_is_refused_unless_marked_illustrative() {
     assert_eq!(version("0.12.0.1"), None);
 }
 
+#[test]
+fn build_metadata_and_every_release_word_are_read_with_the_version() {
+    let planted = doc(
+        "docs/guides/m.md",
+        "Brokkr 0.12.0+build.123 and {\"engine_version\": \"0.12.0+build.123\"} are built.\n\
+         \n\
+         Brokkr releases 0.11.0, Brokkr released 0.10.0 and Brokkr versions 0.9.0.\n\
+         \n\
+         Brokkr releases are signed, Brokkr versions differ and Brokkr 0.12.0 ships.\n",
+    )
+    .unwrap();
+    let states = |(line, stated): (usize, &str)| {
+        format!("docs/guides/m.md:{line}: states Brokkr {stated}; the workspace is 0.12.0")
+    };
+    let built = "0.12.0+build.123";
+    assert_eq!(
+        stale_versions(&[planted], "0.12.0"),
+        [
+            (1, built),
+            (1, built),
+            (3, "0.11.0"),
+            (3, "0.10.0"),
+            (3, "0.9.0")
+        ]
+        .map(states)
+    );
+    assert_eq!(
+        version("0.1.5-rc.1+b2. More"),
+        Some(("0.1.5-rc.1+b2", ". More"))
+    );
+}
+
 /// A word without the punctuation around it, lowercased.
 fn bare(word: &str) -> String {
     let word = word.trim_end_matches("'s").trim_end_matches("’s");
@@ -1142,9 +1183,80 @@ fn number(word: Option<&&str>) -> Option<u16> {
         .then(|| word.parse().expect("four digits"))
 }
 
+/// The length of a Markdown link's `destination "title")`, the text after
+/// its `](`, through the `)` that closes it: a destination of no whitespace
+/// whose parentheses balance, and a title in `"`, `'` or `()` after it.
+/// `None` when no link closes there, so the text is read as words.
+fn destination(text: &str) -> Option<usize> {
+    let mut depth = 0;
+    let mut end = text.len();
+    for (at, c) in text.char_indices() {
+        match c {
+            ')' if depth == 0 => return Some(at + 1),
+            ')' => depth -= 1,
+            '(' => depth += 1,
+            c if c.is_whitespace() => {
+                end = at;
+                break;
+            }
+            _ => {}
+        }
+    }
+    let titled = text[end..].trim_start();
+    let close = match titled.chars().next()? {
+        '"' => '"',
+        '\'' => '\'',
+        '(' => ')',
+        _ => return None,
+    };
+    let after = titled[1..].split_once(close)?.1.trim_start();
+    after.starts_with(')').then(|| text.len() - after.len() + 1)
+}
+
+/// A word's text after the Markdown link it holds, or the whole word.
+fn after_link(word: &str) -> &str {
+    word.find("](")
+        .and_then(|at| Some(&word[at + 2 + destination(&word[at + 2..])?..]))
+        .unwrap_or(word)
+}
+
+/// The words a citation is read in: parted at whitespace and after each
+/// comma, so `0056,0069` lists two, but never inside a Markdown link, so
+/// `[0069](a,b "Title")` is one word whatever its destination and title
+/// hold.
+fn words(text: &str) -> Vec<&str> {
+    let (mut words, mut start, mut at) = (Vec::new(), None, 0);
+    while let Some(c) = text[at..].chars().next() {
+        if c.is_whitespace() {
+            words.extend(start.take().map(|from| &text[from..at]));
+            at += c.len_utf8();
+            continue;
+        }
+        let from = *start.get_or_insert(at);
+        let linked = text[at..]
+            .strip_prefix("](")
+            .and_then(destination)
+            .map(|len| 2 + len);
+        at += linked.unwrap_or(c.len_utf8());
+        if linked.is_none() && c == ',' {
+            words.push(&text[from..at]);
+            start = None;
+        }
+    }
+    words.extend(start.map(|from| &text[from..]));
+    words
+}
+
+/// Whether `word` closes a citation: `)`, `.`, `;` or `:` after its
+/// letters, or after the link it holds.
+fn closing(word: &str) -> bool {
+    let tail = after_link(word).rsplit(char::is_alphanumeric).next();
+    tail.is_some_and(|tail| tail.contains([')', '.', ';', ':']))
+}
+
 /// The decision numbers a list starting at `words[from]` names (`0015`,
 /// `0015 and 0069`, `0015, 0016, or 0069`, `0015,0069`), and the word that
-/// ends it.
+/// ends it: none past a number word [`closing`] the citation.
 fn listed(words: &[&str], from: usize) -> (Vec<u16>, Option<usize>) {
     let (mut numbers, mut last, mut at) = (Vec::new(), None, from);
     while let Some(cited) = number(words.get(at)) {
@@ -1153,7 +1265,7 @@ fn listed(words: &[&str], from: usize) -> (Vec<u16>, Option<usize>) {
         let joined = words
             .get(at + 1)
             .is_some_and(|word| ["and", "or"].contains(&bare(word).as_str()));
-        if !joined && !words[at].ends_with(',') {
+        if closing(words[at]) || (!joined && !words[at].ends_with(',')) {
             break;
         }
         at += 1 + usize::from(joined);
@@ -1161,12 +1273,10 @@ fn listed(words: &[&str], from: usize) -> (Vec<u16>, Option<usize>) {
     (numbers, last)
 }
 
-/// Whether the citation ends at `words[at]`: the word closes it (`)`, `.`,
-/// `;` or `:` after its letters), or the next word opens another (`(`).
+/// Whether the citation ends at `words[at]`: the word is [`closing`], or
+/// the next word opens another (`(`).
 fn closes(words: &[&str], at: usize) -> bool {
-    let tail = words[at].rsplit(char::is_alphanumeric).next();
-    tail.is_some_and(|tail| tail.contains([')', '.', ';', ':']))
-        || words.get(at + 1).is_some_and(|next| next.starts_with('('))
+    closing(words[at]) || words.get(at + 1).is_some_and(|next| next.starts_with('('))
 }
 
 /// Each decision `proposed` at `words[at]` names after it: `proposed
@@ -1174,18 +1284,19 @@ fn closes(words: &[&str], at: usize) -> bool {
 /// NNNN`, each number of a [`listed`] run, and none past a word that
 /// [`closes`] the citation.
 fn prefixed_proposed(words: &[&str], at: usize) -> Vec<u16> {
-    if closes(words, at) {
-        return Vec::new();
+    let mut next = at;
+    for joins in [&["by", "in", "for"][..], &["decision", "decisions"]] {
+        let joined = words
+            .get(next + 1)
+            .is_some_and(|word| joins.contains(&bare(word).as_str()));
+        if !closes(words, next) && joined {
+            next += 1;
+        }
     }
-    let after = |skip: usize| words.get(at + skip).map(|word| bare(word));
-    let mut next = 1;
-    if after(next).is_some_and(|word| ["by", "in", "for"].contains(&word.as_str())) {
-        next += 1;
+    match closes(words, next) {
+        true => Vec::new(),
+        false => listed(words, next + 1).0,
     }
-    if after(next).is_some_and(|word| word == "decision" || word == "decisions") {
-        next += 1;
-    }
-    listed(words, at + next).0
 }
 
 /// Each decision a list after `decision` or `decisions` at `words[at]`
@@ -1208,13 +1319,10 @@ fn trailed_proposed(words: &[&str], at: usize) -> Vec<u16> {
 }
 
 /// Each decision a text calls proposed: a [`prefixed_proposed`] citation
-/// or a [`trailed_proposed`] one, in any case and across line breaks. A
-/// comma parts words as a space does, so `0056,0069` lists two.
+/// or a [`trailed_proposed`] one, in any case and across line breaks, in
+/// its [`words`].
 fn called_proposed(text: &str) -> Vec<u16> {
-    let words: Vec<&str> = text
-        .split_whitespace()
-        .flat_map(|word| word.split_inclusive(','))
-        .collect();
+    let words = words(text);
     let mut found = Vec::new();
     for (at, word) in words.iter().enumerate() {
         let word = bare(word);
@@ -1375,12 +1483,18 @@ fn every_decision_called_proposed_is_proposed() {
     );
 }
 
-#[test]
-fn a_decision_called_proposed_is_held_to_the_index() {
-    let statuses = [(56, "proposed"), (69, "accepted"), (75, "proposed")]
+/// The index the planted citations are held to: 0069 accepted, 0056 and
+/// 0075 proposed.
+fn planted_statuses() -> std::collections::BTreeMap<u16, String> {
+    [(56, "proposed"), (69, "accepted"), (75, "proposed")]
         .into_iter()
         .map(|(number, status)| (number, status.to_string()))
-        .collect();
+        .collect()
+}
+
+#[test]
+fn a_decision_called_proposed_is_held_to_the_index() {
+    let statuses = planted_statuses();
     let planted = [
         (
             "crates/a/src/lib.rs",
@@ -1467,6 +1581,33 @@ fn a_decision_called_proposed_is_held_to_the_index() {
             "adapters/a.json:3: calls decision 0069 proposed; the index rules it accepted",
             "adapters/open.json: cannot be read: EOF while parsing an object at line 1 column 30",
         ]
+    );
+}
+
+#[test]
+fn a_proposed_citation_ends_where_it_closes_and_reads_a_link_whole() {
+    let planted = [(
+        "docs/c.md".to_string(),
+        "The draft (proposed decision 0056), and 0069 is accepted.\n\
+         A proposed decision. 0069 is accepted; proposed by. 0069 too; proposed by. Decision 0069.\n\
+         \n\
+         proposed decisions 0056 and 0069; proposed decisions [0056](a), [0069](b).\n\
+         \n\
+         (decision [0069](https://example.invalid/a,b), proposed).\n\
+         (decision [0069](0069-x.md \"Title\"), proposed).\n\
+         proposed decision [0069](x 'a (b) c'); proposed decision [0069](a(b)c).\n"
+            .to_string(),
+    )];
+    let accepted = |line: usize| {
+        format!("docs/c.md:{line}: calls decision 0069 proposed; the index rules it accepted")
+    };
+    assert_eq!(
+        misnamed_proposals(&planted, &planted_statuses()),
+        [4, 4, 6, 6, 6, 6].map(accepted)
+    );
+    assert_eq!(
+        words("a,b [0069](x,y \"T, u\"), c [d](e"),
+        ["a,", "b", "[0069](x,y \"T, u\"),", "c", "[d](e"]
     );
 }
 
@@ -1667,6 +1808,37 @@ fn a_retired_term_is_refused_outside_its_citation_and_its_allowance() {
             "docs/guides/a.md:10: names `Cordis`, retired: never built (#364): the DeepSeek harness is the built-in dsh adapter",
             "docs/guides/a.md:12: names `windows-`, retired: decision 0063: the hosts are Linux and macOS",
             "docs/guides/b.md: allows `winget`, which it no longer names",
+        ]
+    );
+}
+
+#[test]
+fn a_quote_parts_a_retired_term_from_the_citation_beside_it() {
+    let docs = [
+        (
+            "docs/guides/s.md",
+            "> The hosts are Linux and macOS (decision 0063).\n>\n> winget install brokkr\n",
+        ),
+        (
+            "docs/guides/i.md",
+            "The hosts are Linux and macOS (decision 0063).\n> winget install brokkr\n",
+        ),
+        (
+            "docs/guides/l.md",
+            "> The hosts are Linux and macOS (decision 0063).\nwinget runs on lazily.\n\
+             > > A deeper quote names Scoop.\n",
+        ),
+    ]
+    .map(|(path, text)| doc(path, text).unwrap());
+    let windows = |at: &str, term: &str| {
+        format!("docs/guides/{at}: names `{term}`, retired: decision 0063: the hosts are Linux and macOS")
+    };
+    assert_eq!(
+        retired_terms(&docs, &[]),
+        [
+            windows("s.md:3", "winget"),
+            windows("i.md:2", "winget"),
+            windows("l.md:3", "Scoop"),
         ]
     );
 }
