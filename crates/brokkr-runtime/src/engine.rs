@@ -35,8 +35,7 @@ use crate::bundle::{
     charters_as_started, charters_intact, Bundle, CharterPin, ExecutableBody, HandsState, Seat,
     SeatBody, SeatClass, SiteFacts, StepBody, ENGINE_VERSION,
 };
-use crate::dialect::DialectPhase;
-use crate::phase_name;
+use crate::{dialect::DialectPhase, phase_name};
 // The test modules reach these through `use super::*`.
 #[cfg(test)]
 use crate::bundle::{Aggregate, Invocation, PanelMember, SequenceStep};
@@ -45,6 +44,7 @@ use brokkr_protocol::Cleanup;
 use brokkr_protocol::{AttemptReport, CleanupEvidence};
 use serde::Serialize;
 
+mod artifacts;
 mod boxed;
 mod broker;
 use boxed::{artifact_root, hands_command, make_root};

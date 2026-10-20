@@ -426,7 +426,8 @@ fn a_terminal_cites_a_sound_response_for_an_answered_call_alone() {
     // CC2: a refusal forwarded nothing, so cites nothing; a digest that is
     // no lowercase sha256, a length past one reservation, a null, or a
     // response read by position, is malformed. The control verifies its
-    // call, and is refused only for its missing closure.
+    // call, and is refused only for its missing closure. Only that
+    // verified Terminal's response is cited (U8c).
     let opened = Lifecycle::new(&owner(), PLAN).opened().line().unwrap();
     let started = br#"{"record":"started","seq":2,"call":1,"tool":"resolve"}"#;
     let ledger = |outcome: &str, response: String| {
@@ -483,11 +484,53 @@ fn a_terminal_cites_a_sound_response_for_an_answered_call_alone() {
             .calls()
             .iter()
             .filter(|(_, outcome)| outcome.is_some());
+        let cited = lifecycle.cited().count();
         assert_eq!(
-            (case, found, ended.count()),
-            (case, Some(invalid), verified)
+            (case, found, ended.count(), cited),
+            (case, Some(invalid), verified, verified)
         );
     }
+}
+
+#[test]
+fn the_lifecycle_cites_the_response_of_each_verified_terminal_and_no_other() {
+    // U8c (CR2): a retained answer and a retained child error each cite
+    // their staged bytes; a failure of the broker's own, as a timeout,
+    // cites none, though its outcome is failed too.
+    let (mut ledger, appended) = appending();
+    ledger.retain_with(|_, _: &[u8]| Ok(()), 1);
+    let (answer, error) = (br#"{"result":{}}"#, br#"{"error":{}}"#);
+    for (bytes, outcome) in [(&answer[..], Outcome::Succeeded), (error, Outcome::Failed)] {
+        let mut call = ledger.room().unwrap().begin("resolve").unwrap();
+        ledger.reserve(&mut call).unwrap();
+        let answered = ledger.answered(call, outcome, (bytes, &sha256(bytes)));
+        assert_eq!(answered, Ok(()));
+    }
+    let call = ledger.room().unwrap().begin("resolve").unwrap();
+    assert_eq!(ledger.end(call, Outcome::Failed), Ok(()));
+    assert_eq!(ledger.close(), Ok(Disposition::Clean));
+    let written = appended.borrow().clone();
+    let (lifecycle, invalid) = recover(&written, &owner(), PLAN);
+    let (answered, failed) = (sha256(answer), sha256(error));
+    let cited = vec![(1, answered.as_str(), 13), (2, failed.as_str(), 12)];
+    assert_eq!(
+        (lifecycle.cited().collect::<Vec<_>>(), invalid),
+        (cited, None)
+    );
+    // Call 1's Terminal again, numbered next and citing the error's bytes:
+    // a conflicting duplicate, past the verified prefix, cites nothing.
+    let lines: Vec<&str> = std::str::from_utf8(&written)
+        .unwrap()
+        .split_inclusive('\n')
+        .collect();
+    let again = lines[2]
+        .replace(r#""seq":3"#, r#""seq":4"#)
+        .replace(&answered, &failed);
+    let conflicting = [lines[..3].concat(), again].concat();
+    let (lifecycle, invalid) = recover(conflicting.as_bytes(), &owner(), PLAN);
+    let cited = vec![(1, answered.as_str(), 13)];
+    let found = (lifecycle.cited().collect::<Vec<_>>(), invalid);
+    assert_eq!(found, (cited, Some(Invalid::Conflict)));
 }
 
 #[test]

@@ -509,8 +509,9 @@ Dependencies: U8a2b. Files and scope: [design.md](design.md#u8b--stage-retained-
 
 Dependencies: U8b. Files and scope: [design.md](design.md#u8c--publish-verified-content-addressed-artifacts).
 
-- [ ] 40.1 (U8c; [CR2](specs/capability-response-retention/spec.md), [CR5](specs/capability-response-retention/spec.md)) Use owner-rooted no-follow reads, verify staged bytes and atomically publish immutable digest paths under the operated repository; retain handles across checks. Verify: Existing-good reuse, collision/mismatch, nonregular/symlink/hardlink and concurrent replacement controls, exact missing/corrupt causes.
-- [ ] 40.2 (U8c; [CR2](specs/capability-response-retention/spec.md), [CR5](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 40.1. Apply the shared verification duty above.
+- [x] 40.1 (U8c; [CR2](specs/capability-response-retention/spec.md), [CR5](specs/capability-response-retention/spec.md)) Use owner-rooted no-follow reads, verify staged bytes and atomically publish immutable digest paths under the operated repository; retain handles across checks. Verify: Existing-good reuse, collision/mismatch, nonregular/symlink/hardlink and concurrent replacement controls, exact missing/corrupt causes.
+- [x] 40.2 (U8c; [CR2](specs/capability-response-retention/spec.md), [CR5](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 40.1. Apply the shared verification duty above.
+  Evidence: [U8c](evidence/U8c.md), its proofs in in-crate child modules by the operator's ruling A of 2026-10-20, with twenty-one removal controls; the one public item it adds, `Lifecycle::cited`, is that ruling's. Exact coverage, macOS and remote CI stay pending there.
 
 ## 41. U8d — Fold settled calls through confirmed append
 
