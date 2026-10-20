@@ -1,6 +1,6 @@
 # 0090 — A portable recipe's verify and ship are the folder's own seats, pinned from the folder at compile
 
-Status: proposed
+Status: accepted — operator ruled 2026-10-20 (PR #793), every choice asked taken as recommended
 Date: 2026-10-20
 
 Built: unbuilt (#717)
@@ -324,7 +324,11 @@ compose no `fast`.
      and the five re-points. The READMEs change too: fast's
      `recipes/fast/README.md:28-35` paragraph says that its verify and
      ship are the folder's, and `brokkr-fast`'s README says that it
-     carries Brokkr's verifier. The slice also re-pins the witnesses and
+     carries Brokkr's verifier. `README.md:66` ("From a clone of this
+     repository skip `init`: `brokkr run --recipe fast --repo .` …") and
+     `docs/guides/how-brokkr-works.md:9` re-point to `brokkr-fast`,
+     because `fast` with no folder fails verify closed once this slice
+     lands. The slice also re-pins the witnesses and
      records the comparison of ruling 3.
    - **Slice 3d: the acceptance.** It runs in scratch folders under
      claude, codex and dsh. Each folder is made with `git init`, then a
@@ -368,7 +372,11 @@ Each choice is listed with its recommendation first.
   alternative keeps Brokkr's verifier as fast's own declaration. That
   saves ruling 3's five re-points and every move but `fast`'s own, but
   ships Brokkr's checks in every shelf copy of `fast` and leaves the
-  verifier where 0087 ruled it would not stay.
+  verifier where 0087 ruled it would not stay. The recommendation's
+  consequence: in Brokkr's own clone, `brokkr run --recipe fast --repo .`
+  stops passing verify, so slice 3c re-points the two lines that say to
+  run it (`README.md:66` and `docs/guides/how-brokkr-works.md:9`) to
+  `brokkr-fast`.
 - **The re-points.** The five recipes of ruling 3 extend `brokkr-fast`.
   The alternative has each declare Brokkr's verify seat itself, five
   copies of one seat, which decision 0071 ruling 5 refuses.
@@ -390,6 +398,10 @@ Each choice is listed with its recommendation first.
   the seat.
 - A shelf copy of `fast` still carries its own verify and ship scripts.
   In a folder they are pinned and never spawned for those seats.
+- In Brokkr's own clone, which has no folder, `brokkr run --recipe fast
+  --repo .` fails verify closed once slice 3c lands. Brokkr's own runs
+  name `brokkr-fast`, and slice 3c re-points the README and the tour that
+  say to run `fast` there.
 - A run that started before slice 3c lands, on a recipe whose digest
   moves, is refused on resume as drift (decision 0017). The slice lands
   when no such run is parked, or the run resumes from its pinned bytes.
