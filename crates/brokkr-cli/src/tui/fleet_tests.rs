@@ -1209,6 +1209,23 @@ fn the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour() {
     assert_eq!(quiet(&at(bound + 1)), Some(Need::Stale { silent }));
 }
 
+/// The frames the shell reads of the journal at `db` for the console as
+/// `tui` stands: forced, the fleet due, its open run and its window.
+fn forced_frames(db: &std::path::Path) -> impl FnMut(&Tui) -> Views + '_ {
+    let mut read = super::tests::reading(db);
+    move |tui: &Tui| {
+        let ask = Ask {
+            run: tui.run.as_deref(),
+            subject: None,
+            force: true,
+            fleet: true,
+            tab: 0,
+            window: asked_window(tui),
+        };
+        read(ask).unwrap().expect("a forced read draws a frame")
+    }
+}
+
 /// Decision 0089 rulings 5 and 6: a run opened from the list scrolled a
 /// page down stays open when a writer parks it, though its new place
 /// heads "needs you", before the window the list reads, so the next
@@ -1232,18 +1249,7 @@ fn a_run_opened_past_the_first_page_stays_open_when_a_writer_moves_it_before_the
         })
         .collect();
     generate(&Store::open(&db).unwrap(), &held).unwrap();
-    let mut read = super::tests::reading(&db);
-    let mut frame = |tui: &Tui| {
-        let ask = Ask {
-            run: tui.run.as_deref(),
-            subject: None,
-            force: true,
-            fleet: true,
-            tab: 0,
-            window: asked_window(tui),
-        };
-        read(ask).unwrap().expect("a forced read draws a frame")
-    };
+    let mut frame = forced_frames(&db);
     // The list scrolled a page down, its window the second page and the
     // third: the parked runs, then the running one, 111th.
     let mut tui = Tui::new(None);
@@ -1302,4 +1308,49 @@ fn a_run_opened_past_the_first_page_stays_open_when_a_writer_moves_it_before_the
     settle(&mut tui, &fleet);
     let held = (tui.run.as_deref(), tui.cursor[0].as_deref());
     assert_eq!(held, (Some("opened"), Some(HELD)));
+}
+
+/// Decision 0089 rulings 5 and 6: two run ids no writer admits, cut to
+/// one shown id, are two rows the list selects apart by their whole ids,
+/// and opening either reads no run: the frame is drawn, the run stays
+/// open, and the fleet lists it refused in the store's words.
+#[test]
+fn two_refused_ids_cut_alike_are_selected_and_opened_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    drop(brokkr_store::Store::open(&db).unwrap());
+    let ids = ["v".repeat(200), format!("{}w", "v".repeat(199))];
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    for run_id in &ids {
+        brokkr_store::test_support::plant_run(&conn, run_id, "{}").unwrap();
+    }
+    let mut frame = forced_frames(&db);
+    let (cut, words) = (
+        format!("{}…", "v".repeat(128)),
+        "its run id is past 128 bytes, which no writer admits",
+    );
+    let mut tui = Tui::new(None);
+    let fleet = frame(&tui);
+    settle(&mut tui, &fleet);
+    let mut opened = Vec::new();
+    for _ in &ids {
+        let row = selected_run(&tui, &fleet).expect("a row is selected");
+        let shown = (row.run_id.as_str(), row.detail.as_deref());
+        assert_eq!(shown, (cut.as_str(), Some(words)));
+        apply(&mut tui, &fleet, Key::Enter);
+        let views = frame(&tui);
+        settle(&mut tui, &views);
+        let run = tui.run.clone().expect("the run stays open");
+        let listed = views.runs.runs.iter().find(|row| key_of(row) == run);
+        let listed = listed.map(|row| (row.run_id.as_str(), row.detail.as_deref()));
+        assert_eq!(
+            (views.run.is_none(), listed),
+            (true, Some((cut.as_str(), Some(words))))
+        );
+        opened.push(run);
+        apply(&mut tui, &views, Key::Escape);
+        apply(&mut tui, &fleet, Key::Down);
+    }
+    opened.sort();
+    assert_eq!(opened, ids);
 }

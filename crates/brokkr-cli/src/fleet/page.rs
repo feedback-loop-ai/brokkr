@@ -291,7 +291,7 @@ fn kept_of(
 impl Behind {
     /// Read each of the first `limit` runs behind their summary whole,
     /// but those kept at the head they still stand at, from the file they
-    /// were kept from.
+    /// were kept from, a quarantined run's acknowledgement as it was.
     fn refresh(
         &mut self,
         store: &Store,
@@ -317,7 +317,7 @@ impl Behind {
             let run_id = resume(&key).1;
             let head = store.head_hash(&run_id)?;
             let row = match (heads.remove(&run_id), kept.remove(&run_id)) {
-                (Some(at), Some(row)) if at == head => row,
+                (Some(at), Some(row)) if at == head && answered_alike(store, &run_id, &row) => row,
                 _ => {
                     let (row, events) = read_keyed(store, &key)?;
                     read += events;
@@ -535,6 +535,14 @@ fn listed(store: &Store, paged: Paged, whole: &dyn Fn(&str) -> bool) -> Result<R
     };
     row.paged_at = Some((at, key));
     Ok(row)
+}
+
+/// Whether a row kept at a head that stands is still the row that head
+/// reads: a quarantined run's acknowledgement lives beside the chain, so
+/// it lands at an unmoved head, and is read again, as the kept read reads
+/// it (decision 0089 rulings 3 and 6).
+fn answered_alike(store: &Store, run_id: &str, row: &RunRow) -> bool {
+    row.quarantine.is_none() || super::acknowledged(store, run_id) == row.acknowledgement
 }
 
 /// A key of the behind lane's place, which the lane resumes past.

@@ -360,6 +360,10 @@ fn a_row_read_whole_lists_by_its_fold_on_every_page() {
     assert_eq!(next.to_string(), "recent:7:w");
     let second = page(Some(&next), (1, NOW), read).unwrap();
     assert_eq!(ids(&second), [(Section::NeedsYou, "x…".to_string())]);
+    // Placed, a row read whole lists at its own key, a cut id at its whole.
+    let long = "x".repeat(200);
+    assert_eq!(first.rows[1].1.place(), (8, "w"));
+    assert_eq!(second.rows[0].1.place(), (6, long.as_str()));
     let past = second.next.unwrap();
     assert_eq!(past.to_string(), format!("recent:6:{}", "x".repeat(200)));
     let begun = Cursor {

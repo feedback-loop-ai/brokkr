@@ -368,6 +368,12 @@ fn run_of<'a>(
     let Some(run) = run else {
         return Ok(None);
     };
+    // An id past what any writer admits names no run, and none is read:
+    // the fleet lists it refused in the store's words (decision 0089
+    // rulings 5 and 6).
+    if brokkr_store::keyed(0, run.to_string()).is_err() {
+        return Ok(None);
+    }
     let rebuild = rebuild || kept.fleet.was_read_whole(run);
     let kept_run = standing.filter(|selected| !rebuild && selected.run == run);
     let selected = match kept_run.filter(|selected| still_whole(store, selected)) {

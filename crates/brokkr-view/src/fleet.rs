@@ -67,7 +67,8 @@ pub struct RunRow {
     pub order_at: i64,
     /// Where a page read the row, where its own facts place it elsewhere:
     /// a run read whole at its summary's place, or an id listed cut at its
-    /// whole one (decision 0089 rulings 5 and 6). Cursors compare it.
+    /// whole one (decision 0089 rulings 5 and 6). Cursors compare it, and
+    /// a cut id's stays on the page: the key a surface selects it by.
     #[serde(skip)]
     pub paged_at: Option<(i64, String)>,
 }

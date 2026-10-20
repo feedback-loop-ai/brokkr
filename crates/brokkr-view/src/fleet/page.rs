@@ -330,17 +330,23 @@ impl Cursor {
 /// `rows`, read in their sections' order, as they list at `now` (decision
 /// 0089 ruling 5): a row read whole lists by its fold, in the section
 /// [`super::section_of`] places it in and at its own key, on whichever
-/// page read it. The page's cursors are cut from where each row was read
+/// page read it, and a row listed cut at its whole id. The page's cursors are cut from where each row was read
 /// before it is placed, so the page that read a row lists it, and lists
 /// it once.
 fn placed(rows: &mut [(Section, RunRow)], now: &str) {
     let mut moved = false;
     for (section, row) in rows.iter_mut() {
-        if row.paged_at.is_none() {
+        let Some((_, key)) = &row.paged_at else {
             continue;
-        }
+        };
+        // A row listed by the cut of an id no writer admits keeps the
+        // whole id it was paged at: the one key that tells it from another
+        // cut alike, which a surface selects it by (ruling 6).
+        let cut = *key != row.run_id;
         *section = super::section_of(row, now);
-        row.paged_at = None;
+        if !cut {
+            row.paged_at = None;
+        }
         moved = true;
     }
     // Sorted only when a row moved: a page with none allocates nothing.

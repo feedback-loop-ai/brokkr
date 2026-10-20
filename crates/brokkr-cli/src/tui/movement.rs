@@ -43,7 +43,7 @@ pub(super) fn labels_for(tui: &Tui, views: &Views) -> Vec<(String, String)> {
             .0
             .into_iter()
             .flat_map(|(_, rows)| rows)
-            .map(|row| (row.run_id.clone(), fleet_label(row)))
+            .map(|row| (key_of(row).to_string(), fleet_label(row)))
             .collect(),
         (Level::Run, Some(view)) => run_labels(tui, view, lens_of(tui, views).as_ref()),
         // The PARTICIPANT panes are paragraphs with an offset, and a run
@@ -171,7 +171,7 @@ fn follow(tui: &mut Tui, views: &Views, (keys, from): (&[String], Option<usize>)
                 .runs
                 .runs
                 .iter()
-                .position(|row| Some(row.run_id.as_str()) == cursor);
+                .position(|row| Some(key_of(row)) == cursor);
             let reached = at >= Some(brokkr_view::PAGE_ROWS);
             let Some(ahead) = views.ahead.as_ref().filter(|_| reached) else {
                 return;
@@ -221,7 +221,19 @@ pub(super) fn listed_title(row: &RunRow) -> String {
 pub(super) fn selected_run<'a>(tui: &Tui, views: &'a Views) -> Option<&'a RunRow> {
     let keys = keys_for(tui, views);
     let index = index_of(&keys, &tui.cursor[0])?;
-    views.runs.runs.iter().find(|row| row.run_id == keys[index])
+    views
+        .runs
+        .runs
+        .iter()
+        .find(|row| key_of(row) == keys[index])
+}
+
+/// The key the fleet's list selects and opens a row by: its run's whole
+/// id, which a row listed by the cut of an id no writer admits keeps where
+/// its page read it, so two ids cut alike are two keys (decision 0089
+/// ruling 6).
+pub(super) fn key_of(row: &RunRow) -> &str {
+    row.place().1
 }
 
 /// The run the columns beside the list show: the fleet's selection, once

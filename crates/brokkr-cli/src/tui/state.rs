@@ -448,7 +448,7 @@ pub(super) fn panes_at(tui: &Tui, views: &Views) -> usize {
 /// the same question the run level asks.
 pub(super) fn asked_run(tui: &Tui, views: &Views) -> Option<String> {
     match tui.level {
-        Level::Runs => detail_row(tui, views).map(|row| row.run_id.clone()),
+        Level::Runs => detail_row(tui, views).map(|row| key_of(row).to_string()),
         Level::Run | Level::Participant => tui.run.clone(),
     }
 }
@@ -509,7 +509,7 @@ pub(super) fn settle(tui: &mut Tui, views: &Views) {
     // that the run went away.
     let vanished = match &tui.run {
         Some(run) if tui.level != Level::Runs && views.run.is_none() => {
-            !views.runs.runs.is_empty() && !views.runs.runs.iter().any(|r| r.run_id == *run)
+            !views.runs.runs.is_empty() && !views.runs.runs.iter().any(|row| key_of(row) == run)
         }
         Some(_) | None => false,
     };

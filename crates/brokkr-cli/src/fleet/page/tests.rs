@@ -622,6 +622,44 @@ fn refused_ids_cut_alike_are_kept_by_their_whole_ids() {
     assert_eq!(keys, [cut, long]);
 }
 
+/// Rulings 3 and 6: an acknowledgement lands beside the chain, so a
+/// quarantined run behind its summary that the operator acknowledges at
+/// its unmoved head is read whole again by the next refresh and lists
+/// under "older" with it, as the kept read lists it; and is kept after.
+#[test]
+fn a_behind_run_acknowledged_at_its_unmoved_head_lists_acknowledged() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    drop(Store::open(&db).unwrap());
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    plant(&conn, "refused", Shape::Refused, &stamp(now() - MINUTE));
+    let (store, mut pages, read) = refreshed(&db, AHEAD_ROWS);
+    assert_eq!(read, 2);
+    let listed = |pages: &Pages| {
+        let rows = paged(pages, &store, NOW, PAGE_ROWS, false);
+        let rows = rows.into_iter().map(|(section, row)| {
+            let acknowledged = row.acknowledgement.map(|ack| ack.seq);
+            (section, row.run_id, acknowledged)
+        });
+        rows.collect::<Vec<_>>()
+    };
+    let refused = "refused".to_string();
+    assert_eq!(listed(&pages), [(Section::NeedsYou, refused.clone(), None)]);
+    let (seq, hash) = store.head_hash("refused").unwrap();
+    conn.execute(
+        "INSERT INTO quarantine_acknowledgements
+             (run_id, head_seq, head_hash, operator, reason, recorded_at)
+         VALUES ('refused', ?1, ?2, 'op', 'read it', ?3)",
+        rusqlite::params![seq, hash, NOW],
+    )
+    .unwrap();
+    let journal = Journal::at(&db);
+    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS).unwrap(), 2);
+    assert!(pages.was_read_whole("refused"));
+    assert_eq!(listed(&pages), [(Section::Older, refused, Some(seq))]);
+    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS).unwrap(), 0);
+}
+
 /// Ruling 6: a run a refresh read whole as behind its summary, which a
 /// writer catches up before the page is read, lists once: by the read
 /// that kept it, never again from the range its row stands in now.

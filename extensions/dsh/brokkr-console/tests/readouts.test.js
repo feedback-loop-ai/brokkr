@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { analyticsOf, fleetOf, graphOf, ONE_HEARTH, ReadoutRefused, runViewOf } from '../lib/host/readouts.js'
+import { analyticsOf, fleetOf, graphOf, ONE_HEARTH, ReadoutRefused, runViewOf, VIEW_VERSION } from '../lib/host/readouts.js'
 import { analyticsDoc, fleetDoc, graphDoc, provenance, recipeRow, row, runViewDoc, seat } from './support/world.js'
 
 for (const [what, parse, doc] of [
@@ -14,8 +14,8 @@ for (const [what, parse, doc] of [
 ]) {
   test(`${what} at another view version is refused, not painted`, () => {
     assert.throws(
-      () => parse({ ...doc, view_version: 23 }),
-      new ReadoutRefused('version', `${what} is at view version 23; this console paints version 24 only`),
+      () => parse({ ...doc, view_version: VIEW_VERSION - 1 }),
+      new ReadoutRefused('version', `${what} is at view version ${VIEW_VERSION - 1}; this console paints version ${VIEW_VERSION} only`),
     )
   })
 }
@@ -26,7 +26,7 @@ test('the graph is read at its own wire version, 2, and any other is refused nam
     assert.throws(() => graphOf(graphDoc({ view_version: found })), new ReadoutRefused('version', `brokkr graph is at view version ${found}; this console paints version 2 only`))
   }
   // The shared wire's number is not the graph's.
-  assert.throws(() => graphOf(graphDoc({ view_version: 23 })), new ReadoutRefused('version', 'brokkr graph is at view version 23; this console paints version 2 only'))
+  assert.throws(() => graphOf(graphDoc({ view_version: VIEW_VERSION })), new ReadoutRefused('version', `brokkr graph is at view version ${VIEW_VERSION}; this console paints version 2 only`))
 })
 
 test('a graph is read whole: a park rule has no next, a terminal no seat, and a table not found says where', () => {

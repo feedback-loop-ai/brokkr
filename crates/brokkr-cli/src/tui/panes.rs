@@ -183,7 +183,7 @@ fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
     for (section, members) in sections {
         let members: Vec<_> = members
             .into_iter()
-            .filter(|row| keys.contains(&row.run_id))
+            .filter(|row| keys.iter().any(|key| key == key_of(row)))
             .map(|row| (row, title_lines(tui, views, row)))
             .collect();
         if !members.is_empty() {
@@ -208,7 +208,7 @@ fn draw_fleet(frame: &mut Frame, area: Rect, tui: &Tui, views: &Views) {
             height += 1;
         }
         for (row, lines) in members {
-            let chosen = cursor == Some(row.run_id.as_str());
+            let chosen = cursor == Some(key_of(row));
             if chosen {
                 selected = Some(rows.len());
             }
