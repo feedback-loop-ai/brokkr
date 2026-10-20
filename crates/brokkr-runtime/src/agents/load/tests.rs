@@ -2,8 +2,11 @@
 //! Each row writes one definition that fails two adjacent steps of
 //! `parse_adapter`, `resume_assessment` or `parse_agent`, and the earlier
 //! step's refusal is the one reported. A row's text names the file's own
-//! description as `{what}`.
+//! description as `{what}`. Inside each step the reads are bound the same
+//! way (#288 slice N): a row fails two adjacent reads of one step, and
+//! the earlier read's refusal is the one reported.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
@@ -106,6 +109,162 @@ fn an_adapter_failing_two_adjacent_steps_reports_the_earlier() {
 }
 
 #[test]
+fn an_adapter_step_failing_two_adjacent_reads_reports_the_earlier() {
+    let rows = [
+        // invocation: the native inventory, then the provider.
+        (
+            json!({"native_capabilities": 7, "provider": "codex"}),
+            "{what} 'native_capabilities' at '': it does not satisfy '/type'",
+        ),
+        // the native inventory, then the provider's own string read.
+        (
+            json!({"native_capabilities": 7, "provider": 7}),
+            "{what} 'native_capabilities' at '': it does not satisfy '/type'",
+        ),
+        // the provider's file name, then the binary.
+        (
+            json!({"provider": "codex", "binary": 7}),
+            "{what} declares provider 'codex' but the file is named 'claude.json'; the file \
+             name is the provider name",
+        ),
+        // the binary, then the driver.
+        (
+            json!({"binary": 7, "driver": 7}),
+            "{what} needs a non-empty string 'binary'",
+        ),
+        // served: the models, then the judges.
+        (
+            json!({"models": 7, "judges": 7}),
+            "{what} needs 'models' as an object of strings",
+        ),
+        // the judges' names, then whether each is served.
+        (
+            json!({"judges": ["Opus"]}),
+            "{what} 'judges' names 'Opus', which does not match ^[a-z][a-z0-9-]*$",
+        ),
+        // tool permissions: the gap's keys, then its reason.
+        (
+            json!({"tool_permissions": {"unsupported": 7, "unmeasured": 1}}),
+            "{what} 'tool_permissions' has unknown key 'unmeasured'; known keys: unsupported",
+        ),
+        // the mapping's keys, then its flag.
+        (
+            json!({"tool_permissions": {"flag": 7, "x": 1}}),
+            "{what} 'tool_permissions' has unknown key 'x'; known keys: flag, separator, names",
+        ),
+        // the flag, then the separator.
+        (
+            json!({"tool_permissions": {"flag": 7, "separator": 7}}),
+            "{what} 'tool_permissions' needs a non-empty string 'flag'",
+        ),
+        // the separator, then the names.
+        (
+            json!({"tool_permissions": {"flag": "--allow", "separator": 7, "names": 7}}),
+            "{what} 'tool_permissions' needs a non-empty string 'separator'",
+        ),
+        // pinning: the hint, then the model flag.
+        (
+            json!({"hint": 7, "model_flag": 7}),
+            "{what} needs a non-empty string 'hint'",
+        ),
+        // the model flag, then the efforts.
+        (
+            json!({"model_flag": 7, "efforts": 7}),
+            "{what} needs 'model_flag': the flag this provider takes, or the explicit string \
+             \"unsupported\"",
+        ),
+        // an effortless route's name, then its measurement.
+        (
+            json!({"effortless_routes": {"us/east": ""}}),
+            "{what} 'effortless_routes' names 'us/east', which does not match \
+             ^[A-Za-z0-9._:-]+$",
+        ),
+        // hands: a notice beside the gap, then the gap's keys.
+        (
+            json!({"hands": {"unsupported": "measured", "notice": 7}}),
+            "{what} 'hands.notice' needs a supported, non-empty 'hands.workspace' fragment; a \
+             discovery notice names the workspace tool that fragment serves (decision 0069)",
+        ),
+        // the gap's keys, then its reason.
+        (
+            json!({"hands": {"unsupported": 7, "unmeasured": 1}}),
+            "{what} 'hands' has unknown key 'unmeasured'; known keys: unsupported",
+        ),
+        // the fragment's keys, then the workspace.
+        (
+            json!({"hands": {"workspace": 7, "x": 1}}),
+            "{what} 'hands' has unknown key 'x'; known keys: workspace, harness, notice",
+        ),
+        // the notice, then the harness.
+        (
+            json!({"hands": {"workspace": [], "notice": 7, "harness": 7}}),
+            "{what} 'hands.notice' needs a supported, non-empty 'hands.workspace' fragment; a \
+             discovery notice names the workspace tool that fragment serves (decision 0069)",
+        ),
+        // settled: the trust tier, then the egress class.
+        (
+            json!({"trust_tier": "trusetd", "egress": "lokal"}),
+            "{what} 'trust_tier' is \"trusetd\"; the vocabulary is closed — \"trusted\" or \
+             \"untrusted\" — and an absent tier is untrusted",
+        ),
+        // the egress class, then the routes.
+        (
+            json!({"egress": "lokal", "routes": []}),
+            "{what} 'egress' is \"lokal\"; the egress vocabulary is closed — \"local\", \
+             \"contracted\" or \"uncontracted\" — and an absent class is uncontracted (decision 0036 ruling 1)",
+        ),
+        // the routes, then the harness's authentication.
+        (
+            json!({"routes": [], "harness_auth": 7}),
+            "{what} 'routes' must be an object of route name → egress class",
+        ),
+        // the harness's authentication, then the effort flag.
+        (
+            json!({"harness_auth": 7, "effort_flag": 7}),
+            "{what} 'harness_auth' must be an object of exactly 'names' and a non-empty \
+             'measured' (it is not an object)",
+        ),
+    ];
+    let (observed, expected) = adapter_refusals(&rows);
+    assert_eq!(observed, expected);
+}
+
+/// The two reads a definition alone cannot fail beside a field: the
+/// file's strict parse, ahead of the native inventory, and the file's
+/// digest, behind the effort flag. Each step is called with a map and a
+/// file that disagree.
+#[test]
+fn an_adapter_step_failing_a_field_and_its_file_reports_the_earlier() {
+    let dir = tempfile::tempdir().unwrap();
+    let twice = dir.path().join("claude.json");
+    std::fs::write(
+        &twice,
+        r#"{"native_capabilities": 7, "native_capabilities": 7}"#,
+    )
+    .unwrap();
+    let native = json!({"native_capabilities": 7});
+    let invocation = super::adapter::invocation("claude", native.as_object().unwrap(), &twice, "w");
+    let effort = json!({"effort_flag": 7});
+    let absent = dir.path().join("absent.json");
+    let settled =
+        super::adapter::settled(effort.as_object().unwrap(), &BTreeMap::new(), &absent, "w");
+    assert_eq!(
+        [
+            invocation.err().map(|e| e.to_string()),
+            settled.err().map(|e| e.to_string())
+        ],
+        [
+            Some("w: key 'native_capabilities' is written twice at line 1 column 52".to_string()),
+            Some(
+                "w needs 'effort_flag': the flag this provider takes, or the explicit string \
+                 \"unsupported\""
+                    .to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
 fn a_resume_shape_failing_two_adjacent_steps_reports_the_earlier() {
     let shape = |patch: Value| {
         let mut shape = json!({"status": "unmeasured", "identity": {"unknown": "u"},
@@ -148,6 +307,36 @@ fn a_resume_shape_failing_two_adjacent_steps_reports_the_earlier() {
             shape(json!({"status": "supported", "reason": ""})),
             "{what} 'resume' 'cold' needs a non-empty string 'reason'",
         ),
+        // the identity, then the classes.
+        (
+            shape(json!({"identity": 7, "classes": 7})),
+            "{what} 'resume' 'cold' 'identity' is required: either the measured form \
+             {\"version\": ..., \"applies_to\": ...} or the explicit \
+             {\"unknown\": \"<measured reason>\"}",
+        ),
+        // the classes' names, then the boundaries.
+        (
+            shape(json!({"classes": ["Fresh"], "boundaries": 7})),
+            "{what} 'resume' 'cold' 'classes' names 'Fresh', which does not match \
+             ^[a-z][a-z0-9-]*$",
+        ),
+        // the boundaries, then the hands.
+        (
+            shape(json!({"boundaries": 7, "hands": 7})),
+            "{what} 'resume' 'cold' needs 'boundaries' as an array of strings",
+        ),
+        // the hands, then the evidence.
+        (
+            shape(json!({"hands": 7, "evidence": 7})),
+            "{what} 'resume' 'cold' needs a non-empty string 'hands'",
+        ),
+        // enablement: the measured identity, then the four evidence references.
+        (
+            shape(json!({"status": "supported"})),
+            "{what} 'resume' 'cold' is 'supported' with an unknown identity; only a MEASURED \
+             identity can support enablement, because the per-invocation version check needs \
+             a pinned version to compare the observed one against",
+        ),
     ];
     let (observed, expected) = adapter_refusals(&rows);
     assert_eq!(observed, expected);
@@ -188,6 +377,16 @@ fn an_agent_failing_two_adjacent_steps_reports_the_earlier() {
         (
             json!({"inputs": 7, "capabilities": {"web-search": "requires"}}),
             "{what} needs 'inputs' as an array of strings",
+        ),
+        // the office: the description, then the charter.
+        (
+            json!({"description": "", "charter": 7}),
+            "{what} needs a non-empty string 'description'",
+        ),
+        // the chain: the models' names, then the efforts.
+        (
+            json!({"models": ["Opus"], "efforts": 7}),
+            "{what} 'models' names 'Opus', which does not match ^[a-z][a-z0-9-]*$",
         ),
     ];
     let (observed, expected) = refusals(&rows, ("tester.json", &loadable), Library::load, |path| {
