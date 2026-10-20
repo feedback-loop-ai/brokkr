@@ -126,10 +126,8 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
     let found = &layout.workspace();
     match command {
         RecipesCmd::List { dir } => {
-            let selected = dir.is_some();
-            let (dir, shelf) = layout.listing(dir);
-            let on = selected.then(|| dir.path());
-            recipes::personal::list(found, (&dir, on), shelf)?
+            let (dir, shelf, on) = layout.listing(dir);
+            recipes::personal::list(found, (&dir, on.as_deref()), shelf)?
         }
         RecipesCmd::Add {
             source,
@@ -148,8 +146,7 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             }
         }
         RecipesCmd::Show { name, dir } => {
-            let project = layout.recipes(dir.clone());
-            let shelf = dir.map(|_| project.path().to_path_buf());
+            let (project, shelf) = layout.selecting(dir);
             let recipe = BundleSource::Recipe {
                 recipes_dir: recipes::personal::holding(Some(&name), project)?,
                 name,

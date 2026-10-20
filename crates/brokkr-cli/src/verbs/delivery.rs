@@ -91,9 +91,7 @@ fn request(
     let typed = |path: Option<PathBuf>| path.map(|path| layout.typed(path));
     // The project's shelf, else the personal one (#697); a shelf the flag
     // selects is the one the bundle composes across too (ruling 3).
-    let selected = typed(recipes_dir);
-    let project = layout.recipes(selected.clone());
-    let shelf = selected.map(|_| project.path().to_path_buf());
+    let (project, shelf) = layout.selecting(typed(recipes_dir));
     let recipes_dir = recipes::personal::holding(recipe.as_deref(), project)?;
     Ok(LaunchRequest {
         workspace: layout.workspace(),

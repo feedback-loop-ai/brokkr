@@ -13,10 +13,13 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use brokkr_core::realms::Boundary;
 use brokkr_runtime::launch::{self, BundleSource, LaunchError, LaunchRequest, NewRun, RunMap};
 use brokkr_runtime::launch::{Encoding, QueuedLaunch};
-use brokkr_runtime::places::PlacesError;
+use brokkr_runtime::places::{self, Named, PlacesError, ShelfRefusal};
 use brokkr_runtime::{CompileError, Engine, World};
 use brokkr_store::Store;
 use serde_json::{json, Value};
+
+#[path = "support/own_home.rs"]
+mod own_home;
 
 static CWD: Mutex<()> = Mutex::new(());
 
@@ -85,6 +88,12 @@ fn bundle(dir: &Path, name: &str, seat: Value) {
     );
 }
 
+/// A seat that runs `true` through the shipped exec driver.
+fn exec() -> Value {
+    json!({"role": "roles/seat.md", "results": ["complete"],
+           "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]}})
+}
+
 /// Two workspaces under one v6 map: `a`, a `harness` realm granting
 /// nothing, and `b`, an `open` realm granting `web-search` through the
 /// shipped Codex dialect. Each holds the shipped adapters, an exec bundle
@@ -117,9 +126,7 @@ impl Fleet {
         for name in ["a", "b"] {
             let workspace = root.join(name);
             adapters(&workspace);
-            let exec = json!({"role": "roles/seat.md", "results": ["complete"],
-                "driver": {"command": ["{brokkr}", "driver", "exec", "--", "true"]}});
-            bundle(&workspace.join("bundle"), &format!("bundle-{name}"), exec);
+            bundle(&workspace.join("bundle"), &format!("bundle-{name}"), exec());
             bundle(&workspace.join("searcher"), "searcher", searcher.clone());
             write(&workspace.join(LIBRARY_MARK), &json!({}));
         }
@@ -167,15 +174,15 @@ impl Fleet {
     /// The payload a launch of `bundle` from workspace `name` is queued
     /// as, with no map and no repository or secrets store named.
     fn unmapped(&self, name: &str) -> String {
-        self.queued_in(self.workspace(name), "bundle".into())
+        self.queued_in(self.workspace(name), BundleSource::Dir("bundle".into()))
     }
 
-    /// The payload a launch of the bundle at `bundle` from `workspace` is
-    /// queued as, with no map and no repository or secrets store named.
-    fn queued_in(&self, workspace: PathBuf, bundle: PathBuf) -> String {
+    /// The payload a launch of `bundle` from `workspace` is queued as, with
+    /// no map, no selected shelf and no repository or secrets store named.
+    fn queued_in(&self, workspace: PathBuf, bundle: BundleSource) -> String {
         let request = LaunchRequest {
             workspace,
-            bundle: BundleSource::Dir(bundle),
+            bundle,
             shelf: None,
             journal: self.journal(),
             repo: None,
@@ -197,7 +204,7 @@ impl Fleet {
         std::fs::create_dir(library.join(".git")).unwrap();
         let src = library.join("src");
         adapters(&src);
-        let payload = self.queued_in(src.clone(), library.join("bundle"));
+        let payload = self.queued_in(src.clone(), BundleSource::Dir(library.join("bundle")));
         (library, src, payload)
     }
 
@@ -418,4 +425,90 @@ fn a_workspace_linked_after_queueing_is_judged_where_it_stands() {
     };
     refused_as_nested(&error, &other, &library);
     assert!(!fleet.journal().exists());
+}
+
+/// A folder repository `c` beside the fleet's workspaces, its shelf
+/// holding `fast` and `team`, which extends the personal `mine`, and its
+/// folder's bundle extending `mine` too; and the personal shelf this
+/// process places, under its own HOME, holding `fast` and `mine`, which
+/// extends `fast`: the folder and the personal shelf.
+fn shelved(fleet: &Fleet) -> (PathBuf, PathBuf) {
+    own_home::required();
+    let personal = places::personal_shelf_here().unwrap();
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    assert!(
+        personal.starts_with(&home),
+        "XDG_CONFIG_HOME places the personal shelf at {}, outside this test's HOME",
+        personal.display()
+    );
+    let workspace = fleet.workspace("c");
+    std::fs::create_dir_all(workspace.join(".git")).unwrap();
+    let folder = workspace.join(".brokkr");
+    adapters(&folder);
+    bundle(&folder.join("recipes/fast"), "fast", exec());
+    bundle(&personal.join("fast"), "pfast", exec());
+    let extending = |name: &str| json!({"name": name, "extends": "mine"});
+    write(&folder.join("recipes/team/bundle.json"), &extending("team"));
+    write(&folder.join("bundle.json"), &extending("folder"));
+    let mine = json!({"name": "mine", "extends": "fast"});
+    write(&personal.join("mine/bundle.json"), &mine);
+    (folder, personal)
+}
+
+/// An entry queued from a folder repository without `--recipes-dir`,
+/// decoded, rebuilt and started as the dispatcher will, composes across
+/// the workspace's own shelf and the personal one, and so is refused with
+/// each refusal `brokkr run` gives (#697 rulings 2 and 3): a personal
+/// recipe's base on both shelves, a project recipe naming a personal one,
+/// and the folder's bundle naming one. Each is refused before a journal is
+/// opened. The test runs again in a child whose HOME, and so whose personal
+/// shelf, is its own ([`own_home`]).
+#[test]
+fn a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened() {
+    let test = "a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened";
+    if !own_home::in_own_home(test) {
+        return;
+    }
+    let fleet = Fleet::new();
+    let (folder, personal) = shelved(&fleet);
+    let shelf = folder.join("recipes");
+    let recipe = |name: &str, recipes_dir: &Path| BundleSource::Recipe {
+        name: name.into(),
+        recipes_dir: recipes_dir.to_path_buf(),
+    };
+    let named = |layer: PathBuf| Named {
+        layer,
+        base: "mine".into(),
+        personal: personal.join("mine"),
+    };
+    let refusals = [
+        (
+            recipe("mine", &personal),
+            ShelfRefusal::Shadowed {
+                name: "fast".into(),
+                project: shelf.join("fast"),
+                personal: personal.join("fast"),
+            },
+        ),
+        (
+            recipe("team", &shelf),
+            ShelfRefusal::ProjectNamesPersonal(named(shelf.join("team"))),
+        ),
+        (
+            BundleSource::Dir(folder.clone()),
+            ShelfRefusal::FolderNamesPersonal(named(folder.clone())),
+        ),
+    ];
+    for (bundle, refusal) in refusals {
+        let payload = fleet.queued_in(fleet.workspace("c"), bundle);
+        let Err(error) = fleet.start(&payload) else {
+            panic!("started past {refusal}: {:?}", fleet.runs());
+        };
+        let LaunchError::Compile(CompileError::Shelf(ref refused)) = error else {
+            panic!("not a shelf refusal: {error:?}");
+        };
+        assert_eq!(format!("{refused:?}"), format!("{refusal:?}"));
+        assert_eq!(error.to_string(), format!("bundle: {refusal}"));
+        assert!(!fleet.journal().exists(), "{refusal}");
+    }
 }

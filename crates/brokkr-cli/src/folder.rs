@@ -406,17 +406,28 @@ impl Layout {
         self.listing(flag).0
     }
 
+    /// The recipe library a verb reads named recipes from, and the project
+    /// shelf a compile of one composes across ([`Layout::listing`]).
+    pub(crate) fn selecting(&self, flag: Option<PathBuf>) -> (ShelfPath, Option<PathBuf>) {
+        let (dir, _, selected) = self.listing(flag);
+        (dir, selected)
+    }
+
     /// The recipe library a verb reads named recipes from: the flag, else
-    /// the folder's shelf ([`Layout::shelf`]), else `recipes`; and whether
-    /// it is that shelf, which lists nothing while nothing stands there.
-    /// Normalised here, where every spelling enters ([`ShelfPath`], #697).
-    pub(crate) fn listing(&self, flag: Option<PathBuf>) -> (ShelfPath, bool) {
-        let (dir, shelf) = match (flag, self.shelf()) {
-            (Some(flag), _) => (flag, false),
-            (None, Some(shelf)) => (shelf, true),
-            (None, None) => (RECIPES.into(), false),
+    /// the folder's shelf ([`Layout::shelf`]), else `recipes`; whether it
+    /// is that shelf, which lists nothing while nothing stands there; and
+    /// the shelf the flag selects, which a compile of a recipe composes
+    /// across (#697 ruling 3), `None` for the workspace's own. Normalised
+    /// here, where every spelling enters ([`ShelfPath`], #697).
+    pub(crate) fn listing(&self, flag: Option<PathBuf>) -> (ShelfPath, bool, Option<PathBuf>) {
+        let (dir, shelf, selected) = match (flag, self.shelf()) {
+            (Some(flag), _) => (flag, false, true),
+            (None, Some(shelf)) => (shelf, true, false),
+            (None, None) => (RECIPES.into(), false, false),
         };
-        (ShelfPath::new(dir), shelf)
+        let dir = ShelfPath::new(dir);
+        let selected = selected.then(|| dir.path().to_path_buf());
+        (dir, shelf, selected)
     }
 
     /// Where `recipes add` installs, and the repository root it compiles
