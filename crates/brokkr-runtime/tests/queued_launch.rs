@@ -436,6 +436,12 @@ fn shelved(fleet: &Fleet) -> (PathBuf, PathBuf) {
     own_home::required();
     let personal = places::personal_shelf_here().unwrap();
     let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+    assert_eq!(
+        config,
+        Some(home.join(".config")),
+        "XDG_CONFIG_HOME is not this test's own"
+    );
     assert!(
         personal.starts_with(&home),
         "XDG_CONFIG_HOME places the personal shelf at {}, outside this test's HOME",
@@ -507,8 +513,28 @@ fn a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened()
         let LaunchError::Compile(CompileError::Shelf(ref refused)) = error else {
             panic!("not a shelf refusal: {error:?}");
         };
-        assert_eq!(format!("{refused:?}"), format!("{refusal:?}"));
+        assert!(is(refused, &refusal), "{refused:?} is not {refusal:?}");
         assert_eq!(error.to_string(), format!("bundle: {refusal}"));
         assert!(!fleet.journal().exists(), "{refusal}");
+    }
+}
+
+/// Whether `refused` is the variant `expected` is, with its fields.
+fn is(refused: &ShelfRefusal, expected: &ShelfRefusal) -> bool {
+    match expected {
+        ShelfRefusal::Shadowed {
+            name,
+            project,
+            personal,
+        } => matches!(refused,
+            ShelfRefusal::Shadowed { name: n, project: p, personal: m }
+                if (n, p, m) == (name, project, personal)),
+        ShelfRefusal::ProjectNamesPersonal(named) => {
+            matches!(refused, ShelfRefusal::ProjectNamesPersonal(n) if n == named)
+        }
+        ShelfRefusal::FolderNamesPersonal(named) => {
+            matches!(refused, ShelfRefusal::FolderNamesPersonal(n) if n == named)
+        }
+        other => panic!("not a refusal this test expects: {other}"),
     }
 }
