@@ -519,6 +519,56 @@ fn a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened()
     }
 }
 
+/// An entry whose recipe stands on the personal shelf of another
+/// environment, as one queued under another XDG_CONFIG_HOME holds it, is
+/// refused at its rebuilt start before a journal is opened (#697 rulings 2
+/// and 5): this process places its own personal shelf, so it could judge
+/// no origin for that shelf's layers, and `mine`'s base `fast`, on the
+/// project shelf and beside `mine`, would be read from beside it, past the
+/// refusal of a name on both shelves. The test runs again in a child whose
+/// HOME is its own ([`own_home`]).
+#[test]
+fn a_rebuilt_entry_on_a_shelf_this_process_does_not_place_is_refused() {
+    let test = "a_rebuilt_entry_on_a_shelf_this_process_does_not_place_is_refused";
+    if !own_home::in_own_home(test) {
+        return;
+    }
+    let fleet = Fleet::new();
+    let (folder, personal) = shelved(&fleet);
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let queuing = home.join("config-a/brokkr/recipes");
+    bundle(&queuing.join("fast"), "pfast", exec());
+    let mine = json!({"name": "mine", "extends": "fast"});
+    write(&queuing.join("mine/bundle.json"), &mine);
+    let recipe = BundleSource::Recipe {
+        name: "mine".into(),
+        recipes_dir: queuing.clone(),
+    };
+    let payload = fleet.queued_in(fleet.workspace("c"), recipe);
+    let Err(error) = fleet.start(&payload) else {
+        panic!("started across another's shelf: {:?}", fleet.runs());
+    };
+    let own = folder.join("recipes");
+    let refused = matches!(error, LaunchError::QueuedShelfUnplaced { ref name, ref shelf, own: ref at, personal: Some(ref placed) }
+        if name == "mine" && *shelf == queuing && *at == own && *placed == personal);
+    assert!(refused, "{error:?}");
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "queued recipe 'mine' stands on the shelf {}, which is neither its workspace's \
+             project shelf, {}, nor the personal shelf this process places ({}) (#697): a queued \
+             launch composes only across shelves its admitting process places, so the entry \
+             would compose with no origin for that shelf's layers and past the refusal of a name \
+             on both shelves; admit it under the XDG_CONFIG_HOME and HOME that queued it, or \
+             start it with `brokkr run`",
+            queuing.display(),
+            own.display(),
+            personal.display()
+        )
+    );
+    assert!(!fleet.journal().exists());
+}
+
 /// Whether `refused` is the variant `expected` is, with its fields.
 fn is(refused: &ShelfRefusal, expected: &ShelfRefusal) -> bool {
     match expected {

@@ -296,7 +296,8 @@ impl QueuedLaunch {
     /// written it, never against the directory that rebuilds it; and the
     /// repository is always named, the workspace when the entry names
     /// none, because an engine handed none operates its process's
-    /// directory.
+    /// directory. A recipe on a shelf this process does not place is
+    /// refused ([`refuse_unplaced_shelf`]).
     pub fn rebuild(
         self,
         journal: PathBuf,
@@ -309,8 +310,10 @@ impl QueuedLaunch {
             MapSource::Ambient(held) => held.stood(&workspace).map(RunMap::Ambient),
             MapSource::Named(held) => held.stood(&workspace).map(RunMap::Named),
         }?;
+        let bundle = anchored(&workspace, &self.bundle);
+        refuse_unplaced_shelf(&workspace, &bundle)?;
         let request = LaunchRequest {
-            bundle: anchored(&workspace, &self.bundle),
+            bundle,
             // queued-launch/v1 holds no selected shelf (#697), so an entry
             // composes across its workspace's own, the only one `of` takes.
             shelf: None,
@@ -441,6 +444,38 @@ fn refuse_selected_shelf(workspace: &Path, shelf: Option<&Path>) -> Result<(), L
     match shelf == own {
         true => Ok(()),
         false => Err(LaunchError::QueuedShelf { shelf, own }),
+    }
+}
+
+/// Refuse an entry whose recipe stands on a shelf this process stands as
+/// neither its `workspace`'s project shelf nor its personal shelf (#697
+/// rulings 2 and 5). queued-launch/v1 keeps the shelf's path, not its
+/// origin, and a compile judges each layer's origin by the shelves the
+/// admitting process places ([`crate::places::Shelves::origin`]), so a
+/// personal shelf another environment placed would be read as a library:
+/// no origin recorded for its layers, and its base read from beside it,
+/// past the refusal of a name on both shelves
+/// ([`crate::places::ShelfRefusal::Shadowed`]). One where neither variable
+/// places a personal shelf composes only across the project's. The shelves
+/// are compared as spelled, as the CLI spells them when it queues the
+/// entry. A bundle named by its directory refuses nothing here. The one
+/// check admission's measure ([`QueuedLaunch::compiled`]) and the rebuilt
+/// start both take.
+fn refuse_unplaced_shelf(workspace: &Path, bundle: &BundleSource) -> Result<(), LaunchError> {
+    let (name, shelf) = match bundle {
+        BundleSource::Dir(_) => return Ok(()),
+        BundleSource::Recipe { name, recipes_dir } => (name, recipes_dir),
+    };
+    let own = crate::places::Layout::discover(workspace)?.places().recipes;
+    let personal = crate::places::personal_shelf_here().ok();
+    match *shelf == own || personal.as_ref() == Some(shelf) {
+        true => Ok(()),
+        false => Err(LaunchError::QueuedShelfUnplaced {
+            name: name.clone(),
+            shelf: shelf.clone(),
+            own,
+            personal,
+        }),
     }
 }
 

@@ -1252,6 +1252,11 @@ pub brokkr_runtime::launch::LaunchError::Places(brokkr_runtime::places::PlacesEr
 pub brokkr_runtime::launch::LaunchError::QueuedShelf
 pub brokkr_runtime::launch::LaunchError::QueuedShelf::own: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchError::QueuedShelf::shelf: std::path::PathBuf
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced::name: alloc::string::String
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced::own: std::path::PathBuf
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced::personal: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced::shelf: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchError::QueuedWorkspaceRelative(std::path::PathBuf)
 pub brokkr_runtime::launch::LaunchError::ReadDispatch
 pub brokkr_runtime::launch::LaunchError::ReadDispatch::path: std::path::PathBuf

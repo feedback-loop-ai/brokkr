@@ -5,7 +5,7 @@
 //! shelves or a project layer naming a personal one; `recipes list`
 //! compiles each recipe across the selected shelf, as `recipes show` does.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
@@ -82,14 +82,7 @@ fn queue_add_refuses_a_selected_project_shelf() {
 #[test]
 fn an_entry_queued_across_the_workspaces_shelf_is_held_by_each_refusal() {
     let repo = selected();
-    let host = json!({"schema": "forge.host/v1", "providers": {},
-                      "floors": [{"place": "seat-scratch", "floor_bytes": 1}],
-                      "boxed_builds": {"ceiling": 1}});
-    let config = repo.config().join("brokkr");
-    repo.write(
-        config.join("host.json").to_str().unwrap(),
-        &host.to_string(),
-    );
+    let config = hosted(&repo, &repo.config());
     repo.bundle(".brokkr/recipes/fast", "fast", completes());
     repo.bundle(
         config.join("recipes/fast").to_str().unwrap(),
@@ -112,11 +105,6 @@ fn an_entry_queued_across_the_workspaces_shelf_is_held_by_each_refusal() {
         &repo.path(".brokkr/recipes/fast"),
         &config.join("recipes/fast"),
     );
-    let held = |refused: &str| {
-        let refused = refused.trim_start_matches("error: bundle: ").trim_end();
-        let says = format!("what it seats cannot be measured: bundle: {refused}");
-        json!({"standing": "held", "reasons": [{"kind": "unmeasured", "says": says}]})
-    };
     let verdicts = [
         held(&both),
         held(&project_names_mine(team.parent().unwrap(), &mine(&repo))),
@@ -126,6 +114,79 @@ fn an_entry_queued_across_the_workspaces_shelf_is_held_by_each_refusal() {
     let rows = rows.as_array().unwrap().iter();
     let judged: Vec<&Value> = rows.map(|row| &row["admission"]).collect();
     assert_eq!(judged, verdicts.iter().collect::<Vec<_>>());
+}
+
+/// The host every admission here measures against, written under the
+/// configuration directory `config`: its `brokkr` directory.
+fn hosted(repo: &Repo, config: &Path) -> PathBuf {
+    let host = json!({"schema": "forge.host/v1", "providers": {},
+                      "floors": [{"place": "seat-scratch", "floor_bytes": 1}],
+                      "boxed_builds": {"ceiling": 1}});
+    let config = config.join("brokkr");
+    repo.write(
+        config.join("host.json").to_str().unwrap(),
+        &host.to_string(),
+    );
+    config
+}
+
+/// Admission's hold of an entry whose compile `refused`, as `queue list
+/// --json` prints it, in the compile's words.
+fn held(refused: &str) -> Value {
+    let refused = refused.trim_start_matches("error: bundle: ").trim_end();
+    unmeasured(&format!("bundle: {refused}"))
+}
+
+/// Admission's hold of an entry it cannot measure, because `why`.
+fn unmeasured(why: &str) -> Value {
+    let says = format!("what it seats cannot be measured: {why}");
+    json!({"standing": "held", "reasons": [{"kind": "unmeasured", "says": says}]})
+}
+
+/// An entry queued under one XDG_CONFIG_HOME, its recipe on that
+/// environment's personal shelf, is held by admission under another (#697
+/// rulings 2 and 5), naming the entry's shelf and the two this process
+/// stands: this process places another personal shelf, so the entry's would
+/// be read as a library, its layers given no origin and `fast`, on both
+/// shelves, read from beside `mine`. Under the environment that queued it,
+/// the same entry is held by the name on both shelves.
+#[test]
+fn an_entry_queued_under_another_environment_is_held_by_its_unplaced_shelf() {
+    let repo = selected();
+    let queuing = hosted(&repo, &repo.config()).join("recipes");
+    let other = repo.config().with_file_name("config-b");
+    hosted(&repo, &other);
+    repo.bundle(".brokkr/recipes/fast", "fast", completes());
+    repo.bundle(queuing.join("fast").to_str().unwrap(), "pfast", completes());
+    let ran = repo.brokkr("", &queue_mine(&[]));
+    assert_eq!((ran.code, &*ran.stderr), (Some(0), "queued entry 1\n"));
+
+    let own = repo.path(".brokkr/recipes");
+    let both = shadowed("fast", &own.join("fast"), &queuing.join("fast"));
+    let unplaced = format!(
+        "queued recipe 'mine' stands on the shelf {}, which is neither its workspace's project \
+         shelf, {}, nor the personal shelf this process places ({}) (#697): a queued launch \
+         composes only across shelves its admitting process places, so the entry would compose \
+         with no origin for that shelf's layers and past the refusal of a name on both shelves; \
+         admit it under the XDG_CONFIG_HOME and HOME that queued it, or start it with `brokkr \
+         run`",
+        queuing.display(),
+        own.display(),
+        other.join("brokkr/recipes").display()
+    );
+    let listed = super::under(
+        &repo,
+        &[("XDG_CONFIG_HOME", Some(&other))],
+        &["queue", "list", "--json"],
+    );
+    assert_eq!((listed.code, &*listed.stderr), (Some(0), ""));
+    for (queue, hold) in [
+        (ledger(&repo).1, held(&both)),
+        (listed.stdout, unmeasured(&unplaced)),
+    ] {
+        let rows: Value = serde_json::from_str(&queue).unwrap();
+        assert_eq!(rows[0]["admission"], hold);
+    }
 }
 
 /// `recipes list --dir` compiles each recipe across the shelf it selects,

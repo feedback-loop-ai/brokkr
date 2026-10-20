@@ -113,31 +113,43 @@ fn facts(request: &LaunchRequest, run: &NewRun) -> Facts {
     )
 }
 
+/// A workspace that stands, `work`, for a recipe's request: its shelf is
+/// judged at rebuild against the workspace's own ([`refuse_unplaced_shelf`]).
+fn working() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().canonicalize().unwrap();
+    (dir, work)
+}
+
 #[test]
 fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
     let dir = tempfile::tempdir().unwrap();
+    let (_work, work) = working();
     let dispatch = || Some(PathBuf::from("d.json"));
     let maps = [
         (RunMap::Unmapped, dispatch()),
         (RunMap::Ambient(world(dir.path())), dispatch()),
         (RunMap::Named(world(dir.path())), None),
     ];
-    // Each relative path comes back anchored to the workspace, `/work`.
+    // Each relative path comes back anchored to the workspace, `work`.
     let bundles = [
         (
             BundleSource::Dir("recipes/self".into()),
-            BundleSource::Dir("/work/recipes/self".into()),
+            BundleSource::Dir(work.join("recipes/self")),
         ),
         (
             recipe(),
             BundleSource::Recipe {
                 name: "story".into(),
-                recipes_dir: PathBuf::from("/work/recipes"),
+                recipes_dir: work.join("recipes"),
             },
         ),
     ];
     for ((bundle, anchored), (map, dispatch)) in bundles.into_iter().cycle().zip(maps) {
-        let asked = request(bundle);
+        let asked = LaunchRequest {
+            workspace: work.clone(),
+            ..request(bundle)
+        };
         let run = NewRun {
             feature: "queue it".into(),
             map,
@@ -150,8 +162,8 @@ fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
             .unwrap();
         let mut expected = facts(&asked, &run);
         expected.0 .1 = anchored;
-        expected.0 .4 = Some(PathBuf::from("/work/secrets.env"));
-        expected.1 .4 = run.dispatch.as_ref().map(|_| PathBuf::from("/work/d.json"));
+        expected.0 .4 = Some(work.join("secrets.env"));
+        expected.1 .4 = run.dispatch.as_ref().map(|_| work.join("d.json"));
         assert_eq!(facts(&request, &new), expected);
     }
     // The named map, and the encoding's bytes, pinned.
@@ -284,7 +296,12 @@ fn a_queued_launch_is_admitted_in_its_own_workspace_wherever_it_is_rebuilt() {
 /// directory that rebuilds it to resolve.
 #[test]
 fn a_relative_path_a_payload_holds_is_rebuilt_anchored_to_its_workspace() {
-    let mut queued = QueuedLaunch::of(&request(recipe()), &NewRun::default()).unwrap();
+    let (_work, work) = working();
+    let asked = LaunchRequest {
+        workspace: work.clone(),
+        ..request(recipe())
+    };
+    let mut queued = QueuedLaunch::of(&asked, &NewRun::default()).unwrap();
     queued.bundle = recipe();
     queued.repo = Some(".".into());
     queued.secrets = Some("secrets.env".into());
@@ -294,15 +311,15 @@ fn a_relative_path_a_payload_holds_is_rebuilt_anchored_to_its_workspace() {
         .unwrap();
     let anchored = BundleSource::Recipe {
         name: "story".into(),
-        recipes_dir: "/work/recipes".into(),
+        recipes_dir: work.join("recipes"),
     };
     assert_eq!(
         (request.bundle, request.repo, request.secrets, new.dispatch),
         (
             anchored,
-            Some("/work/.".into()),
-            Some("/work/secrets.env".into()),
-            Some("/work/d.json".into())
+            Some(work.join(".")),
+            Some(work.join("secrets.env")),
+            Some(work.join("d.json"))
         )
     );
 }

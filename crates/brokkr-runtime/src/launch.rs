@@ -201,6 +201,26 @@ pub enum LaunchError {
         .own.display()
     )]
     QueuedShelf { shelf: PathBuf, own: PathBuf },
+    /// A queued recipe on a shelf the admitting process stands as neither
+    /// its workspace's project shelf nor its personal shelf (#697 rulings 2
+    /// and 5), whose layers' origins no compile here could judge.
+    #[error(
+        "queued recipe '{name}' stands on the shelf {}, which is neither its workspace's project \
+         shelf, {}, nor the personal shelf this process places ({}) (#697): a queued launch \
+         composes only across shelves its admitting process places, so the entry would compose \
+         with no origin for that shelf's layers and past the refusal of a name on both shelves; \
+         admit it under the XDG_CONFIG_HOME and HOME that queued it, or start it with `brokkr \
+         run`",
+        .shelf.display(),
+        .own.display(),
+        placed(.personal)
+    )]
+    QueuedShelfUnplaced {
+        name: String,
+        shelf: PathBuf,
+        own: PathBuf,
+        personal: Option<PathBuf>,
+    },
     #[error(transparent)]
     Dispatch(#[from] DispatchError),
     #[error("loading source run '{run}'")]
@@ -221,6 +241,14 @@ pub enum LaunchError {
     Store(#[from] StoreError),
     #[error(transparent)]
     Engine(#[from] EngineError),
+}
+
+/// The personal shelf this process places, as a refusal names it.
+fn placed(personal: &Option<PathBuf>) -> String {
+    personal.as_ref().map_or_else(
+        || "it places none".to_string(),
+        |shelf| shelf.display().to_string(),
+    )
 }
 
 impl LaunchError {

@@ -992,7 +992,8 @@ the <origin> shelf <shelf> cannot be read (#697): <path>: <cause>; a shelf that 
 
 A name on neither shelf refuses as before,
 naming the project's shelf. A queued launch keeps the shelf it resolved
-when it was queued.
+when it was queued, by its path alone, and is admitted and started only
+where that path is a shelf the admitting process places (ruling 3).
 
 **3. Composition runs one way.** Every compile a launch, `compile`,
 `recipes` and doctor take (`launch::compile_for`, and a resume's) reads
@@ -1011,6 +1012,26 @@ is queued:
 ```text
 --recipes-dir selects the project shelf <shelf>, and a queued launch composes only across its workspace's own, <own> (#697): queued-launch/v1 holds no selected shelf, so the entry would be admitted and started across the workspace's shelf instead; queue it without --recipes-dir, or start it with `brokkr run`; nothing was queued
 ```
+
+queued-launch/v1 keeps a recipe's shelf by its path, not its origin, and
+the process that admits the entry judges each layer's origin by the
+shelves it places. So an entry whose recipe stands on a shelf that is
+neither its workspace's project shelf nor the personal shelf the
+admitting process places, as one queued under another `XDG_CONFIG_HOME`
+or `HOME` holds, refuses where admission measures it, which holds the
+entry, and where it is rebuilt to start: one check in
+`QueuedLaunch::rebuild`, which both take, comparing the shelves as
+spelled. Where the admitting process places no personal shelf, the
+project's alone stands. An entry naming its bundle's directory is not
+judged here:
+
+```text
+queued recipe '<name>' stands on the shelf <shelf>, which is neither its workspace's project shelf, <own>, nor the personal shelf this process places (<personal>) (#697): a queued launch composes only across shelves its admitting process places, so the entry would compose with no origin for that shelf's layers and past the refusal of a name on both shelves; admit it under the XDG_CONFIG_HOME and HOME that queued it, or start it with `brokkr run`
+```
+
+`<personal>` reads `it places none` where neither variable places one. A
+queued-launch/v2 carrying each layer's origin, which would admit such an
+entry anywhere, is left to the operator.
 
 Each layer's origin is judged by where its directory stands: the
 folder's bundle by the one judgement of a layout, else `personal` or
