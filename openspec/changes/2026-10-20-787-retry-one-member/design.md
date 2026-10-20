@@ -2,7 +2,7 @@
 
 Decision 0093 carries the rulings. This design carries what the code does,
 the evidence behind each choice, and the council's two positions reconciled.
-The proposal's record (S1 to S24) holds the clarify history; a decision is
+The proposal's record (S1 to S25) holds the clarify history; a decision is
 stated once here and cited there.
 
 ## Context
@@ -289,9 +289,15 @@ members typed, the handler builds a `LaunchRequest` through `request` with
 3. Compile the pinned bundle through `launch::pinned_bundle`; a refusal is
    `resume`'s own `LaunchError`, the verb's `Err`, printed as `resume`
    prints it.
-4. Fill the rest of `CarryFacts` at the command (D5) and decide by
-   `carry_plan`; a refusal is `MemberRetryOutcome::CarryRefused`, whose
-   `Display` the CLI prints byte for byte, and nothing is written.
+4. Fill the rest of `CarryFacts` at the command: the selected body's
+   `PanelShape`, read from the compiled bundle's body for the parked phase
+   under the case its latest `phase/entered` records (D4), and the facts of
+   D5; then decide by `carry_plan` over the typed names as given
+   (`Names::Given`), which asks the two panel facts and then the names
+   (S15 items 3 and 4). The verb decides nothing of its own: it observes the
+   body and hands the shape to the rule (S25, C7). A refusal is
+   `MemberRetryOutcome::CarryRefused`, whose `Display` the CLI prints byte
+   for byte, and nothing is written.
 5. Dispose through `disposed` with `args: {"members": [<tags>]}`, returned
    as `MemberRetryOutcome::Disposed(FencedCommandOutcome)`, which the CLI
    prints as it prints the plain verb's. `disposed` takes a
@@ -352,8 +358,10 @@ never writes since the plain retry journals `{}`, are
 `CarryRefusal::RecordUnread` naming the command by its `operator/commanded`
 sequence number and the field `args`, refused through `refuse_carry` (D8),
 and never read as the plain retry (S24, C5). Its command's `args.members`
-are the attempt's selection, exactly matched against the panel's tags and
-never resolved again. Every bounded attempt of the effect reads the same
+are the attempt's selection, handed to `carry_plan` as `Names::Journaled`
+(D4), which matches each tag exactly against the panel's tags and resolves
+no name again, after the rule has asked the two panel facts of the body the
+engine runs (S25, C7). Every bounded attempt of the effect reads the same
 acceptance; the next effect of the phase, after implement and verify, has no
 acceptance before it and runs the whole panel. The fold reads nothing of
 this (decision 0050 ruling 6; `RunState` is unchanged).
@@ -361,11 +369,30 @@ this (decision 0050 ruling 6; `RunState` is unchanged).
 ### D4. The rule
 
 ```text
-carry_plan(facts: &CarryFacts, names: &[Tag]) -> Result<CarryPlan, CarryRefusal>
+carry_plan(facts: &CarryFacts, names: Names<'_>) -> Result<CarryPlan, CarryRefusal>
+
+pub enum PanelShape {
+    /// The body is a panel, or a sequence whose first step is a panel.
+    Panel { step: Option<String>, tags: Vec<Tag> },
+    /// The body is a single seat or a sequence with no panel step.
+    NoPanel { phase: String },
+    /// The body is a sequence whose first panel step is not its first step.
+    StepFollows { step: String, first: String },
+}
+
+pub enum Names<'a> {
+    /// The verb's names as the operator typed them: bare, or a tag whole.
+    Given(&'a [String]),
+    /// The drive's `args.members`: tags, matched exactly, resolved no more.
+    Journaled(&'a [Tag]),
+}
 ```
 
-`CarryFacts` is what was observed: the panel (its tags in declared order,
-from the compiled bundle: the body, or the sequence's first step), the
+`CarryFacts` is what was observed: the selected body's `PanelShape`, read
+from the body the observer has (the verb: the compiled bundle's body for the
+parked phase under the case its latest `phase/entered` records; the drive:
+the body the engine runs for this effect), with a panel's tags in declared
+order; the
 visit's attempts as typed `PanelAttempt` records in journal order (each with
 its terminal kind, its `settled_members`, its `carried`, its `tree` and
 `head` at both ends, and for a sequence the steps whose markers stand), the
@@ -389,7 +416,8 @@ panel; `fresh()` and `carried()` are its two views. `CarryRefusal` is one
 siblings so each `why` is a closed enum matched exhaustively (ruling 2):
 
 - `NoPanel { phase }`; `PanelStepFollows { step, first }`
-- `UnknownMember { name, members }`; `MemberTwice { tag }`
+- `AmbiguousMember { name, tags }`; `UnknownMember { name, members }`;
+  `MemberTwice { tag }`
 - `RecordUnread { record, field, error }`, `record` a closed enum, an
   attempt by its id or, for the accepted retry's `args`, the command by its
   `operator/commanded` sequence number (D3), raised by the journal's reader
@@ -409,8 +437,23 @@ before anything is written; the accepted retry's `args` that do not read
 refuse the drive the same way, naming the command (D3). The reader raises
 it where the records are read, after the fold and before the bundle is
 compiled at the verb (D2) and after the digest check at the drive (D7),
-whatever names are given, so `carry_plan` takes typed facts alone and asks
-the names first.
+whatever names are given, so `carry_plan` takes typed facts alone. Its
+first facts are the two panel facts, decided from the shape: `NoPanel`,
+then `PanelStepFollows`; only a `PanelShape::Panel` reaches the names. So
+item 3's two panel facts have one home, the rule, for both observers, and
+the drive asks them before `args.members` are matched (S25, C7). The names
+are then three facts in this order, each asked over the names in the order
+given and refusing on the first name that fails it: `AmbiguousMember`, a
+name that is one member's tag and another member's bare name (in a step
+`p` with members `x` and `p:x`, the name `p:x` is `x`'s tag and `p:x`'s
+bare name), naming both tags; `UnknownMember`, a name no member has, bare
+or as its tag; `MemberTwice`, two names that resolve to one member. Member
+names are object keys the compile does not constrain (`parse_panel`,
+`bundle/parse.rs`), and `flat_address_collision` (`engine/resume.rs`) refuses only two sites
+that flatten to one label, so such a step compiles; the rule fails closed
+rather than choose a reading (S25, C8). `Names::Journaled` asks
+`AmbiguousMember` never: a journaled tag is matched exactly against the
+tags, so `p:x` there is `x`'s tag alone.
 The order of the facts, their texts and the lists each refusal names are the
 spec's; `Display` is the one home of each text, printed by the verb and
 written by the engine (D8). The handler's two argument refusals and S21's
@@ -491,8 +534,10 @@ accepted retry's `args` (D3), whose failure to read is `RecordUnread`
 naming the command, refused as below; when the selection names members,
 every member named included, the attempts before this effect's request are
 read into typed records (a field that does not read is `RecordUnread`,
-refused as below), the facts are
-filled at the drive and the rule decides. A refusal becomes
+refused as below), the facts are filled at the drive, the body this effect
+runs read to its `PanelShape` before `args.members` are matched, and the
+rule decides over `Names::Journaled`, asking `NoPanel` and
+`PanelStepFollows` first (D4; S25, C7). A refusal becomes
 `refuse_carry` (D8). A plan narrows the body once: `ExecutableBody::Panel`
 over the fresh members, or a sequence whose first step is that narrowed
 panel. `Dispatch` carries the narrowed body and the plan, so admission,
@@ -663,6 +708,15 @@ built by a builder and a synthetic panel bundle:
   the marker's mark dropped from the test;
 - the read-through: the same member stuck twice carries by the first
   attempt; mutation: the entry's source replaced by the carrying attempt;
+- the two panel facts from the shape: `NoPanel` and `PanelStepFollows`
+  before any name, for `Names::Given` and `Names::Journaled` alike;
+  mutation: the shape's arms folded into the names step (an unknown name
+  then refuses where the phase runs no panel);
+- the names in a step `p` with members `x` and `p:x`: `Names::Given`
+  with `p:x` refuses `AmbiguousMember` naming `p:x` and `p:p:x`, `x`
+  resolves to `p:x` and `p:p:x` to itself, and `Names::Journaled` with the
+  tag `p:x` matches `x` alone; mutation: the ambiguity check removed, so
+  `p:x` resolves to one member silently;
 - every member named: on a dirty tree, a moved head and a park at the
   chief, the rule returns the all-fresh plan and asks nothing below item 4;
   mutation: the short-circuit removed, so the dirty tree (or the park at
@@ -701,7 +755,12 @@ drifted bundle returns `CarryRefused(RecordUnread)` with the bundle
 uncompiled, and so does every member named beside a record that does not
 read, and a drifted bundle on a sound record returns `resume`'s
 `LaunchError`; a carry refusal returns `CarryRefused` and writes nothing;
-every member named carries nothing; the lost fence after the write is
+every member named carries nothing; a phase with no panel and a panel
+step after the first step return `CarryRefused(NoPanel)` and
+`CarryRefused(PanelStepFollows)` from `carry_plan`; in a step `p` with
+members `x` and `p:x`, `--member p:x` returns
+`CarryRefused(AmbiguousMember)` naming both tags and writes nothing; the
+lost fence after the write is
 `Disposed(Rejected)`, journaled as today; no runtime test reads a
 `brokkr-view` text; mutation: the fold step skipped (the race refusal
 appears where `FoldRefused` should).
@@ -721,7 +780,12 @@ restart indeterminate carries no record and is passed over; an accepted
 retry whose `args` do not read parks on `driver: "none"` naming the
 command, and one whose `args` are `{}` runs every member; an all-named
 acceptance beside a record that does not read parks naming the attempt and
-the field. Mutations: the drive-time check removed (the moved head is carried); the narrowing removed
+the field; an accepted retry whose `args.members` meet a body with no
+panel, and one whose panel step follows another step, each park on
+`driver: "none"` naming the fact. Mutations: the drive-time check removed
+(the moved head is carried); the drive's call of the rule over the shape
+removed (the two bodies then reach the names with no panel); the narrowing
+removed
 (four spawns); the end reading removed (`tree` absent).
 
 `crates/brokkr-runtime/tests/frozen_contracts.rs`: the new schema's

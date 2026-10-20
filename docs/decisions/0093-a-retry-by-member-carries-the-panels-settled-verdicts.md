@@ -69,7 +69,10 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    2, bare as the panel declares it or as the journal's tag
    (`<step>:<member>` in a sequence), and is journaled resolved on the
    retry's `operator/commanded` as `args.members`, in the order given; a
-   member given twice is refused naming the tag. A retry without `--member`
+   member given twice is refused naming the tag, and a name that is one
+   member's tag and another member's bare name (`p:x` in a step `p` whose
+   members are `x` and `p:x`) is refused naming both tags, never read one
+   way; the engine matches journaled tags exactly and never asks it. A retry without `--member`
    journals `args: {}` and re-runs every member, byte for byte as today, as
    do the Looper bridge and the console. The fold does not read
    `args.members`; the engine reads them for the one effect the acceptance
@@ -88,7 +91,8 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    journaled tags, the fold's refusal writing nothing, every member named
    beside a record that does not read refused for the record);
    `crates/brokkr-runtime/src/engine/carry/tests.rs` (the selection's scope:
-   no acceptance before an effect's request selects nothing);
+   no acceptance before an effect's request selects nothing; a name that
+   reads as two members refused naming both tags);
    `contracts/panel-carry.v1.schema.json` (`args.members`).
 
 2. **The carry applies to one panel, and a verdict is carried only when
@@ -119,11 +123,14 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    nothing is auto-retried.
 
    **Enforcement binding:** `crates/brokkr-runtime/src/engine/carry.rs`,
-   one pure rule the verb and dispatch both call, and its `tests.rs` (every
-   refusal by its fact and order; the three-way test over every passed-over
-   kind; the read-through); `engine/carry/drive_tests.rs` (a head moved
-   between acceptance and drive parks with the sentence; a moved input
-   names its effect); `crates/brokkr-cli/tests/machine_proof/panel_carry.rs`
+   one pure rule the verb and dispatch both call, deciding the two panel
+   facts from the selected body's shape before the names as well as every
+   later fact, and its `tests.rs` (every refusal by its fact and order; the
+   three-way test over every passed-over kind; the read-through);
+   `engine/carry/drive_tests.rs` (a head moved between acceptance and drive
+   parks with the sentence; a moved input names its effect; an accepted
+   retry whose members meet a body with no panel, or a panel step after
+   the first step, parks on no driver naming the fact); `crates/brokkr-cli/tests/machine_proof/panel_carry.rs`
    (a carried verdict is refused once the head moves).
 
 3. **The carrying attempt aggregates as a fresh panel.** Only the named
