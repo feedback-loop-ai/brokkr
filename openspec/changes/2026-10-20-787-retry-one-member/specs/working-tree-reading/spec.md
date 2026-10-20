@@ -2,7 +2,7 @@
 
 ### Requirement: The working tree is read once, by git's exit and its words
 
-The working tree of the operated repository SHALL be read by one reader, the home of `git_dirty`, which runs `git status --porcelain` there and reads one of four readings: `clean` when git exited zero and printed nothing; `dirty` when git exited zero and printed something; `refused` when git exited other than zero, whatever it printed; `unrun` when git could not be run there, a directory that does not exist included. The reader SHALL read nothing else: not git's words on its error stream, and not the files the repository ignores, which git does not report. The ship gate, every panel attempt's `tree` record and the carry's observations at the command and at the drive SHALL read through this one reader and SHALL each decide over its reading by their own rule; no second reader of the tree SHALL be added.
+The working tree of the operated repository SHALL be read by one reader, the one `git_dirty` decides over, which runs `git status --porcelain` there and reads one of four readings: `clean` when git exited zero and printed nothing; `dirty` when git exited zero and printed something; `refused` when git exited other than zero, whatever it printed; `unrun` when git could not be run there, a directory that does not exist included. The reader SHALL read nothing else: not git's words on its error stream, and not the files the repository ignores, which git does not report. The ship gate, every panel attempt's `tree` record and the carry's observations at the command and at the drive SHALL read through this one reader and SHALL each decide over its reading by their own rule; no second reader of the tree SHALL be added.
 
 #### Scenario: Four readings
 

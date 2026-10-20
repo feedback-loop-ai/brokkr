@@ -2,7 +2,7 @@
 
 ### Requirement: A retry names the members that run
 
-`brokkr operator retry` SHALL accept `--member <name>`, repeatable. Each name SHALL resolve against the panel the carry applies to, spelled bare as the panel declares the member or as the tag the journal keys it with, `<step>:<member>` in a sequence, and SHALL be journaled resolved: the retry's `operator/commanded` SHALL carry `args.members`, the resolved tags in the order the names were given, spelled as `carried`, `settled_members` and the member markers spell them. Two names that resolve to one member SHALL be refused as that member given twice, naming the tag. A retry with members SHALL be disposed of as a retry is today: the fold's rule decides the acceptance, and the acceptance moves the run back to its phase's effect. A retry without `--member` SHALL journal `args: {}` and re-run every member, byte for byte as today. `--member` SHALL belong to `retry` alone and `--repo` to the member form alone, and the verb SHALL ask these two facts first, in this order, before every refusal it makes today: `--member` typed with any command word but `retry`, be it `stop`, `supersede`, `acknowledge` or a word that is no command, SHALL be refused naming `--member` as retry's alone; `--repo` typed without `--member` SHALL be refused naming `--repo` as the member form's alone; both before anything is written. The refusals the verb makes today, `supersede`'s own, the `supersede`-only flags on another command, `acknowledge` and the command word, SHALL follow in their existing order and keep their texts. `--repo` SHALL name the operated repository the head and the tree are read from, defaulting as `resume`'s `--repo` defaults: the root of the folder the command runs in, else the current directory, a relative path read against the current directory. The fold SHALL NOT read `args.members`; the engine SHALL read them for the effect the acceptance requested and for every bounded attempt of that effect, matching each tag exactly against the panel and resolving no name a second time. Naming every member of the panel SHALL be admitted exactly when the plain retry is admitted and the names resolve: nothing is carried, the parked attempt's shape, the head and the tree are not asked, and the attempt runs every member as a plain retry's does, its `effect/started` carrying no `carried`; this holds wherever the parked attempt ended, a sequence parked at a step after the panel included.
+`brokkr operator retry` SHALL accept `--member <name>`, repeatable. Each name SHALL resolve against the panel the carry applies to, spelled bare as the panel declares the member or as the tag the journal keys it with, `<step>:<member>` in a sequence, and SHALL be journaled resolved: the retry's `operator/commanded` SHALL carry `args.members`, the resolved tags in the order the names were given, spelled as `carried`, `settled_members` and the member markers spell them. Two names that resolve to one member SHALL be refused as that member given twice, naming the tag. A retry with members SHALL be disposed of as a retry is today: the fold's rule decides the acceptance, and the acceptance moves the run back to its phase's effect. A retry without `--member` SHALL journal `args: {}` and re-run every member, byte for byte as today. `--member` SHALL belong to `retry` alone and `--repo`, `--bundle`, `--recipe` and `--recipes-dir` to the member form alone, and the verb SHALL ask these two facts first, in this order, before every refusal it makes today: `--member` typed with any command word but `retry`, be it `stop`, `supersede`, `acknowledge` or a word that is no command, SHALL be refused naming `--member` as retry's alone; any of `--repo`, `--bundle`, `--recipe` and `--recipes-dir` typed without `--member` SHALL be refused naming every such argument typed as the member form's alone; both before anything is written. The refusals the verb makes today, `supersede`'s own, the `supersede`-only flags on another command, `acknowledge` and the command word, SHALL follow in their existing order and keep their texts. `--repo` SHALL name the operated repository the head and the tree are read from and the bundle is compiled for, defaulting as `resume`'s `--repo` defaults: the root of the folder the command runs in, else the current directory, a relative path read against the current directory. `--bundle`, `--recipe` and `--recipes-dir` SHALL find the recipe the verb compiles, each read and defaulted as `resume` reads it: the found folder's bundle when neither `--bundle` nor `--recipe` is typed, and `--recipe` resolved in `--recipes-dir`. The fold SHALL NOT read `args.members`; the engine SHALL read them for the effect the acceptance requested and for every bounded attempt of that effect, matching each tag exactly against the panel and resolving no name a second time. Naming every member of the panel SHALL be admitted exactly when the plain retry is admitted, the pinned bundle compiles under `resume`'s manifest gate, and the names resolve against it: nothing is carried, the parked attempt's shape, the head and the tree are not asked, and the attempt runs every member as a plain retry's does, its `effect/started` carrying no `carried`; this holds wherever the parked attempt ended, a sequence parked at a step after the panel included.
 
 #### Scenario: One stuck reviewer
 
@@ -39,10 +39,15 @@
 - **WHEN** the operator runs `brokkr operator retry --repo /work/tree` with no `--member`
 - **THEN** the command is refused naming `--repo` as the member form's alone, and nothing is written
 
+#### Scenario: A recipe named on a plain retry
+
+- **WHEN** the operator runs `brokkr operator retry --recipe triage --repo /work/tree` with no `--member`
+- **THEN** the command is refused once, naming `--repo` and `--recipe` as the member form's alone, and nothing is written
+
 #### Scenario: The repository the member form reads
 
 - **WHEN** the operator runs `brokkr operator retry --member correctness` without `--repo`, from a subdirectory of a repository that holds a `.brokkr` folder
-- **THEN** the head and the tree are read at the folder's root, where `resume` operates without `--repo`
+- **THEN** the head and the tree are read at the folder's root, where `resume` operates without `--repo`, and the bundle compiled is the folder's own, the one `resume` compiles without `--bundle` or `--recipe`
 
 #### Scenario: A name given twice
 
@@ -66,7 +71,17 @@
 
 ### Requirement: The carry applies to one panel
 
-The panel SHALL be read from the manifest the journal pins at `run/started`: the body it declares for the parked phase, under the case the phase's latest `phase/entered` records when the seat selects. The panel SHALL be that body when it is a panel, or the sequence's first step when that step is a panel, read from the manifest alone, before any name and whatever the parked attempt's shape; names SHALL resolve against that one panel: a name no member of it has, including a member of another panel step, SHALL be refused naming the panel's members. The carry SHALL apply to that panel only when the parked attempt ended at it; the step an attempt ended at SHALL be read as the first step of the sequence with no `sequence-step-finished` marker in that attempt. A panel step after another step SHALL NOT carry: its members read `context.prior_results`, which the carrying attempt builds again and the requested digest does not cover; a sequence whose first step is no panel but a later step is SHALL be refused naming the panel step as following the first step, a fact of its own with its own text, asked after the body is found to run a panel and before any name is read. A sequence parked at a later step SHALL refuse `--member` naming the step the attempt ended at when any member of the panel is unnamed, a fact of the parked attempt's shape asked after the names; when every member is named the command SHALL be admitted as the first requirement admits it, and every step SHALL run again. At drive time the engine SHALL refuse the same facts as a carry that no longer holds is refused. In a sequence the other steps SHALL run again, and the steps after the panel SHALL run on its aggregate.
+The panel SHALL be read from the pinned bundle, which the verb SHALL compile as `brokkr resume` compiles it (`compile_from_manifest`) and SHALL hold to the manifest the journal pins at `run/started` by the comparison `resume` makes, which refuses `ManifestMismatch`. A compile that gate refuses SHALL be refused in `resume`'s own words, the compile's own refusal or `run '<run>' pins a different bundle: <detail>`, a text no carry refusal shares, before any panel fact is asked and with nothing written. The verb SHALL NOT read the panel from the pinned manifest, which records no body for a seat that does not select. The panel SHALL be read from the body the compiled bundle holds for the parked phase, under the case the phase's latest `phase/entered` records when the seat selects: that body when it is a panel, or the sequence's first step when that step is a panel, read from the compiled bundle alone, before any name and whatever the parked attempt's shape; names SHALL resolve against that one panel: a name no member of it has, including a member of another panel step, SHALL be refused naming the panel's members. The carry SHALL apply to that panel only when the parked attempt ended at it; the step an attempt ended at SHALL be read as the first step of the sequence with no `sequence-step-finished` marker in that attempt. A panel step after another step SHALL NOT carry: its members read `context.prior_results`, which the carrying attempt builds again and the requested digest does not cover; a sequence whose first step is no panel but a later step is SHALL be refused naming the panel step as following the first step, a fact of its own with its own text, asked after the body is found to run a panel and before any name is read. A sequence parked at a later step SHALL refuse `--member` naming the step the attempt ended at when any member of the panel is unnamed, a fact of the parked attempt's shape asked after the names; when every member is named the command SHALL be admitted as the first requirement admits it, and every step SHALL run again. At drive time the engine SHALL refuse the same facts as a carry that no longer holds is refused. In a sequence the other steps SHALL run again, and the steps after the panel SHALL run on its aggregate.
+
+#### Scenario: A panel that does not select
+
+- **WHEN** a run of `recipes/panel-review`, whose `review` seat is a panel of `correctness` and `security` that selects on nothing, parked at `review` with `security` indeterminate and `correctness` settled, and the operator runs `brokkr operator retry --member security` on the head the parked attempt recorded at both ends and a clean tree
+- **THEN** the verb compiles the pinned bundle under `resume`'s manifest gate, resolves `security` against the `review` panel the compiled bundle holds, and admits the command, `operator/commanded` carrying `args: {"members": ["security"]}`
+
+#### Scenario: The pinned bundle drifted
+
+- **WHEN** the recipe the run was started from was edited since, so that its compile no longer reproduces the manifest the journal pins, and the operator runs `brokkr operator retry --member correctness`
+- **THEN** the command is refused with the text `brokkr resume` refuses the same run with, `run '<run>' pins a different bundle: ` and the difference, the panel is not read, and nothing is written
 
 #### Scenario: A sequence's first step is the panel
 
@@ -95,17 +110,27 @@ The panel SHALL be read from the manifest the journal pins at `run/started`: the
 
 ### Requirement: A verdict is carried only when nothing it judged has changed
 
-A member's settled verdict SHALL be carried into the retry's attempt only when four facts hold: the reviewed head, the working tree, the pinned bundle and the member's inputs. The reviewed head SHALL be the `head` the parked phase's latest `phase/entered` recorded, checked against the commit-id shape before git reads it, compared with the head of the repository `--repo` names, else the repository `resume` would operate; a phase whose latest entry recorded no head, a recorded head that is not a commit id, or a repository whose head cannot be read SHALL refuse the carry. The working tree SHALL read `clean` at the two ends of the parked attempt and of every attempt a carried verdict is read from, as their terminal facts' `tree` record, and `clean` when the command is given and when the attempt is driven, every one of those readings taken through the one reader of `working-tree-reading`; any other reading, `dirty`, `refused` or `unrun`, at any of those observations SHALL refuse the carry, every observation that did not read `clean` named with its reading in one refusal, in the journal's order: each attempt a verdict is read from or through at its start and then its end, the parked attempt last among them, and the observation now after them all. The files the repository ignores are not read: an edit to one is the carry's accepted residual, as it is the ship gate's. The pinned bundle SHALL be held by the manifest gate `resume` applies before it builds any input. The member's inputs SHALL be held by rebuilding the seat input for the source attempt's effect and comparing its digest with the `input_digest` that effect's `effect/requested` recorded; every source effect whose rebuilt input no longer digests to its record SHALL be named once in one refusal, in the order the carried entries first name it. The verb SHALL check the head, the tree and the journal's facts when the command is given and SHALL refuse with the reason, writing nothing. The engine SHALL check all four before anything of the attempt spawns, and a carry that no longer holds SHALL start the attempt on no driver and end it `effect/indeterminate` with a reason that opens with `PANEL-CARRY-REFUSED`, one space, and the refusal as compact JSON, so the run parks for the operator. The refusal SHALL be one typed vocabulary, spoken by the verb through a typed error whose text is pinned once and encoded by the engine as the marker's evidence.
+A member's settled verdict SHALL be carried into the retry's attempt only when four facts hold: the reviewed head, the working tree, the pinned bundle and the member's inputs. The reviewed head SHALL be the head recorded at both ends of the parked attempt and of every attempt a carried verdict is read from, as their terminal facts' `head` record holds it (`panel-attempt-record`), each end compared as a string with the head now of the repository `--repo` names, else the repository `resume` would operate, read by `git_head` when the command is given and when the attempt is driven; the phase's `phase/entered.head` SHALL NOT be read for it. A repository whose head cannot be read, or whose answer is not a commit id, SHALL refuse the carry naming the repository as answering no head, and the tree SHALL NOT be asked after it. Every recorded end SHALL equal the head now: an end that recorded no head is unequal, and so is a recorded value outside the commit-id shape, which is read as no head and never handed to git; every unequal end SHALL be named, with the head it recorded or its absence, in one refusal, in the journal's order: each attempt a verdict is read from or through at its start and then its end, the parked attempt last among them, and the head now after them all. The working tree SHALL read `clean` at the two ends of the parked attempt and of every attempt a carried verdict is read from, as their terminal facts' `tree` record, and `clean` when the command is given and when the attempt is driven, every one of those readings taken through the one reader of `working-tree-reading`; any other reading, `dirty`, `refused` or `unrun`, at any of those observations SHALL refuse the carry, every observation that did not read `clean` named with its reading in one refusal, in the journal's order: each attempt a verdict is read from or through at its start and then its end, the parked attempt last among them, and the observation now after them all. The files the repository ignores are not read: an edit to one is the carry's accepted residual, as it is the ship gate's. The pinned bundle SHALL be held by the manifest gate `resume` applies before it builds any input, the gate the verb applies too before it reads the panel. The member's inputs SHALL be held by rebuilding the seat input for the source attempt's effect and comparing its digest with the `input_digest` that effect's `effect/requested` recorded; every source effect whose rebuilt input no longer digests to its record SHALL be named once in one refusal, in the order the carried entries first name it. The verb SHALL check the head, the tree and the journal's facts when the command is given and SHALL refuse with the reason, writing nothing. The engine SHALL check all four before anything of the attempt spawns, and a carry that no longer holds SHALL start the attempt on no driver and end it `effect/indeterminate` with a reason that opens with `PANEL-CARRY-REFUSED`, one space, and the refusal as compact JSON, so the run parks for the operator. The refusal SHALL be one typed vocabulary, spoken by the verb through a typed error whose text is pinned once and encoded by the engine as the marker's evidence.
 
 #### Scenario: The head moved before the command
 
 - **WHEN** a commit lands on the reviewed branch after the panel parked, and the operator runs `brokkr operator retry --member correctness`
-- **THEN** the command is refused naming the recorded head and the head found, the journal holds no `operator/commanded` for it, and `brokkr operator retry` without members is admitted and re-runs the whole panel
+- **THEN** the command is refused naming the parked attempt's start and end, at the head they recorded, and the head found now, the journal holds no `operator/commanded` for it, and `brokkr operator retry` without members is admitted and re-runs the whole panel
 
 #### Scenario: The head moved between the acceptance and the drive
 
 - **WHEN** the member retry was accepted on an unchanged head, a commit lands, and `brokkr resume` drives the run
-- **THEN** the attempt's `effect/started` names `driver: "none"` and no `carried`, its `effect/indeterminate` reason opens with `PANEL-CARRY-REFUSED` and its evidence names both heads, the run is `awaiting_operator`, and no member spawned
+- **THEN** the attempt's `effect/started` names `driver: "none"` and no `carried`, its `effect/indeterminate` reason opens with `PANEL-CARRY-REFUSED` and its evidence names the parked attempt's start and end, at the head they recorded, and the head found, the run is `awaiting_operator`, and no member spawned
+
+#### Scenario: The head moved during a park and was put back
+
+- **WHEN** the review phase was entered at `H0`, its first attempt parked with `correctness` indeterminate and recorded `H0` at both ends, a commit then moved the head to `H1`, a plain retry's attempt judged `H1`, `correctness` ran to no verdict again while the three others settled, and that attempt recorded `H1` at both ends and a clean tree, the operator resets the branch to `H0`, and runs `brokkr operator retry --member correctness` on a clean tree
+- **THEN** the plain retry's attempt is read as the parked attempt, the command is refused once naming that attempt's start and end as having recorded `H1` and the head now as `H0`, the first attempt's verdicts are not carried, and nothing is written
+
+#### Scenario: A work member committed inside the attempt
+
+- **WHEN** a panel whose members are not all gates, so that no gate-head observation watches its effect, parked with one member indeterminate after a work member committed, so that its terminal fact records `head.at_start` as `H0` and `head.at_end` as `H1`, and the operator names the indeterminate member on `H1` with a clean tree
+- **THEN** the command is refused once naming that attempt's start as having recorded `H0` and the head now as `H1`, and nothing is written
 
 #### Scenario: The tree is dirty at the command
 
@@ -157,15 +182,20 @@ A member's settled verdict SHALL be carried into the retry's attempt only when f
 - **WHEN** the head, the tree, the bundle and every input are as the panel judged them, and `brokkr resume` drives the accepted member retry
 - **THEN** the attempt's `effect/started` names every carried verdict, and only the named members spawn
 
-#### Scenario: No head recorded
+#### Scenario: A panel in a phase that records no entry head
 
-- **WHEN** the parked phase is a work panel in a phase that is not the protected one, whose `phase/entered` recorded no head
-- **THEN** `--member` is refused naming the phase as having recorded no head, and nothing is written
+- **WHEN** the parked phase's latest `phase/entered` recorded no head, as the entry of a phase other than the protected one may, its parked attempt recorded the head at both ends, the head now is that head, and the tree is clean
+- **THEN** the head fact holds, and the phase's entry is not asked
+
+#### Scenario: An attempt that recorded no head
+
+- **WHEN** the operated repository had no commit while the panel judged, so the parked attempt's terminal fact records `tree` and no `head`, a commit has since been made, and the operator runs `brokkr operator retry --member correctness`
+- **THEN** `--member` is refused once naming the parked attempt's start and end as having recorded no head and the head now, and nothing is written
 
 #### Scenario: A recorded head that is not a commit id
 
-- **WHEN** the parked phase's latest `phase/entered.head` reads as anything but forty lowercase hex digits
-- **THEN** `--member` is refused naming the recorded head as not a commit id, git is not asked, and nothing is written
+- **WHEN** the parked attempt's terminal fact records a `head.at_end` that reads as anything but forty lowercase hex digits
+- **THEN** `--member` is refused naming the parked attempt's end as having recorded no head, the recorded value is never handed to git, and nothing is written
 
 #### Scenario: A repository whose head cannot be read
 
@@ -176,16 +206,16 @@ A member's settled verdict SHALL be carried into the retry's attempt only when f
 
 With `--member`, the verb SHALL fold the run before it writes and SHALL ask its checks in this order, each fact with one text, the first fact that fails being the refusal reported, and a refused command writing nothing:
 
-1. the arguments' shape, two facts in order: `--member` with a command word other than `retry`; `--repo` without `--member`; then the refusals the verb makes today, in their existing order;
+1. the arguments' shape, two facts in order: `--member` with a command word other than `retry`; any of `--repo`, `--bundle`, `--recipe` and `--recipes-dir` without `--member`; then the refusals the verb makes today, in their existing order;
 2. the run's state by the fold's one rule (`acceptance_refusal`: not parked, no phase to retry), reported in the fold's words;
-3. the panel, two facts in order: the parked phase's body, read as the previous requirement reads it, is a panel or a sequence with a panel step, else the command SHALL be refused naming the phase as running no panel; the panel is the body or the sequence's first step, else the command SHALL be refused naming the panel step as following the first step;
+3. the bundle and the panel, three facts in order: the pinned bundle compiles under `resume`'s manifest gate, else the command SHALL be refused in `resume`'s own words, as the previous requirement reads it; the parked phase's body, read from the compiled bundle as the previous requirement reads it, is a panel or a sequence with a panel step, else the command SHALL be refused naming the phase as running no panel; the panel is the body or the sequence's first step, else the command SHALL be refused naming the panel step as following the first step;
 4. the names: each SHALL resolve to a member of that panel, else the command SHALL be refused naming the panel's members, and no member SHALL be given twice; when every member is named the command SHALL be admitted here and nothing below asked, a sequence parked at a step after the panel included;
 5. the parked attempt's shape, four facts in this order, each refused naming its own fact: the phase's current visit holds no attempt its panel ended, naming the phase and its visit; the attempt's terminal fact is `effect/succeeded`, naming the park's reason as the folded state holds it; it ended at a step after the panel, naming that step; it records no verdict to carry, neither `settled_members` on its terminal fact nor `carried` on its `effect/started`, naming the attempt;
 6. the unnamed members: every member not named SHALL have a verdict to carry, settled in the parked attempt or carried by it from an attempt whose `settled_members` holds it, else the command SHALL be refused naming every such member in the panel's declared order, in one refusal;
 7. the head, as the previous requirement reads it;
 8. the tree, as the previous requirement reads it.
 
-The parked attempt SHALL be the latest attempt of the parked phase's current visit, before the retry's own effect, that its panel ended: its terminal fact is `effect/succeeded`; or its terminal fact is an `effect/indeterminate` or `effect/failed` that records `tree`, which only the panel writes; or, in a sequence, the attempt journals the panel step's `sequence-step-finished` marker. Every other attempt of the visit SHALL be passed over: one that started on no driver, one refused admission or provisioning before any member spawned, one the engine ended for a restart in flight, for journal contention or for a held outcome the fence refused, one a gate ended by moving the head, one a sequence's own checks on the panel step's aggregate ended before the step's marker, its terminal fact the sequence's, and one journaled before this change. At the command the parked attempt is read among every attempt of the visit; at drive time it is read among the attempts before the effect the acceptance requested, so every bounded attempt of that effect reads the one its first attempt read. Once the command is written only the fold's race refusal, a lost fence, SHALL follow, journaled as today. The engine SHALL refuse the same facts at drive time, in the same order with the inputs last, as the previous requirement refuses a carry that no longer holds.
+The parked attempt SHALL be the latest attempt of the parked phase's current visit, before the retry's own effect, that its panel ended, and a three-way test alone SHALL decide it: its terminal fact is `effect/succeeded`; or its terminal fact is an `effect/indeterminate` or `effect/failed` that records `tree`, which only the panel writes; or, in a sequence, the attempt journals the panel step's `sequence-step-finished` marker. An attempt that bears any of the three marks SHALL NOT be passed over, whatever ended it after its panel: a sequence's attempt whose panel step's marker stands and which a later step, a restart in flight, journal contention, a held outcome the fence refused or a gate moving the head then ended, or which was journaled before this change, is the parked attempt when it is the latest so marked, and the shape fact of item 5 SHALL refuse it naming the step it ended at, the attempt before it unread. Only an attempt that bears none of the three marks SHALL be passed over: one that started on no driver; one refused admission or provisioning before any member spawned; one the engine ended for a restart in flight, for journal contention or for a held outcome the fence refused before its panel ended; one a gate ended by moving the head before its panel ended, its `GATE-MOVED-HEAD` written in the place of the panel's terminal fact or before the panel step's marker; one a sequence's own checks on the panel step's aggregate ended before the step's marker, its terminal fact the sequence's; and one journaled before this change that neither succeeded nor journaled the panel step's marker. At the command the parked attempt is read among every attempt of the visit; at drive time it is read among the attempts before the effect the acceptance requested, so every bounded attempt of that effect reads the one its first attempt read. Once the command is written only the fold's race refusal, a lost fence, SHALL follow, journaled as today. The engine SHALL refuse the same facts at drive time, in the same order with the inputs last, as the previous requirement refuses a carry that no longer holds.
 
 #### Scenario: A member retry on a run that is not parked
 
@@ -204,7 +234,7 @@ The parked attempt SHALL be the latest attempt of the parked phase's current vis
 
 #### Scenario: No attempt its panel ended
 
-- **WHEN** the parked phase's current visit holds no attempt its panel ended: its attempts started on no driver, were refused admission before any member spawned, or were journaled before this change
+- **WHEN** the parked phase's current visit holds no attempt its panel ended: its attempts started on no driver, were refused admission before any member spawned, or were journaled before this change and neither succeeded nor journaled the panel step's marker
 - **THEN** `--member` is refused naming the phase's visit as holding no attempt its panel ended, and nothing is written
 
 #### Scenario: The shape facts in order
@@ -225,12 +255,17 @@ The parked attempt SHALL be the latest attempt of the parked phase's current vis
 #### Scenario: A gate moved the head in the carrying attempt
 
 - **WHEN** a member retry's attempt carried three verdicts and the retried member, a gate, committed, so the attempt ended with the `GATE-MOVED-HEAD` indeterminate, and the operator runs `brokkr operator retry --member correctness` on the moved head
-- **THEN** the gate's attempt is passed over, the attempt before it that its panel ended is read, and the command is refused naming the recorded head and the head found
+- **THEN** the gate's attempt is passed over, the attempt before it that its panel ended is read, and the command is refused naming that attempt's start and end, at the head they recorded, and the head found now
 
 #### Scenario: The head is put back after a gate moved it
 
-- **WHEN** the operator resets the branch to the recorded head after that park, the tree is clean, and runs `brokkr operator retry --member correctness`
+- **WHEN** the operator resets the branch, after that park, to the head the attempt before the gate's recorded at both ends, the tree is clean, and runs `brokkr operator retry --member correctness`
 - **THEN** the gate's attempt is passed over, the command is admitted, and the next attempt's `carried` names the attempt before the gate's
+
+#### Scenario: A carrying attempt that ended at the chief after the positions aggregated
+
+- **WHEN** the review sequence's first attempt parked with `positions:correctness` indeterminate, a member retry's attempt carried the three other positions from it and ran `correctness` to a verdict, the `positions` step aggregated and its `sequence-step-finished` marker stands, and `chief` then ended that attempt, by committing so that it ended with the `GATE-MOVED-HEAD` indeterminate, or in flight when the engine restarted, and the operator runs `brokkr operator retry --member correctness`
+- **THEN** the carrying attempt bears the panel step's marker, so it is read as the parked attempt and is not passed over; the command is refused naming `chief` as the step the attempt ended at, the first attempt is not read and no verdict is carried from it, nothing is written, and the plain retry is admitted
 
 #### Scenario: A carrying attempt refused admission
 
@@ -244,12 +279,12 @@ The parked attempt SHALL be the latest attempt of the parked phase's current vis
 
 #### Scenario: The engine restarted during the carrying attempt
 
-- **WHEN** a member retry's attempt was in flight when the engine restarted, so its terminal fact is the restart's `effect/indeterminate` with no `tree`, and the operator runs `brokkr operator retry --member correctness` on an unchanged head and a clean tree
+- **WHEN** a member retry's attempt was in flight, before its panel ended, when the engine restarted, so its terminal fact is the restart's `effect/indeterminate` with no `tree` and it journals no panel step's marker, and the operator runs `brokkr operator retry --member correctness` on an unchanged head and a clean tree
 - **THEN** the restarted attempt is passed over, the command is admitted, and the next attempt's `carried` names the attempt the restarted one carried from
 
 #### Scenario: A journal written before this change
 
-- **WHEN** the parked phase's only attempt is a panel attempt whose terminal fact carries no `tree`, written before this change
+- **WHEN** the parked phase's only attempt is a panel attempt written before this change, whose terminal fact is no `effect/succeeded` and carries no `tree`, and which journals no panel step's marker
 - **THEN** `--member` is refused naming the phase's visit as holding no attempt its panel ended, and nothing is written
 
 #### Scenario: An all-indeterminate panel
@@ -270,7 +305,7 @@ The parked attempt SHALL be the latest attempt of the parked phase's current vis
 #### Scenario: The same member stuck twice
 
 - **WHEN** the first attempt parked with `correctness` indeterminate, the member retry's attempt carried the three others from it and `correctness` ran to no verdict again, and the operator runs `brokkr operator retry --member correctness` on an unchanged head and a clean tree
-- **THEN** the carrying attempt is read as the parked attempt, the three verdicts are found through its `carried` entries, the tree is checked at the carrying attempt's two ends and at the first attempt's, the command is admitted, and the third attempt's `carried` names the three by the first attempt
+- **THEN** the carrying attempt is read as the parked attempt, the three verdicts are found through its `carried` entries, the head and the tree are checked at the carrying attempt's two ends and at the first attempt's, the command is admitted, and the third attempt's `carried` names the three by the first attempt
 
 #### Scenario: A refused carry is not forfeited
 
