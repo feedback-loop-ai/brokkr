@@ -59,7 +59,7 @@ uuid = { version = "1", features = ["v4"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 clap = { version = "4", features = ["derive"] }
 tempfile = "3"
-ureq = { version = "2.12", features = ["json"] }
+ureq = { version = "3.4", features = ["json"] }
 url = "2"
 # The fleet's titles are clamped by display width, not by char count
 # (#491). Already in the lockfile through ratatui, at the version the TUI

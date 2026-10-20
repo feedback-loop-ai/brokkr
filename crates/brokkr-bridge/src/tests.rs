@@ -518,6 +518,18 @@ fn http_transport_refuses_origin_status_connection_and_shape_defects() {
         matches!(error, BridgeError::Transport(message) if message.contains("connection failed"))
     );
 
+    // A bearer no header can carry is refused before anything is sent,
+    // with or without a body, and the refusal never echoes it.
+    let unsendable = HttpTransport::new("http://127.0.0.1:1", "secret\nvalue");
+    for body in [None, Some(json!({}))] {
+        let error = unsendable.request("POST", "/unsent", body).unwrap_err();
+        assert!(matches!(
+            error,
+            BridgeError::Transport(message)
+                if message.starts_with("invalid request:") && !message.contains("secret")
+        ));
+    }
+
     assert!(matches!(
         data::<RegistrationState>(json!({"data": {}})),
         Err(BridgeError::Transport(message)) if message.contains("invalid response shape")
