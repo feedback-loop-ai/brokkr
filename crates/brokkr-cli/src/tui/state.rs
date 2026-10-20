@@ -499,14 +499,19 @@ pub(super) fn settle(tui: &mut Tui, views: &Views) {
             tui.pane = 1;
         }
     }
-    // A fleet that lists runs and does not list this one has lost it.
-    // An empty fleet is the unreadable-journal frame, which is not
-    // evidence that the run went away.
+    // The fleet's rows are a window of pages read by keyset (decision 0089
+    // ruling 6), and a writer moves a run out of it, so a run missing from
+    // them has not gone on that account. Only the run level reads the open
+    // run, and there the frame says what it found: a view of it, or, when
+    // the store refused it, its row in the store's words (ruling 5). A
+    // fleet that lists runs while the frame holds neither has lost it. An
+    // empty fleet is the unreadable-journal frame, which is not evidence
+    // that the run went away.
     let vanished = match &tui.run {
-        Some(run) => {
+        Some(run) if tui.level != Level::Runs && views.run.is_none() => {
             !views.runs.runs.is_empty() && !views.runs.runs.iter().any(|r| r.run_id == *run)
         }
-        None => false,
+        Some(_) | None => false,
     };
     if vanished {
         tui.run = None;

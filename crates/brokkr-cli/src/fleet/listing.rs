@@ -2,8 +2,8 @@
 //! 6), so its memory is a page of rows and the largest run's whole values
 //! however many runs the hearth holds. With no flag it lists every run, in
 //! the shape it always printed, the runs behind their summary past the
-//! hundred a refresh reads each listed at its place, and all of it one
-//! read of the journal; `--limit`
+//! hundred a refresh reads each listed at its place, keyed a batch at a
+//! time, and all of it one read of the journal; `--limit`
 //! prints one page, `--after` the page after a cursor, and their JSON
 //! states `next`.
 
@@ -13,6 +13,7 @@ use anyhow::Result;
 use brokkr_store::Store;
 use brokkr_view::{Cursor, Page, Paged, RunRow, RunsView, VIEW_VERSION};
 
+use super::page::TAIL_KEYS;
 use super::{Ask, Journal, Pages, PAGE_ROWS};
 use crate::render::{self, Style};
 
@@ -55,14 +56,25 @@ pub(crate) fn cursor(text: &str) -> Result<Cursor, PageRefused> {
 /// writer catches up meanwhile, and each run lists once (ruling 6).
 pub(crate) fn list_hearth<T>(
     store: &Store,
-    (before, now): (Option<Journal>, &str),
+    journal: (Option<Journal>, &str),
     every: bool,
     list: impl FnOnce(&Lister<'_>) -> Result<T>,
 ) -> Result<T> {
+    list_hearth_in(store, journal, every.then_some(TAIL_KEYS), list)
+}
+
+/// [`list_hearth`], of every run when `batched` names how many keys of
+/// the runs behind past a refresh it holds at once, else of a page.
+pub(crate) fn list_hearth_in<T>(
+    store: &Store,
+    (before, now): (Option<Journal>, &str),
+    batched: Option<usize>,
+    list: impl FnOnce(&Lister<'_>) -> Result<T>,
+) -> Result<T> {
     store.as_one_read(|| {
-        let pages = match every {
-            true => Pages::every(store, before, now),
-            false => Pages::listing(store, before),
+        let pages = match batched {
+            Some(keys) => Pages::every(store, before, keys),
+            None => Pages::listing(store, before),
         };
         let pages = pages.map_err(|error| anyhow::Error::msg(error.to_string()))?;
         list(&Lister {

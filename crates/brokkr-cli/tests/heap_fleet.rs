@@ -97,6 +97,11 @@ const DRAWS: usize = 8;
 /// 48 draws of one frame, 513,210 to 525,294 B (2026-10-20).
 const SOLVER_SPREAD: u64 = 16 * 1024;
 
+/// Held by each test for its whole run: dhat allows one profiler per
+/// process, and counts every thread's allocations, so no two measure at
+/// once.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Brokkr's peak heap while `read` runs, under dhat.
 fn peak_of(read: impl FnOnce()) -> u64 {
     let profiler = dhat::Profiler::builder().testing().build();
@@ -197,6 +202,9 @@ fn first_page_micros(db: &Path) -> u128 {
 /// frame from draw to draw.
 #[test]
 fn a_fleet_page_costs_the_same_heap_at_every_journal_size() {
+    let _alone = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|held| held.into_inner());
     let dir = tempfile::tempdir().unwrap();
     let small_db = journal(dir.path(), "small.db", &runs(5, Width::Wide));
     let large_db = journal(dir.path(), "large.db", &runs(500, Width::Wide));
@@ -282,4 +290,84 @@ fn a_fleet_page_costs_the_same_heap_at_every_journal_size() {
             "{name}: the budget {budget} is past ruling 9's {cap}"
         );
     }
+}
+
+/// The 2,000 runs of a page's journal under `dir`, named `name`, and
+/// `behind` more no writer has judged yet, as a backfill leaves them: each
+/// read whole by the listing that reaches it, and refused there, since a
+/// generated run's events chain nothing.
+fn behind_journal(dir: &Path, name: &str, behind: usize) -> PathBuf {
+    let mut every = runs(5, Width::Narrow);
+    let last = every[every.len() - 1].clone();
+    every.extend((0..behind).map(|n| Generated {
+        run_id: format!("lag-{n:05}"),
+        ..last.clone()
+    }));
+    let db = journal(dir, name, &every);
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "UPDATE run_summary SET folded_seq = NULL WHERE run_id LIKE 'lag-%'",
+            [],
+        )
+        .unwrap();
+    db
+}
+
+/// Brokkr's peak heap to list every run of `db` as `brokkr runs --json`
+/// with no other flag lists it, from its read-only open to its last row.
+/// The table reads the same pages, twice over.
+fn listing_peak(db: &Path) -> u64 {
+    peak_of(|| {
+        let mut out = std::io::sink();
+        brokkr_cli::fleet_listing_for_budget(db, NOW, &mut out).unwrap();
+    })
+}
+
+/// How far the listing's peak may move between 2,000 and 20,000 runs
+/// behind: 1 B was measured (375,274 B against 375,273 B, 2026-10-20),
+/// where a key kept for every run behind grew it by 4,209,540 B. It
+/// holds what text a count or a key formats a few digits longer.
+const LISTING_SPREAD: u64 = 64;
+
+/// Ruling 6: `brokkr runs` with no flag is read and written a page at a
+/// time, so its memory is a page's however many runs stand behind their
+/// summary: it keys the runs behind past a refresh a batch at a time,
+/// never every one, so its peak at 20,000 runs behind is its peak at
+/// 2,000, within [`LISTING_SPREAD`]. Over a journal none of whose runs is
+/// behind, the listing holds within ruling 9's 256 KiB for a page, which
+/// ruling 6 states for an empty behind lane; with runs behind, it holds
+/// the hundred a refresh reads whole besides, within its own budget, and
+/// that within ruling 9's 640 KiB for a page.
+#[test]
+fn every_run_costs_the_same_heap_however_many_runs_are_behind() {
+    let _alone = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|held| held.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let none = behind_journal(dir.path(), "none.db", 0);
+    let fewer = behind_journal(dir.path(), "fewer.db", 2_000);
+    let more = behind_journal(dir.path(), "more.db", 20_000);
+    // Read once unmeasured, as the page's test does.
+    listing_peak(&fewer);
+    let (none, fewer, more) = (
+        listing_peak(&none),
+        listing_peak(&fewer),
+        listing_peak(&more),
+    );
+    eprintln!("none behind: {none}; 2,000: {fewer}; 20,000: {more}");
+    println!("heap\tfleet-listing-behind\t{}", fewer.max(more));
+    let moved = more.abs_diff(fewer);
+    assert!(
+        moved <= LISTING_SPREAD,
+        "the listing's peak moved {moved} bytes from 2,000 runs behind to 20,000"
+    );
+    assert!(none <= 256 * 1024, "{none} bytes with no run behind");
+    let budget = budgets::budget_named("fleet-listing-behind");
+    assert!(
+        fewer.max(more) <= budget,
+        "fleet-listing-behind: {} bytes; the budget is {budget}",
+        fewer.max(more)
+    );
+    assert!(budget <= 640 * 1024, "the budget {budget} is past 640 KiB");
 }

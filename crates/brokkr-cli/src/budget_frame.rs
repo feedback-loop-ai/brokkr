@@ -117,6 +117,19 @@ pub fn fleet_page_for_budget(
     Ok((listed.runs, listed.ahead))
 }
 
+/// `brokkr runs --json` with no other flag over the journal at `db` at
+/// `now`, from its read-only open: every run, a page at a time, written
+/// to `out` (decision 0089 ruling 6). The table reads the same pages.
+pub fn fleet_listing_for_budget(
+    db: &Path,
+    now: &str,
+    out: &mut impl std::io::Write,
+) -> anyhow::Result<()> {
+    let store = Store::open_read_only(db)?;
+    let journal = (Journal::at(db), now);
+    crate::fleet::list_hearth(&store, journal, true, |lister| lister.every_json(out))
+}
+
 /// The console's first fleet page painted at `width`×`height` by its own
 /// `draw` at its RUNS level: open to painted frame, and the frame's text,
 /// row after row, each cell its symbol.

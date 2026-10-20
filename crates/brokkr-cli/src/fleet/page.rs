@@ -6,13 +6,16 @@
 //! its fold says. The runs behind their summary are read whole before a
 //! page is, at most [`AHEAD_ROWS`] a refresh, kept between refreshes
 //! while each head stands, and placed among the page's rows by their own
-//! facts; a listing of every run keys the rest a refresh's worth at a
-//! time, and reads each whole again where its page reaches its key. A
-//! journal the summary does not page yet, read by a
-//! reader that cannot migrate it, is read the kept way (#744) and paged
-//! in memory by the same sections.
+//! facts; a listing of every run keys the rest a batch of one section at
+//! a time, each batch one pass that reads them whole, and reads each
+//! whole again where its page reaches its key, so what it holds is a
+//! batch however many runs are behind. A journal the summary does not
+//! page yet, read by a reader that cannot migrate it, is read the kept
+//! way (#744) and paged in memory by the same sections.
 
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use brokkr_core::fold::RunState;
 use brokkr_core::page::{newest_first, Place};
@@ -55,9 +58,69 @@ pub(crate) struct Behind {
     /// Where in the behind lane the runs the last refresh read end, while
     /// the lane holds more past them.
     past: Option<(i64, String)>,
-    /// The runs behind past those, for a listing of every run: each the
-    /// section its fold lists it under and its place there, newest first.
-    tail: Vec<(Section, i64, String)>,
+    /// The runs behind past those, for a listing of every run.
+    tail: Option<Tail>,
+}
+
+/// How many keys of the runs behind past a refresh a listing of every
+/// run holds at once, each a place of 32 bytes and its run id, so its
+/// memory is a batch's however many runs are behind; a pass reads each of
+/// them whole once for every batch of a section it lists, so a listing
+/// of every run reads them whole about `behind / TAIL_KEYS + 1` times
+/// over (decision 0089 ruling 6).
+pub(crate) const TAIL_KEYS: usize = 1_000;
+
+/// The runs behind past those a refresh read, as a listing of every run
+/// keys them: a batch of one section at a time, never every key.
+struct Tail {
+    /// How many keys a batch holds at most.
+    keys: usize,
+    batch: RefCell<Option<Batch>>,
+    /// The sections they list under, once a pass has read them all, so
+    /// a section none lists under costs no pass.
+    listed: RefCell<Option<Vec<Section>>>,
+}
+
+/// The newest places of `section`, below `below` or from its top, among
+/// the runs behind past a refresh: each run's place there, newest first,
+/// and whether they are every run of `section` below `below`.
+struct Batch {
+    section: Section,
+    below: Option<(i64, String)>,
+    keys: Vec<(i64, String)>,
+    every: bool,
+}
+
+/// `place` among the `keys` newest of `newest`: whether one fell past
+/// them, so `newest` no longer holds every place it was handed.
+fn held_past(
+    newest: &mut BinaryHeap<Reverse<(i64, String)>>,
+    place: (i64, String),
+    keys: usize,
+) -> bool {
+    newest.push(Reverse(place));
+    newest.len() > keys && newest.pop().is_some()
+}
+
+/// Whether `place` lists below `from`, every place below the top.
+fn under(place: &(i64, String), from: Option<&(i64, String)>) -> bool {
+    from.is_none_or(|from| (place.0, place.1.as_str()) < (from.0, from.1.as_str()))
+}
+
+impl Batch {
+    /// Whether this batch holds the newest places of `section` below
+    /// `from`: it was read from at or above `from`, and either holds every
+    /// place below it or holds one below `from`, past which every place
+    /// down to its last is its own.
+    fn covers(&self, section: Section, from: Option<&(i64, String)>) -> bool {
+        let read_above = match (from, &self.below) {
+            (_, None) => true,
+            (None, Some(_)) => false,
+            (Some(from), Some(below)) => !under(below, Some(from)),
+        };
+        let holds = self.every || self.keys.last().is_some_and(|last| under(last, from));
+        self.section == section && read_above && holds
+    }
 }
 
 impl Pages {
@@ -102,17 +165,22 @@ impl Pages {
         Ok(pages)
     }
 
-    /// [`Pages::listing`] for a listing of every run at `now`: the runs
-    /// behind past those it read whole are keyed too, so each lists in
-    /// its section at its place, read whole again when a page reaches it.
+    /// [`Pages::listing`] for a listing of every run: the runs behind past
+    /// those it read whole are keyed too, a batch of `keys` at a time
+    /// ([`TAIL_KEYS`] but in a test), so each lists in its section at its
+    /// place, read whole again when a page reaches it.
     pub(crate) fn every(
         store: &Store,
         before: Option<Journal>,
-        now: &str,
+        keys: usize,
     ) -> Result<Pages, StoreError> {
         let mut pages = Pages::listing(store, before)?;
         if let Pages::Summary(kept) = &mut pages {
-            kept.key_the_tail(store, now)?;
+            kept.tail = kept.past.is_some().then(|| Tail {
+                keys: keys.max(1),
+                batch: RefCell::new(None),
+                listed: RefCell::new(None),
+            });
         }
         Ok(pages)
     }
@@ -264,28 +332,86 @@ impl Behind {
         Ok(read)
     }
 
-    /// Key each run behind past those the refresh read, [`AHEAD_ROWS`] at
-    /// a time, by the section its fold lists it under at `now` and its
-    /// place there, holding no run's read past its key (ruling 6).
-    fn key_the_tail(&mut self, store: &Store, now: &str) -> Result<(), StoreError> {
-        let mut from = self.past.clone();
-        while let Some((at, key)) = from.take() {
+    /// The newest `keys` places of `section` at `now` below `from`, or
+    /// from its top, among the runs behind past those the refresh read:
+    /// one pass of the behind lane under the listing's one read, a page of
+    /// the index at a time, each run read whole for the section its fold
+    /// lists it under and its place there, and no more than `keys` places
+    /// held past their run's read (ruling 6); and every section the pass
+    /// read one of them under.
+    fn batch(
+        &self,
+        store: &Store,
+        (section, now): (Section, &str),
+        (from, keys): (Option<&(i64, String)>, usize),
+    ) -> Result<(Batch, Vec<Section>), StoreError> {
+        let mut newest = BinaryHeap::with_capacity(keys + 1);
+        let mut every = true;
+        let mut sections = Vec::new();
+        let mut next = self.past.clone();
+        while let Some((at, key)) = next.take() {
             let (listed, beyond) = store.behind(Some((at, &key)), brokkr_view::AHEAD_ROWS)?;
             for (_, run_id) in &listed {
                 let row = read_whole(store, run_id)?.0;
                 let (order_at, run_id) = row.place();
-                let section = brokkr_view::section_of(&row, now);
-                self.tail.push((section, order_at, run_id.to_string()));
+                let place = (order_at, run_id.to_string());
+                let under_section = brokkr_view::section_of(&row, now);
+                if !sections.contains(&under_section) {
+                    sections.push(under_section);
+                }
+                if under_section == section && under(&place, from) {
+                    every &= !held_past(&mut newest, place, keys);
+                }
             }
-            from = listed.into_iter().last().filter(|_| beyond > 0);
+            next = listed.into_iter().last().filter(|_| beyond > 0);
         }
-        self.tail.sort_by(|(_, a, a_id), (_, b, b_id)| {
-            newest_first((*a, a_id)).cmp(&newest_first((*b, b_id)))
-        });
-        Ok(())
+        let keys = newest.into_sorted_vec().into_iter();
+        let batch = Batch {
+            section,
+            below: from.cloned(),
+            keys: keys.map(|Reverse(place)| place).collect(),
+            every,
+        };
+        Ok((batch, sections))
     }
 
-    /// Up to `wanted` of the runs keyed past those the refresh read that
+    /// Up to `wanted` places of `section` at `now` below `from` among the
+    /// runs behind past those the refresh read, newest first, from the
+    /// batch the tail holds, which a pass reads anew where it holds none
+    /// and `section` is one a pass has not found empty.
+    fn tail_keys(
+        &self,
+        store: &Store,
+        (section, now): (Section, &str),
+        (from, wanted): (Option<&(i64, String)>, usize),
+    ) -> Result<Vec<(i64, String)>, StoreError> {
+        let Some(tail) = &self.tail else {
+            return Ok(Vec::new());
+        };
+        let mut listed = tail.listed.borrow_mut();
+        if listed
+            .as_ref()
+            .is_some_and(|listed| !listed.contains(&section))
+        {
+            return Ok(Vec::new());
+        }
+        let mut batch = tail.batch.borrow_mut();
+        let held = batch.take().filter(|held| held.covers(section, from));
+        let held = match held {
+            Some(held) => held,
+            None => {
+                let (read, sections) = self.batch(store, (section, now), (from, tail.keys))?;
+                *listed = Some(sections);
+                read
+            }
+        };
+        let keys = held.keys.iter().filter(|place| under(place, from));
+        let keys = keys.take(wanted).cloned().collect();
+        *batch = Some(held);
+        Ok(keys)
+    }
+
+    /// Up to `wanted` of the runs behind past those the refresh read that
     /// list under `section` below `after` and that `ask` keeps, each read
     /// whole again at its key.
     fn tail_of(
@@ -295,14 +421,21 @@ impl Behind {
         (section, after): (Section, Option<Place<'_>>),
         wanted: usize,
     ) -> Result<Vec<RunRow>, StoreError> {
-        let keyed = self.tail.iter().filter(|(listed, order_at, run_id)| {
-            *listed == section && after.is_none_or(|after| (*order_at, run_id.as_str()) < after)
-        });
-        keyed
-            .map(|(_, _, run_id)| Ok(read_whole(store, run_id)?.0))
-            .filter(|read| read.as_ref().map_or(true, |row| (ask.keep)(row)))
-            .take(wanted)
-            .collect()
+        let mut rows = Vec::new();
+        let mut from = after.map(|(at, key)| (at, key.to_string()));
+        while rows.len() < wanted {
+            let asked = (from.as_ref(), wanted - rows.len());
+            let keys = self.tail_keys(store, (section, ask.now), asked)?;
+            if keys.is_empty() {
+                break;
+            }
+            for (order_at, run_id) in keys {
+                let row = read_whole(store, &run_id)?.0;
+                rows.extend(Some(row).filter(|row| (ask.keep)(row)));
+                from = Some((order_at, run_id));
+            }
+        }
+        Ok(rows)
     }
 
     /// Whether the runs kept were read from the file `now`.

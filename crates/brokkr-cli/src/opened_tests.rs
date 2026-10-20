@@ -51,6 +51,96 @@ fn opened_in_the_console(db: &Path) -> (bool, brokkr_view::RunRow) {
     (views.run.is_some(), row.expect("the opened run is listed"))
 }
 
+/// The page `brokkr ui` serves.
+const PAGE: &str = include_str!("ui.html");
+
+/// The served page's text between `/* <name>:start */` and its end.
+fn page_block(name: &str) -> &'static str {
+    let (start, end) = (format!("/* {name}:start */"), format!("/* {name}:end */"));
+    let from = PAGE.find(&start).expect("the page marks the block's start") + start.len();
+    let to = from + PAGE[from..].find(&end).expect("the page marks its end");
+    &PAGE[from..to]
+}
+
+/// The DOM, the fetch and the page globals the page's reads of one run
+/// meet in a browser, each recording what reaches it: `fetch` answers
+/// each route as `brokkr ui` served it (`__served`).
+const BROWSER: &str = r#"
+var __painted = [];
+var __transcript = [];
+function el(tag, cls, text) {
+  return { tag: tag, cls: cls ?? null, text: text ?? null, children: [],
+    appendChild: function (child) { this.children.push(child); } };
+}
+function badge(text) { return el('span', 'badge', text); }
+var __detail = el('div');
+__detail.replaceChildren = function () { this.children = []; };
+var document = { getElementById: function () { return __detail; } };
+function renderDetail(id) { __painted.push('view ' + id); }
+var activeParticipant = 'work', transcriptBox = {}, transcriptPart = {}, explicitSelectKey = 'work';
+var transcriptController = { clear: function () { __painted.push('cleared'); } };
+function fetch(url) {
+  var served = __served[url];
+  return Promise.resolve({ ok: served.status < 300, status: served.status,
+    json: function () { return Promise.resolve(JSON.parse(served.body)); } });
+}
+var __participant = createTranscriptController({
+  requestPresentation: function (subject) {
+    return fetchJson('/api/presentation/' + subject.runId + '/' + subject.participantKey);
+  },
+  requestBody: function () { return fetchJson('/api/transcript/r1/work'); },
+  openWatch: function () { return {}; }, closeWatch: function () {},
+  schedule: function () { return {}; }, cancel: function () {}, clear: function () {},
+  render: function (view) { __transcript.push(view.reason + ': ' + view.explanation); }
+});
+function __drawn() {
+  return JSON.stringify({ painted: __painted, detail: __detail.children,
+    transcript: __transcript, active: activeParticipant });
+}
+"#;
+
+/// What the page `brokkr ui` serves draws of run `run` over `db`, its own
+/// code run in Boa against each route as `handle` serves it: the run
+/// opened in the detail pane, and its participant `work` drilled.
+fn drawn_in_the_page(db: &Path, run: &str) -> serde_json::Value {
+    let routes = [
+        format!("/api/view/{run}"),
+        format!("/api/presentation/{run}/work"),
+    ];
+    let served: serde_json::Map<String, serde_json::Value> = routes
+        .iter()
+        .map(|route| {
+            let answer = crate::ui::handle(db, route);
+            let status: u16 = answer.status[..3].parse().unwrap();
+            let served = serde_json::json!({"status": status, "body": answer.body});
+            (route.clone(), served)
+        })
+        .collect();
+    let mut boa = boa_engine::Context::default();
+    let served = format!("var __served = {};", serde_json::Value::Object(served));
+    let subject = format!(
+        "__participant.operator_select({{ runId: '{run}', participantKey: 'work', \
+         reference: null, sessionId: null, provider: null, working: false }});"
+    );
+    let opened = format!(
+        "loadDetail('{run}').catch(function (error) {{ __painted.push('threw ' + error); }});"
+    );
+    let blocks = [
+        page_block("transcript-controller"),
+        page_block("opened-run"),
+    ];
+    for source in [&served, blocks[0], blocks[1], BROWSER, &subject, &opened] {
+        boa.eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|error| panic!("evaluating the page: {error}"));
+        boa.run_jobs().expect("the page's promises settle");
+    }
+    let drawn = boa
+        .eval(boa_engine::Source::from_bytes(b"__drawn()"))
+        .unwrap();
+    let drawn = drawn.as_string().expect("the page's drawing reads as text");
+    serde_json::from_str(&drawn.to_std_string_escaped()).unwrap()
+}
+
 /// `line` run as `brokkr` runs it, refused: the refusal's words, and each
 /// cause's beneath them.
 fn refused(line: &[&str]) -> Vec<String> {
@@ -133,8 +223,34 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
             "{route}"
         );
     }
+    // The browser draws what it was served, by the page's own code: the
+    // run quarantined in the store's words and no view, a drilled
+    // participant gone with it, and the participant's own read refused in
+    // the same words; the run beside it draws its view.
+    let quarantined = serde_json::json!({
+        "painted": ["cleared"],
+        "detail": [
+            {"tag": "h1", "cls": null, "text": "r1", "children": []},
+            {"tag": "p", "cls": null, "text": null, "children": [
+                {"tag": "span", "cls": "badge", "text": "quarantined", "children": []},
+            ]},
+            {"tag": "p", "cls": "problem", "text": EDITED, "children": []},
+        ],
+        "transcript": [format!("unreadable: {EDITED}")],
+        "active": null,
+    });
+    assert_eq!(drawn_in_the_page(&db, "r1"), quarantined);
+    let beside = drawn_in_the_page(&db, "r2");
+    assert_eq!(beside["painted"], serde_json::json!(["view r2"]));
     let missing = crate::ui::handle(&db, "/api/view/r3");
     assert_eq!(missing.body, r#"{"error":"r3 not found"}"#);
+    // A run the journal does not hold is drawn in the server's words
+    // alone, never quarantined.
+    let not_found = serde_json::json!([
+        {"tag": "h1", "cls": null, "text": "r3", "children": []},
+        {"tag": "p", "cls": "problem", "text": "r3 not found", "children": []},
+    ]);
+    assert_eq!(drawn_in_the_page(&db, "r3")["detail"], not_found);
     assert!(Store::open_read_only(&db).unwrap().pages().unwrap());
     let quarantined = (false, Some(EDITED), Some(Quarantine::DoesNotLoad));
     let (drawn, row) = opened_in_the_console(&db);

@@ -18,7 +18,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use super::*;
-use crate::fleet::listing::Lister;
+use crate::fleet::listing::{list_hearth_in, Lister};
 use crate::fleet::{list_hearth, read_hearth, ListedRun, AHEAD_ROWS, PAGE_ROWS};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 
@@ -211,16 +211,17 @@ fn arranged(rows: &[RunRow]) -> Vec<RunRow> {
 }
 
 /// What `write` prints of the hearth at `db` at [`NOW`], listed as `brokkr
-/// runs` lists it, in one read: every run when `every`, else a page.
+/// runs` lists it, in one read: every run, `batched` keys of the runs
+/// behind past a refresh at a time, when it names them, else a page.
 fn printed(
     db: &Path,
-    every: bool,
+    batched: Option<usize>,
     write: impl FnOnce(&Lister<'_>, &mut Vec<u8>) -> anyhow::Result<()>,
 ) -> String {
     let store = Store::open_read_only(db).unwrap();
     let mut out = Vec::new();
     let journal = (Journal::at(db), NOW);
-    list_hearth(&store, journal, every, |lister| write(lister, &mut out)).unwrap();
+    list_hearth_in(&store, journal, batched, |lister| write(lister, &mut out)).unwrap();
     String::from_utf8(out).unwrap()
 }
 
@@ -230,14 +231,16 @@ const STYLE: crate::render::Style = crate::render::Style {
     width: 120,
 };
 
-/// Every run of the hearth at `db`, in its JSON and its table, is `view`.
-fn lists_every_run_as(db: &Path, view: &brokkr_view::RunsView) {
-    let json = printed(db, true, |lister, out| lister.every_json(out));
+/// Every run of the hearth at `db`, in its JSON and its table, `keys` of
+/// the runs behind past a refresh keyed at a time, is `view`.
+fn lists_every_run_as(db: &Path, keys: usize, view: &brokkr_view::RunsView) {
+    let json = printed(db, Some(keys), |lister, out| lister.every_json(out));
     assert_eq!(
         json,
-        format!("{}\n", serde_json::to_string_pretty(view).unwrap())
+        format!("{}\n", serde_json::to_string_pretty(view).unwrap()),
+        "{keys} keys a batch"
     );
-    let text = printed(db, true, |lister, out| lister.every_text(out, &STYLE));
+    let text = printed(db, Some(keys), |lister, out| lister.every_text(out, &STYLE));
     assert_eq!(text, crate::render::runs(view, NOW, &STYLE));
 }
 
@@ -612,7 +615,12 @@ fn every_run_lists_the_runs_behind_past_a_refresh_where_the_whole_read_does() {
         let held = ids.iter().filter(|id| !id.starts_with("lag-"));
         assert!(past.count() > 0 && held.count() > 0, "{section:?}: {ids:?}");
     }
-    lists_every_run_as(&db, &brokkr_view::RunsView::of(arranged(&whole)));
+    let view = brokkr_view::RunsView::of(arranged(&whole));
+    // A batch smaller than any section's runs behind, so each section is
+    // keyed by several passes that meet at their places.
+    for keys in [3, TAIL_KEYS] {
+        lists_every_run_as(&db, keys, &view);
+    }
 }
 
 /// What a listing writes, with `between` run before its first write: a
@@ -680,7 +688,7 @@ fn a_journal_the_summary_does_not_page_is_read_the_kept_way() {
     assert_eq!(by_section(&listed), sectioned(&whole, NOW));
     let every = brokkr_view::RunsView::of(arranged(&whole));
     assert_eq!(
-        printed(&db, true, |lister, out| lister.every_json(out)),
+        printed(&db, Some(TAIL_KEYS), |lister, out| lister.every_json(out)),
         format!("{}\n", serde_json::to_string_pretty(&every).unwrap())
     );
     let older = brokkr_view::sections(&whole, NOW)[3].1.len();
@@ -719,14 +727,12 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
     assert!(arranged.len() > PAGE_ROWS);
     let style = STYLE;
     let ids: Vec<String> = arranged.iter().map(|row| row.run_id.clone()).collect();
-    lists_every_run_as(&db, &brokkr_view::RunsView::of(arranged));
+    lists_every_run_as(&db, TAIL_KEYS, &brokkr_view::RunsView::of(arranged));
     let mut walked = Vec::new();
     let mut after: Option<brokkr_view::Cursor> = None;
     loop {
         let page = (after.as_ref(), 30);
-        let one = printed(&db, false, |lister, out| {
-            lister.one(out, page, true, &style)
-        });
+        let one = printed(&db, None, |lister, out| lister.one(out, page, true, &style));
         let page: Value = serde_json::from_str(&one).unwrap();
         let runs = page["runs"].as_array().unwrap();
         walked.extend(
@@ -739,7 +745,7 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
         }
     }
     assert_eq!(walked, ids);
-    let table = printed(&db, false, |lister, out| {
+    let table = printed(&db, None, |lister, out| {
         lister.one(out, (None, 1), false, &style)
     });
     let first = format!(
@@ -756,7 +762,7 @@ fn brokkr_runs_lists_an_empty_hearth_as_none() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     drop(Store::open(&db).unwrap());
-    let out = printed(&db, true, |lister, out| lister.every_json(out));
+    let out = printed(&db, Some(TAIL_KEYS), |lister, out| lister.every_json(out));
     let none = serde_json::to_string_pretty(&brokkr_view::RunsView::of(Vec::new())).unwrap();
     assert_eq!(out, format!("{none}\n"));
 }

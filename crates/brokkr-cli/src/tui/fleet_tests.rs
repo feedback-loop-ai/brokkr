@@ -1208,3 +1208,98 @@ fn the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour() {
     let silent = "3h00m".to_string();
     assert_eq!(quiet(&at(bound + 1)), Some(Need::Stale { silent }));
 }
+
+/// Decision 0089 rulings 5 and 6: a run opened from the list scrolled a
+/// page down stays open when a writer parks it, though its new place
+/// heads "needs you", before the window the list reads, so the next
+/// frame lists no row of it: the frame opened it, and it has not gone.
+#[test]
+fn a_run_opened_past_the_first_page_stays_open_when_a_writer_moves_it_before_the_window() {
+    use brokkr_store::test_support::{generate, Generated, Standing, Width};
+    use brokkr_store::Store;
+    use time::format_description::well_known::Rfc3339;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "opened");
+    let now = time::OffsetDateTime::parse(NOW, &Rfc3339).unwrap();
+    let held: Vec<Generated> = (0..110)
+        .map(|n| Generated {
+            run_id: format!("held-{n:03}"),
+            standing: Standing::Parked,
+            events: 3,
+            last_at: (now - time::Duration::minutes(n)).format(&Rfc3339).unwrap(),
+            width: Width::Narrow,
+        })
+        .collect();
+    generate(&Store::open(&db).unwrap(), &held).unwrap();
+    let mut read = super::tests::reading(&db);
+    let mut frame = |tui: &Tui| {
+        let ask = Ask {
+            run: tui.run.as_deref(),
+            subject: None,
+            force: true,
+            fleet: true,
+            tab: 0,
+            window: asked_window(tui),
+        };
+        read(ask).unwrap().expect("a forced read draws a frame")
+    };
+    // The list scrolled a page down, its window the second page and the
+    // third: the parked runs, then the running one, 111th.
+    let mut tui = Tui::new(None);
+    let ahead = frame(&tui).ahead.expect("the fleet runs past a page");
+    tui.scrolled.passed(ahead);
+    tui.assign_run("opened".to_string());
+    let views = frame(&tui);
+    let listed: Vec<&str> = views
+        .runs
+        .runs
+        .iter()
+        .map(|row| row.run_id.as_str())
+        .collect();
+    assert_eq!(listed.iter().position(|id| *id == "opened"), Some(60));
+    settle(&mut tui, &views);
+    assert_eq!(
+        (tui.run.as_deref(), tui.level),
+        (Some("opened"), Level::Run)
+    );
+    // A current writer parks it, its seat's attempts spent, at the wall
+    // clock, after every park listed: it heads "needs you", before the
+    // window's first row.
+    let effect = json!({"effect_id": "eff", "seat": "work", "phase": "work"});
+    let reason = json!({"reason": "attempts exhausted"});
+    for (event_type, payload) in [
+        (brokkr_core::EventType::EffectRequested, effect),
+        (brokkr_core::EventType::RunParked, reason),
+    ] {
+        let mut store = Store::open(&db).unwrap();
+        let events = store.load("opened").unwrap();
+        store.carry(brokkr_core::summary::Account::whole("opened", &events));
+        store
+            .append_next("opened", event_type, payload, None, None)
+            .unwrap();
+    }
+    let views = frame(&tui);
+    assert!(views.runs.runs.iter().all(|row| row.run_id != "opened"));
+    let parked = views.run.as_ref().and_then(|run| run.summary.as_ref());
+    assert_eq!(
+        parked.map(|summary| summary.status.as_str()),
+        Some("awaiting_operator")
+    );
+    settle(&mut tui, &views);
+    assert_eq!(
+        (tui.run.as_deref(), tui.level),
+        (Some("opened"), Level::Run)
+    );
+    // At the fleet's level, which reads no open run, a window that no
+    // longer lists the run the operator left takes nothing with it: the
+    // cursor they moved stays theirs.
+    let mut fleet = fleet_to_act_on();
+    fleet.run = None;
+    let mut tui = Tui::new(None);
+    tui.run = Some("opened".to_string());
+    tui.cursor[0] = Some(HELD.to_string());
+    settle(&mut tui, &fleet);
+    let held = (tui.run.as_deref(), tui.cursor[0].as_deref());
+    assert_eq!(held, (Some("opened"), Some(HELD)));
+}
