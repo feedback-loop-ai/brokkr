@@ -370,6 +370,30 @@ pub(in crate::engine) fn protecting(home: &Path, worktree: &Path) -> Held {
     admit(&root, &claim, soon()).unwrap()
 }
 
+/// `engine` holding on `host` the lease of its run's attempt `attempt` on
+/// its own worktree, protecting `protects`, the reservation naming the
+/// engine's own journal: the worktree, and the run's directory in the
+/// host's root, where the attempt's evidence stands.
+fn lease(host: &Host, engine: &mut Engine, attempt: &str, protects: Protects) -> [PathBuf; 2] {
+    let (work, run) = (worktree(engine), engine.run_id.clone());
+    let mut leased = claim(&work, [&run, attempt], protects, &[]);
+    leased.journal = std::fs::canonicalize(engine.store.path()).unwrap();
+    engine.held = Some(host.admit(&leased).unwrap());
+    let at = host.root().join(&leased.repo).join(run);
+    [work, at]
+}
+
+/// [`lease`] on a fresh host protecting the attempt's evidence (U8d): the
+/// host's directory, and the run's directory in its root.
+pub(in crate::engine) fn evidence_leased(
+    engine: &mut Engine,
+    attempt: &str,
+) -> (tempfile::TempDir, PathBuf) {
+    let host = Host::new();
+    let [_, at] = lease(&host, engine, attempt, Protects::Evidence);
+    (host.dir, at)
+}
+
 /// The attempt `attempt` of the run `run` on `worktree`, protecting
 /// `protects` with `writers`; its artifact root is the worktree's
 /// `.forge/artifacts`, made where it protects it, and its journal the

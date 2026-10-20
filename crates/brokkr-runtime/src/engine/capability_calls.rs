@@ -24,13 +24,24 @@
 //! session-scoped id that root's earlier attempts journaled is history
 //! the resumed harness replays, never a new use.
 //!
+//! A broker call is not observed here: its evidence is its broker's ledger,
+//! which the engine folds once the attempt's processes settle (U8d; CC2,
+//! CR4). Each accepted call the verified ledger holds becomes one settled
+//! checkpoint ([`settled`]), under an id owned by the plan's sealed owner,
+//! its server and its call sequence; and the committed journal, by that id
+//! and the whole payload, says which are journaled already ([`unjournaled`]).
+//!
 //! [`Checkpoints::offer`]: super::Checkpoints::offer
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use brokkr_core::envelope::EventType;
+use brokkr_core::EventEnvelope;
 use brokkr_protocol::adapters::capability_calls::{Format, Observation, Tool, OBSERVATION_KEY};
+use brokkr_protocol::broker::ledger::{Invalid, Outcome as Ended};
+use brokkr_protocol::broker::Plan;
 use brokkr_protocol::native_controls::managed;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::resume::{RootHistory, SiteContext};
@@ -269,4 +280,184 @@ impl Calls {
             call_id,
         }))
     }
+}
+
+/// The step every settled broker checkpoint names: the engine's own row,
+/// as `panel-member-finished` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum Step {
+    #[serde(rename = "capability-call-settled")]
+    Settled,
+}
+
+/// The canonical tuple a broker call id is the digest of (D7): the plan's
+/// sealed attempt, site and instance, its server and the call's sequence in
+/// its ledger.
+#[derive(Serialize)]
+struct BrokerCall<'a> {
+    attempt: &'a str,
+    site: &'a str,
+    instance: &'a str,
+    server: &'a str,
+    call: u64,
+}
+
+/// How a settled broker call ended (CC2): seat-record v6's four settled
+/// states. A broker's private Started is never one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Settled {
+    Succeeded,
+    Failed,
+    Refused,
+    Interrupted,
+}
+
+impl Settled {
+    /// The state of a call its verified Terminal ended with `ended`, or
+    /// interrupted where it has none.
+    fn of(ended: Option<Ended>) -> Settled {
+        match ended {
+            Some(Ended::Succeeded) => Settled::Succeeded,
+            Some(Ended::Failed) => Settled::Failed,
+            Some(Ended::Refused(_)) => Settled::Refused,
+            None => Settled::Interrupted,
+        }
+    }
+}
+
+/// One settled broker call's checkpoint (CC2, seat-record v6): the plan's
+/// capability and dialect, the tool its ledger names, the engine's id, the
+/// state, and the digest its Terminal cites, which only an answered call
+/// has. A refused call carries no cause: seat-record v6 has no field for
+/// one, and its typed denial stays in the private ledger (operator ruling
+/// of 2026-10-20, for a later seat-record version).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BrokerCheckpoint {
+    step: Step,
+    tool: String,
+    capability: String,
+    dialect: String,
+    call_id: String,
+    call_state: Settled,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    response_sha256: Option<String>,
+}
+
+/// A settled broker checkpoint's whole event payload: the effect and the
+/// attempt it settles, and the checkpoint. It is typed until the store's
+/// edge, where [`SettledEvent::payload`] writes it, and read back whole
+/// from the journal, so two are compared field by field, never by a
+/// part of either.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SettledEvent {
+    effect_id: String,
+    attempt_id: String,
+    checkpoint: BrokerCheckpoint,
+}
+
+impl SettledEvent {
+    /// `checkpoint`, settling the attempt `attempt_id` of the effect
+    /// `effect_id`.
+    pub(super) fn new(effect_id: &str, attempt_id: &str, checkpoint: BrokerCheckpoint) -> Self {
+        SettledEvent {
+            effect_id: effect_id.to_string(),
+            attempt_id: attempt_id.to_string(),
+            checkpoint,
+        }
+    }
+
+    /// The event's payload, as the store journals it.
+    pub(super) fn payload(&self) -> Value {
+        serde_json::to_value(self).expect("a settled checkpoint of strings serializes")
+    }
+}
+
+/// The settled checkpoint of call `call` of `plan`'s ledger, to `tool`,
+/// which ended `ended`, or none where it was interrupted, citing `cited`
+/// (CC2, CR4): `m-` and the SHA-256 of [`BrokerCall`] its id, 66
+/// characters, so it is bounded and owned by the sealed plan, never by
+/// anything the harness or the model said.
+pub(super) fn settled(
+    plan: &Plan,
+    call: u64,
+    tool: &str,
+    ended: Option<Ended>,
+    cited: Option<&str>,
+) -> BrokerCheckpoint {
+    let owner = &plan.owner;
+    let tuple = BrokerCall {
+        attempt: &owner.attempt,
+        site: &owner.site,
+        instance: &owner.instance,
+        server: &plan.server,
+        call,
+    };
+    let tuple = serde_json::to_value(tuple).expect("a tuple of strings serializes");
+    BrokerCheckpoint {
+        step: Step::Settled,
+        tool: tool.to_string(),
+        capability: plan.capability.clone(),
+        dialect: plan.dialect.name.clone(),
+        call_id: format!("m-{}", brokkr_core::canonical::sha256_hex(&tuple)),
+        call_state: Settled::of(ended),
+        response_sha256: cited.map(str::to_string),
+    }
+}
+
+/// A checkpoint event's payload as far as its call id: enough to tell
+/// whether it names a call the engine derived, never to compare it.
+#[derive(Deserialize)]
+struct Checkpointed {
+    checkpoint: Identified,
+}
+
+#[derive(Deserialize)]
+struct Identified {
+    call_id: Option<String>,
+}
+
+/// Of `rows`, the settled checkpoints the engine derived for the attempt
+/// `attempt`, those the committed `journal` does not yet hold (CR4). The
+/// journal is the one authority, and no payload either side holds for a
+/// call is passed over unseen: a second row the engine derived for one
+/// call id, any committed row under a derived id that is not that row
+/// whole, and a second committed row for one, are each CR3's conflicting
+/// duplicate, refused before anything is appended. A derived row the
+/// journal holds whole, once, is journaled already.
+pub(super) fn unjournaled<'r>(
+    journal: &[EventEnvelope],
+    attempt: &str,
+    rows: &'r [SettledEvent],
+) -> Result<Vec<&'r SettledEvent>, Invalid> {
+    let mut derived = BTreeMap::new();
+    for row in rows {
+        if derived
+            .insert(row.checkpoint.call_id.as_str(), row)
+            .is_some()
+        {
+            return Err(Invalid::Conflict);
+        }
+    }
+    let call_id = |payload: &Value| Checkpointed::deserialize(payload).ok()?.checkpoint.call_id;
+    let checkpointed = (journal.iter())
+        .filter(|event| event.event_type == EventType::EffectCheckpointed)
+        .filter(|event| event.attempt_id.as_deref() == Some(attempt));
+    let mut journaled = BTreeSet::new();
+    for event in checkpointed {
+        let id = call_id(&event.payload);
+        let Some((&id, &row)) = id.and_then(|id| derived.get_key_value(id.as_str())) else {
+            continue;
+        };
+        let committed = SettledEvent::deserialize(&event.payload).ok();
+        if (committed.as_ref() != Some(row)) | !journaled.insert(id) {
+            return Err(Invalid::Conflict);
+        }
+    }
+    let pending = rows.iter();
+    Ok(pending
+        .filter(|row| !journaled.contains(row.checkpoint.call_id.as_str()))
+        .collect())
 }
