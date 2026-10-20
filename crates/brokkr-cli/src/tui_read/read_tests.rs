@@ -253,6 +253,66 @@ fn a_filtered_window_holds_the_page_it_keeps_and_the_one_ahead() {
     assert_eq!((second, past), (kept[50..].to_vec(), None));
 }
 
+/// Decision 0089 ruling 6: the console's window is one read of the
+/// journal, so a writer that moves a stale running run out of NeedsYou
+/// into Running between the sections' reads lists it once, as it stood
+/// when the window's read began.
+#[test]
+fn a_run_a_writer_moves_between_the_sections_reads_lists_once_in_the_window() {
+    use crate::tests::envelope_builder::EnvelopeBuilder;
+    use brokkr_store::test_support::{plant_envelope, plant_run};
+    use std::cell::Cell;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let stale = "2026-01-01T00:00:00Z";
+    drop(Store::open(&db).unwrap());
+    let started = json!({"feature": "moved", "manifest": {}});
+    let started = EnvelopeBuilder::new(EventType::RunStarted, started)
+        .run("moved")
+        .at(stale)
+        .sealed();
+    let planting = rusqlite::Connection::open(&db).unwrap();
+    plant_run(&planting, "moved", "{}").unwrap();
+    plant_envelope(&planting, &started).unwrap();
+    drop(planting);
+    drop(Store::open(&db).unwrap());
+    let store = Store::open_read_only(&db).unwrap();
+    let now = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
+    let fired = Cell::new(false);
+    let keep = |row: &brokkr_view::RunRow| {
+        if !fired.replace(true) {
+            append(
+                &db,
+                "moved",
+                EventType::PhaseEntered,
+                json!({"phase": "on"}),
+            );
+        }
+        row.run_id == "moved"
+    };
+    let window = tui::Window::default();
+    let listed = fleet_page_with(
+        &store,
+        &mut Kept::default(),
+        (&now, None),
+        (&window, None),
+        &keep,
+    )
+    .unwrap();
+    let rows: Vec<(String, Option<String>)> = listed
+        .runs
+        .runs
+        .into_iter()
+        .map(|row| (row.run_id, row.last_recorded_at))
+        .collect();
+    assert!(fired.get(), "the writer moved the run mid-window");
+    assert_eq!(rows, [("moved".to_string(), Some(stale.to_string()))]);
+    let section = brokkr_store::test_support::lane(&store, "moved");
+    assert_eq!(section.as_deref(), Some("running"));
+}
+
 /// A journal whose runs the store cannot list is the frame's refusal, in
 /// the store's own words: the console draws no fleet it could not read.
 #[test]

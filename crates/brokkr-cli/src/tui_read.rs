@@ -311,23 +311,42 @@ pub(crate) fn fleet_page(
     (window, selected): (&tui::Window, Option<&str>),
     before: Option<Journal>,
 ) -> Result<Listed, StoreError> {
-    kept.read = kept.fleet.refresh(store, before, AHEAD_ROWS)?;
-    let ask = Ask {
-        now,
-        whole: &|run| Some(run) == selected,
-        keep: &|row| tui::keeps(&window.filter, row),
-    };
-    let asked = (AHEAD_ROWS, PAGE_ROWS);
-    let (page, ahead) = kept
-        .fleet
-        .window(store, ask, window.after.as_ref(), asked)?;
-    let older = page
+    let keep = |row: &brokkr_view::RunRow| tui::keeps(&window.filter, row);
+    fleet_page_with(store, kept, (now, before), (window, selected), &keep)
+}
+
+/// [`fleet_page`], keeping the rows `keep` keeps. Its refresh, its window
+/// and its count of the older runs are one read of the journal, so a
+/// writer that moves a run from one section to another between the
+/// sections' reads moves none of the window's rows: each run lists once
+/// (decision 0089 ruling 6).
+fn fleet_page_with(
+    store: &Store,
+    kept: &mut Kept,
+    (now, before): (&str, Option<Journal>),
+    (window, selected): (&tui::Window, Option<&str>),
+    keep: &dyn Fn(&brokkr_view::RunRow) -> bool,
+) -> Result<Listed, StoreError> {
+    let ((page, ahead), older) = store.as_one_read(|| {
+        kept.read = kept.fleet.refresh(store, before, AHEAD_ROWS)?;
+        let ask = Ask {
+            now,
+            whole: &|run| Some(run) == selected,
+            keep,
+        };
+        let asked = (AHEAD_ROWS, PAGE_ROWS);
+        let window = kept
+            .fleet
+            .window(store, ask, window.after.as_ref(), asked)?;
+        Ok::<_, StoreError>((window, kept.fleet.older(store, now)?))
+    })?;
+    let paged_older = page
         .rows
         .iter()
         .filter(|(section, _)| *section == Section::Older)
         .count();
     let unread = tui::Unread {
-        older: kept.fleet.older(store, now)?.saturating_sub(older),
+        older: older.saturating_sub(paged_older),
         behind: kept.fleet.unread(),
     };
     let mut runs = RunsView::of(page.rows.into_iter().map(|(_, row)| row).collect());
