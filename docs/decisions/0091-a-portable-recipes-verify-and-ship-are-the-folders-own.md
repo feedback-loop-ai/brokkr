@@ -1,4 +1,4 @@
-# 0090 — A portable recipe's verify and ship are the folder's own seats, pinned from the folder at compile
+# 0091 — A portable recipe's verify and ship are the folder's own seats, pinned from the folder at compile
 
 Status: accepted — operator ruled 2026-10-20 (PR #793), every choice asked taken as recommended
 Date: 2026-10-20
@@ -185,11 +185,11 @@ compose no `fast`.
      (predicted wording) and writes nothing:
 
      ```text
-     bundle: seat '<seat>' is the folder's own (decision 0090), and <root>/.brokkr/bundle.json declares no seat '<seat>'
-     bundle: seat '<seat>' is the folder's own (decision 0090), and the folder's is <class> with results <results> where the recipe's is <class> with results <results>
-     bundle: seat '<seat>' is the folder's own (decision 0090), and the folder's is not a `{brokkr} driver exec` dispatch of its own pinned script
-     bundle: seat '<seat>' says "from": "folder" and declares no driver of its own, which a compile with no folder runs (decision 0090)
-     bundle: <root>/.brokkr/bundle.json: seat '<seat>' is the folder's own by its base '<base>' (decision 0090), and a folder declares its own: declare seat '<seat>' in <root>/.brokkr/bundle.json
+     bundle: seat '<seat>' is the folder's own (decision 0091), and <root>/.brokkr/bundle.json declares no seat '<seat>'
+     bundle: seat '<seat>' is the folder's own (decision 0091), and the folder's is <class> with results <results> where the recipe's is <class> with results <results>
+     bundle: seat '<seat>' is the folder's own (decision 0091), and the folder's is not a `{brokkr} driver exec` dispatch of its own pinned script
+     bundle: seat '<seat>' says "from": "folder" and declares no driver of its own, which a compile with no folder runs (decision 0091)
+     bundle: <root>/.brokkr/bundle.json: seat '<seat>' is the folder's own by its base '<base>' (decision 0091), and a folder declares its own: declare seat '<seat>' in <root>/.brokkr/bundle.json
      ```
 
      The last refusal covers the folder bundle that extends a shelf
@@ -252,7 +252,7 @@ compose no `fast`.
    - Fast's verify and ship seats gain `"from": "folder"`.
    - Fast's own verify script becomes a short pinned script. It writes
      `fail` with notes saying that fast's verify is the folder's own
-     (decision 0090), that no folder stands, and that the remedy is
+     (decision 0091), that no folder stands, and that the remedy is
      `brokkr init` or a recipe that declares its own verify seat.
    - `panel-review`, `triage`, `release`, `review-first` and `standby`
      extend `brokkr-fast` in place of `fast`. Each inherits fast's verify
