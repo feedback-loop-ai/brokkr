@@ -347,7 +347,7 @@ fn a_residual_rated_none_is_ruled_by_its_named_rule() {
     }
 }
 
-/// Decision 0091's two blockers, each ruled by its named rule in every
+/// Decision 0092's two blockers, each ruled by its named rule in every
 /// table that rules a blocked implementer: an environment block parks
 /// with `IMPL-BLOCKED-ENVIRONMENT`, while a work block, and a blocked
 /// seat that names no blocker, stop hard at `IMPL-BLOCKED` as before.
@@ -361,7 +361,7 @@ fn a_blocked_implementer_is_ruled_by_what_blocked_it() {
         reason: "The implementer's environment blocked it (a signing key, a tool, a \
                  capability its box refused); the run parks with the seat's notes, so the \
                  operator fixes the environment and retries this seat with the earlier \
-                 phases' results intact (decision 0091)."
+                 phases' results intact (decision 0092)."
             .into(),
     };
     let stopped = Outcome::Ruling {

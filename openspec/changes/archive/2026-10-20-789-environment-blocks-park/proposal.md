@@ -1,6 +1,6 @@
 # Change: an environment block parks for the operator instead of stopping the run (#789)
 
-Status: proposed. The law is decision 0091, proposed; only the operator accepts it.
+Status: proposed. The law is decision 0092, proposed; only the operator accepts it.
 Change: `2026-10-20-789-environment-blocks-park`.
 Parent story: [#789](https://github.com/feedback-loop-ai/brokkr/issues/789), part of epic [#790](https://github.com/feedback-loop-ai/brokkr/issues/790) (cheaper recovery).
 
@@ -22,6 +22,6 @@ A work seat that returns `blocked` routes to `IMPL-BLOCKED`, a hard stop, in `re
 - `crates/brokkr-runtime`: `engine/decide.rs` (`park_problem`); tests in `engine/tests.rs`, `tests/table_lints.rs`, `tests/library_data.rs`; `tests/witnesses.json` re-blessed.
 - `crates/brokkr-cli`: `tests/machine_proof/environment_block.rs`, the acceptance proof.
 - Data: `recipes/fast/policy.json`; `agents/charters/` (six); `recipes/standby/roles/implementer.md` and `recipes/wager-harness/roles/implementer.md`.
-- Docs: decision 0091 and its index row, 0022's back-pointer, `docs/guides/recipe-authoring.md`, `docs/guides/quickstart.md`, `ARCHITECTURE.md`, `recipes/fast/README.md`, `recipes/night-shift/README.md`.
+- Docs: decision 0092 and its index row, 0022's back-pointer, `docs/guides/recipe-authoring.md`, `docs/guides/quickstart.md`, `ARCHITECTURE.md`, `recipes/fast/README.md`, `recipes/night-shift/README.md`.
 - No contract, `policy/phase-machine.json`, `reference/` or `fixtures/` edit; no public-API item; no operator verb.
 - Specs: `blocked-seat-routing`, added.

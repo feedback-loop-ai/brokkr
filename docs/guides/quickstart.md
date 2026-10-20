@@ -760,7 +760,7 @@ never an operator verb. A run parks when the machine cannot rule:
   condition vocabulary cannot read;
 - a rule that explicitly rules a park (`"park": true`, added by
   `forge.phase-machine/v2`), such as `fast`'s `IMPL-BLOCKED-ENVIRONMENT`
-  for an implementer its environment blocked (decision 0091). Such a park
+  for an implementer its environment blocked (decision 0092). Such a park
   carries the seat's notes as its reason; fix what they name, then
   `retry` and `resume` run that seat again.
 

@@ -26,7 +26,7 @@ Brokkr picks through [`brokkr-fast`](../brokkr-fast/README.md), which
 `landing` and the wager harnesses extend.
 
 A `blocked` implementer says what blocked it in `inputs.blocked_by`
-(decision 0091). `IMPL-BLOCKED-ENVIRONMENT` parks an `environment` block
+(decision 0092). `IMPL-BLOCKED-ENVIRONMENT` parks an `environment` block
 (a signing key, a tool, a refused capability) with the seat's notes as the
 reason, so the operator fixes it and `brokkr operator retry` re-runs that
 seat with the earlier results intact. A `work` block, and a block that

@@ -221,7 +221,7 @@ impl Engine {
     }
 }
 
-/// A rule-driven park's problem (decision 0091 ruling 3): the parked
+/// A rule-driven park's problem (decision 0092 ruling 3): the parked
 /// seat's own non-empty notes, which say what the operator must answer
 /// (the escalation's reasoning, the environment that blocked a seat),
 /// else the rule's reason. The fold prefixes the rule's id either way.

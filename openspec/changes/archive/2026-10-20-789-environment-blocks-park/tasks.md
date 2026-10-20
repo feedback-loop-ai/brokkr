@@ -1,6 +1,6 @@
 # An environment block parks for the operator: tasks
 
-Status: proposed. The law is decision 0091.
+Status: proposed. The law is decision 0092.
 
 ## 1. The core
 
@@ -24,5 +24,5 @@ Status: proposed. The law is decision 0091.
 
 ## 5. Docs
 
-- [x] 5.1 Decision 0091, its index row and 0022's back-pointer. `docs/decisions/`.
+- [x] 5.1 Decision 0092, its index row and 0022's back-pointer. `docs/decisions/`.
 - [x] 5.2 `docs/guides/recipe-authoring.md`, `docs/guides/quickstart.md`, `ARCHITECTURE.md`, `recipes/fast/README.md`, `recipes/night-shift/README.md`.

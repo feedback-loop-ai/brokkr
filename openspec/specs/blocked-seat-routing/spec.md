@@ -3,7 +3,7 @@
 ## Purpose
 Let a blocked seat say whether its environment or the work blocked it,
 so an environment block parks for the operator to fix and retry that one
-seat, and a work block routes as it always did (decision 0091).
+seat, and a work block routes as it always did (decision 0092).
 
 ## Requirements
 
