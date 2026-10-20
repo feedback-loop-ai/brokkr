@@ -428,6 +428,23 @@ fn runs_over_a_journal_whose_runs_cannot_be_listed_refuses_in_the_stores_words()
     assert_eq!(refused.to_string(), UNLISTED);
 }
 
+/// The whole read of a hearth whose runs the store cannot list is the
+/// hearth's refusal, in the store's words, as the kept read's is; and a
+/// kept fleet that kept nothing was read from no file, so none replaced
+/// it, whatever stands at the journal's path.
+#[test]
+fn a_hearth_the_store_cannot_list_is_refused_alike_by_the_whole_and_the_kept_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = unlisted(dir.path());
+    let whole = read_hearth(&Store::open_read_only(&db).unwrap());
+    assert_eq!(whole.runs.len(), 0);
+    assert_eq!(whole.listed().err().as_deref(), Some(UNLISTED));
+    let (kept, refused) = read_kept(&db);
+    assert_eq!(refused.as_deref(), Some(UNLISTED));
+    let stated = [Journal::at(&db), None];
+    assert_eq!(stated.map(|now| kept.replaced(now)), [false, false]);
+}
+
 /// `db`'s journal, its connections all closed, copied beside it with
 /// `run_id`'s first event gone and every other row as it was: the run's
 /// head, seq and hash both, is still the copy's. Where the copy is.

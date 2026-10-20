@@ -336,6 +336,41 @@ fn an_id_holding_a_nul_is_keyed_whole_in_every_lane() {
     assert_eq!(rest, (vec![Ok((at, "r".into()))], 0));
 }
 
+/// Every standing's generated row is read from the lane it names.
+#[test]
+fn a_generated_run_stands_in_its_standing_s_lane() {
+    let standings = [
+        Standing::Running,
+        Standing::Parked,
+        Standing::Finished,
+        Standing::Refused,
+        Standing::Acknowledged,
+    ];
+    for standing in standings {
+        let (_dir, store) = one(Width::Narrow, standing);
+        assert_eq!(read_one(&store, standing).run_id, "run", "{standing:?}");
+    }
+}
+
+/// A read the journal cannot answer is refused in SQLite's words: a count
+/// of a summary that is gone, and the whole values of a row it no longer
+/// holds.
+#[test]
+fn a_read_the_journal_cannot_answer_is_refused_in_sqlite_s_words() {
+    let (_dir, store) = one(Width::Narrow, Standing::Parked);
+    let mut row = read_one(&store, Standing::Parked);
+    store.conn.execute_batch("DELETE FROM run_summary").unwrap();
+    let gone = store.whole(&mut row).unwrap_err();
+    assert!(matches!(
+        gone,
+        StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows)
+    ));
+    assert_eq!(gone.to_string(), "sqlite: Query returned no rows");
+    store.conn.execute_batch("DROP TABLE run_summary").unwrap();
+    let uncounted = store.counted(&lane(Lane::Behind, None)).unwrap_err();
+    assert_eq!(uncounted.to_string(), "sqlite: no such table: run_summary");
+}
+
 /// A narrow row reads whole as it reads on a page; a wide one keeps each
 /// value cut on the page and whole by its key, with every finding.
 #[test]

@@ -207,6 +207,58 @@ fn the_open_run_is_read_again_when_a_row_is_lost_in_the_write_ahead_log() {
     read_again(&db, &mut kept, "in the log");
 }
 
+/// The fleet's cadence off, open on `selected`, asking the window of
+/// `filter` from its top.
+fn asked(filter: &str) -> tui::Ask<'static> {
+    tui::Ask {
+        run: Some("selected"),
+        subject: None,
+        force: false,
+        fleet: false,
+        tab: 0,
+        window: tui::Window {
+            after: None,
+            filter: filter.to_string(),
+        },
+    }
+}
+
+/// Decision 0089 rulings 5 and 6: a frame whose window alone moved is
+/// read, where one at the window it has is not; and the run it opens, which
+/// the store refuses whole and its window does not list, is listed refused
+/// beside the window's rows and counted with them.
+#[test]
+fn a_moved_window_lists_the_opened_run_s_refusal_it_does_not_hold() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    checkpointing(&db, "selected");
+    running_store(&db, "other");
+    let mut kept = Kept::default();
+    framed(&db, &mut kept, "selected", true);
+    let clock = || "now".to_string();
+    let still = read_views(&db, true, asked(""), &mut kept, &mut None, clock);
+    assert!(still.unwrap().is_none(), "nothing moved");
+    let _held = lost_in_its_log(&db, "selected");
+    let views = read_views(&db, true, asked("other"), &mut kept, &mut None, clock);
+    let views = views.unwrap().expect("the window moved");
+    let rows: Vec<(String, Option<String>)> = views
+        .runs
+        .runs
+        .iter()
+        .map(|row| (row.run_id.clone(), row.detail.clone()))
+        .collect();
+    let refused = Some(FIRST_EVENT_GONE.to_string());
+    let listed = [
+        ("other".to_string(), None),
+        ("selected".to_string(), refused),
+    ];
+    assert_eq!((rows, views.runs.count), (listed.to_vec(), 2));
+    assert_eq!(
+        (views.window, views.run.is_none()),
+        (asked("other").window, true)
+    );
+}
+
 /// Decision 0089 ruling 6: under a filter the console reads the fleet
 /// forward by keyset and keeps only the rows the filter keeps, the page
 /// of them and the one ahead, with the key past the first page of them;

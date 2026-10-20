@@ -346,6 +346,17 @@ fn folded(db: &Path, plant_with: impl FnOnce(&rusqlite::Connection)) {
     drop(Store::open(db).unwrap());
 }
 
+/// A fresh journal, folded, of one run, `done`, finished an hour before
+/// [`NOW`]: its directory, and where the journal is.
+fn done_an_hour_ago() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    folded(&db, |conn| {
+        plant(conn, "done", Shape::Finished, &stamp(now() - HOUR));
+    });
+    (dir, db)
+}
+
 /// `event_type` appended to `run_id` as an older writer appends it: its
 /// summary row is left behind its head.
 fn appended_by_an_older_writer(db: &Path, run_id: &str, event_type: EventType, payload: Value) {
@@ -586,11 +597,7 @@ fn an_over_long_id_behind_its_summary_is_listed_refused_by_every_read() {
 /// key, none of them read whole, and a page a run lists every run once.
 #[test]
 fn refused_ids_cut_alike_are_kept_by_their_whole_ids() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("forge.db");
-    folded(&db, |conn| {
-        plant(conn, "done", Shape::Finished, &stamp(now() - HOUR));
-    });
+    let (_dir, db) = done_an_hour_ago();
     let (cut, long) = (format!("{}…", "v".repeat(128)), "v".repeat(200));
     let conn = rusqlite::Connection::open(&db).unwrap();
     for run_id in [&cut, &long] {
@@ -620,6 +627,53 @@ fn refused_ids_cut_alike_are_kept_by_their_whole_ids() {
     }
     assert_eq!(listed, [cut.as_str(), &cut, "done"]);
     assert_eq!(keys, [cut, long]);
+}
+
+/// Ruling 2: a run id no writer admits whose 128th byte falls inside a
+/// character is listed by its bytes cut at the boundary below its bound,
+/// and paged by its whole id.
+#[test]
+fn an_over_long_id_is_cut_at_the_character_boundary_below_its_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let long = format!("{}{}", "r".repeat(127), "é".repeat(40));
+    folded(&db, |conn| {
+        plant_run(conn, &long, "{}").unwrap();
+    });
+    let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
+    let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
+    let shown: Vec<(&str, &str)> = listed
+        .iter()
+        .map(|(_, row)| (row.run_id.as_str(), row.place().1))
+        .collect();
+    let cut = format!("{}…", "r".repeat(127));
+    assert_eq!(shown, [(cut.as_str(), long.as_str())]);
+}
+
+/// Ruling 6: a run kept behind its summary whose head an older writer
+/// moves between two refreshes is read whole again by the second, and
+/// lists as its fold now says.
+#[test]
+fn a_behind_run_whose_head_moves_is_read_whole_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    folded(&db, |conn| {
+        plant(conn, "moving", Shape::Running, &stamp(now() - HOUR));
+    });
+    let review = json!({"phase": "review"});
+    appended_by_an_older_writer(&db, "moving", EventType::PhaseEntered, review);
+    let (store, mut pages, read) = refreshed(&db, AHEAD_ROWS);
+    assert_eq!(read, 2);
+    appended_by_an_older_writer(&db, "moving", EventType::RunCompleted, json!({}));
+    let journal = Journal::at(&db);
+    assert_eq!(pages.refresh(&store, journal, AHEAD_ROWS).unwrap(), 3);
+    assert!(pages.was_read_whole("moving"));
+    let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
+    let rows: Vec<(Section, Option<&str>)> = listed
+        .iter()
+        .map(|(section, row)| (*section, row.status.as_deref()))
+        .collect();
+    assert_eq!(rows, [(Section::Recent, Some("completed"))]);
 }
 
 /// Rulings 3 and 6: an acknowledgement lands beside the chain, so a
@@ -1031,6 +1085,43 @@ fn brokkr_runs_lists_an_empty_hearth_as_none() {
     let out = printed(&db, Some(TAIL_KEYS), |lister, out| lister.every_json(out));
     let none = serde_json::to_string_pretty(&brokkr_view::RunsView::of(Vec::new())).unwrap();
     assert_eq!(out, format!("{none}\n"));
+}
+
+/// A writer that refuses every write, as a closed pipe does, and counts
+/// the writes asked of it.
+#[derive(Default)]
+struct Refusing {
+    writes: usize,
+}
+
+impl std::io::Write for Refusing {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        self.writes += 1;
+        Err(std::io::ErrorKind::BrokenPipe.into())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// `brokkr runs` whose output refuses its first write is refused in the
+/// output's words, and writes nothing more; and the table of a last page
+/// prints its runs alone, naming no next page.
+#[test]
+fn a_listing_its_output_refuses_is_refused_and_a_last_page_names_no_next() {
+    let (_dir, db) = done_an_hour_ago();
+    let store = Store::open_read_only(&db).unwrap();
+    let journal = (Journal::at(&db), NOW);
+    let mut out = Refusing::default();
+    let refused = list_hearth(&store, journal, true, |lister| lister.every_json(&mut out));
+    let refused = refused.unwrap_err().to_string();
+    assert_eq!((refused.as_str(), out.writes), ("broken pipe", 1));
+    let table = printed(&db, None, |lister, out| {
+        lister.one(out, (None, 1), false, &STYLE)
+    });
+    let view = brokkr_view::RunsView::of(whole_rows(&db));
+    assert_eq!(table, crate::render::runs(&view, NOW, &STYLE));
 }
 
 /// `--after` takes a page's `next` and refuses text that names no place in

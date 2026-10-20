@@ -1111,6 +1111,50 @@ fn the_list_scrolls_by_keyset_and_counts_what_its_pages_left_unread() {
     assert_eq!(headed(&views), Some(true));
 }
 
+/// Decision 0089 ruling 6: a step up inside a scrolled window moves the
+/// cursor alone, and a wrap down past its last row reads the fleet from
+/// its top; a list scrolled under one filter that reaches the page ahead
+/// under another keeps that one's key alone; and the list seeds its
+/// cursor on the frame of the window it asked for, never of another.
+#[test]
+fn the_list_scrolls_within_its_window_and_under_its_own_filter() {
+    let ahead: brokkr_view::Cursor = "needs-you:5:more-49".parse().unwrap();
+    let scrolled = Window {
+        after: Some(ahead.clone()),
+        filter: String::new(),
+    };
+    let below = more_runs(10, scrolled.clone(), None);
+    let mut tui = Tui::new(None);
+    tui.scrolled.passed(ahead.clone());
+    tui.cursor[0] = Some("more-05".to_string());
+    apply(&mut tui, &below, Key::Up);
+    let at = |tui: &Tui| (asked_window(tui), tui.cursor[0].clone());
+    assert_eq!(at(&tui), (scrolled, Some("more-04".to_string())));
+    tui.cursor[0] = Some("more-09".to_string());
+    apply(&mut tui, &below, Key::Down);
+    assert_eq!(at(&tui), (Window::default(), None), "wrapped to the top");
+    tui.scrolled.passed(ahead);
+    tui.filter = "more".to_string();
+    let next: brokkr_view::Cursor = "needs-you:6:more-49".parse().unwrap();
+    let filtered = Window {
+        after: None,
+        filter: "more".to_string(),
+    };
+    let top = more_runs(60, filtered, Some(&next));
+    tui.cursor[0] = Some("more-49".to_string());
+    apply(&mut tui, &top, Key::Down);
+    let kept = super::state::Scrolled {
+        filter: "more".to_string(),
+        past: vec![next],
+    };
+    assert_eq!(tui.scrolled, kept);
+    let mut fresh = Tui::new(None);
+    seed_cursor(&mut fresh, &below);
+    assert_eq!(fresh.cursor[0], None, "a frame of another window");
+    seed_cursor(&mut fresh, &more_runs(10, Window::default(), None));
+    assert_eq!(fresh.cursor[0].as_deref(), Some("more-00"));
+}
+
 /// Decision 0089 rulings 6 and 9: the list keeps the keys of the last
 /// [`SCROLL_BACK`](super::state::SCROLL_BACK) pages it scrolled past alone, so what it holds does not
 /// grow with how far it scrolls; it steps back a page at a time over

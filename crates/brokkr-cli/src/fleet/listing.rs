@@ -10,7 +10,7 @@
 use std::io::Write;
 
 use anyhow::Result;
-use brokkr_store::Store;
+use brokkr_store::{Store, StoreError};
 use brokkr_view::{Cursor, Page, Paged, RunRow, RunsView, VIEW_VERSION};
 
 use super::page::TAIL_KEYS;
@@ -80,13 +80,19 @@ pub(crate) fn list_hearth_in<T>(
             Some(keys) => Pages::every(store, before, keys),
             None => Pages::listing(store, before),
         };
-        let pages = pages.map_err(|error| anyhow::Error::msg(error.to_string()))?;
+        let pages = pages.map_err(refused)?;
         list(&Lister {
             pages: &pages,
             store,
             now,
         })
     })
+}
+
+/// The store's refusal of a listing, in its own words: of its pages, or
+/// of a page it reads.
+fn refused(error: StoreError) -> anyhow::Error {
+    anyhow::Error::msg(error.to_string())
 }
 
 /// One hearth's pages, as `brokkr runs` reads them: every value whole.
@@ -103,8 +109,9 @@ impl Lister<'_> {
             whole: &|_| true,
             keep: &|_| true,
         };
-        let page = self.pages.page(self.store, ask, after, limit);
-        page.map_err(|error| anyhow::Error::msg(error.to_string()))
+        self.pages
+            .page(self.store, ask, after, limit)
+            .map_err(refused)
     }
 
     /// Every page from the first, each handed to `each` in turn.
@@ -134,13 +141,20 @@ impl Lister<'_> {
     /// and the runs behind their summary its refresh left unread: the
     /// view a page-asking reader is handed.
     pub(crate) fn paged(&self, after: Option<&Cursor>, limit: usize) -> Result<RunsView> {
+        let (mut view, paged) = self.view(after, limit)?;
+        view.page = Some(paged);
+        Ok(view)
+    }
+
+    /// [`Self::paged`]'s rows, and its `next` and runs behind beside them.
+    fn view(&self, after: Option<&Cursor>, limit: usize) -> Result<(RunsView, Paged)> {
         let page = self.page(after, limit)?;
-        let mut view = RunsView::of(page.rows.into_iter().map(|(_, row)| row).collect());
-        view.page = Some(Paged {
+        let view = RunsView::of(page.rows.into_iter().map(|(_, row)| row).collect());
+        let paged = Paged {
             next: page.next,
             behind: self.pages.unread(),
-        });
-        Ok(view)
+        };
+        Ok((view, paged))
     }
 
     /// Every run as `--json` prints it: the view model `brokkr runs` has
@@ -193,15 +207,13 @@ impl Lister<'_> {
         json: bool,
         style: &Style,
     ) -> Result<()> {
-        let view = self.paged(after, limit)?;
         if json {
+            let view = self.paged(after, limit)?;
             return Ok(writeln!(out, "{}", serde_json::to_string_pretty(&view)?)?);
         }
+        let (view, Paged { next, behind }) = self.view(after, limit)?;
         out.write_all(render::runs(&view, self.now, style).as_bytes())?;
-        let Some(Paged { next, behind }) = &view.page else {
-            return Ok(());
-        };
-        if let Some(line) = brokkr_view::behind_line(*behind) {
+        if let Some(line) = brokkr_view::behind_line(behind) {
             writeln!(out, "{line}")?;
         }
         if let Some(next) = next {
