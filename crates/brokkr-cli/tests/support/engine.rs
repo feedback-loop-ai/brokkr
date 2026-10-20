@@ -10,6 +10,18 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The attempt deadline, in seconds, of a seat a test lets hang until its
+/// kill. An attempt's bound is also its admission's: dispatch admits it
+/// before anything spawns, within `began + min(STARTUP, bound)`, and
+/// `STARTUP` is brokkr-runtime's 30 s (`engine/broker.rs`). A bound of
+/// 1 or 2 s left admission one or two seconds, which admission on a
+/// loaded host outlasted. The attempt then failed before its driver
+/// started and was retried, so the test counted two attempts (#794). At
+/// `STARTUP`, admission gets the whole startup bound, as it does for any
+/// seat of 30 s or more, and the deadline under test no longer shortens
+/// it. It costs each hanging seat 30 s before its kill.
+pub(crate) const HANG_DEADLINE_SECONDS: u64 = 30;
+
 /// `brokkr` run in `dir`, which is its TMPDIR too: its start reaps only
 /// the trees of `dir`. Its HOME is [`home_in`] `dir`, unless the test
 /// gives it another. `dir` is marked a recipe library first ([`library`]).
