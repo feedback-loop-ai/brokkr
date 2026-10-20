@@ -68,11 +68,14 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    `resume` reads them. Each name resolves against the one panel of ruling
    2, bare as the panel declares it or as the journal's tag
    (`<step>:<member>` in a sequence), and is journaled resolved on the
-   retry's `operator/commanded` as `args.members`, in the order given; a
-   member given twice is refused naming the tag, and a name that is one
-   member's tag and another member's bare name (`p:x` in a step `p` whose
-   members are `x` and `p:x`) is refused naming both tags, never read one
-   way; the engine matches journaled tags exactly and never asks it. A retry without `--member`
+   retry's `operator/commanded` as `args.members`, in the panel's declared
+   order, the order the compiled bundle holds its members, whatever order
+   the names were given in: the verb journals the fresh members of the
+   plan the one rule returns and resolves nothing itself. A member given
+   twice is refused naming the tag, and a name that is one member's tag
+   and another member's bare name (`p:x` in a step `p` whose members are
+   `x` and `p:x`) is refused naming both tags in declared order, never
+   read one way; the engine matches journaled tags exactly and never asks it. A retry without `--member`
    journals `args: {}` and re-runs every member, byte for byte as today, as
    do the Looper bridge and the console. The fold does not read
    `args.members`; the engine reads them for the one effect the acceptance
@@ -88,7 +91,7 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    facts before every refusal the handler makes today; the supersede-only
    flags' refusal on `retry` names what `retry` takes);
    `crates/brokkr-runtime/src/engine/operator/retry/tests.rs` (the
-   journaled tags, the fold's refusal writing nothing, every member named
+   journaled tags in declared order when the names are given out of it, the fold's refusal writing nothing, every member named
    beside a record that does not read refused for the record);
    `crates/brokkr-runtime/src/engine/carry/tests.rs` (the selection's scope:
    no acceptance before an effect's request selects nothing; a name that

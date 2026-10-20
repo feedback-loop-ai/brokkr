@@ -298,7 +298,10 @@ members typed, the handler builds a `LaunchRequest` through `request` with
    body and hands the shape to the rule (S25, C7). A refusal is
    `MemberRetryOutcome::CarryRefused`, whose `Display` the CLI prints byte
    for byte, and nothing is written.
-5. Dispose through `disposed` with `args: {"members": [<tags>]}`, returned
+5. Dispose through `disposed` with `args: {"members": [<tags>]}`, the tags
+   being the returned plan's `fresh()`, in the panel's declared order,
+   whatever order the names were given in; the verb resolves nothing
+   itself (D4; S26, C9). Returned
    as `MemberRetryOutcome::Disposed(FencedCommandOutcome)`, which the CLI
    prints as it prints the plain verb's. `disposed` takes a
    `Commanded { command, operator, reason, args }` parameter object so the
@@ -411,12 +414,21 @@ other attempt is passed over (S11).
 `CarryPlan` holds one `Contribution` per declared tag, `Fresh` or
 `Carried(SettledVerdict { tag, result, source: AttemptId })`, built by a
 constructor that refuses a duplicate, a missing member or a tag outside the
-panel; `fresh()` and `carried()` are its two views. `CarryRefusal` is one
+panel; `fresh()` and `carried()` are its two views, each in the panel's
+declared order, the order in which the compiled bundle holds the members
+(`PanelShape::Panel`'s tags). `fresh()` is the selection: for
+`Names::Given` it is the named members' tags, which the verb journals as
+`args.members` (D2 step 5), and for the all-named short-circuit every tag;
+at the drive, over `Names::Journaled`, it is the journaled tags again, in
+the same order. One order and one source: the verb never resolves or
+orders a name itself, and the order changes nothing that is carried, since
+the drive matches tags exactly (S26, C9). `CarryRefusal` is one
 `thiserror` enum, one variant per fact of S15, grouped where the facts are
 siblings so each `why` is a closed enum matched exhaustively (ruling 2):
 
 - `NoPanel { phase }`; `PanelStepFollows { step, first }`
-- `AmbiguousMember { name, tags }`; `UnknownMember { name, members }`;
+- `AmbiguousMember { name, tags }`, the two tags in declared order;
+  `UnknownMember { name, members }`, the members in declared order;
   `MemberTwice { tag }`
 - `RecordUnread { record, field, error }`, `record` a closed enum, an
   attempt by its id or, for the accepted retry's `args`, the command by its
@@ -446,8 +458,8 @@ are then three facts in this order, each asked over the names in the order
 given and refusing on the first name that fails it: `AmbiguousMember`, a
 name that is one member's tag and another member's bare name (in a step
 `p` with members `x` and `p:x`, the name `p:x` is `x`'s tag and `p:x`'s
-bare name), naming both tags; `UnknownMember`, a name no member has, bare
-or as its tag; `MemberTwice`, two names that resolve to one member. Member
+bare name), naming both tags in declared order; `UnknownMember`, a name no
+member has, bare or as its tag, naming the members in declared order; `MemberTwice`, two names that resolve to one member. Member
 names are object keys the compile does not constrain (`parse_panel`,
 `bundle/parse.rs`), and `flat_address_collision` (`engine/resume.rs`) refuses only two sites
 that flatten to one label, so such a step compiles; the rule fails closed
@@ -455,7 +467,11 @@ rather than choose a reading (S25, C8). `Names::Journaled` asks
 `AmbiguousMember` never: a journaled tag is matched exactly against the
 tags, so `p:x` there is `x`'s tag alone.
 The order of the facts, their texts and the lists each refusal names are the
-spec's; `Display` is the one home of each text, printed by the verb and
+spec's, each list with its stated source: the members and tags a names
+refusal names, the unnamed members, and the `carried` entries in the
+panel's declared order; the heads and the tree observations in the
+journal's order with now last; the moved source effects in the order the
+`carried` entries first name them; `Display` is the one home of each text, printed by the verb and
 written by the engine (D8). The handler's two argument refusals and S21's
 text are not variants: the first are the CLI's, the second the fold's word.
 
@@ -713,7 +729,8 @@ built by a builder and a synthetic panel bundle:
   mutation: the shape's arms folded into the names step (an unknown name
   then refuses where the phase runs no panel);
 - the names in a step `p` with members `x` and `p:x`: `Names::Given`
-  with `p:x` refuses `AmbiguousMember` naming `p:x` and `p:p:x`, `x`
+  with `p:x` refuses `AmbiguousMember` naming the tags in the panel's
+  declared order, `p:p:x` then `p:x`, `x`
   resolves to `p:x` and `p:p:x` to itself, and `Names::Journaled` with the
   tag `p:x` matches `x` alone; mutation: the ambiguity check removed, so
   `p:x` resolves to one member silently;
@@ -749,7 +766,10 @@ test in `engine/tests.rs` (lines 2043 to 2058) holds unchanged.
 
 `crates/brokkr-runtime/src/engine/operator/retry/tests.rs` (the verb, with
 the fake driver): a member retry journals `args.members` resolved and in
-order; a fold refusal returns `MemberRetryOutcome::FoldRefused` with each
+the panel's declared order: `--member security --member correctness` on a
+panel declared `adversarial`, `correctness`, `security`, `spec-compliance`
+journals `{"members": ["correctness", "security"]}` (mutation: the names
+journaled in the order given); a fold refusal returns `MemberRetryOutcome::FoldRefused` with each
 of the three words and writes nothing; a record that does not read beside a
 drifted bundle returns `CarryRefused(RecordUnread)` with the bundle
 uncompiled, and so does every member named beside a record that does not
