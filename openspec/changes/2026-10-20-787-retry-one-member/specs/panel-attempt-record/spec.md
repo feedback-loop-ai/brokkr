@@ -2,7 +2,7 @@
 
 ### Requirement: An attempt that ran its panel and ended short of success records the tree it judged and each verdict that settled in it
 
-A panel attempt whose terminal fact is `effect/indeterminate` or `effect/failed`, written by the panel whose outcome ended it, a seat's panel body or the panel step whose outcome ended a sequence, SHALL record `tree`, and SHALL record `settled_members` when a member settled in it. `tree` SHALL hold `at_start` and `at_end`, each `clean` or `dirty`, the working tree as `git_dirty` read it when the attempt started and when it ended: `clean` when `git status --porcelain` exited zero and printed nothing, `dirty` otherwise, a spawn that failed and an exit that was not zero included. `settled_members` SHALL hold, for each member whose settled outcome in that attempt is a success, the member's result object as its driver reported it and the aggregate reads it, keyed by the member's tag as the markers and `carried` spell it: `<member>` for a seat's panel, `<step>:<member>` for a panel step. It SHALL NOT hold a verdict the attempt only carried, and SHALL be absent when no member settled in the attempt. Both fields SHALL be absent on every attempt that ran no panel: a single-driver attempt, a sequence ended by a step that is not a panel, the `GATE-MOVED-HEAD` indeterminate a gate writes in a terminal fact's place, and an attempt that started on no driver; those payloads keep their bytes. `unresolved_members` SHALL keep its bare-name keys. `effect/succeeded` SHALL NOT change. The fold SHALL NOT read either field.
+A panel attempt whose terminal fact is `effect/indeterminate` or `effect/failed`, written by the panel whose outcome ended it, a seat's panel body or the panel step whose outcome ended a sequence, SHALL record `tree`, and SHALL record `settled_members` when a member settled in it. `tree` SHALL hold `at_start` and `at_end`, each one of the four readings of `working-tree-reading`, `clean`, `dirty`, `refused` or `unrun`, as the one reader read the operated repository when the attempt started and when it ended. `tree` SHALL stand on every terminal fact the panel wrote short of success and on no other, so its presence is the mark by which an attempt its panel ended is told from one the engine ended in its place. `settled_members` SHALL hold, for each member whose settled outcome in that attempt is a success, the member's result object as its driver reported it and the aggregate reads it, keyed by the member's tag as the markers and `carried` spell it: `<member>` for a seat's panel, `<step>:<member>` for a panel step. It SHALL NOT hold a verdict the attempt only carried, and SHALL be absent when no member settled in the attempt. Both fields SHALL be absent on every attempt whose panel did not write its terminal fact: a single-driver attempt; a sequence ended by a step that is not a panel; an attempt that started on no driver; an attempt refused admission or provisioning, whose `effect/failed` is written before any member spawns; the `effect/indeterminate` the engine writes for a restart in flight, for journal contention, or for a held outcome the fence refused; and the `GATE-MOVED-HEAD` indeterminate a gate writes in a terminal fact's place. Those payloads keep their bytes. `unresolved_members` SHALL keep its bare-name keys. `effect/succeeded` SHALL NOT change. The fold SHALL NOT read either field.
 
 #### Scenario: Three settled, one not
 
@@ -27,7 +27,7 @@ A panel attempt whose terminal fact is `effect/indeterminate` or `effect/failed`
 #### Scenario: Git refuses status while the panel runs
 
 - **WHEN** the operated repository's index file is made unreadable while a panel attempt runs, so that `git rev-parse HEAD` answers and `git status --porcelain` exits 128 printing nothing, and the attempt ends indeterminate
-- **THEN** its terminal fact's `tree` reads `at_end` as `dirty`
+- **THEN** its terminal fact's `tree` reads `at_end` as `refused`
 
 #### Scenario: A carrying attempt that settles one member
 
@@ -58,6 +58,16 @@ A panel attempt whose terminal fact is `effect/indeterminate` or `effect/failed`
 
 - **WHEN** a carry is refused at drive time, or a rebuilt input is refused
 - **THEN** the attempt's terminal fact carries neither `settled_members` nor `tree`
+
+#### Scenario: An attempt refused admission
+
+- **WHEN** a carrying attempt is refused admission, its `effect/failed` written before any member spawns
+- **THEN** that `effect/failed` carries neither `settled_members` nor `tree`, byte for byte as an admission refusal writes it today, and the attempt's `effect/started` keeps its `carried`
+
+#### Scenario: The engine restarted in flight
+
+- **WHEN** the engine restarts while a panel attempt is in flight and settles it indeterminate on the next resume
+- **THEN** that `effect/indeterminate` carries neither `settled_members` nor `tree`, byte for byte as before this change
 
 ### Requirement: An attempt names every verdict it carries
 
@@ -94,7 +104,7 @@ A panel attempt whose terminal fact is `effect/indeterminate` or `effect/failed`
 
 ### Requirement: A carry refused at drive time is read as its own park reason
 
-The `effect/indeterminate` that ends a refused carry and the `run/parked` the engine then writes SHALL both carry, as `reason`, the marker `PANEL-CARRY-REFUSED`, one space, and the refusal as compact JSON, written and read through one codec in `brokkr-core` beside `gate_moved_head`; `run/parked.evidence` SHALL be `{}`. `ParkReason::read` SHALL decode a reason that opens with the marker and whose evidence reads as the refusal to a `ParkReason` of its own carrying the typed refusal, and the fold's `close` arm SHALL decode the indeterminate's reason the same way, so the folded state holds the typed refusal whether the journal ends at the indeterminate or at the park. A marked reason whose evidence does not read as the refusal SHALL fold as a stated reason with its text whole. The reason's journaled bytes and its sentence SHALL be told apart: the sentence SHALL be the typed refusal's own text, pinned once in `brokkr-core`, the same text `brokkr operator retry --member` refuses with, naming the fact that refused: the recorded head and the head found; the tree, and the observation at which it was dirty, the parked attempt's start or end, a source attempt's start or end naming that attempt, the command, or the drive; the effect whose input no longer rebuilds to its digest; or the shape fact or members the verb would have named. `Summary.park_reason`, the fleet's summary row (cut to decision 0089's bound, the whole kept), `brokkr compare`, muninn and every readout that shows a park reason SHALL paint that sentence. The `GATE-MOVED-HEAD` park, its `run/parked` bytes and every `Stated` reason SHALL read as they do today.
+The `effect/indeterminate` that ends a refused carry and the `run/parked` the engine then writes SHALL both carry, as `reason`, the marker `PANEL-CARRY-REFUSED`, one space, and the refusal as compact JSON, written and read through one codec in `brokkr-core` beside `gate_moved_head`; `run/parked.evidence` SHALL be `{}`. `ParkReason::read` SHALL decode a reason that opens with the marker and whose evidence reads as the refusal to a `ParkReason` of its own carrying the typed refusal, and the fold's `close` arm SHALL decode the indeterminate's reason the same way, so the folded state holds the typed refusal whether the journal ends at the indeterminate or at the park. A marked reason whose evidence does not read as the refusal SHALL fold as a stated reason with its text whole. The reason's journaled bytes and its sentence SHALL be told apart: the sentence SHALL be the typed refusal's own text, pinned once in `brokkr-core`, the same text `brokkr operator retry --member` refuses with, naming the fact that refused: the recorded head and the head found; the tree, its reading and the observation at which it was read, the parked attempt's start or end, a source attempt's start or end naming that attempt, the command, or the drive; the effect whose input no longer rebuilds to its digest; or the shape fact or members the verb would have named. `Summary.park_reason`, the fleet's summary row (cut to decision 0089's bound, the whole kept), `brokkr compare`, muninn and every readout that shows a park reason SHALL paint that sentence. The journal timeline `brokkr-view` derives for the console and the TUI SHALL paint that sentence too, in the text and the label of the `run/parked` row and of the `effect/indeterminate` row whose reason opens with the marker, read through the same codec and never the journaled bytes; every other row SHALL read as today. The `GATE-MOVED-HEAD` park, its `run/parked` bytes and every `Stated` reason SHALL read as they do today.
 
 #### Scenario: The park folds through run/parked
 
@@ -105,6 +115,11 @@ The `effect/indeterminate` that ends a refused carry and the `run/parked` the en
 
 - **WHEN** that journal is read by `brokkr runs`, `inspect`, `compare`, muninn, the fleet readouts and the console
 - **THEN** each shows the one sentence naming both heads, and the journal keeps the marker and its evidence on both events
+
+#### Scenario: The timeline after a drive-time refusal
+
+- **WHEN** the console's and the TUI's journal timeline paint that journal
+- **THEN** the `run/parked` row's text and its label, and the `effect/indeterminate` row's, read the one sentence naming both heads, no row paints the marker or its JSON, and a `GATE-MOVED-HEAD` row reads as it does today
 
 #### Scenario: The sentence is the verb's
 
