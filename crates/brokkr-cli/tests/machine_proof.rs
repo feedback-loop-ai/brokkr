@@ -1253,7 +1253,7 @@ fn the_bound_ends_at_two_reforgings_and_the_ladder_takes_every_arm() {
         "a rule-driven park names its rule, never 'no ruling': {reason}"
     );
     assert!(
-        reason.contains("medium security residual survives"),
+        reason.ends_with("the mount is joined with an unsanitised path"),
         "{reason}"
     );
     assert_eq!(
@@ -3446,4 +3446,5 @@ fn brokkr_tui_is_a_listed_read_verb_that_refuses_a_pipe_and_writes_nothing() {
 }
 
 mod egress;
+mod environment_block;
 mod output_edge;

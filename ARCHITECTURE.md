@@ -164,11 +164,12 @@ stateDiagram-v2
   verify --> implement: fail, bounded by visits_implement
   review --> ship: clean · low/info residual as named debt
   review --> implement: residual above low, bounded by visits_implement
+  implement --> parked: blocked by its environment
   review --> parked: reforging exhausted
   ship --> ship: ready
   ship --> review: HEAD drifted
   ship --> done: shipped
-  implement --> stop: blocked · broken twice
+  implement --> stop: blocked by the work · broken twice
   verify --> stop: fail at exhaustion
   review --> stop: security-hold · above-medium residual at exhaustion
   ship --> stop: dirty tree

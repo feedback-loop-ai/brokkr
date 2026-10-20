@@ -50,6 +50,9 @@ green, and the work committed.
 
 Report `broken` when the work cannot be made to function, naming the specific
 gap another visit must address. Report `blocked` only for something outside
-your control, naming the blocker precisely. Report `oversized` when the work
+your control, naming the blocker precisely, and its kind in
+`inputs.blocked_by`: `environment` (a signing key, a tool, a capability your
+box refused), which the operator fixes and retries you, or `work` (a
+contradictory framing or specification). Report `oversized` when the work
 exceeds the delivery class triage ruled, naming the mismatch so triage can
 rule again.
