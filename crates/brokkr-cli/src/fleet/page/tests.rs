@@ -580,6 +580,48 @@ fn an_over_long_id_behind_its_summary_is_listed_refused_by_every_read() {
     lists_every_run_refusing_both(&served);
 }
 
+/// Ruling 6: two run ids no writer admits, behind their summary and cut
+/// to one shown id, one of them that cut itself, are kept between
+/// refreshes by their whole ids: a second refresh holds each at its own
+/// key, none of them read whole, and a page a run lists every run once.
+#[test]
+fn refused_ids_cut_alike_are_kept_by_their_whole_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    folded(&db, |conn| {
+        plant(conn, "done", Shape::Finished, &stamp(now() - HOUR));
+    });
+    let (cut, long) = (format!("{}…", "v".repeat(128)), "v".repeat(200));
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    for run_id in [&cut, &long] {
+        plant_run(&conn, run_id, "{}").unwrap();
+    }
+    drop(conn);
+    let (store, mut pages, _) = refreshed(&db, AHEAD_ROWS);
+    assert!(!pages.was_read_whole(&cut) && !pages.was_read_whole(&long));
+    assert_eq!(
+        pages.refresh(&store, Journal::at(&db), AHEAD_ROWS).unwrap(),
+        0
+    );
+    let ask = Ask {
+        now: NOW,
+        whole: &|_| false,
+        keep: &|_| true,
+    };
+    let (mut listed, mut keys, mut after) = (Vec::new(), Vec::new(), None);
+    for _ in 0..4 {
+        let page = pages.page(&store, ask, after.as_ref(), 1).unwrap();
+        listed.extend(page.rows.into_iter().map(|(_, row)| row.run_id));
+        keys.extend(page.next.iter().map(|next| next.run_id.clone()));
+        after = page.next;
+        if after.is_none() {
+            break;
+        }
+    }
+    assert_eq!(listed, [cut.as_str(), &cut, "done"]);
+    assert_eq!(keys, [cut, long]);
+}
+
 /// Ruling 6: a run a refresh read whole as behind its summary, which a
 /// writer catches up before the page is read, lists once: by the read
 /// that kept it, never again from the range its row stands in now.

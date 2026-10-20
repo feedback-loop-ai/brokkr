@@ -303,10 +303,12 @@ impl Behind {
         }
         let (listed, unread) = store.behind(None, limit)?;
         self.past = listed.last().filter(|_| unread > 0).map(resume);
+        // Kept by the whole id a row is paged at, never the cut id a
+        // refused row shows, which two runs can share (ruling 6).
         let mut kept: HashMap<String, RunRow> = self
             .rows
             .drain(..)
-            .map(|row| (row.run_id.clone(), row))
+            .map(|row| (row.place().1.to_string(), row))
             .collect();
         let mut heads = std::mem::take(&mut self.runs);
         self.whole.clear();
@@ -319,7 +321,11 @@ impl Behind {
                 _ => {
                     let (row, events) = read_keyed(store, &key)?;
                     read += events;
-                    self.whole.insert(run_id.clone());
+                    // A run id past its bound names no run, and none is read.
+                    let why = key.as_ref().err().map(|unread| &unread.why);
+                    if !matches!(why, Some(RowRefusal::RunIdPastBound)) {
+                        self.whole.insert(run_id.clone());
+                    }
                     row
                 }
             };
