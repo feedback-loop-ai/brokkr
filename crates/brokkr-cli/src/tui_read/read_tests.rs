@@ -56,19 +56,26 @@ fn checkpointing(db: &Path, run_id: &str) {
 /// One frame of `brokkr tui` over `db`, open on `run`: how many events it
 /// read, and the run view it drew, as JSON.
 fn frame(db: &Path, kept: &mut Kept, run: &str, force: bool) -> (usize, String) {
+    let (read, view, _) = framed(db, kept, run, force);
+    (read, view)
+}
+
+/// [`frame`], and the words the fleet's row of `run` carries.
+fn framed(db: &Path, kept: &mut Kept, run: &str, force: bool) -> (usize, String, Option<String>) {
     let ask = tui::Ask {
         run: Some(run),
         subject: None,
         force,
         fleet: true,
         tab: 0,
-        rows: AHEAD_ROWS,
+        window: Default::default(),
     };
     let views = read_views(db, true, ask, kept, &mut None, || "now".to_string())
         .unwrap()
         .expect("the fleet's cadence draws a frame");
     let view = serde_json::to_string(&views.run).unwrap();
-    (kept.read, view)
+    let row = views.runs.runs.into_iter().find(|row| row.run_id == run);
+    (kept.read, view, row.and_then(|row| row.detail))
 }
 
 /// The acceptance at the console's own source: with a run selected, the
@@ -169,16 +176,21 @@ fn read_again(db: &Path, kept: &mut Kept, case: &str) {
 /// On a journal the summary pages, a row lost below the selected run's
 /// head is not seen by the fleet, whose page checks a row against its
 /// run's head alone (decision 0089 ruling 5), but the opened run is: its
-/// rows are counted at every frame, and it is read again and refused.
+/// rows are counted at every frame, it is read again and refused, and the
+/// refusal is the fleet's row of it, quarantined in the store's words.
 #[test]
 fn the_opened_run_is_read_again_when_a_row_below_its_head_is_lost() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     checkpointing(&db, "selected");
     let mut kept = Kept::default();
-    assert_ne!(frame(&db, &mut kept, "selected", true).1, "null");
+    let (_, drawn, healthy) = framed(&db, &mut kept, "selected", true);
+    assert_ne!(drawn, "null");
+    assert_eq!(healthy, None);
     let _held = lost_in_its_log(&db, "selected");
-    assert_eq!(frame(&db, &mut kept, "selected", false), (0, "null".into()));
+    let refused = Some(FIRST_EVENT_GONE.to_string());
+    let frame = framed(&db, &mut kept, "selected", false);
+    assert_eq!(frame, (0, "null".into(), refused));
     assert!(matches!(kept.fleet, Pages::Summary(_)));
 }
 
@@ -195,6 +207,52 @@ fn the_open_run_is_read_again_when_a_row_is_lost_in_the_write_ahead_log() {
     read_again(&db, &mut kept, "in the log");
 }
 
+/// Decision 0089 ruling 6: under a filter the console reads the fleet
+/// forward by keyset and keeps only the rows the filter keeps, the page
+/// of them and the one ahead, with the key past the first page of them;
+/// the window there holds the rest. Of 300 runs, 100 are kept.
+#[test]
+fn a_filtered_window_holds_the_page_it_keeps_and_the_one_ahead() {
+    use brokkr_store::test_support::{generate, Generated, Standing, Width};
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let now = "2026-10-20T00:00:00Z";
+    let at = time::OffsetDateTime::parse(now, &time::format_description::well_known::Rfc3339);
+    let runs: Vec<Generated> = (0..300)
+        .map(|n| Generated {
+            run_id: match n % 3 {
+                0 => format!("kept-{n:03}"),
+                _ => format!("other-{n:03}"),
+            },
+            standing: Standing::Finished,
+            events: 3,
+            last_at: (at.unwrap() - time::Duration::minutes(n))
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap(),
+            width: Width::Narrow,
+        })
+        .collect();
+    generate(&Store::open(&db).unwrap(), &runs).unwrap();
+    let store = Store::open_read_only(&db).unwrap();
+    let window = |after| tui::Window {
+        after,
+        filter: "kept".to_string(),
+    };
+    let read = |window: &tui::Window| {
+        let listed = fleet_page(&store, &mut Kept::default(), now, (window, None), None);
+        let listed = listed.unwrap();
+        let ids: Vec<String> = listed.runs.runs.into_iter().map(|row| row.run_id).collect();
+        (ids, listed.ahead)
+    };
+    let (first, ahead) = read(&window(None));
+    let kept: Vec<String> = (0..100).map(|n| format!("kept-{:03}", 3 * n)).collect();
+    assert_eq!(first, kept);
+    let ahead = ahead.unwrap();
+    assert_eq!(ahead.run_id, "kept-147");
+    let (second, past) = read(&window(Some(ahead)));
+    assert_eq!((second, past), (kept[50..].to_vec(), None));
+}
+
 /// A journal whose runs the store cannot list is the frame's refusal, in
 /// the store's own words: the console draws no fleet it could not read.
 #[test]
@@ -207,7 +265,7 @@ fn a_journal_whose_runs_cannot_be_listed_refuses_the_frame_in_the_stores_words()
         force: false,
         fleet: true,
         tab: 0,
-        rows: AHEAD_ROWS,
+        window: Default::default(),
     };
     let refused = read_views(&db, true, ask, &mut Kept::default(), &mut None, || {
         "now".to_string()

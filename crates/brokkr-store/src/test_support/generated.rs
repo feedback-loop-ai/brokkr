@@ -8,7 +8,7 @@
 
 use brokkr_core::page::Lane;
 use brokkr_core::policy::Severity;
-use brokkr_core::residual::{Citation, Mark};
+use brokkr_core::residual::{Citation, Claim, Mark, ResidualPhase};
 use brokkr_core::stamp::parse_millis;
 use brokkr_core::summary::{
     feature_line, Bounded, Hired, Refused, Ruled, Stated, Summary, FEATURE_LINE_BYTES, NAME_BYTES,
@@ -216,10 +216,9 @@ fn residuals(run_id: &str, count: u64) -> String {
     let stated: Vec<Stated> = (1..=count)
         .map(|seq| Stated {
             seq,
-            phase: "review".to_string(),
+            phase: ResidualPhase::Review,
             rule_id: Some("REVIEW-HOLD".to_string()),
-            input: "max_residual_severity".to_string(),
-            value: "low".to_string(),
+            claim: Claim::MaxSeverity(Severity::Low),
             superseded: (seq == 1).then(|| Mark {
                 seq: count + 1,
                 by: Citation {

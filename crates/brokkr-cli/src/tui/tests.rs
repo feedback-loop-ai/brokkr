@@ -681,7 +681,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
         run: None,
         transcript: None,
         note: None,
-        unread: Default::default(),
+        ..Views::empty()
     };
     settle(&mut tui, &others);
     assert_eq!(tui.run, None);
@@ -1509,7 +1509,7 @@ pub(super) fn panel_views() -> Views {
         run: Some(brokkr_view::run_view(&events, Some(&stopped))),
         transcript: None,
         note: None,
-        unread: Default::default(),
+        ..Views::empty()
     }
 }
 
@@ -5197,7 +5197,7 @@ fn refresh_subject(
             force,
             fleet: false,
             tab: 0,
-            rows: brokkr_view::AHEAD_ROWS,
+            window: Default::default(),
         },
         head,
         seen,

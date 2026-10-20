@@ -65,6 +65,7 @@ pub brokkr_store::QueueRefusal::Unmeasured
 pub brokkr_store::QueueRefusal::Unmeasured::entry: brokkr_store::EntryId
 pub enum brokkr_store::RowRefusal
 pub brokkr_store::RowRefusal::Column(alloc::string::String)
+pub brokkr_store::RowRefusal::Residuals(alloc::string::String)
 pub brokkr_store::RowRefusal::RunIdPastBound
 pub brokkr_store::RowRefusal::Severity(alloc::string::String)
 pub brokkr_store::RowRefusal::Status(alloc::string::String)
@@ -211,7 +212,7 @@ pub fn brokkr_store::Store::listing(&self, &str) -> core::result::Result<(alloc:
 pub fn brokkr_store::Store::pages(&self) -> core::result::Result<bool, brokkr_store::StoreError>
 pub fn brokkr_store::Store::section(&self, &[brokkr_core::page::Range], core::option::Option<(i64, &str)>, usize) -> core::result::Result<alloc::vec::Vec<brokkr_store::Paged>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::stands_at(&self, &str, (u64, &str)) -> core::result::Result<bool, brokkr_store::StoreError>
-pub fn brokkr_store::Store::whole(&self, &mut brokkr_core::page::Row) -> core::result::Result<brokkr_core::page::Whole, brokkr_store::StoreError>
+pub fn brokkr_store::Store::whole(&self, &mut brokkr_core::page::Row) -> core::result::Result<core::result::Result<brokkr_core::page::Whole, brokkr_store::RowRefusal>, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::carry(&mut self, brokkr_core::summary::Account)
 pub fn brokkr_store::Store::summary_disagreements(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Disagreement>, brokkr_store::StoreError>

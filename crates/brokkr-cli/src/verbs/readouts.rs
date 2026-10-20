@@ -263,17 +263,37 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
         .next()
         .expect("a world resolves to at least one hearth")
         .journal;
-    let before = fleet::Journal::at(&db);
-    let store = open_journal(&db, Access::Read)?;
+    let asked = (json, limit, after.as_ref());
+    let style = render::Style::detect();
+    hearth_runs(&db, asked, &style, &mut std::io::stdout().lock())?;
+    Ok(Exit::Completed.into())
+}
+
+/// `brokkr runs` over one hearth's journal at `db`, written to `out`: every
+/// run, or the page `limit` and `after` ask for, as JSON when asked.
+pub(crate) fn hearth_runs(
+    db: &Path,
+    (json, limit, after): (bool, Option<u32>, Option<&brokkr_view::Cursor>),
+    style: &render::Style,
+    out: &mut impl std::io::Write,
+) -> Result<()> {
+    let before = fleet::Journal::at(db);
+    let store = open_journal(db, Access::Read)?;
     // A fleet listing survives one corrupt journal: that run
     // becomes a quarantined row carrying the refusal's own words,
     // and the rest of the fleet is still listed. The journal is
     // never touched — the refusal is reported. Read a page at a time
-    // from the summary, every run behind it read whole; a journal
-    // the summary does not page yet is read the kept way (#744).
+    // from the summary; a journal the summary does not page yet is read
+    // the kept way (#744). The listing of every run reads every run
+    // behind the summary whole, so it lists each; one page reads at most
+    // a page and one ahead of them, and counts the rest (ruling 6).
+    let behind = match (limit, after) {
+        (None, None) => usize::MAX,
+        _ => fleet::AHEAD_ROWS,
+    };
     let mut pages = fleet::Pages::default();
     pages
-        .refresh(&store, before, usize::MAX)
+        .refresh(&store, before, behind)
         .map_err(|error| anyhow::Error::msg(error.to_string()))?;
     let now = now_rfc3339();
     let listing = fleet::Lister {
@@ -281,16 +301,14 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
         store: &store,
         now: &now,
     };
-    let (style, mut out) = (render::Style::detect(), std::io::stdout().lock());
-    match (limit, after.as_ref()) {
-        (None, None) if json => listing.every_json(&mut out)?,
-        (None, None) => listing.every_text(&mut out, &style)?,
+    match (limit, after) {
+        (None, None) if json => listing.every_json(out),
+        (None, None) => listing.every_text(out, style),
         (limit, after) => {
             let limit = limit.map_or(fleet::PAGE_ROWS, |limit| limit as usize);
-            listing.one(&mut out, (after, limit), json, &style)?;
+            listing.one(out, (after, limit), json, style)
         }
     }
-    Ok(Exit::Completed.into())
 }
 
 /// `brokkr runs` over several hearths: each journal's runs under its realm.

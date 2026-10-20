@@ -27,12 +27,15 @@ use crate::summary::summary_intact;
 use crate::{head_of, Store, StoreError};
 
 /// The columns a page selects, each within its bound, none of the whole
-/// values that sit last in the row. The run id is read to one byte past
-/// its bound, so a row whose id no writer admits is told by its length.
+/// values that sit last in the row. The run id is read to one character
+/// past its bound, so a row whose id no writer admits is told by its
+/// length; such a row's whole id is read beside it, its key, which the
+/// page's order and every cursor compare (ruling 6).
 const COLUMNS: &str = "substr(run_id, 1, 129), order_at, feature_line, created_at,
     last_recorded_at, status, phase, park_reason, rule_id, rule_from, rule_routes,
     hire_seat, hire_failed_attempts, residual_open, refusal_seq, refusal_words,
-    folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at";
+    folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at,
+    CASE WHEN length(CAST(run_id AS BLOB)) > 128 THEN run_id END";
 
 /// Why a page cannot read a summary row as a run's account: a value no
 /// writer writes. The reader reads such a run whole instead, or, where
@@ -47,11 +50,14 @@ pub enum RowRefusal {
     Severity(String),
     #[error("a column does not read: {0}")]
     Column(String),
+    #[error("its residuals do not read: {0}")]
+    Residuals(String),
 }
 
 /// A row a page could not read, at its place in the page's order.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Unread {
+    /// The run's id, whole, past its bound too: the row's key.
     pub run_id: String,
     pub order_at: i64,
     pub why: RowRefusal,
@@ -191,7 +197,10 @@ fn hired_of(row: &rusqlite::Row<'_>) -> Result<Option<Hired>, RowRefusal> {
 /// One row of a range, read: refused at the edge where a value is not a
 /// writer's, and never past its place, which the merge orders by.
 fn paged(row: &rusqlite::Row<'_>) -> rusqlite::Result<Paged> {
-    let run_id: String = row.get(0)?;
+    let run_id: String = match row.get::<_, Option<String>>(22)? {
+        Some(past_bound) => past_bound,
+        None => row.get(0)?,
+    };
     let order_at: i64 = row.get(1)?;
     Ok(match row_of(row, run_id.clone(), order_at) {
         Ok(read) => Ok(read),
@@ -357,8 +366,11 @@ impl Store {
 
     /// `row` completed with the whole values its bounds cut, read by its
     /// run's key, and what the row keeps whole beyond them: what `brokkr
-    /// runs`, its JSON and an opened run print (ruling 2).
-    pub fn whole(&self, row: &mut Row) -> Result<Whole, StoreError> {
+    /// runs`, its JSON and an opened run print (ruling 2). Residuals that
+    /// do not read back into the findings a writer states are the row's
+    /// refusal, a value no writer writes, and its run is read whole
+    /// (ruling 5).
+    pub fn whole(&self, row: &mut Row) -> Result<Result<Whole, RowRefusal>, StoreError> {
         let (feature, residuals, values): (String, String, [Option<String>; 8]) =
             self.conn.query_row(
                 "SELECT feature, residuals, created_at_whole, last_recorded_at_whole,
@@ -397,17 +409,20 @@ impl Store {
             row.refused.as_mut().map(|refused| &mut refused.words),
             words,
         );
-        let residuals: Vec<Stated> = serde_json::from_str(&residuals)?;
+        let residuals: Vec<Stated> = match serde_json::from_str(&residuals) {
+            Ok(residuals) => residuals,
+            Err(unread) => return Ok(Err(RowRefusal::Residuals(unread.to_string()))),
+        };
         let acknowledged = standing(&self.conn, &row.run_id)?.map(|standing| Copied {
             operator: standing.operator,
             reason: standing.reason,
             at: standing.recorded_at,
         });
-        Ok(Whole {
+        Ok(Ok(Whole {
             feature,
             residuals,
             acknowledged,
-        })
+        }))
     }
 
     /// What `run_id`'s `runs` row lists: its feature and creation stamp.

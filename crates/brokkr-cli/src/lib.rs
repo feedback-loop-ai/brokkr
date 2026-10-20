@@ -41,7 +41,8 @@ mod verbs;
 // draw.
 #[doc(hidden)]
 pub use crate::budget_frame::{
-    fleet_frame_for_budget, fleet_page_for_budget, run_frame_for_budget,
+    fleet_frame_for_budget, fleet_page_for_budget, fleet_window_for_budget, run_frame_for_budget,
+    FleetScroll, FleetWindow,
 };
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;
@@ -1616,5 +1617,7 @@ fn library(workspace: &std::path::Path, command: LibraryCmd) -> Result<ExitCode>
 
 #[cfg(test)]
 mod cli_reference_tests;
+#[cfg(test)]
+mod opened_tests;
 #[cfg(test)]
 mod tests;

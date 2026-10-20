@@ -65,6 +65,11 @@ pub struct RunRow {
     /// from the summary's index and a whole read list a run alike.
     #[serde(skip)]
     pub order_at: i64,
+    /// Where a page read the row, where its own facts place it elsewhere:
+    /// a run read whole at its summary's place, or an id listed cut at its
+    /// whole one (decision 0089 rulings 5 and 6). Cursors compare it.
+    #[serde(skip)]
+    pub paged_at: Option<(i64, String)>,
 }
 
 /// A seat at work on a run's current effect, as the fold's cursor
@@ -719,6 +724,7 @@ pub fn run_row(entry: &RunEntry) -> RunRow {
         verdict: verdict(entry.state, entry.residuals),
         hire: entry.state.and_then(hire),
         order_at: order_at(entry.last_recorded_at, entry.created_at),
+        paged_at: None,
     }
 }
 
@@ -781,8 +787,8 @@ pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
 mod page;
 use page::order_at;
 pub use page::{
-    page, ranges, section_of_rows, summary_row, Cursor, CursorError, Page, Paged, AHEAD_ROWS,
-    PAGE_ROWS,
+    behind_line, page, ranges, section_of_rows, summary_row, window, Cursor, CursorError, Page,
+    Paged, AHEAD_ROWS, PAGE_ROWS,
 };
 
 #[cfg(test)]

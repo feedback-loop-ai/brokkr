@@ -10,7 +10,7 @@ use anyhow::Result;
 use brokkr_store::Store;
 use brokkr_view::{Cursor, Page, Paged, RunRow, RunsView, VIEW_VERSION};
 
-use super::{Pages, PAGE_ROWS};
+use super::{Ask, Pages, PAGE_ROWS};
 use crate::render::{self, Style};
 
 /// Why an ask names no page, at the edge it was typed at: `--after`, or
@@ -54,9 +54,12 @@ pub(crate) struct Lister<'a> {
 
 impl Lister<'_> {
     fn page(&self, after: Option<&Cursor>, limit: usize) -> Result<Page> {
-        let page = self
-            .pages
-            .page(self.store, self.now, after, limit, &|_| true);
+        let ask = Ask {
+            now: self.now,
+            whole: &|_| true,
+            keep: &|_| true,
+        };
+        let page = self.pages.page(self.store, ask, after, limit);
         page.map_err(|error| anyhow::Error::msg(error.to_string()))
     }
 
@@ -83,12 +86,16 @@ impl Lister<'_> {
         Ok(every)
     }
 
-    /// One page of `limit` rows after `after`, or the first, and its
-    /// `next`: the view a page-asking reader is handed.
+    /// One page of `limit` rows after `after`, or the first, its `next`,
+    /// and the runs behind their summary its refresh left unread: the
+    /// view a page-asking reader is handed.
     pub(crate) fn paged(&self, after: Option<&Cursor>, limit: usize) -> Result<RunsView> {
         let page = self.page(after, limit)?;
         let mut view = RunsView::of(page.rows.into_iter().map(|(_, row)| row).collect());
-        view.page = Some(Paged { next: page.next });
+        view.page = Some(Paged {
+            next: page.next,
+            behind: self.pages.unread(),
+        });
         Ok(view)
     }
 
@@ -147,7 +154,13 @@ impl Lister<'_> {
             return Ok(writeln!(out, "{}", serde_json::to_string_pretty(&view)?)?);
         }
         out.write_all(render::runs(&view, self.now, style).as_bytes())?;
-        if let Some(Paged { next: Some(next) }) = &view.page {
+        let Some(Paged { next, behind }) = &view.page else {
+            return Ok(());
+        };
+        if let Some(line) = brokkr_view::behind_line(*behind) {
+            writeln!(out, "{line}")?;
+        }
+        if let Some(next) = next {
             writeln!(out, "next page  brokkr runs --limit {limit} --after {next}")?;
         }
         Ok(())

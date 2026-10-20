@@ -80,8 +80,15 @@ fn runs(db: &Path, store: &Store, query: Option<&str>) -> Response {
         Ok(asked) => asked,
         Err(refused) => return bad_request(refused.to_string()),
     };
+    // Every run lists each run behind the summary, read whole; a page
+    // reads at most a page and one ahead of them, and counts the rest
+    // (decision 0089 ruling 6).
+    let behind = match asked {
+        None => usize::MAX,
+        Some(_) => crate::fleet::AHEAD_ROWS,
+    };
     let mut pages = crate::fleet::Pages::default();
-    if let Err(error) = pages.refresh(store, crate::fleet::Journal::at(db), usize::MAX) {
+    if let Err(error) = pages.refresh(store, crate::fleet::Journal::at(db), behind) {
         return server_error(error.to_string());
     }
     let now = crate::now_rfc3339();
@@ -103,7 +110,8 @@ fn runs(db: &Path, store: &Store, query: Option<&str>) -> Response {
 }
 
 /// The page a query asks for: `limit=N`, at least one, and `after=CURSOR`,
-/// each at most once and in any order, or the words of what it is not.
+/// in any order, the last of a repeated one standing, or the words of
+/// what it is not.
 fn page_asked(query: &str) -> Result<(Option<brokkr_view::Cursor>, usize), PageRefused> {
     let mut asked = (None, crate::fleet::PAGE_ROWS);
     for pair in query.split('&') {

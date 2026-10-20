@@ -790,6 +790,33 @@ fn a_writer_store_that_lost_its_account_in_a_chain_is_checked_when_it_is_dropped
     assert!(store.carried.is_none(), "the account was lost");
 }
 
+/// A chain that lands nothing leaves its run as it found it, and the
+/// store is not held to it when it drops: a run behind its head that no
+/// row of the chain reached is not named.
+#[test]
+fn a_chain_that_lands_nothing_holds_its_store_to_no_run() {
+    let (_dir, mut creator) = store();
+    started(&mut creator, "r1");
+    let mut store = reopened(creator);
+    store.carry(Account::whole("r1", &store.load("r1").unwrap()));
+    planted(&store, "r1", EventType::PhaseEntered, json!({"phase": "a"}));
+    let rows: [Json; 0] = [];
+    let chain = store
+        .append_chain(
+            "r1",
+            EventType::PhaseEntered,
+            Rows {
+                rows: &rows,
+                payload: &Json::clone,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+    assert!(chain.appended.is_empty());
+    assert_eq!(lane(&store, "r1"), text("behind"));
+}
+
 #[test]
 #[should_panic(expected = "the summary comparison reads: sqlite: no such table: run_summary")]
 fn a_comparison_that_cannot_read_panics_rather_than_passing() {

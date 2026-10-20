@@ -867,12 +867,17 @@ pub brokkr_core::summary::Ruled::from: brokkr_core::summary::Bounded
 pub brokkr_core::summary::Ruled::routes: bool
 pub brokkr_core::summary::Ruled::rule_id: core::option::Option<brokkr_core::summary::Bounded>
 pub struct brokkr_core::summary::Stated
-pub brokkr_core::summary::Stated::input: alloc::string::String
-pub brokkr_core::summary::Stated::phase: alloc::string::String
+pub brokkr_core::summary::Stated::claim: brokkr_core::residual::Claim
+pub brokkr_core::summary::Stated::phase: brokkr_core::residual::ResidualPhase
 pub brokkr_core::summary::Stated::rule_id: core::option::Option<alloc::string::String>
 pub brokkr_core::summary::Stated::seq: u64
 pub brokkr_core::summary::Stated::superseded: core::option::Option<brokkr_core::residual::Mark>
-pub brokkr_core::summary::Stated::value: alloc::string::String
+impl brokkr_core::summary::Stated
+pub fn brokkr_core::summary::Stated::of(&brokkr_core::residual::Residual<'_>, core::option::Option<brokkr_core::residual::Mark>) -> brokkr_core::summary::Stated
+impl serde_core::ser::Serialize for brokkr_core::summary::Stated
+pub fn brokkr_core::summary::Stated::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::summary::Stated
+pub fn brokkr_core::summary::Stated::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<brokkr_core::summary::Stated, <D as serde_core::de::Deserializer>::Error>
 pub struct brokkr_core::summary::Summary
 pub brokkr_core::summary::Summary::created_at: brokkr_core::summary::Bounded
 pub brokkr_core::summary::Summary::feature: alloc::string::String

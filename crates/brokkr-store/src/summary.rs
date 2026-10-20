@@ -511,18 +511,19 @@ impl Store {
         self.binding.carried();
     }
 
-    /// Keep what a committed append to `run_id` left the carried account
-    /// as, and hold the run to its fold when a test's store drops.
-    pub(crate) fn settle(&mut self, run_id: &str, settled: Settled) {
+    /// Keep what a committed append of `landed` events to `run_id` left
+    /// the carried account as, and hold the run to its fold when a test's
+    /// store drops.
+    pub(crate) fn settle(&mut self, (run_id, landed): (&str, usize), settled: Settled) {
         match settled {
             Settled::Kept => {}
             Settled::Lost => self.carried = None,
             Settled::Carried(carried) => self.carried = Some(*carried),
         }
         #[cfg(any(test, feature = "test-support"))]
-        self.binding.wrote(run_id);
+        self.binding.appended(run_id, landed);
         #[cfg(not(any(test, feature = "test-support")))]
-        let _ = run_id;
+        let _ = (run_id, landed);
     }
 
     /// Refold every run whose row is behind its head, one run per

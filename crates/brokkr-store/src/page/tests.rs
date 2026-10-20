@@ -271,7 +271,7 @@ fn a_row_reads_its_whole_values_by_its_key() {
     let (_dir, store) = one(Width::Narrow, Standing::Parked);
     let mut row = read_one(&store, Standing::Parked);
     let paged = row.clone();
-    let whole = store.whole(&mut row).unwrap();
+    let whole = store.whole(&mut row).unwrap().unwrap();
     assert_eq!(row, paged);
     assert_eq!(whole.feature, "run feature\nin detail");
     assert_eq!((whole.residuals.len(), whole.acknowledged), (1, None));
@@ -281,7 +281,7 @@ fn a_row_reads_its_whole_values_by_its_key() {
     assert_eq!(row.phase.as_ref().unwrap().cut, wide[..64]);
     assert_eq!(row.park_reason.as_ref().unwrap().cut, wide[..256]);
     assert_eq!(row.feature_line, wide[..1024]);
-    let whole = store.whole(&mut row).unwrap();
+    let whole = store.whole(&mut row).unwrap().unwrap();
     let ruled = row.ruled.as_ref().unwrap();
     let wholes = [
         &row.phase.as_ref().unwrap().whole,
@@ -307,7 +307,8 @@ fn an_acknowledged_refusal_reads_its_copy_and_its_words_whole() {
     let copied = row.acknowledged.as_ref().unwrap();
     assert_eq!((copied.operator.len(), copied.reason.len()), (64, 256));
     assert_eq!(copied.at, "2026-01-01T00:00:00Z");
-    let standing = store.whole(&mut row).unwrap().acknowledged.unwrap();
+    let standing = store.whole(&mut row).unwrap().unwrap().acknowledged;
+    let standing = standing.unwrap();
     let wide = (standing.operator.len(), standing.reason.len());
     assert_eq!(wide, (1 << 20, 1 << 20));
     let refused = row.refused.unwrap();
@@ -353,7 +354,15 @@ fn a_row_no_writer_writes_is_refused_at_the_edge() {
     assert_eq!(why, &RowRefusal::RunIdPastBound);
     let words = "its run id is past 128 bytes, which no writer admits";
     assert_eq!(why.to_string(), words);
-    assert_eq!(place_of(&read[0]).1.len(), 129);
+    // Its key is its whole id, which every cursor compares (ruling 6).
+    assert_eq!(place_of(&read[0]).1, "r".repeat(200));
+    let (_dir, store) = one(Width::Narrow, Standing::Parked);
+    let unstated = r#"UPDATE run_summary SET residuals =
+        replace(residuals, '"phase":"review"', '"phase":"design"')"#;
+    store.conn.execute_batch(unstated).unwrap();
+    let refused = store.whole(&mut read_one(&store, Standing::Parked));
+    let words = "phase 'design' carries no residual finding at line 1 column 234";
+    assert_eq!(refused.unwrap(), Err(RowRefusal::Residuals(words.into())));
 }
 
 /// A journal is paged once it carries the summary and its backfill

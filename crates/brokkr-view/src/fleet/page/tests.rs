@@ -278,6 +278,30 @@ fn listed(run_id: &str, order_at: i64) -> RunRow {
     row
 }
 
+/// Up to `wanted` of `fleet`'s rows of `section` below `after`, as a
+/// page's read hands them.
+fn read_held(
+    fleet: &[(Section, Vec<RunRow>)],
+    section: Section,
+    after: Option<Place<'_>>,
+    wanted: usize,
+) -> Result<Vec<RunRow>, ()> {
+    let rows = fleet.iter().find(|(held, _)| *held == section);
+    let rows = rows.map_or_else(Vec::new, |(_, rows)| rows.clone());
+    let below = rows
+        .into_iter()
+        .filter(|row| after.is_none_or(|after| row.place() < after));
+    Ok(below.take(wanted).collect())
+}
+
+/// What `page` lists, by section and id.
+fn ids(page: &Page) -> Vec<(Section, String)> {
+    page.rows
+        .iter()
+        .map(|(section, row)| (*section, row.run_id.clone()))
+        .collect()
+}
+
 /// A page fills from the sections in order, one row past it says there
 /// is a next, and the page after its cursor carries on in the cursor's
 /// section, below its place.
@@ -288,36 +312,68 @@ fn a_page_carries_on_where_its_cursor_ended() {
         (Section::Recent, vec![listed("c", 7)]),
     ];
     let read = |section: Section, after: Option<Place<'_>>, wanted: usize| {
-        let rows = fleet.iter().find(|(held, _)| *held == section);
-        let rows = rows.map_or_else(Vec::new, |(_, rows)| rows.clone());
-        let below = rows
-            .into_iter()
-            .filter(|row| after.is_none_or(|after| row.place() < after));
-        Ok::<_, ()>(below.take(wanted).collect::<Vec<_>>())
+        read_held(&fleet, section, after, wanted)
     };
-    let ids = |page: &Page| -> Vec<(Section, String)> {
-        page.rows
-            .iter()
-            .map(|(section, row)| (*section, row.run_id.clone()))
-            .collect()
-    };
-    let first = page(None, 1, read).unwrap();
+    let first = page(None, (1, NOW), read).unwrap();
     assert_eq!(ids(&first), [(Section::NeedsYou, "a".to_string())]);
     let next = first.next.unwrap();
     assert_eq!(next.to_string(), "needs-you:9:a");
-    let second = page(Some(&next), 2, read).unwrap();
+    let second = page(Some(&next), (2, NOW), read).unwrap();
     let expected = [
         (Section::NeedsYou, "b".to_string()),
         (Section::Recent, "c".to_string()),
     ];
     assert_eq!(ids(&second), expected);
     assert_eq!(second.next, None);
-    let empty = page(None, 0, |_, _, _| Ok::<_, ()>(Vec::new())).unwrap();
+    let empty = page(None, (0, NOW), |_, _, _| Ok::<_, ()>(Vec::new())).unwrap();
     assert_eq!((empty.rows.len(), empty.next), (0, None));
     assert_eq!(
-        page(None, 5, |_, _, _| Err::<Vec<RunRow>, _>("refused")).err(),
+        page(None, (5, NOW), |_, _, _| Err::<Vec<RunRow>, _>("refused")).err(),
         Some("refused")
     );
+}
+
+/// Ruling 5: a row a page read whole lists in the section its fold
+/// places it in, at its own key, while the page has not passed that
+/// place, and where it was read once an earlier page has; the page's
+/// `next` is where it was read, as is a cut id's, its whole id.
+#[test]
+fn a_row_read_whole_lists_by_its_fold_where_its_page_has_not_passed_it() {
+    let mut whole = listed("w", 8);
+    whole.paged_at = Some((7, "w".to_string()));
+    let mut cut = listed("x…", 6);
+    cut.paged_at = Some((6, "x".repeat(200)));
+    let fleet = [
+        (Section::NeedsYou, vec![listed("a", 9)]),
+        (Section::Recent, vec![whole, cut, listed("c", 5)]),
+    ];
+    let read = |section: Section, after: Option<Place<'_>>, wanted: usize| {
+        read_held(&fleet, section, after, wanted)
+    };
+    let first = page(None, (2, NOW), read).unwrap();
+    let placed = [
+        (Section::NeedsYou, "a".to_string()),
+        (Section::NeedsYou, "w".to_string()),
+    ];
+    assert_eq!(ids(&first), placed);
+    let next = first.next.unwrap();
+    assert_eq!(next.to_string(), "recent:7:w");
+    let second = page(Some(&next), (1, NOW), read).unwrap();
+    assert_eq!(ids(&second), [(Section::Recent, "x…".to_string())]);
+    let past = second.next.unwrap();
+    assert_eq!(past.to_string(), format!("recent:6:{}", "x".repeat(200)));
+    let begun = Cursor {
+        section: Section::Recent,
+        order_at: 100,
+        run_id: "z".to_string(),
+    };
+    let late = page(Some(&begun), (5, NOW), read).unwrap();
+    let read_there = [
+        (Section::Recent, "w".to_string()),
+        (Section::Recent, "x…".to_string()),
+        (Section::Recent, "c".to_string()),
+    ];
+    assert_eq!(ids(&late), read_there);
 }
 
 /// A fleet read whole pages as the summary does: its rows of one
@@ -326,14 +382,38 @@ fn a_page_carries_on_where_its_cursor_ended() {
 fn a_fleet_read_whole_lists_a_section_below_its_cursor() {
     let rows = [listed("a", i64::MAX), listed("b", 20), listed("c", 10)];
     let ids = |rows: Vec<RunRow>| rows.into_iter().map(|row| row.run_id).collect::<Vec<_>>();
+    let every: &dyn Fn(&RunRow) -> bool = &|_| true;
     assert_eq!(
-        ids(section_of_rows(&rows, Section::NeedsYou, NOW, None, 2)),
+        ids(section_of_rows(
+            &rows,
+            Section::NeedsYou,
+            NOW,
+            None,
+            (2, every)
+        )),
         ["a", "b"]
     );
     let after = Some((20, "b"));
     assert_eq!(
-        ids(section_of_rows(&rows, Section::NeedsYou, NOW, after, 5)),
+        ids(section_of_rows(
+            &rows,
+            Section::NeedsYou,
+            NOW,
+            after,
+            (5, every)
+        )),
         ["c"]
     );
-    assert!(section_of_rows(&rows, Section::Older, NOW, None, 5).is_empty());
+    assert!(section_of_rows(&rows, Section::Older, NOW, None, (5, every)).is_empty());
+    let not_b: &dyn Fn(&RunRow) -> bool = &|row| row.run_id != "b";
+    assert_eq!(
+        ids(section_of_rows(
+            &rows,
+            Section::NeedsYou,
+            NOW,
+            None,
+            (2, not_b)
+        )),
+        ["a", "c"]
+    );
 }

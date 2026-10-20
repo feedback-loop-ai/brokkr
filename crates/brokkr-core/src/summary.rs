@@ -12,12 +12,15 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::canonical::ZERO_HASH;
 use crate::envelope::EventEnvelope;
 use crate::fold::{fold, fold_onto, FoldError, RunState, Status};
 use crate::policy::Severity;
-use crate::residual::{note_closing, open_severity, residuals, Claim, Mark, ResidualPhase};
+use crate::residual::{
+    note_closing, open_severity, residuals, Claim, Mark, Residual, ResidualPhase,
+};
 use crate::stamp::parse_millis;
 
 /// The bound of a name a run's data states: a phase, a rule id, the phase
@@ -91,29 +94,85 @@ impl Bounded {
     }
 }
 
-/// One residual claim of the run, owned so the account outlives the
-/// events it was read from.
+/// One residual finding of a run, owned so it outlives the events it was
+/// read from, typed: the phase that ruled, the rule it names and its
+/// claim, and the mark that closes it. The summary's `residuals` column
+/// is written from it and read back into it, its phase and claim by name,
+/// and a name no finding states refuses there (decision 0071 ruling 3).
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Finding {
-    seq: u64,
-    phase: ResidualPhase,
-    rule_id: Option<String>,
-    claim: Claim,
-}
-
-/// A finding as the summary's `residuals` column states it: its claim's
-/// input and value by name, and the mark that closes it. The column is
-/// written from it and read back into it, a closed shape (decision 0071
-/// ruling 3).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Stated {
     pub seq: u64,
-    pub phase: String,
+    pub phase: ResidualPhase,
     pub rule_id: Option<String>,
-    pub input: String,
-    pub value: String,
+    pub claim: Claim,
     pub superseded: Option<Mark>,
+}
+
+impl Stated {
+    /// `residual` as a finding, closed by `superseded` where a mark
+    /// closes it.
+    pub fn of(residual: &Residual<'_>, superseded: Option<Mark>) -> Stated {
+        Stated {
+            seq: residual.ruling.seq,
+            phase: residual.phase,
+            rule_id: residual.rule_id().map(str::to_string),
+            claim: residual.claim,
+            superseded,
+        }
+    }
+}
+
+/// A finding as the `residuals` column words it: its phase, and its
+/// claim's input and value, by name.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Words {
+    seq: u64,
+    phase: String,
+    rule_id: Option<String>,
+    input: String,
+    value: String,
+    superseded: Option<Mark>,
+}
+
+/// Why the `residuals` column states a finding no writer writes.
+#[derive(Debug, Error, PartialEq, Eq)]
+enum Unstated {
+    #[error("phase '{0}' carries no residual finding")]
+    Phase(String),
+    #[error("'{0}: {1}' is no claim a finding states")]
+    Claim(String, String),
+}
+
+impl Serialize for Stated {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        Words {
+            seq: self.seq,
+            phase: self.phase.as_str().to_string(),
+            rule_id: self.rule_id.clone(),
+            input: self.claim.input().to_string(),
+            value: self.claim.value().to_string(),
+            superseded: self.superseded.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Stated {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Stated, D::Error> {
+        let words = Words::deserialize(deserializer)?;
+        let phase = ResidualPhase::named(&words.phase).ok_or(Unstated::Phase(words.phase));
+        let claim = Claim::named(&words.input, &words.value)
+            .ok_or(Unstated::Claim(words.input, words.value));
+        let refused = |unstated: Unstated| serde::de::Error::custom(unstated);
+        Ok(Stated {
+            seq: words.seq,
+            phase: phase.map_err(refused)?,
+            rule_id: words.rule_id,
+            claim: claim.map_err(refused)?,
+            superseded: words.superseded,
+        })
+    }
 }
 
 /// What a writer holds of a run: the run's head as it last judged it, the
@@ -125,7 +184,8 @@ pub struct Account {
     head: (u64, String),
     last_recorded_at: Option<String>,
     read: Result<RunState, FoldError>,
-    findings: Vec<Finding>,
+    /// Each as its ruling states it, unmarked: the marks are kept beside.
+    findings: Vec<Stated>,
     marks: BTreeMap<u64, Mark>,
 }
 
@@ -163,20 +223,11 @@ impl Account {
             Err(refused) => Err(refused),
             Ok(state) => fold_onto(state, suffix),
         };
-        self.findings
-            .extend(residuals(suffix).into_iter().map(|residual| {
-                Finding {
-                    seq: residual.ruling.seq,
-                    phase: residual.phase,
-                    rule_id: residual
-                        .ruling
-                        .payload
-                        .get("rule_id")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_string),
-                    claim: residual.claim,
-                }
-            }));
+        self.findings.extend(
+            residuals(suffix)
+                .iter()
+                .map(|residual| Stated::of(residual, None)),
+        );
         for event in suffix {
             note_closing(&mut self.marks, event);
         }
@@ -331,12 +382,8 @@ fn stated(account: &Account) -> String {
         .findings
         .iter()
         .map(|finding| Stated {
-            seq: finding.seq,
-            phase: finding.phase.as_str().to_string(),
-            rule_id: finding.rule_id.clone(),
-            input: finding.claim.input().to_string(),
-            value: finding.claim.value().to_string(),
             superseded: account.marks.get(&finding.seq).cloned(),
+            ..finding.clone()
         })
         .collect();
     // Through a value, so its keys sort: the canonical form (`canonical`).

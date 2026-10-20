@@ -59,10 +59,10 @@ pub use compare::{
 use dashboard::dashboard;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
-    at_work, fleet_rows, need, page, ranges, run_row, run_rows, section_of_rows, sections,
-    summary_row, title, title_within, wrap, Acknowledgement, Cursor, CursorError, HearthEntries,
-    Hire, Need, Page, Paged, Quarantine, Refusal, RunRow, Section, Standing, Verdict, AHEAD_ROWS,
-    PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
+    at_work, behind_line, fleet_rows, need, page, ranges, run_row, run_rows, section_of_rows,
+    sections, summary_row, title, title_within, window, wrap, Acknowledgement, Cursor, CursorError,
+    HearthEntries, Hire, Need, Page, Paged, Quarantine, Refusal, RunRow, Section, Standing,
+    Verdict, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,
@@ -81,7 +81,7 @@ use std::collections::BTreeMap;
 use brokkr_core::decision::Decision as Decided;
 use brokkr_core::fold::RunState;
 use brokkr_core::realms::Boundary;
-use brokkr_core::residual::{closings, residuals, Mark, Residual};
+use brokkr_core::residual::{closings, residuals, Mark};
 use brokkr_core::summary::Stated;
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
@@ -882,24 +882,10 @@ pub struct ResidualFinding {
 pub fn residual_findings(run_id: &str, events: &[EventEnvelope]) -> Vec<ResidualFinding> {
     let marks: BTreeMap<u64, Mark> = closings(events).into_iter().collect();
     residuals(events)
-        .into_iter()
-        .map(|claim| {
-            let Residual {
-                ruling,
-                phase,
-                claim,
-            } = claim;
-            stated_finding(
-                run_id,
-                Stated {
-                    seq: ruling.seq,
-                    phase: phase.as_str().to_string(),
-                    rule_id: Some(display_or_mark(ruling.payload.get("rule_id"))),
-                    input: claim.input().to_string(),
-                    value: claim.value().to_string(),
-                    superseded: marks.get(&ruling.seq).cloned(),
-                },
-            )
+        .iter()
+        .map(|residual| {
+            let superseded = marks.get(&residual.ruling.seq).cloned();
+            stated_finding(run_id, Stated::of(residual, superseded))
         })
         .collect()
 }
@@ -913,10 +899,10 @@ pub(crate) fn stated_finding(run_id: &str, stated: Stated) -> ResidualFinding {
         seq,
         phase,
         rule_id,
-        input,
-        value,
+        claim,
         superseded,
     } = stated;
+    let (phase, input, value) = (phase.as_str(), claim.input(), claim.value());
     let rule_id = rule_id.unwrap_or_else(|| "?".to_string());
     let superseded = superseded.map(superseded_of);
     let mark = match &superseded {
@@ -927,10 +913,10 @@ pub(crate) fn stated_finding(run_id: &str, stated: Stated) -> ResidualFinding {
         run_id: run_id.to_string(),
         seq,
         line: format!("{run_id} seq {seq} · {phase} · {rule_id} · {input}: {value}{mark}"),
-        phase,
+        phase: phase.to_string(),
         rule_id,
-        input,
-        value,
+        input: input.to_string(),
+        value: value.to_string(),
         superseded,
     }
 }

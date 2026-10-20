@@ -12,9 +12,9 @@ use brokkr_core::EventEnvelope;
 use brokkr_runtime::realms::Hearth;
 use brokkr_store::{Store, StoreError};
 use brokkr_view::transcript::{LegacyProvenance, TranscriptRead};
-use brokkr_view::{Paged, RunsView, Section};
+use brokkr_view::{Cursor, Paged, RunsView, Section};
 
-use crate::fleet::{Journal, Pages, AHEAD_ROWS};
+use crate::fleet::{Ask, Journal, Pages, AHEAD_ROWS, PAGE_ROWS};
 use crate::{local_transcript, tui};
 
 /// The in-memory stamp of the selected transcript source: the subject
@@ -139,9 +139,9 @@ pub(crate) struct Kept {
     head: Option<(u64, String)>,
     run: Option<Selected>,
     fleet: Pages,
-    /// How many of the fleet's rows the last frame read (decision 0089
-    /// ruling 6): a list that asks for more is read again.
-    rows: usize,
+    /// The window of the fleet the last frame read (decision 0089 ruling
+    /// 6): a list that scrolled or filtered is read again.
+    window: Option<tui::Window>,
     /// The events the last frame read, the fleet's and the run's: the
     /// work a refresh paid for.
     read: usize,
@@ -206,7 +206,7 @@ fn read_views(
     // whatever head the open run still holds in it: the selected run is
     // read whole again with the fleet.
     let moved = current != kept.head || kept.fleet.replaced(before);
-    let scrolled = ask.rows != kept.rows;
+    let scrolled = kept.window.as_ref() != Some(&ask.window);
     if !(ask.force || ask.fleet || moved || transcript_changed || scrolled) {
         // Nothing has moved: the console keeps the frame it has, and
         // nothing is re-folded at four polls a second.
@@ -217,11 +217,11 @@ fn read_views(
     // whole fleet table because one old run is corrupt. The absence mark
     // is `RunRow.status_known`'s job (0001), and the refusal's own words
     // ride along as the row's detail. A page at a time (decision 0089):
-    // the rows the list asks for, the selected run's values whole.
+    // the window the list asks for, the selected run's values whole.
     let now = clock();
-    let (runs, unread) = fleet_page(&store, kept, &now, (ask.rows, ask.run), before)
+    let rebuild = ask.force || moved;
+    let (listed, run) = listed_and_opened(&store, kept, (&now, before), &ask, rebuild)
         .map_err(|error| anyhow::Error::msg(error.to_string()))?;
-    let run = run_of(&store, ask.run, ask.force || moved, kept);
     let transcript = reconciled(
         Reconcile {
             prior: ask.subject.as_ref(),
@@ -234,32 +234,93 @@ fn read_views(
     );
     Ok(Some(tui::Views {
         now,
-        runs,
+        runs: listed.runs,
         run,
         // The selected participant's own bounded local read, produced by
         // the shared reader the command and the browser also consume.
         transcript,
         // A journal that was read has nothing to say about itself.
         note: None,
-        unread,
+        unread: listed.unread,
+        window: ask.window,
+        ahead: listed.ahead,
     }))
 }
 
-/// The fleet's rows the list asks for, `rows` of them from the first and
-/// the run `selected` with its values whole, and what they leave unread:
-/// the older runs past them, counted by the summary's index, and the runs
-/// behind their summary past those this refresh reads whole.
-fn fleet_page(
+/// The fleet's window the list asks for, and the run `ask` opens read as
+/// [`run_of`] reads it: its view, or none and the store's refusal of it
+/// in the fleet's rows.
+fn listed_and_opened(
+    store: &Store,
+    kept: &mut Kept,
+    (now, before): (&str, Option<Journal>),
+    ask: &tui::Ask,
+    rebuild: bool,
+) -> Result<(Listed, Option<brokkr_view::RunView>), StoreError> {
+    let mut listed = fleet_page(store, kept, now, (&ask.window, ask.run), before)?;
+    let run = match run_of(store, ask.run, rebuild, kept) {
+        Ok(run) => run,
+        Err((run, refused)) => {
+            let row = crate::fleet::refused_row(store, run, refused)?;
+            opened_refused(&mut listed.runs, row);
+            None
+        }
+    };
+    Ok((listed, run))
+}
+
+/// `refused`, the row of the run the console opened and the store refused
+/// whole, in the fleet's rows in place of the row its summary gave, or
+/// beside them: the opening's refusal reaches the operator, quarantined in
+/// the store's own words, whatever the summary's head check passed
+/// (decision 0089 ruling 5).
+fn opened_refused(runs: &mut RunsView, refused: brokkr_view::RunRow) {
+    match runs
+        .runs
+        .iter_mut()
+        .find(|row| row.run_id == refused.run_id)
+    {
+        Some(row) => *row = refused,
+        None => {
+            runs.runs.push(refused);
+            runs.count = runs.runs.len();
+        }
+    }
+}
+
+/// What a frame lists of the fleet: its window's rows, what they leave
+/// unread, and the key past the window's first page, where the page
+/// ahead begins.
+pub(crate) struct Listed {
+    pub(crate) runs: RunsView,
+    pub(crate) unread: tui::Unread,
+    pub(crate) ahead: Option<Cursor>,
+}
+
+/// The fleet's rows the list asks for, the page of `window` and the one
+/// ahead, read forward by keyset past its cursor (decision 0089 ruling 6),
+/// the rows its filter keeps and the run `selected` with its values
+/// whole, and what they leave unread: the older runs past them, counted
+/// by the summary's index, and the runs behind their summary past those
+/// this refresh reads whole. However far the list has scrolled, a frame
+/// reads and holds two pages.
+pub(crate) fn fleet_page(
     store: &Store,
     kept: &mut Kept,
     now: &str,
-    (rows, selected): (usize, Option<&str>),
+    (window, selected): (&tui::Window, Option<&str>),
     before: Option<Journal>,
-) -> Result<(RunsView, tui::Unread), StoreError> {
+) -> Result<Listed, StoreError> {
     kept.read = kept.fleet.refresh(store, before, AHEAD_ROWS)?;
-    let page = kept
+    let ask = Ask {
+        now,
+        whole: &|run| Some(run) == selected,
+        keep: &|row| tui::keeps(&window.filter, row),
+    };
+    let asked = (AHEAD_ROWS, PAGE_ROWS);
+    let (page, ahead) = kept
         .fleet
-        .page(store, now, None, rows, &|run| Some(run) == selected)?;
+        .window(store, ask, window.after.as_ref(), asked)?;
     let older = page
         .rows
         .iter()
@@ -269,10 +330,17 @@ fn fleet_page(
         older: kept.fleet.older(store, now)?.saturating_sub(older),
         behind: kept.fleet.unread(),
     };
-    let mut view = RunsView::of(page.rows.into_iter().map(|(_, row)| row).collect());
-    view.page = Some(Paged { next: page.next });
-    kept.rows = rows;
-    Ok((view, unread))
+    let mut runs = RunsView::of(page.rows.into_iter().map(|(_, row)| row).collect());
+    runs.page = Some(Paged {
+        next: page.next,
+        behind: unread.behind,
+    });
+    kept.window = Some(window.clone());
+    Ok(Listed {
+        runs,
+        unread,
+        ahead,
+    })
 }
 
 /// The selected run as the console last read it: its journal and what
@@ -287,21 +355,25 @@ struct Selected {
 /// stands, no rebuild is asked and the fleet carried it, so the fleet's
 /// cadence reads none of the run; read whole and folded otherwise, as the
 /// fleet reads a run whose journal it cannot carry. A run that would not
-/// load keeps nothing, so the next frame reads it again.
-fn run_of(
+/// load keeps nothing, so the next frame reads it again, and is the run
+/// and the store's refusal of it, which the frame shows (decision 0089
+/// ruling 5).
+fn run_of<'a>(
     store: &Store,
-    run: Option<&str>,
+    run: Option<&'a str>,
     rebuild: bool,
     kept: &mut Kept,
-) -> Option<brokkr_view::RunView> {
+) -> Result<Option<brokkr_view::RunView>, (&'a str, StoreError)> {
     let standing = kept.run.take();
-    let run = run?;
+    let Some(run) = run else {
+        return Ok(None);
+    };
     let rebuild = rebuild || kept.fleet.was_read_whole(run);
     let kept_run = standing.filter(|selected| !rebuild && selected.run == run);
     let selected = match kept_run.filter(|selected| still_whole(store, selected)) {
         Some(selected) => selected,
         None => {
-            let events = store.load(run).ok()?;
+            let events = store.load(run).map_err(|refused| (run, refused))?;
             kept.read += events.len();
             let state = fold(&events).ok();
             Selected {
@@ -313,7 +385,7 @@ fn run_of(
     };
     let view = brokkr_view::run_view(&selected.events, selected.state.as_ref());
     kept.run = Some(selected);
-    Some(view)
+    Ok(Some(view))
 }
 
 /// Whether the journal still holds every row of the run `selected` kept,
@@ -408,7 +480,7 @@ pub(crate) fn tui_views(
 ) -> Result<tui::Refreshed> {
     let mut kept = Kept {
         head: head.take(),
-        rows: ask.rows,
+        window: Some(ask.window.clone()),
         ..Kept::default()
     };
     let views = read_views(db, sole, ask, &mut kept, seen, clock);

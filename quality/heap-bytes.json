@@ -1,24 +1,24 @@
 {
   "schema": "brokkr.heap-budgets/v1",
-  "note": "Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured 2026-09-30 under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up. The fleet's (decision 0089 ruling 9, measured 2026-10-20 by tests/heap_fleet.rs): the console's first page, the visible page and the one ahead, read and derived (fleet-page), read, derived and painted at 80x24 (fleet-frame), each also for a page whose every row fills every bound, and SQLite's own high-water beside them, capped at 400 KiB.",
+  "note": "Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured 2026-09-30 under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up. The fleet's (decision 0089 ruling 9, measured 2026-10-20 by tests/heap_fleet.rs): the console's window, the visible page and the one ahead, read and derived, first and scrolled deep (fleet-page, capped at ruling 9's 256 KiB), the same for a page whose every row fills every bound (capped at 640 KiB), and SQLite's own high-water beside them (capped at 400 KiB); and, a budget of its own that ruling 9's caps do not hold, the first window painted at 80x24, read, derived and drawn into ratatui's buffers (fleet-painted-frame, and at every bound).",
   "measured": {
     "claude-session": 2011418,
     "codex-thread": 11230208,
     "dsh-session": 4197432,
-    "fleet-page": 108178,
-    "fleet-page-at-every-bound": 243744,
-    "fleet-frame": 514410,
-    "fleet-frame-at-every-bound": 652851,
-    "fleet-page-sqlite": 395032
+    "fleet-page": 126669,
+    "fleet-page-at-every-bound": 257666,
+    "fleet-painted-frame": 514194,
+    "fleet-painted-frame-at-every-bound": 649651,
+    "fleet-page-sqlite": 399176
   },
   "budgets": {
     "claude-session": 2212560,
     "codex-thread": 12353229,
     "dsh-session": 4617176,
-    "fleet-page": 118996,
-    "fleet-page-at-every-bound": 268119,
-    "fleet-frame": 565852,
-    "fleet-frame-at-every-bound": 718137,
+    "fleet-page": 139336,
+    "fleet-page-at-every-bound": 283433,
+    "fleet-painted-frame": 565614,
+    "fleet-painted-frame-at-every-bound": 714617,
     "fleet-page-sqlite": 409600
   }
 }

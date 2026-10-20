@@ -2148,7 +2148,7 @@ fn a_vanished_participant_clears_the_same_frames_transcript() {
         }),
         force: true,
         fleet: false,
-        rows: brokkr_view::AHEAD_ROWS,
+        window: Default::default(),
     };
     let views = tui_views(&db, true, ask, &mut head, &mut seen, clock)
         .unwrap()
@@ -2208,7 +2208,7 @@ fn the_console_masks_a_bound_value_the_dsh_session_file_holds() {
         }),
         force: true,
         fleet: false,
-        rows: brokkr_view::AHEAD_ROWS,
+        window: Default::default(),
     };
     let clock = || "2026-01-01T00:07:03Z".to_string();
     let views = tui_views(&db, true, ask, &mut None, &mut None, clock)
@@ -2333,7 +2333,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
         subject: None,
         force,
         fleet,
-        rows: brokkr_view::AHEAD_ROWS,
+        window: Default::default(),
     };
     let mut head = None;
 
@@ -2526,7 +2526,7 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
             }),
             force: true,
             fleet: false,
-            rows: brokkr_view::AHEAD_ROWS,
+            window: Default::default(),
         },
         &mut head,
         &mut None,
@@ -2614,7 +2614,7 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
         subject: Some(subject(locator, working)),
         force: false,
         fleet: false,
-        rows: brokkr_view::AHEAD_ROWS,
+        window: Default::default(),
     };
     let turn = |text: &str| {
         format!("{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":\"{text}\"}}}}\n")
@@ -2633,7 +2633,7 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
             subject: Some(subject("abcd-1234", true)),
             force: true,
             fleet: false,
-            rows: brokkr_view::AHEAD_ROWS,
+            window: Default::default(),
         },
         &mut head,
         &mut seen,
@@ -2799,7 +2799,7 @@ fn a_working_seats_transcript_is_re_resolved_without_a_journal_move() {
             subject: Some(subject("abcd-1234", false)),
             force: true,
             fleet: false,
-            rows: brokkr_view::AHEAD_ROWS,
+            window: Default::default(),
         },
         &mut head,
         &mut seen,
@@ -3179,7 +3179,7 @@ fn one_broken_chain_is_one_quarantined_row_on_every_fleet_surface() {
         subject: None,
         force: true,
         fleet: false,
-        rows: brokkr_view::AHEAD_ROWS,
+        window: Default::default(),
     };
     let views = tui_views(&db, true, ask, &mut None, &mut None, now_rfc3339)
         .unwrap()
@@ -4414,7 +4414,7 @@ fn a_refreshed_run_re_resolves_changed_authority_before_display() {
             subject: Some(subject),
             force: true,
             fleet: false,
-            rows: brokkr_view::AHEAD_ROWS,
+            window: Default::default(),
         },
         &mut head,
         &mut seen,

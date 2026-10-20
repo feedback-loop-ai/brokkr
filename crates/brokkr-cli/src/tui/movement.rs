@@ -10,12 +10,29 @@ use super::*;
 /// **sanitized** labels: the filter is matched against exactly the text
 /// the operator can see.
 pub(super) fn keys_for(tui: &Tui, views: &Views) -> Vec<String> {
-    let needle = Safe::new(&tui.filter).as_str().to_lowercase();
     labels_for(tui, views)
         .into_iter()
-        .filter(|(_, label)| label.to_lowercase().contains(&needle))
+        .filter(|(_, label)| matches(&tui.filter, label))
         .map(|(key, _)| key)
         .collect()
+}
+
+/// Whether a list's `label` holds what `filter` searches for.
+fn matches(filter: &str, label: &str) -> bool {
+    let needle = Safe::new(filter).as_str().to_lowercase();
+    label.to_lowercase().contains(&needle)
+}
+
+/// A fleet row as the list labels it, found by id and by the title line
+/// the list paints as much of as its column holds.
+fn fleet_label(row: &RunRow) -> String {
+    format!("{} {}", safe(&row.run_id), listed_title(row))
+}
+
+/// Whether the fleet's list keeps `row` under `filter`: the one test the
+/// list's keys and the reader that pages it under a filter both make.
+pub(crate) fn keeps(filter: &str, row: &RunRow) -> bool {
+    filter.is_empty() || matches(filter, &fleet_label(row))
 }
 
 pub(super) fn labels_for(tui: &Tui, views: &Views) -> Vec<(String, String)> {
@@ -26,10 +43,7 @@ pub(super) fn labels_for(tui: &Tui, views: &Views) -> Vec<(String, String)> {
             .0
             .into_iter()
             .flat_map(|(_, rows)| rows)
-            .map(|row| {
-                let label = format!("{} {}", safe(&row.run_id), listed_title(row));
-                (row.run_id.clone(), label)
-            })
+            .map(|row| (row.run_id.clone(), fleet_label(row)))
             .collect(),
         (Level::Run, Some(view)) => run_labels(tui, view, lens_of(tui, views).as_ref()),
         // The PARTICIPANT panes are paragraphs with an offset, and a run
@@ -93,10 +107,7 @@ pub(super) fn fleet_sections<'a>(tui: &Tui, views: &'a Views) -> Listed<'a> {
 /// past those a refresh reads whole (decision 0089 ruling 6), when any
 /// are: none is placed by its stale row, and none is dropped silently.
 pub(super) fn behind_line(views: &Views) -> Option<String> {
-    let behind = views.unread.behind;
-    (behind > 0).then(|| {
-        format!("{behind} more runs behind their summary, unread until a writer catches them up")
-    })
+    brokkr_view::behind_line(views.unread.behind)
 }
 
 /// The list lines that count takes: its own, and the heading of "needs
@@ -112,19 +123,66 @@ fn behind_lines(kept: &[(Section, Vec<&RunRow>)], views: &Views) -> usize {
     }
 }
 
-/// How many of the fleet's rows the list asks to be read (decision 0089
-/// ruling 6): every run while `a` lists the older ones or a filter
-/// searches them all, and otherwise the page the cursor is on and the
-/// one ahead, so the list reads a page further as the cursor reaches it.
-pub(super) fn asked_rows(tui: &Tui, views: &Views) -> usize {
-    if tui.all || !tui.filter.is_empty() {
-        return usize::MAX;
+/// The window of the fleet the list asks to be read (decision 0089 ruling
+/// 6): from the key past the last page it scrolled beyond, the page there
+/// and the one ahead, kept by the filter typed over the fleet, `a` or no
+/// `a`. However far it scrolls, a frame reads two pages.
+pub(crate) fn asked_window(tui: &Tui) -> Window {
+    let filter = match tui.level {
+        Level::Runs => tui.filter.clone(),
+        Level::Run | Level::Participant => String::new(),
+    };
+    let scrolled = (tui.scrolled.filter == filter).then(|| tui.scrolled.past.last());
+    Window {
+        after: scrolled.flatten().cloned(),
+        filter,
     }
-    let cursor = tui.cursor[0].as_deref();
-    let mut runs = views.runs.runs.iter();
-    let at = runs.position(|row| Some(row.run_id.as_str()) == cursor);
-    let page = brokkr_view::PAGE_ROWS;
-    brokkr_view::AHEAD_ROWS + page * (at.unwrap_or(0) / page)
+}
+
+/// The list's window follows its cursor by keyset: onto the page ahead
+/// once the cursor reaches it, back a page when the cursor steps up off
+/// the window's first row, and to the top on `g` or a wrap down past its
+/// last. It moves over the frame of the window it asked for alone, so a
+/// key pressed before that frame arrives moves it once. The fleet's last
+/// page by the reverse order is a later slice's: `G` and a wrap up reach
+/// the window's last row, a page further each time.
+fn follow(tui: &mut Tui, views: &Views, (keys, from): (&[String], Option<usize>), step: Step) {
+    let window = asked_window(tui);
+    if views.window != window {
+        return;
+    }
+    let scrolled = window.after.is_some();
+    let wrapped = step == Step::Down && from.is_some_and(|at| at + 1 == keys.len());
+    match step {
+        Step::Top | Step::Down if scrolled && (step == Step::Top || wrapped) => {
+            tui.scrolled = Scrolled::default();
+            // Seeded on the first row of the top's own frame.
+            tui.cursor[0] = None;
+        }
+        Step::Up | Step::PageUp if scrolled && from == Some(0) => {
+            tui.scrolled.past.pop();
+            tui.cursor[0] = keys.first().cloned();
+        }
+        _ => {
+            let cursor = tui.cursor[0].as_deref();
+            let at = views
+                .runs
+                .runs
+                .iter()
+                .position(|row| Some(row.run_id.as_str()) == cursor);
+            let reached = at >= Some(brokkr_view::PAGE_ROWS);
+            let Some(ahead) = views.ahead.as_ref().filter(|_| reached) else {
+                return;
+            };
+            if tui.scrolled.filter != window.filter {
+                tui.scrolled = Scrolled {
+                    filter: window.filter,
+                    past: Vec::new(),
+                };
+            }
+            tui.scrolled.past.push(ahead.clone());
+        }
+    }
 }
 
 /// How many of `older` runs the list draws below the sections it keeps:
@@ -291,7 +349,9 @@ fn fleet_step(tui: &mut Tui, views: &Views, step: Step) {
         }
         Some((FleetColumn::List, _)) | None => {
             let keys = keys_for(tui, views);
+            let from = index_of(&keys, &tui.cursor[0]);
             move_to(&keys, &mut tui.cursor[0], step);
+            follow(tui, views, (&keys, from), step);
             tui.offset = 0;
             tui.live_offset = 0;
             tui.commission = false;
@@ -311,6 +371,9 @@ pub(super) fn seed_cursor(tui: &mut Tui, views: &Views) {
         return;
     }
     tui.cursor[0] = match (tui.level, views.run.as_ref()) {
+        // On the first row of the window it asked for, never of a frame
+        // of another (decision 0089 ruling 6).
+        (Level::Runs, _) if views.window != asked_window(tui) => None,
         (Level::Runs, _) => keys_for(tui, views).into_iter().next(),
         (Level::Run, Some(view)) => current_phase(view).map(str::to_string),
         (Level::Run | Level::Participant, _) => None,

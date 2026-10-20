@@ -665,7 +665,7 @@ impl Store {
                 attempt_id.clone(),
             )
         })?;
-        self.settle(run_id, settled);
+        self.settle((run_id, 1), settled);
         Ok(envelope)
     }
 

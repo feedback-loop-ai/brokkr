@@ -1021,29 +1021,72 @@ fn the_older_runs_say_how_to_show_them_and_how_to_fold_them() {
     assert!(!frame.contains("needs you     a"), "{frame}");
 }
 
-/// Decision 0089 ruling 6: the list asks for the page its cursor is on
-/// and the one ahead, and for every run while `a` or a filter shows them
-/// all; the older runs its pages left unread are counted with the ones
-/// it folds; and the runs behind their summary past those a refresh read
-/// are one line in "needs you", which heads it when no run there is listed.
-#[test]
-fn the_list_reads_a_page_ahead_and_counts_what_its_pages_left_unread() {
+/// `count` runs of the fixture's parked one, `more-00` onward, in a frame
+/// read for `window` whose first page ends at `ahead`.
+fn more_runs(count: usize, window: Window, ahead: Option<&brokkr_view::Cursor>) -> Views {
     let mut views = fleet_to_act_on();
+    let held = views.runs.runs.iter().find(|row| row.run_id == HELD);
+    let held = held.unwrap().clone();
+    views.runs.runs = (0..count)
+        .map(|at| RunRow {
+            run_id: format!("more-{at:02}"),
+            ..held.clone()
+        })
+        .collect();
+    (views.window, views.ahead) = (window, ahead.cloned());
+    views
+}
+
+/// Decision 0089 ruling 6: the list reads the page its window starts at
+/// and the one ahead, by keyset. Its window moves onto the page ahead
+/// when the cursor reaches it, once, however many keys land before that
+/// window's frame; back a page when the cursor steps up off its first
+/// row, the cursor kept; and to its top on `g`. `a` reads as it does
+/// without, and a filter reads its own window from its top. The older
+/// runs its pages left unread are counted with the ones it folds; and
+/// the runs behind their summary past those a refresh read are one line
+/// in "needs you", which heads it when no run there is listed.
+#[test]
+fn the_list_scrolls_by_keyset_and_counts_what_its_pages_left_unread() {
+    let ahead: brokkr_view::Cursor = "needs-you:5:more-49".parse().unwrap();
+    let top = more_runs(60, Window::default(), Some(&ahead));
     let mut tui = Tui::new(None);
-    assert_eq!(asked_rows(&tui, &views), 100);
-    let listed = views.runs.runs[0].clone();
-    for at in 0..60 {
-        let mut more = listed.clone();
-        more.run_id = format!("more-{at:02}");
-        views.runs.runs.push(more);
-    }
-    tui.cursor[0] = Some("more-49".to_string());
-    assert_eq!(asked_rows(&tui, &views), 150);
+    assert_eq!(asked_window(&tui), Window::default());
+    tui.cursor[0] = Some("more-48".to_string());
+    apply(&mut tui, &top, Key::Down);
+    assert_eq!(asked_window(&tui), Window::default(), "the cursor's page");
+    apply(&mut tui, &top, Key::Down);
+    apply(&mut tui, &top, Key::Down);
+    let scrolled = Window {
+        after: Some(ahead.clone()),
+        filter: String::new(),
+    };
+    assert_eq!(asked_window(&tui), scrolled);
+    assert_eq!(
+        tui.scrolled.past,
+        std::slice::from_ref(&ahead),
+        "moved once"
+    );
+    let below = more_runs(10, scrolled.clone(), None);
+    tui.cursor[0] = Some("more-00".to_string());
     tui.all = true;
-    assert_eq!(asked_rows(&tui, &views), usize::MAX);
-    tui.all = false;
+    assert_eq!(asked_window(&tui), scrolled, "`a` reads its window alike");
+    apply(&mut tui, &below, Key::Up);
+    assert_eq!(asked_window(&tui), Window::default());
+    assert_eq!(tui.cursor[0].as_deref(), Some("more-00"));
+    tui.scrolled.past.push(ahead.clone());
+    apply(&mut tui, &below, Key::Char('g'));
+    assert_eq!(
+        (asked_window(&tui), tui.cursor[0].clone()),
+        (Window::default(), None)
+    );
+    tui.scrolled.past.push(ahead);
     tui.filter = "more".to_string();
-    assert_eq!(asked_rows(&tui, &views), usize::MAX);
+    let filtered = Window {
+        after: None,
+        filter: "more".to_string(),
+    };
+    assert_eq!(asked_window(&tui), filtered);
     let mut views = fleet_to_act_on();
     views.unread = Unread {
         older: 5,

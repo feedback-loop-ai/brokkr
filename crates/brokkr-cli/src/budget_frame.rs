@@ -5,13 +5,14 @@ use std::path::Path;
 
 use brokkr_core::envelope::EventEnvelope;
 use brokkr_store::{Store, StoreError};
-use brokkr_view::RunsView;
+use brokkr_view::{Cursor, RunsView};
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::Terminal;
 
-use crate::fleet::{Journal, Pages, AHEAD_ROWS};
-use crate::tui::{draw, Tui, Views};
+use crate::fleet::Journal;
+use crate::tui::{asked_window, draw, Scrolled, Tui, Views, Window};
+use crate::tui_read::{fleet_page, Kept};
 
 /// Draw the RUN level of `events` at `width`×`height` from the derivation
 /// the console reads. `now` is the clock read the derivation refuses to
@@ -45,6 +46,8 @@ pub fn run_frame_for_budget(
         transcript: None,
         note: None,
         unread: Default::default(),
+        window: Default::default(),
+        ahead: None,
     };
     // Opened at the RUN level, as `brokkr tui --run <id>` opens.
     let tui = Tui::over(Some(run_id.to_string()), Vec::new(), 0);
@@ -65,22 +68,51 @@ fn painted(tui: &Tui, views: &Views, (width, height): (u16, u16)) -> Terminal<Te
     terminal
 }
 
-/// The console's first fleet page over the journal at `db`, from its
-/// read-only open to its rows (decision 0089 ruling 9): the visible page
-/// and the one ahead, read and derived as the console reads them.
-pub fn fleet_page_for_budget(db: &Path, now: &str) -> Result<RunsView, StoreError> {
-    let store = Store::open_read_only(db)?;
-    let mut pages = Pages::default();
-    pages.refresh(&store, Journal::at(db), AHEAD_ROWS)?;
-    let page = pages.page(&store, now, None, AHEAD_ROWS, &|_| false)?;
-    let mut runs = RunsView::of(page.rows.into_iter().map(|(_, row)| row).collect());
-    runs.page = Some(brokkr_view::Paged { next: page.next });
-    Ok(runs)
+/// Where the console's fleet list stands for a budget's read (decision
+/// 0089 ruling 9): the keys past the pages it scrolled beyond, as each
+/// frame's `ahead` stated them, whether `a` lists the older runs, and the
+/// filter typed over it.
+#[derive(Clone, Default)]
+pub struct FleetScroll {
+    pub scrolled: Vec<Cursor>,
+    pub all: bool,
+    pub filter: String,
 }
 
-/// [`fleet_page_for_budget`] painted at `width`×`height` by the console's
-/// own `draw` at its RUNS level: the first page, open to painted frame,
-/// and the frame's text, row after row, each cell its symbol.
+/// The window of the fleet the console's list asks to be read as
+/// `scroll` stands it, by the console's own ask.
+pub struct FleetWindow(Window);
+
+/// [`FleetWindow`] for `scroll`, asked as the console asks it.
+pub fn fleet_window_for_budget(scroll: &FleetScroll) -> FleetWindow {
+    let mut tui = Tui::over(None, Vec::new(), 0);
+    tui.all = scroll.all;
+    tui.filter.clone_from(&scroll.filter);
+    tui.scrolled = Scrolled {
+        filter: scroll.filter.clone(),
+        past: scroll.scrolled.clone(),
+    };
+    FleetWindow(asked_window(&tui))
+}
+
+/// The console's fleet over the journal at `db` in `window`, from its
+/// read-only open to its rows: the page the window starts at and the one
+/// ahead, read and derived as the console reads them, and the key past
+/// the window's first page.
+pub fn fleet_page_for_budget(
+    db: &Path,
+    now: &str,
+    window: &FleetWindow,
+) -> Result<(RunsView, Option<Cursor>), StoreError> {
+    let store = Store::open_read_only(db)?;
+    let mut kept = Kept::default();
+    let listed = fleet_page(&store, &mut kept, now, (&window.0, None), Journal::at(db))?;
+    Ok((listed.runs, listed.ahead))
+}
+
+/// The console's first fleet page painted at `width`×`height` by its own
+/// `draw` at its RUNS level: open to painted frame, and the frame's text,
+/// row after row, each cell its symbol.
 pub fn fleet_frame_for_budget(
     db: &Path,
     now: &str,
@@ -88,7 +120,7 @@ pub fn fleet_frame_for_budget(
     height: u16,
 ) -> Result<String, StoreError> {
     let views = Views {
-        runs: fleet_page_for_budget(db, now)?,
+        runs: fleet_page_for_budget(db, now, &fleet_window_for_budget(&FleetScroll::default()))?.0,
         now: now.to_string(),
         ..Views::empty()
     };

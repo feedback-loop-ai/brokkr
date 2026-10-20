@@ -30,6 +30,29 @@ pub(crate) struct Views {
     pub note: Option<String>,
     /// What the fleet's pages leave unread (decision 0089 ruling 6).
     pub unread: Unread,
+    /// The window of the fleet this frame was read for.
+    pub window: Window,
+    /// The key past the window's first page, where the page ahead
+    /// begins, when the fleet runs on past it.
+    pub ahead: Option<brokkr_view::Cursor>,
+}
+
+/// Where the fleet's list reads from (decision 0089 ruling 6): the key
+/// past the rows it has scrolled beyond, or its top, and the filter it
+/// keeps rows by. A frame reads the page there and the one ahead.
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub(crate) struct Window {
+    pub after: Option<brokkr_view::Cursor>,
+    pub filter: String,
+}
+
+/// How far the fleet's list has scrolled: the key past each page it has
+/// scrolled beyond, in order, under the filter it scrolled with. It reads
+/// from the last; a list under another filter reads from its top.
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub(crate) struct Scrolled {
+    pub filter: String,
+    pub past: Vec<brokkr_view::Cursor>,
 }
 
 /// The runs a frame's pages did not read: the older ones past them,
@@ -52,6 +75,8 @@ impl Views {
             transcript: None,
             note: None,
             unread: Unread::default(),
+            window: Window::default(),
+            ahead: None,
         }
     }
 }
@@ -97,10 +122,9 @@ pub(crate) struct Ask<'a> {
     /// visited has had no store opened for it — the laziness is the
     /// absence of a question, not a cache.
     pub tab: usize,
-    /// How many of the fleet's rows the list asks to be read: the page
-    /// the cursor is on and the one ahead, or every run while `a` shows
-    /// the older ones or a filter searches them (decision 0089 ruling 6).
-    pub rows: usize,
+    /// The window of the fleet the list asks to be read: the page its
+    /// window starts at and the one ahead (decision 0089 ruling 6).
+    pub window: Window,
 }
 
 // -------------------------------------------------------------- the state
@@ -156,6 +180,8 @@ pub(crate) struct TabState {
     pub toggles: Toggles,
     /// Whether its dashboard shows the whole commission (`c`).
     pub commission: bool,
+    /// How far this hearth's fleet has scrolled.
+    pub scrolled: Scrolled,
 }
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
@@ -221,6 +247,9 @@ pub(crate) struct Tui {
     /// `a`: the fleet lists its older runs too, where it otherwise folds
     /// them into one count line (#491).
     pub all: bool,
+    /// How far the fleet's list has scrolled, by keyset (decision 0089
+    /// ruling 6).
+    pub scrolled: Scrolled,
     /// The running runs the fleet has opened in place, by id (#503): `→`,
     /// `l` or Space open the selected one, `←` or `h` fold it.
     pub expanded: BTreeSet<String>,
@@ -292,6 +321,7 @@ impl Tui {
             ticks: 0,
             force: true,
             all: false,
+            scrolled: Scrolled::default(),
             expanded: BTreeSet::new(),
             width: 0,
             height: 0,
@@ -346,6 +376,7 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
         expanded: std::mem::take(&mut tui.expanded),
         toggles: tui.toggles,
         commission: tui.commission,
+        scrolled: std::mem::take(&mut tui.scrolled),
     };
     let resumed = tui.parked[index].clone();
     tui.tab = index;
@@ -356,6 +387,7 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
     tui.expanded = resumed.expanded;
     tui.toggles = resumed.toggles;
     tui.commission = resumed.commission;
+    tui.scrolled = resumed.scrolled;
     tui.live_offset = 0;
     tui.level = Level::Runs;
     tui.pane = 0;

@@ -223,9 +223,44 @@ fn the_residuals_column_reads_back_as_its_findings() {
     assert_eq!(serde_json::to_value(&read).unwrap().to_string(), column);
     let mark = read[0].superseded.as_ref().unwrap();
     assert_eq!((mark.seq, mark.by.run_id.as_str()), (13, "other"));
-    let extra = column.replacen("\"input\"", "\"extra\":1,\"input\"", 1);
-    let refused = serde_json::from_str::<Vec<Stated>>(&extra).unwrap_err();
-    assert!(refused.to_string().starts_with("unknown field `extra`"));
+    assert_eq!(read[0].claim, Claim::SecurityResidual);
+    assert_eq!(read[1].claim, Claim::MaxSeverity(Severity::High));
+    assert_eq!(read[2].phase, ResidualPhase::Review);
+    let refused = |from: &str, to: &str| {
+        let edited = column.replacen(from, to, 1);
+        serde_json::from_str::<Vec<Stated>>(&edited)
+            .unwrap_err()
+            .to_string()
+    };
+    let extra = refused("\"input\"", "\"extra\":1,\"input\"");
+    assert!(extra.starts_with("unknown field `extra`"), "{extra}");
+    let phase = refused("\"phase\":\"verify\"", "\"phase\":\"design\"");
+    assert!(
+        phase.starts_with("phase 'design' carries no residual finding"),
+        "{phase}"
+    );
+    let value = refused("\"value\":\"high\"", "\"value\":\"none\"");
+    let words = "'max_residual_severity: none' is no claim a finding states";
+    assert!(value.starts_with(words), "{value}");
+    let flag = refused("\"value\":\"true\"", "\"value\":\"yes\"");
+    let words = "'has_security_residual: yes' is no claim a finding states";
+    assert!(flag.starts_with(words), "{flag}");
+}
+
+/// A finding's rule id is read once, from its ruling, as text or not at
+/// all, so the summary and every readout of its findings name it alike.
+#[test]
+fn a_finding_names_its_rule_as_its_ruling_words_it() {
+    let mut events = parked();
+    let ruled = events
+        .iter_mut()
+        .rfind(|event| event.event_type == EventType::TransitionDecided)
+        .unwrap();
+    ruled.payload["rule_id"] = json!(7);
+    let held = residuals(&events);
+    let stated: Vec<Stated> = held.iter().map(|held| Stated::of(held, None)).collect();
+    let rules: Vec<Option<&str>> = stated.iter().map(|it| it.rule_id.as_deref()).collect();
+    assert_eq!(rules, [Some("VERIFY-PASS"), Some("VERIFY-PASS"), None]);
 }
 
 #[test]

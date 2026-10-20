@@ -94,6 +94,19 @@ impl Claim {
             Claim::SecurityResidual | Claim::HighRiskUncovered => "true",
         }
     }
+
+    /// The claim whose [`Claim::input`] and [`Claim::value`] are `input`
+    /// and `value`, read back from those words: `None` for a pair no
+    /// claim states, a severity of `none` among them.
+    pub(crate) fn named(input: &str, value: &str) -> Option<Claim> {
+        let claim = match Severity::named(value) {
+            Some(severity) => Claim::MaxSeverity(severity),
+            None if input == Claim::SecurityResidual.input() => Claim::SecurityResidual,
+            None => Claim::HighRiskUncovered,
+        };
+        let stated = claim.severity() != Some(Severity::None);
+        (stated && claim.input() == input && claim.value() == value).then_some(claim)
+    }
 }
 
 /// One residual claim a ruling carries.
@@ -104,6 +117,15 @@ pub struct Residual<'a> {
     /// The phase that ruled.
     pub phase: ResidualPhase,
     pub claim: Claim,
+}
+
+impl Residual<'_> {
+    /// The rule its ruling names, where the ruling names one as text: the
+    /// one reading of a finding's rule id, which the writer's summary and
+    /// every readout of a run's findings make (decision 0071 ruling 5).
+    pub(crate) fn rule_id(&self) -> Option<&str> {
+        self.ruling.payload.get("rule_id").and_then(Value::as_str)
+    }
 }
 
 /// Every residual claim in a run's journal, in journal order and then in

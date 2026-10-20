@@ -208,7 +208,8 @@ fn sectioned(rows: &[RunRow], now: &str) -> Vec<(Section, Vec<String>)> {
         .collect()
 }
 
-/// Every page from the first, `limit` rows a page, at `now`.
+/// Every page from the first, `limit` rows a page, at `now`: a walk that
+/// reaches the fleet's end within a thousand pages.
 fn paged(
     pages: &Pages,
     store: &Store,
@@ -218,16 +219,21 @@ fn paged(
 ) -> Vec<(Section, RunRow)> {
     let mut rows = Vec::new();
     let mut after = None;
-    loop {
-        let page = pages
-            .page(store, now, after.as_ref(), limit, &|_| whole)
-            .unwrap();
+    let ask = Ask {
+        now,
+        whole: &|_| whole,
+        keep: &|_| true,
+    };
+    for _ in 0..1_000 {
+        let page = pages.page(store, ask, after.as_ref(), limit).unwrap();
         rows.extend(page.rows);
         match page.next {
             Some(next) => after = Some(next),
             None => return rows,
         }
     }
+    let ids: Vec<&str> = rows.iter().map(|(_, row)| row.run_id.as_str()).collect();
+    panic!("no end in a thousand pages; listed {ids:?}");
 }
 
 /// `rows` by section, in [`Section::ORDER`], as [`sectioned`] states them.
@@ -353,8 +359,9 @@ fn a_run_behind_its_summary_is_placed_by_its_fold() {
 
 /// Ruling 5: a row whose run's last event is not the head it was folded
 /// to, or that holds a value no writer writes, is read whole and listed
-/// as its fold says; a row whose run id no writer admits is listed
-/// refused, never read.
+/// as its fold says, in the section its fold places it in, whichever
+/// range its row was read from; a row whose run id no writer admits is
+/// listed refused, never read.
 #[test]
 fn a_row_its_run_does_not_stand_at_is_read_whole() {
     let dir = tempfile::tempdir().unwrap();
@@ -362,28 +369,44 @@ fn a_row_its_run_does_not_stand_at_is_read_whole() {
     folded(&db, |conn| {
         plant(conn, "edited", Shape::Parked, &stamp(now() - HOUR));
         plant(conn, "paused", Shape::Running, &stamp(now() - MINUTE));
+        plant(conn, "unstated", Shape::Parked, &stamp(now() - 3 * DAY));
         plant_run(conn, &"r".repeat(200), "{}").unwrap();
     });
     rusqlite::Connection::open(&db)
         .unwrap()
         .execute_batch(&format!(
-            "UPDATE run_summary SET folded_hash = '{hash}', phase = 'edited' WHERE run_id = 'edited';
-             UPDATE run_summary SET status = 'paused' WHERE run_id = 'paused';",
+            "UPDATE run_summary SET folded_hash = '{hash}', phase = 'edited',
+                 status = 'completed' WHERE run_id = 'edited';
+             UPDATE run_summary SET status = 'paused' WHERE run_id = 'paused';
+             UPDATE run_summary SET status = 'completed',
+                 residuals = replace(residuals, '\"phase\":\"review\"', '\"phase\":\"design\"')
+                 WHERE run_id = 'unstated';",
             hash = "f".repeat(64)
         ))
         .unwrap();
     let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
-    let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
-    let row = |run_id: &str| -> RunRow {
+    let listed = paged(&pages, &store, NOW, PAGE_ROWS, true);
+    let row = |run_id: &str| -> (Section, RunRow) {
         let found = listed
             .iter()
             .find(|(_, row)| row.run_id.starts_with(run_id));
-        found.unwrap().1.clone()
+        found.unwrap().clone()
     };
-    assert_eq!(row("edited").phase.as_deref(), Some("review"));
-    assert_eq!(row("edited").feature, "feat");
-    assert_eq!(row("paused").status.as_deref(), Some("running"));
-    let long = row("rrrr");
+    // Its row reads finished, within the day: its fold is parked.
+    let (section, edited) = row("edited");
+    assert_eq!(section, Section::NeedsYou);
+    assert_eq!(edited.phase.as_deref(), Some("review"));
+    assert_eq!(edited.feature, "feat");
+    assert_eq!(row("paused").1.status.as_deref(), Some("running"));
+    // Its row reads finished, days old, its findings in no writer's
+    // words: read whole, its fold is parked and its finding stated.
+    let (section, unstated) = row("unstated");
+    assert_eq!(section, Section::NeedsYou);
+    assert_eq!(unstated.status.as_deref(), Some("awaiting_operator"));
+    assert_eq!(unstated.residuals.len(), 1);
+    let ids: Vec<&str> = listed.iter().map(|(_, row)| row.run_id.as_str()).collect();
+    assert_eq!(ids.len(), 4, "{ids:?}");
+    let long = row("rrrr").1;
     assert_eq!(long.run_id, format!("{}…", "r".repeat(128)));
     let words = "its run id is past 128 bytes, which no writer admits";
     assert_eq!(long.detail.as_deref(), Some(words));
@@ -391,6 +414,103 @@ fn a_row_its_run_does_not_stand_at_is_read_whole() {
     // Listed at the place the writer gave it: an empty run, refused at
     // its creation.
     assert_eq!(long.order_at, parse_millis("2026-01-01T00:00:00Z").unwrap());
+}
+
+/// Ruling 6: a row whose run id no writer admits is listed by the cut of
+/// its id and paged by its whole id, so a cursor past it names the place
+/// the store compares: a fleet holding two such ids, at one time with a
+/// third run, lists to its end a run a page, every run once.
+#[test]
+fn a_refused_over_long_id_pages_to_the_fleet_s_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    let (first, second) = ("r".repeat(200), format!("{}s", "r".repeat(199)));
+    folded(&db, |conn| {
+        for run_id in [first.as_str(), &second, "empty"] {
+            plant_run(conn, run_id, "{}").unwrap();
+        }
+        plant(conn, "done", Shape::Finished, &stamp(now() - HOUR));
+    });
+    let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
+    let walked = paged(&pages, &store, NOW, 1, false);
+    let ids: Vec<&str> = walked.iter().map(|(_, row)| row.run_id.as_str()).collect();
+    let cut = format!("{}…", "r".repeat(128));
+    assert_eq!(ids, [cut.as_str(), &cut, "empty", "done"]);
+}
+
+/// Ruling 6: a run a refresh read whole as behind its summary, which a
+/// writer catches up before the page is read, lists once: by the read
+/// that kept it, never again from the range its row stands in now.
+#[test]
+fn a_behind_run_a_writer_catches_up_between_the_reads_lists_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    folded(&db, |conn| {
+        plant(conn, "caught", Shape::Running, &stamp(now() - HOUR));
+        plant(conn, "beside", Shape::Finished, &stamp(now() - 2 * HOUR));
+    });
+    appended_by_an_older_writer(&db, "caught", EventType::RunCompleted, json!({}));
+    let (store, pages, read) = refreshed(&db, AHEAD_ROWS);
+    assert_eq!(read, 2, "the run behind, read whole");
+    drop(Store::open(&db).unwrap());
+    let lane = brokkr_store::test_support::lane;
+    assert_eq!(lane(&store, "caught").as_deref(), Some("finished"));
+    let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
+    let ids: Vec<(Section, &str)> = listed
+        .iter()
+        .map(|(section, row)| (*section, row.run_id.as_str()))
+        .collect();
+    assert_eq!(
+        ids,
+        [(Section::Recent, "caught"), (Section::Recent, "beside")]
+    );
+}
+
+/// Ruling 6: one page of `brokkr runs` or `/api/runs` reads at most a
+/// page and one ahead of the runs behind their summary and counts the
+/// rest, which its JSON states and its table prints as one line; every
+/// run, asked of either, reads each and lists it.
+#[test]
+fn a_page_asked_reads_at_most_a_page_ahead_of_the_runs_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    folded(&db, |conn| {
+        for n in 0..120 {
+            let at = stamp(now() - HOUR - n * MINUTE);
+            plant(conn, &format!("behind-{n:03}"), Shape::Running, &at);
+        }
+    });
+    for n in 0..120 {
+        let run_id = format!("behind-{n:03}");
+        appended_by_an_older_writer(&db, &run_id, EventType::RunCompleted, json!({}));
+    }
+    let style = crate::render::Style {
+        color: false,
+        width: 120,
+    };
+    let listed = |asked: (bool, Option<u32>)| {
+        let mut out = Vec::new();
+        let asked = (asked.0, asked.1, None);
+        crate::verbs::readouts::hearth_runs(&db, asked, &style, &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    let page: Value = serde_json::from_str(&listed((true, Some(5)))).unwrap();
+    assert_eq!(
+        (page["runs"].as_array().unwrap().len(), &page["behind"]),
+        (5, &json!(20))
+    );
+    let every: Value = serde_json::from_str(&listed((true, None))).unwrap();
+    assert_eq!((&every["count"], every.get("behind")), (&json!(120), None));
+    let line = "20 more runs behind their summary, unread until a writer catches them up\n";
+    assert!(listed((false, Some(5))).contains(line));
+    let served =
+        |path: &str| -> Value { serde_json::from_str(&crate::ui::handle(&db, path).body).unwrap() };
+    let page = served("/api/runs?limit=5");
+    assert_eq!(
+        (page["runs"].as_array().unwrap().len(), &page["behind"]),
+        (5, &json!(20))
+    );
+    assert_eq!(served("/api/runs").as_array().unwrap().len(), 120);
 }
 
 /// Ruling 8: a reader that cannot write reads a journal the summary does

@@ -76,9 +76,11 @@ jq -Rn --arg date "$(date -u +%F)" '
 jq -Rn --arg date "$(date -u +%F)" '
   [inputs | split("\t") | {key: .[1], value: (.[2] | tonumber)}] | from_entries
   | {schema: "brokkr.heap-budgets/v1",
-     note: ("Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured " + $date + " under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up. The fleet'"'"'s (decision 0089 ruling 9, tests/heap_fleet.rs): the console'"'"'s first page, the visible page and the one ahead, read and derived (fleet-page), read, derived and painted at 80x24 (fleet-frame), each also for a page whose every row fills every bound, and SQLite'"'"'s own high-water beside them, capped at 400 KiB."),
+     note: ("Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured " + $date + " under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up. The fleet'"'"'s (decision 0089 ruling 9, tests/heap_fleet.rs): the console'"'"'s window, the visible page and the one ahead, read and derived, first and scrolled deep (fleet-page, capped at ruling 9'"'"'s 256 KiB), the same for a page whose every row fills every bound (capped at 640 KiB), and SQLite'"'"'s own high-water beside them (capped at 400 KiB); and, a budget of its own that ruling 9'"'"'s caps do not hold, the first window painted at 80x24, read, derived and drawn into ratatui'"'"'s buffers (fleet-painted-frame, and at every bound)."),
      measured: .,
      budgets: (with_entries(.value = ((.value * 11 + 9) / 10 | floor))
+               | .["fleet-page"] |= ([., 262144] | min)
+               | .["fleet-page-at-every-bound"] |= ([., 655360] | min)
                | .["fleet-page-sqlite"] |= ([., 409600] | min))}' < "$scratch/peaks" > quality/heap-bytes.json
 
 printf 'measured %s prompt sites, %s packages, peaks:' "$(wc -l < "$scratch/prompts")" "$(cut -f2 "$scratch/packages")"

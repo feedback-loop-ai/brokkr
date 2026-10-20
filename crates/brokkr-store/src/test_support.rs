@@ -79,6 +79,15 @@ impl Binding {
     pub(crate) fn wrote(&mut self, run_id: &str) {
         self.wrote.insert(run_id.to_string());
     }
+
+    /// Record that an append of `landed` events to `run_id` committed: a
+    /// write when any landed, and none when a chain landed nothing, which
+    /// leaves its run as it found it.
+    pub(crate) fn appended(&mut self, run_id: &str, landed: usize) {
+        if landed > 0 {
+            self.wrote(run_id);
+        }
+    }
 }
 
 /// Name `run_ids` as runs this test leaves behind their heads, or not

@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use brokkr_core::page::{Bound, Copied, Lane, Place, Range, Row, Whole};
+use brokkr_core::page::{newest_first, Bound, Copied, Lane, Place, Range, Row, Whole};
 use brokkr_core::stamp::parse_millis;
 use brokkr_core::summary::Bounded;
 use serde::{Serialize, Serializer};
@@ -27,10 +27,19 @@ pub const AHEAD_ROWS: usize = 2 * PAGE_ROWS;
 
 impl RunRow {
     /// The row's place in its section's order, by
-    /// [`brokkr_core::page::newest_first`].
+    /// [`brokkr_core::page::newest_first`]: where a page read it.
     pub fn place(&self) -> Place<'_> {
-        (self.order_at, &self.run_id)
+        match &self.paged_at {
+            Some((order_at, key)) => (*order_at, key),
+            None => (self.order_at, &self.run_id),
+        }
     }
+}
+
+/// Where `section` stands in [`Section::ORDER`].
+fn rank(section: Section) -> usize {
+    let at = Section::ORDER.iter().position(|listed| *listed == section);
+    at.expect("every section is in the order")
 }
 
 /// The key a run read whole lists by, as the writer keeps it.
@@ -125,6 +134,7 @@ pub fn summary_row(row: &Row, whole: Option<&Whole>) -> RunRow {
             attempt: hired.failed_attempts + 1,
         }),
         order_at: row.order_at,
+        paged_at: None,
     }
 }
 
@@ -227,10 +237,22 @@ impl Serialize for Cursor {
 }
 
 /// What a listing of one page states beside its rows: where the next
-/// page starts, or `None` at the last.
+/// page starts, or `None` at the last, and how many runs behind their
+/// summary the page's read left unread past the ones it read whole,
+/// counted by the index (ruling 6), so none is dropped silently.
 #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct Paged {
     pub next: Option<Cursor>,
+    pub behind: u64,
+}
+
+/// The one line "needs you" counts `behind` runs by, the runs behind their
+/// summary past those a refresh read whole, when there are any: none is
+/// placed by its stale row, and none is dropped silently (ruling 6).
+pub fn behind_line(behind: u64) -> Option<String> {
+    (behind > 0).then(|| {
+        format!("{behind} more runs behind their summary, unread until a writer catches them up")
+    })
 }
 
 /// One page of the fleet: its rows in section order, each with the
@@ -244,21 +266,31 @@ pub struct Page {
 /// one), the sections in [`Section::ORDER`] from the cursor's on, each
 /// handed by `read` its rows below the cursor's place in its own order,
 /// at most as many as asked. One row past the page is asked for, so a
-/// page that ends where the fleet does states no next page.
+/// page that ends where the fleet does states no next page. The page is
+/// read, and its `next` stated, by where `read` read each row; a row it
+/// read whole then lists by its fold at `now`, where no earlier page has
+/// passed that place (decision 0089 ruling 5).
 pub fn page<E>(
     after: Option<&Cursor>,
-    limit: usize,
-    mut read: impl FnMut(Section, Option<Place<'_>>, usize) -> Result<Vec<RunRow>, E>,
+    (limit, now): (usize, &str),
+    read: impl FnMut(Section, Option<Place<'_>>, usize) -> Result<Vec<RunRow>, E>,
 ) -> Result<Page, E> {
+    Ok(window(after, (limit, now), limit, read)?.0)
+}
+
+/// [`page`], and the cursor past its first `first` rows where the page
+/// runs on past them: a window of pages, read at once, and where the page
+/// after its first begins.
+pub fn window<E>(
+    after: Option<&Cursor>,
+    (limit, now): (usize, &str),
+    first: usize,
+    mut read: impl FnMut(Section, Option<Place<'_>>, usize) -> Result<Vec<RunRow>, E>,
+) -> Result<(Page, Option<Cursor>), E> {
     let limit = limit.max(1);
-    let first = after.map_or(0, |after| {
-        let at = Section::ORDER
-            .iter()
-            .position(|section| *section == after.section);
-        at.expect("every section is in the order")
-    });
+    let from = after.map_or(0, |after| rank(after.section));
     let mut rows: Vec<(Section, RunRow)> = Vec::new();
-    for section in &Section::ORDER[first..] {
+    for section in &Section::ORDER[from..] {
         let wanted = limit.saturating_add(1) - rows.len();
         if wanted == 0 {
             break;
@@ -271,27 +303,79 @@ pub fn page<E>(
     }
     let more = rows.len() > limit;
     rows.truncate(limit);
-    let next = rows.last().filter(|_| more).map(|(section, row)| Cursor {
-        section: *section,
-        order_at: row.order_at,
-        run_id: row.run_id.clone(),
+    let next = rows
+        .last()
+        .filter(|_| more)
+        .map(|(section, row)| Cursor::past(*section, row));
+    let ahead = match rows.len() > first {
+        true => first.checked_sub(1).map(|at| &rows[at]),
+        false => None,
+    };
+    let ahead = ahead.map(|(section, row)| Cursor::past(*section, row));
+    placed(&mut rows, after, now);
+    Ok((Page { rows, next }, ahead))
+}
+
+impl Cursor {
+    /// The cursor past `row`, which a page read under `section`.
+    pub(crate) fn past(section: Section, row: &RunRow) -> Cursor {
+        let (order_at, run_id) = row.place();
+        Cursor {
+            section,
+            order_at,
+            run_id: run_id.to_string(),
+        }
+    }
+}
+
+/// `rows`, read in their sections' order past `after`, as they list at
+/// `now` (decision 0089 ruling 5): a row read whole lists by its fold, in
+/// the section [`super::section_of`] places it in and at its own key,
+/// wherever that is past `after`, the place the page began at. One whose
+/// own place an earlier page has passed lists where it was read, so the
+/// page that read it lists it, and lists it once.
+fn placed(rows: &mut [(Section, RunRow)], after: Option<&Cursor>, now: &str) {
+    let began = after.map(|after| {
+        let place = (after.order_at, after.run_id.as_str());
+        (rank(after.section), newest_first(place))
     });
-    Ok(Page { rows, next })
+    let mut moved = false;
+    for (section, row) in rows.iter_mut() {
+        if row.paged_at.is_none() {
+            continue;
+        }
+        let own = super::section_of(row, now);
+        let at = (rank(own), newest_first((row.order_at, row.run_id.as_str())));
+        if began.as_ref().is_none_or(|began| at > *began) {
+            *section = own;
+            row.paged_at = None;
+            moved = true;
+        }
+    }
+    // Sorted only when a row moved: a page with none allocates nothing.
+    if moved {
+        rows.sort_by(|(a, row_a), (b, row_b)| {
+            let a = (rank(*a), newest_first(row_a.place()));
+            a.cmp(&(rank(*b), newest_first(row_b.place())))
+        });
+    }
 }
 
 /// Up to `wanted` of `rows`, listed whole and in their order, that list
-/// under `section` at `now` and below `after`: a section of a fleet read
-/// whole, for a reader of a journal no summary pages (ruling 8).
+/// under `section` at `now` and below `after` and that `keep` keeps: a
+/// section of a fleet read whole, for a reader of a journal no summary
+/// pages (ruling 8), or of the runs a reader read whole.
 pub fn section_of_rows(
     rows: &[RunRow],
     section: Section,
     now: &str,
     after: Option<Place<'_>>,
-    wanted: usize,
+    (wanted, keep): (usize, &dyn Fn(&RunRow) -> bool),
 ) -> Vec<RunRow> {
     rows.iter()
         .filter(|row| after.is_none_or(|after| row.place() < after))
         .filter(|row| super::section_of(row, now) == section)
+        .filter(|row| keep(row))
         .take(wanted)
         .cloned()
         .collect()
