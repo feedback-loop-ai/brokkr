@@ -53,8 +53,11 @@ fn what_waits_for_the_harness_is_bounded_and_taken_whole_in_order() {
     // and 64 do not; nor do MB3's 8 MiB, where eight answers of a 1 MiB
     // request do not reach them and nine do. Either way, with the call's
     // own deadline MB3's 120 seconds and the attempt's thirty, the call
-    // settles within two seconds of the cancellation, give or take one
-    // second's scheduling on a loaded two-CPU host, and is never retried.
+    // settles two seconds after the cancellation is read, and is never
+    // retried. Where it is read, no sooner than that; and either way well
+    // within ten, a third of the attempt's bound, which leaves the masker
+    // its time over the eight answers on a loaded host (3.7 s at load 20
+    // on 8 cores) without admitting the attempt's deadline in its place.
     let small = |count: usize| {
         let pings = (0..count).map(|at| request(json!(at), "ping", json!({})));
         std::iter::once(ping_sized(512 << 10).0)
@@ -77,11 +80,11 @@ fn what_waits_for_the_harness_is_bounded_and_taken_whole_in_order() {
         let settled = ran.durable[2] - cancelled;
         let early = settled < Duration::from_secs(2);
         assert!(
-            (settled < Duration::from_secs(3)) & !(read & early),
+            (settled < Duration::from_secs(10)) & !(read & early),
             "{case}: {settled:?}"
         );
         let taken = ended - cancelled;
-        assert!(taken < Duration::from_secs(4), "{case}: {taken:?}");
+        assert!(taken < Duration::from_secs(11), "{case}: {taken:?}");
         let mut sent = vec![forwarded(3, "lookup", json!({}))];
         sent.extend(read.then(|| passed(3)));
         assert_eq!((case, &ran.frames[3..]), (case, &sent[..]));

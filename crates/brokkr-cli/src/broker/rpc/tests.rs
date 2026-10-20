@@ -707,7 +707,10 @@ fn no_traffic_extends_the_startup_deadline_and_a_server_that_takes_nothing_ends_
 }
 
 /// The broker's ends of a harness: its input, written without blocking,
-/// and its output, read as frames, within twenty seconds each.
+/// and its output, read as frames, within sixty seconds each: a liveness
+/// bound that only sets how long a genuinely broken session takes to
+/// fail. Twenty seconds was outrun by one eight-mebibyte frame when the
+/// workspace suite ran on a loaded host.
 struct Harness {
     to: Option<PipeWriter>,
     from: PipeReader,
@@ -720,7 +723,7 @@ impl Harness {
     }
 
     fn raw(&mut self, bytes: &[u8]) {
-        let until = Instant::now() + Duration::from_secs(20);
+        let until = Instant::now() + Duration::from_secs(60);
         let to = self.to.as_mut().unwrap();
         assert!(offered(to, bytes, until), "the broker took nothing");
     }
@@ -734,7 +737,7 @@ impl Harness {
     /// The broker's next frame to the harness as its very bytes, its
     /// newline included, or none at its end.
     fn line(&mut self) -> Option<Vec<u8>> {
-        let (until, mut searched) = (Instant::now() + Duration::from_secs(20), 0);
+        let (until, mut searched) = (Instant::now() + Duration::from_secs(60), 0);
         loop {
             let newline = self.held[searched..].iter().position(|byte| *byte == b'\n');
             if let Some(at) = newline {
