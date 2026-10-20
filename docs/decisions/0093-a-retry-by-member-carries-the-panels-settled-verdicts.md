@@ -146,17 +146,23 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    `tree`, the reading at the attempt's start and at its end; `head`, the
    repository's head at both ends in the commit-id shape
    `phase-entered-head.v1` pins, each end absent where the repository
-   answered none; and `settled_members`, the result object of each member
-   that settled fresh in that attempt, keyed by the member's tag, absent
-   when none did. An attempt that carries verdicts records `carried` on its
-   `effect/started`: one entry per carried member with its tag and the
-   attempt the verdict settled in, never one that only carried it. The
+   answered none or answered outside that shape, which the engine reads as
+   no head as `phase-entered-head.v1` reads one; and `settled_members`, the
+   result object of each member that settled fresh in that attempt, keyed
+   by the member's tag, absent when none did. An attempt that carries
+   verdicts records `carried` on its `effect/started`: one entry per
+   carried member with its tag and the attempt the verdict settled in,
+   never one that only carried it. The
    fields and `args.members` are optional, absent-by-default extension
    fields at `event_schema: 1`, published as
    `contracts/panel-carry.v1.schema.json` under the amended rule in
    `contracts/README.md`; the fold reads none of them, no event type or
    seat-record version moves, and an attempt that carries nothing journals
-   bytes identical to today's. The contract is minted under this decision
+   bytes identical to today's. The contract pins each field's shape, the
+   head ends to `^[0-9a-f]{40}$`, and a field present on an attempt that
+   does not read as published, a head end outside the shape included, is
+   refused by name at the command and at the drive and never read as
+   absent (ruling 2). The contract is minted under this decision
    and lands on `main` only once it is accepted (decision 0082 ruling 1).
 
    **Enforcement binding:** `contracts/panel-carry.v1.schema.json`,

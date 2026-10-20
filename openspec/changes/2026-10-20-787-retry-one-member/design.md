@@ -217,11 +217,14 @@ seven lines of headroom; `engine/tests.rs` has none against
   (D10). `git_dirty` keeps its name and place in `engine.rs` and becomes one
   match over the reading, so the spawn it loses pays for the `mod` line.
 - `engine/carry.rs`, with `carry/record.rs`, `carry/facts.rs` and
-  `carry/tests.rs`: the rule (D4), the `panel-carry.v1` types that both the
-  writer and the reader use (D6), and the observers that fill the facts from
-  the journal and git. Observing is apart from deciding (ruling 10).
-- `engine/operator/retry.rs`: the verb's member form (D2), beside
-  `conclusion.rs`, `receipt.rs` and `supersede.rs`.
+  `carry/tests.rs`: the rule (D4), the one join of carried and fresh
+  verdicts (D7), the `panel-carry.v1` types that both the writer and the
+  reader use (D6), and the observers that fill the facts from the journal
+  and git, the journal's reader refusing a record that does not read (D4).
+  Observing is apart from deciding (ruling 10).
+- `engine/operator/retry.rs`: the verb's member form (D2), returning the
+  typed `MemberRetryOutcome`, beside `conclusion.rs`, `receipt.rs` and
+  `supersede.rs`.
 - `launch.rs`: `pinned_bundle(request, run)`, the compile and the manifest
   comparison as one function `resume` and the verb both call; the
   comparison moves out of `Engine::resume` into it, so `engine.rs` shrinks
@@ -231,9 +234,12 @@ seven lines of headroom; `engine/tests.rs` has none against
   panel span, so no field is added to `Engine`.
 - `engine/panel.rs`: `execute_panel` takes a parameter object and the plan;
   its nine parameters become seven and its `too_many_arguments` expectation
-  goes (ruling 10: a long list becomes a parameter object).
-- `engine/sequence.rs`: the first step's plan and the record on the
-  sequence's terminal fact when the panel step's outcome ends it.
+  goes (ruling 10: a long list becomes a parameter object); `panel_outcome`
+  takes the join in place of the reports (D7).
+- `engine/sequence.rs`: the panel step joins by the one join, under the
+  attempt's plan when it is the first step and the all-fresh plan otherwise
+  (D7), and the record on the sequence's terminal fact when the panel step's
+  outcome ends it.
 - `crates/brokkr-cli/src/cli_args/member_retry.rs`: the member form's
   arguments, flattened into `OperatorArgs` by one line.
 - `crates/brokkr-cli/tests/machine_proof/panel_carry.rs`: the acceptance
@@ -256,18 +262,53 @@ members typed, the handler builds a `LaunchRequest` through `request` with
 `secrets_file` absent, and calls `operator_retry_members` in
 `engine/operator/retry.rs`, which runs in this order (S15):
 
-1. Fold the run. A fold refusal (`acceptance_refusal`'s word) is reported
-   by `brokkr_view::member_retry_refusal(word)`, S21's text, and nothing is
-   written (decision 0047 ruling 2).
-2. Compile the pinned bundle through `launch::pinned_bundle`; a refusal is
-   `resume`'s own error, printed as `resume` prints it.
-3. Fill `CarryFacts` at the command (D4, D5) and decide; a refusal prints
-   the enum's `Display` and writes nothing.
-4. Dispose through `disposed` with `args: {"members": [<tags>]}`. `disposed`
-   takes a `Commanded { command, operator, reason, args }` parameter object
-   so the bridge and the plain verb pass `{}` and nothing else changes.
-   After the command is written only the fence's race refusal can follow,
-   journaled as today.
+1. Fold the run. A fold refusal (`acceptance_refusal`'s word) is returned
+   as `MemberRetryOutcome::FoldRefused(Refusal)` and nothing is written
+   (decision 0047 ruling 2); the CLI handler prints
+   `brokkr_view::member_retry_refusal(word)`, S21's text.
+2. Read the parked phase's visit into typed records (`carry/facts.rs`; D4,
+   D6). A `panel-carry.v1` field that does not read is
+   `CarryRefusal::RecordUnread`, returned as
+   `MemberRetryOutcome::CarryRefused` before the bundle is compiled, so a
+   drifted bundle beside a malformed record reports the record (spec R4).
+3. Compile the pinned bundle through `launch::pinned_bundle`; a refusal is
+   `resume`'s own `LaunchError`, the verb's `Err`, printed as `resume`
+   prints it.
+4. Fill the rest of `CarryFacts` at the command (D5) and decide by
+   `carry_plan`; a refusal is `MemberRetryOutcome::CarryRefused`, whose
+   `Display` the CLI prints byte for byte, and nothing is written.
+5. Dispose through `disposed` with `args: {"members": [<tags>]}`, returned
+   as `MemberRetryOutcome::Disposed(FencedCommandOutcome)`, which the CLI
+   prints as it prints the plain verb's. `disposed` takes a
+   `Commanded { command, operator, reason, args }` parameter object so the
+   bridge and the plain verb pass `{}` and nothing else changes. After the
+   command is written only the fence's race refusal can follow, journaled
+   as today.
+
+The outcome is typed because the runtime cannot speak the fold's text:
+`brokkr-runtime` names `brokkr-view` as a dev-dependency alone
+(`crates/brokkr-runtime/Cargo.toml`) and the view's dependency set is
+closed, so the text's one consumer is the CLI handler
+(`crates/brokkr-cli/src/verbs/delivery.rs`), as it is for
+`operator_refusal` over `FencedCommandOutcome::Rejected` today.
+
+```text
+pub enum MemberRetryOutcome {
+    /// The fold refused before anything was written; the word is the view's to paint.
+    FoldRefused(brokkr_core::Refusal),
+    /// The carry refused before anything was written; `Display` is the sentence.
+    CarryRefused(CarryRefusal),
+    /// Written under the fence: accepted, or the race refusal journaled as today.
+    Disposed(FencedCommandOutcome),
+}
+pub fn operator_retry_members(request: LaunchRequest, run: &str, names: &[String],
+                              operator: &str, reason: &str)
+    -> Result<MemberRetryOutcome, LaunchError>
+```
+
+`LaunchError` because the compile's refusal is `resume`'s own and already
+wraps `EngineError`; `EngineError` gains no variant, so `engine.rs` does not
+grow for it. The runtime's tests match the variants (D13).
 
 Alternatives: journaling carry refusals as `operator/rejected` (S2; the
 reason word is a closed vocabulary that cannot carry two heads); the fold's
@@ -319,9 +360,10 @@ siblings so each `why` is a closed enum matched exhaustively (ruling 2):
 
 - `NoPanel { phase }`; `PanelStepFollows { step, first }`
 - `UnknownMember { name, members }`; `MemberTwice { tag }`
+- `RecordUnread { attempt, field, error }`, raised by the journal's reader
+  (`carry/facts.rs`) and never by `carry_plan`
 - `Shape { attempt, why }` with `why` one of `NoAttemptEnded { visit }`,
-  `Succeeded { park_reason }`, `EndedAtLaterStep { step }`, `NoRecord`,
-  `RecordUnread { field, error }`
+  `Succeeded { park_reason }`, `EndedAtLaterStep { step }`, `NoRecord`
 - `Unsettled { members }`
 - `NoHead { repo }`; `HeadMoved { ends: Vec<RecordedHead>, now }`
 - `TreeNotClean { observations: Vec<Observation>, now }`
@@ -329,8 +371,12 @@ siblings so each `why` is a closed enum matched exhaustively (ruling 2):
 
 `RecordUnread` is the robustness position's distinction between missing and
 malformed evidence: a `panel-carry.v1` field present on an attempt that does
-not parse refuses naming the attempt and the field, before any fact is
-asked, as a journal that does not fold refuses before anything is written.
+not parse, a `head` end outside the commit-id shape included (D6), refuses
+naming the attempt and the field, as a journal that does not fold refuses
+before anything is written. The reader raises it where the records are
+read, after the fold and before the bundle is compiled at the verb (D2) and
+after the digest check at the drive (D7), so `carry_plan` takes typed facts
+alone and asks the names first.
 The order of the facts, their texts and the lists each refusal names are the
 spec's; `Display` is the one home of each text, printed by the verb and
 written by the engine (D8). The handler's two argument refusals and S21's
@@ -341,8 +387,9 @@ text are not variants: the first are the CLI's, the second the fold's word.
 - **The head.** `git_head` of the repository `--repo` names at the command,
   and of `self.repo` at the drive. The reading must be forty lowercase hex
   digits, else `NoHead`; each recorded end of the parked attempt and of
-  every source attempt is compared as a string, an absent or malformed end
-  unequal, and every unequal end is named in the journal's order with the
+  every source attempt is compared as a string, an absent end unequal, a
+  present end outside the shape refused by the reader before this (D6), and
+  every unequal end is named in the journal's order with the
   head now last. `phase/entered.head` and the gate-head observation are not
   read (S7).
 - **The tree.** The reader's `clean` at those same ends, at the command and
@@ -363,9 +410,18 @@ text are not variants: the first are the CLI's, the second the fold's word.
 ### D6. The record
 
 `carry/record.rs` holds `PanelRecord { tree: Ends<TreeReading>, head:
-Option<Ends<Head>>, settled_members: Option<BTreeMap<Tag, Value>> }` and
+Ends<Option<Head>>, settled_members: Option<BTreeMap<Tag, Value>> }` and
 `CarriedEntry { member: Tag, attempt_id }`, serialised with
-`deny_unknown_fields` and read back by the same types. `PanelRecord::stamp`
+`deny_unknown_fields` and read back by the same types. `Head` parses forty
+lowercase hex digits and nothing else, one shape with no second reading, so
+no field is doubly optional (ruling 3): `head` is written absent when
+neither end holds one and reads back as two absent ends. The writer stamps
+`git_head`'s answer only when it is in that shape, else the end is absent,
+as `phase-entered-head.v1`'s reader treats an answer outside its pattern (a
+SHA-256 repository answers sixty-four digits and records no head). A `head`
+end present outside the shape, or a `settled_members` or `head` beside no
+`tree`, is a record the engine never wrote, and the reader refuses it as
+`RecordUnread` (D4). `PanelRecord::stamp`
 merges the fields into the panel's `effect/indeterminate` or `effect/failed`
 payload beside `reason`, `unresolved_members` and the start-failure fields,
 which keep their bytes; `settled_members` holds each fresh member's
@@ -378,8 +434,10 @@ terminal fact. `carried` rides `effect/started` beside `provenance` and
 byte-identical to today's.
 
 `contracts/panel-carry.v1.schema.json` publishes the five fields (`tree`,
-`head`, `settled_members`, `carried`, `args.members` for `command: "retry"`)
-under the amended additive rule of `contracts/README.md`, registered in
+`head`, `settled_members`, `carried`, `args.members` for `command: "retry"`),
+each pinned to the shape the reader reads, the `head` ends to
+`^[0-9a-f]{40}$` as `phase-entered-head.v1` pins its own, under the amended
+additive rule of `contracts/README.md`, registered in
 `crates/brokkr-runtime/tests/frozen_contracts.rs` with its paragraph in the
 README. The fold reads none of them. It is minted under 0093 and lands on
 `main` only once 0093 is accepted (decision 0082 ruling 1; S13).
@@ -387,7 +445,9 @@ README. The fold reads none of them. It is minted under 0093 and lands on
 ### D7. The carrying attempt
 
 In `execute`, after the digest check: when the selection names members, the
-facts are filled at the drive and the rule decides. A refusal becomes
+attempts before this effect's request are read into typed records (a field
+that does not read is `RecordUnread`, refused as below), the facts are
+filled at the drive and the rule decides. A refusal becomes
 `refuse_carry` (D8). A plan narrows the body once: `ExecutableBody::Panel`
 over the fresh members, or a sequence whose first step is that narrowed
 panel. `Dispatch` carries the narrowed body and the plan, so admission,
@@ -398,13 +458,28 @@ readings (tree, head) are taken for every attempt whose body is a panel or a
 sequence with a panel step, and held on `Dispatch`; the plan's entries are
 written as `carried` on `started`.
 
-`execute_panel` runs `member_runs` over the fresh members, journals their
-markers, then joins in declared order: each `Contribution` is `Fresh`, taken
-from the reports, or `Carried`, its result object; `panel_outcome` is the
-same function over the joined pairs, so the result, `inputs` and `notes` are
-a fresh panel's bytes (acceptance 1). The end readings are taken before the
-terminal fact and stamped with `settled_members` when the outcome is short
-of success. A fresh indeterminate parks the attempt and a fresh failure
+`execute_panel` and the sequence's panel step (`sequence.rs`, `panel_step`)
+run `member_runs` over the narrowed members, journal their markers, and
+join by one function, `CarryPlan::join(reports) -> Joined` in `carry.rs`:
+in the panel's declared order, a `Fresh` entry takes its report's
+`settled_outcome()` and a `Carried` entry stands as
+`AttemptOutcome::Succeeded { result }` from the plan, so no `AttemptReport`
+is fabricated for a member that did not run (S4). `panel_outcome(aggregate,
+&joined)` is today's rule over the joined `(name, AttemptOutcome)` pairs,
+its parameter moved from the reports to the join and its indeterminate,
+failed and aggregate arms unchanged, so the result, `inputs` and `notes` are
+a fresh panel's bytes (acceptance 1); `Unproven::panel` and
+`start_failure_sites` read the fresh reports as today. A plain attempt's
+plan is every member `Fresh` (`CarryPlan::fresh(members)`), so the plain
+path joins to the fresh reports alone and keeps its bytes; the sequence
+joins under the attempt's plan for its first step and under the all-fresh
+plan for any later panel step (S10), `SequenceRun` carrying the plan. The
+join is written once and called twice (ruling 5); a `Fresh` entry with no
+report, or a report for no `Fresh` entry, is a broken engine invariant
+(`EngineError::Invariant`), never a member's failure, since the narrowed
+body and the join read one plan. The end readings are taken before the
+terminal fact and stamped with `joined.settled_fresh()`, the record's
+`settled_members`, when the outcome is short of success (D6). A fresh indeterminate parks the attempt and a fresh failure
 fails it; the bounded retry reads the same acceptance and the same parked
 attempt (D3), so it carries the same entries and runs the named members
 again, never a verdict that settled in the failed attempt.
@@ -473,7 +548,11 @@ is put to the operator as its own decision (open question 2).
 pinned in `crates/brokkr-cli/src/tests.rs`; S21's in
 `crates/brokkr-view/src/commands/tests.rs`; `resume`'s compile and
 `ManifestMismatch` texts where they are pinned today and not again. Tests
-match variants (ruling 8) and pin each text once.
+match variants (ruling 8) and pin each text once. `MemberRetryOutcome` is
+matched by variant in the runtime's tests, and the CLI handler's tests
+assert that it prints `brokkr_view::member_retry_refusal`'s output for the
+word, against the function and not a second copy of the text, so S21's text
+has one pin.
 
 ### D12. Coordination
 
@@ -489,6 +568,9 @@ match variants (ruling 8) and pin each text once.
   meeting.
 - **The contract's landing** waits on 0093's acceptance (decision 0082
   ruling 1); the pull request says so.
+- **The `Built:` marker** moves with the index row: the file's
+  `Built: unbuilt (#787)` becomes `Built: built` as the row's cell does,
+  since the index gate renders the cell from the marker (task 12.2).
 
 ### D13. Tests, and the mutation that proves each binds
 
@@ -515,9 +597,13 @@ built by a builder and a synthetic panel bundle:
   the marker's mark dropped from the test;
 - the read-through: the same member stuck twice carries by the first
   attempt; mutation: the entry's source replaced by the carrying attempt;
-- `RecordUnread` on a `settled_members` that is not an object and on a
-  `tree` with a fifth word; mutation: the parse falling back to "no
-  record";
+- `RecordUnread` on a `settled_members` that is not an object, on a
+  `tree` with a fifth word and on a `head` end outside the shape, raised by
+  the reader before any fact; mutation: the parse falling back to "no
+  record" or to "no head";
+- the join: a plan with one `Carried` entry joins the fresh reports to a
+  fresh panel's pairs byte for byte, and the all-fresh plan joins to the
+  reports alone; mutation: the carried entry dropped from the join;
 - the scope: an acceptance before an earlier effect's request selects
   nothing for a later effect; mutation: the "no request between" condition
   dropped;
@@ -531,10 +617,15 @@ test in `engine/tests.rs` (lines 2043 to 2058) holds unchanged.
 
 `crates/brokkr-runtime/src/engine/operator/retry/tests.rs` (the verb, with
 the fake driver): a member retry journals `args.members` resolved and in
-order; a fold refusal writes nothing and prints S21's text with each of the
-three words; a carry refusal writes nothing; every member named carries
-nothing; the lost fence after the write is journaled as today; mutation:
-the fold step skipped (the race refusal appears where S21's text should).
+order; a fold refusal returns `MemberRetryOutcome::FoldRefused` with each
+of the three words and writes nothing; a record that does not read beside a
+drifted bundle returns `CarryRefused(RecordUnread)` with the bundle
+uncompiled, and a drifted bundle on a sound record returns `resume`'s
+`LaunchError`; a carry refusal returns `CarryRefused` and writes nothing;
+every member named carries nothing; the lost fence after the write is
+`Disposed(Rejected)`, journaled as today; no runtime test reads a
+`brokkr-view` text; mutation: the fold step skipped (the race refusal
+appears where `FoldRefused` should).
 
 `crates/brokkr-runtime/src/engine/carry/drive_tests.rs` (dispatch, with the
 fake driver): only the named members spawn, counted; `provenance`,
@@ -558,10 +649,19 @@ byte (the contracts README's machine-checked clause).
 
 `crates/brokkr-cli/src/tests.rs`: the two argument refusals before every
 refusal the handler makes today, and S20's text on `retry` with and without
-`--member`, today's on `stop`; `crates/brokkr-cli/tests/machine_proof/
+`--member`, today's on `stop`; the handler's new test module: over a
+synthetic journal with a running run, the handler prints
+`brokkr_view::member_retry_refusal`'s output for the fold's word, asserted
+against the function, and a carry refusal's `Display` alone; mutation: the
+handler printing a line of its own. `crates/brokkr-cli/tests/machine_proof/
 panel_carry.rs`: the three acceptance lines end to end over a committed
-workdir, the plain retry's `effect/started` byte-identical to today's, and
-`inspect` and `seats` naming the carried participants with their ordinal.
+workdir; under decision 0022's reforging table with the review seat a panel,
+the retried member's security residual at `low` aggregated as a fresh
+panel's, `REVIEW-REFORGE` routing the run to implement and verify, and the
+re-entered review running every member fresh with no `carried` (decision
+0093 ruling 3); the plain retry's `effect/started` byte-identical to
+today's; and `inspect` and `seats` naming the carried participants with
+their ordinal.
 
 `crates/brokkr-view`: in the new module's tests, the scan over `carried`,
 the participant's status, class and `carried_from`, no model or cost of its
