@@ -13,6 +13,7 @@
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::time::{Duration, Instant};
 
@@ -656,25 +657,76 @@ fn the_brokers_last_line_is_masked_whole_or_replaced_while_its_bindings_are_held
     }
 }
 
+/// Where a broker acted while `serve` ran, as offsets from its start:
+/// when it first read the store, its lookup just before the server starts,
+/// and when the box then lost its last process; and every read it made.
+#[derive(Debug, Default)]
+struct Acted {
+    looked: Option<Duration>,
+    gone: Option<Duration>,
+    reads: usize,
+}
+
+/// `serve` run from `begun` while a watcher reads where the broker acts:
+/// the store's reads through `reads`, and once one is seen, the box.
+fn acted<T>(
+    sealed: &Sealed,
+    reads: &Reads,
+    begun: Instant,
+    serve: impl FnOnce() -> T,
+) -> (T, Acted) {
+    let done = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let watcher = scope.spawn(|| {
+            let mut acted = Acted::default();
+            loop {
+                let served = done.load(Ordering::Acquire);
+                let seen = reads.seen();
+                acted.reads += seen;
+                if seen > 0 && acted.looked.is_none() {
+                    acted.looked = Some(begun.elapsed());
+                }
+                if acted.looked.is_some() && boxed(sealed).is_empty() {
+                    acted.gone = Some(begun.elapsed());
+                    return acted;
+                }
+                if served {
+                    return acted;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        });
+        let answer = serve();
+        done.store(true, Ordering::Release);
+        (answer, watcher.join().unwrap())
+    })
+}
+
 #[test]
 fn a_server_that_never_answers_ends_at_the_startup_deadline() {
     // It reads every request and answers none, so its box stands until
     // the startup's absolute deadline, which admission and readiness have
-    // already spent from: thirty seconds from `serve`'s start, and no more
-    // than a slice after.
+    // already spent from: thirty seconds from `serve`'s start. Both ends
+    // are read where the broker acts, not around its process, whose spawn
+    // and exit a window of 29 to 32 seconds also counted, and which CI's
+    // coverage run measured at 34.7 in all: the box stood the whole
+    // deadline, and it went within thirty seconds of the store's lookup,
+    // which an initialize given a startup budget of its own outlives.
     let Some((sealed, digest)) = unretained("while read -r line; do :; done\n") else {
         return;
     };
     let reads = Reads::of(&sealed);
     let begun = Instant::now();
-    let answer = sealed.serve(&digest);
-    let taken = begun.elapsed();
+    let (answer, acted) = acted(&sealed, &reads, begun, || sealed.serve(&digest));
     assert_eq!(answer, ended(Failure::Timeout));
-    let bounded = (taken >= Duration::from_secs(29)) & (taken < Duration::from_secs(32));
-    assert!(bounded, "{taken:?}");
+    let (Some(looked), Some(gone)) = (acted.looked, acted.gone) else {
+        panic!("no lookup, or a box that never went: {acted:?}");
+    };
+    let bounded = (gone >= Duration::from_secs(30)) & (gone - looked < Duration::from_secs(30));
+    assert!(bounded, "{acted:?}");
     assert!(within(|| boxed(&sealed).is_empty()));
     assert_eq!(
-        (reads.lookups(), sealed_ledger(&sealed)),
+        (acted.reads + reads.lookups(), sealed_ledger(&sealed)),
         (1, failed(Failure::Timeout))
     );
 }
