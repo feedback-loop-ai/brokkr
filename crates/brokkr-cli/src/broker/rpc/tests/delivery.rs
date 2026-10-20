@@ -1,7 +1,7 @@
 //! What the harness is told (decision 0065 slice two, U6e, U6f1b; MB3,
 //! SD3): whole frames in order, bounded while they wait, never begun past
-//! their deadlines, and written as fast as the harness takes them; and for
-//! a retained plan nothing, nor anything to its server.
+//! their deadlines, and written as fast as the harness takes them; and a
+//! retained plan served as any other.
 
 use std::cell::RefCell;
 use std::io::{PipeReader, Read, Write};
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use brokkr_protocol::broker::ledger::{recover, Disposition, Failure, Ledger, Outcome};
-use brokkr_protocol::broker::{Plan, Refusal};
+use brokkr_protocol::broker::Plan;
 use rustix::io::Errno;
 use serde_json::{json, Value};
 
@@ -21,6 +21,7 @@ use super::super::output::Edge;
 use super::super::pieces::tests::{held, refusing, sink, Sink};
 use super::super::pieces::Pieces;
 use super::super::{initialized, started, Fatal, ATOMIC, REQUEST_MAX, RESPONSE_MAX, UNDELIVERED};
+use super::retention::Retain;
 use super::{admitted, answering_with, call, cancelled_behind, conversed, forwarded, idle_timeout};
 use super::{answer, mcp_but, tools, within, Harness, Script, Then, DIGEST};
 use super::{fake, lookup_failed, mcp, passed, ping_sized, pipe, request, result, session, silent};
@@ -381,11 +382,25 @@ fn delivered(script: Script, frame: &Value, sink: (Sink, PipeReader)) -> Short {
 
 /// A session served by the server's `script` to a harness that sends
 /// `frame`, its output `sink` ([`pinged`]).
-fn asked(script: Script, frame: &Value, full: bool, (short, reader): (Sink, PipeReader)) -> Short {
-    let plan = super::plan();
+fn asked(script: Script, frame: &Value, full: bool, sink: (Sink, PipeReader)) -> Short {
+    heard(None, script, (frame, full), sink).0
+}
+
+/// [`asked`], its plan retaining where `retain` is given and its ledger
+/// retaining as `retain` has it: what it left ([`Short`]), each frame its
+/// server read, and its ledger's bytes.
+pub(super) fn heard(
+    retain: Option<Retain>,
+    script: Script,
+    (frame, full): (&Value, bool),
+    (short, reader): (Sink, PipeReader),
+) -> (Short, Vec<Value>, Vec<u8>) {
+    let mut plan = super::plan();
+    plan.retained = retain.is_some();
     let (mut input, mut output, server) = fake(script);
     let mut stderr = Drain::new(pipe().0, &[]);
     let (mut ledger, appended) = in_memory(&plan);
+    retain.into_iter().for_each(|retain| retain(&mut ledger));
     let attempt = within(Duration::from_secs(10));
     let link = (&mut input, &mut output);
     let started = started(link, &plan, attempt, &mut stderr).unwrap();
@@ -408,13 +423,15 @@ fn asked(script: Script, frame: &Value, full: bool, (short, reader): (Sink, Pipe
     let ended = served(started, &plan, &mut ledger, (asked, short), attempt, edge);
     let ended = settled(ledger, ended);
     drop((input, output, to));
-    server.join().unwrap();
+    let frames = server.join().unwrap().0;
     let writes = at.lock().unwrap().len();
     let (lifecycle, invalid) = recover(&appended.borrow(), &plan.owner, DIGEST);
     assert_eq!(invalid, None);
     let wrote = reading.join().unwrap();
     let past = wrote.strip_prefix(&filled[..]).map(<[u8]>::to_vec);
-    (ended, (past, writes), lifecycle.closed().cloned())
+    let short = (ended, (past, writes), lifecycle.closed().cloned());
+    let bytes = appended.borrow().clone();
+    (short, frames, bytes)
 }
 
 /// What fills the pipe `sink` writes to, a byte at a time, written through
@@ -595,25 +612,35 @@ fn a_turn_that_writes_part_of_an_answer_never_waits() {
 }
 
 #[test]
-fn a_retained_plan_is_refused_before_its_server_or_its_harness_is_told_anything() {
-    // SD3's retention cause, before any MCP message is exchanged: the
-    // server reads no frame, initialize included, and the harness's stdio
-    // is never taken (U6f1b).
+fn a_retained_plan_is_initialized_and_served_as_any_other() {
+    // SD3's retention refusal is gone with U8b: a retaining plan's server
+    // is initialized, and its harness, which ends at once, served, its
+    // ledger closed Clean with nothing staged.
     let mut plan = super::plan();
     plan.retained = true;
     let (mut input, mut output, server) = fake(mcp());
     let mut stderr = Drain::new(pipe().0, &[]);
-    let opened = Ledger::open_with(|_: &[u8]| Ok(()), (&plan.owner, DIGEST), &[]);
-    let mut ledger = opened.unwrap();
+    let (mut ledger, appended) = in_memory(&plan);
+    ledger.retain_with(|_, _: &[u8]| unreachable!("nothing is staged"), 1);
     let edge = Edge {
         bindings: &[],
         stderr: &mut stderr,
     };
     let link = (&mut input, &mut output);
     let attempt = (&plan, within(Duration::from_secs(10)));
-    let untaken = || unreachable!("the harness's stdio is never taken");
-    let ended = initialized(link, &mut ledger, edge, attempt, untaken);
+    let null = |write| {
+        std::fs::File::options()
+            .write(write)
+            .read(!write)
+            .open("/dev/null")
+    };
+    let ended = initialized(link, &mut ledger, edge, attempt, || {
+        (null(false), null(true))
+    });
+    let ended = settled(ledger, ended);
     drop((input, output));
-    let refused = Err(Ended::Refused(Refusal::RetentionIncomplete));
-    assert_eq!((ended, server.join().unwrap().0), (refused, vec![]));
+    let frames = server.join().unwrap().0;
+    let (lifecycle, _) = recover(&appended.borrow(), &plan.owner, DIGEST);
+    let served = (Ok(()), super::initialization(), Some(&Disposition::Clean));
+    assert_eq!((ended, frames, lifecycle.closed()), served);
 }

@@ -157,6 +157,11 @@ pub brokkr_protocol::broker::ledger::Unrecorded::Record
 pub brokkr_protocol::broker::ledger::Unrecorded::Reopened
 pub struct brokkr_protocol::broker::ledger::Call
 pub struct brokkr_protocol::broker::ledger::Ledger<'b>
+impl brokkr_protocol::broker::ledger::Ledger<'_>
+pub fn brokkr_protocol::broker::ledger::Ledger<'_>::answered(&mut self, brokkr_protocol::broker::ledger::Call, brokkr_protocol::broker::ledger::Outcome, (&[u8], &str)) -> core::result::Result<(), brokkr_protocol::broker::ledger::Unrecorded>
+pub fn brokkr_protocol::broker::ledger::Ledger<'_>::reserve(&mut self, &mut brokkr_protocol::broker::ledger::Call) -> core::result::Result<(), brokkr_protocol::broker::ledger::Denial>
+pub fn brokkr_protocol::broker::ledger::Ledger<'_>::retain(&mut self, std::os::fd::owned::OwnedFd, &std::ffi::os_str::OsStr, usize)
+pub fn brokkr_protocol::broker::ledger::Ledger<'_>::retain_with(&mut self, impl core::ops::function::FnMut(u64, &[u8]) -> core::io::error::Result<()> + 'static, usize)
 impl<'b> brokkr_protocol::broker::ledger::Ledger<'b>
 pub fn brokkr_protocol::broker::ledger::Ledger<'b>::bind(&mut self, &'b [brokkr_protocol::secret::BoundSecret]) -> core::result::Result<(), brokkr_protocol::broker::ledger::Unrecorded>
 pub fn brokkr_protocol::broker::ledger::Ledger<'b>::close(self) -> core::result::Result<brokkr_protocol::broker::ledger::Disposition, brokkr_protocol::broker::ledger::Unrecorded>
@@ -190,7 +195,6 @@ pub brokkr_protocol::broker::Refusal::Masking
 pub brokkr_protocol::broker::Refusal::Name(alloc::string::String)
 pub brokkr_protocol::broker::Refusal::ProgramTree
 pub brokkr_protocol::broker::Refusal::Response
-pub brokkr_protocol::broker::Refusal::RetentionIncomplete
 pub brokkr_protocol::broker::Refusal::StartupInputs
 pub brokkr_protocol::broker::Refusal::StoreInBox
 pub brokkr_protocol::broker::Refusal::StoreReachable

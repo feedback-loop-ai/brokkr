@@ -26,11 +26,10 @@
 //! value ends the session too. The harness-facing call path is [`calls`]'s,
 //! which `serve` takes up once the server has initialized ([`serving`],
 //! U6f1b), under the attempt's cancellation and no longer the startup's
-//! deadline; a plan that retains its responses is refused before any MCP
-//! message is exchanged with its server, until U8b builds retention. The
-//! server's standard error is drained from its start, during its
-//! initialization as while it serves, and its masked tail is kept for the
-//! broker's own however the session ends.
+//! deadline, and stages a retaining plan's responses before it delivers
+//! them (U8b). The server's standard error is drained from its start,
+//! during its initialization as while it serves, and its masked tail is
+//! kept for the broker's own however the session ends.
 
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
@@ -39,7 +38,7 @@ use std::os::fd::AsFd;
 use std::time::Duration;
 
 use brokkr_protocol::broker::ledger::{Failure, Ledger};
-use brokkr_protocol::broker::{Plan, Refusal};
+use brokkr_protocol::broker::Plan;
 use rustix::event::{PollFd, PollFlags, Timespec};
 use serde::de::{DeserializeOwned, IgnoredAny};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -143,6 +142,7 @@ enum Refused {
     Invalid,
     Active,
     Version,
+    Budget,
 }
 
 impl Refused {
@@ -152,6 +152,7 @@ impl Refused {
             Refused::Method => -32601,
             Refused::Ungranted { .. } | Refused::Version => -32602,
             Refused::Limit | Refused::Invalid | Refused::Active => -32600,
+            Refused::Budget => -32603,
         }
     }
 }
@@ -170,6 +171,7 @@ impl Display for Refused {
             Refused::Version => {
                 formatter.write_str("MCP protocol version is not supported by this broker")
             }
+            Refused::Budget => formatter.write_str("capability evidence budget is exhausted"),
         }
     }
 }
@@ -682,13 +684,11 @@ fn held_apart() -> Stdio {
 /// bounds the startup alone. A century stands for none.
 const SERVING: std::time::Duration = std::time::Duration::from_secs(100 * 365 * 24 * 60 * 60);
 
-/// Where the plan retains its responses, which U8b builds, SD3's
-/// retention cause, before any MCP message is exchanged with its server or
-/// reaches the harness, never serving without it; else the session's
-/// server [`started`] for the plan `plan` within `startup`, its standard
-/// error drained beside it, and the harness served over the broker's own
-/// standard input and output ([`calls::served`]) until it ends, under the
-/// attempt's cancellation and no deadline of the startup's ([`SERVING`]).
+/// The session's server [`started`] for the plan `plan` within `startup`,
+/// its standard error drained beside it, and the harness served over the
+/// broker's own standard input and output ([`calls::served`]) until it
+/// ends, under the attempt's cancellation and no deadline of the
+/// startup's ([`SERVING`]).
 /// A fatal ending of the server's initialization stays the session's
 /// cause. Standard input this process cannot hold apart ([`Stdio`], set up
 /// by `stdio`) is the protocol's cause; standard output, a stream that
@@ -700,7 +700,6 @@ fn initialized<'b>(
     (plan, startup): (&Plan, Startup<'_>),
     stdio: impl FnOnce() -> Stdio,
 ) -> Result<(), Ended> {
-    ensure(!plan.retained, Ended::Refused(Refusal::RetentionIncomplete))?;
     let started = started(link, plan, startup, &mut *edge.stderr).map_err(Ended::Failed)?;
     let (input, output) = stdio();
     let input = input.or(Err(Ended::Failed(PROTOCOL)))?;

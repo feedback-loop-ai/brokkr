@@ -386,11 +386,6 @@ pub enum Refusal {
     /// response's shape (MB4, CR3, U6d).
     #[error("MCP response cannot be safely masked")]
     Masking,
-    /// SD3's temporary cause: a plan whose responses are retained, served
-    /// before U8b completes retention, refused rather than served without
-    /// it, and removed with it.
-    #[error("broker retained-response support is incomplete")]
-    RetentionIncomplete,
 }
 
 #[cfg(test)]

@@ -1,9 +1,9 @@
 //! A bound plan's one lifetime and its ledger (decision 0065 slice two,
 //! U6d, U6e, U6f1b; CR3, MB3, MB4): the ledger is created beside the plan
-//! before anything of the plan is checked further or started, handed to
-//! the session for its calls' records, and closed once the session has
-//! ended: Failed with its first cause, admission's refusal or the fatal
-//! ending of a server it started, a retained plan's SD3 cause included;
+//! before anything of the plan is checked further or started, given a
+//! retaining plan's staging (U8b), handed to the session for its calls'
+//! records, and closed once the session has ended: Failed with its first
+//! cause, admission's refusal or the fatal ending of a server it started;
 //! Clean only where the harness was served until it ended, nothing was
 //! latched, and every byte the broker wrote on its standard output and its
 //! standard error, its server's last lines among them, was taken whole, or
@@ -28,6 +28,7 @@ use brokkr_protocol::broker::{Owner, Refusal};
 use brokkr_protocol::secret::BoundSecret;
 
 use super::readiness::Handed;
+use super::retaining::{self, Retention};
 use super::stderr::{self, Said};
 use super::{bound, observed, readiness, screened, Startup, STARTUP};
 use crate::broker::rpc::pieces::Put;
@@ -57,7 +58,8 @@ pub(in crate::broker) fn serve(locator: &Path, digest: &str) -> ExitCode {
     let held = Held::default();
     let ended = bound(locator, digest).map_err(Ended::from);
     let ended = ended.and_then(|(layout, plan, attempt)| {
-        let ledger = (&attempt, layout.named(0));
+        let retention = retaining::retention(&plan, &attempt, layout.attempt)?;
+        let ledger = (&attempt, layout.named(0), retention);
         lived(&held, ledger, (&plan.owner, digest), &tell, |binder| {
             screened(&plan)?;
             let (record, handles) = observed(&layout, &plan, (locator, digest), startup)?;
@@ -152,16 +154,21 @@ impl Ended {
 /// the Opened's very line by them then, and every record after, its Closed
 /// included (MB4, CR2; operator ruling 2026-10-13). Where what the session
 /// looked up is uncertain, nothing more is recorded, its closure included:
-/// recovery finds the Opened alone, and never a success.
+/// recovery finds the Opened alone, and never a success. A plan that
+/// retains its responses is given its `retention`, so its ledger stages
+/// them beside it (U8b).
 pub(super) fn lived<'b, T>(
     held: &'b Held,
-    (attempt, plan): (&OwnedFd, &OsStr),
+    (attempt, plan, retention): (&OwnedFd, &OsStr, Option<Retention>),
     sealed: (&Owner, &str),
     tell: Tell<'_>,
     session: impl FnOnce(Binder<'_, 'b>) -> Result<T, Ended>,
 ) -> Result<T, Ended> {
     let opened = Ledger::open(attempt, plan, sealed, &[]);
     let mut ledger = opened.map_err(Ended::from)?;
+    if let Some((retaining, dir)) = retention {
+        ledger.retain(dir, plan, retaining);
+    }
     let ended = session(Binder {
         ledger: &mut ledger,
         held,
