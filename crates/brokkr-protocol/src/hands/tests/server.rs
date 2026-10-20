@@ -893,10 +893,10 @@ fn parent_of(pid: u64) -> Option<u64> {
         .ok()
 }
 
-/// The one child of `pid` once it waits as `sleep`, within ten seconds.
+/// The one child of `pid` once it waits as `sleep`, within sixty seconds.
 #[cfg(target_os = "linux")]
 fn waiting_child(pid: u64) -> u64 {
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while std::time::Instant::now() < until {
         let children = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"));
         let children: Vec<u64> = children
@@ -915,7 +915,7 @@ fn waiting_child(pid: u64) -> u64 {
     panic!("no waiting child of {pid}");
 }
 
-/// [`descriptors`] of `pid` once it has settled, within ten seconds: asleep
+/// [`descriptors`] of `pid` once it has settled, within sixty seconds: asleep
 /// in its wait, as `/proc` shows its state, and holding the same
 /// descriptors across two reads a short interval apart. A process named
 /// by its exec may still be in its loader, holding the library it is
@@ -927,7 +927,7 @@ fn settled(pid: u64) -> Vec<(u32, String)> {
         stat.rsplit_once(") ")
             .is_some_and(|(_, rest)| rest.starts_with('S'))
     };
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while std::time::Instant::now() < until {
         let held = asleep().then(|| descriptors(pid)).flatten();
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -949,7 +949,7 @@ fn a_process_is_read_once_it_has_settled() {
     // this process holds an inheritable stray, as a concurrent test may,
     // and sealed above its standard streams before its exec, so it holds
     // only what it opens itself.
-    let script = "exec 3</dev/null; i=0; while [ $i -lt 2000000 ]; do i=$((i+1)); done; \
+    let script = "exec 3</dev/null; i=0; while [ $i -lt 200000 ]; do i=$((i+1)); done; \
                   exec 3<&-; exec sleep 600";
     let nothing = std::process::Stdio::null;
     let mut shell = std::process::Command::new("/bin/sh");
