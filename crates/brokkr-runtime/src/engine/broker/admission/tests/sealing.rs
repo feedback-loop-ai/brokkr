@@ -24,7 +24,7 @@ use crate::capabilities::McpFence;
 use crate::engine::artifacts::tests::{sha, Provisioned};
 use crate::engine::artifacts::Unpublished;
 use crate::engine::broker::root::Commit;
-use crate::engine::broker::settlement::Unreleased;
+use crate::engine::broker::settlement::{Lease, Unreleased};
 
 /// A fresh engine holding on `host` the lease of its run's attempt `a1` on
 /// its own worktree, protecting `protects`, the reservation naming that
@@ -511,11 +511,19 @@ fn a_failed_settlement_says_whether_its_lease_was_released() {
     for (unreleased, text) in cases {
         assert_eq!(unreleased.to_string(), format!("{text}: {mb3}"));
     }
-    // U8c: one whose retained responses were not published says so.
-    let unpublished = Unreleased::unpublished(Unpublished::Response);
-    let said = "the attempt's retained responses were not published: broker response digest \
-                mismatch";
-    assert_eq!(unpublished.to_string(), said);
+    // U8c: one whose retained responses were not published says so, and
+    // whether its lease stands or was released.
+    let digest = "broker response digest mismatch";
+    let unpublished = "the attempt's retained responses were not published";
+    let cases = [
+        (Lease::Standing, "and its writer lease stands"),
+        (Lease::Released, "though its writer lease was released"),
+    ];
+    for (lease, said) in cases {
+        let unreleased = Unreleased::unpublished(lease, Unpublished::Response);
+        let text = format!("{unpublished}, {said}: {digest}");
+        assert_eq!(unreleased.to_string(), text);
+    }
 }
 
 /// R1: a settlement whose reseal commits without its directory proven
@@ -550,15 +558,17 @@ fn an_unsynced_settlement_fails_its_run_under_the_fence_rule() {
 fn settlement_publishes_what_its_attempt_retained_before_its_release() {
     let answer = br#"{"result":{}}"#;
     let (digest, other) = (sha(answer), sha(b"other"));
-    let mismatch = Err(Unreleased::unpublished(Unpublished::Response));
+    let mismatch = Unreleased::unpublished(Lease::Released, Unpublished::Response);
+    let unrooted = Unreleased::unpublished(Lease::Standing, Unpublished::Unbound);
     let cases = [
-        ("verified", &digest, false, Ok(())),
-        ("mismatch", &other, false, mismatch),
-        ("unresolved", &digest, true, Ok(())),
+        ("verified", Protects::Evidence, &digest, false, Ok(())),
+        ("mismatch", Protects::Evidence, &other, false, Err(mismatch)),
+        ("unresolved", Protects::Evidence, &digest, true, Ok(())),
+        ("unsealed", Protects::Nothing, &digest, false, Err(unrooted)),
     ];
-    for (case, cited, unresolved, expected) in cases {
+    for (case, protects, cited, unresolved, expected) in cases {
         let host = Host::new();
-        let (_dir, mut engine, work, run) = leasing(&host, Protects::Evidence);
+        let (_dir, mut engine, work, run) = leasing(&host, protects);
         let repo = canonical::sha256_bytes(work.as_os_str().as_bytes());
         let at = host.root().join(&repo).join(&run);
         let attempt = Provisioned::new(&at, [&repo, &run, "a1"]);
@@ -574,6 +584,10 @@ fn settlement_publishes_what_its_attempt_retained_before_its_release() {
             );
         }
         settled_a1(&mut engine, &run);
+        let unsealed = case == "unsealed";
+        if unsealed {
+            LATE.set(Some(Late::Unstage));
+        }
         let settled = engine.settle("a1", Ok(())).map_err(|error| match error {
             EngineError::Unreleased(unreleased) => unreleased,
             other => panic!("{case}: {other}"),
@@ -581,6 +595,7 @@ fn settlement_publishes_what_its_attempt_retained_before_its_release() {
         let published = work.join(".forge/artifacts/sha256").join(&digest).is_file();
         let released = host.attempts(&work, &run).1 == ["a1"];
         let found = (case, settled, published, released);
-        assert_eq!(found, (case, expected, case == "verified", !unresolved));
+        let kept = !unresolved & !unsealed;
+        assert_eq!(found, (case, expected, case == "verified", kept));
     }
 }

@@ -66,21 +66,19 @@ enum Ending {
 /// stands, refusing every later writer it would; or its release committed,
 /// but a seal of its reservation, its release's own or an earlier one, was
 /// not proven durable; or the responses its brokers retained were not
-/// published (U8c; CR2), whatever became of its lease.
+/// published (U8c; CR2), its lease standing or released as it says.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("{}: {}", .lease.said(), .cause)]
+#[error("{}: {}", said(*.lease, .cause), .cause)]
 pub struct Unreleased {
     lease: Lease,
     cause: Cause,
 }
 
-/// Whether a failed settlement left its lease standing or released it, or
-/// left its retained responses unpublished.
+/// Whether a failed settlement left its lease standing or released it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lease {
+pub(in crate::engine) enum Lease {
     Standing,
     Released,
-    Unpublished,
 }
 
 /// Why a settlement failed: a seal refused or not proven, or a retained
@@ -93,18 +91,23 @@ enum Cause {
     Unpublished(Unpublished),
 }
 
-impl Lease {
-    /// What the operator is told of it.
-    fn said(self) -> &'static str {
-        match self {
-            Lease::Standing => {
-                "the attempt's writer lease stands, for its settlement was not sealed"
-            }
-            Lease::Released => {
-                "the attempt's writer lease was released, but a seal of its reservation was not \
-                 proven durable"
-            }
-            Lease::Unpublished => "the attempt's retained responses were not published",
+/// What the operator is told of a failed settlement's `lease`, and of its
+/// retained responses where its `cause` is that they were not published.
+fn said(lease: Lease, cause: &Cause) -> &'static str {
+    match (cause, lease) {
+        (Cause::Unadmitted(_), Lease::Standing) => {
+            "the attempt's writer lease stands, for its settlement was not sealed"
+        }
+        (Cause::Unadmitted(_), Lease::Released) => {
+            "the attempt's writer lease was released, but a seal of its reservation was not \
+             proven durable"
+        }
+        (Cause::Unpublished(_), Lease::Standing) => {
+            "the attempt's retained responses were not published, and its writer lease stands"
+        }
+        (Cause::Unpublished(_), Lease::Released) => {
+            "the attempt's retained responses were not published, though its writer lease \
+             was released"
         }
     }
 }
@@ -123,9 +126,9 @@ impl Unreleased {
     }
 
     /// A settlement whose attempt's retained responses were not published,
-    /// refused by `cause`.
-    pub(in crate::engine) fn unpublished(cause: Unpublished) -> Unreleased {
-        let (lease, cause) = (Lease::Unpublished, Cause::Unpublished(cause));
+    /// refused by `cause`, its lease as `lease` says.
+    pub(in crate::engine) fn unpublished(lease: Lease, cause: Unpublished) -> Unreleased {
+        let cause = Cause::Unpublished(cause);
         Unreleased { lease, cause }
     }
 }
@@ -142,7 +145,15 @@ impl Engine {
     /// marked or released (R1 of U8a2a's fourth run). An attempt proven
     /// settled has the responses its brokers retained published first,
     /// under its lease ([`published`]); one refused fails the run by
-    /// [`Unreleased::unpublished`] once the release is done (U8c).
+    /// [`Unreleased::unpublished`] once the release is done or refused,
+    /// saying which ([`leased`]) (U8c). Unlike a seal's, that refusal fails
+    /// the run whether or not the fence lifted or evidence was at stake: a
+    /// response a verified ledger cites, or evidence of the attempt that
+    /// cannot be read as it was sealed, is refused, never reconciled (CR2).
+    /// An attempt that provisioned no plan has no directory there to read,
+    /// and publishes nothing; but one whose run's directory in the
+    /// coordination root cannot be opened is refused as unbound, staked or
+    /// not, where before U8c such a run's refused seal went unsaid.
     pub(in crate::engine) fn settle(
         &mut self,
         attempt: &str,
@@ -169,6 +180,7 @@ impl Engine {
                 .and_then(|fact| Ok(Some(fact.and(release(&held, deadline)?)))),
             false => Ok(None),
         };
+        let lease = leased(&released);
         let unsynced = || Unadmitted::from(Unknown::Unsynced);
         let settled = match (released, held.unsynced) {
             (Ok(Some(Commit::Synced) | None), false) => Ok(()),
@@ -180,8 +192,18 @@ impl Engine {
         };
         match settled {
             Err(unreleased) if everywhere() | held.staked => Err(unreleased.into()),
-            _ => Ok(published.map_err(Unreleased::unpublished)?),
+            _ => Ok(published.map_err(|cause| Unreleased::unpublished(lease, cause))?),
         }
+    }
+}
+
+/// Whether the lease of a settlement whose release ended in `released`
+/// stands or was released: released where a release committed, synced or
+/// not.
+fn leased(released: &Result<Option<Commit>, Unadmitted>) -> Lease {
+    match released {
+        Ok(Some(_)) => Lease::Released,
+        Ok(None) | Err(_) => Lease::Standing,
     }
 }
 

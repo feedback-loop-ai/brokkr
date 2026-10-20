@@ -25,8 +25,9 @@
 //! digest path, which never replaces what stands there, and the
 //! directories synced; the digest path then names the very file written.
 //! An artifact already at its path is reused only once its bytes, read on
-//! the handle judged, digest to its name; one that does not, or is not this
-//! user's own regular file of one link, is refused and left as it stands.
+//! the handle judged, digest to its name, and it and the directories are
+//! synced again; one that does not, or is not this user's own regular file
+//! of one link, is refused and left as it stands.
 //! Durable publication precedes any checkpoint citing it (U8d).
 
 use std::ffi::{OsStr, OsString};
@@ -114,13 +115,15 @@ pub(in crate::engine) struct Evidence<'e> {
 pub(in crate::engine) type Sealed = (PathBuf, (u64, u64));
 
 /// Where publication stands when it hands its hook a directory and a
-/// name: the temporary file written, before it is synced; or linked in at
-/// its digest path and its temporary name removed, before the directories
-/// are synced and the digest path read again.
+/// name: the temporary file written, before it is synced; linked in at its
+/// digest path and its temporary name removed, before the directories are
+/// synced and the digest path read again; or an artifact standing at its
+/// digest path verified, before the directories are synced to reuse it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
     Written,
     Linked,
+    Standing,
 }
 
 /// What publication hands at each [`Step`]; an error it returns fails that
@@ -244,8 +247,9 @@ fn cited(
 
 /// The bytes the broker staged for call `call` of the plan named `name` in
 /// `dir`, exactly those its Terminal cites: read no further than one byte
-/// past the cited `length`, so a stage grown since digests to another
-/// sha256 than the cited `sha256`, as one cut short does.
+/// past the cited `length`, and both of that length and digesting to the
+/// cited `sha256`, for a Terminal can cite a sound digest beside a length
+/// that is not its bytes'.
 fn staged(
     dir: &OwnedFd,
     name: &OsStr,
@@ -254,7 +258,7 @@ fn staged(
 ) -> Result<Vec<u8>, Unpublished> {
     let stage = beside(name, &format!(".{call}.response"));
     let bytes = private(dir, &stage, length)?.ok_or(Unpublished::Unbound)?;
-    let exact = canonical::sha256_bytes(&bytes) == sha256;
+    let exact = (bytes.len() as u64 == length) & (canonical::sha256_bytes(&bytes) == sha256);
     exact.then_some(bytes).ok_or(Unpublished::Response)
 }
 
@@ -342,14 +346,35 @@ fn rooted((path, identity): &Sealed) -> Result<Rooted, Unpublished> {
 }
 
 /// `bytes`, whose sha256 is `sha256`, published in `rooted`'s digests: an
-/// artifact already there reused once verified ([`read`]), or one made
-/// ([`linked`]), each step handed to `hook`.
+/// artifact already there reused once verified ([`read`]) and made durable
+/// ([`reused`]), or one made ([`linked`]), each step handed to `hook`.
 fn put(rooted: &Rooted, sha256: &str, bytes: &[u8], hook: Hook) -> Result<(), Unpublished> {
     match read(&rooted.digests, sha256) {
-        Ok(_) => Ok(()),
+        Ok((found, _)) => reused(rooted, &found, sha256, hook),
         Err(Unread::Missing) => linked(rooted, sha256, bytes, hook),
         Err(unread) => Err(standing(unread)),
     }
+}
+
+/// The verified artifact `found`, standing at its digest path `sha256` in
+/// `rooted`, synced, and the digests and the root synced after it
+/// ([`synced`], at [`Step::Standing`]), before it is reused: one an earlier
+/// publication linked in, whose directories' sync then failed, is durable
+/// only once a later publication makes it so, as is one a racing writer
+/// linked in first.
+fn reused(rooted: &Rooted, found: &File, sha256: &str, hook: Hook) -> Result<(), Unpublished> {
+    let durable = fsync(found)
+        .map_err(std::io::Error::from)
+        .and_then(|()| synced(rooted, Step::Standing, sha256, hook));
+    durable.or(Err(Unpublished::Undurable))
+}
+
+/// The digests in `rooted` and the root synced, `hook` handed `step` and
+/// the digest path `sha256` first.
+fn synced(rooted: &Rooted, step: Step, sha256: &str, hook: Hook) -> std::io::Result<()> {
+    hook(step, &rooted.digests, sha256)?;
+    fsync(&rooted.digests)?;
+    Ok(fsync(&rooted.root)?)
 }
 
 /// What an artifact that should stand at its digest path says, where it
@@ -366,38 +391,43 @@ fn standing(unread: Unread) -> Unpublished {
 /// which replaces nothing standing there, and its temporary name removed;
 /// the digests and the root then synced. The digest path must then name
 /// the very file written; one an artifact took first is reused once
-/// verified. A temporary file left by an earlier publication cut short
-/// goes first.
+/// verified and made durable ([`reused`]). A temporary file left by an
+/// earlier publication cut short goes first.
+///
+/// The temporary name is predictable and stands in the artifact root,
+/// whose mode is not judged, only its identity: a writer that may write the
+/// root can take, replace or remove that name. What it leaves at the digest
+/// path is then refused, for the digest path must name the very file
+/// written, or verify as its name; such a writer can only stop publication.
 fn linked(rooted: &Rooted, sha256: &str, bytes: &[u8], hook: Hook) -> Result<(), Unpublished> {
     let temporary = format!(".{sha256}{PUBLISHING}");
     let _ = unlinkat(&rooted.root, temporary.as_str(), AtFlags::empty());
-    let written = written(&rooted.root, &temporary, bytes, hook);
-    let link = written.as_ref().ok().map(|_| {
+    let written = written(&rooted.root, &temporary, bytes, hook).map(|file| {
         let digests = &rooted.digests;
-        linkat(
+        let link = linkat(
             &rooted.root,
             temporary.as_str(),
             digests,
             sha256,
             AtFlags::empty(),
-        )
+        );
+        (file, link)
     });
     let removed = unlinkat(&rooted.root, temporary.as_str(), AtFlags::empty());
-    let ours = written?;
+    let (ours, link) = written?;
     match link {
-        Some(Ok(())) => {}
-        Some(Err(Errno::EXIST)) => {
-            return read(&rooted.digests, sha256).map(drop).map_err(standing)
+        Ok(()) => {}
+        Err(Errno::EXIST) => {
+            let (found, _) = read(&rooted.digests, sha256).map_err(standing)?;
+            return reused(rooted, &found, sha256, hook);
         }
-        Some(Err(_)) | None => return Err(Unpublished::Undurable),
+        Err(_) => return Err(Unpublished::Undurable),
     }
-    let durable = removed.map_err(std::io::Error::from).and_then(|()| {
-        hook(Step::Linked, &rooted.digests, sha256)?;
-        fsync(&rooted.digests)?;
-        Ok(fsync(&rooted.root)?)
-    });
+    let durable = removed
+        .map_err(std::io::Error::from)
+        .and_then(|()| synced(rooted, Step::Linked, sha256, hook));
     durable.or(Err(Unpublished::Undurable))?;
-    let (found, _) = held(&rooted.digests, sha256).map_err(standing)?;
+    let (found, _) = read(&rooted.digests, sha256).map_err(standing)?;
     let same = |file: &File| file.metadata().ok().map(|found| (found.dev(), found.ino()));
     let ours = same(&ours).is_some_and(|ours| Some(ours) == same(&found));
     ours.then_some(()).ok_or(Unpublished::Uncontained)
@@ -415,16 +445,11 @@ fn written(root: &OwnedFd, temporary: &str, bytes: &[u8], hook: Hook) -> Result<
     durable.map(|()| file).or(Err(Unpublished::Undurable))
 }
 
-/// The artifact `sha256` in the digests `digests` (CR5): its bytes, read on
-/// the handle judged, where it is this user's own regular file of one link,
-/// opened without following a link or blocking, writable by no one else,
-/// whose bytes digest to its name; or why not.
-pub(super) fn read(digests: &OwnedFd, sha256: &str) -> Result<Vec<u8>, Unread> {
-    held(digests, sha256).map(|(_, bytes)| bytes)
-}
-
-/// [`read`], with the handle its bytes were read on.
-fn held(digests: &OwnedFd, sha256: &str) -> Result<(File, Vec<u8>), Unread> {
+/// The artifact `sha256` in the digests `digests` (CR5): the handle judged
+/// and its bytes, read on it, where it is this user's own regular file of
+/// one link, opened without following a link or blocking, writable by no
+/// one else, whose bytes digest to its name; or why not.
+pub(super) fn read(digests: &OwnedFd, sha256: &str) -> Result<(File, Vec<u8>), Unread> {
     hex(sha256).then_some(()).ok_or(Unread::Uncontained)?;
     let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
     let opened = match openat(digests, sha256, flags, Mode::empty()) {

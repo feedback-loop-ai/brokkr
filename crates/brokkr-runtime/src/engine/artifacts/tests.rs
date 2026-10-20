@@ -392,13 +392,30 @@ type Altered<'a> = (&'a str, &'a [Answer<'a>], fn(&Path), Unpublished);
 
 #[test]
 fn a_stage_that_is_not_exactly_the_cited_bytes_is_never_published() {
-    // The digest the broker was handed is not its bytes'; the stage was
+    // The length the Terminal cites is not its stage's, though its digest
+    // is; the digest the broker was handed is not its bytes'; the stage was
     // cut short or grown since; it is a link, has a second name, or is
     // gone. Nothing is published for any.
     let answer = sha(ANSWER);
     let cited = [(Some((ANSWER, answer.as_str())), Outcome::Succeeded)];
     let other = sha(ERROR);
-    let cases: [Altered<'_>; 6] = [
+    // A Terminal citing ANSWER's own digest beside a length a byte short
+    // of its bytes, or a byte past them, its stage then ANSWER whole.
+    let (shorter, longer) = (&ANSWER[..ANSWER.len() - 1], [ANSWER, b" "].concat());
+    let restaged = |stage: &Path| fs::write(stage, ANSWER).unwrap();
+    let cases: [Altered<'_>; 8] = [
+        (
+            "length under",
+            &[(Some((shorter, answer.as_str())), Outcome::Succeeded)],
+            restaged,
+            Unpublished::Response,
+        ),
+        (
+            "length over",
+            &[(Some((&longer, answer.as_str())), Outcome::Succeeded)],
+            restaged,
+            Unpublished::Response,
+        ),
         (
             "digest",
             &[(Some((ANSWER, other.as_str())), Outcome::Succeeded)],
@@ -534,20 +551,27 @@ fn an_artifact_root_other_than_the_one_admitted_is_refused() {
     );
 }
 
+/// Fails `step` alone, as a full device or a failed sync would.
+fn failing(step: Step, failed: Step) -> std::io::Result<()> {
+    match step == failed {
+        true => Err(std::io::Error::other("refused")),
+        false => Ok(()),
+    }
+}
+
 /// Fails the write's step, as a full device would.
 fn unwritable(step: Step, _: &OwnedFd, _: &str) -> std::io::Result<()> {
-    match step {
-        Step::Written => Err(std::io::Error::other("refused")),
-        Step::Linked => Ok(()),
-    }
+    failing(step, Step::Written)
 }
 
 /// Fails the directories' sync once the artifact is linked in.
 fn unsettled(step: Step, _: &OwnedFd, _: &str) -> std::io::Result<()> {
-    match step {
-        Step::Written => Ok(()),
-        Step::Linked => Err(std::io::Error::other("refused")),
-    }
+    failing(step, Step::Linked)
+}
+
+/// Fails the syncs that would make an artifact standing durable for reuse.
+fn unrenewed(step: Step, _: &OwnedFd, _: &str) -> std::io::Result<()> {
+    failing(step, Step::Standing)
 }
 
 #[test]
@@ -574,14 +598,82 @@ fn a_publication_not_made_durable_is_refused_and_leaves_nothing_beside() {
         .published(Some(&fixture.sealed()), unsettled);
     assert_eq!(published, Err(Unpublished::Undurable));
     assert_eq!(fixture.names(""), vec![DIGESTS.to_string()]);
+    // The artifact it linked in is reused only once it and the directories
+    // are synced again: a retry whose syncs fail is refused too.
+    let published = fixture
+        .attempt
+        .published(Some(&fixture.sealed()), unrenewed);
+    assert_eq!(published, Err(Unpublished::Undurable));
     assert_eq!(fixture.published(), Ok(()));
     assert_eq!(fs::read(fixture.digest(ANSWER)).unwrap(), ANSWER);
+}
+
+/// Takes the digest path first, with the very bytes being written, once
+/// the temporary file is written, as a racing publication could.
+fn racing(step: Step, root: &OwnedFd, temporary: &str) -> std::io::Result<()> {
+    if step != Step::Written {
+        return Ok(());
+    }
+    let read = OFlags::RDONLY | OFlags::CLOEXEC;
+    let mut bytes = Vec::new();
+    File::from(openat(root, temporary, read, Mode::empty())?).read_to_end(&mut bytes)?;
+    let digest = temporary
+        .trim_start_matches('.')
+        .trim_end_matches(PUBLISHING);
+    let path = format!("{DIGESTS}/{digest}");
+    let made = OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::CLOEXEC;
+    File::from(openat(root, path.as_str(), made, Mode::RUSR)?).write_all(&bytes)
+}
+
+/// [`racing`], and the syncs that would make what it linked in durable for
+/// reuse failed.
+fn raced_unrenewed(step: Step, root: &OwnedFd, temporary: &str) -> std::io::Result<()> {
+    racing(step, root, temporary)?;
+    failing(step, Step::Standing)
+}
+
+/// Shuts the digests to writing once the temporary file is written, so its
+/// link is refused for a cause other than a name standing there.
+fn unlinkable(step: Step, root: &OwnedFd, _: &str) -> std::io::Result<()> {
+    if step != Step::Written {
+        return Ok(());
+    }
+    let shut = Mode::RUSR | Mode::XUSR;
+    Ok(rustix::fs::chmodat(root, DIGESTS, shut, AtFlags::empty())?)
+}
+
+/// A case of a publication raced or refused at its link: its name, its
+/// hook, what publication returns, and whether an artifact then stands.
+type Raced = (&'static str, Hook, Result<(), Unpublished>, bool);
+
+#[test]
+fn an_artifact_a_racing_writer_linked_in_first_is_reused_only_once_durable() {
+    // The digest path taken with the very bytes between the write and the
+    // link: the link replaces nothing, and what stands is reused once
+    // verified and synced, refused where those syncs fail. A link refused
+    // for another cause refuses. No temporary file is left beside.
+    let answer = sha(ANSWER);
+    let undurable = Err(Unpublished::Undurable);
+    let cases: [Raced; 3] = [
+        ("raced", racing, Ok(()), true),
+        ("unrenewed", raced_unrenewed, undurable, true),
+        ("unlinkable", unlinkable, undurable, false),
+    ];
+    for (case, hook, expected, stands) in cases {
+        let names = if stands { vec![answer.clone()] } else { vec![] };
+        let fixture = Fixture::retaining(&[(Some((ANSWER, &answer)), Outcome::Succeeded)]);
+        let published = fixture.attempt.published(Some(&fixture.sealed()), hook);
+        let digests = fixture.artifacts().join(DIGESTS);
+        fs::set_permissions(&digests, fs::Permissions::from_mode(0o700)).unwrap();
+        let found = (case, published, fixture.names(DIGESTS), fixture.names(""));
+        assert_eq!(found, (case, expected, names, vec![DIGESTS.to_string()]));
+    }
 }
 
 /// Replaces the artifact just linked in with another file of its very
 /// bytes, as a writer racing the publication could.
 fn replaced(step: Step, digests: &OwnedFd, name: &str) -> std::io::Result<()> {
-    if step == Step::Written {
+    if step != Step::Linked {
         return Ok(());
     }
     let opened = openat(
@@ -636,6 +728,7 @@ fn a_reader_tells_a_missing_artifact_from_a_corrupt_or_uncontained_one() {
         ("../true".to_string(), Err(Unread::Uncontained)),
     ];
     for (name, expected) in cases {
-        assert_eq!((name.clone(), read(&held, &name)), (name, expected));
+        let found = read(&held, &name).map(|(_, bytes)| bytes);
+        assert_eq!((name.clone(), found), (name, expected));
     }
 }
