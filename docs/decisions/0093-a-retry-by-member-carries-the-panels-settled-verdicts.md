@@ -27,7 +27,7 @@ per-member entries keyed by the member's tag (`provenance`, decision 0016;
 `sequence-step-finished` marker per step; an attempt on `driver: "none"` is
 how the engine refuses to run something other than what was requested; the
 fold reads an unmarked indeterminate reason to a stated park reason; and the
-aggregate is a pure function of the members' result objects.
+aggregate is a pure function of the members' result values.
 
 What is missing is a verb that names the members to run, a record of the
 verdicts that settled in an attempt that ended short of success and of the
@@ -74,14 +74,19 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    do the Looper bridge and the console. The fold does not read
    `args.members`; the engine reads them for the one effect the acceptance
    requested and for every bounded attempt of that effect, and for no later
-   effect. Naming every member is admitted exactly when the plain retry is,
-   the pinned bundle compiles and the names resolve; nothing is carried.
+   effect; an `args` that does not read as the verb writes it refuses the
+   drive by name and is never read as the plain retry (ruling 4). Naming
+   every member is admitted exactly when the plain retry is admitted, the
+   pinned bundle compiles, the visit's `panel-carry.v1` records read and the
+   names resolve; a record that does not read refuses it, at the command
+   and at the drive, as it refuses any member retry. Nothing is carried.
 
    **Enforcement binding:** `crates/brokkr-cli/src/tests.rs` (the argument
    facts before every refusal the handler makes today; the supersede-only
    flags' refusal on `retry` names what `retry` takes);
    `crates/brokkr-runtime/src/engine/operator/retry/tests.rs` (the
-   journaled tags, the fold's refusal writing nothing);
+   journaled tags, the fold's refusal writing nothing, every member named
+   beside a record that does not read refused for the record);
    `crates/brokkr-runtime/src/engine/carry/tests.rs` (the selection's scope:
    no acceptance before an effect's request selects nothing);
    `contracts/panel-carry.v1.schema.json` (`args.members`).
@@ -148,11 +153,14 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    `phase-entered-head.v1` pins, each end absent where the repository
    answered none or answered outside that shape, which the engine reads as
    no head as `phase-entered-head.v1` reads one; and `settled_members`, the
-   result object of each member that settled fresh in that attempt, keyed
-   by the member's tag, absent when none did. An attempt that carries
-   verdicts records `carried` on its `effect/started`: one entry per
-   carried member with its tag and the attempt the verdict settled in,
-   never one that only carried it. The
+   result value of each member that settled fresh in that attempt, any JSON
+   value as its driver reported it, an object or not, keyed by the member's
+   tag, absent when none did; its reader reads any JSON value per tag, so
+   the engine never writes a record its own reader refuses, and a carried
+   value that is no object poisons the aggregate as a fresh panel's would.
+   An attempt that carries verdicts records `carried` on its
+   `effect/started`: one entry per carried member with its tag and the
+   attempt the verdict settled in, never one that only carried it. The
    fields and `args.members` are optional, absent-by-default extension
    fields at `event_schema: 1`, published as
    `contracts/panel-carry.v1.schema.json` under the amended rule in
@@ -162,8 +170,14 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    head ends to `^[0-9a-f]{40}$`, and a field present on an attempt that
    does not read as published, a head end outside the shape included, is
    refused by name at the command and at the drive and never read as
-   absent (ruling 2). The contract is minted under this decision
-   and lands on `main` only once it is accepted (decision 0082 ruling 1).
+   absent (ruling 2). `args.members` is pinned to a non-empty list of
+   tags; at the drive, an accepted retry's `args` that do not read, a key
+   other than `members`, a `members` that is not a list of strings or an
+   empty list, refuse the drive as a record that does not read, naming the
+   command by its `operator/commanded` sequence number, while `{}` and an
+   absent `args` are the plain retry. The contract is minted under this
+   decision and lands on `main` only once it is accepted (decision 0082
+   ruling 1).
 
    **Enforcement binding:** `contracts/panel-carry.v1.schema.json`,
    registered in `crates/brokkr-runtime/tests/frozen_contracts.rs`;
@@ -172,21 +186,35 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    (the record on both terminal facts, absent on every attempt the panel did
    not end).
 
-5. **Every readout names a carried verdict as carried, and a refused carry
-   parks as a stated indeterminate.** `brokkr-view` derives a carried
-   member's participant once, at status `carried`, naming the attempt its
-   verdict settled in by its id and by its place among the phase's
-   attempts, with no model, session or cost of its own; the CLI, the TUI,
-   `ui.html`, the fleet readouts and the console paint it. A carry refused
+5. **Every readout that paints participants names a carried verdict as
+   carried, and a refused carry parks as a stated indeterminate.**
+   `brokkr-view` derives a carried member's participant once, at status
+   `carried`, naming the attempt its verdict settled in by its id and by its place among the phase's
+   attempts, with no model, session or cost of its own; the surfaces that
+   paint participants, `inspect`, `seats`, `watch`, the TUI, `ui.html` and
+   the console, paint it. `brokkr runs` and the fleet readouts, whose run
+   rows hold no participant, show nothing of a carried verdict and keep
+   only a refused carry's stated park reason. A carried participant ran no
+   seat, so it has no session, transcript, cost or provenance of its own
+   and is not at work; the readers of participants that paint no status
+   read it as such: `compare`'s resolutions skip it, muninn's cost rows
+   count no cost for it, the transcript verb neither matches it by label
+   nor lists it among an ambiguous label's keys, since it has no session to
+   open, and the dashboard's working checkpoints, which keep only
+   participants at work, hold none of it. A carry refused
    at the drive is a stated indeterminate whose reason is the sentence the
    verb refuses with for the same fact; the fold, `run/parked` and every
    readout treat it as they treat every stated reason today, and no marker,
    codec or park-reason variant is added.
 
    **Enforcement binding:** the view's tests in the module that reads
-   `carried` (the participant's status, source and ordinal; a plain
-   retry's view unchanged; `VIEW_VERSION` moved); `engine/carry/drive_tests.rs`
-   (the stated park reason and `run/parked` after a drive-time refusal);
+   `carried` (the participant's status, source and ordinal, and that it is
+   not at work; a plain retry's view unchanged; `VIEW_VERSION` moved);
+   `crates/brokkr-view/src/compare/tests.rs` (a carried label keeps its
+   source participant's resolution); the transcript selection's test
+   module beside `select_transcript_participant` in `brokkr-cli` (no
+   carried participant matched by label or listed);
+   `engine/carry/drive_tests.rs` (the stated park reason and `run/parked` after a drive-time refusal);
    `machine_proof/panel_carry.rs` (`inspect` and `seats` naming every
    carried verdict).
 

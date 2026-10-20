@@ -2,7 +2,7 @@
 
 Decision 0093 carries the rulings. This design carries what the code does,
 the evidence behind each choice, and the council's two positions reconciled.
-The proposal's record (S1 to S22) holds the clarify history; a decision is
+The proposal's record (S1 to S24) holds the clarify history; a decision is
 stated once here and cited there.
 
 ## Context
@@ -31,7 +31,8 @@ The pieces the design builds on, as read on this branch:
 - `disposed` (`engine/operator.rs:364`) folds the run, writes
   `operator/commanded` with `"args": {}`, re-folds under the journal-head
   fence and accepts or refuses; `operator_stop_reason` (`:120`) is the
-  precedent for the engine reading an accepted command's `args` back.
+  precedent for the engine finding an accepted command by its
+  acceptance's `command_id`; it reads no `args`.
 - The fold's `close` arm (`crates/brokkr-core/src/fold.rs:629`) reads an
   unmarked indeterminate reason to
   `ParkReason::Stated("effect <id> indeterminate: <detail>")`, and the `Park`
@@ -101,8 +102,8 @@ Adopted from both positions:
   by a constructor that refuses a member twice, a member missing or a tag
   outside the panel (D4).
 - **Only a settled success is carry evidence** (robustness invariant 3; S6).
-  `settled_members` holds the member's whole result object from its
-  post-fence `settled_outcome`, so a `residual` or `fail` verdict carries
+  `settled_members` holds the member's whole result value from its
+  post-fence `settled_outcome`, any JSON value as its driver reported it, so a `residual` or `fail` verdict carries
   as the finding it is; a run-local result file is never read (D6).
 - **The tree at both ends, and at the command and the drive** (S12; both).
 - **The selection has causal scope** (robustness; S11): the members apply
@@ -131,7 +132,11 @@ Adopted from simplicity alone:
 - **Every member named needs no special case** (cut 7). The identity facts
   are asked of the attempts a verdict is read from or through; with none,
   they are vacuous, which is S18 stated as the rule rather than beside it.
-  The spec's order and scenarios already say this; no text moves.
+  The visit's records are read by the reader before the compile and before
+  any name (D2, D4), so a record that does not read refuses the all-named
+  retry as it refuses any member retry, at the command and at the drive
+  (S24, C1); the all-named case is not exempted, since that would move the
+  reader after the names and reverse S23's order.
 - **`resume`'s argument defaulting is reused** (section 1). The member form
   builds its `LaunchRequest` through the same `request`
   (`crates/brokkr-cli/src/verbs/delivery.rs:79`) `resume` uses, with
@@ -267,10 +272,13 @@ members typed, the handler builds a `LaunchRequest` through `request` with
    (decision 0047 ruling 2); the CLI handler prints
    `brokkr_view::member_retry_refusal(word)`, S21's text.
 2. Read the parked phase's visit into typed records (`carry/facts.rs`; D4,
-   D6). A `panel-carry.v1` field that does not read is
+   D6), whatever names are given, every member named included. A
+   `panel-carry.v1` field that does not read is
    `CarryRefusal::RecordUnread`, returned as
-   `MemberRetryOutcome::CarryRefused` before the bundle is compiled, so a
-   drifted bundle beside a malformed record reports the record (spec R4).
+   `MemberRetryOutcome::CarryRefused` before the bundle is compiled and
+   before any name is resolved, so a drifted bundle beside a malformed
+   record reports the record (spec R4), and an all-named retry beside a
+   malformed record is refused for it (S24).
 3. Compile the pinned bundle through `launch::pinned_bundle`; a refusal is
    `resume`'s own `LaunchError`, the verb's `Err`, printed as `resume`
    prints it.
@@ -317,13 +325,28 @@ refusal falling through to the plain path (rejected above, a race).
 ### D3. The selection's scope
 
 `carry/record.rs` parses `operator/commanded.args` of a `retry` into
-`RetryArgs { members: Option<Vec<Tag>> }` with `deny_unknown_fields`; `{}`
-is the plain retry. At `execute`, the engine finds the `operator/accepted`
-that caused this effect: the latest acceptance before this effect's
-`effect/requested` with no other `effect/requested` between them, as
-`operator_stop_reason` finds a stop's. Its command's `args.members` are the
-attempt's selection, exactly matched against the panel's tags and never
-resolved again. Every bounded attempt of the effect reads the same
+`RetryArgs { members: Option<Vec<Tag>> }` with `deny_unknown_fields`, a
+`members` absent reading as `None` and a present one read only as a
+non-empty list of strings; an absent `args` or `{}` is the plain retry. At
+`execute`, the engine finds the retry that caused this effect: the latest
+`operator/accepted` before this effect's `effect/requested` whose accepted
+command, the `operator/commanded` bearing its `command_id`, is a `retry`,
+provided no other `effect/requested` stands between that acceptance and
+this effect's; that command's `args` are the ones read. No such acceptance
+selects nothing, and the effect runs the whole panel. `operator_stop_reason`
+(`engine/operator.rs:120-147`) is cited for what it shares alone: it takes
+the latest `operator/accepted` and finds the command it accepts by
+`command_id`; it reads no `args`, asks no command word of the acceptance
+and bounds nothing by an effect's request, which this search does. The
+command's `args` are read first, before the visit's records: `args`
+that do not read as `RetryArgs`, a key other than `members`, a `members`
+that is not a list of strings, or an empty `members` list, which the verb
+never writes since the plain retry journals `{}`, are
+`CarryRefusal::RecordUnread` naming the command by its `operator/commanded`
+sequence number and the field `args`, refused through `refuse_carry` (D8),
+and never read as the plain retry (S24, C5). Its command's `args.members`
+are the attempt's selection, exactly matched against the panel's tags and
+never resolved again. Every bounded attempt of the effect reads the same
 acceptance; the next effect of the phase, after implement and verify, has no
 acceptance before it and runs the whole panel. The fold reads nothing of
 this (decision 0050 ruling 6; `RunState` is unchanged).
@@ -360,8 +383,10 @@ siblings so each `why` is a closed enum matched exhaustively (ruling 2):
 
 - `NoPanel { phase }`; `PanelStepFollows { step, first }`
 - `UnknownMember { name, members }`; `MemberTwice { tag }`
-- `RecordUnread { attempt, field, error }`, raised by the journal's reader
-  (`carry/facts.rs`) and never by `carry_plan`
+- `RecordUnread { record, field, error }`, `record` a closed enum, an
+  attempt by its id or, for the accepted retry's `args`, the command by its
+  `operator/commanded` sequence number (D3), raised by the journal's reader
+  (`carry/facts.rs`, `carry/record.rs`) and never by `carry_plan`
 - `Shape { attempt, why }` with `why` one of `NoAttemptEnded { visit }`,
   `Succeeded { park_reason }`, `EndedAtLaterStep { step }`, `NoRecord`
 - `Unsettled { members }`
@@ -373,10 +398,12 @@ siblings so each `why` is a closed enum matched exhaustively (ruling 2):
 malformed evidence: a `panel-carry.v1` field present on an attempt that does
 not parse, a `head` end outside the commit-id shape included (D6), refuses
 naming the attempt and the field, as a journal that does not fold refuses
-before anything is written. The reader raises it where the records are
-read, after the fold and before the bundle is compiled at the verb (D2) and
-after the digest check at the drive (D7), so `carry_plan` takes typed facts
-alone and asks the names first.
+before anything is written; the accepted retry's `args` that do not read
+refuse the drive the same way, naming the command (D3). The reader raises
+it where the records are read, after the fold and before the bundle is
+compiled at the verb (D2) and after the digest check at the drive (D7),
+whatever names are given, so `carry_plan` takes typed facts alone and asks
+the names first.
 The order of the facts, their texts and the lists each refusal names are the
 spec's; `Display` is the one home of each text, printed by the verb and
 written by the engine (D8). The handler's two argument refusals and S21's
@@ -410,7 +437,8 @@ text are not variants: the first are the CLI's, the second the fold's word.
 ### D6. The record
 
 `carry/record.rs` holds `PanelRecord { tree: Ends<TreeReading>, head:
-Ends<Option<Head>>, settled_members: Option<BTreeMap<Tag, Value>> }` and
+Ends<Option<Head>>, settled_members: Option<BTreeMap<Tag, Value>> }`, each
+value any JSON value, an object or not, and
 `CarriedEntry { member: Tag, attempt_id }`, serialised with
 `deny_unknown_fields` and read back by the same types. `Head` parses forty
 lowercase hex digits and nothing else, one shape with no second reading, so
@@ -425,9 +453,14 @@ end present outside the shape, or a `settled_members` or `head` beside no
 merges the fields into the panel's `effect/indeterminate` or `effect/failed`
 payload beside `reason`, `unresolved_members` and the start-failure fields,
 which keep their bytes; `settled_members` holds each fresh member's
-`AttemptOutcome::Succeeded { result }` value, the same object
-`panel_outcome` feeds to the aggregate, and is absent when no member
-settled. The sequence stamps the same record on its own terminal fact when a
+`AttemptOutcome::Succeeded { result }` value, the same value
+`panel_outcome` feeds to the aggregate, whatever JSON the member's driver
+reported, since the adapter forwards whatever the seat's result file
+parses to and repairs nothing (decision 0001), and is absent when no member
+settled. The reader reads any JSON value under a tag, so the engine never
+writes a record its own reader refuses, and a carried value that is no
+object poisons the aggregate exactly as the same value in a fresh panel
+would (S24, C4). The sequence stamps the same record on its own terminal fact when a
 panel step's outcome ended the attempt (S6), and nothing on any other
 terminal fact. `carried` rides `effect/started` beside `provenance` and
 `boundary`, absent when nothing is carried, so a plain retry's attempt is
@@ -436,7 +469,9 @@ byte-identical to today's.
 `contracts/panel-carry.v1.schema.json` publishes the five fields (`tree`,
 `head`, `settled_members`, `carried`, `args.members` for `command: "retry"`),
 each pinned to the shape the reader reads, the `head` ends to
-`^[0-9a-f]{40}$` as `phase-entered-head.v1` pins its own, under the amended
+`^[0-9a-f]{40}$` as `phase-entered-head.v1` pins its own, each value of
+`settled_members` to any JSON value, and `args.members` to a non-empty list
+of tags, under the amended
 additive rule of `contracts/README.md`, registered in
 `crates/brokkr-runtime/tests/frozen_contracts.rs` with its paragraph in the
 README. The fold reads none of them. It is minted under 0093 and lands on
@@ -444,9 +479,12 @@ README. The fold reads none of them. It is minted under 0093 and lands on
 
 ### D7. The carrying attempt
 
-In `execute`, after the digest check: when the selection names members, the
-attempts before this effect's request are read into typed records (a field
-that does not read is `RecordUnread`, refused as below), the facts are
+In `execute`, after the digest check: the selection is read from the
+accepted retry's `args` (D3), whose failure to read is `RecordUnread`
+naming the command, refused as below; when the selection names members,
+every member named included, the attempts before this effect's request are
+read into typed records (a field that does not read is `RecordUnread`,
+refused as below), the facts are
 filled at the drive and the rule decides. A refusal becomes
 `refuse_carry` (D8). A plan narrows the body once: `ExecutableBody::Panel`
 over the fresh members, or a sequence whose first step is that narrowed
@@ -520,8 +558,29 @@ attempts in journal order, every visit counted, so a painter leads with
 "carried from review attempt 1" and keeps the id for linking. A carried
 participant has no model, session, cost or turns of its own under the
 carrying effect; its evidence stands under the effect it settled in.
-`inspect`, `seats`, `watch`, the TUI, `ui.html`, the fleet readouts and the
-console paint the participant (ruling 7); `render.rs` tones `carried` as
+The surfaces that paint participants, `inspect`, `seats`, `watch`, the TUI,
+`ui.html` and the console, paint the carried participant (ruling 7);
+`brokkr runs` and the fleet readouts paint `brokkr_view::run_rows` and
+`fleet_rows`, whose run rows hold no participant, so they show nothing of a
+carried verdict and keep only a refused carry's stated park reason (D8;
+S24, C3). A carried participant ran no seat, so it has no session,
+transcript, cost or provenance of its own, and its `working` is false
+(its status is `carried`, never the scan's initial `working`). The readers
+of participants that paint no status read it as such:
+`brokkr_view::compare::resolutions` (`compare.rs:356-366`) collects the
+participants into a map by label, the last of a label standing, so it skips
+a carried participant (`carried_from` present) and a label keeps the
+resolution of its last participant that ran; muninn's cost rows
+(`muninn.rs:321-326`) need no change, since they sum only participants with
+no member and a seat's row sums only its members' reported costs
+(`own_or_members`), of which a carried member has none;
+`select_transcript_participant` (`crates/brokkr-cli/src/lib.rs:1029-1060`)
+matches a carried participant neither by label nor among an ambiguous
+label's keys, since it has no session to open, while an exact key naming
+one reaches `read_local` and is refused `no-reference`, as a participant
+with no recorded transcript is today; and `working_checkpoints`
+(`dashboard.rs:341`) needs no change, since it keeps only participants at
+work and a carried participant is not at work and has no checkpoints; `render.rs` tones `carried` as
 good; `VIEW_VERSION` moves from 23 to 24. The console offers no member
 retry.
 
@@ -605,9 +664,17 @@ built by a builder and a synthetic panel bundle:
   fresh panel's pairs byte for byte, and the all-fresh plan joins to the
   reports alone; mutation: the carried entry dropped from the join;
 - the scope: an acceptance before an earlier effect's request selects
-  nothing for a later effect; mutation: the "no request between" condition
-  dropped;
-- `RetryArgs` with `deny_unknown_fields`; mutation: the attribute removed.
+  nothing for a later effect, and another command's acceptance after the
+  retry's and before the request does not hide the retry; mutations: the
+  "no request between" condition dropped, and the `retry` command-word
+  check dropped;
+- `RetryArgs` with `deny_unknown_fields`, refusing an unknown key, a
+  `members` that is not a list of strings, `null` included, and an empty
+  list as `RecordUnread` naming the command, with `{}` and an absent `args`
+  the plain retry; mutation: the attribute removed, and the empty-list
+  check dropped;
+- a `settled_members` whose value under a tag is a string reads back as
+  written; mutation: the reader pinned to objects.
 
 `crates/brokkr-runtime/src/engine/worktree/tests.rs`: the four readings over
 a clean repository, an edited one, a repository whose index is unreadable
@@ -620,7 +687,8 @@ the fake driver): a member retry journals `args.members` resolved and in
 order; a fold refusal returns `MemberRetryOutcome::FoldRefused` with each
 of the three words and writes nothing; a record that does not read beside a
 drifted bundle returns `CarryRefused(RecordUnread)` with the bundle
-uncompiled, and a drifted bundle on a sound record returns `resume`'s
+uncompiled, and so does every member named beside a record that does not
+read, and a drifted bundle on a sound record returns `resume`'s
 `LaunchError`; a carry refusal returns `CarryRefused` and writes nothing;
 every member named carries nothing; the lost fence after the write is
 `Disposed(Rejected)`, journaled as today; no runtime test reads a
@@ -638,8 +706,11 @@ carries the same entries; a verdict settled in the failed bounded attempt is
 not carried; result files deleted after the park change nothing; a journal
 written before this change refuses `NoAttemptEnded`; the sequence's first
 step carries under `positions:` tags and `chief` runs on the aggregate; the
-restart indeterminate carries no record and is passed over. Mutations: the
-drive-time check removed (the moved head is carried); the narrowing removed
+restart indeterminate carries no record and is passed over; an accepted
+retry whose `args` do not read parks on `driver: "none"` naming the
+command, and one whose `args` are `{}` runs every member; an all-named
+acceptance beside a record that does not read parks naming the attempt and
+the field. Mutations: the drive-time check removed (the moved head is carried); the narrowing removed
 (four spawns); the end reading removed (`tree` absent).
 
 `crates/brokkr-runtime/tests/frozen_contracts.rs`: the new schema's
@@ -647,7 +718,11 @@ registration and bytes; `crates/brokkr-core/src/fold/tests.rs`: a journal
 with every new field folds to the state it folds to without them, byte for
 byte (the contracts README's machine-checked clause).
 
-`crates/brokkr-cli/src/tests.rs`: the two argument refusals before every
+`crates/brokkr-cli`, in a new test module beside `select_transcript_participant`
+(`src/tests.rs` and `tests/transcript_command.rs` stand at their
+baselines): a carried member's label selects the participant of that label
+that ran, and an ambiguous label lists no carried key; mutation: the skip
+removed. `crates/brokkr-cli/src/tests.rs`: the two argument refusals before every
 refusal the handler makes today, and S20's text on `retry` with and without
 `--member`, today's on `stop`; the handler's new test module: over a
 synthetic journal with a running run, the handler prints
@@ -665,7 +740,12 @@ their ordinal.
 
 `crates/brokkr-view`: in the new module's tests, the scan over `carried`,
 the participant's status, class and `carried_from`, no model or cost of its
-own, the ordinal across two effects, and a plain retry's view unchanged;
+own and `working` false, the ordinal across two effects, and a plain
+retry's view unchanged; in `compare/tests.rs`, `resolutions` over a journal
+with a carrying attempt gives each carried label its source participant's
+resolution (mutation: the skip removed, so the carried participant's empty
+resolution stands); muninn's cost rows and `working_checkpoints` are not
+edited and take no test of this change (D9);
 `commands/tests.rs` pins S21's text; the `VIEW_VERSION` pin moves.
 
 ## Risks
