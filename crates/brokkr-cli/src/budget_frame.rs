@@ -11,7 +11,7 @@ use ratatui::buffer::Buffer;
 use ratatui::Terminal;
 
 use crate::fleet::Journal;
-use crate::tui::{asked_window, draw, Scrolled, Tui, Views, Window};
+use crate::tui::{asked_window, draw, Scrolled, Tui, Views};
 use crate::tui_read::{fleet_page, Kept};
 
 /// Draw the RUN level of `events` at `width`×`height` from the derivation
@@ -79,34 +79,41 @@ pub struct FleetScroll {
     pub filter: String,
 }
 
-/// The window of the fleet the console's list asks to be read as
-/// `scroll` stands it, by the console's own ask.
-pub struct FleetWindow(Window);
+/// The console's list as `scroll` stands it: the keys it keeps to step
+/// back by, the console's own, held while its window is read as the
+/// console holds them, and the window it asks for.
+pub struct FleetWindow(Tui);
 
-/// [`FleetWindow`] for `scroll`, asked as the console asks it.
+/// [`FleetWindow`] for `scroll`, the console scrolled past each page
+/// `scroll` names as the console scrolls, keeping what the console keeps.
 pub fn fleet_window_for_budget(scroll: &FleetScroll) -> FleetWindow {
     let mut tui = Tui::over(None, Vec::new(), 0);
     tui.all = scroll.all;
     tui.filter.clone_from(&scroll.filter);
     tui.scrolled = Scrolled {
         filter: scroll.filter.clone(),
-        past: scroll.scrolled.clone(),
+        past: Vec::new(),
     };
-    FleetWindow(asked_window(&tui))
+    for ahead in &scroll.scrolled {
+        tui.scrolled.passed(ahead.clone());
+    }
+    FleetWindow(tui)
 }
 
-/// The console's fleet over the journal at `db` in `window`, from its
-/// read-only open to its rows: the page the window starts at and the one
-/// ahead, read and derived as the console reads them, and the key past
-/// the window's first page.
+/// The console's fleet over the journal at `db` in the window `list`
+/// asks for, by the console's own ask, from its read-only open to its
+/// rows: the page the window starts at and the one ahead, read and
+/// derived as the console reads them, and the key past the window's first
+/// page.
 pub fn fleet_page_for_budget(
     db: &Path,
     now: &str,
-    window: &FleetWindow,
+    list: &FleetWindow,
 ) -> Result<(RunsView, Option<Cursor>), StoreError> {
+    let window = asked_window(&list.0);
     let store = Store::open_read_only(db)?;
     let mut kept = Kept::default();
-    let listed = fleet_page(&store, &mut kept, now, (&window.0, None), Journal::at(db))?;
+    let listed = fleet_page(&store, &mut kept, now, (&window, None), Journal::at(db))?;
     Ok((listed.runs, listed.ahead))
 }
 

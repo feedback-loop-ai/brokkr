@@ -59,10 +59,10 @@ pub use compare::{
 use dashboard::dashboard;
 pub use dashboard::{working_checkpoints, Concluded, Dashboard, Decision, Outcome, Ruled, Visit};
 pub use fleet::{
-    at_work, behind_line, fleet_rows, need, page, ranges, run_row, run_rows, section_of_rows,
-    sections, summary_row, title, title_within, window, wrap, Acknowledgement, Cursor, CursorError,
-    HearthEntries, Hire, Need, Page, Paged, Quarantine, Refusal, RunRow, Section, Standing,
-    Verdict, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
+    at_work, behind_line, fleet_rows, in_sections, need, page, ranges, run_row, run_rows,
+    section_of_rows, sections, summary_row, title, title_within, window, wrap, Acknowledgement,
+    Cursor, CursorError, HearthEntries, Hire, Need, Page, Paged, Quarantine, Refusal, RunRow,
+    Section, Standing, Verdict, AHEAD_ROWS, PAGE_ROWS, TITLE_COLUMNS, VERDICT_COLUMNS,
 };
 pub use graph::{
     graph, GraphError, GraphQuery, GraphResolution, GraphTable, GraphView, Table,

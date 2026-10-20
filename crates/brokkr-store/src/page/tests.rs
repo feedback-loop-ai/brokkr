@@ -246,8 +246,8 @@ fn a_row_stands_at_its_head_until_an_event_lands_past_it() {
     assert!(!store.stands_at("run", folded).unwrap());
 }
 
-/// The behind lane, newest first, at most as many as asked, and the rest
-/// counted by the index.
+/// The behind lane, newest first, at most as many as asked below a
+/// place, each at its place, and the rest below it counted by the index.
 #[test]
 fn the_behind_lane_lists_its_newest_and_counts_the_rest() {
     let (_dir, store) = store();
@@ -256,9 +256,16 @@ fn the_behind_lane_lists_its_newest_and_counts_the_rest() {
     for run in &behind {
         plant_event(&store.conn, &run.run_id, &4, &"f".repeat(64), "{}").unwrap();
     }
-    let newest = vec!["behind-00000".to_string(), "behind-00001".to_string()];
-    assert_eq!(store.behind(2).unwrap(), (newest, 1));
-    assert_eq!(store.behind(5).unwrap().1, 0);
+    let (listed, beyond) = store.behind(None, 2).unwrap();
+    let ids: Vec<&str> = listed.iter().map(|(_, id)| id.as_str()).collect();
+    assert_eq!((ids, beyond), (vec!["behind-00000", "behind-00001"], 1));
+    assert_eq!(store.behind(None, 5).unwrap().1, 0);
+    let (at, key) = &listed[1];
+    let (rest, beyond) = store.behind(Some((*at, key)), 2).unwrap();
+    assert_eq!(
+        (rest[0].1.as_str(), rest.len(), beyond),
+        ("behind-00002", 1, 0)
+    );
     assert_eq!(store.counted(&lane(Lane::Behind, None)).unwrap(), 3);
     let running = lane(Lane::Running, Some(Bound::Below(now())));
     assert_eq!(store.counted(&running).unwrap(), 0);

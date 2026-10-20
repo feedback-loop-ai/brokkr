@@ -1111,6 +1111,32 @@ fn the_list_scrolls_by_keyset_and_counts_what_its_pages_left_unread() {
     assert_eq!(headed(&views), Some(true));
 }
 
+/// Decision 0089 rulings 6 and 9: the list keeps the keys of the last
+/// [`SCROLL_BACK`](super::state::SCROLL_BACK) pages it scrolled past alone, so what it holds does not
+/// grow with how far it scrolls; it steps back a page at a time over
+/// them, and past them to its top.
+#[test]
+fn the_list_keeps_the_keys_of_its_last_pages_alone() {
+    let key =
+        |at: usize| -> brokkr_view::Cursor { format!("needs-you:{at}:more-49").parse().unwrap() };
+    let pages = super::state::SCROLL_BACK + 3;
+    let mut tui = Tui::new(None);
+    for at in 0..pages {
+        let views = more_runs(60, asked_window(&tui), Some(&key(at)));
+        tui.cursor[0] = Some("more-49".to_string());
+        apply(&mut tui, &views, Key::Down);
+    }
+    let kept: Vec<brokkr_view::Cursor> = (3..pages).map(key).collect();
+    assert_eq!(tui.scrolled.past, kept);
+    for at in (3..pages).rev() {
+        assert_eq!(asked_window(&tui).after, Some(key(at)));
+        let views = more_runs(10, asked_window(&tui), None);
+        tui.cursor[0] = Some("more-00".to_string());
+        apply(&mut tui, &views, Key::Up);
+    }
+    assert_eq!(asked_window(&tui), Window::default(), "past them, its top");
+}
+
 /// Every `timeout_seconds` a JSON value states, at any depth.
 fn deadlines(value: &Value, found: &mut Vec<u64>) {
     match value {

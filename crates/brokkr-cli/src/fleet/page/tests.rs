@@ -4,6 +4,7 @@
 //! stand at is read whole; and a journal the summary does not page is
 //! read the kept way.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use brokkr_core::canonical::ZERO_HASH;
@@ -360,8 +361,8 @@ fn a_run_behind_its_summary_is_placed_by_its_fold() {
 /// Ruling 5: a row whose run's last event is not the head it was folded
 /// to, or that holds a value no writer writes, is read whole and listed
 /// as its fold says, in the section its fold places it in, whichever
-/// range its row was read from; a row whose run id no writer admits is
-/// listed refused, never read.
+/// range its row was read from and on whichever page, a run a page; a
+/// row whose run id no writer admits is listed refused, never read.
 #[test]
 fn a_row_its_run_does_not_stand_at_is_read_whole() {
     let dir = tempfile::tempdir().unwrap();
@@ -385,7 +386,7 @@ fn a_row_its_run_does_not_stand_at_is_read_whole() {
         ))
         .unwrap();
     let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
-    let listed = paged(&pages, &store, NOW, PAGE_ROWS, true);
+    let listed = paged(&pages, &store, NOW, 1, true);
     let row = |run_id: &str| -> (Section, RunRow) {
         let found = listed
             .iter()
@@ -469,18 +470,19 @@ fn a_behind_run_a_writer_catches_up_between_the_reads_lists_once() {
 /// Ruling 6: one page of `brokkr runs` or `/api/runs` reads at most a
 /// page and one ahead of the runs behind their summary and counts the
 /// rest, which its JSON states and its table prints as one line; every
-/// run, asked of either, reads each and lists it.
+/// run, asked of either, lists each run once, and reads the runs past
+/// those a refresh's worth at a time.
 #[test]
 fn a_page_asked_reads_at_most_a_page_ahead_of_the_runs_behind() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     folded(&db, |conn| {
-        for n in 0..120 {
+        for n in 0..230 {
             let at = stamp(now() - HOUR - n * MINUTE);
             plant(conn, &format!("behind-{n:03}"), Shape::Running, &at);
         }
     });
-    for n in 0..120 {
+    for n in 0..230 {
         let run_id = format!("behind-{n:03}");
         appended_by_an_older_writer(&db, &run_id, EventType::RunCompleted, json!({}));
     }
@@ -497,20 +499,38 @@ fn a_page_asked_reads_at_most_a_page_ahead_of_the_runs_behind() {
     let page: Value = serde_json::from_str(&listed((true, Some(5)))).unwrap();
     assert_eq!(
         (page["runs"].as_array().unwrap().len(), &page["behind"]),
-        (5, &json!(20))
+        (5, &json!(130))
     );
+    let once = |runs: &Value| -> usize {
+        let ids = runs.as_array().unwrap().iter().map(|run| &run["run_id"]);
+        ids.map(Value::to_string).collect::<HashSet<_>>().len()
+    };
     let every: Value = serde_json::from_str(&listed((true, None))).unwrap();
-    assert_eq!((&every["count"], every.get("behind")), (&json!(120), None));
-    let line = "20 more runs behind their summary, unread until a writer catches them up\n";
+    assert_eq!((&every["count"], every.get("behind")), (&json!(230), None));
+    assert_eq!(once(&every["runs"]), 230);
+    let line = "130 more runs behind their summary, unread until a writer catches them up\n";
     assert!(listed((false, Some(5))).contains(line));
     let served =
         |path: &str| -> Value { serde_json::from_str(&crate::ui::handle(&db, path).body).unwrap() };
     let page = served("/api/runs?limit=5");
     assert_eq!(
         (page["runs"].as_array().unwrap().len(), &page["behind"]),
-        (5, &json!(20))
+        (5, &json!(130))
     );
-    assert_eq!(served("/api/runs").as_array().unwrap().len(), 120);
+    assert_eq!(once(&served("/api/runs")), 230);
+    let store = Store::open_read_only(&db).unwrap();
+    let pages = Pages::listing(&store, Journal::at(&db)).unwrap();
+    assert_eq!(pages.unread(), 130);
+    // Read by the place each row stood at, and listed by its fold's: each
+    // completed at one stamp, so newest first by run id.
+    let mut batches = Vec::new();
+    let each = |rows: Vec<RunRow>| {
+        batches.push((rows.len(), rows[0].run_id.clone()));
+        Ok::<_, StoreError>(())
+    };
+    pages.each_past_behind(&store, NOW, each).unwrap();
+    let first = |n: usize, run_id: &str| (n, run_id.to_string());
+    assert_eq!(batches, [first(100, "behind-199"), first(30, "behind-229")]);
 }
 
 /// Ruling 8: a reader that cannot write reads a journal the summary does

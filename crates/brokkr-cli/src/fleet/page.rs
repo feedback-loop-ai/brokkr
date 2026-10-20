@@ -4,9 +4,10 @@
 //! row is checked against its run's last event, and a run whose row
 //! disagrees, or whose row no writer wrote, is read whole and listed as
 //! its fold says. The runs behind their summary are read whole before a
-//! page is, at most [`AHEAD_ROWS`] a refresh on the console, kept between
-//! refreshes while each head stands, and placed among the page's rows by
-//! their own facts. A journal the summary does not page yet, read by a
+//! page is, at most [`AHEAD_ROWS`] a refresh, kept between refreshes
+//! while each head stands, and placed among the page's rows by their own
+//! facts; a listing of every run reads the rest a refresh's worth at a
+//! time after its pages. A journal the summary does not page yet, read by a
 //! reader that cannot migrate it, is read the kept way (#744) and paged
 //! in memory by the same sections.
 
@@ -50,6 +51,9 @@ pub(crate) struct Behind {
     whole: HashSet<String>,
     /// How many runs past those read are behind, counted by the index.
     unread: u64,
+    /// Where in the behind lane the runs the last refresh read end, while
+    /// the lane holds more past them.
+    past: Option<(i64, String)>,
 }
 
 impl Pages {
@@ -82,6 +86,16 @@ impl Pages {
                 Ok(read)
             }
         }
+    }
+
+    /// What a listing of `store` reads it by, its journal file `before` it
+    /// was opened: at most [`AHEAD_ROWS`] runs behind their summary read
+    /// whole and the rest counted (ruling 6), whether it lists one page or
+    /// every run.
+    pub(crate) fn listing(store: &Store, before: Option<Journal>) -> Result<Pages, StoreError> {
+        let mut pages = Pages::default();
+        pages.refresh(store, before, brokkr_view::AHEAD_ROWS)?;
+        Ok(pages)
     }
 
     /// The page after `after`, or the first, of up to `limit` of the rows
@@ -148,6 +162,33 @@ impl Pages {
         }
     }
 
+    /// The runs behind their summary past those the last refresh read,
+    /// [`AHEAD_ROWS`] at a time, each batch read whole and handed to
+    /// `each` in the order its folds list at `now`: how a listing of
+    /// every run lists each run behind, after its pages, holding at most a
+    /// refresh's worth of them at once (ruling 6).
+    pub(crate) fn each_past_behind<E: From<StoreError>>(
+        &self,
+        store: &Store,
+        now: &str,
+        mut each: impl FnMut(Vec<RunRow>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut from = match self {
+            Pages::Summary(kept) => kept.past.clone(),
+            Pages::Kept { .. } => None,
+        };
+        while let Some((at, key)) = from.take() {
+            let (listed, beyond) = store.behind(Some((at, &key)), brokkr_view::AHEAD_ROWS)?;
+            let mut rows = Vec::with_capacity(listed.len());
+            for (_, run_id) in &listed {
+                rows.push(read_whole(store, run_id)?.0);
+            }
+            from = listed.into_iter().last().filter(|_| beyond > 0);
+            each(brokkr_view::in_sections(rows, now))?;
+        }
+        Ok(())
+    }
+
     /// Whether the last refresh read run `run_id` whole.
     pub(crate) fn was_read_whole(&self, run_id: &str) -> bool {
         match self {
@@ -200,7 +241,8 @@ impl Behind {
         if !self.stands_on(before) {
             self.runs.clear();
         }
-        let (listed, unread) = store.behind(limit)?;
+        let (listed, unread) = store.behind(None, limit)?;
+        self.past = listed.last().filter(|_| unread > 0).cloned();
         let mut kept: HashMap<String, RunRow> = self
             .rows
             .drain(..)
@@ -209,7 +251,7 @@ impl Behind {
         let mut heads = std::mem::take(&mut self.runs);
         self.whole.clear();
         let mut read = 0;
-        for run_id in listed {
+        for (_, run_id) in listed {
             let head = store.head_hash(&run_id)?;
             let row = match (heads.remove(&run_id), kept.remove(&run_id)) {
                 (Some(at), Some(row)) if at == head => row,

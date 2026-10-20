@@ -46,13 +46,31 @@ pub(crate) struct Window {
     pub filter: String,
 }
 
-/// How far the fleet's list has scrolled: the key past each page it has
-/// scrolled beyond, in order, under the filter it scrolled with. It reads
-/// from the last; a list under another filter reads from its top.
+/// How far the fleet's list has scrolled: the key past each of the last
+/// [`SCROLL_BACK`] pages it has scrolled beyond, in order, under the filter
+/// it scrolled with. It reads from the last; a list under another filter
+/// reads from its top.
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 pub(crate) struct Scrolled {
     pub filter: String,
     pub past: Vec<brokkr_view::Cursor>,
+}
+
+/// How many pages back the list keeps the keys to step to, so what it
+/// holds does not grow with how far it scrolls (decision 0089 rulings 6
+/// and 9). A step back past them reaches its top, until the fleet's last
+/// page by the reverse order, a later slice's, reads back by keyset.
+pub(crate) const SCROLL_BACK: usize = 8;
+
+impl Scrolled {
+    /// The list scrolled past the page `ahead` ends, keeping the keys of
+    /// the last [`SCROLL_BACK`] pages alone.
+    pub(crate) fn passed(&mut self, ahead: brokkr_view::Cursor) {
+        if self.past.len() == SCROLL_BACK {
+            self.past.remove(0);
+        }
+        self.past.push(ahead);
+    }
 }
 
 /// The runs a frame's pages did not read: the older ones past them,

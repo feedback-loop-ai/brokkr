@@ -63,9 +63,10 @@ fn refused(line: &[&str]) -> Vec<String> {
 /// head edited, whose summary row the page's head check passes, is
 /// refused by every readout of that run in the store's words — the
 /// console's opened run, on a journal the summary pages and on one it does
-/// not, shows it quarantined and draws no run — and the run beside it
-/// reads. `/api/view` and the participant routes refuse it as a run they
-/// do not serve.
+/// not, shows it quarantined and draws no run; `/api/view`, the
+/// participant presentation and the transcript refuse it in the same
+/// words, where a run the journal does not hold is not found — and the
+/// run beside it reads.
 #[test]
 fn a_corrupt_run_is_refused_wherever_it_is_opened() {
     let dir = tempfile::tempdir().unwrap();
@@ -119,11 +120,21 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
         };
         assert_eq!(refused(line), words, "{line:?}");
     }
-    let view = crate::ui::handle(&db, "/api/view/r1");
-    assert_eq!(
-        (view.status, view.body.as_str()),
-        ("404 Not Found", r#"{"error":"r1 not found"}"#)
-    );
+    let served = serde_json::json!({ "error": EDITED }).to_string();
+    for route in [
+        "/api/view/r1",
+        "/api/presentation/r1/work",
+        "/api/transcript/r1/work",
+    ] {
+        let refused = crate::ui::handle(&db, route);
+        assert_eq!(
+            (refused.status, refused.body.as_str()),
+            ("500 Internal Server Error", served.as_str()),
+            "{route}"
+        );
+    }
+    let missing = crate::ui::handle(&db, "/api/view/r3");
+    assert_eq!(missing.body, r#"{"error":"r3 not found"}"#);
     assert!(Store::open_read_only(&db).unwrap().pages().unwrap());
     let quarantined = (false, Some(EDITED), Some(Quarantine::DoesNotLoad));
     let (drawn, row) = opened_in_the_console(&db);

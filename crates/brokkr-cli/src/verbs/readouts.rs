@@ -284,16 +284,11 @@ pub(crate) fn hearth_runs(
     // and the rest of the fleet is still listed. The journal is
     // never touched — the refusal is reported. Read a page at a time
     // from the summary; a journal the summary does not page yet is read
-    // the kept way (#744). The listing of every run reads every run
-    // behind the summary whole, so it lists each; one page reads at most
-    // a page and one ahead of them, and counts the rest (ruling 6).
-    let behind = match (limit, after) {
-        (None, None) => usize::MAX,
-        _ => fleet::AHEAD_ROWS,
-    };
-    let mut pages = fleet::Pages::default();
-    pages
-        .refresh(&store, before, behind)
+    // the kept way (#744). A refresh reads at most a page and one ahead
+    // of the runs behind the summary whole and counts the rest; the
+    // listing of every run then lists the rest a refresh's worth at a
+    // time (ruling 6).
+    let pages = fleet::Pages::listing(&store, before)
         .map_err(|error| anyhow::Error::msg(error.to_string()))?;
     let now = now_rfc3339();
     let listing = fleet::Lister {

@@ -23,8 +23,9 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::fold::fold;
+use brokkr_core::EventEnvelope;
 use brokkr_protocol::overrides::{self, Override, OverrideError};
-use brokkr_store::Store;
+use brokkr_store::{Store, StoreError};
 use brokkr_view::transcript::{Selection, ValidReference};
 use serde_json::{json, Value};
 
@@ -80,17 +81,13 @@ fn runs(db: &Path, store: &Store, query: Option<&str>) -> Response {
         Ok(asked) => asked,
         Err(refused) => return bad_request(refused.to_string()),
     };
-    // Every run lists each run behind the summary, read whole; a page
-    // reads at most a page and one ahead of them, and counts the rest
-    // (decision 0089 ruling 6).
-    let behind = match asked {
-        None => usize::MAX,
-        Some(_) => crate::fleet::AHEAD_ROWS,
+    // A refresh reads at most a page and one ahead of the runs behind the
+    // summary and counts the rest, which every run lists a refresh's
+    // worth at a time (decision 0089 ruling 6).
+    let pages = match crate::fleet::Pages::listing(store, crate::fleet::Journal::at(db)) {
+        Ok(pages) => pages,
+        Err(error) => return server_error(error.to_string()),
     };
-    let mut pages = crate::fleet::Pages::default();
-    if let Err(error) = pages.refresh(store, crate::fleet::Journal::at(db), behind) {
-        return server_error(error.to_string());
-    }
     let now = crate::now_rfc3339();
     let lister = crate::fleet::Lister {
         pages: &pages,
@@ -178,9 +175,9 @@ pub fn handle(db: &Path, path: &str) -> Response {
         return runs(db, &store, query.strip_prefix('?'));
     }
     if let Some(run_id) = path.strip_prefix("/api/view/") {
-        let events = match store.load(run_id) {
+        let events = match opened(&store, run_id) {
             Ok(events) => events,
-            Err(_) => return not_found(run_id),
+            Err(refusal) => return refusal.response(run_id),
         };
         let state = fold(&events).ok();
         let view = brokkr_view::run_view(&events, state.as_ref()).with_scopes();
@@ -309,10 +306,15 @@ fn presentation_payload(participant: &brokkr_view::Participant) -> Value {
     })
 }
 
-/// Why a participant route answers for no participant.
+/// Why a route that opens a run answers for no run or participant.
 enum RouteRefusal {
     /// The route, its run or its participant is not there.
     Missing,
+    /// The run is there, and the store refuses to open it: its chain does
+    /// not verify, or a row of it does not read. Every route that opens a
+    /// run refuses it in the store's words and reads nothing, as each of
+    /// the run's verbs does (decision 0089 ruling 5).
+    Unopened(StoreError),
     /// The run's journal loads and does not fold. That is fatal to the
     /// run's own verbs (`fleet.rs`), so every participant route refuses it
     /// in the fold's words, as `brokkr transcript` does, and reads nothing.
@@ -324,9 +326,19 @@ impl RouteRefusal {
     fn response(self, missing: &str) -> Response {
         match self {
             RouteRefusal::Missing => not_found(missing),
+            RouteRefusal::Unopened(error) => server_error(error.to_string()),
             RouteRefusal::Unfoldable(error) => server_error(error.to_string()),
         }
     }
+}
+
+/// Run `run_id`'s events, its chain read whole and verified: missing when
+/// the journal holds no such run, and the store's refusal otherwise.
+fn opened(store: &Store, run_id: &str) -> Result<Vec<EventEnvelope>, RouteRefusal> {
+    store.load(run_id).map_err(|error| match error {
+        StoreError::RunNotFound(_) => RouteRefusal::Missing,
+        refused => RouteRefusal::Unopened(refused),
+    })
 }
 
 /// The participant a `<run>/<key>` route names, the three participant
@@ -336,7 +348,7 @@ fn route_participant(
     rest: &str,
 ) -> Result<(String, brokkr_view::Participant), RouteRefusal> {
     let (run_id, participant_key) = route_components(rest).ok_or(RouteRefusal::Missing)?;
-    let events = store.load(&run_id).map_err(|_| RouteRefusal::Missing)?;
+    let events = opened(store, &run_id)?;
     let state = fold(&events).map_err(RouteRefusal::Unfoldable)?;
     let view = brokkr_view::run_view(&events, Some(&state));
     let participant = view

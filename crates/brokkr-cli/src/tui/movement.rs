@@ -141,9 +141,11 @@ pub(crate) fn asked_window(tui: &Tui) -> Window {
 
 /// The list's window follows its cursor by keyset: onto the page ahead
 /// once the cursor reaches it, back a page when the cursor steps up off
-/// the window's first row, and to the top on `g` or a wrap down past its
-/// last. It moves over the frame of the window it asked for alone, so a
-/// key pressed before that frame arrives moves it once. The fleet's last
+/// the window's first row, to the top once it steps back past the
+/// [`SCROLL_BACK`](super::state::SCROLL_BACK) pages it keeps keys for,
+/// and on `g` or a wrap down past its last. It moves over the frame of
+/// the window it asked for alone, so a key pressed before that frame
+/// arrives moves it once. The fleet's last
 /// page by the reverse order is a later slice's: `G` and a wrap up reach
 /// the window's last row, a page further each time.
 fn follow(tui: &mut Tui, views: &Views, (keys, from): (&[String], Option<usize>), step: Step) {
@@ -180,7 +182,7 @@ fn follow(tui: &mut Tui, views: &Views, (keys, from): (&[String], Option<usize>)
                     past: Vec::new(),
                 };
             }
-            tui.scrolled.past.push(ahead.clone());
+            tui.scrolled.passed(ahead.clone());
         }
     }
 }

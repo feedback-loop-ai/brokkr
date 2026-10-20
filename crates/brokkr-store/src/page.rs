@@ -18,7 +18,7 @@ use brokkr_core::fold::Status;
 use brokkr_core::page::{newest_first, Bound, Copied, Lane, Range, Row, Whole};
 use brokkr_core::policy::Severity;
 use brokkr_core::summary::{Bounded, Hired, Refused, Ruled, Stated};
-use rusqlite::{params, OptionalExtension, ToSql};
+use rusqlite::{OptionalExtension, ToSql};
 use thiserror::Error;
 
 use crate::acknowledgement::standing;
@@ -333,29 +333,45 @@ impl Store {
         Ok((seq, hash.as_str()) == folded)
     }
 
-    /// The first `limit` runs of the `behind` lane, newest first, and how
-    /// many more it holds, counted by the index alone.
-    pub fn behind(&self, limit: usize) -> Result<(Vec<String>, u64), StoreError> {
+    /// The first `limit` runs of the `behind` lane below `after`, newest
+    /// first, each at the place its row stands, and how many more it holds
+    /// below `after`, counted by the index alone.
+    pub fn behind(
+        &self,
+        after: Option<(i64, &str)>,
+        limit: usize,
+    ) -> Result<(Vec<(i64, String)>, u64), StoreError> {
         let behind = Range {
             lane: Lane::Behind,
             bound: None,
         };
-        let listed: Vec<String> = self
+        let (filter, mut bound) = filter(&behind, after);
+        bound.push(Box::new(i64::try_from(limit).unwrap_or(i64::MAX)));
+        let sql = format!(
+            "SELECT order_at, run_id FROM run_summary WHERE {filter} {ORDER} LIMIT ?{}",
+            bound.len()
+        );
+        let listed: Vec<(i64, String)> = self
             .conn
-            .prepare(&format!(
-                "SELECT run_id FROM run_summary WHERE lane = ?1 {ORDER} LIMIT ?2"
-            ))?
-            .query_map(params![Lane::Behind.as_str(), limit as i64], |row| {
-                row.get(0)
+            .prepare(&sql)?
+            .query_map(values(&bound).as_slice(), |row| {
+                Ok((row.get(0)?, row.get(1)?))
             })?
             .collect::<Result<_, _>>()?;
-        let beyond = self.counted(&behind)?.saturating_sub(listed.len() as u64);
+        let beyond = self
+            .counted_below(&behind, after)?
+            .saturating_sub(listed.len() as u64);
         Ok((listed, beyond))
     }
 
     /// How many rows `range` holds, counted by the index alone.
     pub fn counted(&self, range: &Range) -> Result<u64, StoreError> {
-        let (filter, bound) = filter(range, None);
+        self.counted_below(range, None)
+    }
+
+    /// How many rows `range` holds below `after`, counted by the index.
+    fn counted_below(&self, range: &Range, after: Option<(i64, &str)>) -> Result<u64, StoreError> {
+        let (filter, bound) = filter(range, after);
         let count: i64 = self.conn.query_row(
             &format!("SELECT count(*) FROM run_summary WHERE {filter}"),
             values(&bound).as_slice(),

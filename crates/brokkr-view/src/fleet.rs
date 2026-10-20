@@ -787,8 +787,8 @@ pub fn fleet_rows(hearths: &[HearthEntries]) -> FleetView {
 mod page;
 use page::order_at;
 pub use page::{
-    behind_line, page, ranges, section_of_rows, summary_row, window, Cursor, CursorError, Page,
-    Paged, AHEAD_ROWS, PAGE_ROWS,
+    behind_line, in_sections, page, ranges, section_of_rows, summary_row, window, Cursor,
+    CursorError, Page, Paged, AHEAD_ROWS, PAGE_ROWS,
 };
 
 #[cfg(test)]

@@ -1,8 +1,10 @@
 //! `brokkr runs` read and written a page at a time (decision 0089 ruling
 //! 6), so its memory is a page of rows and the largest run's whole values
 //! however many runs the hearth holds. With no flag it lists every run, in
-//! the shape it always printed; `--limit` prints one page, `--after` the
-//! page after a cursor, and their JSON states `next`.
+//! the shape it always printed, and the runs behind their summary past the
+//! hundred its pages place after them, a hundred at a time; `--limit`
+//! prints one page, `--after` the page after a cursor, and their JSON
+//! states `next`.
 
 use std::io::Write;
 
@@ -63,7 +65,9 @@ impl Lister<'_> {
         page.map_err(|error| anyhow::Error::msg(error.to_string()))
     }
 
-    /// Every page from the first, each handed to `each` in turn.
+    /// Every page from the first, each handed to `each` in turn, then the
+    /// runs behind their summary past those the pages placed, a refresh's
+    /// worth at a time, each batch in its folds' order (ruling 6).
     fn each_page(&self, mut each: impl FnMut(Vec<RunRow>) -> Result<()>) -> Result<()> {
         let mut after = None;
         loop {
@@ -71,9 +75,10 @@ impl Lister<'_> {
             each(page.rows.into_iter().map(|(_, row)| row).collect())?;
             match page.next {
                 Some(next) => after = Some(next),
-                None => return Ok(()),
+                None => break,
             }
         }
+        self.pages.each_past_behind(self.store, self.now, each)
     }
 
     /// Every run, the sections in order, read a page at a time.

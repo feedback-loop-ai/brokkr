@@ -268,8 +268,7 @@ pub struct Page {
 /// at most as many as asked. One row past the page is asked for, so a
 /// page that ends where the fleet does states no next page. The page is
 /// read, and its `next` stated, by where `read` read each row; a row it
-/// read whole then lists by its fold at `now`, where no earlier page has
-/// passed that place (decision 0089 ruling 5).
+/// read whole then lists by its fold at `now` (decision 0089 ruling 5).
 pub fn page<E>(
     after: Option<&Cursor>,
     (limit, now): (usize, &str),
@@ -312,7 +311,7 @@ pub fn window<E>(
         false => None,
     };
     let ahead = ahead.map(|(section, row)| Cursor::past(*section, row));
-    placed(&mut rows, after, now);
+    placed(&mut rows, now);
     Ok((Page { rows, next }, ahead))
 }
 
@@ -328,29 +327,21 @@ impl Cursor {
     }
 }
 
-/// `rows`, read in their sections' order past `after`, as they list at
-/// `now` (decision 0089 ruling 5): a row read whole lists by its fold, in
-/// the section [`super::section_of`] places it in and at its own key,
-/// wherever that is past `after`, the place the page began at. One whose
-/// own place an earlier page has passed lists where it was read, so the
-/// page that read it lists it, and lists it once.
-fn placed(rows: &mut [(Section, RunRow)], after: Option<&Cursor>, now: &str) {
-    let began = after.map(|after| {
-        let place = (after.order_at, after.run_id.as_str());
-        (rank(after.section), newest_first(place))
-    });
+/// `rows`, read in their sections' order, as they list at `now` (decision
+/// 0089 ruling 5): a row read whole lists by its fold, in the section
+/// [`super::section_of`] places it in and at its own key, on whichever
+/// page read it. The page's cursors are cut from where each row was read
+/// before it is placed, so the page that read a row lists it, and lists
+/// it once.
+fn placed(rows: &mut [(Section, RunRow)], now: &str) {
     let mut moved = false;
     for (section, row) in rows.iter_mut() {
         if row.paged_at.is_none() {
             continue;
         }
-        let own = super::section_of(row, now);
-        let at = (rank(own), newest_first((row.order_at, row.run_id.as_str())));
-        if began.as_ref().is_none_or(|began| at > *began) {
-            *section = own;
-            row.paged_at = None;
-            moved = true;
-        }
+        *section = super::section_of(row, now);
+        row.paged_at = None;
+        moved = true;
     }
     // Sorted only when a row moved: a page with none allocates nothing.
     if moved {
@@ -359,6 +350,16 @@ fn placed(rows: &mut [(Section, RunRow)], after: Option<&Cursor>, now: &str) {
             a.cmp(&(rank(*b), newest_first(row_b.place())))
         });
     }
+}
+
+/// `rows` in the order a fleet read whole lists them at `now`: the
+/// sections in [`Section::ORDER`], each newest first.
+pub fn in_sections(mut rows: Vec<RunRow>, now: &str) -> Vec<RunRow> {
+    rows.sort_by(|a, b| {
+        let a_at = (rank(super::section_of(a, now)), newest_first(a.place()));
+        a_at.cmp(&(rank(super::section_of(b, now)), newest_first(b.place())))
+    });
+    rows
 }
 
 /// Up to `wanted` of `rows`, listed whole and in their order, that list

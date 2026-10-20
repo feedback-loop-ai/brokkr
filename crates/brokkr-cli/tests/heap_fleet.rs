@@ -83,7 +83,9 @@ impl Cost {
     }
 }
 
-/// How many pages down the list is scrolled when its deep window is read.
+/// How many pages down the list is scrolled when its deep window is read:
+/// past the eight pages the console keeps the keys of, so the deep window
+/// and the one twice as deep hold as many keys.
 const DEEP: usize = 12;
 
 /// How many times the painted frame is read; its peak is the least.
@@ -122,16 +124,15 @@ fn scrolled(db: &Path, pages: usize, all: bool) -> FleetScroll {
 }
 
 /// Brokkr's peak heap to read and derive the console's window over `db`
-/// as `scroll` stands, which lists the page there and the one ahead, and
-/// SQLite's high-water above where it stood before the window's open. The
-/// window is asked before the read is measured: the keys the list keeps
-/// to scroll back by are the console's, not the frame's.
+/// as `scroll` stands, which lists the page there and the one ahead, with
+/// the keys the console keeps to step back by held while it reads, and
+/// SQLite's high-water above where it stood before the window's open.
 fn window_cost(db: &Path, scroll: &FleetScroll) -> (u64, u64) {
-    let window = fleet_window_for_budget(scroll);
     let (base, _) = sqlite_memory(true);
     let mut listed = 0;
     let peak = peak_of(|| {
-        let (runs, _) = brokkr_cli::fleet_page_for_budget(db, NOW, &window).unwrap();
+        let list = fleet_window_for_budget(scroll);
+        let (runs, _) = brokkr_cli::fleet_page_for_budget(db, NOW, &list).unwrap();
         listed = runs.count;
     });
     let (_, high) = sqlite_memory(false);
@@ -183,9 +184,11 @@ fn first_page_micros(db: &Path) -> u128 {
 /// byte at 10,000 and 1,000,000 events, and the same with its widest rows
 /// stretched a mebibyte past their bounds as with each value cut to
 /// exactly its bound, so the bound is what holds it. The console's window
-/// scrolled deep holds the same to the byte as one twice as deep with `a`
-/// pressed, at both sizes: it reads by keyset, and neither scrolling nor
-/// `a` grows what a frame reads (ruling 6). Every window holds within the
+/// scrolled deep, with the keys the console keeps to step back by, holds
+/// the same to the byte as one twice as deep with `a` pressed, at both
+/// sizes: it reads by keyset and keeps the keys of a bounded number of
+/// pages, so neither scrolling nor `a` grows what the console holds to
+/// read a frame (ruling 6). Every window holds within the
 /// budget ruling 9 caps at 256 KiB, one whose every row fills every bound
 /// within 640 KiB, and SQLite's high-water within 400 KiB; each budget
 /// sits at or under its cap. The painted frame, which adds ratatui's

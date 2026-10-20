@@ -334,11 +334,11 @@ fn a_page_carries_on_where_its_cursor_ended() {
 }
 
 /// Ruling 5: a row a page read whole lists in the section its fold
-/// places it in, at its own key, while the page has not passed that
-/// place, and where it was read once an earlier page has; the page's
-/// `next` is where it was read, as is a cut id's, its whole id.
+/// places it in, at its own key, on whichever page read it, past the
+/// first page as on it; the page's `next` is where it was read, as is a
+/// cut id's, its whole id; and a walk a row a page lists every row once.
 #[test]
-fn a_row_read_whole_lists_by_its_fold_where_its_page_has_not_passed_it() {
+fn a_row_read_whole_lists_by_its_fold_on_every_page() {
     let mut whole = listed("w", 8);
     whole.paged_at = Some((7, "w".to_string()));
     let mut cut = listed("x…", 6);
@@ -359,7 +359,7 @@ fn a_row_read_whole_lists_by_its_fold_where_its_page_has_not_passed_it() {
     let next = first.next.unwrap();
     assert_eq!(next.to_string(), "recent:7:w");
     let second = page(Some(&next), (1, NOW), read).unwrap();
-    assert_eq!(ids(&second), [(Section::Recent, "x…".to_string())]);
+    assert_eq!(ids(&second), [(Section::NeedsYou, "x…".to_string())]);
     let past = second.next.unwrap();
     assert_eq!(past.to_string(), format!("recent:6:{}", "x".repeat(200)));
     let begun = Cursor {
@@ -368,12 +368,24 @@ fn a_row_read_whole_lists_by_its_fold_where_its_page_has_not_passed_it() {
         run_id: "z".to_string(),
     };
     let late = page(Some(&begun), (5, NOW), read).unwrap();
-    let read_there = [
-        (Section::Recent, "w".to_string()),
-        (Section::Recent, "x…".to_string()),
+    let by_fold = [
+        (Section::NeedsYou, "w".to_string()),
+        (Section::NeedsYou, "x…".to_string()),
         (Section::Recent, "c".to_string()),
     ];
-    assert_eq!(ids(&late), read_there);
+    assert_eq!(ids(&late), by_fold);
+    let mut walked = Vec::new();
+    let mut after = None;
+    loop {
+        let one = page(after.as_ref(), (1, NOW), read).unwrap();
+        walked.extend(ids(&one));
+        match one.next {
+            Some(next) => after = Some(next),
+            None => break,
+        }
+    }
+    let every = [(Section::NeedsYou, "a".to_string())].into_iter();
+    assert_eq!(walked, every.chain(by_fold).collect::<Vec<_>>());
 }
 
 /// A fleet read whole pages as the summary does: its rows of one
