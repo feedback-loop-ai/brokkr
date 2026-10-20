@@ -173,7 +173,7 @@ This visit changed only this file. No production or test file moved.
 | Finding | Disposition | Removal control |
 | --- | --- | --- |
 | M2 MEDIUM: the refusal cause | Unchanged: the operator-ruled gap of run 3's table, owed to seat-record v7. It is not fixed and not waived. | None. |
-| LOW: a model-supplied tool name outside v6's vocabulary fails the attempt at the fence | Carried as "Notes for review" says, already bound by `a_checkpoint_the_fence_refuses_…` (R17). The only honest v6 row names the tool the model asked for. Any substitute name would invent evidence, and leaving the row out would drop an accepted call (CC2). The broker could refuse such a name before it accepts the call, but that is brokkr-cli's or the protocol's, outside this row. | R17 (run 3). |
+| LOW: an accepted call's tool name that secret masking rewrites outside v6's vocabulary fails the attempt at the fence | Carried as "Notes for review" says. An ordinary request never reaches the fence with such a name: the broker's request decoder refuses a name outside the vocabulary or over 256 bytes before it accepts the call (brokkr-cli `broker/rpc/calls/request.rs`, `called`). Only masking can turn a valid accepted name into `[secret:…]` or `[secret]`, which v6 cannot carry. `a_checkpoint_the_fence_refuses_…` (R17) lays such a malformed ledger down directly, past the decoder: it proves the fence's refusal, not its composition with masking, whose ledger side the CLI's masking control proves. The only honest v6 row names the recorded tool. Any substitute name would invent evidence, and leaving the row out would drop an accepted call (CC2). | R17 (run 3). |
 | LOW: a journal conflict is reported as `Invalid::Conflict`, whose text names the broker ledger | Carried. CR4 says "conflicts use CR3's conflicting-duplicate cause" (capability-response-retention spec, lines 288–290), and its commit-before-ack scenario requires a different outcome or digest for one call id to refuse "the conflicting-duplicate cause" (line 315). So one cause covers both sources. A runtime-only variant with other text would break that settled contract, so the diagnostic imprecision is left for the design to rule. Fold tests pin the text once (`CONFLICT`, fold/tests.rs:701). | R1–R6 (run 3). |
 | L3 LOW and the inherited LOWs | Carried, as run 3 and the commission state. | None. |
 | LOW: imperative directions in panel notes | About the review's inputs, not this change. No action. | None. |
@@ -288,8 +288,23 @@ the attempt can lie before it: it is taken before the driver spawns. A
 store failure taking it, on a brokered site only, is an engine error before
 spawn.
 
-A refused call whose model-supplied tool falls outside seat-record v6's
-tool vocabulary is refused by the append fence and fails the attempt
-(`a_checkpoint_the_fence_refuses_…`); its evidence stays in the ledger.
-That is fail-closed, but it lets a model's tool name fail its own attempt;
-it is named as a follow-up, not changed here.
+A tool name outside seat-record v6's vocabulary or over its 256-byte bound
+never reaches a checkpoint from an ordinary request: the broker's request
+decoder refuses it before it accepts the call. A call whose valid name
+secret masking recorded as `[secret:…]` or `[secret]` does reach the fold.
+The append fence refuses its row and fails the attempt, and its evidence
+stays in the ledger. `a_checkpoint_the_fence_refuses_…` builds that
+malformed ledger directly. That is fail-closed, but it lets masking fail an
+attempt whose call was accepted. It is named as a follow-up, not changed
+here.
+
+## The controller's correction at landing
+
+The third review (seq 1598) kept the M2 medium, which operator ruling 3
+carries to seat-record v7. Its evidence finding said this file presented
+invalid model tool names as accepted until the append fence. The
+controller checked `called` in brokkr-cli's `broker/rpc/calls/request.rs`,
+which refuses them before acceptance, and corrected the two passages above
+so they name masking as the only way to the fence. Only this file changed.
+The operator ruled that U8d lands by hand with M2 carried, as the PR's
+`Ruling:` lines record.
