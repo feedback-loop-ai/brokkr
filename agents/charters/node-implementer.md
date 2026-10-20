@@ -42,7 +42,9 @@ Result:
 - `broken` — you could not get it working; `notes` must name the specific gap
   so a re-run can address it.
 - `blocked` — something outside your control prevents the work; `notes` names
-  the blocker precisely.
+  the blocker precisely, and `inputs.blocked_by` its kind: `environment` (a
+  signing key, a tool, a capability your box refused), which the operator
+  fixes and retries you, or `work` (a contradictory framing or specification).
 - `oversized` — the work exceeds the delivery class triage ruled; name the
   mismatch so the bounded return to triage can rule again.
 

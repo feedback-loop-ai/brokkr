@@ -259,25 +259,25 @@ fn presence_is_reported_for_the_heritage_table_alone() {
 fn the_unruled_valuations_are_pinned_per_table() {
     let expected: BTreeMap<&str, (usize, usize)> = BTreeMap::from([
         ("policy/phase-machine.json", (57, 0)),
-        ("recipes/self", (47, 0)),
+        ("recipes/self", (48, 0)),
         ("recipes/verify", (16, 0)),
-        ("recipes/brokkr-fast", (46, 0)),
-        ("recipes/fast", (46, 0)),
-        ("recipes/landing", (48, 0)),
-        ("recipes/night-shift", (1072, 0)),
-        ("recipes/node", (46, 0)),
-        ("recipes/panel-review", (47, 0)),
+        ("recipes/brokkr-fast", (47, 0)),
+        ("recipes/fast", (47, 0)),
+        ("recipes/landing", (49, 0)),
+        ("recipes/night-shift", (1073, 0)),
+        ("recipes/node", (47, 0)),
+        ("recipes/panel-review", (48, 0)),
         ("recipes/preflight", (16, 0)),
-        ("recipes/release", (46, 0)),
+        ("recipes/release", (47, 0)),
         ("recipes/research", (5, 0)),
         ("recipes/research-dsh", (5, 0)),
-        ("recipes/review-first", (46, 0)),
-        ("recipes/standby", (46, 0)),
-        ("recipes/gpt-flash", (1072, 0)),
-        ("recipes/triage", (1072, 0)),
-        ("recipes/wager-harness", (46, 0)),
-        ("recipes/wager-harness-dsh", (46, 0)),
-        ("recipes/wager-harness-muse", (46, 0)),
+        ("recipes/review-first", (47, 0)),
+        ("recipes/standby", (47, 0)),
+        ("recipes/gpt-flash", (1073, 0)),
+        ("recipes/triage", (1073, 0)),
+        ("recipes/wager-harness", (47, 0)),
+        ("recipes/wager-harness-dsh", (47, 0)),
+        ("recipes/wager-harness-muse", (47, 0)),
     ]);
     let tables = shipped_tables();
     let labels: BTreeSet<&str> = tables.iter().map(|t| t.label.as_str()).collect();
@@ -345,6 +345,54 @@ fn a_residual_rated_none_is_ruled_by_its_named_rule() {
     for (label, outcome) in ruled {
         assert_eq!(outcome, fast, "{label}");
     }
+}
+
+/// Decision 0090's two blockers, each ruled by its named rule in every
+/// table that rules a blocked implementer: an environment block parks
+/// with `IMPL-BLOCKED-ENVIRONMENT`, while a work block, and a blocked
+/// seat that names no blocker, stop hard at `IMPL-BLOCKED` as before.
+/// `recipes/fast` carries both once, and composition carries them to
+/// every recipe that extends fast; the frozen heritage table keeps its
+/// own stop.
+#[test]
+fn a_blocked_implementer_is_ruled_by_what_blocked_it() {
+    let parked = Outcome::Park {
+        rule_id: "IMPL-BLOCKED-ENVIRONMENT".into(),
+        reason: "The implementer's environment blocked it (a signing key, a tool, a \
+                 capability its box refused); the run parks with the seat's notes, so the \
+                 operator fixes the environment and retries this seat with the earlier \
+                 phases' results intact (decision 0090)."
+            .into(),
+    };
+    let stopped = Outcome::Ruling {
+        rule_id: "IMPL-BLOCKED".into(),
+        next_phase: "stop".into(),
+        severity: "hard".into(),
+        reason: "Implementer blocked; report the blocker, never silently continue.".into(),
+        requires_artifacts: Vec::new(),
+    };
+    let mut blocking = BTreeSet::new();
+    for t in shipped_tables() {
+        let rules = &t.machine.rules;
+        let blocked = rules
+            .iter()
+            .any(|r| r.from == "implement" && r.result == "blocked");
+        if t.label == "policy/phase-machine.json" || !blocked {
+            continue;
+        }
+        for (inputs, expected) in [
+            (json!({"blocked_by": "environment"}), &parked),
+            (json!({"blocked_by": "work"}), &stopped),
+            (json!({}), &stopped),
+        ] {
+            let outcome = t
+                .machine
+                .evaluate("implement", "blocked", inputs.as_object().unwrap());
+            assert_eq!(&outcome, expected, "{} at {inputs}", t.label);
+        }
+        blocking.insert(t.label);
+    }
+    assert_eq!(blocking.len(), 15, "{blocking:?}");
 }
 
 /// The compiler's refusal, on a shipped table: `recipes/self` without its

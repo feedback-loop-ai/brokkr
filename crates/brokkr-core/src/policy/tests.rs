@@ -1,3 +1,4 @@
+use super::inputs::BLOCKERS;
 use super::*;
 use serde_json::json;
 
@@ -299,37 +300,35 @@ fn counter_introspection_is_scoped_to_the_rules_phase() {
 /// and malformed table vocabulary all fail closed.
 #[test]
 fn strategy_in_has_one_table_arm_for_every_triage_class() {
-    for strategy in STRATEGIES {
-        let mut value = table(rule());
-        value["rules"][0]["when"] = json!({"strategy_in": [strategy]});
-        let machine = Machine::from_table(&value).unwrap();
+    one_arm_per_word("strategy_in", "strategy", "unknown", &STRATEGIES);
+}
 
-        let matching = json!({"strategy": strategy}).as_object().unwrap().clone();
+/// A choice condition `key` over the input `name`: one table arm per word
+/// of `vocabulary`, ruling where `name` holds that word and nowhere else,
+/// absence included; and every refusal of a table that writes `key`
+/// wrongly, or of a value of `name` the vocabulary cannot read.
+fn one_arm_per_word(key: &str, name: &str, outside: &str, vocabulary: &'static [&str]) {
+    let given = |word: &str| json!({ name: word }).as_object().unwrap().clone();
+    for word in vocabulary {
+        let mut value = table(rule());
+        value["rules"][0]["when"] = json!({ key: [word] });
+        let machine = Machine::from_table(&value).unwrap();
         assert!(matches!(
-            machine.evaluate("work", "complete", &matching),
+            machine.evaluate("work", "complete", &given(word)),
             Outcome::Ruling { .. }
         ));
-        let other = STRATEGIES
-            .iter()
-            .copied()
-            .find(|candidate| *candidate != strategy)
-            .unwrap();
-        let nonmatching = json!({"strategy": other}).as_object().unwrap().clone();
-        assert_eq!(
-            machine.evaluate("work", "complete", &nonmatching),
-            Outcome::Unmatched
-        );
-        assert_eq!(
-            machine.evaluate("work", "complete", &Map::new()),
-            Outcome::Unmatched
-        );
+        let other = vocabulary.iter().find(|other| *other != word).unwrap();
+        for unmatched in [given(other), Map::new()] {
+            let outcome = machine.evaluate("work", "complete", &unmatched);
+            assert_eq!(outcome, Outcome::Unmatched, "{key} at {unmatched:?}");
+        }
     }
 
-    enum_condition_refusals("strategy_in", "feature", "unknown", &STRATEGIES);
+    enum_condition_refusals(key, vocabulary[0], outside, vocabulary);
     let mut value = table(rule());
-    value["rules"][0]["when"] = json!({"strategy_in": ["feature"]});
+    value["rules"][0]["when"] = json!({ key: [vocabulary[0]] });
     let machine = Machine::from_table(&value).unwrap();
-    enum_input_refusals(&machine, "strategy", "unknown", &STRATEGIES);
+    enum_input_refusals(&machine, name, outside, vocabulary);
 }
 
 /// The three ways a table writes an enumeration condition it may not:
@@ -396,32 +395,15 @@ fn enum_input_refusals(machine: &Machine, name: &str, outside: &str, vocabulary:
 /// each artifact phase is selected by the same closed enum condition.
 #[test]
 fn drift_in_has_one_table_arm_for_every_artifact_phase() {
-    for phase in DRIFT_PHASES {
-        let mut value = table(rule());
-        value["rules"][0]["when"] = json!({"drift_in": [phase]});
-        let machine = Machine::from_table(&value).unwrap();
-        let matching = json!({"drift_in": phase}).as_object().unwrap().clone();
-        assert!(matches!(
-            machine.evaluate("work", "complete", &matching),
-            Outcome::Ruling { .. }
-        ));
-        let other = DRIFT_PHASES
-            .iter()
-            .copied()
-            .find(|candidate| *candidate != phase)
-            .unwrap();
-        let nonmatching = json!({"drift_in": other}).as_object().unwrap().clone();
-        assert_eq!(
-            machine.evaluate("work", "complete", &nonmatching),
-            Outcome::Unmatched
-        );
-    }
+    one_arm_per_word("drift_in", "drift_in", "implement", &DRIFT_PHASES);
+}
 
-    enum_condition_refusals("drift_in", "design", "implement", &DRIFT_PHASES);
-    let mut value = table(rule());
-    value["rules"][0]["when"] = json!({"drift_in": ["design"]});
-    let machine = Machine::from_table(&value).unwrap();
-    enum_input_refusals(&machine, "drift_in", "implement", &DRIFT_PHASES);
+/// Decision 0090: a blocked seat names what blocked it, its environment
+/// or the work, and a table selects each blocker by the same closed
+/// enum condition; a seat that names neither is selected by neither.
+#[test]
+fn blocked_by_in_has_one_table_arm_for_every_blocker() {
+    one_arm_per_word("blocked_by_in", "blocked_by", "signing", &BLOCKERS);
 }
 
 /// Decision 0022's rule-driven park. A park is not a stop, so a table
@@ -1351,7 +1333,7 @@ fn threshold_faults() -> Vec<Faulty> {
                 rule: work_done(),
                 key: "bogus".into(),
             },
-            r#"rule WORK-DONE: unknown condition key 'bogus'; known: ["skip_verify", "fixes_applied", "spec_defect", "has_security_residual", "high_risk_uncovered", "drift_detected", "dirty_worktrees", "fixes_docs_only"] plus strategy_in over ["chore", "feature", "design", "engine", "escalate"], *_gte over ["consecutive_failures"] and *_above/*_at_most over ["max_residual_severity"]"#,
+            r#"rule WORK-DONE: unknown condition key 'bogus'; known: ["skip_verify", "fixes_applied", "spec_defect", "has_security_residual", "high_risk_uncovered", "drift_detected", "dirty_worktrees", "fixes_docs_only"] plus strategy_in over ["chore", "feature", "design", "engine", "escalate"], drift_in over ["specify", "design", "tasks"], blocked_by_in over ["environment", "work"], *_gte over ["consecutive_failures"] and *_above/*_at_most over ["max_residual_severity"]"#,
         ),
     ]
 }

@@ -213,18 +213,24 @@ impl Engine {
                 "next": null,
                 "severity": null,
                 "inputs": inputs,
-                "problem": if phase == phase_name::TRIAGE && result == "escalate" {
-                    object.get("notes").and_then(Value::as_str)
-                        .filter(|notes| !notes.is_empty())
-                        .unwrap_or(&reason)
-                } else {
-                    &reason
-                },
+                "problem": park_problem(object, &reason),
             }),
             Outcome::Unmatched => unruled("no rule matched".to_string()),
             Outcome::Refused { problem } => unruled(problem.to_string()),
         }
     }
+}
+
+/// A rule-driven park's problem (decision 0090 ruling 3): the parked
+/// seat's own non-empty notes, which say what the operator must answer
+/// (the escalation's reasoning, the environment that blocked a seat),
+/// else the rule's reason. The fold prefixes the rule's id either way.
+fn park_problem<'a>(object: &'a Map<String, Value>, reason: &'a str) -> &'a str {
+    object
+        .get("notes")
+        .and_then(Value::as_str)
+        .filter(|notes| !notes.is_empty())
+        .unwrap_or(reason)
 }
 
 /// Why `raw_result` fails the seat's result schema (decision 0001): an
