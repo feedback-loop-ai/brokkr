@@ -422,3 +422,45 @@ fn a_path_that_is_not_utf8_cannot_be_queued() {
         )
     );
 }
+
+/// A launch selecting a project shelf other than its workspace's own is
+/// never queued (#697 ruling 3): queued-launch/v1 holds no selected shelf.
+/// The workspace's own, `recipes` for a bare one, however anchored, is
+/// queued; any other spelling of a shelf refuses, naming both; and a
+/// workspace that cannot be read to find its own refuses as unreadable.
+#[test]
+fn a_launch_selecting_another_project_shelf_is_never_queued() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = dir.path().canonicalize().unwrap();
+    let own = workspace.join("recipes");
+    let selecting = |workspace: &Path, shelf: &Path| {
+        let mut request = request(recipe());
+        (request.workspace, request.shelf) = (workspace.into(), Some(shelf.into()));
+        QueuedLaunch::of(&request, &NewRun::default())
+    };
+    for shelf in [Path::new("recipes"), &own] {
+        let queued = selecting(&workspace, shelf).unwrap();
+        assert_eq!(queued.workspace, workspace);
+    }
+    for shelf in ["own", "recipes/../recipes", "../recipes"] {
+        let error = selecting(&workspace, Path::new(shelf)).unwrap_err();
+        let (selected, own) = (workspace.join(shelf), own.clone());
+        let text = format!(
+            "--recipes-dir selects the project shelf {}, and a queued launch composes only across \
+             its workspace's own, {} (#697): queued-launch/v1 holds no selected shelf, so the \
+             entry would be admitted and started across the workspace's shelf instead; queue it \
+             without --recipes-dir, or start it with `brokkr run`; nothing was queued",
+            selected.display(),
+            own.display()
+        );
+        assert_eq!(error.to_string(), text);
+        let refused = matches!(error, LaunchError::QueuedShelf { shelf, own: at }
+            if shelf == selected && at == own);
+        assert!(refused, "{shelf}");
+    }
+    let gone = workspace.join("gone");
+    let error = selecting(&gone, Path::new("recipes")).unwrap_err();
+    let unreadable = matches!(error,
+        LaunchError::Places(crate::places::PlacesError::Unreadable { ref path, .. }) if *path == gone);
+    assert!(unreadable, "{error}");
+}

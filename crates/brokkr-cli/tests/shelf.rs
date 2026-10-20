@@ -15,6 +15,8 @@ use serde_json::{json, Value};
 
 use crate::brokkr_folder::{completes, digest, git, started, Ran, Repo};
 
+mod selected;
+
 /// A folder repository whose shelf holds the fake-driver recipe `x`.
 fn shelved() -> Repo {
     let repo = Repo::new();

@@ -1249,6 +1249,9 @@ pub brokkr_runtime::launch::LaunchError::NoFeature
 pub brokkr_runtime::launch::LaunchError::NoFeature::run: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::ParseDispatch(serde_json::error::Error)
 pub brokkr_runtime::launch::LaunchError::Places(brokkr_runtime::places::PlacesError)
+pub brokkr_runtime::launch::LaunchError::QueuedShelf
+pub brokkr_runtime::launch::LaunchError::QueuedShelf::own: std::path::PathBuf
+pub brokkr_runtime::launch::LaunchError::QueuedShelf::shelf: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchError::QueuedWorkspaceRelative(std::path::PathBuf)
 pub brokkr_runtime::launch::LaunchError::ReadDispatch
 pub brokkr_runtime::launch::LaunchError::ReadDispatch::path: std::path::PathBuf
@@ -1362,6 +1365,7 @@ pub brokkr_runtime::places::ShelfRefusal::Shadowed::personal: std::path::PathBuf
 pub brokkr_runtime::places::ShelfRefusal::Shadowed::project: std::path::PathBuf
 pub brokkr_runtime::places::ShelfRefusal::Unfoldered
 pub brokkr_runtime::places::ShelfRefusal::Unfoldered::layer: std::path::PathBuf
+pub brokkr_runtime::places::ShelfRefusal::Unread(brokkr_runtime::places::PlacesError)
 pub struct brokkr_runtime::places::ComposedLayer
 pub brokkr_runtime::places::ComposedLayer::origin: brokkr_runtime::places::Origin
 pub brokkr_runtime::places::ComposedLayer::path: alloc::string::String

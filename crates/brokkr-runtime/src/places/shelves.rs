@@ -59,11 +59,16 @@ pub struct ComposedLayer {
     pub path: String,
 }
 
-/// A layer naming what its origin may not compose from (#697 rulings 2
-/// and 3). A caller matches the variant, never the text (decision 0071
-/// ruling 8).
-#[derive(Debug, Error, PartialEq, Eq)]
+/// A layer naming what its origin may not compose from, or a shelf it
+/// reads that cannot be read (#697 rulings 2 and 3). A caller matches the
+/// variant, never the text (decision 0071 ruling 8).
+#[derive(Debug, Error)]
 pub enum ShelfRefusal {
+    /// A shelf a compile reads that cannot be read ([`resolving_shelf`]):
+    /// [`PlacesError::ShelfUnread`] or [`PlacesError::ShelfClimbs`], in
+    /// `--recipe`'s words.
+    #[error(transparent)]
+    Unread(PlacesError),
     /// A name standing on both shelves: neither wins.
     #[error(
         "recipe '{name}' stands on both the project shelf, at {}, and the personal shelf, at {} \
@@ -229,11 +234,12 @@ impl Shelf {
     /// Where the shelf stands as a read finds it now ([`resolving_shelf`]):
     /// the directory it resolves to, or where nothing stands at it, its
     /// place beneath the nearest entry that stands, at which nothing does.
-    /// One that cannot be read refuses, in `--recipe`'s words.
+    /// One that cannot be read refuses, in `--recipe`'s words, typed
+    /// ([`ShelfRefusal::Unread`]).
     fn read(&self) -> Result<PathBuf, CompileError> {
         match resolving_shelf(self.origin, &self.spelled) {
             Ok(found) => Ok(found.place),
-            Err(refused) => Err(CompileError::Invalid(refused.to_string())),
+            Err(refused) => Err(CompileError::Shelf(ShelfRefusal::Unread(refused))),
         }
     }
 

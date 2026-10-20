@@ -268,10 +268,12 @@ impl QueuedLaunch {
     /// What [`super::start`] refuses before reading anything, a named map
     /// beside a dispatch, is refused here too, and so is a world whose
     /// operated realm's house or dialect cannot be read. So is a workspace
-    /// that is not absolute, which nothing could be anchored to.
+    /// that is not absolute, which nothing could be anchored to, and a
+    /// project shelf the entry cannot hold ([`refuse_selected_shelf`]).
     pub fn of(request: &LaunchRequest, run: &NewRun) -> Result<QueuedLaunch, LaunchError> {
         refuse_realms_with_dispatch(run)?;
         let workspace = anchor(&request.workspace)?;
+        refuse_selected_shelf(workspace, request.shelf.as_deref())?;
         let at = |path: &PathBuf| workspace.join(path);
         Ok(QueuedLaunch {
             encoding: Encoding::V1,
@@ -310,7 +312,7 @@ impl QueuedLaunch {
         let request = LaunchRequest {
             bundle: anchored(&workspace, &self.bundle),
             // queued-launch/v1 holds no selected shelf (#697), so an entry
-            // composes across its workspace's own.
+            // composes across its workspace's own, the only one `of` takes.
             shelf: None,
             journal,
             repo: Some(self.operated(&workspace)),
@@ -421,6 +423,24 @@ fn anchored(workspace: &Path, bundle: &BundleSource) -> BundleSource {
             name: name.clone(),
             recipes_dir: workspace.join(recipes_dir),
         },
+    }
+}
+
+/// Refuse a launch whose selected project `shelf`, anchored to its
+/// `workspace`, is not the workspace's own (#697 ruling 3): queued-launch/v1
+/// holds no selected shelf, so the entry would be admitted and started
+/// across the workspace's own ([`QueuedLaunch::rebuild`]), past every
+/// refusal the selected one gives. The two are compared as spelled, so
+/// another spelling of the workspace's shelf through `..` or a link refuses
+/// too, and nothing is read as the shelf it may name.
+fn refuse_selected_shelf(workspace: &Path, shelf: Option<&Path>) -> Result<(), LaunchError> {
+    let Some(shelf) = shelf.map(|shelf| workspace.join(shelf)) else {
+        return Ok(());
+    };
+    let own = crate::places::Layout::discover(workspace)?.places().recipes;
+    match shelf == own {
+        true => Ok(()),
+        false => Err(LaunchError::QueuedShelf { shelf, own }),
     }
 }
 

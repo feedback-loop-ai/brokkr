@@ -173,7 +173,7 @@ fn root_discovery_listing_and_existing_destination_cover_refusals() {
     let recipes_file = empty.path().join("not-a-directory");
     std::fs::write(&recipes_file, "x").unwrap();
     let recipes_file = ShelfPath::new(recipes_file);
-    list(&workspace(), &recipes_file, false, Origin::Project).unwrap();
+    list(&workspace(), (&recipes_file, None), false, Origin::Project).unwrap();
 
     let library = empty.path().join("library");
     std::fs::create_dir(&library).unwrap();
@@ -206,7 +206,7 @@ fn a_gate_bearing_recipe_installs_against_the_workspaces_adapters() {
     // …and the listing that follows reads the same tree, so the recipe
     // it just accepted is not reported broken one command later.
     let shelf = ShelfPath::new(library.path());
-    list(&workspace(), &shelf, false, Origin::Project).unwrap();
+    list(&workspace(), (&shelf, None), false, Origin::Project).unwrap();
 }
 
 fn installed(library: &Path) -> Vec<String> {

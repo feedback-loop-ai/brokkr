@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use brokkr_runtime::launch::{compile_for, BundleSource};
+use brokkr_runtime::launch::{compile_for, compile_on, BundleSource};
 use brokkr_runtime::places::{self, Kind, ResolvedShelf, FOLDER};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, Invocation, SeatBody};
@@ -117,12 +117,18 @@ fn seat_summary(bundle: &Bundle) -> String {
         .join(", ")
 }
 
-/// One line per recipe that compiles, with its `origin` (#697); a warning
-/// line per one that does not. Nothing aborts the listing: a broken recipe
-/// is information. A `dir` that cannot be read warns, unless it is a
+/// One line per recipe in `dir` that compiles across the project shelf
+/// `on` selects, if any ([`compile_on`]), with its `origin` (#697); a
+/// warning line per one that does not. Nothing aborts the listing: a broken
+/// recipe is information. A `dir` that cannot be read warns, unless it is a
 /// default `shelf` (#696) and nothing stands there ([`unshelved`]): no
 /// recipe is on it yet.
-pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool, origin: Origin) -> Result<()> {
+pub(crate) fn list(
+    workspace: &Path,
+    (dir, on): (&ShelfPath, Option<&Path>),
+    shelf: bool,
+    origin: Origin,
+) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let candidates = match listed(dir) {
         Ok(candidates) => candidates,
@@ -133,7 +139,7 @@ pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool, origin: Origi
         }
     };
     for (name, path) in candidates {
-        match compile_for(workspace, &path, world.as_ref(), workspace) {
+        match compile_on(workspace, (&path, on), world.as_ref(), workspace) {
             Ok(bundle) => println!(
                 "{name}\t{}\t{} phases\t{}\t{}\t{}\t{origin}\t{}",
                 &bundle.manifest_digest()[..12],

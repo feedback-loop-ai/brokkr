@@ -1000,11 +1000,18 @@ its layers across the workspace's shelves: the project's, the folder's
 own bundle, and the personal shelf this process's environment places
 (`places::personal_shelf_here`, the one read the CLI's verbs take too).
 The project shelf is the one `--recipes-dir` on `run`, `resume` and
-`rerun`, or `--dir` on `recipes show`, selects, where one does
-(`launch::compile_on`), else the workspace's own, so a personal recipe
-composes across the shelf its `--recipe` was read beside. A queued
-launch holds no selected shelf, so it composes across its workspace's
-own.
+`rerun`, or `--dir` on `recipes show` and `recipes list`, selects, where
+one does (`launch::compile_on`), else the workspace's own, so a personal
+recipe composes across the shelf its `--recipe` was read beside, and is
+listed as it is shown. A queued launch holds no selected shelf, so it
+composes across its workspace's own, and `queue add` refuses a
+`--recipes-dir` naming any other, compared as spelled, before anything
+is queued:
+
+```text
+--recipes-dir selects the project shelf <shelf>, and a queued launch composes only across its workspace's own, <own> (#697): queued-launch/v1 holds no selected shelf, so the entry would be admitted and started across the workspace's shelf instead; queue it without --recipes-dir, or start it with `brokkr run`; nothing was queued
+```
+
 Each layer's origin is judged by where its directory stands: the
 folder's bundle by the one judgement of a layout, else `personal` or
 `project` where its parent is that shelf, else `library`. The origin

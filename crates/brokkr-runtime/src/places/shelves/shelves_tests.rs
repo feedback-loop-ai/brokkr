@@ -9,7 +9,7 @@ use serde_json::json;
 use super::{Named, Origin, ShelfRefusal, Shelves};
 use crate::bundle::compose::{resolve_unsealed, Resolved};
 use crate::bundle::CompileError;
-use crate::places::Layout;
+use crate::places::{Layout, PlacesError};
 
 /// A folder repository at `repo` and the personal shelf at `personal`,
 /// beside it, both canonical.
@@ -76,6 +76,13 @@ fn shelf_refusal(error: &CompileError) -> &ShelfRefusal {
         CompileError::Shelf(refusal) => refusal,
         other => panic!("{other}"),
     }
+}
+
+/// Whether `refusal` is the shadowing of `name`, standing on the project
+/// shelf at `project` and on the personal one at `personal`.
+fn shadows(refusal: &ShelfRefusal, (name, project, personal): (&str, &Path, &Path)) -> bool {
+    matches!(refusal, ShelfRefusal::Shadowed { name: n, project: p, personal: m }
+        if (n.as_str(), p.as_path(), m.as_path()) == (name, project, personal))
 }
 
 /// A bundle named `name` at `dir`, extending `extends` if anything, with
@@ -154,11 +161,8 @@ fn a_personal_recipe_composes_over_the_folders_bundle() {
         Some(shelved.personal),
     );
     let unfoldered = refused(resolve_unsealed(&mine, &shelves));
-    let layer = mine.clone();
-    assert_eq!(
-        shelf_refusal(&unfoldered),
-        &ShelfRefusal::Unfoldered { layer }
-    );
+    let refusal = shelf_refusal(&unfoldered);
+    assert!(matches!(refusal, ShelfRefusal::Unfoldered { layer } if *layer == mine));
     let text = format!(
         "bundle: the personal recipe at {} extends '.brokkr', the folder's own bundle, but this \
          workspace has no .brokkr folder (#697): run it from a folder repository, or extend a \
@@ -176,8 +180,9 @@ fn a_project_recipe_naming_a_personal_one_refuses() {
     recipe(&shelved.personal.join("mine"), "mine", None);
     let team = recipe(&shelved.project("team"), "team", Some("mine"));
     let refusal = refused(shelved.resolve(&team));
-    let named = ShelfRefusal::ProjectNamesPersonal(shelved.naming_mine(&team));
-    assert_eq!(shelf_refusal(&refusal), &named);
+    let named = shelved.naming_mine(&team);
+    let project = shelf_refusal(&refusal);
+    assert!(matches!(project, ShelfRefusal::ProjectNamesPersonal(by) if *by == named));
     let text = format!(
         "bundle: the project recipe at {} extends 'mine', which stands only on the personal \
          shelf, at {} (#697): a project recipe never extends a personal one, since teammates and \
@@ -196,8 +201,9 @@ fn the_folders_bundle_naming_a_personal_recipe_refuses() {
     recipe(&shelved.personal.join("mine"), "mine", None);
     let folder = shelved.repo.join(".brokkr");
     let refusal = refused(shelved.resolve(&folder));
-    let named = ShelfRefusal::FolderNamesPersonal(shelved.naming_mine(&folder));
-    assert_eq!(shelf_refusal(&refusal), &named);
+    let named = shelved.naming_mine(&folder);
+    let bundle = shelf_refusal(&refusal);
+    assert!(matches!(bundle, ShelfRefusal::FolderNamesPersonal(by) if *by == named));
     let text = format!(
         "bundle: the folder's bundle at {} extends 'mine', which stands only on the personal \
          shelf, at {} (#697): the folder's bundle never extends a personal recipe, since \
@@ -219,12 +225,8 @@ fn a_base_on_both_shelves_refuses_before_either_is_read() {
     std::fs::create_dir(shelved.personal.join("fast")).unwrap();
     let mine = recipe(&shelved.personal.join("mine"), "mine", Some("fast"));
     let refusal = refused(shelved.resolve(&mine));
-    let shadowed = ShelfRefusal::Shadowed {
-        name: "fast".into(),
-        project: shelved.project("fast"),
-        personal: shelved.personal.join("fast"),
-    };
-    assert_eq!(shelf_refusal(&refusal), &shadowed);
+    let both = (shelved.project("fast"), shelved.personal.join("fast"));
+    assert!(shadows(shelf_refusal(&refusal), ("fast", &both.0, &both.1)));
     let text = format!(
         "bundle: recipe 'fast' stands on both the project shelf, at {}, and the personal shelf, \
          at {} (#697): neither shelf wins, so rename or remove one of them",
@@ -280,9 +282,10 @@ fn a_personal_recipe_reads_its_own_shelf() {
 /// 2): the project shelf, read for a personal layer's base on its own
 /// shelf, and the personal one, read for a project layer's missing base,
 /// each a link to nothing, a looping link or a file, refuse in `--recipe`'s
-/// words, naming the shelf. A shelf nothing stands at, no entry and no
-/// link, is an empty one: the personal base is taken, or the project's
-/// missing base is no recipe.
+/// words, typed, naming the shelf; so does a selected project shelf
+/// climbing by `..` out of what does not stand (#726). A shelf nothing
+/// stands at, no entry and no link, is an empty one: the personal base is
+/// taken, or the project's missing base is no recipe.
 #[test]
 fn an_unreadable_shelf_refuses_every_read_of_it() {
     let shelved = Shelved::new(None);
@@ -299,8 +302,13 @@ fn an_unreadable_shelf_refuses_every_read_of_it() {
     let loops: fn(&Path) = |shelf| std::os::unix::fs::symlink("recipes", shelf).unwrap();
     let file: fn(&Path) = |shelf| std::fs::write(shelf, "").unwrap();
     let sides = [
-        ("project", &project, &mine, Ok(vec![mine.clone(), own])),
-        ("personal", &shelved.personal, &team, Err(missing)),
+        (
+            Origin::Project,
+            &project,
+            &mine,
+            Ok(vec![mine.clone(), own]),
+        ),
+        (Origin::Personal, &shelved.personal, &team, Err(missing)),
     ];
     for (origin, shelf, leaf, empty) in sides {
         let kept = shelf.with_extension("kept");
@@ -308,15 +316,12 @@ fn an_unreadable_shelf_refuses_every_read_of_it() {
         for plant in [dangles, loops, file] {
             plant(shelf);
             let cause = std::fs::canonicalize(shelf)
-                .map_or_else(|cause| cause.to_string(), |_| "not a directory".to_string());
-            let text = format!(
-                "bundle: the {origin} shelf {} cannot be read (#697): {}: {cause}; a shelf that \
-                 cannot be read is never read as an empty one, so mend or remove it; nothing was \
-                 run or installed",
-                shelf.display(),
-                shelf.display()
-            );
-            assert_eq!(refused(shelved.resolve(leaf)).to_string(), text);
+                .map_or_else(|cause| cause.kind(), |_| std::io::ErrorKind::NotADirectory);
+            let refusal = refused(shelved.resolve(leaf));
+            let unread = matches!(shelf_refusal(&refusal),
+                ShelfRefusal::Unread(PlacesError::ShelfUnread { origin: of, shelf: named, at, cause: why })
+                    if (*of, named, at, why.kind()) == (origin, shelf, shelf, cause));
+            assert!(unread, "{refusal}");
             std::fs::remove_file(shelf).unwrap();
         }
         let read = shelved.resolve(leaf);
@@ -326,6 +331,14 @@ fn an_unreadable_shelf_refuses_every_read_of_it() {
         assert_eq!(read, empty, "{origin}");
         std::fs::rename(&kept, shelf).unwrap();
     }
+
+    let (spelled, at) = (shelved.repo.join("none/../own"), shelved.repo.clone());
+    let climbing = shelved.selecting(Some(&spelled));
+    let refusal = refused(resolve_unsealed(&mine, &climbing));
+    let climbs = matches!(shelf_refusal(&refusal),
+        ShelfRefusal::Unread(PlacesError::ShelfClimbs { origin: Origin::Project, shelf, at: by })
+            if (shelf, by) == (&spelled, &at));
+    assert!(climbs, "{refusal}");
 }
 
 /// The project shelf a compile is given is the one it composes across
@@ -356,22 +369,22 @@ fn a_selected_project_shelf_is_the_one_composed_across() {
     let refusal = refused(resolve_unsealed(&team, &selected));
     let (base, personal) = ("only".into(), shelved.personal.join("only"));
     let layer = team.clone();
-    let named = ShelfRefusal::ProjectNamesPersonal(Named {
+    let named = Named {
         layer,
         base,
         personal,
-    });
-    assert_eq!(shelf_refusal(&refusal), &named);
+    };
+    let project = shelf_refusal(&refusal);
+    assert!(matches!(project, ShelfRefusal::ProjectNamesPersonal(by) if *by == named));
     assert_eq!(unselected(&team), not_in(&team, "only", &own));
 
     std::fs::create_dir(shelved.personal.join("quick")).unwrap();
     let refusal = refused(resolve_unsealed(&mine, &selected));
-    let shadowed = ShelfRefusal::Shadowed {
-        name: "quick".into(),
-        project: own.join("quick"),
-        personal: shelved.personal.join("quick"),
-    };
-    assert_eq!(shelf_refusal(&refusal), &shadowed);
+    let both = (own.join("quick"), shelved.personal.join("quick"));
+    assert!(shadows(
+        shelf_refusal(&refusal),
+        ("quick", &both.0, &both.1)
+    ));
 }
 
 /// Each origin's one word, which the journal records and every surface

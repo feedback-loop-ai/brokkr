@@ -126,8 +126,10 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
     let found = &layout.workspace();
     match command {
         RecipesCmd::List { dir } => {
+            let selected = dir.is_some();
             let (dir, shelf) = layout.listing(dir);
-            recipes::personal::list(found, &dir, shelf)?
+            let on = selected.then(|| dir.path());
+            recipes::personal::list(found, (&dir, on), shelf)?
         }
         RecipesCmd::Add {
             source,

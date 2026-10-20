@@ -267,11 +267,17 @@ fn stands(shelf: &Path, name: &str) -> Result<(bool, PathBuf), Unshelved> {
 
 /// `recipes list`: the project's shelf `dir`, then the personal one where
 /// this machine places it, each recipe with its origin (#697 ruling 6). A
-/// personal shelf with nothing standing at it lists nothing.
-pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool) -> Result<()> {
-    super::list(workspace, dir, shelf, Origin::Project)?;
+/// personal shelf with nothing standing at it lists nothing. Every recipe
+/// listed composes across `on`, the project shelf `--dir` selected, if
+/// any, as `recipes show --dir` composes it (ruling 3).
+pub(crate) fn list(
+    workspace: &Path,
+    (dir, on): (&ShelfPath, Option<&Path>),
+    shelf: bool,
+) -> Result<()> {
+    super::list(workspace, (dir, on), shelf, Origin::Project)?;
     match placed() {
-        Some(personal) => super::list(workspace, &personal, true, Origin::Personal),
+        Some(personal) => super::list(workspace, (&personal, on), true, Origin::Personal),
         None => Ok(()),
     }
 }

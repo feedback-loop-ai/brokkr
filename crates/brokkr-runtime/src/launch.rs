@@ -190,6 +190,17 @@ pub enum LaunchError {
         .0.display()
     )]
     QueuedWorkspaceRelative(PathBuf),
+    /// A launch selecting a project shelf other than its workspace's own,
+    /// which no queued launch holds (#697 ruling 3).
+    #[error(
+        "--recipes-dir selects the project shelf {}, and a queued launch composes only across \
+         its workspace's own, {} (#697): queued-launch/v1 holds no selected shelf, so the entry \
+         would be admitted and started across the workspace's shelf instead; queue it without \
+         --recipes-dir, or start it with `brokkr run`; nothing was queued",
+        .shelf.display(),
+        .own.display()
+    )]
+    QueuedShelf { shelf: PathBuf, own: PathBuf },
     #[error(transparent)]
     Dispatch(#[from] DispatchError),
     #[error("loading source run '{run}'")]
