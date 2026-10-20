@@ -822,12 +822,16 @@ function createTranscriptController(effects) {
       path: null, hint: null, drill_eligible: false,
     };
   }
+  // Whatever the pane draws of a presentation: a change of any of it
+  // repaints, so an unreadable read the store refuses after one the
+  // browser could not make is drawn in the store's words.
   function equivalent(left, right) {
     return left !== null
       && referenceKey(left.reference) === referenceKey(right.reference)
       && !!left.legacy === !!right.legacy
       && !!left.admitted === !!right.admitted
       && (left.reason ?? null) === (right.reason ?? null)
+      && (left.explanation ?? null) === (right.explanation ?? null)
       && (left.hint ?? null) === (right.hint ?? null)
       && !!left.drill_eligible === !!right.drill_eligible;
   }

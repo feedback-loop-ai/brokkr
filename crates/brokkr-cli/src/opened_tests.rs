@@ -79,7 +79,12 @@ var document = { getElementById: function () { return __detail; } };
 function renderDetail(id) { __painted.push('view ' + id); }
 var activeParticipant = 'work', transcriptBox = {}, transcriptPart = {}, explicitSelectKey = 'work';
 var transcriptController = { clear: function () { __painted.push('cleared'); } };
+var __unreachable = 0, __timers = [];
 function fetch(url) {
+  if (__unreachable > 0) {
+    __unreachable -= 1;
+    return Promise.reject(new TypeError('Failed to fetch'));
+  }
   var served = __served[url];
   return Promise.resolve({ ok: served.status < 300, status: served.status,
     json: function () { return Promise.resolve(JSON.parse(served.body)); } });
@@ -90,7 +95,8 @@ var __participant = createTranscriptController({
   },
   requestBody: function () { return fetchJson('/api/transcript/r1/work'); },
   openWatch: function () { return {}; }, closeWatch: function () {},
-  schedule: function () { return {}; }, cancel: function () {}, clear: function () {},
+  schedule: function (tick) { __timers.push(tick); return {}; },
+  cancel: function () {}, clear: function () {},
   render: function (view) { __transcript.push(view.reason + ': ' + view.explanation); }
 });
 function __drawn() {
@@ -99,10 +105,30 @@ function __drawn() {
 }
 "#;
 
+/// The operator drilling run `run`'s participant `work`, in the page.
+fn drill(run: &str) -> String {
+    format!(
+        "__participant.operator_select({{ runId: '{run}', participantKey: 'work', \
+         reference: null, sessionId: null, provider: null, working: false }});"
+    )
+}
+
+/// The operator opening run `run` in the detail pane, in the page.
+fn open(run: &str) -> String {
+    format!("loadDetail('{run}').catch(function (error) {{ __painted.push('threw ' + error); }});")
+}
+
 /// What the page `brokkr ui` serves draws of run `run` over `db`, its own
 /// code run in Boa against each route as `handle` serves it: the run
 /// opened in the detail pane, and its participant `work` drilled.
 fn drawn_in_the_page(db: &Path, run: &str) -> serde_json::Value {
+    drawn_after(db, run, &[&drill(run), &open(run)])
+}
+
+/// What the page draws of run `run` over `db` after `steps`, each run in
+/// turn with its promises settled, against each route as `handle` serves
+/// it.
+fn drawn_after(db: &Path, run: &str, steps: &[&str]) -> serde_json::Value {
     let routes = [
         format!("/api/view/{run}"),
         format!("/api/presentation/{run}/work"),
@@ -118,18 +144,13 @@ fn drawn_in_the_page(db: &Path, run: &str) -> serde_json::Value {
         .collect();
     let mut boa = boa_engine::Context::default();
     let served = format!("var __served = {};", serde_json::Value::Object(served));
-    let subject = format!(
-        "__participant.operator_select({{ runId: '{run}', participantKey: 'work', \
-         reference: null, sessionId: null, provider: null, working: false }});"
-    );
-    let opened = format!(
-        "loadDetail('{run}').catch(function (error) {{ __painted.push('threw ' + error); }});"
-    );
-    let blocks = [
+    let page = [
+        served.as_str(),
         page_block("transcript-controller"),
         page_block("opened-run"),
+        BROWSER,
     ];
-    for source in [&served, blocks[0], blocks[1], BROWSER, &subject, &opened] {
+    for source in page.iter().chain(steps) {
         boa.eval(boa_engine::Source::from_bytes(source.as_bytes()))
             .unwrap_or_else(|error| panic!("evaluating the page: {error}"));
         boa.run_jobs().expect("the page's promises settle");
@@ -260,4 +281,25 @@ fn a_corrupt_run_is_refused_wherever_it_is_opened() {
     assert_eq!((drawn, row.detail.as_deref(), row.quarantine), quarantined);
     let beside = Store::open_read_only(&db).unwrap().load("r2").unwrap();
     assert_eq!(beside.len(), 2, "the run beside it reads");
+}
+
+/// Ruling 5 on the participant's read: a drilled participant whose first
+/// presentation read never reached the server is drawn unreadable as the
+/// browser found it, and when the interval's next read is the store's
+/// refusal of its run, the pane is drawn again in the store's words.
+#[test]
+fn a_participant_refused_after_a_failed_read_is_drawn_in_the_store_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    edited_below_its_head(&db);
+    let drilled = drill("r1");
+    let steps = ["__unreachable = 1;", drilled.as_str(), "__timers[0]();"];
+    let drawn = drawn_after(&db, "r1", &steps);
+    assert_eq!(
+        drawn["transcript"],
+        serde_json::json!([
+            "unreadable: the browser could not establish the shared presentation",
+            format!("unreadable: {EDITED}"),
+        ])
+    );
 }
