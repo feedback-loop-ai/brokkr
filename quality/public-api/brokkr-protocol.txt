@@ -173,6 +173,7 @@ pub fn brokkr_protocol::broker::ledger::Ledger<'b>::room(&mut self) -> core::res
 pub struct brokkr_protocol::broker::ledger::Lifecycle
 impl brokkr_protocol::broker::ledger::Lifecycle
 pub fn brokkr_protocol::broker::ledger::Lifecycle::calls(&self) -> &[(alloc::string::String, core::option::Option<brokkr_protocol::broker::ledger::Outcome>)]
+pub fn brokkr_protocol::broker::ledger::Lifecycle::cited(&self) -> impl core::iter::traits::iterator::Iterator<Item = (u64, &str, u64)> + '_
 pub fn brokkr_protocol::broker::ledger::Lifecycle::closed(&self) -> core::option::Option<&brokkr_protocol::broker::ledger::Disposition>
 pub struct brokkr_protocol::broker::ledger::Room<'l, 'b>(_)
 impl brokkr_protocol::broker::ledger::Room<'_, '_>

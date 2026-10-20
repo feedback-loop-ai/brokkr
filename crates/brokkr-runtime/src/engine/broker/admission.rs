@@ -726,7 +726,7 @@ fn redirected(held: &Held) -> Option<PathBuf> {
 }
 
 /// The directory `held`'s reservation stands in, and where.
-fn reserved_at(held: &Held) -> Result<(std::os::fd::OwnedFd, PathBuf), Unknown> {
+pub(super) fn reserved_at(held: &Held) -> Result<(std::os::fd::OwnedFd, PathBuf), Unknown> {
     let run = held.coordination.below(&[&held.repo, &held.run])?;
     let at = held.coordination.path().join(&held.repo).join(&held.run);
     Ok((run, at))
