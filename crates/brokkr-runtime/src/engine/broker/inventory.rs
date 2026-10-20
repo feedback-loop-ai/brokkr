@@ -29,6 +29,7 @@ use super::admission::{Unknown, LOCK, RESERVATION, STAGED};
 use super::historical::{named, Historical};
 use super::root::{read, PRIOR};
 use super::{directory, owned};
+use crate::engine::artifacts::hex;
 use standing::standing;
 pub(super) use standing::{Reaching, Standing, Writing};
 
@@ -237,11 +238,4 @@ fn entered(parent: &OwnedFd, at: &Path, name: &str, kind: FileType) -> Result<Ow
 /// The unknown participant `name` in the directory at `at`.
 fn unknown(at: &Path, name: &str) -> Unknown {
     Unknown::Participant(at.join(name))
-}
-
-/// Whether `name` is a sha256's lowercase hex: a worktree's key, or an
-/// artifact's name.
-pub(super) fn hex(name: &str) -> bool {
-    let digit = |byte: &u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte);
-    (name.len() == 64) & name.as_bytes().iter().all(digit)
 }

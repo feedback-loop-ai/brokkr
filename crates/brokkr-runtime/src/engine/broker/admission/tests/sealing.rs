@@ -16,11 +16,15 @@
 
 use std::os::unix::fs::MetadataExt;
 
+use brokkr_protocol::broker::ledger::Outcome;
+
 use super::coordination::{died_after_its_end, settled_a1};
 use super::*;
 use crate::capabilities::McpFence;
+use crate::engine::artifacts::tests::{sha, Provisioned};
+use crate::engine::artifacts::Unpublished;
 use crate::engine::broker::root::Commit;
-use crate::engine::broker::settlement::Unreleased;
+use crate::engine::broker::settlement::{Lease, Unreleased};
 
 /// A fresh engine holding on `host` the lease of its run's attempt `a1` on
 /// its own worktree, protecting `protects`, the reservation naming that
@@ -507,6 +511,19 @@ fn a_failed_settlement_says_whether_its_lease_was_released() {
     for (unreleased, text) in cases {
         assert_eq!(unreleased.to_string(), format!("{text}: {mb3}"));
     }
+    // U8c: one whose retained responses were not published says so, and
+    // whether its lease stands or was released.
+    let digest = "broker response digest mismatch";
+    let unpublished = "the attempt's retained responses were not published";
+    let cases = [
+        (Lease::Standing, "and its writer lease stands"),
+        (Lease::Released, "though its writer lease was released"),
+    ];
+    for (lease, said) in cases {
+        let unreleased = Unreleased::unpublished(lease, Unpublished::Response);
+        let text = format!("{unpublished}, {said}: {digest}");
+        assert_eq!(unreleased.to_string(), text);
+    }
 }
 
 /// R1: a settlement whose reseal commits without its directory proven
@@ -528,5 +545,57 @@ fn an_unsynced_settlement_fails_its_run_under_the_fence_rule() {
         let released = (Vec::new(), vec!["a1".to_string()]);
         let now = case.host.attempts(&case.work, &case.run);
         assert_eq!(now, released, "{how}: released");
+    }
+}
+
+/// U8c (CR2): settlement publishes what its attempt's brokers retained
+/// under its lease, before the release: a cited response verified against
+/// its stage is published at its digest; one whose stage is not the cited
+/// bytes publishes nothing and fails the run with CR2's cause, the lease
+/// released all the same, its processes settled; and an attempt a driver
+/// of which ended unresolved publishes nothing, its lease standing.
+#[test]
+fn settlement_publishes_what_its_attempt_retained_before_its_release() {
+    let answer = br#"{"result":{}}"#;
+    let (digest, other) = (sha(answer), sha(b"other"));
+    let mismatch = Unreleased::unpublished(Lease::Released, Unpublished::Response);
+    let unrooted = Unreleased::unpublished(Lease::Standing, Unpublished::Unbound);
+    let cases = [
+        ("verified", Protects::Evidence, &digest, false, Ok(())),
+        ("mismatch", Protects::Evidence, &other, false, Err(mismatch)),
+        ("unresolved", Protects::Evidence, &digest, true, Ok(())),
+        ("unsealed", Protects::Nothing, &digest, false, Err(unrooted)),
+    ];
+    for (case, protects, cited, unresolved, expected) in cases {
+        let host = Host::new();
+        let (_dir, mut engine, work, run) = leasing(&host, protects);
+        let repo = canonical::sha256_bytes(work.as_os_str().as_bytes());
+        let at = host.root().join(&repo).join(&run);
+        let attempt = Provisioned::new(&at, [&repo, &run, "a1"]);
+        let plans = attempt.plans(&[true]);
+        let answered = [(Some((&answer[..], cited.as_str())), Outcome::Succeeded)];
+        attempt.served((0, &plans[0]), true, &answered);
+        if unresolved {
+            let reason = Unsettled::Stdout;
+            witnessed_by(
+                &mut engine.held,
+                &Cleanup::Unresolved { reason },
+                within(400),
+            );
+        }
+        settled_a1(&mut engine, &run);
+        let unsealed = case == "unsealed";
+        if unsealed {
+            LATE.set(Some(Late::Unstage));
+        }
+        let settled = engine.settle("a1", Ok(())).map_err(|error| match error {
+            EngineError::Unreleased(unreleased) => unreleased,
+            other => panic!("{case}: {other}"),
+        });
+        let published = work.join(".forge/artifacts/sha256").join(&digest).is_file();
+        let released = host.attempts(&work, &run).1 == ["a1"];
+        let found = (case, settled, published, released);
+        let kept = !unresolved & !unsealed;
+        assert_eq!(found, (case, expected, case == "verified", kept));
     }
 }
