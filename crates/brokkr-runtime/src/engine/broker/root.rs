@@ -255,13 +255,20 @@ pub(super) fn read<T: DeserializeOwned>(
     at: &Path,
 ) -> Result<T, Unknown> {
     let refused = || Unknown::Participant(at.join(name));
+    serde_json::from_slice(&bytes(dir, name, at)?).or(Err(refused()))
+}
+
+/// The bytes of the record `name` in the directory `dir` at `at`, as it
+/// stands ([`standing`]), within MB3's request bound; or an unknown
+/// participant there.
+pub(super) fn bytes(dir: &OwnedFd, name: &str, at: &Path) -> Result<Vec<u8>, Unknown> {
+    let refused = || Unknown::Participant(at.join(name));
     let file = standing(dir, name).ok_or_else(refused)?;
     let mut bytes = Vec::new();
     let file = std::fs::File::from(file);
     let read = file.take(REPLY_BYTES_MAX + 1).read_to_end(&mut bytes);
     let within = read.is_ok_and(|_| bytes.len() as u64 <= REPLY_BYTES_MAX);
-    within.then_some(()).ok_or_else(refused)?;
-    serde_json::from_slice(&bytes).or(Err(refused()))
+    within.then_some(bytes).ok_or_else(refused)
 }
 
 /// The file `name` in `dir` as it stands for every read: the one also

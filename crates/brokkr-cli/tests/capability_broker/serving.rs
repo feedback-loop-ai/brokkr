@@ -469,10 +469,6 @@ fn a_standard_error_nobody_reads_never_holds_the_sessions_end() {
     };
     let one = vec![("resolve".to_string(), Some(Outcome::Succeeded))];
     let failed = |failure| (vec![], Some(Disposition::Failed(failure)), None);
-    let Some((retained, retained_digest)) = speaking(&format!("{says}{SPEAKS}")) else {
-        return;
-    };
-    let retention = Failure::Refused(super::Refusal::RetentionIncomplete);
     let Some((corrupt, corrupt_digest)) =
         serving(&format!("{says}read -r line\necho no\n"), "isolated")
     else {
@@ -485,13 +481,6 @@ fn a_standard_error_nobody_reads_never_holds_the_sessions_end() {
             &clean_digest,
             (1, 3),
             (one, Some(Disposition::Failed(Failure::Undelivered)), None),
-        ),
-        (
-            "retained",
-            &retained,
-            &retained_digest,
-            (1, 0),
-            failed(retention),
         ),
         (
             "protocol",

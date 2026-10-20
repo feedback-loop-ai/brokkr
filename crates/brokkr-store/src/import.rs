@@ -4,13 +4,15 @@
 use std::path::Path;
 
 use brokkr_core::envelope::{verify_chain, ChainError, EventEnvelope};
+use brokkr_core::summary::{Account, Listing, Summary};
 use brokkr_core::RunState;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::{
-    now_rfc3339, patiently, refuse_existing, seat_record, SeatRecordError, Store, StoreError,
+    now_rfc3339, patiently, refuse_existing, seat_record, summary, SeatRecordError, Store,
+    StoreError,
 };
 
 /// Why an adoption refused. Every variant refuses the import WHOLE:
@@ -181,6 +183,7 @@ fn adopt_once(
     row: &RunsRow<'_>,
     arrival: &Arrival,
     events: &[EventEnvelope],
+    summary: &Summary,
 ) -> Result<(), StoreError> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     // Gate 5 inside the transaction that would write, so a concurrent
@@ -209,6 +212,7 @@ fn adopt_once(
         let row_values = params![row.run_id, event.seq as i64, event.event_hash, envelope];
         tx.execute(INSERT_EVENT, row_values)?;
     }
+    summary::write(&tx, row.run_id, summary)?;
     tx.commit()?;
     Ok(())
 }
@@ -299,10 +303,16 @@ impl Store {
             imported_at: now_rfc3339(),
             imported_from: origin.display().to_string(),
         };
+        // The verified run's summary, folded before the lock is taken.
+        let listing = Listing {
+            feature: &row.feature,
+            created_at: row.created_at,
+        };
+        let summary = Summary::of(&Account::whole(row.run_id, &events), listing);
 
         let conn = &mut self.conn;
         patiently("import_run", self.patience, || {
-            adopt_once(conn, &row, &arrival, &events)
+            adopt_once(conn, &row, &arrival, &events, &summary)
         })
         .map_err(|refused| match refused {
             StoreError::RunExists(run_id) => ImportError::Collision(run_id),

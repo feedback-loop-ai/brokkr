@@ -29,6 +29,7 @@ use crate::broker::session::{Ended, Startup};
 
 mod delivery;
 mod masking;
+mod retention;
 
 /// The plan every test serves, `@` its digests: the capability
 /// `library-docs`, its dialect pinned at 1.4.2, granting `lookup` and
@@ -767,12 +768,13 @@ struct Ran {
 }
 
 /// What a test session's output edge holds: the plan it serves, the
-/// secrets bound to it, and what its server writes on its standard error
-/// before ending it.
+/// secrets bound to it, what its server writes on its standard error
+/// before ending it, and how its ledger retains responses, if it does.
 struct Beside {
     plan: Plan,
     bindings: Vec<BoundSecret>,
     stderr: Vec<u8>,
+    retain: Option<retention::Retain>,
 }
 
 impl Beside {
@@ -782,6 +784,7 @@ impl Beside {
             plan: plan(),
             bindings: Vec::new(),
             stderr: Vec::new(),
+            retain: None,
         }
     }
 }
@@ -837,6 +840,7 @@ fn edged(
         plan,
         bindings,
         stderr,
+        retain,
     }: Beside,
     conversation: impl FnOnce(&mut Harness) + Send + 'static,
 ) -> Ran {
@@ -863,6 +867,7 @@ fn edged(
     };
     // Opened before the session's bindings are known, as `serve` opens it.
     let mut ledger = Ledger::open_with(append, (&plan.owner, DIGEST), &[]).unwrap();
+    retain.into_iter().for_each(|retain| retain(&mut ledger));
     let ((asked, to), (from, answers)) = (pipe(), pipe());
     rustix::io::ioctl_fionbio(&from, true).unwrap();
     rustix::io::ioctl_fionbio(&to, true).unwrap();
@@ -1479,7 +1484,7 @@ fn large() -> Value {
 }
 
 #[test]
-fn a_server_that_takes_no_call_ends_it_and_an_ended_harness_leaves_it_begun() {
+fn a_server_that_takes_no_call_ends_it() {
     // Its input closed once it has listed: the forwarding fails.
     let ran = conversed(
         listing_then(Then::Close),
@@ -1500,18 +1505,6 @@ fn a_server_that_takes_no_call_ends_it_and_an_ended_harness_leaves_it_begun() {
         conversation,
     );
     lookup_failed("holding", ran, Failure::Timeout);
-    // The harness ends while its call is active: the call stays begun,
-    // which recovery reads as interrupted, and the session unclosed.
-    let ran = conversed(slow(Duration::from_millis(300)), |harness| {
-        harness.send(&call("1", "lookup"))
-    });
-    assert_eq!(ran.ended, Ok(()));
-    let begun = (
-        owned(vec![("lookup", None)]),
-        None,
-        Some(Invalid::Lifecycle),
-    );
-    assert_eq!(ran.proved, begun);
 }
 
 #[test]

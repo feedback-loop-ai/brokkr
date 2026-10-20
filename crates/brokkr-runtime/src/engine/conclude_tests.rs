@@ -40,6 +40,7 @@ fn replay_upto(db: &Path, name: &str, manifest: &Value, keep: usize) -> Store {
     let ndjson = std::fs::read_to_string(fixtures().join(format!("{name}.ndjson"))).unwrap();
     let mut store = Store::open(db).unwrap();
     store.create_run(name, "fixture", "self", manifest).unwrap();
+    drop(store);
     let connection = rusqlite::Connection::open(db).unwrap();
     for line in ndjson
         .lines()
@@ -50,7 +51,9 @@ fn replay_upto(db: &Path, name: &str, manifest: &Value, keep: usize) -> Store {
         let seq = envelope.seq as i64;
         plant_event(&connection, name, &seq, &envelope.event_hash, line).unwrap();
     }
-    store
+    // The planted rows leave the run's summary behind its head; the open
+    // folds it, as it would a journal an older writer left.
+    Store::open(db).unwrap()
 }
 
 /// The manifest the fixture pair was exported with — pinned at engine

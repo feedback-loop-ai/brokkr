@@ -10,6 +10,7 @@ use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
     acceptance_refusal, concluded, fold, Cursor, OperatorCommand, Refusal, Run, RunState, Status,
 };
+use brokkr_core::summary::Account;
 use brokkr_core::EventEnvelope;
 use brokkr_store::{Store, StoreError};
 use serde_json::{json, Value};
@@ -77,15 +78,28 @@ fn fenced_append(
 
 /// The proof every verb takes before it answers: what it just wrote
 /// reads back.
-fn read_back(store: &Store, run_id: &str) -> Result<RunState, EngineError> {
-    Ok(fold(&store.load(run_id)?)?)
+fn read_back(store: &mut Store, run_id: &str) -> Result<RunState, EngineError> {
+    Ok(folded(store, run_id)?.0)
 }
 
-/// The run as a deciding fold reads it, and the head a write decided on
-/// that reading must still find.
-fn folded(store: &Store, run_id: &str) -> Result<(RunState, Head), EngineError> {
+/// The run's journal as it stands now, [`decided`].
+fn folded(store: &mut Store, run_id: &str) -> Result<(RunState, Head), EngineError> {
     let events = store.load(run_id)?;
-    Ok((fold(&events)?, Head::tip(&events)))
+    decided(store, run_id, &events)
+}
+
+/// The run as a deciding fold reads `events`, and the head a write decided
+/// on that reading must still find. The store carries the account into the
+/// verb's writes, so each writes the run's summary (decision 0089 ruling 3).
+fn decided(
+    store: &mut Store,
+    run_id: &str,
+    events: &[EventEnvelope],
+) -> Result<(RunState, Head), EngineError> {
+    let account = Account::whole(run_id, events);
+    let state = account.state().map_err(Clone::clone)?.clone();
+    store.carry(account);
+    Ok((state, Head::tip(events)))
 }
 
 /// The command id an operator event carries.
@@ -688,10 +702,9 @@ pub(super) fn apply_fenced_windows(
     if let Some(receipt) = receipt::journaled(store, run_id, &events, command_id, operator)? {
         return Ok(receipt);
     }
-    let state = fold(&events)?;
     // The head this fold read: the one the wire's cursor is checked
     // against, and the one the command must still find (decision 0029).
-    let head = Head::tip(&events);
+    let (state, head) = decided(store, run_id, &events)?;
     let cursor_holds = head.seq == wire.expected_seq && head.hash == wire.expected_hash;
     let rejection = fenced_refusal(&state, wire.command, cursor_holds);
     before_command(store);

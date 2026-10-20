@@ -4,13 +4,15 @@
 //! the TUI, `brokkr runs` and the console can read them alike (decision
 //! 0013); a renderer lays them out and derives none of them.
 
-use brokkr_core::fold::{Cursor, RunState, Status};
+use brokkr_core::fold::{RunState, Status};
 use brokkr_core::policy::Severity;
+use brokkr_core::residual;
+use brokkr_core::stamp::parse_millis;
 use serde::Serialize;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    fmt_dur, js, ruled, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT,
+    fmt_dur, ruled, FleetView, RealmRuns, ResidualFinding, RunEntry, RunsView, ABSENT,
     KNOWN_STATUS, VIEW_VERSION,
 };
 
@@ -280,7 +282,7 @@ fn section_of(row: &RunRow, now: &str) -> Section {
         return Section::Older;
     }
     let moved = row.last_recorded_at.as_deref().unwrap_or(&row.created_at);
-    match (js::parse_millis(moved), js::parse_millis(now)) {
+    match (parse_millis(moved), parse_millis(now)) {
         (Some(moved), Some(now)) if now - moved >= RECENT_MILLIS => Section::Older,
         _ => Section::Recent,
     }
@@ -439,7 +441,7 @@ pub fn at_work<'a>(row: &'a RunRow, now: &str) -> Option<&'a Hire> {
 /// past the staleness bound.
 fn silence(row: &RunRow, now: &str) -> Option<String> {
     let last = row.last_recorded_at.as_deref()?;
-    let silent = js::parse_millis(now)? - js::parse_millis(last)?;
+    let silent = parse_millis(now)? - parse_millis(last)?;
     match silent > STALE_AFTER_SECONDS * 1000 {
         true => fmt_dur(last, now),
         false => None,
@@ -617,16 +619,17 @@ fn abbreviate(rule: &str, from: Option<&str>) -> String {
     clamp_columns(short, VERDICT_COLUMNS)
 }
 
-/// The highest severity any open residual finding names. Only the
-/// severity input carries a [`Severity`]; the boolean flags carry none
-/// and stay in the findings themselves, and `none` is no residual.
+/// The highest severity any open residual finding names, by core's one
+/// reading ([`residual::open_severity`]). Only the severity input carries
+/// a [`Severity`] by its name; the boolean flags carry none and stay in
+/// the findings themselves.
 fn open_severity(residuals: &[ResidualFinding]) -> Option<Severity> {
-    residuals
-        .iter()
-        .filter(|finding| finding.superseded.is_none())
-        .filter_map(|finding| Severity::named(&finding.value))
-        .filter(|severity| *severity > Severity::None)
-        .max()
+    residual::open_severity(residuals.iter().map(|finding| {
+        (
+            Severity::named(&finding.value),
+            finding.superseded.is_some(),
+        )
+    }))
 }
 
 // ------------------------------------------------------------ run rows
@@ -665,29 +668,14 @@ fn run_row(entry: &RunEntry) -> RunRow {
     }
 }
 
-/// The seat the fold's cursor has hired for the current effect.
+/// The seat the fold's cursor has hired for the current effect, by
+/// core's one reading of it ([`brokkr_core::fold::Cursor::hire`]).
 fn hire(state: &RunState) -> Option<Hire> {
-    match state.run.cursor()? {
-        Cursor::ExecuteEffect {
-            seat,
-            failed_attempts,
-            ..
-        }
-        | Cursor::EffectInFlight {
-            seat,
-            failed_attempts,
-            ..
-        } => Some(Hire {
-            seat: seat.clone(),
-            attempt: failed_attempts + 1,
-        }),
-        Cursor::Start
-        | Cursor::EnterPhase { .. }
-        | Cursor::RequestEffect
-        | Cursor::Decide { .. }
-        | Cursor::Park { .. }
-        | Cursor::Stop => None,
-    }
+    let (seat, failed_attempts) = state.run.cursor()?.hire()?;
+    Some(Hire {
+        seat: seat.to_string(),
+        attempt: failed_attempts + 1,
+    })
 }
 
 /// Run rows, newest first. Ordering is a derivation rule, not something

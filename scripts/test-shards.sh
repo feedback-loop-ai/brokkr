@@ -65,7 +65,7 @@ shard "the it binaries, capability_broker skipped" test:it skip:capability_broke
 shard 'the heap measurements' test:heap_claude test:heap_codex test:heap_dsh
 shard 'the other own-process binaries' bin:brokkr test:driver_conformance test:transcript_surfaces \
   test:hands_exits test:secret_drop test:capability_launch test:operated_repo test:queued_launch \
-  test:seatbelt_lifetime_probe
+  test:seatbelt_lifetime_probe test:summary_heap
 shard 'the doctests' doc
 shard 'capability_broker, alone' test:it only:capability_broker::
 

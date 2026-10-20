@@ -217,6 +217,8 @@ pub brokkr_core::fold::Cursor::Park::reason: brokkr_core::fold::ParkReason
 pub brokkr_core::fold::Cursor::RequestEffect
 pub brokkr_core::fold::Cursor::Start
 pub brokkr_core::fold::Cursor::Stop
+impl brokkr_core::fold::Cursor
+pub fn brokkr_core::fold::Cursor::hire(&self) -> core::option::Option<(&str, u64)>
 impl core::fmt::Display for brokkr_core::fold::Cursor
 pub fn brokkr_core::fold::Cursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::fold::FoldError
@@ -773,12 +775,77 @@ pub brokkr_core::residual::ResidualPhase::Verify
 impl brokkr_core::residual::ResidualPhase
 pub fn brokkr_core::residual::ResidualPhase::as_str(self) -> &'static str
 pub fn brokkr_core::residual::ResidualPhase::named(&str) -> core::option::Option<brokkr_core::residual::ResidualPhase>
+pub struct brokkr_core::residual::Citation
+pub brokkr_core::residual::Citation::realm: core::option::Option<alloc::string::String>
+pub brokkr_core::residual::Citation::run_id: alloc::string::String
+pub brokkr_core::residual::Citation::seq: u64
+pub struct brokkr_core::residual::Mark
+pub brokkr_core::residual::Mark::by: brokkr_core::residual::Citation
+pub brokkr_core::residual::Mark::operator: core::option::Option<alloc::string::String>
+pub brokkr_core::residual::Mark::reason: core::option::Option<alloc::string::String>
+pub brokkr_core::residual::Mark::recorded_at: alloc::string::String
+pub brokkr_core::residual::Mark::seq: u64
 pub struct brokkr_core::residual::Residual<'a>
 pub brokkr_core::residual::Residual::claim: brokkr_core::residual::Claim
 pub brokkr_core::residual::Residual::phase: brokkr_core::residual::ResidualPhase
 pub brokkr_core::residual::Residual::ruling: &'a brokkr_core::envelope::EventEnvelope
 pub const brokkr_core::residual::SUPERSEDE: &str
+pub fn brokkr_core::residual::closings(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::map::BTreeMap<u64, brokkr_core::residual::Mark>
+pub fn brokkr_core::residual::open_severity(impl core::iter::traits::collect::IntoIterator<Item = (core::option::Option<brokkr_core::policy::Severity>, bool)>) -> core::option::Option<brokkr_core::policy::Severity>
 pub fn brokkr_core::residual::residuals(&[brokkr_core::envelope::EventEnvelope]) -> alloc::vec::Vec<brokkr_core::residual::Residual<'_>>
+pub mod brokkr_core::stamp
+pub fn brokkr_core::stamp::parse_millis(&str) -> core::option::Option<i64>
+pub mod brokkr_core::summary
+pub struct brokkr_core::summary::Account
+impl brokkr_core::summary::Account
+pub fn brokkr_core::summary::Account::empty(&str) -> brokkr_core::summary::Account
+pub fn brokkr_core::summary::Account::head(&self) -> (u64, &str)
+pub fn brokkr_core::summary::Account::onto(self, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
+pub fn brokkr_core::summary::Account::run_id(&self) -> &str
+pub fn brokkr_core::summary::Account::state(&self) -> core::result::Result<&brokkr_core::fold::RunState, &brokkr_core::fold::FoldError>
+pub fn brokkr_core::summary::Account::whole(&str, &[brokkr_core::envelope::EventEnvelope]) -> brokkr_core::summary::Account
+pub struct brokkr_core::summary::Bounded
+pub brokkr_core::summary::Bounded::cut: alloc::string::String
+pub brokkr_core::summary::Bounded::whole: core::option::Option<alloc::string::String>
+pub struct brokkr_core::summary::Hired
+pub brokkr_core::summary::Hired::failed_attempts: u64
+pub brokkr_core::summary::Hired::seat: brokkr_core::summary::Bounded
+pub struct brokkr_core::summary::Listing<'a>
+pub brokkr_core::summary::Listing::created_at: &'a str
+pub brokkr_core::summary::Listing::feature: &'a str
+pub struct brokkr_core::summary::Refused
+pub brokkr_core::summary::Refused::seq: u64
+pub brokkr_core::summary::Refused::words: brokkr_core::summary::Bounded
+pub struct brokkr_core::summary::Ruled
+pub brokkr_core::summary::Ruled::from: brokkr_core::summary::Bounded
+pub brokkr_core::summary::Ruled::routes: bool
+pub brokkr_core::summary::Ruled::rule_id: core::option::Option<brokkr_core::summary::Bounded>
+pub struct brokkr_core::summary::Summary
+pub brokkr_core::summary::Summary::created_at: brokkr_core::summary::Bounded
+pub brokkr_core::summary::Summary::feature: alloc::string::String
+pub brokkr_core::summary::Summary::feature_line: alloc::string::String
+pub brokkr_core::summary::Summary::folded_hash: alloc::string::String
+pub brokkr_core::summary::Summary::folded_seq: u64
+pub brokkr_core::summary::Summary::head_hash: alloc::string::String
+pub brokkr_core::summary::Summary::head_seq: u64
+pub brokkr_core::summary::Summary::hired: core::option::Option<brokkr_core::summary::Hired>
+pub brokkr_core::summary::Summary::last_at_ms: core::option::Option<i64>
+pub brokkr_core::summary::Summary::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::summary::Summary::park_reason: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::summary::Summary::phase: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::summary::Summary::refused: core::option::Option<brokkr_core::summary::Refused>
+pub brokkr_core::summary::Summary::residual_count: u64
+pub brokkr_core::summary::Summary::residual_open: core::option::Option<brokkr_core::policy::Severity>
+pub brokkr_core::summary::Summary::residuals: alloc::string::String
+pub brokkr_core::summary::Summary::ruled: core::option::Option<brokkr_core::summary::Ruled>
+pub brokkr_core::summary::Summary::status: core::option::Option<brokkr_core::fold::Status>
+impl brokkr_core::summary::Summary
+pub fn brokkr_core::summary::Summary::of(&brokkr_core::summary::Account, brokkr_core::summary::Listing<'_>) -> brokkr_core::summary::Summary
+pub const brokkr_core::summary::ACK_AT_CHARS: usize
+pub const brokkr_core::summary::ACK_OPERATOR_CHARS: usize
+pub const brokkr_core::summary::ACK_REASON_CHARS: usize
+pub const brokkr_core::summary::STAMP_BYTES: usize
+pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub enum brokkr_core::Cursor
 pub brokkr_core::Cursor::Decide
 pub brokkr_core::Cursor::Decide::effect_id: alloc::string::String
@@ -800,6 +867,8 @@ pub brokkr_core::Cursor::Park::reason: brokkr_core::fold::ParkReason
 pub brokkr_core::Cursor::RequestEffect
 pub brokkr_core::Cursor::Start
 pub brokkr_core::Cursor::Stop
+impl brokkr_core::fold::Cursor
+pub fn brokkr_core::fold::Cursor::hire(&self) -> core::option::Option<(&str, u64)>
 impl core::fmt::Display for brokkr_core::fold::Cursor
 pub fn brokkr_core::fold::Cursor::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum brokkr_core::EventType

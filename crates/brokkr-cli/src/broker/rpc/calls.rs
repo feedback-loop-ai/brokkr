@@ -10,14 +10,18 @@
 //! ledger keeps room: at its call bound the harness is still read, and the
 //! next call ends the session with the ledger's limit. An accepted call to
 //! a tool the plan does not grant, or made while another is active, is
-//! refused with a durable Terminal and forwarded nowhere; any other is
-//! forwarded, one at a time, under its own absolute deadline and with a
+//! refused with a durable Terminal and forwarded nowhere, and so is one a
+//! retaining plan's share has no room left to reserve for (U8b; CR3); any
+//! other is forwarded, one at a time, under its own absolute deadline and
+//! with a
 //! request id of the broker's own, which its response must carry exactly,
 //! in JSON-RPC's and MCP's shapes. Its request, and its cancellation, which
 //! is passed on once, are queued for the server and written as it takes
 //! them while the harness is still read, so a server that takes neither
-//! holds nothing past the deadline that applies. Its Terminal is durable before
-//! the response is delivered, within the call's own deadline, never past
+//! holds nothing past the deadline that applies. Its Terminal is durable
+//! before the response is delivered, and a retaining plan's prepared
+//! response is staged and synced before that Terminal, which cites it
+//! (CR2), within the call's own deadline, never past
 //! MB3's 8 MiB with the harness's own id, and a cancelled call's response
 //! is never delivered. What the harness is told is queued too, whole frames
 //! in order, each with the deadline that applies to it and cut at its safe
@@ -32,34 +36,34 @@
 //! frame not taken by its deadline is never begun or continued, and ends
 //! the session, as does one left untaken once the harness has ended its
 //! input. A fatal ending fails the active call and ends the session with
-//! its cause; a record that cannot be made ends it before anything acts on
-//! it.
+//! its cause, as does a harness that ends while a call is active; a
+//! record that cannot be made ends it before anything acts on it.
 
-use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io::{ErrorKind, Read, Write};
 use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 
+use brokkr_core::canonical;
 use brokkr_protocol::broker::ledger::{Call, Denial, Failure, Ledger, Outcome, Unrecorded};
 use brokkr_protocol::broker::Plan;
 use brokkr_protocol::secret::{BoundSecret, Guard};
-use serde::de::IgnoredAny;
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use super::output::{self, Answered, Edge, Kind, Named};
 use super::pieces::Pieces;
 use super::VERSION;
-use super::{present, shallow, Catalog, Fatal, Fault, Heard, Id, Keyed, Line, Lines};
-use super::{Refused, Reply, Server, Two};
+use super::{Catalog, Fatal, Fault, Heard, Id, Keyed, Line, Lines, Refused, Reply, Server};
 use super::{MASKING, PROTOCOL, REQUEST_MAX, RESPONSE, RESPONSE_MAX, TIMEOUT, UNDELIVERED};
 use crate::broker::session::stderr::Drain;
 use crate::broker::session::{ensure, polled, timely, Ended, Pace, Startup};
+use request::{decoded, Called, Request};
 
 pub(super) use outbox::{Delivery, Outbox};
 
 mod outbox;
+mod request;
 
 /// MB3's bound on one forwarded call.
 const CALL: Duration = Duration::from_secs(120);
@@ -86,137 +90,11 @@ const UNTAKEN_MAX: usize = RESPONSE_MAX;
 /// the newline every frame ends with.
 const FRAME_MAX: usize = RESPONSE_MAX + 1;
 
-/// The longest tool name a call carries, in bytes (SC4).
-const TOOL_MAX: usize = 256;
-
 /// The JSON-RPC error code of a session's own failure.
 const INTERNAL: i64 = -32603;
 
 /// The ledger's limit, the session's cause once it has no room.
 const LIMIT: Fatal = Fatal::Failed(Failure::Limit);
-
-/// One frame from the harness: the members JSON-RPC 2.0 gives a request or
-/// a notification, and no other. An id, where present, is a number or a
-/// string, never null.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Asked {
-    #[serde(rename = "jsonrpc")]
-    _version: Two,
-    #[serde(default, deserialize_with = "present")]
-    id: Option<Id>,
-    method: String,
-    params: Option<Value>,
-    #[serde(flatten)]
-    _keyed: Keyed,
-}
-
-/// A harness's initialize parameters: the version it asks for, beside
-/// whatever else it says.
-#[derive(Deserialize)]
-struct Greeting {
-    #[serde(rename = "protocolVersion")]
-    version: String,
-    #[serde(flatten)]
-    _keyed: Keyed,
-}
-
-/// A harness's cancellation: the request it cancels, beside its reason.
-#[derive(Deserialize)]
-struct Cancelled {
-    #[serde(rename = "requestId")]
-    request: Id,
-    #[serde(flatten)]
-    _keyed: Keyed,
-}
-
-/// A tools/call's parameters, MCP's members and no other: the tool, its
-/// arguments, which are the server's data and never the broker's, and its
-/// metadata, which is not passed on. Each that is present is an object,
-/// never null.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Called {
-    name: String,
-    #[serde(default, deserialize_with = "present")]
-    arguments: Option<Map<String, Value>>,
-    #[serde(rename = "_meta", default, deserialize_with = "present")]
-    _meta: Option<BTreeMap<String, IgnoredAny>>,
-    #[serde(flatten)]
-    _keyed: Keyed,
-}
-
-/// A harness request, checked whole.
-enum Request {
-    Initialize(Id, String),
-    Ping(Id),
-    List(Id),
-    Call(Id, Called),
-    Cancel(Id),
-    Told,
-    Other(Id),
-}
-
-impl Request {
-    /// The id the harness would be answered by, none for a notification.
-    fn id(&self) -> Option<&Id> {
-        match self {
-            Request::Initialize(id, _) | Request::Ping(id) | Request::List(id) => Some(id),
-            Request::Call(id, _) | Request::Other(id) => Some(id),
-            Request::Cancel(_) | Request::Told => None,
-        }
-    }
-}
-
-/// The request the harness's frame `bytes` holds, or why it is refused
-/// before anything is recorded, with its id where it has one. A
-/// notification needs no answer: one the broker does not take is told
-/// nothing.
-fn decoded(bytes: &[u8]) -> Result<Request, (Option<Id>, Refused)> {
-    ensure(shallow(bytes), (None, Refused::Limit))?;
-    let asked: Asked = serde_json::from_slice(bytes).or(Err((None, Refused::Invalid)))?;
-    let params = asked.params.unwrap_or(Value::Null);
-    match (asked.method.as_str(), asked.id) {
-        ("notifications/cancelled", None) => {
-            let cancelled = Cancelled::deserialize(params);
-            Ok(cancelled.map_or(Request::Told, |cancelled| {
-                Request::Cancel(cancelled.request)
-            }))
-        }
-        (_, None) => Ok(Request::Told),
-        ("initialize", Some(id)) => match Greeting::deserialize(params) {
-            Ok(greeting) => Ok(Request::Initialize(id, greeting.version)),
-            Err(_) => Err((Some(id), Refused::Invalid)),
-        },
-        ("ping", Some(id)) => Ok(Request::Ping(id)),
-        ("tools/list", Some(id)) => Ok(Request::List(id)),
-        ("tools/call", Some(id)) => match called(params) {
-            Ok(called) => Ok(Request::Call(id, called)),
-            Err(refused) => Err((Some(id), refused)),
-        },
-        (_, Some(id)) => Ok(Request::Other(id)),
-    }
-}
-
-/// A tools/call's parameters: MCP's shape, or invalid; then a name within
-/// SC4's byte bound, or the request limit; then in its vocabulary, or
-/// invalid. None is recorded, nor its name echoed.
-fn called(params: Value) -> Result<Called, Refused> {
-    let called = Called::deserialize(params).or(Err(Refused::Invalid))?;
-    ensure(called.name.len() <= TOOL_MAX, Refused::Limit)?;
-    ensure(vocabulary(&called.name), Refused::Invalid)?;
-    Ok(called)
-}
-
-/// Whether `tool` is in seat-record's tool vocabulary (SC4): an ASCII
-/// letter or digit, then letters, digits and `._:/-`.
-fn vocabulary(tool: &str) -> bool {
-    let mut bytes = tool.bytes();
-    let head = bytes
-        .next()
-        .is_some_and(|byte| byte.is_ascii_alphanumeric());
-    head & bytes.all(|byte| byte.is_ascii_alphanumeric() | b"._:/-".contains(&byte))
-}
 
 /// Whether a tools/call `result` says its tool succeeded; none where it is
 /// not MCP's result shape, which is the server's protocol fault and never
@@ -297,11 +175,13 @@ struct Session<'s, 'l, 'g, W, E> {
 /// written as it takes it, by each frame's deadline, and, where a cause
 /// ended the session, within [`CLOSING`] and no longer, that cause staying
 /// the first; where none did, a frame not taken in time ends the session
-/// with the timeout cause. A call still active when the harness ends stays
-/// begun, which recovery reads as interrupted. Everything the session says
+/// with the timeout cause. A call still active when the harness ends is
+/// failed, and so is the session ([`Session::hung_up`]). Everything the
+/// session says
 /// reaches the harness only through the output edge, masked by the `edge`'s
 /// bindings and guarded whole: the catalog before the harness's first frame
-/// is read, and each response before its Terminal is recorded. Those
+/// is read, and each response before it is staged or its Terminal
+/// recorded. Those
 /// bindings guard the ledger already, which was bound once, as soon as
 /// they were looked up ([`Ledger::bind`]), and is never bound again here.
 /// The server's standard error, drained since its startup, is drained every
@@ -377,7 +257,9 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     /// ([`Session::going`]), the server heard, its standard error drained,
     /// and what waits for the harness written as far as it takes it, every
     /// turn. A turn waits ([`Pace`]) only where nothing moved: no byte read
-    /// from the harness or the server, and none written to either.
+    /// from the harness or the server, and none written to either. A
+    /// harness that ends while a call is active hung up on it
+    /// ([`Session::hung_up`]).
     fn serving(
         &mut self,
         harness: &mut Lines<impl Read + AsFd>,
@@ -388,17 +270,31 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
             let room = self.ledger.room().is_ok();
             ensure(room | self.active.is_some(), Ended::Failed(LIMIT))?;
             let Some(quiet) = self.asked(harness)? else {
-                return Ok(());
+                break;
             };
             if !self.going()? {
-                return Ok(());
+                break;
             }
             let heard = self.heard()?;
             let spoke = self.stderr.drained();
             let told = self.flush();
             pace.after(!(heard & quiet) | spoke | told, &mut wait);
         }
-        Ok(())
+        self.hung_up()
+    }
+
+    /// The harness has ended, by closing its input or its output, politely
+    /// or because it was killed and its exit closed them (operator ruling
+    /// 2026-10-18, item 6): a call still active is failed, its Terminal
+    /// recorded, and the session ends with MB5's cancellation cause, the
+    /// attempt's timeout, so its ledger ends with that Terminal and a
+    /// Failed closure, never unfinished; with no call active, it ends
+    /// served.
+    fn hung_up(&mut self) -> Result<(), Ended> {
+        match self.active {
+            Some(_) => self.failed(TIMEOUT),
+            None => Ok(()),
+        }
     }
 
     /// Read the harness's next frame from `harness`, unless what waits for
@@ -597,9 +493,10 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
     }
 
     /// Accept the harness's call `called`, its request `id`: its Started
-    /// recorded, then refused here where its tool is not granted or another
-    /// call is active, with its refused Terminal recorded; otherwise
-    /// forwarded. A call that cannot be recorded is neither refused nor
+    /// recorded, then refused here where its tool is not granted, another
+    /// call is active or a retaining plan's share has no room left for its
+    /// response, with its refused Terminal recorded; otherwise forwarded.
+    /// A call that cannot be recorded is neither refused nor
     /// forwarded, and ends the session; one made at the ledger's call
     /// bound ends it with the ledger's limit, failing the active call. A
     /// tool name holding a bound secret is never recorded, refused by or
@@ -612,7 +509,7 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
             Named::Masked(name) => (name, true),
         };
         let begun = self.ledger.room().map(|room| room.begin(&recorded));
-        let call = match begun {
+        let mut call = match begun {
             Ok(Ok(call)) => call,
             Ok(Err(unrecorded)) => {
                 self.told(Some(&id), fault(INTERNAL, &unrecorded), self.bound())
@@ -639,6 +536,11 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
             (true, true) => Some((Denial::Active, Refused::Active)),
             (true, false) => None,
         };
+        // A call that may be forwarded reserves room for its response
+        // first, where the plan retains it, or is refused for the budget
+        // before any external work (CR3).
+        let budget = |denial| (denial, Refused::Budget);
+        let denied = denied.or_else(|| self.ledger.reserve(&mut call).err().map(budget));
         let Some((denial, refused)) = denied else {
             self.forwarded(call, id, called);
             return Ok(());
@@ -707,13 +609,17 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
 
     /// The server's response `reply` to the request `id`: the active
     /// call's, its id first found safe to correlate by, and the reply
-    /// prepared at the output edge ([`delivered`]); its Terminal recorded,
-    /// then the prepared bytes delivered as the answer to the harness's own
-    /// id within the call's own deadline unless the harness cancelled the
-    /// call. An id of either side holding a bound secret, a response to
-    /// anything else, a reply the edge refuses or an answer that would pass
-    /// MB3's bound on a response ends the session, failing the call before
-    /// its Terminal is recorded, and nothing of it is delivered.
+    /// prepared at the output edge ([`delivered`]); then, where the plan
+    /// retains its responses, the very prepared bytes staged and synced,
+    /// and its Terminal recorded citing them, or else its Terminal alone;
+    /// then those bytes delivered as the answer to the harness's own id
+    /// within the call's own deadline unless the harness cancelled the
+    /// call (CR2, CR3). An id of either side holding a bound secret, a
+    /// response to anything else, a reply the edge refuses, as one it
+    /// cannot safely mask, or an answer that would pass MB3's bound on a
+    /// response ends the session, failing the call before anything is
+    /// staged or its Terminal recorded, whatever the plan retains, and
+    /// nothing of it is delivered.
     fn answered(&mut self, id: Id, reply: Reply) -> Result<(), Ended> {
         let bound = self.bound();
         let watch = output::watched((bound, self.attempt.1));
@@ -723,27 +629,35 @@ impl<'s, W: Write + AsFd, E: Read + AsFd> Session<'s, '_, '_, W, E> {
         };
         let answer = delivered(reply, self.bindings).and_then(|(outcome, body)| {
             let line = output::framed(Some(&active.id), &body, &self.guard, watch)?;
-            ensure(line.bytes().len() <= FRAME_MAX, RESPONSE).map(|()| (outcome, line))
+            let fits = line.bytes().len() <= FRAME_MAX;
+            ensure(fits, RESPONSE).map(|()| (outcome, body, line))
         });
-        let (outcome, line) = match answer {
+        let (outcome, body, line) = match answer {
             Ok(answer) => answer,
             Err(fatal) => {
                 self.active = Some(active);
                 return self.failed(fatal);
             }
         };
-        self.ended(active.call, outcome, &active.id)?;
+        let digest = canonical::sha256_bytes(&body);
+        let recorded = self.ledger.answered(active.call, outcome, (&body, &digest));
+        self.recorded(recorded, &active.id)?;
         if !active.cancelled {
             self.write(line, bound);
         }
         Ok(())
     }
 
-    /// `call`'s Terminal recorded with `outcome`; or the harness told its
-    /// request `id` could not be, nothing else delivered, and the session
-    /// ended ([`Ended::from`]).
+    /// `call`'s Terminal recorded with `outcome`, citing no response.
     fn ended(&mut self, call: Call, outcome: Outcome, id: &Id) -> Result<(), Ended> {
         let recorded = self.ledger.end(call, outcome);
+        self.recorded(recorded, id)
+    }
+
+    /// Nothing where the Terminal was `recorded`; or the harness told its
+    /// request `id` it could not be, nothing else delivered, and the
+    /// session ended ([`Ended::from`]).
+    fn recorded(&mut self, recorded: Result<(), Unrecorded>, id: &Id) -> Result<(), Ended> {
         recorded.map_err(|unrecorded| {
             self.told(Some(id), fault(INTERNAL, &unrecorded), self.bound())
                 .ok();

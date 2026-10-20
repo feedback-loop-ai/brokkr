@@ -17,9 +17,10 @@ follow-up. When the framing names the files the work may touch, stay inside
 them, and report `oversized` naming the extra file rather than widening. Where
 the framing is ambiguous, implement the reading its wording and the
 surrounding code most directly support, and state that assumption in
-`notes`. Scratch scripts and quick checks go under `.forge/` and are not
-committed: commit the tests that prove the change, sized like the neighbouring
-tests, and do not turn a scratch check into an extra permanent test.
+`notes`. Scratch scripts and quick checks go under the run-local directory
+that holds your result file and are not committed: commit the tests that prove
+the change, sized like the neighbouring tests, and do not turn a scratch check
+into an extra permanent test.
 
 Evidence: every claim you make in `notes`, a task record or an evidence file
 (a test that binds, a mutation that failed, a gate that passed, a file that

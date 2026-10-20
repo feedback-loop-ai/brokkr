@@ -1040,11 +1040,14 @@ fn serving_dispatch() {
     // `setpriv` sets it, here a harness shell, the shell it runs and the
     // broker that one runs, each a child, not in its parent's place.
     // Named by its parent, which skips where this host has none ([`setpriv`]).
+    // The seat's own shell stays, holding the stdout its engine reads: a
+    // driver whose stdout closes unaccepted is one the engine ends after its
+    // grace, and a slow host's box can take longer than that to stand.
     let setpriv = std::fs::read_to_string(dir.join("payload")).ok();
     let harness = "'\"$0\" \"$@\"; exit $?'";
     let serves = |setpriv: &str| {
         format!(
-            "{BROKER}='{0}' RUST_BACKTRACE=1 exec '{setpriv}' --no-new-privs /bin/sh -c {harness} \
+            "{BROKER}='{0}' RUST_BACKTRACE=1 '{setpriv}' --no-new-privs /bin/sh -c {harness} \
              /bin/sh -c \
              {harness} '{1}' --exact {BROKER_TEST} --nocapture --test-threads=1 \
              > '{0}/broker.out' 2>&1",

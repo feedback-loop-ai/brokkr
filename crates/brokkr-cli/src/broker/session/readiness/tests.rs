@@ -878,7 +878,7 @@ fn plan_lived(
     plan: &Plan,
     session: impl FnOnce(Binder<'_, '_>) -> Result<(), Ended>,
 ) -> Result<(), Ended> {
-    let ledger = (attempt, std::ffi::OsStr::new("plan"));
+    let ledger = (attempt, std::ffi::OsStr::new("plan"), None);
     let held = Held::default();
     lived(&held, ledger, (&plan.owner, PLAN), &|_| Put::Taken, session)
 }

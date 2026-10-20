@@ -85,7 +85,10 @@ pub(crate) fn migrate_acknowledgements(conn: &Connection) -> Result<(), StoreErr
 
 /// The acknowledgement standing on `run_id`. A journal opened read-only
 /// from before the table existed has none, and is never migrated to ask.
-fn standing(conn: &Connection, run_id: &str) -> Result<Option<Acknowledgement>, StoreError> {
+pub(crate) fn standing(
+    conn: &Connection,
+    run_id: &str,
+) -> Result<Option<Acknowledgement>, StoreError> {
     if !all_present(conn, "table", &TABLE)? {
         return Ok(None);
     }

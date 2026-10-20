@@ -15,6 +15,8 @@ pub mod keep_refs;
 pub mod policy;
 pub mod realms;
 pub mod residual;
+pub mod stamp;
+pub mod summary;
 
 pub use envelope::{EventEnvelope, EventType};
 pub use fold::{fold, Cursor, FoldError, RunState, Status};

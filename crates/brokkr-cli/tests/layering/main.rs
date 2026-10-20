@@ -27,6 +27,8 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 
+#[path = "projection.rs"]
+mod projection;
 #[path = "scan.rs"]
 mod scan;
 #[path = "test_targets.rs"]

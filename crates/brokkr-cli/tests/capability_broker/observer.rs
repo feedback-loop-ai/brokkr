@@ -841,7 +841,10 @@ fn the_admitted_launcher_runs_through_its_handle_with_no_environment() {
     let apart = sealed.path("broker.err");
     let starter = (Starter::Harness, Some(apart.as_path()));
     let mut command = started_to(traced(&tracer, args), &sealed, &digest, starter);
-    let attempt = command.stderr(Stdio::null()).spawn().unwrap();
+    let mut attempt = command.stderr(Stdio::null()).spawn().unwrap();
+    // The harness says nothing and ends its input, so the retained plan,
+    // served since U8b, ends served.
+    drop(attempt.stdin.take());
     let ran = super::bounded_apart(attempt, b"", &apart).status;
     assert_eq!((ran.code(), broker_err(&sealed)), admitted());
     // The one run the admission gave its launcher: the kept handle, by the
