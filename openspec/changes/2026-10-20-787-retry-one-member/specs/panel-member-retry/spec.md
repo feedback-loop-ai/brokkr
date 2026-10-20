@@ -217,7 +217,7 @@ A member's settled verdict SHALL be carried into the retry's attempt only when f
 With `--member`, the verb SHALL fold the run before it writes and SHALL ask its checks in this order, each fact with one text, the first fact that fails being the refusal reported, and a refused command writing nothing:
 
 1. the arguments' shape, two facts in order: `--member` with a command word other than `retry`; any of `--repo`, `--bundle`, `--recipe` and `--recipes-dir` without `--member`; then the refusals the verb makes today, in their existing order and with their texts, except that the supersede-only flags' refusal on `retry` names the arguments `retry` now takes;
-2. the run's state by the fold's one rule (`acceptance_refusal`: not parked, no phase to retry), reported in the fold's words;
+2. the run's state by the fold's one rule (`acceptance_refusal`: a concluded run, `after_terminal`; not parked, `run_not_awaiting_operator`; no phase to retry, `no_phase_to_retry`; in that order), reported through `brokkr_view::member_retry_refusal` with the fold's word, `refused operator retry --member (<word>): the run is not in a state a retry can apply to; nothing was journaled`, which says nothing was journaled (S21);
 3. the bundle and the panel, three facts in order: the pinned bundle compiles under `resume`'s manifest gate, else the command SHALL be refused in `resume`'s own words, as the previous requirement reads it; the parked phase's body, read from the compiled bundle as the previous requirement reads it, is a panel or a sequence with a panel step, else the command SHALL be refused naming the phase as running no panel; the panel is the body or the sequence's first step, else the command SHALL be refused naming the panel step as following the first step;
 4. the names: each SHALL resolve to a member of that panel, else the command SHALL be refused naming the panel's members, and no member SHALL be given twice; when every member is named the command SHALL be admitted here and nothing below asked, a sequence parked at a step after the panel included;
 5. the parked attempt's shape, four facts in this order, each refused naming its own fact: the phase's current visit holds no attempt its panel ended, naming the phase and its visit; the attempt's terminal fact is `effect/succeeded`, naming the park's reason as the folded state holds it; it ended at a step after the panel, naming that step; it records no verdict to carry, neither `settled_members` on its terminal fact nor `carried` on its `effect/started`, naming the attempt;
@@ -230,7 +230,12 @@ The parked attempt SHALL be the latest attempt of the parked phase's current vis
 #### Scenario: A member retry on a run that is not parked
 
 - **WHEN** the operator runs `brokkr operator retry --member correctness` on a running run
-- **THEN** the command is refused in the fold's words for a run not awaiting the operator, and the journal holds no `operator/commanded` for it, where the plain retry would journal its command and its `operator/rejected`
+- **THEN** the command is refused with the text `refused operator retry --member (run_not_awaiting_operator): the run is not in a state a retry can apply to; nothing was journaled`, and the journal holds no `operator/commanded` for it, where the plain retry would journal its command and its `operator/rejected` and print `operator_refusal`'s text, which is unchanged
+
+#### Scenario: A member retry on a concluded run
+
+- **WHEN** the operator runs `brokkr operator retry --member correctness` on a run that completed or was stopped
+- **THEN** the command is refused with the text `refused operator retry --member (after_terminal): the run is not in a state a retry can apply to; nothing was journaled`, and nothing is written
 
 #### Scenario: The parked phase runs no panel
 
