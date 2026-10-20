@@ -78,9 +78,9 @@ use brokkr_protocol::broker::{Plan, Tree};
 use brokkr_protocol::hands::{ServerProgram, HOST_TOOLCHAIN_BINDS, SERVER_RESOLVER};
 use serde::{Deserialize, Serialize};
 
-use super::admission::{sealed, Claim, Held, Reach, Reservation, Unadmitted, Unknown, Writer};
+use super::admission::{sealed, Claim, Held, Unadmitted, Unknown};
 use super::exclusion::{beneath, covers, everywhere, Guarded};
-use super::inventory::{inventory, Budget};
+use super::inventory::{inventory, Budget, Reaching, Standing, Writing};
 use super::resolved;
 use super::root::{locked, Commit, Mounts};
 use super::settlement::recovered;
@@ -463,7 +463,7 @@ fn hop(next: &Path) -> std::io::Result<Option<PathBuf>> {
 /// identity cause naming the first that is not. With nothing reserved no
 /// server is at stake, and nothing is compared.
 pub(super) fn kept<'w>(
-    writers: impl IntoIterator<Item = (&'w str, &'w Writer)>,
+    writers: impl IntoIterator<Item = (&'w str, &'w Writing)>,
     serves: &[Served],
     mounts: Mounts,
     budget: &Budget,
@@ -476,7 +476,7 @@ pub(super) fn kept<'w>(
     for (run, writer) in writers {
         budget.check()?;
         let (site, run) = (writer.site.clone(), run.to_string());
-        let Reach::Boxed { writable, .. } = &writer.reach else {
+        let Reaching::Boxed { writable, .. } = &writer.reach else {
             return Err(Unknown::Unconfined { site, run });
         };
         let table = match &mut table {
@@ -524,17 +524,17 @@ fn writes(writable: &[PathBuf], served: &Served, table: &Table) -> Result<bool, 
 /// `mounts`, within `budget`.
 pub(super) fn unserved(
     claim: &Claim,
-    standing: &[Reservation],
+    standing: &[Standing],
     mounts: Mounts,
     budget: &Budget,
 ) -> Result<(), Unknown> {
     let serves: Vec<Served> = standing
         .iter()
-        .flat_map(Reservation::serves)
+        .flat_map(Standing::serves)
         .cloned()
         .collect();
-    let writers = claim.reserved.writers.iter();
-    let writers = writers.map(|writer| (claim.run.as_str(), writer));
+    let writers: Vec<Writing> = claim.reserved.writers.iter().map(Writing::from).collect();
+    let writers = writers.iter().map(|writer| (claim.run.as_str(), writer));
     kept(writers, &serves, mounts, budget)
 }
 
@@ -589,11 +589,20 @@ pub(super) fn extended_with(
     let root = &held.coordination;
     let _lock = locked(root.dir(), deadline)?;
     let mut budget = Budget::new(deadline);
-    let found = inventory(root.dir(), root.path(), &mut budget)?;
+    let found = inventory(
+        root.dir(),
+        root.path(),
+        [&held.repo, &held.run],
+        &mut budget,
+    )?;
     let (standing, commit) = recovered(root, found.standing, &[], &budget)?;
     commits.set(commits.get().and(commit));
-    let mine = |found: &&Reservation| (found.repo == held.repo) & (found.run == held.run);
-    let mut reservation = standing.iter().find(mine).cloned().ok_or(Unknown::Lost)?;
+    let mine = |found: &&Standing| (found.repo == held.repo) & (found.run == held.run);
+    let mine = standing
+        .iter()
+        .find(mine)
+        .and_then(|found| found.whole.clone());
+    let mut reservation = mine.ok_or(Unknown::Lost)?;
     let mut reserved = (reservation.attempts.remove(&held.attempt)).ok_or(Unknown::Lost)?;
     let mut reserves = reserved.serves.clone();
     for met in routed(&serves, &budget)? {

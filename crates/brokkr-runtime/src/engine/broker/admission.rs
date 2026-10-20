@@ -49,7 +49,7 @@ use thiserror::Error;
 
 use super::exclusion::{compared, everywhere, staked, Comparison};
 use super::historical::recorded;
-use super::inventory::{inventory, Budget};
+use super::inventory::{inventory, Budget, Standing};
 use super::root::{locked, read, Commit, Root};
 use super::settlement::recovered;
 use super::sources::{unserved, Served, Unroutable};
@@ -149,6 +149,14 @@ pub(in crate::engine) enum Unknown {
     Bounds,
     #[error("the protected inventory holds an unknown participant at '{}'", .0.display())]
     Participant(PathBuf),
+    #[error(
+        "the protected inventory holds a reservation at '{}' in format {format}, which this \
+         build does not read: conclude its run with the build that wrote it, or use a build \
+         that reads it",
+        .0.display(),
+        format = .1
+    )]
+    Formatted(PathBuf, u64),
     #[error("the attempt's reservation could not be sealed")]
     Unsealed,
     #[error("the attempt's reservation was committed, but its directory was not proven synced")]
@@ -272,25 +280,6 @@ pub(super) enum Reach {
         sealed: Box<hands::Sealed>,
     },
     Unbounded,
-}
-
-impl Reservation {
-    /// Every writer its standing attempts reserved.
-    pub(super) fn writers(&self) -> impl Iterator<Item = &Writer> {
-        self.attempts
-            .values()
-            .flat_map(|reserved| &reserved.writers)
-    }
-
-    /// Whether any of its standing attempts protects evidence.
-    pub(super) fn protects(&self) -> bool {
-        (self.attempts.values()).any(|reserved| reserved.protects == Protects::Evidence)
-    }
-
-    /// Every MCP server source its standing attempts reserved (U8a2b).
-    pub(super) fn serves(&self) -> impl Iterator<Item = &Served> {
-        self.attempts.values().flat_map(|reserved| &reserved.serves)
-    }
 }
 
 /// One attempt's claim on its worktree, which admission compares and
@@ -630,7 +619,12 @@ pub(super) fn admit_with(
 ) -> Result<Held, Unadmitted> {
     let _lock = locked(root.dir(), deadline)?;
     let mut budget = Budget::new(deadline);
-    let found = inventory(root.dir(), root.path(), &mut budget)?;
+    let found = inventory(
+        root.dir(),
+        root.path(),
+        [&claim.repo, &claim.run],
+        &mut budget,
+    )?;
     let (standing, mut commit) = recovered(root, found.standing, &claim.reserved.writers, &budget)?;
     let comparison = Comparison {
         claim,
@@ -665,11 +659,13 @@ pub(super) fn admit_with(
 }
 
 /// The run's reservation with `claim`'s attempt standing in it: the one
-/// `standing` holds for that very worktree and run, or a new one.
-fn joined(claim: &Claim, standing: Vec<Reservation>) -> Reservation {
+/// `standing` holds for that very worktree and run, which the inventory
+/// read whole, or a new one.
+fn joined(claim: &Claim, standing: Vec<Standing>) -> Reservation {
     let mine = |held: &Reservation| (held.repo == claim.repo) & (held.run == claim.run);
     let mut reservation = standing
         .into_iter()
+        .filter_map(|held| held.whole)
         .find(mine)
         .unwrap_or_else(|| Reservation {
             repo: claim.repo.clone(),

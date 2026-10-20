@@ -31,16 +31,17 @@ use std::path::{Path, PathBuf};
 // Only the Linux mount table's judgement names MB3's causes here.
 #[cfg(target_os = "linux")]
 use super::admission::Unknown;
-use super::admission::{Claim, Conflict, Reach, Reservation, Unadmitted, Writer};
+use super::admission::{Claim, Conflict, Unadmitted};
 use super::historical::verified;
-use super::inventory::Budget;
+use super::inventory::{Budget, Reaching, Standing, Writing};
 use super::resolved;
 use crate::capabilities::McpFence;
 
-/// What admission compares under its lock.
+/// What admission compares under its lock: every standing reservation as
+/// the view every build writes reads it (decision 0090).
 pub(super) struct Comparison<'a> {
     pub(super) claim: &'a Claim,
-    pub(super) standing: &'a [Reservation],
+    pub(super) standing: &'a [Standing],
     pub(super) historical: &'a [PathBuf],
     pub(super) coordination: &'a Path,
 }
@@ -50,7 +51,7 @@ pub(super) struct Comparison<'a> {
 struct Participant<'a> {
     run: &'a str,
     artifacts: &'a Path,
-    writers: Vec<&'a Writer>,
+    writers: Vec<Writing>,
 }
 
 /// A root nothing may replace, as observed now: its device and inode, and
@@ -131,14 +132,14 @@ fn participated(
     let writers = participants
         .iter()
         .flat_map(|participant| &participant.writers);
-    let writable = writable(writers.copied());
+    let writable = writable(writers);
     let mut boxed = false;
     for participant in &participants {
         for writer in &participant.writers {
             budget.check()?;
             let sources = judged(participant, writer, roots)?;
             replaceable(participant, writer, sources, &writable)?;
-            boxed |= writer.reach != Reach::Unbounded;
+            boxed |= writer.reach != Reaching::Unbounded;
         }
     }
     Ok(boxed)
@@ -154,7 +155,7 @@ fn participated(
 /// may be a writable root. Each refuses with CR2's cause.
 fn replaceable(
     participant: &Participant<'_>,
-    writer: &Writer,
+    writer: &Writing,
     sources: &[PathBuf],
     writable: &[Guarded],
 ) -> Result<(), Conflict> {
@@ -176,10 +177,10 @@ fn replaceable(
 }
 
 /// Every writable root of `writers`' boxes, canonical and observed now.
-fn writable<'w>(writers: impl Iterator<Item = &'w Writer>) -> Vec<Guarded> {
+fn writable<'w>(writers: impl Iterator<Item = &'w Writing>) -> Vec<Guarded> {
     let roots = writers.filter_map(|writer| match &writer.reach {
-        Reach::Boxed { writable, .. } => Some(writable),
-        Reach::Unbounded => None,
+        Reaching::Boxed { writable, .. } => Some(writable),
+        Reaching::Unbounded => None,
     });
     let roots = roots
         .flatten()
@@ -211,7 +212,7 @@ pub(super) fn everywhere() -> bool {
 /// holds nothing.
 fn leased(comparison: &Comparison<'_>) -> Result<(), Conflict> {
     let claim = comparison.claim;
-    let other = |held: &&Reservation| {
+    let other = |held: &&Standing| {
         (held.repo == claim.repo) & (held.run != claim.run) & !held.attempts.is_empty()
     };
     let holder = comparison.standing.iter().find(other);
@@ -241,12 +242,12 @@ fn participants<'a>(comparison: &Comparison<'a>) -> Vec<Participant<'a>> {
     let incoming = Participant {
         run: &claim.run,
         artifacts: &claim.artifacts,
-        writers: claim.reserved.writers.iter().collect(),
+        writers: claim.reserved.writers.iter().map(Writing::from).collect(),
     };
     let standing = comparison.standing.iter().map(|held| Participant {
         run: &held.run,
         artifacts: &held.artifacts,
-        writers: held.writers().collect(),
+        writers: held.writers().cloned().collect(),
     });
     std::iter::once(incoming).chain(standing).collect()
 }
@@ -256,13 +257,10 @@ fn participants<'a>(comparison: &Comparison<'a>) -> Vec<Participant<'a>> {
 /// sources its box binds apart where it can, for [`replaceable`].
 fn judged<'w>(
     participant: &Participant<'_>,
-    writer: &'w Writer,
+    writer: &'w Writing,
     roots: &[Guarded],
 ) -> Result<&'w [PathBuf], Conflict> {
-    let Reach::Boxed {
-        writable, sources, ..
-    } = &writer.reach
-    else {
+    let Reaching::Boxed { writable, sources } = &writer.reach else {
         return Err(Conflict::Unboxed {
             site: writer.site.clone(),
             run: participant.run.to_string(),
@@ -290,10 +288,10 @@ fn judged<'w>(
 /// entries. Used to prove a journal, its directory and its `-wal`/`-shm`
 /// siblings outside every participant's reach before recovery trusts an
 /// unkeyed hash chain in it.
-pub(super) fn reaches(writers: &[&Writer], path: &Path) -> bool {
+pub(super) fn reaches(writers: &[&Writing], path: &Path) -> bool {
     let unbounded = writers
         .iter()
-        .any(|writer| writer.reach == Reach::Unbounded);
+        .any(|writer| writer.reach == Reaching::Unbounded);
     let target = Guarded::of(resolved(path.to_path_buf()));
     let writable = writable(writers.iter().copied());
     unbounded | writable.iter().any(|root| beneath(&target, root))

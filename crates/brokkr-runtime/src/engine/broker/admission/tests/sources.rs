@@ -24,6 +24,7 @@ use std::process::Command;
 use brokkr_protocol::hands::{ServerBox, SERVER_RESOLVER};
 
 use super::*;
+use crate::engine::broker::inventory::Writing;
 use crate::engine::broker::sources::{extended, extended_with, fixed, fixed_with, kept};
 use crate::engine::broker::sources::{launchers, surveying, Unroutable, HOPS_MAX, SYSTEM_ROOTS};
 use crate::engine::broker::sources::{launches, launches_with, read, routed, Served};
@@ -463,7 +464,12 @@ fn every_link_on_an_inputs_route_is_reserved() {
     let budget = Budget::new(soon());
     assert_eq!(routed(&inputs, &budget), Ok(expected.clone()));
     let writer = boxed("work", &[&climbing]);
-    let compared = kept([("run-b", &writer)], &expected, shown, &budget);
+    let compared = kept(
+        [("run-b", &Writing::from(&writer))],
+        &expected,
+        shown,
+        &budget,
+    );
     assert_eq!(compared, Err(exposing("work", "run-b", &missing)));
 }
 
@@ -594,7 +600,12 @@ fn a_bind_of_the_directory_a_link_lies_in_is_refused() {
     for (source, refused) in [(&links, true), (&beside, false)] {
         let _shown = Shown::with(&[(2, source, &bound)]);
         let writer = boxed("work", &[&b, &bound]);
-        let compared = kept([("run-b", &writer)], &serves, shown, &Budget::new(soon()));
+        let compared = kept(
+            [("run-b", &Writing::from(&writer))],
+            &serves,
+            shown,
+            &Budget::new(soon()),
+        );
         let expected = refused.then(|| exposing("work", "run-b", &links.join("server")));
         assert_eq!(compared.err(), expected, "{source:?}");
     }
@@ -857,7 +868,12 @@ fn a_mount_table_that_proves_nothing_keeps_no_writer() {
     let first = serves[0].path().to_path_buf();
     let compared = |table: String| {
         let _shown = Shown::text(table);
-        kept([("run-b", &writer)], &serves, shown, &Budget::new(soon()))
+        kept(
+            [("run-b", &Writing::from(&writer))],
+            &serves,
+            shown,
+            &Budget::new(soon()),
+        )
     };
     let unmounted = |path: &Path| Err(Unknown::Unmounted(path.to_path_buf()));
     assert_eq!(compared("not a mount table\n".into()), unmounted(&first));
@@ -889,7 +905,12 @@ fn a_mount_table_that_proves_nothing_keeps_no_writer() {
     let entries = [Served::Entries(temporary.clone())];
     let refused = Err(exposing("work", "run-b", &temporary));
     assert_eq!(
-        kept([("run-b", &writer)], &entries, shown, &Budget::new(soon())),
+        kept(
+            [("run-b", &Writing::from(&writer))],
+            &entries,
+            shown,
+            &Budget::new(soon())
+        ),
         refused
     );
 }
@@ -1273,7 +1294,12 @@ fn an_extension_refuses_what_admission_refuses() {
     assert_eq!(extend(&held, serves()), Err(Unknown::Lost.into()));
     let writer = boxed("work", &[&a]);
     let spent = Budget::new(Instant::now());
-    let compared = kept([("run-a", &writer)], &serves(), shown, &spent);
+    let compared = kept(
+        [("run-a", &Writing::from(&writer))],
+        &serves(),
+        shown,
+        &spent,
+    );
     assert_eq!(compared, Err(Unknown::Expired));
 }
 
@@ -1479,7 +1505,13 @@ fn a_link_is_guarded_as_its_own_entry_not_as_what_it_names() {
     assert_eq!(serves, expected);
     let compared = |root: &Path| {
         let writer = boxed("work", &[root]);
-        kept([("run-b", &writer)], &serves, shown, &budget).err()
+        kept(
+            [("run-b", &Writing::from(&writer))],
+            &serves,
+            shown,
+            &budget,
+        )
+        .err()
     };
     assert_eq!(
         compared(&beside),
