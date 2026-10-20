@@ -43,7 +43,7 @@ use super::admission::{
 };
 use super::exclusion::{everywhere, reaches};
 use super::historical::regular;
-use super::inventory::Budget;
+use super::inventory::{Budget, Standing, Writing};
 use super::root::{Commit, Root};
 use super::startup;
 use crate::engine::{Engine, EngineError};
@@ -225,33 +225,39 @@ fn ending(events: &[EventEnvelope], attempt: &str) -> Option<Ending> {
 }
 
 /// Every reservation of `found`, each of its standing attempts its durable
-/// facts prove over ([`certified`]) moved to its settled ones and the
-/// reservation sealed again below `root`, all within `budget` (M7); and
-/// whether every seal it made was synced.
+/// facts prove over ([`certified`]) moved to its settled ones, all within
+/// `budget` (M7): the reservation sealed again below `root` where the
+/// inventory read it whole, and otherwise settled for this admission alone
+/// and never sealed, as another build wrote it (decision 0090); and whether
+/// every seal it made was synced.
 pub(super) fn recovered(
     root: &Root,
-    found: Vec<Reservation>,
+    found: Vec<Standing>,
     incoming: &[Writer],
     budget: &Budget,
-) -> Result<(Vec<Reservation>, Commit), Unknown> {
+) -> Result<(Vec<Standing>, Commit), Unknown> {
     // Every participant's writers, the incoming attempt's and every
     // standing one's: recovery trusts a reservation's journal only where
     // none of them could have forged its unkeyed hash chain (R2).
-    let mut writers: Vec<Writer> = incoming.to_vec();
-    writers.extend(found.iter().flat_map(Reservation::writers).cloned());
-    let writers: Vec<&Writer> = writers.iter().collect();
+    let mut writers: Vec<Writing> = incoming.iter().map(Writing::from).collect();
+    writers.extend(found.iter().flat_map(Standing::writers).cloned());
+    let writers: Vec<&Writing> = writers.iter().collect();
     let (mut standing, mut commit) = (Vec::with_capacity(found.len()), Commit::Synced);
-    for reservation in found {
+    for mut reservation in found {
         let proven = certified(&reservation, &writers, budget);
         budget.check()?;
         if proven.is_empty() {
             standing.push(reservation);
             continue;
         }
+        let Some(whole) = reservation.whole.take() else {
+            standing.push(reservation.released(&proven));
+            continue;
+        };
         let settle = |held, attempt: &String| settled(held, attempt);
-        let recovered = proven.iter().try_fold(reservation, settle)?;
+        let recovered = proven.iter().try_fold(whole, settle)?;
         commit = commit.and(sealed(root, &recovered, budget)?);
-        standing.push(recovered);
+        standing.push(Standing::from(recovered));
     }
     Ok((standing, commit))
 }
@@ -259,18 +265,15 @@ pub(super) fn recovered(
 /// The standing attempts of `reservation` whose engine sealed their
 /// positive settlement fact and whose terminal events its journal, opened
 /// read-only, certifies; none where it cannot be read.
-fn certified(reservation: &Reservation, writers: &[&Writer], budget: &Budget) -> Vec<String> {
+fn certified(reservation: &Standing, writers: &[&Writing], budget: &Budget) -> Vec<String> {
     if reservation.attempts.is_empty() {
         return Vec::new();
     }
     let events =
         journal(&reservation.journal, &reservation.run, writers, budget).unwrap_or_default();
-    let attempts = reservation.attempts.iter();
-    let certified = attempts.filter(|(attempt, reserved)| {
-        let proved = reserved.cleanup == Witnessed::Settled;
-        proved & (ending(&events, attempt) == Some(Ending::Certified))
-    });
-    certified.map(|(attempt, _)| attempt.clone()).collect()
+    let certified = (reservation.proved())
+        .filter(|attempt| ending(&events, attempt) == Some(Ending::Certified));
+    certified.cloned().collect()
 }
 
 /// The run `run`'s events in the journal at `path`, read only, waiting on
@@ -284,7 +287,7 @@ fn certified(reservation: &Reservation, writers: &[&Writer], budget: &Budget) ->
 fn journal(
     path: &Path,
     run: &str,
-    writers: &[&Writer],
+    writers: &[&Writing],
     budget: &Budget,
 ) -> Option<Vec<EventEnvelope>> {
     if reachable(path, writers) {
@@ -308,7 +311,7 @@ fn sibling(path: &Path, suffix: &str) -> PathBuf {
 
 /// Whether `path`, its directory, or its SQLite `-wal`/`-shm` siblings lie
 /// within any participant's writer reach.
-fn reachable(path: &Path, writers: &[&Writer]) -> bool {
+fn reachable(path: &Path, writers: &[&Writing]) -> bool {
     let mut targets = vec![
         path.to_path_buf(),
         sibling(path, "-wal"),

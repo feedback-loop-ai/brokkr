@@ -532,10 +532,11 @@ fn every_step_under_the_lock_spends_the_shared_deadline() {
         .admit(&claim(&work, ["run-a", "a1"], Protects::Nothing, &[]))
         .unwrap();
     let bytes = std::fs::read(host.reservation(&work, "run-a")).unwrap();
-    let standing = vec![serde_json::from_slice(&bytes).unwrap()];
+    let whole: Reservation = serde_json::from_slice(&bytes).unwrap();
+    let standing = vec![Standing::from(whole)];
     let recovered =
         super::super::super::settlement::recovered(&host.root, standing, &[], &expired());
-    assert_eq!(recovered, Err(Unknown::Expired));
+    assert_eq!(recovered.map(drop), Err(Unknown::Expired));
     let digests = artifacts(&work).join("sha256");
     std::fs::create_dir_all(&digests).unwrap();
     for bytes in [&b"one"[..], b"two"] {

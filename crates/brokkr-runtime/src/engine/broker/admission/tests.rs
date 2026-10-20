@@ -37,6 +37,7 @@ use crate::engine::tests::{
 use crate::engine::{spawn_site, SiteSpawn};
 
 mod coordination;
+mod foreign;
 mod processes;
 mod reach;
 mod recovery;
@@ -607,15 +608,24 @@ fn simultaneous_admissions_on_one_worktree_admit_exactly_one() {
 /// before anything is sealed (H6): a stray file in the protected root, in
 /// a worktree's directory or in a run's, a link, a directory no worktree's
 /// key names, an attempt's directory the reservation does not name, a
-/// directory that cannot be entered, a reservation with a field no record
-/// has, and one naming another run. A named attempt's directory and a
-/// record staged beside its reservation are passed over.
+/// directory that cannot be entered, this run's own reservation with a
+/// field no record has, and another run's naming a third. A named
+/// attempt's directory and a record staged beside its reservation are
+/// passed over, and so is a field no record has in another run's, which
+/// is read through the view every build writes (decision 0090).
 #[test]
 fn an_unknown_participant_refuses_before_anything_is_sealed() {
     let host = Host::new();
     let (work, other) = (host.worktree("work"), host.worktree("other"));
     let (planted, incoming) = (open(&other, ["run-p", "p1"]), open(&work, ["run-a", "a1"]));
-    let planted_at = host.reservation(&other, "run-p");
+    let (planted_at, own_at) = (
+        host.reservation(&other, "run-p"),
+        host.reservation(&work, "run-a"),
+    );
+    let widen = |at: &Path| {
+        let sealed = std::fs::read_to_string(at).unwrap();
+        std::fs::write(at, sealed.replacen('{', r#"{"extra":1,"#, 1)).unwrap();
+    };
     let (root, run_dir) = (host.root(), planted_at.parent().unwrap().to_path_buf());
     let repo_dir = run_dir.parent().unwrap().to_path_buf();
     let key = "f".repeat(64);
@@ -656,14 +666,7 @@ fn an_unknown_participant_refuses_before_anything_is_sealed() {
             Box::new(|| private(&root.join(&key), 0o000)),
             root.join(&key),
         ),
-        (
-            Box::new(|| {
-                let sealed = std::fs::read_to_string(&planted_at).unwrap();
-                let widened = sealed.replacen('{', r#"{"extra":1,"#, 1);
-                std::fs::write(&planted_at, widened).unwrap();
-            }),
-            planted_at.clone(),
-        ),
+        (Box::new(|| widen(&own_at)), own_at.clone()),
         (
             Box::new(|| {
                 let sealed = std::fs::read_to_string(&planted_at).unwrap();
@@ -672,22 +675,34 @@ fn an_unknown_participant_refuses_before_anything_is_sealed() {
             planted_at.clone(),
         ),
     ];
-    let sealed = std::fs::read(&planted_at).unwrap();
+    let (sealed, own) = (
+        std::fs::read(&planted_at).unwrap(),
+        std::fs::read(&own_at).unwrap(),
+    );
     for (plant, at) in cases {
         plant();
+        let stood = std::fs::read(&own_at).unwrap();
         assert_eq!(host.admit(&incoming), mb3(Unknown::Participant(at.clone())));
-        let (standing, _) = host.attempts(&work, "run-a");
-        assert!(standing.is_empty(), "{at:?}: nothing sealed");
+        assert_eq!(
+            std::fs::read(&own_at).unwrap(),
+            stood,
+            "{at:?}: nothing sealed"
+        );
         if std::fs::symlink_metadata(&at).is_ok_and(|found| found.is_dir()) {
             std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o700)).unwrap();
             std::fs::remove_dir(&at).unwrap();
-        } else if at != planted_at {
+        } else if (at != planted_at) & (at != own_at) {
             std::fs::remove_file(&at).unwrap();
         }
-        std::fs::write(&planted_at, &sealed).unwrap();
-        std::fs::set_permissions(&planted_at, std::fs::Permissions::from_mode(0o600)).unwrap();
+        for (at, bytes) in [(&planted_at, &sealed), (&own_at, &own)] {
+            std::fs::write(at, bytes).unwrap();
+            std::fs::set_permissions(at, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
     }
+    widen(&planted_at);
+    let widened = std::fs::read(&planted_at).unwrap();
     freed(&host.admit(&incoming).unwrap());
+    assert_eq!(std::fs::read(&planted_at).unwrap(), widened, "never sealed");
 }
 
 /// A name that is not UTF-8 is unknown too. Linux only: APFS refuses such
@@ -819,7 +834,9 @@ fn the_inventory_reads_within_its_entry_bound() {
     // The lock, the worktree's directory, its run's, and its reservation.
     let within = |entries, deadline| {
         let mut budget = Budget { entries, deadline };
-        let found = super::super::inventory::inventory(host.root.dir(), &host.root(), &mut budget);
+        let own = ["", ""];
+        let found =
+            super::super::inventory::inventory(host.root.dir(), &host.root(), own, &mut budget);
         found.map(|found| found.standing.len())
     };
     assert_eq!(within(4, soon()), Ok(1));
