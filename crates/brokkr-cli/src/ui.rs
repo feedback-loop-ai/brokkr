@@ -123,10 +123,12 @@ fn page_asked(query: &str) -> Result<(Option<brokkr_view::Cursor>, usize), PageR
     Ok(asked)
 }
 
-/// A query value, percent-decoded once as a path component is, so the
-/// `next` a page states reads back however a client encodes it.
+/// A query value, form-decoded once: `+` is a space, as `URLSearchParams`
+/// writes one, and the rest percent-decodes as a path component does, so
+/// `%2B` stays a plus and the `next` a page states reads back however a
+/// client encodes it.
 fn query_value(value: &str) -> Result<String, PageRefused> {
-    decode_component(value).ok_or_else(|| PageRefused::Escape(value.to_string()))
+    decode_component(&value.replace('+', " ")).ok_or_else(|| PageRefused::Escape(value.to_string()))
 }
 
 fn not_found(what: &str) -> Response {
@@ -679,6 +681,8 @@ pub(crate) fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Resu
 
 #[cfg(test)]
 mod limit_tests;
+#[cfg(test)]
+mod runs_route_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
