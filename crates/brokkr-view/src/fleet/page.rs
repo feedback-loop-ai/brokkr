@@ -199,15 +199,14 @@ impl fmt::Display for CursorError {
 impl std::str::FromStr for Cursor {
     type Err = CursorError;
 
+    /// The run id is everything past the second colon, the empty id a
+    /// writer admits included, so every `next` a page states reads back.
     fn from_str(text: &str) -> Result<Cursor, CursorError> {
         let mut parts = text.splitn(3, ':');
         let (Some(word), Some(order), Some(run_id)) = (parts.next(), parts.next(), parts.next())
         else {
             return Err(CursorError::Shape(text.to_string()));
         };
-        if run_id.is_empty() {
-            return Err(CursorError::Shape(text.to_string()));
-        }
         let section = Section::ORDER
             .into_iter()
             .find(|section| cursor_word(*section) == word)

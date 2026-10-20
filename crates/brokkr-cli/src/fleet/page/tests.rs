@@ -900,6 +900,127 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
     assert!(table.ends_with(&first), "{table}");
 }
 
+/// Every run a walk of pages of one lists, from the first page, each read
+/// by `read` after the `next` the page before it stated, to the fleet's
+/// end within four pages.
+fn walked(read: impl Fn(Option<&str>) -> Value) -> Vec<String> {
+    let (mut listed, mut next) = (Vec::new(), None::<String>);
+    for _ in 0..4 {
+        let page = read(next.as_deref());
+        let runs = page["runs"].as_array().unwrap();
+        listed.extend(
+            runs.iter()
+                .map(|run| run["run_id"].as_str().unwrap().to_string()),
+        );
+        next = page["next"].as_str().map(str::to_string);
+        if next.is_none() {
+            return listed;
+        }
+    }
+    panic!("no end in four pages; listed {listed:?}");
+}
+
+/// The page of one `/api/runs` at `db` serves after `next`, which goes
+/// percent-encoded as a client encodes a query value.
+fn served_after(db: &Path, next: Option<&str>) -> Value {
+    let query = next.map_or(String::new(), |next| {
+        let encoded = next.replace(':', "%3A").replace('\0', "%00");
+        format!("&after={encoded}")
+    });
+    let response = crate::ui::handle(db, &format!("/api/runs?limit=1{query}"));
+    assert_eq!(response.status, "200 OK", "{}", response.body);
+    serde_json::from_str(&response.body).unwrap()
+}
+
+/// The page of one `brokkr runs --json` prints of `db` after `after`.
+fn printed_after(db: &Path, after: Option<&brokkr_view::Cursor>) -> Value {
+    let mut out = Vec::new();
+    let asked = (true, Some(1), after);
+    crate::verbs::readouts::hearth_runs(db, asked, &STYLE, &mut out).unwrap();
+    serde_json::from_str(&String::from_utf8(out).unwrap()).unwrap()
+}
+
+/// Rulings 2, 5 and 6: a run id holding a NUL lists as itself, never as
+/// the run named the text before its NUL, whether its row stands at its
+/// head or behind it: refused in the store's words beside that run, at
+/// one time and in one section, alike in the console's page, `brokkr
+/// runs` and `/api/runs`; and a page of one reaches each once, by the
+/// `next` each states, percent-encoded at the route. A NUL travels on no
+/// argv, so `--after` is walked by the cursor its text parses to.
+#[test]
+fn an_id_holding_a_nul_lists_as_itself_in_every_lane() {
+    let words = "event 2: operator/accepted without a matching command";
+    for behind in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("forge.db");
+        let at = stamp(now() - HOUR);
+        let parked = if behind { Shape::Held } else { Shape::Parked };
+        folded(&db, |conn| {
+            plant(conn, "r\0a", Shape::Refused, &at);
+            plant(conn, "r", parked, &at);
+        });
+        if behind {
+            let accepted = json!({"command_id": "none", "operator": "op", "reason": "r"});
+            appended_at(&db, "r\0a", (EventType::OperatorAccepted, accepted), &at);
+            let reason = json!({"reason": "REVIEW-HOLD for (review, hold): held"});
+            appended_at(&db, "r", (EventType::RunParked, reason), &at);
+        }
+        let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
+        assert_eq!(pages.was_read_whole("r\0a"), behind);
+        let listed = paged(&pages, &store, NOW, 1, false);
+        let listed: Vec<(Section, &str, Option<&str>)> = listed
+            .iter()
+            .map(|(section, row)| (*section, row.run_id.as_str(), row.detail.as_deref()))
+            .collect();
+        let needs_you = Section::NeedsYou;
+        let expected = [(needs_you, "r\0a", Some(words)), (needs_you, "r", None)];
+        assert_eq!(listed, expected, "behind: {behind}");
+        let whole = whole_rows(&db);
+        lists_every_run_as(&db, TAIL_KEYS, &brokkr_view::RunsView::of(arranged(&whole)));
+        let mut every = Vec::new();
+        crate::verbs::readouts::hearth_runs(&db, (true, None, None), &STYLE, &mut every).unwrap();
+        let every: Value = serde_json::from_slice(&every).unwrap();
+        let served = crate::ui::handle(&db, "/api/runs").body;
+        assert_eq!(
+            serde_json::from_str::<Value>(&served).unwrap(),
+            every["runs"]
+        );
+        let ids = ["r\0a", "r"];
+        assert_eq!(walked(|next| served_after(&db, next)), ids);
+        let cursor = |next: &str| crate::fleet::cursor(next).unwrap();
+        let printed = walked(|next| printed_after(&db, next.map(cursor).as_ref()));
+        assert_eq!(printed, ids);
+    }
+}
+
+/// Ruling 6: every `next` a page states reads back at both edges, the
+/// route's query and `brokkr runs --after` on its argv, the `next` at the
+/// empty run id a writer admits as at an ordinary one, so a walk of
+/// pages of one reaches every run.
+#[test]
+fn every_next_a_page_states_reads_back_at_both_edges() {
+    use clap::Parser;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    folded(&db, |conn| {
+        plant(conn, "", Shape::Parked, &stamp(now() - HOUR));
+        plant(conn, "x", Shape::Parked, &stamp(now() - 2 * HOUR));
+        plant(conn, "w", Shape::Parked, &stamp(now() - 3 * HOUR));
+    });
+    let ids = ["", "x", "w"];
+    assert_eq!(walked(|next| served_after(&db, next)), ids);
+    let argv = |next: Option<&str>| {
+        let mut line = vec!["brokkr", "runs", "--json", "--limit", "1"];
+        line.extend(next.into_iter().flat_map(|next| ["--after", next]));
+        let parsed = crate::Cli::try_parse_from(line).map(|cli| cli.command);
+        let crate::Cmd::Runs(args) = parsed.unwrap_or_else(|refused| panic!("{refused}")) else {
+            panic!("`brokkr runs` parses as itself");
+        };
+        printed_after(&db, args.after.as_ref())
+    };
+    assert_eq!(walked(argv), ids);
+}
+
 /// An empty hearth lists no run, in the shape a listing of none always
 /// printed.
 #[test]

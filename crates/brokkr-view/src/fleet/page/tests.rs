@@ -234,14 +234,15 @@ fn each_section_reads_the_ranges_it_places_rows_in() {
 }
 
 /// A cursor reads back as the cursor that wrote it, a run id with colons
-/// whole, and text that names no place is refused in its own words.
+/// whole and the empty id a writer admits, and text that names no place
+/// is refused in its own words.
 #[test]
 fn a_cursor_reads_back_and_refuses_what_names_no_place() {
-    for section in Section::ORDER {
+    for (section, run_id) in Section::ORDER.into_iter().zip(["a:b", "", "a\0b", "r"]) {
         let cursor = Cursor {
             section,
             order_at: -5,
-            run_id: "a:b".to_string(),
+            run_id: run_id.to_string(),
         };
         let text = cursor.to_string();
         assert_eq!(text.parse::<Cursor>(), Ok(cursor.clone()));
@@ -251,10 +252,6 @@ fn a_cursor_reads_back_and_refuses_what_names_no_place() {
         (
             "older:5",
             "cursor 'older:5' is not <section>:<order>:<run id>, as a page's `next` states it",
-        ),
-        (
-            "older:5:",
-            "cursor 'older:5:' is not <section>:<order>:<run id>, as a page's `next` states it",
         ),
         (
             "later:5:r",

@@ -27,15 +27,16 @@ use crate::summary::summary_intact;
 use crate::{head_of, Store, StoreError};
 
 /// The columns a page selects, each within its bound, none of the whole
-/// values that sit last in the row. The run id is read to one character
-/// past its bound, so a row whose id no writer admits is told by its
-/// length; such a row's whole id is read beside it, its key, which the
-/// page's order and every cursor compare (ruling 6).
-const COLUMNS: &str = "substr(run_id, 1, 129), order_at, feature_line, created_at,
+/// values that sit last in the row. The run id is read whole: it is the
+/// row's key, which the page's order and every cursor compare (ruling 6),
+/// and [`admitted`] measures its bytes, so a row whose id no writer
+/// admits is told by its length. SQLite neither cuts nor measures it: its
+/// `substr` and `length` stop a text at its first NUL, which would read an
+/// id as the text before its NUL, another run's.
+const COLUMNS: &str = "run_id, order_at, feature_line, created_at,
     last_recorded_at, status, phase, park_reason, rule_id, rule_from, rule_routes,
     hire_seat, hire_failed_attempts, residual_open, refusal_seq, refusal_words,
-    folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at,
-    CASE WHEN length(CAST(run_id AS BLOB)) > 128 THEN run_id END";
+    folded_seq, folded_hash, acknowledged, ack_operator, ack_reason, ack_at";
 
 /// Why a page cannot read a summary row as a run's account: a value no
 /// writer writes. The reader reads such a run whole instead, or, where
@@ -222,10 +223,7 @@ fn hired_of(row: &rusqlite::Row<'_>) -> Result<Option<Hired>, RowRefusal> {
 /// One row of a range, read: refused at the edge where a value is not a
 /// writer's, and never past its place, which the merge orders by.
 fn paged(row: &rusqlite::Row<'_>) -> rusqlite::Result<Paged> {
-    let run_id: String = match row.get::<_, Option<String>>(22)? {
-        Some(past_bound) => past_bound,
-        None => row.get(0)?,
-    };
+    let run_id: String = row.get(0)?;
     let order_at: i64 = row.get(1)?;
     Ok(match row_of(row, run_id.clone(), order_at) {
         Ok(read) => Ok(read),

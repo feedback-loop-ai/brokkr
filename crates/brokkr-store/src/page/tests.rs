@@ -294,6 +294,48 @@ fn the_behind_lane_refuses_an_id_no_writer_admits() {
     assert_eq!((rest, beyond), (vec![Ok((i64::MAX, "empty".into()))], 0));
 }
 
+/// Rulings 2, 5 and 6: a run id holding a NUL is keyed by its whole id,
+/// its bytes, in the summary lane and the behind lane alike, never by the
+/// text before its NUL: beside a run named that text, at one time and in
+/// one section, a page of one reaches each once, as itself.
+#[test]
+fn an_id_holding_a_nul_is_keyed_whole_in_every_lane() {
+    let (_dir, store) = store();
+    let at = now() - HOUR;
+    let run = |run_id: &str, standing| Generated {
+        run_id: run_id.to_string(),
+        standing,
+        events: 3,
+        last_at: stamp(at),
+        width: Width::Narrow,
+    };
+    let runs = [run("r\0a", Standing::Refused), run("r", Standing::Parked)];
+    generate(&store, &runs).unwrap();
+    let first = store.section(&needs_you(), None, 1).unwrap();
+    let second = store.section(&needs_you(), Some(place_of(&first[0])), 1);
+    let second = second.unwrap();
+    let read: Vec<(i64, &str, &str)> = [&first, &second]
+        .into_iter()
+        .flatten()
+        .map(|paged| {
+            let row = paged.as_ref().unwrap();
+            (place_of(paged).0, place_of(paged).1, row.run_id.as_str())
+        })
+        .collect();
+    assert_eq!(read, [(at, "r\0a", "r\0a"), (at, "r", "r")]);
+    let refused = first[0].as_ref().unwrap();
+    assert!(store
+        .stands_at("r\0a", (refused.folded.0, &refused.folded.1))
+        .unwrap());
+    for run in &runs {
+        plant_event(&store.conn, &run.run_id, &4, &"f".repeat(64), "{}").unwrap();
+    }
+    let (listed, beyond) = store.behind(None, 1).unwrap();
+    assert_eq!((&listed, beyond), (&vec![Ok((at, "r\0a".into()))], 1));
+    let rest = store.behind(Some((at, "r\0a")), 1).unwrap();
+    assert_eq!(rest, (vec![Ok((at, "r".into()))], 0));
+}
+
 /// A narrow row reads whole as it reads on a page; a wide one keeps each
 /// value cut on the page and whole by its key, with every finding.
 #[test]
