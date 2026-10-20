@@ -276,3 +276,15 @@ head. `cargo crap` against that gate's LCOV is pending with it.
   an unresolved or refused settlement publishes nothing. Full lifecycle
   judgment and recovery are U8d and U8e's (tasks 41 and 42). Artifact
   presence must not be read there as proof that settlement completed.
+
+## The controller's fix after CI
+
+CI's exact coverage gate on #799 found one branch never taken: the length
+bound in `read` (`engine/artifacts.rs:470`), whose refusal no test reached.
+`a_reader_tells_a_missing_artifact_from_a_corrupt_or_uncontained_one` now
+also reads an artifact one byte past `ARTIFACT_BYTES_MAX` that is named by
+its own digest, and expects `Corrupt`. The test now compares digests rather
+than bytes, so a failure prints no 8 MiB value. With the length check
+removed, the test failed (`left: Ok(<digest>)`, `right: Err(Corrupt)`).
+Restored byte for byte (checked with `cmp`), it passed, with the module's
+other twelve tests.

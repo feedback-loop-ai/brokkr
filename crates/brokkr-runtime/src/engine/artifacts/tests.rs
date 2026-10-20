@@ -708,27 +708,31 @@ fn an_artifact_replaced_while_it_is_published_is_refused() {
 
 #[test]
 fn a_reader_tells_a_missing_artifact_from_a_corrupt_or_uncontained_one() {
-    // CR5: the verified bytes; or missing, corrupt, a link, or a name that
-    // is no digest, which is never resolved.
+    // CR5: the verified bytes; or missing, corrupt (other bytes, or more
+    // than the bound though named by their own digest), a link, or a name
+    // that is no digest, which is never resolved.
     let fixture = Fixture::new();
     let digests = fixture.artifacts().join(DIGESTS);
     private_dir(&digests);
     made(&digests.join(sha(ANSWER)), ANSWER, 0o400);
     made(&digests.join(sha(ERROR)), ANSWER, 0o400);
+    let long = vec![b' '; usize::try_from(ARTIFACT_BYTES_MAX).unwrap() + 1];
+    made(&digests.join(sha(&long)), &long, 0o400);
     let beside = fixture.base.join("true");
     made(&beside, ANSWER, 0o400);
     let linked = sha(b"linked");
     std::os::unix::fs::symlink(&beside, digests.join(&linked)).unwrap();
     let held = OwnedFd::from(File::open(&digests).unwrap());
     let cases = [
-        (sha(ANSWER), Ok(ANSWER.to_vec())),
+        (sha(ANSWER), Ok(sha(ANSWER))),
         (sha(b"absent"), Err(Unread::Missing)),
         (sha(ERROR), Err(Unread::Corrupt)),
+        (sha(&long), Err(Unread::Corrupt)),
         (linked, Err(Unread::Uncontained)),
         ("../true".to_string(), Err(Unread::Uncontained)),
     ];
     for (name, expected) in cases {
-        let found = read(&held, &name).map(|(_, bytes)| bytes);
+        let found = read(&held, &name).map(|(_, bytes)| sha(&bytes));
         assert_eq!((name.clone(), found), (name, expected));
     }
 }
