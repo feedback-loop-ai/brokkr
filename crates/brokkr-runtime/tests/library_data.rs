@@ -222,7 +222,7 @@ fn sdd_offices_name_the_closed_return_contracts() {
     }
 }
 
-/// Decision 0090 ruling 4: every charter that teaches `blocked` tells its
+/// Decision 0091 ruling 4: every charter that teaches `blocked` tells its
 /// seat to name the blocker's kind, in the input the tables read and in
 /// both of its words, so an environment block can park for the operator.
 #[test]

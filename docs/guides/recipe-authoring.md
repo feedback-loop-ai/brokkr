@@ -780,7 +780,7 @@ leave a terminal phase.
 | `id` | yes | The rule id journaled in `transition/decided` and printed by every readout. |
 | `from` | yes | The phase this rule rules from. |
 | `result` | yes | The typed result it matches. |
-| `reason` | yes | Why it rules what it rules. Read back verbatim by the operator; for a parking rule, this is the park reason when the parked seat left no notes, and its notes are the reason when it did (decision 0090). |
+| `reason` | yes | Why it rules what it rules. Read back verbatim by the operator; for a parking rule, this is the park reason when the parked seat left no notes, and its notes are the reason when it did (decision 0091). |
 | `next` | one of | The phase to advance to. |
 | `park` | one of | `true` — rule a park instead of a transition. Mutually exclusive with `next`. |
 | `severity` | no | `normal` \| `flagged` \| `hard`. The ruling severity of the transition taken; defaults to `normal`. Forbidden on a parking rule. |
@@ -930,7 +930,7 @@ resume until triage deliberately rules a new class.
 ## A blocked seat: its environment or the work
 
 A work seat that cannot go on reports `blocked`. Two causes share that
-word and want opposite endings (decision 0090). An **environment** block
+word and want opposite endings (decision 0091). An **environment** block
 (a signing key the seat cannot reach, a tool off its `PATH`, a capability
 its box refused) is the operator's to fix in minutes, after which the same
 seat can simply run again. A **work** block (a contradictory framing, a

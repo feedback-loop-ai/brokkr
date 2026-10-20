@@ -46,7 +46,7 @@
         ]
       },
       "park": true,
-      "reason": "The implementer's environment blocked it (a signing key, a tool, a capability its box refused); the run parks with the seat's notes, so the operator fixes the environment and retries this seat with the earlier phases' results intact (decision 0090)."
+      "reason": "The implementer's environment blocked it (a signing key, a tool, a capability its box refused); the run parks with the seat's notes, so the operator fixes the environment and retries this seat with the earlier phases' results intact (decision 0091)."
     },
     {
       "id": "IMPL-BLOCKED",

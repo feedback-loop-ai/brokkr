@@ -2,7 +2,7 @@
 
 ## Context
 
-`blocked` is one word for two causes. The machine already has every part the fix needs: a closed input table where a choice input is one row (`drift_in` is the template), default declaration of the inputs a phase's rules read (decision 0007), the rule-driven park (decision 0022), and `brokkr operator retry` then `brokkr resume`, which runs the parked seat again with the earlier phases' results in its context. Decision 0090 rules how they are joined.
+`blocked` is one word for two causes. The machine already has every part the fix needs: a closed input table where a choice input is one row (`drift_in` is the template), default declaration of the inputs a phase's rules read (decision 0007), the rule-driven park (decision 0022), and `brokkr operator retry` then `brokkr resume`, which runs the parked seat again with the earlier phases' results in its context. Decision 0091 rules how they are joined.
 
 ## D1 — A fact in `inputs`, not a result word
 

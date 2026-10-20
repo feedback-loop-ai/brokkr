@@ -2348,7 +2348,7 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     }));
 
     // Every rule-driven park carries the seat's non-empty notes, not only
-    // escalate's; empty notes keep the table's reason (decision 0090).
+    // escalate's; empty notes keep the table's reason (decision 0091).
     engine.bundle.machine = Machine::from_table(&json!({
         "schema":"forge.phase-machine/v2",
         "phases":["triage", "done"],

@@ -398,7 +398,7 @@ fn drift_in_has_one_table_arm_for_every_artifact_phase() {
     one_arm_per_word("drift_in", "drift_in", "implement", &DRIFT_PHASES);
 }
 
-/// Decision 0090: a blocked seat names what blocked it, its environment
+/// Decision 0091: a blocked seat names what blocked it, its environment
 /// or the work, and a table selects each blocker by the same closed
 /// enum condition; a seat that names neither is selected by neither.
 #[test]

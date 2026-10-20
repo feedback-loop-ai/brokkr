@@ -9,7 +9,7 @@ use super::{DRIFT_PHASES, REALM_FACTS, REVIEWED_HEADS, STRATEGIES};
 /// and the one counter the table's `_gte` conditions name by itself.
 pub const CONSECUTIVE_FAILURES: &str = "consecutive_failures";
 
-/// What blocked a seat that returns `blocked` (decision 0090): its
+/// What blocked a seat that returns `blocked` (decision 0091): its
 /// environment (a signing key, a tool, a capability its box refused),
 /// which the operator fixes before retrying the seat, or the work (a
 /// framing or specification problem), which routes as it always did.
@@ -100,7 +100,7 @@ pub(crate) const INPUTS: [Input; 16] = [
         },
         Owner::Seat,
     ),
-    // Decision 0090: a blocked seat names what blocked it, so a table
+    // Decision 0091: a blocked seat names what blocked it, so a table
     // may park an environment block for the operator.
     input(
         "blocked_by",
