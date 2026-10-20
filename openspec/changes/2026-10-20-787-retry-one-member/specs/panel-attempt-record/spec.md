@@ -105,46 +105,41 @@ A panel attempt whose terminal fact is `effect/indeterminate` or `effect/failed`
 
 ### Requirement: Every readout names a carried verdict as carried
 
-`brokkr-view` SHALL derive, from the attempt's `carried`, a participant for each carried member at status `carried` with a completed class, carrying `carried_from`, the attempt its verdict settled in, and SHALL derive it once; `brokkr runs`, `inspect`, `seats`, `watch`, the TUI, `ui.html`, the fleet readouts and the console SHALL paint it and SHALL derive nothing of their own. A carried member's participant SHALL show no model, session or cost of its own for the carrying attempt. The attempt's aggregate notes SHALL stay the fresh panel's. `VIEW_VERSION` SHALL move with the participant's new field.
+`brokkr-view` SHALL derive, from the attempt's `carried`, a participant for each carried member at status `carried` with a completed class, carrying `carried_from`, the attempt its verdict settled in, named by its `attempt_id` and by its ordinal among the phase's attempts in the journal's order, every visit counted, which the painters lead with, and SHALL derive it once; `brokkr runs`, `inspect`, `seats`, `watch`, the TUI, `ui.html`, the fleet readouts and the console SHALL paint it and SHALL derive nothing of their own. A carried member's participant SHALL show no model, session or cost of its own for the carrying attempt. The attempt's aggregate notes SHALL stay the fresh panel's. `VIEW_VERSION` SHALL move with the participant's new field.
 
 #### Scenario: The run view after a member retry
 
 - **WHEN** the run view reads a journal where the retry's attempt carried three verdicts and ran one member to a verdict
-- **THEN** the three carried members' participants stand at status `carried` naming the parked attempt, with no model of their own, the fresh member's at `succeeded`, and the panel's notes read one line per member as a fresh panel's would
+- **THEN** the three carried members' participants stand at status `carried` naming the parked attempt by its id and its ordinal, with no model of their own, the fresh member's at `succeeded`, and the panel's notes read one line per member as a fresh panel's would
 
 #### Scenario: A plain retry's view
 
 - **WHEN** the run view reads a journal where the retry's attempt carried nothing
 - **THEN** no participant stands at `carried`, and every readout reads as it did before this change
 
-### Requirement: A carry refused at drive time is read as its own park reason
+### Requirement: A carry refused at drive time parks as a stated indeterminate
 
-The `effect/indeterminate` that ends a refused carry and the `run/parked` the engine then writes SHALL both carry, as `reason`, the marker `PANEL-CARRY-REFUSED`, one space, and the refusal as compact JSON, written and read through one codec in `brokkr-core` beside `gate_moved_head`; `run/parked.evidence` SHALL be `{}`. `ParkReason::read` SHALL decode a reason that opens with the marker and whose evidence reads as the refusal to a `ParkReason` of its own carrying the typed refusal, and the fold's `close` arm SHALL decode the indeterminate's reason the same way, so the folded state holds the typed refusal whether the journal ends at the indeterminate or at the park. A marked reason whose evidence does not read as the refusal SHALL fold as a stated reason with its text whole. The reason's journaled bytes and its sentence SHALL be told apart: the sentence SHALL be the typed refusal's own text, pinned once in `brokkr-core`, the same text `brokkr operator retry --member` refuses with, naming the fact that refused: the repository as answering no head; every attempt end whose recorded head is not the head now, with the head it recorded or its absence, in the journal's order with the head now last; the tree, every observation at which it did not read `clean` with its reading, a source attempt's start or end naming that attempt, the parked attempt's start or end, the command, or the drive, in the journal's order with now last; every effect whose input no longer rebuilds to its digest, once each; or the shape fact or members the verb would have named. `Summary.park_reason`, the fleet's summary row (cut to decision 0089's bound, the whole kept), `brokkr compare`, muninn and every readout that shows a park reason SHALL paint that sentence. The journal timeline `brokkr-view` derives for the console and the TUI SHALL paint that sentence too, in the text and the label of the `run/parked` row and of the `effect/indeterminate` row whose reason opens with the marker, read through the same codec and never the journaled bytes; every other row SHALL read as today. The `GATE-MOVED-HEAD` park, its `run/parked` bytes and every `Stated` reason SHALL read as they do today.
+The `effect/indeterminate` that ends a refused carry SHALL carry, as its `reason`, the refusal's own sentence: the typed refusal's text, pinned once in `brokkr-runtime`, the same text `brokkr operator retry --member` refuses with for the same fact, naming the fact that refused: the repository as answering no head; every attempt end whose recorded head is not the head now, with the head it recorded or its absence, in the journal's order with the head now last; the tree, every observation at which it did not read `clean` with its reading, a source attempt's start or end naming that attempt, the parked attempt's start or end, the command, or the drive, in the journal's order with now last; every effect whose input no longer rebuilds to its digest, once each; or the shape fact or members the verb would have named. The reason SHALL carry no marker and no JSON. The fold's `close` arm SHALL read it as it reads every unmarked indeterminate reason, to the stated park reason `effect <effect_id> indeterminate: <sentence>`, and the `run/parked` the engine then writes SHALL carry that stated reason with `evidence` `{}`, as a stated park does today; no arm of the fold, no `ParkReason` variant and no codec SHALL be added, and `brokkr-core` SHALL NOT change. Every readout that shows a park reason, `brokkr runs`, `inspect`, `compare`, muninn, the fleet's summary row, the console and the journal timeline's rows, SHALL paint that stated reason as it paints every stated reason today, and derive nothing of its own. The `GATE-MOVED-HEAD` park, its `run/parked` bytes and every other `Stated` reason SHALL read as they do today.
 
 #### Scenario: The park folds through run/parked
 
-- **WHEN** a member retry's drive ended `PANEL-CARRY-REFUSED` because the head moved, and the journal is folded past the `run/parked` the engine wrote
-- **THEN** the state's park reason carries the typed refusal with the parked attempt's two ends, at the head they recorded, and the head found, `run/parked.reason` opens with the marker and carries the same JSON the `effect/indeterminate` carries, `run/parked.evidence` is `{}`, and `brokkr inspect`'s `park_reason` is the one sentence naming the parked attempt's two ends, at the head they recorded, and the head found
+- **WHEN** a member retry's drive ended refused because the head moved, and the journal is folded past the `run/parked` the engine wrote
+- **THEN** the state's park reason is the stated reason `effect <effect_id> indeterminate: ` followed by the sentence naming the parked attempt's two ends, at the head they recorded, and the head found; `run/parked.reason` carries that text and `run/parked.evidence` is `{}`; and `brokkr inspect`'s `park_reason` is that text
 
 #### Scenario: The readouts after a drive-time refusal
 
 - **WHEN** that journal is read by `brokkr runs`, `inspect`, `compare`, muninn, the fleet readouts and the console
-- **THEN** each shows that one sentence, and the journal keeps the marker and its evidence on both events
+- **THEN** each shows that stated reason as it shows a stated park's, and the journal keeps the sentence as the `effect/indeterminate`'s `reason`
 
 #### Scenario: The timeline after a drive-time refusal
 
 - **WHEN** the console's and the TUI's journal timeline paint that journal
-- **THEN** the `run/parked` row's text and its label, and the `effect/indeterminate` row's, read that one sentence, no row paints the marker or its JSON, and a `GATE-MOVED-HEAD` row reads as it does today
+- **THEN** the `run/parked` row and the `effect/indeterminate` row read as every stated park's rows read today, and a `GATE-MOVED-HEAD` row reads as it does today
 
 #### Scenario: The sentence is the verb's
 
 - **WHEN** the head moved before the command and `brokkr operator retry --member correctness` refuses at the terminal
-- **THEN** its refusal text is the sentence a drive-time park for the same fact paints, byte for byte
-
-#### Scenario: A marked reason whose evidence does not read
-
-- **WHEN** an `effect/indeterminate` reason reads `PANEL-CARRY-REFUSED` followed by text that is not the refusal's JSON
-- **THEN** the run folds to a park whose reason is stated, its text whole, and every readout paints that text
+- **THEN** its refusal text is, byte for byte, the sentence a drive-time `effect/indeterminate` carries as its `reason` for the same fact, which the stated park reason carries after `effect <effect_id> indeterminate: `
 
 #### Scenario: Every other park reads as before
 
