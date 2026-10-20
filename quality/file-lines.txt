@@ -78,7 +78,7 @@
     27 crates/brokkr-protocol/src/adapters/start.rs
    392 crates/brokkr-protocol/src/broker.rs
    677 crates/brokkr-protocol/src/broker/ledger.rs
-   179 crates/brokkr-protocol/src/broker/ledger/retention.rs
+   201 crates/brokkr-protocol/src/broker/ledger/retention.rs
   1543 crates/brokkr-protocol/src/dsh_sandbox.rs
    218 crates/brokkr-protocol/src/fake.rs
   1094 crates/brokkr-protocol/src/hands.rs
@@ -179,12 +179,12 @@
    872 crates/brokkr-cli/src/broker/bootstrap/tests.rs
    398 crates/brokkr-cli/src/broker/rpc/pieces/tests.rs
   1983 crates/brokkr-cli/src/broker/rpc/tests.rs
-   629 crates/brokkr-cli/src/broker/rpc/tests/delivery.rs
+   646 crates/brokkr-cli/src/broker/rpc/tests/delivery.rs
   1508 crates/brokkr-cli/src/broker/rpc/tests/masking.rs
-   356 crates/brokkr-cli/src/broker/rpc/tests/retention.rs
+   403 crates/brokkr-cli/src/broker/rpc/tests/retention.rs
    254 crates/brokkr-cli/src/broker/session/lifetime/tests.rs
   1052 crates/brokkr-cli/src/broker/session/readiness/tests.rs
-   121 crates/brokkr-cli/src/broker/session/retaining/tests.rs
+   223 crates/brokkr-cli/src/broker/session/retaining/tests.rs
    312 crates/brokkr-cli/src/broker/session/stderr/tests.rs
    148 crates/brokkr-cli/src/broker/survey/tests.rs
   1631 crates/brokkr-cli/src/cli_reference_tests.rs
@@ -299,7 +299,7 @@
    236 crates/brokkr-protocol/src/adapters/notice_tests/discovery_tests.rs
    623 crates/brokkr-protocol/src/adapters/route_overlay/tests.rs
  18938 crates/brokkr-protocol/src/adapters/tests.rs
-   438 crates/brokkr-protocol/src/broker/ledger/tests.rs
+   512 crates/brokkr-protocol/src/broker/ledger/tests.rs
    326 crates/brokkr-protocol/src/broker/tests.rs
   3127 crates/brokkr-protocol/src/dsh_sandbox/tests.rs
    153 crates/brokkr-protocol/src/fake/tests.rs

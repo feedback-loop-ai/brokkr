@@ -208,13 +208,93 @@ The share's staged/published bound of 512 MiB holds by construction: shares
 sum to at most 256 MiB, and the engine publishes at most what was staged.
 Publication itself is U8c's.
 
-Concurrent brokers spending one reservation is excluded by construction:
-each share is a fixed, disjoint slice of the sealed inventory. The proof here
-is arithmetic (`32 × share(32) = BUDGET`; `share(33)` falls under one
-reservation) plus the per-plan behaviour. It is not a live multi-broker run,
-which needs the engine's provisioning and lands with U8d/U9.
+The multi-broker, staging-fault and failed-delivery proofs that this section
+first deferred are now made. The next section gives them.
 
-A staging fsync fault is injected only through the stage seam, whose
-contract is write-then-sync. The production stage's creation failure is
-proved with a taken name (`EEXIST`). No real `fsync` fault is injected for
-the stage file.
+## Returned from review (run `0065-slice-two-unit-u8b-see-the--4f805c05`, visit 2)
+
+The review of `a8618c58` sent back three MEDIUM findings under decision 0071
+ruling 9. This visit answers each with a test and its removal controls. Only
+one production file moves. `ledger/retention.rs`'s production stage is now
+`staged(&DURABLE, …)`: its write, its data sync and its directory sync are the
+three named fields of a `Steps` table, `DURABLE`, taken in the same order with
+the same `?`, so each step can meet a fault on its own. The behaviour is
+unchanged, and the stage's creation is as before. No public item was added,
+since `Steps`, `DURABLE` and `staged` are `pub(super)`.
+
+**M1: brokers sharing one sealed inventory.** The new test is
+`session::retaining::tests::each_broker_of_one_sealed_inventory_spends_its_own_share_and_none_of_anothers`.
+It writes one attempt directory whose inventory pins 32 retaining plans,
+standing for every brokered slot, fallback or not, beside one plan that
+retains nothing. Then 32 brokers run at once, one per thread, held at a barrier
+until all have opened their ledgers. Each derives its retention through the
+production `retention()` and opens its ledger with `Ledger::open`. It retains
+through the production `Ledger::retain`, staging in the shared directory.
+Each broker's first call is reserved for and staged, which is the exact
+bound: a share of one reservation admits one call. Its second call is refused
+for the budget before it is forwarded. Each broker reserves on its own, so no
+other broker's spending moves its result. Once all have closed, every stage
+still holds its own bytes, and every ledger cites their sha256 and length. It
+proves `(Succeeded, Refused(Budget))`, a Clean closure, and no invalid
+record. With 33 retaining pins, every broker's first and second calls are
+refused, and nothing is staged. The engine's provisioning would refuse 33
+already (`engine/broker.rs`'s `share`, `Unprovisioned`); this case is the
+broker's own defence.
+
+**M2: production write and sync failures.** The new test is
+`ledger::tests::a_stage_whose_write_or_either_sync_fails_is_never_cited_and_its_ledger_kept_as_it_was`
+(brokkr-protocol, in the Linux-only ledger tests). It runs the broker's own
+steps, with one step at a time first meeting a medium that refuses it, put in
+place of its descriptor by the module's existing `swap` (`dup3`). The write
+meets `/dev/full`, and either sync meets a pipe, so each failure is the
+kernel's own. `staged` returns exactly `ENOSPC`, `EINVAL` and `EINVAL`.
+Through a retaining ledger, `answered` returns `Err(Record)` in each case.
+The ledger file stays byte for byte the prefix it was, holding no Terminal and
+no citation, and recovery reads the call as begun. The control fails no step,
+and the call is staged and recorded. The CLI side was already bound:
+`retention::a_stage_or_terminal_that_cannot_be_made_delivers_nothing_and_leaves_the_call_begun`
+shows that `answered`'s `Err(Record)` delivers nothing. The harness is told
+"broker call could not be recorded".
+
+**M3: delivery failure after a durable stage and Terminal.** The new test is
+`rpc::tests::retention::a_retained_response_whose_delivery_fails_stays_staged_and_cited_and_is_never_asked_again`.
+`delivery.rs`'s session helper became `heard`, which takes an optional
+retention and returns the server's frames and the ledger's bytes. `asked`
+wraps it unchanged. A retaining session answers its call, and the harness's
+output then refuses the frame. With `ENOSPC`, the session ends
+`Failed(Undelivered)` and the ledger closes with that cause. With `EPIPE`,
+the harness is gone, and the session stays served and Clean (operator ruling
+2026-10-14). Either way, the call is `Succeeded`, and exactly the prepared
+bytes are staged as call 1. The Terminal cites their sha256 and length, and
+the server read the `tools/call` once and never again.
+
+| Finding | Test | Mutation (compiled, then restored) | Observed failure |
+| --- | --- | --- | --- |
+| M1 | `each_broker_of_one_sealed_inventory_…` | R7: `share` divides by `retaining.min(1)` | `left: [(Ok(()), Ok(())); 32]`, `right: [(Ok(()), Err(Budget)); 32]` |
+| M1 | the same | M10 again: `retention()` counts every pin (`pinned.retained \| true`) | `left: [(Err(Budget), Err(Budget)), …]`, `right: [(Ok(()), Err(Budget)), …]`; `every_retaining_pin_counts_…` failed too |
+| M1 | the same | R8: the stage name is not keyed by its plan (`OsString::from("cap")`) | 31 broker threads panicked on `answered`'s `Err(Record)` (the name was taken), and the test failed |
+| M1 (ledger) | `the_budget_is_divided_by_the_retaining_plans_and_each_call_reserves_8_mib` | R7 | `left: (268435456, false, 0)`, `right: (8388608, true, 0)` |
+| M2 | `a_stage_whose_write_or_either_sync_fails_…` | R1: the write's error is ignored (`.ok()`) | `left: ("write", Err(Some(22)))`, `right: ("write", Err(Some(28)))` |
+| M2 | the same | R2: the data sync is removed | `left: ("sync", Ok(()))`, `right: ("sync", Err(Some(22)))` |
+| M2 | the same | R3: the directory sync is removed | `left: ("settle", Ok(()))`, `right: ("settle", Err(Some(22)))` |
+| M2 | the same | R4: `DURABLE.sync` is a no-op | `left: ("sync", Ok(()))`, `right: ("sync", Err(Some(22)))` |
+| M2 | the same | R5: `DURABLE.settle` is a no-op | `left: ("settle", Ok(()))`, `right: ("settle", Err(Some(22)))` |
+| M2 | the same, and `a_retaining_ledger_stages_…` | R6: `answered` ignores a failed stage | `left: ("write", (Ok(()), false, [("resolve", Some(Succeeded))]))`, `right: ("write", (Err(Record), true, [("resolve", None)]))` |
+| M3 | `a_retained_response_whose_delivery_fails_…` | R9: `answered` delivers first and records only where delivery held | `left: ("ENOSPC", ([("lookup", Some(Failed))], [Null], []))`, right: the call Succeeded, cited and staged; four older tests failed too |
+
+R10 was a mutation that did not bind. It made `going()` treat an undelivered
+output as the end of serving (`Ok(false)`), and the M3 test still passed,
+because `drained()` latches the same `Undelivered` cause on its own. R10
+removes no behaviour, so it is not counted as a control. Each mutation was
+restored and checked with `cmp` against copies under `.forge/u8b2/`.
+
+This visit's gates ran at the working tree. `cargo test -p brokkr-protocol
+--all-features --locked` passed: 1020 lib, plus 6, 1 and 1. The brokkr-cli
+suite passed in two parts. `--tests -- --skip capability_broker::` gave 940
+lib, 27 driver_conformance, the three heap budgets, 632 `it` and 14
+transcript_surfaces. `--test it capability_broker::` gave 108 in 221 s. The
+real-box retained test printed no skip line when run alone with
+`--nocapture`. The workspace clippy with `-D warnings` and the format check
+were clean. `quality/ratchet.sh files` and `clones` held after the five test
+and retention rows of `quality/file-lines.txt` were set to their `wc -l`.
+The #782 flake passed in both broker unit runs.

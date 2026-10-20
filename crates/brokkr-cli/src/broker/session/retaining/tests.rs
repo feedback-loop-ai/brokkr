@@ -2,11 +2,14 @@
 //! (U8b; CR3, operator ruling 2026-10-15): every pinned plan beside it,
 //! fallback slots included, read as the bound one is.
 
+use std::ffi::OsString;
 use std::os::fd::OwnedFd;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::sync::{Arc, Barrier};
 
 use brokkr_core::canonical;
+use brokkr_protocol::broker::ledger::{recover, Denial, Disposition, Ledger, Outcome};
 use brokkr_protocol::broker::{Plan, Refusal};
 use rustix::io::{fcntl_getfd, FdFlags};
 use serde_json::{json, Value};
@@ -91,6 +94,105 @@ fn every_retaining_pin_counts_and_the_staging_handle_is_the_brokers_own() {
     std::fs::remove_file(path.join("inventory.json")).unwrap();
     let plain: Plan = serde_json::from_value(sealed(false)).unwrap();
     assert!(matches!(retention(&plain, &dir, &path), Ok(None)));
+}
+
+/// The answer the broker of the plan pinned `at` stages for its call.
+fn answer(at: usize) -> Vec<u8> {
+    format!(r#"{{"result":{{"content":[{{"text":"{at}","type":"text"}}]}}}}"#).into_bytes()
+}
+
+/// How one broker's two calls fared: reserved for, or refused before they
+/// could be forwarded.
+type Reserved = (Result<(), Denial>, Result<(), Denial>);
+
+/// What the broker of the plan pinned `at`, in the attempt directory `dir`
+/// at `attempt`, reserved for each of its two calls, once every broker
+/// beside it has opened its ledger there (`start`): a call reserved for is
+/// answered with [`answer`] and staged, and one that is not is refused for
+/// the budget; then its ledger is closed.
+fn brokered(at: usize, (dir, attempt): (&OwnedFd, &Path), start: &Barrier) -> Reserved {
+    let plan: Plan = serde_json::from_value(sealed(true)).unwrap();
+    let Ok(Some((retaining, staging))) = retention(&plan, dir, attempt) else {
+        panic!("a retaining plan of a sealed attempt has its retention");
+    };
+    let name = OsString::from(format!("cap-{at}.json"));
+    let pinned = digest();
+    let mut ledger = Ledger::open(dir, &name, (&plan.owner, pinned.as_str()), &[]).unwrap();
+    ledger.bind(&[]).unwrap();
+    ledger.retain(staging, &name, retaining);
+    start.wait();
+    let mut called = || {
+        let mut call = ledger.room().unwrap().begin("t").unwrap();
+        let reserved = ledger.reserve(&mut call);
+        let bytes = answer(at);
+        let digest = canonical::sha256_bytes(&bytes);
+        match reserved {
+            Ok(()) => ledger.answered(call, Outcome::Succeeded, (&bytes, &digest)),
+            Err(denial) => ledger.end(call, Outcome::Refused(denial)),
+        }
+        .unwrap();
+        reserved
+    };
+    let reserved = (called(), called());
+    assert_eq!(ledger.close(), Ok(Disposition::Clean));
+    reserved
+}
+
+/// The digest every retaining plan is pinned and its ledger opened by.
+fn digest() -> String {
+    canonical::sha256_bytes(sealed(true).to_string().as_bytes())
+}
+
+#[test]
+fn each_broker_of_one_sealed_inventory_spends_its_own_share_and_none_of_anothers() {
+    // CR3 (U8b; operator ruling 2026-10-15): one attempt's inventory pins
+    // 32 retaining plans, every brokered slot's, fallback or not, beside
+    // one that retains nothing. Every plan's broker, all at once, derives
+    // its share from that inventory, of exactly one reservation, and
+    // stages in the one attempt directory: its first call is reserved for
+    // and staged; its second finds its own share spent and is refused for
+    // the budget before it could be forwarded, whatever the others did;
+    // and once all have closed, each stage is still as it was staged and
+    // cited. Pinned 33, a share is under one reservation, and every
+    // broker's every call is refused, nothing staged.
+    for (retaining, first) in [(32, Ok(())), (33, Err(Denial::Budget))] {
+        let mut retained = vec![true; retaining];
+        retained.push(false);
+        let (root, dir, _) = attempt(&retained, |_, pin| pin);
+        let path = root.path().canonicalize().unwrap();
+        let start = Arc::new(Barrier::new(retaining));
+        let brokers: Vec<_> = (0..retaining)
+            .map(|at| {
+                let (dir, path) = (dir.try_clone().unwrap(), path.clone());
+                let start = Arc::clone(&start);
+                std::thread::spawn(move || brokered(at, (&dir, &path), &start))
+            })
+            .collect();
+        let reserved: Vec<Reserved> = brokers.into_iter().map(|b| b.join().unwrap()).collect();
+        let budget = Err(Denial::Budget);
+        assert_eq!(reserved, vec![(first, budget); retaining]);
+        let outcome = |reserved: Result<(), Denial>| match reserved {
+            Ok(()) => Outcome::Succeeded,
+            Err(denial) => Outcome::Refused(denial),
+        };
+        let calls = [first, budget].map(|reserved| ("t".to_string(), Some(outcome(reserved))));
+        let plan: Plan = serde_json::from_value(sealed(true)).unwrap();
+        for at in 0..retaining {
+            let read = |suffix: &str| std::fs::read(path.join(format!("cap-{at}.json.{suffix}")));
+            let (staged, ledger) = (read("1.response").ok(), read("ledger").unwrap());
+            let (lifecycle, invalid) = recover(&ledger, &plan.owner, &digest());
+            let line = ledger.split(|byte| *byte == b'\n').nth(2).unwrap();
+            let terminal: Value = serde_json::from_slice(line).unwrap();
+            let cited = staged.as_ref().map(
+                |bytes| json!({"sha256": canonical::sha256_bytes(bytes), "bytes": bytes.len()}),
+            );
+            let proved = (lifecycle.calls(), lifecycle.closed(), invalid);
+            let found = (proved, staged.clone(), terminal.get("response").cloned());
+            let clean = (&calls[..], Some(&Disposition::Clean), None);
+            let expected = (clean, first.ok().map(|()| answer(at)), cited);
+            assert_eq!((retaining, at, found), (retaining, at, expected));
+        }
+    }
 }
 
 #[test]

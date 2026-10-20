@@ -4,6 +4,7 @@
 //! beside the ledger, and the response its Terminal cites for them.
 
 use std::ffi::{OsStr, OsString};
+use std::fs::File;
 use std::io::Write;
 use std::os::fd::OwnedFd;
 
@@ -121,7 +122,7 @@ impl Ledger<'_> {
     /// inherits it.
     pub fn retain(&mut self, dir: OwnedFd, plan: &OsStr, retaining: usize) {
         let plan = plan.to_owned();
-        let stage = move |call, bytes: &[u8]| staged(&dir, &plan, call, bytes);
+        let stage = move |call, bytes: &[u8]| staged(&DURABLE, (&dir, &plan), call, bytes);
         self.retain_with(stage, retaining);
     }
 
@@ -162,18 +163,39 @@ impl Ledger<'_> {
     }
 }
 
+/// How a stage is made durable once its file is created, a step at a time,
+/// each of which may fail: its bytes written whole, its data synced, and
+/// then its directory synced, so its name is durable too.
+pub(super) struct Steps {
+    pub(super) write: fn(&mut File, &[u8]) -> std::io::Result<()>,
+    pub(super) sync: fn(&File) -> std::io::Result<()>,
+    pub(super) settle: fn(&OwnedFd) -> std::io::Result<()>,
+}
+
+/// The broker's own [`Steps`].
+pub(super) const DURABLE: Steps = Steps {
+    write: |file, bytes| file.write_all(bytes),
+    sync: File::sync_data,
+    settle: |dir| Ok(rustix::fs::fsync(dir)?),
+};
+
 /// Stage `bytes`, call `call`'s retained response, beside the ledger of the
 /// plan named `plan` in the attempt directory `dir`, as
 /// `<plan>.<call>.response`: created exclusively and never through a
-/// symlink, this user's alone, written whole and its data synced, and then
-/// the directory synced, so its name is durable too.
-fn staged(dir: &OwnedFd, plan: &OsStr, call: u64, bytes: &[u8]) -> std::io::Result<()> {
+/// symlink, this user's alone, then made durable by `steps`, every one of
+/// them taken in order, the first that fails the stage's failure.
+pub(super) fn staged(
+    steps: &Steps,
+    (dir, plan): (&OwnedFd, &OsStr),
+    call: u64,
+    bytes: &[u8],
+) -> std::io::Result<()> {
     let mut name = OsString::from(plan);
     name.push(format!(".{call}.response"));
     let flags = OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW;
     let created = openat(dir, &name, flags | OFlags::CLOEXEC, Mode::RUSR | Mode::WUSR)?;
-    let mut file = std::fs::File::from(created);
-    file.write_all(bytes)?;
-    file.sync_data()?;
-    Ok(rustix::fs::fsync(dir)?)
+    let mut file = File::from(created);
+    (steps.write)(&mut file, bytes)?;
+    (steps.sync)(&file)?;
+    (steps.settle)(dir)
 }

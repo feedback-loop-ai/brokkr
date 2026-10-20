@@ -4,12 +4,15 @@
 //! file at one record, so the failure is the kernel's own: a full device
 //! refuses the write, and a pipe takes the write but refuses the sync.
 
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::ManuallyDrop;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
 
-use super::retention::{share, BUDGET, RESERVATION};
+use rustix::io::Errno;
+
+use super::retention::{share, staged, Steps, BUDGET, DURABLE, RESERVATION};
 use super::{recover, Denial, Disposition, Entry, Failure, Invalid, Ledger, Lifecycle, Outcome};
 use super::{Unrecorded, RECORD_MAX};
 use crate::broker::Owner;
@@ -60,14 +63,7 @@ fn session(nth: usize, medium: Medium) -> (Vec<Result<(), Unrecorded>>, String, 
     let mut kept = file.try_clone().unwrap();
     let held = file.as_raw_fd();
     let (taken, refusing): (_, OwnedFd) = match medium {
-        Medium::Full => (
-            None,
-            File::options()
-                .write(true)
-                .open("/dev/full")
-                .unwrap()
-                .into(),
-        ),
+        Medium::Full => (None, full().into()),
         Medium::Pipe => {
             let (reader, writer) = std::io::pipe().unwrap();
             (Some(reader), writer.into())
@@ -278,6 +274,84 @@ fn a_retaining_ledger_stages_each_answer_beside_it_before_the_terminal_citing_it
     ];
     let recovered = (lifecycle.calls(), invalid);
     assert_eq!(recovered, (&calls[..], Some(Invalid::Lifecycle)));
+}
+
+/// A full device, which refuses every write.
+fn full() -> File {
+    File::options().write(true).open("/dev/full").unwrap()
+}
+
+/// A pipe's writing end, which cannot be synced.
+fn unsyncable() -> std::io::PipeWriter {
+    std::io::pipe().unwrap().1
+}
+
+#[test]
+fn a_stage_whose_write_or_either_sync_fails_is_never_cited_and_its_ledger_kept_as_it_was() {
+    // CR2, CR3 (U8b): each of the broker's own stage steps in turn meets a
+    // medium that refuses it, put in place of the stage or its directory,
+    // so the failure is the kernel's own. The stage fails with it; through
+    // a retaining ledger, the call is not recorded, no Terminal cites it,
+    // and the ledger keeps the very prefix it had, its call begun for
+    // settlement. The control: nothing refused, staged and cited.
+    let write = Steps {
+        write: |file, bytes| {
+            swap(file.as_raw_fd(), full());
+            (DURABLE.write)(file, bytes)
+        },
+        ..DURABLE
+    };
+    let sync = Steps {
+        sync: |file| {
+            swap(file.as_raw_fd(), unsyncable());
+            (DURABLE.sync)(file)
+        },
+        ..DURABLE
+    };
+    let settle = Steps {
+        settle: |dir| {
+            swap(dir.as_raw_fd(), unsyncable());
+            (DURABLE.settle)(dir)
+        },
+        ..DURABLE
+    };
+    let answer = br#"{"result":{"content":[]}}"#;
+    let plan = OsStr::new("cap-docs.json");
+    for (case, steps, refused) in [
+        ("write", write, Some(Errno::NOSPC)),
+        ("sync", sync, Some(Errno::INVAL)),
+        ("settle", settle, Some(Errno::INVAL)),
+        ("none", DURABLE, None),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let dir = OwnedFd::from(File::open(root.path()).unwrap());
+        let alone = staged(&steps, (&dir, plan), 1, answer).map_err(|error| error.raw_os_error());
+        let failed = refused.map_or(Ok(()), |errno| Err(Some(errno.raw_os_error())));
+        assert_eq!((case, alone), (case, failed));
+        let root = tempfile::tempdir().unwrap();
+        let dir = File::open(root.path()).unwrap();
+        let mut ledger = Ledger::open(&dir, plan, (&owner(), PLAN), &[]).unwrap();
+        let held = OwnedFd::from(dir.try_clone().unwrap());
+        ledger.retain_with(
+            move |call, bytes| staged(&steps, (&held, plan), call, bytes),
+            1,
+        );
+        let mut call = ledger.room().unwrap().begin("resolve").unwrap();
+        ledger.reserve(&mut call).unwrap();
+        let path = root.path().join("cap-docs.json.ledger");
+        let before = std::fs::read(&path).unwrap();
+        let answered = ledger.answered(call, Outcome::Succeeded, (answer, &sha256(answer)));
+        let after = std::fs::read(&path).unwrap();
+        let (lifecycle, _) = recover(&after, &owner(), PLAN);
+        let outcome = refused.is_none().then_some(Outcome::Succeeded);
+        let recorded = refused.map_or(Ok(()), |_| Err(Unrecorded::Record));
+        let found = (answered, after == before, lifecycle.calls());
+        let calls = [("resolve".to_string(), outcome)];
+        assert_eq!(
+            (case, found),
+            (case, (recorded, refused.is_some(), &calls[..]))
+        );
+    }
 }
 
 /// A ledger in memory retaining as one of `retaining` plans, and how many

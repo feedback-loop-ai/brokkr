@@ -11,14 +11,18 @@ use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
 use brokkr_core::canonical;
-use brokkr_protocol::broker::ledger::{Denial, Failure, Invalid, Ledger, Outcome, Unrecorded};
+use brokkr_protocol::broker::ledger::{recover, Denial, Disposition, Failure, Invalid, Ledger};
+use brokkr_protocol::broker::ledger::{Outcome, Unrecorded};
 use brokkr_protocol::broker::Plan;
+use rustix::io::Errno;
 use serde_json::{json, Value};
 
-use super::super::TIMEOUT;
-use super::Script;
+use super::super::pieces::tests::refusing;
+use super::super::{TIMEOUT, UNDELIVERED};
+use super::delivery::heard;
 use super::{admitted, answering, answering_with, call, edged, exchange, failed, initialization};
 use super::{forwarded, owned, plan, refusal, result, slow, tools, within, Beside, Harness, Ran};
+use super::{Script, DIGEST};
 use crate::broker::session::Ended;
 
 /// How a test ledger is given its retention.
@@ -208,6 +212,49 @@ fn an_error_response_is_retained_as_its_failed_calls_complete_object() {
         .map(|(call, bytes, _)| (call, bytes))
         .collect();
     assert_eq!(staged, [(1, object.as_bytes().to_vec())]);
+}
+
+#[test]
+fn a_retained_response_whose_delivery_fails_stays_staged_and_cited_and_is_never_asked_again() {
+    // CR2, CR3: the response is staged and its Terminal cites it before it
+    // is delivered, so a delivery that then fails leaves both: the call
+    // succeeded, its prepared bytes staged, their digest cited, and it was
+    // forwarded once, never again. A full device ends the session as a
+    // delivery failure, its ledger closed with that cause; a harness whose
+    // output is gone leaves it served and Clean (operator ruling
+    // 2026-10-14).
+    let undelivered = Disposition::Failed(Failure::Undelivered);
+    for (case, output, ended, closed) in [
+        (
+            "ENOSPC",
+            refusing(Errno::NOSPC),
+            Err(Ended::Failed(UNDELIVERED)),
+            undelivered,
+        ),
+        ("EPIPE", refusing(Errno::PIPE), Ok(()), Disposition::Clean),
+    ] {
+        let script = answering_with(tools(), body());
+        let asked = (&call("1", "lookup"), false);
+        let (short, frames, ledger) = heard(Some(retain(1, None)), script, asked, output);
+        let (found, (wrote, _), closure) = short;
+        let expected = (ended, Some(vec![]), Some(closed));
+        assert_eq!((case, (found, wrote, closure)), (case, expected));
+        let (lifecycle, _) = recover(&ledger, &plan().owner, DIGEST);
+        let succeeded = owned(vec![("lookup", Some(Outcome::Succeeded))]);
+        let staged: Vec<_> = staged()
+            .into_iter()
+            .map(|(call, bytes, _)| (call, bytes))
+            .collect();
+        let found = (lifecycle.calls(), responses(&ledger), staged);
+        let kept = (
+            &succeeded[..],
+            vec![cited(PREPARED)],
+            vec![(1, PREPARED.into())],
+        );
+        assert_eq!((case, found), (case, kept));
+        let once = [forwarded(3, "lookup", json!({}))];
+        assert_eq!((case, &frames[3..]), (case, &once[..]));
+    }
 }
 
 /// The harness's refusal of call `id` for the budget.

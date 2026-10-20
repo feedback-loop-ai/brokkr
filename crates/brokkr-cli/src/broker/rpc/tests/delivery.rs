@@ -21,6 +21,7 @@ use super::super::output::Edge;
 use super::super::pieces::tests::{held, refusing, sink, Sink};
 use super::super::pieces::Pieces;
 use super::super::{initialized, started, Fatal, ATOMIC, REQUEST_MAX, RESPONSE_MAX, UNDELIVERED};
+use super::retention::Retain;
 use super::{admitted, answering_with, call, cancelled_behind, conversed, forwarded, idle_timeout};
 use super::{answer, mcp_but, tools, within, Harness, Script, Then, DIGEST};
 use super::{fake, lookup_failed, mcp, passed, ping_sized, pipe, request, result, session, silent};
@@ -381,11 +382,25 @@ fn delivered(script: Script, frame: &Value, sink: (Sink, PipeReader)) -> Short {
 
 /// A session served by the server's `script` to a harness that sends
 /// `frame`, its output `sink` ([`pinged`]).
-fn asked(script: Script, frame: &Value, full: bool, (short, reader): (Sink, PipeReader)) -> Short {
-    let plan = super::plan();
+fn asked(script: Script, frame: &Value, full: bool, sink: (Sink, PipeReader)) -> Short {
+    heard(None, script, (frame, full), sink).0
+}
+
+/// [`asked`], its plan retaining where `retain` is given and its ledger
+/// retaining as `retain` has it: what it left ([`Short`]), each frame its
+/// server read, and its ledger's bytes.
+pub(super) fn heard(
+    retain: Option<Retain>,
+    script: Script,
+    (frame, full): (&Value, bool),
+    (short, reader): (Sink, PipeReader),
+) -> (Short, Vec<Value>, Vec<u8>) {
+    let mut plan = super::plan();
+    plan.retained = retain.is_some();
     let (mut input, mut output, server) = fake(script);
     let mut stderr = Drain::new(pipe().0, &[]);
     let (mut ledger, appended) = in_memory(&plan);
+    retain.into_iter().for_each(|retain| retain(&mut ledger));
     let attempt = within(Duration::from_secs(10));
     let link = (&mut input, &mut output);
     let started = started(link, &plan, attempt, &mut stderr).unwrap();
@@ -408,13 +423,15 @@ fn asked(script: Script, frame: &Value, full: bool, (short, reader): (Sink, Pipe
     let ended = served(started, &plan, &mut ledger, (asked, short), attempt, edge);
     let ended = settled(ledger, ended);
     drop((input, output, to));
-    server.join().unwrap();
+    let frames = server.join().unwrap().0;
     let writes = at.lock().unwrap().len();
     let (lifecycle, invalid) = recover(&appended.borrow(), &plan.owner, DIGEST);
     assert_eq!(invalid, None);
     let wrote = reading.join().unwrap();
     let past = wrote.strip_prefix(&filled[..]).map(<[u8]>::to_vec);
-    (ended, (past, writes), lifecycle.closed().cloned())
+    let short = (ended, (past, writes), lifecycle.closed().cloned());
+    let bytes = appended.borrow().clone();
+    (short, frames, bytes)
 }
 
 /// What fills the pipe `sink` writes to, a byte at a time, written through
