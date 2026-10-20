@@ -32,7 +32,12 @@
 #### Scenario: A supersede-only flag on a member retry
 
 - **WHEN** the operator runs `brokkr operator retry --member correctness --findings 1`
-- **THEN** the member facts pass, and the command is refused with the text that refuses `--findings` on a `retry` today
+- **THEN** the member facts pass, and the command is refused with the text `--findings, --by-run, --by-seq and --by-realm belong to 'supersede'; 'retry' takes --run, --reason, --realms, --db and --member, and with --member also --repo, --bundle, --recipe and --recipes-dir`, and nothing is written
+
+#### Scenario: A supersede-only flag on a stop
+
+- **WHEN** the operator runs `brokkr operator stop --findings 1`
+- **THEN** the command is refused with today's text, `--findings, --by-run, --by-seq and --by-realm belong to 'supersede'; 'stop' takes --run, --reason, --realms and --db`, and nothing is written
 
 #### Scenario: A repository named on a plain retry
 
@@ -206,7 +211,7 @@ A member's settled verdict SHALL be carried into the retry's attempt only when f
 
 With `--member`, the verb SHALL fold the run before it writes and SHALL ask its checks in this order, each fact with one text, the first fact that fails being the refusal reported, and a refused command writing nothing:
 
-1. the arguments' shape, two facts in order: `--member` with a command word other than `retry`; any of `--repo`, `--bundle`, `--recipe` and `--recipes-dir` without `--member`; then the refusals the verb makes today, in their existing order;
+1. the arguments' shape, two facts in order: `--member` with a command word other than `retry`; any of `--repo`, `--bundle`, `--recipe` and `--recipes-dir` without `--member`; then the refusals the verb makes today, in their existing order and with their texts, except that the supersede-only flags' refusal on `retry` names the arguments `retry` now takes;
 2. the run's state by the fold's one rule (`acceptance_refusal`: not parked, no phase to retry), reported in the fold's words;
 3. the bundle and the panel, three facts in order: the pinned bundle compiles under `resume`'s manifest gate, else the command SHALL be refused in `resume`'s own words, as the previous requirement reads it; the parked phase's body, read from the compiled bundle as the previous requirement reads it, is a panel or a sequence with a panel step, else the command SHALL be refused naming the phase as running no panel; the panel is the body or the sequence's first step, else the command SHALL be refused naming the panel step as following the first step;
 4. the names: each SHALL resolve to a member of that panel, else the command SHALL be refused naming the panel's members, and no member SHALL be given twice; when every member is named the command SHALL be admitted here and nothing below asked, a sequence parked at a step after the panel included;
