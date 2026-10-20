@@ -36,7 +36,7 @@ use crate::boundary::{refuse_unboxable, Unboxable};
 use crate::bundle::{CompileError, RealmLaw};
 use crate::capabilities::{CapabilityContext, UNMAPPED};
 use crate::engine::verify_dispatch_bundle_bounds;
-use crate::places::{state_of, Places};
+use crate::places::{state_of, Layout, Places, PlacesError, Shelves};
 use crate::realms::{World, WorldError};
 use crate::{Bundle, Engine, EngineError};
 
@@ -427,9 +427,9 @@ fn compile_from_manifest(
         // Its definitions are re-read where they were read when it
         // started: under the operated repository, never the recipe's home
         // and never a map that has appeared in the workspace since.
-        let places = Places::of(workspace)?;
-        return Ok(Bundle::compile_unmapped(
-            dir,
+        let (places, shelves) = shelved(workspace)?;
+        return Ok(Bundle::compile_unmapped_on(
+            (dir, &shelves),
             &places.agents,
             &places.adapters,
             Boundary::Namespace,
@@ -493,16 +493,25 @@ fn compile_in_realm(
         Some((world, realm)) => world.dialect_for_realm(realm)?,
         None => None,
     };
-    let places = Places::of(workspace)?;
-    Ok(Bundle::compile_with_capabilities(
-        dir,
-        &places.agents,
-        &places.adapters,
+    let (places, shelves) = shelved(workspace)?;
+    Ok(Bundle::compile_as(
+        &crate::argv::Executable::current(),
+        (dir, &shelves),
+        (&places.agents, &places.adapters),
         Some(name),
         dialect,
         RealmLaw::of(world, realm),
         &capability_context(workspace, world, realm, repo),
     )?)
+}
+
+/// The places of `workspace` and the shelves a compile from it composes
+/// across (#697 ruling 3): its own, and the personal shelf this process's
+/// environment places, if it places one.
+fn shelved(workspace: &Path) -> Result<(Places, Shelves), PlacesError> {
+    let layout = Layout::discover(workspace)?;
+    let personal = crate::places::personal_shelf_here().ok();
+    Ok((layout.places(), Shelves::of(&layout, personal)))
 }
 
 #[cfg(test)]

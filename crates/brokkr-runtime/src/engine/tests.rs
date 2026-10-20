@@ -168,15 +168,14 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         cost: String::new(),
         dir: dir.to_path_buf(),
         roots: vec![dir.to_path_buf()],
+        origins: Vec::new(),
         boundary: Boundary::Namespace,
         executable: crate::argv::tests::ENGINE.clone(),
         chain: Vec::new(),
         machine: machine(),
         seats,
-        manifest: json!({
-            "engine":ENGINE_VERSION, "event_schema":1, "database_schema":1,
-            "driver_protocol":1, "bundle_name":"test", "files":{"bundle.json":"a".repeat(64)}
-        }),
+        manifest: json!({"engine":ENGINE_VERSION, "event_schema":1, "database_schema":1,
+            "driver_protocol":1, "bundle_name":"test", "files":{"bundle.json":"a".repeat(64)}}),
         protected_phase: "review".into(),
         hands: BTreeMap::new(),
         inline_resume: BTreeMap::new(),

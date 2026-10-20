@@ -1,23 +1,25 @@
 //! The steps of [`read_layers`](super::read_layers) (#288, slice M): one
 //! layer's declaring document read, named and appended, and the base its
-//! `extends` reaches in the library, each refusing as it did inline.
-//! `read_layers` reads as the cycle check, these two and the depth bound.
+//! `extends` reaches in the library its origin reads (#697), each refusing
+//! as it did inline. `read_layers` reads as the cycle check, these two and
+//! the depth bound.
 
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use super::{base_of, invalid, Layer, Pinned};
+use super::{invalid, Layer, Pinned};
 use crate::bundle::CompileError;
+use crate::places::{Origin, Shelves, FOLDER};
 
-/// Read the layer at `dir` from its own `bundle.json`, refuse a name an
-/// ancestor already declares, and append it to `layers`. Returns the
-/// layer's file and its `extends`, if it declares one.
+/// Read the layer at `dir`, of `origin`, from its own `bundle.json`, refuse
+/// a name an ancestor already declares, and append it to `layers`. Returns
+/// the layer's `extends`, if it declares one.
 pub(super) fn read_layer(
     layers: &mut Vec<Layer>,
-    dir: &Path,
+    (dir, origin): (&Path, Origin),
     reached_as: &Option<String>,
-) -> Result<(PathBuf, Option<Value>), CompileError> {
+) -> Result<Option<Value>, CompileError> {
     let file = dir.join("bundle.json");
     // Read STRICTLY from the layer's own bytes (decision 0065, design
     // D3): a seat's capability requests are written here, and an
@@ -62,29 +64,42 @@ pub(super) fn read_layer(
         name,
         reached_as: reached_as.clone(),
         dir: dir.to_path_buf(),
-        file: file.clone(),
+        origin,
+        file,
         document,
         read,
     });
-    Ok((file, extends))
+    Ok(extends)
 }
 
-/// The base a layer's `extends` names, as the canonical directory it is in
-/// the layer's library, or refused: a value that is no recipe name, a name
-/// that is no recipe there, or one that resolves outside the library.
+/// The base the last of `layers` names in its `extends`, as the canonical
+/// directory it is in the library its origin reads (#697), or refused: a
+/// value that is no recipe name, a name that is no recipe there, or one
+/// that resolves outside the library. A personal layer may name the
+/// folder's own bundle as `.brokkr`.
 pub(super) fn reach_base<'a>(
-    dir: &Path,
-    file: &Path,
+    layers: &[Layer],
     extends: &'a Value,
+    shelves: &Shelves,
 ) -> Result<(&'a str, PathBuf), CompileError> {
+    let layer = layers.last().expect("a layer was read");
+    let (dir, file, origin) = (&layer.dir, &layer.file, layer.origin);
+    if origin == Origin::Personal && extends.as_str() == Some(FOLDER) {
+        return Ok((FOLDER, shelves.folder(dir)?));
+    }
     let base = base_of(file, extends)?;
     // The library is the leaf directory's parent, what a recipe library already is and what
     // `brokkr recipes add` installs into before it compile-verifies the copy, or a `.brokkr`
     // folder's shelf (#696): `places::base_library`, the one judgement of a layer's library.
     // `dir` is already canonical, so the library is asked for directly, never through `..`.
-    let library = crate::places::base_library(dir)?;
+    // A personal layer reads its own shelf or the project's (#697 ruling 3).
+    let library = match origin {
+        Origin::Personal => shelves.personal_library(dir, base)?,
+        Origin::Project | Origin::Folder | Origin::Library => crate::places::base_library(dir)?,
+    };
     let candidate = library.join(base);
     if !candidate.is_dir() {
+        shelves.refuse_personal(origin, dir, base)?;
         return Err(invalid(format!(
             "{}: extends '{base}', which is not a recipe in {}",
             file.display(),
@@ -107,4 +122,33 @@ pub(super) fn reach_base<'a>(
         )));
     }
     Ok((base, resolved))
+}
+
+/// `^[a-z0-9][a-z0-9-]*$`, checked BEFORE any path is built so `../x`,
+/// `a/b`, `SDD` and `.` are refused as names and never become paths.
+fn valid_recipe_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    match characters.next() {
+        Some(first) if first.is_ascii_lowercase() || first.is_ascii_digit() => {}
+        _ => return false,
+    }
+    characters.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// The recipe a layer's `extends` names, refused before any path is built: a non-string, or a
+/// name that is no recipe name.
+fn base_of<'a>(file: &Path, extends: &'a Value) -> Result<&'a str, CompileError> {
+    let file = file.display();
+    let base = extends.as_str().ok_or_else(|| {
+        invalid(format!(
+            "{file}: 'extends' must be the name of a recipe in the library"
+        ))
+    })?;
+    if !valid_recipe_name(base) {
+        return Err(invalid(format!(
+            "{file}: 'extends' value '{base}' is not a recipe name; names match \
+             ^[a-z0-9][a-z0-9-]*$ and are refused before any path is built"
+        )));
+    }
+    Ok(base)
 }

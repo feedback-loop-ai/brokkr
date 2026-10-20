@@ -28,6 +28,7 @@ mod expand;
 mod invocation;
 mod mcp;
 mod opened;
+mod origins;
 mod parse;
 mod phases;
 mod pins;
@@ -73,6 +74,7 @@ use crate::agents::{
 use crate::argv::{Dispatch, Executable};
 use crate::dialect::{Dialect, DialectPhase};
 use crate::phase_name;
+use crate::places::Shelves;
 use brokkr_protocol::native_controls::{Origin, Segment, TemplateExpectation};
 
 pub const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -108,6 +110,9 @@ pub enum CompileError {
     /// charter names an ask it writes in no DATA paragraph.
     #[error("bundle: {0}")]
     Charter(crate::agents::charter_data::CharterRefusal),
+    /// A layer naming what its origin may not compose from (#697).
+    #[error("bundle: {0}")]
+    Shelf(crate::places::ShelfRefusal),
 }
 
 /// How [`CompileError::Capability`] renders.
@@ -603,6 +608,8 @@ pub struct Bundle {
     /// (decision 0046 ruling 4), so an inherited seat's script is judged
     /// against the layer that wrote it.
     pub roots: Vec<PathBuf>,
+    /// Every layer's origin, leaf first, as `roots` (#697 ruling 5).
+    pub origins: Vec<crate::places::Origin>,
     /// The boundary this bundle was compiled under (decision 0046 ruling
     /// 1): the operated realm's word, `namespace` in no realm. Pinned per
     /// hands site in the manifest's `boundary` map, and the one word the
@@ -1237,6 +1244,19 @@ impl Bundle {
         law: impl Into<RealmLaw>,
         operator_root: &Path,
     ) -> Result<Bundle, CompileError> {
+        let leaf = (dir, &Shelves::default());
+        Self::compile_unmapped_on(leaf, library_root, adapters_root, law, operator_root)
+    }
+
+    /// [`Bundle::compile_unmapped`] of the bundle at `leaf`'s directory,
+    /// composed across `leaf`'s shelves (#697).
+    pub(crate) fn compile_unmapped_on(
+        leaf: (&Path, &Shelves),
+        library_root: &Path,
+        adapters_root: &Path,
+        law: impl Into<RealmLaw>,
+        operator_root: &Path,
+    ) -> Result<Bundle, CompileError> {
         let default_path = library_root
             .parent()
             .unwrap_or(Path::new(""))
@@ -1250,10 +1270,10 @@ impl Bundle {
         } else {
             None
         };
-        Self::compile_with_capabilities(
-            dir,
-            library_root,
-            adapters_root,
+        Self::compile_as(
+            &Executable::current(),
+            leaf,
+            (library_root, adapters_root),
             None,
             default.as_ref(),
             law,
@@ -1312,17 +1332,19 @@ impl Bundle {
         law: impl Into<RealmLaw>,
         capabilities: &crate::capabilities::CapabilityContext,
     ) -> Result<Bundle, CompileError> {
-        let roots = (library_root, adapters_root);
+        let (leaf, roots) = ((dir, &Shelves::default()), (library_root, adapters_root));
         let engine = Executable::current();
-        Self::compile_as(&engine, dir, roots, realm_name, dialect, law, capabilities)
+        Self::compile_as(&engine, leaf, roots, realm_name, dialect, law, capabilities)
     }
 
-    /// [`Bundle::compile_with_capabilities`] for the engine executable
-    /// `engine`, the one value its every `{brokkr}` expands to and the
-    /// compiled bundle carries to the engine (#349, ask 8).
+    /// [`Bundle::compile_with_capabilities`] of the bundle at `leaf`'s
+    /// directory, composed across `leaf`'s shelves (#697 ruling 3), for the
+    /// engine executable `engine`, the one value its every `{brokkr}`
+    /// expands to and the compiled bundle carries to the engine (#349, ask
+    /// 8).
     pub(crate) fn compile_as(
         engine: &Executable,
-        dir: &Path,
+        (dir, shelves): (&Path, &Shelves),
         roots: (&Path, &Path),
         realm_name: Option<&str>,
         dialect: Option<&Dialect>,
@@ -1335,7 +1357,7 @@ impl Bundle {
         // Composition resolves FIRST, into one flat bundle; everything
         // below this line compiles a single bundle and never learns that
         // composition happened (decision 0017).
-        let resolved = compose::resolve_unsealed(&dir)?;
+        let resolved = compose::resolve_unsealed(&dir, shelves)?;
         let note = resolved.chain_note();
         let realm = (realm_name, dialect, law.into());
         Bundle::assemble(&dir, resolved, roots, engine, realm, capabilities)
@@ -1464,6 +1486,7 @@ impl Bundle {
             cost,
             dir: dir.to_path_buf(),
             roots: resolved.roots,
+            origins: resolved.origins,
             boundary,
             executable: engine.clone(),
             chain: resolved.chain,

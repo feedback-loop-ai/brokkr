@@ -342,11 +342,12 @@ fn plain(part: &Path) -> bool {
 /// every name planned before it. A base is found beside its layer, which
 /// is what the compiler's authority, `places::base_library`, names for a
 /// layer that is no folder bundle; a plan holding a folder bundle is
-/// refused before any copy ([`sources::refuse_folder_bundles`]).
-fn planned(root: &Path, name: &str, dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+/// refused before any copy ([`sources::refuse_folder_bundles`]). A base
+/// the install `onto` its shelf never copies ends the walk ([`Onto::copies`]).
+fn planned(root: &Path, name: &str, dir: &Path, onto: Onto) -> Result<Vec<(String, PathBuf)>> {
     let mut planned = vec![(name.to_string(), root.to_path_buf())];
     let mut layer = root.canonicalize()?;
-    while let Some(base) = base_of(&layer) {
+    while let Some(base) = base_of(&layer).filter(|base| onto.copies(base)) {
         let source = layer.with_file_name(&base);
         let plain = std::fs::symlink_metadata(&source).is_ok_and(|meta| meta.is_dir());
         let held = std::fs::symlink_metadata(dir.join(&base)).is_ok()
@@ -748,7 +749,7 @@ fn install_held(
     // Declared before what it outlives: the copies are kept or removed while
     // the library is still held, and an empty one made here goes last.
     let _shelf = Shelf::make(dir, place)?;
-    let planned = planned(&bundle, name, dir)?;
+    let planned = planned(&bundle, name, dir, onto)?;
     onto.unshadowing(&planned, dir)?;
     let sources: Vec<&Path> = planned.iter().map(|(_, source)| source.as_path()).collect();
     refuse_within(&sources, place)?;

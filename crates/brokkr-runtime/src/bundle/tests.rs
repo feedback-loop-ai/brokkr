@@ -1945,7 +1945,8 @@ fn a_compile_expands_brokkr_to_the_executable_it_is_handed() {
         let (unmapped, root) = (crate::capabilities::UNMAPPED, Path::new(""));
         let none = crate::capabilities::CapabilityContext::no_grants(unmapped, root);
         let law = Boundary::Namespace;
-        Bundle::compile_as(engine, &fixture.root, roots, None, None, law, &none).unwrap()
+        let leaf = (&*fixture.root, &crate::places::Shelves::default());
+        Bundle::compile_as(engine, leaf, roots, None, None, law, &none).unwrap()
     };
     let injected = Executable(Some(PathBuf::from("/opt/brokkr-test")));
     let bundles = [&entered, &compiled(&injected), &compiled(&Executable(None))];

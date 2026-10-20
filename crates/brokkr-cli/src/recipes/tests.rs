@@ -61,6 +61,7 @@ fn bundle_with_sequence() -> Bundle {
         cost: String::new(),
         dir: PathBuf::new(),
         roots: vec![PathBuf::new()],
+        origins: Vec::new(),
         boundary: brokkr_core::realms::Boundary::Namespace,
         executable: brokkr_runtime::argv::Executable::current(),
         chain: Vec::new(),
@@ -319,7 +320,11 @@ fn a_base_outside_the_library_is_never_copied() {
         let target = tempfile::tempdir().unwrap();
         let library = target.path().join("lib");
         std::fs::create_dir(&library).unwrap();
-        let installing = install(&planned(&leaf, "leaf", &library).unwrap(), &library).unwrap();
+        let installing = install(
+            &planned(&leaf, "leaf", &library, Onto::Project).unwrap(),
+            &library,
+        )
+        .unwrap();
         let names: Vec<&str> = installing.0.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["leaf"], "{base}");
         assert!(!target.path().join("outside").exists(), "{base}");
@@ -450,7 +455,7 @@ fn a_dangling_link_in_the_library_is_never_removed() {
     );
     kept(leaf.path(), "node");
 
-    let planned = planned(&node, "node", leaf.path()).unwrap();
+    let planned = planned(&node, "node", leaf.path(), Onto::Project).unwrap();
     let refusal = install(&planned, leaf.path()).err().unwrap();
     assert_eq!(
         refusal.downcast_ref::<std::io::Error>().map(|e| e.kind()),
@@ -549,7 +554,7 @@ fn a_shelf_recipes_base_is_planned_from_its_shelf() {
         std::fs::write(at.join("bundle.json"), layer.to_string()).unwrap();
     }
     let library = tempfile::tempdir().unwrap();
-    let plan = planned(&shelf.join("leaf"), "leaf", library.path()).unwrap();
+    let plan = planned(&shelf.join("leaf"), "leaf", library.path(), Onto::Project).unwrap();
     let expected = [
         ("leaf".to_string(), shelf.join("leaf")),
         ("base".to_string(), shelf.join("base")),
@@ -572,7 +577,7 @@ fn a_chain_ends_at_a_name_it_already_plans() {
     }
     let library = tempfile::tempdir().unwrap();
     let leaf = source.path().join("a");
-    let names: Vec<String> = planned(&leaf, "a", library.path())
+    let names: Vec<String> = planned(&leaf, "a", library.path(), Onto::Project)
         .unwrap()
         .into_iter()
         .map(|(name, _)| name)

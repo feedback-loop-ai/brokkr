@@ -602,7 +602,7 @@ impl Engine {
         store.append_next(
             &run_id,
             EventType::RunStarted,
-            json!({"feature": feature, "manifest": manifest, "charters": charters}),
+            bundle.run_started(feature, &manifest, charters),
             None,
             None,
         )?;
@@ -647,7 +647,7 @@ impl Engine {
         store.append_next(
             &run_id,
             EventType::RunStarted,
-            json!({"feature": feature, "manifest": manifest, "charters": charters}),
+            bundle.run_started(feature, &manifest, charters),
             None,
             None,
         )?;

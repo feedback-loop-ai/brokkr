@@ -108,6 +108,20 @@ pub fn personal_shelf(
     Ok(crate::admission::config_dir(xdg, home)?.join(RECIPES))
 }
 
+/// [`personal_shelf`] as this process's environment places it: the one
+/// read of `XDG_CONFIG_HOME` and `HOME` that the CLI's verbs and every
+/// compile's shelves take (#697).
+pub fn personal_shelf_here() -> Result<PathBuf, crate::admission::HostError> {
+    personal_shelf(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )
+}
+
+mod shelves;
+pub(crate) use shelves::Shelves;
+pub use shelves::{ComposedLayer, Named, Origin, ShelfRefusal};
+
 /// A recipe library's run-local directory, beside the operated
 /// repository, as it has always been (ruling 3's last column).
 pub const LIBRARY_STATE: &str = ".forge";

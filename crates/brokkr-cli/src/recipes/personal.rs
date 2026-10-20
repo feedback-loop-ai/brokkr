@@ -48,14 +48,11 @@ impl ShelfPath {
     }
 }
 
-/// The personal shelf, from this process's `XDG_CONFIG_HOME` and `HOME`:
-/// the CLI's edge, where every verb that reads the shelf asks.
+/// The personal shelf, from this process's `XDG_CONFIG_HOME` and `HOME`
+/// ([`places::personal_shelf_here`], which every compile's shelves read
+/// too): where every verb that reads the shelf asks.
 pub(crate) fn shelf() -> Result<ShelfPath, HostError> {
-    let placed = places::personal_shelf(
-        std::env::var_os("XDG_CONFIG_HOME"),
-        std::env::var_os("HOME"),
-    );
-    placed.map(ShelfPath::new)
+    places::personal_shelf_here().map(ShelfPath::new)
 }
 
 /// The personal shelf, where this machine places one. Where it places
@@ -171,8 +168,8 @@ fn climbs(origin: Origin, shelf: &Path, at: &Path, rest: &Path) -> Result<(), Un
 impl fmt::Display for Origin {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Origin::Project => "project",
-            Origin::Personal => "personal",
+            Origin::Project => places::Origin::Project.word(),
+            Origin::Personal => places::Origin::Personal.word(),
         })
     }
 }
@@ -233,16 +230,19 @@ impl fmt::Display for Unshelved {
                  on a shelf (#697): name the recipe as it stands on its shelf, or give --bundle \
                  <dir> for a bundle elsewhere; nothing was run"
             ),
+            // The resolver's own refusal of a base on both shelves, so the
+            // two read as one (#697 ruling 2).
             Unshelved::Shadowed {
                 name,
                 project,
                 personal,
-            } => write!(
+            } => fmt::Display::fmt(
+                &places::ShelfRefusal::Shadowed {
+                    name: name.clone(),
+                    project: project.clone(),
+                    personal: personal.clone(),
+                },
                 formatter,
-                "recipe '{name}' stands on both the project shelf, at {}, and the personal shelf, \
-                 at {} (#697): neither shelf wins, so rename or remove one of them",
-                project.display(),
-                personal.display()
             ),
             Unshelved::Unreadable(refused) => fmt::Display::fmt(refused, formatter),
             Unshelved::Unread {
@@ -403,6 +403,13 @@ impl Onto<'_> {
             Onto::Project => Origin::Project,
             Onto::Personal { .. } => Origin::Personal,
         }
+    }
+
+    /// Whether the install copies `base`, a base its plan reaches: onto the
+    /// personal shelf never `.brokkr`, the name a personal recipe reaches
+    /// the workspace's own folder bundle by (#697 ruling 3).
+    pub(super) fn copies(self, base: &str) -> bool {
+        self.origin() == Origin::Project || base != places::FOLDER
     }
 
     /// Refuse a personal install onto `dir` whose plan, the recipe and
