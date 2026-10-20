@@ -88,7 +88,7 @@ pub mod test_support;
 pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Rows};
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
-pub use page::{place_of, Paged, RowRefusal, Unread};
+pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
     Attribution, EntryId, EntryState, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry,
     QueueRefusal, Seen, Wait, WaitOn,

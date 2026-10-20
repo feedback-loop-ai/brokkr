@@ -69,23 +69,22 @@ fn the_runs_route_takes_a_limit_and_a_cursor() {
         next.starts_with("running:") && next.ends_with(":r2"),
         "{next}"
     );
-    let after = read(&format!("/api/runs?after={next}&limit=5"));
-    assert_eq!(
-        (listed(&after), &after["next"]),
-        ((json!("r1"), json!(1)), &Value::Null)
-    );
+    // The `next` stated, read back raw and as `URLSearchParams` encodes it.
+    for after in [next.to_string(), next.replace(':', "%3A")] {
+        let after = read(&format!("/api/runs?after={after}&limit=%35"));
+        let two = (listed(&after), &after["next"]);
+        assert_eq!(two, ((json!("r1"), json!(1)), &Value::Null));
+    }
     assert_eq!(read("/api/runs?after=running:0:r1")["runs"], json!([]));
     let cursor = "cursor 'x' is not <section>:<order>:<run id>, as a page's `next` states it";
+    let limit = "limit '0' is not a number of runs from 1";
+    let query = "'page=2' is neither limit=N nor after=CURSOR";
+    let escape = "'running%3A0%3Ar%zz' does not percent-decode to text";
     let refusals = [
-        (
-            "/api/runs?limit=0",
-            "limit '0' is not a number of runs from 1",
-        ),
-        (
-            "/api/runs?page=2",
-            "'page=2' is neither limit=N nor after=CURSOR",
-        ),
+        ("/api/runs?limit=0", limit),
+        ("/api/runs?page=2", query),
         ("/api/runs?after=x", cursor),
+        ("/api/runs?after=running%3A0%3Ar%zz", escape),
     ];
     for (path, words) in refusals {
         let refused = handle(&db, path);

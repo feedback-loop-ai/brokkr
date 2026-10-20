@@ -515,6 +515,71 @@ fn a_refused_over_long_id_pages_to_the_fleet_s_end() {
     assert_eq!(ids, [cut.as_str(), &cut, "empty", "done"]);
 }
 
+/// Rulings 2 and 5: a run id no writer admits, standing behind its
+/// summary, is listed refused wherever the behind lane hands it out: by
+/// the refresh's first hundred, on the console's page, and by the keys
+/// past them, in `brokkr runs` and `/api/runs`; and the fleet still lists
+/// every run once, to its end.
+#[test]
+fn an_over_long_id_behind_its_summary_is_listed_refused_by_every_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    behind_in_every_section(&db);
+    // Unfolded, the first stands at the lane's top; the second's row is
+    // planted at the lane's oldest place, past the hundred a refresh reads.
+    let (top, tail) = ("t".repeat(200), "u".repeat(200));
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    for run_id in [&top, &tail] {
+        plant_run(&conn, run_id, "{}").unwrap();
+    }
+    let oldest = "UPDATE run_summary SET last_at_ms = ?1 WHERE run_id = ?2";
+    conn.execute(oldest, rusqlite::params![now() - 30 * DAY, tail])
+        .unwrap();
+    drop(conn);
+    let cut = |run_id: &str| format!("{}…", &run_id[..128]);
+    let words = "its run id is past 128 bytes, which no writer admits";
+    let (store, pages, _) = refreshed(&db, AHEAD_ROWS);
+    assert_eq!(pages.unread(), 132);
+    let listed = paged(&pages, &store, NOW, PAGE_ROWS, false);
+    let refused: Vec<(&str, Option<&str>)> = listed
+        .iter()
+        .filter(|(_, row)| row.run_id.len() > 128)
+        .map(|(_, row)| (row.run_id.as_str(), row.detail.as_deref()))
+        .collect();
+    assert_eq!(refused, [(cut(&top).as_str(), Some(words))]);
+    let mut every: Vec<String> = whole_rows(&db)
+        .into_iter()
+        .map(|row| match row.run_id.len() > 128 {
+            true => cut(&row.run_id),
+            false => row.run_id,
+        })
+        .collect();
+    every.sort();
+    let lists_every_run_refusing_both = |runs: &Value| {
+        let runs = runs.as_array().unwrap();
+        let mut ids: Vec<&str> = runs
+            .iter()
+            .map(|run| run["run_id"].as_str().unwrap())
+            .collect();
+        ids.sort();
+        assert_eq!(ids, every);
+        for run_id in [&top, &tail] {
+            let shown = runs.iter().find(|run| run["run_id"] == cut(run_id));
+            let shown = shown.unwrap();
+            let read = (&shown["detail"], &shown["quarantine"], &shown["status"]);
+            assert_eq!(read, (&json!(words), &json!("does_not_load"), &Value::Null));
+        }
+    };
+    for keys in [3, TAIL_KEYS] {
+        let json = printed(&db, Some(keys), |lister, out| lister.every_json(out));
+        let printed: Value = serde_json::from_str(&json).unwrap();
+        lists_every_run_refusing_both(&printed["runs"]);
+    }
+    let served = crate::ui::handle(&db, "/api/runs").body;
+    let served: Value = serde_json::from_str(&served).unwrap();
+    lists_every_run_refusing_both(&served);
+}
+
 /// Ruling 6: a run a refresh read whole as behind its summary, which a
 /// writer catches up before the page is read, lists once: by the read
 /// that kept it, never again from the range its row stands in now.

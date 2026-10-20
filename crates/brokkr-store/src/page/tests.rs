@@ -257,18 +257,41 @@ fn the_behind_lane_lists_its_newest_and_counts_the_rest() {
         plant_event(&store.conn, &run.run_id, &4, &"f".repeat(64), "{}").unwrap();
     }
     let (listed, beyond) = store.behind(None, 2).unwrap();
+    let listed: Vec<(i64, String)> = listed.into_iter().map(Result::unwrap).collect();
     let ids: Vec<&str> = listed.iter().map(|(_, id)| id.as_str()).collect();
     assert_eq!((ids, beyond), (vec!["behind-00000", "behind-00001"], 1));
     assert_eq!(store.behind(None, 5).unwrap().1, 0);
     let (at, key) = &listed[1];
     let (rest, beyond) = store.behind(Some((*at, key)), 2).unwrap();
     assert_eq!(
-        (rest[0].1.as_str(), rest.len(), beyond),
+        (rest[0].as_ref().unwrap().1.as_str(), rest.len(), beyond),
         ("behind-00002", 1, 0)
     );
     assert_eq!(store.counted(&lane(Lane::Behind, None)).unwrap(), 3);
     let running = lane(Lane::Running, Some(Bound::Below(now())));
     assert_eq!(store.counted(&running).unwrap(), 0);
+}
+
+/// Rulings 2 and 5: a run id past what a writer admits, standing behind
+/// its summary, is handed out refused at its place by its whole id, as a
+/// page refuses its row, and the lane resumes past it.
+#[test]
+fn the_behind_lane_refuses_an_id_no_writer_admits() {
+    let (_dir, store) = store();
+    let long = "r".repeat(RUN_ID_MAX + 1);
+    for run_id in [long.as_str(), "empty"] {
+        crate::test_support::plant_run(&store.conn, run_id, "{}").unwrap();
+    }
+    // A row no event moved stands at the top of the order.
+    let (listed, beyond) = store.behind(None, 1).unwrap();
+    let refused = Unread {
+        run_id: long.clone(),
+        order_at: i64::MAX,
+        why: RowRefusal::RunIdPastBound,
+    };
+    assert_eq!((listed, beyond), (vec![Err(refused)], 1));
+    let (rest, beyond) = store.behind(Some((i64::MAX, &long)), 1).unwrap();
+    assert_eq!((rest, beyond), (vec![Ok((i64::MAX, "empty".into()))], 0));
 }
 
 /// A narrow row reads whole as it reads on a page; a wide one keeps each

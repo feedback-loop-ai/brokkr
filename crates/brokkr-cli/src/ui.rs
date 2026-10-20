@@ -99,24 +99,34 @@ fn runs(db: &Path, store: &Store, query: Option<&str>) -> Response {
 }
 
 /// The page a query asks for: `limit=N`, at least one, and `after=CURSOR`,
-/// in any order, the last of a repeated one standing, or the words of
-/// what it is not.
+/// in any order, the last of a repeated one standing, each value
+/// percent-decoded once before it is parsed, or the words of what it is
+/// not.
 fn page_asked(query: &str) -> Result<(Option<brokkr_view::Cursor>, usize), PageRefused> {
     let mut asked = (None, crate::fleet::PAGE_ROWS);
     for pair in query.split('&') {
         match pair.split_once('=') {
             Some(("limit", limit)) => {
+                let limit = query_value(limit)?;
                 asked.1 = limit
                     .parse::<usize>()
                     .ok()
                     .filter(|limit| *limit > 0)
-                    .ok_or_else(|| PageRefused::Limit(limit.to_string()))?;
+                    .ok_or(PageRefused::Limit(limit))?;
             }
-            Some(("after", after)) => asked.0 = Some(crate::fleet::cursor(after)?),
+            Some(("after", after)) => {
+                asked.0 = Some(crate::fleet::cursor(&query_value(after)?)?);
+            }
             _ => return Err(PageRefused::Query(pair.to_string())),
         }
     }
     Ok(asked)
+}
+
+/// A query value, percent-decoded once as a path component is, so the
+/// `next` a page states reads back however a client encodes it.
+fn query_value(value: &str) -> Result<String, PageRefused> {
+    decode_component(value).ok_or_else(|| PageRefused::Escape(value.to_string()))
 }
 
 fn not_found(what: &str) -> Response {

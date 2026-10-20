@@ -66,6 +66,33 @@ pub struct Unread {
 /// One row of a page: read, or refused at the edge.
 pub type Paged = Result<Row, Unread>;
 
+/// A run of the behind lane as [`Store::behind`] hands it out: its place,
+/// or, where its id is past what a writer admits, its refusal there.
+pub type Keyed = Result<(i64, String), Unread>;
+
+/// `run_id` at `order_at` as a key of the behind lane: refused where its
+/// id is past what a writer admits, as a page refuses its row, so no lane
+/// hands out a whole id of any length as a run to read (rulings 2 and 5).
+pub fn keyed(order_at: i64, run_id: String) -> Keyed {
+    match admitted(&run_id) {
+        Ok(()) => Ok((order_at, run_id)),
+        Err(why) => Err(Unread {
+            run_id,
+            order_at,
+            why,
+        }),
+    }
+}
+
+/// Whether a writer admits `run_id`: the one bound every lane's key is
+/// held to.
+fn admitted(run_id: &str) -> Result<(), RowRefusal> {
+    if run_id.len() > RUN_ID_MAX {
+        return Err(RowRefusal::RunIdPastBound);
+    }
+    Ok(())
+}
+
 /// A paged row's place in its section's order.
 pub fn place_of(paged: &Paged) -> (i64, &str) {
     match paged {
@@ -90,9 +117,7 @@ fn cut(text: String) -> Bounded {
 
 /// The row at `row`, read past its run id and place.
 fn row_of(row: &rusqlite::Row<'_>, run_id: String, order_at: i64) -> Result<Row, RowRefusal> {
-    if run_id.len() > RUN_ID_MAX {
-        return Err(RowRefusal::RunIdPastBound);
-    }
+    admitted(&run_id)?;
     let refused = refused_of(row)?;
     let acknowledged = match refused {
         Some(_) => copied_of(row)?,
@@ -353,13 +378,14 @@ impl Store {
     }
 
     /// The first `limit` runs of the `behind` lane below `after`, newest
-    /// first, each at the place its row stands, and how many more it holds
-    /// below `after`, counted by the index alone.
+    /// first, each at the place its row stands and refused there where its
+    /// id is past what a writer admits ([`keyed`]), and how many more it
+    /// holds below `after`, counted by the index alone.
     pub fn behind(
         &self,
         after: Option<(i64, &str)>,
         limit: usize,
-    ) -> Result<(Vec<(i64, String)>, u64), StoreError> {
+    ) -> Result<(Vec<Keyed>, u64), StoreError> {
         let behind = Range {
             lane: Lane::Behind,
             bound: None,
@@ -370,11 +396,11 @@ impl Store {
             "SELECT order_at, run_id FROM run_summary WHERE {filter} {ORDER} LIMIT ?{}",
             bound.len()
         );
-        let listed: Vec<(i64, String)> = self
+        let listed: Vec<Keyed> = self
             .conn
             .prepare(&sql)?
             .query_map(values(&bound).as_slice(), |row| {
-                Ok((row.get(0)?, row.get(1)?))
+                Ok(keyed(row.get(0)?, row.get(1)?))
             })?
             .collect::<Result<_, _>>()?;
         let beyond = self

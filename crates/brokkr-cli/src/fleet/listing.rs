@@ -26,6 +26,7 @@ pub(crate) enum PageRefused {
     Cursor(brokkr_view::CursorError),
     Limit(String),
     Query(String),
+    Escape(String),
 }
 
 impl std::fmt::Display for PageRefused {
@@ -37,6 +38,9 @@ impl std::fmt::Display for PageRefused {
             }
             PageRefused::Query(pair) => {
                 write!(formatter, "'{pair}' is neither limit=N nor after=CURSOR")
+            }
+            PageRefused::Escape(value) => {
+                write!(formatter, "'{value}' does not percent-decode to text")
             }
         }
     }

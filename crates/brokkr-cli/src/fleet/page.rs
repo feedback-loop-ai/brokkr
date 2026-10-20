@@ -20,7 +20,7 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 use brokkr_core::fold::RunState;
 use brokkr_core::page::{newest_first, Place};
 use brokkr_core::EventEnvelope;
-use brokkr_store::{place_of, Paged, RowRefusal, Store, StoreError, Unread};
+use brokkr_store::{keyed, place_of, Keyed, Paged, RowRefusal, Store, StoreError, Unread};
 use brokkr_view::{Cursor, Page, RunRow, Section};
 
 use super::{judged, read_run, Journal, KeptFleet, ListedRun, Quarantine};
@@ -302,7 +302,7 @@ impl Behind {
             self.runs.clear();
         }
         let (listed, unread) = store.behind(None, limit)?;
-        self.past = listed.last().filter(|_| unread > 0).cloned();
+        self.past = listed.last().filter(|_| unread > 0).map(resume);
         let mut kept: HashMap<String, RunRow> = self
             .rows
             .drain(..)
@@ -311,12 +311,13 @@ impl Behind {
         let mut heads = std::mem::take(&mut self.runs);
         self.whole.clear();
         let mut read = 0;
-        for (_, run_id) in listed {
+        for key in listed {
+            let run_id = resume(&key).1;
             let head = store.head_hash(&run_id)?;
             let row = match (heads.remove(&run_id), kept.remove(&run_id)) {
                 (Some(at), Some(row)) if at == head => row,
                 _ => {
-                    let (row, events) = read_whole(store, &run_id)?;
+                    let (row, events) = read_keyed(store, &key)?;
                     read += events;
                     self.whole.insert(run_id.clone());
                     row
@@ -351,8 +352,8 @@ impl Behind {
         let mut next = self.past.clone();
         while let Some((at, key)) = next.take() {
             let (listed, beyond) = store.behind(Some((at, &key)), brokkr_view::AHEAD_ROWS)?;
-            for (_, run_id) in &listed {
-                let row = read_whole(store, run_id)?.0;
+            for key in &listed {
+                let row = read_keyed(store, key)?.0;
                 let (order_at, run_id) = row.place();
                 let place = (order_at, run_id.to_string());
                 let under_section = brokkr_view::section_of(&row, now);
@@ -363,7 +364,7 @@ impl Behind {
                     every &= !held_past(&mut newest, place, keys);
                 }
             }
-            next = listed.into_iter().last().filter(|_| beyond > 0);
+            next = listed.last().filter(|_| beyond > 0).map(resume);
         }
         let keys = newest.into_sorted_vec().into_iter();
         let batch = Batch {
@@ -430,9 +431,10 @@ impl Behind {
                 break;
             }
             for (order_at, run_id) in keys {
-                let row = read_whole(store, &run_id)?.0;
+                let key = keyed(order_at, run_id);
+                let row = read_keyed(store, &key)?.0;
                 rows.extend(Some(row).filter(|row| (ask.keep)(row)));
-                from = Some((order_at, run_id));
+                from = Some(resume(&key));
             }
         }
         Ok(rows)
@@ -520,21 +522,47 @@ fn listed(store: &Store, paged: Paged, whole: &dyn Fn(&str) -> bool) -> Result<R
             };
             (row.run_id, read)
         }
-        Err(Unread {
-            run_id,
-            order_at,
-            why: why @ RowRefusal::RunIdPastBound,
-        }) => {
-            let refused = past_bound(&run_id, order_at, &why);
-            (run_id, refused)
-        }
-        Err(Unread { run_id, .. }) => {
-            let read = read_whole(store, &run_id)?.0;
-            (run_id, read)
+        Err(unread) => {
+            let read = unread_row(store, &unread)?.0;
+            (unread.run_id, read)
         }
     };
     row.paged_at = Some((at, key));
     Ok(row)
+}
+
+/// A key of the behind lane's place, which the lane resumes past.
+fn resume(key: &Keyed) -> (i64, String) {
+    match key {
+        Ok(place) => place.clone(),
+        Err(unread) => (unread.order_at, unread.run_id.clone()),
+    }
+}
+
+/// The run at `key` of the behind lane, read whole, and how many events
+/// that read; or, where the store refused the key, listed as a refused
+/// row is, so every lane holds a run id to the one bound (decision 0089
+/// rulings 2 and 5).
+fn read_keyed(store: &Store, key: &Keyed) -> Result<(RunRow, usize), StoreError> {
+    match key {
+        Ok((_, run_id)) => read_whole(store, run_id),
+        Err(unread) => unread_row(store, unread),
+    }
+}
+
+/// A row the store refused, as the fleet lists it: refused, never read,
+/// where its run id is past what a writer admits, which names no run to
+/// read; its run read whole where the row holds a value no writer writes.
+fn unread_row(store: &Store, unread: &Unread) -> Result<(RunRow, usize), StoreError> {
+    match &unread.why {
+        why @ RowRefusal::RunIdPastBound => {
+            Ok((past_bound(&unread.run_id, unread.order_at, why), 0))
+        }
+        RowRefusal::Status(_)
+        | RowRefusal::Severity(_)
+        | RowRefusal::Column(_)
+        | RowRefusal::Residuals(_) => read_whole(store, &unread.run_id),
+    }
 }
 
 /// The row of a run read whole, as the whole read lists it, and how many
@@ -592,6 +620,7 @@ fn past_bound(run_id: &str, order_at: i64, why: &RowRefusal) -> RunRow {
         residuals: &[],
     });
     row.order_at = order_at;
+    row.paged_at = Some((order_at, run_id.to_string()));
     row
 }
 
