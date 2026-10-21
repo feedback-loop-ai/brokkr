@@ -11,7 +11,7 @@
 
 use brokkr_core::realms::Realm;
 use brokkr_runtime::realms::{CrossingReport, World};
-use serde_json::{json, Value};
+use serde::Serialize;
 
 use crate::render::Safe;
 
@@ -43,7 +43,9 @@ pub(crate) struct Row {
 }
 
 /// One file a realm publishes, as it is read out: the name its consumers
-/// know it by, and where in the publishing tree it lives.
+/// know it by, and where in the publishing tree it lives. Printed by
+/// `--json` as it is, its fields in byte order.
+#[derive(Serialize)]
 pub(crate) struct Published {
     pub name: String,
     pub path: String,
@@ -213,59 +215,77 @@ pub(crate) fn render(source: &str, journal: &str, rows: &[Row], hearths: bool) -
     out
 }
 
+/// `brokkr realms --json`'s world. Every struct of this document declares
+/// its fields in byte order, the order its keys were printed in when the
+/// document was a `json!` map (#346).
+#[derive(Serialize)]
+pub(crate) struct WorldView<'a> {
+    journal: &'a str,
+    map: &'a str,
+    realms: Vec<RealmView<'a>>,
+}
+
+/// One realm of [`WorldView`].
+#[derive(Serialize)]
+struct RealmView<'a> {
+    // Written only by a realm that has one to write, so a world that
+    // never drew a crossing emits the exact bytes it emitted before
+    // decision 0057 — the same rule the manifest's `crossings` pin and
+    // doctor's lines follow.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    consumes: Vec<ConsumedView<'a>>,
+    default_branch: &'a str,
+    head: &'a str,
+    journal: &'a str,
+    name: &'a str,
+    path: &'a str,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    publishes: &'a [Published],
+}
+
+/// One consumed crossing of [`RealmView`].
+#[derive(Serialize)]
+struct ConsumedView<'a> {
+    // One word, so a script branches on a value rather than on prose,
+    // and the prose that explains it beside — null where the word says
+    // everything.
+    detail: Option<&'a str>,
+    name: &'a str,
+    pin: &'static str,
+    realm: &'a str,
+}
+
 /// The same world as a value, for `--json`. Derived from the SAME rows
 /// the text renders, so the two surfaces can never disagree about what
 /// the world is — only about how it is spelled. Unescaped, because a
 /// consumer parsing JSON is not a terminal: escaping is the text
 /// surface's job, and doing it here would corrupt the data.
-pub(crate) fn view(source: &str, journal: &str, rows: &[Row]) -> Value {
-    json!({
-        "map": source,
-        "journal": journal,
-        "realms": rows
+pub(crate) fn view<'a>(source: &'a str, journal: &'a str, rows: &'a [Row]) -> WorldView<'a> {
+    WorldView {
+        journal,
+        map: source,
+        realms: rows
             .iter()
-            .map(|row| {
-                let mut realm = json!({
-                    "name": row.name,
-                    "path": row.path,
-                    "default_branch": row.branch,
-                    "head": row.head,
-                    "journal": row.journal,
-                });
-                // Written only by a realm that has one to write, so a
-                // world that never drew a crossing emits the exact bytes
-                // it emitted before decision 0057 — the same rule the
-                // manifest's `crossings` pin and doctor's lines follow.
-                if !row.publishes.is_empty() {
-                    realm["publishes"] = json!(row
-                        .publishes
-                        .iter()
-                        .map(|published| json!({
-                            "name": published.name,
-                            "path": published.path,
-                        }))
-                        .collect::<Vec<Value>>());
-                }
-                if !row.consumes.is_empty() {
-                    realm["consumes"] = json!(row
-                        .consumes
-                        .iter()
-                        .map(|consumed| json!({
-                            "name": consumed.name,
-                            "realm": consumed.publisher,
-                            // One word, so a script branches on a value
-                            // rather than on prose, and the prose that
-                            // explains it beside — null where the word
-                            // says everything.
-                            "pin": consumed.pin.word(),
-                            "detail": consumed.pin.detail(),
-                        }))
-                        .collect::<Vec<Value>>());
-                }
-                realm
+            .map(|row| RealmView {
+                consumes: row
+                    .consumes
+                    .iter()
+                    .map(|consumed| ConsumedView {
+                        detail: consumed.pin.detail(),
+                        name: &consumed.name,
+                        pin: consumed.pin.word(),
+                        realm: &consumed.publisher,
+                    })
+                    .collect(),
+                default_branch: &row.branch,
+                head: &row.head,
+                journal: &row.journal,
+                name: &row.name,
+                path: &row.path,
+                publishes: &row.publishes,
             })
-            .collect::<Vec<Value>>(),
-    })
+            .collect(),
+    }
 }
 
 /// The state one consumed pin is in, read off the report `World::load`
