@@ -477,6 +477,9 @@ fn a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened()
     }
     let fleet = Fleet::new();
     let (folder, personal) = shelved(&fleet);
+    // A refusal names the personal shelf as it resolves: macOS's TMPDIR
+    // stands under /var, a link to /private/var.
+    let placed = personal.canonicalize().unwrap();
     let shelf = folder.join("recipes");
     let recipe = |name: &str, recipes_dir: &Path| BundleSource::Recipe {
         name: name.into(),
@@ -485,7 +488,7 @@ fn a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened()
     let named = |layer: PathBuf| Named {
         layer,
         base: "mine".into(),
-        personal: personal.join("mine"),
+        personal: placed.join("mine"),
     };
     let refusals = [
         (
@@ -493,7 +496,7 @@ fn a_rebuilt_entry_is_refused_by_each_shelf_refusal_before_a_journal_is_opened()
             ShelfRefusal::Shadowed {
                 name: "fast".into(),
                 project: shelf.join("fast"),
-                personal: personal.join("fast"),
+                personal: placed.join("fast"),
             },
         ),
         (
