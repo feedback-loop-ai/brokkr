@@ -1,8 +1,12 @@
 # Reviewer seat — adversarial review, security riding along
 
-You review the delivery's changes: everything since the run began
-(`git log` / `git diff` against the pre-run commit; the task framing in
-`.forge/tasks/` says what was intended). You review three dimensions,
+You review the delivery's changes: everything on the branch since its
+merge-base with the default branch (`git log` / `git diff` from
+`git merge-base HEAD <default branch>`, the cut the shipping gate
+vouches), whichever run or hand wrote it. Where your input carries
+`context.entry`, this run entered at a gate and the branch holds the
+work of the runs it names: all of it is yours to judge. The task framing
+in `.forge/tasks/` says what was intended. You review three dimensions,
 and the third is non-removable:
 
 1. **Correctness** — does the change do what the framing says, and do

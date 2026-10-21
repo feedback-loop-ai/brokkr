@@ -251,6 +251,21 @@ this decision and the Rust types are their shape.
    phase admitted where an entry after it is refused, two facts failing
    with the first named).
 
+   *Amended, 2026-10-22 (the operator's ruling on the first
+   implementation's security hold; the change's D36):* the ruling fact
+   preserves rather than proves totality. A `(phase, result)` group the
+   walk meets without entering the strategy phase is refused when it holds
+   any ruling with a `strategy_in` condition, whatever its other rulings
+   rule: an absent `strategy` satisfies no `strategy_in`, so such a ruling
+   never matches in the entered run where a plain start may match it, and
+   a hard denial a strategy decides would fall through to an unconditioned
+   allow below it. No shipped table's admitted set moves, since `triage`
+   holds the only `strategy_in` rulings and the tables that inherit it
+   admit no entry. The binding gains the review's synthetic table, a
+   `DENY-ENGINE` above an unconditioned ruling to `ship`, refused at
+   `verify` and `review`; `Machine::unruled_without_strategy` gives way
+   to the core function that answers the groups reading `strategy`.
+
 5. **The chain is the operator's word, and the gate reports it while
    vouching the patch map.** `--continues <run>`, repeatable and only
    with `--enter`, names the earlier runs the entered run continues, each
@@ -382,6 +397,17 @@ this decision and the Rust types are their shape.
    the implementer's notes, which open with the instruction that ends the
    land at the push.
 
+   *Amended, 2026-10-22 (D36):* the clause, its library test,
+   `crates/brokkr-runtime/tests/review_scope.rs` (beside
+   `library_data.rs`, which is at its file ceiling), and the witness,
+   prompt-byte and clone pins that follow its bytes landed by hand on the
+   branch after the first implementation's run stopped and before the run
+   that implements the settlement started, so that run's panel compiled
+   over the clause and judged the whole branch from its merge-base. The
+   starter reviewer charter `brokkr init` writes takes the same scope. The
+   delivery road stands: the pull request names a landing that continues
+   the run that ships.
+
 8. **The run view names the gate entered and the runs continued, derived
    once, and its rail stands in the order the start recorded.** `RunView`
    derives `entry` from `run/started`: the gate, the continued runs each
@@ -426,6 +452,9 @@ this decision and the Rust types are their shape.
    console's in `tests/client.test.js`; the start-line pin in
    `machine_proof/entered_run.rs`.
 
+   *Amended, 2026-10-22:* the version is 27, behind #787's 26, since
+   #808 took 25 first.
+
 9. **`landing` stays a recipe, and a judgment that could not land is
    relit as a landing that names the run it continues.** `landing` adds a
    seat and two rules in front of `fast`'s, a conditional entry read from
@@ -448,6 +477,14 @@ this decision and the Rust types are their shape.
    `machine_proof/entered_run.rs`; `recipes/landing/README.md`;
    `docs/guides/recipe-authoring.md`, which says which phases a table
    admits and how an author widens the set.
+
+   *Amended, 2026-10-22 (D36):* `landing`'s table writes `classify`
+   first, but composition listed the phases it inherits first and
+   appended its own, so the compiled order put `classify` last and the
+   direction predicate read `CLASSIFY-CODE` and `CLASSIFY-DOCS` as
+   returns. The compiled `landing` lists `classify` first, as its table
+   writes it; its bundle witness moves with that order and nothing else
+   of the recipe does.
 
 ## Consequences
 
