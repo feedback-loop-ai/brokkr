@@ -99,6 +99,7 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-hit:focus-visible .bk-hitbox{stroke:var(--bk-pick);stroke-dasharray:3 3}
 .bk-node-label{fill:var(--bk-ink);font-size:13px;font-weight:500}
 .bk-node-sub{fill:var(--bk-faint);font-size:11px}
+.bk-road-label{paint-order:stroke;stroke:var(--bk-canvas);stroke-width:5px;stroke-linejoin:round}
 .bk-step-label{fill:var(--bk-faint);font-size:11px;letter-spacing:.04em}
 .bk-phase-name{fill:var(--bk-muted);font-size:11px;letter-spacing:.07em}
 .bk-rule-bg{fill:var(--bk-pick-wash);stroke:var(--bk-pick);stroke-width:.8}
@@ -207,6 +208,7 @@ body[data-ds-dark-theme] .bk{color-scheme:dark}
 .bk-seats{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.9fr) minmax(0,1.9fr) minmax(0,.7fr) minmax(0,.7fr) minmax(0,1.2fr);gap:7px 14px;font-size:13px;font-variant-numeric:tabular-nums;align-items:baseline}
 .bk-seat-name{font:inherit;text-align:left;background:none;border:0;padding:0;color:var(--bk-ink);cursor:pointer}
 .bk .bk-seat-name.on{color:var(--bk-pick);font-weight:600}
+.bk-seat-visit{color:var(--bk-muted);font-weight:400}
 .bk-muted{color:var(--bk-muted)}
 .bk-live-word{color:var(--bk-run-ink)}
 .bk-timeline-pane>summary{cursor:pointer;list-style:none}

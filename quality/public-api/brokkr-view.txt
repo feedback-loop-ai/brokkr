@@ -450,6 +450,7 @@ pub brokkr_view::Participant::turns_cell: brokkr_view::Cell
 pub brokkr_view::Participant::usage: core::option::Option<brokkr_view::TokenUsage>
 pub brokkr_view::Participant::usage_aggregated: bool
 pub brokkr_view::Participant::usage_cell: brokkr_view::Cell
+pub brokkr_view::Participant::visit: core::option::Option<u64>
 pub brokkr_view::Participant::working: bool
 impl brokkr_view::Participant
 pub fn brokkr_view::Participant::legacy_provenance(&self) -> brokkr_view::transcript::LegacyProvenance
@@ -458,7 +459,7 @@ pub brokkr_view::Phase::columns: alloc::vec::Vec<brokkr_view::Column>
 pub brokkr_view::Phase::current: bool
 pub brokkr_view::Phase::name: alloc::string::String
 pub brokkr_view::Phase::plain: bool
-pub brokkr_view::Phase::returns: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::Phase::returns: alloc::vec::Vec<brokkr_view::Road>
 pub brokkr_view::Phase::strategy: core::option::Option<alloc::string::String>
 pub brokkr_view::Phase::visits: u64
 pub struct brokkr_view::Provenance
@@ -494,6 +495,10 @@ pub brokkr_view::ResidualFinding::seq: u64
 pub brokkr_view::ResidualFinding::superseded: core::option::Option<brokkr_view::Superseded>
 pub brokkr_view::ResidualFinding::value: alloc::string::String
 pub struct brokkr_view::Resolution
+pub struct brokkr_view::Road
+pub brokkr_view::Road::from: alloc::string::String
+pub brokkr_view::Road::rules: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::Road::taken: u64
 pub struct brokkr_view::Ruling
 pub brokkr_view::Ruling::from: alloc::string::String
 pub brokkr_view::Ruling::inputs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
