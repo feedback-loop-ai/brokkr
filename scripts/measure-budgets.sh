@@ -4,7 +4,13 @@
 #
 #   quality/prompt-bytes.json  every model site's prompt bytes, exactly
 #   quality/crate-count.json   Cargo.lock's [[package]] tables, exactly
-#   quality/heap-bytes.json    each transcript kind's peak heap, plus a tenth
+#   quality/heap-bytes.json    each transcript kind's peak heap, plus a tenth,
+#                              and the fleet page's and listing's (decision
+#                              0089 rulings 6 and 9), SQLite's share never
+#                              above 500 KiB
+#
+# It records, and gates nothing on, the fleet's first page's wall time in a
+# release build, against ruling 9's 50 ms: wall clock is the machine's.
 #
 # The tests print what they measured whether or not it is within budget, so
 # a moved tree is measured against itself. Review the diff: a budget that
@@ -35,7 +41,11 @@ report() {
   report cargo test --locked -p brokkr-cli --test heap_claude
   report cargo test --locked -p brokkr-cli --test heap_codex
   report cargo test --locked -p brokkr-cli --test heap_dsh
+  report cargo test --locked -p brokkr-cli --test heap_fleet
 } > "$scratch/heap"
+{
+  report cargo test --release --locked -p brokkr-cli --test heap_fleet
+} > "$scratch/release"
 
 # The harness writes a test's name before its first printed line, on the
 # same line, so each record is matched wherever it starts. A site key holds
@@ -45,10 +55,12 @@ tab=$'\t'
 grep -oE "[^${tab} ]+${tab}[0-9]+ bytes${tab}[0-9]+ o200k tokens\$" "$scratch/runtime" > "$scratch/prompts" || true
 grep -oE "packages${tab}[0-9]+\$" "$scratch/runtime" > "$scratch/packages" || true
 grep -oE "heap${tab}[a-z-]+${tab}[0-9]+\$" "$scratch/heap" > "$scratch/peaks" || true
+grep -oE "wall${tab}[a-z0-9-]+${tab}[0-9]+\$" "$scratch/release" > "$scratch/walls" || true
 
 [[ -s "$scratch/prompts" ]] || { printf 'measure-budgets: the prompt test reported no site\n' >&2; exit 1; }
 [[ "$(wc -l < "$scratch/packages")" -eq 1 ]] || { printf 'measure-budgets: the crate count was not reported once\n' >&2; exit 1; }
-[[ "$(wc -l < "$scratch/peaks")" -eq 3 ]] || { printf 'measure-budgets: not every transcript kind reported its peak\n' >&2; exit 1; }
+[[ "$(wc -l < "$scratch/peaks")" -eq 9 ]] || { printf 'measure-budgets: not every transcript kind, fleet page and listing reported its peak\n' >&2; exit 1; }
+[[ "$(wc -l < "$scratch/walls")" -eq 2 ]] || { printf 'measure-budgets: the fleet page did not report its wall time at both sizes\n' >&2; exit 1; }
 
 jq -Rn --arg date "$(date -u +%F)" '
   [inputs | split("\t") | {key: .[0], value: (.[1] | split(" ")[0] | tonumber)}] | from_entries
@@ -65,9 +77,15 @@ jq -Rn --arg date "$(date -u +%F)" '
 jq -Rn --arg date "$(date -u +%F)" '
   [inputs | split("\t") | {key: .[1], value: (.[2] | tonumber)}] | from_entries
   | {schema: "brokkr.heap-budgets/v1",
-     note: ("Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured " + $date + " under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up."),
+     note: ("Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured " + $date + " under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up. The fleet'"'"'s (decision 0089 ruling 9, tests/heap_fleet.rs): the console'"'"'s window, the visible page and the one ahead, read and derived, first and scrolled deep (fleet-page, capped at ruling 9'"'"'s 256 KiB), the same for a page whose every row fills every bound (capped at 640 KiB), and SQLite'"'"'s own high-water beside them (fleet-page-sqlite, held to 500 KiB on every host by the operator'"'"'s ruling of 2026-10-21 on #753, the cap itself and not the measured peak plus a tenth, since CI'"'"'s macOS leg measures it higher than Linux: 448,912 against 399,176); and, a budget of its own that ruling 9'"'"'s caps do not hold, the first window painted at 80x24, read, derived and drawn into ratatui'"'"'s buffers (fleet-painted-frame, and at every bound); and brokkr runs --json with no other flag over 2,000 and 20,000 runs behind their summary, the hundred a refresh reads whole and a batch of keys of the rest (fleet-listing-behind, ruling 6, capped at 640 KiB)."),
      measured: .,
-     budgets: (with_entries(.value = ((.value * 11 + 9) / 10 | floor)))}' < "$scratch/peaks" > quality/heap-bytes.json
+     budgets: (with_entries(.value = ((.value * 11 + 9) / 10 | floor))
+               | .["fleet-page"] |= ([., 262144] | min)
+               | .["fleet-page-at-every-bound"] |= ([., 655360] | min)
+               | .["fleet-page-sqlite"] = 512000
+               | .["fleet-listing-behind"] |= ([., 655360] | min))}' < "$scratch/peaks" > quality/heap-bytes.json
 
 printf 'measured %s prompt sites, %s packages, peaks:' "$(wc -l < "$scratch/prompts")" "$(cut -f2 "$scratch/packages")"
 cut -f2,3 "$scratch/peaks" | tr '\t\n' '= ' && printf '\n'
+printf 'the fleet first page, release, warm, in microseconds (ruling 9: 50000, not gated):'
+cut -f2,3 "$scratch/walls" | tr '\t\n' '= ' && printf '\n'

@@ -75,6 +75,7 @@ mod acknowledgement;
 mod chain;
 mod import;
 mod origin;
+mod page;
 mod queue;
 mod read;
 mod redact;
@@ -87,6 +88,7 @@ pub mod test_support;
 pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Rows};
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
+pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{
     Attribution, EntryId, EntryState, Latch, NewEntry, NotAWait, QueueCommand, QueueEntry,
     QueueRefusal, Seen, Wait, WaitOn,
@@ -98,7 +100,7 @@ pub use summary::Disagreement;
 
 use brokkr_core::summary::{Account, Summary};
 use chain::{fence, seal_and_insert};
-use import::RUN_ID_MAX;
+pub use import::RUN_ID_MAX;
 use schema::{ensure_wal, schema_supported, RECORDED_SCHEMA};
 
 /// How long any statement waits for a peer's write lock before giving
@@ -421,6 +423,10 @@ impl Store {
     pub fn open_read_only(path: &Path) -> Result<Store, StoreError> {
         let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         conn.busy_timeout(BUSY_TIMEOUT)?;
+        // A reader's page cache holds at most 256 KiB, so a page of the
+        // fleet costs SQLite the same memory at every journal size
+        // (decision 0089 ruling 9); a whole read streams past it.
+        conn.pragma_update(None, "cache_size", -256)?;
         let found: String = patiently("open_read_only", BUSY_TIMEOUT, || {
             Ok(conn.query_row(RECORDED_SCHEMA, [], |row| row.get(0))?)
         })?;
@@ -659,7 +665,7 @@ impl Store {
                 attempt_id.clone(),
             )
         })?;
-        self.settle(run_id, settled);
+        self.settle((run_id, 1), settled);
         Ok(envelope)
     }
 

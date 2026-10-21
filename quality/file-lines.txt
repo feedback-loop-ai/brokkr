@@ -171,7 +171,7 @@
     77 crates/brokkr-store/src/test_support.rs
    407 crates/brokkr-view/src/fleet.rs
    225 crates/brokkr-view/src/js.rs
-  2789 crates/brokkr-view/src/lib.rs
+  2796 crates/brokkr-view/src/lib.rs
   3356 crates/brokkr-view/src/transcript.rs
 # test
   1016 crates/brokkr-bridge/src/tests.rs
@@ -211,7 +211,7 @@
    423 crates/brokkr-cli/src/tui/snapshot_tests.rs
     55 crates/brokkr-cli/src/tui/source_tests.rs
   6981 crates/brokkr-cli/src/tui/tests.rs
-  2313 crates/brokkr-cli/src/ui/tests.rs
+  2314 crates/brokkr-cli/src/ui/tests.rs
    595 crates/brokkr-cli/src/ui/transcript_route_tests.rs
    108 crates/brokkr-cli/src/verbs/delivery/tests.rs
     25 crates/brokkr-cli/src/verbs/setup/tests.rs

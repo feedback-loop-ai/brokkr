@@ -4,6 +4,7 @@ Status: accepted — operator ruled 2026-10-19 (PR #770), every choice asked tak
 Date: 2026-10-18
 
 Built: built
+Superseded in part by: 0089
 
 ## Context
 
@@ -116,6 +117,16 @@ column, or an index, to `events`, which is a schema change.
    read alone; a type column would save reading checkpoint text as well,
    at a schema change and the same loss of verification. Neither is
    built. This ruling is judgment, and the operator's to reverse.
+
+   *Erratum, 2026-10-20 (decision 0089, accepted 2026-10-19 on PR #769):*
+   at fleet level this ruling is superseded by decision 0089 ruling 5
+   from its slice 1 (#753). A journal the summary pages is read a page of
+   summary rows at a time, each checked against its run's last event by
+   key and read whole only where the two differ, so a corrupt body below a
+   run's head no longer quarantines the run in the fleet; the opened run,
+   `inspect`, `export` and `brokkr doctor` still refuse it. On a journal
+   the summary does not page, this decision's kept read is the fallback,
+   and this ruling stands there.
 
 ## Consequences
 

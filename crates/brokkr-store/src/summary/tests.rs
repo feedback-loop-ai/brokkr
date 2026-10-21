@@ -442,16 +442,7 @@ fn older_journal() -> (tempfile::TempDir, std::path::PathBuf) {
         .unwrap();
     let path = store.path().to_path_buf();
     drop(store);
-    rusqlite::Connection::open(&path)
-        .unwrap()
-        .execute_batch(
-            "DROP TABLE run_summary;
-             DROP TRIGGER run_summary_of_a_run;
-             DROP TRIGGER run_summary_of_an_event;
-             DROP TRIGGER run_summary_of_an_acknowledgement;
-             DELETE FROM meta WHERE key = 'run_summary_backfill';",
-        )
-        .unwrap();
+    crate::test_support::unmigrate(&rusqlite::Connection::open(&path).unwrap()).unwrap();
     (dir, path)
 }
 
@@ -772,31 +763,49 @@ fn a_writer_store_that_lost_its_account_is_still_checked_when_it_is_dropped() {
     assert!(store.carried.is_none(), "the account was lost");
 }
 
-/// A run a store wrote only through a chain is held to its fold too: the
-/// chain that lost the account leaves its run behind, and is named.
-#[test]
-#[should_panic(expected = "a summary row disagrees with its run's fold: [\"r1: behind its head\"]")]
-fn a_writer_store_that_lost_its_account_in_a_chain_is_checked_when_it_is_dropped() {
-    let (_dir, mut creator) = store();
+/// `r1` started, a store that reopened it carrying its account, a peer's
+/// event planted past that account, then `rows` appended by the store as
+/// one chain: the store, and how many rows the chain landed.
+fn chained_past_a_peer(rows: &[Json]) -> (tempfile::TempDir, Store, usize) {
+    let (dir, mut creator) = store();
     started(&mut creator, "r1");
     let mut store = reopened(creator);
     store.carry(Account::whole("r1", &store.load("r1").unwrap()));
     planted(&store, "r1", EventType::PhaseEntered, json!({"phase": "a"}));
-    let rows = [json!({"phase": "b"})];
     let chain = store
         .append_chain(
             "r1",
             EventType::PhaseEntered,
             Rows {
-                rows: &rows,
+                rows,
                 payload: &Json::clone,
             },
             None,
             None,
         )
         .unwrap();
-    assert_eq!(chain.appended.len(), 1);
+    let landed = chain.appended.len();
+    (dir, store, landed)
+}
+
+/// A run a store wrote only through a chain is held to its fold too: the
+/// chain that lost the account leaves its run behind, and is named.
+#[test]
+#[should_panic(expected = "a summary row disagrees with its run's fold: [\"r1: behind its head\"]")]
+fn a_writer_store_that_lost_its_account_in_a_chain_is_checked_when_it_is_dropped() {
+    let (_dir, store, landed) = chained_past_a_peer(&[json!({"phase": "b"})]);
+    assert_eq!(landed, 1);
     assert!(store.carried.is_none(), "the account was lost");
+}
+
+/// A chain that lands nothing leaves its run as it found it, and the
+/// store is not held to it when it drops: a run behind its head that no
+/// row of the chain reached is not named.
+#[test]
+fn a_chain_that_lands_nothing_holds_its_store_to_no_run() {
+    let (_dir, store, landed) = chained_past_a_peer(&[]);
+    assert_eq!(landed, 0);
+    assert_eq!(lane(&store, "r1"), text("behind"));
 }
 
 #[test]

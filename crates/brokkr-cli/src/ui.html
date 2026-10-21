@@ -812,19 +812,26 @@ function createTranscriptController(effects) {
     if (reference.kind === 'claude-session' && !isClaudeId(reference.locator)) return null;
     return reference.locator;
   }
-  function unavailablePresentation() {
+  // Unreadable: in the store's words where it refused the run, else as
+  // the browser found it.
+  function unavailablePresentation(failure) {
+    const refused = failure && typeof failure.refused === 'string' ? failure.refused : null;
     return {
       reference: null, legacy: false, admitted: false, reason: 'unreadable',
-      explanation: 'the browser could not establish the shared presentation',
+      explanation: refused ?? 'the browser could not establish the shared presentation',
       path: null, hint: null, drill_eligible: false,
     };
   }
+  // Whatever the pane draws of a presentation: a change of any of it
+  // repaints, so an unreadable read the store refuses after one the
+  // browser could not make is drawn in the store's words.
   function equivalent(left, right) {
     return left !== null
       && referenceKey(left.reference) === referenceKey(right.reference)
       && !!left.legacy === !!right.legacy
       && !!left.admitted === !!right.admitted
       && (left.reason ?? null) === (right.reason ?? null)
+      && (left.explanation ?? null) === (right.explanation ?? null)
       && (left.hint ?? null) === (right.hint ?? null)
       && !!left.drill_eligible === !!right.drill_eligible;
   }
@@ -864,10 +871,10 @@ function createTranscriptController(effects) {
         if (gen !== generation) return;
         applyPresentation(result);
       },
-      () => {
+      (failure) => {
         if (presentationPending === gen) presentationPending = 0;
         if (gen !== generation) return;
-        applyPresentation(unavailablePresentation());
+        applyPresentation(unavailablePresentation(failure));
       },
     );
   }
@@ -1061,11 +1068,6 @@ function participantPath(route, subject) {
     + encodeURIComponent(subject.participantKey);
 }
 
-function fetchJson(url) {
-  return fetch(url, { cache: 'no-store' }).then(
-    (res) => res.ok ? res.json() : Promise.reject(new Error(String(res.status))));
-}
-
 const transcriptController = createTranscriptController({
   requestPresentation(subject) {
     return fetchJson(participantPath('/api/presentation/', subject));
@@ -1168,10 +1170,54 @@ function renderTranscriptView(view) {
   if (transcriptPart) transcriptBox.appendChild(checkpointTable(transcriptPart));
 }
 
-async function loadDetail(id) {
-  const view = await (await fetch('/api/view/' + encodeURIComponent(id))).json();
-  renderDetail(id, view);
+/* opened-run:start */
+// One run's read, as every fetch of one run takes it: its model, or the
+// store's refusal of the run in the store's own words, which the server
+// answers in place of a model (decision 0089 ruling 5) and the page
+// paints, never taking it for one.
+async function readOne(url) {
+  const res = await fetch(url, { cache: 'no-store' });
+  const body = await res.json().catch(() => null);
+  if (res.ok && body !== null && !Object.hasOwn(body, 'error')) return { body: body };
+  const refused = body !== null && typeof body.error === 'string'
+    ? body.error : 'the server answered ' + res.status;
+  return { refused: refused, status: res.status };
 }
+
+// A participant's read refuses with the store's words where the store
+// refused its run, as the run's own read does.
+function fetchJson(url) {
+  return readOne(url).then((read) =>
+    read.refused === undefined ? read.body : Promise.reject({ refused: read.refused }));
+}
+
+async function loadDetail(id) {
+  const read = await readOne('/api/view/' + encodeURIComponent(id));
+  if (read.refused !== undefined) renderRefused(id, read);
+  else renderDetail(id, read.body);
+}
+
+// A run the store refused to open, which the server answers 500:
+// quarantined, in the store's own words; any other refusal in its words
+// alone; and nothing of a view it was not served. A drilled participant,
+// and the transcript read beside it, go with it.
+function renderRefused(id, read) {
+  activeParticipant = null;
+  transcriptController.clear();
+  transcriptBox = null;
+  transcriptPart = null;
+  explicitSelectKey = null;
+  const detail = document.getElementById('detail');
+  detail.replaceChildren();
+  detail.appendChild(el('h1', null, id));
+  if (read.status === 500) {
+    const line = el('p');
+    line.appendChild(badge('quarantined', ''));
+    detail.appendChild(line);
+  }
+  detail.appendChild(el('p', 'problem', read.refused));
+}
+/* opened-run:end */
 
 function renderDetail(id, view) {
   const s = view.summary ?? {};

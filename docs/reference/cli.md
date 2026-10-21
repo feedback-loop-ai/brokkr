@@ -54,7 +54,7 @@ Every `brokkr` verb and argument with its default, and every exit code, as the b
 - [`brokkr import`](#brokkr-import): Adopt an exported run into this journal, byte-identically — the verb paired with `export`. Journals never merge; one run relocates. Nothing lands unless the whole chain verifies, the events fold, the run_id does not already exist here, and the export is not a redacted derivative
 - [`brokkr verify-run`](#brokkr-verify-run): Verify an exported journal offline: chain, envelopes, fold
 - [`brokkr bridge`](#brokkr-bridge): Synchronize a Looper-bound run over the authenticated producer API. The API key is read from an environment variable and is never stored
-- [`brokkr runs`](#brokkr-runs): List runs in the workspace database: one clamped line per run, newest first. `--json` emits the view model for scripts
+- [`brokkr runs`](#brokkr-runs): List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
 - [`brokkr realms`](#brokkr-realms): List the world (decision 0023): each realm with its path, default branch and current HEAD, and the journal the world writes. Read-only, like every other readout
 - [`brokkr analytics`](#brokkr-analytics): What the runs did across every hearth, for a range and an optional realm: shipped, start to end, waiting on you, rework, cost and served models. `--json` emits the view model
 - [`brokkr graph`](#brokkr-graph): One recipe's state machine and its traffic over a range. `--json` emits the view model
@@ -785,7 +785,7 @@ Usage: brokkr bridge [OPTIONS] --run <RUN> --looper-url <LOOPER_URL>
 
 ## brokkr runs
 
-List runs in the workspace database: one clamped line per run, newest first. `--json` emits the view model for scripts
+List runs in the workspace database: one clamped line per run, the fleet's sections in order and each by last activity, read a page at a time. `--json` emits the view model for scripts
 
 ```text
 Usage: brokkr runs [OPTIONS]
@@ -796,6 +796,8 @@ Usage: brokkr runs [OPTIONS]
 | `--realms <REALMS>` |  |  | The world's map — the journal it names is the one opened (default the found folder's .brokkr/realms.json, or a library's ./realms.json, when present) |
 | `--db <DB>` |  |  | The workspace journal. Outranks the map's journal; without either, the found folder's .brokkr/state/forge.db, or a library's .forge/forge.db |
 | `--json` |  |  | Emit the view model verbatim — this is what scripts read |
+| `--limit <N>` |  |  | Print one page of at most N runs, and where the next page starts (`next`) |
+| `--after <CURSOR>` |  |  | Print the page after this cursor: a page's `next` |
 
 ## brokkr realms
 

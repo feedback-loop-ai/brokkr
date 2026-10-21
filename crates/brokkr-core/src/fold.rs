@@ -59,6 +59,17 @@ impl Status {
             Status::Stopped => "stopped",
         }
     }
+
+    /// The status [`Status::as_str`] words as `word`, or `None`.
+    pub fn named(word: &str) -> Option<Status> {
+        let all = [
+            Self::Running,
+            Self::AwaitingOperator,
+            Self::Completed,
+            Self::Stopped,
+        ];
+        all.into_iter().find(|status| status.as_str() == word)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

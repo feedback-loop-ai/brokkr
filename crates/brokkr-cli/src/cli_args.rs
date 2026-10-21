@@ -523,6 +523,12 @@ pub(super) struct RunsArgs {
     /// Emit the view model verbatim — this is what scripts read.
     #[arg(long)]
     pub(super) json: bool,
+    /// Print one page of at most N runs, and where the next page starts (`next`).
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+    pub(super) limit: Option<u32>,
+    /// Print the page after this cursor: a page's `next`.
+    #[arg(long, value_name = "CURSOR", value_parser = super::fleet::cursor)]
+    pub(super) after: Option<brokkr_view::Cursor>,
 }
 
 #[derive(clap::Args)]

@@ -3,7 +3,8 @@
 Status: accepted — operator ruled 2026-10-19 (PR #769), every choice asked taken as recommended
 Date: 2026-10-18
 
-Built: unbuilt (#753)
+Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue and the many-hearth `brokkr runs`, which still read the kept way, and the console's last page by the reverse order; slices 2 to 4 are unbuilt
+Supersedes in part: 0088
 
 ## Context
 
@@ -604,8 +605,10 @@ model the writer keeps in the journal's own file and transaction.
      written a page at a time, so its memory is one page's; its JSON shape
      is today's. `--limit N` prints one page and `--after CURSOR` the page
      after a cursor, and their JSON gains `next` (the cursor, or null at
-     the end), which moves `VIEW_VERSION` from 23 to 24
+     the end), which moves `VIEW_VERSION` up by one
      (`brokkr-view/src/lib.rs:128`). `/api/runs` takes the same two.
+     *Amended, 2026-10-21:* the move is from 24 to 25, not 23 to 24,
+     because #568's run view took 24 first.
 
 7. **Every readout states what it reads, its page and its bound.** Every
    page costs milliseconds and kilobytes of live heap, whatever the
@@ -844,6 +847,17 @@ model the writer keeps in the journal's own file and transaction.
      that cuts the acknowledgement by `substr` from its own table, whose
      SQLite high-water grows by about two megabytes (2,114,384 B measured,
      Context).
+
+     *Amended, 2026-10-21 (operator, on PR #808, recorded on #753):*
+     SQLite's share is held to 500 KiB on every host, not 400, and its
+     budget is that cap itself (512,000 B), not the measured peak plus a
+     tenth. The same page reads 448,912 B on CI's `test (macos-latest)`
+     leg against 399,176 B on Linux; that SQLite on Apple platforms counts
+     each block's malloc size class is the likely cause, inferred and not
+     measured on a Mac. Each table the journal gains adds to the schema
+     SQLite reads at open (slice 2's `event_index` took Linux to 405,064
+     B), so the cap is set to hold slice 2 on both hosts. Brokkr's own
+     shares, and every other cap here, are unchanged.
    - **A page at every bound.** The 256 KiB is a page of ordinary rows.
      A page whose every row fills every bound holds about 330 KiB of row
      text before it is derived and painted (ruling 2), so it has a budget

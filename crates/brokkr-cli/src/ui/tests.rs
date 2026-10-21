@@ -54,6 +54,46 @@ fn page_runs_and_run_detail_serve_read_only() {
     assert_eq!(handle(&db, "/definitely-not").status, "404 Not Found");
 }
 
+/// `/api/runs` pages as `brokkr runs --limit` does, and refuses a query
+/// that names no page in its own words (decision 0089 ruling 6).
+#[test]
+fn the_runs_route_takes_a_limit_and_a_cursor() {
+    let (_dir, db) = fixture();
+    crate::tests::running_store(&db, "r2");
+    let read = |path: &str| -> Value { serde_json::from_str(&handle(&db, path).body).unwrap() };
+    let page = read("/api/runs?limit=1");
+    let listed = |page: &Value| (page["runs"][0]["run_id"].clone(), page["count"].clone());
+    assert_eq!(listed(&page), (json!("r2"), json!(1)));
+    let next = page["next"].as_str().unwrap();
+    assert!(
+        next.starts_with("running:") && next.ends_with(":r2"),
+        "{next}"
+    );
+    // The `next` stated, read back raw and as `URLSearchParams` encodes it.
+    for after in [next.to_string(), next.replace(':', "%3A")] {
+        let after = read(&format!("/api/runs?after={after}&limit=%35"));
+        let two = (listed(&after), &after["next"]);
+        assert_eq!(two, ((json!("r1"), json!(1)), &Value::Null));
+    }
+    assert_eq!(read("/api/runs?after=running:0:r1")["runs"], json!([]));
+    let cursor = "cursor 'x' is not <section>:<order>:<run id>, as a page's `next` states it";
+    let limit = "limit '0' is not a number of runs from 1";
+    let query = "'page=2' is neither limit=N nor after=CURSOR";
+    let escape = "'running%3A0%3Ar%zz' does not percent-decode to text";
+    let refusals = [
+        ("/api/runs?limit=0", limit),
+        ("/api/runs?page=2", query),
+        ("/api/runs?after=x", cursor),
+        ("/api/runs?after=running%3A0%3Ar%zz", escape),
+    ];
+    for (path, words) in refusals {
+        let refused = handle(&db, path);
+        assert_eq!(refused.status, "400 Bad Request");
+        assert_eq!(refused.body, json!({"error": words}).to_string());
+    }
+    assert_eq!(handle(&db, "/api/runsx").status, "404 Not Found");
+}
+
 #[test]
 fn rebinding_and_methods_are_rejected_and_reads_never_create() {
     // DNS-rebinding guard: only loopback Host names, only GET.
@@ -769,7 +809,7 @@ fn the_console_serves_the_boundary_and_paints_the_pair() {
 
     let view = handle(&db, "/api/view/r1");
     let parsed: Value = serde_json::from_str(&view.body).unwrap();
-    assert_eq!(parsed["view_version"], 24);
+    assert_eq!(parsed["view_version"], 25);
     let seat = &parsed["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["text"], "harness");
