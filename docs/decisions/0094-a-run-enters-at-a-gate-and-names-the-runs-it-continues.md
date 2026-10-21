@@ -44,7 +44,7 @@ What is missing is one word the operator can say at start, `enter`, the
 record of what the entered run continues, and the rule that says which
 phases may be entered without a roster.
 
-Weighed and set aside, each recorded in the change's proposal (D1 to D33)
+Weighed and set aside, each recorded in the change's proposal (D1 to D34)
 and design:
 
 - **A composed landing overlay any recipe derives.** An overlay's
@@ -209,18 +209,25 @@ this decision and the Rust types are their shape.
    phase. The fifth fact's walk and the sixth's are one breadth-first
    walker, which records the ruling that first reached each phase; the
    fourth fact asks only whether a phase is reached and reads ruling 2's
-   core walk. The two `strategy` facts are judged over one run of the
-   walker that follows every ruling and never enters the strategy phase;
-   the `{change}` fact first asks whether the entry is itself one of the
-   step's sources, which covers the step with no walk, since the run
-   enters its entry first, and otherwise runs the walker once for the
-   step, following every ruling and never entering the step's sources,
-   so its witness names the ruling that reached the step's phase; the
-   three rank in that order, each naming its own walk's first witness. A
-   need the walk cannot supply is refused at admission, never left to
-   park. The five change phases are one roster, read by the engine's
-   `{change}` expansion and the admission alike. Under rulings
-   1, 3 and this one the triage-shaped tables admit no entry today, and
+   core walk. The two `strategy` facts first ask whether the entry is
+   itself the strategy phase, which sets `strategy` by its own ruling
+   before any other phase is met, so both hold and no walk is taken
+   (an accepted residual equal to a plain start at `triage`: a `triage`
+   ruling outside the strategy vocabulary sets no `strategy`, and
+   `escalate` names no selector case, so a later selector with no
+   `default` fails as it does in a run started at `triage` today; no
+   compile refusal exists for it, and the admission refuses no more and
+   no less), and otherwise are judged over one run of the walker that follows every
+   ruling and never enters the strategy phase; the `{change}` fact first
+   asks whether the entry is itself one of the step's sources, which
+   covers the step with no walk, since the run enters its entry first,
+   and otherwise runs the walker once for the step, following every
+   ruling and never entering the step's sources, so its witness names
+   the ruling that reached the step's phase; the three rank in that
+   order, each naming its own walk's first witness. A need the walk
+   cannot supply is refused at admission, never left to park. The five
+   change phases are one roster, read by the engine's `{change}`
+   expansion and the admission alike. Under rulings 1, 3 and this one the triage-shaped tables admit no entry today, and
    each refusal names its own first fact: `triage` and `night-shift`
    refuse `verify` and `review` by this ruling, on a seat that selects
    with no `default`, `triage` naming `implement` by `VERIFY-FAIL` and
@@ -240,8 +247,9 @@ this decision and the Rust types are their shape.
    `bundle/tests/entry.rs` (a selector with a default admitted, a group only a
    skipped strategy decides refused, a `{change}` step with no road to its
    source refused and named with the ruling that reached its phase, a
-   step whose one source is the entry admitted, two facts failing with
-   the first named).
+   step whose one source is the entry admitted, an entry at the strategy
+   phase admitted where an entry after it is refused, two facts failing
+   with the first named).
 
 5. **The chain is the operator's word, and the gate reports it while
    vouching the patch map.** `--continues <run>`, repeatable and only
