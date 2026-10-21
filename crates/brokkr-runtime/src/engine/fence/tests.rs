@@ -22,7 +22,7 @@ pub(super) fn peer_between() {
 }
 
 /// Put `peer` between the engine's next fold and its next append.
-fn after_the_fold(peer: Box<dyn FnOnce()>) {
+pub(in crate::engine) fn after_the_fold(peer: Box<dyn FnOnce()>) {
     PEER.with(|slot| *slot.borrow_mut() = Some(peer));
 }
 

@@ -10,11 +10,13 @@
 
 use std::cell::{Cell, RefCell};
 use std::os::fd::{AsFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use brokkr_core::canonical;
 use brokkr_core::envelope::EventType;
 use brokkr_protocol::hands::{Bind, BindMode, HandsSpec};
 use brokkr_protocol::process::Unsettled;
@@ -34,7 +36,7 @@ use crate::engine::tests::{
     capturing_driver_command, draft_then_finish, engine, execute_work, member, requested,
     set_site_hands, single_body,
 };
-use crate::engine::{spawn_site, SiteSpawn};
+use crate::engine::{spawn_site, Door, SiteSpawn};
 
 mod coordination;
 mod foreign;
@@ -240,15 +242,15 @@ fn made_in(base: &Path) -> Option<tempfile::TempDir> {
 
 /// A HOME stood in for this thread's admissions until dropped, on return
 /// or unwind.
-struct Coordinated;
+pub(in crate::engine) struct Coordinated;
 
 impl Coordinated {
-    fn at(home: &Path) -> Coordinated {
+    pub(in crate::engine) fn at(home: &Path) -> Coordinated {
         STAND.set(Stand::At(home.to_path_buf()));
         Coordinated
     }
 
-    fn unrooted(home: &Path) -> Coordinated {
+    pub(in crate::engine) fn unrooted(home: &Path) -> Coordinated {
         STAND.set(Stand::Unrooted(home.to_path_buf()));
         Coordinated
     }
@@ -357,7 +359,7 @@ fn taken(lock: &Path) -> std::fs::File {
 }
 
 /// Five seconds from now.
-fn soon() -> Instant {
+pub(in crate::engine) fn soon() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
 
@@ -420,6 +422,7 @@ fn claim(
             writers: writers.to_vec(),
             cleanup: Witnessed::Settling,
             serves: Vec::new(),
+            drivers: Vec::new(),
         },
         authored: Authored::default(),
     }
@@ -1185,7 +1188,7 @@ fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
             &json!({}),
             &linked,
             deadline,
-            Some(&held),
+            Some(at_work(&held)),
         );
         spawned.map(|(process, _)| drop(process))
     };
@@ -1212,19 +1215,34 @@ fn the_dispatch_door_spawns_only_under_a_lease_that_stands() {
     let spawn = SiteSpawn::inherit(vec!["touch".into(), ran.to_string_lossy().into_owned()]);
     let door = |held| {
         let deadline = Duration::from_secs(5);
+        let held = Some(at_work(held));
         let spawned = spawn_site(&engine.bundle, &spawn, &json!({}), &work, deadline, held);
         spawned.map(|(process, _)| drop(process))
     };
     let lost = Err(Unadmitted::Identity(Unknown::Lost).to_string());
     let released = host.admit(&attempt("a0")).unwrap();
     freed(&released);
-    assert_eq!(door(Some(&released)), lost, "released");
+    assert_eq!(door(&released), lost, "released");
     let held = host.admit(&attempt("a1")).unwrap();
     std::fs::remove_file(host.reservation(&work, "run-a")).unwrap();
-    assert_eq!(door(Some(&held)), lost, "the reservation gone");
+    assert_eq!(door(&held), lost, "the reservation gone");
     assert!(!ran.exists(), "nothing spawned");
     let held = host.admit(&attempt("a2")).unwrap();
-    assert_eq!(door(Some(&held)), Ok(()));
+    assert_eq!(door(&held), Ok(()));
+}
+
+/// Another run's attempt on `engine`'s worktree, its one `work` site
+/// outside any box, admitted in the coordination root under `home`: the
+/// lease, or the refusal a reservation standing there makes (U8e2).
+pub(in crate::engine) fn conflicting(home: &Path, engine: &Engine) -> Result<Held, Unadmitted> {
+    let incoming = open(&worktree(engine), ["another-run", "b1"]);
+    admit(&Arc::new(opened(home)), &incoming, soon())
+}
+
+/// The door of the `work` site, under the lease `held`, of a driver whose
+/// site was sealed no broker.
+fn at_work(held: &Held) -> Door<'_> {
+    Door::of(held, "work", None)
 }
 
 /// A run's later attempt joins its reservation beside an earlier one not

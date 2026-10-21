@@ -1090,6 +1090,7 @@ pub(in crate::engine) fn proven_settled(home: &Path, worktree: &Path, run: &str)
         unsynced: false,
         workdir: worktree.to_path_buf(),
         authored: Authored::default(),
+        adopted: None,
     };
     assert_eq!(proved(&held, soon()), Ok(Commit::Synced));
     attempt

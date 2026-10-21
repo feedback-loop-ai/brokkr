@@ -24,7 +24,7 @@ use serde_json::Value;
 use super::{checkpoints, Engine, EngineError};
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 /// What a fold that read `events` lets the engine append on: the cause
 /// its next event names, and the head that event must still find.
