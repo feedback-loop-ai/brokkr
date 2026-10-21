@@ -3,9 +3,12 @@
 //! U8a2a). A test binary's HOME is the operator's, and only the house's
 //! guard may write the process environment (decision 0071 ruling 9), so a
 //! test that drives one runs again, alone, in a child process whose HOME
-//! is a fresh owner-only directory of its own ([`in_own_home`]); and every
-//! helper that drives one first checks it stands in such a process
-//! ([`required`]), so a later test that calls the helper is held to it too.
+//! is a fresh owner-only directory of its own, and whose XDG_CONFIG_HOME,
+//! which decision 0083 gives precedence over HOME for the personal shelf
+//! and host configuration, is that HOME's own `.config` ([`in_own_home`]),
+//! whatever the parent inherited; and every helper that drives one first
+//! checks it stands in such a process ([`required`]), so a later test that
+//! calls the helper is held to it too.
 
 use std::os::unix::fs::DirBuilderExt;
 use std::process::Command;
@@ -34,6 +37,7 @@ pub(crate) fn in_own_home(test: &str) -> bool {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", test, "--nocapture", "--test-threads=1"])
         .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
         .env(OWN, "1")
         .stderr(out.try_clone().unwrap())
         .stdout(out)

@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 use super::CompileError;
+use crate::places::{Origin, Shelves};
 
 mod forced_crew;
 mod layers;
@@ -88,6 +89,8 @@ pub struct Resolved {
     pub chain: Vec<Ancestor>,
     /// Every layer's directory, leaf first.
     pub roots: Vec<PathBuf>,
+    /// Every layer's origin, leaf first, as `roots` (#697 ruling 5).
+    pub origins: Vec<Origin>,
     /// Every layer's declared name and the library directory it was reached
     /// as, leaf first.
     layers: Vec<(String, Option<String>)>,
@@ -206,29 +209,21 @@ struct Layer {
     /// directory — so provenance records both rather than trusting one.
     reached_as: Option<String>,
     dir: PathBuf,
+    /// Where `dir` stands, which decides where its base is read (#697).
+    origin: Origin,
     file: PathBuf,
     document: Map<String, Value>,
     /// Where the layer's walk must pin the bytes `document` was parsed from.
     read: Pinned,
 }
 
-/// `^[a-z0-9][a-z0-9-]*$`, checked BEFORE any path is built so `../x`,
-/// `a/b`, `SDD` and `.` are refused as names and never become paths.
-fn valid_recipe_name(name: &str) -> bool {
-    let mut characters = name.chars();
-    match characters.next() {
-        Some(first) if first.is_ascii_lowercase() || first.is_ascii_digit() => {}
-        _ => return false,
-    }
-    characters.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-}
-
 /// Walk the chain leaf-first, each layer's own `extends` read from its
-/// own `bundle.json`. A repeated directory is a cycle and names the
-/// whole loop in order; a chain longer than [`MAX_LAYERS`] names the
-/// chain so far. Its steps, reading one layer and reaching its base, are
-/// in `bundle/compose/layers.rs`.
-fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
+/// own `bundle.json` and its base from the shelf its origin reads
+/// (`shelves`). A repeated directory is a cycle and names the whole loop
+/// in order; a chain longer than [`MAX_LAYERS`] names the chain so far.
+/// Its steps, reading one layer and reaching its base, are in
+/// `bundle/compose/layers.rs`.
+fn read_layers(leaf: &Path, shelves: &Shelves) -> Result<Vec<Layer>, CompileError> {
     let mut layers: Vec<Layer> = Vec::new();
     // Canonical from the leaf down, so every recorded dir is comparable
     // on every platform: macOS resolves /var to /private/var, and a
@@ -246,7 +241,7 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
                 loop_names.join(" -> ")
             )));
         }
-        let (file, extends) = layers::read_layer(&mut layers, &dir, &reached_as)?;
+        let extends = layers::read_layer(&mut layers, (&dir, shelves.origin(&dir)?), &reached_as)?;
         if layers.len() > MAX_LAYERS {
             return Err(invalid(format!(
                 "composition chain is deeper than {MAX_LAYERS} layers: {}",
@@ -260,28 +255,10 @@ fn read_layers(leaf: &Path) -> Result<Vec<Layer>, CompileError> {
         let Some(extends) = extends else {
             return Ok(layers);
         };
-        let (base, resolved) = layers::reach_base(&dir, &file, &extends)?;
+        let (base, resolved) = layers::reach_base(&layers, &extends, shelves)?;
         reached_as = Some(base.to_string());
         dir = resolved;
     }
-}
-
-/// The recipe a layer's `extends` names, refused before any path is built: a non-string, or a
-/// name that is no recipe name.
-fn base_of<'a>(file: &Path, extends: &'a Value) -> Result<&'a str, CompileError> {
-    let file = file.display();
-    let base = extends.as_str().ok_or_else(|| {
-        invalid(format!(
-            "{file}: 'extends' must be the name of a recipe in the library"
-        ))
-    })?;
-    if !valid_recipe_name(base) {
-        return Err(invalid(format!(
-            "{file}: 'extends' value '{base}' is not a recipe name; names match \
-             ^[a-z0-9][a-z0-9-]*$ and are refused before any path is built"
-        )));
-    }
-    Ok(base)
 }
 
 /// What the fold has resolved so far, base-first.
@@ -963,18 +940,20 @@ fn merge_rules(
 /// name-determined order, `BTreeMap` throughout, no clock, no
 /// environment, no `read_dir` order. Every ancestor is sealed from what it
 /// was composed from; a compile, which binds charters too, seals them
-/// itself ([`resolve_unsealed`]).
+/// itself ([`resolve_unsealed`]). Every layer composes from its own
+/// library, on no shelf.
 pub fn resolve(leaf: &Path) -> Result<Resolved, CompileError> {
-    let mut resolved = resolve_unsealed(leaf)?;
+    let mut resolved = resolve_unsealed(leaf, &Shelves::default())?;
     resolved.seal(Vec::new())?;
     Ok(resolved)
 }
 
 /// [`resolve`] up to the ancestors' identities, which [`Resolved::seal`]
 /// seals once the compile has bound every charter a layer's seats name, so
-/// that no walk reads a consumed file the compile read (design D7).
-pub(crate) fn resolve_unsealed(leaf: &Path) -> Result<Resolved, CompileError> {
-    let layers = read_layers(leaf)?;
+/// that no walk reads a consumed file the compile read (design D7), each
+/// layer's base read where its origin among `shelves` reads it (#697).
+pub(crate) fn resolve_unsealed(leaf: &Path, shelves: &Shelves) -> Result<Resolved, CompileError> {
+    let layers = read_layers(leaf, shelves)?;
     let mut merged = Merged::default();
     for index in (0..layers.len()).rev() {
         merge_layer(&mut merged, &layers, index)?;
@@ -992,7 +971,10 @@ pub(crate) fn resolve_unsealed(leaf: &Path) -> Result<Resolved, CompileError> {
     // `Resolved::seal`: each covers its own bytes AND its own ancestors'
     // digests, so a change at any depth moves every digest derived from it.
     let mut tables = merged.consumed;
-    let name = layers[0].name.clone();
+    let (name, origins) = (
+        layers[0].name.clone(),
+        layers.iter().map(|l| l.origin).collect(),
+    );
     let (mut roots, mut names, mut reads) = (Vec::new(), Vec::new(), Vec::new());
     for (index, layer) in layers.into_iter().enumerate() {
         reads.push(Consumed {
@@ -1015,6 +997,7 @@ pub(crate) fn resolve_unsealed(leaf: &Path) -> Result<Resolved, CompileError> {
         case_origin: merged.case_from,
         chain: Vec::new(),
         roots,
+        origins,
         layers: names,
         reads,
     })

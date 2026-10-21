@@ -15,6 +15,8 @@ use serde_json::{json, Value};
 
 use crate::brokkr_folder::{completes, digest, git, started, Ran, Repo};
 
+mod selected;
+
 /// A folder repository whose shelf holds the fake-driver recipe `x`.
 fn shelved() -> Repo {
     let repo = Repo::new();
@@ -1065,12 +1067,7 @@ fn run_recipe_reads_the_project_shelf_then_the_personal_one() {
     assert_eq!((ran.code, ran.first_line()), (Some(1), &*drift));
 
     repo.bundle(personal.join("x").to_str().unwrap(), "px", completes());
-    let shadowed = format!(
-        "error: recipe 'x' stands on both the project shelf, at {}, and the personal shelf, at \
-         {} (#697): neither shelf wins, so rename or remove one of them\n",
-        project.display(),
-        personal.join("x").display()
-    );
+    let shadowed = format!("error: {}", shadowed("x", &project, &personal.join("x")));
     let ran = repo.brokkr("", &["run", "--recipe", "x", "--feature", "f", "--no-view"]);
     assert_eq!((ran.code, ran.stderr), (Some(1), shadowed.clone()));
     let ran = repo.brokkr("", &["recipes", "show", "x"]);
@@ -1221,6 +1218,43 @@ fn ledger(repo: &Repo) -> (String, String) {
     (runs.stdout, queue.stdout)
 }
 
+/// What plants a break at a shelf, and the cause its refusal names.
+type Break = (fn(&Path), &'static str);
+
+/// The breaks a shelf is read through, each planted at the shelf with the
+/// cause its refusal names: a link whose target was moved away, and a file.
+fn breaks() -> [Break; 2] {
+    let dangle: fn(&Path) =
+        |shelf| std::os::unix::fs::symlink(shelf.with_extension("target"), shelf).unwrap();
+    let file: fn(&Path) = |shelf| std::fs::write(shelf, "").unwrap();
+    [
+        (dangle, "No such file or directory (os error 2)"),
+        (file, "not a directory"),
+    ]
+}
+
+/// What the binary refuses the `origin` shelf `at` with, which cannot be
+/// read for `cause` (#697 ruling 2), past its `error: ` and any `bundle: `.
+fn unread(origin: &str, at: &Path, cause: &str) -> String {
+    format!(
+        "the {origin} shelf {at} cannot be read (#697): {at}: {cause}; a shelf that cannot be read \
+         is never read as an empty one, so mend or remove it; nothing was run or installed\n",
+        at = at.display()
+    )
+}
+
+/// What the binary refuses `name` with, standing on the project shelf at
+/// `project` and on the personal one at `personal` (#697 ruling 2), past
+/// its `error: ` and any `bundle: `.
+fn shadowed(name: &str, project: &Path, personal: &Path) -> String {
+    format!(
+        "recipe '{name}' stands on both the project shelf, at {}, and the personal shelf, at {} \
+         (#697): neither shelf wins, so rename or remove one of them\n",
+        project.display(),
+        personal.display()
+    )
+}
+
 /// A shelf that cannot be read is never read as an empty one (#697 ruling
 /// 2): the personal shelf or the project's, a link whose target was moved
 /// away or a file, with `x` on both shelves until the break and with `x`
@@ -1250,16 +1284,9 @@ fn a_shelf_that_cannot_be_read_refuses_on_every_verb() {
     let kept = (state("x.state"), state("px.state"));
     let listed = ledger(&repo);
     let project = repo.path(".brokkr/recipes");
-    let dangle: fn(&Path) =
-        |shelf| std::os::unix::fs::symlink(shelf.with_extension("target"), shelf).unwrap();
-    let file: fn(&Path) = |shelf| std::fs::write(shelf, "").unwrap();
-    let breaks = [
-        (dangle, "No such file or directory (os error 2)"),
-        (file, "not a directory"),
-    ];
     for ((origin, shelf), (plant, cause), both) in [("personal", &personal), ("project", &project)]
         .into_iter()
-        .flat_map(|side| breaks.map(|broken| (side, broken)))
+        .flat_map(|side| breaks().map(|broken| (side, broken)))
         .flat_map(|(side, broken)| [true, false].map(|both| (side, broken, both)))
     {
         let gone = shelf.with_extension("gone");
@@ -1270,12 +1297,7 @@ fn a_shelf_that_cannot_be_read_refuses_on_every_verb() {
         std::fs::rename(shelf, &gone).unwrap();
         plant(shelf);
         for (verb, at) in spelled(&repo, &verbs, shelf, origin == "project") {
-            let at = at.display();
-            let refused = format!(
-                "error: the {origin} shelf {at} cannot be read (#697): {at}: {cause}; a shelf \
-                 that cannot be read is never read as an empty one, so mend or remove it; \
-                 nothing was run or installed\n"
-            );
+            let refused = format!("error: {}", unread(origin, &at, cause));
             let verb: Vec<&str> = verb.iter().map(String::as_str).collect();
             let ran = repo.brokkr("", &verb);
             let case = format!("{verb:?} {origin} {cause} {both}");
@@ -1579,4 +1601,368 @@ fn a_personal_install_of_a_name_the_project_shelf_holds_refuses() {
     assert_eq!((ran.code, ran.stderr), (Some(1), unplain));
     assert!(!repo.config().exists());
     assert_eq!(repo.files(), before);
+}
+
+/// The `run/started` payload of `run` in `repo`'s journal.
+fn started_payload(repo: &Repo, run: &str) -> Value {
+    let store = brokkr_store::Store::open(&repo.path(".brokkr/state/forge.db")).unwrap();
+    let events = store.load(run).unwrap();
+    assert_eq!(events[0].event_type, brokkr_core::EventType::RunStarted);
+    events[0].payload.clone()
+}
+
+/// What `recipes show <name>` prints from the root, compiled.
+fn shown(repo: &Repo, name: &str) -> Value {
+    let ran = repo.brokkr("", &["recipes", "show", name]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    serde_json::from_str(&ran.stdout).unwrap()
+}
+
+/// Each layer's origin and directory, leaf first, as the journal and
+/// `recipes show` record them (#697 ruling 5).
+fn layers(chain: &[(&str, &Path)]) -> Value {
+    let layer = |(origin, path): &(&str, &Path)| json!({"origin": origin, "path": path});
+    Value::Array(chain.iter().map(layer).collect())
+}
+
+/// A personal recipe extending the project shelf's `x` (#697 ruling 3)
+/// installs from outside the repository and runs from the root and from a
+/// subdirectory: its pinned manifest is the composition `recipes show`
+/// prints, and the journal records both layers' origins, as `show` does
+/// (ruling 5). Installing it changes no file of the repository and not the
+/// folder bundle's digest. A resume after an edit of the personal recipe,
+/// or of the project recipe it extends, refuses the drift.
+#[test]
+fn a_personal_recipe_runs_over_a_project_one() {
+    let repo = shelved();
+    let derived = json!({"name": "mine", "extends": "x"}).to_string();
+    repo.write("../mine-source/bundle.json", &derived);
+    let source = repo.root.with_file_name("mine-source");
+    let before = (repo.files(), digest(&repo, ".brokkr"));
+    let mine = repo.config().join("brokkr/recipes/mine");
+    let ran = add_personal(&repo, &source, &[]);
+    let compiled = digest(&repo, mine.to_str().unwrap());
+    let added = format!(
+        "added recipe 'mine' ({}) at {}\n",
+        &compiled[..12],
+        mine.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(0), added));
+    assert_eq!((repo.files(), digest(&repo, ".brokkr")), before);
+
+    let x = repo.path(".brokkr/recipes/x");
+    let chain = layers(&[("personal", &mine), ("project", &x)]);
+    let show = shown(&repo, "mine");
+    assert_eq!(
+        (&show["digest"], &show["layers"]),
+        (&json!(compiled), &chain)
+    );
+    let mut runs = Vec::new();
+    for from in ["", "src/deep"] {
+        let run = ["run", "--recipe", "mine", "--feature", "f", "--no-view"];
+        let ran = repo.brokkr(from, &run);
+        assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+        let payload = started_payload(&repo, &started(&ran));
+        let pinned = (&payload["manifest"], &payload["layers"]);
+        assert_eq!(pinned, (&show["manifest"], &chain));
+        runs.push(started(&ran));
+    }
+    assert!(repo.seated("x"));
+
+    let resume = || {
+        let resume = ["resume", "--run", &runs[0], "--recipe", "mine", "--no-view"];
+        repo.brokkr("", &resume)
+    };
+    let drift = |file: &str| {
+        let run = &runs[0];
+        format!("error: run '{run}' pins a different bundle: changed: {file}")
+    };
+    let edited = json!({"name": "mine", "extends": "x", "cost": "$"}).to_string();
+    std::fs::write(mine.join("bundle.json"), edited).unwrap();
+    let ran = resume();
+    assert_eq!(
+        (ran.code, ran.first_line()),
+        (Some(1), &*drift("bundle.json"))
+    );
+    std::fs::write(mine.join("bundle.json"), &derived).unwrap();
+    repo.write(".brokkr/recipes/x/roles/role.md", "# edited\n");
+    let ran = resume();
+    assert_eq!(
+        (ran.code, ran.first_line()),
+        (Some(1), &*drift("@compose/0000/x"))
+    );
+}
+
+/// A personal recipe extends the folder's own bundle through the reserved
+/// name `.brokkr` (#697 ruling 3), installed from beside the folder with no
+/// copy of it, and runs over it; the default bundle's digest stays as it
+/// was, and `recipes show` and the journal record both origins (ruling 5).
+#[test]
+fn a_personal_recipe_runs_over_the_folders_bundle() {
+    let repo = Repo::new();
+    repo.folder();
+    let derived = json!({"name": "mine", "extends": ".brokkr"}).to_string();
+    let source = repo.write("mine-source/bundle.json", &derived);
+    let before = (repo.files(), digest(&repo, ".brokkr"));
+    let mine = repo.config().join("brokkr/recipes/mine");
+    let ran = add_personal(&repo, source.parent().unwrap(), &[]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    assert_eq!((repo.files(), digest(&repo, ".brokkr")), before);
+    let folder = repo.path(".brokkr");
+    let chain = layers(&[("personal", &mine), ("folder", &folder)]);
+    assert_eq!(shown(&repo, "mine")["layers"], chain);
+    let run = ["run", "--recipe", "mine", "--feature", "f", "--no-view"];
+    let ran = repo.brokkr("src", &run);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    assert_eq!(started_payload(&repo, &started(&ran))["layers"], chain);
+    assert!(repo.seated("folder"));
+}
+
+/// What the binary refuses the project recipe at `layer` with, naming
+/// `mine`, which stands only on the personal shelf, at `personal` (#697
+/// ruling 3).
+fn project_names_mine(layer: &Path, personal: &Path) -> String {
+    format!(
+        "error: bundle: the project recipe at {} extends 'mine', which stands only on the \
+         personal shelf, at {} (#697): a project recipe never extends a personal one, since \
+         teammates and CI could not compile it, so put 'mine' on the project shelf or extend a \
+         recipe there\n",
+        layer.display(),
+        personal.display()
+    )
+}
+
+/// What the binary refuses the folder's bundle at `folder` with, naming
+/// `mine`, which stands only on the personal shelf, at `personal` (#697
+/// ruling 3).
+fn folder_names_mine(folder: &Path, personal: &Path) -> String {
+    format!(
+        "error: bundle: the folder's bundle at {} extends 'mine', which stands only on the \
+         personal shelf, at {} (#697): the folder's bundle never extends a personal recipe, since \
+         teammates and CI could not compile it, so put 'mine' on the project shelf or extend a \
+         recipe there\n",
+        folder.display(),
+        personal.display()
+    )
+}
+
+/// A project recipe, or the folder's bundle, naming a recipe only the
+/// personal shelf holds refuses, each with its own text naming both paths
+/// (#697 ruling 3), on every verb that compiles it.
+#[test]
+fn a_project_layer_naming_a_personal_recipe_refuses() {
+    let repo = shelved();
+    let personal = repo.config().join("brokkr/recipes/mine");
+    repo.bundle(personal.to_str().unwrap(), "mine", completes());
+    let extends = json!({"name": "team", "extends": "mine"}).to_string();
+    let team = repo.write(".brokkr/recipes/team/bundle.json", &extends);
+    let project = project_names_mine(team.parent().unwrap(), &personal);
+    let ran = repo.brokkr("src", &["recipes", "show", "team"]);
+    assert_eq!((ran.code, ran.stderr), (Some(1), project.clone()));
+    let ran = repo.brokkr(
+        "",
+        &["run", "--recipe", "team", "--feature", "f", "--no-view"],
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), project));
+
+    let extends = json!({"name": "folder", "extends": "mine"}).to_string();
+    repo.write(".brokkr/bundle.json", &extends);
+    let folder = folder_names_mine(&repo.path(".brokkr"), &personal);
+    let ran = repo.brokkr("src", &["run", "--feature", "f", "--no-view"]);
+    assert_eq!((ran.code, ran.stderr), (Some(1), folder.clone()));
+    let ran = repo.brokkr("", &["compile", "--bundle", ".brokkr"]);
+    assert_eq!((ran.code, ran.stderr), (Some(1), folder));
+}
+
+/// A shelf that cannot be read is never read as an empty one by a compile
+/// (#697 ruling 2): `compile --bundle` and `run --bundle`, which read no
+/// `--recipe`, refuse in `--recipe`'s words under the compiler's `bundle: `,
+/// as `recipes show` refuses in them before it compiles. The project shelf
+/// is read for a personal recipe's base on its own shelf, and the personal
+/// one for a project recipe's missing base; each is a link to nothing or a
+/// file, and no run starts. A shelf with nothing at it, no entry and no
+/// link, is an empty one: the personal base composes, and the project's
+/// missing base is no recipe.
+#[test]
+fn an_unreadable_shelf_refuses_every_compile_that_reads_it() {
+    let repo = shelved();
+    let (personal, project) = (
+        repo.config().join("brokkr/recipes"),
+        repo.path(".brokkr/recipes"),
+    );
+    let (own, mine) = (personal.join("own"), personal.join("mine"));
+    repo.bundle(own.to_str().unwrap(), "own", completes());
+    let derived = json!({"name": "mine", "extends": "own"}).to_string();
+    repo.write(mine.join("bundle.json").to_str().unwrap(), &derived);
+    let extends = json!({"name": "team", "extends": "gone"}).to_string();
+    let team = repo.write(".brokkr/recipes/team/bundle.json", &extends);
+    let sides = [
+        ("project", &project, "mine", mine.clone()),
+        (
+            "personal",
+            &personal,
+            "team",
+            team.parent().unwrap().to_path_buf(),
+        ),
+    ];
+    for ((origin, shelf, name, leaf), (plant, cause)) in sides
+        .into_iter()
+        .flat_map(|side| breaks().map(|broken| (side.clone(), broken)))
+    {
+        let gone = shelf.with_extension("gone");
+        std::fs::rename(shelf, &gone).unwrap();
+        plant(shelf);
+        let unread = unread(origin, shelf, cause);
+        let leaf = leaf.to_str().unwrap();
+        let verbs = [
+            (vec!["recipes", "show", name], format!("error: {unread}")),
+            (
+                vec!["compile", "--bundle", leaf],
+                format!("error: bundle: {unread}"),
+            ),
+            (
+                vec!["run", "--bundle", leaf, "--feature", "f", "--no-view"],
+                format!("error: bundle: {unread}"),
+            ),
+        ];
+        for (args, refused) in verbs {
+            let ran = repo.brokkr("", &args);
+            assert_eq!((ran.code, ran.stderr), (Some(1), refused), "{args:?}");
+        }
+        std::fs::remove_file(shelf).unwrap();
+        std::fs::rename(&gone, shelf).unwrap();
+    }
+    assert!(!repo.path(".brokkr/state/forge.db").exists());
+
+    std::fs::rename(&personal, personal.with_extension("gone")).unwrap();
+    let ran = repo.brokkr(
+        "",
+        &[
+            "compile",
+            "--bundle",
+            team.parent().unwrap().to_str().unwrap(),
+        ],
+    );
+    let missing = format!(
+        "error: bundle: {}: extends 'gone', which is not a recipe in {}\n",
+        team.display(),
+        project.display()
+    );
+    assert_eq!((ran.code, ran.stderr), (Some(1), missing));
+    std::fs::rename(personal.with_extension("gone"), &personal).unwrap();
+    std::fs::rename(&project, project.with_extension("gone")).unwrap();
+    let ran = repo.brokkr("", &["compile", "--bundle", mine.to_str().unwrap()]);
+    assert_eq!(ran.code, Some(0), "{}", ran.stderr);
+    let compiled: Value = serde_json::from_str(&ran.stdout).unwrap();
+    let chain = layers(&[("personal", &mine), ("personal", &own)]);
+    assert_eq!(compiled["layers"], chain);
+}
+
+/// `recipes show` and `run` of the recipe `name`, each selecting the
+/// project shelf `own` by its flag, `--dir` or `--recipes-dir`.
+fn selecting<'a>(own: &'a str, name: &'a str) -> [Vec<&'a str>; 2] {
+    [
+        vec!["recipes", "show", name, "--dir", own],
+        vec![
+            "run",
+            "--recipe",
+            name,
+            "--recipes-dir",
+            own,
+            "--feature",
+            "f",
+            "--no-view",
+        ],
+    ]
+}
+
+/// The project shelf `--dir` or `--recipes-dir` selects is the one a
+/// personal recipe composes across (#697 ruling 3), from the root and from
+/// a subdirectory: `recipes show` and `run` compose `mine` over `own/fast`,
+/// the default shelf holding nothing, and the run's start records both
+/// origins. A resume over the selected shelf, after an edit of `own/fast`,
+/// refuses the drift. A `fast` on the personal shelf too refuses both
+/// verbs as a name on both shelves; `own/team` naming the personal `mine`
+/// refuses as a project recipe; and the folder's bundle naming it refuses
+/// under the flag as it does without it. No refused verb starts a run.
+#[test]
+fn a_selected_project_shelf_is_the_one_composed_across() {
+    let repo = Repo::new();
+    repo.folder();
+    repo.bundle("own/fast", "fast", completes());
+    let mine = repo.config().join("brokkr/recipes/mine");
+    let derived = json!({"name": "mine", "extends": "fast"}).to_string();
+    repo.write(mine.join("bundle.json").to_str().unwrap(), &derived);
+    let chain = layers(&[("personal", &mine), ("project", &repo.path("own/fast"))]);
+    let places = [("", "own"), ("src", "../own")];
+    let mut runs = Vec::new();
+    for (from, own) in places {
+        let [show, run] = selecting(own, "mine").map(|args| repo.brokkr(from, &args));
+        assert_eq!(
+            (show.code, run.code),
+            (Some(0), Some(0)),
+            "{}{}",
+            show.stderr,
+            run.stderr
+        );
+        let shown: Value = serde_json::from_str(&show.stdout).unwrap();
+        assert_eq!(shown["layers"], chain);
+        let payload = started_payload(&repo, &started(&run));
+        let pinned = (&payload["manifest"], &payload["layers"]);
+        assert_eq!(pinned, (&shown["manifest"], &chain));
+        runs.push(started(&run));
+    }
+    repo.write("own/fast/roles/role.md", "# edited\n");
+    let resume = [
+        "resume",
+        "--run",
+        &runs[0],
+        "--recipe",
+        "mine",
+        "--recipes-dir",
+        "own",
+    ];
+    let ran = repo.brokkr("", &[&resume[..], &["--no-view"]].concat());
+    let drift = format!(
+        "error: run '{}' pins a different bundle: changed: @compose/0000/fast",
+        runs[0]
+    );
+    assert_eq!((ran.code, ran.first_line()), (Some(1), &*drift));
+
+    let listed = ledger(&repo);
+    let refuses = |name: &str, refused: &str| {
+        for (from, own) in places {
+            for args in selecting(own, name) {
+                let ran = repo.brokkr(from, &args);
+                assert_eq!(
+                    (ran.code, &*ran.stderr),
+                    (Some(1), refused),
+                    "{from} {args:?}"
+                );
+            }
+        }
+    };
+    let personal = repo.config().join("brokkr/recipes");
+    repo.bundle(
+        personal.join("fast").to_str().unwrap(),
+        "pfast",
+        completes(),
+    );
+    let both = shadowed("fast", &repo.path("own/fast"), &personal.join("fast"));
+    refuses("mine", &format!("error: bundle: {both}"));
+    std::fs::remove_dir_all(personal.join("fast")).unwrap();
+
+    let extends = json!({"name": "team", "extends": "mine"}).to_string();
+    let team = repo.write("own/team/bundle.json", &extends);
+    refuses("team", &project_names_mine(team.parent().unwrap(), &mine));
+
+    let extends = json!({"name": "folder", "extends": "mine"}).to_string();
+    repo.write(".brokkr/bundle.json", &extends);
+    let folder = folder_names_mine(&repo.path(".brokkr"), &mine);
+    for (from, own) in places {
+        let run = ["run", "--recipes-dir", own, "--feature", "f", "--no-view"];
+        let ran = repo.brokkr(from, &run);
+        assert_eq!((ran.code, &*ran.stderr), (Some(1), &*folder), "{from}");
+    }
+    assert_eq!(ledger(&repo), listed);
 }

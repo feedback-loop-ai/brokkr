@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+use brokkr_runtime::places::{self, PlacesError::ShelfClimbs, PlacesError::ShelfUnread};
+
 use super::{resolving, Made, Onto, Origin, ShelfPath, Unshelved};
 
 /// [`super::holding`], the project's shelf spelled as a path.
@@ -161,7 +163,8 @@ fn a_shelf_that_cannot_be_read_refuses_before_either_recipe_is_taken() {
         assert_eq!(refused.to_string(), text, "{both}");
         assert!(matches!(
             refused,
-            Unshelved::Unread { origin: of, shelf: at, .. } if of == origin && at == shelf(broken)
+            Unshelved::Unreadable(ShelfUnread { origin: of, shelf: at, .. })
+                if of == origin.into() && at == shelf(broken)
         ));
     }
     let (_dir, project, personal) = shelves(&["x"], &[]);
@@ -224,7 +227,7 @@ fn a_shelf_spelled_through_its_entry_is_judged_at_it() {
             let refused = resolving(Origin::Project, &ShelfPath::new(&spelled)).err();
             let judged = matches!(
                 &refused,
-                Some(Unshelved::Unread { origin: Origin::Project, shelf, at, .. })
+                Some(Unshelved::Unreadable(ShelfUnread { origin: places::Origin::Project, shelf, at, .. }))
                     if shelf.as_os_str() == entry.as_os_str() && at.as_os_str() == entry.as_os_str()
             );
             assert!(judged, "{spelled}: {refused:?}");
@@ -326,8 +329,8 @@ fn a_shelf_climbing_out_of_what_does_not_stand_refuses() {
         let refused = resolving(origin, &ShelfPath::new(&shelf)).err();
         let judged = matches!(
             &refused,
-            Some(Unshelved::Climbing { origin: of, shelf: spelled, at: stands })
-                if *of == origin && *spelled == shelf && *stands == at
+            Some(Unshelved::Unreadable(ShelfClimbs { origin: of, shelf: spelled, at: stands }))
+                if *of == origin.into() && *spelled == shelf && *stands == at
         );
         assert!(judged, "{}: {refused:?}", shelf.display());
         let text = climbing(origin, &shelf, &at);
@@ -345,8 +348,9 @@ fn a_climbing_project_shelf_refuses_with_no_personal_shelf() {
     let (_dir, project, _) = shelves(&["x"], &[]);
     let shelf = project.join("sub/..");
     let refused = holding_in("x", shelf.clone(), None).unwrap_err();
-    let climbed = matches!(&refused, Unshelved::Climbing { origin: Origin::Project, shelf: of, at }
-        if *of == shelf && *at == project);
+    let climbed = matches!(&refused,
+        Unshelved::Unreadable(ShelfClimbs { origin: places::Origin::Project, shelf: of, at })
+            if *of == shelf && *at == project);
     assert!(climbed, "{refused:?}");
     assert_eq!(
         refused.to_string(),

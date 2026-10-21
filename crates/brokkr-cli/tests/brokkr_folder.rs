@@ -599,7 +599,8 @@ fn an_explicit_flag_outranks_discovery() {
 /// A relative path a flag names in a subdirectory is under that
 /// subdirectory (ruling 2's step 1), in the launch a queue entry holds as
 /// in a direct run, though the folder's root is the workspace both read
-/// a relative path against.
+/// a relative path against. A queued `--recipe` reads the workspace's own
+/// shelf, the one shelf a queued launch holds (#697).
 fn a_flag_reads_where_it_was_typed(repo: &Repo) {
     let deep = repo.path("src/deep");
     let map = json!({"schema": "forge.realms/v1", "journal": "deep.db",
@@ -626,7 +627,7 @@ fn a_flag_reads_where_it_was_typed(repo: &Repo) {
     let dispatched = [&queue[..], &flags, &["--dispatch", "d.json"]].concat();
     let mapped = [
         &queue[..],
-        &["--recipe", "r", "--recipes-dir", "recipes"],
+        &["--recipe", "r"],
         &["--realms", "maps/realms.json"],
     ]
     .concat();
@@ -657,7 +658,10 @@ fn a_flag_reads_where_it_was_typed(repo: &Repo) {
             &second["bundle"]["recipe"]["recipes_dir"],
             &second["map"]["named"]["source"]
         ],
-        [&at("recipes"), &at("maps/realms.json")]
+        [
+            &json!(repo.path(".brokkr/recipes")),
+            &at("maps/realms.json")
+        ]
     );
 }
 

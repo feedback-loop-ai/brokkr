@@ -1026,6 +1026,27 @@ fn refused() -> std::collections::BTreeMap<(&'static str, &'static str), String>
     refused
 }
 
+/// What `recipes show --dir` printed, as `compile --bundle` prints it: the
+/// shelf `--dir` selects is the project's (#697 ruling 3), where `compile`
+/// reads the same layers as a library's, so each `project` origin in the
+/// view's `layers` reads `library`. The origins are evidence outside the
+/// pin, and every other byte is the same.
+fn as_compiled(
+    (code, view, sweep): (Option<i32>, String, String),
+) -> (Option<i32>, String, String) {
+    let Ok(mut parsed) = serde_json::from_str::<Value>(&view) else {
+        return (code, view, sweep);
+    };
+    let layers = parsed.get_mut("layers").and_then(Value::as_array_mut);
+    for layer in layers.into_iter().flatten() {
+        if layer["origin"] == "project" {
+            layer["origin"] = json!("library");
+        }
+    }
+    let view = format!("{}\n", serde_json::to_string_pretty(&parsed).unwrap());
+    (code, view, sweep)
+}
+
 /// `recipes show` compiles on the path `compile` and a run compile on
 /// (#350): for every recipe, Brokkr's own included, under no map, a
 /// realm with a dialect, the same realm under `harness`, and a map that
@@ -1078,7 +1099,7 @@ fn show_and_compile_agree_for_every_recipe_under_every_realm_map() {
             let compiled = ws.brokkr(&["compile", "--bundle", bundle.to_str().unwrap()]);
             let dir = library.to_str().unwrap();
             let shown = ws.brokkr(&["recipes", "show", name, "--dir", dir]);
-            assert_eq!(shown, compiled, "{name} under {label}");
+            assert_eq!(as_compiled(shown), compiled, "{name} under {label}");
             match compiled {
                 // A compiled view carries decision 0050's sweep on stderr
                 // (#429), the same for both verbs by the assertion above.

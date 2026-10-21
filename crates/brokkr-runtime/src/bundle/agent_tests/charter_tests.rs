@@ -324,7 +324,7 @@ fn a_composed_site_is_checked_against_its_declaring_layers_charter() {
         config["seats"]["review"] = base_seat;
         std::fs::write(base.join("bundle.json"), config.to_string()).unwrap();
         std::fs::write(leaf.join("bundle.json"), leaf_document.to_string()).unwrap();
-        let note = compose::resolve_unsealed(&leaf)
+        let note = compose::resolve_unsealed(&leaf, &Default::default())
             .unwrap()
             .chain_note()
             .unwrap();

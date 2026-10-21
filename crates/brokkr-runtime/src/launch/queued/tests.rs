@@ -30,6 +30,7 @@ fn request(bundle: BundleSource) -> LaunchRequest {
     LaunchRequest {
         workspace: PathBuf::from("/work"),
         bundle,
+        shelf: None,
         journal: PathBuf::from("/work/forge.db"),
         repo: Some(PathBuf::from("/repo")),
         secrets: Some(PathBuf::from("secrets.env")),
@@ -112,31 +113,43 @@ fn facts(request: &LaunchRequest, run: &NewRun) -> Facts {
     )
 }
 
+/// A workspace that stands, `work`, for a recipe's request: its shelf is
+/// judged at rebuild against the workspace's own ([`refuse_unplaced_shelf`]).
+fn working() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().canonicalize().unwrap();
+    (dir, work)
+}
+
 #[test]
 fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
     let dir = tempfile::tempdir().unwrap();
+    let (_work, work) = working();
     let dispatch = || Some(PathBuf::from("d.json"));
     let maps = [
         (RunMap::Unmapped, dispatch()),
         (RunMap::Ambient(world(dir.path())), dispatch()),
         (RunMap::Named(world(dir.path())), None),
     ];
-    // Each relative path comes back anchored to the workspace, `/work`.
+    // Each relative path comes back anchored to the workspace, `work`.
     let bundles = [
         (
             BundleSource::Dir("recipes/self".into()),
-            BundleSource::Dir("/work/recipes/self".into()),
+            BundleSource::Dir(work.join("recipes/self")),
         ),
         (
             recipe(),
             BundleSource::Recipe {
                 name: "story".into(),
-                recipes_dir: PathBuf::from("/work/recipes"),
+                recipes_dir: work.join("recipes"),
             },
         ),
     ];
     for ((bundle, anchored), (map, dispatch)) in bundles.into_iter().cycle().zip(maps) {
-        let asked = request(bundle);
+        let asked = LaunchRequest {
+            workspace: work.clone(),
+            ..request(bundle)
+        };
         let run = NewRun {
             feature: "queue it".into(),
             map,
@@ -149,8 +162,8 @@ fn a_queued_launch_keeps_every_fact_its_request_is_rebuilt_from() {
             .unwrap();
         let mut expected = facts(&asked, &run);
         expected.0 .1 = anchored;
-        expected.0 .4 = Some(PathBuf::from("/work/secrets.env"));
-        expected.1 .4 = run.dispatch.as_ref().map(|_| PathBuf::from("/work/d.json"));
+        expected.0 .4 = Some(work.join("secrets.env"));
+        expected.1 .4 = run.dispatch.as_ref().map(|_| work.join("d.json"));
         assert_eq!(facts(&request, &new), expected);
     }
     // The named map, and the encoding's bytes, pinned.
@@ -283,7 +296,12 @@ fn a_queued_launch_is_admitted_in_its_own_workspace_wherever_it_is_rebuilt() {
 /// directory that rebuilds it to resolve.
 #[test]
 fn a_relative_path_a_payload_holds_is_rebuilt_anchored_to_its_workspace() {
-    let mut queued = QueuedLaunch::of(&request(recipe()), &NewRun::default()).unwrap();
+    let (_work, work) = working();
+    let asked = LaunchRequest {
+        workspace: work.clone(),
+        ..request(recipe())
+    };
+    let mut queued = QueuedLaunch::of(&asked, &NewRun::default()).unwrap();
     queued.bundle = recipe();
     queued.repo = Some(".".into());
     queued.secrets = Some("secrets.env".into());
@@ -293,15 +311,15 @@ fn a_relative_path_a_payload_holds_is_rebuilt_anchored_to_its_workspace() {
         .unwrap();
     let anchored = BundleSource::Recipe {
         name: "story".into(),
-        recipes_dir: "/work/recipes".into(),
+        recipes_dir: work.join("recipes"),
     };
     assert_eq!(
         (request.bundle, request.repo, request.secrets, new.dispatch),
         (
             anchored,
-            Some("/work/.".into()),
-            Some("/work/secrets.env".into()),
-            Some("/work/d.json".into())
+            Some(work.join(".")),
+            Some(work.join("secrets.env")),
+            Some(work.join("d.json"))
         )
     );
 }
@@ -420,4 +438,67 @@ fn a_path_that_is_not_utf8_cannot_be_queued() {
             "path contains invalid UTF-8 characters".to_string()
         )
     );
+}
+
+/// A launch selecting a project shelf other than its workspace's own is
+/// never queued (#697 ruling 3): queued-launch/v1 holds no selected shelf.
+/// The workspace's own, `recipes` for a bare one, however anchored, is
+/// queued; any other spelling of a shelf refuses, naming both; and a
+/// workspace that cannot be read to find its own refuses as unreadable.
+#[test]
+fn a_launch_selecting_another_project_shelf_is_never_queued() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = dir.path().canonicalize().unwrap();
+    let own = workspace.join("recipes");
+    let selecting = |workspace: &Path, shelf: &Path| {
+        let mut request = request(recipe());
+        (request.workspace, request.shelf) = (workspace.into(), Some(shelf.into()));
+        QueuedLaunch::of(&request, &NewRun::default())
+    };
+    for shelf in [Path::new("recipes"), &own] {
+        let queued = selecting(&workspace, shelf).unwrap();
+        assert_eq!(queued.workspace, workspace);
+    }
+    for shelf in ["own", "recipes/../recipes", "../recipes"] {
+        let error = selecting(&workspace, Path::new(shelf)).unwrap_err();
+        let (selected, own) = (workspace.join(shelf), own.clone());
+        let text = format!(
+            "--recipes-dir selects the project shelf {}, and a queued launch composes only across \
+             its workspace's own, {} (#697): queued-launch/v1 holds no selected shelf, so the \
+             entry would be admitted and started across the workspace's shelf instead; queue it \
+             without --recipes-dir, or start it with `brokkr run`; nothing was queued",
+            selected.display(),
+            own.display()
+        );
+        assert_eq!(error.to_string(), text);
+        let refused = matches!(error, LaunchError::QueuedShelf { shelf, own: at }
+            if shelf == selected && at == own);
+        assert!(refused, "{shelf}");
+    }
+    let gone = workspace.join("gone");
+    let error = selecting(&gone, Path::new("recipes")).unwrap_err();
+    let unreadable = matches!(error,
+        LaunchError::Places(crate::places::PlacesError::Unreadable { ref path, .. }) if *path == gone);
+    assert!(unreadable, "{error}");
+}
+
+/// A queued recipe's unplaced shelf, refused by a process under neither
+/// XDG_CONFIG_HOME nor HOME, as a dispatcher under a user service may be,
+/// says it places no personal shelf where one placing a shelf names it
+/// (#697 rulings 2 and 5).
+#[test]
+fn an_unplaced_shelf_refused_where_none_is_placed_says_so() {
+    let unplaced = |personal: Option<PathBuf>| {
+        let (name, shelf, own) = ("mine".into(), "/a/recipes".into(), "/w/recipes".into());
+        let refusal = LaunchError::QueuedShelfUnplaced {
+            name,
+            shelf,
+            own,
+            personal,
+        };
+        refusal.to_string()
+    };
+    let placed = unplaced(Some("/p/recipes".into()));
+    let none = placed.replacen("(/p/recipes)", "(it places none)", 1);
+    assert_eq!(unplaced(None), none);
 }

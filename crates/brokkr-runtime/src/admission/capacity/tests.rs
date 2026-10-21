@@ -115,6 +115,7 @@ impl Fixture {
         let request = LaunchRequest {
             workspace: self.root.clone(),
             bundle: BundleSource::Dir("bundle".into()),
+            shelf: None,
             journal: self.root.join("forge.db"),
             repo: None,
             secrets: None,

@@ -456,6 +456,10 @@ fn compiled_view(bundle: &Bundle, world: Option<&World>) -> Value {
                 .collect(),
         );
     }
+    // Each layer's origin, the chain a run's start records (#697 ruling 5).
+    if let Some(layers) = bundle.layers() {
+        view["layers"] = json!(layers);
+    }
     if let Some(crossings) = world.and_then(crossings_view) {
         view["crossings"] = crossings;
     }

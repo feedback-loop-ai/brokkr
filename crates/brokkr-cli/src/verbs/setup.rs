@@ -89,20 +89,22 @@ pub(crate) fn doctor(
 /// `brokkr compile`: validate a bundle and print its pinned manifest,
 /// and decision 0050's sweep of its table on stderr.
 pub(crate) fn compile(workspace: &Path, CompileArgs { bundle }: CompileArgs) -> Result<ExitCode> {
-    print_compiled(workspace, &bundle)
+    print_compiled(workspace, (&bundle, None))
 }
 
-/// What `compile` and `recipes show` both print: the bundle compiled on
-/// the one path a run starts on, in the workspace's realm
-/// ([`launch::compile_for`]), so the two cannot drift apart (#350). The
-/// workspace is the discovered folder's root, where there is one.
-fn print_compiled(workspace: &Path, dir: &Path) -> Result<ExitCode> {
+/// What `compile` and `recipes show` both print: the bundle at `leaf`'s
+/// directory compiled on the one path a run starts on, in the workspace's
+/// realm and across `leaf`'s project shelf, the one `--dir` selected, if
+/// any ([`launch::compile_on`]), so the two cannot drift apart (#350,
+/// #697). The workspace is the discovered folder's root, where there is
+/// one.
+fn print_compiled(workspace: &Path, leaf: (&Path, Option<&Path>)) -> Result<ExitCode> {
     // An old layout is refused as every verb refuses it (ruling 4).
     let layout = Layout::discover(workspace)?;
     layout.refuse_old()?;
     let workspace = &layout.workspace();
     let world = World::discover(workspace, None)?;
-    let bundle = launch::compile_for(workspace, dir, world.as_ref(), workspace)?;
+    let bundle = launch::compile_on(workspace, leaf, world.as_ref(), workspace)?;
     println!(
         "{}",
         serde_json::to_string_pretty(&compiled_view(&bundle, world.as_ref()))?
@@ -124,8 +126,8 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
     let found = &layout.workspace();
     match command {
         RecipesCmd::List { dir } => {
-            let (dir, shelf) = layout.listing(dir);
-            recipes::personal::list(found, &dir, shelf)?
+            let (dir, shelf, on) = layout.listing(dir);
+            recipes::personal::list(found, (&dir, on.as_deref()), shelf)?
         }
         RecipesCmd::Add {
             source,
@@ -144,11 +146,12 @@ pub(crate) fn recipes(workspace: &Path, command: RecipesCmd) -> Result<ExitCode>
             }
         }
         RecipesCmd::Show { name, dir } => {
+            let (project, shelf) = layout.selecting(dir);
             let recipe = BundleSource::Recipe {
-                recipes_dir: recipes::personal::holding(Some(&name), layout.recipes(dir))?,
+                recipes_dir: recipes::personal::holding(Some(&name), project)?,
                 name,
             };
-            return print_compiled(workspace, &recipe.resolve()?);
+            return print_compiled(workspace, (&recipe.resolve()?, shelf.as_deref()));
         }
     }
     Ok(Exit::Completed.into())
