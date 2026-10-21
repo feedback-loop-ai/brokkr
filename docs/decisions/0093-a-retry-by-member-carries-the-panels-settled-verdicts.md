@@ -35,12 +35,14 @@ head and the tree they judged at both ends of the attempt, a rule that says
 when such a verdict may be carried, a reading of the tree that trusts git's
 exit, and a readout that names a carried verdict.
 
-Weighed and set aside, each recorded in the change's proposal (S1 to S22):
+Weighed and set aside, each recorded in the change's proposal (S1 to S27):
 
 - **The verb alone deciding the carry.** A head moved between the command
   and the drive would be carried: a fail-open on the review gate.
 - **The engine alone deciding it.** The operator would learn of a refusal
-  two commands later; the issue asks the command to refuse.
+  two commands later; the issue asks the command to refuse. The verb
+  therefore builds the engine as `brokkr resume` builds it, which drives
+  nothing, and asks every fact through it, the member's inputs included.
 - **Running the whole panel when a carry no longer holds at the drive.**
   Silent, and it spends exactly what the operator asked not to spend.
 - **Carrying a panel step after another step.** Its members read
@@ -48,8 +50,17 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
   step-level carry is a later slice of the epic.
 - **A per-member judged-input digest recorded at settlement.** A second
   definition of "the input" (decision 0071 ruling 5); the source effect's
-  recorded digest, the manifest gate and the head and tree already hold what
-  a member judged.
+  recorded digest, rebuilt by the one function that builds every member's
+  input, the manifest gate, the charter binding and the head and tree
+  already hold what a member judged.
+- **A second spelling of a member's name.** The bare name of a sequence
+  step's member beside its tag; the tag is the one spelling the journal keys
+  by and every readout prints, and a second spelling needed a fact of its own
+  to fail closed where the two collided (decision 0071 rulings 5 and 6).
+- **Skipping a carried participant in the transcript verb's selection.**
+  The verb lists every participant of an ambiguous label today, those with
+  no transcript included, and refuses `no-reference` when such a key is
+  chosen; one kind skipped would be a second rule.
 - **The head alone as the identity.** An uncommitted edit changes what a
   fresh member judges without moving the head.
 - **Tightening the ship gate's reading of a repository git refuses to
@@ -65,17 +76,18 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
 1. **A retry names the members that run.** `brokkr operator retry` accepts
    `--member <name>`, repeatable, on `retry` alone, and with it `--repo`,
    `--bundle`, `--recipe` and `--recipes-dir`, read and defaulted as
-   `resume` reads them. Each name resolves against the one panel of ruling
-   2, bare as the panel declares it or as the journal's tag
-   (`<step>:<member>` in a sequence), and is journaled resolved on the
-   retry's `operator/commanded` as `args.members`, in the panel's declared
-   order, the order the compiled bundle holds its members, whatever order
-   the names were given in: the verb journals the fresh members of the
-   plan the one rule returns and resolves nothing itself. A member given
-   twice is refused naming the tag, and a name that is one member's tag
-   and another member's bare name (`p:x` in a step `p` whose members are
-   `x` and `p:x`) is refused naming both tags in declared order, never
-   read one way; the engine matches journaled tags exactly and never asks it. A retry without `--member`
+   `resume` reads them. A member is named by its tag, the one
+   spelling the journal keys it with and every readout labels it by,
+   `<member>` in a seat's panel and `<step>:<member>` in a panel step,
+   matched exactly against the tags of the one panel of ruling 2 and read
+   no other way, so no name can read as two members; the tags are
+   journaled on the retry's `operator/commanded` as `args.members`, in the
+   panel's declared order, the order the compiled bundle holds its members,
+   whatever order the names were given in: the verb journals the fresh
+   members of the plan the one rule returns and resolves nothing itself. A
+   name that is no member's tag is refused naming the panel's tags in
+   declared order, and a tag given twice is refused naming it; the engine
+   matches journaled tags by the same exact match. A retry without `--member`
    journals `args: {}` and re-runs every member, byte for byte as today, as
    do the Looper bridge and the console. The fold does not read
    `args.members`; the engine reads them for the one effect the acceptance
@@ -83,9 +95,10 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    effect; an `args` that does not read as the verb writes it refuses the
    drive by name and is never read as the plain retry (ruling 4). Naming
    every member is admitted exactly when the plain retry is admitted, the
-   pinned bundle compiles, the visit's `panel-carry.v1` records read and the
-   names resolve; a record that does not read refuses it, at the command
-   and at the drive, as it refuses any member retry. Nothing is carried.
+   engine `resume` builds admits the run, the visit's `panel-carry.v1`
+   records read and the names match; a record that does not read refuses
+   it, at the command and at the drive, as it refuses any member retry.
+   Nothing is carried.
 
    **Enforcement binding:** `crates/brokkr-cli/src/tests.rs` (the argument
    facts before every refusal the handler makes today; the supersede-only
@@ -94,15 +107,17 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    journaled tags in declared order when the names are given out of it, the fold's refusal writing nothing, every member named
    beside a record that does not read refused for the record);
    `crates/brokkr-runtime/src/engine/carry/tests.rs` (the selection's scope:
-   no acceptance before an effect's request selects nothing; a name that
-   reads as two members refused naming both tags);
+   no acceptance before an effect's request selects nothing; a tag matched
+   exactly, `p:x` naming the member `x` alone where another member is
+   named `p:x`; a bare name refused naming the panel's tags);
    `contracts/panel-carry.v1.schema.json` (`args.members`).
 
 2. **The carry applies to one panel, and a verdict is carried only when
    nothing it judged has changed.** The panel is read from the pinned
-   bundle, which the verb compiles as `brokkr resume` compiles it and holds
-   to the manifest the journal pins at `run/started`, refused in `resume`'s
-   own words: the parked phase's body when it is a panel, or a sequence's
+   bundle, which the verb holds as `brokkr resume` holds it: it builds the
+   engine through `resume`'s own admission, the compile, the manifest gate
+   over the pin at `run/started`, the charter binding and the crossing
+   fence, spawns and drives nothing, and is refused in `resume`'s own words: the parked phase's body when it is a panel, or a sequence's
    first step when that step is a panel. A verdict settled in an attempt is
    carried only when four facts hold: the repository's head, recorded at
    both ends of the parked attempt and of every attempt the verdict is read
@@ -118,18 +133,26 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    `effect/succeeded`, a terminal fact recording `tree`, or the panel step's
    `sequence-step-finished` marker; an attempt bearing none is passed over,
    and the head and tree it could have changed are read again. The verb
-   asks every fact it can know before it writes, in one order with one text
-   per fact, and a refused command writes nothing; the engine asks the same
+   asks all four facts before it writes, the inputs through the engine it
+   built, by the one function the drive rebuilds them with, in one order
+   with one text per fact, and a refused command writes nothing; the
+   command is disposed of against the fold the facts were read at, so after
+   its write only the fence's own race refusal, `lost_fence`, can follow,
+   and the acceptance carries the tags alone; the engine asks the same
    facts at the drive before anything spawns, and a carry that no longer
    holds starts the attempt on no driver and ends it `effect/indeterminate`
    with the refusal's own sentence as its reason, so the run parks and
    nothing is auto-retried.
 
    **Enforcement binding:** `crates/brokkr-runtime/src/engine/carry.rs`,
-   one pure rule the verb and dispatch both call, deciding the two panel
-   facts from the selected body's shape before the names as well as every
-   later fact, and its `tests.rs` (every refusal by its fact and order; the
-   three-way test over every passed-over kind; the read-through);
+   one pure rule over the facts one engine method observes at the command
+   and at the drive, deciding the two panel facts from the selected body's
+   shape before the names as well as every later fact, and its `tests.rs`
+   (every refusal by its fact and order; the three-way test over every
+   passed-over kind; the read-through);
+   `engine/operator/retry/tests.rs` (a moved input refused at the command,
+   nothing written; a peer's acceptance before the disposition refused
+   `lost_fence`);
    `engine/carry/drive_tests.rs` (a head moved between acceptance and drive
    parks with the sentence; a moved input names its effect; an accepted
    retry whose members meet a body with no panel, or a panel step after
@@ -208,10 +231,11 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    seat, so it has no session, transcript, cost or provenance of its own
    and is not at work; the readers of participants that paint no status
    read it as such: `compare`'s resolutions skip it, muninn's cost rows
-   count no cost for it, the transcript verb neither matches it by label
-   nor lists it among an ambiguous label's keys, since it has no session to
-   open, and the dashboard's working checkpoints, which keep only
-   participants at work, hold none of it. A carry refused
+   count no cost for it, the transcript verb lists its key as it lists
+   every participant's and refuses `no-reference` when it is chosen, as it
+   refuses any participant with no recorded transcript, and the
+   dashboard's working checkpoints, which keep only participants at work,
+   hold none of it. A carry refused
    at the drive is a stated indeterminate whose reason is the sentence the
    verb refuses with for the same fact; the fold, `run/parked` and every
    readout treat it as they treat every stated reason today, and no marker,
@@ -221,9 +245,7 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
    `carried` (the participant's status, source and ordinal, and that it is
    not at work; a plain retry's view unchanged; `VIEW_VERSION` moved);
    `crates/brokkr-view/src/compare/tests.rs` (a carried label keeps its
-   source participant's resolution); the transcript selection's test
-   module beside `select_transcript_participant` in `brokkr-cli` (no
-   carried participant matched by label or listed);
+   source participant's resolution);
    `engine/carry/drive_tests.rs` (the stated park reason and `run/parked` after a drive-time refusal);
    `machine_proof/panel_carry.rs` (`inspect` and `seats` naming every
    carried verdict).
@@ -249,8 +271,10 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S22):
 ## Consequences
 
 - One stuck reviewer costs one reviewer's run. The incident's recovery is
-  `brokkr operator retry --member correctness` and `brokkr resume`, and the
-  three settled verdicts stand, named in the journal and the readouts.
+  `brokkr operator retry --member <tag>`, the tag the readouts print
+  (`correctness` in a seat's panel, `positions:correctness` in the shipped
+  review sequence), then `brokkr resume`, and the three settled verdicts
+  stand, named in the journal and the readouts.
 - A carry never widens silently and never carries across a moved head, a
   dirty tree, a drifted bundle or a moved input: each refuses by name at
   the command, and fails closed at the drive as a park.
