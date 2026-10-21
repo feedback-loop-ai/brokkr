@@ -2,12 +2,17 @@
 
 ### Requirement: An entered run names the runs it continues
 
-`brokkr run --enter` SHALL accept `--continues <run>`, repeatable, naming the earlier runs whose work on the branch the entered run continues; without `--enter` the flag SHALL be refused. Each value SHALL resolve as `--run` does, a full id, a unique prefix or `latest`, in the journal the new run is written to. Each named run MUST exist and be concluded, `completed` or `stopped`; a `running` run and an `awaiting_operator` run SHALL be refused naming the run and its status, since the one is still at work and the other is resumed or concluded first (decision 0092 ruling 4). A run named twice SHALL be refused. Every refusal SHALL come before an event is written. An entry that names no run SHALL be admitted: a branch with no run to continue, entered at a gate, is a landing.
+`brokkr run --enter` SHALL accept `--continues <run>`, repeatable, naming the earlier runs whose work on the branch the entered run continues; without `--enter` the flag SHALL be refused. Each value SHALL resolve as `--run` does, a full id, a unique prefix or `latest`, in the journal the new run is written to. Each named run MUST exist there and be concluded, `completed` or `stopped`; a `running` run and an `awaiting_operator` run SHALL be refused naming the run and its status, since the one is still at work and the other is resumed or concluded first (decision 0092 ruling 4). A run named twice SHALL be refused. Every refusal SHALL come before an event is written. The chain SHALL be the operator's word: existence and conclusion are checked and nothing else, no realm, repository or recipe is compared, and every surface SHALL say the chain as named at start. An entry that names no run SHALL be admitted: a branch with no run to continue, entered at a gate, is a landing.
 
 #### Scenario: Two stopped runs are continued
 
 - **WHEN** runs `a` and `b` stopped after committing their work, and a run is started with `--enter verify --continues a --continues b`
 - **THEN** the run starts, and its `run/started.entry.continues` lists `a` then `b`, each with the feature its own start recorded
+
+#### Scenario: A run of another recipe or realm is continued on the operator's word
+
+- **WHEN** `--continues` names a concluded run of the journal that ran another recipe, or pinned another realm
+- **THEN** the run starts and its entry records that run as named, with no refusal and no claim beyond the naming
 
 #### Scenario: A parked or running run is not continued
 
@@ -21,7 +26,7 @@
 
 ### Requirement: The journal records the entry and the chain
 
-`run/started` SHALL carry one optional object, `entry`, holding the phase entered and `continues`, the continued runs in the order named, each with its `run_id` and `feature`. It SHALL be absent on a run started without an entry, so every journal written before and every ordinary run after is byte for byte what it was. It SHALL be typed once, at the edge, and the fold SHALL read nothing of it: `RunState` gains nothing, and it is an additive, optional, absent-by-default field under the vocabulary's amended rule. The engine SHALL read it at start and at resume to enter the entry instead of `initial`, so a run journaled but not yet entered resumes into its entry. Its numbered extension schema SHALL be minted when decision 0094 is accepted (decision 0082 ruling 1); until then the decision and the type are its shape.
+`run/started` SHALL carry one optional object, `entry`, holding `phase`, the phase entered, and `continues`, the continued runs in the order named, each with its `run_id` and `feature`. It SHALL be absent on a run started without an entry, so every journal written before and every ordinary run after is byte for byte what it was. It SHALL be typed once, at the edge, and the fold SHALL read nothing of it: `RunState` gains nothing, and it is an additive, optional, absent-by-default field under the vocabulary's amended rule. The engine SHALL read it at start and at resume to enter the entry instead of `initial`, so a run journaled but not yet entered resumes into its entry. Its numbered extension schema SHALL be minted when decision 0094 is accepted (decision 0082 ruling 1); until then the decision and the type are its shape.
 
 #### Scenario: An ordinary run's start is unchanged
 
@@ -38,9 +43,37 @@
 - **WHEN** a journal written before `entry` existed is folded, verified and viewed
 - **THEN** it folds, verifies and views exactly as before, with no entry shown
 
+### Requirement: The seats of an entered run are told the entry and the chain
+
+Every seat input of an entered run SHALL carry `context.entry`: `phase`, the gate entered, and `continues`, the continued runs in the order named, each with `run_id` and `feature`, derived from `run/started.entry` alone so recovery rebuilds the same digest. No seat input of a run without an entry SHALL carry it. The continued runs' results SHALL NOT be handed: `context.results` holds only results of phases this run ran.
+
+#### Scenario: The reviewer is handed the chain
+
+- **WHEN** a run entered at `verify` continuing run `a` reaches `review`
+- **THEN** the review seat's input carries `context.entry` with phase `verify` and `continues` listing `a` by id and feature, and its `context.results` holds verify's result and nothing of run `a`'s
+
+#### Scenario: An ordinary seat input carries no entry
+
+- **WHEN** a run started without `--enter` reaches any seat
+- **THEN** its input carries no `context.entry`, and its digest is the digest the same journal produced before this change
+
+### Requirement: An entered run's review judges the whole branch
+
+Every review charter whose scope names the run's beginning SHALL scope the delivery as everything on the branch since its merge-base with the default branch, the cut the anchor's patch map takes and the gate vouches (decision 0038 ruling 1), and SHALL say that `context.entry` means the branch holds the work of the runs it names and all of it is the seat's to judge: `agents/charters/reviewer.md`, `review-correctness.md`, `review-security.md`, `review-adversarial.md` and `node-reviewer.md`, and the pinned copies `recipes/review-first/roles/reviewer.md` and `recipes/standby/roles/reviewer.md`, held to their source. A library test SHALL hold every charter under `agents/charters/` and every recipe role copy that names a review scope to the clause.
+
+#### Scenario: Every review charter names the base
+
+- **WHEN** the library's charters and the recipe role copies are read
+- **THEN** each of the five charters and both copies names the merge-base with the default branch and `context.entry`, and none scopes the review to the run's beginning alone
+
+#### Scenario: A copy that drifts from its source is refused
+
+- **WHEN** `recipes/standby/roles/reviewer.md` or `recipes/review-first/roles/reviewer.md` differs from `agents/charters/reviewer.md`
+- **THEN** the library test fails naming the copy and its source
+
 ### Requirement: The run view names the gate entered and the runs continued
 
-`RunView` SHALL derive once, from `run/started`, the entry: the gate and the continued runs, each led by its feature with its id after. The console's run header, `brokkr ui`, the TUI and `brokkr run`'s plain start line SHALL paint that derivation and derive nothing of their own; for a run without an entry nothing SHALL be painted. The fleet list is unchanged.
+`RunView` SHALL derive once, from `run/started`, the entry: the gate and the continued runs, each led by its feature with its id after, as named at start. The console's run header, `brokkr ui`, the TUI and `brokkr run`'s plain start line SHALL paint that derivation and derive nothing of their own; for a run without an entry nothing SHALL be painted. The fleet list is unchanged.
 
 #### Scenario: The header names the chain
 
@@ -54,12 +87,12 @@
 
 ### Requirement: The contribution gate reads the chain and still vouches
 
-`scripts/delivered-by-brokkr.sh` SHALL vouch an entered run exactly as it vouches any run: the ship anchor's per-file patch map is cut from the merge-base of the default branch and the vouched head, so it spans every commit on the branch whichever run or hand made it, and the tier is cut by the delta since that judgment (decision 0038). The gate SHALL read `entry` from the vouching run's verified journal and name the gate entered and each continued run's id on its check line. An `entry` whose shape it cannot read, not an object, a phase that is not a word, or `continues` not an array of objects whose `run_id` is a native run id, SHALL be a refusal, never a vouch; an absent `entry` SHALL read as today. The gate SHALL fetch no continued run's evidence.
+`scripts/delivered-by-brokkr.sh` SHALL vouch an entered run exactly as it vouches any run: the ship anchor's per-file patch map is cut from the merge-base of the default branch and the vouched head, so it spans every commit on the branch whichever run or hand made it, and the tier is cut by the delta since that judgment (decision 0038). The gate SHALL read `entry` from the vouching run's verified journal and name the gate entered and each continued run's id on its check line, never a feature text. An `entry` whose shape it cannot read, not an object, a `phase` outside `^[a-z0-9][a-z0-9._-]{0,63}$` (the grammar compile admission applies, held equal by a test), or `continues` not an array of objects whose `run_id` is a native run id (`[a-z0-9-]{0,32}-[0-9a-f]{8}`), SHALL be a refusal, never a vouch; an absent `entry` SHALL read as today. The gate SHALL fetch no continued run's evidence.
 
 #### Scenario: An entered run vouches for a branch two runs built
 
 - **WHEN** run `a` committed an implementation and stopped, run `b` entered at `verify` continuing `a` remediated once and shipped, and the pull request head is the head `b` anchored
-- **THEN** the gate passes at tier `vouched` and its line names run `b`, the gate `verify`, and run `a`
+- **THEN** the gate passes at tier `vouched` and its line names run `b`, the gate `verify`, and run `a` by id
 
 #### Scenario: A head edited after the entered run's judgment
 
@@ -68,5 +101,5 @@
 
 #### Scenario: A chain the gate cannot read
 
-- **WHEN** the vouching run's `run/started.entry` is a string, or lists a continued run without a native run id
+- **WHEN** the vouching run's `run/started.entry` is a string, names a phase outside the grammar, or lists a continued run without a native run id
 - **THEN** the gate refuses, naming the run and the unreadable entry, and the operator's by-hand label is the only way past, logged as every skip is

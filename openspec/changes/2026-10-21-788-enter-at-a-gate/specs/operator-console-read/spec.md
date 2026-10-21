@@ -8,8 +8,9 @@ Selecting a run SHALL show:
   in exactly one group (older holding acknowledged quarantines and every run
   that finished before the last day), with a text filter;
 - the run header with Brokkr's standing and, for a run entered at a gate, the
-  gate it entered at and the runs it continues, each led by its feature with
-  its id after, as the run view derives them (`run-continuation`);
+  gate it entered at and the runs it names as continued, each led by its
+  feature with its id after, as the run view derives them from the run's own
+  start (`run-continuation`), claiming nothing beyond the naming;
 - the graph of steps with their members, the model that served each, visits
   and the return paths taken;
 - the control plane on the graph, and why the run waits when it does;
