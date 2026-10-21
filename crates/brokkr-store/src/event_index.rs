@@ -29,7 +29,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
 
 use crate::schema::all_present;
 use crate::summary::text_at;
-use crate::{patiently, Store, StoreError};
+use crate::{patiently, Disagreement, Store, StoreError};
 
 /// The meta key that records the backfill finished (ruling 8): its own,
 /// so indexing an older journal sends no run's summary behind.
@@ -215,6 +215,28 @@ pub enum IndexFault {
     Column(&'static str),
     /// A row stands where the run holds no event.
     Stray,
+}
+
+/// Each run id the index holds rows of and `runs` does not, with its
+/// first such seq, in run id order: the rows a sweep that walks `runs`
+/// never reaches, read in one statement, so a run a peer creates meanwhile
+/// is never named (its `runs` row commits before its first event).
+const RUNLESS: &str = "SELECT run_id, min(seq) FROM event_index
+     WHERE run_id NOT IN (SELECT run_id FROM runs) GROUP BY run_id ORDER BY run_id";
+
+/// Every index row of a run the journal does not hold, named as a stray
+/// at its run's first such seq (ruling 4): no event stands behind it,
+/// since every event's run is a `runs` row.
+pub(crate) fn runless(conn: &Connection) -> Result<Vec<Disagreement>, StoreError> {
+    let mut statement = conn.prepare_cached(RUNLESS)?;
+    let found = statement.query_map([], |row| {
+        Ok(Disagreement::Indexed {
+            run_id: row.get(0)?,
+            seq: row.get(1)?,
+            fault: IndexFault::Stray,
+        })
+    })?;
+    Ok(found.collect::<Result<_, _>>()?)
 }
 
 /// The first seq where `run_id`'s index rows are not what `events`, the

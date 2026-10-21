@@ -29,7 +29,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
-use crate::event_index::{first_unindexed, IndexFault};
+use crate::event_index::{first_unindexed, runless, IndexFault};
 use crate::schema::all_present;
 use crate::{head_of, patiently, Acknowledgement, Store, StoreError};
 
@@ -623,7 +623,8 @@ impl Store {
     /// Every run read whole, one run at a time, so the memory is the
     /// largest run's (ruling 4), whose row disagrees with its fold, whose
     /// event index is not what its events project to, or which does not
-    /// load: what `brokkr doctor` names as failures. A run that loads,
+    /// load, then every run the index holds rows of and the journal does
+    /// not: what `brokkr doctor` names as failures. A run that loads,
     /// whose index agrees and whose row is behind its head is a lag, not a
     /// disagreement, and is passed.
     pub fn summary_disagreements(&self) -> Result<Vec<Disagreement>, StoreError> {
@@ -633,6 +634,7 @@ impl Store {
                 found.push(disagreement);
             }
         })?;
+        found.extend(runless(&self.conn)?);
         Ok(found)
     }
 

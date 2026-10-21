@@ -143,7 +143,7 @@ fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
         &db,
         "UPDATE event_index SET member = 'm' WHERE run_id = 'edited' AND seq = 1;
          DELETE FROM event_index WHERE run_id = 'gone';
-         INSERT INTO event_index (run_id, seq) VALUES ('stray', 9);",
+         INSERT INTO event_index (run_id, seq) VALUES ('stray', 9), ('absent', 4);",
     );
     let mut report = report();
     report_database(&mut report, Ok(&db));
@@ -155,6 +155,8 @@ fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
              event's in its member",
             "MISSING  summary: run 'gone': its event 1 has no event index row",
             "MISSING  summary: run 'stray': the event index holds a row at 9, where the run \
+             holds no event",
+            "MISSING  summary: run 'absent': the event index holds a row at 4, where the run \
              holds no event",
         ]
     );

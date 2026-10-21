@@ -308,6 +308,45 @@ fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() 
     }
 }
 
+/// Rows of a run the journal does not hold are named by the sweep, each
+/// run at its first such seq, after the runs it walks: no event stands
+/// behind them, and no walk of `runs` reaches them.
+#[test]
+fn rows_of_a_run_the_journal_does_not_hold_are_named_as_strays() {
+    let (_dir, store) = store();
+    three(&store);
+    store
+        .conn
+        .execute_batch(
+            "INSERT INTO event_index (run_id, seq) VALUES ('ghost', 7), ('ghost', 3), ('a', 1);
+             UPDATE event_index SET member = NULL WHERE run_id = 'r' AND seq = 1;",
+        )
+        .unwrap();
+    let named: Vec<String> = store
+        .summary_disagreements()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        named,
+        [
+            "run 'r': the event index row of its event 1 is not the event's in its member",
+            "run 'a': the event index holds a row at 1, where the run holds no event",
+            "run 'ghost': the event index holds a row at 3, where the run holds no event",
+        ]
+    );
+}
+
+/// A fresh journal's open finds no event to index and records the
+/// backfill finished, so its index is read from its first run.
+#[test]
+fn a_fresh_journal_is_read_by_its_index() {
+    let (_dir, store) = store();
+    assert!(backfilled(&store));
+    assert!(store.reads_index().unwrap());
+}
+
 /// A run's trail is every event but its checkpoints; a seat's stream is
 /// its checkpoints a page at a time, newest first, resumed below a seq;
 /// the envelopes are read by key in the order asked.

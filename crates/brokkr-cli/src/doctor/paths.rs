@@ -45,7 +45,8 @@ pub(super) fn report_database(report: &mut Report, db: Result<&Path, &FolderErro
 /// failure, since such a row is a bug or an edit and never a lag, and
 /// such a run is corrupt. So is every run whose event index is not what
 /// its events project to, wherever its summary row stands, since the
-/// trigger keeps an index row and it never lags. A summary the journal
+/// trigger keeps an index row and it never lags, and every run the index
+/// holds rows of that the journal does not. A summary the journal
 /// cannot be read for at all is one too. A journal whose every row agrees
 /// adds no line.
 fn report_summaries(report: &mut Report, store: &Store) {
