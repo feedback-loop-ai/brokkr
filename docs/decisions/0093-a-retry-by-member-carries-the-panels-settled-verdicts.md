@@ -35,7 +35,7 @@ head and the tree they judged at both ends of the attempt, a rule that says
 when such a verdict may be carried, a reading of the tree that trusts git's
 exit, and a readout that names a carried verdict.
 
-Weighed and set aside, each recorded in the change's proposal (S1 to S29):
+Weighed and set aside, each recorded in the change's proposal (S1 to S31):
 
 - **The verb alone deciding the carry.** A head moved between the command
   and the drive would be carried: a fail-open on the review gate.

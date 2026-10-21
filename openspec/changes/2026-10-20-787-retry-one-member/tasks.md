@@ -249,6 +249,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - `Engine::retry_members(&mut self, read, names, operator, reason)`, which runs steps 4 and 5:
     - **Step 4.** Observe through `Engine::carry_facts` at the command's cut-off, against the engine's repository and `seat_input`, then decide by `carry_plan` over the names as `Tag`s. A refusal is `CarryRefused`.
     - **Step 5.** Dispose through `disposed`, on the engine's store, with the fold of step 1 and `args.members` set to the returned plan's `fresh()` tags, in the panel's declared order whatever order the names were given in. The result is `Disposed`.
+  - `Engine::retry_members_racing(&mut self, read, names, operator, reason, before_command)`, the twin `retry_members` delegates to with a no-op, as `operator_command_racing` is to the plain verb: `before_command: impl FnMut(&mut Store)` is called once, after step 4's facts are decided and before step 5's `disposed` writes `operator/commanded`, the window in which a peer's acceptance makes the member form decide on a fold the journal has moved past. Production passes a no-op; the tests pass a store append.
 
   In `launch.rs`, `operator_retry_members(request, run, names, operator, reason) -> Result<MemberRetryOutcome, LaunchError>` runs the steps in order:
   1. `state_of`;
@@ -271,7 +272,8 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - in a step `p` with members `x` and `p:x`, `--member p:x` journaling `p:x`, and `--member x` refused;
   - a carry refusal returning `CarryRefused` and writing nothing;
   - every member named carrying nothing, a sequence parked at `chief` included;
-  - a peer's acceptance through the `between` hook before the disposition giving `Disposed(Rejected)` with `lost_fence`, journaled as today, with no `operator/accepted` carrying the tags.
+  - a peer's plain retry, its `operator/commanded` and `operator/accepted`, appended through `retry_members_racing`'s `before_command` hook, after the facts and before the command is written, giving `Disposed(Rejected)` with `lost_fence`, journaled, with no `operator/accepted` carrying the tags (the case task 10.1's `disposed` mutation must fail);
+  - the same peer appended through `disposed`'s existing `between` hook, after the command is written, giving `Disposed(Rejected)` with `lost_fence` as the plain retry's race does today.
 
   No test here reads a `brokkr-view` text. Verify: `cargo test -p brokkr-runtime operator::retry`.
 - [ ] 7.5 [R1] The CLI.
@@ -391,7 +393,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
     - the fold step skipped;
     - `input_holds` dropped from the command's facts (a member retry naming another secrets store than the source effect's is admitted);
     - the source rebuilt under the carrying effect's id (every carry refuses);
-    - `disposed` folding for itself after the facts (the race's word becomes `run_not_awaiting_operator`);
+    - `disposed` folding for itself after the facts (with the peer appended through `before_command`, the race's word becomes `run_not_awaiting_operator`);
     - the store dropped from the member form's request (a run driven with `--secrets-file` then refuses `InputMoved` at the command).
   - **The drive:**
     - the drive-time check removed;

@@ -395,8 +395,13 @@ Before any fact of items 3 to 9 is asked, after item 2 and before the engine is 
 
 #### Scenario: The journal moved between the facts and the command
 
-- **WHEN** the member form has read its facts and found them to hold, and a peer's plain retry is accepted on the same run before the member form's command is disposed of
+- **WHEN** the member form has read its facts and found them to hold, and a peer's plain retry is commanded and accepted on the same run after the facts and before the member form's command is written
 - **THEN** the member form's `operator/commanded` is journaled and refused `operator/rejected` with the word `lost_fence`, as the plain retry's race is; no `operator/accepted` carries its `args.members`; and the peer's effect runs every member, its own acceptance having journaled `args: {}`
+
+#### Scenario: The journal moved after the command was written
+
+- **WHEN** the member form's `operator/commanded` is written and a peer's plain retry is accepted on the same run before the member form's acceptance
+- **THEN** the member form's command is refused `operator/rejected` with the word `lost_fence`, as the plain retry's race is today, and no `operator/accepted` carries its `args.members`
 
 ### Requirement: The carrying attempt runs the named members and aggregates as a fresh panel
 

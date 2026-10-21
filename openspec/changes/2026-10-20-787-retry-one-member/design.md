@@ -2,7 +2,7 @@
 
 Decision 0093 carries the rulings. This design carries what the code does,
 the evidence behind each choice, and the council's positions reconciled.
-The proposal's record (S1 to S29) holds the clarify history, and the lists,
+The proposal's record (S1 to S31) holds the clarify history, and the lists,
 orders and texts a refusal or a record carries are the specs' own
 (`panel-member-retry` R1 to R5, `panel-attempt-record` A1 to A4,
 `working-tree-reading` W1 and W2), stated there once and pinned once in the
@@ -423,13 +423,14 @@ Clippy's `too_many_arguments` counts `self` against its threshold of seven.
 
 - `engine.rs`: `Selection` gains `carry: Option<carry::CarryPlan>`, one
   field with its doc line, `None` by `Default`, so every existing caller of
-  `Selection::new()` runs the plain attempt (D7); `git_dirty` keeps its
-  name and place and becomes one `matches!` over the reading (D10); `mod
-  worktree;` and `mod carry;` are added. The lines the spawn loses pay for
-  the four gained; should the count come short, `git_head` and `git_dirty`
-  move into `worktree.rs` whole, with `pub use worktree::git_head;`
-  keeping the one public reader `brokkr realms` reads (ruling 5). No field
-  is added to `Engine`.
+  `Selection::new()` runs the plain attempt (D7); `git_head` and
+  `git_dirty` move into `worktree.rs` whole, `git_dirty` keeping its name
+  and its boolean and becoming one `matches!` over the reading (D10), with
+  `pub use worktree::git_head;` keeping the one public reader `brokkr
+  realms` reads (ruling 5) and `use worktree::git_dirty;` for the ship
+  gate's caller; `mod worktree;` and `mod carry;` are added. The two
+  functions' lines pay for the lines gained, so the file shrinks (task
+  1.2). No field is added to `Engine`.
 - `engine/worktree.rs`, with `engine/worktree/tests.rs`: the one reader
   (D10).
 - `engine/carry.rs`, with `carry/record.rs`, `carry/facts.rs` and
@@ -1228,11 +1229,17 @@ return `CarryRefused(NoPanel)` and `CarryRefused(PanelStepFollows)`;
 `CarryRefused(UnknownMember)` naming the four `positions:` tags, and
 `--member positions:correctness` is admitted and journals that tag; every
 member named carries nothing, a sequence parked at `chief` included; a
-peer's acceptance appended through the `between` hook before the
-disposition is `Disposed(Rejected)` with `lost_fence`, journaled as today,
-and no `operator/accepted` carries the tags (mutation: `disposed` folding
-for itself after the facts, so the peer's acceptance reads as illegal when
-asked and the word is `run_not_awaiting_operator`); no runtime test reads a
+peer's plain retry, its command and acceptance, appended through
+`retry_members_racing`'s `before_command` hook, after the facts are decided
+and before `disposed` writes the command, is `Disposed(Rejected)` with
+`lost_fence`, journaled, and no `operator/accepted` carries the tags
+(mutation: `disposed` folding for itself after the facts, so the peer's
+acceptance reads as illegal when asked and the word is
+`run_not_awaiting_operator`); the same peer through `disposed`'s existing
+`between` hook, after the command is written, is the plain retry's race
+and refuses `lost_fence` as today, kept as a second case; `retry_members`
+is `retry_members_racing` with a no-op hook, as `operator_command` is
+`operator_command_racing`'s; no runtime test reads a
 `brokkr-view` text.
 
 `crates/brokkr-runtime/src/engine/carry/drive_tests.rs` (dispatch, with the
@@ -1353,9 +1360,10 @@ take no test of this change (D9); `commands/tests.rs` pins S21's text; the
   the stamp on `StepRun`, within its 800 ceiling; if `step_result`'s stamp
   would pass it, the stamp lives in `carry/record.rs` and the sequence calls
   it.
-- **`engine.rs` is left with a line or two spare** after `Selection.carry`
-  and the two `mod` lines; D1's fallback, moving `git_head` and `git_dirty`
-  whole, stands behind it.
+- **`engine.rs` stands at its baseline**, so `git_head` and `git_dirty`
+  move into `worktree.rs` whole and pay for `Selection.carry`, the two
+  `mod` lines and the two `use` lines; task 1.2 measures the file at or
+  under 3,523 lines.
 - **Two paths reach the one rule**, `None` and `Some`. Both end in
   `outcome_over`, and D13's first test drives the same verdicts through
   both and compares the bytes, so a divergence fails a binding test.
