@@ -120,9 +120,12 @@ this decision and the Rust types are their shape.
    it is encoded.
 
    **Enforcement binding:** `crates/brokkr-runtime/src/bundle/entry.rs`
-   (`admit`, `admitted`, `first_phase`, `EntryError`; the third fact and its witness one
+   (`admit`, `admitted`, `first_phase`, `EntryError` framing an `EntryRefusal`;
+   the second fact by `is_entry_name` in `crates/brokkr-core/src/entry.rs`;
+   the third fact and its witness one
    value, `Seat.gate`, a closed `GateAssessment`) and its tests in
-   `bundle/tests.rs`; `crates/brokkr-runtime/tests/table_lints.rs` pins
+   `bundle/tests/entry.rs`, a child declared in `bundle/tests.rs`;
+   `crates/brokkr-runtime/tests/table_lints.rs` pins
    the admitted set of every shipped table by shape, `verify, review` in
    the `fast`-shaped tables, `panel-review`, `self`, `preflight` and
    `verify`, `classify, verify, review` in `landing`, `verify` in
@@ -160,7 +163,7 @@ this decision and the Rust types are their shape.
    `crates/brokkr-core/src/policy/audit.rs`, read by
    `assert_phase_unavoidable` (in `bundle/phases.rs`, its one caller's
    module; its refusal text unchanged) and by the admission's fourth
-   fact; the `ship` refusal and the review-entry cases in `bundle/tests.rs`, `machine_proof/entered_run.rs` and
+   fact; the `ship` refusal and the review-entry cases in `bundle/tests/entry.rs`, `machine_proof/entered_run.rs` and
    `crates/brokkr-cli/tests/delivered_by_brokkr.rs` (a run entered at
    review vouches, and its line says so); `recipes/landing/README.md`.
 
@@ -181,12 +184,13 @@ this decision and the Rust types are their shape.
    the run view's roads back, and nothing else decides a direction. No
    seat input of a run without an entry moves.
 
-   **Enforcement binding:** `Direction` in `crates/brokkr-core/src/policy.rs`
-   and its tests; `seat_context` in `crates/brokkr-runtime/src/engine/input.rs`
-   with the pins in `engine/tests.rs` (the first return after
+   **Enforcement binding:** `Direction` in `crates/brokkr-core/src/policy/direction.rs`,
+   re-exported at `brokkr_core::policy::Direction`, and its tests in
+   `policy/tests.rs`; `seat_context` in `crates/brokkr-runtime/src/engine/input.rs`
+   with the pins in `engine/tests/entry.rs` (the first return after
    `VERIFY-FAIL` handed, the forward first visit after `IMPL-OK` not, the
    ordinary run's input digest standing, a landing's first return still
-   without); the forward-work refusals in `bundle/tests.rs`.
+   without); the forward-work refusals in `bundle/tests/entry.rs`.
 
 4. **A skipped phase's fact is an admission fact, never a carried one.**
    Three journal facts can be needed by a phase an entered run reaches
@@ -224,7 +228,7 @@ this decision and the Rust types are their shape.
    `crates/brokkr-core/src/policy/audit.rs` and its tests;
    `CHANGE_SOURCES` in `crates/brokkr-runtime/src/phase_name.rs`, read by
    `nearest_change` (`engine/sequence.rs`) and the admission's sixth fact; the fixtures in
-   `bundle/tests.rs` (a selector with a default admitted, a group only a
+   `bundle/tests/entry.rs` (a selector with a default admitted, a group only a
    skipped strategy decides refused, a `{change}` step with no road to its
    source refused, two facts failing with the first named).
 
@@ -260,13 +264,15 @@ this decision and the Rust types are their shape.
    and reports the runs the operator named; it fetches no continued run's
    evidence and imports no result, verify, review, counter or security
    clearance from one, so a missing or unpublished predecessor supplies no
-   authority and skips no gate. The two grammars are held equal to the
-   compiler's and the launch's by one test.
+   authority and skips no gate. The two grammars are held to the core's two
+   predicates, `is_entry_name` and `is_native_run_id`, which the compiler
+   and the launch apply, by one test.
 
    **Enforcement binding:** the `--continues` refusals in
    `crates/brokkr-runtime/src/launch.rs` with `launch/tests.rs`;
-   `is_native_run_id` and `check_record` in `crates/brokkr-core/src/entry.rs`,
-   the mint held to the grammar by a test in `engine/tests.rs` over a freshly minted id; the Looper-bound refusal in `launch.rs`, with
+   `is_entry_name`, `is_native_run_id` and `check_record` in
+   `crates/brokkr-core/src/entry.rs`,
+   the mint held to the grammar by a test in `engine/tests/entry.rs` over a freshly minted id; the Looper-bound refusal in `launch.rs`, with
    a concluded Looper-bound run whose id is native-shaped refused in
    `launch/tests.rs`; `scripts/delivered-by-brokkr.sh`;
    `crates/brokkr-cli/tests/delivered_by_brokkr.rs` (an entered run over
@@ -312,7 +318,7 @@ this decision and the Rust types are their shape.
    `crates/brokkr-core/src/entry.rs` with their tests (absent, empty chain,
    and every row of `tests/support/entry_records.rs` by variant); `first_phase` in `crates/brokkr-runtime/src/bundle/entry.rs`, called at `Cursor::Start`,
    with the resume-window, no-longer-admits and does-not-read pins in
-   `engine/tests.rs`, and `Engine::start_in_world`'s refusal of a record
+   `engine/tests/entry.rs`, and `Engine::start_in_world`'s refusal of a record
    outside the language before `create_run`, pinned there with no run
    created; `crates/brokkr-cli/tests/witness_journal.rs`, whose `GOLDEN`
    `run/started` row gains `phases` with a comment citing this ruling; the
@@ -348,7 +354,7 @@ this decision and the Rust types are their shape.
    branch ever holds `--enter` without the clause.
 
    **Enforcement binding:** `seat_context` in `engine/input.rs` with the
-   reviewer, triage and ordinary-input pins in `engine/tests.rs`;
+   reviewer, triage and ordinary-input pins in `engine/tests/entry.rs`;
    `crates/brokkr-runtime/tests/roster.rs` (the two copies byte for byte
    their source, standing); `crates/brokkr-runtime/tests/library_data.rs`
    (the clause by path and the rule over both trees, the follow-on
@@ -396,8 +402,10 @@ this decision and the Rust types are their shape.
    sent back once, a run entered at review reforged, a landing's first
    return, a journal with no order reading as before); `VIEW_VERSION` and
    `extensions/dsh/brokkr-console/lib/host/readouts.js`; the painters'
-   tests in `crates/brokkr-cli/src/ui/tests.rs`, the TUI snapshots and the
-   console's; the start-line pin in `machine_proof/entered_run.rs`.
+   tests, `brokkr ui`'s in `crates/brokkr-cli/src/ui/tests/entry_tests.rs`,
+   the TUI's in `crates/brokkr-cli/src/tui/snapshot_tests.rs` and the
+   console's in `tests/client.test.js`; the start-line pin in
+   `machine_proof/entered_run.rs`.
 
 9. **`landing` stays a recipe, and a judgment that could not land is
    relit as a landing that names the run it continues.** `landing` adds a
