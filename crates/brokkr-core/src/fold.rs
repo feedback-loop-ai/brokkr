@@ -17,6 +17,8 @@ use crate::envelope::{EventEnvelope, EventType};
 use crate::gate_moved_head;
 use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY_PHASE};
 
+mod operator;
+use operator::{accept, command};
 mod relation;
 use relation::{Arm, Position, Transition};
 mod run;
@@ -261,17 +263,27 @@ pub enum OperatorCommand {
     /// Concludes the run wherever it stands, riding an in-flight attempt
     /// to its boundary first.
     Stop,
+    /// Releases the writer reservation of a run's ended attempts on the
+    /// operator's attestation that every process they owned has ended
+    /// (decision 0065 slice two, U8e3). It moves nothing: the attempts stay
+    /// as they ended, and the run where it stands.
+    Release,
 }
 
 impl OperatorCommand {
     /// Every command, in the order `brokkr operator` names them.
-    pub const ALL: [OperatorCommand; 2] = [OperatorCommand::Retry, OperatorCommand::Stop];
+    pub const ALL: [OperatorCommand; 3] = [
+        OperatorCommand::Retry,
+        OperatorCommand::Stop,
+        OperatorCommand::Release,
+    ];
 
     /// The word `operator/commanded` records.
     pub const fn as_str(self) -> &'static str {
         match self {
             OperatorCommand::Retry => "retry",
             OperatorCommand::Stop => "stop",
+            OperatorCommand::Release => "release",
         }
     }
 
@@ -350,7 +362,8 @@ fn terminal(status: Status) -> bool {
 /// - A run that has gone `Completed`/`Stopped` takes no acceptance.
 /// - `retry` moves a run from parked back to running, so it needs the
 ///   run still parked, and a phase to return to.
-/// - `stop` is a live kill switch and lands wherever a live run stands.
+/// - `stop` is a live kill switch and lands wherever a live run stands, and
+///   `release`, which moves nothing, lands wherever one stands too.
 pub fn acceptance_refusal(state: &RunState, command: OperatorCommand) -> Option<Refusal> {
     if terminal(state.run.status()) {
         return Some(Refusal::AfterTerminal);
@@ -360,7 +373,7 @@ pub fn acceptance_refusal(state: &RunState, command: OperatorCommand) -> Option<
             Some(Refusal::RunNotAwaitingOperator)
         }
         OperatorCommand::Retry if state.phase.is_none() => Some(Refusal::NoPhaseToRetry),
-        OperatorCommand::Retry | OperatorCommand::Stop => None,
+        OperatorCommand::Retry | OperatorCommand::Stop | OperatorCommand::Release => None,
     }
 }
 
@@ -698,59 +711,6 @@ fn rule(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
         }
     });
     state.last_decision = Some(decision);
-    Ok(())
-}
-
-fn command(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    state.pending_command = Some((
-        payload_str(event, "command_id")?,
-        payload_str(event, "command")?,
-    ));
-    Ok(())
-}
-
-fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    let command_id = payload_str(event, "command_id")?;
-    let Some((pending_id, command)) = state.pending_command.take() else {
-        return Err(FoldError::NoMatchingCommand { seq: event.seq });
-    };
-    if pending_id != command_id {
-        return Err(FoldError::NoMatchingCommand { seq: event.seq });
-    }
-    let Some(command) = OperatorCommand::parse(&command) else {
-        return Err(FoldError::UnknownCommand {
-            seq: event.seq,
-            command,
-        });
-    };
-    // `acceptance_refusal`'s terminal answer never reaches here: the
-    // relation refuses every event after a terminal first. What is left
-    // is a retry with nothing to return to.
-    if acceptance_refusal(state, command).is_some() {
-        return Err(out_of_place(state, event));
-    }
-    match command {
-        OperatorCommand::Retry => state.run = Run::Running(Cursor::RequestEffect),
-        // `brokkr operator` is a live kill switch: it journals the
-        // command AND its acceptance without reading the run's cursor
-        // first, so a stop legitimately lands wherever the run stands.
-        // It always reaches a conclusion; only WHEN differs. Mid-flight
-        // it rides — the attempt is untouched, its checkpoints keep
-        // applying, and the effect's own boundary (result, failure, or
-        // indeterminate close) concludes the run per it, so decision
-        // 0006's attempt bounds are never truncated. Anywhere else there
-        // is no attempt to wait for, so the run concludes where it
-        // stands: parked (the operator answering a park with "stop") and
-        // running between effects are the same sentence, finished at the
-        // first position the journal offers.
-        OperatorCommand::Stop => {
-            if let Run::Running(Cursor::EffectInFlight { stop_rides, .. }) = &mut state.run {
-                *stop_rides = true;
-            } else {
-                state.run = Run::Running(Cursor::Stop);
-            }
-        }
-    }
     Ok(())
 }
 
