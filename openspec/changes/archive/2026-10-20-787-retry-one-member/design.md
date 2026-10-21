@@ -1173,7 +1173,10 @@ is today; muninn's cost rows and the dashboard's working checkpoints need no
 change, for the reasons A3 gives. `render.rs` tones `carried` as good
 (`tone`, cyclomatic 5), and `inspect` (17, over the ceiling) is not edited,
 since it paints participants through `seats_block`; `VIEW_VERSION` moves
-from 23 to 24. The console offers no member retry.
+up by one. The console offers no member retry.
+
+*Amended, 2026-10-21:* the move is from 25 to 26, not 23 to 24, because
+#568's run view took 24 and #753's page of runs took 25 first.
 
 Alternatives: skipping a carried participant in the transcript verb's
 selection (withdrawn at S27: a second rule for one kind of participant
@@ -1556,7 +1559,7 @@ or the panel's parameter object. The test module fits engine.rs's baseline.
   `effect/started`, `effect/indeterminate` and `effect/failed` and ignores
   them, as it ignores `provenance` and `boundary`; the frozen schemas are
   not edited, and `panel-carry.v1` is additive.
-- `VIEW_VERSION` 24: the console and `ui.html` read the new participant
+- `VIEW_VERSION` 26 (D13's amendment): the console and `ui.html` read the new participant
   field; an older plugin paints a carried participant by its status word.
 - `--member` takes the tag the readouts print: `correctness` names a seat
   panel's member and `positions:correctness` the shipped review sequence's.

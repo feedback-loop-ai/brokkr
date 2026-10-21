@@ -1023,8 +1023,16 @@ fn the_reader_scrolls_long_notes_line_by_line_to_their_last_line() {
 /// `run`'s journal last moved when [`DEAD`]'s did, days past the
 /// staleness bound, while its fold still calls it running.
 fn fall_silent(views: &mut Views, run: &str) {
-    let row = views.runs.runs.iter_mut().find(|row| row.run_id == run);
-    row.unwrap().last_recorded_at = Some("2025-12-27T04:00:00Z".to_string());
+    let row = views
+        .runs
+        .runs
+        .iter_mut()
+        .find(|row| row.run_id == run)
+        .unwrap();
+    let silent = "2025-12-27T04:00:00Z";
+    row.last_recorded_at = Some(silent.to_string());
+    // The key a row is sectioned and staled by, which its read derives.
+    row.order_at = brokkr_core::stamp::parse_millis(silent).unwrap();
 }
 
 /// A run its fold calls running, with a seat still in flight, that

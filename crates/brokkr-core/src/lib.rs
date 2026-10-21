@@ -12,6 +12,7 @@ pub mod envelope;
 pub mod fold;
 pub mod gate_moved_head;
 pub mod keep_refs;
+pub mod page;
 pub mod policy;
 pub mod realms;
 pub mod residual;

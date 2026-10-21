@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::envelope::{EventEnvelope, EventType};
@@ -94,6 +94,19 @@ impl Claim {
             Claim::SecurityResidual | Claim::HighRiskUncovered => "true",
         }
     }
+
+    /// The claim whose [`Claim::input`] and [`Claim::value`] are `input`
+    /// and `value`, read back from those words: `None` for a pair no
+    /// claim states, a severity of `none` among them.
+    pub(crate) fn named(input: &str, value: &str) -> Option<Claim> {
+        let claim = match Severity::named(value) {
+            Some(severity) => Claim::MaxSeverity(severity),
+            None if input == Claim::SecurityResidual.input() => Claim::SecurityResidual,
+            None => Claim::HighRiskUncovered,
+        };
+        let stated = claim.severity() != Some(Severity::None);
+        (stated && claim.input() == input && claim.value() == value).then_some(claim)
+    }
 }
 
 /// One residual claim a ruling carries.
@@ -104,6 +117,15 @@ pub struct Residual<'a> {
     /// The phase that ruled.
     pub phase: ResidualPhase,
     pub claim: Claim,
+}
+
+impl Residual<'_> {
+    /// The rule its ruling names, where the ruling names one as text: the
+    /// one reading of a finding's rule id, which the writer's summary and
+    /// every readout of a run's findings make (decision 0071 ruling 5).
+    pub(crate) fn rule_id(&self) -> Option<&str> {
+        self.ruling.payload.get("rule_id").and_then(Value::as_str)
+    }
 }
 
 /// Every residual claim in a run's journal, in journal order and then in
@@ -144,7 +166,8 @@ pub fn residuals(events: &[EventEnvelope]) -> Vec<Residual<'_>> {
 /// Where a supersede says a finding is closed: the fact a run's journal
 /// carries at `seq`, in `realm` when the annotation named one (decision
 /// 0047 ruling 1).
-#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Citation {
     pub realm: Option<String>,
     pub run_id: String,
@@ -154,7 +177,8 @@ pub struct Citation {
 /// The operator's word that a residual finding is closed elsewhere, as
 /// the journal carries it: the annotation's own seq, what it cites, and
 /// who wrote it, when and why, `None` where the annotation says nothing.
-#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Mark {
     pub seq: u64,
     pub by: Citation,

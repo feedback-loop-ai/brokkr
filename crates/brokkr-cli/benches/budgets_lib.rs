@@ -12,6 +12,7 @@ use brokkr_core::fold::{fold, fold_onto, RunState};
 use brokkr_core::realms::Boundary;
 use brokkr_runtime::dialect::Dialect;
 use brokkr_runtime::Bundle;
+use brokkr_store::test_support::Width;
 use gungraun::{library_benchmark, library_benchmark_group, main};
 
 /// A real exported run: 105 events, 88 of them checkpoints.
@@ -136,9 +137,43 @@ fn tui_frame(events: Vec<EventEnvelope>) -> ratatui::buffer::Buffer {
     ))
 }
 
+/// A generated journal of 2,000 runs of `events` each (decision 0089
+/// ruling 9), and the directory that holds it while it is read.
+fn fleet_journal(events: u64) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let db = dir.path().join("forge.db");
+    let store = brokkr_store::Store::open(&db).expect("a fresh journal opens");
+    let runs = brokkr_store::test_support::fleet(NOW, events, Width::Wide);
+    brokkr_store::test_support::generate(&store, &runs).expect("the journal is generated");
+    (dir, db)
+}
+
+fn fleet_10k() -> (tempfile::TempDir, PathBuf) {
+    fleet_journal(5)
+}
+
+fn fleet_1m() -> (tempfile::TempDir, PathBuf) {
+    fleet_journal(500)
+}
+
+// The console's first fleet page at 80×24, open to painted frame: the
+// summary's index read a page and the one ahead, each row checked against
+// its run's head, and drawn. Its counts are the same at 10,000 events as
+// at 1,000,000 (decision 0089 ruling 9).
+#[library_benchmark]
+#[bench::events_10k(setup = fleet_10k)]
+#[bench::events_1m(setup = fleet_1m)]
+fn fleet_page(journal: (tempfile::TempDir, PathBuf)) -> String {
+    let (_dir, db) = journal;
+    black_box(
+        brokkr_cli::fleet_frame_for_budget(black_box(&db), NOW, 80, 24)
+            .expect("the first page reads"),
+    )
+}
+
 library_benchmark_group!(
     name = hot_paths;
-    benchmarks = fold_journal, fold_turn, run_view, compile_bundle, tui_frame
+    benchmarks = fold_journal, fold_turn, run_view, compile_bundle, tui_frame, fleet_page
 );
 
 main!(library_benchmark_groups = hot_paths);

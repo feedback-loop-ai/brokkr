@@ -28,6 +28,58 @@ pub(crate) struct Views {
     /// would have counted toward the give-up bound and ended the
     /// console over a realm that has simply not run yet.
     pub note: Option<String>,
+    /// What the fleet's pages leave unread (decision 0089 ruling 6).
+    pub unread: Unread,
+    /// The window of the fleet this frame was read for.
+    pub window: Window,
+    /// The key past the window's first page, where the page ahead
+    /// begins, when the fleet runs on past it.
+    pub ahead: Option<brokkr_view::Cursor>,
+}
+
+/// Where the fleet's list reads from (decision 0089 ruling 6): the key
+/// past the rows it has scrolled beyond, or its top, and the filter it
+/// keeps rows by. A frame reads the page there and the one ahead.
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub(crate) struct Window {
+    pub after: Option<brokkr_view::Cursor>,
+    pub filter: String,
+}
+
+/// How far the fleet's list has scrolled: the key past each of the last
+/// [`SCROLL_BACK`] pages it has scrolled beyond, in order, under the filter
+/// it scrolled with. It reads from the last; a list under another filter
+/// reads from its top.
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+pub(crate) struct Scrolled {
+    pub filter: String,
+    pub past: Vec<brokkr_view::Cursor>,
+}
+
+/// How many pages back the list keeps the keys to step to, so what it
+/// holds does not grow with how far it scrolls (decision 0089 rulings 6
+/// and 9). A step back past them reaches its top, until the fleet's last
+/// page by the reverse order, a later slice's, reads back by keyset.
+pub(crate) const SCROLL_BACK: usize = 8;
+
+impl Scrolled {
+    /// The list scrolled past the page `ahead` ends, keeping the keys of
+    /// the last [`SCROLL_BACK`] pages alone.
+    pub(crate) fn passed(&mut self, ahead: brokkr_view::Cursor) {
+        if self.past.len() == SCROLL_BACK {
+            self.past.remove(0);
+        }
+        self.past.push(ahead);
+    }
+}
+
+/// The runs a frame's pages did not read: the older ones past them,
+/// counted by the summary's index, and the runs behind their summary past
+/// those a refresh reads whole, which "needs you" counts in one line.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub(crate) struct Unread {
+    pub older: usize,
+    pub behind: u64,
 }
 
 impl Views {
@@ -36,14 +88,13 @@ impl Views {
     pub(crate) fn empty() -> Views {
         Views {
             now: String::new(),
-            runs: RunsView {
-                view_version: brokkr_view::VIEW_VERSION,
-                runs: Vec::new(),
-                count: 0,
-            },
+            runs: RunsView::of(Vec::new()),
             run: None,
             transcript: None,
             note: None,
+            unread: Unread::default(),
+            window: Window::default(),
+            ahead: None,
         }
     }
 }
@@ -89,6 +140,9 @@ pub(crate) struct Ask<'a> {
     /// visited has had no store opened for it — the laziness is the
     /// absence of a question, not a cache.
     pub tab: usize,
+    /// The window of the fleet the list asks to be read: the page its
+    /// window starts at and the one ahead (decision 0089 ruling 6).
+    pub window: Window,
 }
 
 // -------------------------------------------------------------- the state
@@ -144,6 +198,8 @@ pub(crate) struct TabState {
     pub toggles: Toggles,
     /// Whether its dashboard shows the whole commission (`c`).
     pub commission: bool,
+    /// How far this hearth's fleet has scrolled.
+    pub scrolled: Scrolled,
 }
 
 /// Owned scalars only. Selection is by **stable key** — `RunRow.run_id`,
@@ -209,6 +265,9 @@ pub(crate) struct Tui {
     /// `a`: the fleet lists its older runs too, where it otherwise folds
     /// them into one count line (#491).
     pub all: bool,
+    /// How far the fleet's list has scrolled, by keyset (decision 0089
+    /// ruling 6).
+    pub scrolled: Scrolled,
     /// The running runs the fleet has opened in place, by id (#503): `→`,
     /// `l` or Space open the selected one, `←` or `h` fold it.
     pub expanded: BTreeSet<String>,
@@ -280,6 +339,7 @@ impl Tui {
             ticks: 0,
             force: true,
             all: false,
+            scrolled: Scrolled::default(),
             expanded: BTreeSet::new(),
             width: 0,
             height: 0,
@@ -334,6 +394,7 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
         expanded: std::mem::take(&mut tui.expanded),
         toggles: tui.toggles,
         commission: tui.commission,
+        scrolled: std::mem::take(&mut tui.scrolled),
     };
     let resumed = tui.parked[index].clone();
     tui.tab = index;
@@ -344,6 +405,7 @@ pub(super) fn switch(tui: &mut Tui, index: usize) {
     tui.expanded = resumed.expanded;
     tui.toggles = resumed.toggles;
     tui.commission = resumed.commission;
+    tui.scrolled = resumed.scrolled;
     tui.live_offset = 0;
     tui.level = Level::Runs;
     tui.pane = 0;
@@ -386,7 +448,7 @@ pub(super) fn panes_at(tui: &Tui, views: &Views) -> usize {
 /// the same question the run level asks.
 pub(super) fn asked_run(tui: &Tui, views: &Views) -> Option<String> {
     match tui.level {
-        Level::Runs => detail_row(tui, views).map(|row| row.run_id.clone()),
+        Level::Runs => detail_row(tui, views).map(|row| key_of(row).to_string()),
         Level::Run | Level::Participant => tui.run.clone(),
     }
 }
@@ -437,14 +499,19 @@ pub(super) fn settle(tui: &mut Tui, views: &Views) {
             tui.pane = 1;
         }
     }
-    // A fleet that lists runs and does not list this one has lost it.
-    // An empty fleet is the unreadable-journal frame, which is not
-    // evidence that the run went away.
+    // The fleet's rows are a window of pages read by keyset (decision 0089
+    // ruling 6), and a writer moves a run out of it, so a run missing from
+    // them has not gone on that account. Only the run level reads the open
+    // run, and there the frame says what it found: a view of it, or, when
+    // the store refused it, its row in the store's words (ruling 5). A
+    // fleet that lists runs while the frame holds neither has lost it. An
+    // empty fleet is the unreadable-journal frame, which is not evidence
+    // that the run went away.
     let vanished = match &tui.run {
-        Some(run) => {
-            !views.runs.runs.is_empty() && !views.runs.runs.iter().any(|r| r.run_id == *run)
+        Some(run) if tui.level != Level::Runs && views.run.is_none() => {
+            !views.runs.runs.is_empty() && !views.runs.runs.iter().any(|row| key_of(row) == run)
         }
-        None => false,
+        Some(_) | None => false,
     };
     if vanished {
         tui.run = None;

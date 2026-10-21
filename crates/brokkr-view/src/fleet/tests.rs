@@ -370,7 +370,7 @@ fn the_sections_are_ordered_by_who_must_act() {
     assert_eq!(
         ids(sections(&view.runs, NOW)),
         [
-            (Section::NeedsYou, vec!["parked", "quarantined"]),
+            (Section::NeedsYou, vec!["quarantined", "parked"]),
             (Section::Running, vec!["running"]),
             (Section::Recent, vec!["undated", "under-a-day"]),
             (Section::Older, vec!["a-day-old"]),
@@ -379,7 +379,7 @@ fn the_sections_are_ordered_by_who_must_act() {
     assert_eq!(
         ids(sections(&view.runs, "no clock")),
         [
-            (Section::NeedsYou, vec!["parked", "quarantined"]),
+            (Section::NeedsYou, vec!["quarantined", "parked"]),
             (Section::Running, vec!["running"]),
             (Section::Recent, vec!["undated", "under-a-day", "a-day-old"]),
             (Section::Older, vec![]),
@@ -414,7 +414,7 @@ fn a_finished_run_is_dated_by_its_last_event() {
             (Section::NeedsYou, vec![]),
             (Section::Running, vec![]),
             (Section::Recent, vec!["ended-today"]),
-            (Section::Older, vec!["never-moved", "ended-a-day-ago"]),
+            (Section::Older, vec!["ended-a-day-ago", "never-moved"]),
         ]
     );
 }
@@ -534,7 +534,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 25);
+    assert_eq!(json["view_version"], 26);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);

@@ -138,6 +138,11 @@ name = "heap_codex"
 [[test]]
 name = "heap_dsh"
 
+# The fleet page's (decision 0089 ruling 9): dhat's peak beside SQLite's own
+# high-water, for the console's first page at two journal sizes.
+[[test]]
+name = "heap_fleet"
+
 # The CPU budgets (#342). Library benches measure the fold, the run view,
 # a compile of recipes/self and one TUI frame; binary benches measure the
 # shipped binary's startup and `inspect`.

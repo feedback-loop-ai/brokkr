@@ -213,6 +213,56 @@ fn a_parked_run_reads_its_ruling_its_reason_and_its_open_residuals() {
     );
 }
 
+/// The `residuals` column reads back into the findings that wrote it, and
+/// a key no finding states refuses (decision 0089 ruling 2).
+#[test]
+fn the_residuals_column_reads_back_as_its_findings() {
+    let column = Summary::of(&Account::whole("run", &parked()), LISTING).residuals;
+    let read: Vec<Stated> = serde_json::from_str(&column).unwrap();
+    assert_eq!(read.len(), 3);
+    assert_eq!(serde_json::to_value(&read).unwrap().to_string(), column);
+    let mark = read[0].superseded.as_ref().unwrap();
+    assert_eq!((mark.seq, mark.by.run_id.as_str()), (13, "other"));
+    assert_eq!(read[0].claim, Claim::SecurityResidual);
+    assert_eq!(read[1].claim, Claim::MaxSeverity(Severity::High));
+    assert_eq!(read[2].phase, ResidualPhase::Review);
+    let refused = |from: &str, to: &str| {
+        let edited = column.replacen(from, to, 1);
+        serde_json::from_str::<Vec<Stated>>(&edited)
+            .unwrap_err()
+            .to_string()
+    };
+    let extra = refused("\"input\"", "\"extra\":1,\"input\"");
+    assert!(extra.starts_with("unknown field `extra`"), "{extra}");
+    let phase = refused("\"phase\":\"verify\"", "\"phase\":\"design\"");
+    assert!(
+        phase.starts_with("phase 'design' carries no residual finding"),
+        "{phase}"
+    );
+    let value = refused("\"value\":\"high\"", "\"value\":\"none\"");
+    let words = "'max_residual_severity: none' is no claim a finding states";
+    assert!(value.starts_with(words), "{value}");
+    let flag = refused("\"value\":\"true\"", "\"value\":\"yes\"");
+    let words = "'has_security_residual: yes' is no claim a finding states";
+    assert!(flag.starts_with(words), "{flag}");
+}
+
+/// A finding's rule id is read once, from its ruling, as text or not at
+/// all, so the summary and every readout of its findings name it alike.
+#[test]
+fn a_finding_names_its_rule_as_its_ruling_words_it() {
+    let mut events = parked();
+    let ruled = events
+        .iter_mut()
+        .rfind(|event| event.event_type == EventType::TransitionDecided)
+        .unwrap();
+    ruled.payload["rule_id"] = json!(7);
+    let held = residuals(&events);
+    let stated: Vec<Stated> = held.iter().map(|held| Stated::of(held, None)).collect();
+    let rules: Vec<Option<&str>> = stated.iter().map(|it| it.rule_id.as_deref()).collect();
+    assert_eq!(rules, [Some("VERIFY-PASS"), Some("VERIFY-PASS"), None]);
+}
+
 #[test]
 fn an_account_carried_event_by_event_is_the_account_read_whole() {
     let events = parked();

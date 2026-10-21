@@ -287,6 +287,7 @@ pub brokkr_core::fold::Status::Running
 pub brokkr_core::fold::Status::Stopped
 impl brokkr_core::fold::Status
 pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
+pub fn brokkr_core::fold::Status::named(&str) -> core::option::Option<brokkr_core::fold::Status>
 pub struct brokkr_core::fold::RunState
 pub brokkr_core::fold::RunState::consecutive_failures: alloc::collections::btree::map::BTreeMap<alloc::string::String, u64>
 pub brokkr_core::fold::RunState::feature: core::option::Option<alloc::string::String>
@@ -318,6 +319,49 @@ pub fn brokkr_core::gate_moved_head::decode<T: serde_core::de::DeserializeOwned>
 pub fn brokkr_core::gate_moved_head::encode(&brokkr_core::gate_moved_head::MovedHead) -> alloc::string::String
 pub mod brokkr_core::keep_refs
 pub fn brokkr_core::keep_refs::cited_shas(&[brokkr_core::envelope::EventEnvelope]) -> alloc::collections::btree::set::BTreeSet<alloc::string::String>
+pub mod brokkr_core::page
+pub enum brokkr_core::page::Bound
+pub brokkr_core::page::Bound::Above(i64)
+pub brokkr_core::page::Bound::AtOrAbove(i64)
+pub brokkr_core::page::Bound::AtOrBelow(i64)
+pub brokkr_core::page::Bound::Below(i64)
+pub enum brokkr_core::page::Lane
+pub brokkr_core::page::Lane::Acknowledged
+pub brokkr_core::page::Lane::Behind
+pub brokkr_core::page::Lane::Finished
+pub brokkr_core::page::Lane::Parked
+pub brokkr_core::page::Lane::Refused
+pub brokkr_core::page::Lane::Running
+impl brokkr_core::page::Lane
+pub const fn brokkr_core::page::Lane::as_str(self) -> &'static str
+pub struct brokkr_core::page::Copied
+pub brokkr_core::page::Copied::at: alloc::string::String
+pub brokkr_core::page::Copied::operator: alloc::string::String
+pub brokkr_core::page::Copied::reason: alloc::string::String
+pub struct brokkr_core::page::Range
+pub brokkr_core::page::Range::bound: core::option::Option<brokkr_core::page::Bound>
+pub brokkr_core::page::Range::lane: brokkr_core::page::Lane
+pub struct brokkr_core::page::Row
+pub brokkr_core::page::Row::acknowledged: core::option::Option<brokkr_core::page::Copied>
+pub brokkr_core::page::Row::created_at: brokkr_core::summary::Bounded
+pub brokkr_core::page::Row::feature_line: alloc::string::String
+pub brokkr_core::page::Row::folded: (u64, alloc::string::String)
+pub brokkr_core::page::Row::hired: core::option::Option<brokkr_core::summary::Hired>
+pub brokkr_core::page::Row::last_recorded_at: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::page::Row::order_at: i64
+pub brokkr_core::page::Row::park_reason: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::page::Row::phase: core::option::Option<brokkr_core::summary::Bounded>
+pub brokkr_core::page::Row::refused: core::option::Option<brokkr_core::summary::Refused>
+pub brokkr_core::page::Row::residual_open: core::option::Option<brokkr_core::policy::Severity>
+pub brokkr_core::page::Row::ruled: core::option::Option<brokkr_core::summary::Ruled>
+pub brokkr_core::page::Row::run_id: alloc::string::String
+pub brokkr_core::page::Row::status: core::option::Option<brokkr_core::fold::Status>
+pub struct brokkr_core::page::Whole
+pub brokkr_core::page::Whole::acknowledged: core::option::Option<brokkr_core::page::Copied>
+pub brokkr_core::page::Whole::feature: alloc::string::String
+pub brokkr_core::page::Whole::residuals: alloc::vec::Vec<brokkr_core::summary::Stated>
+pub fn brokkr_core::page::newest_first(brokkr_core::page::Place<'_>) -> core::cmp::Reverse<brokkr_core::page::Place<'_>>
+pub type brokkr_core::page::Place<'a> = (i64, &'a str)
 pub mod brokkr_core::policy
 pub mod brokkr_core::policy::audit
 pub enum brokkr_core::policy::audit::AuditError
@@ -807,6 +851,8 @@ pub fn brokkr_core::summary::Account::whole(&str, &[brokkr_core::envelope::Event
 pub struct brokkr_core::summary::Bounded
 pub brokkr_core::summary::Bounded::cut: alloc::string::String
 pub brokkr_core::summary::Bounded::whole: core::option::Option<alloc::string::String>
+impl brokkr_core::summary::Bounded
+pub fn brokkr_core::summary::Bounded::within(&str, usize) -> brokkr_core::summary::Bounded
 pub struct brokkr_core::summary::Hired
 pub brokkr_core::summary::Hired::failed_attempts: u64
 pub brokkr_core::summary::Hired::seat: brokkr_core::summary::Bounded
@@ -820,6 +866,18 @@ pub struct brokkr_core::summary::Ruled
 pub brokkr_core::summary::Ruled::from: brokkr_core::summary::Bounded
 pub brokkr_core::summary::Ruled::routes: bool
 pub brokkr_core::summary::Ruled::rule_id: core::option::Option<brokkr_core::summary::Bounded>
+pub struct brokkr_core::summary::Stated
+pub brokkr_core::summary::Stated::claim: brokkr_core::residual::Claim
+pub brokkr_core::summary::Stated::phase: brokkr_core::residual::ResidualPhase
+pub brokkr_core::summary::Stated::rule_id: core::option::Option<alloc::string::String>
+pub brokkr_core::summary::Stated::seq: u64
+pub brokkr_core::summary::Stated::superseded: core::option::Option<brokkr_core::residual::Mark>
+impl brokkr_core::summary::Stated
+pub fn brokkr_core::summary::Stated::of(&brokkr_core::residual::Residual<'_>, core::option::Option<brokkr_core::residual::Mark>) -> brokkr_core::summary::Stated
+impl serde_core::ser::Serialize for brokkr_core::summary::Stated
+pub fn brokkr_core::summary::Stated::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::summary::Stated
+pub fn brokkr_core::summary::Stated::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<brokkr_core::summary::Stated, <D as serde_core::de::Deserializer>::Error>
 pub struct brokkr_core::summary::Summary
 pub brokkr_core::summary::Summary::created_at: brokkr_core::summary::Bounded
 pub brokkr_core::summary::Summary::feature: alloc::string::String
@@ -844,6 +902,10 @@ pub fn brokkr_core::summary::Summary::of(&brokkr_core::summary::Account, brokkr_
 pub const brokkr_core::summary::ACK_AT_CHARS: usize
 pub const brokkr_core::summary::ACK_OPERATOR_CHARS: usize
 pub const brokkr_core::summary::ACK_REASON_CHARS: usize
+pub const brokkr_core::summary::FEATURE_LINE_BYTES: usize
+pub const brokkr_core::summary::NAME_BYTES: usize
+pub const brokkr_core::summary::PARK_REASON_BYTES: usize
+pub const brokkr_core::summary::REFUSAL_BYTES: usize
 pub const brokkr_core::summary::STAMP_BYTES: usize
 pub fn brokkr_core::summary::feature_line(&str) -> &str
 pub enum brokkr_core::Cursor
@@ -937,6 +999,7 @@ pub brokkr_core::Status::Running
 pub brokkr_core::Status::Stopped
 impl brokkr_core::fold::Status
 pub const fn brokkr_core::fold::Status::as_str(self) -> &'static str
+pub fn brokkr_core::fold::Status::named(&str) -> core::option::Option<brokkr_core::fold::Status>
 pub struct brokkr_core::EventEnvelope
 pub brokkr_core::EventEnvelope::attempt_id: core::option::Option<alloc::string::String>
 pub brokkr_core::EventEnvelope::causation_id: core::option::Option<alloc::string::String>

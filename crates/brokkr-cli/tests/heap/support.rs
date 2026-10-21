@@ -7,9 +7,10 @@
 //! ruling 1), and a heap profiler clocks, walks stacks and writes a file,
 //! which no pure crate may name, even in its tests.
 
-use std::path::PathBuf;
-
 use brokkr_view::transcript::{project, Snapshot, TranscriptKind, SOURCE_CAP};
+
+#[path = "budgets.rs"]
+mod budgets;
 
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
@@ -97,15 +98,8 @@ fn source(kind: TranscriptKind) -> Vec<u8> {
 /// The committed budget of `kind`, read from `quality/heap-bytes.json` by
 /// the kind's own name. A kind with no whole-number budget refuses.
 fn budget(kind: TranscriptKind) -> u64 {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../quality/heap-bytes.json");
-    let text = std::fs::read_to_string(&path).expect("quality/heap-bytes.json reads");
-    let file: serde_json::Value =
-        serde_json::from_str(&text).expect("quality/heap-bytes.json is JSON");
     let name = serde_json::to_value(kind).expect("a kind serializes");
-    let name = name.as_str().expect("a kind serializes to its name");
-    file["budgets"][name]
-        .as_u64()
-        .unwrap_or_else(|| panic!("quality/heap-bytes.json holds no whole budget for {name}"))
+    budgets::budget_named(name.as_str().expect("a kind serializes to its name"))
 }
 
 /// Project the largest admitted source of `kind` under dhat and hold its
