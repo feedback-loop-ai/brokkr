@@ -2,7 +2,7 @@
 
 ### Requirement: A run enters at a gate of its table
 
-`brokkr run` SHALL accept `--enter <phase>`, and a run started with it SHALL enter the named phase first, instead of the table's `initial`. The bundle it runs under SHALL be the one the same recipe compiles to without an entry: the table, its `initial`, the manifest, its digest and the witnesses do not move, because an entry is a fact of the run, not of the recipe. A recipe whose own `initial` is a gate SHALL start as it always did when no entry is named, and its `initial` SHALL be an entry like any other phase when it passes admission. A Looper-bound run (`--dispatch`) SHALL refuse an entry by name, as it refuses a named map, until the v2 manifest lineage carries one.
+`brokkr run` SHALL accept `--enter <phase>`, and a run started with it SHALL enter the named phase first, instead of the table's `initial`. The bundle it runs under SHALL be the one the same recipe compiles to without an entry: the table, its `initial`, the manifest, its digest and the witnesses do not move, because an entry is a fact of the run, not of the recipe. A recipe whose own `initial` is a gate SHALL start as it always did when no entry is named, and its `initial` SHALL be an entry like any other phase when it passes admission. A Looper-bound run (`--dispatch`) SHALL refuse an entry by name, as it refuses a named map, until the v2 manifest lineage carries one. `--enter` and `--continues` SHALL be `brokkr run`'s alone: `brokkr queue add`, which shares the rest of the launch's arguments, SHALL refuse either as an argument it does not know and queue nothing; and `QueuedLaunch::of` SHALL refuse a `NewRun` that carries an entry, naming the entry phase and `queued-launch/v1`, before anything is encoded or written, as it refuses a named map beside a dispatch, so `queued-launch/v1` is not widened.
 
 #### Scenario: A finished branch is verified, judged and shipped without a work seat
 
@@ -21,6 +21,13 @@
 - **WHEN** `brokkr run` is given both `--dispatch` and `--enter`
 - **THEN** the launch is refused naming both flags before anything is compiled, opened or written
 
+#### Scenario: A queued launch takes no entry
+
+- **WHEN** `brokkr queue add` is given `--enter verify`, or `--continues <run>`, beside the arguments a launch takes
+- **THEN** the command refuses the argument as one it does not know, and the queue holds no new entry
+- **AND WHEN** a `NewRun` carrying an entry at `verify` is handed to `QueuedLaunch::of`
+- **THEN** it refuses, naming `verify` and `queued-launch/v1`, and nothing is encoded or written
+
 ### Requirement: Entry is admitted by six facts of the table and its seats
 
 An entry SHALL be admitted when the compiled table and the entry satisfy all six, judged in this order:
@@ -35,7 +42,7 @@ An entry SHALL be admitted when the compiled table and the entry satisfy all six
    - `strategy`, read by a ruling: a `(phase, result)` of a seat met without entering the strategy phase, whose rulings that carry no `strategy_in` condition do not rule every valuation the sweep of decision 0050 ruling 4 puts to them, the sweep taken over those rulings alone, since an absent `strategy` satisfies no `strategy_in` and an unmatched result parks as unruled;
    - the dialect's `{change}`, expanded by a dialect step with no source the walk can supply. A source is an earlier step of the step's own sequence when its seat declares the `change` input (`carry_change`); else a result in `context.results` of a phase that is one of the five names `nearest_change` reads (`tasks`, `design`, `specify`, `triage`, `intake`, one roster held in one place and read by the engine and the admission alike, decision 0071 ruling 5), listed before the step's phase in `phases`, whose seat declares `change`; and the walk supplies that source only when every road from the entry to the step's phase enters such a phase, which is to say the step's phase is unreachable from the entry once those phases are removed, the shape of fact 4's walk.
 
-The walk SHALL be breadth-first from the entry: the entry's own seat first; then, phase by phase in the order first reached, every ruling of that phase in the table's rule order; a park draws no edge, a terminal is reached but not entered, and a phase is visited once. Fact 5 SHALL follow forward rulings alone; fact 6 SHALL follow every ruling but never enter the phase that sets the fact. The witness a refusal names SHALL be the first site the walk meets that fails the fact: for fact 5 the work phase and the ruling that reached it; for fact 6 the seat, the step or the `(phase, result)`, the fact it needs, and the ruling that reached its phase, or none when it is the entry's own seat.
+The walk SHALL be breadth-first from the entry: the entry's own seat first; then, phase by phase in the order first reached, every ruling of that phase in the table's rule order; a park draws no edge, a terminal is reached but not entered, and a phase is visited once. Fact 5 SHALL follow forward rulings alone. Fact 6 SHALL be its three facts judged in their listed order, each over its own walk: the selector fact and the ruling fact over one walk that follows every ruling but never enters the strategy phase; the `{change}` fact over one walk per dialect step, the steps taken in the order of the `phases` list and, within a seat, in step order, that follows every ruling but never enters a source phase of that step, so a step whose phase that walk reaches has a road no source lies on. The witness a refusal names SHALL be the first failing fact's first witness in its own walk's order: for fact 5 the work phase and the ruling that reached it; for fact 6 the seat, the step or the `(phase, result)`, the fact it needs, and the ruling that reached its phase, or none when it is the entry's own seat. A table that fails two facts of six SHALL name the one listed first, and the next refusal names the next.
 
 Any other entry SHALL be refused when the recipe and the entry are compiled, before a run id is minted or an event is written, by a typed error that names the phase, the first fact it failed with its witness, and the entries the table admits, derived by the same six facts and listed in the order of the `phases` list, or that it admits none. The engine SHALL hold no roster of which phases may be entered: the facts are the table's and its seats'.
 
@@ -92,6 +99,13 @@ Any other entry SHALL be refused when the recipe and the entry are compiled, bef
 - **THEN** no run is created, and the refusal names the `check` step of `analyze` as a dialect step expanding `{change}` whose one source, `intake`, no road from the entry enters (fact 6)
 - **AND WHEN** it is run with `--enter verify`
 - **THEN** no run is created, and the refusal names the same step, reached by `VERIFY-PASS`, for the same fact, since the road from `verify` to `analyze` enters no `intake`
+
+#### Scenario: Two facts of six fail, and the one listed first is named
+
+- **WHEN** the fixture table of the previous scenario, with a strategy phase `triage` listed ahead of `intake` that rules forward into it and declares no `change`, and with a `review` seat that selects on `strategy` with no `default`, is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `review`, reached by `ANALYZE-CONSISTENT`, as a seat that selects on `strategy` with no `default` while `triage` is not entered, the first fact of six, and not the `check` step of `analyze`, which the change walk reaches first, by `VERIFY-PASS`
+- **AND WHEN** the fixture's `review` selector gains a `default` case and it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names the `check` step of `analyze`, reached by `VERIFY-PASS`, as a dialect step expanding `{change}` whose one source, `intake`, no road from the entry enters
 
 #### Scenario: Every shipped table's entries are pinned
 
