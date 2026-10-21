@@ -120,7 +120,7 @@
    611 crates/brokkr-runtime/src/agents/mcp.rs
    285 crates/brokkr-runtime/src/anchor.rs
    168 crates/brokkr-runtime/src/boundary.rs
-  4709 crates/brokkr-runtime/src/bundle.rs
+  4732 crates/brokkr-runtime/src/bundle.rs
    136 crates/brokkr-runtime/src/bundle/charters.rs
   1021 crates/brokkr-runtime/src/bundle/compose.rs
    657 crates/brokkr-runtime/src/bundle/mcp.rs
