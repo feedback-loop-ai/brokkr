@@ -2,6 +2,14 @@ use super::*;
 use crate::tests::ev;
 use serde_json::json;
 
+/// The carried member `a` of the effect `carrying`, as `events` read it.
+fn carrying_a(events: &[EventEnvelope]) -> Participant {
+    participants(events, &scan_participants(events))
+        .into_iter()
+        .find(|part| part.key == "carrying:a")
+        .unwrap()
+}
+
 #[test]
 fn a_carried_part_is_completed_and_names_its_original_attempt() {
     let at = "2026-01-01T00:00:00Z";
@@ -67,9 +75,7 @@ fn a_carried_part_is_completed_and_names_its_original_attempt() {
         json!({"effect_id":"carrying", "attempt_id":"three", "driver":"panel"}),
         at,
     ));
-    let scan = scan_participants(&events);
-    let parts = participants(&events, &scan);
-    let cleared = parts.iter().find(|part| part.key == "carrying:a").unwrap();
+    let cleared = carrying_a(&events);
     assert_eq!(cleared.carried_from, None);
     assert_eq!(cleared.status, "working");
     // An entry naming an attempt the journal never started has no source to name.
@@ -79,9 +85,7 @@ fn a_carried_part_is_completed_and_names_its_original_attempt() {
         json!({"effect_id":"carrying", "attempt_id":"four", "driver":"panel", "carried":[{"member":"a", "attempt_id":"ghost"}]}),
         at,
     ));
-    let scan = scan_participants(&events);
-    let parts = participants(&events, &scan);
-    let unsourced = parts.iter().find(|part| part.key == "carrying:a").unwrap();
+    let unsourced = carrying_a(&events);
     assert_eq!(unsourced.carried_from, None);
     assert_eq!(unsourced.status, "carried");
 }
@@ -130,8 +134,7 @@ fn a_later_start_replaces_the_carried_source_and_counts_every_phase_attempt() {
     ] {
         events.push(ev(events.len() as u64 + 1, kind, payload, at));
     }
-    let parts = participants(&events, &scan_participants(&events));
-    let part = parts.iter().find(|p| p.key == "carrying:a").unwrap();
+    let part = carrying_a(&events);
     assert_eq!(
         part.carried_from,
         Some(CarriedFrom {
@@ -156,8 +159,7 @@ fn a_later_start_replaces_the_carried_source_and_counts_every_phase_attempt() {
         json!({"effect_id":"carrying","attempt_id":"five","driver":"panel","carried":[{"member":"a","attempt_id":"three"}]}),
         at,
     ));
-    let parts = participants(&events, &scan_participants(&events));
-    let part = parts.iter().find(|p| p.key == "carrying:a").unwrap();
+    let part = carrying_a(&events);
     assert_eq!(
         part.carried_from,
         Some(CarriedFrom {

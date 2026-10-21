@@ -42,6 +42,16 @@ pub(crate) fn single_step(name: &str, outcome: AttemptOutcome) -> SequenceStep {
     }
 }
 
+/// A sequence whose panel step, `positions`, follows a first step, `chief`.
+pub(crate) fn panel_after_chief() -> SeatBody {
+    SeatBody::Sequence {
+        steps: vec![
+            single_step("chief", clean()),
+            panel_step("positions", vec![("a", clean()), ("b", clean())]),
+        ],
+    }
+}
+
 pub(crate) fn command(result: AttemptOutcome) -> Vec<String> {
     let mut argv = driver_command("EFFECT", "ATTEMPT", result);
     let parse = r#"; read -r line; effect_id=$(printf '%s' "$line" | sed -n 's/.*"effect_id":"\([^"]*\)".*/\1/p'); attempt_id=$(printf '%s' "$line" | sed -n 's/.*"attempt_id":"\([^"]*\)".*/\1/p'); printf"#;

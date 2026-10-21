@@ -182,13 +182,7 @@ fn the_panel_facts_and_exact_tags_are_asked_at_the_command() {
     assert!(
         matches!(retry(&mut runtime, &["a"]), MemberRetryOutcome::CarryRefused(CarryRefusal(Refusal::NoPanel { phase })) if phase == "work")
     );
-    let later = SeatBody::Sequence {
-        steps: vec![
-            single_step("chief", clean()),
-            panel_step("positions", vec![("a", clean()), ("b", clean())]),
-        ],
-    };
-    let (_dir, mut runtime) = parked(later, false);
+    let (_dir, mut runtime) = parked(panel_after_chief(), false);
     assert!(
         matches!(retry(&mut runtime, &["positions:b"]), MemberRetryOutcome::CarryRefused(CarryRefusal(Refusal::PanelStepFollows { step, first })) if step == "positions" && first == "chief")
     );

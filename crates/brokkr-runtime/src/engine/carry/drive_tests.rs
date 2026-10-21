@@ -7,10 +7,7 @@ use serde_json::json;
 #[test]
 fn recovery_rebuilds_the_request_and_carries_only_journaled_verdicts() {
     let (_dir, mut runtime) = parked(body(), false);
-    assert!(matches!(
-        retry(&mut runtime, &["b"]),
-        MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
-    ));
+    retry_accepted(&mut runtime, &["b"]);
     runtime.drive_once().unwrap();
     let journal = events(&runtime);
     let state = brokkr_core::fold::fold(&journal).unwrap();
@@ -133,6 +130,14 @@ fn accept(runtime: &mut Engine, args: Value) -> u64 {
     command_seq
 }
 
+/// Retry `names` through the command, which the engine accepts.
+fn retry_accepted(runtime: &mut Engine, names: &[&str]) {
+    assert!(matches!(
+        retry(runtime, names),
+        MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
+    ));
+}
+
 /// Drive a run whose accepted carry the engine refuses: it parks on
 /// `driver: "none"` with no member spawned, the refusal as the terminal
 /// fact's reason and the fold's stated reason over it; that reason.
@@ -175,13 +180,32 @@ fn accepted_count(runtime: &Engine) -> usize {
         .count()
 }
 
+/// Drive an accepted retry that runs every member: a fresh panel with
+/// nothing carried, where a and b both run and the effect succeeds.
+fn drives_a_fresh_panel(runtime: &mut Engine) {
+    runtime.drive_once().unwrap();
+    runtime.drive_once().unwrap();
+    let journal = events(runtime);
+    assert_eq!(
+        journal.last().unwrap().event_type,
+        EventType::EffectSucceeded
+    );
+    let started = journal
+        .iter()
+        .rev()
+        .find(|e| e.event_type == EventType::EffectStarted)
+        .unwrap();
+    assert_eq!(started.payload.get("carried"), None);
+    assert_eq!(
+        markers(&journal, &started.payload["attempt_id"]),
+        [json!("a"), json!("b")]
+    );
+}
+
 #[test]
 fn a_head_moved_after_acceptance_parks_at_the_drive_and_the_acceptance_stands() {
     let (_dir, mut runtime) = parked(body(), false);
-    assert!(matches!(
-        retry(&mut runtime, &["b"]),
-        MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
-    ));
+    retry_accepted(&mut runtime, &["b"]);
     crate::engine::tests::git_commit(&runtime.repo, "moved after acceptance");
     let reason = refused_at_drive(&mut runtime);
     assert!(
@@ -205,50 +229,15 @@ fn an_old_journal_refuses_at_the_drive_and_empty_args_run_every_member() {
         "phase 'work' visit 1 holds no attempt its panel ended; use plain operator retry"
     );
     accept(&mut runtime, json!({}));
-    runtime.drive_once().unwrap();
-    runtime.drive_once().unwrap();
-    let journal = events(&runtime);
-    assert_eq!(
-        journal.last().unwrap().event_type,
-        EventType::EffectSucceeded
-    );
-    let started = journal
-        .iter()
-        .rev()
-        .find(|e| e.event_type == EventType::EffectStarted)
-        .unwrap();
-    assert_eq!(started.payload.get("carried"), None);
-    assert_eq!(
-        markers(&journal, &started.payload["attempt_id"]),
-        [json!("a"), json!("b")]
-    );
+    drives_a_fresh_panel(&mut runtime);
     assert_eq!(accepted_count(&runtime), 2);
 }
 
 #[test]
 fn every_member_named_starts_a_fresh_panel_with_nothing_carried() {
     let (_dir, mut runtime) = parked(body(), false);
-    assert!(matches!(
-        retry(&mut runtime, &["b", "a"]),
-        MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
-    ));
-    runtime.drive_once().unwrap();
-    runtime.drive_once().unwrap();
-    let journal = events(&runtime);
-    assert_eq!(
-        journal.last().unwrap().event_type,
-        EventType::EffectSucceeded
-    );
-    let started = journal
-        .iter()
-        .rev()
-        .find(|e| e.event_type == EventType::EffectStarted)
-        .unwrap();
-    assert_eq!(started.payload.get("carried"), None);
-    assert_eq!(
-        markers(&journal, &started.payload["attempt_id"]),
-        [json!("a"), json!("b")]
-    );
+    retry_accepted(&mut runtime, &["b", "a"]);
+    drives_a_fresh_panel(&mut runtime);
 }
 
 #[test]
@@ -268,13 +257,7 @@ fn an_unreadable_record_and_a_missing_panel_park_at_the_drive_with_no_member_spa
         refused_at_drive(&mut runtime),
         "phase 'work' runs no panel; use plain operator retry"
     );
-    let later = SeatBody::Sequence {
-        steps: vec![
-            single_step("chief", clean()),
-            panel_step("positions", vec![("a", clean()), ("b", clean())]),
-        ],
-    };
-    let (_dir, mut runtime) = parked(later, false);
+    let (_dir, mut runtime) = parked(panel_after_chief(), false);
     accept(&mut runtime, json!({"members":["positions:b"]}));
     assert_eq!(
         refused_at_drive(&mut runtime),
@@ -288,10 +271,8 @@ fn without_ids(mut started: Value) -> Value {
     started
 }
 
-#[test]
-fn a_plain_retry_starts_as_a_first_attempt_does_and_its_members_commit_as_today() {
-    let action = "git commit -q --allow-empty -m fresh-commit";
-    let (_dir, mut runtime) = parked(moving_body(action, false), false);
+/// Command a plain `operator retry` of the whole panel, which the engine accepts.
+fn plain_retry(runtime: &mut Engine) {
     let outcome = crate::engine::operator_command(
         &mut runtime.store,
         &runtime.run_id,
@@ -301,6 +282,13 @@ fn a_plain_retry_starts_as_a_first_attempt_does_and_its_members_commit_as_today(
     )
     .unwrap();
     assert!(matches!(outcome, FencedCommandOutcome::Accepted { .. }));
+}
+
+#[test]
+fn a_plain_retry_starts_as_a_first_attempt_does_and_its_members_commit_as_today() {
+    let action = "git commit -q --allow-empty -m fresh-commit";
+    let (_dir, mut runtime) = parked(moving_body(action, false), false);
+    plain_retry(&mut runtime);
     runtime.drive_once().unwrap();
     runtime.drive_once().unwrap();
     let journal = events(&runtime);
@@ -348,10 +336,7 @@ fn rename_source(record: &mut Value) {
 }
 
 fn execute_retry(runtime: &mut Engine, name: &str) {
-    assert!(matches!(
-        retry(runtime, &[name]),
-        MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
-    ));
+    retry_accepted(runtime, &[name]);
     runtime.drive_once().unwrap();
     runtime.drive_once().unwrap();
 }
@@ -397,10 +382,7 @@ fn sequence_tags_carry_into_the_chief_and_only_the_panel_stamps_its_own_terminal
             assert!(
                 matches!(retry(&mut runtime, &["positions:b"]), MemberRetryOutcome::CarryRefused(CarryRefusal(Refusal::Shape { why: Shape::EndedAtLaterStep { step, .. } })) if step == "chief")
             );
-            assert!(matches!(
-                retry(&mut runtime, &["positions:b", "positions:a"]),
-                MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
-            ));
+            retry_accepted(&mut runtime, &["positions:b", "positions:a"]);
         }
     }
 }
@@ -470,15 +452,7 @@ fn a_fresh_members_commit_or_edit_cannot_publish_a_mixed_subject_aggregate() {
                 ))
             ));
         }
-        let outcome = crate::engine::operator_command(
-            &mut runtime.store,
-            &runtime.run_id,
-            brokkr_core::fold::OperatorCommand::Retry,
-            "test",
-            "whole panel",
-        )
-        .unwrap();
-        assert!(matches!(outcome, FencedCommandOutcome::Accepted { .. }));
+        plain_retry(&mut runtime);
     }
 }
 
@@ -500,10 +474,7 @@ fn bounded_chain_fallback_keeps_original_carry_and_reruns_every_named_member() {
     }
     members.push(c);
     let (_dir, mut runtime) = parked(body, false);
-    assert!(matches!(
-        retry(&mut runtime, &["c", "b"]),
-        MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
-    ));
+    retry_accepted(&mut runtime, &["c", "b"]);
     runtime.drive_once().unwrap();
     runtime.drive_once().unwrap();
     assert_eq!(
