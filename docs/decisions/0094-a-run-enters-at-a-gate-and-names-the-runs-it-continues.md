@@ -314,6 +314,41 @@ this decision and the Rust types are their shape.
    `ship`, refused at `verify` and at `review` and admitted at `verify`
    when it reads `implement`'s visits instead.
 
+   *Amended, 2026-10-22 (the change's D45 to D47):* a road reaches a
+   phase, for the visits fact, when no ruling on it is conditioned on
+   `visits_<phase>_gte` above zero. Such a ruling matches only once the
+   phase it counts has been entered, which no walk may assume, where
+   every other condition can hold in the entered run as in a plain start:
+   `consecutive_failures` is the ruling's own phase's; a flag, a severity
+   and every seat input are the seat's own result or observed at the
+   ruling; and a `strategy_in` ruling stands in a group the strategy fact
+   refuses or past the strategy phase on every road to it. So the walker
+   runs twice for this fact, nothing avoided: following every ruling, to
+   meet the groups the entered run could read, a phase met only through a
+   count-guarded ruling included, since that count may move; and
+   following no count-guarded ruling, to reach the phases whose counts
+   the run can move. A road a count some road moves opens, or one the
+   entry's own count opens, counts as none: the simpler rule refuses a
+   table no shipped recipe writes rather than prove a threshold, and the
+   finer rule, following such a ruling once the phase it counts is
+   reached, proves no threshold above one and admits a denial that never
+   fires. Within one ruling the phases it counts are taken in the key
+   order of the condition name, the order the loader holds a ruling's
+   `when` in, the written order being lost at the edge, and
+   `Machine::visit_phases` lists them in; across a group's rulings, in
+   rule order. The shipped count-guarded rulings are `fast`'s four and
+   `triage`'s seven, inherited by `gpt-flash` and `night-shift`, each a
+   stop, a park or a ship no other road fails to reach, none the one
+   road into any phase, and every phase they count is reached from
+   `verify` by a road no count guards; no admitted set or witness moves.
+   The binding gains `Rule::reads_visits`, the one answer the walker's
+   predicate and `groups_reading_visits` read; the fixture of a
+   `REDO-INTAKE` (`verify`, `fail`, `visits_intake_gte: 1`, next
+   `intake`) ahead of `VERIFY-FAIL`, refused at `verify` on the entry's
+   own group, refused on `(review, clean)` when it reads `implement`'s
+   count and admitted at `verify` when unconditioned; and the fixture of
+   one ruling reading `intake`'s and `design`'s counts, naming `design`.
+
 5. **The chain is the operator's word, and the gate reports it while
    vouching the patch map.** `--continues <run>`, repeatable and only
    with `--enter`, names the earlier runs the entered run continues, each
