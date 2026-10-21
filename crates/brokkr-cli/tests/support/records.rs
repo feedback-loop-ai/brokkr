@@ -1,6 +1,7 @@
 //! The tracked paths whose words are fixed when they are written, for the
-//! tests that hold the repository's prose to a rule. Each includes this
-//! through `#[path]`, so the list has one home (#362).
+//! tests that hold the repository's prose to a rule. `tests/it.rs` includes
+//! this once through `#[path]`, and house_prose and doc_truth read it as
+//! `crate::records`, so the list has one home (#362).
 
 /// Surfaces whose bytes never move (the house rules), each with the reason
 /// it is read-only.
