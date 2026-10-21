@@ -192,24 +192,29 @@ impl HttpTransport {
 
     fn request(&self, method: &str, path: &str, body: Option<Value>) -> Result<Value, BridgeError> {
         let url = format!("{}{}", self.base_url, path);
-        let request = ureq::request(method, &url)
-            .set("Authorization", &format!("Bearer {}", self.bearer))
-            .set("Content-Type", "application/json");
+        let request = ureq::http::Request::builder()
+            .method(method)
+            .uri(&url)
+            .header("Authorization", format!("Bearer {}", self.bearer))
+            .header("Content-Type", "application/json");
+        let invalid =
+            |error: ureq::http::Error| BridgeError::Transport(format!("invalid request: {error}"));
         let response = match body {
-            Some(body) => request.send_json(body),
-            None => request.call(),
+            Some(body) => ureq::run(request.body(body.to_string()).map_err(invalid)?),
+            None => ureq::run(request.body(()).map_err(invalid)?),
         }
         .map_err(|error| BridgeError::Transport(http_error(error)))?;
         response
-            .into_json()
+            .into_body()
+            .read_json()
             .map_err(|error| BridgeError::Transport(format!("invalid JSON response: {error}")))
     }
 }
 
 fn http_error(error: ureq::Error) -> String {
     match error {
-        ureq::Error::Status(status, _) => format!("HTTP {status}"),
-        ureq::Error::Transport(error) => format!("connection failed: {error}"),
+        ureq::Error::StatusCode(status) => format!("HTTP {status}"),
+        error => format!("connection failed: {error}"),
     }
 }
 
