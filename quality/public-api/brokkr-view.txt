@@ -8,9 +8,12 @@ pub brokkr_view::capability_calls::CallState::Interrupted
 pub brokkr_view::capability_calls::CallState::Observed
 pub brokkr_view::capability_calls::CallState::Refused
 pub brokkr_view::capability_calls::CallState::Succeeded
+impl serde_core::ser::Serialize for brokkr_view::capability_calls::CallState
+pub fn brokkr_view::capability_calls::CallState::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub struct brokkr_view::capability_calls::CallEvidence
 pub brokkr_view::capability_calls::CallEvidence::call: core::option::Option<brokkr_view::capability_calls::CapabilityCall>
 pub brokkr_view::capability_calls::CallEvidence::cell: brokkr_view::Cell
+pub brokkr_view::capability_calls::CallEvidence::response: brokkr_view::Cell
 pub struct brokkr_view::capability_calls::CapabilityCall
 pub brokkr_view::capability_calls::CapabilityCall::call_id: alloc::string::String
 pub brokkr_view::capability_calls::CapabilityCall::capability: alloc::string::String
@@ -18,6 +21,7 @@ pub brokkr_view::capability_calls::CapabilityCall::dialect: alloc::string::Strin
 pub brokkr_view::capability_calls::CapabilityCall::response_sha256: core::option::Option<alloc::string::String>
 pub brokkr_view::capability_calls::CapabilityCall::state: brokkr_view::capability_calls::CallState
 pub brokkr_view::capability_calls::CapabilityCall::tool: alloc::string::String
+pub const brokkr_view::capability_calls::NO_RETAINED: &str
 pub const brokkr_view::capability_calls::UNRECORDED: &str
 pub mod brokkr_view::js
 pub fn brokkr_view::js::len(&str) -> usize
