@@ -931,7 +931,8 @@ impl Bundle {
         let realm = (realm_name, dialect, law.into());
         Bundle::assemble(&dir, resolved, roots, engine, realm, capabilities)
             // A composed bundle's failure is wrapped ONCE with the chain: a
-            // capability keeps its raw words, a policy refusal its type.
+            // capability keeps its raw words, a policy refusal its type. A
+            // folder seat's refusal rises as the resolver's do, unwrapped.
             .map_err(|error| match (note, error) {
                 (Some(note), CompileError::Capability(reason)) => {
                     CompileError::Capability(format!("bundle: {reason} ({note})"))
@@ -939,8 +940,8 @@ impl Bundle {
                 (Some(note), CompileError::Policy(error)) => {
                     CompileError::ComposedPolicy(Box::new(error), note)
                 }
+                (_, error @ CompileError::Folder(_)) | (None, error) => error,
                 (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
-                (None, error) => error,
             })
     }
 

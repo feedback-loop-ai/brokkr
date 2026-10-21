@@ -520,6 +520,134 @@ fn under_a_box_a_folder_seat_is_held_to_the_whole_compile_with_no_folder() {
     }
 }
 
+/// The recipe's verify seat with `driver` as its driver, or with none.
+fn driven(driver: Option<Value>) -> Value {
+    let mut seat = from_folder();
+    let own = seat.as_object_mut().unwrap();
+    match driver {
+        None => own.remove("driver"),
+        Some(driver) => own.insert("driver".into(), driver),
+    };
+    seat
+}
+
+/// The recipe `child` on the personal shelf, which extends `fixture` and
+/// declares nothing of its own.
+fn child(folder: &Folder) -> PathBuf {
+    let document = json!({"name": "child", "extends": "fixture"});
+    layer(&folder.personal.join("child"), &document, "child")
+}
+
+/// In a composed child, refusal 4 rises with its variant and its one text
+/// whether the inherited seat's driver is absent, which the resolver
+/// refuses, or present and one a compile with no folder refuses, which the
+/// seats' compile does, while any other refusal of a composed child still
+/// carries the chain's note.
+#[test]
+fn in_a_composed_child_refusal_four_rises_unwrapped_and_others_carry_the_note() {
+    let folder = Folder::new();
+    let leaf = child(&folder);
+    for driver in [None, Some(Value::Null)] {
+        folder.recipe(json!({"verify": driven(driver)}));
+        let seat = "verify".into();
+        let refused = (
+            FolderSeatRefusal::NoOwnDriver { seat },
+            NO_OWN_DRIVER.into(),
+        );
+        assert_eq!(refusal(compile(&leaf, &folder.shelves())), refused);
+    }
+    let mut seat = from_folder();
+    seat.as_object_mut().unwrap().remove("from");
+    seat["driver"] = Value::Null;
+    folder.recipe(json!({"verify": seat}));
+    match compile(&leaf, &folder.shelves()).map(|bundle| bundle.roots) {
+        Err(CompileError::Invalid(text)) => assert_eq!(
+            text,
+            "bundle: seat 'verify' missing 'role' (composed: child -> fixture)"
+        ),
+        other => panic!("not an invalid bundle: {other:?}"),
+    }
+}
+
+/// Refusal 4's place: a seat that declares no driver refuses with it
+/// before the folder's declaration is read, while a seat whose driver is
+/// present but which a compile with no folder refuses gives the folder's
+/// own refusal first (1, 3, then 2) and refusal 4 only where the folder's
+/// declaration is sound, as the seats compile after the resolver.
+#[test]
+fn refusal_four_follows_the_folders_refusals_unless_no_driver_is_declared() {
+    let folder = Folder::new();
+    let seatless = json!({"name": "starter", "policy": "policy.json", "seats": {}});
+    let raw = || {
+        let mut declared = verify_seat(json!({}), folder_hands());
+        declared["driver"]["command"] = json!(["bash", "./scripts/verify-seat.sh"]);
+        declared
+    };
+    let reversed = || {
+        let mut declared = verify_seat(json!({}), folder_hands());
+        declared["results"] = json!(["fail", "pass"]);
+        declared
+    };
+    let sound = || verify_seat(json!({}), folder_hands());
+    let undeclared = undeclared_text(&folder.file());
+    let shape = |results: &str| {
+        Box::new(Shape {
+            class: "\"gate\"".into(),
+            results: results.into(),
+        })
+    };
+    let seat = || "verify".to_string();
+    for (driver, declared, expected, text) in [
+        (
+            Some(Value::Null),
+            None,
+            FolderSeatRefusal::Undeclared {
+                seat: seat(),
+                file: folder.file(),
+            },
+            undeclared.as_str(),
+        ),
+        (
+            Some(Value::Null),
+            Some(raw()),
+            FolderSeatRefusal::NotItsOwnScript { seat: seat() },
+            NOT_ITS_OWN_SCRIPT,
+        ),
+        (
+            Some(Value::Null),
+            Some(reversed()),
+            FolderSeatRefusal::Differs {
+                seat: seat(),
+                folder: shape("[\"fail\",\"pass\"]"),
+                recipe: shape("[\"pass\",\"fail\"]"),
+            },
+            DIFFERS,
+        ),
+        (
+            Some(Value::Null),
+            Some(sound()),
+            FolderSeatRefusal::NoOwnDriver { seat: seat() },
+            NO_OWN_DRIVER,
+        ),
+        (
+            None,
+            None,
+            FolderSeatRefusal::NoOwnDriver { seat: seat() },
+            NO_OWN_DRIVER,
+        ),
+    ] {
+        match declared {
+            Some(declared) => folder.declare(declared),
+            None => folder.write_folder(&seatless),
+        }
+        let leaf = folder.recipe(json!({"verify": driven(driver)}));
+        assert_eq!(
+            refusal(compile(&leaf, &folder.shelves())),
+            (expected, text.to_string())
+        );
+    }
+}
+
 /// The sixth refusal: a key the seat is not read for, written by the
 /// recipe (in a folder or out of one) or by the folder's declaration.
 #[test]
@@ -566,13 +694,22 @@ fn a_folder_that_declares_no_such_seat_refuses() {
         file: file.clone(),
     };
     assert_eq!(variant, undeclared);
-    let expected = format!(
+    assert_eq!(text, undeclared_text(&file));
+}
+
+/// Refusal 1's text, for a folder bundle declared in `file`.
+fn undeclared_text(file: &Path) -> String {
+    format!(
         "bundle: seat 'verify' is the folder's own (decision 0091), and {} declares no seat \
          'verify'",
         file.display()
-    );
-    assert_eq!(text, expected);
+    )
 }
+
+/// Refusal 3's text, pinned once.
+const NOT_ITS_OWN_SCRIPT: &str = "bundle: seat 'verify' is the folder's own (decision 0091), and \
+                                  the folder's is not a `{brokkr} driver exec` dispatch of its \
+                                  own pinned script";
 
 /// Refusal 3: the folder's seat runs something other than its own pinned
 /// script, whether a raw process or an exec of text.
@@ -593,13 +730,15 @@ fn a_folder_seat_that_is_not_an_exec_of_its_own_script_refuses() {
                 seat: "verify".into()
             }
         );
-        assert_eq!(
-            text,
-            "bundle: seat 'verify' is the folder's own (decision 0091), and the folder's is not \
-             a `{brokkr} driver exec` dispatch of its own pinned script"
-        );
+        assert_eq!(text, NOT_ITS_OWN_SCRIPT);
     }
 }
+
+/// Refusal 2's text for a folder whose results are the recipe's reversed,
+/// pinned once.
+const DIFFERS: &str = "bundle: seat 'verify' is the folder's own (decision 0091), and the \
+                       folder's is \"gate\" with results [\"fail\",\"pass\"] where the recipe's \
+                       is \"gate\" with results [\"pass\",\"fail\"]";
 
 /// Refusal 2: the folder's seat is another class, or has other results,
 /// as written and in order.
@@ -622,12 +761,7 @@ fn a_folder_seat_of_another_shape_refuses() {
         recipe: Box::new(ours),
     };
     assert_eq!(variant, differs);
-    assert_eq!(
-        text,
-        "bundle: seat 'verify' is the folder's own (decision 0091), and the folder's is \"gate\" \
-         with results [\"fail\",\"pass\"] where the recipe's is \"gate\" with results \
-         [\"pass\",\"fail\"]"
-    );
+    assert_eq!(text, DIFFERS);
 }
 
 /// Refusal 5: a folder bundle never takes a seat from itself through its

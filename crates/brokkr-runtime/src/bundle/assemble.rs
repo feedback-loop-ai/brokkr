@@ -126,7 +126,11 @@ pub(super) fn compile_seats(
 /// a role-less site runs `exec` alone (bound for a model driver by
 /// `a_folder_seat_whose_own_driver_a_compile_with_no_folder_refuses_refuses`),
 /// and asks what its class asks, as the folder's declaration of the same
-/// class does in this compile.
+/// class does in this compile. The resolver holds refusal 4 at its ruled
+/// place for the decision's own case, a seat that declares no driver. A
+/// seat whose driver is present but which a compile with no folder would
+/// not run is refused as refusal 4 after the resolver's refusals (5, 1, 3,
+/// 2), once the seats are compiled.
 pub(super) fn hold_own_drivers(
     compiler: &SiteCompiler<'_>,
     machine: &Machine,

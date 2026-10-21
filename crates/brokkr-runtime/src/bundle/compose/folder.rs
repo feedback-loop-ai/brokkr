@@ -242,7 +242,11 @@ pub(crate) fn pinned_layer<'a>(
 /// recipe's declaration stands. Returns the folder's layer where it was
 /// read here, for [`Folder::of`]. Each seat refuses in the order the word,
 /// its own driver, its own keys, its base, the folder's declaration, its
-/// word, its keys, its script and its shape.
+/// word, its keys, its script and its shape. That order holds refusal 4 at
+/// its ruled place for the decision's own case, a seat that declares no
+/// driver. A seat whose driver is present but which a compile with no
+/// folder would not run is refused as refusal 4 after the resolver's
+/// refusals (5, 1, 3, 2), once the seats are compiled.
 pub(super) fn take(
     merged: &mut Merged,
     layers: &[Layer],
