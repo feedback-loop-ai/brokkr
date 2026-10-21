@@ -32,39 +32,15 @@ pub(crate) const HANG_DEADLINE_SECONDS: u64 = 30;
 /// member is.
 const RUNTIME_BROKER: &str = include_str!("../../../brokkr-runtime/src/engine/broker.rs");
 
-/// `source` with its comments blanked, line breaks kept: a `//` comment to
-/// its line's end, and a `/* */` comment, nested as Rust nests them. A
-/// comment marker inside a string literal is read as one too, which can
-/// only hide code, and a hidden declaration fails the pin closed.
-fn uncommented(source: &str) -> String {
-    let mut code = String::with_capacity(source.len());
-    let mut depth = 0usize;
-    let mut chars = source.chars().peekable();
-    while let Some(c) = chars.next() {
-        match (c, chars.peek()) {
-            ('/', Some('*')) => {
-                chars.next();
-                depth += 1;
-            }
-            ('*', Some('/')) if depth > 0 => {
-                chars.next();
-                depth -= 1;
-            }
-            ('/', Some('/')) if depth == 0 => while chars.next_if(|c| *c != '\n').is_some() {},
-            ('\n', _) => code.push('\n'),
-            (c, _) if depth == 0 => code.push(c),
-            _ => {}
-        }
-    }
-    code
-}
-
 /// The seconds of the one `STARTUP` `source` declares, read off its line
-/// `const STARTUP: Duration = Duration::from_secs(N);` outside every
-/// comment. A line naming `const STARTUP` in any other shape, no such
-/// line, or two, fails the pin, never passes unread.
+/// `const STARTUP: Duration = Duration::from_secs(N);` in the code alone,
+/// each comment and literal read as a space ([`crate::rust_source::code`]).
+/// A line naming `const STARTUP` in any other shape, no such line, two, or
+/// a source the lexer cannot read, fails the pin, never passes unread.
 fn startup_seconds(source: &str) -> u64 {
-    let code = uncommented(source);
+    let code = crate::rust_source::code(source).unwrap_or_else(|unread| {
+        panic!("brokkr-runtime's engine/broker.rs cannot be read as Rust source: {unread}")
+    });
     let declared: Vec<&str> = code
         .lines()
         .filter(|line| {
@@ -118,8 +94,9 @@ fn a_commented_startup_is_never_read() {
     assert_eq!(startup_seconds(source), 60);
 }
 
-/// A live declaration a comment splits is refused, never read past for a
-/// commented copy beside it (#803).
+/// A comment splitting the live declaration with a space either side
+/// leaves it a shape the pin does not read: it is refused, never read past
+/// for the commented copy beside it (#803).
 #[test]
 #[should_panic(expected = "declares `STARTUP` in a shape the pin does not read")]
 fn a_declaration_a_comment_splits_is_refused() {
@@ -127,6 +104,38 @@ fn a_declaration_a_comment_splits_is_refused() {
         "/*\nconst STARTUP: Duration = Duration::from_secs(30);\n*/\n\
          const /* startup bound */ STARTUP: Duration = Duration::from_secs(60);\n",
     );
+}
+
+/// A comment with no space beside it reads as the one space it stands
+/// for, so the live declaration it splits is read, and the commented copy
+/// beside it never is (#803).
+#[test]
+fn a_comment_between_two_words_reads_as_a_space() {
+    let source = "/*\nconst STARTUP: Duration = Duration::from_secs(30);\n*/\n\
+                  const/* startup bound */STARTUP: Duration = Duration::from_secs(60);\n";
+    assert_eq!(startup_seconds(source), 60);
+}
+
+/// A literal is never code: a comment marker inside a string opens no
+/// comment, so it hides no live declaration and exposes no commented copy
+/// (#803).
+#[test]
+fn a_literal_neither_hides_nor_exposes_a_declaration() {
+    let source = "const PATTERN: &str = \"logs/*\";\n\
+                  const STARTUP: Duration = Duration::from_secs(60);\n\
+                  // */const STARTUP: Duration = Duration::from_secs(30);\n\
+                  const COPY: &str = r#\"\nconst STARTUP: Duration = Duration::from_secs(31);\n\"#;\n";
+    assert_eq!(startup_seconds(source), 60);
+}
+
+/// A source the lexer cannot read is refused, never read in part (#803).
+#[test]
+#[should_panic(
+    expected = "brokkr-runtime's engine/broker.rs cannot be read as Rust source: an \
+                unterminated block comment"
+)]
+fn an_unreadable_source_is_refused() {
+    startup_seconds("const STARTUP: Duration = Duration::from_secs(30);\n/* never closed\n");
 }
 
 /// `brokkr` run in `dir`, which is its TMPDIR too: its start reaps only
