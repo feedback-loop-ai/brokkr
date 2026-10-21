@@ -120,7 +120,7 @@ this decision and the Rust types are their shape.
    it is encoded.
 
    **Enforcement binding:** `crates/brokkr-runtime/src/bundle/entry.rs`
-   (`admit`, `admitted`, `EntryError`; the third fact and its witness one
+   (`admit`, `admitted`, `first_phase`, `EntryError`; the third fact and its witness one
    value, `Seat.gate`, a closed `GateAssessment`) and its tests in
    `bundle/tests.rs`; `crates/brokkr-runtime/tests/table_lints.rs` pins
    the admitted set of every shipped table by shape, `verify, review` in
@@ -132,7 +132,7 @@ this decision and the Rust types are their shape.
    acceptance: a synthetic recipe listing intake and design ahead of
    implement, entered at `verify` over a finished branch, reaching
    `SHIP-COMPLETE` with no work seat); `crates/brokkr-runtime/tests/queued_launch.rs`
-   and `crates/brokkr-cli/tests/cli_reference_tests.rs` for the flags'
+   and `crates/brokkr-cli/src/cli_reference_tests.rs` for the flags'
    home.
 
 2. **The protected phase stays unavoidable from wherever a run begins,
@@ -223,7 +223,7 @@ this decision and the Rust types are their shape.
    **Enforcement binding:** `Machine::unruled_without_strategy` in
    `crates/brokkr-core/src/policy/audit.rs` and its tests;
    `CHANGE_SOURCES` in `crates/brokkr-runtime/src/phase_name.rs`, read by
-   `nearest_change` and the admission's sixth fact; the fixtures in
+   `nearest_change` (`engine/sequence.rs`) and the admission's sixth fact; the fixtures in
    `bundle/tests.rs` (a selector with a default admitted, a group only a
    skipped strategy decides refused, a `{change}` step with no road to its
    source refused, two facts failing with the first named).
@@ -266,7 +266,7 @@ this decision and the Rust types are their shape.
    **Enforcement binding:** the `--continues` refusals in
    `crates/brokkr-runtime/src/launch.rs` with `launch/tests.rs`;
    `is_native_run_id` and `check_record` in `crates/brokkr-core/src/entry.rs`,
-   the mint held to the grammar by `engine/entry.rs`'s test; the Looper-bound refusal in `launch.rs`, with
+   the mint held to the grammar by a test in `engine/tests.rs` over a freshly minted id; the Looper-bound refusal in `launch.rs`, with
    a concluded Looper-bound run whose id is native-shaped refused in
    `launch/tests.rs`; `scripts/delivered-by-brokkr.sh`;
    `crates/brokkr-cli/tests/delivered_by_brokkr.rs` (an entered run over
@@ -310,7 +310,7 @@ this decision and the Rust types are their shape.
    `crates/brokkr-runtime/src/bundle/origins.rs`; `RunEntry`,
    `check_record` and `RunEntry::of_started` in
    `crates/brokkr-core/src/entry.rs` with their tests (absent, empty chain,
-   and every row of `tests/support/entry_records.rs` by variant); `first_phase` in `crates/brokkr-runtime/src/engine/entry.rs`
+   and every row of `tests/support/entry_records.rs` by variant); `first_phase` in `crates/brokkr-runtime/src/bundle/entry.rs`, called at `Cursor::Start`,
    with the resume-window, no-longer-admits and does-not-read pins in
    `engine/tests.rs`, and `Engine::start_in_world`'s refusal of a record
    outside the language before `create_run`, pinned there with no run
