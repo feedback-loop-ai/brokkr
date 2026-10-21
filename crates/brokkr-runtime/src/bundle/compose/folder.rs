@@ -140,6 +140,14 @@ pub enum FolderSeatRefusal {
         folder: Box<Shape>,
         recipe: Box<Shape>,
     },
+    /// The folder's declaration writes no `hands`, so the seat would spawn
+    /// with no hands and its script with no walk at its spawn.
+    #[error(
+        "seat '{seat}' is the folder's own (decision 0091), and the folder's declares no hands, \
+         so its script would spawn without the walk that checks it: declare its hands in {}",
+        .file.display()
+    )]
+    NoHands { seat: String, file: PathBuf },
 }
 
 fn refused(refusal: FolderSeatRefusal) -> CompileError {
@@ -242,11 +250,11 @@ pub(crate) fn pinned_layer<'a>(
 /// recipe's declaration stands. Returns the folder's layer where it was
 /// read here, for [`Folder::of`]. Each seat refuses in the order the word,
 /// its own driver, its own keys, its base, the folder's declaration, its
-/// word, its keys, its script and its shape. That order holds refusal 4 at
-/// its ruled place for the decision's own case, a seat that declares no
-/// driver. A seat whose driver is present but which a compile with no
-/// folder would not run is refused as refusal 4 after the resolver's
-/// refusals (5, 1, 3, 2), once the seats are compiled.
+/// word, its keys, its script, its shape and its hands. That order holds
+/// refusal 4 at its ruled place for the decision's own case, a seat that
+/// declares no driver. A seat whose driver is present but which a compile
+/// with no folder would not run is refused as refusal 4 after the
+/// resolver's refusals (5, 1, 3, 2, 7), once the seats are compiled.
 pub(super) fn take(
     merged: &mut Merged,
     layers: &[Layer],
@@ -370,9 +378,10 @@ fn through_base(
 /// Take `seat`'s driver and hands from `folder`'s own declaration, which
 /// must exist, say nothing in `from` but what [`word`] reads, write
 /// nothing the seat is not read for, dispatch the folder's own pinned
-/// script and agree with the recipe's class and results; the seat is then
-/// the folder layer's, at `index`. A declaration that says
-/// `"from": "folder"` is the folder's own seat, which takes itself.
+/// script, agree with the recipe's class and results, and declare hands,
+/// read last, so the spawn walks the folder's map; the seat is then the
+/// folder layer's, at `index`. A declaration that says `"from": "folder"`
+/// is the folder's own seat, which takes itself.
 fn supply(
     merged: &mut Merged,
     folder: &Layer,
@@ -407,6 +416,10 @@ fn supply(
             folder,
             recipe,
         }));
+    }
+    if declared.get("hands").is_none() {
+        let (seat, file) = (seat.to_string(), folder.file.clone());
+        return Err(refused(FolderSeatRefusal::NoHands { seat, file }));
     }
     let recipes = OwnSeat {
         raw: merged.seats[seat].clone(),

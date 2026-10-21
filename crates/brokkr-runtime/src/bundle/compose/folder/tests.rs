@@ -220,25 +220,52 @@ fn a_folder_seat_takes_the_folders_driver_and_hands_and_pins_its_layer() {
     );
 }
 
-/// A folder declaration with no hands gives the seat none: the recipe's
-/// own hands, which bind the toolchain, do not survive the substitution.
-/// Both are work seats, as a hands-less exec cannot be a gate.
+/// Refusal 7: a folder declaration with no hands refuses, as its script
+/// would spawn with no walk of the folder's map, even where a hands-less
+/// work seat would otherwise compile, and it is read last: a declaration
+/// of another shape with no hands refuses as refusal 2.
 #[test]
-fn a_folder_seat_with_no_hands_takes_none_of_the_recipes() {
+fn a_folder_seat_whose_declaration_has_no_hands_refuses() {
     let folder = Folder::new();
     let mut declared = verify_seat(json!({}), folder_hands());
     for key in ["class", "hands"] {
         declared.as_object_mut().unwrap().remove(key);
     }
-    folder.declare(declared);
+    folder.declare(declared.clone());
     let mut seat = from_folder();
     seat.as_object_mut().unwrap().remove("class");
     let leaf = folder.recipe(json!({"verify": seat}));
-    let bundle = compile(&leaf, &folder.shelves()).unwrap();
-    let dir = folder.folder().canonicalize().unwrap();
-    assert_eq!(argv(&bundle, "verify")[5], script_at(&dir));
-    assert_eq!(bundle.hands.get("verify"), None);
-    assert_eq!(bundle.manifest.pointer("/hands/verify"), None);
+    let (variant, text) = refusal(compile(&leaf, &folder.shelves()));
+    let file = folder.file();
+    let no_hands = FolderSeatRefusal::NoHands {
+        seat: "verify".into(),
+        file: file.clone(),
+    };
+    assert_eq!(variant, no_hands);
+    assert_eq!(
+        text,
+        format!(
+            "bundle: seat 'verify' is the folder's own (decision 0091), and the folder's declares \
+             no hands, so its script would spawn without the walk that checks it: declare its \
+             hands in {}",
+            file.display()
+        )
+    );
+    declared["class"] = json!("gate");
+    folder.declare(declared);
+    let (variant, _) = refusal(compile(&leaf, &folder.shelves()));
+    let shape = |class: &str| {
+        Box::new(Shape {
+            class: class.into(),
+            results: "[\"pass\",\"fail\"]".into(),
+        })
+    };
+    let differs = FolderSeatRefusal::Differs {
+        seat: "verify".into(),
+        folder: shape("\"gate\""),
+        recipe: shape("null"),
+    };
+    assert_eq!(variant, differs);
 }
 
 /// Where no folder stands, the recipe's own complete declaration is what

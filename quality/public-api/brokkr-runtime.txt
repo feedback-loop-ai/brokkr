@@ -550,6 +550,9 @@ pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Differs
 pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Differs::folder: alloc::boxed::Box<brokkr_runtime::bundle::compose::folder::Shape>
 pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Differs::recipe: alloc::boxed::Box<brokkr_runtime::bundle::compose::folder::Shape>
 pub brokkr_runtime::bundle::compose::FolderSeatRefusal::Differs::seat: alloc::string::String
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoHands
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoHands::file: std::path::PathBuf
+pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoHands::seat: alloc::string::String
 pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoOwnDriver
 pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NoOwnDriver::seat: alloc::string::String
 pub brokkr_runtime::bundle::compose::FolderSeatRefusal::NotItsOwnScript

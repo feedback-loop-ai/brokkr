@@ -4,7 +4,8 @@
 //! whose verify is the folder's own installs, compiles with the folder's
 //! layer pinned, and a run of it reaches verify and runs the folder's
 //! script, which fails closed with `init`'s fill-in text, never the
-//! recipe's own, which would pass.
+//! recipe's own, which would pass. A folder whose verify declares no hands
+//! refuses such a seat at compile and at run.
 //!
 //! The folder is scaffolded for codex, whose `init` writes the `harness`
 //! boundary, so no box is needed.
@@ -60,53 +61,77 @@ fn payloads(db: &Path, run: &str) -> Vec<Value> {
     events.map(|event| event.payload).collect()
 }
 
+/// The fixture's run, as each test starts it.
+const RUN: [&str; 6] = [
+    "run",
+    "--recipe",
+    "folder-seat",
+    "--feature",
+    "x",
+    "--no-view",
+];
+
+/// The fixture's compile, as each test asks for it.
+const COMPILE: [&str; 3] = ["compile", "--bundle", ".brokkr/recipes/folder-seat"];
+
+/// A fresh folder `init` scaffolded for codex, the home `brokkr` runs
+/// under, and the fixture written beside them, not yet added.
+struct Scratch {
+    repo: tempfile::TempDir,
+    aside: tempfile::TempDir,
+    source: tempfile::TempDir,
+}
+
+impl Scratch {
+    fn new() -> Scratch {
+        let scratch = Scratch {
+            repo: repository(),
+            aside: tempfile::tempdir().unwrap(),
+            source: tempfile::tempdir().unwrap(),
+        };
+        let (code, _, stderr) = scratch.brokkr(&["init", "."]);
+        assert_eq!(code, Some(0), "{stderr}");
+        fixture(scratch.source.path());
+        scratch
+    }
+
+    /// `brokkr` with `args`, in the folder, for codex.
+    fn brokkr(&self, args: &[&str]) -> (Option<i32>, String, String) {
+        brokkr_for("codex", args, self.repo.path(), self.aside.path())
+    }
+
+    /// Add the fixture to the folder's shelf as `folder-seat`.
+    fn add(&self) {
+        let source = self.source.path().to_str().unwrap();
+        let (code, _, stderr) = self.brokkr(&["recipes", "add", source, "--name", "folder-seat"]);
+        assert_eq!(code, Some(0), "{stderr}");
+    }
+}
+
 #[test]
 fn a_shelf_recipes_folder_seat_runs_the_folders_own_script() {
-    let (repo, aside, source) = (
-        repository(),
-        tempfile::tempdir().unwrap(),
-        tempfile::tempdir().unwrap(),
-    );
-    let brokkr = |args: &[&str]| brokkr_for("codex", args, repo.path(), aside.path());
-    let (code, _, stderr) = brokkr(&["init", "."]);
-    assert_eq!(code, Some(0), "{stderr}");
-    fixture(source.path());
-    let add = [
-        "recipes",
-        "add",
-        source.path().to_str().unwrap(),
-        "--name",
-        "folder-seat",
-    ];
-    let (code, _, stderr) = brokkr(&add);
-    assert_eq!(code, Some(0), "{stderr}");
+    let scratch = Scratch::new();
+    scratch.add();
+    let (repo, brokkr) = (scratch.repo.path(), |args: &[&str]| scratch.brokkr(args));
 
-    let (code, stdout, stderr) = brokkr(&["compile", "--bundle", ".brokkr/recipes/folder-seat"]);
+    let (code, stdout, stderr) = brokkr(&COMPILE);
     assert_eq!(code, Some(0), "{stderr}");
     let compiled: Value = serde_json::from_str(&stdout).unwrap();
     let files = compiled["manifest"]["files"].as_object().unwrap();
     let digest = files["@folder/starter"].as_str().unwrap();
     assert_eq!(digest.len(), 64, "{digest}");
 
-    let run = [
-        "run",
-        "--recipe",
-        "folder-seat",
-        "--feature",
-        "x",
-        "--no-view",
-    ];
     for identity in [["user.name", "t"], ["user.email", "t@example.invalid"]] {
-        git(repo.path(), &[&["config"][..], &identity[..]].concat());
+        git(repo, &[&["config"][..], &identity[..]].concat());
     }
     // Either verdict ends the fixture's table at `stop`: the run stopped.
-    let (code, _, stderr) = brokkr(&run);
+    let (code, _, stderr) = brokkr(&RUN);
     assert_eq!(code, Some(3), "{stderr}");
     let run = stderr
         .lines()
         .find_map(|line| line.strip_prefix("run started: "))
         .unwrap_or_else(|| panic!("a run started: {stderr}"));
-    let journaled = payloads(&repo.path().join(".brokkr/state/forge.db"), run);
+    let journaled = payloads(&repo.join(".brokkr/state/forge.db"), run);
     let ruled: Vec<(&Value, &Value)> = journaled
         .iter()
         .filter(|payload| payload.get("rule_id").is_some())
@@ -116,4 +141,45 @@ fn a_shelf_recipes_folder_seat_runs_the_folders_own_script() {
     let text = Value::Array(journaled).to_string();
     assert!(text.contains(FILL_IN), "{text}");
     assert!(!text.contains(SENTINEL), "{text}");
+}
+
+/// Remove `key` from the verify seat the bundle `file` declares.
+fn strip_verify(file: &Path, key: &str) {
+    let mut declared: Value = serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
+    let verify = declared["seats"]["verify"].as_object_mut().unwrap();
+    assert!(verify.remove(key).is_some(), "{verify:?}");
+    std::fs::write(file, declared.to_string()).unwrap();
+}
+
+/// A folder whose own verify declares no hands refuses the fixture's
+/// folder seat at compile with the seventh refusal's line, and a run of
+/// it refuses before any seat spawns. Both verifies are work seats, which
+/// with no hands would otherwise compile and run the folder's script.
+#[test]
+fn a_folder_seat_whose_folder_declares_no_hands_refuses() {
+    let scratch = Scratch::new();
+    let file = scratch.repo.path().join(".brokkr/bundle.json");
+    for bundle in [&file, &scratch.source.path().join("bundle.json")] {
+        strip_verify(bundle, "class");
+    }
+    scratch.add();
+    strip_verify(&file, "hands");
+
+    let refusal = format!(
+        "bundle: seat 'verify' is the folder's own (decision 0091), and the folder's declares no \
+         hands, so its script would spawn without the walk that checks it: declare its hands in \
+         {}",
+        file.canonicalize().unwrap().display()
+    );
+    let (code, stdout, stderr) = scratch.brokkr(&COMPILE);
+    assert_eq!((code, stdout.as_str()), (Some(1), ""), "{stderr}");
+    assert_eq!(stderr, format!("error: {refusal}\n"));
+
+    let (code, _, stderr) = scratch.brokkr(&RUN);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(!stderr.contains("run started: "), "{stderr}");
+    assert_eq!(
+        stderr.lines().last(),
+        Some(format!("error: {refusal}").as_str())
+    );
 }
