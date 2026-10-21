@@ -533,8 +533,8 @@ Dependencies: U8d for U8e, U8e for U8e2; 42.2 is U9b1's. Files and scope: [U8e](
 
 Dependencies: U8e. Files and scope: [design.md](design.md#u8f--expose-retained-evidence-in-the-pure-view).
 
-- [ ] 43.1 (U8f; [CC2](specs/capability-call-checkpoints/spec.md), [CR5](specs/capability-response-retention/spec.md)) Extend the consumed pure call projection with the settled checkpoint's digest/provenance, without stage assembly, path reads or derived grants. Verify: Exact historical-unrecorded/no-digest/recorded distinctions and shared display values for every settled outcome; no inferred retention veto.
-- [ ] 43.2 (U8f; [CC2](specs/capability-call-checkpoints/spec.md), [CR5](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 43.1. Apply the shared verification duty above.
+- [x] 43.1 (U8f; [CC2](specs/capability-call-checkpoints/spec.md), [CR5](specs/capability-response-retention/spec.md)) Extend the consumed pure call projection with the settled checkpoint's digest/provenance, without stage assembly, path reads or derived grants. Verify: Exact historical-unrecorded/no-digest/recorded distinctions and shared display values for every settled outcome; no inferred retention veto.
+- [x] 43.2 (U8f; [CC2](specs/capability-call-checkpoints/spec.md), [CR5](specs/capability-response-retention/spec.md), [SD2](specs/slice-two-delivery/spec.md), [SD4](specs/slice-two-delivery/spec.md)) In the owning suites listed for this row, record independent exact assertions, compiling removal failures and restored passes for the scenarios in task 43.1. Apply the shared verification duty above.
 
 ## 44. U8g — Open a cited artifact through inspect
 
