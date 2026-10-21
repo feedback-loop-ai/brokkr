@@ -144,6 +144,34 @@ fn two_different_returns_are_two_roads_into_implement_in_journal_order() {
 }
 
 #[test]
+fn returns_into_two_different_phases_are_one_road_each_on_its_own_phase() {
+    // A road into `verify` is looked for among the roads already taken:
+    // the one into `implement` lands elsewhere, so it is passed over and
+    // the new road is its own entry on `verify`.
+    let view = run_view(
+        &walk(&[
+            IMPL_OK,
+            VERIFY_PASS,
+            REFORGE,
+            IMPL_OK,
+            VERIFY_PASS,
+            ("review", Some(("verify", "REVIEW-REVERIFY"))),
+            VERIFY_PASS,
+            ("review", None),
+        ]),
+        None,
+    );
+    assert_eq!(
+        roads(&view),
+        [
+            "implement ×2 ← review ×1 REVIEW-REFORGE",
+            "verify ×3 ← review ×1 REVIEW-REVERIFY",
+            "review ×3 ← "
+        ]
+    );
+}
+
+#[test]
 fn a_phase_ruled_onto_itself_is_a_retry_not_a_road_back() {
     let view = run_view(
         &walk(&[
