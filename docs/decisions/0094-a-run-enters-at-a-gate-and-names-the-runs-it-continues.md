@@ -120,7 +120,8 @@ this decision and the Rust types are their shape.
    it is encoded.
 
    **Enforcement binding:** `crates/brokkr-runtime/src/bundle/entry.rs`
-   (`admit`, `admitted`, `AdmittedEntry`, `EntryError`) and its tests in
+   (`admit`, `admitted`, `EntryError`; the third fact and its witness one
+   value, `Seat.gate`, a closed `GateAssessment`) and its tests in
    `bundle/tests.rs`; `crates/brokkr-runtime/tests/table_lints.rs` pins
    the admitted set of every shipped table by shape, `verify, review` in
    the `fast`-shaped tables, `panel-review`, `self`, `preflight` and
@@ -148,8 +149,8 @@ this decision and the Rust types are their shape.
    verify, and it vouches a head no seat of that journal tested. That is a
    departure from "verified before judged", taken on the operator's word
    as decision 0051 ruling 3 takes the class's word for prose, with the
-   platform suite on the pull request as the same backstop; unlike the
-   class, it is journaled, and every surface, `run/started.entry.phase`,
+   pull request's own checks, where a realm has them, as the same backstop
+   and never as the recipe's verify; unlike the class, it is journaled, and every surface, `run/started.entry.phase`,
    `context.entry`, the run view and the gate's check line, names the gate
    entered. The engine reads nothing of a continued run's verify. The
    by-hand road is untouched: a landing started without an entry
@@ -219,7 +220,7 @@ this decision and the Rust types are their shape.
    not ruled here. Nothing of a continued run's fold is read into this
    run's.
 
-   **Enforcement binding:** `Machine::unruled_without` in
+   **Enforcement binding:** `Machine::unruled_without_strategy` in
    `crates/brokkr-core/src/policy/audit.rs` and its tests;
    `CHANGE_SOURCES` in `crates/brokkr-runtime/src/phase_name.rs`, read by
    `nearest_change` and the admission's sixth fact; the fixtures in
@@ -243,12 +244,17 @@ this decision and the Rust types are their shape.
    continue. Every refusal comes before an event is written, and nothing
    else, no realm, repository, recipe or verify, is compared: existence,
    conclusion, the id's grammar and the lineage its start pinned are the
-   checks. The
+   checks. The record's own facts, named twice and the grammar, are judged
+   first by the one check the journal's reader applies (ruling 6), and the
+   journal's, existence, lineage and conclusion, after, each per id in the
+   order named. The
    contribution gate reads `entry` from the vouching run's verified
    journal, names the gate entered and each continued run's id on its
-   check line, never a feature text, and refuses an `entry` it cannot
-   read, a phase outside ruling 1's grammar or a continued id outside the
-   native grammar; an absent `entry` reads as today. The gate's claim is
+   check line, never a feature text, and refuses an `entry` outside the
+   record's one language (ruling 6): not the record's shape, a phase
+   outside ruling 1's grammar, a continued id outside the native grammar,
+   or one named twice; it accepts no `entry` the reader refuses, and an
+   absent `entry` reads as today. The gate's claim is
    this and no more: it vouches the shipping run's whole-branch patch map,
    cut from the merge-base of the default branch (decision 0038 ruling 1),
    and reports the runs the operator named; it fetches no continued run's
@@ -259,14 +265,15 @@ this decision and the Rust types are their shape.
 
    **Enforcement binding:** the `--continues` refusals in
    `crates/brokkr-runtime/src/launch.rs` with `launch/tests.rs`;
-   `is_native_run_id` in `crates/brokkr-runtime/src/engine/entry.rs`,
-   held to a minted id; the Looper-bound refusal in `launch.rs`, with
+   `is_native_run_id` and `check_record` in `crates/brokkr-core/src/entry.rs`,
+   the mint held to the grammar by `engine/entry.rs`'s test; the Looper-bound refusal in `launch.rs`, with
    a concluded Looper-bound run whose id is native-shaped refused in
    `launch/tests.rs`; `scripts/delivered-by-brokkr.sh`;
    `crates/brokkr-cli/tests/delivered_by_brokkr.rs` (an entered run over
    a branch two runs built vouches at `vouched` with the chain on its
-   line, a malformed entry refuses, the patterns are the compiler's and
-   the launch's, and a journal carrying the new fields verifies under the
+   line, every row of the invalid-record matrix
+   `tests/support/entry_records.rs` refuses, the patterns are the
+   compiler's and the core's, and a journal carrying the new fields verifies under the
    current verifier).
 
 6. **The journal records the entry and the table's order, two additive
@@ -276,9 +283,13 @@ this decision and the Rust types are their shape.
    array when no run was named, and `entry` absent on every run started
    without one; and `phases`, the compiled table's `phases` list verbatim,
    on every start. Both are typed once at the edge, `deny_unknown_fields`,
-   with absence told from malformation by the key: a present `entry` that
-   does not read is refused by the engine where it reads it, and the run
-   view, which refuses no journal the fold accepts, states it unreadable
+   with absence told from malformation by the key. A present `entry` reads
+   only as the whole record, its shape, its phase under ruling 1's grammar,
+   each continued id under the native grammar and named once, one check in
+   `brokkr-core` that the reader, the launch and, by two patterns held
+   equal, the gate apply, so the record has one language: a present `entry`
+   that does not so read is refused by the engine where it reads it, and
+   the run view, which refuses no journal the fold accepts, states it unreadable
    with the reader's error (ruling 8). The engine enters the entry
    instead of `initial` at `Cursor::Start`, at the first drive and at a
    resume in the window after `run/started`, admitting it again by ruling
@@ -293,10 +304,10 @@ this decision and the Rust types are their shape.
    extension paragraph under this decision.
 
    **Enforcement binding:** `Bundle::run_started` in
-   `crates/brokkr-runtime/src/bundle/origins.rs`; `RunEntry` and
-   `RunEntry::of_started` in `crates/brokkr-core/src/entry.rs` with their
-   tests (absent, empty chain, `null`, a scalar, a missing or unknown
-   member); `first_phase` in `crates/brokkr-runtime/src/engine/entry.rs`
+   `crates/brokkr-runtime/src/bundle/origins.rs`; `RunEntry`,
+   `check_record` and `RunEntry::of_started` in
+   `crates/brokkr-core/src/entry.rs` with their tests (absent, empty chain,
+   and every row of `tests/support/entry_records.rs` by variant); `first_phase` in `crates/brokkr-runtime/src/engine/entry.rs`
    with the resume-window, no-longer-admits and does-not-read pins in
    `engine/tests.rs`; the ordinary-start pin (no `entry` key, the same
    manifest digest, `phases` equal to the table's) in
@@ -420,8 +431,9 @@ this decision and the Rust types are their shape.
   its `run/started` gains the one `phases` list. No contract file, no
   frozen surface, no fold arm and no store schema moves.
 - The engine's constitutional walk, the sweep over a group's
-  unconditioned rulings and the direction of a ruling each have one home
-  in `brokkr-core`, read by the compiler, the engine and the view.
+  unconditioned rulings, the direction of a ruling and the language of the
+  entry record each have one home in `brokkr-core`, read by the compiler,
+  the engine, the view and, by patterns held equal, the gate.
 - The public API of `brokkr-core`, `brokkr-runtime` and `brokkr-view`
   gains the types above; the snapshots under `quality/public-api/` are
   re-measured on the pinned nightly and cited in the pull request.
