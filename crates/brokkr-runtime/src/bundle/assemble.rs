@@ -130,7 +130,7 @@ pub(super) fn compile_seats(
 /// place for the decision's own case, a seat that declares no driver. A
 /// seat whose driver is present but which a compile with no folder would
 /// not run is refused as refusal 4 after the resolver's refusals (5, 1, 3,
-/// 2), once the seats are compiled.
+/// 2, 7), once the seats are compiled.
 pub(super) fn hold_own_drivers(
     compiler: &SiteCompiler<'_>,
     machine: &Machine,
