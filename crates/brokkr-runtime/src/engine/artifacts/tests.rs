@@ -81,7 +81,7 @@ impl Provisioned {
     }
 
     /// Its owner, as every plan of it names it.
-    fn owner(&self) -> Owner {
+    pub(in crate::engine) fn owner(&self) -> Owner {
         let [repo, run, attempt] = self.owner.clone();
         Owner {
             repo,

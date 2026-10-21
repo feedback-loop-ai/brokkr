@@ -556,6 +556,7 @@ pub brokkr_runtime::bundle::compose::Resolved::case_origin: alloc::collections::
 pub brokkr_runtime::bundle::compose::Resolved::chain: alloc::vec::Vec<brokkr_runtime::bundle::compose::Ancestor>
 pub brokkr_runtime::bundle::compose::Resolved::document: serde_json::value::Value
 pub brokkr_runtime::bundle::compose::Resolved::name: alloc::string::String
+pub brokkr_runtime::bundle::compose::Resolved::origins: alloc::vec::Vec<brokkr_runtime::places::Origin>
 pub brokkr_runtime::bundle::compose::Resolved::roots: alloc::vec::Vec<std::path::PathBuf>
 pub brokkr_runtime::bundle::compose::Resolved::seat_origin: alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>
 pub brokkr_runtime::bundle::compose::Resolved::seats: serde_json::map::Map<alloc::string::String, serde_json::value::Value>
@@ -585,6 +586,7 @@ pub brokkr_runtime::bundle::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::bundle::CompileError::Json(serde_json::error::Error)
 pub brokkr_runtime::bundle::CompileError::Policy(brokkr_core::policy::PolicyError)
 pub brokkr_runtime::bundle::CompileError::Provisional(brokkr_runtime::bundle::ProvisionalRefusal)
+pub brokkr_runtime::bundle::CompileError::Shelf(brokkr_runtime::places::ShelfRefusal)
 pub enum brokkr_runtime::bundle::ExecutableBody<'a>
 pub brokkr_runtime::bundle::ExecutableBody::Invocation(&'a brokkr_runtime::Invocation)
 pub brokkr_runtime::bundle::ExecutableBody::Sequence
@@ -658,6 +660,7 @@ pub brokkr_runtime::bundle::Bundle::inline_resume: alloc::collections::btree::ma
 pub brokkr_runtime::bundle::Bundle::machine: brokkr_core::policy::Machine
 pub brokkr_runtime::bundle::Bundle::manifest: serde_json::value::Value
 pub brokkr_runtime::bundle::Bundle::name: alloc::string::String
+pub brokkr_runtime::bundle::Bundle::origins: alloc::vec::Vec<brokkr_runtime::places::Origin>
 pub brokkr_runtime::bundle::Bundle::protected_phase: alloc::string::String
 pub brokkr_runtime::bundle::Bundle::roots: alloc::vec::Vec<std::path::PathBuf>
 pub brokkr_runtime::bundle::Bundle::seats: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::Seat>
@@ -670,6 +673,8 @@ pub fn brokkr_runtime::bundle::Bundle::compile_with(&std::path::Path, &std::path
 pub fn brokkr_runtime::bundle::Bundle::compile_with_capabilities(&std::path::Path, &std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&brokkr_runtime::dialect::Dialect>, impl core::convert::Into<brokkr_runtime::bundle::RealmLaw>, &brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::compile_with_realm(&std::path::Path, &std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&brokkr_runtime::dialect::Dialect>, brokkr_core::realms::Boundary) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::manifest_digest(&self) -> alloc::string::String
+impl brokkr_runtime::bundle::Bundle
+pub fn brokkr_runtime::bundle::Bundle::layers(&self) -> core::option::Option<alloc::vec::Vec<brokkr_runtime::places::ComposedLayer>>
 pub struct brokkr_runtime::bundle::CharterPin
 pub brokkr_runtime::bundle::CharterPin::digest: alloc::string::String
 pub brokkr_runtime::bundle::CharterPin::owner: brokkr_runtime::bundle::CharterOwner
@@ -1249,6 +1254,14 @@ pub brokkr_runtime::launch::LaunchError::NoFeature
 pub brokkr_runtime::launch::LaunchError::NoFeature::run: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::ParseDispatch(serde_json::error::Error)
 pub brokkr_runtime::launch::LaunchError::Places(brokkr_runtime::places::PlacesError)
+pub brokkr_runtime::launch::LaunchError::QueuedShelf
+pub brokkr_runtime::launch::LaunchError::QueuedShelf::own: std::path::PathBuf
+pub brokkr_runtime::launch::LaunchError::QueuedShelf::shelf: std::path::PathBuf
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced::name: alloc::string::String
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced::own: std::path::PathBuf
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced::personal: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::launch::LaunchError::QueuedShelfUnplaced::shelf: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchError::QueuedWorkspaceRelative(std::path::PathBuf)
 pub brokkr_runtime::launch::LaunchError::ReadDispatch
 pub brokkr_runtime::launch::LaunchError::ReadDispatch::path: std::path::PathBuf
@@ -1280,6 +1293,7 @@ pub brokkr_runtime::launch::LaunchRequest::host_path: std::ffi::os_str::OsString
 pub brokkr_runtime::launch::LaunchRequest::journal: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchRequest::repo: core::option::Option<std::path::PathBuf>
 pub brokkr_runtime::launch::LaunchRequest::secrets: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::launch::LaunchRequest::shelf: core::option::Option<std::path::PathBuf>
 pub brokkr_runtime::launch::LaunchRequest::workspace: std::path::PathBuf
 pub struct brokkr_runtime::launch::NewRun
 pub brokkr_runtime::launch::NewRun::dispatch: core::option::Option<std::path::PathBuf>
@@ -1301,6 +1315,7 @@ pub fn brokkr_runtime::launch::QueuedLaunch::of(&brokkr_runtime::launch::LaunchR
 pub fn brokkr_runtime::launch::QueuedLaunch::rebuild(self, std::path::PathBuf, std::ffi::os_str::OsString) -> core::result::Result<(brokkr_runtime::launch::LaunchRequest, brokkr_runtime::launch::NewRun), brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::capability_context(&std::path::Path, core::option::Option<&brokkr_runtime::realms::World>, core::option::Option<&brokkr_core::realms::Realm>, &std::path::Path) -> brokkr_runtime::capabilities::CapabilityContext
 pub fn brokkr_runtime::launch::compile_for(&std::path::Path, &std::path::Path, core::option::Option<&brokkr_runtime::realms::World>, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::launch::LaunchError>
+pub fn brokkr_runtime::launch::compile_on(&std::path::Path, (&std::path::Path, core::option::Option<&std::path::Path>), core::option::Option<&brokkr_runtime::realms::World>, &std::path::Path) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::operator_retry_members(brokkr_runtime::launch::LaunchRequest, &str, &[alloc::string::String], &str, &str) -> core::result::Result<brokkr_runtime::MemberRetryOutcome, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::rerun(brokkr_runtime::launch::LaunchRequest, &str, core::option::Option<brokkr_runtime::realms::World>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
 pub fn brokkr_runtime::launch::resume(brokkr_runtime::launch::LaunchRequest, &str) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::launch::LaunchError>
@@ -1316,6 +1331,17 @@ pub brokkr_runtime::places::Old::HalfMoved::both_journals: bool
 pub brokkr_runtime::places::Old::HalfMoved::left: alloc::vec::Vec<std::path::PathBuf>
 pub brokkr_runtime::places::Old::Root
 pub brokkr_runtime::places::Old::StateOnly
+pub enum brokkr_runtime::places::Origin
+pub brokkr_runtime::places::Origin::Folder
+pub brokkr_runtime::places::Origin::Library
+pub brokkr_runtime::places::Origin::Personal
+pub brokkr_runtime::places::Origin::Project
+impl brokkr_runtime::places::Origin
+pub fn brokkr_runtime::places::Origin::word(self) -> &'static str
+impl core::fmt::Display for brokkr_runtime::places::Origin
+pub fn brokkr_runtime::places::Origin::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl serde_core::ser::Serialize for brokkr_runtime::places::Origin
+pub fn brokkr_runtime::places::Origin::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub enum brokkr_runtime::places::PlacesError
 pub brokkr_runtime::places::PlacesError::MapDangling
 pub brokkr_runtime::places::PlacesError::MapDangling::path: std::path::PathBuf
@@ -1329,9 +1355,31 @@ pub brokkr_runtime::places::PlacesError::NoPlace::cwd: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::NoPlace::root: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::NotADirectory
 pub brokkr_runtime::places::PlacesError::NotADirectory::root: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::ShelfClimbs
+pub brokkr_runtime::places::PlacesError::ShelfClimbs::at: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::ShelfClimbs::origin: brokkr_runtime::places::Origin
+pub brokkr_runtime::places::PlacesError::ShelfClimbs::shelf: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::ShelfUnread
+pub brokkr_runtime::places::PlacesError::ShelfUnread::at: std::path::PathBuf
+pub brokkr_runtime::places::PlacesError::ShelfUnread::cause: core::io::error::Error
+pub brokkr_runtime::places::PlacesError::ShelfUnread::origin: brokkr_runtime::places::Origin
+pub brokkr_runtime::places::PlacesError::ShelfUnread::shelf: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::Unreadable
 pub brokkr_runtime::places::PlacesError::Unreadable::path: std::path::PathBuf
 pub brokkr_runtime::places::PlacesError::Unreadable::source: core::io::error::Error
+pub enum brokkr_runtime::places::ShelfRefusal
+pub brokkr_runtime::places::ShelfRefusal::FolderNamesPersonal(brokkr_runtime::places::Named)
+pub brokkr_runtime::places::ShelfRefusal::ProjectNamesPersonal(brokkr_runtime::places::Named)
+pub brokkr_runtime::places::ShelfRefusal::Shadowed
+pub brokkr_runtime::places::ShelfRefusal::Shadowed::name: alloc::string::String
+pub brokkr_runtime::places::ShelfRefusal::Shadowed::personal: std::path::PathBuf
+pub brokkr_runtime::places::ShelfRefusal::Shadowed::project: std::path::PathBuf
+pub brokkr_runtime::places::ShelfRefusal::Unfoldered
+pub brokkr_runtime::places::ShelfRefusal::Unfoldered::layer: std::path::PathBuf
+pub brokkr_runtime::places::ShelfRefusal::Unread(brokkr_runtime::places::PlacesError)
+pub struct brokkr_runtime::places::ComposedLayer
+pub brokkr_runtime::places::ComposedLayer::origin: brokkr_runtime::places::Origin
+pub brokkr_runtime::places::ComposedLayer::path: alloc::string::String
 pub struct brokkr_runtime::places::Layout
 impl brokkr_runtime::places::Layout
 pub fn brokkr_runtime::places::Layout::cwd(&self) -> &std::path::Path
@@ -1342,12 +1390,20 @@ pub fn brokkr_runtime::places::Layout::places(&self) -> brokkr_runtime::places::
 pub fn brokkr_runtime::places::Layout::root(&self) -> &std::path::Path
 pub fn brokkr_runtime::places::Layout::state(&self, bool) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::Layout::workspace(&self) -> std::path::PathBuf
+pub struct brokkr_runtime::places::Named
+pub brokkr_runtime::places::Named::base: alloc::string::String
+pub brokkr_runtime::places::Named::layer: std::path::PathBuf
+pub brokkr_runtime::places::Named::personal: std::path::PathBuf
 pub struct brokkr_runtime::places::Places
 pub brokkr_runtime::places::Places::adapters: std::path::PathBuf
 pub brokkr_runtime::places::Places::agents: std::path::PathBuf
 pub brokkr_runtime::places::Places::recipes: std::path::PathBuf
 impl brokkr_runtime::places::Places
 pub fn brokkr_runtime::places::Places::of(&std::path::Path) -> core::result::Result<brokkr_runtime::places::Places, brokkr_runtime::places::PlacesError>
+pub struct brokkr_runtime::places::ResolvedShelf<'a>
+pub brokkr_runtime::places::ResolvedShelf::at: &'a std::path::Path
+pub brokkr_runtime::places::ResolvedShelf::place: std::path::PathBuf
+pub brokkr_runtime::places::ResolvedShelf::real: std::path::PathBuf
 pub const brokkr_runtime::places::BUNDLE: &str
 pub const brokkr_runtime::places::FOLDER: &str
 pub const brokkr_runtime::places::JOURNAL: &str
@@ -1358,7 +1414,9 @@ pub const brokkr_runtime::places::STATE: &str
 pub fn brokkr_runtime::places::entry(&std::path::Path) -> core::io::error::Result<core::option::Option<std::fs::Metadata>>
 pub fn brokkr_runtime::places::folder_bundle(&std::path::Path) -> core::result::Result<core::option::Option<&std::path::Path>, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::personal_shelf(core::option::Option<std::ffi::os_str::OsString>, core::option::Option<std::ffi::os_str::OsString>) -> core::result::Result<std::path::PathBuf, brokkr_runtime::admission::HostError>
+pub fn brokkr_runtime::places::personal_shelf_here() -> core::result::Result<std::path::PathBuf, brokkr_runtime::admission::HostError>
 pub fn brokkr_runtime::places::resolved(&std::path::Path) -> core::io::error::Result<core::option::Option<std::path::PathBuf>>
+pub fn brokkr_runtime::places::resolving_shelf(brokkr_runtime::places::Origin, &std::path::Path) -> core::result::Result<brokkr_runtime::places::ResolvedShelf<'_>, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::root(&std::path::Path) -> core::result::Result<std::path::PathBuf, brokkr_runtime::places::PlacesError>
 pub fn brokkr_runtime::places::run_local(core::option::Option<&std::path::Path>, &std::path::Path) -> std::path::PathBuf
 pub fn brokkr_runtime::places::state_of(&std::path::Path) -> core::result::Result<core::option::Option<std::path::PathBuf>, brokkr_runtime::places::PlacesError>
@@ -1468,6 +1526,7 @@ pub brokkr_runtime::CompileError::Io(core::io::error::Error)
 pub brokkr_runtime::CompileError::Json(serde_json::error::Error)
 pub brokkr_runtime::CompileError::Policy(brokkr_core::policy::PolicyError)
 pub brokkr_runtime::CompileError::Provisional(brokkr_runtime::bundle::ProvisionalRefusal)
+pub brokkr_runtime::CompileError::Shelf(brokkr_runtime::places::ShelfRefusal)
 pub enum brokkr_runtime::ConcludeRefusal
 pub brokkr_runtime::ConcludeRefusal::AlreadyConcluded
 pub brokkr_runtime::ConcludeRefusal::AlreadyConcluded::status: brokkr_core::fold::Status
@@ -1659,6 +1718,7 @@ pub brokkr_runtime::Bundle::inline_resume: alloc::collections::btree::map::BTree
 pub brokkr_runtime::Bundle::machine: brokkr_core::policy::Machine
 pub brokkr_runtime::Bundle::manifest: serde_json::value::Value
 pub brokkr_runtime::Bundle::name: alloc::string::String
+pub brokkr_runtime::Bundle::origins: alloc::vec::Vec<brokkr_runtime::places::Origin>
 pub brokkr_runtime::Bundle::protected_phase: alloc::string::String
 pub brokkr_runtime::Bundle::roots: alloc::vec::Vec<std::path::PathBuf>
 pub brokkr_runtime::Bundle::seats: alloc::collections::btree::map::BTreeMap<alloc::string::String, brokkr_runtime::bundle::Seat>
@@ -1671,6 +1731,8 @@ pub fn brokkr_runtime::bundle::Bundle::compile_with(&std::path::Path, &std::path
 pub fn brokkr_runtime::bundle::Bundle::compile_with_capabilities(&std::path::Path, &std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&brokkr_runtime::dialect::Dialect>, impl core::convert::Into<brokkr_runtime::bundle::RealmLaw>, &brokkr_runtime::capabilities::CapabilityContext) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::compile_with_realm(&std::path::Path, &std::path::Path, &std::path::Path, core::option::Option<&str>, core::option::Option<&brokkr_runtime::dialect::Dialect>, brokkr_core::realms::Boundary) -> core::result::Result<brokkr_runtime::bundle::Bundle, brokkr_runtime::bundle::CompileError>
 pub fn brokkr_runtime::bundle::Bundle::manifest_digest(&self) -> alloc::string::String
+impl brokkr_runtime::bundle::Bundle
+pub fn brokkr_runtime::bundle::Bundle::layers(&self) -> core::option::Option<alloc::vec::Vec<brokkr_runtime::places::ComposedLayer>>
 pub struct brokkr_runtime::Candidate
 pub brokkr_runtime::Candidate::agent: alloc::string::String
 pub brokkr_runtime::Candidate::argv: alloc::vec::Vec<alloc::string::String>

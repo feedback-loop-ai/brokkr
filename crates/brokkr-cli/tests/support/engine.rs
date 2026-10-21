@@ -19,8 +19,124 @@ use std::process::Command;
 /// started and was retried, so the test counted two attempts (#794). At
 /// `STARTUP`, admission gets the whole startup bound, as it does for any
 /// seat of 30 s or more, and the deadline under test no longer shortens
-/// it. It costs each hanging seat 30 s before its kill.
+/// it. It costs each hanging seat 30 s before its kill. `STARTUP` is
+/// private to the runtime, so this is a copy, which
+/// `engine::hang_deadline_is_the_runtime_startup` pins equal to the
+/// runtime's own declaration (#803).
 pub(crate) const HANG_DEADLINE_SECONDS: u64 = 30;
+
+/// brokkr-runtime's `engine/broker.rs`, the one home of `STARTUP`.
+/// `include_str!` reads a path from this file's directory: three levels
+/// up from `crates/brokkr-cli/tests/support/` is `crates/`, where the
+/// runtime is the cli's sibling member of the workspace, as every
+/// member is.
+const RUNTIME_BROKER: &str = include_str!("../../../brokkr-runtime/src/engine/broker.rs");
+
+/// The seconds of the one `STARTUP` `source` declares, read off its line
+/// `const STARTUP: Duration = Duration::from_secs(N);` in the code alone,
+/// each comment and literal read as a space ([`crate::rust_source::code`]).
+/// A line naming `const STARTUP` in any other shape, no such line, two, or
+/// a source the lexer cannot read, fails the pin, never passes unread.
+fn startup_seconds(source: &str) -> u64 {
+    let code = crate::rust_source::code(source).unwrap_or_else(|unread| {
+        panic!("brokkr-runtime's engine/broker.rs cannot be read as Rust source: {unread}")
+    });
+    let declared: Vec<&str> = code
+        .lines()
+        .filter(|line| {
+            let words: Vec<&str> = line
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .filter(|word| !word.is_empty())
+                .collect();
+            words.windows(2).any(|pair| pair == ["const", "STARTUP"])
+        })
+        .collect();
+    let [line] = declared[..] else {
+        panic!(
+            "brokkr-runtime's engine/broker.rs names `const STARTUP` on {} lines, where the \
+             pin reads exactly one: {declared:?}",
+            declared.len()
+        );
+    };
+    line.strip_prefix("const STARTUP: Duration = Duration::from_secs(")
+        .and_then(|rest| rest.strip_suffix(");"))
+        .filter(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|digits| digits.parse().ok())
+        .unwrap_or_else(|| {
+            panic!(
+                "brokkr-runtime's engine/broker.rs declares `STARTUP` in a shape the pin does \
+                 not read, not `const STARTUP: Duration = Duration::from_secs(N);`: {line}"
+            )
+        })
+}
+
+#[test]
+fn hang_deadline_is_the_runtime_startup() {
+    let startup = startup_seconds(RUNTIME_BROKER);
+    assert_eq!(
+        HANG_DEADLINE_SECONDS, startup,
+        "HANG_DEADLINE_SECONDS is {HANG_DEADLINE_SECONDS} s and brokkr-runtime's STARTUP is \
+         {startup} s: a seat that hangs to its kill takes the whole startup bound (#794)"
+    );
+}
+
+/// A declaration a comment holds is never read: a block comment, nested
+/// or not, a line comment and a doc comment each hide their copy, and the
+/// one live line is read (#803).
+#[test]
+fn a_commented_startup_is_never_read() {
+    let source = "/* const STARTUP: Duration = Duration::from_secs(30);\n\
+                  /* const STARTUP: Duration = Duration::from_secs(31); */\n\
+                  const STARTUP: Duration = Duration::from_secs(32);\n*/\n\
+                  // const STARTUP: Duration = Duration::from_secs(33);\n\
+                  /// const STARTUP: Duration = Duration::from_secs(34);\n\
+                  const STARTUP: Duration = Duration::from_secs(60);\n";
+    assert_eq!(startup_seconds(source), 60);
+}
+
+/// A comment splitting the live declaration with a space either side
+/// leaves it a shape the pin does not read: it is refused, never read past
+/// for the commented copy beside it (#803).
+#[test]
+#[should_panic(expected = "declares `STARTUP` in a shape the pin does not read")]
+fn a_declaration_a_comment_splits_is_refused() {
+    startup_seconds(
+        "/*\nconst STARTUP: Duration = Duration::from_secs(30);\n*/\n\
+         const /* startup bound */ STARTUP: Duration = Duration::from_secs(60);\n",
+    );
+}
+
+/// A comment with no space beside it reads as the one space it stands
+/// for, so the live declaration it splits is read, and the commented copy
+/// beside it never is (#803).
+#[test]
+fn a_comment_between_two_words_reads_as_a_space() {
+    let source = "/*\nconst STARTUP: Duration = Duration::from_secs(30);\n*/\n\
+                  const/* startup bound */STARTUP: Duration = Duration::from_secs(60);\n";
+    assert_eq!(startup_seconds(source), 60);
+}
+
+/// A literal is never code: a comment marker inside a string opens no
+/// comment, so it hides no live declaration and exposes no commented copy
+/// (#803).
+#[test]
+fn a_literal_neither_hides_nor_exposes_a_declaration() {
+    let source = "const PATTERN: &str = \"logs/*\";\n\
+                  const STARTUP: Duration = Duration::from_secs(60);\n\
+                  // */const STARTUP: Duration = Duration::from_secs(30);\n\
+                  const COPY: &str = r#\"\nconst STARTUP: Duration = Duration::from_secs(31);\n\"#;\n";
+    assert_eq!(startup_seconds(source), 60);
+}
+
+/// A source the lexer cannot read is refused, never read in part (#803).
+#[test]
+#[should_panic(
+    expected = "brokkr-runtime's engine/broker.rs cannot be read as Rust source: an \
+                unterminated block comment"
+)]
+fn an_unreadable_source_is_refused() {
+    startup_seconds("const STARTUP: Duration = Duration::from_secs(30);\n/* never closed\n");
+}
 
 /// `brokkr` run in `dir`, which is its TMPDIR too: its start reaps only
 /// the trees of `dir`. Its HOME is [`home_in`] `dir`, unless the test

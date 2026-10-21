@@ -16,6 +16,7 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport, Cleanup};
 use brokkr_store::Store;
 use serde_json::{json, Value};
 
+use super::broker::fold::Begun;
 use super::broker::settlement::witnessed;
 use super::broker::Held;
 use super::carry::{
@@ -24,8 +25,8 @@ use super::carry::{
 };
 use super::{
     argv_for, checkpoints, copy_secret_binding_facts, failed_to_start, resume, spawn_site,
-    stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Engine, EngineError,
-    Indeterminate, Selection, Site, SiteSpawn, Unproven,
+    stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, DriverRun, Engine,
+    EngineError, Indeterminate, Selection, Site, SiteSpawn, Unproven,
 };
 use crate::bundle::{Aggregate, Bundle, PanelMember, ENGINE_VERSION};
 
@@ -228,9 +229,11 @@ impl Engine {
 
     /// Run panel members concurrently INSIDE one attempt, journaling
     /// live member checkpoints as they arrive, and return the reports in
-    /// declared order. Appends NO terminal effect event. `tag_prefix` is
-    /// empty for a seat-level panel and `<step>:` inside a sequence, so
-    /// the journaled member tag reads `<member>` or `<step>:<member>`.
+    /// declared order, each settled by its own broker calls
+    /// ([`Engine::settle_members`]). Appends NO terminal effect event.
+    /// `tag_prefix` is empty for a seat-level panel and `<step>:` inside a
+    /// sequence, so the journaled member tag reads `<member>` or
+    /// `<step>:<member>`.
     pub(super) fn run_panel(
         &mut self,
         effect_id: &str,
@@ -240,6 +243,9 @@ impl Engine {
         tag_prefix: &str,
     ) -> Result<Vec<(String, AttemptReport)>, EngineError> {
         let workdir = self.workdir();
+        // Where each member's attempt began, before anything of it spawns.
+        let begun =
+            (runs.iter().map(|run| self.begun(&run.spawn))).collect::<Result<Vec<_>, _>>()?;
         // Split the borrows: member threads run drivers, while the
         // main-thread receive loop below needs the store and causal cursor.
         let (bundle, held) = (&self.bundle, self.held.as_ref());
@@ -261,11 +267,10 @@ impl Engine {
         // checkpoint rode under, so the refusal lands on that member's
         // report alone.
         let mut sink = Checkpoints::new(&mut self.store, &mut self.current_cause, attempt);
-        let reports: Vec<(String, AttemptReport)> = std::thread::scope(|scope| {
+        let reports: Vec<_> = std::thread::scope(|scope| {
             let (sender, receiver) = checkpoints::arrivals::<(String, Value)>();
-            let handles: Vec<_> = runs
-                .iter()
-                .map(|run| {
+            let handles: Vec<_> = (runs.iter().zip(begun))
+                .map(|(run, begun)| {
                     let name = run.name.clone();
                     let checkpoint_name = Tag::prefixed(tag_prefix, &run.name).0;
                     let workdir = workdir.clone();
@@ -277,9 +282,12 @@ impl Engine {
                     };
                     scope.spawn(move || {
                         let door = (bundle, held);
-                        let report =
-                            run.report(door, &workdir, deadline, effect_id, attempt_id, forward);
-                        (name, report)
+                        // A member whose driver did not spawn started no
+                        // broker: nothing of it is folded (CR3).
+                        match run.report(door, &workdir, deadline, effect_id, attempt_id, forward) {
+                            DriverRun::Ran(report) => (name, report, begun),
+                            DriverRun::SpawnFailed(error) => (name, unspawned(&error), None),
+                        }
                     })
                 })
                 .collect();
@@ -298,17 +306,36 @@ impl Engine {
                 .map(|h| h.join().expect("panel member thread"))
                 .collect()
         });
-        for (_, report) in &reports {
+        let settled = sink.settle();
+        self.settle_members([effect_id, attempt_id], runs, reports, settled, tag_prefix)
+    }
+
+    /// The members' `reports`, in declared order beside their `runs`, each
+    /// with where its attempt began where its driver spawned, once the sink
+    /// `settled`: every member's cleanup witnessed on the lease first, so
+    /// no member's evidence is read while a sibling's broker may still
+    /// write (#403; D7), then each report carrying what its checkpoints
+    /// left of it and settled by its own broker calls ([`Engine::folded`])
+    /// before any is admitted. A sink that failed is handed up once every
+    /// member is witnessed.
+    pub(super) fn settle_members(
+        &mut self,
+        ids: [&str; 2],
+        runs: &[MemberRun],
+        reports: Vec<(String, AttemptReport, Option<Begun>)>,
+        settled: Result<checkpoints::Settled, EngineError>,
+        tag_prefix: &str,
+    ) -> Result<Vec<(String, AttemptReport)>, EngineError> {
+        for (_, report, _) in &reports {
             witnessed(&mut self.held, &report.cleanup);
         }
-        let settled = sink.settle()?;
-        Ok(reports
-            .into_iter()
-            .map(|(name, mut report)| {
-                settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
-                (name, report)
-            })
-            .collect())
+        let settled = settled?;
+        let mut members = Vec::with_capacity(reports.len());
+        for ((name, mut report, begun), run) in reports.into_iter().zip(runs) {
+            settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
+            members.push((name, self.folded(ids, &run.spawn, begun, report)?));
+        }
+        Ok(members)
     }
 
     /// Journal member outcomes as checkpoint evidence in declared
@@ -408,9 +435,9 @@ pub(super) struct MemberRun {
 impl MemberRun {
     /// This member's attempt, on its own worker thread: its driver run
     /// to a report, each checkpoint handed to `on_checkpoint` as it
-    /// arrives. A member whose driver did not spawn reports a failure
-    /// that started nothing. The door is handed the bundle and the lease
-    /// the attempt was admitted under (U8a2a).
+    /// arrives; why its driver did not spawn, where it did not
+    /// ([`unspawned`]). The door is handed the bundle and the lease the
+    /// attempt was admitted under (U8a2a).
     fn report(
         &self,
         (bundle, held): (&Bundle, Option<&Held>),
@@ -419,39 +446,47 @@ impl MemberRun {
         effect_id: &str,
         attempt_id: &str,
         on_checkpoint: impl FnMut(&Value),
-    ) -> AttemptReport {
-        match spawn_site(bundle, &self.spawn, &self.input, workdir, deadline, held) {
-            Err(e) => AttemptReport {
-                outcome: AttemptOutcome::Failed {
-                    error: format!("member driver did not spawn: {e}"),
-                },
-                refused: None,
-                // Nothing was spawned, so nothing is left.
-                cleanup: Cleanup::Settled,
-                session_ref: None,
-                checkpoints: Vec::new(),
-                stderr: String::new(),
-                // Nothing ran, so nothing was accepted: the structural
-                // fail-to-start predicate holds.
-                accepted: false,
-                // No process existed for a watchdog to kill.
-                deadline_killed: false,
-            },
-            // The door's own input, carrying the charter text it verified
-            // for this member.
-            Ok((process, input)) => process.run_attempt_resuming(
-                ENGINE_VERSION,
-                effect_id,
-                attempt_id,
-                &self.driver_seat,
-                input,
-                // This member's own offer, decided in `site_plans` before
-                // anything spawned. Only its provider ID crosses the wire;
-                // the locator rides the member's private `resume_context`.
-                self.offer.as_ref().map(|offer| offer.provider_id.clone()),
-                on_checkpoint,
-            ),
-        }
+    ) -> DriverRun {
+        let spawned = spawn_site(bundle, &self.spawn, &self.input, workdir, deadline, held);
+        // The door's own input, carrying the charter text it verified for
+        // this member.
+        let (process, input) = match spawned {
+            Ok(spawned) => spawned,
+            Err(refused) => return DriverRun::SpawnFailed(refused),
+        };
+        DriverRun::Ran(process.run_attempt_resuming(
+            ENGINE_VERSION,
+            effect_id,
+            attempt_id,
+            &self.driver_seat,
+            input,
+            // This member's own offer, decided in `site_plans` before
+            // anything spawned. Only its provider ID crosses the wire;
+            // the locator rides the member's private `resume_context`.
+            self.offer.as_ref().map(|offer| offer.provider_id.clone()),
+            on_checkpoint,
+        ))
+    }
+}
+
+/// The report of a member whose driver did not spawn, by `error`: a
+/// failure that started nothing.
+fn unspawned(error: &str) -> AttemptReport {
+    AttemptReport {
+        outcome: AttemptOutcome::Failed {
+            error: format!("member driver did not spawn: {error}"),
+        },
+        refused: None,
+        // Nothing was spawned, so nothing is left.
+        cleanup: Cleanup::Settled,
+        session_ref: None,
+        checkpoints: Vec::new(),
+        stderr: String::new(),
+        // Nothing ran, so nothing was accepted: the structural
+        // fail-to-start predicate holds.
+        accepted: false,
+        // No process existed for a watchdog to kill.
+        deadline_killed: false,
     }
 }
 

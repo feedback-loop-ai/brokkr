@@ -63,6 +63,14 @@
 //! handoff, those rows and the hold stay within `CHECKPOINT_BYTES` for
 //! each member. The heap a parsed row takes beside its line is #342's to
 //! measure.
+//!
+//! A settled broker call's checkpoint never rides the hold (U8d; CR4): it
+//! is the call's evidence, not telemetry, and is appended only once the
+//! seat has stopped, by [`confirmed`], which takes the settlement's
+//! patiences, reads again before every try what the journal committed
+//! since the attempt began, and reports what the store committed. A row
+//! the lock outlasts is stranded as a held one is, and its evidence stays
+//! on disk in its ledger.
 
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};
@@ -73,7 +81,7 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use brokkr_store::{Chain, Rows, SeatRecordError, Store, StoreError};
 use serde_json::{json, Value};
 
-use super::capability_calls::{self, Stamp};
+use super::capability_calls::{self, BrokerCheckpoint, SettledEvent, Stamp};
 use super::EngineError;
 
 /// How many of the store's patiences an attempt's settlement gets — its
@@ -523,12 +531,10 @@ impl Settled {
     /// Why any of `owner`'s checkpoints were not journaled, one reason per
     /// cause.
     fn unjournaled(&self, owner: &str) -> Vec<String> {
-        let stranded = self.stranded.get(owner).map(|stranded| {
-            format!(
-                "{stranded} checkpoint(s) were not journaled: a peer still held the \
-                 journal's write lock {SETTLING_PATIENCES} patiences after the seat stopped"
-            )
-        });
+        let stranded = self
+            .stranded
+            .get(owner)
+            .map(|stranded| outlasted(*stranded));
         let dropped = self.refusal.as_ref().and_then(|latched| {
             let dropped = latched.dropped.get(owner)?;
             Some(format!(
@@ -538,6 +544,120 @@ impl Settled {
             ))
         });
         stranded.into_iter().chain(dropped).collect()
+    }
+}
+
+/// Why `stranded` rows were not journaled: the lock outlasted the
+/// settlement.
+fn outlasted(stranded: usize) -> String {
+    format!(
+        "{stranded} checkpoint(s) were not journaled: a peer still held the journal's write \
+         lock {SETTLING_PATIENCES} patiences after the seat stopped"
+    )
+}
+
+/// What [`confirmed`] made of the settled checkpoints it was handed.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Confirmed {
+    /// Every one is committed, as derived: appended now, or found already.
+    Journaled,
+    /// The journal holds one's call id with another payload (CR3); nothing
+    /// was appended.
+    Conflict,
+    /// The seat-record fence refused one; those before it are committed.
+    Refused(SeatRecordError),
+    /// A peer's lock outlasted the settlement's patiences: this many were
+    /// not appended, and wrote nothing.
+    Stranded(usize),
+}
+
+/// Append `rows`, settled checkpoints the engine derived for `attempt`,
+/// which began at the journal's head `begun`, in order and in one
+/// transaction behind `cause`, once the seat has stopped (U8d; CR4):
+/// never through the hold, and within [`SETTLING_PATIENCES`]. `between`
+/// runs before every try, as a sink's does. Before every try what the
+/// journal committed since `begun` is read again, verified onto it
+/// ([`Store::load_after`]), never the run whole: no row of the attempt
+/// lies before its start. So a row a try committed whose acknowledgement
+/// was lost is found, not appended twice; the rows it does not hold are
+/// what is appended ([`capability_calls::unjournaled`]), each written
+/// only at the store's edge. No rows ask nothing of the journal. A
+/// storage failure that is not contention is handed up.
+pub(super) fn confirmed<B: FnMut(&mut Store)>(
+    (store, cause): (&mut Store, &mut Option<String>),
+    (attempt, (seq, hash)): (&Attempt<'_>, &(u64, String)),
+    rows: Vec<BrokerCheckpoint>,
+    mut between: B,
+) -> Result<Confirmed, EngineError> {
+    let (effect, attempt_id) = (attempt.effect_id, attempt.attempt_id);
+    let event = |checkpoint| SettledEvent::new(effect, attempt_id, checkpoint);
+    let rows: Vec<SettledEvent> = rows.into_iter().map(event).collect();
+    let mut left = rows.len();
+    if rows.is_empty() {
+        return Ok(Confirmed::Journaled);
+    }
+    let appended = within_patiences(SETTLING_PATIENCES, || {
+        between(&mut *store);
+        let journal = store.load_after(attempt.run_id, *seq, hash)?;
+        let pending = match capability_calls::unjournaled(&journal, attempt_id, &rows) {
+            Ok(pending) => pending,
+            Err(conflict) => return Ok(Err(conflict)),
+        };
+        left = pending.len();
+        if pending.is_empty() {
+            let (appended, refused) = (Vec::new(), None);
+            return Ok(Ok(Chain { appended, refused }));
+        }
+        let each = |row: &&SettledEvent| row.payload();
+        let pending = Rows {
+            rows: &pending,
+            payload: &each,
+        };
+        let id = Some(attempt.attempt_id.to_string());
+        let event = EventType::EffectCheckpointed;
+        store
+            .append_chain(attempt.run_id, event, pending, cause.clone(), id)
+            .map(Ok)
+    });
+    let chain = match appended {
+        Ok(Ok(chain)) => chain,
+        Ok(Err(_)) => return Ok(Confirmed::Conflict),
+        Err(contended) if contended.is_contention() => return Ok(Confirmed::Stranded(left)),
+        Err(failure) => return Err(failure.into()),
+    };
+    if let Some(last) = chain.appended.last() {
+        *cause = Some(last.event_id.clone());
+    }
+    Ok(chain
+        .refused
+        .map_or(Confirmed::Journaled, Confirmed::Refused))
+}
+
+/// Carry what settling an attempt's broker calls left of `report`'s
+/// outcome (U8d; CR4), as [`Settled::carry`] carries its checkpoints':
+/// indeterminate where `stranded` rows were not journaled, the `refusal`
+/// named beside the count; failed by the refusal otherwise, as a refused
+/// checkpoint fails it ([`refused_outcome`]); and as it stood where neither
+/// is. The outcome it stood at is the one the engine acts on so far.
+pub(super) fn carry_settled(
+    report: &mut AttemptReport,
+    stranded: usize,
+    refusal: Option<&dyn std::fmt::Display>,
+) {
+    let stood = report.refused.as_ref().unwrap_or(&report.outcome).clone();
+    let acted = match (stranded, refusal) {
+        (0, None) => stood,
+        (0, Some(refusal)) => refused_outcome(stood, &refusal),
+        (stranded, refusal) => {
+            let reasons = std::iter::once(outlasted(stranded));
+            let reasons: Vec<String> = reasons.chain(refusal.map(ToString::to_string)).collect();
+            AttemptOutcome::Indeterminate {
+                reason: reasons.join("; "),
+            }
+        }
+    };
+    if acted != report.outcome {
+        report.refused = Some(acted);
     }
 }
 

@@ -922,7 +922,8 @@ recipe on the shelf.
 
 ## Addendum — 2026-10-16, the personal shelf (#697)
 
-Status: proposed; only the operator accepts this addendum.
+Status: accepted — operator ruled 2026-10-17 on slice A (PR #722) and
+2026-10-21 on slice B (#697).
 
 Ruling 7 left #432 a personal overlay of tracked configuration. The
 operator ruled its first slice in chat on 2026-10-15, as #697's rulings
@@ -992,19 +993,90 @@ the <origin> shelf <shelf> cannot be read (#697): <path>: <cause>; a shelf that 
 
 A name on neither shelf refuses as before,
 naming the project's shelf. A queued launch keeps the shelf it resolved
-when it was queued.
+when it was queued, by its path alone, and is admitted and started only
+where that path is a shelf the admitting process places (ruling 3).
 
-**3. Composition runs one way.** A personal recipe composes from its own
-shelf, its parent, as every layer that is no folder bundle does
-(decision 0017; #696's ruling 4). Nothing on a project shelf or in a
-folder bundle can name a personal recipe, because neither shelf's
-composition reads the other. A personal recipe extending a project
-recipe, a personal recipe extending the folder's own bundle through the
-reserved name `.brokkr`, and the two typed refusals of a project layer
-naming a personal one are #697's second slice. The compiler's resolver
-reads only the layer's directory (`places::base_library`), so a personal
-layer's second library needs the workspace threaded into the resolve,
-which is the bundle compiler's change.
+**3. Composition runs one way.** Every compile a launch, `compile`,
+`recipes` and doctor take (`launch::compile_for`, and a resume's) reads
+its layers across the workspace's shelves: the project's, the folder's
+own bundle, and the personal shelf this process's environment places
+(`places::personal_shelf_here`, the one read the CLI's verbs take too).
+The project shelf is the one `--recipes-dir` on `run`, `resume` and
+`rerun`, or `--dir` on `recipes show` and `recipes list`, selects, where
+one does (`launch::compile_on`), else the workspace's own, so a personal
+recipe composes across the shelf its `--recipe` was read beside, and is
+listed as it is shown. A queued launch holds no selected shelf, so it
+composes across its workspace's own, and `queue add` refuses a
+`--recipes-dir` naming any other, compared as spelled, before anything
+is queued:
+
+```text
+--recipes-dir selects the project shelf <shelf>, and a queued launch composes only across its workspace's own, <own> (#697): queued-launch/v1 holds no selected shelf, so the entry would be admitted and started across the workspace's shelf instead; queue it without --recipes-dir, or start it with `brokkr run`; nothing was queued
+```
+
+queued-launch/v1 keeps a recipe's shelf by its path, not its origin, and
+the process that admits the entry judges each layer's origin by the
+shelves it places. So an entry whose recipe stands on a shelf that is
+neither its workspace's project shelf nor the personal shelf the
+admitting process places, as one queued under another `XDG_CONFIG_HOME`
+or `HOME` holds, refuses where admission measures it, which holds the
+entry, and where it is rebuilt to start: one check in
+`QueuedLaunch::rebuild`, which both take, comparing the shelves as
+spelled. Where the admitting process places no personal shelf, the
+project's alone stands. An entry naming its bundle's directory is not
+judged here:
+
+```text
+queued recipe '<name>' stands on the shelf <shelf>, which is neither its workspace's project shelf, <own>, nor the personal shelf this process places (<personal>) (#697): a queued launch composes only across shelves its admitting process places, so the entry would compose with no origin for that shelf's layers and past the refusal of a name on both shelves; admit it under the XDG_CONFIG_HOME and HOME that queued it, or start it with `brokkr run`
+```
+
+`<personal>` reads `it places none` where neither variable places one. A
+queued-launch/v2 carrying each layer's origin, which would admit such an
+entry anywhere, is left to the operator.
+
+Each layer's origin is judged by where its directory stands: the
+folder's bundle by the one judgement of a layout, else `personal` or
+`project` where its parent is that shelf, else `library`. The origin
+decides where its `extends` is read. A personal recipe reads its base
+from its own shelf where the name stands there alone, else from the
+current workspace's project shelf (decision 0017; #696's ruling 4), and
+reaches the folder's own bundle through the reserved name `.brokkr`,
+which no other layer may name. A base with an entry on both shelves
+refuses with ruling 2's own text before anything at it is read, so a
+personal copy that is not even a recipe still refuses as shadowing:
+
+```text
+recipe '<name>' stands on both the project shelf, at <project>/<name>, and the personal shelf, at <personal>/<name> (#697): neither shelf wins, so rename or remove one of them
+```
+
+A `.brokkr` from a workspace with no folder refuses:
+
+```text
+the personal recipe at <personal>/<name> extends '.brokkr', the folder's own bundle, but this workspace has no .brokkr folder (#697): run it from a folder repository, or extend a recipe on a shelf
+```
+
+A project recipe, or the folder's bundle, reads its own shelf alone, so a
+name the project shelf holds composes there whatever the personal shelf
+holds. A base it names that only the personal shelf holds refuses, each
+with its own text, naming both paths:
+
+```text
+the project recipe at <root>/.brokkr/recipes/<name> extends '<base>', which stands only on the personal shelf, at <personal>/<base> (#697): a project recipe never extends a personal one, since teammates and CI could not compile it, so put '<base>' on the project shelf or extend a recipe there
+the folder's bundle at <root>/.brokkr extends '<base>', which stands only on the personal shelf, at <personal>/<base> (#697): the folder's bundle never extends a personal recipe, since teammates and CI could not compile it, so put '<base>' on the project shelf or extend a recipe there
+```
+
+A shelf a compile reads is judged by ruling 2's one rule
+(`places::resolving_shelf`) each time it is read: the project shelf for a
+personal layer's base, and the personal one for a project layer's base
+its own shelf lacks. One that cannot be read refuses in ruling 2's words
+under the compiler's `bundle: `, on `compile --bundle` and `run --bundle`
+as on every verb that names a recipe, never read as an empty one; a
+shelf with nothing standing at it, no entry and no link, is an empty
+one. `recipes add --personal` copies a base its plan reaches as before, but
+never `.brokkr`, which the compile reaches in the workspace. Nothing
+installed or edited on the personal shelf moves the folder bundle's
+digest or any library bundle's, since the folder's walk skips its shelf
+and no other walk reads the personal one.
 
 **4. Same checks.** `recipes add --personal`, `recipes list`, doctor and
 a run compile a personal recipe through the one compile every recipe
@@ -1017,15 +1089,29 @@ removes it.
 
 **5. Origins.** A run from a personal recipe pins its composed manifest
 as every run does, and a resume reads that pin and refuses drift, so an
-edit of the personal recipe after the run started is refused:
+edit of the personal recipe, or of the project recipe it extends, after
+the run started is refused, the base's edit as its `@compose/` entry:
 
 ```text
 run '<run>' pins a different bundle: changed: <file>
 ```
 
-Recording each layer's origin in the journal, and `recipes show`
-printing it, are the second slice's, with ruling 3's composition across
-shelves, since a chain within one shelf has one origin.
+A run's `run/started` records each layer's origin and directory, leaf
+first, as `layers` beside its `charters`, where the bundle composed more
+than one layer or stands on the personal shelf; a bundle of one layer
+elsewhere starts with the payload it always did. `recipes show` and
+`compile` print the same list, from the same compile:
+
+```json
+"layers": [
+  {"origin": "personal", "path": "<personal>/<name>"},
+  {"origin": "project", "path": "<root>/.brokkr/recipes/<base>"}
+]
+```
+
+The origins are evidence, outside the pin: the pin covers every layer's
+bytes through the manifest's chain, and no manifest key or witness
+digest moves.
 
 **6. The CLI.** `recipes add --personal <source> --name <name>` installs
 onto the personal shelf, from any directory of the repository whose
@@ -1052,9 +1138,10 @@ warn     personal shelf: <personal>: <error>
 ```
 
 **7. Vehicle and order.** This addendum is in #697's first pull request,
-built after #696. The second slice builds composition across shelves
-(ruling 3), the origins of ruling 5 and their proof on resume, and
-extends this addendum.
+built after #696. Its second pull request built composition across
+shelves (ruling 3) and the origins of ruling 5 with their proof on
+resume, and stated them here. Personal agents and adapters, personal
+realms and #432's stock-map test are later #432 work.
 
 *Extension, 2026-10-17: the shelf follow-ups (#726).* Status: accepted
 — operator ruled 2026-10-18 (PR #737). It closes three of the LOWs the

@@ -212,6 +212,19 @@ fn leased(released: &Result<Option<Commit>, Unadmitted>) -> Lease {
 /// read in its own directory, below its run's in the coordination root the
 /// lease stands in, from that root's handle, never from HOME again.
 fn published(held: &Held) -> Result<(), Unpublished> {
+    evidenced(held, |evidence| {
+        artifacts::published(evidence, held.root.as_ref())
+    })?
+}
+
+/// What `read` makes of the evidence of the attempt in flight under the
+/// lease `held`: its own directory, below its run's in the coordination
+/// root the lease stands in, from that root's handle, never from HOME
+/// again; unbound where that run's directory cannot be opened.
+pub(super) fn evidenced<T>(
+    held: &Held,
+    read: impl FnOnce(&Evidence<'_>) -> T,
+) -> Result<T, Unpublished> {
     let (run, at) = reserved_at(held).or(Err(Unpublished::Unbound))?;
     let owner = [held.repo.as_str(), held.run.as_str(), held.attempt.as_str()];
     let evidence = Evidence {
@@ -219,7 +232,7 @@ fn published(held: &Held) -> Result<(), Unpublished> {
         at,
         owner,
     };
-    artifacts::published(&evidence, held.root.as_ref())
+    Ok(read(&evidence))
 }
 
 /// The lease `held`'s attempt's positive settlement fact sealed in its

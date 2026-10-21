@@ -56,7 +56,7 @@ pub(super) const DIGESTS: &str = "sha256";
 pub(super) const ARTIFACT_BYTES_MAX: u64 = 8 << 20;
 
 /// CR3's bound on one ledger, which the broker's writer never passes.
-const LEDGER_BYTES_MAX: u64 = 64 << 20;
+pub(super) const LEDGER_BYTES_MAX: u64 = 64 << 20;
 
 /// What a temporary file being published is named with, beside the
 /// digests: never in them, where every name must be a digest.
@@ -185,7 +185,9 @@ pub(super) fn published_with(
 /// alone, and the inventory it holds; none where the attempt provisioned
 /// no plan, or its inventory was never written, so no broker could bind
 /// one.
-fn provisioned(evidence: &Evidence<'_>) -> Result<Option<(OwnedFd, Inventory)>, Unpublished> {
+pub(super) fn provisioned(
+    evidence: &Evidence<'_>,
+) -> Result<Option<(OwnedFd, Inventory)>, Unpublished> {
     let [_, _, attempt] = evidence.owner;
     let dir = match openat(evidence.run, attempt, directory(), Mode::empty()) {
         Err(Errno::NOENT) => return Ok(None),
@@ -202,7 +204,7 @@ fn provisioned(evidence: &Evidence<'_>) -> Result<Option<(OwnedFd, Inventory)>, 
 /// The plan `pin` pins in the attempt directory `dir` at `at`: its name
 /// beside the inventory, and the plan, its bytes digesting to the pin and
 /// its owner the worktree's key, run and attempt `owner` names.
-fn pinned<'p>(
+pub(super) fn pinned<'p>(
     dir: &OwnedFd,
     at: &Path,
     pin: &'p Pin,
@@ -263,7 +265,7 @@ fn staged(
 }
 
 /// `name` with `suffix` after it.
-fn beside(name: &OsStr, suffix: &str) -> OsString {
+pub(super) fn beside(name: &OsStr, suffix: &str) -> OsString {
     let mut beside = name.to_os_string();
     beside.push(suffix);
     beside
@@ -271,7 +273,11 @@ fn beside(name: &OsStr, suffix: &str) -> OsString {
 
 /// The record `name` in `dir` ([`private`]), refused where it holds more
 /// than `most` bytes.
-fn record(dir: &OwnedFd, name: &OsStr, most: u64) -> Result<Option<Vec<u8>>, Unpublished> {
+pub(super) fn record(
+    dir: &OwnedFd,
+    name: &OsStr,
+    most: u64,
+) -> Result<Option<Vec<u8>>, Unpublished> {
     let bytes = private(dir, name, most)?;
     let within = bytes
         .as_ref()

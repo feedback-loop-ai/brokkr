@@ -65,6 +65,35 @@ pub enum PlacesError {
         path: PathBuf,
         source: std::io::Error,
     },
+    /// A shelf that cannot be read ([`resolving_shelf`], #697): what stands
+    /// `at` it, or above it, does not resolve to a directory, for its
+    /// `cause`.
+    #[error(
+        "the {origin} shelf {} cannot be read (#697): {}: {cause}; a shelf that cannot be read \
+         is never read as an empty one, so mend or remove it; nothing was run or installed",
+        .shelf.display(),
+        .at.display()
+    )]
+    ShelfUnread {
+        origin: Origin,
+        shelf: PathBuf,
+        at: PathBuf,
+        cause: std::io::Error,
+    },
+    /// A shelf spelled through `..` beneath `at`, the nearest entry of it
+    /// that stands ([`resolving_shelf`], #726).
+    #[error(
+        "the {origin} shelf {} climbs by '..' out of a directory that does not stand beneath {} \
+         (#726): a shelf spelled through what does not exist is never read as an empty one, so \
+         spell it without the '..'; nothing was run or installed",
+        .shelf.display(),
+        .at.display()
+    )]
+    ShelfClimbs {
+        origin: Origin,
+        shelf: PathBuf,
+        at: PathBuf,
+    },
     /// A state fact with no place: no folder, no library, and no old
     /// layout's own entry for the `--db` escape (ruling 2's step 4).
     #[error(
@@ -107,6 +136,20 @@ pub fn personal_shelf(
 ) -> Result<PathBuf, crate::admission::HostError> {
     Ok(crate::admission::config_dir(xdg, home)?.join(RECIPES))
 }
+
+/// [`personal_shelf`] as this process's environment places it: the one
+/// read of `XDG_CONFIG_HOME` and `HOME` that the CLI's verbs and every
+/// compile's shelves take (#697).
+pub fn personal_shelf_here() -> Result<PathBuf, crate::admission::HostError> {
+    personal_shelf(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )
+}
+
+mod shelves;
+pub(crate) use shelves::Shelves;
+pub use shelves::{resolving_shelf, ComposedLayer, Named, Origin, ResolvedShelf, ShelfRefusal};
 
 /// A recipe library's run-local directory, beside the operated
 /// repository, as it has always been (ruling 3's last column).

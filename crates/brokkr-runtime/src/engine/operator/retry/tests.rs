@@ -119,6 +119,7 @@ fn drifted_request(dir: &std::path::Path, runtime: &Engine) -> crate::launch::La
         repo: Some(runtime.repo.clone()),
         secrets: None,
         host_path: std::env::var_os("PATH").unwrap_or_default(),
+        shelf: None,
     }
 }
 

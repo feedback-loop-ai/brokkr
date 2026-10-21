@@ -69,9 +69,9 @@ pub(super) use self::root::Commit;
 use super::marks::Brokered;
 use super::{site_label, Engine, EngineError, EventType, Selection};
 use crate::capabilities::{Admitted, Connection, Implementation};
-
 pub(super) mod admission;
 mod exclusion;
+pub(super) mod fold;
 mod historical;
 mod inventory;
 mod observation;

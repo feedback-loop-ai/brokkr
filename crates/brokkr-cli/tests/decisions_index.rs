@@ -44,7 +44,7 @@ fn workspace() -> PathBuf {
 /// The closed status vocabulary `docs/decisions/README.md` states.
 /// Partial supersession is a pointer, not a status.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Status {
+pub(crate) enum Status {
     Proposed,
     Accepted,
     Superseded,
@@ -59,7 +59,7 @@ impl Status {
         Status::Withdrawn,
     ];
 
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Status::Proposed => "proposed",
             Status::Accepted => "accepted",
@@ -1111,19 +1111,21 @@ const CLAIMED: &str = "Claimed by the proposed decision ";
 
 /// The status a citation may give each number the index holds (#365): a
 /// decision's row status, which `the_ledger_in_the_tree_breaks_no_rule`
-/// holds to its file, or `proposed` for a gap [`CLAIMED`] by a proposed
+/// holds to its file and its file to the [`Status`] vocabulary, so a row
+/// out of it panics here, or `proposed` for a gap [`CLAIMED`] by a proposed
 /// decision on an unmerged branch. Another gap holds no decision.
-pub(crate) fn cited_statuses() -> BTreeMap<u16, String> {
+pub(crate) fn cited_statuses() -> BTreeMap<u16, Status> {
     let ledger = Ledger::read();
     let rows = ledger.rows.into_iter().map(|row| {
         let number = decision_number(&row.number).expect("a read row's number");
-        (number, row.status)
+        let status = Status::parse(&row.status).expect("a row status in the vocabulary");
+        (number, status)
     });
     let claimed = ledger
         .gaps
         .into_iter()
         .filter(|gap| gap.note.starts_with(CLAIMED))
-        .map(|gap| (gap.number, Status::Proposed.word().to_string()));
+        .map(|gap| (gap.number, Status::Proposed));
     rows.chain(claimed).collect()
 }
 

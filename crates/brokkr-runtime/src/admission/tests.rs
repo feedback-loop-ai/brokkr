@@ -81,6 +81,7 @@ fn launch_under(ws: &Path, map: RunMap, repo: Option<&str>) -> String {
     let request = LaunchRequest {
         workspace: ws.to_path_buf(),
         bundle: BundleSource::Dir("bundle".into()),
+        shelf: None,
         journal: ws.join("forge.db"),
         repo: repo.map(Into::into),
         secrets: None,

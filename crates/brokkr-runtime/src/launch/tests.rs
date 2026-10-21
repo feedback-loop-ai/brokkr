@@ -51,6 +51,7 @@ fn request(root: &Path, dir: &Path, repo: &Path, host: &Path) -> LaunchRequest {
     LaunchRequest {
         workspace: workspace(),
         bundle: BundleSource::Dir(dir.to_path_buf()),
+        shelf: None,
         journal: root.join("forge.db"),
         repo: Some(repo.to_path_buf()),
         secrets: Some(root.join("secrets.env")),
@@ -461,9 +462,10 @@ fn an_unreproducible_resume_leaves_through_the_one_refusal_sink() {
 #[test]
 fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let root = workspace();
+    let triage = root.join("recipes/triage");
     assert!(compile_from_manifest(
         &root,
-        &root.join("recipes/triage"),
+        (&triage, None),
         &json!({"bundle_name":"unadopted"}),
         &root,
     )
@@ -510,16 +512,14 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let manifest = world
         .pinned(&json!({"bundle_name":"triage"}), Some(&root))
         .unwrap();
-    let bundle =
-        compile_from_manifest(&root, &root.join("recipes/triage"), &manifest, &root).unwrap();
+    let bundle = compile_from_manifest(&root, (&triage, None), &manifest, &root).unwrap();
     assert_eq!(bundle.manifest["bundle_name"], "triage");
-    assert!(
-        compile_from_manifest(&root, &dir.path().join("missing-bundle"), &manifest, &root).is_err()
-    );
+    let missing = dir.path().join("missing-bundle");
+    assert!(compile_from_manifest(&root, (&missing, None), &manifest, &root).is_err());
 
     let mut broken = manifest;
     broken["realms"]["sha256"] = json!("0".repeat(64));
-    assert!(compile_from_manifest(&root, &root.join("recipes/triage"), &broken, &root).is_err());
+    assert!(compile_from_manifest(&root, (&triage, None), &broken, &root).is_err());
 }
 
 #[test]

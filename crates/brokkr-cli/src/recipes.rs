@@ -18,15 +18,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use brokkr_runtime::launch::{compile_for, BundleSource};
-use brokkr_runtime::places::{self, Kind, FOLDER};
+use brokkr_runtime::launch::{compile_for, compile_on, BundleSource};
+use brokkr_runtime::places::{self, Kind, ResolvedShelf, FOLDER};
 use brokkr_runtime::realms::World;
 use brokkr_runtime::{Bundle, Invocation, SeatBody};
 
 mod agents;
 pub(crate) mod personal;
 mod sources;
-use personal::{Onto, Origin, Resolved, ShelfPath};
+use personal::{Onto, Origin, ShelfPath};
 
 /// The run/resume bundle from the at-most-one-of `--bundle` / `--recipe`
 /// pair (clap's arg group enforces the arity), else the `implicit` one a
@@ -117,12 +117,18 @@ fn seat_summary(bundle: &Bundle) -> String {
         .join(", ")
 }
 
-/// One line per recipe that compiles, with its `origin` (#697); a warning
-/// line per one that does not. Nothing aborts the listing: a broken recipe
-/// is information. A `dir` that cannot be read warns, unless it is a
+/// One line per recipe in `dir` that compiles across the project shelf
+/// `on` selects, if any ([`compile_on`]), with its `origin` (#697); a
+/// warning line per one that does not. Nothing aborts the listing: a broken
+/// recipe is information. A `dir` that cannot be read warns, unless it is a
 /// default `shelf` (#696) and nothing stands there ([`unshelved`]): no
 /// recipe is on it yet.
-pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool, origin: Origin) -> Result<()> {
+pub(crate) fn list(
+    workspace: &Path,
+    (dir, on): (&ShelfPath, Option<&Path>),
+    shelf: bool,
+    origin: Origin,
+) -> Result<()> {
     let world = World::discover(workspace, None)?;
     let candidates = match listed(dir) {
         Ok(candidates) => candidates,
@@ -133,7 +139,7 @@ pub(crate) fn list(workspace: &Path, dir: &ShelfPath, shelf: bool, origin: Origi
         }
     };
     for (name, path) in candidates {
-        match compile_for(workspace, &path, world.as_ref(), workspace) {
+        match compile_on(workspace, (&path, on), world.as_ref(), workspace) {
             Ok(bundle) => println!(
                 "{name}\t{}\t{} phases\t{}\t{}\t{}\t{origin}\t{}",
                 &bundle.manifest_digest()[..12],
@@ -342,11 +348,12 @@ fn plain(part: &Path) -> bool {
 /// every name planned before it. A base is found beside its layer, which
 /// is what the compiler's authority, `places::base_library`, names for a
 /// layer that is no folder bundle; a plan holding a folder bundle is
-/// refused before any copy ([`sources::refuse_folder_bundles`]).
-fn planned(root: &Path, name: &str, dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+/// refused before any copy ([`sources::refuse_folder_bundles`]). A base
+/// the install `onto` its shelf never copies ends the walk ([`Onto::copies`]).
+fn planned(root: &Path, name: &str, dir: &Path, onto: Onto) -> Result<Vec<(String, PathBuf)>> {
     let mut planned = vec![(name.to_string(), root.to_path_buf())];
     let mut layer = root.canonicalize()?;
-    while let Some(base) = base_of(&layer) {
+    while let Some(base) = base_of(&layer).filter(|base| onto.copies(base)) {
         let source = layer.with_file_name(&base);
         let plain = std::fs::symlink_metadata(&source).is_ok_and(|meta| meta.is_dir());
         let held = std::fs::symlink_metadata(dir.join(&base)).is_ok()
@@ -639,7 +646,7 @@ fn reach(clone: &Path, path: &str) -> Result<PathBuf, AtPath> {
 /// and a nested repository below a folder, refuse. A layout that cannot
 /// be read refuses in its own words (fail closed). The `place` `dir`
 /// resolves to is returned.
-fn refuse_folder(Resolved { at, real, place }: Resolved) -> Result<PathBuf> {
+fn refuse_folder(ResolvedShelf { at, real, place }: ResolvedShelf) -> Result<PathBuf> {
     let resolved = real
         .ancestors()
         .filter(|real| !at.ancestors().any(|s| s == *real));
@@ -748,7 +755,7 @@ fn install_held(
     // Declared before what it outlives: the copies are kept or removed while
     // the library is still held, and an empty one made here goes last.
     let _shelf = Shelf::make(dir, place)?;
-    let planned = planned(&bundle, name, dir)?;
+    let planned = planned(&bundle, name, dir, onto)?;
     onto.unshadowing(&planned, dir)?;
     let sources: Vec<&Path> = planned.iter().map(|(_, source)| source.as_path()).collect();
     refuse_within(&sources, place)?;

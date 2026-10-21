@@ -582,7 +582,10 @@ no inheritance at run time and no dynamic lookup. `brokkr compile`
 prints the resolved result plus a `composed_from` chain naming each
 ancestor and its digest, and that chain rides in the run manifest under
 the reserved `@compose/` prefix — so a run states not only what it ran
-but what it was composed from.
+but what it was composed from. Its `layers` name each layer's origin
+and directory, leaf first: `personal`, `project`, `folder` for the
+folder's own bundle, or `library`. A run's start records the same list
+beside the manifest it pins (#697).
 
 ## Adding a phase or a seat
 
@@ -619,8 +622,8 @@ seat definitions and every selected case, the role charters, the result
 schemas, and the driver command names. Friendly names are display
 metadata; the digest is identity.
 
-The sample elides the digests, each ancestor's absolute directory, and
-the manifest's body: a sha256 per bundle file, the resolved agents and
+The sample elides the digests, each ancestor's and each layer's
+absolute directory, and the manifest's body: a sha256 per bundle file, the resolved agents and
 every selected case, a few thousand lines in all.
 
 ```
@@ -640,6 +643,20 @@ $ brokkr compile --bundle recipes/night-shift
     }
   ],
   "digest": "…",
+  "layers": [
+    {
+      "origin": "project",
+      "path": "…/recipes/night-shift"
+    },
+    {
+      "origin": "project",
+      "path": "…/recipes/triage"
+    },
+    {
+      "origin": "project",
+      "path": "…/recipes/fast"
+    }
+  ],
   "manifest": {
 …
   },

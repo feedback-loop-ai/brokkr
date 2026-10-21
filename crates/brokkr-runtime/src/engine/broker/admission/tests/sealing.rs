@@ -32,10 +32,8 @@ use crate::engine::broker::settlement::{Lease, Unreleased};
 /// and the run.
 fn leasing(host: &Host, protects: Protects) -> (tempfile::TempDir, Engine, PathBuf, String) {
     let (dir, mut engine) = engine(single_body(Vec::new()));
-    let (work, run) = (worktree(&engine), engine.run_id.clone());
-    let mut leased = claim(&work, [&run, "a1"], protects, &[]);
-    leased.journal = std::fs::canonicalize(engine.store.path()).unwrap();
-    engine.held = Some(host.admit(&leased).unwrap());
+    let [work, _] = lease(host, &mut engine, "a1", protects);
+    let run = engine.run_id.clone();
     (dir, engine, work, run)
 }
 
