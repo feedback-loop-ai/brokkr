@@ -17,7 +17,7 @@ use brokkr_store::Store;
 use serde_json::{json, Value};
 
 use super::broker::fold::Begun;
-use super::broker::settlement::witnessed;
+use super::broker::settlement::ended;
 use super::broker::Held;
 use super::carry::{
     outcome_under,
@@ -25,7 +25,7 @@ use super::carry::{
 };
 use super::{
     argv_for, checkpoints, copy_secret_binding_facts, failed_to_start, resume, spawn_site,
-    stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, DriverRun, Engine,
+    stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Door, DriverRun, Engine,
     EngineError, Indeterminate, Selection, Site, SiteSpawn, Unproven,
 };
 use crate::bundle::{Aggregate, Bundle, PanelMember, ENGINE_VERSION};
@@ -281,7 +281,7 @@ impl Engine {
                         let _ = sender.send((checkpoint_name.clone(), data.clone()));
                     };
                     scope.spawn(move || {
-                        let door = (bundle, held);
+                        let door = (bundle, held, begun.as_ref());
                         // A member whose driver did not spawn started no
                         // broker: nothing of it is folded (CR3).
                         match run.report(door, &workdir, deadline, effect_id, attempt_id, forward) {
@@ -312,10 +312,11 @@ impl Engine {
 
     /// The members' `reports`, in declared order beside their `runs`, each
     /// with where its attempt began where its driver spawned, once the sink
-    /// `settled`: every member's cleanup witnessed on the lease first, so
-    /// no member's evidence is read while a sibling's broker may still
-    /// write (#403; D7), then each report carrying what its checkpoints
-    /// left of it and settled by its own broker calls ([`Engine::folded`])
+    /// `settled`: every member's cleanup witnessed on the lease first, and
+    /// each settled member's own settlement record sealed (U8e2), so no
+    /// member's evidence is read while a sibling's broker may still write
+    /// (#403; D7), then each report carrying what its checkpoints left of
+    /// it and settled by its own broker calls ([`Engine::settled_by`])
     /// before any is admitted. A sink that failed is handed up once every
     /// member is witnessed.
     pub(super) fn settle_members(
@@ -326,14 +327,14 @@ impl Engine {
         settled: Result<checkpoints::Settled, EngineError>,
         tag_prefix: &str,
     ) -> Result<Vec<(String, AttemptReport)>, EngineError> {
-        for (_, report, _) in &reports {
-            witnessed(&mut self.held, &report.cleanup);
+        for ((_, report, _), run) in reports.iter().zip(runs) {
+            ended(&mut self.held, &run.driver_seat, &report.cleanup);
         }
         let settled = settled?;
         let mut members = Vec::with_capacity(reports.len());
         for ((name, mut report, begun), run) in reports.into_iter().zip(runs) {
             settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
-            members.push((name, self.folded(ids, &run.spawn, begun, report)?));
+            members.push((name, self.settled_by(ids, &run.spawn, begun, report)?));
         }
         Ok(members)
     }
@@ -436,18 +437,20 @@ impl MemberRun {
     /// This member's attempt, on its own worker thread: its driver run
     /// to a report, each checkpoint handed to `on_checkpoint` as it
     /// arrives; why its driver did not spawn, where it did not
-    /// ([`unspawned`]). The door is handed the bundle and the lease the
-    /// attempt was admitted under (U8a2a).
+    /// ([`unspawned`]). The door is handed the bundle, the lease the
+    /// attempt was admitted under (U8a2a) and where this member's fold
+    /// begins, which its settlement record keeps (U8e2).
     fn report(
         &self,
-        (bundle, held): (&Bundle, Option<&Held>),
+        (bundle, held, begun): (&Bundle, Option<&Held>, Option<&Begun>),
         workdir: &Path,
         deadline: std::time::Duration,
         effect_id: &str,
         attempt_id: &str,
         on_checkpoint: impl FnMut(&Value),
     ) -> DriverRun {
-        let spawned = spawn_site(bundle, &self.spawn, &self.input, workdir, deadline, held);
+        let door = held.map(|held| Door::of(held, &self.driver_seat, begun));
+        let spawned = spawn_site(bundle, &self.spawn, &self.input, workdir, deadline, door);
         // The door's own input, carrying the charter text it verified for
         // this member.
         let (process, input) = match spawned {

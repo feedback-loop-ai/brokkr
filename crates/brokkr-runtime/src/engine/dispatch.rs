@@ -16,7 +16,8 @@ use brokkr_protocol::process::DriverProcess;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use super::broker::{admission, observed, Held, Observed};
+use super::broker::fold::Begun;
+use super::broker::{admission, observed, settlement, Held, Observed};
 use super::carry::{CarryPlan, CarryRefusal};
 use super::panel::PanelAt;
 use super::{
@@ -331,26 +332,48 @@ impl Engine {
     }
 }
 
+/// The lease a driver's attempt was admitted under, the label of the site
+/// the driver is spawned for and where its fold begins, none where its
+/// site was sealed no broker: what the door rechecks the lease by and
+/// writes the driver's own settlement record with (U8e2).
+#[derive(Clone, Copy)]
+pub(super) struct Door<'a> {
+    pub(super) held: &'a Held,
+    pub(super) site: &'a str,
+    pub(super) begun: Option<&'a Begun>,
+}
+
+impl<'a> Door<'a> {
+    /// The door of the driver at the site `site` under the lease `held`,
+    /// its fold beginning where `begun` says.
+    pub(super) fn of(held: &'a Held, site: &'a str, begun: Option<&'a Begun>) -> Door<'a> {
+        Door { held, site, begun }
+    }
+}
+
 /// Every driver-bearing site uses this door, including concurrent panel
 /// members. Re-walk immediately before spawning; the interval to exec is
 /// the accepted residual of decision 0046 ruling 4. Moved here from
-/// `engine.rs` by U8a2a, which rechecks at it that the lease `held` its
-/// attempt was admitted under still stands (CR2, MB3): every dispatch
-/// admits its attempt before its body runs, and only a test that calls a
-/// body or this door directly holds none.
+/// `engine.rs` by U8a2a, which rechecks at it that the lease its attempt
+/// was admitted under still stands (CR2, MB3): every dispatch admits its
+/// attempt before its body runs, and only a test that calls a body or this
+/// door directly holds none. Once every check passed, and before the
+/// driver spawns, its own settlement record is written Settling under the
+/// lease ([`settlement::spawning`]; U8e2); a record that cannot be written
+/// refuses the driver.
 pub(super) fn spawn_site(
     bundle: &Bundle,
     spawn: &SiteSpawn,
     input: &Value,
     workdir: &Path,
     deadline: std::time::Duration,
-    held: Option<&Held>,
+    door: Option<Door<'_>>,
 ) -> Result<(DriverProcess, Value), String> {
     if let Some(reason) = &spawn.refusal {
         return Err(reason.clone());
     }
-    if let Some(held) = held {
-        admission::recheck(held).map_err(|refusal| refusal.to_string())?;
+    if let Some(door) = door {
+        admission::recheck(door.held).map_err(|refusal| refusal.to_string())?;
     }
     // The input arrives here after its last merge: the launch record in it
     // must be the one sealed for this spawn, and reassemble the argv about
@@ -405,6 +428,9 @@ pub(super) fn spawn_site(
                  the bytes an unboxed gate runs must be the bytes its digest names (decision 0046 ruling 4)"
             ));
         }
+    }
+    if let Some(Door { held, site, begun }) = door {
+        settlement::spawning(held, site, begun).map_err(|refusal| refusal.to_string())?;
     }
     DriverProcess::spawn(&spawn.argv, workdir, Some(deadline), &spawn.env)
         .map(|process| (process, input))
