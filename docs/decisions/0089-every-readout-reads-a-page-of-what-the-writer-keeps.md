@@ -845,6 +845,16 @@ model the writer keeps in the journal's own file and transaction.
      that cuts the acknowledgement by `substr` from its own table, whose
      SQLite high-water grows by about two megabytes (2,114,384 B measured,
      Context).
+
+     *Amended, 2026-10-21 (operator, on PR #808, recorded on #753):* on
+     macOS SQLite's share is held to 500 KiB, not 400. There SQLite's
+     default allocator counts each block's malloc size class, where Linux
+     counts the bytes asked for and an eight-byte header, so the same page
+     reads higher: 448,912 B on CI's `test (macos-latest)` leg against
+     399,176 B on Linux. `quality/heap-bytes.json` holds it as
+     `fleet-page-sqlite-macos`, and `heap_fleet.rs` reads that budget on
+     macOS and ruling 9's on every other host. Brokkr's own shares, and
+     every other cap here, are the same on both.
    - **A page at every bound.** The 256 KiB is a page of ordinary rows.
      A page whose every row fills every bound holds about 330 KiB of row
      text before it is derived and painted (ruling 2), so it has a budget
