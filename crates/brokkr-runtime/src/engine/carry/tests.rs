@@ -229,6 +229,9 @@ fn shape_head_and_tree_refusals_are_ordered_before_the_inputs() {
     );
     facts.shape = shape;
     facts.attempts[0].succeeded = true;
+    assert!(
+        matches!(carry_plan(&facts, &names).unwrap_err().0, Refusal::Shape { why: Shape::Succeeded { park_reason, .. } } if park_reason == "no park follows it")
+    );
     facts.attempts[0].park_reason = Some("original park".into());
     assert!(
         matches!(carry_plan(&facts, &names).unwrap_err().0, Refusal::Shape { why: Shape::Succeeded { park_reason, .. } } if park_reason == "original park")
@@ -614,6 +617,207 @@ fn identity_names_both_ends_in_source_order_before_the_tree_and_inputs() {
     assert!(
         matches!(carry_plan(&facts, &[Tag("b".into())]).unwrap_err().0,
         Refusal::TreeNotClean { observations } if observations == format!("settled: {observed}; now \"unrun\""))
+    );
+}
+
+#[test]
+fn narrow_reaches_the_first_step_or_the_selected_case_and_leaves_other_bodies_whole() {
+    use super::fixture_tests::{body, clean, panel_step};
+    use crate::bundle::{DialectExecution, SeatClass, SequenceStep};
+    let tags = [Tag("a".into()), Tag("b".into())];
+    let plan = CarryPlan::new(
+        &tags,
+        vec![
+            Contribution::Fresh(tags[0].clone()),
+            Contribution::Carried {
+                tag: tags[1].clone(),
+                result: json!({"result":"clean"}),
+                source: "settled".into(),
+            },
+        ],
+        None,
+        None,
+    )
+    .unwrap();
+    let names = |body: &SeatBody| -> Vec<String> {
+        let SeatBody::Invocation(Invocation::Panel { members, .. }) = body else {
+            unreachable!()
+        };
+        members.iter().map(|member| member.name.clone()).collect()
+    };
+    let mut cased = SeatBody::Select {
+        cases: [("feature".to_string(), body())].into(),
+        default: None,
+    };
+    plan.narrow(&mut cased, Some("feature"));
+    let SeatBody::Select { cases, .. } = &cased else {
+        unreachable!()
+    };
+    assert_eq!(names(&cases["feature"]), ["a"]);
+    let mut defaulted = SeatBody::Select {
+        cases: BTreeMap::new(),
+        default: Some(Box::new(body())),
+    };
+    plan.narrow(&mut defaulted, Some("chore"));
+    let SeatBody::Select { default, .. } = &defaulted else {
+        unreachable!()
+    };
+    assert_eq!(names(default.as_deref().unwrap()), ["a"]);
+    let mut empty = SeatBody::Select {
+        cases: BTreeMap::new(),
+        default: None,
+    };
+    plan.narrow(&mut empty, None);
+    assert!(matches!(&empty, SeatBody::Select { cases, default: None } if cases.is_empty()));
+    let mut none = SeatBody::Sequence { steps: vec![] };
+    plan.narrow(&mut none, None);
+    assert!(matches!(&none, SeatBody::Sequence { steps } if steps.is_empty()));
+    let dialect = SequenceStep {
+        name: "check".into(),
+        class: SeatClass::Work,
+        results: vec![],
+        body: StepBody::Dialect {
+            execution: DialectExecution {
+                argv: vec![],
+                state: None,
+            },
+        },
+    };
+    let mut later = SeatBody::Sequence {
+        steps: vec![
+            dialect,
+            panel_step("p", vec![("a", clean()), ("b", clean())]),
+        ],
+    };
+    plan.narrow(&mut later, None);
+    let SeatBody::Sequence { steps } = &later else {
+        unreachable!()
+    };
+    let StepBody::Invocation(Invocation::Panel { members, .. }) = &steps[1].body else {
+        unreachable!()
+    };
+    assert_eq!(
+        members
+            .iter()
+            .map(|member| member.name.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    let mut single = crate::engine::tests::single_body(vec!["unused".into()]);
+    plan.narrow(&mut single, None);
+    assert!(matches!(
+        single,
+        SeatBody::Invocation(Invocation::Single { .. })
+    ));
+}
+
+#[test]
+fn a_source_is_an_earlier_attempt_and_a_shared_effect_is_named_once() {
+    use brokkr_core::EventType::*;
+    let (_dir, runtime, initial, mut events) = clean_visit();
+    let mut terminal = events[3].payload.clone();
+    terminal["attempt_id"] = json!("second");
+    terminal["settled_members"] = json!({"b":{"result":"clean"}});
+    events.extend([
+        event(
+            5,
+            EffectStarted,
+            json!({"effect_id":"source","attempt_id":"second","carried":[{"member":"a","attempt_id":"settled"}]}),
+        ),
+        event(6, EffectIndeterminate, terminal),
+    ]);
+    let mut facts = observed(&runtime, &initial, &events, u64::MAX);
+    assert_eq!(
+        serde_json::to_value(carry_plan(&facts, &[]).unwrap().carried()).unwrap(),
+        json!([{"member":"a","attempt_id":"settled"},{"member":"b","attempt_id":"second"}])
+    );
+    for at in &mut facts.attempts {
+        at.input_holds = false;
+    }
+    assert!(
+        matches!(carry_plan(&facts, &[]).unwrap_err().0, Refusal::InputMoved { effects } if effects == "source")
+    );
+    // An entry naming the carrying attempt itself, or any later one, is no source.
+    for at in &mut facts.attempts {
+        at.input_holds = true;
+    }
+    facts.attempts[1].carried[0].attempt_id = "second".into();
+    assert!(
+        matches!(carry_plan(&facts, &[Tag("b".into())]).unwrap_err().0, Refusal::Unsettled { members } if members == "a")
+    );
+}
+
+#[test]
+fn the_visit_reader_places_only_what_the_journal_names_and_stamps_only_known_heads() {
+    use brokkr_core::EventType::*;
+    let (_dir, runtime, initial, mut events) = clean_visit();
+    events.extend([
+        event(
+            5,
+            EffectStarted,
+            json!({"effect_id":"foreign","attempt_id":"stray"}),
+        ),
+        event(
+            6,
+            EffectFailed,
+            json!({"effect_id":"foreign","attempt_id":"stray"}),
+        ),
+        event(
+            7,
+            EffectCheckpointed,
+            json!({"attempt_id":"stray","checkpoint":{"step":"sequence-step-finished","step_name":"p"}}),
+        ),
+        event(
+            8,
+            EffectCheckpointed,
+            json!({"attempt_id":"settled","checkpoint":{"step":"sequence-step-finished"}}),
+        ),
+        event(
+            9,
+            EffectStarted,
+            json!({"effect_id":"source","attempt_id":"running"}),
+        ),
+        event(10, RunParked, json!({"reason":"parked while running"})),
+    ]);
+    let attempts = facts::read_visit(&events, &initial, u64::MAX).unwrap();
+    assert_eq!(
+        attempts.iter().map(|at| at.id.as_str()).collect::<Vec<_>>(),
+        ["settled", "running"]
+    );
+    assert!(attempts[0].steps.is_empty());
+    assert_eq!(
+        attempts[0].park_reason.as_deref(),
+        Some("parked while running")
+    );
+    assert_eq!(attempts[1].park_reason, None);
+    events[3].payload.as_object_mut().unwrap().remove("tree");
+    assert!(matches!(facts::read_visit(&events, &initial, u64::MAX),
+        Err(CarryRefusal(Refusal::RecordUnread { field, error, .. })) if field == "tree" && error == "missing beside panel evidence"));
+    let orphan = vec![
+        event(1, OperatorAccepted, json!({"command_id":"unknown"})),
+        event(2, EffectRequested, json!({"effect_id":"effect"})),
+    ];
+    assert_eq!(facts::scope(&orphan, "other").unwrap(), None);
+    assert_eq!(facts::scope(&orphan, "effect").unwrap(), None);
+    let (_dir, singles) = engine(SeatBody::Sequence {
+        steps: vec![super::fixture_tests::single_step(
+            "only",
+            super::fixture_tests::clean(),
+        )],
+    });
+    let facts = singles.carry_facts(&[], &initial, vec![]);
+    assert!(matches!(facts.shape, PanelShape::NoPanel { phase } if phase == "work"));
+    let mut span = PanelSpan::open(&runtime.repo);
+    span.head.at_end = None;
+    let mut payload = json!({});
+    PanelRecord {
+        span,
+        settled_members: BTreeMap::new(),
+    }
+    .stamp(&mut payload);
+    assert_eq!(
+        payload["head"],
+        json!({"at_start": Head::observe(&runtime.repo).unwrap()})
     );
 }
 

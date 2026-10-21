@@ -72,6 +72,18 @@ fn a_carried_part_is_completed_and_names_its_original_attempt() {
     let cleared = parts.iter().find(|part| part.key == "carrying:a").unwrap();
     assert_eq!(cleared.carried_from, None);
     assert_eq!(cleared.status, "working");
+    // An entry naming an attempt the journal never started has no source to name.
+    events.push(ev(
+        7,
+        EventType::EffectStarted,
+        json!({"effect_id":"carrying", "attempt_id":"four", "driver":"panel", "carried":[{"member":"a", "attempt_id":"ghost"}]}),
+        at,
+    ));
+    let scan = scan_participants(&events);
+    let parts = participants(&events, &scan);
+    let unsourced = parts.iter().find(|part| part.key == "carrying:a").unwrap();
+    assert_eq!(unsourced.carried_from, None);
+    assert_eq!(unsourced.status, "carried");
 }
 
 #[test]

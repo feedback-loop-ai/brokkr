@@ -211,6 +211,27 @@ and CRAP verdicts and the console's 182 node tests (last green in the
 returned visit) are recorded pending for the operator's host, never
 lowered. The result's notes carry each command and its output.
 
+**Gates re-measured (the landing's third visit, 2026-10-21).** The box
+still refuses the scripts, so the exact gate's instrumented suite was run
+by hand as `scripts/test-shards.sh coverage` runs it: five shards under
+`cargo +nightly-2026-09-05 llvm-cov --no-report --workspace --all-features
+--locked --branch --no-fail-fast` (every library; the `it` binaries with
+the broker skipped; the three heaps; the own-process binaries; the
+broker's 108 alone), every binary green, then `llvm-cov report` with the
+gate's ignore set. Counted as the gate counts an LCOV: lines 66,859 of
+66,859, branches 8,538 of 8,538, functions 8,622 of 8,622, literal 100%
+equality met; 306 files, every one under `crates/`, none a test path or
+the probe, and every merged profile this run's. The first measurement on
+3568a046 was 21 lines, 17 branches and 2 functions short, all in this
+branch's new code; a test for each closed them (`carry/tests.rs`,
+`carry/drive_tests.rs`, `started/tests.rs`), two multi-line `?` calls
+went on one line, and `read_visit`'s arms moved into `record_start`,
+`record_end` and `record_park` after `cargo crap` found it at 18. On the
+final LCOV, `cargo crap` with the ratchet's exclusions, judged against
+`quality/crap-baseline.json` as `crap-judge` judges, holds over 4,716
+functions. Workspace doctests, fmt and clippy pass on the same tree. The
+console's node tests stay refused here and unchanged since their green run.
+
 ## 1. The working-tree reader
 
 *Serves: W1, W2. Design: D10, D1; T4. Decision 0093 ruling 6.*

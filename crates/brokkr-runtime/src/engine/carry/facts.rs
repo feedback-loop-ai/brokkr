@@ -1,5 +1,5 @@
 //! Read evidence at the journal edge, then observe the repository without deciding.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use brokkr_core::fold::RunState;
 use brokkr_core::{EventEnvelope, EventType};
@@ -91,7 +91,7 @@ pub(crate) fn read_visit(
         })
         .unwrap_or(0);
     let mut attempts: Vec<PanelAttempt> = Vec::new();
-    let mut effects = BTreeMap::new();
+    let mut effects = BTreeSet::new();
     for event in events[start..]
         .iter()
         .take_while(|event| event.seq < cutoff)
@@ -100,63 +100,76 @@ pub(crate) fn read_visit(
         match event.event_type {
             EventType::EffectRequested => {
                 if payload["phase"].as_str() == phase {
-                    effects.insert(
-                        payload["effect_id"].as_str().unwrap_or_default().to_owned(),
-                        (),
-                    );
+                    effects.insert(payload["effect_id"].as_str().unwrap_or_default().to_owned());
                 }
             }
-            EventType::EffectStarted => {
-                let effect = payload["effect_id"].as_str().unwrap_or_default();
-                if effects.contains_key(effect) {
-                    let id = payload["attempt_id"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_owned();
-                    let carried = match payload.get("carried") {
-                        Some(value) => {
-                            parse(value.clone(), &RecordId::Attempt(id.clone()), "carried")?
-                        }
-                        None => Vec::new(),
-                    };
-                    attempts.push(PanelAttempt {
-                        id,
-                        effect: effect.to_owned(),
-                        seq: event.seq,
-                        succeeded: false,
-                        record: None,
-                        carried,
-                        steps: Vec::new(),
-                        park_reason: None,
-                        input_holds: false,
-                        ended_at: None,
-                    });
-                }
-            }
+            EventType::EffectStarted => record_start(&mut attempts, &effects, event)?,
             EventType::EffectSucceeded
             | EventType::EffectFailed
-            | EventType::EffectIndeterminate => {
-                if let Some(at) = attempts
-                    .iter_mut()
-                    .find(|at| payload["attempt_id"].as_str() == Some(&at.id))
-                {
-                    at.succeeded = event.event_type == EventType::EffectSucceeded;
-                    at.ended_at = Some(event.seq);
-                    at.record = terminal_record(payload, &at.id)?;
-                }
-            }
+            | EventType::EffectIndeterminate => record_end(&mut attempts, event)?,
             EventType::EffectCheckpointed => record_step(&mut attempts, payload),
-            EventType::RunParked => {
-                for at in &mut attempts {
-                    if at.ended_at.is_some() && at.park_reason.is_none() {
-                        at.park_reason = payload["reason"].as_str().map(str::to_owned);
-                    }
-                }
-            }
+            EventType::RunParked => record_park(&mut attempts, payload),
             _ => {}
         }
     }
     Ok(attempts)
+}
+
+/// A start of one of this visit's effects opens an attempt; any other start is passed over.
+fn record_start(
+    attempts: &mut Vec<PanelAttempt>,
+    effects: &BTreeSet<String>,
+    event: &EventEnvelope,
+) -> Result<(), CarryRefusal> {
+    let payload = &event.payload;
+    let effect = payload["effect_id"].as_str().unwrap_or_default();
+    if !effects.contains(effect) {
+        return Ok(());
+    }
+    let id = payload["attempt_id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let carried = match payload.get("carried") {
+        Some(value) => parse(value.clone(), &RecordId::Attempt(id.clone()), "carried")?,
+        None => Vec::new(),
+    };
+    attempts.push(PanelAttempt {
+        id,
+        effect: effect.to_owned(),
+        seq: event.seq,
+        succeeded: false,
+        record: None,
+        carried,
+        steps: Vec::new(),
+        park_reason: None,
+        input_holds: false,
+        ended_at: None,
+    });
+    Ok(())
+}
+
+/// A terminal names the attempt it ends; one naming no attempt of this visit is passed over.
+fn record_end(attempts: &mut [PanelAttempt], event: &EventEnvelope) -> Result<(), CarryRefusal> {
+    let payload = &event.payload;
+    if let Some(at) = attempts
+        .iter_mut()
+        .find(|at| payload["attempt_id"].as_str() == Some(&at.id))
+    {
+        at.succeeded = event.event_type == EventType::EffectSucceeded;
+        at.ended_at = Some(event.seq);
+        at.record = terminal_record(payload, &at.id)?;
+    }
+    Ok(())
+}
+
+/// The first park after an attempt ended is the park that attempt caused.
+fn record_park(attempts: &mut [PanelAttempt], payload: &Value) {
+    for at in attempts {
+        if at.ended_at.is_some() && at.park_reason.is_none() {
+            at.park_reason = payload["reason"].as_str().map(str::to_owned);
+        }
+    }
 }
 
 fn record_step(attempts: &mut [PanelAttempt], payload: &Value) {

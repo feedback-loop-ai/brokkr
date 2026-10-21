@@ -226,6 +226,32 @@ fn an_old_journal_refuses_at_the_drive_and_empty_args_run_every_member() {
 }
 
 #[test]
+fn every_member_named_starts_a_fresh_panel_with_nothing_carried() {
+    let (_dir, mut runtime) = parked(body(), false);
+    assert!(matches!(
+        retry(&mut runtime, &["b", "a"]),
+        MemberRetryOutcome::Disposed(FencedCommandOutcome::Accepted { .. })
+    ));
+    runtime.drive_once().unwrap();
+    runtime.drive_once().unwrap();
+    let journal = events(&runtime);
+    assert_eq!(
+        journal.last().unwrap().event_type,
+        EventType::EffectSucceeded
+    );
+    let started = journal
+        .iter()
+        .rev()
+        .find(|e| e.event_type == EventType::EffectStarted)
+        .unwrap();
+    assert_eq!(started.payload.get("carried"), None);
+    assert_eq!(
+        markers(&journal, &started.payload["attempt_id"]),
+        [json!("a"), json!("b")]
+    );
+}
+
+#[test]
 fn an_unreadable_record_and_a_missing_panel_park_at_the_drive_with_no_member_spawned() {
     let (_dir, mut runtime) = parked_record(body(), false, |record| {
         record["tree"] = json!({"at_start":"fifth","at_end":"clean"});

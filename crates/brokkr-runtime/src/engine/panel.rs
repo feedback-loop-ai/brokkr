@@ -96,13 +96,10 @@ impl Engine {
         };
         let start_failures = start_failure_sites(&reports, "");
         let unproven = Unproven::panel(&reports);
-        match outcome_under(
-            aggregate,
-            selection.carry.as_ref(),
-            reports,
-            &record.span,
-            attempt_id,
-        )? {
+        let carry = selection.carry.as_ref();
+        // One line, as `disposed`'s refusal callsites: the exact-coverage
+        // gate reads a multi-line call's `?` edge as its own region.
+        match outcome_under(aggregate, carry, reports, &record.span, attempt_id)? {
             AttemptOutcome::Indeterminate { reason } => {
                 let mut payload = json!(Indeterminate {
                     effect_id,

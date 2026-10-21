@@ -81,13 +81,10 @@ impl Engine {
             args,
         };
         before_command(&mut self.store);
-        let disposition = disposed(
-            &mut self.store,
-            &self.run_id,
-            request,
-            read.deciding,
-            |_| {},
-        )?;
+        // One line, as `disposed`'s own refusal callsites: the exact-coverage
+        // gate reads a multi-line call's `?` edge as its own region.
+        let (store, run_id) = (&mut self.store, &self.run_id);
+        let disposition = disposed(store, run_id, request, read.deciding, |_| {})?;
         Ok(MemberRetryOutcome::Disposed(disposition.outcome()))
     }
 }
