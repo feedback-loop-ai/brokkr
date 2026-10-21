@@ -10,6 +10,8 @@
 mod engine;
 #[path = "support/numbered.rs"]
 mod numbered;
+#[path = "support/records.rs"]
+mod records;
 #[path = "support/rust_source.rs"]
 mod rust_source;
 #[path = "support/test_paths.rs"]
