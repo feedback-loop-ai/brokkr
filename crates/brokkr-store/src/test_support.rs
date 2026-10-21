@@ -260,13 +260,14 @@ pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
 /// event index's, and neither backfill recorded. Opening it read-write
 /// migrates it again.
 pub fn unmigrate(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
+    let unsummarized = conn.execute_batch(
         "DROP TABLE run_summary;
          DROP TRIGGER run_summary_of_a_run;
          DROP TRIGGER run_summary_of_an_event;
          DROP TRIGGER run_summary_of_an_acknowledgement;
          DELETE FROM meta WHERE key = 'run_summary_backfill';",
-    )?;
+    );
+    unsummarized?;
     unindex(conn)
 }
 

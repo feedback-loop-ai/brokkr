@@ -108,12 +108,12 @@ fn migration() -> String {
 /// Does the table hold its time? A table without it is the shape an
 /// unreleased build of this slice made, which [`migrate_index`] rebuilds.
 fn timed(conn: &Connection) -> Result<bool, StoreError> {
-    let found: i64 = conn.query_row(
+    let found: rusqlite::Result<i64> = conn.query_row(
         "SELECT count(*) FROM pragma_table_info('event_index') WHERE name = 'recorded_at'",
         [],
         |row| row.get(0),
-    )?;
-    Ok(found == 1)
+    );
+    Ok(found? == 1)
 }
 
 /// Does this journal carry the table, with its time, both indexes and
@@ -131,10 +131,11 @@ pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
 /// the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
     if !timed(conn)? {
-        conn.execute_batch(
+        let dropped = conn.execute_batch(
             "DROP TRIGGER IF EXISTS event_index_of_an_event;
              DROP TABLE IF EXISTS event_index;",
-        )?;
+        );
+        dropped?;
     }
     Ok(conn.execute_batch(&migration())?)
 }
@@ -142,10 +143,11 @@ pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
 /// Record that the backfill finished, once its walk found every event's
 /// row: the one place the key is written, a new journal's included.
 fn mark_indexed(conn: &Connection) -> Result<(), StoreError> {
-    conn.execute(
+    let marked = conn.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES (?1, 'finished')",
         [BACKFILLED],
-    )?;
+    );
+    marked?;
     Ok(())
 }
 

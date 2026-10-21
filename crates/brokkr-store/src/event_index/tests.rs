@@ -213,8 +213,9 @@ fn a_journal_with_events_and_no_schema_is_indexed_at_its_open() {
 }
 
 /// A journal holding the table an unreleased build of this slice made,
-/// without its time, is not read by its index, and a writable open
-/// rebuilds the table and indexes every event again, time included.
+/// without its time but with its indexes and trigger, is not read by its
+/// index and refuses its reader nothing, and a writable open rebuilds the
+/// table and indexes every event again, time included.
 #[test]
 fn a_journal_with_the_untimed_table_is_rebuilt_at_a_writable_open() {
     let (_dir, path) = older_journal();
@@ -226,6 +227,9 @@ fn a_journal_with_the_untimed_table_is_rebuilt_at_a_writable_open() {
                 type TEXT, attempt_id TEXT, member TEXT,
                 PRIMARY KEY (run_id, seq)
             ) WITHOUT ROWID;
+            CREATE INDEX event_index_stream ON event_index (run_id, attempt_id, member, seq);
+            CREATE INDEX event_index_trail ON event_index (run_id, seq)
+                WHERE type <> 'effect/checkpointed';
             CREATE TRIGGER event_index_of_an_event AFTER INSERT ON events BEGIN
                 INSERT OR IGNORE INTO event_index (run_id, seq) VALUES (NEW.run_id, NEW.seq);
             END;
@@ -234,11 +238,19 @@ fn a_journal_with_the_untimed_table_is_rebuilt_at_a_writable_open() {
         )
         .unwrap();
     let reader = Store::open_read_only(&path).unwrap();
+    assert!(!index_intact(&reader.conn).unwrap());
     assert!(!reader.reads_index().unwrap());
+    assert_eq!(reader.load("a").unwrap().len(), 2);
     let store = Store::open(&path).unwrap();
+    assert!(timed(&store.conn).unwrap());
+    assert!(backfilled(&store));
     assert!(store.reads_index().unwrap());
-    each_older_run_indexed(&store);
-    assert_eq!(rows(&store, "a")[0], row(1, "run/started", None, None));
+    for run_id in ["a", "b", "c"] {
+        let opened = row(1, "run/started", None, None);
+        let started = row(2, "effect/started", Some(run_id), None);
+        assert_eq!(rows(&store, run_id), [opened, started], "{run_id}");
+        assert_eq!(parted_at(&store, run_id), None, "{run_id}");
+    }
 }
 
 /// A backfill a peer's lock cuts short writes the runs it reached, leaves
@@ -279,31 +291,53 @@ fn a_backfill_cut_short_by_a_peer_s_lock_resumes_where_it_stopped() {
     }
 }
 
-/// A journal that lost its trigger is repaired and walked again, so the
-/// events inserted while it was gone are indexed too.
-#[test]
-fn a_journal_that_lost_its_trigger_is_walked_again_once_repaired() {
-    let (_dir, store) = store();
+/// A run `r` of one event, indexed, and then the index's `object` (an
+/// index or a trigger, by its kind and name) dropped.
+fn one_run_without(object: &str) -> (tempfile::TempDir, Store) {
+    let (dir, store) = store();
     run_of(
         &store,
         "r",
         vec![event(EventType::RunStarted, json!({"feature": "f"}))],
     );
+    store.conn.execute_batch(&format!("DROP {object}")).unwrap();
+    (dir, store)
+}
+
+/// `store`'s journal opened again read-write, which repairs its index, and
+/// read by it.
+fn reopened(store: Store) -> Store {
+    let path = store.path().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(store.reads_index().unwrap());
     store
-        .conn
-        .execute_batch("DROP TRIGGER event_index_of_an_event")
-        .unwrap();
+}
+
+/// A journal that lost its trigger is repaired and walked again, so the
+/// events inserted while it was gone are indexed too.
+#[test]
+fn a_journal_that_lost_its_trigger_is_walked_again_once_repaired() {
+    let (_dir, store) = one_run_without("TRIGGER event_index_of_an_event");
     planted(
         &store,
         "r",
         event(EventType::PhaseEntered, json!({"phase": "p"})),
     );
     assert_eq!(parted_at(&store, "r"), Some((2, IndexFault::Missing)));
-    let path = store.path().to_path_buf();
-    drop(store);
-    let store = Store::open(&path).unwrap();
-    assert!(store.reads_index().unwrap());
+    let store = reopened(store);
     assert_eq!(parted_at(&store, "r"), None);
+}
+
+/// A journal whose table holds its time but lost an index is not read by
+/// its index, and a writable open restores it.
+#[test]
+fn a_journal_that_lost_an_index_is_read_as_before_until_restored() {
+    let (_dir, store) = one_run_without("INDEX event_index_trail");
+    assert!(timed(&store.conn).unwrap());
+    assert!(!store.reads_index().unwrap());
+    let store = reopened(store);
+    assert_eq!(store.index_trail("r").unwrap(), [1]);
 }
 
 /// A run of three events, each with an attempt and a member to edit.
