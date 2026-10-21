@@ -158,9 +158,9 @@ this decision and the Rust types are their shape.
 
    **Enforcement binding:** `Machine::reach_avoiding` in
    `crates/brokkr-core/src/policy/audit.rs`, read by
-   `assert_phase_unavoidable` (its refusal text unchanged) and by the
-   admission's fourth fact; the `ship` refusal and the review-entry cases
-   in `bundle/tests.rs`, `machine_proof/entered_run.rs` and
+   `assert_phase_unavoidable` (in `bundle/phases.rs`, its one caller's
+   module; its refusal text unchanged) and by the admission's fourth
+   fact; the `ship` refusal and the review-entry cases in `bundle/tests.rs`, `machine_proof/entered_run.rs` and
    `crates/brokkr-cli/tests/delivered_by_brokkr.rs` (a run entered at
    review vouches, and its line says so); `recipes/landing/README.md`.
 
@@ -288,18 +288,21 @@ this decision and the Rust types are their shape.
    each continued id under the native grammar and named once, one check in
    `brokkr-core` that the reader, the launch and, by two patterns held
    equal, the gate apply, so the record has one language: a present `entry`
-   that does not so read is refused by the engine where it reads it, and
-   the run view, which refuses no journal the fold accepts, states it unreadable
-   with the reader's error (ruling 8). The engine enters the entry
-   instead of `initial` at `Cursor::Start`, at the first drive and at a
+   that does not so read is refused by the engine where it reads it and
+   is never written by it, the start refusing one before any row exists by
+   the same check; and the run view, which refuses no journal the fold
+   accepts, states it unreadable with the reader's error (ruling 8). The
+   engine enters the entry instead of `initial` at `Cursor::Start`, at the first drive and at a
    resume in the window after `run/started`, admitting it again by ruling
    1 over the bundle the manifest gate just proved, and refuses one that
    does not read or no longer admits rather than fall back to `initial`;
    it reads `phases` from no journal. The fold reads neither, `RunState`
    gains nothing, every journal written before folds, verifies and views
    as it did, and the engine change moves no manifest, table or charter
-   witness. Their numbered extension schema is minted when this decision
-   is accepted (decision 0082 ruling 1); until then the Rust types are
+   witness; the journal's payload-key witness, the golden over a real
+   run's event sequence, moves by the one key `phases` on `run/started`,
+   on this ruling's authority. Their numbered extension schema is minted
+   when this decision is accepted (decision 0082 ruling 1); until then the Rust types are
    their shape, and the vocabulary is published in `contracts/README.md`'s
    extension paragraph under this decision.
 
@@ -309,7 +312,11 @@ this decision and the Rust types are their shape.
    `crates/brokkr-core/src/entry.rs` with their tests (absent, empty chain,
    and every row of `tests/support/entry_records.rs` by variant); `first_phase` in `crates/brokkr-runtime/src/engine/entry.rs`
    with the resume-window, no-longer-admits and does-not-read pins in
-   `engine/tests.rs`; the ordinary-start pin (no `entry` key, the same
+   `engine/tests.rs`, and `Engine::start_in_world`'s refusal of a record
+   outside the language before `create_run`, pinned there with no run
+   created; `crates/brokkr-cli/tests/witness_journal.rs`, whose `GOLDEN`
+   `run/started` row gains `phases` with a comment citing this ruling; the
+   ordinary-start pin (no `entry` key, the same
    manifest digest, `phases` equal to the table's) in
    `machine_proof/entered_run.rs`; `crates/brokkr-runtime/tests/witnesses.json`
    standing in every row the engine change touches.
@@ -427,9 +434,10 @@ this decision and the Rust types are their shape.
   `verify` and `review`; `research` and `research-dsh` admit `verify`;
   the triage-shaped tables admit none, each refusal naming its first
   fact and witness.
-- Every ordinary run's seat inputs, digests, manifest and witnesses stand;
-  its `run/started` gains the one `phases` list. No contract file, no
-  frozen surface, no fold arm and no store schema moves.
+- Every ordinary run's seat inputs, digests, manifest and digest
+  witnesses stand; its `run/started` gains the one `phases` list, the one
+  key by which the journal's payload-key golden moves. No contract file,
+  no frozen surface, no fold arm and no store schema moves.
 - The engine's constitutional walk, the sweep over a group's
   unconditioned rulings, the direction of a ruling and the language of the
   entry record each have one home in `brokkr-core`, read by the compiler,
