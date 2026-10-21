@@ -481,3 +481,24 @@ fn a_launch_selecting_another_project_shelf_is_never_queued() {
         LaunchError::Places(crate::places::PlacesError::Unreadable { ref path, .. }) if *path == gone);
     assert!(unreadable, "{error}");
 }
+
+/// A queued recipe's unplaced shelf, refused by a process under neither
+/// XDG_CONFIG_HOME nor HOME, as a dispatcher under a user service may be,
+/// says it places no personal shelf where one placing a shelf names it
+/// (#697 rulings 2 and 5).
+#[test]
+fn an_unplaced_shelf_refused_where_none_is_placed_says_so() {
+    let unplaced = |personal: Option<PathBuf>| {
+        let (name, shelf, own) = ("mine".into(), "/a/recipes".into(), "/w/recipes".into());
+        let refusal = LaunchError::QueuedShelfUnplaced {
+            name,
+            shelf,
+            own,
+            personal,
+        };
+        refusal.to_string()
+    };
+    let placed = unplaced(Some("/p/recipes".into()));
+    let none = placed.replacen("(/p/recipes)", "(it places none)", 1);
+    assert_eq!(unplaced(None), none);
+}

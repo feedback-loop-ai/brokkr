@@ -2,6 +2,7 @@
 //! and a personal shelf beside it, each recipe a small bundle on disk, and
 //! an assertion about the chain the resolver reads or the refusal it gives.
 
+use std::io::ErrorKind::NotFound;
 use std::path::{Path, PathBuf};
 
 use serde_json::json;
@@ -339,6 +340,48 @@ fn an_unreadable_shelf_refuses_every_read_of_it() {
         ShelfRefusal::Unread(PlacesError::ShelfClimbs { origin: Origin::Project, shelf, at: by })
             if (shelf, by) == (&spelled, &at));
     assert!(climbs, "{refusal}");
+}
+
+/// A personal layer's base whose entry cannot be read refuses with its
+/// path and cause, never read as absent (#697 ruling 2): on the personal
+/// shelf, a name too long for a directory entry, and on a readable project
+/// shelf, a name whose path there is too long for the system to look up,
+/// where beside the personal recipe it is not.
+#[test]
+fn an_unreadable_base_entry_refuses_on_either_shelf() {
+    let shelved = Shelved::new(None);
+    let unreadable = |leaf: &Path, shelves: &Shelves, at: &Path| {
+        let cause = std::fs::symlink_metadata(at).unwrap_err();
+        let text = format!("bundle: reading {}: {cause}", at.display());
+        assert_eq!(refused(resolve_unsealed(leaf, shelves)).to_string(), text);
+    };
+    let long = "a".repeat(256);
+    let mine = recipe(&shelved.personal.join("mine"), "mine", Some(&long));
+    unreadable(&mine, &shelved.shelves(), &shelved.personal.join(&long));
+
+    let base = "b".repeat(200);
+    let deep = recipe(&shelved.personal.join("deep"), "deep", Some(&base));
+    let mut shelf = shelved.repo.clone();
+    while std::fs::symlink_metadata(shelf.join(&base)).is_err_and(|e| e.kind() == NotFound) {
+        shelf.push("c".repeat(100));
+    }
+    unreadable(&deep, &shelved.selecting(Some(&shelf)), &shelf.join(&base));
+}
+
+/// A folder's bundle compiled by its directory, with no shelves, whose
+/// root cannot be judged, a `recipes` beside it that loops, refuses with
+/// that entry's path and cause, never read as a library layer (#697
+/// ruling 5).
+#[test]
+fn a_folder_bundle_beside_an_unreadable_root_refuses() {
+    let shelved = Shelved::new(None);
+    let recipes = shelved.repo.join("recipes");
+    std::os::unix::fs::symlink("recipes", &recipes).unwrap();
+    let cause = std::fs::read_dir(&recipes).unwrap_err();
+    let folder = shelved.repo.join(".brokkr");
+    let text = format!("bundle: reading {}: {cause}", recipes.display());
+    let unjudged = refused(resolve_unsealed(&folder, &Shelves::default()));
+    assert_eq!(unjudged.to_string(), text);
 }
 
 /// The project shelf a compile is given is the one it composes across

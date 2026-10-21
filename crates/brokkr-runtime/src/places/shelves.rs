@@ -316,16 +316,20 @@ impl Shelves {
     pub(crate) fn personal_library(&self, dir: &Path, base: &str) -> Result<PathBuf, CompileError> {
         let personal = dir.parent().unwrap_or(dir);
         let (mine, at) = stands(personal.join(base))?;
-        let Some(project) = &Shelf::reading(&self.project)? else {
-            return Ok(personal.to_path_buf());
-        };
+        // A layer is judged personal only on a personal shelf `Shelves::of`
+        // placed, and `of` places a project shelf beside every one, so no
+        // guard stands for a compile with none. The removal control is
+        // `a_personal_recipe_composes_over_a_project_one`: a personal recipe
+        // composed across `Shelves::default`, which places neither shelf, is
+        // judged a library, never reaching here.
+        let project = Shelf::reading(&self.project)?.expect("a personal layer's compile has one");
         match (mine, stands(project.join(base))?) {
             (true, (true, theirs)) => Err(CompileError::Shelf(ShelfRefusal::Shadowed {
                 name: base.to_string(),
                 project: theirs,
                 personal: at,
             })),
-            (false, (true, _)) => Ok(project.clone()),
+            (false, (true, _)) => Ok(project),
             (_, (false, _)) => Ok(personal.to_path_buf()),
         }
     }
