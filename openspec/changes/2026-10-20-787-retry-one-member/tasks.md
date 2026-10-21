@@ -12,7 +12,7 @@ Requirements served, by the key each task cites:
 - **W1** `working-tree-reading`: "The working tree is read once, by git's exit and its words"
 - **W2** `working-tree-reading`: "The ship gate's decision over the reading does not change"
 
-Ceilings the groups are built against (`quality/file-lines.txt`, decision 0071 ruling 4; a file may grow to the higher of its ceiling and its baseline), measured on this branch: `crates/brokkr-runtime/src/engine.rs` 3,523 and `engine/tests.rs` 6,556 at their baselines and `engine/boundary_tests.rs` 4,207 at its baseline may not grow; `engine/operator.rs` stands at its 800 ceiling and may not grow; `engine/sequence.rs` 714 of 800; `cli_args.rs` 793 of 800; `crates/brokkr-cli/src/tests.rs` 4,592 of 4,593; `crates/brokkr-cli/tests/machine_proof.rs` 3,449 of 3,451; `crates/brokkr-cli/src/render.rs` 774 of 800; `brokkr-view/src/lib.rs` 2,716 may reach its 2,789 baseline, the one figure used for it. Every new test lands in a new module (design D1, D13's opening rule). `engine/tests.rs` and `engine/boundary_tests.rs` are edited only at their direct `execute_panel` calls (task 5.1), in place, each call shorter than before, so both shrink. New and changed functions stay within 100 lines, nesting depth 5, seven parameters counting `self`, and a cyclomatic complexity of 15.
+Ceilings the groups are built against (`quality/file-lines.txt`, decision 0071 ruling 4; a file may grow to the higher of its ceiling and its baseline), measured on this branch: `crates/brokkr-runtime/src/engine.rs` 3,523 and `engine/tests.rs` 6,556 at their baselines and `engine/boundary_tests.rs` 4,207 at its baseline may not grow; `engine/operator.rs` stands at its 800 ceiling and may not grow; `engine/sequence.rs` 714 of 800; `cli_args.rs` 793 of 800; `crates/brokkr-cli/src/tests.rs` 4,592 of 4,593; `crates/brokkr-cli/tests/machine_proof.rs` 3,449 of 3,451; `crates/brokkr-cli/src/render.rs` 774 of 800; `brokkr-view/src/lib.rs` 2,716 may reach its 2,789 baseline, the one figure used for it. Every new test lands in a new module (design D1, D13's opening rule). `engine/tests.rs` and `engine/boundary_tests.rs` are edited only at their direct `execute_panel` calls (task 5.1), in place, each call shorter than before, so both shrink. New and changed functions stay within 100 lines, nesting depth 5 and seven parameters counting `self`. Cyclomatic complexity follows the operator's 2026-09-26 ruling, which the crap ratchet (`quality/crap-baseline.json`) gates: a new function stays within 15, an existing one may change up to 15, and one already over 15 may only shrink or hold, never gain a branch. Of the functions this change touches, `scan_participants` (39), `participants` (21) and `activity_for` (23) in `brokkr-view/src/lib.rs` and `inspect` (17) in `crates/brokkr-cli/src/render.rs` are over it: the view's three gain no branch and the first shrinks (group 8), `inspect` is not edited, since it paints participants through `seats_block` (11), and `Engine::execute` in `engine/dispatch.rs` gains one call and no branch of its own (task 6.2).
 
 ## Where these tasks make the design precise
 
@@ -34,7 +34,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 - [ ] 1.1 [W1] Add `crates/brokkr-runtime/src/engine/worktree.rs`: `TreeReading { Clean, Dirty, Refused, Unrun }`, serialised as the four lowercase words, and `read_tree(repo)`, which runs `git status --porcelain` and reads `Dirty` on any output whatever the exit, `Clean` on exit zero and no output, `Refused` on a non-zero exit and no output, and `Unrun` when git cannot be spawned (a missing directory included). It reads nothing of stderr. `git_head` and `git_dirty` move here whole from `engine.rs` (T4), `git_head`'s doc comment and its `pub` with it. Verify: `cargo build -p brokkr-runtime`.
 - [ ] 1.2 [W2] `git_dirty` keeps its name and becomes `matches!(read_tree(repo), TreeReading::Dirty | TreeReading::Unrun)`. `engine.rs` takes these edits and no others: the two functions leave; `mod worktree;`, `mod carry;`, `pub use worktree::git_head;` and `use worktree::git_dirty;` are added; `Selection` gains its `carry` field (task 6.3); and the public re-exports of task 7.3 are added. The file shrinks. `ship_inputs` and `engine/decide.rs` are not edited. Verify: `wc -l crates/brokkr-runtime/src/engine.rs` ≤ 3,523; `git diff --stat main -- crates/brokkr-runtime/src/engine/decide.rs` is empty; `git diff main -- crates/brokkr-runtime/src/engine/tests.rs` holds only the seven `execute_panel` hunks task 5.1 names, none between lines 2347 and 2380, and that file's `wc -l` ≤ 6,556; `cargo test -p brokkr-runtime realms` passes, since it reads `crate::git_head`.
 - [ ] 1.3 [W1, W2] Add `engine/worktree/tests.rs` covering:
-  - the four readings, over a clean repository, an edited one, a repository with a commit whose index file is unreadable, and a missing directory;
+  - the four readings, over a clean repository, an edited one, a repository with a commit whose index file is corrupted (`.git/index` overwritten with bytes that are no index, so git refuses it at exit 128 printing nothing whatever user the box runs as; a 0o000 index reads fine as root), and a missing directory;
   - a directory that is no repository reads `Refused`;
   - an ignored file edited reads `Clean`;
   - an empty repository reads by what git printed;
@@ -64,7 +64,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 - [ ] 3.1 [A1, A2, R1] Add `engine/carry.rs` with `engine/carry/record.rs`, holding these types:
   - `Tag`: a newtype spelled from `(step, member)` by the function the member markers use, with `bare()`. The verb's names and `args.members` become `Tag`s as written.
   - `Ends<T> { at_start, at_end }`.
-  - `Head`: forty lowercase hex digits, the one shape it parses. The writer stamps `git_head`'s answer only in that shape, and otherwise leaves the end absent, as `phase-entered-head.v1` records none.
+  - `Head`: parsed by `is_commit_id` (`engine.rs:3388`), the one home of the shape `phase-entered-head.v1` pins, reached as a private item of the ancestor module; no second predicate is written (ruling 5). The writer stamps `git_head`'s answer only when `is_commit_id` admits it, and otherwise leaves the end absent, as `phase-entered-head.v1` records none.
   - `PanelRecord { tree: Ends<TreeReading>, head: Ends<Option<Head>>, settled_members }`, with `head` absent when neither end holds one. `PanelRecord::stamp` merges it into an `effect/indeterminate` or `effect/failed` payload beside the fields that payload keeps. `settled_members` maps each tag to any JSON value, the member's result value as its driver reported it, whether an object or not. This is the one deliberate `Value` of this change, named in design D6.
   - `CarriedEntry { member, attempt_id }`.
   - `RetryArgs { members: Option<Vec<Tag>> }`: an absent `members` reads as `None`; a present one reads only as a non-empty list of strings, through a deserializer that refuses `null` (T8); an absent `args` or `{}` is the plain retry.
@@ -232,7 +232,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 *Serves: R1, R2, R4. Design: D2, D11; T1, T2, T3, T5. Proposal S2, S15, S18, S20, S21, S27.*
 
 - [ ] 7.1 [R4] In `brokkr-view`, add `member_retry_refusal(word)` to `commands.rs` beside `operator_refusal`. It returns `refused operator retry --member (<word>): the run is not in a state a retry can apply to; nothing was journaled`, and is re-exported on the existing `pub use commands::{…}` line. Its text is pinned once in `commands/tests.rs`, for each of the three words. Verify: `cargo test -p brokkr-view commands`.
-- [ ] 7.2 [R1, R4] `disposed` takes a `Commanded { command, operator, reason, args }` parameter object and the deciding fold `(RunState, Head)` the caller read, and does not fold a second time itself.
+- [ ] 7.2 [R1, R4] `disposed` takes a `Commanded { command, operator, reason, args }` parameter object and the deciding fold `(RunState, Head)` the caller read, in place of the fold it reads for itself before the command's write today (`folded` at `operator.rs:375`: the `asked` state and the head the command is appended after). The fence loop after the write is not edited: it folds again per attempt under `FENCE_ATTEMPTS`, since the acceptance is fenced on the head the command's own write moved, and re-folds after a lost fence as today.
   - **Its callers.** It has two today, `operator_command_racing` and `command_stop` (T3). Each folds through `folded` and passes `args: {}`, so the plain verb's and `conclude`'s bytes, refusals and fence do not move. The bridge's path does not call `disposed` and is not edited.
   - **Visibility.** `retry.rs`, a child module of `operator`, reaches `decided`, `Head` and `disposed` as private items of its parent, so no visibility widens.
   - **The ceiling.** If `operator.rs` would pass 800, `Disposition`, `Commanded` and `disposed` move whole into `engine/operator/disposition.rs`. They become `pub(super)` there, and `operator.rs` gains one `mod` line.
@@ -263,6 +263,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - a record that does not read beside a drifted bundle returning `CarryRefused(RecordUnread)` with the engine unbuilt, and every member named beside such a record giving the same;
   - a drifted bundle on a sound record returning `Err` with `resume`'s text, before any panel fact;
   - a moved house-rules file returning `CarryRefused(InputMoved)` naming the source effect, and writing nothing;
+  - a run driven with `brokkr resume --secrets-file` on a seat that declares a secret: the member form given the same store admitted, and given none returning `CarryRefused(InputMoved)` naming the source effect;
   - the carrying effect's own result paths leaving the command admitted;
   - a phase with no panel returning `CarryRefused(NoPanel)`, and a panel step after the first step returning `CarryRefused(PanelStepFollows)`;
   - `--member correctness` on the review sequence returning `CarryRefused(UnknownMember)` naming the four `positions:` tags, and `--member positions:correctness` admitted, journaling that tag;
@@ -273,7 +274,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 
   No test here reads a `brokkr-view` text. Verify: `cargo test -p brokkr-runtime operator::retry`.
 - [ ] 7.5 [R1] The CLI.
-  - **The arguments.** Add `crates/brokkr-cli/src/cli_args/member_retry.rs` with `MemberRetryArgs` (`--member` repeatable, `--repo`, `--bundle`, `--recipe`, `--recipes-dir`; `Default`). It is flattened into `OperatorArgs` as one field, with its `mod` line in `cli_args.rs`.
+  - **The arguments.** Add `crates/brokkr-cli/src/cli_args/member_retry.rs` with `MemberRetryArgs { member: Vec<String>, repo: Option<PathBuf>, delivery: DeliveryArgs }`: `--member` repeatable, `--repo`, and `DeliveryArgs` (`--bundle`, `--recipe`, `--recipes-dir`, `--secrets-file`, the four `resume` reads through `request`) flattened whole, so the four have one home (ruling 5); `DeliveryArgs` gains `Default` and the struct derives it. It is flattened into `OperatorArgs` as one field, with its `mod` line in `cli_args.rs`.
   - **The nine `OperatorArgs` struct literals** gain `member: MemberRetryArgs::default()`, one line each, with no assertion edited:
     - `verbs/acknowledge/tests.rs` 22, 192 and 202;
     - `verbs/tests.rs` 129, 157 and 216;
@@ -282,7 +283,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
     1. ask `--member` on any command word but `retry`;
     2. ask any member-form argument without `--member`, naming every one typed in one refusal;
     3. then make today's refusals in today's order. The supersede-only flags' text on `retry` reads S20's sentence, and on every other word today's.
-  - **The member form** is its own function beside the handler, so `operator` stays within ruling 4. It resolves the run and builds the `LaunchRequest` through `resolved`, `resume`'s path, with `secrets_file` absent. It calls `launch::operator_retry_members` and prints the outcome:
+  - **The member form** is its own function beside the handler, so `operator` stays within ruling 4. It resolves the run and builds the `LaunchRequest` through `resolved`, `resume`'s path, from `delivery` whole, so `--secrets-file` is read and defaulted as `resume` reads it (design D5). It calls `launch::operator_retry_members` and prints the outcome:
     - `FoldRefused(word)` as `brokkr_view::member_retry_refusal(word.word())`, with the failed exit;
     - `CarryRefused(refusal)` as the refusal's `Display` alone, the sentence byte for byte, with the failed exit;
     - `Disposed(outcome)` as the plain verb prints a `FencedCommandOutcome`;
@@ -297,6 +298,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
     - `retry --member x --findings 1`;
     - `retry --repo …`;
     - `retry --recipe … --repo …`, named once;
+    - `retry --secrets-file …` without `--member`, refused naming it;
     - `stop --findings 1` keeping today's text;
     - `--repo` defaulting to the folder's root from a subdirectory.
   - **The outcome's painting.** Over a synthetic journal with a running run, the handler prints `brokkr_view::member_retry_refusal`'s output for the fold's word, asserted against the function and pinned nowhere else. A carry refusal prints its `Display` alone.
@@ -307,15 +309,18 @@ Each point below fills in a detail the design leaves to the build, measured agai
 
 *Serves: A3, A4. Design: D9. Proposal S14, S27.*
 
-- [ ] 8.1 [A3] Add `crates/brokkr-view/src/started.rs`. Move `BoundaryEntry` and `boundary_entries` there from `lib.rs`, and add `carried_entries` beside them. The scan reads `carried` where it reads `provenance` and `boundary`, ensuring each carried member's `Build` under the carrying effect. A later `effect/started` of the same effect clears `carried`, with `boundary` and `stamp`. Verify: `cargo build -p brokkr-view`; `lib.rs` within its 2,789 baseline.
-- [ ] 8.2 [A3] `Participant` gains `carried_from: Option<CarriedFrom { attempt_id, ordinal }>`, and the status `carried` with class `completed`, both derived from the one entry:
-  - `ordinal` is the source attempt's place among the phase's attempts in journal order, every visit counted;
-  - `attempt_id` is the journal's name for the attempt, which the JSON readouts join on.
+- [ ] 8.1 [A3] Add `crates/brokkr-view/src/started.rs` as a child module of `lib.rs` (`mod started;`), so it reaches `Scan`, `Build` and `ensure` as its parent's private items. Move `BoundaryEntry` and `boundary_entries` there from `lib.rs`; add `CarriedEntry { member, attempt_id }` and `carried_entries`, which drops an entry lacking either key as `boundary_entries` drops a malformed one; and add `sites(scan, slot, effect_id, payload)`, the one reader of an `effect/started`'s per-site lists: it clears `boundary`, `stamp` and `carried` on every part of the effect, then reads `provenance`, `boundary` and `carried`, each entry ensuring its member's `Build` under the carrying effect and setting its field. `Build` gains `carried: Option<CarriedEntry>`. The scan's `EffectStarted` arm calls `sites` once in place of its three loops, so `scan_participants` (cyclomatic 39, over the ceiling) loses three branches there and gains none. Verify: `cargo build -p brokkr-view`; `lib.rs` within its 2,789 baseline; the crap ratchet shows `scan_participants` below 39.
+- [ ] 8.2 [A3] In `started.rs`, add the three helpers that decide from the entry, so `participants` (cyclomatic 21, over the ceiling) and `activity_for` (23) gain no branch:
+  - `status_of(part, effect) -> (&'static str, &'static str)`: the derivation the scan's last loop makes today (the effect's open or terminal state, then a member's marker), moved whole, with one arm before them: a part with a `carried` entry is `("carried", "completed")` whatever its effect's state, since nothing of it ran. The loop becomes one assignment per part, so `scan_participants` loses five more branches.
+  - `carried_from(events, scan, part) -> Option<CarriedFrom { attempt_id, ordinal }>`: `ordinal` is the source attempt's place among the phase's `effect/started`s in journal order, every visit counted, and `attempt_id` the journal's name for the attempt, which the JSON readouts join on.
+  - `activity(events, scan, part, member_count, carried_from) -> Activity`: a carried participant's cell is the one sentence `carried from <phase> attempt <ordinal>`, with the attempt id as its note; every other participant's is `activity_for`'s, unchanged.
 
-  A carried participant has no model, session, cost or turns under the carrying effect. `VIEW_VERSION` moves from 23 to 24, and its pin moves with it. `crates/brokkr-cli/src/render.rs` tones `carried` as good. Verify: `cargo test -p brokkr-view`.
+  `Participant` gains `carried_from`, and `participants` fills `carried_from` and `activity` by one call each. A carried participant has no model, session, cost or turns under the carrying effect, and its `working` is false. `VIEW_VERSION` moves from 23 to 24, and its pin moves with it. `crates/brokkr-cli/src/render.rs` tones `carried` as good (`tone`, cyclomatic 5). Verify: `cargo test -p brokkr-view`; the crap ratchet shows `scan_participants` and `participants` at or below 39 and 21.
 - [ ] 8.3 [A3, A4] In `started.rs`'s test module, cover:
   - the scan over `carried`;
   - status, class and `carried_from`;
+  - a carried participant under an effect still open is `carried`, not `working`;
+  - the activity cell's sentence, with the attempt id as its note;
   - no model or cost of its own, and `working` false;
   - the ordinal across two effects;
   - `carried` across two attempts of one effect: the second start's entries replace the first's, and a start without `carried` clears it;
@@ -323,7 +328,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - a drive-time refused carry's stated reason painted as every stated park is, with a `GATE-MOVED-HEAD` park unchanged.
 
   Verify: `cargo test -p brokkr-view started`.
-- [ ] 8.4 [A3] Paint `carried` and `carried_from` on the surfaces that paint participants: `inspect` and `seats` (`render.rs`, ≤ 800 lines), `watch`, the TUI (`crates/brokkr-cli/src/tui/`), `ui.html` and the console (`extensions/dsh/brokkr-console/lib/`). Each leads with the ordinal, keeps the id, and derives nothing. `brokkr runs` and the fleet readouts, whose run rows hold no participant, are not edited and show nothing of a carried verdict. Each Rust painter's new lines are covered by a test in a module beside it (the exact-coverage gate), and the console's by a case in its `tests/readouts.test.js`. Verify: `cargo test -p brokkr-cli`; `node --test` in `extensions/dsh/brokkr-console`, recorded pending in the notes where the box refuses node.
+- [ ] 8.4 [A3] The surfaces that paint participants, `inspect` and `seats` (through `seats_block` in `render.rs`, ≤ 800 lines), `watch`, the TUI (`crates/brokkr-cli/src/tui/seats.rs`), `ui.html` and the console (`extensions/dsh/brokkr-console/lib/client.js`), paint the status word and the activity cell as they do today, so each shows `carried` and the sentence, leading with the ordinal, and composes no line of its own; `carried_from` rides the JSON they read. The painters that key a tone on the status word gain `carried` as good: `render.rs`'s `tone`, and the console's palette where it keys on the word; a painter keyed on `status_class` (`ui.html`'s badge, the TUI's class tones) needs nothing. `inspect` (cyclomatic 17, over the ceiling) is not edited. `brokkr runs` and the fleet readouts, whose run rows hold no participant, are not edited and show nothing of a carried verdict. Each Rust painter's new lines are covered by a test in a module beside it (the exact-coverage gate), and the console's by a case in its `tests/readouts.test.js`. Verify: `cargo test -p brokkr-cli`; `node --test` in `extensions/dsh/brokkr-console`, recorded pending in the notes where the box refuses node.
 - [ ] 8.5 [A3] The readers that paint no status:
   - `brokkr_view::compare::resolutions` (`compare.rs:360`) skips a participant whose `carried_from` is present, pinned in `crates/brokkr-view/src/compare/tests.rs`: a carried label keeps its source participant's resolution.
   - `select_transcript_participant` (`crates/brokkr-cli/src/lib.rs:1029`) is not edited and takes no task: the transcript verb lists a carried participant's key as it lists every participant's, and refuses `no-reference` when that key is chosen.
@@ -336,7 +341,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 
 *Serves: R1, R3, R5, A2, A3 (the issue's three acceptance lines). Design: D13.*
 
-- [ ] 9.1 Add `crates/brokkr-cli/tests/machine_proof/panel_carry.rs`, with `mod panel_carry;` after `mod output_edge;` in `machine_proof.rs` (3,450 of 3,451). It runs over a workdir the proof `git init`s and commits in, with synthetic fixtures only, and proves:
+- [ ] 9.1 Add `crates/brokkr-cli/tests/machine_proof/panel_carry.rs`, with `mod panel_carry;` after `mod output_edge;` in `machine_proof.rs` (3,449 of 3,451). It runs over a workdir the proof `git init`s and commits in, with synthetic fixtures only, and proves:
   - **The same aggregate.** A panel with one indeterminate member, retried by member, reaches the aggregate a full re-run reaches on the same verdicts.
   - **The moved head.** A carried verdict is refused at the command once the head moves.
   - **Naming.** Every carried verdict is named in the journal, and in `inspect` and `seats` with its ordinal.
@@ -384,7 +389,8 @@ Each point below fills in a detail the design leaves to the build, measured agai
     - the fold step skipped;
     - `input_holds` dropped from the command's facts (a moved house-rules file is admitted);
     - the source rebuilt under the carrying effect's id (every carry refuses);
-    - `disposed` folding for itself after the facts (the race's word becomes `run_not_awaiting_operator`).
+    - `disposed` folding for itself after the facts (the race's word becomes `run_not_awaiting_operator`);
+    - the store dropped from the member form's request (a run driven with `--secrets-file` then refuses `InputMoved` at the command).
   - **The drive:**
     - the drive-time check removed;
     - the drive's call of `carry_plan` over the body's `PanelShape` removed (the body with no panel and the following panel step then reach the names);
@@ -395,6 +401,8 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - **The readouts:**
     - the `carried` scan removed;
     - the clearing of `carried` at a later `effect/started` removed;
+    - the carried arm of `status_of` removed (a carried participant under an open effect reads `working`);
+    - `activity` yielding `activity_for`'s cell for a carried part;
     - the carried skip removed from `resolutions`.
   - **The CLI:**
     - the handler printing a line of its own in place of the view's;
@@ -406,7 +414,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 
 *Serves: R1, A3. Design: Migration, D12. Proposal Impact.*
 
-- [ ] 11.1 Name the member form, the tag it takes and the carry in `docs/guides/quickstart.md`'s operator-commands paragraph (not #802's parks list) and in `ARCHITECTURE.md`'s panel, operator-verb and ship-gate prose (not the state diagram). Regenerate `docs/reference/cli.md` by the command `cli_reference_tests` prints. Verify: `cargo test -p brokkr-cli cli_reference`.
+- [ ] 11.1 Name the member form, the tag it takes, the store a run driven with `--secrets-file` is retried with, and the carry in `docs/guides/quickstart.md`'s operator-commands paragraph (not #802's parks list) and in `ARCHITECTURE.md`'s panel, operator-verb and ship-gate prose (not the state diagram). Regenerate `docs/reference/cli.md` by the command `cli_reference_tests` prints. Verify: `cargo test -p brokkr-cli cli_reference`.
 - [ ] 11.2 Re-measure `quality/public-api/brokkr-view.txt` and `brokkr-runtime.txt` on the pinned nightly (`rust-nightly-version.txt`). `brokkr-runtime` gains `MemberRetryOutcome`, `CarryRefusal` and `launch::operator_retry_members`, and `brokkr-core.txt` must not move. If the box cannot run the nightly, record the measurement pending for the operator, whose ruling the pull request cites. Verify: `bash quality/ratchet.sh api`, or the pending record.
 
 ## 12. Gates and the archive

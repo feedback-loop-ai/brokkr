@@ -35,7 +35,7 @@ head and the tree they judged at both ends of the attempt, a rule that says
 when such a verdict may be carried, a reading of the tree that trusts git's
 exit, and a readout that names a carried verdict.
 
-Weighed and set aside, each recorded in the change's proposal (S1 to S28):
+Weighed and set aside, each recorded in the change's proposal (S1 to S29):
 
 - **The verb alone deciding the carry.** A head moved between the command
   and the drive would be carried: a fail-open on the review gate.
@@ -80,8 +80,11 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S28):
 
 1. **A retry names the members that run.** `brokkr operator retry` accepts
    `--member <name>`, repeatable, on `retry` alone, and with it `--repo`,
-   `--bundle`, `--recipe` and `--recipes-dir`, read and defaulted as
-   `resume` reads them. A member is named by its tag, the one
+   `--bundle`, `--recipe`, `--recipes-dir` and `--secrets-file`, read and
+   defaulted as `resume` reads them: every argument the engine `resume`
+   builds is built from, since the seat input embeds the request's
+   workspace and repository and, for a seat that declares secrets, its
+   store's path (decision 0012). A member is named by its tag, the one
    spelling the journal keys it with and every readout labels it by,
    `<member>` in a seat's panel and `<step>:<member>` in a panel step,
    matched exactly against the tags of the one panel of ruling 2 and read
@@ -105,8 +108,8 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S28):
    it, at the command and at the drive, as it refuses any member retry.
    Nothing is carried.
 
-   **Enforcement binding:** `crates/brokkr-cli/src/tests.rs` (the argument
-   facts before every refusal the handler makes today; the supersede-only
+   **Enforcement binding:** `crates/brokkr-cli/src/verbs/delivery/member_tests.rs`
+   (the argument facts before every refusal the handler makes today; the supersede-only
    flags' refusal on `retry` names what `retry` takes);
    `crates/brokkr-runtime/src/engine/operator/retry/tests.rs` (the
    journaled tags in declared order when the names are given out of it, the fold's refusal writing nothing, every member named
@@ -129,8 +132,9 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S28):
    from or through, equals the head now, read at the command and again at
    the drive; the working tree read `clean` at those same ends, at the
    command and at the drive; the bundle is the pinned one; and the seat
-   input rebuilt for the source attempt's effect digests to the
-   `input_digest` that effect recorded. A member that never settled cannot
+   input rebuilt for the source attempt's effect, by the engine built from
+   every argument `resume`'s is, the secrets store among them, digests to
+   the `input_digest` that effect recorded. A member that never settled cannot
    be carried, a name the panel does not have is refused, and a verdict is
    read from the parked attempt alone: settled there, or named by that
    attempt's own `carried` entry. The parked attempt is the latest of the

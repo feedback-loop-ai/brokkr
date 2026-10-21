@@ -6,7 +6,7 @@ The working tree of the operated repository SHALL be read by one reader, the one
 
 #### Scenario: Four readings
 
-- **WHEN** the reader runs in a clean repository, in a repository with an uncommitted edit, in a repository with a commit whose index file git cannot read, and on a directory that does not exist
+- **WHEN** the reader runs in a clean repository, in a repository with an uncommitted edit, in a repository with a commit whose index file is corrupted, so that git refuses it, and on a directory that does not exist
 - **THEN** it reads `clean`, `dirty`, `refused` and `unrun`, in that order
 
 #### Scenario: A directory that is no repository
@@ -30,7 +30,7 @@ The working tree of the operated repository SHALL be read by one reader, the one
 
 #### Scenario: A repository git refuses to read ships as today
 
-- **WHEN** a run is operated in a repository with a commit whose index file is unreadable, so that `git rev-parse HEAD` answers and `git status --porcelain` exits 128 printing nothing, and reaches ship
+- **WHEN** a run is operated in a repository with a commit whose index file is corrupted, overwritten with bytes that are no index, so that `git rev-parse HEAD` answers and `git status --porcelain` exits 128 printing nothing, and reaches ship
 - **THEN** the reader reads `refused` and `dirty_worktrees` is `false`, as before this change
 
 #### Scenario: A host with no git

@@ -41,7 +41,7 @@ A panel attempt whose terminal fact is `effect/indeterminate` or `effect/failed`
 
 #### Scenario: Git refuses status while the panel runs
 
-- **WHEN** the operated repository's index file is made unreadable while a panel attempt runs, so that `git rev-parse HEAD` answers and `git status --porcelain` exits 128 printing nothing, and the attempt ends indeterminate
+- **WHEN** the operated repository's index file is corrupted while a panel attempt runs, overwritten with bytes that are no index, so that `git rev-parse HEAD` answers and `git status --porcelain` exits 128 printing nothing, and the attempt ends indeterminate
 - **THEN** its terminal fact's `tree` reads `at_end` as `refused`
 
 #### Scenario: A carrying attempt that settles one member
