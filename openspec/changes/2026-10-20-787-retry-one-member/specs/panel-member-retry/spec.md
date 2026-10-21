@@ -115,7 +115,7 @@ The panel SHALL be read from the pinned bundle, which the verb SHALL hold as `br
 
 #### Scenario: A sequence's first step is the panel
 
-- **WHEN** the parked phase is a sequence of the panel step `positions` and the single step `chief`, parked with `positions:correctness` indeterminate and the three other positions settled, and the operator names `correctness`
+- **WHEN** the parked phase is a sequence of the panel step `positions` and the single step `chief`, parked with `positions:correctness` indeterminate and the three other positions settled, and the operator runs `brokkr operator retry --member positions:correctness`
 - **THEN** `correctness` alone runs under `positions`, the three others are carried under the tags `positions:adversarial`, `positions:security` and `positions:spec-compliance`, `chief` runs again on the step's aggregate, and the attempt journals one `panel-member-finished` marker, for `positions:correctness`, one `sequence-step-finished` marker, for `positions`, no checkpoint whose `member` is a carried member's tag, and `chief`'s result as its `effect/succeeded.result`
 
 #### Scenario: A panel step after another step
@@ -130,12 +130,12 @@ The panel SHALL be read from the pinned bundle, which the verb SHALL hold as `br
 
 #### Scenario: A sequence parked at the chief
 
-- **WHEN** the review sequence parked because `chief` ran to no verdict after `positions` aggregated, its `sequence-step-finished` marker naming `positions`, and the operator names a member of `positions`
+- **WHEN** the review sequence parked because `chief` ran to no verdict after `positions` aggregated, its `sequence-step-finished` marker naming `positions`, and the operator runs `brokkr operator retry --member positions:correctness`
 - **THEN** the command is refused naming `chief` as the step the attempt ended at, nothing is written, and the plain retry is admitted
 
 #### Scenario: Every member named on a run parked at a later step
 
-- **WHEN** the review sequence parked because `chief` ran to no verdict after `positions` aggregated, and the operator runs `brokkr operator retry --member adversarial --member correctness --member security --member spec-compliance`
+- **WHEN** the review sequence parked because `chief` ran to no verdict after `positions` aggregated, and the operator runs `brokkr operator retry --member positions:adversarial --member positions:correctness --member positions:security --member positions:spec-compliance`
 - **THEN** the command is admitted, `operator/commanded` carries `args.members` naming the four `positions:` tags in the panel's declared order, the step the attempt ended at is not asked, the next attempt runs every member and then `chief`, and its `effect/started` carries no `carried`
 
 #### Scenario: A name two panel steps share
@@ -305,7 +305,7 @@ Before any fact of items 3 to 9 is asked, after item 2 and before the engine is 
 
 #### Scenario: The sequence's checks ended the attempt at the panel step
 
-- **WHEN** every member of the review sequence's `positions` step settled, `correctness`'s result carried no `result` string, so the step's aggregate was `__member-schema-invalid__` and the sequence failed the attempt before the step's marker, the effect's bounded attempts ended the same way and the run parked, and the operator runs `brokkr operator retry --member correctness`
+- **WHEN** every member of the review sequence's `positions` step settled, `correctness`'s result carried no `result` string, so the step's aggregate was `__member-schema-invalid__` and the sequence failed the attempt before the step's marker, the effect's bounded attempts ended the same way and the run parked, and the operator runs `brokkr operator retry --member positions:correctness`
 - **THEN** every such attempt is passed over; with no earlier attempt of the visit its panel ended, the command is refused naming the phase's visit as holding no attempt its panel ended, nothing is written, and the plain retry is admitted
 
 #### Scenario: A seat's panel with the same member
@@ -325,7 +325,7 @@ Before any fact of items 3 to 9 is asked, after item 2 and before the engine is 
 
 #### Scenario: A carrying attempt that ended at the chief after the positions aggregated
 
-- **WHEN** the review sequence's first attempt parked with `positions:correctness` indeterminate, a member retry's attempt carried the three other positions from it and ran `correctness` to a verdict, the `positions` step aggregated and its `sequence-step-finished` marker stands, and `chief` then ended that attempt, by committing so that it ended with the `GATE-MOVED-HEAD` indeterminate, or in flight when the engine restarted, and the operator runs `brokkr operator retry --member correctness`
+- **WHEN** the review sequence's first attempt parked with `positions:correctness` indeterminate, a member retry's attempt carried the three other positions from it and ran `correctness` to a verdict, the `positions` step aggregated and its `sequence-step-finished` marker stands, and `chief` then ended that attempt, by committing so that it ended with the `GATE-MOVED-HEAD` indeterminate, or in flight when the engine restarted, and the operator runs `brokkr operator retry --member positions:correctness`
 - **THEN** the carrying attempt bears the panel step's marker, so it is read as the parked attempt and is not passed over; the command is refused naming `chief` as the step the attempt ended at, the first attempt is not read and no verdict is carried from it, nothing is written, and the plain retry is admitted
 
 #### Scenario: A carrying attempt refused admission
