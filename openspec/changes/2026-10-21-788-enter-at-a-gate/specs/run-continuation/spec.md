@@ -31,12 +31,12 @@
 
 ### Requirement: The journal records the entry and the chain
 
-`run/started` SHALL carry one optional object, `entry`, holding `phase`, the phase entered, and `continues`, the continued runs in the order named, each with its `run_id` and `feature`; `continues` is always present, an empty array when no run was named, so no reader tells an empty chain from an absent one by a missing key. It SHALL be absent on a run started without an entry, whose `run/started` then carries exactly what `Bundle::run_started` wrote before this change: `feature`, `manifest`, `charters` and, where the bundle composed layers, `layers`. Every journal written before SHALL fold, verify and view as it did. The engine change SHALL move no witness: no manifest digest, no table digest and no charter digest under `crates/brokkr-runtime/tests/witnesses.json`; the charter edit of `An entered run's review judges the whole branch` moves, as any charter edit does, the `charters` rows of the five edited files and the `bundles` rows of every bundle whose composed seats bind one of them or pin one of the two copies, and nothing else. `entry` SHALL be typed once, at the edge, and the fold SHALL read nothing of it: `RunState` gains nothing, and it is an additive, optional, absent-by-default field under the vocabulary's amended rule. The engine SHALL read it at start and at resume to enter the entry instead of `initial`, so a run journaled but not yet entered resumes into its entry. Its numbered extension schema SHALL be minted when decision 0094 is accepted (decision 0082 ruling 1); until then the decision and the type are its shape.
+`run/started` SHALL carry two optional fields. `entry`, an object holding `phase`, the phase entered, and `continues`, the continued runs in the order named, each with its `run_id` and `feature`; `continues` is always present, an empty array when no run was named, so no reader tells an empty chain from an absent one by a missing key; `entry` SHALL be absent on a run started without an entry. `phases`, the compiled table's `phases` list verbatim and in its order, the list the engine reads `context.results`, the return rule and the admission's walk by, SHALL be written on every start, the Looper-bound one included, so a reader that holds no bundle reads the order the engine rules by. A run started without an entry then carries `feature`, `manifest`, `charters`, `layers` where the bundle composed layers, and `phases`, and no `entry` key. Every journal written before SHALL fold, verify and view as it did. The engine change SHALL move no witness: no manifest digest, no table digest and no charter digest under `crates/brokkr-runtime/tests/witnesses.json`; the charter edit of `An entered run's review judges the whole branch` moves, as any charter edit does, the `charters` rows of the five edited files and the `bundles` rows of every bundle whose composed seats bind one of them or pin one of the two copies, and nothing else. Both SHALL be typed once, at the edge, and the fold SHALL read nothing of either: `RunState` gains nothing, and each is an additive, optional, absent-by-default field under the vocabulary's amended rule. The engine SHALL read `entry` at start and at resume to enter the entry instead of `initial`, so a run journaled but not yet entered resumes into its entry, and SHALL read `phases` from no journal, since it holds the table. Their numbered extension schema SHALL be minted when decision 0094 is accepted (decision 0082 ruling 1); until then the decision and the types are their shape.
 
-#### Scenario: An ordinary run's start is unchanged
+#### Scenario: An ordinary run's start carries the order and no entry
 
 - **WHEN** the acceptance fixture recipe, which binds no library charter, is started twice on the same tree, once without `--enter` and once with `--enter verify`
-- **THEN** the first run's `run/started` carries `feature`, `manifest` and `charters` and no `entry` key, the second's carries `entry`, and both pin the same manifest digest
+- **THEN** the first run's `run/started` carries `feature`, `manifest`, `charters` and `phases`, reading `intake, design, implement, verify, review, ship, done, stop`, the table's list verbatim, and no `entry` key; the second's carries the same `phases` and `entry`; and both pin the same manifest digest
 - **AND** the witness table moves only in the rows the charter edit names: the `charters` rows of `reviewer.md`, `review-correctness.md`, `review-security.md`, `review-adversarial.md` and `node-reviewer.md`, and the `bundles` rows of every bundle but `preflight`, `research`, `research-dsh` and `verify`; every `tables` row, every other `charters` row and those four `bundles` rows stand at their values before this change
 
 #### Scenario: An entry that names no run records an empty chain
@@ -51,8 +51,8 @@
 
 #### Scenario: An old journal folds as it did
 
-- **WHEN** a journal written before `entry` existed is folded, verified and viewed
-- **THEN** it folds, verifies and views exactly as before, with no entry shown
+- **WHEN** a journal written before `entry` and `phases` existed is folded, verified and viewed
+- **THEN** it folds, verifies and views exactly as before, with no entry shown and its rail in first-entry order
 
 ### Requirement: The seats of an entered run are told the entry and the chain
 
@@ -89,7 +89,7 @@ The five charters whose scope names the run's beginning, `agents/charters/review
 
 ### Requirement: The run view names the gate entered and the runs continued
 
-`RunView` SHALL derive once, from `run/started`, the entry: the gate and the continued runs, each led by its feature with its id after, as named at start. The console's run header, `brokkr ui`, the TUI and `brokkr run`'s plain start line SHALL paint that derivation and derive nothing of their own; for a run without an entry nothing SHALL be painted. The fleet list is unchanged.
+`RunView` SHALL derive once, from `run/started`, the entry: the gate and the continued runs, each led by its feature with its id after, as named at start, as parts and as one sentence, `entered at <phase>, continuing <feature> (<id>)` for each run in the order named, or `entered at <phase>, continuing no earlier run`. The console's run header, `brokkr ui` and the TUI SHALL paint that derivation and derive nothing of their own. `brokkr run` SHALL keep its start line `run started: <id>` exactly as it is, the id alone after the prefix, and SHALL print the sentence on the line after it, on the same stream, so the helpers and scripts that take everything after `run started: ` as the id read what they read; for a run without an entry nothing SHALL be painted and no line printed. The fleet list is unchanged.
 
 #### Scenario: The header names the chain
 
@@ -100,6 +100,13 @@ The five charters whose scope names the run's beginning, `agents/charters/review
 
 - **WHEN** the run view of a run entered at `review` with no `--continues` is read
 - **THEN** it names `review` as the gate entered and says the run continues no earlier run
+
+#### Scenario: The start line keeps its form
+
+- **WHEN** `brokkr run --enter verify --continues a` starts, run `a` having recorded the feature `the first slice`
+- **THEN** the line beginning `run started: ` carries the new run's id and nothing else, and the next line reads `entered at verify, continuing the first slice (a)`
+- **AND WHEN** the same recipe is started without `--enter`
+- **THEN** the start line is printed alone
 
 ### Requirement: The contribution gate reads the chain and still vouches
 
