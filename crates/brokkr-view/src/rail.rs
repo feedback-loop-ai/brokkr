@@ -6,6 +6,16 @@ fn recorded_order(payload: &Value) -> Option<Vec<String>> {
     serde_json::from_value(payload.get("phases")?.clone()).ok()
 }
 
+fn is_return(order: Option<&[String]>, visits: &[(String, u64)], from: &str, next: &str) -> bool {
+    match order {
+        Some(order) => Direction::of(order, from, next) == Some(Direction::Return),
+        None => {
+            let place = |name: &str| visits.iter().position(|(known, _)| known == name);
+            matches!((place(next), place(from)), (Some(to), Some(at)) if to < at)
+        }
+    }
+}
+
 pub(super) fn phase_rail(
     events: &[EventEnvelope],
     scan: &Scan,
@@ -18,9 +28,9 @@ pub(super) fn phase_rail(
     let mut visits: Vec<(String, u64)> = Vec::new();
     // The roads back, as `(landing, departure)` pairs deduped in the
     // order the journal recorded them. A transition is BACKWARD when the
-    // phase it names as `next` stands strictly before its `from` on the
-    // rail, whose order is first entry. A forward step into a phase
-    // already entered (the second pass after a reforge) and a phase
+    // phase it names as `next` stands strictly before its `from` in the
+    // recorded table order, or first entry for a legacy journal. A forward
+    // step into a phase already entered (the second pass after a reforge) and a phase
     // ruled onto itself (a retry, ship's ready then shipped) are not
     // roads back: `visits` counts those arrivals, and the seats show them.
     let mut returns: Vec<(String, Road)> = Vec::new();
@@ -44,11 +54,7 @@ pub(super) fn phase_rail(
                 else {
                     continue;
                 };
-                let place = |name: &str| visits.iter().position(|(known, _)| known == name);
-                let backward = match &order {
-                    Some(order) => Direction::of(order, from, next) == Some(Direction::Return),
-                    None => matches!((place(next), place(from)), (Some(to), Some(at)) if to < at),
-                };
+                let backward = is_return(order.as_deref(), &visits, from, next);
                 if !backward {
                     continue;
                 }

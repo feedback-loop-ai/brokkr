@@ -291,6 +291,15 @@ impl LaunchError {
     }
 }
 
+impl EntryRequest {
+    // Decision 0094: both entry checks precede opening the journal.
+    fn admit(&self, bundle: &Bundle) -> Result<(), LaunchError> {
+        crate::bundle::entry::admit(bundle, &self.phase)?;
+        brokkr_core::entry::check_record(&self.phase, self.continues.iter().map(String::as_str))?;
+        Ok(())
+    }
+}
+
 /// Start a new run. A dispatch's `note` about an ambient map it does not
 /// pin is said through `notice`, because the runtime writes to no stream
 /// of its own.
@@ -306,8 +315,7 @@ pub fn start(
     let state = state_of(&request.workspace)?;
     let bundle = admit_new(&request, run.map.world())?;
     if let Some(entry) = &run.entry {
-        crate::bundle::entry::admit(&bundle, &entry.phase)?;
-        brokkr_core::entry::check_record(&entry.phase, entry.continues.iter().map(String::as_str))?;
+        entry.admit(&bundle)?;
     }
     let envelope = match &run.dispatch {
         Some(path) => Some(read_dispatch(path, run.map.world(), &bundle, notice)?),

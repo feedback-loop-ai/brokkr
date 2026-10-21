@@ -508,16 +508,15 @@ impl Engine {
         // repository — and no world resolves `namespace`, which is what
         // every run meant before the word existed (design DD3).
         refuse_unbuilt(&bundle)?;
-        if let Some(entry) = &entry {
-            entry.check()?;
-        }
+        entry
+            .as_ref()
+            .map_or(Ok(()), brokkr_core::entry::RunEntry::check)?;
         // The operated repository is what `workdir()` will answer: the
         // named one, else the directory the engine stands in.
         let operated = operated_repo(repo);
-        let resolved = match &world {
-            Some(world) => world.boundary_for(&operated),
-            None => Boundary::Namespace,
-        };
+        let resolved = world
+            .as_ref()
+            .map_or(Boundary::Namespace, |world| world.boundary_for(&operated));
         if resolved != bundle.boundary {
             return Err(EngineError::BoundaryMismatch {
                 compiled: bundle.boundary,
@@ -912,11 +911,9 @@ impl Engine {
             Cursor::Start => {
                 let initial = crate::bundle::entry::first_phase(&self.bundle, self.entry.as_ref())?
                     .to_string();
-                self.enter_phase(&initial, &state)?;
+                return self.enter_phase(&initial, &state);
             }
-            Cursor::EnterPhase { phase } => {
-                self.enter_phase(&phase, &state)?;
-            }
+            Cursor::EnterPhase { phase } => self.enter_phase(&phase, &state)?,
             Cursor::RequestEffect => self.request_or_finish(&state)?,
             Cursor::ExecuteEffect {
                 effect_id,

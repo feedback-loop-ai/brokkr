@@ -240,7 +240,7 @@
    136 crates/brokkr-runtime/src/capabilities/gates.rs
    288 crates/brokkr-runtime/src/capabilities/manifest.rs
    772 crates/brokkr-runtime/src/dialect.rs
-  3515 crates/brokkr-runtime/src/engine.rs
+  3512 crates/brokkr-runtime/src/engine.rs
    481 crates/brokkr-runtime/src/engine/artifacts.rs
    222 crates/brokkr-runtime/src/engine/boxed.rs
    800 crates/brokkr-runtime/src/engine/broker.rs
@@ -271,7 +271,7 @@
    765 crates/brokkr-runtime/src/engine/resume.rs
    740 crates/brokkr-runtime/src/engine/sequence.rs
    278 crates/brokkr-runtime/src/keep_refs.rs
-   653 crates/brokkr-runtime/src/launch.rs
+   661 crates/brokkr-runtime/src/launch.rs
    501 crates/brokkr-runtime/src/launch/queued.rs
     57 crates/brokkr-runtime/src/lib.rs
     17 crates/brokkr-runtime/src/phase_name.rs
@@ -319,7 +319,7 @@
   2705 crates/brokkr-view/src/lib.rs
    133 crates/brokkr-view/src/meter.rs
    107 crates/brokkr-view/src/participant.rs
-   121 crates/brokkr-view/src/rail.rs
+   127 crates/brokkr-view/src/rail.rs
    265 crates/brokkr-view/src/scope.rs
     87 crates/brokkr-view/src/tokens.rs
   3345 crates/brokkr-view/src/transcript.rs
