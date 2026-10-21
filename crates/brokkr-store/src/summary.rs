@@ -63,7 +63,7 @@ const TRIGGERS: [&str; 4] = [
 /// parses never fails its insert. An envelope with two `recorded_at` keys
 /// is one serde refuses, so which of them this reads moves no row a
 /// reader is shown: such a run does not load.
-fn stamp_of(envelope: &str) -> String {
+pub(crate) fn stamp_of(envelope: &str) -> String {
     text_at(envelope, "$.recorded_at")
 }
 
@@ -93,7 +93,7 @@ fn moved_to(event: &str) -> String {
 /// `stamp` cut to at most [`STAMP_BYTES`]: past its bound, the cut steps
 /// back past at most three continuation bytes, so it ends at a character
 /// boundary.
-fn cut_stamp(stamp: &str) -> String {
+pub(crate) fn cut_stamp(stamp: &str) -> String {
     let blob = format!("CAST({stamp} AS BLOB)");
     let start = |at: usize| format!("hex(substr({blob}, {at}, 1)) NOT BETWEEN '80' AND 'BF'");
     let n = STAMP_BYTES;

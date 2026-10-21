@@ -1,17 +1,17 @@
 //! An event's row in the journal's event index (decision 0089 rulings 1
-//! and 3): its type, and the attempt and member it names, projected from
-//! the event alone.
+//! and 3): its type, the attempt and member it names, and its time,
+//! projected from the event alone.
 //!
 //! The store keeps the row by a trigger that reads the same fields from
 //! the envelope's text in SQL, so every writer keeps it, an older
 //! binary's included. Ruling 4's comparison holds each row equal to this
 //! projection of its event, so the trigger and every reader derive the
-//! row one way. The row holds no time: a reader reads an event's stamp
-//! from its envelope, by key.
+//! row one way.
 
 use serde_json::Value;
 
 use crate::envelope::{EventEnvelope, EventType};
+use crate::summary::{cut, STAMP_BYTES};
 
 /// One event's index row, keyed by its run and `seq`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +25,9 @@ pub struct Indexed<'a> {
     /// where it carries no checkpoint, its result's. A seat's own record
     /// names none.
     pub member: Option<&'a str>,
+    /// The envelope's `recorded_at`, cut as the run summary cuts a stamp,
+    /// to at most [`STAMP_BYTES`] at a character boundary.
+    pub recorded_at: &'a str,
 }
 
 impl<'a> Indexed<'a> {
@@ -38,6 +41,7 @@ impl<'a> Indexed<'a> {
             event_type: event.event_type,
             attempt_id: text(Some(payload), "attempt_id"),
             member: text(record, "member"),
+            recorded_at: cut(&event.recorded_at, STAMP_BYTES),
         }
     }
 }

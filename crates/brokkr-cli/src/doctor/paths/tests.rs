@@ -138,10 +138,11 @@ fn a_summary_the_journal_cannot_be_read_for_is_a_failure() {
 #[test]
 fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
     let dir = tempfile::tempdir().unwrap();
-    let db = journal(dir.path(), &["edited", "gone", "stray"]);
+    let db = journal(dir.path(), &["edited", "gone", "stray", "timed"]);
     edit(
         &db,
         "UPDATE event_index SET member = 'm' WHERE run_id = 'edited' AND seq = 1;
+         UPDATE event_index SET recorded_at = 'then' WHERE run_id = 'timed' AND seq = 1;
          DELETE FROM event_index WHERE run_id = 'gone';
          INSERT INTO event_index (run_id, seq) VALUES ('stray', 9), ('absent', 4);",
     );
@@ -156,6 +157,8 @@ fn an_event_index_that_is_not_its_events_is_a_failure_named_by_its_seq() {
             "MISSING  summary: run 'gone': its event 1 has no event index row",
             "MISSING  summary: run 'stray': the event index holds a row at 9, where the run \
              holds no event",
+            "MISSING  summary: run 'timed': the event index row of its event 1 is not the \
+             event's in its recorded_at",
             "MISSING  summary: run 'absent': the event index holds a row at 4, where the run \
              holds no event",
         ]

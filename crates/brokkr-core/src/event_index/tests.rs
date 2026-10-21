@@ -59,8 +59,29 @@ fn an_event_s_row_reads_the_payload_s_attempt_and_its_record_s_member() {
                 event_type,
                 attempt_id,
                 member,
+                recorded_at: "2026-01-01T00:00:00Z",
             },
             "{payload}"
         );
+    }
+}
+
+/// A row's time is its envelope's stamp, and a stamp past the bound is
+/// cut at the character boundary at or below it, as the summary cuts one.
+#[test]
+fn an_event_s_row_holds_its_stamp_cut_as_the_summary_cuts_it() {
+    let long = format!("{}é{}", "2".repeat(STAMP_BYTES - 1), "z".repeat(9));
+    let cases = [
+        (
+            "2026-10-21T08:00:00.123+02:00",
+            "2026-10-21T08:00:00.123+02:00",
+        ),
+        (long.as_str(), &long[..STAMP_BYTES - 1]),
+    ];
+    for (stamp, cut) in cases {
+        let event = EnvelopeBuilder::new(EventType::RunStarted, json!({}))
+            .at(stamp)
+            .build();
+        assert_eq!(Indexed::of(&event).recorded_at, cut, "{stamp}");
     }
 }

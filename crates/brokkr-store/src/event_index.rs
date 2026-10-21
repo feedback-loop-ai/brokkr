@@ -1,16 +1,17 @@
 //! The event index (decision 0089, slice 2): one row per event, keyed
-//! `(run_id, seq)`, holding its type and the attempt and member it names,
-//! so a run's trail and a seat's checkpoints are read by key, never by
-//! reading the run whole (ruling 7).
+//! `(run_id, seq)`, holding its type, the attempt and member it names and
+//! its time, so a run's trail and a seat's checkpoints are read by key,
+//! never by reading the run whole (ruling 7).
 //!
 //! What the row states, the event alone states, so SQLite keeps it
 //! (ruling 3): a trigger after each insert into `events` adds the row,
 //! reading the envelope's text through the one text-only guard
 //! ([`text_at`]), so every writer keeps it, an older binary's and an
-//! import's included. No body is held (ruling 10), and no time: a page
-//! reads its envelopes by key, stamps included. Every reader parses the
-//! journal's schema when it opens it, so the index adds as few objects
-//! and as short a trigger as it can to every reader's memory, the
+//! import's included. No body is held (ruling 10). The time is the
+//! envelope's `recorded_at`, which a trigger of its own cuts to the run
+//! summary's bound only past it, whichever insert wrote it. Every reader
+//! parses the journal's schema when it opens it, so the index adds as few
+//! objects and as short a trigger as it can to every reader's memory, the
 //! fleet's page included (ruling 9). A journal from before the index is
 //! backfilled at a writer's open, one run per transaction
 //! ([`Store::index_behind_with`]), and every row is held to brokkr-core's
@@ -28,7 +29,9 @@ use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Params};
 
 use crate::schema::all_present;
-use crate::summary::text_at;
+use brokkr_core::summary::STAMP_BYTES;
+
+use crate::summary::{cut_stamp, stamp_of, text_at};
 use crate::{patiently, Disagreement, Store, StoreError};
 
 /// The meta key that records the backfill finished (ruling 8): its own,
@@ -37,7 +40,7 @@ const BACKFILLED: &str = "event_index_backfill";
 
 const TABLE: [&str; 1] = ["event_index"];
 const INDEXES: [&str; 2] = ["event_index_stream", "event_index_trail"];
-const TRIGGERS: [&str; 1] = ["event_index_of_an_event"];
+const TRIGGERS: [&str; 2] = ["event_index_of_an_event", "event_index_stamp_bounded"];
 
 /// The checkpoints one page of a seat's stream holds (ruling 7).
 pub(crate) const CHECKPOINT_PAGE: usize = 50;
@@ -46,13 +49,13 @@ pub(crate) const CHECKPOINT_PAGE: usize = 50;
 const CHECKPOINTED: &str = EventType::EffectCheckpointed.as_str();
 
 /// A row's columns, in the order [`projected`] gives them.
-const COLUMNS: &str = "run_id, seq, type, attempt_id, member";
+const COLUMNS: &str = "run_id, seq, type, attempt_id, member, recorded_at";
 
 /// The row an `events` row named `event` projects to, in [`COLUMNS`]'
 /// order, read from its envelope's text as brokkr-core's [`Indexed::of`]
-/// reads the envelope: the type, the payload's attempt, and the
+/// reads the envelope: the type, the payload's attempt, the
 /// checkpoint's member or, where the payload carries no checkpoint, the
-/// result's.
+/// result's, and the stamp whole, which the bounding trigger cuts.
 fn projected(event: &str) -> String {
     let envelope = format!("{event}.envelope");
     let text = |path: &str| text_at(&envelope, path);
@@ -60,24 +63,28 @@ fn projected(event: &str) -> String {
         "{event}.run_id, {event}.seq, {kind}, {attempt},
          CASE WHEN json_valid({envelope})
                    AND json_type({envelope}, '$.payload.checkpoint') IS NOT NULL
-             THEN {checkpoint} ELSE {result} END",
+             THEN {checkpoint} ELSE {result} END, {stamp}",
         kind = text("$.type"),
         attempt = text("$.payload.attempt_id"),
         checkpoint = text("$.payload.checkpoint.member"),
         result = text("$.payload.result.member"),
+        stamp = stamp_of(&envelope),
     )
 }
 
-/// The table, its two indexes and its trigger, `IF NOT EXISTS` throughout
-/// so racing openers agree, and the backfill marked unfinished, so a
-/// journal that lost an object is walked again once it is restored. The
-/// stream index keys a seat's checkpoints, `(run_id, attempt_id, member,
-/// seq)`; the trail index holds every event but a checkpoint.
+/// The table, its two indexes and its two triggers, `IF NOT EXISTS`
+/// throughout so racing openers agree, and the backfill marked
+/// unfinished, so a journal that lost an object is walked again once it
+/// is restored. The stream index keys a seat's checkpoints, `(run_id,
+/// attempt_id, member, seq)`; the trail index holds every event but a
+/// checkpoint. A stamp past its bound is cut by a trigger of its own,
+/// which fires only then, after the event's trigger or the backfill
+/// inserted the row, so the event's trigger reads the stamp once.
 fn migration() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS event_index (
             run_id TEXT NOT NULL, seq INTEGER NOT NULL,
-            type TEXT, attempt_id TEXT, member TEXT,
+            type TEXT, attempt_id TEXT, member TEXT, recorded_at TEXT,
             PRIMARY KEY (run_id, seq)
         ) WITHOUT ROWID;
         CREATE INDEX IF NOT EXISTS event_index_stream
@@ -87,23 +94,48 @@ fn migration() -> String {
         CREATE TRIGGER IF NOT EXISTS event_index_of_an_event AFTER INSERT ON events BEGIN
             INSERT OR IGNORE INTO event_index ({COLUMNS}) SELECT {projected};
         END;
+        CREATE TRIGGER IF NOT EXISTS event_index_stamp_bounded AFTER INSERT ON event_index
+            WHEN length(CAST(NEW.recorded_at AS BLOB)) > {STAMP_BYTES} BEGIN
+            UPDATE event_index SET recorded_at = {cut}
+                WHERE run_id = NEW.run_id AND seq = NEW.seq;
+        END;
         DELETE FROM meta WHERE key = '{BACKFILLED}';",
         projected = projected("NEW"),
+        cut = cut_stamp("NEW.recorded_at"),
     )
 }
 
-/// Does this journal carry the table, both indexes and its trigger?
-/// Pure reads of `sqlite_master`, so the steady-state open writes nothing.
+/// Does the table hold its time? A table without it is the shape an
+/// unreleased build of this slice made, which [`migrate_index`] rebuilds.
+fn timed(conn: &Connection) -> Result<bool, StoreError> {
+    let found: i64 = conn.query_row(
+        "SELECT count(*) FROM pragma_table_info('event_index') WHERE name = 'recorded_at'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(found == 1)
+}
+
+/// Does this journal carry the table, with its time, both indexes and
+/// both triggers? Pure reads, so the steady-state open writes nothing.
 pub(crate) fn index_intact(conn: &Connection) -> Result<bool, StoreError> {
     Ok(all_present(conn, "table", &TABLE)?
+        && timed(conn)?
         && all_present(conn, "index", &INDEXES)?
         && all_present(conn, "trigger", &TRIGGERS)?)
 }
 
 /// Create the index, on a connection holding the write lock: the sixth
-/// additive repair. Its rows come from the backfill that follows the
-/// open, outside this lock.
+/// additive repair. A table without its time, and the trigger that wrote
+/// it, are dropped first, since every row is derived. Its rows come from
+/// the backfill that follows the open, outside this lock.
 pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
+    if !timed(conn)? {
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS event_index_of_an_event;
+             DROP TABLE IF EXISTS event_index;",
+        )?;
+    }
     Ok(conn.execute_batch(&migration())?)
 }
 
@@ -141,13 +173,13 @@ static UNINDEXED: LazyLock<String> = LazyLock::new(|| {
 });
 
 static INSERT_ROW: LazyLock<String> = LazyLock::new(|| {
-    format!("INSERT OR IGNORE INTO event_index ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5)")
+    format!("INSERT OR IGNORE INTO event_index ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
 });
 
 /// `run_id`'s rows yet to write, read without the write lock.
 fn unindexed(conn: &Connection, run_id: &str) -> Result<Vec<Vec<Value>>, StoreError> {
     let mut statement = conn.prepare_cached(&UNINDEXED)?;
-    let rows = statement.query_map([run_id], |row| (0..5).map(|at| row.get(at)).collect())?;
+    let rows = statement.query_map([run_id], |row| (0..6).map(|at| row.get(at)).collect())?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
@@ -194,7 +226,7 @@ static STREAM: LazyLock<String> = LazyLock::new(|| {
 const ENVELOPE: &str = "SELECT envelope FROM events WHERE run_id = ?1 AND seq = ?2";
 
 /// A run's index rows in seq order, by its key: what ruling 4 compares.
-const ROWS: &str = "SELECT seq, type, attempt_id, member FROM event_index
+const ROWS: &str = "SELECT seq, type, attempt_id, member, recorded_at FROM event_index
      WHERE run_id = ?1 ORDER BY seq";
 
 /// The seqs `sql` selects with `bound`.
@@ -282,6 +314,7 @@ fn parted(
         ("type", text(Some(indexed.event_type.as_str()))),
         ("attempt_id", text(indexed.attempt_id)),
         ("member", text(indexed.member)),
+        ("recorded_at", text(Some(indexed.recorded_at))),
     ];
     for (at, (column, value)) in expected.into_iter().enumerate() {
         if row.get::<_, Value>(at + 1)? != value {

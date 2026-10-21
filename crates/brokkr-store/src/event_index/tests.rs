@@ -42,7 +42,7 @@ fn run_of(store: &Store, run_id: &str, events: Vec<EnvelopeBuilder>) {
 fn rows(store: &Store, run_id: &str) -> Vec<Vec<Value>> {
     let mut statement = store.conn.prepare(ROWS).unwrap();
     let found = statement
-        .query_map([run_id], |row| (0..4).map(|at| row.get(at)).collect())
+        .query_map([run_id], |row| (0..5).map(|at| row.get(at)).collect())
         .unwrap();
     found.collect::<Result<_, _>>().unwrap()
 }
@@ -51,6 +51,9 @@ fn text(value: &str) -> Value {
     Value::Text(value.to_string())
 }
 
+/// The stamp every built envelope carries unless it is given another.
+const STAMP: &str = "2026-01-01T00:00:00Z";
+
 fn row(seq: i64, kind: &str, attempt: Option<&str>, member: Option<&str>) -> Vec<Value> {
     let named = |name: Option<&str>| name.map_or(Value::Null, text);
     vec![
@@ -58,6 +61,7 @@ fn row(seq: i64, kind: &str, attempt: Option<&str>, member: Option<&str>) -> Vec
         text(kind),
         named(attempt),
         named(member),
+        text(STAMP),
     ]
 }
 
@@ -127,9 +131,35 @@ fn an_envelope_no_reader_parses_is_indexed_empty_and_still_lands() {
             Value::Integer(1),
             Value::Null,
             Value::Null,
+            Value::Null,
             Value::Null
         ]]
     );
+}
+
+/// A row's time is its envelope's stamp, cut as the run summary cuts one:
+/// whole within the bound, and past it at the character boundary at or
+/// below it, whether the event's trigger or the backfill wrote the row.
+#[test]
+fn a_row_s_time_is_its_envelope_s_stamp_cut_as_the_summary_cuts_it() {
+    let (_dir, store) = store();
+    let long = format!("{}é{}", "2".repeat(STAMP_BYTES - 1), "z".repeat(9));
+    let stamped = |stamp: &str| event(EventType::RunStarted, json!({})).at(stamp);
+    run_of(&store, "r", vec![stamped(STAMP), stamped(&long)]);
+    let cut = &long[..STAMP_BYTES - 1];
+    let times = |store: &Store| -> Vec<Value> {
+        rows(store, "r")
+            .into_iter()
+            .map(|row| row[4].clone())
+            .collect()
+    };
+    assert_eq!(times(&store), [text(STAMP), text(cut)]);
+    let path = store.path().to_path_buf();
+    drop(store);
+    unindex(&rusqlite::Connection::open(&path).unwrap()).unwrap();
+    let store = Store::open(&path).unwrap();
+    assert_eq!(times(&store), [text(STAMP), text(cut)]);
+    assert_eq!(parted_at(&store, "r"), None);
 }
 
 /// Three runs of a few events each, planted with no event index, as a
@@ -180,6 +210,35 @@ fn a_journal_with_events_and_no_schema_is_indexed_at_its_open() {
     let store = Store::open(&path).unwrap();
     assert!(store.reads_index().unwrap());
     each_older_run_indexed(&store);
+}
+
+/// A journal holding the table an unreleased build of this slice made,
+/// without its time, is not read by its index, and a writable open
+/// rebuilds the table and indexes every event again, time included.
+#[test]
+fn a_journal_with_the_untimed_table_is_rebuilt_at_a_writable_open() {
+    let (_dir, path) = older_journal();
+    rusqlite::Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE event_index (
+                run_id TEXT NOT NULL, seq INTEGER NOT NULL,
+                type TEXT, attempt_id TEXT, member TEXT,
+                PRIMARY KEY (run_id, seq)
+            ) WITHOUT ROWID;
+            CREATE TRIGGER event_index_of_an_event AFTER INSERT ON events BEGIN
+                INSERT OR IGNORE INTO event_index (run_id, seq) VALUES (NEW.run_id, NEW.seq);
+            END;
+            INSERT INTO event_index (run_id, seq) SELECT run_id, seq FROM events;
+            INSERT INTO meta (key, value) VALUES ('event_index_backfill', 'finished');",
+        )
+        .unwrap();
+    let reader = Store::open_read_only(&path).unwrap();
+    assert!(!reader.reads_index().unwrap());
+    let store = Store::open(&path).unwrap();
+    assert!(store.reads_index().unwrap());
+    each_older_run_indexed(&store);
+    assert_eq!(rows(&store, "a")[0], row(1, "run/started", None, None));
 }
 
 /// A backfill a peer's lock cuts short writes the runs it reached, leaves
@@ -297,6 +356,11 @@ fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() 
             "UPDATE event_index SET member = 'm1' WHERE seq = 2",
             2,
             IndexFault::Column("member"),
+        ),
+        (
+            "UPDATE event_index SET recorded_at = '2026-01-01T00:00:01Z' WHERE seq = 2",
+            2,
+            IndexFault::Column("recorded_at"),
         ),
     ];
     for (edit, seq, fault) in cases {

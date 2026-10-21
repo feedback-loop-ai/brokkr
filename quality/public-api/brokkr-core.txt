@@ -200,6 +200,7 @@ pub struct brokkr_core::event_index::Indexed<'a>
 pub brokkr_core::event_index::Indexed::attempt_id: core::option::Option<&'a str>
 pub brokkr_core::event_index::Indexed::event_type: brokkr_core::envelope::EventType
 pub brokkr_core::event_index::Indexed::member: core::option::Option<&'a str>
+pub brokkr_core::event_index::Indexed::recorded_at: &'a str
 pub brokkr_core::event_index::Indexed::seq: u64
 impl<'a> brokkr_core::event_index::Indexed<'a>
 pub fn brokkr_core::event_index::Indexed<'a>::of(&'a brokkr_core::envelope::EventEnvelope) -> brokkr_core::event_index::Indexed<'a>
