@@ -3,7 +3,7 @@
 Status: proposed
 Date: 2026-10-21
 
-Built: unbuilt (#787)
+Built: built
 
 ## Context
 

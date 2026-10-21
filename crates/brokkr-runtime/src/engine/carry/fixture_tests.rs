@@ -1,7 +1,46 @@
 //! Synthetic journal and protocol fixtures shared by carry and operator proofs.
 use super::record::{PanelRecord, PanelSpan, Tag};
-use crate::engine::tests::{driver_command, engine, git_commit, member};
+use crate::bundle::{SeatClass, SequenceStep};
+use crate::engine::tests::{driver_command, engine, git_commit, member, step_body};
 use crate::engine::*;
+
+pub(crate) fn clean() -> AttemptOutcome {
+    AttemptOutcome::Succeeded {
+        result: json!({"result":"clean"}),
+    }
+}
+
+pub(crate) fn lost() -> AttemptOutcome {
+    AttemptOutcome::Indeterminate {
+        reason: "vanished".into(),
+    }
+}
+
+/// A review-panel step whose members report the outcomes given, in declared order.
+pub(crate) fn panel_step(name: &str, members: Vec<(&str, AttemptOutcome)>) -> SequenceStep {
+    SequenceStep {
+        name: name.into(),
+        class: SeatClass::Work,
+        results: vec!["clean".into(), "residual".into(), "security-hold".into()],
+        body: StepBody::Invocation(Invocation::Panel {
+            members: members
+                .into_iter()
+                .map(|(name, outcome)| member(name, command(outcome)))
+                .collect(),
+            aggregate: Aggregate::ReviewPanel,
+        }),
+    }
+}
+
+/// A single-driver step reporting `outcome`.
+pub(crate) fn single_step(name: &str, outcome: AttemptOutcome) -> SequenceStep {
+    SequenceStep {
+        name: name.into(),
+        class: SeatClass::Work,
+        results: vec![],
+        body: step_body(command(outcome)),
+    }
+}
 
 pub(crate) fn command(result: AttemptOutcome) -> Vec<String> {
     let mut argv = driver_command("EFFECT", "ATTEMPT", result);

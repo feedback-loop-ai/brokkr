@@ -130,12 +130,93 @@ refusals, old journals, plain-retry byte pinning and the remaining removal
 matrix. Decision 0093 remains proposed and unbuilt, and the archive stays
 pending. S19 remains the assumption governing the number.
 
+## Landing visit: complete, 2026-10-21
+
+*Every task above is checked. Verify's failure, the decisions index after
+the `main` merge, is repaired, the proof matrix the two earlier visits left
+open is closed, and the change is archived.*
+
+**T15, the index after the merge (the ledger's rules).** `main` brought
+decisions 0091 and 0092 into the tree, so the index's row for 0093 moved
+below 0092's, into number order, and the two gap rows under *Numbers
+without a decision* left. 0093's marker moved to `built` in its header and
+its row together (task 12.2); its status stays `proposed`.
+`cargo test -p brokkr-cli --test it decisions_index` passes 20 tests.
+
+**The proofs closed (0071 ruling 9).** The drive (`carry/drive_tests.rs`,
+nine tests) gains the head moved between acceptance and drive, the
+pre-change journal refused `NoAttemptEnded` at the drive and `args: {}`
+running every member, an unreadable record beside an all-named acceptance,
+`NoPanel` and `PanelStepFollows` parking with no member spawned, and the
+plain retry's `effect/started` equal, but for its ids, to a first attempt's
+that no plan ever narrowed, with its members' commit ending by the
+aggregate as today. The verb (`operator/retry/tests.rs`, six tests) gains
+the three fold words a retry can meet, `run_not_awaiting_operator`,
+`no_phase_to_retry` and `after_terminal` (the fold's other five words are
+never minted by `acceptance_refusal`), each writing nothing; a drifted
+bundle refused by `resume`'s `ManifestMismatch` through
+`launch::operator_retry_members` after the records and before any panel
+fact, and an unreadable record beside the same drift refused with the
+engine unbuilt; `NoPanel` and `PanelStepFollows` at the command; a
+four-position synthetic review sequence naming its `positions:` tags; and
+the step `p` with members `x` and `p:x`. The record reader refuses an
+unreadable `carried`. The readouts gain the ordinal across two effects and
+the stated park reason painted as every stated park's is. The CLI gains
+`--secrets-file` without `--member`, `stop --findings 1` keeping today's
+text, and `--repo` defaulting to the folder's root from a subdirectory. The
+proof (`machine_proof/panel_carry.rs`, five tests) gains the plain retry's
+`effect/started` byte for byte as the first attempt's but for its ids, and
+the verb printing `brokkr_view::member_retry_refusal`'s line, asserted
+against the function, on a concluded run. The fold-word painting is proven
+through the binary because the handler prints to standard error, which the
+unit module cannot capture; this is the one place that assertion lives.
+Two shared builders, `panel_step` and `single_step`, join
+`carry/fixture_tests.rs`, and `launch::tests` and its `bundle_at` become
+`pub(crate)` so the verb's test can hand the launch a drifted on-disk
+bundle (test-only visibility, as T13 permits).
+
+**The matrix (task 10.1).** Thirty-one further compiling mutations were
+made by hand, each failing the test named for it, and restored; they are
+listed with their commands and failing tests in
+`.forge/787l-mutations.md`. With the two earlier visits' thirty-three they
+cover every line of 10.1. Two were spelled nearer than the task's words:
+"the entry's source replaced by the carrying attempt" was already killed
+as `original-source` in the returned visit, so this visit removed the
+read-through to the original source instead, and "the fresh member's
+candidate compared between the attempts" became a second attempt of the
+carrying effect refused once an earlier attempt of it started, which the
+chain-fallback test kills. One mutation's first spelling did not compile
+(`E0282`) and is not counted; its corrected spelling is.
+
+**The archive (task 12.3).** The box this seat runs in refuses `node`, so
+`openspec archive` could not run; the move was made by hand in the tool's
+own shape: the change under `openspec/changes/archive/`, each delta's
+`## ADDED Requirements` folded into a new `openspec/specs/<capability>/spec.md`
+with a purpose paragraph, its requirements whole, and one provenance line.
+`cargo test -p brokkr-cli --test it openspec_retention` passes.
+
+**Gates (task 12.1).** `cargo fmt --all -- --check` and `cargo clippy
+--workspace --all-targets --all-features --locked -- -D warnings` pass. Every
+crate's suite passes per crate (`brokkr-core`, `brokkr-view`, `brokkr-store`,
+`brokkr-bridge`, `brokkr-seatbelt-probe`, `brokkr-protocol`, `brokkr-runtime`
+with 1,241 unit tests, and `brokkr-cli`'s unit, integration, heap,
+conformance and doc targets). Both bundles compile. The box refuses `bash`
+scripts and `node`, so `quality/ratchet.sh`, `scripts/coverage-exact.sh`
+and the console's `node --test` could not run here; what they measure was
+measured by hand where a plain cargo command could: the public API on the
+pinned nightly matches `quality/public-api/*.txt` byte for byte after the
+provenance line, every touched file stays within the higher of its ceiling
+and its baseline in `quality/file-lines.txt`, and the clone, exact-coverage
+and CRAP verdicts and the console's 182 node tests (last green in the
+returned visit) are recorded pending for the operator's host, never
+lowered. The result's notes carry each command and its output.
+
 ## 1. The working-tree reader
 
 *Serves: W1, W2. Design: D10, D1; T4. Decision 0093 ruling 6.*
 
 - [x] 1.1 [W1] Add `crates/brokkr-runtime/src/engine/worktree.rs`: `TreeReading { Clean, Dirty, Refused, Unrun }`, serialised as the four lowercase words, and `read_tree(repo)`, which runs `git status --porcelain` and reads `Dirty` on any output whatever the exit, `Clean` on exit zero and no output, `Refused` on a non-zero exit and no output, and `Unrun` when git cannot be spawned (a missing directory included). It reads nothing of stderr. `git_head` and `git_dirty` move here whole from `engine.rs` (T4), `git_head`'s doc comment and its `pub` with it. Verify: `cargo build -p brokkr-runtime`.
-- [ ] 1.2 [W2] `git_dirty` keeps its name and becomes `matches!(read_tree(repo), TreeReading::Dirty | TreeReading::Unrun)`. `engine.rs` takes these edits and no others: the two functions leave; `mod worktree;`, `mod carry;`, `pub use worktree::git_head;` and `use worktree::git_dirty;` are added; `Selection` gains its `carry` field (task 6.3); and the public re-exports of task 7.3 are added. The file shrinks. `ship_inputs` and `engine/decide.rs` are not edited. Verify: `wc -l crates/brokkr-runtime/src/engine.rs` ≤ 3,523; `git diff --stat fe8775b7 -- crates/brokkr-runtime/src/engine/decide.rs` is empty (T11); `git diff fe8775b7 -- crates/brokkr-runtime/src/engine/tests.rs` holds only the seven `execute_panel` hunks task 5.1 names, none between lines 2347 and 2380, and that file's `wc -l` ≤ 6,556; `cargo test -p brokkr-runtime realms` passes, since it reads `crate::git_head`.
+- [x] 1.2 [W2] `git_dirty` keeps its name and becomes `matches!(read_tree(repo), TreeReading::Dirty | TreeReading::Unrun)`. `engine.rs` takes these edits and no others: the two functions leave; `mod worktree;`, `mod carry;`, `pub use worktree::git_head;` and `use worktree::git_dirty;` are added; `Selection` gains its `carry` field (task 6.3); and the public re-exports of task 7.3 are added. The file shrinks. `ship_inputs` and `engine/decide.rs` are not edited. Verify: `wc -l crates/brokkr-runtime/src/engine.rs` ≤ 3,523; `git diff --stat fe8775b7 -- crates/brokkr-runtime/src/engine/decide.rs` is empty (T11); `git diff fe8775b7 -- crates/brokkr-runtime/src/engine/tests.rs` holds only the seven `execute_panel` hunks task 5.1 names, none between lines 2347 and 2380, and that file's `wc -l` ≤ 6,556; `cargo test -p brokkr-runtime realms` passes, since it reads `crate::git_head`.
 - [x] 1.3 [W1, W2] Add `engine/worktree/tests.rs` covering:
   - the four readings, over a clean repository, an edited one, a repository with a commit whose index file is corrupted (`.git/index` overwritten with bytes that are no index, so git refuses it at exit 128 printing nothing whatever user the box runs as; a 0o000 index reads fine as root), and a missing directory;
   - a directory that is no repository reads `Refused`;
@@ -191,7 +272,7 @@ pending. S19 remains the assumption governing the number.
 
 *Serves: R2, R3, R4, R5. Design: D4, D5, D7; T6. Proposal S5, S7, S9-S12, S15, S17, S18, S27, S32.*
 
-- [ ] 4.1 [R3, R4] Build the reader and the observer in `engine/carry/facts.rs` (T6).
+- [x] 4.1 [R3, R4] Build the reader and the observer in `engine/carry/facts.rs` (T6).
   - **The reader.** `read_visit(events, state, cutoff) -> Result<Vec<PanelAttempt>, CarryRefusal>` is a free function, callable before the engine exists. It returns the visit's attempts before the cut-off as typed `PanelAttempt` records in journal order. Each record holds its terminal kind, `settled_members`, `carried`, `tree` and `head`, its `park_reason` (the `reason` of the first `run/parked` after its terminal fact and before the cut-off, absent where none follows; the one source of `Shape::Succeeded`'s reason at the command and at the drive, never the folded state's), and, for a sequence, the steps whose markers stand. Each record is read once through group 3's types, and a field that does not read raises `CarryRefusal::RecordUnread`. The cut-off is every attempt at the command, and the attempts before this effect's `effect/requested` at the drive.
   - **The facts.** `CarryFacts` holds:
     - the selected body's `PanelShape`, the closed enum of design D4 (a panel's tags in declared order, the phase running no panel, or a panel step after the first step);
@@ -239,7 +320,7 @@ pending. S19 remains the assumption governing the number.
     7. the inputs: every source attempt whose `input_holds` is false, each effect named once, in first-named order.
 
   Verify: `cargo build -p brokkr-runtime`; `cargo clippy -p brokkr-runtime --all-targets -- -D warnings`.
-- [ ] 4.3 [R3, R4, R5] Add `engine/carry/tests.rs`. It runs over synthetic journals from a builder and a synthetic panel bundle, and covers the cases of design D13's first list:
+- [x] 4.3 [R3, R4, R5] Add `engine/carry/tests.rs`. It runs over synthetic journals from a builder and a synthetic panel bundle, and covers the cases of design D13's first list:
   - the incident's plan;
   - the aggregate byte for byte under both `Aggregate` kinds, with a carried `residual` and a carried `fail` kept;
   - every `CarryRefusal` variant by its fact and in R4's order, with the lists each names;
@@ -312,13 +393,13 @@ pending. S19 remains the assumption governing the number.
   3. decides by `carry_plan` over the journaled tags, which asks `NoPanel` and `PanelStepFollows` before it matches a tag.
 
   A refusal is `refuse_carry`, beside `refuse_changed_input`: an attempt on `driver: "none"` with no `carried`, ended `effect/indeterminate` with the refusal's `Display` as its `reason`, no marker and no JSON. `brokkr-core` is not edited; the fold's `close` arm reads the reason as a stated reason. Verify: 6.4's moved-head case.
-- [ ] 6.3 [R5, A2] A plan narrows the body once, at the seat's clone `execute` already takes: the panel's `members` are kept to the plan's `fresh()`, or the sequence's first step's panel is kept to them.
+- [x] 6.3 [R5, A2] A plan narrows the body once, at the seat's clone `execute` already takes: the panel's `members` are kept to the plan's `fresh()`, or the sequence's first step's panel is kept to them.
   - `selected` then yields the narrowed `ExecutableBody`, and `Dispatch` holds it as it holds every body. Admission, provisioning, `select_candidates`, the driver label, the session offers, `provenance`, `boundary` and the markers cover the fresh members alone.
   - `plan_attempt` takes the plan and writes its `carried()` entries on `started` in declared order, absent when nothing is carried, so a plain retry's `effect/started` is byte-identical to today's.
   - `plan_attempt` sets `selection.carry = Some(plan)` on the `Selection` it returns: the plan's one home during the drive. `Selection` gains `carry: Option<CarryPlan>` in `engine.rs`, `None` by `Default`. A first attempt, a plain retry, an acceptance with `{}` and an effect with no acceptance before it hold `None`.
 
   No field is added to `Engine` or `Dispatch`; the start readings are the panel's own (tasks 5.1, 5.3). Verify: 6.4.
-- [ ] 6.4 [R2, R3, R5, A1, A2, A4] Add `engine/carry/drive_tests.rs`, using the fake driver, and the scripted driver of T10 for the fresh member that commits or edits, covering:
+- [x] 6.4 [R2, R3, R5, A1, A2, A4] Add `engine/carry/drive_tests.rs`, using the fake driver, and the scripted driver of T10 for the fresh member that commits or edits, covering:
   - **Who runs.** Only the named member spawns (counted). `provenance`, `boundary`, the driver label, one offer, one admission claim and one marker cover it alone.
   - **What the attempt records.** `carried` names the source by `attempt_id`. The aggregate equals a fresh panel's over the same verdicts byte for byte, with a carried `residual` kept. The start and end readings stand on the terminal fact.
   - **The moved head.** A head moved between acceptance and drive parks on `driver: "none"` with the sentence as `effect/indeterminate.reason`. The folded park reason is `effect <id> indeterminate: <sentence>`, with `run/parked.evidence` `{}`.
@@ -366,7 +447,7 @@ pending. S19 remains the assumption governing the number.
   5. the engine's `retry_members`.
 
   `MemberRetryOutcome` and `CarryRefusal` are re-exported from `engine.rs` and `lib.rs`. They are the public items this change adds, beside `operator_retry_members`. The verb decides no fact of its own and resolves and orders no name. The runtime prints nothing and names no `brokkr-view` text. Verify: 7.4; `cargo clippy -p brokkr-runtime --all-targets -- -D warnings` (no `private_interfaces` warning).
-- [ ] 7.4 [R1, R2, R3, R4] Add `engine/operator/retry/tests.rs`, using the fake driver and matching `MemberRetryOutcome` by variant, covering the cases of design D13's verb list:
+- [x] 7.4 [R1, R2, R3, R4] Add `engine/operator/retry/tests.rs`, using the fake driver and matching `MemberRetryOutcome` by variant, covering the cases of design D13's verb list:
   - `args.members` journaled in declared order over names given out of it;
   - each fold word returning `FoldRefused` and writing nothing;
   - a record that does not read beside a drifted bundle returning `CarryRefused(RecordUnread)` with the engine unbuilt, and every member named beside such a record giving the same;
@@ -400,7 +481,7 @@ pending. S19 remains the assumption governing the number.
     - an `Err` as `resume`'s errors are printed.
 
   Verify: `cargo build -p brokkr-cli`; `wc -l crates/brokkr-cli/src/cli_args.rs` ≤ 800.
-- [ ] 7.6 [R1] Add `crates/brokkr-cli/src/verbs/delivery/member_tests.rs`, the handler's new test module, with `#[cfg(test)] mod member_tests;` in `delivery.rs`.
+- [x] 7.6 [R1] Add `crates/brokkr-cli/src/verbs/delivery/member_tests.rs`, the handler's new test module, with `#[cfg(test)] mod member_tests;` in `delivery.rs`.
   - **S20's pin moves here (T5).** The retry refusal pin at `src/tests.rs:4338-4353` leaves that file, and this module pins S20 on `retry` with and without `--member`, and today's text on `stop`.
   - **The argument-order tests:**
     - `stop --member x --findings 1`;
@@ -426,7 +507,7 @@ pending. S19 remains the assumption governing the number.
   - `activity(events, scan, part, member_count, carried_from) -> Activity`: a carried participant's cell is the one sentence `carried from <phase> attempt <ordinal>`, with the attempt id as its note; every other participant's is `activity_for`'s, unchanged.
 
   `Participant` gains `carried_from`, and `participants` fills `carried_from` and `activity` by one call each. A carried participant has no model, session, cost or turns under the carrying effect, and its `working` is false. `VIEW_VERSION` moves from 23 to 24, and its pin moves with it. `crates/brokkr-cli/src/render.rs` tones `carried` as good (`tone`, cyclomatic 5). Verify: `cargo test -p brokkr-view`; the crap ratchet shows `scan_participants` and `participants` at or below 39 and 21.
-- [ ] 8.3 [A3, A4] In `started.rs`'s test module, cover:
+- [x] 8.3 [A3, A4] In `started.rs`'s test module, cover:
   - the scan over `carried`;
   - status, class and `carried_from`;
   - a carried participant under an effect still open is `carried`, not `working`;
@@ -438,7 +519,7 @@ pending. S19 remains the assumption governing the number.
   - a drive-time refused carry's stated reason painted as every stated park is, with a `GATE-MOVED-HEAD` park unchanged.
 
   Verify: `cargo test -p brokkr-view started`.
-- [ ] 8.4 [A3] The surfaces that paint participants, `inspect` and `seats` (through `seats_block` in `render.rs`, ≤ 800 lines), `watch`, the TUI (`crates/brokkr-cli/src/tui/seats.rs`), `ui.html` and the console (`extensions/dsh/brokkr-console/lib/client.js`), paint the status word and the activity cell as they do today, so each shows `carried` and the sentence, leading with the ordinal, and composes no line of its own; `carried_from` rides the JSON they read. The painters that key a tone on the status word gain `carried` as good: `render.rs`'s `tone`, and the console's palette where it keys on the word; a painter keyed on `status_class` (`ui.html`'s badge, the TUI's class tones) needs nothing. `inspect` (cyclomatic 17, over the ceiling) is not edited. `brokkr runs` and the fleet readouts, whose run rows hold no participant, are not edited and show nothing of a carried verdict. Each Rust painter's new lines are covered by a test in a module beside it (the exact-coverage gate), and the console's by a case in its `tests/readouts.test.js`. Verify: `cargo test -p brokkr-cli`; `node --test` in `extensions/dsh/brokkr-console`, recorded pending in the notes where the box refuses node.
+- [x] 8.4 [A3] The surfaces that paint participants, `inspect` and `seats` (through `seats_block` in `render.rs`, ≤ 800 lines), `watch`, the TUI (`crates/brokkr-cli/src/tui/seats.rs`), `ui.html` and the console (`extensions/dsh/brokkr-console/lib/client.js`), paint the status word and the activity cell as they do today, so each shows `carried` and the sentence, leading with the ordinal, and composes no line of its own; `carried_from` rides the JSON they read. The painters that key a tone on the status word gain `carried` as good: `render.rs`'s `tone`, and the console's palette where it keys on the word; a painter keyed on `status_class` (`ui.html`'s badge, the TUI's class tones) needs nothing. `inspect` (cyclomatic 17, over the ceiling) is not edited. `brokkr runs` and the fleet readouts, whose run rows hold no participant, are not edited and show nothing of a carried verdict. Each Rust painter's new lines are covered by a test in a module beside it (the exact-coverage gate), and the console's by a case in its `tests/readouts.test.js`. Verify: `cargo test -p brokkr-cli`; `node --test` in `extensions/dsh/brokkr-console`, recorded pending in the notes where the box refuses node.
 - [x] 8.5 [A3] The readers that paint no status:
   - `brokkr_view::compare::resolutions` (`compare.rs:360`) skips a participant whose `carried_from` is present, pinned in `crates/brokkr-view/src/compare/tests.rs`: a carried label keeps its source participant's resolution.
   - `select_transcript_participant` (`crates/brokkr-cli/src/lib.rs:1029`) is not edited and takes no task: the transcript verb lists a carried participant's key as it lists every participant's, and refuses `no-reference` when that key is chosen.
@@ -451,7 +532,7 @@ pending. S19 remains the assumption governing the number.
 
 *Serves: R1, R3, R5, A2, A3 (the issue's three acceptance lines). Design: D13.*
 
-- [ ] 9.1 Add `crates/brokkr-cli/tests/machine_proof/panel_carry.rs`, with `mod panel_carry;` after `mod output_edge;` in `machine_proof.rs` (3,449 of 3,451). It runs over a workdir the proof `git init`s and commits in, with synthetic fixtures only, and proves:
+- [x] 9.1 Add `crates/brokkr-cli/tests/machine_proof/panel_carry.rs`, with `mod panel_carry;` after `mod output_edge;` in `machine_proof.rs` (3,449 of 3,451). It runs over a workdir the proof `git init`s and commits in, with synthetic fixtures only, and proves:
   - **The same aggregate.** A panel with one indeterminate member, retried by member, reaches the aggregate a full re-run reaches on the same verdicts.
   - **The moved head.** A carried verdict is refused at the command once the head moves.
   - **Naming.** Every carried verdict is named in the journal, and in `inspect` and `seats` with its ordinal.
@@ -469,7 +550,7 @@ pending. S19 remains the assumption governing the number.
 
 *Serves: every requirement above (decision 0071 ruling 9). Design: D13.*
 
-- [ ] 10.1 For each new test, make the compiling mutation D13 names (or the nearest one that removes the behaviour), watch the test fail, restore, and record the mutation and the failing test in the result's notes. The mutations:
+- [x] 10.1 For each new test, make the compiling mutation D13 names (or the nearest one that removes the behaviour), watch the test fail, restore, and record the mutation and the failing test in the result's notes. The mutations:
   - **The reader and the records:**
     - `Refused` folded into `Dirty`;
     - the parse falling back to "no record";
@@ -533,7 +614,7 @@ pending. S19 remains the assumption governing the number.
 
 *Serves: every requirement above. House rules; decision 0081.*
 
-- [ ] 12.1 Run the gates:
+- [x] 12.1 Run the gates:
   - `cargo fmt --all -- --check`;
   - `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`;
   - `cargo test --all-features --locked`, per crate (re-run a `brokkr-protocol` or `brokkr-runtime` timing test alone before calling it a failure);
@@ -543,5 +624,5 @@ pending. S19 remains the assumption governing the number.
   - the console's `node --test`.
 
   Record each in the notes as pending where the box refuses it; never lower a gate. Verify: each exits clean, or its output is in the notes.
-- [ ] 12.2 Move decision 0093 to built in both places the gate reads together: the file's header marker `Built: unbuilt (#787)` becomes `Built: built`, and the index row's cell `unbuilt (#787)` becomes `built`, since the gate renders the cell from the marker and refuses a disagreement. Keep `Status: proposed` in the header and the row, and keep the 0091 and 0092 gap rows until each lands. Verify: `cargo test -p brokkr-cli --test it decisions_index`.
-- [ ] 12.3 [All requirements] Last, after every required implementation and proof task is complete, run `openspec archive 2026-10-20-787-retry-one-member --yes`. Let that operation move the change and fold its three capability deltas. Open each resulting `openspec/specs/panel-member-retry/spec.md`, `panel-attempt-record/spec.md` and `working-tree-reading/spec.md`; append exactly one line under a `## Provenance` heading at the end: `- `<archived-directory-name>` — folded <YYYY-MM-DD>`, using the directory actually created and the fold date. Preserve every existing provenance line. Verify: `cargo test -p brokkr-cli --test it openspec_retention`, and commit with a clean tree. This replaces the earlier manual move with the commission's required archive operation.
+- [x] 12.2 Move decision 0093 to built in both places the gate reads together: the file's header marker `Built: unbuilt (#787)` becomes `Built: built`, and the index row's cell `unbuilt (#787)` becomes `built`, since the gate renders the cell from the marker and refuses a disagreement. Keep `Status: proposed` in the header and the row, and keep the 0091 and 0092 gap rows until each lands. Verify: `cargo test -p brokkr-cli --test it decisions_index`.
+- [x] 12.3 [All requirements] Last, after every required implementation and proof task is complete, run `openspec archive 2026-10-20-787-retry-one-member --yes`. Let that operation move the change and fold its three capability deltas. Open each resulting `openspec/specs/panel-member-retry/spec.md`, `panel-attempt-record/spec.md` and `working-tree-reading/spec.md`; append exactly one line under a `## Provenance` heading at the end: `- `<archived-directory-name>` — folded <YYYY-MM-DD>`, using the directory actually created and the fold date. Preserve every existing provenance line. Verify: `cargo test -p brokkr-cli --test it openspec_retention`, and commit with a clean tree. This replaces the earlier manual move with the commission's required archive operation.

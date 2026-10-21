@@ -137,4 +137,32 @@ fn a_later_start_replaces_the_carried_source_and_counts_every_phase_attempt() {
         ),
         ("carried", "completed", false)
     );
+    // A source in the carrying effect itself: the ordinal counts every start of the phase.
+    events.push(ev(
+        10,
+        EventType::EffectStarted,
+        json!({"effect_id":"carrying","attempt_id":"five","driver":"panel","carried":[{"member":"a","attempt_id":"three"}]}),
+        at,
+    ));
+    let parts = participants(&events, &scan_participants(&events));
+    let part = parts.iter().find(|p| p.key == "carrying:a").unwrap();
+    assert_eq!(
+        part.carried_from,
+        Some(CarriedFrom {
+            attempt_id: "three".into(),
+            ordinal: 3
+        })
+    );
+    assert_eq!(part.activity.text, "carried from review attempt 3");
+}
+
+#[test]
+fn a_refused_carry_parks_with_its_stated_reason_as_a_gate_move_does() {
+    for reason in [
+        "effect e1 indeterminate: carrying attempt 'two' changed its reviewed subject: ...",
+        "effect e1 indeterminate: GATE-MOVED-HEAD: the gate's head moved",
+    ] {
+        let state = crate::tests::parked_state("review", reason);
+        assert_eq!(summary(&state).park_reason.as_deref(), Some(reason));
+    }
 }

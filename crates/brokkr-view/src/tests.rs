@@ -41,6 +41,13 @@ pub(crate) fn state(phase: Option<&str>, status: Status, last_decision: Option<V
     state
 }
 
+/// A run parked in `phase` with the stated `reason` the fold carries.
+pub(crate) fn parked_state(phase: &str, reason: &str) -> RunState {
+    let mut state = run_state("r1", 7, standing(Status::AwaitingOperator, reason));
+    state.phase = Some(phase.to_string());
+    state
+}
+
 /// A listed run with no refusal, no residual and a journal that states
 /// no last event: the fleet fixtures' one builder.
 pub(crate) fn listed<'a>(

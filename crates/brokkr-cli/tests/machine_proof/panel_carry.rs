@@ -116,6 +116,54 @@ fn recover(ws: &Workspace, run: &str) {
     assert_eq!(summary["status"], "completed");
 }
 
+/// An `effect/started` payload with its ids fixed, so two attempts compare by everything else.
+fn without_ids(mut started: Value) -> Value {
+    started["effect_id"] = json!("effect");
+    started["attempt_id"] = json!("attempt");
+    started
+}
+
+#[test]
+fn a_plain_retry_starts_as_today_and_the_verb_prints_the_views_refusal_on_a_concluded_run() {
+    let ws = panel(true);
+    let run = parked(&ws);
+    let db = ws.db();
+    let (code, _, stderr) = ws.brokkr(&[
+        "operator",
+        "retry",
+        "--reason",
+        "whole panel",
+        "--run",
+        &run,
+        "--db",
+        db.to_str().unwrap(),
+    ]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let (code, summary, stderr) = resume(&ws, &run);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(summary["status"], "completed");
+    let starts: Vec<_> = journal(&ws, &run)
+        .into_iter()
+        .filter(|event| {
+            event.event_type == EventType::EffectStarted
+                && event.payload["driver"] == "panel[2]:ReviewPanel"
+        })
+        .map(|event| without_ids(event.payload))
+        .collect();
+    assert_eq!(starts.len(), 2);
+    assert_eq!(starts[0], starts[1]);
+    assert_eq!(starts[1].get("carried"), None);
+    let (code, _, stderr) = retry(&ws, &run);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(
+        stderr,
+        format!(
+            "{}\n",
+            brokkr_view::member_retry_refusal(brokkr_core::fold::Refusal::AfterTerminal.word())
+        )
+    );
+}
+
 #[test]
 fn one_member_runs_and_the_aggregate_and_readouts_keep_the_settled_verdict() {
     let ws = panel(true);

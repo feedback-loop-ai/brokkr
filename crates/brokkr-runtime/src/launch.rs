@@ -533,4 +533,4 @@ fn compile_in_realm(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

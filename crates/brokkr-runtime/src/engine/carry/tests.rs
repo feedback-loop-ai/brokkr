@@ -165,14 +165,15 @@ fn the_record_reader_and_retry_scope_fail_closed() {
     );
     let (_dir, runtime) = engine(crate::engine::tests::single_body(vec!["unused".into()]));
     let initial = state(Some("work"), Cursor::RequestEffect);
-    for (field, value) in [
-        ("tree", json!({"at_start":"fifth", "at_end":"clean"})),
-        ("head", json!({"at_start":"invalid"})),
-        ("head", json!({"at_start":null})),
-        ("settled_members", json!([])),
+    for (index, field, value) in [
+        (3, "tree", json!({"at_start":"fifth", "at_end":"clean"})),
+        (3, "head", json!({"at_start":"invalid"})),
+        (3, "head", json!({"at_start":null})),
+        (3, "settled_members", json!([])),
+        (2, "carried", json!([{"member":"a"}])),
     ] {
         let mut events = subject(&runtime, &initial, json!("opaque result"));
-        events[3].payload[field] = value;
+        events[index].payload[field] = value;
         assert!(
             matches!(facts::read_visit(&events, &initial, u64::MAX), Err(CarryRefusal(Refusal::RecordUnread { field: bad, .. })) if bad == field)
         );
