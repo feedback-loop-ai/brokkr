@@ -609,9 +609,9 @@ fn a_report_may_cite_the_annotation_and_leaves_the_finding_out_of_the_queue() {
         !report
             .work_queue
             .iter()
-            .any(|entry| entry["seq"] == json!(6)),
+            .any(|entry| json!(entry)["seq"] == json!(6)),
         "the superseded finding itself is not queued: {:?}",
-        report.work_queue,
+        json!(report.work_queue),
     );
 
     // Muninn may not propose the command either: a run that has
@@ -818,8 +818,8 @@ fn a_proposal_is_recorded_under_the_realm_the_dossier_states_for_it() {
     )
     .unwrap();
     // Named or unnamed in the report, the record cites the realm.
-    assert_eq!(report.parked_runs[0]["realm"], json!("alpha"));
-    assert_eq!(report.work_queue[0]["realm"], json!("alpha"));
+    assert_eq!(json!(report.parked_runs)[0]["realm"], json!("alpha"));
+    assert_eq!(json!(report.work_queue)[0]["realm"], json!("alpha"));
     assert_eq!(
         report.citations,
         vec![
@@ -1113,13 +1113,9 @@ fn an_unreadable_publication_is_unchecked_in_the_dossier_and_never_matching() {
     assert!(derived.crossings.is_empty());
 }
 
-/// A report may propose about a crossing, and it must cite one the
-/// dossier actually states as a finding, in the realm the dossier
-/// charged: an invented crossing or a mismatched realm is refused, never
-/// quietly corrected (decision 0001).
-#[test]
-fn a_crossing_citation_is_checked_against_the_consuming_realm() {
-    let crossings = vec![realm_crossings(
+/// A dossier in which beta's pin on alpha's `orders.api` has moved.
+fn moved_contract_dossier() -> Dossier {
+    crossing_dossier(&[realm_crossings(
         "beta",
         Vec::new(),
         vec![consumed(
@@ -1127,8 +1123,16 @@ fn a_crossing_citation_is_checked_against_the_consuming_realm() {
             "alpha",
             Pin::Moved("the refusal's own words".to_string()),
         )],
-    )];
-    let derived = crossing_dossier(&crossings);
+    )])
+}
+
+/// A report may propose about a crossing, and it must cite one the
+/// dossier actually states as a finding, in the realm the dossier
+/// charged: an invented crossing or a mismatched realm is refused, never
+/// quietly corrected (decision 0001).
+#[test]
+fn a_crossing_citation_is_checked_against_the_consuming_realm() {
+    let derived = moved_contract_dossier();
 
     let report = validate(
         &derived,
@@ -1188,6 +1192,23 @@ fn a_crossing_citation_is_checked_against_the_consuming_realm() {
     );
 }
 
+/// A report that queues beta's moved `orders.api` contract, validated
+/// against `derived`.
+fn moved_contract_report(derived: &Dossier) -> Report {
+    validate(
+        derived,
+        &reported(json!({
+            "fleet_summary": "one contract moved",
+            "parked_runs": [],
+            "work_queue": [{
+                "realm": "beta", "crossing": "orders.api",
+                "finding": "the contract moved", "reasoning": "beta would refuse",
+            }],
+        })),
+    )
+    .unwrap()
+}
+
 /// The crossing citation reaches the record and the printed line: the
 /// record says which contract a proposal stood on, and the operator
 /// reads `realm/crossing` rather than a run citation the dossier never
@@ -1196,30 +1217,9 @@ fn a_crossing_citation_is_checked_against_the_consuming_realm() {
 fn a_crossing_citation_is_recorded_and_rendered() {
     let staged = Staged::new(json!({"max_attempts": 1, "timeout_seconds": 900}));
     let seat = staged.seat().unwrap();
-    let crossings = vec![realm_crossings(
-        "beta",
-        Vec::new(),
-        vec![consumed(
-            "orders.api",
-            "alpha",
-            Pin::Moved("the refusal's own words".to_string()),
-        )],
-    )];
-    let derived = crossing_dossier(&crossings);
-    let report = validate(
-        &derived,
-        &reported(json!({
-            "fleet_summary": "one contract moved",
-            "parked_runs": [],
-            "work_queue": [{
-                "realm": "beta", "crossing": "orders.api",
-                "finding": "the contract moved",
-                "reasoning": "beta would refuse",
-            }],
-        })),
-    )
-    .unwrap();
-    let line = entry(NOW, &seat, &derived, &report, Value::Null);
+    let derived = moved_contract_dossier();
+    let report = moved_contract_report(&derived);
+    let line = json!(entry(NOW, &seat, &derived, &report, None));
     assert_eq!(line["citations"], json!([]));
     assert_eq!(
         line["crossing_citations"],
@@ -1283,19 +1283,8 @@ fn the_record_keeps_the_crossing_evidence_after_the_source_moves() {
         "no host root reaches the dossier: {detail}"
     );
 
-    let report = validate(
-        &derived,
-        &reported(json!({
-            "fleet_summary": "one contract moved",
-            "parked_runs": [],
-            "work_queue": [{
-                "realm": "beta", "crossing": "orders.api",
-                "finding": "the contract moved", "reasoning": "beta would refuse",
-            }],
-        })),
-    )
-    .unwrap();
-    let line = entry(NOW, &seat, &derived, &report, Value::Null);
+    let report = moved_contract_report(&derived);
+    let line = entry(NOW, &seat, &derived, &report, None);
     let record = dir.path().join("muninn.ndjson");
     record::append(&record, &line).unwrap();
 
@@ -1509,7 +1498,7 @@ fn a_well_formed_report_validates_with_its_citations_collected() {
         "two runs; one is parked on residual severity"
     );
     assert_eq!(report.parked_runs.len(), 1);
-    assert_eq!(report.parked_runs[0]["command"], "stop");
+    assert_eq!(json!(report.parked_runs)[0]["command"], "stop");
     assert_eq!(report.work_queue.len(), 1);
     assert_eq!(
         report.citations,
@@ -1587,15 +1576,15 @@ fn a_proposal_that_cannot_be_followed_back_to_a_journal_fact_is_refused() {
 
 #[test]
 fn usage_is_read_from_the_session_checkpoint_or_claimed_at_all() {
-    assert_eq!(usage(&[]), Value::Null);
-    assert_eq!(usage(&[json!({"step": "working"})]), Value::Null);
-    assert_eq!(usage(&[json!({"turn": 1})]), Value::Null);
+    assert_eq!(json!(usage(&[])), Value::Null);
+    assert_eq!(json!(usage(&[json!({"step": "working"})])), Value::Null);
+    assert_eq!(json!(usage(&[json!({"turn": 1})])), Value::Null);
     assert_eq!(
-        usage(&[
+        json!(usage(&[
             json!({"step": "seat-turn", "turn": 1}),
             json!({"step": "claude-code-session-finished", "total_cost_usd": 0.5,
                    "num_turns": 4, "session_id": "sess-1"}),
-        ]),
+        ])),
         json!({"cost_usd": 0.5, "turns": 4, "session_id": "sess-1"})
     );
 }
@@ -1622,14 +1611,14 @@ fn a_recorded_entry_renders_every_proposal_with_its_citation() {
     let resolved = staged.seat().unwrap();
     let derived = parked_dossier();
     let report = validate(&derived, &parked_report()).unwrap();
-    let line = entry(
+    let line = json!(entry(
         NOW,
         &resolved,
         &derived,
         &report,
         usage(&[json!({"step": "claude-code-session-finished",
                        "total_cost_usd": 0.5, "num_turns": 4})]),
-    );
+    ));
     assert_eq!(line["record_version"], 1);
     assert_eq!(line["recorded_at"], NOW);
     assert_eq!(line["agent"]["name"], "muninn");

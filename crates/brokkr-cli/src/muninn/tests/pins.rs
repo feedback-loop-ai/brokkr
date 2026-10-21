@@ -29,7 +29,7 @@ fn printed(derived: &Dossier) -> String {
 }
 
 /// The exact bytes `record::append` writes for one line.
-fn appended(line: &Value) -> String {
+fn appended(line: &impl serde::Serialize) -> String {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("muninn.ndjson");
     record::append(&path, line).unwrap();
@@ -81,10 +81,10 @@ fn the_one_hearth_record_line_is_these_bytes() {
         .unwrap();
     let derived = parked_dossier();
     let report = validate(&derived, &parked_report()).unwrap();
-    let spent = usage(&[json!({"step": "claude-code-session-finished",
-                               "total_cost_usd": 0.5, "num_turns": 4,
-                               "session_id": "sess-1"})]);
-    let line = entry(NOW, &seat, &derived, &report, spent);
+    let checkpoints = [json!({"step": "claude-code-session-finished",
+                              "total_cost_usd": 0.5, "num_turns": 4,
+                              "session_id": "sess-1"})];
+    let line = entry(NOW, &seat, &derived, &report, usage(&checkpoints));
     assert_eq!(appended(&line), ONE_HEARTH_LINE);
 }
 

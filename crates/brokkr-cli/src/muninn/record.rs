@@ -19,12 +19,14 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use serde::Serialize;
 use serde_json::Value;
 
-/// Append one entry. The only write this module has. The path is named
-/// once, on the open: a write that fails after the file opened has
-/// nothing left to say about which file it was.
-pub(super) fn append(path: &Path, entry: &Value) -> Result<()> {
+/// Append one entry, written from the document itself so its fields keep
+/// the order they are declared in. The only write this module has. The
+/// path is named once, on the open: a write that fails after the file
+/// opened has nothing left to say about which file it was.
+pub(super) fn append(path: &Path, entry: &impl Serialize) -> Result<()> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
