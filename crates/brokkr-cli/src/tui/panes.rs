@@ -430,7 +430,9 @@ pub(super) fn estate(
 /// run level's graph pane and the fleet's dashboard (#508) both take
 /// these, each capped at [`GRAPH_SHARE_MAX`] of its own height.
 pub(super) fn graph_rows(view: &RunView) -> usize {
-    let head = usize::from(!view.boundary.text.is_empty()) + view.notices.len();
+    let head = usize::from(!view.boundary.text.is_empty())
+        + view.notices.len()
+        + usize::from(view.entry.is_some());
     head + rows_wanted(&view.phases)
 }
 

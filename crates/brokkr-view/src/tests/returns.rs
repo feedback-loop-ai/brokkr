@@ -267,3 +267,33 @@ fn a_road_taken_under_several_rules_counts_every_taking_and_names_each_rule_once
         json!([{"from": "review", "taken": 4, "rules": ["REVIEW-SECURITY", "REVIEW-REFORGE"]}])
     );
 }
+
+#[test]
+fn the_recorded_table_orders_an_entered_run_and_its_first_return() {
+    for first in [VERIFY_PASS, REFORGE] {
+        let mut events = walk(&[first, IMPL_OK, VERIFY_PASS, REFORGE, IMPL_OK]);
+        events.insert(
+            0,
+            ev(
+                0,
+                EventType::RunStarted,
+                json!({
+                    "phases":["intake","design","implement","verify","review","ship","done","stop"]
+                }),
+                T0,
+            ),
+        );
+        let view = run_view(&events, None);
+        assert_eq!(
+            view.phases
+                .iter()
+                .map(|phase| phase.name.as_str())
+                .collect::<Vec<_>>(),
+            ["implement", "verify", "review"]
+        );
+        assert_eq!(view.phases[0].returns.len(), 1);
+        assert_eq!(view.phases[0].returns[0].from, "review");
+        assert_eq!(view.phases[1].returns.len(), 0);
+        assert_eq!(view.phases[2].returns.len(), 0);
+    }
+}

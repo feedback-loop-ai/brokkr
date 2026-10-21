@@ -24,7 +24,10 @@ mod assemble;
 mod capability_record;
 mod charters;
 pub mod compose;
+pub mod entry;
 mod expand;
+mod gate;
+pub use gate::{GateAssessment, WorkSite};
 mod invocation;
 mod mcp;
 mod model_policy;
@@ -150,7 +153,7 @@ pub struct Seat {
     /// whole effect — but only where the effect has no inner spans of its
     /// own. A sequence, all-gate or mixed, is watched per step instead: a
     /// step carries its own class, and that step is the gate.
-    pub has_gate: bool,
+    pub gate: GateAssessment,
     pub results: Vec<String>,
     pub limits: Limits,
     /// Typed facts this seat may supply (decision 0007). Anything else a
@@ -237,27 +240,15 @@ impl SeatBody {
         }
     }
 
-    /// True when every driver-bearing site of this body is a gate, by its
-    /// typed class; a top-level sequence's fact is [`parse_sequence`]'s.
     pub(crate) fn is_gate(&self) -> bool {
-        let gate = |class: SeatClass| class == SeatClass::Gate;
-        match self {
-            SeatBody::Invocation(Invocation::Single { class, .. }) => gate(*class),
-            SeatBody::Invocation(Invocation::Panel { members, .. }) => {
-                every(members.iter().map(|m| gate(m.class)))
-            }
-            SeatBody::Sequence { steps } => every(steps.iter().map(|step| gate(step.class))),
-            SeatBody::Select { cases, default } => {
-                every(cases.values().chain(default.as_deref()).map(Self::is_gate))
-            }
-        }
+        matches!(self.assess(), GateAssessment::AllGate)
     }
 }
 
-/// At least one, and every one of them true.
-fn every(gates: impl Iterator<Item = bool>) -> bool {
-    let mut gates = gates.peekable();
-    gates.peek().is_some() && gates.all(|gate| gate)
+impl Seat {
+    pub fn has_gate(&self) -> bool {
+        matches!(self.gate, GateAssessment::AllGate)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1087,7 +1078,7 @@ fn refuse_aliasing_sites(seats: &BTreeMap<String, Seat>) -> Result<(), CompileEr
     for (phase, seat) in seats {
         for (case, executable) in selectable(seat) {
             let sites =
-                crate::engine::resume::structural_sites(executable, phase, case, seat.has_gate);
+                crate::engine::resume::structural_sites(executable, phase, case, seat.has_gate());
             if let Some((label, both)) = crate::engine::resume::flat_address_collision(&sites) {
                 return Err(CompileError::Invalid(format!(
                     "seat '{phase}' addresses two different sites as '{label}': {both}. \
@@ -1204,50 +1195,6 @@ fn body_manifest(body: &SeatBody) -> Value {
             Value::Object(resolved)
         }
     }
-}
-
-/// Removing the protected phase must disconnect every non-stop terminal
-/// from the initial phase — no table path ships around review.
-fn assert_phase_unavoidable(
-    machine: &Machine,
-    table: &Value,
-    protected: &str,
-) -> Result<(), CompileError> {
-    let rules = table["rules"]
-        .as_array()
-        .expect("validated by Machine::from_table");
-    let mut reachable = vec![machine.initial.clone()];
-    let mut frontier = vec![machine.initial.clone()];
-    while let Some(node) = frontier.pop() {
-        for rule in rules {
-            let from = rule["from"].as_str().unwrap_or_default();
-            // A rule that parks (decision 0022) draws no edge: it reaches
-            // no phase, so it can carry no path around review.
-            let Some(next) = rule["next"].as_str() else {
-                continue;
-            };
-            // `frontier` never contains the protected phase: it is excluded
-            // from every push below. Therefore `from != protected` follows
-            // from `from == node` and need not be re-tested.
-            if from == node && next != protected {
-                let next = next.to_string();
-                if !reachable.contains(&next) {
-                    reachable.push(next.clone());
-                    frontier.push(next);
-                }
-            }
-        }
-    }
-    for terminal in &machine.terminal {
-        if terminal != "stop" && reachable.contains(terminal) {
-            return Err(CompileError::Invalid(format!(
-                "policy reaches terminal '{terminal}' without passing '{protected}'; \
-                 a path to shipping that bypasses the protected review gate is \
-                 constitutionally rejected"
-            )));
-        }
-    }
-    Ok(())
 }
 
 /// A site identity rendered for a refusal, bounded and safe (decision
@@ -4207,10 +4154,10 @@ fn parse_sequence(
     at: SeatScope<'_>,
     phase: &str,
     raw: &Value,
-) -> Result<(Vec<SequenceStep>, bool), CompileError> {
+) -> Result<(Vec<SequenceStep>, GateAssessment), CompileError> {
     let steps_raw = sequence_steps(phase, raw)?;
     let mut steps: Vec<SequenceStep> = Vec::with_capacity(steps_raw.len());
-    let mut whole_gate = true;
+    let mut whole_gate = GateAssessment::AllGate;
     for (index, step_raw) in steps_raw.iter().enumerate() {
         let name = step_name(phase, index, step_raw, &steps)?;
         let what = format!("{phase}:{name}");
@@ -4222,14 +4169,24 @@ fn parse_sequence(
             raw: step_raw,
         };
         let step_results = step_results(at, step, index + 1 == steps_raw.len())?;
-        if shape == StepShape::Dialect {
-            whole_gate &= matches!(parse_class(&what, step_raw), Ok(SeatClass::Gate));
+        let written = (shape == StepShape::Dialect)
+            .then(|| parse_class(&what, step_raw).unwrap_or(SeatClass::Work));
+        let parsed = step_body(compiler, at, step, shape, step_results)?;
+        if written == Some(SeatClass::Work) {
+            whole_gate.first_work(WorkSite {
+                path: vec![name.into()],
+                compiled: parsed.is_some(),
+            });
         }
-        let Some(parsed) = step_body(compiler, at, step, shape, step_results)? else {
-            continue;
-        };
+        let Some(parsed) = parsed else { continue };
         let class = step_class(compiler, at, step, &parsed.body, parsed.hands)?;
-        whole_gate &= class == SeatClass::Gate;
+        if written.is_none() {
+            if let GateAssessment::ContainsWork(site) =
+                gate::step_assessment(name, class, &parsed.body)
+            {
+                whole_gate.first_work(site);
+            }
+        }
         steps.push(SequenceStep {
             name: name.to_string(),
             class,

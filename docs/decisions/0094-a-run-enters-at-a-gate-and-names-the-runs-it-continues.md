@@ -479,3 +479,13 @@ this decision and the Rust types are their shape.
   landing's first return hands its finding; a `default` case on
   `recipes/triage`'s selecting seats; a `queued-launch/v2`; an entry on a
   Looper-bound run; the gate lighting a landing itself (decision 0051).
+
+## Implementation measurement — pinned landing documentation
+
+The compiler pins landing's README. The framing requests its entry
+documentation and expressly permits re-blessing a shipped digest that
+moves. Its bundle witness therefore moves with that source document
+(D35 in the proposal); the run-level entry still leaves an equal-source
+bundle's identity unchanged. Table and charter witnesses and prompt-byte
+pins stay unchanged in this implementation slice. The follow-on charter
+update and its witness measurement remain sequenced after this run.

@@ -284,9 +284,15 @@ impl Fixture {
             World::load(&path).unwrap()
         });
         let store = Store::open(&self.root.join("forge.db")).unwrap();
-        let mut engine =
-            Engine::start_in_world(store, bundle, feature, Some(self.root.join("work")), world)
-                .unwrap();
+        let mut engine = Engine::start_in_world(
+            store,
+            bundle,
+            feature,
+            Some(self.root.join("work")),
+            world,
+            None,
+        )
+        .unwrap();
         for _ in 0..40 {
             if done() {
                 break;
@@ -615,7 +621,6 @@ fn the_carrier_follows_hands_boundary_and_the_selected_link_alone() {
 }
 
 // ─────────────────────── integrated: single seats, per provider and box
-
 #[test]
 fn a_boxed_codex_seat_is_told_its_workspace_tool_and_a_boxed_claude_seat_is_not() {
     let fixture = Fixture::new();
@@ -655,7 +660,6 @@ fn a_boxed_codex_seat_is_told_its_workspace_tool_and_a_boxed_claude_seat_is_not(
     // Boxed Claude keeps the generic paragraph naming the tool.
     assert_contract(&start, "claude", "pass, fail", BOXED);
 }
-
 #[test]
 fn unboxed_and_handless_codex_seats_are_told_nothing_new() {
     for (boundary, office, tail) in [
@@ -763,12 +767,10 @@ fn a_started_seat_that_fails_is_retried_on_its_own_link_with_its_own_notice() {
     let start = fixture.captured("work-0.json");
     assert_eq!(start["input"]["hands_notice"], codex_carrier());
 }
-
 #[test]
 fn a_fallback_from_codex_to_claude_drops_the_notice() {
     fallback("codex-then-claude", "claude", None);
 }
-
 #[test]
 fn a_fallback_from_claude_to_codex_gains_the_notice() {
     fallback("claude-then-codex", "codex", Some(codex_carrier()));
@@ -846,7 +848,6 @@ fn fallback(office: &str, second: &str, expected: Option<Value>) {
 }
 
 // ─────────────────── integrated: every executing site hears its own
-
 #[test]
 fn each_panel_member_hears_only_its_own_providers_notice() {
     // A panel: a boxed Codex member, a boxed Claude member and a Codex
@@ -920,7 +921,6 @@ fn dispatch_reads_each_servings_intended_mcp_set_by_type() {
         ]
     );
 }
-
 #[test]
 fn each_sequence_step_and_nested_member_hears_only_its_own_providers_notice() {
     // A sequence: a nested panel of both, a single boxed Codex step, and

@@ -61,7 +61,7 @@ test('analytics carries each recipe of each realm through, its cost as Brokkr fi
 })
 
 test('a one-hearth listing is one hearth with no journal to name', () => {
-  const fleet = fleetOf({ view_version: 25, runs: [row()], count: 1 })
+  const fleet = fleetOf({ view_version: 26, runs: [row()], count: 1 })
   assert.deepEqual(fleet.hearths.map((hearth) => [hearth.realm, hearth.journal, hearth.runs.length]), [[ONE_HEARTH, null, 1]])
 })
 

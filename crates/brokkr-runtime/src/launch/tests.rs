@@ -539,3 +539,150 @@ fn contention_is_found_through_the_transparent_variants_and_nothing_else_is() {
     assert!(moved.contention().is_none());
     assert!(LaunchError::RealmsWithDispatch.contention().is_none());
 }
+
+#[test]
+fn an_entry_beside_a_dispatch_is_refused_before_compile() {
+    let dir = tempfile::tempdir().unwrap();
+    let request = request(
+        dir.path(),
+        &dir.path().join("absent"),
+        dir.path(),
+        dir.path(),
+    );
+    let run = NewRun {
+        entry: Some(EntryRequest {
+            phase: "verify".into(),
+            continues: vec![],
+        }),
+        dispatch: Some(dir.path().join("absent-dispatch")),
+        ..NewRun::default()
+    };
+    let error = start(request, run, &mut silent).err().unwrap();
+    assert!(matches!(error, LaunchError::EntryWithDispatch));
+    assert_eq!(
+        error.to_string(),
+        "--dispatch and --enter cannot be combined: a Looper-bound run takes no entry"
+    );
+    assert!(!dir.path().join("forge.db").exists());
+}
+
+#[test]
+fn continued_runs_are_concluded_native_and_not_looper_bound() {
+    use brokkr_core::{
+        entry::{ContinuedRun, RunEntry},
+        EventType, Status,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let request = |ids: Vec<&str>| EntryRequest {
+        phase: "review".into(),
+        continues: ids.into_iter().map(str::to_string).collect(),
+    };
+    let id = "story-120-0a1b2c3d";
+    seed_continued(
+        &mut store,
+        id,
+        "synthetic",
+        "test",
+        json!({"schema":"forge-run-manifest/v2"}),
+        Some(EventType::RunStopped),
+    );
+    assert!(matches!(continued_entry(&store,&request(vec![id])),
+        Err(LaunchError::ContinuedLooperBound { run_id }) if run_id == id));
+    let live = "live-12345678";
+    seed_continued(&mut store, live, "live feature", "test", json!({}), None);
+    assert!(matches!(continued_entry(&store,&request(vec![live])),
+        Err(LaunchError::ContinuedNotConcluded { run_id,status:Status::Running }) if run_id == live));
+    assert!(
+        matches!(continued_entry(&store,&request(vec!["absent-12345678"])),
+        Err(LaunchError::ContinuedMissing { run_id }) if run_id == "absent-12345678")
+    );
+    store
+        .append_next(
+            live,
+            EventType::RunStopped,
+            json!({"reason":"synthetic stop"}),
+            None,
+            None,
+        )
+        .unwrap();
+    let other = "other-abcdef01";
+    seed_continued(
+        &mut store,
+        other,
+        "other feature",
+        "another-recipe",
+        json!({}),
+        Some(EventType::RunStopped),
+    );
+    assert_eq!(
+        continued_entry(&store, &request(vec![other, live])).unwrap(),
+        RunEntry {
+            phase: "review".into(),
+            continues: vec![
+                ContinuedRun {
+                    run_id: other.into(),
+                    feature: "other feature".into()
+                },
+                ContinuedRun {
+                    run_id: live.into(),
+                    feature: "live feature".into()
+                },
+            ]
+        }
+    );
+    let parked = "parked-12345678";
+    seed_continued(
+        &mut store,
+        parked,
+        "parked feature",
+        "test",
+        json!({}),
+        Some(EventType::RunParked),
+    );
+    assert!(matches!(
+        continued_entry(&store, &request(vec![parked])),
+        Err(LaunchError::ContinuedNotConcluded {
+            status: Status::AwaitingOperator,
+            ..
+        })
+    ));
+    let queued = NewRun {
+        entry: Some(request(vec![])),
+        ..NewRun::default()
+    };
+    let request = super::tests::request(dir.path(), dir.path(), dir.path(), dir.path());
+    assert!(matches!(QueuedLaunch::of(&request,&queued),
+        Err(LaunchError::QueuedEntry { phase }) if phase == "review"));
+}
+
+fn seed_continued(
+    store: &mut Store,
+    id: &str,
+    feature: &str,
+    recipe: &str,
+    manifest: Value,
+    ending: Option<brokkr_core::EventType>,
+) {
+    store.create_run(id, feature, recipe, &manifest).unwrap();
+    store
+        .append_next(
+            id,
+            brokkr_core::EventType::RunStarted,
+            json!({"feature":feature}),
+            None,
+            None,
+        )
+        .unwrap();
+    if let Some(event) = ending {
+        store
+            .append_next(
+                id,
+                event,
+                json!({"reason":"synthetic conclusion"}),
+                None,
+                None,
+            )
+            .unwrap();
+    }
+}

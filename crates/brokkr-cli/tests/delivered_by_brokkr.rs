@@ -273,6 +273,30 @@ struct Gate {
 }
 
 impl Gate {
+    fn accepted(&self, body: &str, head: &str) -> String {
+        let (code, log) = self.judge(body, head, "");
+        assert_eq!(code, 0, "{log}");
+        log
+    }
+
+    fn local(repo: &Path) -> Self {
+        Self {
+            repo: repo.into(),
+            evidence: repo.into(),
+        }
+    }
+
+    fn delivering(side: &Path, repo: &Path, name: &str) -> (String, Self) {
+        let run = deliver(side, repo, name, DELIVERY_POLICY, delivery_script());
+        (
+            run,
+            Self {
+                repo: repo.into(),
+                evidence: repo.into(),
+            },
+        )
+    }
+
     /// Run the gate script exactly as CI does, with the given body, head
     /// and labels. Returns (exit code, stdout + stderr).
     fn judge(&self, body: &str, head: &str, labels: &str) -> (i32, String) {
@@ -465,17 +489,7 @@ fn the_gate_cuts_the_tier_by_the_delta_since_the_judgment() {
     commit(&repo, "docs/:[hliðskjálf].md", "# seen\n", "a named page");
     let judged = commit(&repo, "docs/page.md", "# page\n", "the slice");
 
-    let run = deliver(
-        side.path(),
-        &repo,
-        "delivery",
-        DELIVERY_POLICY,
-        delivery_script(),
-    );
-    let gate = Gate {
-        repo: repo.clone(),
-        evidence: repo.clone(),
-    };
+    let (run, gate) = Gate::delivering(side.path(), &repo, "delivery");
     let body = format!("## What changed\n\nBrokkr-Run: {run}\n");
 
     // The head the run named: vouched, as 0033 always read.
@@ -502,14 +516,7 @@ fn the_gate_cuts_the_tier_by_the_delta_since_the_judgment() {
     );
     // A run that boxes nothing is neither boxed nor unboxed (decision
     // 0046 ruling 3; design DD13): both lines carry no adjective at all.
-    assert_eq!(
-        line_starting(&log, "delivered by brokkr: tier"),
-        "delivered by brokkr: tier vouched · delta since the judgment: []"
-    );
-    assert_eq!(
-        line_starting(&log, "delivered by brokkr: run"),
-        format!("delivered by brokkr: run {run} vouches for {rebased}")
-    );
+    assert_plain_vouch(&log, &run, &rebased);
 
     // Whitespace is content: one space added inside the judged hunk is a
     // different patch, and a code one. A space is semantic in shell, YAML
@@ -676,10 +683,7 @@ fn a_v2_anchor_vouches_for_its_head_and_nothing_else() {
     };
     git(&repo, &["update-ref", &evidence_ref, &rewritten]);
 
-    let gate = Gate {
-        repo: repo.clone(),
-        evidence: repo.clone(),
-    };
+    let gate = Gate::local(&repo);
     let body = format!("Brokkr-Run: {run}\n");
     let (code, log) = gate.judge(&body, &judged, "");
     assert_eq!(code, 0, "{log}");
@@ -754,10 +758,7 @@ fn a_harness_judged_run_reads_unboxed_and_an_unrecorded_boundary_says_so() {
         "the record carries the adjective"
     );
 
-    let gate = Gate {
-        repo: repo.clone(),
-        evidence: repo.clone(),
-    };
+    let gate = Gate::local(&repo);
     let body = format!("## What changed\n\nBrokkr-Run: {run}\n");
     let (code, log) = gate.judge(&body, &judged, "");
     assert_eq!(code, 0, "{log}");
@@ -929,21 +930,123 @@ fn a_namespace_judged_run_carries_no_adjective() {
         vec![json!([{"member": null, "boundary": "namespace", "gate": true}])]
     );
 
-    let gate = Gate {
-        repo: repo.clone(),
-        evidence: repo.clone(),
-    };
+    let gate = Gate::local(&repo);
     let body = format!("## What changed\n\nBrokkr-Run: {run}\n");
-    let (code, log) = gate.judge(&body, &judged, "");
+    let log = gate.accepted(&body, &judged);
+    assert_plain_vouch(&log, &run, &judged);
+    assert!(!log.contains("unboxed"), "{log}");
+    assert!(!log.contains("boundary not recorded"), "{log}");
+}
+
+#[test]
+fn an_entry_is_attribution_and_every_malformed_record_refuses_the_vouch() {
+    let side = tempfile::tempdir().unwrap();
+    let repo = init_repo(side.path());
+    commit(&repo, "README.md", "synthetic base\n", "base");
+    git(&repo, &["checkout", "-qb", "slice"]);
+    let head = commit(&repo, "src/slice.rs", "// synthetic\n", "slice");
+    let (run, gate) = Gate::delivering(side.path(), &repo, "entry-gate");
+    let body = format!("Brokkr-Run: {run}\n");
+    republish(&repo, &run, |events| {
+        events[0].payload["entry"] = json!({"phase":"verify","continues":[
+            {"run_id":"earlier-12345678","feature":"synthetic earlier run"}]});
+    });
+    let (code, log) = gate.judge(&body, &head, "");
     assert_eq!(code, 0, "{log}");
+    assert!(
+        log.contains(&format!("run {run} vouches for {head}")),
+        "{log}"
+    );
+    assert!(
+        log.contains("entered at verify, continuing earlier-12345678"),
+        "{log}"
+    );
+    // No evidence ref for the predecessor exists: its attribution supplies no authority.
+    for (_, raw) in crate::entry_records::invalid_records() {
+        republish(&repo, &run, |events| {
+            events[0].payload["entry"] = raw.clone();
+        });
+        let (code, log) = gate.judge(&body, &head, "");
+        assert_eq!(code, 1, "{raw}: {log}");
+        assert!(
+            log.contains(&format!("run {run}: unreadable entry")),
+            "{raw}: {log}"
+        );
+    }
+}
+
+fn assert_plain_vouch(log: &str, run: &str, head: &str) {
     assert_eq!(
-        line_starting(&log, "delivered by brokkr: tier"),
+        line_starting(log, "delivered by brokkr: tier"),
         "delivered by brokkr: tier vouched · delta since the judgment: []"
     );
     assert_eq!(
-        line_starting(&log, "delivered by brokkr: run"),
-        format!("delivered by brokkr: run {run} vouches for {judged}")
+        line_starting(log, "delivered by brokkr: run"),
+        format!("delivered by brokkr: run {run} vouches for {head}")
     );
-    assert!(!log.contains("unboxed"), "{log}");
-    assert!(!log.contains("boundary not recorded"), "{log}");
+}
+
+#[test]
+fn the_gate_and_the_typed_reader_accept_the_same_bounded_names() {
+    let source =
+        std::fs::read_to_string(workspace().join("scripts/delivered-by-brokkr.sh")).unwrap();
+    let program = source
+        .split("entry_suffix() {")
+        .nth(1)
+        .unwrap()
+        .split("  jq -rs '")
+        .nth(1)
+        .unwrap()
+        .split("' \"$work/")
+        .next()
+        .unwrap();
+    let phases = [
+        "verify".into(),
+        "".into(),
+        "v".repeat(64),
+        "v".repeat(65),
+        "-v".into(),
+        "Verify".into(),
+        "v v".into(),
+        "verify\n".into(),
+        "é".into(),
+    ];
+    let ids = [
+        "-12345678".into(),
+        format!("{}-abcdef01", "a".repeat(32)),
+        format!("{}-abcdef01", "a".repeat(33)),
+        "a-1234567".into(),
+        "a-ABCDEF01".into(),
+        "a-12345678\n".into(),
+    ];
+    let records = phases
+        .into_iter()
+        .map(|phase| {
+            let valid = brokkr_core::entry::is_entry_name(&phase);
+            (json!({"phase":phase,"continues":[]}), valid)
+        })
+        .chain(ids.into_iter().map(|id| {
+            let valid = brokkr_core::entry::is_native_run_id(&id);
+            (
+                json!({"phase":"verify","continues":[{"run_id":id,"feature":"synthetic"}]}),
+                valid,
+            )
+        }));
+    for (entry, valid) in records {
+        let input = json!({"type":"run/started","payload":{"entry":entry}}).to_string();
+        let mut child = Command::new("jq")
+            .args(["-rs", program])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        assert_eq!(child.wait().unwrap().success(), valid, "{input}");
+    }
 }

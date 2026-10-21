@@ -114,6 +114,6 @@ the exact-served-code proof; this admission is revisited when Boa's icu
 range admits the newer normalizer.
 
 Curious about the machinery? [The by-hand guide](docs/guides/contributing-by-hand.md) preserves the twelve exact checks, coverage practicalities and refusals, signing walkthrough, decision culture, and frozen surfaces; a landing's verify seat runs `cargo fmt --all -- --check`, `bash scripts/lint-non-rust.sh --seat`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`, `cargo test --workspace` and `cargo run -p brokkr-cli -- compile --bundle recipes/self`, and CI proves the rest (any non-Rust lint whose tool the seat cannot reach, which the seat names as not run, the MSRV, the suppression check, the `recipes/verify` compile, the suite in CI's own form on both OSes, exact coverage, cargo-deny, the diagram render and Renovate's validator, the ratchets, the RustSec audit, the release build and the mutants gate), so contributors do not need to run them.
+Contributions are dual licensed under Apache-2.0 OR MIT unless you say otherwise.
 
-Contributions are dual licensed under Apache-2.0 OR MIT unless you say
-otherwise.
+For finished branch work, `brokkr run --recipe landing --feature "finish existing work" --enter classify --continues latest` attributes a new landing to its earlier run. [Gate entry](docs/guides/quickstart.md#re-drive-finished-branch-work-at-a-gate) works with any recipe whose gate passes admission; the shipping anchor supplies the vouch.

@@ -74,7 +74,7 @@ impl Status {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cursor {
-    /// Run started; the engine must enter the policy's initial phase.
+    /// Run started; the engine enters its admitted entry, else the table's initial phase.
     Start,
     /// The engine must append phase/entered for this phase.
     EnterPhase { phase: String },

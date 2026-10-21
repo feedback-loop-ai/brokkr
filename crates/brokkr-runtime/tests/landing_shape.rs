@@ -97,7 +97,7 @@ fn landing_is_fast_entered_at_classify_and_nothing_else() {
         seats,
         "the seats are fast's plus classify"
     );
-    assert!(landing.seats["classify"].has_gate, "classify is a gate");
+    assert!(landing.seats["classify"].has_gate(), "classify is a gate");
 
     assert_eq!(
         landing

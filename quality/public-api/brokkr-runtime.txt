@@ -565,6 +565,37 @@ impl brokkr_runtime::bundle::compose::Resolved
 pub fn brokkr_runtime::bundle::compose::Resolved::chain_note(&self) -> core::option::Option<alloc::string::String>
 pub const brokkr_runtime::bundle::compose::COMPOSE_PREFIX: &str
 pub fn brokkr_runtime::bundle::compose::resolve(&std::path::Path) -> core::result::Result<brokkr_runtime::bundle::compose::Resolved, brokkr_runtime::bundle::CompileError>
+pub mod brokkr_runtime::bundle::entry
+pub enum brokkr_runtime::bundle::entry::EntryRefusal
+pub brokkr_runtime::bundle::entry::EntryRefusal::Absent
+pub brokkr_runtime::bundle::entry::EntryRefusal::AvoidsProtected
+pub brokkr_runtime::bundle::entry::EntryRefusal::AvoidsProtected::protected: alloc::string::String
+pub brokkr_runtime::bundle::entry::EntryRefusal::AvoidsProtected::terminal: alloc::string::String
+pub brokkr_runtime::bundle::entry::EntryRefusal::ForwardWork
+pub brokkr_runtime::bundle::entry::EntryRefusal::ForwardWork::rule: alloc::string::String
+pub brokkr_runtime::bundle::entry::EntryRefusal::ForwardWork::work: alloc::string::String
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsChange
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsChange::reached_by: core::option::Option<alloc::string::String>
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsChange::sources: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsChange::step: alloc::string::String
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategy
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategy::reached_by: core::option::Option<alloc::string::String>
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategy::seat: alloc::string::String
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategyRuling
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategyRuling::group: (alloc::string::String, alloc::string::String)
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategyRuling::reached_by: core::option::Option<alloc::string::String>
+pub brokkr_runtime::bundle::entry::EntryRefusal::Terminal
+pub brokkr_runtime::bundle::entry::EntryRefusal::Unprintable
+pub brokkr_runtime::bundle::entry::EntryRefusal::Work
+pub brokkr_runtime::bundle::entry::EntryRefusal::Work::site: brokkr_runtime::bundle::WorkSite
+impl core::fmt::Display for brokkr_runtime::bundle::entry::EntryRefusal
+pub fn brokkr_runtime::bundle::entry::EntryRefusal::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct brokkr_runtime::bundle::entry::EntryError
+pub brokkr_runtime::bundle::entry::EntryError::admitted: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::bundle::entry::EntryError::phase: alloc::string::String
+pub brokkr_runtime::bundle::entry::EntryError::refusal: alloc::boxed::Box<brokkr_runtime::bundle::entry::EntryRefusal>
+pub fn brokkr_runtime::bundle::entry::admit(&brokkr_runtime::bundle::Bundle, &str) -> core::result::Result<(), brokkr_runtime::bundle::entry::EntryError>
+pub fn brokkr_runtime::bundle::entry::admitted(&brokkr_runtime::bundle::Bundle) -> alloc::vec::Vec<alloc::string::String>
 pub enum brokkr_runtime::bundle::Aggregate
 pub brokkr_runtime::bundle::Aggregate::ReviewPanel
 pub brokkr_runtime::bundle::Aggregate::UnanimousPass
@@ -591,6 +622,9 @@ pub enum brokkr_runtime::bundle::ExecutableBody<'a>
 pub brokkr_runtime::bundle::ExecutableBody::Invocation(&'a brokkr_runtime::Invocation)
 pub brokkr_runtime::bundle::ExecutableBody::Sequence
 pub brokkr_runtime::bundle::ExecutableBody::Sequence::steps: &'a [brokkr_runtime::bundle::SequenceStep]
+pub enum brokkr_runtime::bundle::GateAssessment
+pub brokkr_runtime::bundle::GateAssessment::AllGate
+pub brokkr_runtime::bundle::GateAssessment::ContainsWork(brokkr_runtime::bundle::WorkSite)
 pub enum brokkr_runtime::bundle::HandsState
 pub brokkr_runtime::bundle::HandsState::Hands(brokkr_protocol::hands::HandsSpec)
 pub brokkr_runtime::bundle::HandsState::NoHands
@@ -708,11 +742,13 @@ impl core::convert::From<brokkr_core::realms::Boundary> for brokkr_runtime::bund
 pub fn brokkr_runtime::bundle::RealmLaw::from(brokkr_core::realms::Boundary) -> brokkr_runtime::bundle::RealmLaw
 pub struct brokkr_runtime::bundle::Seat
 pub brokkr_runtime::bundle::Seat::body: brokkr_runtime::bundle::SeatBody
-pub brokkr_runtime::bundle::Seat::has_gate: bool
+pub brokkr_runtime::bundle::Seat::gate: brokkr_runtime::bundle::GateAssessment
 pub brokkr_runtime::bundle::Seat::inputs: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::Seat::limits: brokkr_runtime::bundle::Limits
 pub brokkr_runtime::bundle::Seat::results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::bundle::Seat::secrets: alloc::vec::Vec<alloc::string::String>
+impl brokkr_runtime::bundle::Seat
+pub fn brokkr_runtime::bundle::Seat::has_gate(&self) -> bool
 pub struct brokkr_runtime::bundle::SequenceStep
 pub brokkr_runtime::bundle::SequenceStep::body: brokkr_runtime::bundle::StepBody
 pub brokkr_runtime::bundle::SequenceStep::class: brokkr_runtime::bundle::SeatClass
@@ -738,6 +774,11 @@ pub brokkr_runtime::bundle::SiteFacts::record: core::option::Option<serde_json::
 impl brokkr_runtime::bundle::SiteFacts
 pub fn brokkr_runtime::bundle::SiteFacts::hands_spec(&self) -> core::option::Option<&brokkr_protocol::hands::HandsSpec>
 pub fn brokkr_runtime::bundle::SiteFacts::inline_serving(&self) -> core::option::Option<brokkr_runtime::agents::ServingInputs>
+pub struct brokkr_runtime::bundle::WorkSite
+pub brokkr_runtime::bundle::WorkSite::compiled: bool
+pub brokkr_runtime::bundle::WorkSite::path: alloc::vec::Vec<alloc::string::String>
+impl brokkr_runtime::bundle::WorkSite
+pub fn brokkr_runtime::bundle::WorkSite::seat() -> Self
 pub const brokkr_runtime::bundle::DEFAULT_ADAPTERS_DIR: &str
 pub const brokkr_runtime::bundle::DEFAULT_AGENTS_DIR: &str
 pub const brokkr_runtime::bundle::DRIVER_PROTOCOL: u32
@@ -1121,6 +1162,8 @@ pub brokkr_runtime::engine::EngineError::ConcludeRefused
 pub brokkr_runtime::engine::EngineError::ConcludeRefused::run_id: alloc::string::String
 pub brokkr_runtime::engine::EngineError::ConcludeRefused::why: brokkr_runtime::ConcludeRefusal
 pub brokkr_runtime::engine::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
+pub brokkr_runtime::engine::EngineError::Entry(brokkr_runtime::bundle::entry::EntryError)
+pub brokkr_runtime::engine::EngineError::EntryRecord(brokkr_core::entry::EntryRead)
 pub brokkr_runtime::engine::EngineError::Fold(brokkr_core::fold::FoldError)
 pub brokkr_runtime::engine::EngineError::Invariant(&'static str, alloc::string::String)
 pub brokkr_runtime::engine::EngineError::JournalMoved
@@ -1162,10 +1205,11 @@ pub brokkr_runtime::engine::Engine::store: brokkr_store::Store
 pub brokkr_runtime::engine::Engine::world: core::option::Option<brokkr_runtime::realms::World>
 impl brokkr_runtime::engine::Engine
 pub fn brokkr_runtime::engine::Engine::drive(&mut self) -> core::result::Result<brokkr_runtime::engine::DriveEnd, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::entry(&self) -> core::option::Option<&brokkr_core::entry::RunEntry>
 pub fn brokkr_runtime::engine::Engine::mark_capabilities(&self, &str, core::option::Option<&brokkr_runtime::agents::Candidate>, core::option::Option<&mut brokkr_runtime::engine::SiteSpawn>, &mut serde_json::value::Value)
 pub fn brokkr_runtime::engine::Engine::resume(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::Engine::start(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
-pub fn brokkr_runtime::engine::Engine::start_in_world(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, core::option::Option<brokkr_runtime::realms::World>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::start_in_world(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, core::option::Option<brokkr_runtime::realms::World>, core::option::Option<brokkr_core::entry::RunEntry>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::Engine::start_with_dispatch(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, brokkr_core::dispatch::DispatchEnvelopeV2) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
 pub struct brokkr_runtime::engine::FencedCommand<'a>
 pub brokkr_runtime::engine::FencedCommand::command: brokkr_runtime::CommandWord<'a>
@@ -1241,14 +1285,25 @@ pub enum brokkr_runtime::launch::Encoding
 pub brokkr_runtime::launch::Encoding::V1
 pub enum brokkr_runtime::launch::LaunchError
 pub brokkr_runtime::launch::LaunchError::Compile(brokkr_runtime::bundle::CompileError)
+pub brokkr_runtime::launch::LaunchError::ContinuedLooperBound
+pub brokkr_runtime::launch::LaunchError::ContinuedLooperBound::run_id: alloc::string::String
+pub brokkr_runtime::launch::LaunchError::ContinuedMissing
+pub brokkr_runtime::launch::LaunchError::ContinuedMissing::run_id: alloc::string::String
+pub brokkr_runtime::launch::LaunchError::ContinuedNotConcluded
+pub brokkr_runtime::launch::LaunchError::ContinuedNotConcluded::run_id: alloc::string::String
+pub brokkr_runtime::launch::LaunchError::ContinuedNotConcluded::status: brokkr_core::fold::Status
 pub brokkr_runtime::launch::LaunchError::DecodeQueued(serde_json::error::Error)
 pub brokkr_runtime::launch::LaunchError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::launch::LaunchError::EncodeQueued(serde_json::error::Error)
 pub brokkr_runtime::launch::LaunchError::Engine(brokkr_runtime::engine::EngineError)
+pub brokkr_runtime::launch::LaunchError::Entry(brokkr_runtime::bundle::entry::EntryError)
+pub brokkr_runtime::launch::LaunchError::EntryWithDispatch
 pub brokkr_runtime::launch::LaunchError::NoFeature
 pub brokkr_runtime::launch::LaunchError::NoFeature::run: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::ParseDispatch(serde_json::error::Error)
 pub brokkr_runtime::launch::LaunchError::Places(brokkr_runtime::places::PlacesError)
+pub brokkr_runtime::launch::LaunchError::QueuedEntry
+pub brokkr_runtime::launch::LaunchError::QueuedEntry::phase: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::QueuedShelf
 pub brokkr_runtime::launch::LaunchError::QueuedShelf::own: std::path::PathBuf
 pub brokkr_runtime::launch::LaunchError::QueuedShelf::shelf: std::path::PathBuf
@@ -1265,6 +1320,7 @@ pub brokkr_runtime::launch::LaunchError::RealmsWithDispatch
 pub brokkr_runtime::launch::LaunchError::RecipeNotFound
 pub brokkr_runtime::launch::LaunchError::RecipeNotFound::name: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::RecipeNotFound::recipes_dir: std::path::PathBuf
+pub brokkr_runtime::launch::LaunchError::Record(brokkr_core::entry::EntryRead)
 pub brokkr_runtime::launch::LaunchError::SourceRun
 pub brokkr_runtime::launch::LaunchError::SourceRun::run: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::SourceRun::source: brokkr_store::StoreError
@@ -1281,6 +1337,9 @@ pub enum brokkr_runtime::launch::RunMap
 pub brokkr_runtime::launch::RunMap::Ambient(brokkr_runtime::realms::World)
 pub brokkr_runtime::launch::RunMap::Named(brokkr_runtime::realms::World)
 pub brokkr_runtime::launch::RunMap::Unmapped
+pub struct brokkr_runtime::launch::EntryRequest
+pub brokkr_runtime::launch::EntryRequest::continues: alloc::vec::Vec<alloc::string::String>
+pub brokkr_runtime::launch::EntryRequest::phase: alloc::string::String
 pub struct brokkr_runtime::launch::HeldWorld(_)
 pub struct brokkr_runtime::launch::LaunchRequest
 pub brokkr_runtime::launch::LaunchRequest::bundle: brokkr_runtime::launch::BundleSource
@@ -1292,6 +1351,7 @@ pub brokkr_runtime::launch::LaunchRequest::shelf: core::option::Option<std::path
 pub brokkr_runtime::launch::LaunchRequest::workspace: std::path::PathBuf
 pub struct brokkr_runtime::launch::NewRun
 pub brokkr_runtime::launch::NewRun::dispatch: core::option::Option<std::path::PathBuf>
+pub brokkr_runtime::launch::NewRun::entry: core::option::Option<brokkr_runtime::launch::EntryRequest>
 pub brokkr_runtime::launch::NewRun::feature: alloc::string::String
 pub brokkr_runtime::launch::NewRun::map: brokkr_runtime::launch::RunMap
 pub struct brokkr_runtime::launch::QueuedLaunch
@@ -1554,6 +1614,8 @@ pub brokkr_runtime::EngineError::ConcludeRefused
 pub brokkr_runtime::EngineError::ConcludeRefused::run_id: alloc::string::String
 pub brokkr_runtime::EngineError::ConcludeRefused::why: brokkr_runtime::ConcludeRefusal
 pub brokkr_runtime::EngineError::Dispatch(brokkr_core::dispatch::DispatchError)
+pub brokkr_runtime::EngineError::Entry(brokkr_runtime::bundle::entry::EntryError)
+pub brokkr_runtime::EngineError::EntryRecord(brokkr_core::entry::EntryRead)
 pub brokkr_runtime::EngineError::Fold(brokkr_core::fold::FoldError)
 pub brokkr_runtime::EngineError::Invariant(&'static str, alloc::string::String)
 pub brokkr_runtime::EngineError::JournalMoved
@@ -1750,10 +1812,11 @@ pub brokkr_runtime::Engine::store: brokkr_store::Store
 pub brokkr_runtime::Engine::world: core::option::Option<brokkr_runtime::realms::World>
 impl brokkr_runtime::engine::Engine
 pub fn brokkr_runtime::engine::Engine::drive(&mut self) -> core::result::Result<brokkr_runtime::engine::DriveEnd, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::entry(&self) -> core::option::Option<&brokkr_core::entry::RunEntry>
 pub fn brokkr_runtime::engine::Engine::mark_capabilities(&self, &str, core::option::Option<&brokkr_runtime::agents::Candidate>, core::option::Option<&mut brokkr_runtime::engine::SiteSpawn>, &mut serde_json::value::Value)
 pub fn brokkr_runtime::engine::Engine::resume(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::Engine::start(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
-pub fn brokkr_runtime::engine::Engine::start_in_world(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, core::option::Option<brokkr_runtime::realms::World>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
+pub fn brokkr_runtime::engine::Engine::start_in_world(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, core::option::Option<brokkr_runtime::realms::World>, core::option::Option<brokkr_core::entry::RunEntry>) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
 pub fn brokkr_runtime::engine::Engine::start_with_dispatch(brokkr_store::Store, brokkr_runtime::bundle::Bundle, &str, core::option::Option<std::path::PathBuf>, brokkr_core::dispatch::DispatchEnvelopeV2) -> core::result::Result<brokkr_runtime::engine::Engine, brokkr_runtime::engine::EngineError>
 pub struct brokkr_runtime::FencedCommand<'a>
 pub brokkr_runtime::FencedCommand::command: brokkr_runtime::CommandWord<'a>
@@ -1788,11 +1851,13 @@ pub brokkr_runtime::Planted::kept: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::Planted::run_id: alloc::string::String
 pub struct brokkr_runtime::Seat
 pub brokkr_runtime::Seat::body: brokkr_runtime::bundle::SeatBody
-pub brokkr_runtime::Seat::has_gate: bool
+pub brokkr_runtime::Seat::gate: brokkr_runtime::bundle::GateAssessment
 pub brokkr_runtime::Seat::inputs: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::Seat::limits: brokkr_runtime::bundle::Limits
 pub brokkr_runtime::Seat::results: alloc::vec::Vec<alloc::string::String>
 pub brokkr_runtime::Seat::secrets: alloc::vec::Vec<alloc::string::String>
+impl brokkr_runtime::bundle::Seat
+pub fn brokkr_runtime::bundle::Seat::has_gate(&self) -> bool
 pub struct brokkr_runtime::SequenceStep
 pub brokkr_runtime::SequenceStep::body: brokkr_runtime::bundle::StepBody
 pub brokkr_runtime::SequenceStep::class: brokkr_runtime::bundle::SeatClass

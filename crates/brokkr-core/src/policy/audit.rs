@@ -195,6 +195,38 @@ impl Machine {
         }
     }
 
+    /// Decision 0094: totality with the engine's strategy absent. Retain
+    /// each group's axes, but evaluate only its strategy-independent rules.
+    pub fn unruled_without_strategy(&self) -> Vec<Finding> {
+        let rules = self
+            .rules
+            .iter()
+            .filter(|rule| {
+                !rule
+                    .when
+                    .iter()
+                    .any(|condition| condition.name() == "strategy")
+            })
+            .cloned()
+            .collect();
+        let machine = Self {
+            rules,
+            ..self.clone()
+        };
+        self.groups()
+            .into_iter()
+            .flat_map(|mut group| {
+                group.rules.retain(|rule| {
+                    !rule
+                        .when
+                        .iter()
+                        .any(|condition| condition.name() == "strategy")
+                });
+                machine.sweep(&group).1
+            })
+            .collect()
+    }
+
     /// The findings no sweep derives: liveness (ruling 3), then presence
     /// (ruling 1) group by group.
     fn unswept(&self, groups: &[Group<'_>], engine_owned: &impl Fn(&str) -> bool) -> Vec<Finding> {
@@ -239,13 +271,13 @@ impl Machine {
 
     /// Every phase reachable from `start` over edges that never enter
     /// `avoid`, `start` included.
-    fn reach<'a>(&'a self, start: &'a str, avoid: Option<&str>) -> BTreeSet<&'a str> {
+    pub fn reach_avoiding<'a>(&'a self, start: &'a str, avoid: &[&str]) -> BTreeSet<&'a str> {
         let edges = self.edges();
         let mut seen = BTreeSet::from([start]);
         let mut frontier = vec![start];
         while let Some(node) = frontier.pop() {
             for &next in edges.get(node).into_iter().flatten() {
-                if Some(next) != avoid && seen.insert(next) {
+                if !avoid.contains(&next) && seen.insert(next) {
                     frontier.push(next);
                 }
             }
@@ -256,7 +288,7 @@ impl Machine {
     /// Ruling 3: every phase reachable from `initial`, and every
     /// non-terminal phase ends at a terminal or a parking rule.
     fn liveness(&self) -> Vec<Finding> {
-        let reachable = self.reach(&self.initial, None);
+        let reachable = self.reach_avoiding(&self.initial, &[]);
         let ending = |phase: &str| {
             self.terminal.iter().any(|terminal| terminal == phase)
                 || self
@@ -270,7 +302,7 @@ impl Machine {
                 findings.push(Finding::Unreachable {
                     phase: phase.clone(),
                 });
-            } else if !self.reach(phase, None).into_iter().any(ending) {
+            } else if !self.reach_avoiding(phase, &[]).into_iter().any(ending) {
                 findings.push(Finding::DeadEnd {
                     phase: phase.clone(),
                 });
@@ -312,7 +344,7 @@ impl Machine {
     }
 
     fn advances(&self, start: &str, avoid: &str) -> bool {
-        self.reach(start, Some(avoid))
+        self.reach_avoiding(start, &[avoid])
             .into_iter()
             .any(|phase| phase != STOP && self.terminal.iter().any(|t| t == phase))
     }

@@ -202,6 +202,17 @@ byte-identical payloads. Bumping `EVENT_SCHEMA` instead was rejected because
 new event *type*: the `type` enum is closed under `additionalProperties:
 false`.
 
+Proposed decision 0094 adds two `run/started` payload members under this
+additive rule. `phases` records the compiled table's phase order on every
+start. Optional `entry` is absent unless the operator names an entry:
+`{ phase, continues: [{ run_id, feature }] }`. The record's objects deny
+unknown members; phase and native run ids have bounded grammars and ids
+cannot repeat. The core fold reads neither field. The engine reads entry
+for start and resume; the view reads both; the contribution gate reports
+the attributed chain without borrowing its verdicts. Their extension schema
+waits for the operator's acceptance (decision 0082 ruling 1); frozen
+schemas remain unchanged.
+
 The extension fields defined so far are in
 `effect-provenance.v1.schema.json`: `effect/started.provenance`, and
 `effect/failed.start_failure` with `start_failure_sites`; and in

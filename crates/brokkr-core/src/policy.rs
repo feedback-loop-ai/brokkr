@@ -775,6 +775,8 @@ fn severity_of(name: &str, value: Option<&Value>) -> Result<Option<usize>, Unrea
 }
 
 pub mod audit;
+mod direction;
+pub use direction::Direction;
 mod errors;
 mod inputs;
 mod words;

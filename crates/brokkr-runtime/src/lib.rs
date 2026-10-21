@@ -51,3 +51,7 @@ mod envelope_builder;
 #[cfg(test)]
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;
+
+#[cfg(test)]
+#[path = "../../../tests/support/entry_records.rs"]
+mod entry_records;

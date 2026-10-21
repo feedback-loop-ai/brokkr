@@ -88,6 +88,7 @@ fn launch_under(ws: &Path, map: RunMap, repo: Option<&str>) -> String {
         host_path: OsString::new(),
     };
     let run = NewRun {
+        entry: None,
         feature: "f".into(),
         map,
         dispatch: None,

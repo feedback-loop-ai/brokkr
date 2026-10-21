@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use brokkr_core::policy::Machine;
 use serde_json::Value;
 
-use super::{assert_phase_unavoidable, compose, parse_egress_minimum, CompileError, Dialect, Seat};
+use super::{compose, parse_egress_minimum, CompileError, Dialect, Seat};
 use crate::agents::EgressClass;
 use crate::dialect::{rendered_phases, DIALECT_PHASES};
 use crate::phase_name;
@@ -41,7 +41,7 @@ pub(super) fn table(
     refuse_undeclared_dialect(&machine, realm_name, dialect)?;
 
     let declared_minimum = parse_egress_minimum(config)?;
-    let protected_phase = protected_phase(config, &machine, table)?;
+    let protected_phase = protected_phase(config, &machine)?;
     Ok(Table {
         machine,
         uses_dialect,
@@ -97,11 +97,7 @@ fn refuse_undeclared_dialect(
 
 /// The protected review phase the bundle names, which the table must have
 /// and no path may avoid.
-fn protected_phase(
-    config: &Value,
-    machine: &Machine,
-    table: &Value,
-) -> Result<String, CompileError> {
+fn protected_phase(config: &Value, machine: &Machine) -> Result<String, CompileError> {
     let protected_phase = config
         .get("protected_phase")
         .and_then(Value::as_str)
@@ -113,7 +109,7 @@ fn protected_phase(
              gate is non-removable (extension model, layer 1)"
         )));
     }
-    assert_phase_unavoidable(machine, table, &protected_phase)?;
+    assert_phase_unavoidable(machine, &protected_phase)?;
     Ok(protected_phase)
 }
 
@@ -132,4 +128,30 @@ pub(super) fn seated_and_ruled(
     }
     machine.refuse_unruled()?;
     Ok(())
+}
+/// Decision 0094 shares the core walk with entry admission.
+fn assert_phase_unavoidable(machine: &Machine, protected: &str) -> Result<(), CompileError> {
+    if let Some(terminal) = bypassing_terminal(machine, &machine.initial, protected) {
+        return Err(CompileError::Invalid(format!(
+            "policy reaches terminal '{terminal}' without passing '{protected}'; \
+             a path to shipping that bypasses the protected review gate is \
+             constitutionally rejected"
+        )));
+    }
+    Ok(())
+}
+
+/// The constitutional cut, shared by the table lint and entry admission
+/// (decision 0094; decision 0071 ruling 5), with each caller's start.
+pub(super) fn bypassing_terminal<'a>(
+    machine: &'a Machine,
+    start: &str,
+    protected: &str,
+) -> Option<&'a str> {
+    let reachable = machine.reach_avoiding(start, &[protected]);
+    machine
+        .terminal
+        .iter()
+        .find(|terminal| terminal.as_str() != "stop" && reachable.contains(terminal.as_str()))
+        .map(String::as_str)
 }

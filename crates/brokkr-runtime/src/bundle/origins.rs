@@ -28,10 +28,19 @@ impl Bundle {
     /// `manifest` it pins and the `charters` its start checked, and its
     /// [`Bundle::layers`] where it has them. The resume pin covers every
     /// layer's bytes through the manifest's chain; the origins are evidence.
-    pub(crate) fn run_started(&self, feature: &str, manifest: &Value, charters: Value) -> Value {
-        let mut started = json!({"feature": feature, "manifest": manifest, "charters": charters});
+    pub(crate) fn run_started(
+        &self,
+        feature: &str,
+        manifest: &Value,
+        charters: Value,
+        entry: Option<&brokkr_core::entry::RunEntry>,
+    ) -> Value {
+        let mut started = json!({"feature": feature, "manifest": manifest, "charters": charters, "phases": self.machine.phases});
         if let Some(layers) = self.layers() {
             started["layers"] = json!(layers);
+        }
+        if let Some(entry) = entry {
+            started["entry"] = json!(entry);
         }
         started
     }

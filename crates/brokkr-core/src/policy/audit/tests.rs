@@ -623,3 +623,34 @@ fn a_refusal_reads_as_its_finding_and_its_ruling() {
          be shown total (decision 0050, ruling 4)"
     );
 }
+
+#[test]
+fn reach_avoiding_removes_a_cut_phase() {
+    let machine = Machine::parse(&table(json!([
+        {"id":"CLEAN","from":"review","result":"clean","next":"done","reason":"r"}
+    ])))
+    .unwrap();
+    assert_eq!(
+        machine.reach_avoiding("work", &["review"]),
+        BTreeSet::from(["work"])
+    );
+    assert_eq!(
+        machine.reach_avoiding("work", &[]),
+        BTreeSet::from(["work", "review", "done", "stop"])
+    );
+}
+
+#[test]
+fn absent_strategy_sweep_keeps_the_original_axes() {
+    let machine = Machine::parse(&table(json!([
+        {"id":"CLEAN","from":"review","result":"clean","next":"done",
+         "when":{"strategy_in":["chore","feature","design","engine","escalate"]},"reason":"r"}
+    ])))
+    .unwrap();
+    let missing = machine.unruled_without_strategy();
+    assert_eq!(missing.len(), 5);
+    assert!(missing.iter().all(|finding| matches!(finding,
+        Finding::Unruled { phase, result, .. } if phase == "review" && result == "clean")));
+    let ordinary = Machine::parse(&self_table()).unwrap();
+    assert_eq!(ordinary.unruled_without_strategy(), vec![]);
+}

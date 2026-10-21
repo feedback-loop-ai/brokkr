@@ -15,10 +15,9 @@ use brokkr_store::StoreError;
 use serde_json::{json, Map, Value};
 
 use super::{
-    argv_for, copy_secret_binding_facts, dialect_attempt_outcome, expand_dialect_argv,
-    failed_to_start, git_head, nearest_change, panel_outcome, stamp_boundary, start_failure_fields,
-    start_failure_sites, stderr_tail, DriverRun, Engine, EngineError, Indeterminate, Selection,
-    Site, Unproven,
+    argv_for, copy_secret_binding_facts, failed_to_start, git_head, panel_outcome, stamp_boundary,
+    start_failure_fields, start_failure_sites, stderr_tail, DriverRun, Engine, EngineError,
+    Indeterminate, Selection, Site, Unproven,
 };
 use crate::bundle::{
     dialect_results, Aggregate, DialectExecution, Invocation, PanelMember, SeatClass, SequenceStep,
@@ -692,7 +691,7 @@ fn tailed_outcome(report: &AttemptReport) -> AttemptOutcome {
 }
 
 /// Whether a dialect step's argv or state names `{change}`.
-fn needs_change(execution: &DialectExecution) -> bool {
+pub(crate) fn needs_change(execution: &DialectExecution) -> bool {
     execution
         .argv
         .iter()
@@ -710,5 +709,32 @@ fn vocabulary_problem(step: &SequenceStep, result: &Value) -> Option<String> {
             step.results
         )),
         Some(_) => None,
+    }
+}
+
+pub(super) fn nearest_change(context: &Value) -> Option<String> {
+    crate::phase_name::CHANGE_SOURCES.iter().find_map(|phase| {
+        context
+            .pointer(&format!("/results/{phase}/inputs/change"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    })
+}
+
+pub(super) fn expand_dialect_argv(argv: &[String], change: &str) -> Vec<String> {
+    argv.iter()
+        .map(|token| token.replace("{change}", change))
+        .collect()
+}
+
+/// A dialect step's outcome, and into `evidence` what its terminal event
+/// carries when its tree is not proven over (#403).
+pub(super) fn dialect_attempt_outcome(run: DriverRun, evidence: &mut Unproven) -> AttemptOutcome {
+    match run {
+        DriverRun::SpawnFailed(error) => AttemptOutcome::Failed { error },
+        DriverRun::Ran(report) => {
+            *evidence = Unproven::seat(&report);
+            report.settled_outcome()
+        }
     }
 }

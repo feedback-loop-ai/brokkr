@@ -162,3 +162,13 @@ The analyze judge parked the run again with two low findings (`ANALYZE-DRIFT-EXH
 - Public API: `brokkr-runtime` (`NewRun`, `EntryError` and `EntryRefusal`), `brokkr-core` (`RunEntry`, its language and `Direction`), `brokkr-view` (`RunView.entry`); the snapshots under `quality/public-api` move, measured on the pinned nightly, cited in the pull request.
 - Docs: decision 0094 and its index row; `docs/guides/quickstart.md` (the entry's line), `docs/guides/recipe-authoring.md`, `docs/guides/driver-authoring.md` (`context.entry` and the return rule), `docs/guides/read-surfaces.md` and `docs/guides/dsh-console.md` (the rail's order and the roads back, D19), `ARCHITECTURE.md`, `recipes/landing/README.md` (the entry at review is the operator's word; the classify road is unchanged; its graph's road back), `CONTRIBUTING.md`.
 - Specs: `gate-entry` and `run-continuation`, added; `operator-console-read`, modified.
+
+### D35 — The requested landing README is pinned source
+
+Implementation measured task 11.2's landing README as part of its bundle
+identity. The commissioning framing permits re-blessing moved shipped
+digests, so D9's no-witness-move expectation has exactly this exception:
+the landing bundle row, from its documented entry invocation. All table,
+charter and prompt-byte pins remain this run's unchanged data; the later
+charter re-pin remains group 13's. See the design's implementation
+measurement and the witness command there.

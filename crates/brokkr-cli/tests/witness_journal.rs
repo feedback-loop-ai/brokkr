@@ -33,21 +33,27 @@ const POLICY: &str = r#"{
 /// The event sequence a two-phase run produces: type, then the payload's
 /// keys in sorted order. Recorded from this tree before the agent
 /// library existed.
+const REQUESTED: (&str, &[&str]) = (
+    "effect/requested",
+    &[
+        "effect_id",
+        "idempotency_key",
+        "input_digest",
+        "phase",
+        "seat",
+    ],
+);
+
 const GOLDEN: [(&str, &[&str]); 11] = [
     // `charters`: the bindings a start checked, which its resume is held
     // to (rebuild unit 19; operator ruling 2026-09-29, admission 2a).
-    ("run/started", &["charters", "feature", "manifest"]),
-    ("phase/entered", &["phase"]),
+    // Decision 0094 ruling 6 adds the compiled phase order, without moving the manifest.
     (
-        "effect/requested",
-        &[
-            "effect_id",
-            "idempotency_key",
-            "input_digest",
-            "phase",
-            "seat",
-        ],
+        "run/started",
+        &["charters", "feature", "manifest", "phases"],
     ),
+    ("phase/entered", &["phase"]),
+    REQUESTED,
     ("effect/started", &["attempt_id", "driver", "effect_id"]),
     (
         "effect/checkpointed",
@@ -61,16 +67,7 @@ const GOLDEN: [(&str, &[&str]); 11] = [
         ],
     ),
     ("phase/entered", &["phase"]),
-    (
-        "effect/requested",
-        &[
-            "effect_id",
-            "idempotency_key",
-            "input_digest",
-            "phase",
-            "seat",
-        ],
-    ),
+    REQUESTED,
     ("effect/started", &["attempt_id", "driver", "effect_id"]),
     (
         "effect/checkpointed",

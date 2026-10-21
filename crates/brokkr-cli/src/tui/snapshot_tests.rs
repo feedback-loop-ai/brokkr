@@ -499,3 +499,34 @@ fn the_selected_run_row_is_reversed_from_border_to_border() {
         assert_eq!(runs.map(reversed), wanted, "at {width}x{height}");
     }
 }
+
+#[test]
+fn the_graph_header_paints_the_shared_entry_text_and_counts_its_row() {
+    use crate::tests::envelope_builder::EnvelopeBuilder;
+    use brokkr_core::EventType;
+    use serde_json::json;
+    for raw in [
+        json!({"phase":"verify","continues":[{"run_id":"a-12345678",
+            "feature":"land the parked slice\nsecond\nthird"}]}),
+        json!("verify"),
+    ] {
+        let event = EnvelopeBuilder::new(EventType::RunStarted, json!({"entry":raw})).build();
+        let entry = brokkr_view::run_view(&[event], None).entry.unwrap();
+        let text = match &entry {
+            brokkr_view::EntryView::Entered { text, .. }
+            | brokkr_view::EntryView::Unreadable { text, .. } => text.clone(),
+        };
+        let mut views = views();
+        let view = views.run.as_mut().unwrap();
+        let before = panes::graph_rows(view);
+        view.entry = Some(entry);
+        assert_eq!(panes::graph_rows(view), before + 1);
+        let rail = painter::Rail {
+            phase: None,
+            node: None,
+        };
+        let lines = painter::graph_lines(&at_run(), view, None, &rail, (160, 48));
+        assert_eq!(lines[0].to_string(), text);
+        assert!(!lines[0].to_string().contains('\n'));
+    }
+}

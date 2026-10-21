@@ -122,6 +122,7 @@ impl Fixture {
             host_path: OsString::new(),
         };
         let run = NewRun {
+            entry: None,
             feature: "f".into(),
             map: RunMap::Unmapped,
             dispatch: None,

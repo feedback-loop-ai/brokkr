@@ -271,3 +271,25 @@ Every journal written before this change folds, verifies and views as it did; no
 - **For the operator, at acceptance of 0094, the second:** the journal golden's `run/started` row moves by `phases` on the decision's authority (ruling 6, D19), its comment citing the ruling as the `charters` key's cites the ruling of 2026-09-29; if the house wants a standalone ruling for a golden move, as `charters` had, it is the operator's to give, and the implementer's notes record the re-pin as riding on the decision.
 - **For a later story:** the return rule extended to every run, so a landing's first return hands its finding (DD6); a `default` case on `recipes/triage`'s selecting seats, so the house's own recipe admits `verify` and `review`; decision 0060's two open items.
 - **For the implementer, said in notes:** whether the merge of `origin/main` was taken (Migration 1), and which ceilings were paid for by which moves (DD13).
+
+## Implementation decisions
+
+The admission frame holds `Box<EntryRefusal>`. The first clippy run
+(`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`,
+`.forge/788-clippy.log`) reported `result_large_err`: the unboxed frame made
+`EngineError` and `LaunchError` at least 128 bytes. Boxing the diagnostic cause
+preserves its typed variants and text without suppressing that gate (0071
+rulings 4 and 8).
+
+The commissioned `recipes/landing/README.md` update is compiler input.
+`cargo test -p brokkr-runtime --all-features --locked` passed all 1,272 unit
+tests, then the witness integration test reported only landing's bundle
+moving from `411a5cc3861108d01d7b2585082dde1547221667829e274fa53dbfdd1b1394ac`
+to `319969d2911d1f6ace62631a21e6a2a740d9e678beee5d056f10703d7448f954`
+(`.forge/788-runtime-full.log`). The parent framing explicitly authorizes
+re-blessing shipped digests when they move. That authorization resolves
+D9's expectation against task 11.2: re-measure only this bundle witness;
+no table, charter or prompt-byte witness changes in this run. The entry
+mechanism itself still changes no manifest; entering and ordinary starts
+over the same source remain identical. This is a source-document pin
+change, not a different run-entry identity.

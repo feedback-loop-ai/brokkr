@@ -1,3 +1,4 @@
+mod entry;
 use super::*;
 use crate::argv::tests::ENGINE;
 use serde_json::json;
@@ -491,7 +492,7 @@ fn a_dialect_step_counts_toward_the_whole_gate_by_the_class_it_wrote() {
         }
         let (config, policy) = loop_config(json!([count, recount]));
         let bundle = compile_dialect_fixture(&fixture, &config, &policy, Some(&dialect)).unwrap();
-        assert_eq!(bundle.seats["clarify"].has_gate, gate, "{recount}");
+        assert_eq!(bundle.seats["clarify"].has_gate(), gate, "{recount}");
     }
 }
 

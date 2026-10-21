@@ -78,7 +78,14 @@ impl<'a> SiteCompiler<'a> {
         phase: &str,
         raw: &Value,
         shape: SeatShape,
-    ) -> Result<(Option<ResolvedSeat>, SeatBody, Option<bool>), CompileError> {
+    ) -> Result<
+        (
+            Option<ResolvedSeat>,
+            SeatBody,
+            Option<super::GateAssessment>,
+        ),
+        CompileError,
+    > {
         if raw.get("secrets").is_some() {
             self.agents.adapters()?;
         }

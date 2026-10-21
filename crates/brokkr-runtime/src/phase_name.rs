@@ -12,3 +12,6 @@ pub(crate) const IMPLEMENT: &str = "implement";
 pub(crate) const REVIEW: &str = "review";
 pub(crate) const VERIFY: &str = "verify";
 pub(crate) const SHIP: &str = "ship";
+
+/// Sources read by nearest_change and entry admission (decision 0094).
+pub(crate) const CHANGE_SOURCES: [&str; 5] = ["tasks", "design", "specify", TRIAGE, INTAKE];

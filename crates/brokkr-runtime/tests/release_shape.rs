@@ -37,11 +37,11 @@ fn release_keeps_the_delivery_policy_and_deterministic_gates() {
         format!("{:?}", release.machine.rules),
         format!("{:?}", fast.machine.rules)
     );
-    assert!(!release.seats["implement"].has_gate);
+    assert!(!release.seats["implement"].has_gate());
     assert!(release.hands["implement"].network);
-    assert!(release.seats["review"].has_gate);
+    assert!(release.seats["review"].has_gate());
     for phase in ["verify", "ship"] {
-        assert!(release.seats[phase].has_gate);
+        assert!(release.seats[phase].has_gate());
         let SeatBody::Invocation(Invocation::Single {
             command,
             candidates,

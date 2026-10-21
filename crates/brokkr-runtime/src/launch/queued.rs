@@ -271,6 +271,11 @@ impl QueuedLaunch {
     /// that is not absolute, which nothing could be anchored to, and a
     /// project shelf the entry cannot hold ([`refuse_selected_shelf`]).
     pub fn of(request: &LaunchRequest, run: &NewRun) -> Result<QueuedLaunch, LaunchError> {
+        if let Some(entry) = &run.entry {
+            return Err(LaunchError::QueuedEntry {
+                phase: entry.phase.clone(),
+            });
+        }
         refuse_realms_with_dispatch(run)?;
         let workspace = anchor(&request.workspace)?;
         refuse_selected_shelf(workspace, request.shelf.as_deref())?;
@@ -324,6 +329,7 @@ impl QueuedLaunch {
             workspace: self.workspace,
         };
         let run = NewRun {
+            entry: None,
             feature: self.feature,
             map,
             dispatch: self.dispatch.map(at),

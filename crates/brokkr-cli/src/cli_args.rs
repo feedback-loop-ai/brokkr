@@ -4,6 +4,11 @@
 //! stack before parsing or walking any bundle. Args delegates the finite
 //! command tree one verb at a time, without increasing the process stack.
 
+mod compile;
+pub(super) use compile::CompileArgs;
+mod entry;
+use entry::EntryArgs;
+
 use std::path::PathBuf;
 
 /// Which journal a verb opens, asked the same way at every verb that
@@ -152,14 +157,6 @@ pub(super) struct DoctorArgs {
     pub(super) secrets_file: Option<PathBuf>,
 }
 
-#[derive(clap::Args)]
-#[group(skip)]
-pub(super) struct CompileArgs {
-    /// The bundle directory to validate, compiled against the workspace.
-    #[arg(long)]
-    pub(super) bundle: PathBuf,
-}
-
 /// What a delivering verb runs and what its seats are given, asked the
 /// same way by `run`, `resume` and `rerun`.
 #[derive(clap::Args)]
@@ -186,6 +183,8 @@ pub(super) struct DeliveryArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct RunArgs {
+    #[command(flatten)]
+    pub(super) entry: EntryArgs,
     #[command(flatten)]
     pub(super) launch: LaunchArgs,
     /// On a terminal, print the plain lines and the summary instead of

@@ -1031,3 +1031,25 @@ that result, and never promises a combination the composer would refuse
   provenance.
 - [decision 0017](../decisions/0017-composable-recipes.md) — composition.
 - [decision 0022](../decisions/0022-reforging.md) — the reforging ladder.
+
+### Admission of a run-level gate entry
+
+Proposed decision 0094 lets an operator request `--enter <phase>` on any
+recipe, without an overlay or a manifest change. The compiler checks six
+facts in order: the phase exists and is nonterminal; its name fits the
+bounded identifier grammar; every written driver site is gate-class; the
+protected review phase is unavoidable from it (or is the entry itself);
+forward rulings reach no work seat; and reachable seats, ruling groups and
+dialect steps do not require an absent strategy or change source. A refusal
+names the first witness and the entries admitted in table order.
+
+A selector can supply a `default` body when entry skips triage. Judges in
+a panel must each declare gate class; putting a gate chief after work-class
+review positions does not make the whole seat a gate. Dialect steps count
+by their written class even if the dialect supplies no executable step.
+An entry at triage supplies the strategy source, and entry at a declared
+change source covers later dialect steps. Implement is reached only by
+a return. Entry at the protected phase is the operator's explicit word
+to omit earlier gates; entry after it, such as ship, is refused if a path
+can then ship without review. Landing's classify fork and review-first's
+forced crew remain recipe data.

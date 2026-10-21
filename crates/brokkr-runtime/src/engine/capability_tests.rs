@@ -1025,8 +1025,7 @@ fn a_run_starts_only_under_the_grants_its_bundle_was_compiled_under() {
         bundle
     };
     let start = |bundle: Bundle, world: Option<crate::realms::World>| {
-        let store = Store::open(&dir.path().join("forge.db")).unwrap();
-        Engine::start_in_world(store, bundle, "feature", Some(repo.clone()), world)
+        mapped_start(dir.path(), &repo, bundle, world)
     };
     let runs = || {
         Store::open(&dir.path().join("forge.db"))
@@ -1124,8 +1123,7 @@ fn a_run_starts_only_over_the_definition_and_dialect_bytes_it_was_compiled_again
         bundle
     };
     let start = |bundle: Bundle, world: Option<crate::realms::World>| {
-        let store = Store::open(&dir.path().join("forge.db")).unwrap();
-        Engine::start_in_world(store, bundle, "feature", Some(repo.clone()), world)
+        mapped_start(dir.path(), &repo, bundle, world)
             .map(|_| ())
             .map_err(|refusal| refusal.to_string())
     };
@@ -1295,6 +1293,7 @@ fn a_moved_charter_refuses_the_start_and_resume_in_a_mapped_and_an_unmapped_cont
             "f",
             Some(repo.clone()),
             mapped.then(|| world_granting(&root, &repo, json!({}))),
+            None,
         )
         .map(|engine| engine.run_id)
         .map_err(|error| error.to_string())
@@ -1873,3 +1872,13 @@ mod call_tests;
 pub(super) mod provision_tests;
 mod resume_tests;
 mod serving_tests;
+
+fn mapped_start(
+    root: &Path,
+    repo: &Path,
+    bundle: Bundle,
+    world: Option<crate::realms::World>,
+) -> Result<Engine, EngineError> {
+    let store = Store::open(&root.join("forge.db")).unwrap();
+    Engine::start_in_world(store, bundle, "feature", Some(repo.into()), world, None)
+}

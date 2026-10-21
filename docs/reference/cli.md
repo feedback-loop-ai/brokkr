@@ -242,6 +242,8 @@ Usage: brokkr run [OPTIONS] --feature <FEATURE>
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
+| `--enter <ENTER>` |  |  | Enter at an admitted gate over work already on the branch |
+| `--continues <CONTINUES>...` |  | yes | Earlier concluded run continued by this run (id, prefix, or latest); repeat in order |
 | `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
 | `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
 | `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |

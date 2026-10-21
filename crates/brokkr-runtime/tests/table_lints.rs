@@ -580,3 +580,37 @@ fn the_0022_era_permissive_arms_are_refused() {
         }))
     );
 }
+
+#[test]
+fn admitted_gate_entries_are_derived_from_each_shipped_recipe() {
+    let root = workspace();
+    for (recipe, expected) in [
+        ("fast", vec!["verify", "review"]),
+        ("panel-review", vec!["verify", "review"]),
+        ("self", vec!["verify", "review"]),
+        ("preflight", vec!["verify", "review"]),
+        ("verify", vec!["verify", "review"]),
+        ("landing", vec!["verify", "review", "classify"]),
+        ("research", vec!["verify"]),
+        ("research-dsh", vec!["verify"]),
+        ("triage", vec![]),
+        ("gpt-flash", vec![]),
+        ("night-shift", vec![]),
+    ] {
+        let bundle = brokkr_runtime::Bundle::compile_with(
+            &root.join("recipes").join(recipe),
+            &root.join("agents"),
+            &root.join("adapters"),
+        )
+        .unwrap();
+        let entries = brokkr_runtime::bundle::entry::admitted(&bundle);
+        assert_eq!(entries, expected, "{recipe}");
+        for phase in &bundle.machine.phases {
+            assert_eq!(
+                brokkr_runtime::bundle::entry::admit(&bundle, phase).is_ok(),
+                entries.contains(phase),
+                "{recipe}:{phase}"
+            );
+        }
+    }
+}

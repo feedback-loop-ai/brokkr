@@ -587,7 +587,7 @@ fn every_shipped_verify_and_ship_office_is_a_boxed_exec_script() {
             let Some(seat) = bundle.seats.get(phase) else {
                 continue;
             };
-            assert!(seat.has_gate, "{name}:{phase} is gate-class");
+            assert!(seat.has_gate(), "{name}:{phase} is gate-class");
             let (command, candidates) = match &seat.body {
                 SeatBody::Invocation(Invocation::Single {
                     command,
@@ -686,11 +686,11 @@ fn shipped_triage_gate_scope_stops_at_the_judging_sites() {
     .expect("triage bundle compiles");
 
     for phase in ["review", "verify", "ship"] {
-        assert!(bundle.seats[phase].has_gate, "{phase} must remain a gate");
+        assert!(bundle.seats[phase].has_gate(), "{phase} must remain a gate");
     }
     for phase in ["implement", "design"] {
         assert!(
-            !bundle.seats[phase].has_gate,
+            !bundle.seats[phase].has_gate(),
             "{phase} includes work and must not guard the whole effect"
         );
     }

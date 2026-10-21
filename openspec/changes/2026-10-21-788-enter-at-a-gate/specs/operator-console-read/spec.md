@@ -2,11 +2,11 @@
 
 ### Requirement: The run view
 
-Selecting a run SHALL show:
+On selecting a run, the console SHALL present these parts:
 
-- the run list grouped needs you / running / last 24 hours / older, every run
-  in exactly one group (older holding acknowledged quarantines and every run
-  that finished before the last day), with a text filter;
+- a filterable list partitioned into needs you, running, last 24 hours and
+  older; each run belongs to one partition, with acknowledged quarantines
+  and runs finished more than a day ago placed in older;
 - the run header with Brokkr's standing and, for a run entered at a gate, the
   gate it entered at and the runs it names as continued, each led by its
   title, `brokkr_view::title` of its feature, with its id after, on one line
@@ -15,13 +15,13 @@ Selecting a run SHALL show:
   and, for a run whose recorded entry the view cannot read, that line stating
   the entry unreadable with the reader's error, never a header painted as an
   ordinary run's;
-- the graph of steps with their members, the model that served each, visits
-  and the return paths taken;
-- the control plane on the graph, and why the run waits when it does;
-- the timeline, newest first.
+- a graph identifying each step, its members, served models, visits and
+  the roads by which the run returned;
+- controls on that graph alongside the reason a run is waiting;
+- a timeline sorted from newest to oldest.
 
-The view SHALL use only Brokkr's standings and SHALL NOT show a
-queued/started/verified state machine.
+All status words SHALL come from Brokkr. The console SHALL offer no separate
+queued/started/verified state model.
 
 The header's entry SHALL be the run view's one sentence, painted as given:
 each continued run led by `brokkr_view::title` of its feature, the feature's
@@ -35,8 +35,8 @@ painted as the fold gives it.
 
 #### Scenario: A review sent work back
 
-- **WHEN** security review once ruled the run back to implement
-- **THEN** the graph shows the return path with the ruling's time and rule
+- **WHEN** a security ruling returns a run to implement
+- **THEN** that return appears on the graph with its rule id and recorded time
 
 #### Scenario: A run entered at verify continuing two runs
 
@@ -59,18 +59,18 @@ The graph SHALL draw the run as `brokkr tui` draws it: the run view's phases lef
 
 #### Scenario: Review positions
 
-- **WHEN** a design phase records two positions and then a chief
-- **THEN** the positions sit in a bracket either side of the rail, and the rail runs on to the chief
+- **WHEN** the design journal records two positions followed by its chief
+- **THEN** a bracket places those positions on opposite sides of the rail before it reaches the chief
 
 #### Scenario: One reforge, then a forward second pass
 
-- **WHEN** a run goes implement, verify, review, back to implement on REVIEW-REFORGE, forward again through verify and review, and ship is ruled onto itself before it is done
-- **THEN** one road is drawn, "sent back to implement by review · REVIEW-REFORGE", and no other phase names a return
+- **WHEN** REVIEW-REFORGE returns review to implement and the run then revisits verify and review before a ship self-loop
+- **THEN** only review owns a return road, labelled "sent back to implement by review · REVIEW-REFORGE"
 
 #### Scenario: Two roads into one phase
 
-- **WHEN** implement was sent back once by verify (VERIFY-FAIL) and once by review (REVIEW-REFORGE)
-- **THEN** two roads land on two arrowheads under implement, the road from review outside the road from verify, and neither crosses the other's label, which reads "by verify · VERIFY-FAIL ×1" or the whole sentence
+- **WHEN** VERIFY-FAIL and REVIEW-REFORGE each send the run back to implement once
+- **THEN** separate arrowheads land below implement; review's outer road contains verify's road, their labels do not cross, and verify's label reads "by verify · VERIFY-FAIL ×1" or its full sentence
 
 #### Scenario: A run entered at verify is sent back once
 

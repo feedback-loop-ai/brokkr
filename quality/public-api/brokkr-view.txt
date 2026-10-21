@@ -177,6 +177,14 @@ pub brokkr_view::CursorError::Section(alloc::string::String)
 pub brokkr_view::CursorError::Shape(alloc::string::String)
 impl core::fmt::Display for brokkr_view::CursorError
 pub fn brokkr_view::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum brokkr_view::EntryView
+pub brokkr_view::EntryView::Entered
+pub brokkr_view::EntryView::Entered::continues: alloc::vec::Vec<brokkr_view::ContinuedView>
+pub brokkr_view::EntryView::Entered::phase: alloc::string::String
+pub brokkr_view::EntryView::Entered::text: alloc::string::String
+pub brokkr_view::EntryView::Unreadable
+pub brokkr_view::EntryView::Unreadable::error: alloc::string::String
+pub brokkr_view::EntryView::Unreadable::text: alloc::string::String
 pub enum brokkr_view::GraphError
 pub brokkr_view::GraphError::Clock(alloc::string::String)
 pub brokkr_view::GraphError::UnknownRecipe
@@ -337,6 +345,10 @@ pub brokkr_view::Concluded::outcome: brokkr_view::Outcome
 pub brokkr_view::Concluded::phase: core::option::Option<alloc::string::String>
 pub brokkr_view::Concluded::result: core::option::Option<alloc::string::String>
 pub brokkr_view::Concluded::seat: alloc::string::String
+pub struct brokkr_view::ContinuedView
+pub brokkr_view::ContinuedView::feature: alloc::string::String
+pub brokkr_view::ContinuedView::run_id: alloc::string::String
+pub brokkr_view::ContinuedView::title: alloc::string::String
 pub struct brokkr_view::Cursor
 pub brokkr_view::Cursor::order_at: i64
 pub brokkr_view::Cursor::run_id: alloc::string::String
@@ -575,6 +587,7 @@ pub brokkr_view::RunView::boundary: brokkr_view::RunBoundary
 pub brokkr_view::RunView::clarify: core::option::Option<brokkr_view::Clarify>
 pub brokkr_view::RunView::commands: alloc::vec::Vec<brokkr_view::Offered>
 pub brokkr_view::RunView::dashboard: brokkr_view::Dashboard
+pub brokkr_view::RunView::entry: core::option::Option<brokkr_view::EntryView>
 pub brokkr_view::RunView::event_count: usize
 pub brokkr_view::RunView::journal: alloc::vec::Vec<brokkr_view::JournalRow>
 pub brokkr_view::RunView::live: alloc::vec::Vec<brokkr_view::LiveLine>
@@ -686,6 +699,7 @@ pub fn brokkr_view::at_work<'a>(&'a brokkr_view::RunRow, &str) -> core::option::
 pub fn brokkr_view::behind_line(u64) -> core::option::Option<alloc::string::String>
 pub fn brokkr_view::cited(&brokkr_view::SupersededBy) -> alloc::string::String
 pub fn brokkr_view::clamp(&str, usize) -> alloc::string::String
+pub fn brokkr_view::entry_sentence(&brokkr_core::entry::RunEntry) -> alloc::string::String
 pub fn brokkr_view::first_divergence(&[alloc::string::String], &[alloc::string::String]) -> core::option::Option<brokkr_view::FirstDivergence>
 pub fn brokkr_view::fleet_rows(&[brokkr_view::HearthEntries<'_>]) -> brokkr_view::FleetView
 pub fn brokkr_view::fmt_dur(&str, &str) -> core::option::Option<alloc::string::String>

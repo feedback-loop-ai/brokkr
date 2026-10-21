@@ -82,7 +82,7 @@ impl Engine {
             body,
             gate: seat
                 .body
-                .selected_is_gate(state.strategy.as_deref(), seat.has_gate),
+                .selected_is_gate(state.strategy.as_deref(), seat.has_gate()),
         };
         let (selection, started) = self.plan_attempt(events, &at, &mut input)?;
         // started is durable BEFORE the driver spawns: a crash in between

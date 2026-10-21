@@ -32,7 +32,6 @@ fn fixture() -> (tempfile::TempDir, PathBuf) {
         .unwrap();
     (dir, db)
 }
-
 #[test]
 fn page_runs_and_run_detail_serve_read_only() {
     let (_dir, db) = fixture();
@@ -809,7 +808,7 @@ fn the_console_serves_the_boundary_and_paints_the_pair() {
 
     let view = handle(&db, "/api/view/r1");
     let parsed: Value = serde_json::from_str(&view.body).unwrap();
-    assert_eq!(parsed["view_version"], 25);
+    assert_eq!(parsed["view_version"], 26);
     let seat = &parsed["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["text"], "harness");
@@ -2311,4 +2310,5 @@ fn a_missing_journal_gains_no_file_on_every_browser_route() {
     );
 }
 
+mod entry_tests;
 mod scope_tests;

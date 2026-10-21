@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use brokkr_core::fold::RunState;
 use serde_json::{json, Map, Value};
 
-use super::{nearest_change, Engine, EngineError, RESULTS};
+use super::sequence::nearest_change;
+use super::{Engine, EngineError, RESULTS};
 use crate::bundle::{ExecutableBody, Invocation, PanelMember, Seat, SequenceStep, StepBody};
 use crate::phase_name;
 
@@ -104,6 +105,9 @@ impl Engine {
         // the commission and current tree, not journal history.
         if phase != phase_name::TRIAGE {
             context.insert("last_decision".into(), json!(state.last_decision));
+            if let Some(entry) = &self.entry {
+                context.insert("entry".into(), json!(entry));
+            }
         }
         let current = self
             .bundle
@@ -131,7 +135,17 @@ impl Engine {
         // reads it. A seat on its FIRST visit of the run gets nothing
         // new, so a run that never revisits builds the input, and the
         // digest, it always built.
-        if phase != phase_name::TRIAGE && state.visits.get(phase).copied().unwrap_or(0) > 1 {
+        let returned = self.entry.is_some()
+            && state.last_decision.as_ref().is_some_and(|decision| {
+                brokkr_core::policy::Direction::of(
+                    &self.bundle.machine.phases,
+                    &decision.from,
+                    phase,
+                ) == Some(brokkr_core::policy::Direction::Return)
+            });
+        if phase != phase_name::TRIAGE
+            && (state.visits.get(phase).copied().unwrap_or(0) > 1 || returned)
+        {
             context.insert(
                 "returned_from".into(),
                 json!({

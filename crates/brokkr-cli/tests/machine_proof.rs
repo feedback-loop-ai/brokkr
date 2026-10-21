@@ -646,7 +646,6 @@ fn happy_script() -> Value {
         ],
     }})
 }
-
 #[test]
 fn triage_routes_chore_and_escalation_parks_with_its_reasoning() {
     let chore = json!({"seats": {
@@ -735,7 +734,6 @@ fn triage_routes_chore_and_escalation_parks_with_its_reasoning() {
         "triage's reasoning is the journaled park reason: {reason}"
     );
 }
-
 #[test]
 fn triage_selection_serves_the_single_reviewer_and_the_engine_panel_then_chief() {
     let script = json!({"seats": {
@@ -780,7 +778,6 @@ fn triage_selection_serves_the_single_reviewer_and_the_engine_panel_then_chief()
             && event["payload"]["checkpoint"]["member"] == "chief"
     }));
 }
-
 #[test]
 fn sdd_machine_revisits_ambiguity_and_design_drift_before_implementation() {
     let pass = || json!({"behavior":"succeed","result":{"result":"pass"}});
@@ -3448,3 +3445,6 @@ fn brokkr_tui_is_a_listed_read_verb_that_refuses_a_pipe_and_writes_nothing() {
 mod egress;
 mod environment_block;
 mod output_edge;
+
+#[cfg(unix)]
+mod entered_run;

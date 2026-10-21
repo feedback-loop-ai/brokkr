@@ -123,7 +123,7 @@ fn seat_sites(phase: &str, seat: &Seat) -> Vec<Site> {
         key,
         at,
         results: &seat.results,
-        gate: seat.body.selected_is_gate(strategy, seat.has_gate),
+        gate: seat.body.selected_is_gate(strategy, seat.has_gate()),
     };
     match &seat.body {
         SeatBody::Select { cases, default, .. } => {

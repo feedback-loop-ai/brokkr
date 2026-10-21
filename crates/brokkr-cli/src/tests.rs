@@ -24,7 +24,6 @@ pub(crate) mod envelope_builder;
 pub(crate) mod run_state;
 use dispatch_fixture::dispatch_envelope;
 use env_guard::EnvGuard;
-
 #[test]
 fn the_command_tree_builds_on_a_small_stack() {
     use clap::CommandFactory;
@@ -1028,6 +1027,7 @@ fn run_dispatch_refuses_io_and_json_then_accepts_a_verified_envelope() {
     let bundle_path = stage_hands_free_fast(dir.path(), "fast-hands-free", false);
     let dispatched = |bundle: &std::path::Path, dispatch| {
         Cmd::Run(RunArgs {
+            entry: Default::default(),
             launch: LaunchArgs {
                 delivery: bundled(bundle.to_path_buf()),
                 feature: "feature".into(),
@@ -4025,6 +4025,7 @@ fn resume_compilation_reads_the_dialect_from_the_pinned_world() {
     let refusal = run_in(
         &root,
         cli(Cmd::Run(RunArgs {
+            entry: Default::default(),
             launch: LaunchArgs {
                 delivery: bundled(root.join("recipes/triage")),
                 feature: "dialect refusal".into(),

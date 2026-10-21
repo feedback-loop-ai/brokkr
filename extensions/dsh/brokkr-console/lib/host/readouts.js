@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 25
+export const VIEW_VERSION = 26
 
 /** The graph wire this console paints: `brokkr_view::GRAPH_VIEW_VERSION`, pinned apart from `VIEW_VERSION`. */
 export const GRAPH_VIEW_VERSION = 2
@@ -380,6 +380,7 @@ export function runViewOf(doc) {
       questions: texts(value.questions, `${path}.questions`),
     })),
     worktree: optText(doc.worktree, 'worktree'),
+    entry: maybe(doc.entry, 'entry', (value, path) => ({ text: text(object(value, path).text, `${path}.text`) })),
     recipe: optText(doc.recipe, 'recipe'),
   }
 }

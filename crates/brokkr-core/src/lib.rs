@@ -8,6 +8,7 @@
 pub mod canonical;
 pub mod decision;
 pub mod dispatch;
+pub mod entry;
 pub mod envelope;
 pub mod fold;
 pub mod gate_moved_head;
@@ -34,3 +35,7 @@ mod envelope_builder;
 #[cfg(test)]
 #[path = "../../../tests/support/run_state.rs"]
 mod run_state;
+
+#[cfg(test)]
+#[path = "../../../tests/support/entry_records.rs"]
+mod entry_records;

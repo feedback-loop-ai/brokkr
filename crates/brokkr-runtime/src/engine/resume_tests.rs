@@ -235,7 +235,11 @@ fn seat(body: SeatBody, results: &[&str], max_attempts: u64) -> Seat {
 
 fn gate_seat(body: SeatBody, results: &[&str], max_attempts: u64, gate: bool) -> Seat {
     Seat {
-        has_gate: gate,
+        gate: if gate {
+            crate::bundle::GateAssessment::AllGate
+        } else {
+            crate::bundle::GateAssessment::ContainsWork(crate::bundle::WorkSite::seat())
+        },
         results: results.iter().map(|r| r.to_string()).collect(),
         limits: Limits {
             max_attempts,
