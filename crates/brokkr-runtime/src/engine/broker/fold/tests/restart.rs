@@ -29,7 +29,7 @@ use crate::engine::fence::{tests::after_the_fold, tip_of};
 use crate::engine::operator::conclude;
 use crate::engine::panel::MemberRun;
 use crate::engine::tests::fail_event;
-use crate::engine::{Bundle, DriverRun};
+use crate::engine::{spawn_site, Bundle, Door, DriverRun};
 
 /// The trigger [`fail_event`] plants, which refuses every settled call.
 const SETTLED: &str = "capability-call-settled";
@@ -495,11 +495,12 @@ fn a_restart_while_a_driver_may_run_reads_nothing_and_keeps_the_reservation() {
 
 /// H1 of U8e2's first run (MB5, D6): a restart adopts the attempt under
 /// the admission lock, and from then until its release no driver of it
-/// spawns and no record of it is removed unseen. A door the live engine
-/// passes after the adoption refuses as no longer standing, and the
-/// release goes on; a record written after the adoption by any other
-/// hand keeps the reservation standing, refusing a conflicting run, and
-/// fails the restart with its settlement's refusal.
+/// spawns and no record of it is removed unseen. The live engine's own
+/// dispatch door ([`spawn_site`]), passed after the adoption under a lease
+/// that still stands, refuses as no longer standing and spawns nothing,
+/// and the release goes on; a record written after the adoption by any
+/// other hand keeps the reservation standing, refusing a conflicting run,
+/// and fails the restart with its settlement's refusal.
 #[test]
 fn a_door_passed_after_the_adoption_refuses_and_the_release_holds_to_the_records() {
     for door in [true, false] {
@@ -510,9 +511,17 @@ fn a_door_passed_after_the_adoption_refuses_and_the_release_holds_to_the_records
         let live = site.engine.held.clone().unwrap();
         let seen = Rc::new(RefCell::new(None));
         let (peer, saw) = (live.clone(), Rc::clone(&seen));
+        let (bundle, work) = (site.engine.bundle.clone(), site.engine.repo.clone());
+        let ran = site.home().join("ran-past-the-adoption");
+        let argv = vec!["touch".into(), ran.to_string_lossy().into_owned()];
         after_the_fold(Box::new(move || {
             let landed = match door {
-                true => spawning(&peer, "work:check", None),
+                true => {
+                    let (spawn, deadline) = (SiteSpawn::inherit(argv), Duration::from_secs(5));
+                    let door = Some(Door::of(&peer, "work:check", None));
+                    let spawned = spawn_site(&bundle, &spawn, &json!({}), &work, deadline, door);
+                    spawned.map(|(process, _)| drop(process))
+                }
                 false => amend(&peer, soon(), |mut reservation| {
                     let reserved = reservation.attempts.get_mut(ATTEMPT).unwrap();
                     let late = Driver {
@@ -522,19 +531,20 @@ fn a_door_passed_after_the_adoption_refuses_and_the_release_holds_to_the_records
                     reserved.drivers.push(late);
                     Ok(reservation)
                 })
-                .map(drop),
+                .map(drop)
+                .map_err(|refusal| refusal.to_string()),
             };
             *saw.borrow_mut() = Some(landed);
         }));
         let turned = site.turn().map(drop);
         let landed = seen.borrow_mut().take().unwrap();
         if door {
-            let lost = || Err(Unadmitted::Identity(Unknown::Lost));
+            let lost = Unadmitted::Identity(Unknown::Lost);
             assert_eq!(
-                (landed, turned.is_ok(), site.released()),
-                (lost(), true, true)
+                (landed, ran.exists(), turned.is_ok(), site.released()),
+                (Err(lost.to_string()), false, true, true)
             );
-            assert_eq!(recheck(&live), lost());
+            assert_eq!(recheck(&live), Err(lost));
         } else {
             assert_eq!(landed, Ok(()));
             let unproven = Unadmitted::Identity(Unknown::Unproven);

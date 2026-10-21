@@ -370,7 +370,7 @@
    599 crates/brokkr-runtime/src/engine/broker/admission/tests/sealing.rs
   1525 crates/brokkr-runtime/src/engine/broker/admission/tests/sources.rs
   1130 crates/brokkr-runtime/src/engine/broker/fold/tests.rs
-   885 crates/brokkr-runtime/src/engine/broker/fold/tests/restart.rs
+   895 crates/brokkr-runtime/src/engine/broker/fold/tests/restart.rs
    352 crates/brokkr-runtime/src/engine/broker/fold/tests/routes.rs
   1875 crates/brokkr-runtime/src/engine/capability_tests.rs
    443 crates/brokkr-runtime/src/engine/capability_tests/call_tests.rs
