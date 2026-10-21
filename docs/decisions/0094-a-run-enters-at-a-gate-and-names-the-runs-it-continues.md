@@ -346,8 +346,33 @@ this decision and the Rust types are their shape.
    `REDO-INTAKE` (`verify`, `fail`, `visits_intake_gte: 1`, next
    `intake`) ahead of `VERIFY-FAIL`, refused at `verify` on the entry's
    own group, refused on `(review, clean)` when it reads `implement`'s
-   count and admitted at `verify` when unconditioned; and the fixture of
+   count and admitted at `verify` when a seat flag, `spec_defect`, guards
+   it instead (the change's D48, amending this in place: unconditioned,
+   as first written here, it leaves `VERIFY-FAIL` unreachable and the
+   loader refuses the table, decision 0050 ruling 2); and the fixture of
    one ruling reading `intake`'s and `design`'s counts, naming `design`.
+
+   *Amended, 2026-10-22 (the change's D48 and D49):* a road a seat's own
+   flag, severity or enumeration guards is a road for the visits fact:
+   the walk that decides reach refuses only a ruling conditioned on a
+   visit count above zero and follows every other as it follows an
+   unguarded one, since the seat's result can hold in the entered run as
+   in a plain start. The witness of a group of a phase met only through
+   a count-guarded ruling is that ruling: for this fact the ruling that
+   reached the group's phase is the one recorded by the run of the
+   walker that follows every ruling, the run that meets the groups
+   judged, and the run that follows no count-guarded ruling decides
+   reach alone and names none. The binding gains the fixture of a
+   `VERIFY-PASS-WORKED` (`verify`, `pass`, `visits_implement_gte: 1`,
+   next `review`) above an unconditioned `VERIFY-PASS-UNWORKED` to
+   `implement`, `review` met from `verify` through the count-guarded
+   ruling alone: refused at `verify` on `(review, clean)` reading
+   `intake`'s count, witnessed by `VERIFY-PASS-WORKED`, which a single
+   run following no count-guarded ruling would admit; refused at
+   `review` on the same group reached by no ruling; and admitted at
+   `verify` when the denial reads `implement`'s count instead, `review`'s
+   groups judged as any other and the road into it refusing nothing of
+   itself.
 
 5. **The chain is the operator's word, and the gate reports it while
    vouching the patch map.** `--continues <run>`, repeatable and only
