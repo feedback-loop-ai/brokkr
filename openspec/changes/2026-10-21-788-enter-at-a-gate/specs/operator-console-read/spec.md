@@ -99,7 +99,7 @@ The graph SHALL draw the run as `brokkr tui` draws it: the run view's phases lef
 
 ### Requirement: A participant's tokens are read apart
 
-`brokkr inspect --json`'s participants SHALL carry `tokens`: `total` (`3.99M tok`), `input` (`3.98M`), `output` (`14k`) and `cache_hit`, cache reads over input and cache writes to one decimal; each a cell, absent with its reason when the harness reported nothing to read. The view's wire version SHALL be one past `main`'s `VIEW_VERSION` when this change merges `main`, the console host pinning it: `main` stands at 24, and #787 (pull request #815), in the merge path ahead of this change, takes 25, so this change's wire is expected to be 26. Whatever number `main` holds at the merge, the change SHALL take the next, and every pin of the current version SHALL move with it.
+`brokkr inspect --json`'s participants SHALL carry `tokens`: `total` (`3.99M tok`), `input` (`3.98M`), `output` (`14k`) and `cache_hit`, cache reads over input and cache writes to one decimal; each a cell, absent with its reason when the harness reported nothing to read. The view's wire version SHALL be one past `main`'s `VIEW_VERSION` when this change merges `main`, the console host pinning it: `main` stood at 24 when this was written and stands at 25 since #808; #787 (pull request #815), in the merge path ahead of this change, takes 26, so this change's wire is expected to be 27 (decision 0094 ruling 8 as amended on 2026-10-22; D36). Whatever number `main` holds at the merge, the change SHALL take the next, and every pin of the current version SHALL move with it.
 
 #### Scenario: A codex seat
 
