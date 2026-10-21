@@ -19,7 +19,7 @@ use time::OffsetDateTime;
 
 use super::*;
 use crate::fleet::listing::{list_hearth_in, Lister};
-use crate::fleet::{list_hearth, read_hearth, ListedRun, AHEAD_ROWS, PAGE_ROWS};
+use crate::fleet::{list_hearth, read_hearth, Called, ListedRun, AHEAD_ROWS, PAGE_ROWS};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 
 const NOW: &str = "2026-10-20T00:00:00Z";
@@ -349,10 +349,19 @@ fn folded(db: &Path, plant_with: impl FnOnce(&rusqlite::Connection)) {
 /// A fresh journal, folded, of one run, `done`, finished an hour before
 /// [`NOW`]: its directory, and where the journal is.
 fn done_an_hour_ago() -> (tempfile::TempDir, std::path::PathBuf) {
+    finished_hours_ago(&["done"])
+}
+
+/// A fresh journal, folded, of the runs `ids`, the first finished an hour
+/// before [`NOW`] and each after it an hour earlier: its directory, and
+/// where the journal is.
+fn finished_hours_ago(ids: &[&str]) -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("forge.db");
     folded(&db, |conn| {
-        plant(conn, "done", Shape::Finished, &stamp(now() - HOUR));
+        for (hours, run_id) in (1..).zip(ids) {
+            plant(conn, run_id, Shape::Finished, &stamp(now() - hours * HOUR));
+        }
     });
     (dir, db)
 }
@@ -764,7 +773,8 @@ fn a_page_asked_reads_at_most_a_page_ahead_of_the_runs_behind() {
     let listed = |asked: (bool, Option<u32>)| {
         let mut out = Vec::new();
         let asked = (asked.0, asked.1, None);
-        crate::verbs::readouts::hearth_runs(&db, asked, &style, &mut out).unwrap();
+        crate::verbs::readouts::hearth_runs(&db, asked, Called::default(), &style, &mut out)
+            .unwrap();
         String::from_utf8(out).unwrap()
     };
     let page: Value = serde_json::from_str(&listed((true, Some(5)))).unwrap();
@@ -931,7 +941,9 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
     let mut after: Option<brokkr_view::Cursor> = None;
     loop {
         let page = (after.as_ref(), 30);
-        let one = printed(&db, None, |lister, out| lister.one(out, page, true, &style));
+        let one = printed(&db, None, |lister, out| {
+            lister.one(out, page, true, Called::default(), &style)
+        });
         let page: Value = serde_json::from_str(&one).unwrap();
         let runs = page["runs"].as_array().unwrap();
         walked.extend(
@@ -945,13 +957,126 @@ fn brokkr_runs_lists_every_run_a_page_at_a_time_as_the_whole_read_does() {
     }
     assert_eq!(walked, ids);
     let table = printed(&db, None, |lister, out| {
-        lister.one(out, (None, 1), false, &style)
+        lister.one(out, (None, 1), false, Called::default(), &style)
     });
     let first = format!(
         "next page  brokkr runs --limit 1 --after needs-you:{}:park-new\n",
         now() - HOUR
     );
     assert!(table.ends_with(&first), "{table}");
+}
+
+/// The next page's command a table of one page of the runs at `db` ends
+/// with, `called` as `brokkr runs` was.
+fn hint(db: &Path, called: Called<'_>) -> String {
+    let table = printed(db, None, |lister, out| {
+        lister.one(out, (None, 1), false, called, &STYLE)
+    });
+    table.lines().last().unwrap().to_string()
+}
+
+/// `hint`'s command split as a shell splits it and parsed as `brokkr`
+/// parses it.
+fn run_as_typed(hint: &str) -> crate::cli_args::RunsArgs {
+    use clap::Parser;
+    let line = hint.strip_prefix("next page  ").unwrap();
+    let [argv] = &crate::cli_reference_tests::words(line).unwrap()[..] else {
+        panic!("the next page is one command: {line}");
+    };
+    let parsed = crate::Cli::try_parse_from(argv).map(|cli| cli.command);
+    let crate::Cmd::Runs(args) = parsed.unwrap_or_else(|refused| panic!("{refused}")) else {
+        panic!("`brokkr runs` parses as itself");
+    };
+    args
+}
+
+/// #820 F1: a run id a shell would split, unquote or expand is one quoted
+/// word in the next page's command, and that command, run, pages on.
+#[test]
+fn the_next_page_command_quotes_the_cursor_as_one_word_and_pages_on() {
+    let (_dir, db) = finished_hours_ago(&["a b'c$d", "e"]);
+    let hint = hint(&db, Called::default());
+    let quoted = format!(
+        r"next page  brokkr runs --limit 1 --after 'recent:{}:a b'\''c$d'",
+        now() - HOUR
+    );
+    assert_eq!(hint, quoted);
+    let args = run_as_typed(&hint);
+    let after = args.after.as_ref().map(ToString::to_string);
+    let read = format!("recent:{}:a b'c$d", now() - HOUR);
+    assert_eq!((args.limit, after), (Some(1), Some(read)));
+    let asked = (args.after.as_ref(), 1);
+    let page = printed(&db, None, |lister, out| {
+        lister.one(out, asked, true, Called::default(), &STYLE)
+    });
+    let page: Value = serde_json::from_str(&page).unwrap();
+    let runs = page["runs"].as_array().unwrap().iter();
+    let ids: Vec<&str> = runs.map(|run| run["run_id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["e"]);
+}
+
+/// #820 F2: the next page's command names the journal flags the listing
+/// was called with, `--db` then `--realms`, each path one shell word
+/// joined by `=` where it starts with `-`, and reads back as the paths
+/// typed; called with neither, it names none.
+#[test]
+fn the_next_page_command_keeps_the_listings_db_and_realms() {
+    let (_dir, db) = finished_hours_ago(&["done", "e"]);
+    let other = Path::new("/w/other forge.db");
+    let map = Path::new("map/realms.json");
+    let tail = format!("--limit 1 --after recent:{}:done", now() - HOUR);
+    let cases = [
+        (None, None, String::new()),
+        (Some(other), None, " --db '/w/other forge.db'".to_string()),
+        (None, Some(map), " --realms map/realms.json".to_string()),
+        (
+            Some(other),
+            Some(map),
+            " --db '/w/other forge.db' --realms map/realms.json".to_string(),
+        ),
+        (
+            Some(Path::new("-o my.db")),
+            Some(Path::new("-map.json")),
+            " --db='-o my.db' --realms=-map.json".to_string(),
+        ),
+    ];
+    for (db_flag, realms, flags) in cases {
+        let called = Called {
+            db: db_flag,
+            realms,
+        };
+        let hint = hint(&db, called);
+        assert_eq!(hint, format!("next page  brokkr runs{flags} {tail}"));
+        let args = run_as_typed(&hint);
+        assert_eq!(
+            (args.db.as_deref(), args.realms.as_deref()),
+            (db_flag, realms)
+        );
+    }
+}
+
+/// #820 F2: a journal path that is not UTF-8 has no printed word that
+/// names it, so the next page is stated without a command, never as one
+/// that would read another file.
+#[test]
+fn a_path_that_is_not_utf8_prints_no_next_page_command() {
+    use std::os::unix::ffi::OsStrExt;
+    let (_dir, db) = finished_hours_ago(&["done", "e"]);
+    let bytes = Path::new(std::ffi::OsStr::from_bytes(b"review-\xff.db"));
+    let stated = format!(
+        "next page  --limit 1 --after recent:{}:done, with this listing's --db and --realms: \
+         a path that is not UTF-8 is not printed as a command",
+        now() - HOUR
+    );
+    let ok = Some(Path::new("ok.db"));
+    let cases = [(Some(bytes), None), (None, Some(bytes)), (ok, Some(bytes))];
+    for (db_flag, realms) in cases {
+        let called = Called {
+            db: db_flag,
+            realms,
+        };
+        assert_eq!(hint(&db, called), stated);
+    }
 }
 
 /// Every run a walk of pages of one lists, from the first page, each read
@@ -990,7 +1115,7 @@ fn served_after(db: &Path, next: Option<&str>) -> Value {
 fn printed_after(db: &Path, after: Option<&brokkr_view::Cursor>) -> Value {
     let mut out = Vec::new();
     let asked = (true, Some(1), after);
-    crate::verbs::readouts::hearth_runs(db, asked, &STYLE, &mut out).unwrap();
+    crate::verbs::readouts::hearth_runs(db, asked, Called::default(), &STYLE, &mut out).unwrap();
     serde_json::from_str(&String::from_utf8(out).unwrap()).unwrap()
 }
 
@@ -1032,7 +1157,9 @@ fn an_id_holding_a_nul_lists_as_itself_in_every_lane() {
         let whole = whole_rows(&db);
         lists_every_run_as(&db, TAIL_KEYS, &brokkr_view::RunsView::of(arranged(&whole)));
         let mut every = Vec::new();
-        crate::verbs::readouts::hearth_runs(&db, (true, None, None), &STYLE, &mut every).unwrap();
+        let asked = (true, None, None);
+        crate::verbs::readouts::hearth_runs(&db, asked, Called::default(), &STYLE, &mut every)
+            .unwrap();
         let every: Value = serde_json::from_slice(&every).unwrap();
         let served = crate::ui::handle(&db, "/api/runs").body;
         assert_eq!(
@@ -1118,7 +1245,7 @@ fn a_listing_its_output_refuses_is_refused_and_a_last_page_names_no_next() {
     let refused = refused.unwrap_err().to_string();
     assert_eq!((refused.as_str(), out.writes), ("broken pipe", 1));
     let table = printed(&db, None, |lister, out| {
-        lister.one(out, (None, 1), false, &STYLE)
+        lister.one(out, (None, 1), false, Called::default(), &STYLE)
     });
     let view = brokkr_view::RunsView::of(whole_rows(&db));
     assert_eq!(table, crate::render::runs(&view, NOW, &STYLE));
