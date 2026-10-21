@@ -19,8 +19,62 @@ use std::process::Command;
 /// started and was retried, so the test counted two attempts (#794). At
 /// `STARTUP`, admission gets the whole startup bound, as it does for any
 /// seat of 30 s or more, and the deadline under test no longer shortens
-/// it. It costs each hanging seat 30 s before its kill.
+/// it. It costs each hanging seat 30 s before its kill. `STARTUP` is
+/// private to the runtime, so this is a copy, which
+/// `engine::hang_deadline_is_the_runtime_startup` pins equal to the
+/// runtime's own declaration (#803).
 pub(crate) const HANG_DEADLINE_SECONDS: u64 = 30;
+
+/// brokkr-runtime's `engine/broker.rs`, the one home of `STARTUP`.
+/// `include_str!` reads a path from this file's directory: three levels
+/// up from `crates/brokkr-cli/tests/support/` is `crates/`, where the
+/// runtime is the cli's sibling member of the workspace, as every
+/// member is.
+const RUNTIME_BROKER: &str = include_str!("../../../brokkr-runtime/src/engine/broker.rs");
+
+/// The seconds of the one `STARTUP` `source` declares, read off its line
+/// `const STARTUP: Duration = Duration::from_secs(N);`. A line naming
+/// `const STARTUP` in any other shape, no such line, or two, fails the
+/// pin, never passes unread.
+fn startup_seconds(source: &str) -> u64 {
+    let declared: Vec<&str> = source
+        .lines()
+        .filter(|line| {
+            let words: Vec<&str> = line
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .filter(|word| !word.is_empty())
+                .collect();
+            words.windows(2).any(|pair| pair == ["const", "STARTUP"])
+        })
+        .collect();
+    let [line] = declared[..] else {
+        panic!(
+            "brokkr-runtime's engine/broker.rs names `const STARTUP` on {} lines, where the \
+             pin reads exactly one: {declared:?}",
+            declared.len()
+        );
+    };
+    line.strip_prefix("const STARTUP: Duration = Duration::from_secs(")
+        .and_then(|rest| rest.strip_suffix(");"))
+        .filter(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|digits| digits.parse().ok())
+        .unwrap_or_else(|| {
+            panic!(
+                "brokkr-runtime's engine/broker.rs declares `STARTUP` in a shape the pin does \
+                 not read, not `const STARTUP: Duration = Duration::from_secs(N);`: {line}"
+            )
+        })
+}
+
+#[test]
+fn hang_deadline_is_the_runtime_startup() {
+    let startup = startup_seconds(RUNTIME_BROKER);
+    assert_eq!(
+        HANG_DEADLINE_SECONDS, startup,
+        "HANG_DEADLINE_SECONDS is {HANG_DEADLINE_SECONDS} s and brokkr-runtime's STARTUP is \
+         {startup} s: a seat that hangs to its kill takes the whole startup bound (#794)"
+    );
+}
 
 /// `brokkr` run in `dir`, which is its TMPDIR too: its start reaps only
 /// the trees of `dir`. Its HOME is [`home_in`] `dir`, unless the test
