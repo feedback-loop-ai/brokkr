@@ -714,6 +714,11 @@ fn a_database_that_cannot_be_opened_is_named_before_anything_is_asked_of_it() {
 
 /// Two hearths, each with its own runs, read side by side.
 fn many_hearth_dossier(alpha: &Fleet, beta: &Fleet) -> Dossier {
+    two_hearth_dossier(alpha, beta, &[])
+}
+
+/// [`many_hearth_dossier`] over a map that draws `crossings`.
+fn two_hearth_dossier(alpha: &Fleet, beta: &Fleet, crossings: &[RealmCrossings]) -> Dossier {
     let alpha_store = Store::open_read_only(&alpha.db()).unwrap();
     let beta_store = Store::open_read_only(&beta.db()).unwrap();
     dossier_of(
@@ -727,7 +732,7 @@ fn many_hearth_dossier(alpha: &Fleet, beta: &Fleet) -> Dossier {
                 store: &beta_store,
             },
         ],
-        &[],
+        crossings,
         NOW,
     )
     .unwrap()
@@ -948,17 +953,14 @@ fn crossing_dossier(crossings: &[RealmCrossings]) -> Dossier {
     .unwrap()
 }
 
-/// The raven states what every mapped realm publishes and consumes —
-/// each publication's declared path, each consumption's publishing realm
-/// and its own pin state, never a bare count — and a pin that moved
-/// becomes a FINDING under the CONSUMING realm — the realm whose run
-/// would refuse — never under the publisher's. A matching pin and a pin
-/// nobody could check are stated but are not findings.
-#[test]
-fn a_moved_crossing_is_a_finding_under_the_consuming_realm() {
-    let moved_line = "realm 'beta' consumes crossing 'billing.api' from realm 'alpha' \
-                      pinned at aaa, but contracts/billing.v1.schema.json hashes to bbb";
-    let crossings = vec![
+/// The refusal a moved pin carries in [`three_pin_crossings`].
+const MOVED_LINE: &str = "realm 'beta' consumes crossing 'billing.api' from realm 'alpha' \
+                          pinned at aaa, but contracts/billing.v1.schema.json hashes to bbb";
+
+/// Alpha publishes one crossing, and beta consumes three, one in each
+/// state a pin can be in.
+fn three_pin_crossings() -> Vec<RealmCrossings> {
+    vec![
         realm_crossings(
             "alpha",
             vec![published("orders.api", "contracts/orders.v1.schema.json")],
@@ -969,7 +971,7 @@ fn a_moved_crossing_is_a_finding_under_the_consuming_realm() {
             Vec::new(),
             vec![
                 consumed("orders.api", "alpha", Pin::Matching),
-                consumed("billing.api", "alpha", Pin::Moved(moved_line.to_string())),
+                consumed("billing.api", "alpha", Pin::Moved(MOVED_LINE.to_string())),
                 consumed(
                     "audit.api",
                     "ledger",
@@ -979,7 +981,19 @@ fn a_moved_crossing_is_a_finding_under_the_consuming_realm() {
                 ),
             ],
         ),
-    ];
+    ]
+}
+
+/// The raven states what every mapped realm publishes and consumes —
+/// each publication's declared path, each consumption's publishing realm
+/// and its own pin state, never a bare count — and a pin that moved
+/// becomes a FINDING under the CONSUMING realm — the realm whose run
+/// would refuse — never under the publisher's. A matching pin and a pin
+/// nobody could check are stated but are not findings.
+#[test]
+fn a_moved_crossing_is_a_finding_under_the_consuming_realm() {
+    let moved_line = MOVED_LINE;
+    let crossings = three_pin_crossings();
     let derived = crossing_dossier(&crossings);
 
     let stated = derived.value["crossings"].as_array().unwrap();
@@ -1586,26 +1600,28 @@ fn usage_is_read_from_the_session_checkpoint_or_claimed_at_all() {
     );
 }
 
+/// A report over [`parked_dossier`]: one parked-run proposal and one
+/// queued finding, both about the parked run.
+fn parked_report() -> Value {
+    reported(json!({
+        "fleet_summary": "one run is parked",
+        "parked_runs": [{
+            "run_id": "parked-run", "seq": 8, "command": "stop",
+            "reasoning": "the ruling was hard",
+        }],
+        "work_queue": [{
+            "run_id": "parked-run", "seq": 7, "finding": "severity high",
+            "reasoning": "the highest residual",
+        }],
+    }))
+}
+
 #[test]
 fn a_recorded_entry_renders_every_proposal_with_its_citation() {
     let staged = Staged::new(json!({"max_attempts": 1, "timeout_seconds": 900}));
     let resolved = staged.seat().unwrap();
     let derived = parked_dossier();
-    let report = validate(
-        &derived,
-        &reported(json!({
-            "fleet_summary": "one run is parked",
-            "parked_runs": [{
-                "run_id": "parked-run", "seq": 8, "command": "stop",
-                "reasoning": "the ruling was hard",
-            }],
-            "work_queue": [{
-                "run_id": "parked-run", "seq": 7, "finding": "severity high",
-                "reasoning": "the highest residual",
-            }],
-        })),
-    )
-    .unwrap();
+    let report = validate(&derived, &parked_report()).unwrap();
     let line = entry(
         NOW,
         &resolved,
@@ -1709,3 +1725,5 @@ fn the_listing_reads_the_record_back_plainly_and_as_json() {
     assert!(list(&path, false).is_ok());
     assert!(list(&path, true).is_ok());
 }
+
+mod pins;
