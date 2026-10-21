@@ -2,7 +2,7 @@
 
 Decision 0093 carries the rulings. This design carries what the code does,
 the evidence behind each choice, and the council's positions reconciled.
-The proposal's record (S1 to S31) holds the clarify history, and the lists,
+The proposal's record (S1 to S32) holds the clarify history, and the lists,
 orders and texts a refusal or a record carries are the specs' own
 (`panel-member-retry` R1 to R5, `panel-attempt-record` A1 to A4,
 `working-tree-reading` W1 and W2), stated there once and pinned once in the
@@ -18,9 +18,10 @@ clarify with four operator rulings (the head at both ends of every panel
 attempt; the pinned bundle compiled under `resume`'s manifest gate; the
 three-way test deciding the parked attempt; the reader's tests in a new
 module) and the operator's assistant's settlements under the standing ruling
-for epic #790. The council sat three times, robustness and simplicity each
+for epic #790. The council sat four times, robustness and simplicity each
 time, both run-local: at S22, after clarify's sixth pass cleared the record
-(S27), and after tasks returned the change upstream (S28). This design adopts,
+(S27), after tasks returned the change upstream (S28), and after clarify
+cleared S31 (S32). This design adopts,
 rejects or combines each claim below, on the code as it stands.
 
 The pieces the design builds on, as read on this branch:
@@ -131,7 +132,9 @@ Goals, the issue's three acceptance lines and the proposal's rulings:
 2. A verdict is carried only when the reviewed head, the working tree, the
    pinned bundle and the member's inputs are what it judged; all four facts
    are asked at the command, which refuses by name and writes nothing, and
-   again at the drive, which fails closed.
+   again at the drive, which fails closed; and the carrying attempt holds
+   its own two ends to the same head and a clean tree before its aggregate
+   is published, else it parks naming them.
 3. Every carried verdict is named in the journal, typed, and in every
    readout that paints participants.
 
@@ -409,6 +412,71 @@ takes them where they bind:
 - **Also made coherent:** D11, D13 and decision 0093 ruling 1's binding name
   the handler's test module as S20's pin, where tasks T5 moved it.
 
+### The fourth visit (clarify cleared S31, 2026-10-21)
+
+Clarify's pass after S31 returned clear with no findings, three items of
+drift noted and not raised, and both positions sat again, run-local. Each
+claim, with the ruling it turns on:
+
+- **Robustness: identity through aggregation: adopted** (D4, D7, D13,
+  Risks; ruling 9, and the severity table's "hides a fail-open path"). The
+  record through S31 asked the carry's two facts, the head and the tree, at
+  every observation but one: the carrying attempt's own span. The drive asks
+  them at `execute` (D7), the panel reads its two ends for the record (D6),
+  and nothing compared those ends with the head the carry was admitted on
+  before the mixed aggregate was published; the Risks' sentence that "no
+  window admits a carry the facts do not hold for" was untrue of that span,
+  and a succeeded attempt stamps no record, so the record alone could
+  refuse the next carry and not this aggregate. Measured on the code: the
+  gate-head observation is armed after the drive's reading
+  (`dispatch.rs:90`, after `plan_attempt`), compares heads alone
+  (`finish_gate_head_check`, `engine.rs:1044`) and watches a gate single
+  seat or an all-gate panel (`arms_effect_gate_head`, `engine.rs:3475`); a
+  panel's members judge under a read-only sandbox when they are gates
+  (`admitted_sandbox`, `bundle.rs:2559`). So a head moved between the
+  drive's reading and the arming, a tree dirtied without a commit while an
+  all-gate panel judged, by an actor outside its members, and a fresh work
+  member's commit inside an all-work panel each left the carried verdicts,
+  judged at the admitted head, joined with a fresh verdict on another
+  subject, and published. Settled as robustness asked, with the smallest
+  structure: the plan carries the admitted head; the panel's two readings,
+  already taken for the record, are compared with it in `outcome_under`
+  before the join; and a span that does not hold ends the attempt
+  indeterminate with the refusal's own sentence, a stated park as D8 parks
+  a drive-time refusal. No second reader, no record field, no new identity
+  fact and no verb refusal. The gate-head observation keeps its place: an
+  all-gate panel whose head moved after the arming still ends
+  `GATE-MOVED-HEAD` in the terminal fact's place and is passed over (S11).
+- **Robustness: the structural safeguards, the six invariants, the
+  recovery and readout rules and the binding tests: already the record's**
+  (D3 to D9, D13). Nothing to add. Its acceptance of D5's classification
+  of the post-digest facts stands, and its named limit, that reverted
+  edits, ignored files, mutable secret values and external services lie
+  outside the observation, is the Risks' first entry.
+- **Simplicity: the three corrections: adopted** (proposal Impact, D2 step
+  5, tasks 7.4). Each was checked against the code: `disposed`'s callers
+  are `operator_command_racing` (`operator.rs:360`) and `command_stop`
+  (`:548`), and the bridge (`apply_fenced_operator_command`, `:648`)
+  reaches `receipt::refuse_undisposed`, never `disposed`; the proposal's
+  Impact bullet contradicted task 1.2 in its last clause and kept a stray
+  parenthetical; task 7.4's post-write case named no entry point, and the
+  test module, a descendant of `operator`, reaches `disposed` as a private
+  item of its ancestor.
+- **Simplicity: no decision, fact, field, refusal, scenario or task at this
+  visit: rejected in one respect** (ruling 6). The consumer of a design
+  change is a finding it answers, as simplicity says; robustness's finding
+  above is one, with a fail-open behind it, and the span check is its
+  answer. Everything else simplicity would refuse is refused: no identity
+  fact is widened, since the span check asks the two facts already asked,
+  at two more observations; R4's facts keep their order and texts;
+  `panel-carry.v1` gains no field; the record's S and D sections are not
+  restructured before archive; `retry_members_racing` gains no `between`
+  parameter, a second hook with one test as its consumer.
+- **Simplicity: no fourth-visit section and no S32: rejected** (this
+  file's own rule). The reconciliation of an adopted claim has readers, the
+  implementer and the next judge; S32 records it once in the proposal's
+  history, and this section carries the reasons.
+
 ## Decisions
 
 ### D1. Where the code lands, against the ceilings
@@ -438,8 +506,9 @@ Clippy's `too_many_arguments` counts `self` against its threshold of seven.
   its constructor; `CarryPlan::join`, the one join of carried and fresh
   verdicts, yielding the pairs the rule takes; `outcome_under`, the one
   function both panel callers use (D7); the `panel-carry.v1` types that
-  both the writer and the reader use, and `settled_members`, the free
-  function over the fresh reports that fills the record (D6); and
+  both the writer and the reader use, `PanelSpan`, the panel's two readings
+  the record and the span check share (D7), and `settled_members`, the
+  free function over the fresh reports that fills the record (D6); and
   `Engine::carry_facts`, the one observer (D4), which fills the facts from
   the journal's typed records, the body the engine would run, git and the
   engine's own `seat_input`, raising `RecordUnread` for a record that does
@@ -562,8 +631,9 @@ runs in R4's order:
    decides on the fold it is handed, writes the command, and fences the
    acceptance as today: after the write only the race's refusal,
    `lost_fence`, can follow, journaled as the plain retry's race is. The
-   plain verb and the bridge fold for themselves and pass `{}`, so their
-   bytes do not move. Returned as
+   plain verb (`operator_command`) and conclude's stop (`command_stop`) fold
+   for themselves and pass `{}`, so their bytes do not move; the bridge does
+   not reach `disposed`. Returned as
    `MemberRetryOutcome::Disposed(FencedCommandOutcome)`, which the CLI
    prints as it prints the plain verb's.
 
@@ -690,15 +760,20 @@ attempt is passed over (R4).
 `CarryPlan` holds one `Contribution` per declared tag, `Fresh` or
 `Carried(SettledVerdict { tag, result, source: AttemptId })`, built by a
 constructor that refuses a duplicate, a missing member or a tag outside the
-panel; `fresh()` and `carried()` are its two views, each in the panel's
-declared order. `fresh()` is the selection: the named tags, or every tag for
+panel. It carries `subject: Option<Head>`, the head the carry was admitted
+on, `Some` exactly when an entry is `Carried` and `None` for the all-fresh
+plan, set by the constructor from the facts' head now once the head fact
+held, and read by the panel's span check alone (D7). `fresh()` and
+`carried()` are its two views, each in the panel's declared order.
+`fresh()` is the selection: the named tags, or every tag for
 the all-named short-circuit; the verb journals it as `args.members` (D2
 step 5) and the drive reads the same tags back, so one order has one source
 and the verb neither resolves nor orders a name.
 
-`CarryRefusal` is one `thiserror` enum, one variant per fact of R4, grouped
-where the facts are siblings so each `why` is a closed enum matched
-exhaustively (ruling 2):
+`CarryRefusal` is one `thiserror` enum, one variant per fact of R4 and one
+for the fact the panel alone asks of its own span (R5), grouped where the
+facts are siblings so each `why` is a closed enum matched exhaustively
+(ruling 2):
 
 - `NoPanel { phase }`; `PanelStepFollows { step, first }`
 - `UnknownMember { name, tags }`; `MemberTwice { tag }`
@@ -714,6 +789,9 @@ exhaustively (ruling 2):
 - `NoHead { repo }`; `HeadMoved { ends: Vec<RecordedHead>, now }`
 - `TreeNotClean { observations: Vec<Observation>, now }`
 - `InputMoved { effects }`
+- `SubjectMoved { attempt, head: Ends<Option<Head>>, tree: Ends<TreeReading>,
+  admitted: Head }`, raised by `outcome_under` (D7) over the carrying
+  attempt's own two readings, never by `carry_plan` and never by the verb
 
 The rule asks the facts in R4's order: the two panel facts from the shape,
 then the names (every member named returns the all-fresh plan and asks
@@ -835,8 +913,9 @@ contract, not a field added to a projection.
 
 ### D6. The record
 
-`carry/record.rs` holds `PanelRecord { tree: Ends<TreeReading>, head:
-Ends<Option<Head>>, settled_members: Option<BTreeMap<Tag, Value>> }` and
+`carry/record.rs` holds `PanelRecord { span: PanelSpan, settled_members:
+Option<BTreeMap<Tag, Value>> }`, the span flattened to `tree:
+Ends<TreeReading>` and `head: Ends<Option<Head>>` (D7), and
 `CarriedEntry { member: Tag, attempt_id }`, serialised with
 `deny_unknown_fields` and read back by the same types. `Head` parses by
 `is_commit_id` (`engine.rs:3388`), the one home of the shape
@@ -915,13 +994,15 @@ effect with no acceptance before it hold `None`; a member retry holds
 no field.
 
 `execute_panel` and the sequence's panel step (`sequence.rs`, `panel_step`)
-run `member_runs` over the narrowed members, journal their markers, and
-reach the one rule through one function, `outcome_under(aggregate, plan:
-Option<&CarryPlan>, reports)` in `carry.rs`: under `None` it is
+run `member_runs` over the narrowed members, journal their markers, close
+their span (below), and reach the one rule through one function,
+`outcome_under(aggregate, plan: Option<&CarryPlan>, reports, span:
+&PanelSpan)` in `carry.rs`: under `None` it is
 `panel_outcome(aggregate, reports)`, today's function with today's
 signature, whose three arms have moved below it into
 `outcome_over(aggregate, pairs)` over `(name, AttemptOutcome)` pairs; under
-`Some(plan)` it is `outcome_over(aggregate, plan.join(reports)?)`, where
+`Some(plan)` it is the span check below and then
+`outcome_over(aggregate, plan.join(reports)?)`, where
 `CarryPlan::join` yields the pairs in the panel's declared order, a `Fresh`
 entry taking its report's `settled_outcome()` under the member's bare name
 and a `Carried` entry standing as `AttemptOutcome::Succeeded { result }`
@@ -960,6 +1041,41 @@ threads nothing through `execute_sequence`. The carry's own reading of the
 head and the tree now, at `execute` (D4), is a second observation at an
 earlier moment with another purpose, the precondition's; the record keeps
 what the members judged.
+
+The carrying attempt holds its own span to the subject the carry was
+admitted on. The two readings the panel takes for the record are the
+readings the check reads: `PanelSpan { tree: Ends<TreeReading>, head:
+Ends<Option<Head>> }` in `carry/record.rs`, opened at the panel's top and
+closed after the markers and before `outcome_under`, on every attempt, the
+type `PanelRecord` holds flattened, so the record's bytes are D6's and the
+record and the check read one observation (ruling 5). Under a plan whose
+`subject` is `Some(admitted)`, `outcome_under` asks, before the join, that
+`head.at_start` and `head.at_end` each equal `admitted` and that
+`tree.at_start` and `tree.at_end` each read `Clean`; otherwise the outcome
+is `AttemptOutcome::Indeterminate` whose reason is
+`CarryRefusal::SubjectMoved`'s `Display`, naming the carrying attempt, its
+two ends with their head and tree readings, and the admitted head. The
+terminal fact is the panel's, so the record is stamped as on any panel
+attempt that ended short of success, `settled_members` with the fresh
+verdicts that settled included, and the run parks as a stated
+indeterminate (D8). No aggregate is published over two subjects: the next
+member retry is refused by that record's ends (R3), and the plain retry
+re-runs the panel. Under `None`, or a plan whose `subject` is `None`, the
+span is not asked. This closes what the drive's check and the record
+cannot: a head moved between the drive's reading and the gate-head
+observation's arming (`dispatch.rs:90`, after `plan_attempt`), which the
+panel's start reading is taken after; a tree dirtied, without a commit,
+while an all-gate panel judged, which `finish_gate_head_check` does not
+read and whose actor is outside the members, since they judge under a
+read-only sandbox (`bundle.rs:2559`); and a fresh work member's commit
+inside an all-work panel, which no gate-head observation watches
+(`arms_effect_gate_head`). An all-gate panel whose head moved after the
+arming ends as today: the span check's indeterminate reaches `append`,
+`finish_gate_head_check` writes `GATE-MOVED-HEAD` in its place, and the
+attempt bears no mark and is passed over (S11). A work panel therefore
+carries only when its fresh work leaves the subject unchanged; when the
+fresh member commits, the attempt parks naming its own end, the commit
+stands on the branch, and the plain retry is the recovery.
 
 A fresh indeterminate parks the attempt and a fresh failure fails it; the
 bounded retry reads the same acceptance and the same parked attempt (D3),
@@ -1176,6 +1292,13 @@ built by a builder and a synthetic panel bundle:
   tag, a report for no `Fresh` entry and a `Fresh` entry with no report are
   each `EngineError::Invariant`; mutations: the join emitting the reports'
   order in place of the plan's, and the duplicate check removed;
+- the span check: under a plan whose `subject` is `Some(H0)`, a span at `H0`
+  and `Clean` at both ends joins as before; an end head `H1`, an absent
+  start head, and `Dirty` at either end are each `Indeterminate` with
+  `SubjectMoved`'s sentence naming the attempt, both ends and `H0`, before
+  the join, so a fresh indeterminate member's reason is not the one named;
+  under `None` and under the all-fresh plan the same spans change nothing;
+  mutation: the comparison removed (the moved span then aggregates);
 - the scope: an acceptance before an earlier effect's request selects
   nothing for a later effect, and another command's acceptance after the
   retry's and before the request does not hide the retry; mutations: the
@@ -1264,7 +1387,20 @@ carries the same verdicts from the same source attempts, its `provenance`
 naming the fresh member under the second candidate alone, while the carried
 participants keep the model their source attempt's `provenance` named
 (mutation: the fresh member's candidate compared between the attempts as an
-identity fact, so the carry refuses); the restart indeterminate carries no
+identity fact, so the carry refuses); a fresh work member of a carrying
+all-work panel commits inside the attempt: the attempt ends
+`effect/indeterminate` with `SubjectMoved`'s sentence naming its start at
+`H0`, its end at `H1` and the admitted `H0`, no `effect/succeeded` is
+journaled, the terminal fact records `head` at both ends, `tree` and the
+fresh verdict under `settled_members`, the stated park reason carries the
+sentence, the next member retry is refused at the head fact naming the
+ends unequal to the head now, and the plain retry is admitted; a file edited and left so by the fresh
+member's fake driver while a carrying all-gate panel runs: the same,
+naming the tree `dirty` at the attempt's end; a gate member's commit inside
+a carrying all-gate panel: `GATE-MOVED-HEAD` in the terminal fact's place
+as today, no record, and the attempt passed over; a plain retry's attempt
+in the all-work panel whose member commits: the aggregate as today; the
+restart indeterminate carries no
 record and is passed over; an accepted
 retry whose `args` do not read parks on `driver: "none"` naming the
 command, and one whose `args` are `{}` runs every member; an all-named
@@ -1274,7 +1410,10 @@ panel, and one whose panel step follows another step, each park on
 `driver: "none"` naming the fact. Mutations: the drive-time check removed
 (the moved head is carried); the drive's call of the rule over the shape
 removed (the two bodies then reach the names with no panel); the narrowing
-removed (four spawns); the end reading removed (`tree` absent).
+removed (four spawns); the end reading removed (`tree` absent); the span
+check removed from `outcome_under` (the fresh work member's commit inside
+the carrying attempt then publishes the mixed aggregate as
+`effect/succeeded`).
 
 `crates/brokkr-runtime/tests/frozen_contracts.rs`: the new schema's
 registration and bytes; `crates/brokkr-core/src/fold/tests.rs`: a journal
@@ -1346,8 +1485,12 @@ take no test of this change (D9); `commands/tests.rs` pins S21's text; the
 - **A partial settlement lost to a restart** (D7) costs the named members a
   second run. Fail-closed; the attempt before is read.
 - **The fence's window.** The facts are read at the fold `disposed` decides
-  on, the fence refuses a run that moved between, and the drive asks the
-  world's facts again: no window admits a carry the facts do not hold for.
+  on, the fence refuses a run that moved between, the drive asks the
+  world's facts again, and the carrying panel holds its own two ends to the
+  admitted head and a clean tree before its aggregate is published (D7): no
+  window from the first source attempt's start to the carrying attempt's
+  end admits an aggregate over verdicts of two subjects. What lies inside
+  one span and is gone by its end is the first risk's residual.
 - **A record the engine never writes** (`RecordUnread`) refuses rather than
   carries; the plain retry stands.
 - **The store at the command.** A run driven with `--secrets-file` is
@@ -1369,8 +1512,15 @@ take no test of this change (D9); `commands/tests.rs` pins S21's text; the
   both and compares the bytes, so a divergence fails a binding test.
 - **The record's start reading and the carry's reading at the drive** are
   two observations moments apart. The first is the evidence's, the second
-  the precondition's; a tree edited between them is recorded at the
-  panel's start and refuses the next carry by the record, fail-closed.
+  the precondition's; a tree edited between them is read at the panel's
+  start, ends the attempt by the span check (D7), and refuses the next
+  carry by the record, fail-closed.
+- **A carrying work panel whose fresh member commits** parks naming its own
+  end, with the commit on the branch, and the plain retry re-runs the panel
+  on the new head: a work panel carries only when its fresh work leaves the
+  subject unchanged. Accepted, since the issue's panels are gate panels and
+  a work member that moves the subject has changed what the carried results
+  were about.
 - **A positional `PanelAt::new` with a trailing `bool`.** A struct literal
   at each site grows both baseline files; the four fields are the
   `Dispatch` fields a panel reads, in their order.

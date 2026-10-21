@@ -65,7 +65,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - `Tag`: a newtype spelled from `(step, member)` by the function the member markers use, with `bare()`. The verb's names and `args.members` become `Tag`s as written.
   - `Ends<T> { at_start, at_end }`.
   - `Head`: parsed by `is_commit_id` (`engine.rs:3388`), the one home of the shape `phase-entered-head.v1` pins, reached as a private item of the ancestor module; no second predicate is written (ruling 5). The writer stamps `git_head`'s answer only when `is_commit_id` admits it, and otherwise leaves the end absent, as `phase-entered-head.v1` records none.
-  - `PanelRecord { tree: Ends<TreeReading>, head: Ends<Option<Head>>, settled_members }`, with `head` absent when neither end holds one. `PanelRecord::stamp` merges it into an `effect/indeterminate` or `effect/failed` payload beside the fields that payload keeps. `settled_members` maps each tag to any JSON value, the member's result value as its driver reported it, whether an object or not. This is the one deliberate `Value` of this change, named in design D6.
+  - `PanelSpan { tree: Ends<TreeReading>, head: Ends<Option<Head>> }`, the panel's two readings (task 5.1), and `PanelRecord { span: PanelSpan, settled_members }` with the span flattened, so the record's fields read `tree`, `head` and `settled_members`, `head` absent when neither end holds one. `PanelRecord::stamp` merges it into an `effect/indeterminate` or `effect/failed` payload beside the fields that payload keeps. `settled_members` maps each tag to any JSON value, the member's result value as its driver reported it, whether an object or not. This is the one deliberate `Value` of this change, named in design D6.
   - `CarriedEntry { member, attempt_id }`.
   - `RetryArgs { members: Option<Vec<Tag>> }`: an absent `members` reads as `None`; a present one reads only as a non-empty list of strings, through a deserializer that refuses `null` (T8); an absent `args` or `{}` is the plain retry.
 
@@ -86,7 +86,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 
 ## 4. The carry rule and the one observer
 
-*Serves: R2, R3, R4, R5. Design: D4, D5, D7; T6. Proposal S5, S7, S9-S12, S15, S17, S18, S27.*
+*Serves: R2, R3, R4, R5. Design: D4, D5, D7; T6. Proposal S5, S7, S9-S12, S15, S17, S18, S27, S32.*
 
 - [ ] 4.1 [R3, R4] Build the reader and the observer in `engine/carry/facts.rs` (T6).
   - **The reader.** `read_visit(events, state, cutoff) -> Result<Vec<PanelAttempt>, CarryRefusal>` is a free function, callable before the engine exists. It returns the visit's attempts before the cut-off as typed `PanelAttempt` records in journal order. Each record holds its terminal kind, `settled_members`, `carried`, `tree` and `head`, its `park_reason` (the `reason` of the first `run/parked` after its terminal fact and before the cut-off, absent where none follows; the one source of `Shape::Succeeded`'s reason at the command and at the drive, never the folded state's), and, for a sequence, the steps whose markers stand. Each record is read once through group 3's types, and a field that does not read raises `CarryRefusal::RecordUnread`. The cut-off is every attempt at the command, and the attempts before this effect's `effect/requested` at the drive.
@@ -114,15 +114,17 @@ Each point below fills in a detail the design leaves to the build, measured agai
     - `NoHead`;
     - `HeadMoved`;
     - `TreeNotClean`;
-    - `InputMoved`.
+    - `InputMoved`;
+    - `SubjectMoved { attempt, head, tree, admitted }`, the fact the panel alone asks of its own span (design D7), raised by `outcome_under` and never by `carry_plan`.
 
-    Its `Display` is the one home of each text; the texts and the lists each names are R1 to R4's.
+    Its `Display` is the one home of each text; the texts and the lists each names are R1 to R5's.
   - **`CarryPlan`**: derives `Debug`, since `Selection` does. It holds one `Contribution` per declared tag, `Fresh` or `Carried(SettledVerdict { tag, result, source })`.
     - Its constructor refuses a duplicate, a missing member or a foreign tag.
     - `CarryPlan::fresh(members)` is the all-fresh plan the all-named retry runs under; a plain attempt holds no plan.
+    - It carries `subject: Option<Head>`, the head the carry was admitted on: `Some` exactly when an entry is `Carried`, set by the constructor from the facts' head now, and `None` for `CarryPlan::fresh`. The span check reads it and nothing else does.
     - Its views `fresh()` and `carried()` are each in the panel's declared order. `fresh()` is the selection the verb journals as `args.members` (the named tags, or every tag for the all-named short-circuit), and the drive reads it back.
   - **`CarryPlan::join(reports) -> Result<Vec<(String, AttemptOutcome)>, EngineError>`**: the one join of design D7. It yields pairs in declared order: a `Fresh` entry takes its report's `settled_outcome()` under the member's bare name, and a `Carried` entry stands as `AttemptOutcome::Succeeded { result }`. A report twice for one tag, a report for no `Fresh` entry, or a `Fresh` entry with no report is `EngineError::Invariant`.
-  - **`outcome_under(aggregate, plan: Option<&CarryPlan>, reports)`**: the one function both panel callers use. Under `None` it is `panel_outcome(aggregate, reports)`; under `Some` it is `outcome_over(aggregate, plan.join(reports)?)` (task 5.1).
+  - **`outcome_under(aggregate, plan: Option<&CarryPlan>, reports, span: &PanelSpan)`**: the one function both panel callers use. Under `None` it is `panel_outcome(aggregate, reports)`. Under `Some` with `subject: Some(admitted)` it asks the span first, `head.at_start` and `head.at_end` each equal to `admitted` and `tree` `Clean` at both ends, else it is `AttemptOutcome::Indeterminate` with `SubjectMoved`'s `Display` as its reason, before the join; then it is `outcome_over(aggregate, plan.join(reports)?)` (task 5.1). `PanelSpan { tree: Ends<TreeReading>, head: Ends<Option<Head>> }` lives in `carry/record.rs`, `PanelSpan::open(repo)` reading the start and `close(repo)` the end, and `PanelRecord` holds it flattened, so the record's bytes are design D6's.
   - **`settled_members(reports, prefix)`**, in `carry/record.rs`: the free function over the fresh reports that fills the record for both callers.
   - **`carry_plan(facts, names: &[Tag])`**: asks the facts in R4's order, as one call per fact, each helper within ruling 4's ceilings:
     1. the two panel facts from `facts`' `PanelShape`, `NoPanel` then `PanelStepFollows`;
@@ -149,6 +151,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - a string-valued `settled_members` entry read back as written and joining to `__member-schema-invalid__`;
   - the join, its all-fresh form and its three invariants;
   - `outcome_under` driving the same verdicts through `None` and through `Some(plan)` to the same bytes;
+  - the span check: under a plan whose `subject` is `Some(H0)`, a span at `H0` and `Clean` at both ends joins as before; an end head `H1`, an absent start head, and `Dirty` at either end are each `Indeterminate` with `SubjectMoved`'s sentence naming the attempt, both ends and `H0`, before the join; under `None` and under `CarryPlan::fresh` the same spans change nothing;
   - the scope's two cases (task 6.1);
   - `RetryArgs` refusing an unknown field, a `members` that is not a list of strings (`null` included) and an empty list as `RecordUnread` naming the command, with `{}` and an absent `args` the plain retry.
 
@@ -156,7 +159,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 
 ## 5. The panel and the sequence write the record
 
-*Serves: A1, R5. Design: D6, D7, D1. Proposal S6.*
+*Serves: A1, R5. Design: D6, D7, D1. Proposal S6, S32.*
 
 - [ ] 5.1 [R5] Narrow `execute_panel`'s signature and route its outcome through the one function.
   - **The signature.** `execute_panel` takes `at: &PanelAt<'_>` beside `members`, `aggregate`, `panel_input`, `deadline` and `selection`: six parameters beside `self`. `PanelAt { effect_id, attempt_id, seat_name, gate }` lives in `panel.rs` with a positional `PanelAt::new`, the `StepAt` precedent. Its `too_many_arguments` expectation is removed, since clippy counts `self` against the threshold of seven. `run_body` (`dispatch.rs`) builds the `PanelAt` from its `Dispatch`.
@@ -170,29 +173,28 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - **The rule.** `panel_outcome(aggregate, reports)` keeps its signature and its five direct test callers. Its three arms move below it into `outcome_over(aggregate, pairs)`, and `panel_outcome` becomes that rule over the reports' settled outcomes.
   - **The body.** `execute_panel`:
     - runs `member_runs` over the members it is handed (the narrowed body's, task 6.3);
-    - reads the tree and the head at its top, before `run_panel` spawns a member;
-    - reaches the outcome through `outcome_under(aggregate, selection.carry.as_ref(), reports)?` (group 4), so the result, `inputs` and `notes` are a fresh panel's bytes and no report is fabricated for a carried member.
+    - opens its span, the tree and the head, at its top, before `run_panel` spawns a member, and closes it after the markers, on every attempt;
+    - reaches the outcome through `outcome_under(aggregate, selection.carry.as_ref(), reports, &span)?` (group 4), so the result, `inputs` and `notes` are a fresh panel's bytes, no report is fabricated for a carried member, and a carrying attempt whose span moved is indeterminate before the join.
 
     `Unproven::panel` and `start_failure_sites` read the fresh reports as today. Markers are journaled only for the members that ran. `member_runs` is not edited. `execute_panel` stays within ruling 4's ceilings, with the record's assembly in `carry/record.rs`.
 
   Verify: `cargo test -p brokkr-runtime panel`, and the six test files above pass with their assertions unchanged, the plain path's bytes with them; `wc -l` of `engine/tests.rs` ≤ 6,556 and of `engine/boundary_tests.rs` ≤ 4,207, both lower than before.
-- [ ] 5.2 [A1] When the panel's outcome ends the attempt short of success:
-  1. take the end readings (`read_tree`, `git_head`) before the terminal fact;
-  2. pair them with the start readings the panel took at its top (task 5.1);
-  3. stamp `tree`, `head` and, when a member settled fresh, `settled_members` onto the `effect/indeterminate` or `effect/failed`. `settled_members` comes from `settled_members(reports, prefix)` (group 4): each fresh success's result value, whatever JSON its driver reported, keyed by tag.
+- [ ] 5.2 [A1] When the panel's outcome ends the attempt short of success, the span check's indeterminate included:
+  1. take the span the panel opened at its top and closed after the markers (task 5.1), both readings;
+  2. stamp `tree`, `head` and, when a member settled fresh, `settled_members` onto the `effect/indeterminate` or `effect/failed`. `settled_members` comes from `settled_members(reports, prefix)` (group 4): each fresh success's result value, whatever JSON its driver reported, keyed by tag.
 
   The stamped fields sit beside `reason`, `unresolved_members` and the start-failure fields, which keep their bytes. `effect/succeeded` is unchanged. Verify: the drive tests of 6.4 (`tree` and `head` on the terminal fact).
 - [ ] 5.3 [A1, R2] In `engine/sequence.rs` (714 of its 800 ceiling):
-  - `panel_step` reads the tree and the head at its top, before `run_panel` spawns a member.
-  - It reaches the outcome through the same `outcome_under`, with the plan `run.selection.carry` holds when the step is the first (`at.index == 0`) and `None` for any later panel step, so the join is not written a second time (ruling 5).
-  - `StepRun` gains the panel step's opened span and its settled verdicts (`settled_members` over the step's reports under the `<step>:` prefix).
-  - `step_result` takes the `StepRun` whole (`settle_step` keeps the copy of its start failures that the fence's refusal needs). It reads the end readings and stamps the record only on the terminal fact of a failed or indeterminate panel step, and on nothing that a later step, the vocabulary check, the marker's fence or the change check writes.
+  - `panel_step` opens its span at its top, before `run_panel` spawns a member, and closes it after the markers, on every attempt.
+  - It reaches the outcome through the same `outcome_under`, with the step's span and the plan `run.selection.carry` holds when the step is the first (`at.index == 0`) and `None` for any later panel step, so neither the join nor the span check is written a second time (ruling 5).
+  - `StepRun` gains the panel step's closed span and its settled verdicts (`settled_members` over the step's reports under the `<step>:` prefix).
+  - `step_result` takes the `StepRun` whole (`settle_step` keeps the copy of its start failures that the fence's refusal needs). It stamps the record, from the `StepRun`'s span and settled verdicts, only on the terminal fact of a failed or indeterminate panel step, and on nothing that a later step, the vocabulary check, the marker's fence or the change check writes.
 
   `execute_sequence`, its expectation, `SequenceRun` and their thirty-one direct test callers are not edited. If the stamp would pass the file's ceiling, it lives in `carry/record.rs` and the sequence calls it (design, Risks). Verify: `cargo test -p brokkr-runtime sequence`; `wc -l` within 800; `git diff main -- crates/brokkr-runtime/src/engine/sequence.rs` shows no change to `execute_sequence`'s signature.
 
 ## 6. The drive
 
-*Serves: R1, R2, R3, R4, R5, A2, A4. Design: D3, D7, D8; T6, T7. Proposal S3, S11, S14.*
+*Serves: R1, R2, R3, R4, R5, A2, A4. Design: D3, D7, D8; T6, T7. Proposal S3, S11, S14, S32.*
 
 - [ ] 6.1 [R1] The selection's scope.
   - **The lookup.** Finding an `operator/commanded` by an acceptance's `command_id` becomes one function in `operator.rs` (`pub(super)`). `operator_stop_reason` (`engine/operator.rs:120-147`) calls it in place of its inline find, and its text does not move (T7).
@@ -224,6 +226,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - **The panel facts.** An accepted retry whose `args.members` meet a body with no panel, and one whose panel step follows another step, each park on `driver: "none"` naming the fact (`NoPanel`, `PanelStepFollows`), with no member spawned.
   - **Sequences.** The sequence's first step carries under `positions:` tags, and `chief` runs on the aggregate. A sequence whose panel step ends it carries `tree` and `head` from the step's own two ends; one ended at the chief carries none.
   - **A chain fallback between the attempts.** The named member's driver fails to start in the carrying effect's first attempt, under a chain of two candidates. The second attempt selects the second candidate, the four facts hold, and it carries the same verdicts from the same source attempts. Its `provenance` names the fresh member under the second candidate alone.
+  - **The carrying attempt's own span.** In a synthetic all-work panel, the fresh member's fake driver commits inside the carrying attempt: the attempt ends `effect/indeterminate` with `SubjectMoved`'s sentence naming its start at `H0`, its end at `H1` and the admitted `H0`, no `effect/succeeded` is journaled, the terminal fact records `head` at both ends, `tree` and the fresh verdict under `settled_members`, the stated park reason carries the sentence, the next member retry is refused at the head fact naming the ends unequal to the head now, and the plain retry is admitted. In a carrying all-gate panel, the fresh member's fake driver edits a file and leaves it: the same, naming the tree `dirty` at the end. In a carrying all-gate panel, the fresh member's fake driver commits: `GATE-MOVED-HEAD` in the terminal fact's place as today, no record, and the attempt passed over by the next member retry. A plain retry's attempt in the all-work panel whose member commits: the aggregate as today.
   - **The plain retry.** Its `effect/started` matches today's bytes.
 
   Verify: `cargo test -p brokkr-runtime carry::drive_tests`.
@@ -273,7 +276,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - a carry refusal returning `CarryRefused` and writing nothing;
   - every member named carrying nothing, a sequence parked at `chief` included;
   - a peer's plain retry, its `operator/commanded` and `operator/accepted`, appended through `retry_members_racing`'s `before_command` hook, after the facts and before the command is written, giving `Disposed(Rejected)` with `lost_fence`, journaled, with no `operator/accepted` carrying the tags (the case task 10.1's `disposed` mutation must fail);
-  - the same peer appended through `disposed`'s existing `between` hook, after the command is written, giving `Disposed(Rejected)` with `lost_fence` as the plain retry's race does today.
+  - the same peer appended through `disposed`'s existing `between` hook, after the command is written, giving `Disposed(Rejected)` with `lost_fence` as the plain retry's race does today, reached by calling `disposed` directly from this module, a descendant of `operator`, with the member form's `Commanded`, the deciding fold the test read and a `between` that appends the peer; under 10.1's nearest-mutation clause a fence mutation in `disposed`'s loop binds it.
 
   No test here reads a `brokkr-view` text. Verify: `cargo test -p brokkr-runtime operator::retry`.
 - [ ] 7.5 [R1] The CLI.
@@ -400,6 +403,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
     - the drive's call of `carry_plan` over the body's `PanelShape` removed (the body with no panel and the following panel step then reach the names);
     - the narrowing removed;
     - the end reading removed;
+    - the span check removed from `outcome_under` (a fresh work member's commit inside the carrying attempt then publishes the mixed aggregate as `effect/succeeded`);
     - the stamp applied whatever step ended a sequence (the chief's park then carries a record);
     - the fresh member's candidate compared between the attempts as an identity fact (the chain fallback then refuses).
   - **The readouts:**

@@ -35,7 +35,7 @@ head and the tree they judged at both ends of the attempt, a rule that says
 when such a verdict may be carried, a reading of the tree that trusts git's
 exit, and a readout that names a carried verdict.
 
-Weighed and set aside, each recorded in the change's proposal (S1 to S31):
+Weighed and set aside, each recorded in the change's proposal (S1 to S32):
 
 - **The verb alone deciding the carry.** A head moved between the command
   and the drive would be carried: a fail-open on the review gate.
@@ -68,6 +68,13 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S31):
   chosen; one kind skipped would be a second rule.
 - **The head alone as the identity.** An uncommitted edit changes what a
   fresh member judges without moving the head.
+- **The carrying attempt's own ends held by the record alone, for the next
+  carry to refuse.** A succeeded attempt records nothing, so a head moved
+  before the gate-head observation was armed, a tree dirtied without a
+  commit while an all-gate panel judged, or a fresh work member's commit
+  inside an all-work panel would have joined the carried verdicts with a
+  fresh one on another subject and published the aggregate; the panel asks
+  its own two ends before it publishes (ruling 3).
 - **Tightening the ship gate's reading of a repository git refuses to
   read.** A second feature under one decision, with no consumer in #787;
   named for a decision of its own.
@@ -177,12 +184,25 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S31):
    `boundary`, the driver label, the session offers, the admission claim and
    the member markers. A fresh indeterminate parks the attempt, a fresh
    failure fails it, and the bounded retry of that effect runs the named
-   members again with the same carried entries.
+   members again with the same carried entries. Before the aggregate is
+   published, the attempt's own two ends, the panel's start and its end,
+   hold the subject the carry was admitted on, the head at both and the
+   tree `clean` at both; a span that does not hold ends the attempt
+   `effect/indeterminate` with the refusal's own sentence naming its two
+   ends and the admitted head, records what ruling 4 records, and
+   publishes no aggregate, so the next member retry is refused by that
+   record and the plain retry re-runs the panel; an all-gate panel whose
+   head moved after the gate-head observation was armed ends
+   `GATE-MOVED-HEAD` as today, and a work panel carries only when its
+   fresh work leaves the subject unchanged.
 
    **Enforcement binding:** `engine/carry/tests.rs` (the aggregate equal
-   byte for byte, a carried `residual` kept); `engine/carry/drive_tests.rs`
+   byte for byte, a carried `residual` kept; a span whose end is not the
+   admitted head, or whose tree is not clean, indeterminate before the
+   join); `engine/carry/drive_tests.rs`
    (the spawn count and every per-site record over the fresh members
-   alone; the bounded retry's entries); `machine_proof/panel_carry.rs` (the
+   alone; the bounded retry's entries; a fresh work member's commit inside
+   the carrying attempt parking by name with no `effect/succeeded`); `machine_proof/panel_carry.rs` (the
    same aggregate as a full re-run, and a residual from the retried member
    routed to implement).
 
@@ -289,7 +309,8 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S31):
   stand, named in the journal and the readouts.
 - A carry never widens silently and never carries across a moved head, a
   dirty tree, a drifted bundle or a moved input: each refuses by name at
-  the command, and fails closed at the drive as a park.
+  the command, and fails closed at the drive as a park; and a carrying
+  attempt whose own span moved publishes no aggregate, parking by name.
 - The plain retry, the bridge, the console, the fold, the frozen contracts,
   the ship gate's answer and every recipe and charter are as they were.
 - A journal written before this decision carries nothing; its plain retry
