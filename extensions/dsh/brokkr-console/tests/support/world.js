@@ -40,7 +40,7 @@ export function row(over = {}) {
 /** A world's `FleetView`: `[[realm, rows], ...]`. */
 export function fleetDoc(realms, over = {}) {
   return {
-    view_version: 24,
+    view_version: 25,
     realms: realms.map(([realm, runs]) => ({ realm, journal: `/hearths/${realm}/forge.db`, runs, count: runs.length, detail: null })),
     count: realms.reduce((sum, [, runs]) => sum + runs.length, 0),
     ...over,
@@ -84,6 +84,7 @@ export function seat(over = {}) {
     label: 'security',
     member: null,
     phase: 'review',
+    visit: 1,
     status: 'succeeded',
     status_class: 'completed',
     working: false,
@@ -119,7 +120,7 @@ export function seat(over = {}) {
 export function runViewDoc(over = {}) {
   const { seq = 12, ...rest } = over
   return {
-    view_version: 24,
+    view_version: 25,
     summary: {
       consecutive_failures: {},
       cursor: 'park',
@@ -135,7 +136,7 @@ export function runViewDoc(over = {}) {
     ruling: { rule_id: 'REVIEW-SECURITY-RESIDUAL', severity_class: 'awaiting_operator', from: 'review', next: '', result: null, inputs: [], problem: null, superseded: null },
     participants: [],
     live: [],
-    phases: [{ name: 'implement', strategy: null, visits: 2, current: false, plain: true, columns: [], returns: ['review'] }],
+    phases: [{ name: 'implement', strategy: null, visits: 2, current: false, plain: true, columns: [], returns: [{ from: 'review', taken: 1, rules: ['REVIEW-REFORGE'] }] }],
     notices: [],
     boundary: { word: { text: '—', absent: true, note: null }, unboxed: false, text: '' },
     journal: [journalRow(seq, 'transition/decided', {}, 'review parked the run')],
@@ -192,7 +193,7 @@ export function recipeRow(over = {}) {
 /** `brokkr analytics --json` for one realm whose seats reported no cost. */
 export function analyticsDoc(over = {}) {
   return {
-    view_version: 24,
+    view_version: 25,
     range: '7d',
     realm: null,
     from: '2026-10-06T09:00:00Z',

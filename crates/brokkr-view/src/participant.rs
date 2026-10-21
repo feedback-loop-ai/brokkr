@@ -1,12 +1,41 @@
 //! What a participant's own record decides about reading its transcript:
 //! whether a legacy Claude id may stand in for an absent reference, and
 //! the subject a surface re-resolves (whether it can still gain prose is
-//! the served `working`, derived where the participant is built).
+//! the served `working`, derived where the participant is built); and
+//! which visit to its phase the seat was asked in.
 //! Derived here once, so the terminal, the browser and `brokkr transcript`
 //! cannot read one participant two ways (decision 0013; #351).
 
+use std::collections::BTreeMap;
+
+use brokkr_core::{EventEnvelope, EventType};
+
 use crate::transcript::LegacyProvenance;
-use crate::{Participant, Transcript};
+use crate::{field, Participant, Transcript};
+
+/// Each requested effect's visit to its phase, in request order — the
+/// order the participant scan numbers effects in: how many times the
+/// journal had entered the effect's phase when it was requested. `None`
+/// for an effect that names no phase, or a phase not yet entered.
+pub(crate) fn visits(events: &[EventEnvelope]) -> Vec<Option<u64>> {
+    let mut entered: BTreeMap<&str, u64> = BTreeMap::new();
+    let mut out = Vec::new();
+    for event in events {
+        let phase = field(&event.payload, "phase");
+        match event.event_type {
+            EventType::PhaseEntered => {
+                if let Some(name) = phase {
+                    *entered.entry(name).or_default() += 1;
+                }
+            }
+            EventType::EffectRequested if field(&event.payload, "effect_id").is_some() => {
+                out.push(phase.and_then(|name| entered.get(name).copied()));
+            }
+            _ => {}
+        }
+    }
+    out
+}
 
 impl Participant {
     /// The legacy-synthesis rule this participant's provenance admits:

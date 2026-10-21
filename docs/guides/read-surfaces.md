@@ -429,6 +429,16 @@ reports a model difference.
   `--recipe` as the operator would; `null` when its first event is not a
   start or names none.
 
+Each phase's `returns` lists the roads that sent the run back to it, one
+per departing phase: `from`, `taken` (how many times the journal ruled
+that road) and `rules` (each rule that ruled it once, the most recent
+last). A road back is a ruling whose `next` stands strictly before its
+`from` on the rail, in first-entry order. A forward step into a phase
+entered before, and a phase ruled onto itself, count in `visits` and are
+not returns. Each
+participant's `visit` says which visit to its phase it was asked in, from
+1, or `null` when it names no phase the journal had entered (#568).
+
 ### `brokkr seats` — the seats, alone
 
 The seats block `inspect` prints — the same table, the same view, the

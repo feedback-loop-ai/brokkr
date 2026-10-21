@@ -14,8 +14,8 @@ for (const [what, parse, doc] of [
 ]) {
   test(`${what} at another view version is refused, not painted`, () => {
     assert.throws(
-      () => parse({ ...doc, view_version: 22 }),
-      new ReadoutRefused('version', `${what} is at view version 22; this console paints version 24 only`),
+      () => parse({ ...doc, view_version: 24 }),
+      new ReadoutRefused('version', `${what} is at view version 24; this console paints version 25 only`),
     )
   })
 }
@@ -61,7 +61,7 @@ test('analytics carries each recipe of each realm through, its cost as Brokkr fi
 })
 
 test('a one-hearth listing is one hearth with no journal to name', () => {
-  const fleet = fleetOf({ view_version: 24, runs: [row()], count: 1 })
+  const fleet = fleetOf({ view_version: 25, runs: [row()], count: 1 })
   assert.deepEqual(fleet.hearths.map((hearth) => [hearth.realm, hearth.journal, hearth.runs.length]), [[ONE_HEARTH, null, 1]])
 })
 
@@ -102,13 +102,13 @@ test('a ruling is read from the fields its payload records, and only for a rulin
   assert.equal(view.journal[1].ruling, null)
 })
 
-test('a carried verdict keeps the view’s status, activity and original attempt at wire version 24', () => {
+test('a carried verdict keeps the view’s status, activity and original attempt at wire version 25', () => {
   const activity = { text: 'carried from review attempt 2', absent: false, note: 'source-attempt' }
   const source = { attempt_id: 'source-attempt', ordinal: 2 }
   const doc = runViewDoc({ participants: [seat({ status: 'carried', working: false, activity, carried_from: source })] })
-  assert.equal(doc.view_version, 24)
+  assert.equal(doc.view_version, 25)
   const part = runViewOf(doc).participants[0]
   assert.deepEqual([part.status, part.working, part.activity, part.carried_from], ['carried', false, activity, source])
   assert.equal(runViewOf(runViewDoc({ participants: [seat()] })).participants[0].carried_from, null)
-  assert.throws(() => runViewOf({ ...doc, view_version: 23 }), new ReadoutRefused('version', 'brokkr inspect is at view version 23; this console paints version 24 only'))
+  assert.throws(() => runViewOf({ ...doc, view_version: 23 }), new ReadoutRefused('version', 'brokkr inspect is at view version 23; this console paints version 25 only'))
 })
