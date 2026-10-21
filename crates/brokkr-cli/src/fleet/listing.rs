@@ -219,20 +219,23 @@ impl Lister<'_> {
             writeln!(out, "{line}")?;
         }
         if let Some(next) = next {
-            let after = render::shell_word(&next.to_string());
-            let Some(called) = called.flags() else {
-                return Ok(writeln!(
-                    out,
-                    "next page  --limit {limit} --after {after}, with this listing's --db and \
-                     --realms: a path that is not UTF-8 is not printed as a command"
-                )?);
-            };
-            writeln!(
-                out,
-                "next page  brokkr runs{called} --limit {limit} --after {after}"
-            )?;
+            writeln!(out, "{}", next_page(limit, &next, called))?;
         }
         Ok(())
+    }
+}
+
+/// The command that prints the page after `next`, `called` as this
+/// listing was, or, where a journal flag's path is not UTF-8, the flags
+/// it takes in words: such a path is not printed as a command (#820).
+fn next_page(limit: usize, next: &Cursor, called: Called<'_>) -> String {
+    let after = render::shell_word(&next.to_string());
+    match called.flags() {
+        Some(called) => format!("next page  brokkr runs{called} --limit {limit} --after {after}"),
+        None => format!(
+            "next page  --limit {limit} --after {after}, with this listing's --db and --realms: \
+             a path that is not UTF-8 is not printed as a command"
+        ),
     }
 }
 
