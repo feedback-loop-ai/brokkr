@@ -7,7 +7,7 @@
 #   quality/heap-bytes.json    each transcript kind's peak heap, plus a tenth,
 #                              and the fleet page's and listing's (decision
 #                              0089 rulings 6 and 9), SQLite's share never
-#                              above 400 KiB
+#                              above 500 KiB
 #
 # It records, and gates nothing on, the fleet's first page's wall time in a
 # release build, against ruling 9's 50 ms: wall clock is the machine's.

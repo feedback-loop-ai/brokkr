@@ -605,8 +605,10 @@ model the writer keeps in the journal's own file and transaction.
      written a page at a time, so its memory is one page's; its JSON shape
      is today's. `--limit N` prints one page and `--after CURSOR` the page
      after a cursor, and their JSON gains `next` (the cursor, or null at
-     the end), which moves `VIEW_VERSION` from 23 to 24
+     the end), which moves `VIEW_VERSION` up by one
      (`brokkr-view/src/lib.rs:128`). `/api/runs` takes the same two.
+     *Amended, 2026-10-21:* the move is from 24 to 25, not 23 to 24,
+     because #568's run view took 24 first.
 
 7. **Every readout states what it reads, its page and its bound.** Every
    page costs milliseconds and kilobytes of live heap, whatever the
