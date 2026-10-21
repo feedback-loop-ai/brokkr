@@ -305,7 +305,7 @@ const DRIVER_KEYS: &[&str] = &["command"];
 /// and the object, and never the value; a key that is not a short name is
 /// described rather than echoed, so the reason stays bounded. A
 /// capability key gets the place it belongs.
-fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
+pub(super) fn refuse_driver_keys(what: &str, raw: &Value) -> Result<(), CompileError> {
     let Some(driver) = raw.get("driver").and_then(Value::as_object) else {
         return Ok(());
     };

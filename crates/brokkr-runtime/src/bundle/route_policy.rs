@@ -33,15 +33,18 @@ pub(super) fn judge_link(
     secrets: &[String],
     minimum: EgressClass,
 ) -> Result<(), CompileError> {
-    // Decision 0043 ruling 3: a deterministic `exec` command whose
-    // hands are boxed has no stochastic axis to distrust, and its
-    // blast radius is the box. It may hold a gate.
-    let boxed_exec = at.driver.as_deref() == Some("exec") && raw.get("hands").is_some();
-    if class == SeatClass::Gate && !boxed_exec {
+    if class == SeatClass::Gate && !boxed_exec(at.driver.as_deref(), raw) {
         refuse_untrusted_gate(at)?;
         refuse_unjudged_model(at)?;
     }
     refuse_secret_egress(at, secrets, minimum)
+}
+
+/// Decision 0043 ruling 3: a deterministic `exec` command whose hands are
+/// boxed has no stochastic axis to distrust, and its blast radius is the
+/// box. It may hold a gate.
+pub(super) fn boxed_exec(driver: Option<&str>, raw: &Value) -> bool {
+    driver == Some("exec") && raw.get("hands").is_some()
 }
 
 /// Decision 0021 ruling 2: a gate link's driver holds the trusted tier.

@@ -216,6 +216,27 @@ fn a_folder_seat_takes_the_folders_driver_and_hands_and_pins_its_layer() {
     );
 }
 
+/// A folder declaration with no hands gives the seat none: the recipe's
+/// own hands, which bind the toolchain, do not survive the substitution.
+/// Both are work seats, as a hands-less exec cannot be a gate.
+#[test]
+fn a_folder_seat_with_no_hands_takes_none_of_the_recipes() {
+    let folder = Folder::new();
+    let mut declared = verify_seat(json!({}), folder_hands());
+    for key in ["class", "hands"] {
+        declared.as_object_mut().unwrap().remove(key);
+    }
+    folder.declare(declared);
+    let mut seat = from_folder();
+    seat.as_object_mut().unwrap().remove("class");
+    let leaf = folder.recipe(json!({"verify": seat}));
+    let bundle = compile(&leaf, &folder.shelves()).unwrap();
+    let dir = folder.folder().canonicalize().unwrap();
+    assert_eq!(argv(&bundle, "verify")[5], script_at(&dir));
+    assert_eq!(bundle.hands.get("verify"), None);
+    assert_eq!(bundle.manifest.pointer("/hands/verify"), None);
+}
+
 /// Where no folder stands, the recipe's own complete declaration is what
 /// compiles: its script, its box, no folder layer and no `@folder/` key.
 #[test]
@@ -279,6 +300,21 @@ fn a_recipe_file_in_the_folder_namespace_refuses() {
     );
 }
 
+/// The word refusal of seat `verify` whose `from` is `word`, as JSON.
+fn word_refusal(word: &str) -> (FolderSeatRefusal, String) {
+    let seat = "verify".to_string();
+    let refusal = FolderSeatRefusal::Word {
+        seat,
+        word: word.into(),
+    };
+    let text = format!(
+        "bundle: seat 'verify' says \"from\": {word}, and \"folder\" is the one word it takes \
+         (decision 0091): any other is refused rather than read as no source at all (decision \
+         0071 ruling 2)"
+    );
+    (refusal, text)
+}
+
 /// `from` is a closed vocabulary of one word: any other refuses, in a
 /// folder or out of one.
 #[test]
@@ -288,23 +324,66 @@ fn a_from_other_than_folder_refuses() {
     seat["from"] = json!("repo");
     let leaf = folder.recipe(json!({"verify": seat}));
     for shelves in [folder.shelves(), Shelves::default()] {
-        let (variant, text) = refusal(compile(&leaf, &shelves));
-        let word = "\"repo\"".to_string();
+        assert_eq!(refusal(compile(&leaf, &shelves)), word_refusal("\"repo\""));
+    }
+}
+
+/// The folder's own declaration is read for its word as the recipe's is:
+/// while the recipe's seat says `"folder"`, a folder declaration saying any
+/// other refuses in the recipe's compile as in the folder's own, before
+/// its keys are read.
+#[test]
+fn a_folder_declaration_whose_from_is_another_word_refuses() {
+    let folder = Folder::new();
+    let leaf = folder.recipe(json!({"verify": from_folder()}));
+    for (word, written) in [
+        (json!("repo"), "\"repo\""),
+        (json!(null), "null"),
+        (json!(7), "7"),
+    ] {
+        let mut declared = verify_seat(json!({}), folder_hands());
+        declared["from"] = word;
+        declared["inputs"] = json!(["notes.md"]);
+        folder.declare(declared);
         assert_eq!(
-            variant,
-            FolderSeatRefusal::Word {
-                seat: "verify".into(),
-                word
-            }
+            refusal(compile(&leaf, &folder.shelves())),
+            word_refusal(written)
         );
         assert_eq!(
-            text,
-            "bundle: seat 'verify' says \"from\": \"repo\", and \"folder\" is the one word it \
-             takes (decision 0091): any other is refused rather than read as no source at all \
-             (decision 0071 ruling 2)"
+            refusal(compile(&folder.folder(), &folder.shelves())),
+            word_refusal(written)
         );
     }
 }
+
+/// A folder declaration that says `"from": "folder"` is the folder's own
+/// seat (TAKE 2): the folder's own compile takes its own declaration, and
+/// a recipe whose seat says it takes that declaration's driver and hands.
+#[test]
+fn a_folder_declaration_that_says_folder_is_taken_in_both_compiles() {
+    let folder = Folder::new();
+    let dir = folder.folder().canonicalize().unwrap();
+    let limits = json!({"max_attempts": 2, "timeout_seconds": 3600});
+    let mut declared = verify_seat(limits, folder_hands());
+    declared["from"] = json!("folder");
+    folder.declare(declared);
+    let leaf = folder.recipe(json!({"verify": from_folder()}));
+    for (leaf, limits) in [(&leaf, (3, 60)), (&dir, (2, 3600))] {
+        let bundle = compile(leaf, &folder.shelves()).unwrap();
+        assert_eq!(argv(&bundle, "verify")[5], script_at(&dir));
+        assert_eq!(bundle.manifest["hands"]["verify"], folder_hands());
+        let seat = &bundle.seats["verify"];
+        assert_eq!(
+            (seat.limits.max_attempts, seat.limits.timeout_seconds),
+            limits
+        );
+    }
+}
+
+/// Refusal 4's text, pinned once.
+const NO_OWN_DRIVER: &str = "bundle: seat 'verify' says \"from\": \"folder\" and declares no \
+                             driver of its own, which a compile with no folder runs (decision \
+                             0091)";
 
 /// Refusal 4: a seat that is the folder's own still declares the driver a
 /// compile with no folder runs, in a folder or out of one.
@@ -322,12 +401,69 @@ fn a_folder_seat_with_no_driver_of_its_own_refuses() {
                 seat: "verify".into()
             }
         );
-        assert_eq!(
-            text,
-            "bundle: seat 'verify' says \"from\": \"folder\" and declares no driver of its own, \
-             which a compile with no folder runs (decision 0091)"
-        );
+        assert_eq!(text, NO_OWN_DRIVER);
     }
+}
+
+/// Refusal 4 in a folder reads the recipe's own driver as a compile with
+/// no folder does, before the folder's replaces it: a driver that compile
+/// refuses refuses here, while out of a folder that compile's own refusal
+/// stands, unchanged. A work seat with no hands may exec what it likes,
+/// as it may with no folder.
+#[test]
+fn a_folder_seat_whose_own_driver_a_compile_with_no_folder_refuses_refuses() {
+    let folder = Folder::new();
+    let pinned = from_folder()["driver"]["command"].clone();
+    let unpinned = json!(["{brokkr}", "driver", "exec", "--", "bash", "-c", "true"]);
+    let unknown = "bundle: seat 'verify' driver has an unknown key, 'env'; known: command. A key \
+                   the compiler does not read is a declaration that was never made — a \
+                   capability placed there would compile, deliver nothing and run the seat at \
+                   its harness default — so it is refused rather than ignored (decision 0004; \
+                   decision 0065 slice one, rebuild unit 5e)";
+    let boxless = "bundle: seat 'verify' declares hands under the `harness` boundary, where no \
+                   box stands, so its exec command must name the bundle's own pinned script: \
+                   '-c' is an option token before the script; interpreters take no options here \
+                   (`bash -c` would run text, not pinned bytes) (decision 0046 ruling 4; \
+                   decision 0021)";
+    let untrusted = "bundle: seat 'verify' is gate class but seats driver 'exec', which does not \
+                     hold the trusted tier; a gate seat IS the check, and nobody stands behind \
+                     the judges (decision 0021 ruling 2 — an undeclared tier is untrusted)";
+    let missing_role = "bundle: seat 'verify' missing 'role'";
+    for (driver, hands, outside) in [
+        (json!(null), true, missing_role),
+        (json!({}), true, missing_role),
+        (json!({"command": []}), true, missing_role),
+        (json!({"command": pinned, "env": {}}), true, unknown),
+        (json!({"command": unpinned}), true, boxless),
+        (json!({"command": pinned}), false, untrusted),
+    ] {
+        let mut seat = from_folder();
+        seat["driver"] = driver;
+        if !hands {
+            seat.as_object_mut().unwrap().remove("hands");
+        }
+        let leaf = folder.recipe(json!({"verify": seat}));
+        let (variant, text) = refusal(compile(&leaf, &folder.shelves()));
+        let seat = "verify".into();
+        assert_eq!(variant, FolderSeatRefusal::NoOwnDriver { seat });
+        assert_eq!(text, NO_OWN_DRIVER);
+        let refused = compile(&leaf, &Shelves::default()).map(|bundle| bundle.roots);
+        assert_eq!(refused.unwrap_err().to_string(), outside);
+    }
+    let mut declared = verify_seat(json!({}), folder_hands());
+    declared.as_object_mut().unwrap().remove("class");
+    folder.declare(declared);
+    let mut seat = from_folder();
+    seat["driver"]["command"] = unpinned;
+    for key in ["class", "hands"] {
+        seat.as_object_mut().unwrap().remove(key);
+    }
+    let leaf = folder.recipe(json!({"verify": seat}));
+    let dir = folder.folder().canonicalize().unwrap();
+    let taken = compile(&leaf, &folder.shelves()).unwrap();
+    assert_eq!(argv(&taken, "verify")[5], script_at(&dir));
+    let own = compile(&leaf, &Shelves::default()).unwrap();
+    assert_eq!(argv(&own, "verify")[4..], ["bash", "-c", "true"]);
 }
 
 /// The sixth refusal: a key the seat is not read for, written by the

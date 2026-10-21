@@ -16,7 +16,7 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use super::{layers, Ancestor, Consumed, Layer, Merged, COMPOSE_PREFIX};
-use crate::bundle::{Bundle, CompileError};
+use crate::bundle::{parse_class, route_policy, site_form, Bundle, CompileError, SeatClass};
 use crate::places::{Origin, Shelves};
 
 /// The reserved manifest namespace a folder layer's digest rides in.
@@ -234,7 +234,7 @@ pub(crate) fn pinned_layer<'a>(
 /// recipe's declaration stands. Returns the folder's layer where it was
 /// read here, for [`Folder::of`]. Each seat refuses in the order the word,
 /// its own driver, its own keys, its base, the folder's declaration, its
-/// keys, its script and its shape.
+/// word, its keys, its script and its shape.
 pub(super) fn take(
     merged: &mut Merged,
     layers: &[Layer],
@@ -243,9 +243,11 @@ pub(super) fn take(
     let chained = layers
         .iter()
         .position(|layer| layer.origin == Origin::Folder);
+    let stands = chained.is_some() || shelves.standing_folder().is_some();
     let mut taken = Vec::new();
     for (seat, value) in &merged.seats {
-        let Some(SeatFrom::Folder) = from(seat, value)? else {
+        let own = stands.then(|| layers[merged.seat_from[seat]].dir.as_path());
+        let Some(SeatFrom::Folder) = from(seat, value, own)? else {
             continue;
         };
         if let Some(at) = chained {
@@ -282,10 +284,10 @@ fn shelved(shelves: &Shelves) -> Result<Option<Layer>, CompileError> {
     Ok(read.pop())
 }
 
-/// What the seat's `from` says, read once: nothing, or the folder, whose
-/// seat must still declare a driver of its own and no key it is not read
-/// for. Any other word refuses.
-fn from(seat: &str, value: &Value) -> Result<Option<SeatFrom>, CompileError> {
+/// What a declaration of `seat` says in `from`, read once into the closed
+/// vocabulary, on either side: nothing, or the folder. Any other word
+/// refuses.
+fn word(seat: &str, value: &Value) -> Result<Option<SeatFrom>, CompileError> {
     let Some(word) = value.get(FROM) else {
         return Ok(None);
     };
@@ -293,12 +295,54 @@ fn from(seat: &str, value: &Value) -> Result<Option<SeatFrom>, CompileError> {
         let (seat, word) = (seat.to_string(), word.to_string());
         return Err(refused(FolderSeatRefusal::Word { seat, word }));
     }
-    if value.get("driver").is_none() {
+    Ok(Some(SeatFrom::Folder))
+}
+
+/// What the recipe's seat's `from` says, by [`word`]. A seat that is the
+/// folder's own must still declare a driver of its own, and no key it is
+/// not read for. Where a folder stands, `own` is the directory of the layer
+/// that wrote the seat, and its driver is held to [`runs_with_no_folder`],
+/// because the folder's replaces it before any compile reads it; where none
+/// stands, the compile reads the recipe's own driver itself.
+fn from(seat: &str, value: &Value, own: Option<&Path>) -> Result<Option<SeatFrom>, CompileError> {
+    let Some(SeatFrom::Folder) = word(seat, value)? else {
+        return Ok(None);
+    };
+    let driven = match own {
+        None => value.get("driver").is_some(),
+        Some(dir) => runs_with_no_folder(dir, seat, value),
+    };
+    if !driven {
         let seat = seat.to_string();
         return Err(refused(FolderSeatRefusal::NoOwnDriver { seat }));
     }
     admit(seat, Side::Recipe, value)?;
     Ok(Some(SeatFrom::Folder))
+}
+
+/// Whether the recipe's declaration of `seat`, written at `dir`, names a
+/// driver a compile with no folder runs. The seat is never read for a
+/// `role`, so that compile reads its driver as a role-less site's, each
+/// by its own home: a closed `driver` object (`site_form`'s two driver
+/// refusals), an exec dispatch, the one driver a role-less site names
+/// (`parse_role`), the layer's own pinned script where it declares hands
+/// (the hands law's exec arm under `harness` and `open`), and for a gate,
+/// a boxed exec (the tier's exemption, as the shipped `exec` adapter is
+/// untrusted). The resolver reads neither the boundary nor the adapters,
+/// so a boxed boundary's or a trusted `exec` adapter's wider admission is
+/// not read here.
+fn runs_with_no_folder(dir: &Path, seat: &str, value: &Value) -> bool {
+    let closed = site_form::refuse_confine(seat, value)
+        .and_then(|()| site_form::refuse_driver_keys(seat, value))
+        .is_ok();
+    let parts = crate::bundle::command_parts(value);
+    let driver = crate::bundle::dispatch_driver(&parts);
+    let hands = value.get("hands").is_some();
+    let gate = matches!(parse_class(seat, value), Ok(SeatClass::Gate));
+    closed
+        && driver.as_deref() == Some("exec")
+        && (!hands || crate::bundle::pinned_script(dir, &parts).is_ok())
+        && (!gate || route_policy::boxed_exec(driver.as_deref(), value))
 }
 
 /// Refuse a key the `side` declaration of `seat` writes beyond
@@ -343,9 +387,11 @@ fn through_base(
 }
 
 /// Take `seat`'s driver and hands from `folder`'s own declaration, which
-/// must exist, write nothing the seat is not read for, dispatch the
-/// folder's own pinned script and agree with the recipe's class and
-/// results; the seat is then the folder layer's, at `index`.
+/// must exist, say nothing in `from` but what [`word`] reads, write
+/// nothing the seat is not read for, dispatch the folder's own pinned
+/// script and agree with the recipe's class and results; the seat is then
+/// the folder layer's, at `index`. A declaration that says
+/// `"from": "folder"` is the folder's own seat, which takes itself.
 fn supply(
     merged: &mut Merged,
     folder: &Layer,
@@ -363,6 +409,7 @@ fn supply(
             file,
         })
     })?;
+    let (None | Some(SeatFrom::Folder)) = word(seat, declared)?;
     admit(seat, Side::Folder, declared)?;
     let parts = crate::bundle::command_parts(declared);
     let exec = crate::bundle::dispatch_driver(&parts).as_deref() == Some("exec");
