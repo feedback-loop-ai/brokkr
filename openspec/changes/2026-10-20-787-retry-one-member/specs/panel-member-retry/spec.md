@@ -212,6 +212,11 @@ A member's settled verdict SHALL be carried into the retry's attempt only when f
 - **WHEN** the head, the tree, the bundle and every input are as the panel judged them, and `brokkr resume` drives the accepted member retry
 - **THEN** the attempt's `effect/started` names every carried verdict, and only the named members spawn; the carrying effect's own `input_digest` differs from the source's, since its result paths name the new effect, and the inputs fact holds, each source rebuilt under its own effect id
 
+#### Scenario: A chain fallback between the attempts
+
+- **WHEN** the named member's driver fails to start in the carrying effect's first attempt, under a chain of two candidates, so the effect's second attempt selects the chain's second candidate for it, and the head, the tree, the bundle and every input are as the panel judged them
+- **THEN** the second attempt carries the same verdicts from the same source attempts: the candidate is who judges and how it is run, not what is judged, so it is no fact of the carry; the attempt's `provenance` names the fresh member under the second candidate alone, and each carried verdict stands as the verdict of the candidate its source attempt's `provenance` named
+
 #### Scenario: A panel in a phase that records no entry head
 
 - **WHEN** the parked phase's latest `phase/entered` recorded no head, as the entry of a phase other than the protected one may, its parked attempt recorded the head at both ends, the head now is that head, and the tree is clean

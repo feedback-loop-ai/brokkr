@@ -35,7 +35,7 @@ head and the tree they judged at both ends of the attempt, a rule that says
 when such a verdict may be carried, a reading of the tree that trusts git's
 exit, and a readout that names a carried verdict.
 
-Weighed and set aside, each recorded in the change's proposal (S1 to S27):
+Weighed and set aside, each recorded in the change's proposal (S1 to S28):
 
 - **The verb alone deciding the carry.** A head moved between the command
   and the drive would be carried: a fail-open on the review gate.
@@ -53,6 +53,11 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S27):
   recorded digest, rebuilt by the one function that builds every member's
   input, the manifest gate, the charter binding and the head and tree
   already hold what a member judged.
+- **The serving candidate or the session as an identity fact.** They name
+  who judged and how it was run, never what was judged: a chain fallback
+  between attempts moves a fresh member's candidate alone, and the
+  candidate that served a carried verdict stands in its source attempt's
+  provenance, where every readout names it.
 - **A second spelling of a member's name.** The bare name of a sequence
   step's member beside its tag; the tag is the one spelling the journal keys
   by and every readout prints, and a second spelling needed a fact of its own
@@ -181,8 +186,11 @@ Weighed and set aside, each recorded in the change's proposal (S1 to S27):
    carries.** Every panel attempt whose outcome its panel ended short of
    success, a seat's panel body or the panel step whose outcome ended a
    sequence, records on its `effect/indeterminate` or `effect/failed`:
-   `tree`, the reading at the attempt's start and at its end; `head`, the
-   repository's head at both ends in the commit-id shape
+   `tree`, the reading when the panel started, before any member of it
+   spawned, and when it ended, before the terminal fact, which for a seat's
+   panel and a sequence's first step are the attempt's own two ends and for
+   a later panel step the step's; `head`, the repository's head at those
+   same two moments in the commit-id shape
    `phase-entered-head.v1` pins, each end absent where the repository
    answered none or answered outside that shape, which the engine reads as
    no head as `phase-entered-head.v1` reads one; and `settled_members`, the
