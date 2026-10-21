@@ -1670,7 +1670,7 @@ impl Engine {
         member_tag: Option<&str>,
         plan: Option<&SitePlan>,
     ) -> Result<DriverRun, EngineError> {
-        let workdir = self.workdir();
+        let (workdir, begun) = (self.workdir(), self.begun(spawn)?);
         let boundary = self.site_boundary(driver_seat);
         let session_ref = plan
             .and_then(|plan| plan.offer.as_ref())
@@ -1743,7 +1743,7 @@ impl Engine {
                 sink.offer("", checkpoint, call);
             },
         )?;
-        broker::settlement::witnessed(&mut self.held, &report.cleanup);
+        let report = self.folded([effect_id, attempt_id], spawn, begun, report)?;
         Ok(DriverRun::Ran(report))
     }
 
