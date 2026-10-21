@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 23
+export const VIEW_VERSION = 24
 
 /** The graph wire this console paints: `brokkr_view::GRAPH_VIEW_VERSION`, pinned apart from `VIEW_VERSION`. */
 export const GRAPH_VIEW_VERSION = 2
@@ -272,8 +272,14 @@ function phase(value, path) {
     visits: count(value.visits, `${path}.visits`),
     current: value.current === true,
     columns: list(value.columns, `${path}.columns`, column),
-    returns: texts(value.returns, `${path}.returns`),
+    returns: list(value.returns, `${path}.returns`, road),
   }
+}
+
+/** A road back into a phase: the phase that sent the run back, how often, and the rules that did, the latest last. */
+function road(value, path) {
+  object(value, path)
+  return { from: text(value.from, `${path}.from`), taken: count(value.taken, `${path}.taken`), rules: texts(value.rules, `${path}.rules`) }
 }
 
 function visit(value, path) {
@@ -317,6 +323,8 @@ function participant(value, path) {
     label: text(value.label, `${path}.label`),
     member: optText(value.member, `${path}.member`),
     phase: optText(value.phase, `${path}.phase`),
+    // Which visit to its phase the seat was asked in, from 1, as Brokkr counted it.
+    visit: maybe(value.visit, `${path}.visit`, count),
     status: text(value.status, `${path}.status`),
     working: value.working === true,
     attempts: count(value.attempts, `${path}.attempts`),

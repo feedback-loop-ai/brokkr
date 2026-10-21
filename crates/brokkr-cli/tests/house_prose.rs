@@ -17,9 +17,7 @@
 
 use std::path::PathBuf;
 
-#[path = "support/records.rs"]
-mod records;
-use crate::tracked_files;
+use crate::{records, tracked_files};
 
 /// The one path this rule leaves alone beside [`records::RECORDS`], with
 /// its reason.

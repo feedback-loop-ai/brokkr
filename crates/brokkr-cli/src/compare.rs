@@ -15,29 +15,84 @@ use brokkr_core::fold::{fold, ParkReason};
 use brokkr_core::EventType;
 use brokkr_store::Store;
 use brokkr_view::{first_divergence, resolution_divergence, resolutions, seat_costs, Resolution};
-use serde_json::{json, Map, Value};
+use serde::Serialize;
+use serde_json::{json, Value};
 
 /// `brokkr costs`: the run's per-seat report under the id `--run`
 /// resolved to — a full id, a unique prefix or `latest` (decision 0015).
 /// These bytes are LaneTally's join surface.
-pub(crate) fn costs(store: &Store, requested: &str) -> Result<Value> {
+pub(crate) fn costs(store: &Store, requested: &str) -> Result<Costs> {
     let run = crate::selector::resolve_run(store, requested)?;
     let (report, total) = seat_costs(&store.load(&run)?);
-    Ok(json!({
-        "run_id": run,
-        "seats": report,
-        "total_cost_usd": total,
-    }))
+    Ok(Costs {
+        run_id: run,
+        seats: json!(report),
+        total_cost_usd: total,
+    })
 }
 
-/// One run's section of the report plus the facts the comparison needs.
-struct RunFacts {
-    summary: Value,
+// Every document below declares its fields in byte order, the order its
+// keys were printed in when it was a `json!` map (#346). A field holding
+// a `brokkr-view` record stays a `Value` made by `json!`: `SeatCost`,
+// `Resolution` and `FirstDivergence` declare their fields in another
+// order, and the map is what keeps their keys sorted.
+
+/// `brokkr costs`'s document.
+#[derive(Serialize)]
+pub(crate) struct Costs {
+    run_id: String,
+    seats: Value,
+    total_cost_usd: f64,
+}
+
+/// One run's section of `brokkr compare`'s document.
+#[derive(Serialize)]
+struct Summary {
+    bundle_name: Value,
+    decision_trail: Vec<String>,
+    events: usize,
     feature: Option<String>,
-    digest: String,
+    first_recorded_at: Option<String>,
+    last_recorded_at: Option<String>,
+    manifest: Pinned,
+    park_reason: Option<String>,
+    phase: Option<String>,
+    phases_visited: BTreeMap<String, u64>,
+    resolution: Value,
+    seats: Value,
     status: &'static str,
-    trail: Vec<String>,
-    total_cost: f64,
+    total_cost_usd: f64,
+}
+
+/// The pinned bundle identity a [`Summary`] names.
+#[derive(Serialize)]
+struct Pinned {
+    sha256: String,
+}
+
+/// `brokkr compare`'s document: both runs' summaries keyed by run id.
+#[derive(Serialize)]
+struct Compared {
+    comparison: Comparison,
+    runs: BTreeMap<String, Summary>,
+}
+
+/// What the comparison found between the two runs.
+#[derive(Serialize)]
+struct Comparison {
+    attempts_delta: i64,
+    cost_delta_usd: f64,
+    first_divergence: Value,
+    resolution_divergence: Value,
+    same_feature: bool,
+    same_recipe: bool,
+    status_pair: [&'static str; 2],
+}
+
+/// One run's section of the report plus the facts the comparison needs
+/// beyond it.
+struct RunFacts {
+    summary: Summary,
     attempts: u64,
     /// Participant label → the provider-reported model, the boundary
     /// beside it, and the distinct agent-selection provenance.
@@ -107,30 +162,28 @@ fn run_facts(store: &Store, run_id: &str) -> Result<RunFacts> {
 
     let (seats, total_cost) = seat_costs(&events);
     let resolution = resolutions(&events);
-    let status = state.run.status().as_str();
-    let summary = json!({
-        "feature": feature,
-        "bundle_name": manifest.get("bundle_name").cloned().unwrap_or(Value::Null),
-        "manifest": {"sha256": digest},
-        "status": status,
-        "phase": state.phase,
-        "park_reason": state.run.park_reason().map(ParkReason::as_str),
-        "decision_trail": trail,
-        "phases_visited": phases,
-        "seats": seats,
-        "resolution": resolution,
-        "total_cost_usd": total_cost,
-        "first_recorded_at": events.first().map(|e| e.recorded_at.clone()),
-        "last_recorded_at": events.last().map(|e| e.recorded_at.clone()),
-        "events": events.len(),
-    });
+    let summary = Summary {
+        bundle_name: manifest.get("bundle_name").cloned().unwrap_or(Value::Null),
+        decision_trail: trail,
+        events: events.len(),
+        feature,
+        first_recorded_at: events.first().map(|e| e.recorded_at.clone()),
+        last_recorded_at: events.last().map(|e| e.recorded_at.clone()),
+        manifest: Pinned { sha256: digest },
+        park_reason: state
+            .run
+            .park_reason()
+            .map(ParkReason::as_str)
+            .map(str::to_string),
+        phase: state.phase,
+        phases_visited: phases,
+        resolution: json!(resolution),
+        seats: json!(seats),
+        status: state.run.status().as_str(),
+        total_cost_usd: total_cost,
+    };
     Ok(RunFacts {
         summary,
-        feature,
-        digest,
-        status,
-        trail,
-        total_cost,
         attempts,
         resolution,
     })
@@ -142,25 +195,30 @@ pub(crate) fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
     let run_b = &crate::selector::resolve_run(&store, run_b)?;
     let a = run_facts(&store, run_a)?;
     let b = run_facts(&store, run_b)?;
-    let mut runs = Map::new();
-    runs.insert(run_a.to_string(), a.summary);
-    runs.insert(run_b.to_string(), b.summary);
     println!(
         "{}",
-        serde_json::to_string_pretty(&json!({
-            "runs": runs,
-            "comparison": {
-                "same_feature": a.feature == b.feature,
-                "same_recipe": a.digest == b.digest,
-                "status_pair": [a.status, b.status],
-                "first_divergence": first_divergence(&a.trail, &b.trail),
-                "resolution_divergence": resolution_divergence(&a.resolution, &b.resolution),
-                "cost_delta_usd": b.total_cost - a.total_cost,
-                "attempts_delta": b.attempts as i64 - a.attempts as i64,
-            }
-        }))?
+        serde_json::to_string_pretty(&document(run_a, a, run_b, b))?
     );
     Ok(())
+}
+
+/// `brokkr compare`'s document: both runs' summaries keyed by run id, and
+/// what the comparison found between them.
+fn document(run_a: &str, a: RunFacts, run_b: &str, b: RunFacts) -> Compared {
+    let (one, two) = (&a.summary, &b.summary);
+    let comparison = Comparison {
+        attempts_delta: b.attempts as i64 - a.attempts as i64,
+        cost_delta_usd: two.total_cost_usd - one.total_cost_usd,
+        first_divergence: json!(first_divergence(&one.decision_trail, &two.decision_trail)),
+        resolution_divergence: json!(resolution_divergence(&a.resolution, &b.resolution)),
+        same_feature: one.feature == two.feature,
+        same_recipe: one.manifest.sha256 == two.manifest.sha256,
+        status_pair: [one.status, two.status],
+    };
+    let mut runs = BTreeMap::new();
+    runs.insert(run_a.to_string(), a.summary);
+    runs.insert(run_b.to_string(), b.summary);
+    Compared { comparison, runs }
 }
 
 #[cfg(test)]

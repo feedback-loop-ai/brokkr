@@ -1,15 +1,24 @@
 //! An attempt's settled broker calls folded into its journal (decision 0065
 //! slice two, U8d; D7, CC2, CR3, CR4).
 //!
-//! A single seat's driver run through `run_driver`, which ordinary dispatch
-//! and sequence steps call, reaches this barrier once its driver returns a
-//! report, whatever that report's outcome, a failed, cancelled or timed-out
-//! one included, and before the engine admits its result. Evidence is read
-//! only where the engine holds the attempt's lease and every process it
-//! owned is proven settled (`Cleanup::Settled`). A spawn that failed, an
-//! error returned before the report, a cleanup not proven settled, a panel
-//! member's run and the completion of an engine restart do not reach it
-//! here: those routes are U8e's.
+//! Every driver's report reaches this barrier before the engine admits its
+//! result (U8e; D7), whatever its outcome, a failed, cancelled or timed-out
+//! one included: a single seat's and each sequence step's through
+//! `run_driver`, and each panel member's, a panel step's among them,
+//! through `run_panel` once every member has ended. Evidence is read only
+//! where the engine holds the attempt's lease and every process the attempt
+//! owned is proven settled: this driver's cleanup `Cleanup::Settled`, and
+//! no driver of the attempt witnessed unresolved on its lease
+//! (`Held::unproven`), so a live broker's half-written record is never
+//! read as corruption. An attempt not proven settled stands as its report
+//! says, already indeterminate, its ledgers kept on disk and its lease
+//! never released. The routes that do not read are fixed: a driver that
+//! did not spawn started no broker, so its failed start stands and no
+//! ledger is missing for it (CR3); an error returned before the report
+//! admits no result, and leaves the lease standing; and an engine
+//! restarted with the attempt in flight holds no lease and no proof that
+//! its processes settled (D6), so it settles the attempt indeterminate
+//! without reading, and replays nothing.
 //!
 //! The responses the attempt's ledgers cite are published first, through
 //! publication's own reader (`artifacts`), so no checkpoint cites an
@@ -196,7 +205,9 @@ impl Engine {
     /// proven settled, as it stands; otherwise with each accepted call's
     /// checkpoint appended, and carrying what the calls and the sessions
     /// leave of its outcome ([`checkpoints::carry_settled`]). A lease the
-    /// engine does not hold reads no evidence, which is then unbound.
+    /// engine does not hold reads no evidence, which is then unbound; one
+    /// that witnessed any driver of the attempt unresolved reads none
+    /// either, since that driver's broker may still be writing.
     pub(super) fn fold_with<B: FnMut(&mut Store)>(
         &mut self,
         [effect_id, attempt_id]: [&str; 2],
@@ -205,7 +216,8 @@ impl Engine {
         mut report: AttemptReport,
         mut between: B,
     ) -> Result<AttemptReport, EngineError> {
-        if !matches!(report.cleanup, Cleanup::Settled) {
+        let unproven = self.held.as_ref().is_some_and(|held| held.unproven);
+        if !matches!(report.cleanup, Cleanup::Settled) | unproven {
             return Ok(report);
         }
         let attempt = Attempt {

@@ -454,18 +454,22 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
 
     // And the road itself, already on the wire: the phase whose ruling
     // sent the run back, named on the phase it landed in. Two reforgings
-    // were taken and ONE name is carried — the model deduped it, so a
-    // surface that draws a road per name draws one road.
-    assert_eq!(named("implement")["returns"], json!(["review"]));
+    // were taken and ONE road is carried, with its count — the model
+    // deduped it, so a surface that draws a road per entry draws one.
+    let roads = named("implement")["returns"].clone();
+    assert_eq!(roads.as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        (&roads[0]["from"], &roads[0]["taken"]),
+        (&json!("review"), &json!(2))
+    );
 
-    // The loop's other two legs are recorded as returns too — entering
-    // `verify` from `implement` a second time IS a transition into a
-    // phase already entered — and neither is a road the rail can draw:
-    // a road is drawn LEFTWARD, and both of those departures lie left
-    // of where they land. The page drops them on geometry, exactly as
-    // the TUI's rail does, and one road is left.
-    assert_eq!(named("verify")["returns"], json!(["implement"]));
-    assert_eq!(named("review")["returns"], json!(["verify"]));
+    // The loop's other two legs are forward steps of a second pass:
+    // entering `verify` from `implement` again lands to the right of
+    // where it leaves, so the model records no road for it (#568). The
+    // page still drops anything rightward on geometry, as the TUI's
+    // rail does, and one road is left either way.
+    assert_eq!(named("verify")["returns"], json!([]));
+    assert_eq!(named("review")["returns"], json!([]));
     let order: Vec<&str> = rail
         .iter()
         .map(|phase| phase["name"].as_str().unwrap())
@@ -483,7 +487,7 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(move |source| (to, index(source.as_str().unwrap())))
+                .map(move |road| (to, index(road["from"].as_str().unwrap())))
         })
         .filter(|(to, from)| from > to)
         .collect();
@@ -493,7 +497,7 @@ fn the_console_is_served_the_road_back_and_the_page_draws_it() {
         "one road: from beneath the phase that ruled to beneath the phase it landed in"
     );
     assert!(page.contains("function returnPairs(rail)"));
-    assert!(page.contains("for (const source of phase.returns)"));
+    assert!(page.contains("for (const road of phase.returns)"));
     assert!(page.contains("if (from > to) roads.push([to, from]);"));
     assert!(
         page.contains("const roads = returnPairs(rail);"),
@@ -566,7 +570,7 @@ fn the_road_back_is_never_inferred_from_a_repeated_visit() {
     }
     // `findIndex` returns -1 for a departure the rail never drew, which
     // the same `from > to` test drops — one rule, both arms.
-    assert!(PAGE.contains("const from = rail.findIndex((other) => other.name === source);"));
+    assert!(PAGE.contains("const from = rail.findIndex((other) => other.name === road.from);"));
 }
 
 /// Decision 0019: the console wears the new name and keeps the motto.
@@ -765,7 +769,7 @@ fn the_console_serves_the_boundary_and_paints_the_pair() {
 
     let view = handle(&db, "/api/view/r1");
     let parsed: Value = serde_json::from_str(&view.body).unwrap();
-    assert_eq!(parsed["view_version"], 23);
+    assert_eq!(parsed["view_version"], 24);
     let seat = &parsed["participants"][0];
     assert_eq!(seat["model"]["text"], "claude-fable-5-1");
     assert_eq!(seat["boundary"]["text"], "harness");

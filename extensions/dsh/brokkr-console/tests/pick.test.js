@@ -16,12 +16,13 @@ const settled = async () => {
   for (let tick = 0; tick < 5; tick += 1) await new Promise((wake) => setTimeout(wake, 0))
 }
 const member = (key, label, stateClass = 'on-phosphor', state = 'finished') => ({ label, key, state, state_class: stateClass, model: { text: 'gpt-5.5', absent: false, note: null }, boundary: { text: 'namespace', absent: false, note: null } })
+const road = (from, taken = 1, rules = []) => ({ from, taken, rules })
 const ruled = (seq, from, next, rule) => ({ ...journalRow(seq, 'transition/decided', { from, next, rule_id: rule, result: 'ok', severity: 'normal' }, `${rule} ${from} → ${next} · ok`), what: { text: `${rule} ${from} → ${next} · ok`, badge: rule } })
 
 /** Implement, then a review whose two positions ran side by side, the security one parked. */
 const reviewed = (over = {}) => runViewDoc({
   phases: [
-    { name: 'implement', strategy: 'code', visits: 2, current: false, plain: true, columns: [{ label: null, nodes: [member('seat-implement-1', 'implement')] }], returns: ['review'] },
+    { name: 'implement', strategy: 'code', visits: 2, current: false, plain: true, columns: [{ label: null, nodes: [member('seat-implement-1', 'implement')] }], returns: [road('review', 1, ['REVIEW-REFORGE'])] },
     { name: 'review', strategy: null, visits: 1, current: true, plain: false, columns: [{ label: 'positions', nodes: [member('seat-correctness-1', 'correctness'), member('seat-security-1', 'security', 'on-park', 'indeterminate')] }], returns: [] },
   ],
   participants: [
@@ -267,7 +268,91 @@ test('the road back is solid, with the forward arrowhead and the ruling that sen
   const back = findAll(rail(client.tree()), (node) => node.type === 'path' && node.props.className === 'bk-edge back')
   assert.equal(back.length, 1)
   assert.equal(back[0].props.markerEnd, 'url(#bk-tip)')
-  assert.match(textOf(rail(client.tree())), /sent back to implement by review · REVIEW-REFORGE/)
+  assert.match(textOf(rail(client.tree())), /sent back to implement by review · REVIEW-REFORGE ×1/)
+})
+
+/** A run over `names`, its roads back as `{phase: [road, …]}`, the seats of `passes` with their visits. */
+const returning = (names, roads, passes = []) => runViewDoc({
+  phases: names.map((name, at) => ({ name, strategy: null, visits: 1, current: at === names.length - 1, plain: true, columns: [], returns: roads[name] ?? [] })),
+  participants: passes.map(([phase, visit], at) => seat({ key: `seat-${phase}-${at}`, label: phase, phase, visit })),
+})
+/** Implement sent back by verify, then by review: two roads into one phase. */
+const reforged = () => returning(['implement', 'verify', 'review'], { implement: [road('verify', 1, ['VERIFY-FAIL']), road('review', 2, ['REVIEW-REFORGE'])] },
+  [['implement', 1], ['verify', 1], ['review', 1], ['implement', 2], ['verify', 2], ['implement', 3], ['verify', 3], ['review', 2]])
+
+/** A label's box as the client sizes it: capitals, digits and × wider; hanging below its baseline's x-height. */
+function labelBox(label) {
+  const width = [...textOf(label)].reduce((sum, letter) => sum + (/[A-Z0-9×]/.test(letter) ? 7.6 : 6.2), 0)
+  return { left: label.props.x - width / 2, right: label.props.x + width / 2, top: label.props.y - 10, bottom: label.props.y + 3 }
+}
+
+/** A square road's straight runs and its corners' boxes, from its `M…V…Q…H…Q…V…` path. */
+function runsOf(d) {
+  const runs = []
+  let [x, y] = [0, 0]
+  for (const [, verb, rest] of d.matchAll(/([MVHQ])([^MVHQ]*)/g)) {
+    const n = rest.trim().split(/\s+/).map(Number)
+    const [nx, ny] = verb === 'M' ? n : verb === 'V' ? [x, n[0]] : verb === 'H' ? [n[0], y] : [n[2], n[3]]
+    if (verb !== 'M') runs.push({ left: Math.min(x, nx), right: Math.max(x, nx), top: Math.min(y, ny), bottom: Math.max(y, ny) })
+    ;[x, y] = [nx, ny]
+  }
+  return runs
+}
+
+const meets = (a, b) => a.left <= b.right && b.left <= a.right && a.top <= b.bottom && b.top <= a.bottom
+
+/** Every road's path and every road label on the rail, checked: no label touches any road, and every road stays below the names. */
+/** Every road's path and every road label on the rail, checked: no label touches any road, every road stays below the names, and no two roads share an arrowhead. */
+function untangled(view) {
+  const graph = rail(onRun(view).tree())
+  const names = findAll(graph, (node) => node.props.className === 'bk-phase-name')[0].props.y
+  const paths = findAll(graph, (node) => node.props.className === 'bk-edge back')
+  const labels = findAll(graph, (node) => String(node.props.className).includes('bk-road-label'))
+  for (const label of labels) {
+    const box = labelBox(label)
+    assert.ok(box.left >= 0 && box.right <= graph.props.width && box.bottom <= graph.props.height, `${textOf(label)} sits inside the rail`)
+    for (const path of paths) assert.ok(runsOf(path.props.d).every((run) => !meets(box, run)), `${textOf(label)} is clear of ${path.props.d}`)
+  }
+  for (const path of paths) assert.ok(runsOf(path.props.d).every((run) => run.top > names + 4), `${path.props.d} keeps below the phase names`)
+  const landings = paths.map((path) => runsOf(path.props.d).at(-1).left)
+  assert.equal(new Set(landings).size, landings.length, 'no two roads share an arrowhead')
+  return { graph, paths, labels }
+}
+
+test('one road back is square, below the names, and says its rule and how often it was taken', () => {
+  const { labels } = untangled(returning(['implement', 'verify', 'review'], { implement: [road('review', 1, ['REVIEW-REFORGE'])] }))
+  assert.deepEqual(labels.map(textOf), ['by review · REVIEW-REFORGE ×1'], 'the whole sentence is its title when it does not fit its span')
+  const wide = untangled(returning(['implement', 'verify', 'review', 'ship', 'done'], { implement: [road('ship', 3, ['SHIP-FAIL'])] }))
+  assert.deepEqual(wide.labels.map(textOf), ['sent back to implement by ship · SHIP-FAIL ×3'])
+})
+
+test('two roads into one phase land apart and nest, the longer outside, and neither crosses the other’s label', () => {
+  const { paths, labels } = untangled(reforged())
+  assert.equal(paths.length, 2)
+  assert.deepEqual(labels.map(textOf).map((text) => text.includes('×1') ? 'verify' : 'review'), ['verify', 'review'])
+  assert.match(textOf(rail(onRun(reforged()).tree())), /sent back to implement by verify · VERIFY-FAIL ×1/)
+  assert.match(textOf(rail(onRun(reforged()).tree())), /sent back to implement by review · REVIEW-REFORGE ×2/)
+})
+
+test('three nested roads, out of and into the same phases, stay clear of one another’s labels', () => {
+  untangled(returning(['intake', 'implement', 'verify', 'review', 'ship'], {
+    implement: [road('verify', 1, ['VERIFY-FAIL']), road('review', 2, ['REVIEW-REFORGE', 'REVIEW-SECURITY'])],
+    intake: [road('ship', 1, ['SHIP-SPEC'])],
+    verify: [road('review', 1)],
+  }))
+  untangled(returning(['implement', 'verify', 'review', 'ship'], { implement: [road('verify'), road('review'), road('ship')] }))
+  untangled(returning(['implement', 'verify', 'review', 'ship'], { implement: [road('ship')], verify: [road('review')], review: [road('ship')] }))
+})
+
+test('a seat of a later pass says which visit it belongs to; a first pass reads as it did', () => {
+  const table = seats(onRun(reforged()).tree())
+  assert.deepEqual(buttons(table).map(textOf), ['implement', 'verify', 'review', 'implement · visit 2', 'verify · visit 2', 'implement · visit 3', 'verify · visit 3', '▸ review · visit 2'], 'the now seat is marked as ever')
+  assert.doesNotMatch(textOf(seats(onRun().tree())), /visit/)
+})
+
+test('an open run’s header says the running count is its realm’s', () => {
+  const header = findAll(onRun().tree(), (node) => node.props.className === 'bk-bar')[0]
+  assert.match(textOf(header), /0 running in brokkr/)
 })
 
 test('a rail wider than its pane opens scrolled to the current phase, once per run', () => {

@@ -14,6 +14,7 @@ use anyhow::{bail, Result};
 use brokkr_runtime::agents::{report, ChainEntry, Presence, Report};
 use brokkr_runtime::capabilities::Definitions;
 use brokkr_runtime::{Adapters, Availability, Library};
+use serde::Serialize;
 use serde_json::{json, Value};
 
 /// How the machine asking sees a provider. `unknown` is what compile
@@ -26,45 +27,69 @@ pub(crate) fn presence_word(presence: Presence) -> &'static str {
     }
 }
 
+/// One chain entry of the `resolution` block. Each struct of the block
+/// declares its fields in byte order, the order its keys were printed in
+/// when the block was a `json!` map (#346).
+#[derive(Serialize)]
+pub(crate) struct EntryView<'a> {
+    model: &'a str,
+    notices: Vec<Value>,
+    presence: &'static str,
+    /// Written only by an entry with a gap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    problem: Option<String>,
+    provider: Option<&'a str>,
+    status: &'static str,
+}
+
+/// The `resolution` block `show` prints: every entry, and the one chosen,
+/// null where none is.
+#[derive(Serialize)]
+struct ResolutionView<'a> {
+    chain: Vec<EntryView<'a>>,
+    chosen: Option<Chosen<'a>>,
+}
+
+/// The entry [`ResolutionView`] chose.
+#[derive(Serialize)]
+struct Chosen<'a> {
+    index: usize,
+    model: &'a str,
+    provider: Option<&'a str>,
+}
+
 /// One chain entry, as a readout prints it: the provider that maps it or
 /// `unmapped`, and the capability check's verdict. A blocked entry is
 /// REPORTED here rather than thrown, so a reader sees the whole chain
 /// and can act on the link that is wrong.
-pub(crate) fn entry_value(entry: &ChainEntry) -> Value {
-    let mut value = json!({
-        "model": entry.model,
-        "provider": entry.provider.clone().map(Value::String).unwrap_or(Value::Null),
-        "presence": presence_word(entry.presence),
-        "status": match (&entry.provider, &entry.gap) {
+pub(crate) fn entry_value(entry: &ChainEntry) -> EntryView<'_> {
+    EntryView {
+        model: &entry.model,
+        notices: entry
+            .notices
+            .iter()
+            .map(brokkr_runtime::agents::Notice::value)
+            .collect(),
+        presence: presence_word(entry.presence),
+        problem: entry.gap.as_ref().map(ToString::to_string),
+        provider: entry.provider.as_deref(),
+        status: match (&entry.provider, &entry.gap) {
             (None, _) => "unmapped",
             (Some(_), Some(_)) => "blocked",
             (Some(_), None) => "ok",
         },
-        "notices": entry
-            .notices
-            .iter()
-            .map(brokkr_runtime::agents::Notice::value)
-            .collect::<Vec<_>>(),
-    });
-    if let Some(gap) = &entry.gap {
-        value["problem"] = Value::String(gap.to_string());
     }
-    value
 }
 
-fn resolution_value(walked: &Report) -> Value {
-    let chosen = match walked.chosen {
-        None => Value::Null,
-        Some(index) => json!({
-            "index": index,
-            "model": walked.entries[index].model,
-            "provider": walked.entries[index].provider,
+fn resolution_value(walked: &Report) -> ResolutionView<'_> {
+    ResolutionView {
+        chain: walked.entries.iter().map(entry_value).collect(),
+        chosen: walked.chosen.map(|index| Chosen {
+            index,
+            model: &walked.entries[index].model,
+            provider: walked.entries[index].provider.as_deref(),
         }),
-    };
-    json!({
-        "chain": walked.entries.iter().map(entry_value).collect::<Vec<_>>(),
-        "chosen": chosen,
-    })
+    }
 }
 
 /// The operator's abstract capability definitions (decision 0065 ruling
@@ -119,7 +144,7 @@ pub(crate) fn show(
     out["name"] = Value::String(walked.agent.name.clone());
     out["agent_digest"] = Value::String(walked.agent.digest.clone());
     out["charter_digest"] = Value::String(walked.agent.charter_digest.clone());
-    out["resolution"] = resolution_value(&walked);
+    out["resolution"] = json!(resolution_value(&walked));
     println!("{}", serde_json::to_string_pretty(&out)?);
     Ok(())
 }

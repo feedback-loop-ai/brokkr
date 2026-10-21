@@ -19,6 +19,11 @@ fn adapters_root() -> PathBuf {
     workspace().join("adapters")
 }
 
+/// A printed block, read back as a value.
+fn value(block: impl Serialize) -> Value {
+    serde_json::to_value(block).unwrap()
+}
+
 /// AC-10: `list` lists every shipped agent, and a broken definition
 /// prints a warning line without aborting — the contract `brokkr recipes
 /// list` set, and the reason the library is one file per agent.
@@ -71,7 +76,7 @@ fn show_prints_the_definition_and_its_per_entry_resolution() {
         "chief-architect",
     )
     .unwrap();
-    let resolution = resolution_value(&walked);
+    let resolution = value(resolution_value(&walked));
     assert_eq!(resolution["chosen"]["index"], 0);
     assert_eq!(resolution["chosen"]["model"], "fable");
     assert_eq!(resolution["chain"][0]["status"], "ok");
@@ -115,13 +120,12 @@ fn show_names_the_known_set_for_an_unknown_agent() {
     .is_err());
 }
 
-/// A blocked or unmapped entry is REPORTED rather than thrown, so a
-/// reader sees the whole chain and can act on the link that is wrong.
-#[test]
-fn the_resolution_block_reports_unmapped_and_blocked_entries() {
-    let dir = tempfile::tempdir().unwrap();
-    let library = dir.path().join("agents");
-    let adapters = dir.path().join("adapters");
+/// A library and adapters under `dir`: `tester` asks for tools its one
+/// adapter cannot restrict, so its mapped entry is blocked and its other
+/// is unmapped; `plainer` asks for none, so its mapped entry is ok.
+fn tester_library(dir: &Path) -> (PathBuf, PathBuf) {
+    let library = dir.join("agents");
+    let adapters = dir.join("adapters");
     std::fs::create_dir_all(library.join("charters")).unwrap();
     std::fs::create_dir_all(&adapters).unwrap();
     std::fs::write(library.join("charters/c.md"), "# c\n").unwrap();
@@ -142,12 +146,23 @@ fn the_resolution_block_reports_unmapped_and_blocked_entries() {
     )
     .unwrap();
     std::fs::write(
+        library.join("plainer.json"),
+        serde_json::to_vec(&json!({
+            "description": "a plain agent",
+            "charter": "charters/c.md",
+            "models": ["fine", "unmapped"],
+            "efforts": {"fine": "medium"},
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
         adapters.join("plain.json"),
         serde_json::to_vec(&json!({
             "provider": "plain",
             "binary": "plain",
             "driver": ["plain"],
-            "models": {"blocked": "plain/1"},
+            "models": {"blocked": "plain/1", "fine": "plain/2"},
             "model_flag": "-m",
             "efforts": ["low", "medium", "high"],
             "effort_flag": "--effort",
@@ -157,6 +172,15 @@ fn the_resolution_block_reports_unmapped_and_blocked_entries() {
         .unwrap(),
     )
     .unwrap();
+    (library, adapters)
+}
+
+/// A blocked or unmapped entry is REPORTED rather than thrown, so a
+/// reader sees the whole chain and can act on the link that is wrong.
+#[test]
+fn the_resolution_block_reports_unmapped_and_blocked_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let (library, adapters) = tester_library(dir.path());
 
     let walked = walk(
         &Library::load(&library).unwrap(),
@@ -165,7 +189,7 @@ fn the_resolution_block_reports_unmapped_and_blocked_entries() {
         "tester",
     )
     .unwrap();
-    let resolution = resolution_value(&walked);
+    let resolution = value(resolution_value(&walked));
     assert_eq!(resolution["chain"][0]["status"], "blocked");
     assert!(resolution["chain"][0]["problem"]
         .as_str()
@@ -175,6 +199,77 @@ fn the_resolution_block_reports_unmapped_and_blocked_entries() {
     assert!(resolution["chain"][1]["provider"].is_null());
     // Even blocked, `show` prints the whole picture rather than refusing.
     assert!(show("tester", &library, &adapters, dir.path()).is_ok());
+}
+
+/// The exact bytes of the `resolution` block `show` prints (#346): a
+/// value comparison ignores key order, so each is pinned as a string. An
+/// entry writes `problem` only where it has a gap, and `chosen` is null
+/// where no entry is chosen.
+#[test]
+fn the_resolution_block_prints_these_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (library, adapters) = tester_library(dir.path());
+    let printed = |name: &str, availability: &Availability| {
+        let walked = walk(
+            &Library::load(&library).unwrap(),
+            &Adapters::load(&adapters).unwrap(),
+            availability,
+            name,
+        )
+        .unwrap();
+        serde_json::to_string_pretty(&resolution_value(&walked)).unwrap()
+    };
+    assert_eq!(
+        printed("plainer", &Availability::unspecified()),
+        r#"{
+  "chain": [
+    {
+      "model": "fine",
+      "notices": [],
+      "presence": "unknown",
+      "provider": "plain",
+      "status": "ok"
+    },
+    {
+      "model": "unmapped",
+      "notices": [],
+      "presence": "unknown",
+      "provider": null,
+      "status": "unmapped"
+    }
+  ],
+  "chosen": {
+    "index": 0,
+    "model": "fine",
+    "provider": "plain"
+  }
+}"#
+    );
+    let mut none = Availability::unspecified();
+    none.record("plain", Presence::Unavailable);
+    assert_eq!(
+        printed("tester", &none),
+        r#"{
+  "chain": [
+    {
+      "model": "blocked",
+      "notices": [],
+      "presence": "unavailable",
+      "problem": "agent 'tester' cannot be served by provider 'plain' on model 'blocked': the provider declares tool_permissions unsupported, so the agent's restriction to [\"cargo\"] cannot be expressed and the agent would run with MORE power than it declares. A capability the provider cannot express fails compilation here rather than degrading silently at run time",
+      "provider": "plain",
+      "status": "blocked"
+    },
+    {
+      "model": "unmapped",
+      "notices": [],
+      "presence": "unknown",
+      "provider": null,
+      "status": "unmapped"
+    }
+  ],
+  "chosen": null
+}"#
+    );
 }
 
 /// Decision 0065, CQ2: `show` prints what the compiler would resolve, and
@@ -241,11 +336,17 @@ fn a_chain_with_no_available_link_reports_no_choice() {
         availability.record(provider, Presence::Unavailable);
     }
     let walked = walk(&library, &adapters, &availability, "chief-architect").unwrap();
-    assert!(resolution_value(&walked)["chosen"].is_null());
-    assert_eq!(entry_value(&walked.entries[0])["presence"], "unavailable");
+    assert!(value(resolution_value(&walked))["chosen"].is_null());
+    assert_eq!(
+        value(entry_value(&walked.entries[0]))["presence"],
+        "unavailable"
+    );
     availability.record("claude", Presence::Available);
     let walked = walk(&library, &adapters, &availability, "chief-architect").unwrap();
-    assert_eq!(entry_value(&walked.entries[0])["presence"], "available");
+    assert_eq!(
+        value(entry_value(&walked.entries[0]))["presence"],
+        "available"
+    );
 }
 
 #[test]

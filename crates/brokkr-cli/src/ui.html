@@ -410,8 +410,8 @@ function row(cells) {
 function returnPairs(rail) {
   const roads = [];
   rail.forEach((phase, to) => {
-    for (const source of phase.returns) {
-      const from = rail.findIndex((other) => other.name === source);
+    for (const road of phase.returns) {
+      const from = rail.findIndex((other) => other.name === road.from);
       if (from > to) roads.push([to, from]);
     }
   });

@@ -30,7 +30,7 @@ use crate::engine::artifacts::tests::{sha, Provisioned};
 use crate::engine::broker::admission::tests::evidence_leased;
 use crate::engine::capability_calls::SettledEvent;
 use crate::engine::tests::{checkpointing_command, engine, report, single_body};
-use crate::engine::{DriverRun, Selection};
+use crate::engine::Selection;
 
 /// The attempt every fixture leases and folds.
 const ATTEMPT: &str = "a1";
@@ -66,18 +66,7 @@ impl Site {
             plan_digest: digest.clone(),
             removals: Vec::new(),
         };
-        let isolation = SealedIsolation {
-            servers: SealedServers::Brokered(vec![broker]),
-            ..SealedIsolation::default()
-        };
-        let serving = SealedServing {
-            isolation,
-            ..SealedServing::default()
-        };
-        let spawn = SiteSpawn {
-            serving: Some(serving),
-            ..SiteSpawn::inherit(argv)
-        };
+        let spawn = brokered(vec![broker], argv);
         let begun = engine.begun(&spawn).unwrap().unwrap();
         Site {
             _dirs: [dir, home],
@@ -103,34 +92,42 @@ impl Site {
     /// pinned last by the inventory, and its broker sealed after the
     /// first: the plan's digest.
     fn second(&mut self) -> String {
-        let dir = self.attempt.dir();
-        let mut plan: Value =
-            serde_json::from_slice(&fs::read(dir.join("plan-0.json")).unwrap()).unwrap();
-        (plan["server"], plan["capability"]) = (json!("cap-wiki"), json!("wiki"));
-        let bytes = serde_json::to_vec(&plan).unwrap();
-        let locator = dir.join("plan-1.json");
-        made(&locator, &bytes);
-        let digest = sha(&bytes);
-        let at = dir.join("inventory.json");
-        let mut inventory: Inventory = serde_json::from_slice(&fs::read(&at).unwrap()).unwrap();
-        let pin = Pin {
-            locator: locator.clone(),
-            digest: digest.clone(),
-        };
-        inventory.plans.push(pin);
-        fs::write(&at, serde_json::to_vec(&inventory).unwrap()).unwrap();
-        let broker = SealedBroker {
-            capability: "wiki".into(),
-            plan: locator.to_str().unwrap().into(),
-            plan_digest: digest.clone(),
-            removals: Vec::new(),
-        };
+        let broker = self.pinned("wiki");
+        let digest = broker.plan_digest.clone();
         let serving = self.spawn.serving.as_mut().unwrap();
         let SealedServers::Brokered(brokers) = &mut serving.isolation.servers else {
             unreachable!("the site is brokered")
         };
         brokers.push(broker);
         digest
+    }
+
+    /// One more plan beside the first, serving `capability` through
+    /// `cap-<capability>`, pinned last by the inventory: its broker.
+    fn pinned(&self, capability: &str) -> SealedBroker {
+        let dir = self.attempt.dir();
+        let mut plan: Value =
+            serde_json::from_slice(&fs::read(dir.join("plan-0.json")).unwrap()).unwrap();
+        let server = format!("cap-{capability}");
+        (plan["server"], plan["capability"]) = (json!(server), json!(capability));
+        let bytes = serde_json::to_vec(&plan).unwrap();
+        let at = dir.join("inventory.json");
+        let mut inventory: Inventory = serde_json::from_slice(&fs::read(&at).unwrap()).unwrap();
+        let locator = dir.join(format!("plan-{}.json", inventory.plans.len()));
+        made(&locator, &bytes);
+        let digest = sha(&bytes);
+        let pin = Pin {
+            locator: locator.clone(),
+            digest: digest.clone(),
+        };
+        inventory.plans.push(pin);
+        fs::write(&at, serde_json::to_vec(&inventory).unwrap()).unwrap();
+        SealedBroker {
+            capability: capability.into(),
+            plan: locator.to_str().unwrap().into(),
+            plan_digest: digest,
+            removals: Vec::new(),
+        }
     }
 
     /// The plan's ledger.
@@ -180,6 +177,22 @@ impl Site {
         });
         rows.map(|event| event.payload["checkpoint"].clone())
             .collect()
+    }
+}
+
+/// A spawn running `argv`, its site sealed with `brokers`.
+fn brokered(brokers: Vec<SealedBroker>, argv: Vec<String>) -> SiteSpawn {
+    let isolation = SealedIsolation {
+        servers: SealedServers::Brokered(brokers),
+        ..SealedIsolation::default()
+    };
+    let serving = SealedServing {
+        isolation,
+        ..SealedServing::default()
+    };
+    SiteSpawn {
+        serving: Some(serving),
+        ..SiteSpawn::inherit(argv)
     }
 }
 
@@ -1050,23 +1063,8 @@ fn a_dispatched_driver_is_settled_by_its_broker_calls_before_its_result_is_admit
             failure.into_iter().for_each(|failure| ledger.fail(failure));
             ledger.close().unwrap();
         });
-        let spawn = site.spawn.clone();
-        let mut input = json!({});
-        input[SERVING_INPUTS] = spawn.serving.as_ref().unwrap().value();
         let deadline = std::time::Duration::from_secs(10);
-        let engine = &mut site.engine;
-        let run = engine.run_driver(EFFECT, ATTEMPT, "work", &spawn, input, deadline, None, None);
-        let run = run.unwrap();
-        assert!(
-            matches!(run, DriverRun::Ran(_)),
-            "{ended:?}: the driver ran"
-        );
-        let selection = Selection::new();
-        engine
-            .conclude_single(EFFECT, ATTEMPT, run, &selection, None)
-            .unwrap();
-        let events = engine.store.load(&engine.run_id).unwrap();
-        let last = events.last().unwrap();
+        let last = concluded(&mut site, deadline).unwrap();
         assert_eq!(last.event_type, ended);
         let rows = site.rows();
         let attributed_rows = rows.iter().filter(|row| row.get("capability").is_some());
@@ -1079,3 +1077,29 @@ fn a_dispatched_driver_is_settled_by_its_broker_calls_before_its_result_is_admit
         }
     }
 }
+
+/// What a single site's input carries of `spawn`: the serving inputs it
+/// was sealed with, which the door verifies.
+fn serving_input(spawn: &SiteSpawn) -> Value {
+    let mut input = json!({});
+    input[SERVING_INPUTS] = spawn.serving.as_ref().unwrap().value();
+    input
+}
+
+/// The site's spawn driven through `run_driver`, its driver given
+/// `deadline`, and its attempt concluded: the run's last event, or the
+/// error either handed up.
+fn concluded(
+    site: &mut Site,
+    deadline: std::time::Duration,
+) -> Result<brokkr_core::EventEnvelope, EngineError> {
+    let spawn = site.spawn.clone();
+    let input = serving_input(&spawn);
+    let engine = &mut site.engine;
+    let run = engine.run_driver(EFFECT, ATTEMPT, "work", &spawn, input, deadline, None, None)?;
+    engine.conclude_single(EFFECT, ATTEMPT, run, &Selection::new(), None)?;
+    let mut events = engine.store.load(&engine.run_id)?;
+    Ok(events.pop().unwrap())
+}
+
+mod routes;

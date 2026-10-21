@@ -8,9 +8,12 @@ pub brokkr_view::capability_calls::CallState::Interrupted
 pub brokkr_view::capability_calls::CallState::Observed
 pub brokkr_view::capability_calls::CallState::Refused
 pub brokkr_view::capability_calls::CallState::Succeeded
+impl serde_core::ser::Serialize for brokkr_view::capability_calls::CallState
+pub fn brokkr_view::capability_calls::CallState::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
 pub struct brokkr_view::capability_calls::CallEvidence
 pub brokkr_view::capability_calls::CallEvidence::call: core::option::Option<brokkr_view::capability_calls::CapabilityCall>
 pub brokkr_view::capability_calls::CallEvidence::cell: brokkr_view::Cell
+pub brokkr_view::capability_calls::CallEvidence::response: brokkr_view::Cell
 pub struct brokkr_view::capability_calls::CapabilityCall
 pub brokkr_view::capability_calls::CapabilityCall::call_id: alloc::string::String
 pub brokkr_view::capability_calls::CapabilityCall::capability: alloc::string::String
@@ -18,6 +21,7 @@ pub brokkr_view::capability_calls::CapabilityCall::dialect: alloc::string::Strin
 pub brokkr_view::capability_calls::CapabilityCall::response_sha256: core::option::Option<alloc::string::String>
 pub brokkr_view::capability_calls::CapabilityCall::state: brokkr_view::capability_calls::CallState
 pub brokkr_view::capability_calls::CapabilityCall::tool: alloc::string::String
+pub const brokkr_view::capability_calls::NO_RETAINED: &str
 pub const brokkr_view::capability_calls::UNRECORDED: &str
 pub mod brokkr_view::js
 pub fn brokkr_view::js::len(&str) -> usize
@@ -450,6 +454,7 @@ pub brokkr_view::Participant::turns_cell: brokkr_view::Cell
 pub brokkr_view::Participant::usage: core::option::Option<brokkr_view::TokenUsage>
 pub brokkr_view::Participant::usage_aggregated: bool
 pub brokkr_view::Participant::usage_cell: brokkr_view::Cell
+pub brokkr_view::Participant::visit: core::option::Option<u64>
 pub brokkr_view::Participant::working: bool
 impl brokkr_view::Participant
 pub fn brokkr_view::Participant::legacy_provenance(&self) -> brokkr_view::transcript::LegacyProvenance
@@ -458,7 +463,7 @@ pub brokkr_view::Phase::columns: alloc::vec::Vec<brokkr_view::Column>
 pub brokkr_view::Phase::current: bool
 pub brokkr_view::Phase::name: alloc::string::String
 pub brokkr_view::Phase::plain: bool
-pub brokkr_view::Phase::returns: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::Phase::returns: alloc::vec::Vec<brokkr_view::Road>
 pub brokkr_view::Phase::strategy: core::option::Option<alloc::string::String>
 pub brokkr_view::Phase::visits: u64
 pub struct brokkr_view::Provenance
@@ -494,6 +499,10 @@ pub brokkr_view::ResidualFinding::seq: u64
 pub brokkr_view::ResidualFinding::superseded: core::option::Option<brokkr_view::Superseded>
 pub brokkr_view::ResidualFinding::value: alloc::string::String
 pub struct brokkr_view::Resolution
+pub struct brokkr_view::Road
+pub brokkr_view::Road::from: alloc::string::String
+pub brokkr_view::Road::rules: alloc::vec::Vec<alloc::string::String>
+pub brokkr_view::Road::taken: u64
 pub struct brokkr_view::Ruling
 pub brokkr_view::Ruling::from: alloc::string::String
 pub brokkr_view::Ruling::inputs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>

@@ -128,7 +128,8 @@ use serde_json::Value;
 /// Bumped to 22 by #568's console tab: a participant gained its
 /// `tokens`, the total, input, output and cache-hit cells.
 /// Bumped to 23 by #568's Library: the analytics readout gained `recipes`.
-pub const VIEW_VERSION: u32 = 23;
+/// Bumped to 24 by #568's run view: a participant gained its `visit`.
+pub const VIEW_VERSION: u32 = 24;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -397,6 +398,12 @@ pub struct Participant {
     pub member: Option<String>,
     /// Precomputed scope membership: no surface implements the predicate.
     pub phase: Option<String>,
+    /// Which visit to `phase` the seat was asked in, from 1: how many
+    /// times the journal had entered that phase when the seat was
+    /// requested, so a surface tells a return's second pass from the
+    /// first without counting. `None` when the seat names no phase, or
+    /// one the journal had not entered.
+    pub visit: Option<u64>,
     pub status: String,
     pub status_class: String,
     /// Whether the participant is still at work, and so can still gain
@@ -482,17 +489,32 @@ pub struct Phase {
     /// No inner structure was observed: the rail draws a single node.
     pub plain: bool,
     pub columns: Vec<Column>,
-    /// The phases whose ruling sent the run BACK here — the road in,
-    /// not the count of arrivals. One name per distinct backward
-    /// transition the journal recorded, in the order it recorded them,
-    /// so a surface that draws the return draws it once however many
-    /// times it was taken (decision 0022's reforging is the machine's
-    /// only backward edge today; nothing here names it).
+    /// The roads that sent the run BACK here — the road in, not the
+    /// count of arrivals. One [`Road`] per distinct departure the journal
+    /// recorded, in the order it first recorded them, so a surface that
+    /// draws the return draws it once however many times it was taken,
+    /// and says how many (decision 0022's reforging is the machine's only
+    /// backward edge today; nothing here names it).
     ///
     /// Derived from the `transition/decided` that CAUSED the revisit,
     /// never inferred from `visits > 1`: the count says a phase was
-    /// entered twice, and only the transition says where from.
-    pub returns: Vec<String>,
+    /// entered twice, and only the transition says where from. A ruling
+    /// is backward only when this phase stands strictly before its
+    /// `from` on the rail (first-entry order): the forward pass after a
+    /// return, and a phase ruled onto itself, are arrivals, not roads.
+    pub returns: Vec<Road>,
+}
+
+/// One road back into a phase (#568).
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct Road {
+    /// The phase whose ruling sent the run back.
+    pub from: String,
+    /// How many times the journal ruled this road.
+    pub taken: u64,
+    /// The rules that ruled it, each once, the most recently ruled last.
+    /// A ruling that records no rule adds to `taken` alone.
+    pub rules: Vec<String>,
 }
 
 /// The human answer to "what happened here", as parts a surface may
@@ -1773,6 +1795,7 @@ fn fmt_count(total: u64) -> String {
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
     let mut out = Vec::new();
+    let visits = participant::visits(events);
     for part in &scan.parts {
         // A panel/sequence seat carries no telemetry of its own — its
         // members do, and only the members of this request occurrence.
@@ -1822,11 +1845,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                 usage_aggregated = true;
             }
             if turns.is_none() && !member_turns.is_empty() {
-                let mut total = 0u64;
-                for value in &member_turns {
-                    total += value;
-                }
-                turns = Some(total);
+                turns = Some(member_turns.iter().sum());
                 turns_aggregated = true;
             }
         }
@@ -1902,6 +1921,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
             label: part.label.clone(),
             member: part.member.clone(),
             phase: scan.effects[part.effect_index].phase.clone(),
+            visit: visits.get(part.effect_index).copied().flatten(),
             status: part.status.to_string(),
             status_class: part.status_class.to_string(),
             working: part.status == WORKING.0,
@@ -2316,11 +2336,13 @@ fn phase_rail(
 ) -> Vec<Phase> {
     let mut visits: Vec<(String, u64)> = Vec::new();
     // The roads back, as `(landing, departure)` pairs deduped in the
-    // order the journal recorded them. A transition is BACKWARD when
-    // the phase it names as `next` has already been entered in this
-    // run — the same fact `visits` counts, read here from the ruling
-    // that caused the revisit rather than from the count it produced.
-    let mut returns: Vec<(String, String)> = Vec::new();
+    // order the journal recorded them. A transition is BACKWARD when the
+    // phase it names as `next` stands strictly before its `from` on the
+    // rail, whose order is first entry. A forward step into a phase
+    // already entered (the second pass after a reforge) and a phase
+    // ruled onto itself (a retry, ship's ready then shipped) are not
+    // roads back: `visits` counts those arrivals, and the seats show them.
+    let mut returns: Vec<(String, Road)> = Vec::new();
     for event in events {
         match event.event_type {
             EventType::PhaseEntered => {
@@ -2341,12 +2363,32 @@ fn phase_rail(
                 else {
                     continue;
                 };
-                let backward = visits.iter().any(|(known, _)| known == next);
-                let known = returns
+                let place = |name: &str| visits.iter().position(|(known, _)| known == name);
+                let backward =
+                    matches!((place(next), place(from)), (Some(to), Some(at)) if to < at);
+                if !backward {
+                    continue;
+                }
+                let at = match returns
                     .iter()
-                    .any(|(to, source)| to == next && source == from);
-                if backward && !known {
-                    returns.push((next.to_string(), from.to_string()));
+                    .position(|(to, road)| to == next && road.from == from)
+                {
+                    Some(at) => at,
+                    None => {
+                        let road = Road {
+                            from: from.to_string(),
+                            taken: 0,
+                            rules: Vec::new(),
+                        };
+                        returns.push((next.to_string(), road));
+                        returns.len() - 1
+                    }
+                };
+                let road = &mut returns[at].1;
+                road.taken += 1;
+                if let Some(rule) = field(&event.payload, "rule_id") {
+                    road.rules.retain(|known| known != rule);
+                    road.rules.push(rule.to_string());
                 }
             }
             _ => continue,
@@ -2376,9 +2418,8 @@ fn phase_rail(
                 plain,
                 columns,
                 returns: returns
-                    .iter()
-                    .filter(|(to, _)| to == name)
-                    .map(|(_, from)| from.clone())
+                    .extract_if(.., |(to, _)| to == name)
+                    .map(|(_, road)| road)
                     .collect(),
             }
         })

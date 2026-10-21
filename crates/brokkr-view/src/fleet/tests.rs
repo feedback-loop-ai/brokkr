@@ -534,7 +534,7 @@ fn a_run_row_carries_its_title_and_verdict_beside_the_whole_feature() {
         residuals: &residuals,
     }]);
     let json = serde_json::to_value(&view).unwrap();
-    assert_eq!(json["view_version"], 23);
+    assert_eq!(json["view_version"], 24);
     assert_eq!(json["runs"][0]["hire"], Value::Null);
     assert_eq!(json["runs"][0]["acknowledgement"], Value::Null);
     assert_eq!(json["runs"][0]["feature"], feature);
