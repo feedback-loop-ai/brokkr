@@ -208,11 +208,9 @@ pub fn plant_older_writer(store: &Store, run_id: &str, events: &[EventEnvelope])
     }
 }
 
-/// Every exported journal under `fixtures/journals/`, in name order,
-/// imported into `store`, and planted as [`plant_older_writer`] plants it
-/// where the import refuses it: each journal's run id, and the words of
-/// each refusal.
-pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
+/// Every exported journal under `fixtures/journals/`, in name order: its
+/// path, its lines and the events they hold, read whole, chain unjudged.
+pub(crate) fn fixture_events() -> Vec<(std::path::PathBuf, String, Vec<EventEnvelope>)> {
     let mut journals: Vec<_> = std::fs::read_dir(fixture_journals())
         .expect("the fixture journals are listed")
         .map(|entry| entry.expect("a fixture entry reads").path())
@@ -222,20 +220,33 @@ pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
         })
         .collect();
     journals.sort();
+    journals
+        .into_iter()
+        .map(|journal| {
+            let ndjson = std::fs::read_to_string(&journal).expect("a fixture journal reads");
+            let events = ndjson
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("a fixture event is an envelope"))
+                .collect();
+            (journal, ndjson, events)
+        })
+        .collect()
+}
+
+/// Every exported journal under `fixtures/journals/`, in name order,
+/// imported into `store`, and planted as [`plant_older_writer`] plants it
+/// where the import refuses it: each journal's run id, and the words of
+/// each refusal.
+pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
     let (mut runs, mut refused) = (Vec::new(), Vec::new());
-    for journal in &journals {
-        let ndjson = std::fs::read_to_string(journal).expect("a fixture journal reads");
+    for (journal, ndjson, events) in fixture_events() {
         let sidecar = std::fs::read_to_string(journal.with_extension("manifest.json"));
         let manifest = sidecar.map_or_else(
             |_| serde_json::json!({}),
             |text| serde_json::from_str(&text).expect("a sidecar manifest is JSON"),
         );
-        let events: Vec<EventEnvelope> = ndjson
-            .lines()
-            .map(|line| serde_json::from_str(line).expect("a fixture event is an envelope"))
-            .collect();
         let run_id = events[0].run_id.clone();
-        if let Err(error) = store.import_run(&ndjson, &manifest, journal) {
+        if let Err(error) = store.import_run(&ndjson, &manifest, &journal) {
             refused.push(error.to_string());
             plant_older_writer(store, &run_id, &events);
         }

@@ -402,6 +402,37 @@ fn rows_of_a_run_the_journal_does_not_hold_are_named_as_strays() {
     );
 }
 
+/// Every fixture journal's events, planted as an older binary plants
+/// them, are indexed by the trigger as brokkr-core projects them, each
+/// compared with the events read from the journal's own lines, so a chain
+/// no load admits is held to it too.
+#[test]
+fn every_fixture_s_events_are_indexed_as_brokkr_core_projects_them() {
+    let (_dir, store) = store();
+    let found: Vec<_> = crate::test_support::fixture_events()
+        .into_iter()
+        .map(|(_, _, events)| {
+            let run_id = events[0].run_id.clone();
+            crate::test_support::plant_older_writer(&store, &run_id, &events);
+            let parted = first_unindexed(&store.conn, &run_id, &events).unwrap();
+            let indexed = rows(&store, &run_id).len();
+            (run_id, indexed, parted)
+        })
+        .collect();
+    let run = |run: &str, rows| (run.to_string(), rows, None);
+    assert_eq!(
+        found,
+        [
+            run("conclude-already-done-hand-built", 8),
+            run("conclude-broken-chain-hand-built", 11),
+            run("conclude-parked-hand-built", 6),
+            run("conclude-stopped-mid-effect-hand-built", 11),
+            run("reforging-the-road-back-hand-built", 80),
+            run("tui-graph-the-selection-box-gets-80f98deb", 105),
+        ]
+    );
+}
+
 /// A fresh journal's open finds no event to index and records the
 /// backfill finished, so its index is read from its first run.
 #[test]
