@@ -4047,16 +4047,16 @@ fn record_hands(
     Ok(())
 }
 
-/// Walk one composed seat under the labels [`written_sites`] gives the pin
-/// walk, so the facts land where the engine looks, and resolve every
-/// executable site's capabilities. An agent-backed site's asks are its
-/// agent's minus what the site subtracts; an inline site's map is its own
-/// office's asks. A wanted capability a candidate lost is a notice in that
-/// site's agent record, where a skipped model link already is. `dir` is
-/// the directory an inline site's command was expanded against; a select
-/// case a later layer wrote by `override.cases` is walked in that layer's
-/// root, from the walk's `roots` by its `case_origin`, as `parse_select`
-/// parses it.
+/// Walk one composed seat under the labels `written_sites`, in
+/// [`model_policy`], gives the pin walk, so the facts land where the engine
+/// looks, and resolve every executable site's capabilities. An agent-backed
+/// site's asks are its agent's minus what the site subtracts; an inline
+/// site's map is its own office's asks. A wanted capability a candidate
+/// lost is a notice in that site's agent record, where a skipped model link
+/// already is. `dir` is the directory an inline site's command was expanded
+/// against; a select case a later layer wrote by `override.cases` is walked
+/// in that layer's root, from the walk's `roots` by its `case_origin`, as
+/// `parse_select` parses it.
 fn record_capabilities(
     walk: &CapabilityWalk<'_>,
     dir: &Path,

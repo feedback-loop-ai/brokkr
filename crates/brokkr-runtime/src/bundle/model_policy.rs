@@ -12,8 +12,8 @@ use crate::agents::{route_is_effortless, Adapter, Adapters, HandsNotice};
 use crate::argv::Dispatch;
 
 /// The model-bearing built-in named by one written driver command
-/// ([`command_parts`]). Custom drivers own their own contract; exec has no
-/// model to pin.
+/// ([`command_parts`](super::command_parts)). Custom drivers own their own
+/// contract; exec has no model to pin.
 pub(crate) fn built_in_model_driver(command: &[String]) -> Option<&'static str> {
     let Dispatch::Driver {
         kind: dispatched, ..
@@ -250,7 +250,8 @@ struct Unpinned {
     witnessed: BTreeMap<String, DriverDigests>,
     /// Proposed decision 0056 ruling 5: per inline driver-bearing site,
     /// the resume assessment the adapter it names declares, carried to
-    /// [`Bundle::inline_resume`] for the driver's private start context.
+    /// [`Bundle::inline_resume`](super::Bundle::inline_resume) for the
+    /// driver's private start context.
     resume: Map<String, Value>,
     /// The declaration each of those assessments was read from. Kept
     /// apart from `witnessed` because an exemption is a different fact
