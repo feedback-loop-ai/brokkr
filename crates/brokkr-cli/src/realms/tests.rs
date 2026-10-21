@@ -296,12 +296,10 @@ fn consumed(name: &str, publisher: &str, pin: Pin) -> Consumed {
     }
 }
 
-/// The three states a consumed pin can be in are three distinct words,
-/// and the two that have a why carry it — the refusal's own words, never
-/// composed here. A realm that draws no crossing adds nothing at all.
-#[test]
-fn the_three_pin_states_render_distinctly_under_their_realm() {
-    let rows = vec![
+/// A publishing realm, and a realm consuming one crossing in each of the
+/// three pin states.
+fn three_pin_rows() -> Vec<Row> {
+    vec![
         crossing_row(
             "brokkr",
             ".",
@@ -334,7 +332,15 @@ fn the_three_pin_states_render_distinctly_under_their_realm() {
                 ),
             ],
         ),
-    ];
+    ]
+}
+
+/// The three states a consumed pin can be in are three distinct words,
+/// and the two that have a why carry it — the refusal's own words, never
+/// composed here. A realm that draws no crossing adds nothing at all.
+#[test]
+fn the_three_pin_states_render_distinctly_under_their_realm() {
+    let rows = three_pin_rows();
     let out = render("m.json", "j.db", &rows, false);
     // Published under the publishing realm, with the path.
     assert!(
@@ -381,6 +387,71 @@ fn the_three_pin_states_render_distinctly_under_their_realm() {
     let none = view("m.json", "j.db", &[row("solo", ".", "main", "abc")]);
     assert!(none["realms"][0].get("publishes").is_none(), "{none}");
     assert!(none["realms"][0].get("consumes").is_none(), "{none}");
+}
+
+/// The exact bytes `brokkr realms --json` prints (#346): a value
+/// comparison ignores key order, so the document is pinned as a string.
+/// A realm writes `publishes` and `consumes` only where it has them.
+#[test]
+fn the_json_view_prints_these_bytes() {
+    let mut rows = three_pin_rows();
+    rows.push(row("solo", ".", "main", NO_HEAD));
+    assert_eq!(
+        serde_json::to_string_pretty(&view("m.json", "j.db", &rows)).unwrap(),
+        r#"{
+  "journal": "j.db",
+  "map": "m.json",
+  "realms": [
+    {
+      "default_branch": "main",
+      "head": "aaa",
+      "journal": "j.db",
+      "name": "brokkr",
+      "path": ".",
+      "publishes": [
+        {
+          "name": "orders.api",
+          "path": "contracts/orders.v1.schema.json"
+        }
+      ]
+    },
+    {
+      "consumes": [
+        {
+          "detail": null,
+          "name": "orders.api",
+          "pin": "matching",
+          "realm": "brokkr"
+        },
+        {
+          "detail": "realm 'client' consumes crossing 'billing.api' from realm 'brokkr' pinned at aaa, but x hashes to bbb",
+          "name": "billing.api",
+          "pin": "moved",
+          "realm": "brokkr"
+        },
+        {
+          "detail": "realm 'ledger' publishes it and its file could not be read",
+          "name": "audit.api",
+          "pin": "unchecked",
+          "realm": "ledger"
+        }
+      ],
+      "default_branch": "main",
+      "head": "bbb",
+      "journal": "j.db",
+      "name": "client",
+      "path": "client"
+    },
+    {
+      "default_branch": "main",
+      "head": "-",
+      "journal": "j.db",
+      "name": "solo",
+      "path": "."
+    }
+  ]
+}"#
+    );
 }
 
 /// A world with no crossing renders exactly the bytes it rendered before

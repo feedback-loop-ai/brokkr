@@ -5,7 +5,9 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use brokkr_store::Store;
+use brokkr_bridge::SyncReport;
+use brokkr_core::fold::RunState;
+use brokkr_store::{Adoption, Store};
 use serde_json::{json, Value};
 
 use crate::cli_args::{AnchorArgs, BridgeArgs, ExportArgs, ImportArgs, VerifyRunArgs};
@@ -133,18 +135,7 @@ pub(crate) fn import(
         serde_json::from_str(&raw).context(format!("parsing {}", manifest_path.display()))?;
     let mut store = open_journal(&db, Access::Append)?;
     let adoption = store.import_run(&ndjson, &manifest, &from)?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&json!({
-            "run_id": adoption.run_id,
-            "events": adoption.events,
-            "chain": "verified",
-            "adopted": "byte-identical",
-            "journal_head_hash": adoption.head_hash,
-            "imported_at": adoption.arrival.imported_at,
-            "imported_from": adoption.arrival.imported_from,
-        }))?
-    );
+    println!("{}", serde_json::to_string_pretty(&adopted(&adoption))?);
     // `import_run`'s run_id gate already refuses anything a
     // terminal could not print plainly, so this is belt over
     // braces — but the house rule is that a journal string
@@ -160,18 +151,34 @@ pub(crate) fn import(
     Ok(Exit::Completed.into())
 }
 
+/// `brokkr import`'s document: what the adoption did.
+fn adopted(adoption: &Adoption) -> Value {
+    json!({
+        "run_id": adoption.run_id,
+        "events": adoption.events,
+        "chain": "verified",
+        "adopted": "byte-identical",
+        "journal_head_hash": adoption.head_hash,
+        "imported_at": adoption.arrival.imported_at,
+        "imported_from": adoption.arrival.imported_from,
+    })
+}
+
 /// `brokkr verify-run`: an exported journal's chain, envelopes and fold.
 pub(crate) fn verify_run(VerifyRunArgs { file }: VerifyRunArgs) -> Result<ExitCode> {
     let ndjson = std::fs::read_to_string(&file).context(format!("reading {}", file.display()))?;
     let state = brokkr_store::verify_export(&ndjson)?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&json!({
-            "chain": "verified",
-            "state": summarize(&state),
-        }))?
-    );
+    println!("{}", serde_json::to_string_pretty(&verified(&state))?);
     Ok(Exit::Completed.into())
+}
+
+/// `brokkr verify-run`'s document: the chain verified, and the state the
+/// verified journal folds to.
+fn verified(state: &RunState) -> Value {
+    json!({
+        "chain": "verified",
+        "state": summarize(state),
+    })
 }
 
 /// `brokkr bridge`: synchronize a Looper-bound run, once or following,
@@ -206,17 +213,7 @@ pub(crate) fn bridge(
             command_cursor,
         )?;
         command_cursor = report.last_command_cursor;
-        println!(
-            "{}",
-            serde_json::to_string(&json!({
-                "run_id": run,
-                "registered": report.registered,
-                "submitted": report.submitted,
-                "replayed": report.replayed,
-                "commands": report.commands,
-                "last_forge_sequence": report.last_forge_sequence,
-            }))?
-        );
+        println!("{}", serde_json::to_string(&round(&run, &report))?);
         iteration += 1;
         if !follow || bridge_iteration_limit.is_some_and(|limit| iteration >= limit) {
             break;
@@ -225,3 +222,18 @@ pub(crate) fn bridge(
     }
     Ok(Exit::Completed.into())
 }
+
+/// One `brokkr bridge` round, printed as one compact line.
+fn round(run: &str, report: &SyncReport) -> Value {
+    json!({
+        "run_id": run,
+        "registered": report.registered,
+        "submitted": report.submitted,
+        "replayed": report.replayed,
+        "commands": report.commands,
+        "last_forge_sequence": report.last_forge_sequence,
+    })
+}
+
+#[cfg(test)]
+mod tests;

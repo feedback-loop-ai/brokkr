@@ -142,25 +142,31 @@ pub(crate) fn compare(run_a: &str, run_b: &str, db: &Path) -> Result<()> {
     let run_b = &crate::selector::resolve_run(&store, run_b)?;
     let a = run_facts(&store, run_a)?;
     let b = run_facts(&store, run_b)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&document(run_a, a, run_b, b))?
+    );
+    Ok(())
+}
+
+/// `brokkr compare`'s document: both runs' summaries keyed by run id, and
+/// what the comparison found between them.
+fn document(run_a: &str, a: RunFacts, run_b: &str, b: RunFacts) -> Value {
     let mut runs = Map::new();
     runs.insert(run_a.to_string(), a.summary);
     runs.insert(run_b.to_string(), b.summary);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&json!({
-            "runs": runs,
-            "comparison": {
-                "same_feature": a.feature == b.feature,
-                "same_recipe": a.digest == b.digest,
-                "status_pair": [a.status, b.status],
-                "first_divergence": first_divergence(&a.trail, &b.trail),
-                "resolution_divergence": resolution_divergence(&a.resolution, &b.resolution),
-                "cost_delta_usd": b.total_cost - a.total_cost,
-                "attempts_delta": b.attempts as i64 - a.attempts as i64,
-            }
-        }))?
-    );
-    Ok(())
+    json!({
+        "runs": runs,
+        "comparison": {
+            "same_feature": a.feature == b.feature,
+            "same_recipe": a.digest == b.digest,
+            "status_pair": [a.status, b.status],
+            "first_divergence": first_divergence(&a.trail, &b.trail),
+            "resolution_divergence": resolution_divergence(&a.resolution, &b.resolution),
+            "cost_delta_usd": b.total_cost - a.total_cost,
+            "attempts_delta": b.attempts as i64 - a.attempts as i64,
+        }
+    })
 }
 
 #[cfg(test)]
