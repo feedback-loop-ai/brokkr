@@ -13,6 +13,7 @@ pub mod fold;
 pub mod gate_moved_head;
 pub mod keep_refs;
 pub mod page;
+mod payload;
 pub mod policy;
 pub mod realms;
 pub mod residual;
@@ -28,6 +29,9 @@ pub use policy::{Machine, Outcome, PolicyError};
 // crate's tests do (#357).
 #[cfg(test)]
 extern crate self as brokkr_core;
+#[cfg(test)]
+#[path = "../tests/committed_journals.rs"]
+mod committed_journals;
 #[cfg(test)]
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;

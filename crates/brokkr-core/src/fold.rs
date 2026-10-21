@@ -8,13 +8,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use serde::Deserialize;
 use serde_json::{Map, Value};
 use thiserror::Error;
 
 use crate::decision::{Decision, PhaseResult, ReviewedHeads};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::gate_moved_head;
+use crate::payload;
 use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY_PHASE};
 
 mod operator;
@@ -394,18 +394,6 @@ pub fn concluded_text(run_id: &str, status: Status) -> String {
     )
 }
 
-fn payload_str(event: &EventEnvelope, field: &str) -> Result<String, FoldError> {
-    event
-        .payload
-        .get(field)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| FoldError::BadPayload {
-            seq: event.seq,
-            field: field.to_string(),
-        })
-}
-
 /// The step taken at an in-flight effect's boundary. An operator stop
 /// accepted mid-flight rides untouched to exactly here: the run then
 /// concludes per the command (`Cursor::Stop`, which the engine turns
@@ -449,11 +437,7 @@ pub fn fold(events: &[EventEnvelope]) -> Result<RunState, FoldError> {
         phase_results: BTreeMap::new(),
         reviewed_heads: None,
         last_decision: None,
-        feature: first
-            .payload
-            .get("feature")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        feature: payload::RunStarted::read(first).feature.map(str::to_string),
         pending_command: None,
     };
     fold_onto(state, events)
@@ -483,12 +467,7 @@ pub fn fold_onto(mut state: RunState, suffix: &[EventEnvelope]) -> Result<RunSta
 fn apply(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     match relation::arm(event.event_type, Position::of(state)) {
         Arm::Moves(transition) => take(transition, state, event),
-        Arm::OutOfPlace => {
-            for field in relation::named_first(event.event_type) {
-                payload_str(event, field)?;
-            }
-            Err(out_of_place(state, event))
-        }
+        Arm::OutOfPlace => Err(payload::unplaced(event, out_of_place(state, event))),
         // Terminal runs accept only operator annotations that change nothing.
         Arm::Annotates => Ok(()),
         Arm::AfterTerminal => Err(FoldError::AfterTerminal { seq: event.seq }),
@@ -541,7 +520,7 @@ fn names_the_open_effect(state: &RunState, effect_id: &str) -> bool {
 
 /// At `Start`, or at `EnterPhase` for the phase it names.
 fn enter(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    let phase = payload_str(event, "phase")?;
+    let phase = payload::PhaseEntered::read(event)?.phase.to_string();
     if matches!(state.run.cursor(), Some(Cursor::EnterPhase { phase: expected }) if *expected != phase)
     {
         return Err(out_of_place(state, event));
@@ -553,9 +532,10 @@ fn enter(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
 }
 
 fn request(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
+    let requested = payload::EffectRequested::read(event)?;
     state.run = Run::Running(Cursor::ExecuteEffect {
-        effect_id: payload_str(event, "effect_id")?,
-        seat: payload_str(event, "seat")?,
+        effect_id: requested.effect_id.to_string(),
+        seat: requested.seat.to_string(),
         failed_attempts: 0,
     });
     Ok(())
@@ -563,17 +543,16 @@ fn request(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError>
 
 /// At `ExecuteEffect`, for the effect it holds.
 fn start(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    let effect_id = payload_str(event, "effect_id")?;
-    let attempt_id = payload_str(event, "attempt_id")?;
+    let started = payload::EffectStarted::read(event)?;
     match state.run.cursor() {
         Some(Cursor::ExecuteEffect {
             effect_id: open,
             seat,
             failed_attempts,
-        }) if *open == effect_id => {
+        }) if *open == started.effect_id => {
             state.run = Run::Running(Cursor::EffectInFlight {
-                effect_id,
-                attempt_id,
+                effect_id: started.effect_id.to_string(),
+                attempt_id: started.attempt_id.to_string(),
                 seat: seat.clone(),
                 failed_attempts: *failed_attempts,
                 stop_rides: false,
@@ -585,32 +564,31 @@ fn start(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     }
 }
 
-/// The effect `event` names, refused as out of place unless it is the one
-/// the cursor holds open.
-fn the_open_effect(state: &RunState, event: &EventEnvelope) -> Result<String, FoldError> {
-    let effect_id = payload_str(event, "effect_id")?;
-    match names_the_open_effect(state, &effect_id) {
-        true => Ok(effect_id),
+/// `event`, naming `effect_id`, refused as out of place unless that is the
+/// effect the cursor holds open.
+fn the_open_effect(
+    state: &RunState,
+    event: &EventEnvelope,
+    effect_id: &str,
+) -> Result<(), FoldError> {
+    match names_the_open_effect(state, effect_id) {
+        true => Ok(()),
         false => Err(out_of_place(state, event)),
     }
 }
 
 /// At `EffectInFlight`, for the effect it holds.
 fn checkpoint(state: &RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    the_open_effect(state, event).map(drop)
+    let checkpointed = payload::EffectCheckpointed::read(event)?;
+    the_open_effect(state, event, checkpointed.effect_id)
 }
 
 /// At `EffectInFlight`, for the effect it holds.
 fn succeed(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    let effect_id = the_open_effect(state, event)?;
-    let result = event
-        .payload
-        .get("result")
-        .cloned()
-        .ok_or(FoldError::BadPayload {
-            seq: event.seq,
-            field: "result".into(),
-        })?;
+    let succeeded = payload::EffectSucceeded::read(event, |effect_id| {
+        the_open_effect(state, event, effect_id)
+    })?;
+    let (effect_id, result) = (succeeded.effect_id.to_string(), succeeded.result.clone());
     state.last_result = Some(result.clone());
     conclude(state, Cursor::Decide { effect_id, result });
     Ok(())
@@ -621,7 +599,7 @@ fn succeed(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError>
 /// retry-or-park against the seat's declared attempt limit (decision
 /// 0006).
 fn fail(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    let effect_id = payload_str(event, "effect_id")?;
+    let effect_id = payload::EffectFailed::read(event)?.effect_id;
     match state.run.cursor() {
         Some(Cursor::EffectInFlight {
             effect_id: open,
@@ -630,7 +608,7 @@ fn fail(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
             ..
         }) if *open == effect_id => {
             let normal = Cursor::ExecuteEffect {
-                effect_id,
+                effect_id: effect_id.to_string(),
                 seat: seat.clone(),
                 failed_attempts: failed_attempts + 1,
             };
@@ -647,12 +625,10 @@ fn fail(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
 /// could silently re-pay for or duplicate completed work. Always parks
 /// into operator judgment.
 fn close(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    let effect_id = the_open_effect(state, event)?;
-    let detail = event
-        .payload
-        .get("reason")
-        .and_then(Value::as_str)
-        .unwrap_or("no detail recorded");
+    let closed = payload::EffectIndeterminate::read(event)?;
+    let effect_id = closed.effect_id;
+    the_open_effect(state, event, effect_id)?;
+    let detail = closed.reason.unwrap_or("no detail recorded");
     let normal = Cursor::Park {
         reason: if gate_moved_head::decode::<Value>(detail).is_some() {
             ParkReason::GateMovedHead
@@ -666,13 +642,7 @@ fn close(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
 
 /// At `Decide`: the policy's ruling on the succeeded result.
 fn rule(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    payload_str(event, "from")?;
-    payload_str(event, "result")?;
-    let decision =
-        Decision::deserialize(&event.payload).map_err(|error| FoldError::BadDecision {
-            seq: event.seq,
-            detail: error.to_string(),
-        })?;
+    let decision = payload::decided(event)?;
     let (from, result) = (&decision.from, &decision.result);
     state
         .phase_results
@@ -720,7 +690,7 @@ fn rule(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
 /// an effect can be requested.
 fn park(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
     state.run = Run::AwaitingOperator {
-        reason: ParkReason::read(payload_str(event, "reason")?),
+        reason: ParkReason::read(payload::RunParked::read(event)?.reason.to_string()),
     };
     Ok(())
 }

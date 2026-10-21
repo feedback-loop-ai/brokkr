@@ -3,20 +3,20 @@
 //! 0065 slice two, U8e3; operator ruling of 2026-10-11).
 
 use super::{
-    acceptance_refusal, out_of_place, payload_str, Cursor, EventEnvelope, FoldError,
-    OperatorCommand, Run, RunState,
+    acceptance_refusal, out_of_place, Cursor, EventEnvelope, FoldError, OperatorCommand, Run,
+    RunState,
 };
+use crate::payload;
 
 pub(super) fn command(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    state.pending_command = Some((
-        payload_str(event, "command_id")?,
-        payload_str(event, "command")?,
-    ));
+    let commanded = payload::OperatorCommanded::read(event)?;
+    let (command_id, command) = (commanded.command_id, commanded.command);
+    state.pending_command = Some((command_id.to_string(), command.to_string()));
     Ok(())
 }
 
 pub(super) fn accept(state: &mut RunState, event: &EventEnvelope) -> Result<(), FoldError> {
-    let command_id = payload_str(event, "command_id")?;
+    let command_id = payload::OperatorAccepted::read(event)?.command_id;
     let Some((pending_id, command)) = state.pending_command.take() else {
         return Err(FoldError::NoMatchingCommand { seq: event.seq });
     };
