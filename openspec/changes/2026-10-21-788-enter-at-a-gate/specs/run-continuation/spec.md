@@ -77,7 +77,7 @@
 
 ### Requirement: The seats of an entered run are told the entry and the chain
 
-Every seat input of an entered run except triage's SHALL carry `context.entry`: `phase`, the gate entered, and `continues`, the continued runs in the order named, each with `run_id` and `feature`, derived from `run/started.entry` alone so recovery rebuilds the same digest. Triage reads no journal, no fleet and no history (decision 0041 ruling 6), and the chain is history: its input SHALL carry no `context.entry`, as it carries no `last_decision` and no `returned_from`. No seat input of a run without an entry SHALL carry it. The continued runs' results SHALL NOT be handed: `context.results` holds only results of phases this run ran.
+Every seat input of an entered run except triage's SHALL carry `context.entry`: `phase`, the gate entered, and `continues`, the continued runs in the order named, each with `run_id` and `feature`, derived from `run/started.entry` alone so recovery rebuilds the same digest. Triage reads no journal, no fleet and no history (decision 0041 ruling 6), and the chain is history: its input SHALL carry no `context.entry`, as it carries no `last_decision` and no `returned_from`. No seat input of a run without an entry SHALL carry it. The continued runs' results SHALL NOT be handed: `context.results` holds only results of phases this run ran, listed before the seat in the compiled `phases`, which is how a `landing`'s seats after `classify` read its result (`gate-entry`, D38).
 
 #### Scenario: The reviewer is handed the chain
 
@@ -86,13 +86,13 @@ Every seat input of an entered run except triage's SHALL carry `context.entry`: 
 
 #### Scenario: Triage is told nothing
 
-- **WHEN** the fixture table shaped like `triage` with `default` cases on its selectors is entered at `verify` continuing run `a`, verify reports `fail`, and the implementer reports `oversized`, so the run reaches `triage` by `VERIFY-FAIL` then `IMPL-OVERSIZED`
+- **WHEN** the fixture table of `gate-entry`'s scenario `A selector with a default admits the entry`, shaped like `triage` with `default` cases on its selectors and no `strategy_in` ruling past `triage`, is entered at `verify` continuing run `a`, verify reports `fail`, and the implementer reports `oversized`, so the run reaches `triage` by `VERIFY-FAIL` then `IMPL-OVERSIZED` (D42)
 - **THEN** the implementer's input carried `context.entry`, and triage's input carries no `context.entry`, no `last_decision` and no `returned_from`
 
 #### Scenario: An ordinary seat input carries no entry
 
 - **WHEN** a run started without `--enter` reaches any seat
-- **THEN** its input carries no `context.entry`, and its digest is the digest the same journal produced before this change
+- **THEN** its input carries no `context.entry`, and its digest is the digest the same journal produced before this change, a `landing` seat listed after `classify` excepted, whose input differs by the one member `context.results.classify` the recipe's compiled order now hands it (`gate-entry`, D38)
 
 ### Requirement: An entered run's review judges the whole branch
 

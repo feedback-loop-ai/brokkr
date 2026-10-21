@@ -194,6 +194,17 @@ this decision and the Rust types are their shape.
    ordinary run's input digest standing, a landing's first return still
    without); the forward-work refusals in `bundle/tests/entry.rs`.
 
+   *Amended, 2026-10-22 (the change's D38):* no seat input of a run
+   without an entry moves by the engine change. `landing`'s seats listed
+   after `classify`, the remediating `implement`, `verify`, `review` and
+   `ship`, gain `context.results.classify` by the recipe's compiled order
+   (ruling 9 as amended): the house's rule that a seat reads the results
+   of the phases listed before it, which the order composition gave the
+   recipe denied them. Each such input differs by that member and by
+   nothing else, and a landing in flight when the marker lands is refused
+   at resume by its moved manifest, as any recipe edit refuses a
+   mid-flight run.
+
 4. **A skipped phase's fact is an admission fact, never a carried one.**
    Three journal facts can be needed by a phase an entered run reaches
    without entering the phase that sets them, and the table holds no
@@ -261,10 +272,14 @@ this decision and the Rust types are their shape.
    a hard denial a strategy decides would fall through to an unconditioned
    allow below it. No shipped table's admitted set moves, since `triage`
    holds the only `strategy_in` rulings and the tables that inherit it
-   admit no entry. The binding gains the review's synthetic table, a
-   `DENY-ENGINE` above an unconditioned ruling to `ship`, refused at
-   `verify` and `review`; `Machine::unruled_without_strategy` gives way
-   to the core function that answers the groups reading `strategy`.
+   admit no entry. A reached phase holding several such groups is
+   witnessed by the first by result in key order, the order the sweep
+   builds and reports a table's groups in (D41). The binding gains the
+   review's synthetic table, a `DENY-ENGINE` above an unconditioned
+   ruling to `ship`, refused at `verify` and `review`, and a phase with
+   two such groups naming the first by result; `Machine::unruled_without_strategy`
+   gives way to the core function that answers the groups reading
+   `strategy`.
 
 5. **The chain is the operator's word, and the gate reports it while
    vouching the patch map.** `--continues <run>`, repeatable and only
@@ -406,7 +421,9 @@ this decision and the Rust types are their shape.
    over the clause and judged the whole branch from its merge-base. The
    starter reviewer charter `brokkr init` writes takes the same scope. The
    delivery road stands: the pull request names a landing that continues
-   the run that ships.
+   the run that ships. *And (D38):* the clause that no seat input of a run
+   without an entry moves is narrowed to the engine change, as ruling 3's
+   amendment says; `landing`'s inputs after `classify` move by its order.
 
 8. **The run view names the gate entered and the runs continued, derived
    once, and its rail stands in the order the start recorded.** `RunView`
@@ -483,8 +500,11 @@ this decision and the Rust types are their shape.
    appended its own, so the compiled order put `classify` last and the
    direction predicate read `CLASSIFY-CODE` and `CLASSIFY-DOCS` as
    returns. The compiled `landing` lists `classify` first, as its table
-   writes it; its bundle witness moves with that order and nothing else
-   of the recipe does.
+   writes it, its bundle marking `phases` in `override.table` (D37); its
+   `tables` and `bundles` witness rows move with that order,
+   `landing_shape.rs` pins the written order, and the inputs of its seats
+   listed after `classify` gain that phase's result (ruling 3 as amended,
+   D38); nothing else of the recipe moves.
 
 ## Consequences
 
@@ -499,8 +519,10 @@ this decision and the Rust types are their shape.
   the triage-shaped tables admit none, each refusal naming its first
   fact and witness.
 - Every ordinary run's seat inputs, digests, manifest and digest
-  witnesses stand; its `run/started` gains the one `phases` list, the one
-  key by which the journal's payload-key golden moves. No contract file,
+  witnesses stand, but for `landing`'s inputs after `classify`, which
+  gain that phase's result by the recipe's compiled order (ruling 3 as
+  amended); its `run/started` gains the one `phases` list, the one key
+  by which the journal's payload-key golden moves. No contract file,
   no frozen surface, no fold arm and no store schema moves.
 - The engine's constitutional walk, the sweep over a group's
   unconditioned rulings, the direction of a ruling and the language of the
