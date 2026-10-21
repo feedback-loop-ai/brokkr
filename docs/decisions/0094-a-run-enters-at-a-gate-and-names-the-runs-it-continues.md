@@ -44,7 +44,7 @@ What is missing is one word the operator can say at start, `enter`, the
 record of what the entered run continues, and the rule that says which
 phases may be entered without a roster.
 
-Weighed and set aside, each recorded in the change's proposal (D1 to D30)
+Weighed and set aside, each recorded in the change's proposal (D1 to D33)
 and design:
 
 - **A composed landing overlay any recipe derives.** An overlay's
@@ -134,9 +134,11 @@ this decision and the Rust types are their shape.
    `crates/brokkr-cli/tests/machine_proof/entered_run.rs` (the
    acceptance: a synthetic recipe listing intake and design ahead of
    implement, entered at `verify` over a finished branch, reaching
-   `SHIP-COMPLETE` with no work seat); `crates/brokkr-runtime/tests/queued_launch.rs`
-   and `crates/brokkr-cli/src/cli_reference_tests.rs` for the flags'
-   home.
+   `SHIP-COMPLETE` with no work seat); the flags declared in
+   `crates/brokkr-cli/src/cli_args/entry.rs` on `brokkr run` alone, with
+   `crates/brokkr-runtime/tests/queued_launch.rs` and
+   `crates/brokkr-cli/src/cli_reference_tests.rs` pinning where they are
+   taken and refused.
 
 2. **The protected phase stays unavoidable from wherever a run begins,
    and an entry at the protected phase is the operator's word, written
@@ -204,13 +206,20 @@ this decision and the Rust types are their shape.
    own sequence when the seat declares `change`, else a result of one of
    the five change phases listed before it whose seat declares `change`,
    supplied only when every road from the entry to the step enters such a
-   phase. The two `strategy` facts are judged over one breadth-first walk
-   that follows every ruling and never enters the strategy phase; the
-   `{change}` fact over the reach from the entry with the step's sources
-   removed; the three rank in that order, each naming its own walk's
-   first witness. A need the walk cannot supply is refused at admission,
-   never left to park. The five change phases are one roster, read by the
-   engine's `{change}` expansion and the admission alike. Under rulings
+   phase. The fifth fact's walk and the sixth's are one breadth-first
+   walker, which records the ruling that first reached each phase; the
+   fourth fact asks only whether a phase is reached and reads ruling 2's
+   core walk. The two `strategy` facts are judged over one run of the
+   walker that follows every ruling and never enters the strategy phase;
+   the `{change}` fact first asks whether the entry is itself one of the
+   step's sources, which covers the step with no walk, since the run
+   enters its entry first, and otherwise runs the walker once for the
+   step, following every ruling and never entering the step's sources,
+   so its witness names the ruling that reached the step's phase; the
+   three rank in that order, each naming its own walk's first witness. A
+   need the walk cannot supply is refused at admission, never left to
+   park. The five change phases are one roster, read by the engine's
+   `{change}` expansion and the admission alike. Under rulings
    1, 3 and this one the triage-shaped tables admit no entry today, and
    each refusal names its own first fact: `triage` and `night-shift`
    refuse `verify` and `review` by this ruling, on a seat that selects
@@ -230,7 +239,9 @@ this decision and the Rust types are their shape.
    `nearest_change` (`engine/sequence.rs`) and the admission's sixth fact; the fixtures in
    `bundle/tests/entry.rs` (a selector with a default admitted, a group only a
    skipped strategy decides refused, a `{change}` step with no road to its
-   source refused, two facts failing with the first named).
+   source refused and named with the ruling that reached its phase, a
+   step whose one source is the entry admitted, two facts failing with
+   the first named).
 
 5. **The chain is the operator's word, and the gate reports it while
    vouching the patch map.** `--continues <run>`, repeatable and only
