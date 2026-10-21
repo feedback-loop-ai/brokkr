@@ -35,13 +35,11 @@
 //! the reservation or a historical root's record.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use brokkr_core::canonical;
 use brokkr_protocol::broker::Refusal;
 use brokkr_protocol::hands::{self, HandsSpec, UNPROTECTED_EVIDENCE};
 use serde::{Deserialize, Serialize};
@@ -51,7 +49,7 @@ use super::exclusion::{compared, everywhere, staked, Comparison};
 use super::historical::recorded;
 use super::inventory::{inventory, Budget, Standing};
 use super::root::{locked, read, Commit, Root};
-use super::settlement::recovered;
+use super::settlement::{keyed, recovered, reserved_in, unchanged, Driver};
 use super::sources::{unserved, Served, Unroutable};
 use super::{startup, Observed};
 use crate::bundle::ExecutableBody;
@@ -215,8 +213,9 @@ pub(super) struct Reservation {
 
 /// What one attempt reserved: whether it protects evidence, the reach of
 /// every writer its body may start, what its engine witnessed of its
-/// drivers' cleanup, sealed as it witnesses it (R2; M1), and the sources
-/// its MCP servers are built from, none where it brokers nothing (U8a2b).
+/// drivers' cleanup, sealed as it witnesses it (R2; M1), the sources its
+/// MCP servers are built from, none where it brokers nothing (U8a2b), and
+/// each driver it spawned's own settlement record, in spawn order (U8e2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Reserved {
@@ -225,6 +224,8 @@ pub(super) struct Reserved {
     pub(super) cleanup: Witnessed,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) serves: Vec<Served>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) drivers: Vec<Driver>,
 }
 
 /// What the engine has witnessed of an attempt's drivers' cleanup (#403):
@@ -330,8 +331,9 @@ impl Claim {
 /// whether any driver it ran ended with its tree not proven over (#403),
 /// whether evidence was at stake when it was admitted, whether a seal of
 /// its reservation committed without its directory proven synced (R1 of
-/// U8a2a's fourth run, which fails its run under the fence rule), and what
-/// the door rebuilds its boxed writers' reach from.
+/// U8a2a's fourth run, which fails its run under the fence rule), what the
+/// door rebuilds its boxed writers' reach from, and, where a restarted
+/// engine adopted it, the settlement records it adopted (U8e2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::engine) struct Held {
     pub(super) coordination: Arc<Root>,
@@ -344,6 +346,7 @@ pub(in crate::engine) struct Held {
     pub(super) unsynced: bool,
     pub(super) workdir: PathBuf,
     pub(super) authored: Authored,
+    pub(super) adopted: Option<Vec<Driver>>,
 }
 
 /// Where admission reads its coordination: the HOME a claim's binds name,
@@ -453,8 +456,7 @@ impl Engine {
         body: ExecutableBody<'_>,
         selection: &Selection,
     ) -> Result<Claim, Unadmitted> {
-        let workdir = std::fs::canonicalize(self.workdir()).or(Err(Unknown::Worktree))?;
-        let repo = canonical::sha256_bytes(workdir.as_os_str().as_bytes());
+        let (workdir, repo) = keyed(&self.workdir())?;
         let spelled = artifact_root(&self.run_local());
         let slots = self.slots(site, selection);
         let protects = if slots.iter().any(|slot| slot.retained()) || evidence(&spelled)? {
@@ -477,6 +479,7 @@ impl Engine {
                 writers,
                 cleanup,
                 serves: Vec::new(),
+                drivers: Vec::new(),
             },
             authored: Authored { boxes },
         })
@@ -655,6 +658,7 @@ pub(super) fn admit_with(
         unsynced: commit == Commit::Unsynced,
         workdir: claim.workdir.clone(),
         authored: claim.authored.clone(),
+        adopted: None,
     })
 }
 
@@ -727,17 +731,17 @@ fn redirected(held: &Held) -> Option<PathBuf> {
 
 /// The directory `held`'s reservation stands in, and where.
 pub(super) fn reserved_at(held: &Held) -> Result<(std::os::fd::OwnedFd, PathBuf), Unknown> {
-    let run = held.coordination.below(&[&held.repo, &held.run])?;
-    let at = held.coordination.path().join(&held.repo).join(&held.run);
-    Ok((run, at))
+    reserved_in(&held.coordination, [&held.repo, &held.run], true)
 }
 
 /// Release the lease `held` under the admission lock, taken before
 /// `deadline`: its attempt moved from its run's standing attempts to its
 /// settled ones, and the reservation sealed again, only where the
-/// reservation holds the attempt's positive settlement fact (M1).
+/// reservation holds the attempt's positive settlement fact (M1) and an
+/// adopted lease's settlement records stand as adopted ([`unchanged`]).
 pub(super) fn release(held: &Held, deadline: Instant) -> Result<Commit, Unadmitted> {
     amend(held, deadline, |reservation| {
+        unchanged(&reservation, held)?;
         settled(reservation, &held.attempt)
     })
 }
@@ -771,7 +775,7 @@ pub(super) fn settled(mut reservation: Reservation, attempt: &str) -> Result<Res
 
 /// The directory `path`'s device and inode, where it is a directory of its
 /// own.
-fn identity(path: &Path) -> Result<(u64, u64), Unrooted> {
+pub(super) fn identity(path: &Path) -> Result<(u64, u64), Unrooted> {
     let found = std::fs::symlink_metadata(path);
     let found = found.map_err(|error| Unrooted::Unmade(path.to_path_buf(), error.kind()))?;
     let own = found.file_type().is_dir();

@@ -609,6 +609,9 @@ ledger, including disjoint retention shares and possible fallback slots, before
 launch. Existing engine process observations establish proven never-started
 cases; uncertain missing evidence refuses. Do not add another independently
 editable capability inventory or Prepared/Started/Settled launch model.
+The per-driver settlement record U8e2 keeps in an attempt's reservation is
+not one: it makes durable the #403 proof the engine already holds (operator
+ruling 2026-10-21).
 Evidence survives engine restart; hands Session's delete-on-drop scratch does
 not satisfy that lifetime. D5's builder-owned startup values are never resolved
 from secret bindings. The host evidence root keeps its descriptor-bound
@@ -682,7 +685,8 @@ conflicts retain CR2's existing cause. Keep a source reservation until all
 its owned processes have settled; release it under the same admission lock
 only after durable settlement. Engine death or a free advisory lock does not
 release it: uncertain survivors keep the reservation and refuse conflicting
-starts. Use existing attempt facts and #403 settlement, not a new process
+starts, until the operator's journaled release (U8e3, operator ruling
+2026-10-21) attests that they have ended. Use existing attempt facts and #403 settlement, not a new process
 scanner or stronger cleanup claim. This is proposed work, not an existing
 host-wide lease facility on main. A mechanism needing a fourth file is split
 before implementation; no deferred runtime recheck may replace this exclusion.
@@ -1214,7 +1218,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2, U1d3 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
-| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a, U8a2c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
+| `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a, U8a2c, U8e2 | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a, U8a2c | Recheck concurrent main edits and module registration before the row |
@@ -1231,7 +1235,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-runtime/src/engine/capability_calls.rs` | U4e, U4f, U8d | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/checkpoints.rs` | U4a2, U4e, U8d | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/engine/sequence.rs` | U8a2a, U8e, U7d2 | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/engine/panel.rs` | U7d2 | Panel members seal after provisioning, as sequence steps do |
+| `crates/brokkr-runtime/src/engine/panel.rs` | U7d2, U8e2 | Panel members seal after provisioning, as sequence steps do |
 | `adapters/*.json` | U7d3 | Measured adapter data; every witness digest moves and is re-blessed |
 | `crates/brokkr-runtime/src/engine/resume.rs` (1062) | U4f | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-view/src/lib.rs` (2767) | U4g, U8f | Recheck concurrent main edits and module registration before the row |
@@ -1243,7 +1247,7 @@ At each PR recheck these paths and baseline counts against main.
 | `contracts/run-manifest.v12.schema.json` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/capabilities/manifest.rs` | U5f | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/secret.rs` (706 at this visit) | U6a, U6c7, U6c8, U6f1a, U6f1b | 0012 single-injector proof; no second plaintext accessor |
-| `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c5b, U6c6a, U6c8, U8g, U7c0b | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-cli/src/cli_args.rs` (699 at this visit) | U6b, U6c5b, U6c6a, U6c8, U8g, U7c0b, U8e3 | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/lib.rs` (1918) | U6b, U8a2c | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/broker.rs` | U6b, U6c, U6c2, U6c5b, U6c6a, U6e, U6f1b, U7c0b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/survey.rs` | U7c0b | New private child of broker.rs; the engine's provisioning observer, carrying no authority beyond observation |
@@ -1253,7 +1257,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/broker/rpc.rs` | U6e, U6f1a, U6f1b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-cli/src/broker/output.rs` | U6f1a, U8b | New module; keep protocol types shared, no duplicate policy |
 | `crates/brokkr-protocol/src/hands.rs` (1267 at this visit) | U6c3, U6c4, U7a, U8a, U8a2c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2a, U8a2b, U8c, U8d, U8e, U7d2, U8a2c | Protected inventory, cross-worktree admission lock and lifetime reservations; #403/#415 cleanup and ongoing splits |
+| `crates/brokkr-runtime/src/engine/broker.rs` | U7c, U8a2a, U8a2b, U8c, U8d, U8e, U7d2, U8a2c, U8e2, U8e3 | Protected inventory, cross-worktree admission lock and lifetime reservations; #403/#415 cleanup and ongoing splits |
 | `crates/brokkr-runtime/src/engine/marks.rs` | U7c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-protocol/src/hands/evidence.rs` | U8a | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/hands.rs` | U8a, U8a2c | The hands serve and exec verbs parse the carried artifact root and sealed reach |
@@ -1394,7 +1398,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U8c | U8b | Publish verified content-addressed artifacts; 40.1–40.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/artifacts.rs` |
 | U8d | U8c, U4g | Fold settled calls through confirmed append; 41.1–41.2 | `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/capability_calls.rs`; `crates/brokkr-runtime/src/engine/checkpoints.rs` |
 | U8e | U8d | Settle and recover every attempt's evidence; 42.1 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/sequence.rs`; `crates/brokkr-runtime/src/engine/broker.rs` |
-| U8e2 | U8e | Recover an attempt in flight at engine restart; 42.3 | Set with its design ruling (operator ruling 2026-10-21) |
+| U8e2 | U8e | Recover an attempt in flight at engine restart; 42.3 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/dispatch.rs`; `crates/brokkr-runtime/src/engine/panel.rs`; `crates/brokkr-runtime/src/engine/broker/admission.rs`; `crates/brokkr-runtime/src/engine/broker/settlement.rs`; `crates/brokkr-runtime/src/engine/broker/fold.rs` |
+| U8e3 | U8e2 | Release an attempt the operator confirms settled; 42.4 | `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine/operator.rs`; `crates/brokkr-runtime/src/engine/broker/admission.rs`; `crates/brokkr-runtime/src/engine/broker/settlement.rs`; `crates/brokkr-cli/src/cli_args.rs` |
 | U8f | U8e | Expose retained evidence in the pure view; 43.1–43.2 | `crates/brokkr-view/src/capability_calls.rs`; `crates/brokkr-view/src/lib.rs` |
 | U8g | U8f | Open a cited artifact through inspect; 44.1–44.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/verbs/readouts.rs` |
 | U9a | U8g, U2, U3c, U5a2 | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
@@ -1402,7 +1407,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U9c2 | U9c1 | Launch Codex under its isolation options; 45.5–45.6 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-runtime/src/engine/input.rs` |
 | U0b | U9c2 | Measure every shape a seat can be served as; 1.5–1.6 | None |
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
-| U9b1 | U1d3, U8e2 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U9b1 | U1d3, U8e3 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U10a | U9b2 | Audit removals and run final candidate gates; 48.1–49.2 | None |
 | U10b | U10a | Fold the change and hand off; 49.3 | None |
@@ -2161,11 +2166,28 @@ Owning tests: `crates/brokkr-runtime/tests/capability_ledger.rs`, `crates/brokkr
 When an engine restarts with an attempt in flight, fold that attempt's accepted calls from the attempt's original journal head, the one U8d's fold took before spawn and never one taken at restart, once its owned processes are durably proven settled, and append each call once without replaying external work. Until settlement is proven, the attempt stays indeterminate and keeps its writer reservations, as U8e leaves it.
 
 Closes task 42.3; requirements [CR4](specs/capability-response-retention/spec.md), [MB5](specs/mcp-capability-broker/spec.md).
-Proof: Restart appends each call once without replaying external work and keeps the persisted result without retry; a live half-record causes no premature corruption finding; uncertain settlement keeps the attempt indeterminate and its reservations standing; an independent removal of the settlement check fails.
+Proof: An engine killed after its drivers settled and before the fold, and one killed mid-fold after a commit whose acknowledgement was lost, each restart and append every accepted call exactly once, with the persisted judgment and no replay, and their reservations are released. An engine killed while a driver runs leaves the attempt indeterminate and its reservation refusing a conflicting run. In a sequence and in a panel, a later driver still Settling keeps the attempt unrecovered while an earlier one is Settled. A live half-record causes no premature corruption finding. Independently removing the per-driver Settled check (restart folds while a driver is Settling) and the recorded head (restart takes a new head and loses a call) each fail their own test.
 
 Operator ruling 2026-10-21, splitting this unit from U8e after U8e's first run stopped (0065-slice-two-unit-u8e-see-the--fcfc4990, IMPL-BLOCKED): a restarted engine holds no lease (every engine constructor starts with none), no SiteSpawn for the dead attempt's brokers, and no durable proof that the dead engine's processes ended. A reservation's witnessed settlement is per attempt; while settling it cannot tell a live tree from one that ended; and settled is sealed only after the terminal event. Recovery needs a durable per-driver settlement fact, the lease adopted again at resume, and each step's or member's SiteSpawn computed again, while D6 forbids another launch model or a stronger cleanup claim. The controller brings that design to the operator before this unit is commissioned, and its files are set with that ruling. It lands before U9b1 lifts the MCP compile fence.
 
+Operator ruling 2026-10-21 on U8e2's design (in chat, "A"): U8e2 recovers the attempt whose engine died after its drivers' owned processes were proven settled and before every accepted call was folded. An attempt whose engine died while a driver may still run keeps today's judgment; U8e3 releases it on the operator's word.
+1. The attempt's reservation keeps one settlement record per driver it spawns: each ordinary or sequence-step site and each panel member. The record holds the journal head that driver's fold starts from, which U8d's `begun` takes before spawn, and the driver's cleanup. It is written Settling under the admission lock at the common spawn door, before the driver spawns, and a later step or member writes its own record, so a settled earlier driver never stands for a later one. It is sealed Settled once the driver's report carries the engine's #403 proof that its owned processes settled (`Cleanup::Settled`), before the fold reads that driver's ledgers. It records no process identity and starts no scanner. It makes durable a proof the engine already holds, so it is not a launch model (D6).
+2. At restart, an attempt in flight whose every recorded driver is Settled is recovered. The restarted engine takes the run's lease again through the existing admission path, since the same run admits while its earlier attempt stands. It rebuilds each driver's brokers from the attempt's sealed broker-plan inventory (each pinned plan names its capability and owning site), and provisions nothing again. It folds each driver from its recorded head through U8d's fold, appending each accepted call once: the confirmed append finds a call a lost commit already wrote. A verified failed Closed fails the attempt with its exact cause; otherwise it ends EffectIndeterminate as today, now with its calls journaled. Settlement then proceeds as for any ended attempt, and its reservation is released once Settled is sealed.
+3. An attempt with any driver still Settling, or with no record, ends EffectIndeterminate with nothing folded and its reservation standing. That is today's judgment, kept.
+4. Nothing is spawned or replayed. Operator conclude keeps its own judgment of an attempt in flight and folds nothing.
+
 Owning tests: `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/src/engine/cleanup_tests.rs`.
+
+### U8e3 — Release an attempt the operator confirms settled
+
+Add the operator command `release` (`brokkr operator --run <run> --reason <why> release`). It applies to an attempt that ended indeterminate with its reservation standing, because a driver was never proven settled. It journals the operator's command with its reason. Then, under the admission lock, it seals that attempt's cleanup Settled as released by the operator, so its reservation is released and a conflicting run may start. It folds nothing, replays nothing and leaves the attempt indeterminate. It refuses, naming why, a run with no standing reservation, an attempt not yet ended, and an attempt whose every driver is Settled, which U8e2 recovers instead. settlement.rs's contract gains this one exception, which nothing else may use: release on an operator's journaled attestation that every process the attempt owned has ended. The command's help says that is what the operator attests.
+
+Closes task 42.4; requirements [MB5](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md).
+Proof: A run whose engine was killed while its driver ran keeps refusing a conflicting run. After `release`, the release is journaled with its reason, the reservation is gone and the conflicting run admits. `release` refuses a running attempt, a run with no reservation and an attempt U8e2 can recover, each with its own cause. Independently removing the refusal of a running attempt fails its test.
+
+Operator ruling 2026-10-21 on U8e2's design (in chat, "A"): the operator's release of an attempt whose survivors the operator confirms gone, split from U8e2 because it adds an operator command. The public API rise it needs is approved as measured, up to +10 lines across quality/public-api/*.txt together (operator ruling 2026-10-21, "yes"); a larger rise comes back to the operator.
+
+Owning tests: `crates/brokkr-runtime/src/engine/operator_tests.rs`, `crates/brokkr-cli/tests/machine_proof.rs`.
 
 ### U8f — Expose retained evidence in the pure view
 
@@ -2244,7 +2266,7 @@ Lift only the global MCP compile fence after all prior proofs, activating D3's n
 lifting the fence makes U8a2a's coordination refusals unconditional, so seats
 Brokkr cannot box then refuse on every run (operator ruling 2026-10-18). The lift
 also needs U8a2c's boxes built from the reach sealed at admission, and U8e2's
-recovery of an attempt in flight at engine restart. It proves task 42.2, moved
+recovery of an attempt in flight at engine restart, with U8e3's release. It proves task 42.2, moved
 from U8e (operator ruling 2026-10-21): 42.1's real transport faults through the
 success-reporting harness and settlement barrier, beside 46.2. It also switches on U1g1's strict-isolation refusal (operator ruling 2026-10-07), once macOS shapes are measured and Codex's place in the roster is settled. With the fence lifted it runs U1f2's init_doctor/init_stacks matrix switched on, pinning SI2's exact diagnostics inside init's "scaffolded bundle failed to compile" wrapper (moved from U1g1 by operator ruling 2026-10-08). It also records SD4's fully cold Linux x86_64 samples, after dropping the dentry, inode and page caches, with both actual observations and the total, carried from U6f1b (operator ruling 2026-10-14).
 

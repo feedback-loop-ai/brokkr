@@ -32,6 +32,25 @@ use crate::engine::capability_calls::SettledEvent;
 use crate::engine::tests::{checkpointing_command, engine, report, single_body};
 use crate::engine::Selection;
 
+thread_local! {
+    /// The peer a test puts between a restarted engine's read of the
+    /// journal and its append of what that read left (U8e2).
+    static READ: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+}
+
+/// Run the peer a test put here, once: the read is taken and the append
+/// not yet made.
+pub(super) fn peer_after_the_read() {
+    if let Some(peer) = READ.with(|peer| peer.borrow_mut().take()) {
+        peer();
+    }
+}
+
+/// Put `peer` between a restarted engine's next read and its append.
+fn after_the_read(peer: Box<dyn FnOnce()>) {
+    READ.with(|slot| *slot.borrow_mut() = Some(peer));
+}
+
 /// The attempt every fixture leases and folds.
 const ATTEMPT: &str = "a1";
 
@@ -128,6 +147,11 @@ impl Site {
             plan_digest: digest,
             removals: Vec::new(),
         }
+    }
+
+    /// The HOME the attempt's lease was admitted under.
+    fn home(&self) -> PathBuf {
+        self._dirs[1].path().join("home")
     }
 
     /// The plan's ledger.
@@ -1102,4 +1126,5 @@ fn concluded(
     Ok(events.pop().unwrap())
 }
 
+mod restart;
 mod routes;
