@@ -41,8 +41,7 @@ pub(super) fn judge_link(
 }
 
 /// Decision 0043 ruling 3: a deterministic `exec` command whose hands are
-/// boxed has no stochastic axis to distrust, and its blast radius is the
-/// box. It may hold a gate.
+/// boxed has no stochastic axis to distrust, so it may hold a gate.
 pub(super) fn boxed_exec(driver: Option<&str>, raw: &Value) -> bool {
     driver == Some("exec") && raw.get("hands").is_some()
 }
