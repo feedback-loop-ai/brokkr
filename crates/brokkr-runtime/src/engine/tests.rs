@@ -172,6 +172,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         boundary: Boundary::Namespace,
         executable: crate::argv::tests::ENGINE.clone(),
         chain: Vec::new(),
+        folder: None,
         machine: machine(),
         seats,
         manifest: json!({"engine":ENGINE_VERSION, "event_schema":1, "database_schema":1,
