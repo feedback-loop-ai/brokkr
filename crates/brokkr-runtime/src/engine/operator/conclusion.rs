@@ -19,29 +19,35 @@ use super::{command_id_of, EngineError, OPERATOR_STOP_RULE};
 /// hard stop cites its `rule_id` there. The cause is read back from the
 /// journal that `operator_command` wrote: `fold` spends the pending
 /// command when it accepts it, so the events are the only place it
-/// survives.
+/// survives. Only a stop's acceptance is the cause: a `release` accepted
+/// after it (U8e3) is not why the run stopped.
 pub(in crate::engine) fn operator_stop_reason(events: &[EventEnvelope]) -> String {
-    let accepted = events
-        .iter()
-        .rev()
-        .find(|event| event.event_type == EventType::OperatorAccepted);
+    // The acceptance carries only the command's id; the command itself
+    // is on the `operator/commanded` it disposes of.
+    let command_of = |command_id: &str| {
+        events
+            .iter()
+            .find(|event| {
+                event.event_type == EventType::OperatorCommanded
+                    && command_id_of(event) == Some(command_id)
+            })
+            .and_then(|event| event.payload.get("command"))
+            .and_then(Value::as_str)
+            .unwrap_or(OperatorCommand::Stop.as_str())
+    };
+    let accepted = (events.iter().rev())
+        .filter(|event| event.event_type == EventType::OperatorAccepted)
+        .find(|event| {
+            let command_id = command_id_of(event).unwrap_or("unrecorded");
+            command_of(command_id) == OperatorCommand::Stop.as_str()
+        });
     let accepted_field = |field: &str| {
         accepted
             .and_then(|event| event.payload.get(field))
             .and_then(Value::as_str)
     };
-    // The acceptance carries only the command's id; the command itself
-    // is on the `operator/commanded` it disposes of.
     let command_id = accepted_field("command_id").unwrap_or("unrecorded");
-    let command = events
-        .iter()
-        .find(|event| {
-            event.event_type == EventType::OperatorCommanded
-                && command_id_of(event) == Some(command_id)
-        })
-        .and_then(|event| event.payload.get("command"))
-        .and_then(Value::as_str)
-        .unwrap_or(OperatorCommand::Stop.as_str());
+    let command = command_of(command_id);
     format!(
         "{OPERATOR_STOP_RULE}: operator '{}' commanded {command} ({command_id}): {}",
         accepted_field("operator").unwrap_or("unrecorded"),

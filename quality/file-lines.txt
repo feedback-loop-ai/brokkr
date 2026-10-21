@@ -144,7 +144,8 @@
    220 crates/brokkr-runtime/src/engine/broker/inventory/standing.rs
     39 crates/brokkr-runtime/src/engine/broker/observation.rs
    457 crates/brokkr-runtime/src/engine/broker/root.rs
-   794 crates/brokkr-runtime/src/engine/broker/settlement.rs
+   709 crates/brokkr-runtime/src/engine/broker/settlement.rs
+   123 crates/brokkr-runtime/src/engine/broker/settlement/attestation.rs
    623 crates/brokkr-runtime/src/engine/broker/sources.rs
    463 crates/brokkr-runtime/src/engine/capability_calls.rs
    614 crates/brokkr-runtime/src/engine/checkpoints.rs
@@ -152,7 +153,7 @@
    288 crates/brokkr-runtime/src/engine/isolation.rs
    298 crates/brokkr-runtime/src/engine/marks.rs
    773 crates/brokkr-runtime/src/engine/operator.rs
-    92 crates/brokkr-runtime/src/engine/operator/conclusion.rs
+    98 crates/brokkr-runtime/src/engine/operator/conclusion.rs
    109 crates/brokkr-runtime/src/engine/operator/release.rs
    155 crates/brokkr-runtime/src/engine/operator/supersede.rs
    513 crates/brokkr-runtime/src/engine/panel.rs
@@ -259,7 +260,7 @@
   3451 crates/brokkr-cli/tests/machine_proof.rs
     52 crates/brokkr-cli/tests/machine_proof/egress.rs
    201 crates/brokkr-cli/tests/machine_proof/output_edge.rs
-   114 crates/brokkr-cli/tests/machine_proof/release.rs
+   127 crates/brokkr-cli/tests/machine_proof/release.rs
   1438 crates/brokkr-cli/tests/muninn.rs
    738 crates/brokkr-cli/tests/mutants_gate.rs
   1367 crates/brokkr-cli/tests/packaging.rs
@@ -391,7 +392,7 @@
   1306 crates/brokkr-runtime/src/engine/contention_tests.rs
   1997 crates/brokkr-runtime/src/engine/notice_tests.rs
    377 crates/brokkr-runtime/src/engine/operator_tests.rs
-   303 crates/brokkr-runtime/src/engine/operator_tests/release_tests.rs
+   386 crates/brokkr-runtime/src/engine/operator_tests/release_tests.rs
     85 crates/brokkr-runtime/src/engine/replay/tests.rs
    225 crates/brokkr-runtime/src/engine/resume/tests.rs
   4065 crates/brokkr-runtime/src/engine/resume_tests.rs

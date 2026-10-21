@@ -76,8 +76,18 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
     let release = [
         "operator", "--run", &run, "--reason", REASON, "release", "--db", db,
     ];
+    let refused = |cause: String| {
+        format!("error: the operator's release was refused, and the run's writer lease stands: {cause}\n")
+    };
+    let events = host.events(&held, &run);
+    let attempt = events.iter().find_map(|event| event["attempt_id"].as_str());
+    let attempt = attempt.unwrap();
     let running = said(&brokkr(&host, &release), 1);
-    assert!(running.contains("has not ended"), "{running}");
+    let not_ended = format!(
+        "attempt '{attempt}' has not ended; release only an attempt that ended, once every \
+         process it owned has"
+    );
+    assert_eq!(running, refused(not_ended));
     let conclude = [
         "conclude",
         "--run",
@@ -95,7 +105,8 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
     );
 
     let released = said(&brokkr(&host, &release), 0);
-    assert!(released.contains("recorded operator release"), "{released}");
+    let recorded = format!("recorded operator release; continue with: brokkr resume --run {run}\n");
+    assert_eq!(released, recorded);
     let events = host.events(&held, &run);
     let last = events.last().unwrap();
     assert_eq!(last["type"], "operator/commanded");
@@ -110,5 +121,7 @@ fn a_killed_engines_worktree_is_released_by_the_operator_and_a_conflicting_run_a
     assert!(succeeded(&events), "the conflicting run admits: {events:?}");
     assert!(mark.exists(), "and its driver ran");
     let again = said(&brokkr(&host, &release), 1);
-    assert!(again.contains("holds no standing reservation"), "{again}");
+    let unreserved =
+        format!("run '{run}' holds no standing reservation, so there is nothing to release");
+    assert_eq!(again, refused(unreserved));
 }

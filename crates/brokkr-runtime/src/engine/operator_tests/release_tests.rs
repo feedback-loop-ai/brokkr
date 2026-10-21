@@ -100,6 +100,16 @@ impl Killed {
         conclude(&mut self.engine.store, &run, "operator", "its engine died").unwrap();
     }
 
+    /// The attempt ended by a terminal event of `kind`, as an engine that
+    /// proved its tree over journals one.
+    fn ended_as(&mut self, kind: EventType, payload: Value) {
+        let started = self.events().pop().unwrap();
+        let mut payload = payload;
+        payload["effect_id"] = started.payload["effect_id"].clone();
+        let engine = &mut self.engine;
+        engine.append(kind, payload, Some(ATTEMPT.into())).unwrap();
+    }
+
     /// The operator's release, `between` run before each fenced append.
     fn released_with(
         &mut self,
@@ -235,6 +245,79 @@ fn a_release_is_refused_by_name_and_releases_nothing() {
     let refused = operator_command(&mut never.store, &run, release, "operator", REASON);
     let unrooted = Unreleased::standing(Unadmitted::Identity(Unknown::Root));
     assert_eq!(unreleased(refused), unrooted);
+}
+
+/// Only an attempt that ended indeterminate is the operator's to release.
+/// One that ended a success or a failure is refused as certified, and one
+/// whose every driver is sealed Settled, once ended, as no restart's to
+/// recover either; each by its own words, nothing journaled and nothing
+/// released.
+#[test]
+fn a_release_refuses_a_certified_ending_and_an_ended_settled_attempt() {
+    let endings = [
+        (
+            EventType::EffectSucceeded,
+            json!({"result": {"result": "pass"}}),
+        ),
+        (EventType::EffectFailed, json!({"error": "it failed"})),
+    ];
+    for (kind, payload) in endings {
+        let mut certified = Killed::new(false);
+        certified.ended_as(kind, payload);
+        let length = certified.events().len();
+        let refused = unreleased(certified.released());
+        let ended = Unreleased::refused(Refused::Certified(ATTEMPT.into()));
+        assert_eq!(refused, ended, "{kind:?}");
+        assert_eq!(certified.events().len(), length, "{kind:?}");
+        assert!(certified.standing(), "{kind:?}");
+        assert_eq!(certified.conflicting(), certified.held(), "{kind:?}");
+    }
+    assert_eq!(
+        Refused::Certified(ATTEMPT.into()).to_string(),
+        "attempt 'a1' ended a success or a failure, not indeterminate; release only an attempt \
+         that ended indeterminate"
+    );
+
+    let mut settled = Killed::new(true);
+    settled.concluded();
+    let length = settled.events().len();
+    let refused = unreleased(settled.released());
+    assert_eq!(
+        refused,
+        Unreleased::refused(Refused::Settled(ATTEMPT.into()))
+    );
+    assert_eq!(
+        refused.to_string(),
+        "the operator's release was refused, and the run's writer lease stands: every driver \
+         of attempt 'a1' is sealed Settled, so it is not the operator's to release, and it has \
+         ended, so resuming the run does not recover it: its reservation stands"
+    );
+    assert_eq!((settled.events().len(), settled.standing()), (length, true));
+}
+
+/// A release accepted on a run the operator has already stopped is not
+/// why it stopped: its conclusion cites the accepted stop, its operator
+/// and reason, never the release journaled after it.
+#[test]
+fn a_stop_released_before_it_concludes_cites_the_stop() {
+    let mut killed = Killed::new(false);
+    killed.restarted();
+    let (run, stop) = (killed.run(), OperatorCommand::Stop);
+    let store = &mut killed.engine.store;
+    operator_command(store, &run, stop, "stopper", "stop it").unwrap();
+    let commanded = (killed.events().into_iter().rev())
+        .find(|event| event.event_type == EventType::OperatorCommanded)
+        .unwrap();
+    let stop_id = commanded.payload["command_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    killed.released().unwrap();
+    killed.concluded();
+    let stopped = killed.events().pop().unwrap();
+    assert_eq!(stopped.event_type, EventType::RunStopped);
+    let cited = format!("OPERATOR-STOP: operator 'stopper' commanded stop ({stop_id}): stop it");
+    assert_eq!(stopped.payload["reason"], json!(cited));
 }
 
 /// Decision 0029, U8e3: the release is journaled on the head it was judged
