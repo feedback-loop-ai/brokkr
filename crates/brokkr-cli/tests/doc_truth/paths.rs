@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{doc, readable_docs, stale_allowances, Doc};
+use super::{doc, escaped, readable_docs, stale_allowances, Doc, Unread};
 use crate::tracked_files;
 use crate::workspace_root::workspace;
 
@@ -15,11 +15,10 @@ use crate::workspace_root::workspace;
 /// of its run still opens a span.
 fn code_spans(text: &str) -> Vec<(usize, &str)> {
     let run = |at: usize| text[at..].chars().take_while(|&c| c == '`').count();
-    let escaped = |at: usize| text[..at].chars().rev().take_while(|&c| c == '\\').count() % 2 == 1;
     let mut spans = Vec::new();
     let mut at = 0;
     while let Some(start) = text[at..].find('`').map(|found| at + found) {
-        if escaped(start) {
+        if escaped(text, start) {
             at = start + 1;
             continue;
         }
@@ -51,12 +50,13 @@ fn path_char(c: char) -> bool {
 
 /// The kind of file a path names, by which a name is read when the doc
 /// leaves unsaid which directory holds it: what follows the last `.` of
-/// its last segment when a name stands before it, so `README.md`,
-/// `layering/scan.rs` and `social-preview.png` have one and `.gitignore`
-/// and `CHANGELOG` none. [`Tree::kinds`] holds every kind the tree does.
+/// its last segment when a name stands before it and a word after it, so
+/// `README.md`, `layering/scan.rs` and `social-preview.png` have one and
+/// `.gitignore`, `CHANGELOG` and `a.` none. [`Tree::kinds`] holds every
+/// kind the tree does.
 fn kind(path: &str) -> Option<&str> {
     let (name, kind) = path.rsplit('/').next()?.rsplit_once('.')?;
-    (!name.is_empty()).then_some(kind)
+    (!name.is_empty() && !kind.is_empty()).then_some(kind)
 }
 
 /// Where a path that opens with neither `./`, `../` nor a top-level
@@ -91,7 +91,7 @@ enum Named<'a> {
 /// [`Named`] by how it opens, its `:line` or `#anchor` suffix dropped. A
 /// word this cannot read as a path is an `Err`: a character no path here
 /// carries, a suffix that is no line, or a placeholder nothing closes.
-fn named_path<'a>(span: &'a str, tree: &Tree) -> Option<Result<Named<'a>, String>> {
+fn named_path<'a>(span: &'a str, tree: &Tree) -> Option<Result<Named<'a>, Unread>> {
     if span.contains(char::is_whitespace) {
         return None;
     }
@@ -109,14 +109,13 @@ fn named_path<'a>(span: &'a str, tree: &Tree) -> Option<Result<Named<'a>, String
     };
     let lined =
         line.is_none_or(|at| !at.is_empty() && at.chars().all(|c| c.is_ascii_digit() || c == '-'));
+    let span = span.to_string();
     Some(if !lined {
-        Err(format!("`{span}` reads as no path and line"))
+        Err(Unread::NoLine(span))
     } else if let Some(c) = path.chars().find(|&c| !path_char(c)) {
-        Err(format!("`{span}` carries `{c}`, which no path here does"))
+        Err(Unread::Carries(span, c))
     } else if let Some(open) = unclosed(path) {
-        Err(format!(
-            "`{span}` opens a placeholder `{open}` nothing closes"
-        ))
+        Err(Unread::Placeholder(span, open))
     } else {
         Ok(named)
     })
@@ -366,7 +365,7 @@ const ABSENT: [(&str, &str, &str); 26] = [
 /// resolved against `here`, and any other is read from the root and from
 /// `here`, a leading `./` dropped. A path that climbs above the root is an
 /// `Err`.
-fn resolved(path: &str, here: Option<&str>) -> Result<Vec<String>, String> {
+fn resolved(path: &str, here: Option<&str>) -> Result<Vec<String>, Unread> {
     let mut dir: Vec<&str> = here.map_or_else(Vec::new, |here| here.split('/').collect());
     let mut rest = path;
     let mut climbed = false;
@@ -374,8 +373,7 @@ fn resolved(path: &str, here: Option<&str>) -> Result<Vec<String>, String> {
         if let Some(after) = rest.strip_prefix("./") {
             rest = after;
         } else if let Some(after) = rest.strip_prefix("../") {
-            dir.pop()
-                .ok_or_else(|| format!("`{path}` climbs above the repository"))?;
+            dir.pop().ok_or_else(|| Unread::Climbs(path.to_string()))?;
             (rest, climbed) = (after, true);
         } else {
             break;
@@ -404,7 +402,7 @@ fn unheld(span: &str, tree: &Tree, here: Option<&str>) -> Option<String> {
     match held {
         Ok(true) => None,
         Ok(false) => Some(format!("`{span}` names a path the tree does not hold")),
-        Err(why) => Some(why),
+        Err(why) => Some(why.to_string()),
     }
 }
 
@@ -567,4 +565,19 @@ fn a_name_of_any_kind_the_tree_holds_is_read_as_a_path() {
     ]
     .map(|span| format!("docs/a.md:3: `{span}` names a path the tree does not hold"));
     assert_eq!(missing_paths(&[planted], &tree, &[]), refused);
+}
+
+#[test]
+fn a_name_ending_at_its_dot_has_no_kind() {
+    let tree = Tree::of(["docs/x.", "docs/a.md"].map(str::to_string));
+    assert_eq!(tree.kinds, BTreeSet::from(["md".to_string()]));
+    let planted = doc(
+        "docs/b.md",
+        "`gone.` and `x.` name no kind; `gone.md` does.\n",
+    )
+    .unwrap();
+    assert_eq!(
+        missing_paths(&[planted], &tree, &[]),
+        ["docs/b.md:1: `gone.md` names a path the tree does not hold"]
+    );
 }

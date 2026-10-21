@@ -83,8 +83,9 @@ fn opened<'a>(text: &'a str, open: &str) -> Option<&'a str> {
 }
 
 /// The version `text` opens with (`0.12.0`, `v0.12.0`, `0.1.5-rc.1`,
-/// `0.12.0+build.123`), its pre-release and build metadata included,
-/// without its `v`, and the text after it.
+/// `0.12.0+build.123`), its pre-release and build metadata included, each
+/// label of SemVer's letters, digits, hyphens and dots, without its `v`,
+/// and the text after it.
 fn version(text: &str) -> Option<(&str, &str)> {
     let bare = text.strip_prefix('v').unwrap_or(text);
     let mut parts = 0;
@@ -107,7 +108,7 @@ fn version(text: &str) -> Option<(&str, &str)> {
     let label = |at: usize, mark: char| {
         bare[at..].strip_prefix(mark).map_or(0, |label| {
             let label = label
-                .split(|c: char| !c.is_ascii_alphanumeric() && c != '.')
+                .split(|c: char| !c.is_ascii_alphanumeric() && !".-".contains(c))
                 .next()
                 .unwrap_or_default();
             1 + label.trim_end_matches('.').len()
@@ -314,5 +315,18 @@ fn build_metadata_and_every_release_word_are_read_with_the_version() {
     assert_eq!(
         version("0.1.5-rc.1+b2. More"),
         Some(("0.1.5-rc.1+b2", ". More"))
+    );
+}
+
+#[test]
+fn a_version_label_reads_its_hyphens() {
+    let planted = doc("docs/guides/h.md", "Brokkr 0.12.0+build-alpha ships.\n").unwrap();
+    assert_eq!(
+        stale_versions(&[planted], "0.12.0"),
+        ["docs/guides/h.md:1: states Brokkr 0.12.0+build-alpha; the workspace is 0.12.0"]
+    );
+    assert_eq!(
+        version("0.1.5-rc-1.x+b-2. More"),
+        Some(("0.1.5-rc-1.x+b-2", ". More"))
     );
 }

@@ -1,15 +1,17 @@
 //! The retired-term rule: no retired term stands in a block that does not
 //! cite what retired it.
 
+use super::citations::{number, words};
 use super::{doc, readable_docs, stale_allowances, Doc};
 
 /// A term the house retired, by each spelling it is written in, why, and
-/// the citation that lets a block name it: a block that cites what retired
-/// it says so, and is read true.
+/// the decision whose citation lets a block name it: a block with a word
+/// [`number`] reads as that decision says what retired it, and is read
+/// true.
 struct Retired {
     spellings: &'static [&'static str],
     why: &'static str,
-    cite: Option<&'static str>,
+    cite: Option<u16>,
 }
 
 /// The decision that retired the third host.
@@ -24,17 +26,17 @@ const RETIRED: [Retired; 8] = [
     Retired {
         spellings: &["Windows", "WINDOWS", "windows-"],
         why: NO_WINDOWS,
-        cite: Some("0063"),
+        cite: Some(63),
     },
     Retired {
         spellings: &["winget", "Winget", "WinGet", "WINGET"],
         why: NO_WINDOWS,
-        cite: Some("0063"),
+        cite: Some(63),
     },
     Retired {
         spellings: &["scoop", "Scoop"],
         why: NO_WINDOWS,
-        cite: Some("0063"),
+        cite: Some(63),
     },
     // The Cordis/DeepSeek harness; Cordis stays dsh's own framework, which
     // [`ALLOWED`] lets the dsh extension name.
@@ -100,14 +102,14 @@ fn whole_word(text: &str, at: usize, term: &str) -> bool {
 /// the block cites what retired it: the byte it stands at, the term, and
 /// why it was retired.
 fn retired_in(text: &str) -> Vec<(usize, &'static str, &'static str)> {
-    let mut found = Vec::new();
+    let (mut found, words) = (Vec::new(), words(text));
     for Retired {
         spellings,
         why,
         cite,
     } in RETIRED
     {
-        if cite.is_some_and(|cite| text.contains(cite)) {
+        if cite.is_some_and(|cite| words.iter().any(|word| number(Some(word)) == Some(cite))) {
             continue;
         }
         for &term in spellings {
@@ -232,5 +234,18 @@ fn a_quote_parts_a_retired_term_from_the_citation_beside_it() {
             windows("i.md:2", "winget"),
             windows("l.md:3", "Scoop"),
         ]
+    );
+}
+
+#[test]
+fn a_retired_term_is_read_true_only_beside_its_decisions_number() {
+    let docs = [
+        "Windows left at port 10063 in v0063.1.\n",
+        "Winget left (decision [0063](d/0063-x.md)).\n",
+    ]
+    .map(|text| doc("docs/guides/n.md", text).unwrap());
+    assert_eq!(
+        retired_terms(&docs, &[]),
+        ["docs/guides/n.md:1: names `Windows`, retired: decision 0063: the hosts are Linux and macOS"]
     );
 }

@@ -28,6 +28,9 @@
 //! comment or literal never closes. A backtick nothing closes is literal
 //! text, as CommonMark renders it, not a span.
 
+use std::fmt;
+
+use crate::records::FROZEN;
 use crate::status_pages;
 use crate::tracked_files;
 use crate::workspace_root::{read, workspace};
@@ -37,22 +40,64 @@ mod paths;
 mod retired;
 mod versions;
 
-/// Surfaces whose bytes never move (the house rules): a rule here could
-/// only report them, so none is read, each for its reason.
-const FROZEN: [(&str, &str); 4] = [
-    (
-        "contracts/",
-        "a contract changes by a new version beside the old one",
-    ),
-    (
-        "fixtures/",
-        "the evaluator corpus is versioned, never rewritten",
-    ),
-    ("reference/", "the reference and its schemas are read-only"),
-    ("policy/", "the production table is read-only"),
-];
+/// Why a text, or a word in it, cannot be read.
+#[derive(Debug)]
+enum Unread {
+    /// A fence nothing closes before the text ends.
+    Open(Fence),
+    /// A fence its blockquote ends before a line closes it.
+    Unquoted(Fence),
+    /// A path span whose `:` suffix is no line.
+    NoLine(String),
+    /// A path span with a character no path here carries.
+    Carries(String, char),
+    /// A path span with a placeholder its segment never closes.
+    Placeholder(String, char),
+    /// A path that climbs above the root.
+    Climbs(String),
+    /// A Rust source the comment reader refuses, by its reason.
+    Source(String),
+    /// A JSON text its parser refuses.
+    Json(serde_json::Error),
+}
 
-/// Whether the tracked file at `path` is living text these rules hold.
+impl fmt::Display for Unread {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Open(fence) => write!(f, "a block fenced with {} never closes", fence.spelled()),
+            Self::Unquoted(fence) => write!(
+                f,
+                "a block fenced with {} ends with its blockquote, unclosed",
+                fence.spelled()
+            ),
+            Self::NoLine(span) => write!(f, "`{span}` reads as no path and line"),
+            Self::Carries(span, c) => write!(f, "`{span}` carries `{c}`, which no path here does"),
+            Self::Placeholder(span, open) => {
+                write!(f, "`{span}` opens a placeholder `{open}` nothing closes")
+            }
+            Self::Climbs(path) => write!(f, "`{path}` climbs above the repository"),
+            Self::Source(why) => write!(f, "{why}"),
+            Self::Json(why) => write!(f, "{why}"),
+        }
+    }
+}
+
+/// A tracked file these rules cannot read, and why.
+#[derive(Debug)]
+struct Unreadable {
+    path: String,
+    why: Unread,
+}
+
+impl fmt::Display for Unreadable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: cannot be read: {}", self.path, self.why)
+    }
+}
+
+/// Whether the tracked file at `path` is living text these rules hold:
+/// no record, and none of the [`FROZEN`] surfaces, which a rule here could
+/// only report.
 fn is_living(path: &str) -> bool {
     !status_pages::is_record(path) && !FROZEN.iter().any(|(frozen, _)| path.starts_with(frozen))
 }
@@ -102,7 +147,7 @@ fn unquoted(line: &str, most: usize) -> (usize, &str) {
 
 /// An open fence: the character it is written with, how many, and the
 /// blockquote depth it opened at.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Fence {
     mark: char,
     len: usize,
@@ -139,17 +184,14 @@ impl Fence {
 /// those markers, so a bare `>` parts two blocks of one quote, and a line
 /// quoted deeper than the open block opens one of its own, as CommonMark's
 /// blockquote interrupts a paragraph; a line quoted less runs on lazily.
-fn blocks(text: &str) -> Result<Vec<Block>, String> {
+fn blocks(text: &str) -> Result<Vec<Block>, Unread> {
     let mut blocks: Vec<Block> = Vec::new();
     let (mut fence, mut open) = (None::<Fence>, None::<usize>);
     for (at, line) in text.lines().enumerate() {
         if let Some(opened) = fence {
             let (depth, inside) = unquoted(line, opened.depth);
             if depth < opened.depth {
-                return Err(format!(
-                    "a block fenced with {} ends with its blockquote, unclosed",
-                    opened.spelled()
-                ));
+                return Err(Unread::Unquoted(opened));
             }
             match opened.closed_by(inside) {
                 true => fence = None,
@@ -179,24 +221,22 @@ fn blocks(text: &str) -> Result<Vec<Block>, String> {
         }
     }
     match fence {
-        Some(opened) => Err(format!(
-            "a block fenced with {} never closes",
-            opened.spelled()
-        )),
+        Some(opened) => Err(Unread::Open(opened)),
         None => Ok(blocks),
     }
 }
 
 /// A doc as these rules read it, or why it cannot be read.
-fn doc(path: &str, text: &str) -> Result<Doc, String> {
-    Ok(Doc {
-        path: path.to_string(),
-        blocks: blocks(text).map_err(|why| format!("{path}: cannot be read: {why}"))?,
-    })
+fn doc(path: &str, text: &str) -> Result<Doc, Unreadable> {
+    let path = path.to_string();
+    match blocks(text) {
+        Ok(blocks) => Ok(Doc { path, blocks }),
+        Err(why) => Err(Unreadable { path, why }),
+    }
 }
 
 /// Every living doc; one that cannot be read is an `Err`.
-fn living_docs() -> Vec<Result<Doc, String>> {
+fn living_docs() -> Vec<Result<Doc, Unreadable>> {
     tracked_files::tracked(&workspace(), &["*.md"])
         .into_iter()
         .filter(|path| is_living(path))
@@ -221,7 +261,10 @@ fn every_living_doc_is_read() {
     }
     let (readable, unreadable): (Vec<_>, Vec<_>) =
         living_docs().into_iter().partition(Result::is_ok);
-    let unreadable: Vec<String> = unreadable.into_iter().filter_map(Result::err).collect();
+    let unreadable: Vec<String> = unreadable
+        .into_iter()
+        .filter_map(|doc| doc.err().map(|why| why.to_string()))
+        .collect();
     assert_eq!(unreadable, Vec::<String>::new());
     let paths: Vec<String> = readable.into_iter().flatten().map(|doc| doc.path).collect();
     for living in ["README.md", "ARCHITECTURE.md", "docs/guides/quickstart.md"] {
@@ -239,7 +282,9 @@ fn every_living_doc_is_read() {
         assert!(!paths.iter().any(|path| path == unread), "{unread} is read");
     }
     assert_eq!(
-        doc("docs/a.md", "text\n\n```sh\nnever closed\n").err(),
+        doc("docs/a.md", "text\n\n```sh\nnever closed\n")
+            .err()
+            .map(|why| why.to_string()),
         Some("docs/a.md: cannot be read: a block fenced with ``` never closes".to_string())
     );
 }
@@ -247,12 +292,14 @@ fn every_living_doc_is_read() {
 #[test]
 fn a_fence_closes_only_on_its_own_marker_inside_its_quote() {
     let read = |text: &str| {
-        blocks(text).map(|blocks| {
-            blocks
-                .into_iter()
-                .map(|block| (block.first, block.text, block.fenced))
-                .collect::<Vec<_>>()
-        })
+        blocks(text)
+            .map(|blocks| {
+                blocks
+                    .into_iter()
+                    .map(|block| (block.first, block.text, block.fenced))
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|why| why.to_string())
     };
     assert_eq!(
         read("````md\n```\nv0.1.0\n```\n`````\nafter\n"),
@@ -293,4 +340,10 @@ fn stale_allowances(allowed: &[(&str, &str, &str)], used: &[bool]) -> Vec<String
         .filter(|(_, used)| !**used)
         .map(|((path, what, _), _)| format!("{path}: allows `{what}`, which it no longer names"))
         .collect()
+}
+
+/// Whether a backslash escapes the character at `at` of `text`: an odd run
+/// of them stands before it, since two escape each other.
+fn escaped(text: &str, at: usize) -> bool {
+    text[..at].chars().rev().take_while(|&c| c == '\\').count() % 2 == 1
 }

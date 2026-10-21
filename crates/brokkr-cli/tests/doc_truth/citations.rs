@@ -1,7 +1,10 @@
 //! The citation rule: every decision a doc, a source comment or a JSON
 //! string calls proposed is proposed in `docs/decisions/README.md`.
 
-use super::{blocks, is_living};
+use std::collections::BTreeMap;
+
+use super::{blocks, escaped, is_living, Unread, Unreadable};
+use crate::decisions_index::Status;
 use crate::workspace_root::{read, workspace};
 use crate::{decisions_index, rust_source, tracked_files};
 
@@ -12,42 +15,69 @@ fn bare(word: &str) -> String {
         .to_lowercase()
 }
 
-/// A word that is a four-digit decision number, its punctuation and the
-/// target of a link it is the text of (`[0069](…)`) dropped.
-fn number(word: Option<&&str>) -> Option<u16> {
+/// A word that is a decision number, its punctuation and the target of a
+/// link it is the text of (`[0069](…)`) dropped: four digits opening with
+/// the `0` the index pads every number below [`DECISIONS`] with, so a year
+/// (`2026`) is none.
+pub(super) fn number(word: Option<&&str>) -> Option<u16> {
     let word = word?;
     let word = bare(word.split_once(']').map_or(*word, |(text, _)| text));
-    (word.len() == 4 && word.chars().all(|c| c.is_ascii_digit()))
+    (word.len() == 4 && word.starts_with('0') && word.chars().all(|c| c.is_ascii_digit()))
         .then(|| word.parse().expect("four digits"))
 }
 
-/// The length of a Markdown link's `destination "title")`, the text after
-/// its `](`, through the `)` that closes it: a destination of no whitespace
-/// whose parentheses balance, and a title in `"`, `'` or `()` after it.
-/// `None` when no link closes there, so the text is read as words.
-fn destination(text: &str) -> Option<usize> {
-    let mut depth = 0;
-    let mut end = text.len();
-    for (at, c) in text.char_indices() {
-        match c {
-            ')' if depth == 0 => return Some(at + 1),
-            ')' => depth -= 1,
-            '(' => depth += 1,
-            c if c.is_whitespace() => {
-                end = at;
-                break;
-            }
-            _ => {}
-        }
-    }
-    let titled = text[end..].trim_start();
-    let close = match titled.chars().next()? {
+/// The first number [`number`] cannot read as a decision;
+/// `every_decision_called_proposed_is_proposed` fails once the index holds
+/// it, so the reading is widened before a citation of it goes unread.
+const DECISIONS: u16 = 1000;
+
+/// Where `close` first stands in `text` that no backslash [`escaped`].
+fn unescaped(text: &str, close: char) -> Option<usize> {
+    text.match_indices(close)
+        .map(|(at, _)| at)
+        .find(|&at| !escaped(text, at))
+}
+
+/// The text after a link's optional title, written in `"`, `'` or `()`
+/// with any closer inside it escaped, at the start of `text` once its
+/// whitespace is skipped; `None` when no title closes there.
+fn after_title(text: &str) -> Option<&str> {
+    let text = text.trim_start();
+    let close = match text.chars().next()? {
+        ')' => return Some(text),
         '"' => '"',
         '\'' => '\'',
         '(' => ')',
         _ => return None,
     };
-    let after = titled[1..].split_once(close)?.1.trim_start();
+    let inside = &text[1..];
+    Some(inside[unescaped(inside, close)? + 1..].trim_start())
+}
+
+/// The length of a Markdown link's `destination "title")`, the text after
+/// its `](`, through the `)` that closes it: a destination in `<…>`, or one
+/// of no whitespace whose parentheses balance, and an [`after_title`].
+/// `None` when no link closes there, so the text is read as words.
+fn destination(text: &str) -> Option<usize> {
+    let mut end = text.len();
+    if let Some(inside) = text.strip_prefix('<') {
+        end = 2 + unescaped(inside, '>')?;
+    } else {
+        let mut depth = 0;
+        for (at, c) in text.char_indices() {
+            match c {
+                ')' if depth == 0 => return Some(at + 1),
+                ')' => depth -= 1,
+                '(' => depth += 1,
+                c if c.is_whitespace() => {
+                    end = at;
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+    let after = after_title(&text[end..])?;
     after.starts_with(')').then(|| text.len() - after.len() + 1)
 }
 
@@ -62,7 +92,7 @@ fn after_link(word: &str) -> &str {
 /// comma, so `0056,0069` lists two, but never inside a Markdown link, so
 /// `[0069](a,b "Title")` is one word whatever its destination and title
 /// hold.
-fn words(text: &str) -> Vec<&str> {
+pub(super) fn words(text: &str) -> Vec<&str> {
     let (mut words, mut start, mut at) = (Vec::new(), None, 0);
     while let Some(c) = text[at..].chars().next() {
         if c.is_whitespace() {
@@ -215,7 +245,7 @@ fn json_strings(text: &str) -> Result<Vec<(usize, String)>, serde_json::Error> {
 /// string of a JSON text alone, a Rust source's comments, a script's
 /// [`shell_comment`]s, each a run of adjacent lines with the line it
 /// starts on.
-fn prose(path: &str, text: &str) -> Result<Vec<(usize, String)>, String> {
+fn prose(path: &str, text: &str) -> Result<Vec<(usize, String)>, Unread> {
     let lines: Vec<(usize, String)> = match path.rsplit_once('.').map(|(_, ext)| ext) {
         Some("md") => {
             return Ok(blocks(text)?
@@ -223,8 +253,9 @@ fn prose(path: &str, text: &str) -> Result<Vec<(usize, String)>, String> {
                 .map(|block| (block.first, block.text))
                 .collect());
         }
-        Some("json") => return json_strings(text).map_err(|why| why.to_string()),
-        Some("rs") => rust_source::comments(text)?
+        Some("json") => return json_strings(text).map_err(Unread::Json),
+        Some("rs") => rust_source::comments(text)
+            .map_err(Unread::Source)?
             .into_iter()
             .map(|(at, comment)| {
                 let lines: Vec<&str> = comment
@@ -261,25 +292,24 @@ fn prose(path: &str, text: &str) -> Result<Vec<(usize, String)>, String> {
 
 /// Each decision `texts` call proposed that the index does not hold as
 /// proposed, and each text that cannot be read.
-fn misnamed_proposals(
-    texts: &[(String, String)],
-    statuses: &std::collections::BTreeMap<u16, String>,
-) -> Vec<String> {
+fn misnamed_proposals(texts: &[(String, String)], statuses: &BTreeMap<u16, Status>) -> Vec<String> {
     let mut found = Vec::new();
     for (path, text) in texts {
         let runs = match prose(path, text) {
             Ok(runs) => runs,
             Err(why) => {
-                found.push(format!("{path}: cannot be read: {why}"));
+                let path = path.clone();
+                found.push(Unreadable { path, why }.to_string());
                 continue;
             }
         };
         for (line, run) in runs {
             for cited in called_proposed(&run) {
-                match statuses.get(&cited).map(String::as_str) {
-                    Some("proposed") => {}
+                match statuses.get(&cited) {
+                    Some(Status::Proposed) => {}
                     Some(status) => found.push(format!(
-                        "{path}:{line}: calls decision {cited:04} proposed; the index rules it {status}"
+                        "{path}:{line}: calls decision {cited:04} proposed; the index rules it {}",
+                        status.word()
                     )),
                     None => found.push(format!(
                         "{path}:{line}: calls decision {cited:04} proposed; the index holds no such decision"
@@ -314,8 +344,14 @@ fn every_decision_called_proposed_is_proposed() {
             "{known} is not read"
         );
     }
+    let statuses = decisions_index::cited_statuses();
     assert_eq!(
-        misnamed_proposals(&texts, &decisions_index::cited_statuses()),
+        statuses.range(DECISIONS..).next(),
+        None,
+        "the index holds a decision `number` cannot read: widen it"
+    );
+    assert_eq!(
+        misnamed_proposals(&texts, &statuses),
         Vec::<String>::new(),
         "a living doc, a source comment or a JSON string calls a decision proposed that the index does not"
     );
@@ -323,11 +359,12 @@ fn every_decision_called_proposed_is_proposed() {
 
 /// The index the planted citations are held to: 0069 accepted, 0056 and
 /// 0075 proposed.
-fn planted_statuses() -> std::collections::BTreeMap<u16, String> {
-    [(56, "proposed"), (69, "accepted"), (75, "proposed")]
-        .into_iter()
-        .map(|(number, status)| (number, status.to_string()))
-        .collect()
+fn planted_statuses() -> BTreeMap<u16, Status> {
+    BTreeMap::from([
+        (56, Status::Proposed),
+        (69, Status::Accepted),
+        (75, Status::Proposed),
+    ])
 }
 
 #[test]
@@ -446,5 +483,35 @@ fn a_proposed_citation_ends_where_it_closes_and_reads_a_link_whole() {
     assert_eq!(
         words("a,b [0069](x,y \"T, u\"), c [d](e"),
         ["a,", "b", "[0069](x,y \"T, u\"),", "c", "[d](e"]
+    );
+}
+
+#[test]
+fn a_link_is_read_whole_by_its_bracketed_destination_and_any_title() {
+    let planted = [(
+        "docs/d.md".to_string(),
+        "(decision [0069](<path with spaces>), proposed).\n\n\
+         (decision [0069](path \"A \\\"quoted\\\" title\"), proposed).\n\n\
+         (decision [0069](x (T)), proposed).\n"
+            .to_string(),
+    )];
+    let accepted = |line: usize| {
+        format!("docs/d.md:{line}: calls decision 0069 proposed; the index rules it accepted")
+    };
+    assert_eq!(
+        misnamed_proposals(&planted, &planted_statuses()),
+        [1, 3, 5].map(accepted)
+    );
+}
+
+#[test]
+fn a_year_is_no_decision() {
+    let planted = [(
+        "docs/y.md".to_string(),
+        "Proposed in 2026, and proposed decision 1999; (decision 0069, proposed).\n".to_string(),
+    )];
+    assert_eq!(
+        misnamed_proposals(&planted, &planted_statuses()),
+        ["docs/y.md:1: calls decision 0069 proposed; the index rules it accepted"]
     );
 }
