@@ -114,6 +114,47 @@ pub(super) fn compile_seats(
     Ok((seats, verify_agent_hands))
 }
 
+/// Decision 0091 refusal 4, where a folder supplied a seat: the recipe's
+/// own declaration of it, which the folder's driver and hands replaced
+/// before any parser read it, compiles as a compile with no folder
+/// compiles it, by the same seat reading ([`compile_seat`]) under the same
+/// boundary, adapters and engine, on a scratch compiler whose facts are
+/// dropped. Its class, results and limits are the seat's and compiled
+/// already, so what this refuses is its driver or its hands, with refusal
+/// 4's text. The passes after the seat loop read a model's candidates or a
+/// site's asks, and such a seat names no model, as it writes no `role` and
+/// a role-less site runs `exec` alone (bound for a model driver by
+/// `a_folder_seat_whose_own_driver_a_compile_with_no_folder_refuses_refuses`),
+/// and asks what its class asks, as the folder's declaration of the same
+/// class does in this compile.
+pub(super) fn hold_own_drivers(
+    compiler: &SiteCompiler<'_>,
+    machine: &Machine,
+    resolved: &compose::Resolved,
+    wrapped_verify: Option<&Command>,
+) -> Result<(), CompileError> {
+    for (phase, own) in &resolved.own_seats {
+        let dir = &resolved.roots[own.origin];
+        let (mut scratch, mut hands) = (compiler.scratch(), None);
+        let compiled = compile_seat(
+            &mut scratch,
+            machine,
+            dir,
+            phase,
+            &own.raw,
+            wrapped_verify,
+            &mut hands,
+        );
+        if compiled.is_err() {
+            let seat = phase.clone();
+            return Err(CompileError::Folder(
+                compose::FolderSeatRefusal::NoOwnDriver { seat },
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// One seat of a phase the policy has: its form, results, body, driver
 /// class, limits and inputs.
 fn compile_seat(

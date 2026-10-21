@@ -144,12 +144,16 @@ impl Folder {
 /// shipped adapters, no agent library, and an engine that is not there, so
 /// a spawn of it that passes every check fails to start rather than runs.
 pub(crate) fn compile(leaf: &Path, shelves: &Shelves) -> Result<Bundle, CompileError> {
+    compile_under(Boundary::Harness, leaf, shelves)
+}
+
+/// [`compile`] under the boundary `law`.
+fn compile_under(law: Boundary, leaf: &Path, shelves: &Shelves) -> Result<Bundle, CompileError> {
     let adapters = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../adapters");
     let roots = (Path::new("/nonexistent/agents"), adapters.as_path());
     let unmapped = crate::capabilities::UNMAPPED;
     let none = crate::capabilities::CapabilityContext::no_grants(unmapped, leaf);
     let engine = Executable(Some(PathBuf::from("/nonexistent/brokkr")));
-    let law = Boundary::Harness;
     Bundle::compile_as(&engine, (leaf, shelves), roots, None, None, law, &none)
 }
 
@@ -405,16 +409,18 @@ fn a_folder_seat_with_no_driver_of_its_own_refuses() {
     }
 }
 
-/// Refusal 4 in a folder reads the recipe's own driver as a compile with
-/// no folder does, before the folder's replaces it: a driver that compile
-/// refuses refuses here, while out of a folder that compile's own refusal
-/// stands, unchanged. A work seat with no hands may exec what it likes,
-/// as it may with no folder.
+/// Refusal 4 in a folder reads the recipe's own seat, as written before the
+/// folder's driver replaced it, as a compile with no folder does: a driver
+/// that compile refuses refuses here, a model's among them, as a seat with
+/// no `role` runs `exec` alone, while out of a folder that compile's own
+/// refusal stands, unchanged. A work seat with no hands may exec what it
+/// likes, as it may with no folder.
 #[test]
 fn a_folder_seat_whose_own_driver_a_compile_with_no_folder_refuses_refuses() {
     let folder = Folder::new();
     let pinned = from_folder()["driver"]["command"].clone();
     let unpinned = json!(["{brokkr}", "driver", "exec", "--", "bash", "-c", "true"]);
+    let model = json!(["{brokkr}", "driver", "claude"]);
     let unknown = "bundle: seat 'verify' driver has an unknown key, 'env'; known: command. A key \
                    the compiler does not read is a declaration that was never made — a \
                    capability placed there would compile, deliver nothing and run the seat at \
@@ -433,6 +439,7 @@ fn a_folder_seat_whose_own_driver_a_compile_with_no_folder_refuses_refuses() {
         (json!(null), true, missing_role),
         (json!({}), true, missing_role),
         (json!({"command": []}), true, missing_role),
+        (json!({"command": model}), false, missing_role),
         (json!({"command": pinned, "env": {}}), true, unknown),
         (json!({"command": unpinned}), true, boxless),
         (json!({"command": pinned}), false, untrusted),
@@ -464,6 +471,53 @@ fn a_folder_seat_whose_own_driver_a_compile_with_no_folder_refuses_refuses() {
     assert_eq!(argv(&taken, "verify")[5], script_at(&dir));
     let own = compile(&leaf, &Shelves::default()).unwrap();
     assert_eq!(argv(&own, "verify")[4..], ["bash", "-c", "true"]);
+}
+
+/// Under a box, refusal 4 reads the recipe's own seat with the whole of the
+/// compile with no folder: an exec of text under hands, which the box
+/// admits for a gate, compiles in a folder as out of one, while a secret
+/// lint or a hands reading that compile refuses refuses in a folder with
+/// refusal 4's text, and out of one with its own.
+#[test]
+fn under_a_box_a_folder_seat_is_held_to_the_whole_compile_with_no_folder() {
+    let folder = Folder::new();
+    let boxed = |leaf: &Path, shelves: &Shelves| compile_under(Boundary::Namespace, leaf, shelves);
+    let mut seat = from_folder();
+    seat["driver"]["command"] = json!(["{brokkr}", "driver", "exec", "--", "bash", "-c", "true"]);
+    let leaf = folder.recipe(json!({"verify": seat}));
+    let dir = folder.folder().canonicalize().unwrap();
+    let taken = boxed(&leaf, &folder.shelves()).unwrap();
+    assert_eq!(argv(&taken, "verify")[5], script_at(&dir));
+    let own = boxed(&leaf, &Shelves::default()).unwrap();
+    assert_eq!(argv(&own, "verify")[4..], ["bash", "-c", "true"]);
+    let undeclared = "bundle: seat 'verify' command template references undeclared secret \
+                      'UNDECLARED'; declare it in the seat's 'secrets' list (undeclared names \
+                      never resolve)";
+    let malformed = "bundle: seat 'verify' command template: malformed secret reference \
+                     '{{secret:': expected {{secret:NAME}} with NAME matching [A-Z][A-Z0-9_]*";
+    let null = "bundle: seat 'verify' hands: hands must be \"workspace\" or an object, got null \
+                (decision 0043)";
+    let secret = |reference: &str| {
+        let mut seat = from_folder();
+        let command = seat["driver"]["command"].as_array_mut().unwrap();
+        command.push(json!(reference));
+        seat
+    };
+    let mut handless = from_folder();
+    handless["hands"] = Value::Null;
+    for (seat, outside) in [
+        (secret("{{secret:UNDECLARED}}"), undeclared),
+        (secret("{{secret:"), malformed),
+        (handless, null),
+    ] {
+        let leaf = folder.recipe(json!({"verify": seat}));
+        let (variant, text) = refusal(boxed(&leaf, &folder.shelves()));
+        let seat = "verify".into();
+        assert_eq!(variant, FolderSeatRefusal::NoOwnDriver { seat });
+        assert_eq!(text, NO_OWN_DRIVER);
+        let refused = boxed(&leaf, &Shelves::default()).map(|bundle| bundle.roots);
+        assert_eq!(refused.unwrap_err().to_string(), outside);
+    }
 }
 
 /// The sixth refusal: a key the seat is not read for, written by the

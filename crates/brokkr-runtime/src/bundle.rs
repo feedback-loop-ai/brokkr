@@ -1006,6 +1006,7 @@ impl Bundle {
         );
         let (seats, verify_agent_hands) =
             assemble::compile_seats(&mut compiler, &machine, &resolved, wrapped_verify)?;
+        assemble::hold_own_drivers(&compiler, &machine, &resolved, wrapped_verify)?;
         let SiteCompiler { agents, sites, .. } = compiler;
         let mut seated = assemble::Seated {
             authority: &authority,

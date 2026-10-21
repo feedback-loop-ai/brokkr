@@ -107,6 +107,9 @@ pub struct Resolved {
     reads: Vec<Consumed>,
     /// The folder layer a seat was taken from, beside the chain (0091).
     folder: Option<folder::Folder>,
+    /// Seat name -> the recipe's own declaration of each seat the folder
+    /// supplied, which the compile holds to a compile with no folder.
+    pub(crate) own_seats: BTreeMap<String, folder::OwnSeat>,
 }
 
 impl Resolved {
@@ -256,6 +259,9 @@ struct Merged {
     rule_from: BTreeMap<String, PathBuf>,
     /// Layer index -> the policy bytes that layer's table was parsed from.
     consumed: BTreeMap<usize, TableRead>,
+    /// Seat name -> the recipe's own declaration of a seat the folder
+    /// supplied (decision 0091 refusal 4).
+    own_seats: BTreeMap<String, folder::OwnSeat>,
 }
 
 fn rule_id(rule: &Value) -> Option<&str> {
@@ -983,5 +989,6 @@ pub(crate) fn resolve_unsealed(leaf: &Path, shelves: &Shelves) -> Result<Resolve
         layers: names,
         reads,
         folder,
+        own_seats: merged.own_seats,
     })
 }
