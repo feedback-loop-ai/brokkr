@@ -130,7 +130,7 @@ Any other entry SHALL be refused when the recipe and the entry are compiled, bef
 
 #### Scenario: Two facts of six fail, and the one listed first is named
 
-- **WHEN** the fixture table of the previous scenario, with a strategy phase `triage` listed ahead of `intake` that rules forward into it and declares no `change`, and with a `review` seat that selects on `strategy` with no `default`, is run with `--enter verify`
+- **WHEN** the fixture table of the scenario `A dialect step that needs a change no road carries is refused`, with a strategy phase `triage` listed ahead of `intake` that rules forward into it and declares no `change`, and with a `review` seat that selects on `strategy` with no `default`, is run with `--enter verify`
 - **THEN** no run is created, and the refusal names `review`, reached by `ANALYZE-CONSISTENT`, as a seat that selects on `strategy` with no `default` while `triage` is not entered, the first fact of six, and not the `check` step of `analyze`, which the change walk reaches first, by `VERIFY-PASS`
 - **AND WHEN** the fixture's `review` selector gains a `default` case and it is run with `--enter verify`
 - **THEN** no run is created, and the refusal names the `check` step of `analyze`, reached by `VERIFY-PASS`, as a dialect step expanding `{change}` whose one source, `intake`, no road from the entry enters
