@@ -2473,7 +2473,8 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
             None,
         )
         .unwrap();
-    for command in OperatorCommand::ALL {
+    // `release` moves no run and is refused by its reservation's rules.
+    for command in [Retry, Stop] {
         let refused = operator_command(&mut store, "raced", command, "operator", "too late")
             .unwrap_or_else(|error| panic!("{command:?} errored instead of refusing: {error}"));
         assert!(

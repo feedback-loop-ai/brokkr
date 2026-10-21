@@ -571,7 +571,7 @@ pub(super) fn coordinated(root: Option<Root>, claim: &Claim) -> Result<Option<Ro
 
 /// `path` as it resolves: canonical, or its parent's canonical path with
 /// its own name where only the parent resolves, or as spelled.
-fn beside(path: &Path) -> PathBuf {
+pub(super) fn beside(path: &Path) -> PathBuf {
     let parent = || {
         let name = path.file_name()?;
         Some(std::fs::canonicalize(path.parent()?).ok()?.join(name))

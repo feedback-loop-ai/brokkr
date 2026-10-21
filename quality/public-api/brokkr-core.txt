@@ -245,10 +245,11 @@ pub brokkr_core::fold::FoldError::UnknownCommand::seq: u64
 impl brokkr_core::fold::FoldError
 pub fn brokkr_core::fold::FoldError::seq(&self) -> u64
 pub enum brokkr_core::fold::OperatorCommand
+pub brokkr_core::fold::OperatorCommand::Release
 pub brokkr_core::fold::OperatorCommand::Retry
 pub brokkr_core::fold::OperatorCommand::Stop
 impl brokkr_core::fold::OperatorCommand
-pub const brokkr_core::fold::OperatorCommand::ALL: [brokkr_core::fold::OperatorCommand; 2]
+pub const brokkr_core::fold::OperatorCommand::ALL: [brokkr_core::fold::OperatorCommand; 3]
 pub const fn brokkr_core::fold::OperatorCommand::as_str(self) -> &'static str
 pub fn brokkr_core::fold::OperatorCommand::parse(&str) -> core::option::Option<brokkr_core::fold::OperatorCommand>
 pub enum brokkr_core::fold::ParkReason

@@ -373,3 +373,5 @@ fn a_bridge_refusal_whose_head_never_holds_writes_nothing() {
         .iter()
         .all(|event| event.payload["command_id"] != "looper-command"));
 }
+
+mod release_tests;

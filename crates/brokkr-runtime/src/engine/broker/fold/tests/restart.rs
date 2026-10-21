@@ -20,7 +20,7 @@ use brokkr_protocol::broker::Owner;
 
 use super::routes::{forced, restart, RESTARTED};
 use super::*;
-use crate::engine::broker::admission::tests::{conflicting, last, soon, Coordinated};
+use crate::engine::broker::admission::tests::{conflicting, in_flight, last, soon, Coordinated};
 use crate::engine::broker::admission::{
     amend, recheck, Conflict, Reservation, Unadmitted, Unknown, Witnessed, RESERVATION,
 };
@@ -93,17 +93,7 @@ impl Site {
     /// The run driven to its effect's attempt `a1` opened, as dispatch
     /// opens it, so the journal shows it in flight: the effect's id.
     fn in_flight(&mut self) -> String {
-        let engine = &mut self.engine;
-        engine.drive_once().unwrap();
-        engine.drive_once().unwrap();
-        let events = engine.store.load(&engine.run_id).unwrap();
-        let effect = events.last().unwrap().payload["effect_id"].clone();
-        let started = json!({"effect_id": effect, "attempt_id": ATTEMPT, "driver": "none"});
-        let attempt = Some(ATTEMPT.to_string());
-        engine
-            .append(EventType::EffectStarted, started, attempt)
-            .unwrap();
-        effect.as_str().unwrap().to_string()
+        in_flight(&mut self.engine, ATTEMPT)
     }
 
     /// The journal made to refuse every settled call from now on, as an
