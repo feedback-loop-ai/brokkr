@@ -14,6 +14,11 @@ fn printed(resolution: &BTreeMap<String, Resolution>) -> Value {
     serde_json::to_value(resolution).unwrap()
 }
 
+/// A printed document, read back as a value.
+fn value(document: impl Serialize) -> Value {
+    serde_json::to_value(document).unwrap()
+}
+
 #[test]
 fn run_facts_ignores_missing_display_only_phase_join() {
     let dir = tempfile::tempdir().unwrap();
@@ -39,7 +44,7 @@ fn run_facts_ignores_missing_display_only_phase_join() {
     }
     let facts = run_facts(&store, "run").unwrap();
     assert_eq!(facts.attempts, 1);
-    assert_eq!(facts.summary["phases_visited"], json!({}));
+    assert_eq!(value(&facts.summary)["phases_visited"], json!({}));
 }
 
 /// #376's two-attempt fixture: attempt one finished at $0.25 and was
@@ -51,16 +56,19 @@ fn costs_resolve_latest_and_agree_with_the_view_on_a_retried_seat() {
     let (_dir, store) = retried_store();
 
     assert_eq!(
-        costs(&store, "latest").unwrap(),
+        value(costs(&store, "latest").unwrap()),
         json!({"run_id": "run-retried",
                "seats": {"work": {"attempts": 2, "turns": 0, "cost_usd": 0.75,
                                   "model": "not reported", "boundary": "not recorded",
                                   "effort": "not reported"}},
                "total_cost_usd": 0.75})
     );
-    assert_eq!(costs(&store, "run-re").unwrap()["run_id"], "run-retried");
     assert_eq!(
-        costs(&store, "nope").unwrap_err().to_string(),
+        value(costs(&store, "run-re").unwrap())["run_id"],
+        "run-retried"
+    );
+    assert_eq!(
+        costs(&store, "nope").map(value).unwrap_err().to_string(),
         "no run matching 'nope' in this workspace database"
     );
 

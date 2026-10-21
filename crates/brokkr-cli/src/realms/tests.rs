@@ -1,4 +1,10 @@
 use super::*;
+use serde_json::{json, Value};
+
+/// `--json`'s world for `rows` under `m.json` and `j.db`, as a value.
+fn viewed(rows: &[Row]) -> Value {
+    serde_json::to_value(view("m.json", "j.db", rows)).unwrap()
+}
 
 fn row(name: &str, path: &str, branch: &str, head: &str) -> Row {
     hearth_row(name, path, branch, head, "j.db")
@@ -229,7 +235,7 @@ fn rows_carry_the_effective_journal_of_every_realm() {
         dir.path().join("j.db").display().to_string()
     );
     // And `--json` carries it too, so a consumer sees the same world.
-    let seen = view("m.json", "j.db", &rows);
+    let seen = viewed(&rows);
     assert_eq!(seen["realms"][0]["journal"], json!(rows[0].journal));
 }
 
@@ -239,7 +245,7 @@ fn rows_carry_the_effective_journal_of_every_realm() {
 #[test]
 fn the_json_view_is_the_same_world_as_the_frame() {
     let rows = [row("solo", "/tmp/x", "main", "abc1234")];
-    let seen = view("m.json", "j.db", &rows);
+    let seen = viewed(&rows);
     assert_eq!(
         seen,
         json!({
@@ -256,7 +262,7 @@ fn the_json_view_is_the_same_world_as_the_frame() {
     );
     // Unescaped: a bidi mark the frame strips survives to a parser,
     // which is reading bytes and not painting them.
-    let odd = view("m.json", "j.db", &[row("a\u{202e}b", ".", "main", NO_HEAD)]);
+    let odd = viewed(&[row("a\u{202e}b", ".", "main", NO_HEAD)]);
     assert_eq!(odd["realms"][0]["name"], json!("a\u{202e}b"));
 }
 
@@ -367,7 +373,7 @@ fn the_three_pin_states_render_distinctly_under_their_realm() {
 
     // The same three states as values a script branches on, with the
     // prose beside only where the word leaves something unsaid.
-    let seen = view("m.json", "j.db", &rows);
+    let seen = viewed(&rows);
     assert_eq!(
         seen["realms"][0]["publishes"],
         json!([{"name": "orders.api", "path": "contracts/orders.v1.schema.json"}])
@@ -384,7 +390,7 @@ fn the_three_pin_states_render_distinctly_under_their_realm() {
         ])
     );
     // A realm that draws none does not appear: no key, not an empty one.
-    let none = view("m.json", "j.db", &[row("solo", ".", "main", "abc")]);
+    let none = viewed(&[row("solo", ".", "main", "abc")]);
     assert!(none["realms"][0].get("publishes").is_none(), "{none}");
     assert!(none["realms"][0].get("consumes").is_none(), "{none}");
 }

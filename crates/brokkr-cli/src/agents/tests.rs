@@ -19,6 +19,11 @@ fn adapters_root() -> PathBuf {
     workspace().join("adapters")
 }
 
+/// A printed block, read back as a value.
+fn value(block: impl Serialize) -> Value {
+    serde_json::to_value(block).unwrap()
+}
+
 /// AC-10: `list` lists every shipped agent, and a broken definition
 /// prints a warning line without aborting — the contract `brokkr recipes
 /// list` set, and the reason the library is one file per agent.
@@ -71,7 +76,7 @@ fn show_prints_the_definition_and_its_per_entry_resolution() {
         "chief-architect",
     )
     .unwrap();
-    let resolution = resolution_value(&walked);
+    let resolution = value(resolution_value(&walked));
     assert_eq!(resolution["chosen"]["index"], 0);
     assert_eq!(resolution["chosen"]["model"], "fable");
     assert_eq!(resolution["chain"][0]["status"], "ok");
@@ -184,7 +189,7 @@ fn the_resolution_block_reports_unmapped_and_blocked_entries() {
         "tester",
     )
     .unwrap();
-    let resolution = resolution_value(&walked);
+    let resolution = value(resolution_value(&walked));
     assert_eq!(resolution["chain"][0]["status"], "blocked");
     assert!(resolution["chain"][0]["problem"]
         .as_str()
@@ -331,11 +336,17 @@ fn a_chain_with_no_available_link_reports_no_choice() {
         availability.record(provider, Presence::Unavailable);
     }
     let walked = walk(&library, &adapters, &availability, "chief-architect").unwrap();
-    assert!(resolution_value(&walked)["chosen"].is_null());
-    assert_eq!(entry_value(&walked.entries[0])["presence"], "unavailable");
+    assert!(value(resolution_value(&walked))["chosen"].is_null());
+    assert_eq!(
+        value(entry_value(&walked.entries[0]))["presence"],
+        "unavailable"
+    );
     availability.record("claude", Presence::Available);
     let walked = walk(&library, &adapters, &availability, "chief-architect").unwrap();
-    assert_eq!(entry_value(&walked.entries[0])["presence"], "available");
+    assert_eq!(
+        value(entry_value(&walked.entries[0]))["presence"],
+        "available"
+    );
 }
 
 #[test]
