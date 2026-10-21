@@ -664,7 +664,11 @@ before the cut-off (the command: every attempt; the drive: the attempts
 before this effect's request) as typed `PanelAttempt` records in journal
 order, each with its terminal kind, its `settled_members`, its `carried`,
 its `tree` and `head` at both ends, for a sequence the steps whose markers
-stand, and `input_holds`, whether its effect's seat input, rebuilt by
+stand, its `park_reason`, the `reason` of the first `run/parked` after its
+terminal fact and before the cut-off, absent where none follows (the one
+source of `Shape::Succeeded`'s reason at both times, never the folded
+state's, which at the drive is running and at the command holds the latest
+park; S30), and `input_holds`, whether its effect's seat input, rebuilt by
 `self.seat_input` under that effect's own id, still digests to its
 `effect/requested.input_digest`; the head now (`git_head` of `self.repo`,
 kept only in the commit-id shape); and the tree now (`read_tree` of
@@ -702,7 +706,9 @@ exhaustively (ruling 2):
   `operator/commanded` sequence number (D3), raised by the journal's reader
   (`carry/facts.rs`, `carry/record.rs`) and never by `carry_plan`
 - `Shape { attempt, why }` with `why` one of `NoAttemptEnded { visit }`,
-  `Succeeded { park_reason }`, `EndedAtLaterStep { step }`, `NoRecord`
+  `Succeeded { park_reason }` (the parked attempt's `park_reason` as the
+  reader read it, `None` named as no park following it),
+  `EndedAtLaterStep { step }`, `NoRecord`
 - `Unsettled { members }`
 - `NoHead { repo }`; `HeadMoved { ends: Vec<RecordedHead>, now }`
 - `TreeNotClean { observations: Vec<Observation>, now }`
@@ -782,7 +788,11 @@ it was run; and `resume_context`, the member's own session plan. The seat
 input itself is `seat_input(state, phase, effect_id)`, one function over
 the pinned bundle, the folded state's context (`last_decision`, the earlier
 phases' results, `returned_from`), the repository, the realm's house rules
-and the effect's result paths. The source effect's digest holding now means
+as the manifest pins them (the engine `resume` builds reads its world from
+the pinned manifest, `World::from_manifest`, `engine.rs:710`, and
+`seat_input` embeds `world.house_for(&self.repo)`, `input.rs:88-90`), the
+store path of a seat that declares secrets (`input.rs:83-86`,
+`engine.rs:1126-1130`) and the effect's result paths. The source effect's digest holding now means
 that function, over the context as it stands now, reproduces what the
 carried members read; the carrying effect's seat input is the same function
 over the same context with its own effect id, so the two differ in the
@@ -794,8 +804,13 @@ neither `visits` nor `last_decision`, since a retry re-enters no phase.
 Hence a per-member projection with `result_path` struck out by hand would
 restate this derivation as a second definition of the input (ruling 5) and
 hold nothing more; and the whole-panel digest refuses more than a per-member
-one would, never less: an edit to a file one member's input embeds, the
-house rules among them, refuses every carry.
+one would, never less: any byte of the seat input that moves, the store
+path a seat that declares secrets embeds among them, refuses every carry.
+An edit to the realm's house-rules file after the run started is not such
+a byte: on a resumed engine the house text is the manifest's pin, so the
+edit reaches neither a carried nor a fresh member and moves no digest
+(the test `a_v3_world_pins_house_and_dialect_and_house_content_moves_run_identity`,
+`realms/tests.rs:379`, holds the rehydrated world to the pinned text).
 What `member_runs` adds after the digest, and why none of it is the subject
 (robustness's third-visit question): the selected candidate
 (`select_candidates`: its agent, model, effort, argv and hands), the site
@@ -1129,6 +1144,12 @@ built by a builder and a synthetic panel bundle:
 - the three-way test over every passed-over kind and every marked kind of
   R4, the carrying attempt that ended at the chief included; mutation: the
   marker's mark dropped from the test;
+- the succeeded attempt's park reason, read from the `run/parked` after
+  it: a rule parks after a succeeded attempt, a plain retry's effect is
+  then refused admission until it parks `effect <id> failed 2 of 2
+  attempt(s); …` (`engine.rs:940-964`), and `Shape::Succeeded` names the
+  rule's reason at the command's cut-off and at the drive's; mutation: the
+  folded state's reason used instead, so the later park's is named;
 - the read-through: the same member stuck twice carries by the first
   attempt; mutation: the entry's source replaced by the carrying attempt;
 - the two panel facts from the shape: `NoPanel` and `PanelStepFollows`
@@ -1190,9 +1211,11 @@ nothing (mutation: the fold step skipped, so the race refusal appears where
 returns `CarryRefused(RecordUnread)` with the engine unbuilt, and so does
 every member named beside a record that does not read; a drifted bundle on
 a sound record returns `resume`'s `LaunchError`, before any panel fact; a
-moved house-rules file returns `CarryRefused(InputMoved)` naming the source
-effect and writes nothing (mutation: `input_holds` dropped from the
-command's facts, so the command is admitted); a run driven with `brokkr
+run driven with `brokkr resume --secrets-file /keys/ops.env` on a seat that
+declares a secret, retried by member with `--secrets-file /keys/other.env`,
+returns `CarryRefused(InputMoved)` naming the source effect and writes
+nothing (mutation: `input_holds` dropped from the command's facts, so the
+command is admitted); a run driven with `brokkr
 resume --secrets-file` on a seat that declares a secret: the member form
 given the same store is admitted, and given none returns
 `CarryRefused(InputMoved)` naming the source effect (mutation: the store
@@ -1217,8 +1240,9 @@ fake driver): only the named members spawn, counted; `provenance`,
 `boundary`, the driver label, one offer, one admission claim and one marker
 cover the fresh member alone; the start and end readings on the terminal
 fact; a head moved between acceptance and drive parks with the sentence as
-the stated reason and `run/parked` carries it; a moved house-rules file
-parks naming the source effect; the bounded retry after a start failure
+the stated reason and `run/parked` carries it; an acceptance given under
+one secrets store and driven by `brokkr resume --secrets-file` naming
+another parks naming the source effect; the bounded retry after a start failure
 carries the same entries; a verdict settled in the failed bounded attempt is
 not carried; result files deleted after the park change nothing; a journal
 written before this change refuses `NoAttemptEnded`; the sequence's first
@@ -1295,8 +1319,12 @@ take no test of this change (D9); `commands/tests.rs` pins S21's text; the
   the recorded ends.
 - **The whole-panel input digest** refuses every carry when any member's
   input moved (D5). Inside one run that needs a bundle drift, which the
-  manifest gate already refuses, or an edit to a file the seat input embeds,
-  which should refuse. Accepted.
+  manifest gate already refuses, or an argument the engine is built from
+  that the seat input embeds, the secrets store's path above all, given
+  otherwise than the source effect was requested under, which should
+  refuse. An edit to the realm's house-rules file is neither: on a resumed
+  engine the house text is the manifest's pin, so the edit reaches neither
+  carried nor fresh members (D5). Accepted.
 - **`resume`'s admission at the command.** The member form refuses, in
   `resume`'s words, a run `brokkr resume` would refuse: a drifted bundle, a
   moved charter, a moved crossing, an expired Looper dispatch, a host that

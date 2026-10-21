@@ -89,7 +89,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 *Serves: R2, R3, R4, R5. Design: D4, D5, D7; T6. Proposal S5, S7, S9-S12, S15, S17, S18, S27.*
 
 - [ ] 4.1 [R3, R4] Build the reader and the observer in `engine/carry/facts.rs` (T6).
-  - **The reader.** `read_visit(events, state, cutoff) -> Result<Vec<PanelAttempt>, CarryRefusal>` is a free function, callable before the engine exists. It returns the visit's attempts before the cut-off as typed `PanelAttempt` records in journal order. Each record holds its terminal kind, `settled_members`, `carried`, `tree` and `head`, and, for a sequence, the steps whose markers stand. Each record is read once through group 3's types, and a field that does not read raises `CarryRefusal::RecordUnread`. The cut-off is every attempt at the command, and the attempts before this effect's `effect/requested` at the drive.
+  - **The reader.** `read_visit(events, state, cutoff) -> Result<Vec<PanelAttempt>, CarryRefusal>` is a free function, callable before the engine exists. It returns the visit's attempts before the cut-off as typed `PanelAttempt` records in journal order. Each record holds its terminal kind, `settled_members`, `carried`, `tree` and `head`, its `park_reason` (the `reason` of the first `run/parked` after its terminal fact and before the cut-off, absent where none follows; the one source of `Shape::Succeeded`'s reason at the command and at the drive, never the folded state's), and, for a sequence, the steps whose markers stand. Each record is read once through group 3's types, and a field that does not read raises `CarryRefusal::RecordUnread`. The cut-off is every attempt at the command, and the attempts before this effect's `effect/requested` at the drive.
   - **The facts.** `CarryFacts` holds:
     - the selected body's `PanelShape`, the closed enum of design D4 (a panel's tags in declared order, the phase running no panel, or a panel step after the first step);
     - those attempts, each with its `input_holds`;
@@ -139,6 +139,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - the aggregate byte for byte under both `Aggregate` kinds, with a carried `residual` and a carried `fail` kept;
   - every `CarryRefusal` variant by its fact and in R4's order, with the lists each names;
   - the three-way test over every passed-over and every marked kind;
+  - the succeeded attempt's park reason from the `run/parked` after it: a rule parks after a succeeded attempt, a plain retry's effect is then refused admission `max_attempts` times and parks `effect <id> failed 2 of 2 attempt(s); …`, and `Shape::Succeeded` names the rule's reason, at the command's cut-off and at the drive's;
   - the read-through;
   - the two panel facts asked before any name;
   - the tags in a step `p` with members `x` and `p:x`: `p:x` matches `x` alone, `p:p:x` matches `p:x` alone, and `x` refuses `UnknownMember` naming `p:p:x` then `p:x`;
@@ -215,7 +216,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - **Who runs.** Only the named member spawns (counted). `provenance`, `boundary`, the driver label, one offer, one admission claim and one marker cover it alone.
   - **What the attempt records.** `carried` names the source by `attempt_id`. The aggregate equals a fresh panel's over the same verdicts byte for byte, with a carried `residual` kept. The start and end readings stand on the terminal fact.
   - **The moved head.** A head moved between acceptance and drive parks on `driver: "none"` with the sentence as `effect/indeterminate.reason`. The folded park reason is `effect <id> indeterminate: <sentence>`, with `run/parked.evidence` `{}`.
-  - **Inputs and files.** A moved house-rules file parks naming the source effect. Result files deleted after the park change nothing.
+  - **Inputs and files.** On a seat that declares a secret, an acceptance given under `--secrets-file /keys/ops.env` and driven by `brokkr resume --secrets-file /keys/other.env` parks naming the source effect, the store path being a byte of its rebuilt input (`input.rs:83-86`). Result files deleted after the park change nothing.
   - **The bounded retry.** After a start failure it carries the same entries, and it does not carry a verdict that settled in the failed attempt.
   - **Old journals and restarts.** A journal from before this change refuses `NoAttemptEnded`. The restart indeterminate carries no record and is passed over.
   - **Retry arguments.** An accepted retry whose `args` carry an unknown key, a `members` that is not a list of strings (`null` included) or an empty list parks on `driver: "none"`, naming the command by its sequence number. One whose `args` are `{}` runs every member.
@@ -262,7 +263,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - each fold word returning `FoldRefused` and writing nothing;
   - a record that does not read beside a drifted bundle returning `CarryRefused(RecordUnread)` with the engine unbuilt, and every member named beside such a record giving the same;
   - a drifted bundle on a sound record returning `Err` with `resume`'s text, before any panel fact;
-  - a moved house-rules file returning `CarryRefused(InputMoved)` naming the source effect, and writing nothing;
+  - a run driven with `brokkr resume --secrets-file /keys/ops.env` on a seat that declares a secret, retried by member with `--secrets-file /keys/other.env`, returning `CarryRefused(InputMoved)` naming the source effect, and writing nothing;
   - a run driven with `brokkr resume --secrets-file` on a seat that declares a secret: the member form given the same store admitted, and given none returning `CarryRefused(InputMoved)` naming the source effect;
   - the carrying effect's own result paths leaving the command admitted;
   - a phase with no panel returning `CarryRefused(NoPanel)`, and a panel step after the first step returning `CarryRefused(PanelStepFollows)`;
@@ -381,13 +382,14 @@ Each point below fills in a detail the design leaves to the build, measured agai
   - **The rule:**
     - each refusal fact removed, and two facts swapped;
     - the marker dropped from the three-way test;
+    - the folded state's park reason used for `Shape::Succeeded` in place of the `run/parked` after the attempt (the later admission park's reason is then named);
     - the entry's source replaced by the carrying attempt;
     - the all-named short-circuit removed (the dirty tree or the park at the chief then refuses);
     - the tag match widened to the bare name (`p:x` then matches two members);
     - `fresh()` in the order given rather than the panel's declared order.
   - **The verb:**
     - the fold step skipped;
-    - `input_holds` dropped from the command's facts (a moved house-rules file is admitted);
+    - `input_holds` dropped from the command's facts (a member retry naming another secrets store than the source effect's is admitted);
     - the source rebuilt under the carrying effect's id (every carry refuses);
     - `disposed` folding for itself after the facts (the race's word becomes `run_not_awaiting_operator`);
     - the store dropped from the member form's request (a run driven with `--secrets-file` then refuses `InputMoved` at the command).
