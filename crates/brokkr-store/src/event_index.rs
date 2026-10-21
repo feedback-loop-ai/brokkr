@@ -107,9 +107,9 @@ pub(crate) fn migrate_index(conn: &Connection) -> Result<(), StoreError> {
     Ok(conn.execute_batch(&migration())?)
 }
 
-/// Record that the backfill finished; a journal created with the index
-/// has nothing to backfill.
-pub(crate) fn mark_indexed(conn: &Connection) -> Result<(), StoreError> {
+/// Record that the backfill finished, once its walk found every event's
+/// row: the one place the key is written, a new journal's included.
+fn mark_indexed(conn: &Connection) -> Result<(), StoreError> {
     conn.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES (?1, 'finished')",
         [BACKFILLED],

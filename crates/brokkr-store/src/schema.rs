@@ -6,7 +6,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
-use crate::event_index::{index_intact, mark_indexed, migrate_index};
+use crate::event_index::{index_intact, migrate_index};
 use crate::queue::{migrate_queue, queue_intact};
 use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
@@ -231,8 +231,10 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     migrate_acknowledgements(&tx)?;
     migrate_summary(&tx)?;
     mark_backfilled(&tx)?;
+    // No index backfill is marked here: a journal with no schema recorded
+    // may still carry events, and the open's walk, one read on an empty
+    // journal, records the mark once every event has its row.
     migrate_index(&tx)?;
-    mark_indexed(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
         [&DATABASE_SCHEMA.to_string()],

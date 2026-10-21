@@ -96,7 +96,7 @@ fn every_insert_is_indexed_from_its_envelope_as_its_event_projects() {
             ),
             event(
                 EventType::EffectCheckpointed,
-                json!({"attempt_id": 7, "checkpoint": {"member": 8}}),
+                json!({"attempt_id": 7, "checkpoint": {"member": 8}, "result": {"member": "r"}}),
             ),
         ],
     );
@@ -156,10 +156,30 @@ fn a_writable_open_indexes_an_older_journal_and_a_read_only_one_falls_back() {
     let store = Store::open(&path).unwrap();
     assert!(store.reads_index().unwrap());
     assert!(reader.reads_index().unwrap());
+    each_older_run_indexed(&store);
+}
+
+/// Every run of [`older_journal`] holds its two rows, each its event's.
+fn each_older_run_indexed(store: &Store) {
     for run_id in ["a", "b", "c"] {
-        assert_eq!(rows(&store, run_id).len(), 2, "{run_id}");
-        assert_eq!(parted_at(&store, run_id), None, "{run_id}");
+        assert_eq!(rows(store, run_id).len(), 2, "{run_id}");
+        assert_eq!(parted_at(store, run_id), None, "{run_id}");
     }
+}
+
+/// A journal that carries events but records no schema, as an edited or
+/// partly restored one may, is initialized at a writable open, and its
+/// events are indexed before the backfill is marked finished.
+#[test]
+fn a_journal_with_events_and_no_schema_is_indexed_at_its_open() {
+    let (_dir, path) = older_journal();
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute("DELETE FROM meta WHERE key = 'database_schema'", [])
+        .unwrap();
+    drop(conn);
+    let store = Store::open(&path).unwrap();
+    assert!(store.reads_index().unwrap());
+    each_older_run_indexed(&store);
 }
 
 /// A backfill a peer's lock cuts short writes the runs it reached, leaves
