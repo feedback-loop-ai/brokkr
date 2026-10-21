@@ -1393,7 +1393,8 @@ witness/compose pins accompany only rows that change their inputs.
 | U8b | U8a2b | Stage retained responses before delivery; 39.1–39.2 | `crates/brokkr-cli/src/broker/output.rs`; `crates/brokkr-cli/src/broker/session.rs`; `crates/brokkr-protocol/src/broker/ledger.rs` |
 | U8c | U8b | Publish verified content-addressed artifacts; 40.1–40.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/artifacts.rs` |
 | U8d | U8c, U4g | Fold settled calls through confirmed append; 41.1–41.2 | `crates/brokkr-runtime/src/engine/broker.rs`; `crates/brokkr-runtime/src/engine/capability_calls.rs`; `crates/brokkr-runtime/src/engine/checkpoints.rs` |
-| U8e | U8d | Settle and recover every attempt's evidence; 42.1–42.2 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/sequence.rs`; `crates/brokkr-runtime/src/engine/broker.rs` |
+| U8e | U8d | Settle and recover every attempt's evidence; 42.1 | `crates/brokkr-runtime/src/engine.rs`; `crates/brokkr-runtime/src/engine/sequence.rs`; `crates/brokkr-runtime/src/engine/broker.rs` |
+| U8e2 | U8e | Recover an attempt in flight at engine restart; 42.3 | Set with its design ruling (operator ruling 2026-10-21) |
 | U8f | U8e | Expose retained evidence in the pure view; 43.1–43.2 | `crates/brokkr-view/src/capability_calls.rs`; `crates/brokkr-view/src/lib.rs` |
 | U8g | U8f | Open a cited artifact through inspect; 44.1–44.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/verbs/readouts.rs` |
 | U9a | U8g, U2, U3c, U5a2 | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
@@ -1401,7 +1402,7 @@ witness/compose pins accompany only rows that change their inputs.
 | U9c2 | U9c1 | Launch Codex under its isolation options; 45.5–45.6 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-runtime/src/engine/input.rs` |
 | U0b | U9c2 | Measure every shape a seat can be served as; 1.5–1.6 | None |
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
-| U9b1 | U1d3 | Enable the proved namespace path; 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U9b1 | U1d3, U8e2 | Enable the proved namespace path; 42.2, 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U10a | U9b2 | Audit removals and run final candidate gates; 48.1–49.2 | None |
 | U10b | U10a | Fold the change and hand off; 49.3 | None |
@@ -2148,10 +2149,23 @@ Include the private exec-status error, invalid tag and EOF followed by no
 functioning child at their observed stage; none can acquire a Clean closure merely
 because a pipe ended. Writer reservations stay while settlement is uncertain.
 
-Closes tasks 42.1 and 42.2; requirements [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [MB5](specs/mcp-capability-broker/spec.md).
+Closes task 42.1 (operator ruling 2026-10-21: the engine-restart path is U8e2's, task 42.3, and 42.2 is U9b1's); requirements [CR3](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [MB5](specs/mcp-capability-broker/spec.md).
 Proof: Live half-record causes no premature corruption finding; settled half-record fails exactly, every terminal route meets the barrier, and restart appends each call once without replaying external work. A deterministic harness deliberately reports success after fatal broker failure; assert CR4's exact 0/1/4,096 call counts and causes, and catch an independent compiling removal of the engine disposition check. Preserve native lost/stranded failure handling too.
 
+Operator ruling 2026-10-21, after U8e's first run stopped (0065-slice-two-unit-u8e-see-the--fcfc4990, IMPL-BLOCKED), splitting it: U8e settles every attempt a running engine ends, through U8d's fold. That is ordinary dispatch, sequence steps, panel members (a panel inside a sequence included), a spawn that failed, an error returned before the report, cancellation and timeout, and cleanup not proven settled, whose evidence stays unread and whose reservation stands. An attempt in flight when an engine restarts keeps the judgment it has today: EffectIndeterminate, nothing folded, nothing replayed, and its reservations kept. Recovering it is U8e2's. A restarted engine holds no lease, no SiteSpawn for the dead attempt's brokers and no durable proof that the dead engine's processes ended, and supplying one is a design question D6 does not settle. 42.2's real transport faults through the barrier (both private failure tags, invalid status on either side of sender completion, and status EOF followed by failed initialization) need a real broker, which the runtime's suites cannot launch while the MCP compile fence stands. They move to U9b1, beside 46.2, which proves the same faults through real compile, dispatch, broker and fold. While the fence stands, U8e's proofs bring the broker's faults to the barrier as the ledgers the broker leaves.
+
 Owning tests: `crates/brokkr-runtime/tests/capability_ledger.rs`, `crates/brokkr-runtime/src/engine/cleanup_tests.rs`, `crates/brokkr-runtime/src/engine/resume_tests.rs`.
+
+### U8e2 — Recover an attempt in flight at engine restart
+
+When an engine restarts with an attempt in flight, fold that attempt's accepted calls from the attempt's original journal head, the one U8d's fold took before spawn and never one taken at restart, once its owned processes are durably proven settled, and append each call once without replaying external work. Until settlement is proven, the attempt stays indeterminate and keeps its writer reservations, as U8e leaves it.
+
+Closes task 42.3; requirements [CR4](specs/capability-response-retention/spec.md), [MB5](specs/mcp-capability-broker/spec.md).
+Proof: Restart appends each call once without replaying external work and keeps the persisted result without retry; a live half-record causes no premature corruption finding; uncertain settlement keeps the attempt indeterminate and its reservations standing; an independent removal of the settlement check fails.
+
+Operator ruling 2026-10-21, splitting this unit from U8e after U8e's first run stopped (0065-slice-two-unit-u8e-see-the--fcfc4990, IMPL-BLOCKED): a restarted engine holds no lease (every engine constructor starts with none), no SiteSpawn for the dead attempt's brokers, and no durable proof that the dead engine's processes ended. A reservation's witnessed settlement is per attempt; while settling it cannot tell a live tree from one that ended; and settled is sealed only after the terminal event. Recovery needs a durable per-driver settlement fact, the lease adopted again at resume, and each step's or member's SiteSpawn computed again, while D6 forbids another launch model or a stronger cleanup claim. The controller brings that design to the operator before this unit is commissioned, and its files are set with that ruling. It lands before U9b1 lifts the MCP compile fence.
+
+Owning tests: `crates/brokkr-runtime/src/engine/resume_tests.rs`, `crates/brokkr-runtime/src/engine/cleanup_tests.rs`.
 
 ### U8f — Expose retained evidence in the pure view
 
@@ -2229,7 +2243,10 @@ Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/t
 Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination;
 lifting the fence makes U8a2a's coordination refusals unconditional, so seats
 Brokkr cannot box then refuse on every run (operator ruling 2026-10-18). The lift
-also needs U8a2c's boxes built from the reach sealed at admission. It also switches on U1g1's strict-isolation refusal (operator ruling 2026-10-07), once macOS shapes are measured and Codex's place in the roster is settled. With the fence lifted it runs U1f2's init_doctor/init_stacks matrix switched on, pinning SI2's exact diagnostics inside init's "scaffolded bundle failed to compile" wrapper (moved from U1g1 by operator ruling 2026-10-08). It also records SD4's fully cold Linux x86_64 samples, after dropping the dentry, inode and page caches, with both actual observations and the total, carried from U6f1b (operator ruling 2026-10-14).
+also needs U8a2c's boxes built from the reach sealed at admission, and U8e2's
+recovery of an attempt in flight at engine restart. It proves task 42.2, moved
+from U8e (operator ruling 2026-10-21): 42.1's real transport faults through the
+success-reporting harness and settlement barrier, beside 46.2. It also switches on U1g1's strict-isolation refusal (operator ruling 2026-10-07), once macOS shapes are measured and Codex's place in the roster is settled. With the fence lifted it runs U1f2's init_doctor/init_stacks matrix switched on, pinning SI2's exact diagnostics inside init's "scaffolded bundle failed to compile" wrapper (moved from U1g1 by operator ruling 2026-10-08). It also records SD4's fully cold Linux x86_64 samples, after dropping the dentry, inode and page caches, with both actual observations and the total, carried from U6f1b (operator ruling 2026-10-14).
 
 The enabling matrix also traverses all boxed-server seams: singleton system and user-installed package entries with ordinary protected system hard links intact, SD4's measured host budgets, every reach mode and containment direction, resolution ancestors, hard links and bind aliases, store exclusion including empty/missing stores, bounded observation/readiness/handoff, and actual kernel shebang execution. Pin all pre-secret refusals to zero lookups/starts and distinguish later delivery/exec failures. A success-reporting harness cannot hide any zero-call box failure. Real Linux proof includes private tmpfs per server, local/shared network with hands still network-false, safe host loader environment, allowed loading bindings and cancellation at every startup window. macOS proves its existing refusal; no successful box is claimed there.
 Repeat MB3's two-worktree lifetime matrix and MB4's complete-frame/EOF
@@ -2238,7 +2255,7 @@ fixture. Quiesce any older writer whose reach overlaps protected sources,
 not just writers using the same worktree. All engine/broker observations
 count in SD4's measured total startup cost.
 
-Closes tasks 46.1 and 46.2; requirements [GP1](specs/gate-capability-policy/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
+Closes tasks 42.2, 46.1 and 46.2; requirements [GP1](specs/gate-capability-policy/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Real compile/launch/broker/fold/inspect with fake dialect; exact native/MCP gate reads/writes/explicit-office-egress required/wanted outcomes, same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind. Include the success-reporting harness after zero-call version failure, post-call fatal protocol and 4,096-call exhaustion, plus scalar-secret refusal on the real retention/inspect path; pin exact causes, counts and absent unsafe bodies.
 Add the separate HOME/TMPDIR collisions through real compile and selected launch, asserting the startup cause, zero store lookup/child start, and normal DOCS_TOKEN/private-directory control. Independent removal of reserved-name validation must fail.
 
