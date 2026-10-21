@@ -74,22 +74,16 @@ jq -Rn --arg date "$(date -u +%F)" '
      note: ("The [[package]] tables Cargo.lock holds, measured " + $date + " by scripts/measure-budgets.sh from crates/brokkr-runtime/tests/budgets.rs, which refuses any count above this one. bincode-next is held at 2.1.0 because 3.x needs rustc 1.90 and the MSRV job checks every target on 1.88. A dependency moves the count in the pull request that adds it."),
      budgets: {packages: .}}' < "$scratch/packages" > quality/crate-count.json
 
-# macOS's SQLite share is measured on CI's test (macos-latest) leg, never
-# here, and its budget is the operator's (decision 0089 ruling 9, amended
-# 2026-10-21): carried from the committed file, before it is rewritten.
-macos_sqlite=$(jq -c '{measured: .measured["fleet-page-sqlite-macos"], budget: .budgets["fleet-page-sqlite-macos"]}' quality/heap-bytes.json)
-
-jq -Rn --arg date "$(date -u +%F)" --argjson macos "$macos_sqlite" '
+jq -Rn --arg date "$(date -u +%F)" '
   [inputs | split("\t") | {key: .[1], value: (.[2] | tonumber)}] | from_entries
   | {schema: "brokkr.heap-budgets/v1",
-     note: ("Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured " + $date + " under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up. The fleet'"'"'s (decision 0089 ruling 9, tests/heap_fleet.rs): the console'"'"'s window, the visible page and the one ahead, read and derived, first and scrolled deep (fleet-page, capped at ruling 9'"'"'s 256 KiB), the same for a page whose every row fills every bound (capped at 640 KiB), and SQLite'"'"'s own high-water beside them (capped at 400 KiB; on macOS, where SQLite counts each block'"'"'s malloc size class, fleet-page-sqlite-macos, measured on CI'"'"'s test (macos-latest) leg and held to 500 KiB by the operator'"'"'s ruling of 2026-10-21 on #753, carried here by scripts/measure-budgets.sh, which runs on Linux); and, a budget of its own that ruling 9'"'"'s caps do not hold, the first window painted at 80x24, read, derived and drawn into ratatui'"'"'s buffers (fleet-painted-frame, and at every bound); and brokkr runs --json with no other flag over 2,000 and 20,000 runs behind their summary, the hundred a refresh reads whole and a batch of keys of the rest (fleet-listing-behind, ruling 6, capped at 640 KiB)."),
-     measured: (. + {"fleet-page-sqlite-macos": $macos.measured}),
+     note: ("Peak heap bytes of projecting the largest transcript of each kind the reader admits, measured " + $date + " under dhat by scripts/measure-budgets.sh from crates/brokkr-cli/tests/heap_*.rs. Each budget is its measured peak plus a tenth, rounded up. The fleet'"'"'s (decision 0089 ruling 9, tests/heap_fleet.rs): the console'"'"'s window, the visible page and the one ahead, read and derived, first and scrolled deep (fleet-page, capped at ruling 9'"'"'s 256 KiB), the same for a page whose every row fills every bound (capped at 640 KiB), and SQLite'"'"'s own high-water beside them (fleet-page-sqlite, held to 500 KiB on every host by the operator'"'"'s ruling of 2026-10-21 on #753, the cap itself and not the measured peak plus a tenth, since CI'"'"'s macOS leg measures it higher than Linux: 448,912 against 399,176); and, a budget of its own that ruling 9'"'"'s caps do not hold, the first window painted at 80x24, read, derived and drawn into ratatui'"'"'s buffers (fleet-painted-frame, and at every bound); and brokkr runs --json with no other flag over 2,000 and 20,000 runs behind their summary, the hundred a refresh reads whole and a batch of keys of the rest (fleet-listing-behind, ruling 6, capped at 640 KiB)."),
+     measured: .,
      budgets: (with_entries(.value = ((.value * 11 + 9) / 10 | floor))
                | .["fleet-page"] |= ([., 262144] | min)
                | .["fleet-page-at-every-bound"] |= ([., 655360] | min)
-               | .["fleet-page-sqlite"] |= ([., 409600] | min)
-               | .["fleet-listing-behind"] |= ([., 655360] | min)
-               | .["fleet-page-sqlite-macos"] = $macos.budget)}' < "$scratch/peaks" > quality/heap-bytes.json
+               | .["fleet-page-sqlite"] = 512000
+               | .["fleet-listing-behind"] |= ([., 655360] | min))}' < "$scratch/peaks" > quality/heap-bytes.json
 
 printf 'measured %s prompt sites, %s packages, peaks:' "$(wc -l < "$scratch/prompts")" "$(cut -f2 "$scratch/packages")"
 cut -f2,3 "$scratch/peaks" | tr '\t\n' '= ' && printf '\n'

@@ -846,15 +846,16 @@ model the writer keeps in the journal's own file and transaction.
      SQLite high-water grows by about two megabytes (2,114,384 B measured,
      Context).
 
-     *Amended, 2026-10-21 (operator, on PR #808, recorded on #753):* on
-     macOS SQLite's share is held to 500 KiB, not 400. There SQLite's
-     default allocator counts each block's malloc size class, where Linux
-     counts the bytes asked for and an eight-byte header, so the same page
-     reads higher: 448,912 B on CI's `test (macos-latest)` leg against
-     399,176 B on Linux. `quality/heap-bytes.json` holds it as
-     `fleet-page-sqlite-macos`, and `heap_fleet.rs` reads that budget on
-     macOS and ruling 9's on every other host. Brokkr's own shares, and
-     every other cap here, are the same on both.
+     *Amended, 2026-10-21 (operator, on PR #808, recorded on #753):*
+     SQLite's share is held to 500 KiB on every host, not 400, and its
+     budget is that cap itself (512,000 B), not the measured peak plus a
+     tenth. The same page reads 448,912 B on CI's `test (macos-latest)`
+     leg against 399,176 B on Linux; that SQLite on Apple platforms counts
+     each block's malloc size class is the likely cause, inferred and not
+     measured on a Mac. Each table the journal gains adds to the schema
+     SQLite reads at open (slice 2's `event_index` took Linux to 405,064
+     B), so the cap is set to hold slice 2 on both hosts. Brokkr's own
+     shares, and every other cap here, are unchanged.
    - **A page at every bound.** The 256 KiB is a page of ordinary rows.
      A page whose every row fills every bound holds about 330 KiB of row
      text before it is derived and painted (ruling 2), so it has a budget

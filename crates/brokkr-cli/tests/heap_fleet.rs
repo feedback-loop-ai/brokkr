@@ -27,15 +27,6 @@ const NOW: &str = "2026-10-20T00:00:00Z";
 /// The terminal the page is painted into.
 const FRAME: (u16, u16) = (80, 24);
 
-/// The budget SQLite's share is held to on this host. On macOS SQLite's
-/// default allocator counts each block's malloc size class, so the same
-/// page reads higher there, and the operator held it to 500 KiB on
-/// 2026-10-21 (#753); every other host keeps ruling 9's 400 KiB.
-#[cfg(target_os = "macos")]
-const SQLITE_BUDGET: &str = "fleet-page-sqlite-macos";
-#[cfg(not(target_os = "macos"))]
-const SQLITE_BUDGET: &str = "fleet-page-sqlite";
-
 /// The 2,000 runs of a journal of `events` a run, its widest rows each
 /// value a mebibyte and ten thousand findings, or each cut to exactly its
 /// bound, as `stretched` says.
@@ -204,7 +195,7 @@ fn first_page_micros(db: &Path) -> u128 {
 /// pages, so neither scrolling nor `a` grows what the console holds to
 /// read a frame (ruling 6). Every window holds within the
 /// budget ruling 9 caps at 256 KiB, one whose every row fills every bound
-/// within 640 KiB, and SQLite's high-water within 400 KiB; each budget
+/// within 640 KiB, and SQLite's high-water within 500 KiB; each budget
 /// sits at or under its cap. The painted frame, which adds ratatui's
 /// buffers at 80x24 to the read, is a budget of its own, and does not
 /// move between the two journals by more than the layout solver moves one
@@ -248,7 +239,7 @@ fn a_fleet_page_costs_the_same_heap_at_every_journal_size() {
         ("fleet-page-at-every-bound", every.read()),
         ("fleet-painted-frame", framed.into_iter().max().unwrap()),
         ("fleet-painted-frame-at-every-bound", every.frame),
-        (SQLITE_BUDGET, held.into_iter().max().unwrap()),
+        ("fleet-page-sqlite", held.into_iter().max().unwrap()),
     ] {
         println!("heap\t{name}\t{peak}");
     }
@@ -282,18 +273,17 @@ fn a_fleet_page_costs_the_same_heap_at_every_journal_size() {
     for cost in [small, large, bound] {
         within("fleet-page", cost.read());
         within("fleet-painted-frame", cost.frame);
-        within(SQLITE_BUDGET, cost.sqlite);
+        within("fleet-page-sqlite", cost.sqlite);
     }
     within("fleet-page-at-every-bound", every.read());
     within("fleet-painted-frame-at-every-bound", every.frame);
-    within(SQLITE_BUDGET, every.sqlite);
-    // Ruling 9's caps, which no measurement raises, macOS's SQLite share
-    // among them, each held on every host.
+    within("fleet-page-sqlite", every.sqlite);
+    // Ruling 9's caps, which no measurement raises; SQLite's, 500 KiB on
+    // every host, is the operator's of 2026-10-21 (#753).
     for (name, cap) in [
         ("fleet-page", 256 * 1024),
         ("fleet-page-at-every-bound", 640 * 1024),
-        ("fleet-page-sqlite", 400 * 1024),
-        ("fleet-page-sqlite-macos", 500 * 1024),
+        ("fleet-page-sqlite", 500 * 1024),
     ] {
         let budget = budgets::budget_named(name);
         assert!(
