@@ -854,15 +854,14 @@ type Proved = (
 );
 
 /// A bound plan's lifetime whose session delivers `DOCS_TOKEN`, stored as
-/// `value`, on a control pipe that is full and that no one reads, within
-/// `startup`, its bindings given to the lifetime's binder: how the
-/// lifetime ended, and what its ledger proves.
-fn given_up(value: &str, startup: Startup<'_>) -> (Result<(), Ended>, Proved) {
+/// `value`, on the control pipe `writer`, which is full and which no one
+/// reads ([`probed`]), within `startup`, its bindings given to the
+/// lifetime's binder: how the lifetime ended, and what its ledger proves.
+fn given_up(value: &str, writer: PipeWriter, startup: Startup<'_>) -> (Result<(), Ended>, Proved) {
     let dir = tempfile::tempdir().unwrap();
     let admitted = admitted_store(dir.path(), &format!("DOCS_TOKEN={value}\n"));
     let attempt: OwnedFd = std::fs::File::open(dir.path()).unwrap().into();
     let plan = plan_sealed(&["DOCS_TOKEN"]);
-    let (_reader, writer) = full();
     let ended = plan_lived(&attempt, &plan, |binder| {
         let pipes = (&mut Some(writer), &mut written(b""));
         let bind = |found| binder.bind(found);
@@ -894,34 +893,68 @@ fn proved(dir: &Path, plan: &Plan) -> Proved {
     )
 }
 
+/// A [`full`] control pipe whose writer blocks again, that pipe's reader,
+/// and a duplicate of the writer, which shares its flags: only a sender
+/// reaching its write makes the pipe non-blocking again ([`sent`]), and
+/// it reaches it only once it has published its lookup ([`delivered`]).
+fn probed() -> (PipeReader, PipeWriter, PipeWriter) {
+    let (reader, writer) = full();
+    rustix::io::ioctl_fionbio(&writer, false).unwrap();
+    let probe = writer.try_clone().unwrap();
+    (reader, writer, probe)
+}
+
+/// Whether the sender on `probe`'s pipe has published its lookup
+/// ([`probed`]).
+fn seen(probe: &PipeWriter) -> bool {
+    let flags = rustix::fs::fcntl_getfl(probe).unwrap();
+    flags.contains(rustix::fs::OFlags::NONBLOCK)
+}
+
+/// Never cancelled, but answering only once the lookup on `probe`'s pipe
+/// is [`seen`], or 30 s on, so no deadline is read as passed before it,
+/// however late a loaded host runs the sender.
+fn after_lookup(probe: &PipeWriter) -> impl Fn() -> bool + Sync + '_ {
+    let bound = Instant::now() + Duration::from_secs(30);
+    move || {
+        while !seen(probe) & (Instant::now() < bound) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        false
+    }
+}
+
 #[test]
 fn bindings_looked_up_before_a_stalled_write_still_guard_the_closure_given_up_on() {
     // The frame is never taken, so the startup gives up on its write, at
-    // its deadline or on the attempt's cancellation, half a second in,
-    // long after the store was read. The binding looked up is still given
-    // to the ledger (operator ruling 2026-10-13): DOCS_TOKEN's 0002 is the
-    // Closed's sequence, 2, and `closed` its record's name, so the Closed
-    // the handoff cause would close with is refused and never appended,
-    // and the lifetime ends with the masking cause.
+    // its deadline or on the attempt's cancellation, each read only once
+    // the store's lookup is seen ([`probed`]), never by the clock alone.
+    // The binding looked up is still given to the ledger (operator ruling
+    // 2026-10-13): DOCS_TOKEN's 0002 is the Closed's sequence, 2, and
+    // `closed` its record's name, so the Closed the handoff cause would
+    // close with is refused and never appended, and the lifetime ends with
+    // the masking cause.
     let soon = || Instant::now() + Duration::from_millis(500);
     let unclosed = || (vec![], None, Some(Invalid::Lifecycle));
     let masking = || Err(Ended::Failed(Fatal::Failed(Failure::Masking)));
     for value in ["0002", "closed"] {
-        let ran = given_up(value, (soon(), &live));
+        let (_reader, writer, probe) = probed();
+        let ran = given_up(value, writer, (soon(), &after_lookup(&probe)));
         let deadline = (value, "deadline", ran);
         assert_eq!(deadline, (value, "deadline", (masking(), unclosed())));
-        let at = soon();
-        let late = move || Instant::now() >= at;
-        let ran = given_up(value, (at + Duration::from_secs(30), &late));
+        let (_reader, writer, probe) = probed();
+        let far = Instant::now() + Duration::from_secs(30);
+        let ran = given_up(value, writer, (far, &|| seen(&probe)));
         let cancelled = (value, "cancelled", ran);
         assert_eq!(cancelled, (value, "cancelled", (masking(), unclosed())));
     }
-    // The control: an unrelated binding leaves the handoff cause the
-    // session's, and its closure.
+    // The control: an unrelated binding, looked up before the deadline is
+    // read, leaves the handoff cause the session's, and its closure.
     let handoff = Failure::Refused(Refusal::Handoff);
     let closed = (vec![], Some(Disposition::Failed(handoff)), None);
+    let (_reader, writer, probe) = probed();
     let deadline = Instant::now() + Duration::from_millis(300);
-    let ran = given_up("unrelated", (deadline, &live));
+    let ran = given_up("unrelated", writer, (deadline, &after_lookup(&probe)));
     assert_eq!(ran, (Err(Ended::Refused(Refusal::Handoff)), closed));
 }
 

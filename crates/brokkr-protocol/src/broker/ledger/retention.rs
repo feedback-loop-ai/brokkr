@@ -36,12 +36,13 @@ pub(super) fn share(retaining: usize) -> u64 {
 
 /// The staged response a retaining call's Terminal cites (CR2, CC2): the
 /// sha256 of the very bytes staged, in lowercase hex, and how many there
-/// are, never more than one reservation.
+/// are, never more than one reservation. Read past its record only through
+/// [`super::Lifecycle::cited`] (U8c).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Response {
-    sha256: String,
-    bytes: u64,
+    pub(super) sha256: String,
+    pub(super) bytes: u64,
 }
 
 impl Response {

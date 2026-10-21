@@ -26,13 +26,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::admission::{Claim, Conflict, Unadmitted, Unknown};
-use super::inventory::{hex, Budget};
+use super::inventory::Budget;
 use super::root::{Commit, Root};
-
-/// MB3's bound of 8 MiB per response and canonical artifact, the largest
-/// any artifact retention publishes may be (M1 of run four's second
-/// review); its 1 MiB bound is the request's.
-const ARTIFACT_BYTES_MAX: u64 = 8 << 20;
+use crate::engine::artifacts::{hex, ARTIFACT_BYTES_MAX, DIGESTS};
 
 /// What a historical root's record begins with, in its worktree's
 /// directory.
@@ -40,10 +36,6 @@ const PREFIX: &str = "historical-";
 
 /// What a historical root's record ends with.
 const SUFFIX: &str = ".json";
-
-/// The directory of an artifact root its artifacts stand in, each named by
-/// its bytes' sha256.
-const DIGESTS: &str = "sha256";
 
 /// The most of an artifact read and hashed before the deadline is checked
 /// again (M2).

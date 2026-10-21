@@ -60,7 +60,10 @@ On a returned implement visit, answer the finding in `returned_from` without
 expanding the release. `complete` means the commissioned preparation and every
 required extension are done, with publication work explicitly handed off;
 `broken` names a failed check or inconsistent candidate; `blocked` names missing
-access, configuration or authority; `oversized` names work beyond the commission.
+access, configuration or authority, and its kind in `inputs.blocked_by`:
+`environment` for access or configuration the operator fixes before retrying
+you, `work` for authority the commission lacks; `oversized` names work beyond
+the commission.
 Use the engine's result contract. Never report completion with required
 preparation missing. Pushes, merges, tags, publication and live profile edits
 remain the operator's actions unless separately commissioned and permitted by

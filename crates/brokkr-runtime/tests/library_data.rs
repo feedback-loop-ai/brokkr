@@ -222,6 +222,34 @@ fn sdd_offices_name_the_closed_return_contracts() {
     }
 }
 
+/// Decision 0092 ruling 4: every charter that teaches `blocked` tells its
+/// seat to name the blocker's kind, in the input the tables read and in
+/// both of its words, so an environment block can park for the operator.
+#[test]
+fn every_charter_that_teaches_blocked_names_its_kind() {
+    let mut teaching = BTreeSet::new();
+    for entry in std::fs::read_dir(workspace().join("agents/charters")).unwrap() {
+        let path = entry.unwrap().path();
+        let charter = std::fs::read_to_string(&path).unwrap();
+        if !charter.contains("`blocked`") {
+            continue;
+        }
+        for word in ["`inputs.blocked_by`", "`environment`", "`work`"] {
+            assert!(charter.contains(word), "{} omits {word}", path.display());
+        }
+        teaching.insert(path.file_name().unwrap().to_string_lossy().into_owned());
+    }
+    let expected = [
+        "implementer-intakeless.md",
+        "implementer-sdd.md",
+        "implementer-unattended.md",
+        "implementer.md",
+        "node-implementer.md",
+        "release-manager.md",
+    ];
+    assert_eq!(teaching, expected.map(String::from).into());
+}
+
 /// Proposed decision 0056 ruling 10: the SDD smith persists task
 /// progress before the next group, and reconciles it against the
 /// worktree on recovery.

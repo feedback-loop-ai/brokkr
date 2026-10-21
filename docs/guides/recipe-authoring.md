@@ -780,7 +780,7 @@ leave a terminal phase.
 | `id` | yes | The rule id journaled in `transition/decided` and printed by every readout. |
 | `from` | yes | The phase this rule rules from. |
 | `result` | yes | The typed result it matches. |
-| `reason` | yes | Why it rules what it rules. Read back verbatim by the operator; for a parking rule, this is the park reason. |
+| `reason` | yes | Why it rules what it rules. Read back verbatim by the operator; for a parking rule, this is the park reason when the parked seat left no notes, and its notes are the reason when it did (decision 0092). |
 | `next` | one of | The phase to advance to. |
 | `park` | one of | `true` — rule a park instead of a transition. Mutually exclusive with `next`. |
 | `severity` | no | `normal` \| `flagged` \| `hard`. The ruling severity of the transition taken; defaults to `normal`. Forbidden on a parking rule. |
@@ -809,6 +809,7 @@ naming the rule and the known set.
 |---|---|---|
 | bare name | a boolean input, by name | `skip_verify`, `fixes_applied`, `spec_defect`, `has_security_residual`, `high_risk_uncovered`, `drift_detected`, `dirty_worktrees`, `fixes_docs_only` |
 | `strategy_in` | whether the engine-owned `strategy` is one of a non-empty array of delivery classes | `chore`, `feature`, `design`, `engine`, `escalate` |
+| `blocked_by_in` | whether a blocked seat's declared `blocked_by` is one of a non-empty array of blockers ([below](#a-blocked-seat-its-environment-or-the-work)) | `environment`, `work` |
 | `<counter>_gte` | numeric threshold | `consecutive_failures` |
 | `visits_<phase>_gte` | how many times the run has entered `<phase>` | any phase **this table** declares |
 | `<axis>_above` | severity strictly above the threshold | `max_residual_severity` |
@@ -925,6 +926,60 @@ and make any arm that proceeds demand positive evidence rather than the
 absence of bad evidence. Because selection is reconstructed from the
 journaled strategy, a returned run keeps the same case provenance across
 resume until triage deliberately rules a new class.
+
+## A blocked seat: its environment or the work
+
+A work seat that cannot go on reports `blocked`. Two causes share that
+word and want opposite endings (decision 0092). An **environment** block
+(a signing key the seat cannot reach, a tool off its `PATH`, a capability
+its box refused) is the operator's to fix in minutes, after which the same
+seat can simply run again. A **work** block (a contradictory framing, a
+specification problem) needs judgment, and routes as it always did. The
+seat says which in its result's `inputs`:
+
+```json
+{"result": "blocked", "inputs": {"blocked_by": "environment"},
+ "notes": "the signing agent is unreachable from the seat's box"}
+```
+
+A recipe declares the distinction in three places:
+
+1. **The input.** `blocked_by` is a seat-owned choice over `environment`
+   and `work`, read by the `blocked_by_in` condition. A seat whose phase's
+   rules read it declares it by default (decision 0007); a seat that lists
+   its `inputs` itself must list `blocked_by`, or compilation refuses it.
+2. **The park, above the stop.** A conditional park on the environment,
+   then the unconditional stop:
+
+   ```json
+   {"id": "IMPL-BLOCKED-ENVIRONMENT", "from": "implement", "result": "blocked",
+    "when": {"blocked_by_in": ["environment"]}, "park": true, "reason": "…"},
+   {"id": "IMPL-BLOCKED", "from": "implement", "result": "blocked",
+    "next": "stop", "severity": "hard", "reason": "…"}
+   ```
+
+   First match wins, so the reverse order deadens the park and is refused
+   at load. A `work` value falls to the stop, and so does a seat that names
+   no blocker, because absence never satisfies a condition: a seat that
+   forgets the fact stops, which is the fail-closed direction.
+   `recipes/fast/policy.json` carries both rules, and every recipe that
+   extends `fast` inherits them.
+3. **The charter.** The seat's charter tells it to set
+   `inputs.blocked_by` when it reports `blocked`, and names both words.
+   Every shipped charter that teaches `blocked` does, and a test holds
+   each one to it.
+
+A rule-driven park carries the parked seat's non-empty notes as its
+reason, so the operator reads the blocker itself:
+`IMPL-BLOCKED-ENVIRONMENT for (implement, blocked): <the seat's notes>`.
+A seat with no notes parks with the rule's reason. Once the environment
+is fixed, `brokkr operator retry --run <id>` and then
+`brokkr resume --run <id>` run that one seat again. The earlier phases'
+results reach it in `context.results` as before, and no earlier phase
+runs again. `blocked` is not a failure word, so the park spends none of
+the seat's attempts and does not count toward `consecutive_failures`.
+The policy sweep (decision 0050) rules both values of `blocked_by` in
+every table that reads it.
 
 ## Compile it
 

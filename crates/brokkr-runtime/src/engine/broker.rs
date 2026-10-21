@@ -93,14 +93,14 @@ const SHARE_FLOOR: u64 = 8 << 20;
 const PROTECTED_ROOT: [&str; 4] = [".local", "state", "brokkr", "capabilities"];
 
 /// The attempt's sealed inventory, beside its plans.
-const INVENTORY: &str = "inventory.json";
+pub(super) const INVENTORY: &str = "inventory.json";
 
 /// MB3's absolute startup deadline, which provisioning's survey shares
 /// with the attempt's own bound and never extends.
 const STARTUP: Duration = Duration::from_secs(30);
 
 /// The most bytes the survey's reply may hold: MB3's request bound.
-const REPLY_BYTES_MAX: u64 = 1 << 20;
+pub(super) const REPLY_BYTES_MAX: u64 = 1 << 20;
 
 /// The longest one wait on the survey lasts before the deadline is read
 /// again.
@@ -682,7 +682,7 @@ fn answered(bytes: &[u8]) -> Result<Provisioned, Unprovisioned> {
 }
 
 /// A directory's open flags: never through a symlink.
-fn directory() -> OFlags {
+pub(super) fn directory() -> OFlags {
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
 }
 

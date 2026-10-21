@@ -118,7 +118,7 @@ fn the_swapped_self_arms_are_refused_and_the_audit_names_both_rules() {
     ));
     assert_eq!(
         audit(&swapped).to_string(),
-        "policy sweep (decision 0050): 47 valuations over 11 groups, 0 unruled\n  \
+        "policy sweep (decision 0050): 48 valuations over 11 groups, 0 unruled\n  \
          REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM is dead behind \
          REVIEW-REFORGE-EXHAUSTED-MEDIUM: its guard holds wherever \
          REVIEW-REFORGE-EXHAUSTED-ABOVE-MEDIUM's does, and first match wins\n"
@@ -136,7 +136,7 @@ fn the_ordered_self_table_names_its_severity_none_valuation() {
         audit(&self_table()),
         Audit {
             groups: 11,
-            valuations: 47,
+            valuations: 48,
             findings: vec![],
         }
     );
@@ -520,21 +520,21 @@ fn the_sweep_walks_each_axis_at_and_around_its_thresholds() {
 #[test]
 fn the_sweep_is_measured_before_it_runs_and_refuses_past_its_budget() {
     let machine = Machine::from_table(&self_table()).unwrap();
-    assert_eq!(machine.audit_with(47, engine_owned).unwrap().valuations, 47);
-    let over = machine.audit_with(46, engine_owned).unwrap_err();
+    assert_eq!(machine.audit_with(48, engine_owned).unwrap().valuations, 48);
+    let over = machine.audit_with(47, engine_owned).unwrap_err();
     assert_eq!(
         over,
         AuditError::Budget {
             phase: "verify".into(),
             result: "pass".into(),
-            valuations: 47,
-            budget: 46,
+            valuations: 48,
+            budget: 47,
         }
     );
     assert_eq!(
         over.to_string(),
-        "the policy sweep reaches 47 valuations at (verify, pass), over its \
-         budget of 46; the table was not swept"
+        "the policy sweep reaches 48 valuations at (verify, pass), over its \
+         budget of 47; the table was not swept"
     );
     // Every closed axis in one group: 2^8 × 6 × 5 × 3 × 4 = 92,160.
     let mut when = json!({"max_residual_severity_above": "low", "strategy_in": ["chore"],

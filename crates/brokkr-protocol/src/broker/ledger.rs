@@ -43,9 +43,11 @@
 //!
 //! [`Lifecycle`] is the one statement of D7's order: the writer admits
 //! each record through it before writing it, and [`recover`] reads a
-//! settled ledger through it, keeping only the prefix it verifies.
+//! settled ledger through it, keeping only the prefix it verifies; the
+//! responses that prefix's Terminals cite are what the engine publishes
+//! ([`Lifecycle::cited`]; U8c), never a stage none cites.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::os::fd::AsFd;
@@ -251,9 +253,10 @@ pub enum Invalid {
 /// D7's lifecycle, as far as its records go: the owner and plan digest the
 /// Opened must name, how many records it has admitted, whether the ledger
 /// is opened, each accepted call's tool and outcome in call order, none
-/// while it is unresolved, how many are unresolved, the calls begun while
-/// another was, which only a local refusal may end, and the closure, once
-/// there is one.
+/// while it is unresolved, the response each admitted Terminal cites, by
+/// its call, how many calls are unresolved, the calls begun while another
+/// was, which only a local refusal may end, and the closure, once there is
+/// one.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Lifecycle {
     owner: Owner,
@@ -261,6 +264,7 @@ pub struct Lifecycle {
     records: u64,
     opened: bool,
     calls: Vec<(String, Option<Outcome>)>,
+    cited: BTreeMap<u64, Response>,
     unresolved: usize,
     local: BTreeSet<u64>,
     closed: Option<Disposition>,
@@ -274,6 +278,7 @@ impl Lifecycle {
             records: 0,
             opened: false,
             calls: Vec::new(),
+            cited: BTreeMap::new(),
             unresolved: 0,
             local: BTreeSet::new(),
             closed: None,
@@ -300,6 +305,16 @@ impl Lifecycle {
     /// The verified closure, if any.
     pub fn closed(&self) -> Option<&Disposition> {
         self.closed.as_ref()
+    }
+
+    /// The response each verified Terminal cites (U8c; CR2), in call
+    /// order: the call's number, and the sha256 and length of the staged
+    /// bytes its Terminal cites. A Terminal that cites none, as a failure
+    /// of the broker's own or a refusal, is not here, whatever its outcome,
+    /// and nor is one past the verified prefix.
+    pub fn cited(&self) -> impl Iterator<Item = (u64, &str, u64)> + '_ {
+        let cited = self.cited.iter();
+        cited.map(|(call, response)| (*call, response.sha256.as_str(), response.bytes))
     }
 
     /// Admit `entry` as the next record, or say why it is out of order.
@@ -336,6 +351,7 @@ impl Lifecycle {
                 let answered = !matches!(outcome, Outcome::Refused(_));
                 ensure(open & (answered | response.is_none()), Invalid::Lifecycle)?;
                 self.ended(call, tool, outcome)?;
+                self.cited.extend(response.map(|response| (call, response)));
             }
             Entry::Closed { disposition, .. } => {
                 ensure(open & (self.unresolved == 0), Invalid::Lifecycle)?;
