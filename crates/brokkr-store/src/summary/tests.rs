@@ -493,6 +493,7 @@ fn a_backfill_cut_short_by_a_peer_s_lock_resumes_at_the_next_open() {
     // Migrated and seeded, every row behind, and the backfill not begun.
     let conn = rusqlite::Connection::open(&path).unwrap();
     migrate_summary(&conn).unwrap();
+    crate::event_index::migrate_index(&conn).unwrap();
     drop(conn);
     let lock = write_lock_on(&path);
     let store = Store::open(&path).unwrap();
@@ -662,6 +663,7 @@ fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
             Disagreement::Missing { run_id } => format!("{run_id} missing"),
             Disagreement::Column { run_id, column } => format!("{run_id} {column}"),
             Disagreement::Unread { run_id, error } => format!("{run_id} unread: {error}"),
+            Disagreement::Indexed { run_id, seq, fault } => format!("{run_id} {seq} {fault:?}"),
         })
         .collect();
     assert_eq!(

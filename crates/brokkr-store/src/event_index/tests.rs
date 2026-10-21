@@ -1,0 +1,385 @@
+//! The event index (decision 0089, slice 2): the trigger indexes every
+//! insert from its envelope as brokkr-core projects the event, an older
+//! journal is backfilled at a writer's open and resumes a backfill cut
+//! short, a read-only reader falls back on a journal not yet indexed, the
+//! keyed reads read their indexes, and the comparison names where a run's
+//! rows part from its events.
+
+use super::*;
+use crate::test_support::{plant_event, plant_run, unindex};
+use crate::tests::envelope_builder::EnvelopeBuilder;
+use crate::tests::{store, write_lock_on};
+use serde_json::{json, Value as Json};
+
+/// The next event of `run_id`, sealed onto its head and inserted as an
+/// older binary inserts one: past every writer the store keeps, so the
+/// trigger alone indexes it.
+fn planted(store: &Store, run_id: &str, built: EnvelopeBuilder) -> EventEnvelope {
+    let (seq, previous) = store.head_hash(run_id).unwrap();
+    let envelope = built
+        .run(run_id)
+        .seq(seq + 1)
+        .event_id(format!("{run_id}-{}", seq + 1))
+        .previous(previous)
+        .sealed();
+    crate::test_support::plant_envelope(&store.conn, &envelope).unwrap();
+    envelope
+}
+
+fn event(event_type: EventType, payload: Json) -> EnvelopeBuilder {
+    EnvelopeBuilder::new(event_type, payload)
+}
+
+/// A run `run_id` of `events` planted in `store`.
+fn run_of(store: &Store, run_id: &str, events: Vec<EnvelopeBuilder>) {
+    plant_run(&store.conn, run_id, "{}").unwrap();
+    for built in events {
+        planted(store, run_id, built);
+    }
+}
+
+/// `run_id`'s index rows as SQLite holds them, in seq order.
+fn rows(store: &Store, run_id: &str) -> Vec<Vec<Value>> {
+    let mut statement = store.conn.prepare(ROWS).unwrap();
+    let found = statement
+        .query_map([run_id], |row| (0..4).map(|at| row.get(at)).collect())
+        .unwrap();
+    found.collect::<Result<_, _>>().unwrap()
+}
+
+fn text(value: &str) -> Value {
+    Value::Text(value.to_string())
+}
+
+fn row(seq: i64, kind: &str, attempt: Option<&str>, member: Option<&str>) -> Vec<Value> {
+    let named = |name: Option<&str>| name.map_or(Value::Null, text);
+    vec![
+        Value::Integer(seq),
+        text(kind),
+        named(attempt),
+        named(member),
+    ]
+}
+
+/// Where `run_id`'s rows part from its events, read whole.
+fn parted_at(store: &Store, run_id: &str) -> Option<(u64, IndexFault)> {
+    let events = store.load(run_id).unwrap();
+    first_unindexed(&store.conn, run_id, &events).unwrap()
+}
+
+fn backfilled(store: &Store) -> bool {
+    indexed(&store.conn).unwrap()
+}
+
+/// Every insert, an older binary's included, is indexed from its
+/// envelope: its type, the payload's attempt (never the envelope's), the
+/// checkpoint's member or, with no checkpoint, the result's, each only
+/// where it is text; and the rows are what brokkr-core projects the
+/// events to.
+#[test]
+fn every_insert_is_indexed_from_its_envelope_as_its_event_projects() {
+    let (_dir, store) = store();
+    run_of(
+        &store,
+        "r",
+        vec![
+            event(EventType::RunStarted, json!({"feature": "f"})),
+            event(EventType::EffectStarted, json!({"attempt_id": "a1"})),
+            event(
+                EventType::EffectCheckpointed,
+                json!({"attempt_id": "a1", "checkpoint": {"member": "m1"}, "result": {"member": "r"}}),
+            )
+            .attempt(Some("the envelope's")),
+            event(
+                EventType::EffectSucceeded,
+                json!({"attempt_id": "a1", "result": {"member": "m2"}}),
+            ),
+            event(
+                EventType::EffectCheckpointed,
+                json!({"attempt_id": 7, "checkpoint": {"member": 8}}),
+            ),
+        ],
+    );
+    let checkpointed = "effect/checkpointed";
+    assert_eq!(
+        rows(&store, "r"),
+        [
+            row(1, "run/started", None, None),
+            row(2, "effect/started", Some("a1"), None),
+            row(3, checkpointed, Some("a1"), Some("m1")),
+            row(4, "effect/succeeded", Some("a1"), Some("m2")),
+            row(5, checkpointed, None, None),
+        ]
+    );
+    assert_eq!(parted_at(&store, "r"), None);
+}
+
+/// An envelope that is not JSON is indexed with nothing read from it, and
+/// its insert lands.
+#[test]
+fn an_envelope_no_reader_parses_is_indexed_empty_and_still_lands() {
+    let (_dir, store) = store();
+    plant_run(&store.conn, "raw", "{}").unwrap();
+    plant_event(&store.conn, "raw", &1, "h", "not json").unwrap();
+    assert_eq!(
+        rows(&store, "raw"),
+        [vec![
+            Value::Integer(1),
+            Value::Null,
+            Value::Null,
+            Value::Null
+        ]]
+    );
+}
+
+/// Three runs of a few events each, planted with no event index, as a
+/// binary from before it leaves them.
+fn older_journal() -> (tempfile::TempDir, std::path::PathBuf) {
+    let (dir, store) = store();
+    for run_id in ["a", "b", "c"] {
+        let opened = event(EventType::RunStarted, json!({"feature": "f"}));
+        let started = event(EventType::EffectStarted, json!({"attempt_id": run_id}));
+        run_of(&store, run_id, vec![opened, started]);
+    }
+    let path = store.path().to_path_buf();
+    drop(store);
+    unindex(&rusqlite::Connection::open(&path).unwrap()).unwrap();
+    (dir, path)
+}
+
+#[test]
+fn a_writable_open_indexes_an_older_journal_and_a_read_only_one_falls_back() {
+    let (_dir, path) = older_journal();
+    let reader = Store::open_read_only(&path).unwrap();
+    assert!(!index_intact(&reader.conn).unwrap());
+    assert!(!reader.reads_index().unwrap());
+    let store = Store::open(&path).unwrap();
+    assert!(store.reads_index().unwrap());
+    assert!(reader.reads_index().unwrap());
+    for run_id in ["a", "b", "c"] {
+        assert_eq!(rows(&store, run_id).len(), 2, "{run_id}");
+        assert_eq!(parted_at(&store, run_id), None, "{run_id}");
+    }
+}
+
+/// A backfill a peer's lock cuts short writes the runs it reached, leaves
+/// the journal read as unindexed, and the next writable open finishes it.
+#[test]
+fn a_backfill_cut_short_by_a_peer_s_lock_resumes_where_it_stopped() {
+    let (_dir, path) = older_journal();
+    migrate_index(&rusqlite::Connection::open(&path).unwrap()).unwrap();
+    let lock = write_lock_on(&path);
+    let mut store = Store::open(&path).unwrap();
+    lock.execute_batch("ROLLBACK").unwrap();
+    assert!(!backfilled(&store));
+    assert!(rows(&store, "a").is_empty());
+    let mut peer = None;
+    let mut reached = 0;
+    let stage = |_: &Connection| {
+        reached += 1;
+        if reached == 2 {
+            peer = Some(write_lock_on(&path));
+        }
+    };
+    store
+        .quietly(|store| store.index_behind_with(stage))
+        .unwrap();
+    let indexed: Vec<usize> = ["a", "b", "c"]
+        .iter()
+        .map(|run_id| rows(&store, run_id).len())
+        .collect();
+    assert_eq!(indexed, [2, 0, 0]);
+    assert!(!backfilled(&store));
+    assert!(!store.reads_index().unwrap());
+    drop(store);
+    peer.unwrap().execute_batch("ROLLBACK").unwrap();
+    let store = Store::open(&path).unwrap();
+    assert!(backfilled(&store));
+    for run_id in ["a", "b", "c"] {
+        assert_eq!(parted_at(&store, run_id), None, "{run_id}");
+    }
+}
+
+/// A journal that lost its trigger is repaired and walked again, so the
+/// events inserted while it was gone are indexed too.
+#[test]
+fn a_journal_that_lost_its_trigger_is_walked_again_once_repaired() {
+    let (_dir, store) = store();
+    run_of(
+        &store,
+        "r",
+        vec![event(EventType::RunStarted, json!({"feature": "f"}))],
+    );
+    store
+        .conn
+        .execute_batch("DROP TRIGGER event_index_of_an_event")
+        .unwrap();
+    planted(
+        &store,
+        "r",
+        event(EventType::PhaseEntered, json!({"phase": "p"})),
+    );
+    assert_eq!(parted_at(&store, "r"), Some((2, IndexFault::Missing)));
+    let path = store.path().to_path_buf();
+    drop(store);
+    let store = Store::open(&path).unwrap();
+    assert!(store.reads_index().unwrap());
+    assert_eq!(parted_at(&store, "r"), None);
+}
+
+/// A run of three events, each with an attempt and a member to edit.
+fn three(store: &Store) {
+    let step = |seq: u64| {
+        event(
+            EventType::EffectCheckpointed,
+            json!({"attempt_id": "a", "checkpoint": {"member": format!("m{seq}")}}),
+        )
+    };
+    run_of(store, "r", (1..=3).map(step).collect());
+}
+
+/// Each edit of a run's rows is named at the first seq where they part
+/// from its events, and how.
+#[test]
+fn a_run_s_rows_part_from_its_events_at_the_first_seq_and_by_the_first_column() {
+    let cases = [
+        (
+            "DELETE FROM event_index WHERE seq = 2",
+            2,
+            IndexFault::Missing,
+        ),
+        (
+            "DELETE FROM event_index WHERE seq = 3",
+            3,
+            IndexFault::Missing,
+        ),
+        (
+            "INSERT INTO event_index (run_id, seq) VALUES ('r', 0)",
+            0,
+            IndexFault::Stray,
+        ),
+        (
+            "INSERT INTO event_index (run_id, seq) VALUES ('r', 4)",
+            4,
+            IndexFault::Stray,
+        ),
+        (
+            "UPDATE event_index SET type = 'run/started' WHERE seq = 2",
+            2,
+            IndexFault::Column("type"),
+        ),
+        (
+            "UPDATE event_index SET attempt_id = NULL WHERE seq = 2",
+            2,
+            IndexFault::Column("attempt_id"),
+        ),
+        (
+            "UPDATE event_index SET member = 'm1' WHERE seq = 2",
+            2,
+            IndexFault::Column("member"),
+        ),
+    ];
+    for (edit, seq, fault) in cases {
+        let (_dir, store) = store();
+        three(&store);
+        assert_eq!(parted_at(&store, "r"), None, "{edit}");
+        store.conn.execute_batch(edit).unwrap();
+        assert_eq!(parted_at(&store, "r"), Some((seq, fault)), "{edit}");
+    }
+}
+
+/// A run's trail is every event but its checkpoints; a seat's stream is
+/// its checkpoints a page at a time, newest first, resumed below a seq;
+/// the envelopes are read by key in the order asked.
+#[test]
+fn the_trail_skips_checkpoints_and_a_stream_pages_newest_first() {
+    let (_dir, store) = store();
+    let checkpoint = |member: Option<&str>| {
+        event(
+            EventType::EffectCheckpointed,
+            json!({"attempt_id": "a", "checkpoint": {"member": member}}),
+        )
+    };
+    let mut events = vec![
+        event(EventType::RunStarted, json!({"feature": "f"})),
+        event(EventType::EffectStarted, json!({"attempt_id": "a"})),
+    ];
+    events.extend((0..120).map(|at| checkpoint((at % 4 == 0).then_some("m"))));
+    events.push(event(
+        EventType::EffectSucceeded,
+        json!({"attempt_id": "a", "result": {}}),
+    ));
+    run_of(&store, "r", events);
+    assert_eq!(store.index_trail("r").unwrap(), [1, 2, 123]);
+    let own: Vec<u64> = (3..=122).filter(|seq| (seq - 3) % 4 != 0).rev().collect();
+    let first = store.index_checkpoints("r", "a", None, None).unwrap();
+    assert_eq!(first, own[..CHECKPOINT_PAGE]);
+    let resumed = Some(*first.last().unwrap());
+    let second = store.index_checkpoints("r", "a", None, resumed).unwrap();
+    assert_eq!(second, own[CHECKPOINT_PAGE..]);
+    assert_eq!(
+        store
+            .index_checkpoints("r", "a", None, Some(u64::MAX))
+            .unwrap(),
+        first
+    );
+    let member: Vec<u64> = (3..=122).filter(|seq| (seq - 3) % 4 == 0).rev().collect();
+    assert_eq!(
+        store.index_checkpoints("r", "a", Some("m"), None).unwrap(),
+        member
+    );
+    assert_eq!(
+        store.index_checkpoints("r", "b", None, None).unwrap(),
+        Vec::<u64>::new()
+    );
+    let read = store.envelopes_at("r", &[123, 1, 2]).unwrap();
+    let seqs: Vec<u64> = read.iter().map(|envelope| envelope.seq).collect();
+    assert_eq!(seqs, [123, 1, 2]);
+    assert_eq!(read[0].event_type, EventType::EffectSucceeded);
+    let missing = store.envelopes_at("r", &[1, 124]).unwrap_err();
+    assert!(
+        matches!(
+            missing,
+            StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows)
+        ),
+        "{missing:?}"
+    );
+}
+
+/// `sql`'s plan, each step's detail in order.
+fn plan(store: &Store, sql: &str, bound: impl Params) -> Vec<String> {
+    let mut statement = store
+        .conn
+        .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+        .unwrap();
+    let steps = statement.query_map(bound, |row| row.get(3)).unwrap();
+    steps.collect::<Result<_, _>>().unwrap()
+}
+
+const STREAM_PLAN: &str = "SEARCH event_index USING INDEX event_index_stream \
+     (run_id=? AND attempt_id=? AND member=? AND seq<?)";
+
+/// Each keyed read searches its index, with no scan and no temporary
+/// B-tree: the trail its partial index, a seat's stream its own, the
+/// envelopes and the comparison their keys.
+#[test]
+fn each_read_searches_its_index() {
+    let (_dir, store) = store();
+    let none: Option<&str> = None;
+    assert_eq!(
+        [
+            plan(&store, &TRAIL, params!["r"]),
+            plan(&store, &STREAM, params!["r", "a", none, 9]),
+            plan(&store, &STREAM, params!["r", "a", "m", 9]),
+            plan(&store, ENVELOPE, params!["r", 1]),
+            plan(&store, ROWS, params!["r"]),
+        ],
+        [
+            ["SEARCH event_index USING INDEX event_index_trail (run_id=?)"],
+            [STREAM_PLAN],
+            [STREAM_PLAN],
+            ["SEARCH events USING INDEX sqlite_autoindex_events_1 (run_id=? AND seq=?)"],
+            ["SEARCH event_index USING PRIMARY KEY (run_id=?)"],
+        ]
+    );
+}

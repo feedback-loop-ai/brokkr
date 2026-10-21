@@ -50,6 +50,9 @@ fn named(run_id: &str, compared: Compared) -> Option<String> {
         Compared::Disagrees(Disagreement::Unread { error, .. }) => {
             format!("does not load: {error}")
         }
+        Compared::Disagrees(Disagreement::Indexed { seq, fault, .. }) => {
+            format!("event {seq} indexed {fault:?}")
+        }
     };
     Some(format!("{run_id}: {words}"))
 }
@@ -242,8 +245,9 @@ pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
 }
 
 /// Leave a journal as a binary from before the summary (decision 0089)
-/// left it: none of the summary's table, index or triggers, and no
-/// backfill recorded. Opening it read-write migrates it again.
+/// left it: none of the summary's table, index or triggers, none of the
+/// event index's, and neither backfill recorded. Opening it read-write
+/// migrates it again.
 pub fn unmigrate(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "DROP TABLE run_summary;
@@ -251,6 +255,18 @@ pub fn unmigrate(conn: &Connection) -> rusqlite::Result<()> {
          DROP TRIGGER run_summary_of_an_event;
          DROP TRIGGER run_summary_of_an_acknowledgement;
          DELETE FROM meta WHERE key = 'run_summary_backfill';",
+    )?;
+    unindex(conn)
+}
+
+/// Leave a journal as a binary from before the event index (decision
+/// 0089 slice 2) left it: no table, indexes or triggers of it, and no
+/// backfill recorded.
+pub fn unindex(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "DROP TABLE event_index;
+         DROP TRIGGER event_index_of_an_event;
+         DELETE FROM meta WHERE key = 'event_index_backfill';",
     )
 }
 
