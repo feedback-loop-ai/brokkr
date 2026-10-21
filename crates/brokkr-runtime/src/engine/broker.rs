@@ -71,7 +71,7 @@ use super::{site_label, Engine, EngineError, EventType, Selection};
 use crate::capabilities::{Admitted, Connection, Implementation};
 pub(super) mod admission;
 mod exclusion;
-mod fold;
+pub(super) mod fold;
 mod historical;
 mod inventory;
 mod observation;
