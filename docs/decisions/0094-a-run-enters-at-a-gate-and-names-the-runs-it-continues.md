@@ -281,6 +281,39 @@ this decision and the Rust types are their shape.
    gives way to the core function that answers the groups reading
    `strategy`.
 
+   *Amended, 2026-10-22 (the change's D43):* a fourth such fact exists,
+   and the table holds no others: a phase's visit count, `visits_<phase>`,
+   which the fold counts from its `phase/entered` events alone, no seat
+   may claim (decision 0022), and the engine supplies as zero at a ruling
+   for a phase the run never entered. A `(phase, result)` group the walk
+   meets that holds any ruling conditioned on `visits_<phase>_gte` with a
+   threshold above zero is refused when no road from the entry reaches
+   that phase, whatever its other rulings rule: the count never moves, a
+   threshold above zero is never met, and such a ruling never matches in
+   the entered run where a plain start, from which every phase is
+   reachable (decision 0050 ruling 3), may match it, so a hard denial the
+   count decides would fall through to an unconditioned allow below it. A
+   threshold of zero is met by that zero and is not refused. The fact is
+   judged over the walker run with nothing avoided, ranks fourth, after
+   the `{change}` fact, and is witnessed by the group, by result in key
+   order, the phase whose visits it reads, the first in rule order, and
+   the ruling that reached its phase. A count of a phase some road from
+   the entry reaches can still move, later by the visits a plain start
+   makes before it reaches the entry's position: that lag is the accepted
+   residual for every phase, as a landing's implement count lags today,
+   and no fact refuses it. No shipped table's admitted set or refusal
+   witness moves: `fast`'s four `visits_implement_gte` rulings are reached
+   from every admitted entry of every table that inherits them, the other
+   tables read no visits, and the triage-shaped tables refuse by earlier
+   facts. `consecutive_failures` is keyed by the ruling's own phase and
+   `reviewed_heads` is set by the protected phase, on every road by ruling
+   2, so no fifth fact exists. The binding gains
+   `Machine::groups_reading_visits` beside the function answering the
+   groups reading `strategy`, and the fixture of a `STOP-AFTER-INTAKE`
+   (`visits_intake_gte: 1`, hard, stop) above an unconditioned ruling to
+   `ship`, refused at `verify` and at `review` and admitted at `verify`
+   when it reads `implement`'s visits instead.
+
 5. **The chain is the operator's word, and the gate reports it while
    vouching the patch map.** `--continues <run>`, repeatable and only
    with `--enter`, names the earlier runs the entered run continues, each
@@ -524,10 +557,11 @@ this decision and the Rust types are their shape.
   amended); its `run/started` gains the one `phases` list, the one key
   by which the journal's payload-key golden moves. No contract file,
   no frozen surface, no fold arm and no store schema moves.
-- The engine's constitutional walk, the sweep over a group's
-  unconditioned rulings, the direction of a ruling and the language of the
-  entry record each have one home in `brokkr-core`, read by the compiler,
-  the engine, the view and, by patterns held equal, the gate.
+- The engine's constitutional walk, the groups reading `strategy` and
+  those reading a phase's visits above zero, the direction of a ruling
+  and the language of the entry record each have one home in
+  `brokkr-core`, read by the compiler, the engine, the view and, by
+  patterns held equal, the gate.
 - The public API of `brokkr-core`, `brokkr-runtime` and `brokkr-view`
   gains the types above; the snapshots under `quality/public-api/` are
   re-measured on the pinned nightly and cited in the pull request.
