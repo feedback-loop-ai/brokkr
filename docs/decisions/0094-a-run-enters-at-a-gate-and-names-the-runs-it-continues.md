@@ -94,7 +94,9 @@ this decision and the Rust types are their shape.
    admitted when, judged in this order: the phase is one of the table's
    and not a terminal; its name matches `^[a-z0-9][a-z0-9._-]{0,63}$`, the
    grammar the contribution gate prints; every driver-bearing site of its
-   seat is a gate by its typed class; the protected phase is the entry
+   seat is a gate by the class it wrote, the seat's compiled whole-gate
+   fact, a dialect step that declares none being work; the protected
+   phase is the entry
    itself or is unavoidable from it; no work phase is met by a forward
    walk from the entry, a forward ruling being one whose `next` stands
    after its `from` in the table's `phases` list; and no seat, step or
@@ -197,11 +199,19 @@ this decision and the Rust types are their shape.
    removed; the three rank in that order, each naming its own walk's
    first witness. A need the walk cannot supply is refused at admission,
    never left to park. The five change phases are one roster, read by the
-   engine's `{change}` expansion and the admission alike. Under this
-   ruling the triage-shaped tables admit no entry today, and the refusal
-   says so; the road to one is a `default` case on their selecting seats,
-   a recipe change named and not ruled here. Nothing of a continued run's
-   fold is read into this run's.
+   engine's `{change}` expansion and the admission alike. Under rulings
+   1, 3 and this one the triage-shaped tables admit no entry today, and
+   each refusal names its own first fact: `triage` and `night-shift`
+   refuse `verify` and `review` by this ruling, on a seat that selects
+   with no `default`, `triage` naming `implement` by `VERIFY-FAIL` and
+   `night-shift`, whose `implement` is a plain work seat, naming `review`
+   by `VERIFY-PASS`; `gpt-flash`, whose review positions are written
+   `work` ahead of its chief, refuses `review` by ruling 1 and `verify` by
+   ruling 3, review reached forward. The road to one is the recipe
+   author's, a `default` case on a selecting seat and gate-classed judges
+   where a work site stands in a judging phase, a recipe change named and
+   not ruled here. Nothing of a continued run's fold is read into this
+   run's.
 
    **Enforcement binding:** `Machine::unruled_without` in
    `crates/brokkr-core/src/policy/audit.rs` and its tests;
@@ -373,7 +383,8 @@ this decision and the Rust types are their shape.
 - Every `fast`-shaped table, `panel-review`, `self`, `preflight` and
   `verify` admit `verify` and `review`; `landing` admits `classify`,
   `verify` and `review`; `research` and `research-dsh` admit `verify`;
-  the triage-shaped tables admit none, and the refusal names the road.
+  the triage-shaped tables admit none, each refusal naming its first
+  fact and witness.
 - Every ordinary run's seat inputs, digests, manifest and witnesses stand;
   its `run/started` gains the one `phases` list. No contract file, no
   frozen surface, no fold arm and no store schema moves.
