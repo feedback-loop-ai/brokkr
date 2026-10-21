@@ -32,12 +32,40 @@ pub(crate) const HANG_DEADLINE_SECONDS: u64 = 30;
 /// member is.
 const RUNTIME_BROKER: &str = include_str!("../../../brokkr-runtime/src/engine/broker.rs");
 
+/// `source` with its comments blanked, line breaks kept: a `//` comment to
+/// its line's end, and a `/* */` comment, nested as Rust nests them. A
+/// comment marker inside a string literal is read as one too, which can
+/// only hide code, and a hidden declaration fails the pin closed.
+fn uncommented(source: &str) -> String {
+    let mut code = String::with_capacity(source.len());
+    let mut depth = 0usize;
+    let mut chars = source.chars().peekable();
+    while let Some(c) = chars.next() {
+        match (c, chars.peek()) {
+            ('/', Some('*')) => {
+                chars.next();
+                depth += 1;
+            }
+            ('*', Some('/')) if depth > 0 => {
+                chars.next();
+                depth -= 1;
+            }
+            ('/', Some('/')) if depth == 0 => while chars.next_if(|c| *c != '\n').is_some() {},
+            ('\n', _) => code.push('\n'),
+            (c, _) if depth == 0 => code.push(c),
+            _ => {}
+        }
+    }
+    code
+}
+
 /// The seconds of the one `STARTUP` `source` declares, read off its line
-/// `const STARTUP: Duration = Duration::from_secs(N);`. A line naming
-/// `const STARTUP` in any other shape, no such line, or two, fails the
-/// pin, never passes unread.
+/// `const STARTUP: Duration = Duration::from_secs(N);` outside every
+/// comment. A line naming `const STARTUP` in any other shape, no such
+/// line, or two, fails the pin, never passes unread.
 fn startup_seconds(source: &str) -> u64 {
-    let declared: Vec<&str> = source
+    let code = uncommented(source);
+    let declared: Vec<&str> = code
         .lines()
         .filter(|line| {
             let words: Vec<&str> = line
@@ -73,6 +101,31 @@ fn hang_deadline_is_the_runtime_startup() {
         HANG_DEADLINE_SECONDS, startup,
         "HANG_DEADLINE_SECONDS is {HANG_DEADLINE_SECONDS} s and brokkr-runtime's STARTUP is \
          {startup} s: a seat that hangs to its kill takes the whole startup bound (#794)"
+    );
+}
+
+/// A declaration a comment holds is never read: a block comment, nested
+/// or not, a line comment and a doc comment each hide their copy, and the
+/// one live line is read (#803).
+#[test]
+fn a_commented_startup_is_never_read() {
+    let source = "/* const STARTUP: Duration = Duration::from_secs(30);\n\
+                  /* const STARTUP: Duration = Duration::from_secs(31); */\n\
+                  const STARTUP: Duration = Duration::from_secs(32);\n*/\n\
+                  // const STARTUP: Duration = Duration::from_secs(33);\n\
+                  /// const STARTUP: Duration = Duration::from_secs(34);\n\
+                  const STARTUP: Duration = Duration::from_secs(60);\n";
+    assert_eq!(startup_seconds(source), 60);
+}
+
+/// A live declaration a comment splits is refused, never read past for a
+/// commented copy beside it (#803).
+#[test]
+#[should_panic(expected = "declares `STARTUP` in a shape the pin does not read")]
+fn a_declaration_a_comment_splits_is_refused() {
+    startup_seconds(
+        "/*\nconst STARTUP: Duration = Duration::from_secs(30);\n*/\n\
+         const /* startup bound */ STARTUP: Duration = Duration::from_secs(60);\n",
     );
 }
 
