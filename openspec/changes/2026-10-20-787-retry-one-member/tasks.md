@@ -31,7 +31,7 @@ Each point below fills in a detail the design leaves to the build, measured agai
 - **T11, the base the diff checks read** (D12). The local `main` ref in this worktree stands at `67a1886e`, older than the branch's base. The branch's base is `git merge-base origin/main HEAD`, which is `fe8775b7` on this branch. So every `git diff` in a verify step below reads against `fe8775b7`. If the branch is rebased, read against the base the command then prints. `origin/main` has since moved three commits, to `d7907e93`. Those commits touch `engine.rs` in four lines and `quality/file-lines.txt` outside the files named here. Every figure below is measured on this branch, and the rebase at merge is the operator's.
 - **T12, no existing assertion pins a panel's terminal payload whole** (D1, A1). A1 adds `tree` and `head` to every panel `effect/indeterminate` and `effect/failed`, and D1 keeps the existing assertions unchanged. A search over the engine's tests and the CLI's integration tests found no equality over such a payload whole. No test compares a payload holding `unresolved_members` whole, and neither equality in the form `payload, json!` (`agent_tests.rs:263`, `engine/tests.rs:266`) reads a panel's terminal fact. Existing tests read single fields (`cleanup_tests.rs:163`, `broker/admission/tests.rs:1656`). If 5.1's verify run finds an assertion that does pin the payload whole, the task stays open and the finding goes upstream. The assertion is not edited.
 
-## Implement visit: partial, 2026-10-21
+## First implement visit: partial, 2026-10-21 (87aa9db1)
 
 The checked items below are implemented. The unmarked proof items remain
 required: in particular 3.3, 4.3, 6.4, 7.4, 7.6, 8.3–8.4, the remaining
@@ -67,6 +67,68 @@ target/coverage/lcov.info: run scripts/coverage-exact.sh first`. Neither gate
 has been lowered. The full per-crate run's initial version-pin and gate
 failures were repaired; follow-up CLI runs pass 945 unit and 751 integration
 tests. `.forge/787-evidence.md` lists the commands and remaining work.
+
+## Returned implement visit: partial, 2026-10-21
+
+*Requirement coverage repaired for the return: A2's ignored-extension proof
+(3.3), the plan's constructor and all-fresh form (4.2), and R1's bounded
+retry lookup (6.1) are now checked. All other open proof tasks remain open;
+none is waived by this visit.*
+
+**T14, the complete plan (0071 rulings 2, 8 and 9).** `CarryPlan::new`
+accepts entries in declared order and refuses a missing, foreign, reordered
+or duplicate contribution as `EngineError::Invariant`. The rule still walks
+all declared tags once. Its constructor failure is an engine defect rather
+than an operator refusal; the comment names
+`plan_construction_and_join_refuse_incomplete_sets`, whose compiling
+constructor and join mutations fail. The all-fresh factory is named
+`all_fresh`, because Rust cannot overload the existing `fresh(&self)` view.
+The factory and the mixed form both use the constructor. No refusal word or
+aggregation semantics changes.
+
+**The new proofs (0071 ruling 9).** The return adds 21 tests, each killed by
+at least one compiling removal mutation. `python3
+.forge/787-return-mutations.py`'s indexed batches and `python3
+.forge/787-return-extra-mutations.py` record the commands, failed test names
+and outputs in `.forge/787-return-*`. They cover constructor completeness,
+both aggregates, opaque results, span changes, the original source through
+recovery, exact step tags, all-named ordering, marker-based attempt search,
+retry scope, secret-store drift, both command races, bounded chain fallback,
+sequence/chief stamping, ignored fold extensions, source ordinals, terminal
+tone and console/CLI forwarding. The first command-refold mutant did not
+compile (`E0382`, moved `read.attempts`); its corrected mutant compiled and
+failed the peer-race test. It is not counted as a killed mutant until that
+corrected run.
+
+**Readout coherence (A3, D9).** The console's host edge still pinned version
+23 while D9 and the view publish 24. It now reads 24 and carries the optional
+`carried_from` through with the view's status and activity. Its fixtures move
+with that wire version; graph version 2 stays separate. This is the
+necessary console edge of 8.4, under
+`extensions/dsh/brokkr-console/lib/host/readouts.js`. No console member-retry
+action is added.
+
+**Validation and outstanding work.** The final source's workspace clippy,
+format, files, clones and public-API ratchets pass; both bundles compile;
+`node --test` passes 182 tests. All crates' suites pass in per-crate runs.
+The combined CLI command timed out at 200 seconds after its unit (946
+passed, one ignored), conformance (27) and Claude heap tests passed; the
+remaining Codex and dsh heaps pass separately, and `--test it` passes 752
+with three ignored. The CLI doc target passes. Commands and their output
+are in `.forge/787-return-evidence.md` and the logs it names. Initial fixture
+assertions and clone failures were corrected, with their failures retained
+in the evidence summary.
+
+Exact coverage's RPC timed out at 300 seconds; its command continued until
+`timeout 540` returned 124 at the heap shard. It produced no LCOV;
+`bash quality/ratchet.sh crap` exits 1 with `ratchet refusal: no LCOV at
+target/coverage/lcov.info: run scripts/coverage-exact.sh first`. Both remain
+pending, unchanged. Tasks 4.3, 6.4, 7.4, 7.6, 8.3–8.4, 9.1 and 10.1 still
+require the remainder of their explicit cases, including compile/refusal
+ordering on drifted bundles, all fold words, no-panel/later-panel drive
+refusals, old journals, plain-retry byte pinning and the remaining removal
+matrix. Decision 0093 remains proposed and unbuilt, and the archive stays
+pending. S19 remains the assumption governing the number.
 
 ## 1. The working-tree reader
 
@@ -123,7 +185,7 @@ tests. `.forge/787-evidence.md` lists the commands and remaining work.
   - `args.members`: a non-empty list of tags.
 
   Give it a paragraph and a row in `contracts/README.md` naming 0093 as what minted it, and register it in `crates/brokkr-runtime/tests/frozen_contracts.rs`. No frozen byte moves. Verify: `cargo test -p brokkr-runtime --test it frozen_contracts`; `git diff --stat fe8775b7 -- contracts/` shows only the new file and the README.
-- [ ] 3.3 [A2] In `crates/brokkr-core/src/fold/tests.rs` (1,250 lines, under its ceiling), add a test that a journal carrying every new field folds to the same state, byte for byte, as the same journal without them. No production file of `brokkr-core` is edited. Verify: `cargo test -p brokkr-core fold`; `git diff --stat fe8775b7 -- crates/brokkr-core/src` names only the test file.
+- [x] 3.3 [A2] In `crates/brokkr-core/src/fold/tests.rs` (1,250 lines, under its ceiling), add a test that a journal carrying every new field folds to the same state, byte for byte, as the same journal without them. No production file of `brokkr-core` is edited. Verify: `cargo test -p brokkr-core fold`; `git diff --stat fe8775b7 -- crates/brokkr-core/src` names only the test file.
 
 ## 4. The carry rule and the one observer
 
@@ -143,7 +205,7 @@ tests. `.forge/787-evidence.md` lists the commands and remaining work.
     - the tree by `read_tree(&self.repo)`.
 
   The observer decides nothing, and `carry_plan` takes typed facts alone. Verify: `cargo build -p brokkr-runtime`.
-- [ ] 4.2 [R3, R4, R5] In `engine/carry.rs`, build the refusal, the plan, the join and the rule.
+- [x] 4.2 [R3, R4, R5] In `engine/carry.rs`, build the refusal, the plan, the join and the rule.
   - **`CarryRefusal`**: a public newtype over a crate-private `thiserror` enum, with one variant per fact of R4 and the closed `why` enums of D4:
     - `NoPanel`;
     - `PanelStepFollows`;
@@ -161,8 +223,8 @@ tests. `.forge/787-evidence.md` lists the commands and remaining work.
     Its `Display` is the one home of each text; the texts and the lists each names are R1 to R5's.
   - **`CarryPlan`**: derives `Debug`, since `Selection` does. It holds one `Contribution` per declared tag, `Fresh` or `Carried(SettledVerdict { tag, result, source })`.
     - Its constructor refuses a duplicate, a missing member or a foreign tag.
-    - `CarryPlan::fresh(members)` is the all-fresh plan the all-named retry runs under; a plain attempt holds no plan.
-    - It carries `subject: Option<Head>`, the head the carry was admitted on: `Some` exactly when an entry is `Carried`, set by the constructor from the facts' head now, and `None` for `CarryPlan::fresh`. The span check reads it and nothing else does.
+    - `CarryPlan::all_fresh(members, step)` is the all-fresh plan the all-named retry runs under; a plain attempt holds no plan.
+    - It carries `subject: Option<Head>`, the head the carry was admitted on: `Some` exactly when an entry is `Carried`, set by the constructor from the facts' head now, and `None` for `CarryPlan::all_fresh`. The span check reads it and nothing else does.
     - Its views `fresh()` and `carried()` are each in the panel's declared order. `fresh()` is the selection the verb journals as `args.members` (the named tags, or every tag for the all-named short-circuit), and the drive reads it back.
   - **`CarryPlan::join(reports) -> Result<Vec<(String, AttemptOutcome)>, EngineError>`**: the one join of design D7. It yields pairs in declared order: a `Fresh` entry takes its report's `settled_outcome()` under the member's bare name, and a `Carried` entry stands as `AttemptOutcome::Succeeded { result }`. A report twice for one tag, a report for no `Fresh` entry, or a `Fresh` entry with no report is `EngineError::Invariant`.
   - **`outcome_under(aggregate, plan: Option<&CarryPlan>, reports, span: &PanelSpan, attempt_id)`** (T9): the one function both panel callers use. Under `None` it is `panel_outcome(aggregate, reports)`. Under `Some` with `subject: Some(admitted)` it asks the span first, `head.at_start` and `head.at_end` each equal to `admitted` and `tree` `Clean` at both ends. Otherwise it is `AttemptOutcome::Indeterminate`, with `SubjectMoved { attempt: attempt_id, … }`'s `Display` as its reason, before the join. Then it is `outcome_over(aggregate, plan.join(reports)?)` (task 5.1). The span is group 3's `PanelSpan`, so the record and the check read one observation.
@@ -192,7 +254,7 @@ tests. `.forge/787-evidence.md` lists the commands and remaining work.
   - a string-valued `settled_members` entry read back as written and joining to `__member-schema-invalid__`;
   - the join, its all-fresh form and its three invariants;
   - `outcome_under` driving the same verdicts through `None` and through `Some(plan)` to the same bytes;
-  - the span check: under a plan whose `subject` is `Some(H0)`, a span at `H0` and `Clean` at both ends joins as before; an end head `H1`, an absent start head, and `Dirty` at either end are each `Indeterminate` with `SubjectMoved`'s sentence naming the attempt, both ends and `H0`, before the join; under `None` and under `CarryPlan::fresh` the same spans change nothing;
+  - the span check: under a plan whose `subject` is `Some(H0)`, a span at `H0` and `Clean` at both ends joins as before; an end head `H1`, an absent start head, and `Dirty` at either end are each `Indeterminate` with `SubjectMoved`'s sentence naming the attempt, both ends and `H0`, before the join; under `None` and under `CarryPlan::all_fresh` the same spans change nothing;
   - the scope's two cases (task 6.1);
   - `RetryArgs` refusing an unknown field, a `members` that is not a list of strings (`null` included) and an empty list as `RecordUnread` naming the command, with `{}` and an absent `args` the plain retry.
 
@@ -238,7 +300,7 @@ tests. `.forge/787-evidence.md` lists the commands and remaining work.
 
 *Serves: R1, R2, R3, R4, R5, A2, A4. Design: D3, D7, D8; T6, T7. Proposal S3, S11, S14, S32.*
 
-- [ ] 6.1 [R1] The selection's scope.
+- [x] 6.1 [R1] The selection's scope.
   - **The lookup.** Finding an `operator/commanded` by an acceptance's `command_id` becomes one function in `operator.rs` (`pub(super)`). `operator_stop_reason` (`engine/operator.rs:120-147`) calls it in place of its inline find, and its text does not move (T7).
   - **The search.** At `execute`, find the retry that caused this effect: the latest `operator/accepted` before its `effect/requested` whose accepted command, found by that lookup, is a `retry`, with no other `effect/requested` between.
   - **The parse.** Parse that command's `args` as `RetryArgs` first, before the visit's records. No acceptance, an absent `args` or `{}` selects the whole panel. `args` that do not parse (a key other than `members`, a `members` that is not a list of strings, `null` included, or an empty list, none of which the verb writes) are `RecordUnread`, naming the command by its `operator/commanded` sequence number and the field `args`. They are refused through `refuse_carry` (6.2), never read as the whole panel.

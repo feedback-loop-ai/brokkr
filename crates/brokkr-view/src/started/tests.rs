@@ -73,3 +73,68 @@ fn a_carried_part_is_completed_and_names_its_original_attempt() {
     assert_eq!(cleared.carried_from, None);
     assert_eq!(cleared.status, "working");
 }
+
+#[test]
+fn a_later_start_replaces_the_carried_source_and_counts_every_phase_attempt() {
+    let at = "2026-01-01T00:00:00Z";
+    let mut events = Vec::new();
+    for (kind, payload) in [
+        (
+            EventType::EffectRequested,
+            json!({"effect_id":"source","phase":"review","seat":"review"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id":"source","attempt_id":"one","driver":"panel"}),
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id":"source","attempt_id":"one"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id":"source","attempt_id":"two","driver":"panel"}),
+        ),
+        (
+            EventType::EffectIndeterminate,
+            json!({"effect_id":"source","attempt_id":"two"}),
+        ),
+        (
+            EventType::EffectRequested,
+            json!({"effect_id":"carrying","phase":"review","seat":"review"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id":"carrying","attempt_id":"three","driver":"panel","carried":[{"member":"a","attempt_id":"one"}]}),
+        ),
+        (
+            EventType::EffectFailed,
+            json!({"effect_id":"carrying","attempt_id":"three"}),
+        ),
+        (
+            EventType::EffectStarted,
+            json!({"effect_id":"carrying","attempt_id":"four","driver":"panel","carried":[{"member":"a","attempt_id":"two"}]}),
+        ),
+    ] {
+        events.push(ev(events.len() as u64 + 1, kind, payload, at));
+    }
+    let parts = participants(&events, &scan_participants(&events));
+    let part = parts.iter().find(|p| p.key == "carrying:a").unwrap();
+    assert_eq!(
+        part.carried_from,
+        Some(CarriedFrom {
+            attempt_id: "two".into(),
+            ordinal: 2
+        })
+    );
+    assert_eq!(part.activity.text, "carried from review attempt 2");
+    assert_eq!(part.activity.note.as_deref(), Some("two"));
+    assert_eq!(
+        (
+            part.status.as_str(),
+            part.status_class.as_str(),
+            part.working
+        ),
+        ("carried", "completed", false)
+    );
+}

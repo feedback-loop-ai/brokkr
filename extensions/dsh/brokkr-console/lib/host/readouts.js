@@ -5,7 +5,7 @@
 // half-read is painted. Fields the console does not paint are left unread.
 
 /** The view wire this console paints: `brokkr_view::VIEW_VERSION`. */
-export const VIEW_VERSION = 23
+export const VIEW_VERSION = 24
 
 /** The graph wire this console paints: `brokkr_view::GRAPH_VIEW_VERSION`, pinned apart from `VIEW_VERSION`. */
 export const GRAPH_VIEW_VERSION = 2
@@ -318,6 +318,10 @@ function participant(value, path) {
     member: optText(value.member, `${path}.member`),
     phase: optText(value.phase, `${path}.phase`),
     status: text(value.status, `${path}.status`),
+    carried_from: maybe(value.carried_from, `${path}.carried_from`, (source, at) => ({
+      attempt_id: text(object(source, at).attempt_id, `${at}.attempt_id`),
+      ordinal: count(source.ordinal, `${at}.ordinal`),
+    })),
     working: value.working === true,
     attempts: count(value.attempts, `${path}.attempts`),
     turns: cell(value.turns_cell, `${path}.turns_cell`),

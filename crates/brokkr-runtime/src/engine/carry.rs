@@ -105,7 +105,46 @@ pub(crate) struct CarryPlan {
     subject: Option<Head>,
 }
 
+impl Contribution {
+    fn tag(&self) -> &Tag {
+        match self {
+            Self::Fresh(tag) | Self::Carried { tag, .. } => tag,
+        }
+    }
+}
+
 impl CarryPlan {
+    fn new(
+        tags: &[Tag],
+        entries: Vec<Contribution>,
+        step: Option<String>,
+        subject: Option<Head>,
+    ) -> Result<Self, EngineError> {
+        let actual: Vec<_> = entries.iter().map(Contribution::tag).collect();
+        if actual != tags.iter().collect::<Vec<_>>() {
+            return Err(join_defect("contributions differ from declared members"));
+        }
+        let unique: BTreeSet<_> = actual.iter().copied().collect();
+        if unique.len() != actual.len() {
+            return Err(join_defect("duplicate contribution"));
+        }
+        Ok(Self {
+            entries,
+            step,
+            subject,
+        })
+    }
+
+    fn all_fresh(tags: &[Tag], step: Option<String>) -> Self {
+        Self::new(
+            tags,
+            tags.iter().cloned().map(Contribution::Fresh).collect(),
+            step,
+            None,
+        )
+        .expect("fresh contributions cover declared members")
+    }
+
     pub(crate) fn fresh(&self) -> Vec<Tag> {
         self.entries
             .iter()
@@ -256,20 +295,17 @@ pub(crate) fn carry_plan(facts: &CarryFacts, names: &[Tag]) -> Result<CarryPlan,
         }
     }
     if selected.len() == tags.len() {
-        return Ok(CarryPlan {
-            entries: tags.iter().cloned().map(Contribution::Fresh).collect(),
-            step: step.clone(),
-            subject: None,
-        });
+        return Ok(CarryPlan::all_fresh(tags, step.clone()));
     }
     let parked = parked_attempt(facts, step.as_deref())?;
     let (entries, sources) = contributions(tags, names, parked, &facts.attempts)?;
     identity(facts, parked, &sources)?;
-    Ok(CarryPlan {
-        entries,
-        step: step.clone(),
-        subject: facts.head.clone(),
-    })
+    // The rule walks the declared tags once; plan_construction_and_join_refuse_incomplete_sets
+    // controls that invariant without adding a recoverable operator refusal for an engine defect.
+    Ok(
+        CarryPlan::new(tags, entries, step.clone(), facts.head.clone())
+            .expect("contributions cover declared members"),
+    )
 }
 
 fn words(tags: &[Tag]) -> String {
@@ -489,3 +525,8 @@ impl Engine {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod drive_tests;
+#[cfg(test)]
+pub(crate) mod fixture_tests;

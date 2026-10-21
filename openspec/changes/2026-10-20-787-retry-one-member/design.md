@@ -770,6 +770,14 @@ the all-named short-circuit; the verb journals it as `args.members` (D2
 step 5) and the drive reads the same tags back, so one order has one source
 and the verb neither resolves nor orders a name.
 
+Implementation choice on the returned visit: the constructor accepts only
+contributions already in declared order, so an out-of-order vector is an
+invariant defect as well as an incomplete one. The rule supplies that order
+once. The all-fresh factory is named `all_fresh(tags, step)`; Rust cannot
+overload it with the existing `fresh(&self)` selection view. Both factories
+use the same constructor. `plan_construction_and_join_refuse_incomplete_sets`
+binds its invalid-set checks (task 4.2, T14).
+
 `CarryRefusal` is one `thiserror` enum, one variant per fact of R4 and one
 for the fact the panel alone asks of its own span (R5), grouped where the
 facts are siblings so each `why` is a closed enum matched exhaustively

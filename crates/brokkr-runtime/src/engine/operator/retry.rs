@@ -91,3 +91,6 @@ impl Engine {
         Ok(MemberRetryOutcome::Disposed(disposition.outcome()))
     }
 }
+
+#[cfg(test)]
+mod tests;

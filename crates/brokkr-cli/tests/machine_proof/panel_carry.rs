@@ -47,32 +47,42 @@ fn fixture(script: Value, policy: &str) -> Workspace {
 }
 
 fn retry(ws: &Workspace, run: &str) -> (Option<i32>, Value, String) {
-    ws.brokkr(&[
-        "operator",
-        "retry",
-        "--member",
-        "security",
-        "--reason",
-        "synthetic recovery",
-        "--run",
-        run,
+    retry_with(ws, run, &[])
+}
+
+fn invoke(ws: &Workspace, arguments: &[&str], extra: &[&str]) -> (Option<i32>, Value, String) {
+    let db = ws.db();
+    let bundle = ws.bundle_dir();
+    let mut args = arguments.to_vec();
+    args.extend([
         "--bundle",
-        ws.bundle_dir().to_str().unwrap(),
+        bundle.to_str().unwrap(),
         "--db",
-        ws.db().to_str().unwrap(),
-    ])
+        db.to_str().unwrap(),
+    ]);
+    args.extend_from_slice(extra);
+    ws.brokkr(&args)
+}
+
+fn retry_with(ws: &Workspace, run: &str, extra: &[&str]) -> (Option<i32>, Value, String) {
+    invoke(
+        ws,
+        &[
+            "operator",
+            "retry",
+            "--member",
+            "security",
+            "--reason",
+            "synthetic recovery",
+            "--run",
+            run,
+        ],
+        extra,
+    )
 }
 
 fn resume(ws: &Workspace, run: &str) -> (Option<i32>, Value, String) {
-    ws.brokkr(&[
-        "resume",
-        "--run",
-        run,
-        "--bundle",
-        ws.bundle_dir().to_str().unwrap(),
-        "--db",
-        ws.db().to_str().unwrap(),
-    ])
+    invoke(ws, &["resume", "--run", run], &[])
 }
 
 fn journal(ws: &Workspace, run: &str) -> Vec<brokkr_core::EventEnvelope> {
@@ -257,4 +267,36 @@ fn a_retried_security_residual_returns_through_implement_verify_and_a_full_panel
         .map(|event| event.payload["checkpoint"]["member"].clone())
         .collect();
     assert_eq!(members, [json!("correctness"), json!("security")]);
+}
+
+#[test]
+fn the_member_verb_forwards_the_same_secret_store_that_resume_uses() {
+    let ws = panel(true);
+    super::journal_invariant::stage_adapters(&ws);
+    let config_path = ws.bundle_dir().join("bundle.json");
+    let mut config: Value =
+        serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+    config["egress_minimum"] = json!("uncontracted");
+    config["seats"]["review"]["secrets"] = json!(["API_TOKEN"]);
+    std::fs::write(&config_path, config.to_string()).unwrap();
+    git(&ws, &["add", "."]);
+    git(&ws, &["commit", "-qm", "synthetic secret binding"]);
+    let store = ws.path().join(".forge/ops.env");
+    let other = ws.path().join(".forge/other.env");
+    let extra = ["--secrets-file", store.to_str().unwrap()];
+    let (code, _, stderr) = invoke(&ws, &["run", "--feature", "proof feature"], &extra);
+    assert_eq!(code, Some(2), "{stderr}");
+    let run = Workspace::run_id(&stderr);
+    let before = journal(&ws, &run).len();
+    for extra in [vec![], vec!["--secrets-file", other.to_str().unwrap()]] {
+        let (code, _, stderr) = retry_with(&ws, &run, &extra);
+        assert_eq!(code, Some(1), "{stderr}");
+        assert!(stderr.starts_with("inputs moved for effects "), "{stderr}");
+        assert_eq!(journal(&ws, &run).len(), before);
+    }
+    let (code, _, stderr) = retry_with(&ws, &run, &["--secrets-file", store.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let (code, summary, stderr) = invoke(&ws, &["resume", "--run", &run], &extra);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(summary["status"], "completed");
 }

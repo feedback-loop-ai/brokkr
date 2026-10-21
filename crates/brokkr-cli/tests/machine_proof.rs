@@ -2975,7 +2975,7 @@ mod journal_invariant {
     /// the exec driver — the one decision 0012 put the resolution in.
     /// The shipped adapters are copied verbatim rather than invented, so
     /// the proof runs against the same declarations the tree ships.
-    fn stage_adapters(ws: &Workspace) {
+    pub(super) fn stage_adapters(ws: &Workspace) {
         let shipped = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("crates/")

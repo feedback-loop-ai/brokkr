@@ -772,3 +772,6 @@ pub(crate) fn transcript(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod member_tests;

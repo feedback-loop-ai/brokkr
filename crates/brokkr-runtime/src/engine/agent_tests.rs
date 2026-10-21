@@ -16,7 +16,7 @@ fn event(event_type: EventType, payload: Value) -> EventEnvelope {
         .build()
 }
 
-fn candidate(agent: &str, model: &str) -> Candidate {
+pub(super) fn candidate(agent: &str, model: &str) -> Candidate {
     templated(Candidate {
         agent: agent.into(),
         model: model.into(),
