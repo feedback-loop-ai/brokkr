@@ -44,7 +44,7 @@ What is missing is one word the operator can say at start, `enter`, the
 record of what the entered run continues, and the rule that says which
 phases may be entered without a roster.
 
-Weighed and set aside, each recorded in the change's proposal (D1 to D21)
+Weighed and set aside, each recorded in the change's proposal (D1 to D30)
 and design:
 
 - **A composed landing overlay any recipe derives.** An overlay's
@@ -95,8 +95,8 @@ this decision and the Rust types are their shape.
    and not a terminal; its name matches `^[a-z0-9][a-z0-9._-]{0,63}$`, the
    grammar the contribution gate prints; every driver-bearing site of its
    seat is a gate by the class it wrote, the seat's compiled whole-gate
-   fact, a dialect step that declares none being work; the protected
-   phase is the entry
+   fact, a dialect step that declares none being work whether or not the
+   realm's dialect supplies it; the protected phase is the entry
    itself or is unavoidable from it; no work phase is met by a forward
    walk from the entry, a forward ruling being one whose `next` stands
    after its `from` in the table's `phases` list; and no seat, step or
@@ -105,7 +105,13 @@ this decision and the Rust types are their shape.
    the recipe and the entry are compiled, before a run id is minted or an
    event is written, by a typed error naming the phase, the first fact it
    failed with its witness, and the entries the table admits, derived by
-   the same six facts in `phases` order. A recipe whose own `initial` is a
+   the same six facts in `phases` order. The third fact's witness is the
+   first site whose class is work in the seat's written order, a
+   sequence's steps in written step order, a dialect step by the class it
+   wrote and one the dialect does not supply, which compiles no site,
+   named by its step name and written class as uncompiled; the compile
+   records it where it sets the whole-gate fact, so the two cannot
+   disagree. A recipe whose own `initial` is a
    gate starts as it always did when no entry is named, and its `initial`
    is an entry like any other when it passes admission. `--enter` and
    `--continues` are `brokkr run`'s alone: a Looper-bound run refuses an
@@ -228,9 +234,16 @@ this decision and the Rust types are their shape.
    its own start recorded. Each must exist in the journal the run is
    written to, be concluded, `completed` or `stopped` (a parked run is
    resumed or concluded first, decision 0092 ruling 4), match the native
-   run-id grammar `^[a-z0-9-]{0,32}-[0-9a-f]{8}$` the gate reads, and be
-   named once; every refusal comes before an event is written, and
-   nothing else, no realm, repository, recipe or verify, is compared. The
+   run-id grammar `^[a-z0-9-]{0,32}-[0-9a-f]{8}$` the gate reads, not be
+   Looper-bound, and be named once. A Looper-bound run is told apart by
+   what its start pinned, the run-manifest/v2 lineage (`schema`
+   `forge-run-manifest/v2`), never by its id, which is the dispatch's
+   `forge_run_id`, any string of 1 to 512 characters, and may match the
+   native grammar; every Looper-bound run is refused as a run to
+   continue. Every refusal comes before an event is written, and nothing
+   else, no realm, repository, recipe or verify, is compared: existence,
+   conclusion, the id's grammar and the lineage its start pinned are the
+   checks. The
    contribution gate reads `entry` from the vouching run's verified
    journal, names the gate entered and each continued run's id on its
    check line, never a feature text, and refuses an `entry` it cannot
@@ -247,7 +260,9 @@ this decision and the Rust types are their shape.
    **Enforcement binding:** the `--continues` refusals in
    `crates/brokkr-runtime/src/launch.rs` with `launch/tests.rs`;
    `is_native_run_id` in `crates/brokkr-runtime/src/engine/entry.rs`,
-   held to a minted id; `scripts/delivered-by-brokkr.sh`;
+   held to a minted id; the Looper-bound refusal in `launch.rs`, with
+   a concluded Looper-bound run whose id is native-shaped refused in
+   `launch/tests.rs`; `scripts/delivered-by-brokkr.sh`;
    `crates/brokkr-cli/tests/delivered_by_brokkr.rs` (an entered run over
    a branch two runs built vouches at `vouched` with the chain on its
    line, a malformed entry refuses, the patterns are the compiler's and
@@ -262,7 +277,9 @@ this decision and the Rust types are their shape.
    without one; and `phases`, the compiled table's `phases` list verbatim,
    on every start. Both are typed once at the edge, `deny_unknown_fields`,
    with absence told from malformation by the key: a present `entry` that
-   does not read is refused where it is read. The engine enters the entry
+   does not read is refused by the engine where it reads it, and the run
+   view, which refuses no journal the fold accepts, states it unreadable
+   with the reader's error (ruling 8). The engine enters the entry
    instead of `initial` at `Cursor::Start`, at the first drive and at a
    resume in the window after `run/started`, admitting it again by ruling
    1 over the bundle the manifest gate just proved, and refuses one that
@@ -325,13 +342,24 @@ this decision and the Rust types are their shape.
 8. **The run view names the gate entered and the runs continued, derived
    once, and its rail stands in the order the start recorded.** `RunView`
    derives `entry` from `run/started`: the gate, the continued runs each
-   led by its feature with its id after, and one sentence, `entered at
-   <phase>, continuing <feature> (<id>)` per run or `entered at <phase>,
-   continuing no earlier run`. The console's run header, `brokkr ui` and
-   the TUI paint it and derive nothing of their own; `brokkr run` keeps
-   `run started: <id>` exactly, the id alone on its line, and prints the
-   sentence on the line after it from the same derivation; nothing is
-   painted or printed for a run without an entry. The rail stands in the
+   led by its title with its id after, and one sentence, `entered at
+   <phase>, continuing <title> (<id>)` per run joined by `, `, or
+   `entered at <phase>, continuing no earlier run`. A continued run's
+   title is `brokkr_view::title` of its feature, the house's one
+   derivation of a run's one-line name: its first line that says
+   anything, clamped at a word to 60 display columns. Every one-line
+   surface leads with it, the line `brokkr run` prints, the console's and
+   `brokkr ui`'s headers and the TUI's header line, so a multi-line
+   feature never spills; the journal, `context.entry` and `brokkr
+   inspect --json` keep the feature whole. The console's run header,
+   `brokkr ui` and the TUI paint it and derive nothing of their own;
+   `brokkr run` keeps `run started: <id>` exactly, the id alone on its
+   line, and prints the sentence on the line after it from the same
+   derivation; nothing is painted or printed for a run without an entry.
+   A present `entry` the view cannot read is stated, `entry unreadable:`
+   with the reader's error, where the sentence would stand, and the rest
+   of the run is painted as the fold gives it: a refusal is reported,
+   never repaired into an ordinary run. The rail stands in the
    recorded `phases` order, each phase the journal entered once with its
    visits, a phase the order does not name after them by first entry, and
    a road back is a ruling the direction predicate of ruling 3 calls a
@@ -339,10 +367,13 @@ this decision and the Rust types are their shape.
    return are drawn and the forward step after one is not; a journal
    whose start recorded no order keeps first-entry order and the same
    predicate over it, which is how #813 drew it. The view's wire version
-   is 25, and the console host pins it.
+   is one past `main`'s when the change merges `main`, 26 expected
+   behind #787's 25, and the console host pins it; every pin of the
+   version moves with it.
 
    **Enforcement binding:** `crates/brokkr-view/src/entry.rs`
-   (`entry_sentence`, the one text) and `rail.rs`, with
+   (`entry_sentence`, the one text led by each continued run's title,
+   and the unreadable entry stated) and `rail.rs`, with
    `crates/brokkr-view/src/tests/returns.rs` (a run entered at verify
    sent back once, a run entered at review reforged, a landing's first
    return, a journal with no order reading as before); `VIEW_VERSION` and
