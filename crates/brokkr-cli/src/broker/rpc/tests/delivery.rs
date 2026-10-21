@@ -33,16 +33,24 @@ use crate::broker::session::Ended;
 fn what_waits_for_the_harness_is_bounded_and_taken_whole_in_order() {
     // An answer larger than the pipe, then a small one queued behind it:
     // each is taken whole, in order, once the harness reads; and so where
-    // it ended its input first, while the session ends.
+    // it ended its input first, while the session ends. A notification
+    // larger than the harness's input pipe holds, which the broker answers
+    // nothing, follows them: its send returns only once the broker has
+    // read past the small ping, so that its answer is queued behind the
+    // large one, which the harness has not begun to take, however either
+    // thread is scheduled.
     for ends in [false, true] {
         let (big, id) = ping_sized(512 << 10);
+        let message = "n".repeat(512 << 10);
+        let params = json!({"progressToken": "t", "progress": 0, "message": message});
+        let told = json!({"jsonrpc": "2.0", "method": "notifications/progress", "params": params});
         let conversation = move |harness: &mut Harness| {
             harness.send(&big);
             harness.send(&request(json!("b"), "ping", json!({})));
+            harness.send(&told);
             if ends {
                 drop(harness.to.take());
             }
-            std::thread::sleep(Duration::from_millis(200));
             assert_eq!(harness.next(), Some(result(&id, json!({}))));
             assert_eq!(harness.next(), Some(result(&json!("b"), json!({}))));
         };
@@ -51,13 +59,14 @@ fn what_waits_for_the_harness_is_bounded_and_taken_whole_in_order() {
     }
     // Behind a blocked answer, 63 frames waiting leave the cancellation read
     // and 64 do not; nor do MB3's 8 MiB, where eight answers of a 1 MiB
-    // request do not reach them and nine do. Either way, with the call's
-    // own deadline MB3's 120 seconds and the attempt's thirty, the call
-    // settles two seconds after the cancellation is read, and is never
-    // retried. Where it is read, no sooner than that; and either way well
-    // within ten, a third of the attempt's bound, which leaves the masker
-    // its time over the eight answers on a loaded host (3.7 s at load 20
-    // on 8 cores) without admitting the attempt's deadline in its place.
+    // request do not reach them and nine do, as the frames the server read
+    // show: the cancellation passed on, or not. Either way, with the call's
+    // own deadline MB3's 120 seconds and the attempt's thirty, which bounds
+    // it, the call settles, and the session ends, before the attempt's
+    // deadline and well within half of it from the cancellation, so that
+    // neither deadline ended it, however the host is loaded; one whose
+    // cancellation was read is given MB3's two seconds from then, which
+    // load only lengthens; and it is never retried.
     let small = |count: usize| {
         let pings = (0..count).map(|at| request(json!(at), "ping", json!({})));
         std::iter::once(ping_sized(512 << 10).0)
@@ -71,23 +80,23 @@ fn what_waits_for_the_harness_is_bounded_and_taken_whole_in_order() {
         ("8 answers", large(8), true),
         ("9 answers", large(9), false),
     ];
+    let ceiling = Duration::from_secs(15);
     for (case, pings, read) in cases {
         let (held, holding) = channel();
         let attempt = within(Duration::from_secs(30));
         let ran = session(silent(), None, attempt, cancelled_behind(pings, held));
         let ended = Instant::now();
         let (cancelled, _, _) = holding.recv().unwrap();
-        let settled = ran.durable[2] - cancelled;
-        let early = settled < Duration::from_secs(2);
-        assert!(
-            (settled < Duration::from_secs(10)) & !(read & early),
-            "{case}: {settled:?}"
-        );
-        let taken = ended - cancelled;
-        assert!(taken < Duration::from_secs(11), "{case}: {taken:?}");
         let mut sent = vec![forwarded(3, "lookup", json!({}))];
         sent.extend(read.then(|| passed(3)));
         assert_eq!((case, &ran.frames[3..]), (case, &sent[..]));
+        let settled = ran.durable[2] - cancelled;
+        let early = settled < Duration::from_secs(2);
+        let before = (ran.durable[2] < attempt.0) & (settled < ceiling);
+        assert!(before & !(read & early), "{case}: {settled:?}");
+        let taken = ended - cancelled;
+        let ended = (ended < attempt.0) & (taken < ceiling);
+        assert!(ended, "{case}: {taken:?}");
         lookup_failed(case, ran, Failure::Timeout);
     }
 }
