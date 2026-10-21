@@ -355,6 +355,7 @@ where
             // Only the ACTIVE hearth is ever asked about, so an inactive
             // tab's journal is neither polled nor opened.
             tab: tui.tab,
+            window: asked_window(tui),
         };
         // A read still out (`Polled::Pending`) is neither read nor
         // refused: the give-up bound counts reads.

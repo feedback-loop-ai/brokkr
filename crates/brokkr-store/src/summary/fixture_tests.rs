@@ -6,59 +6,20 @@
 //! fixtures are read, never regenerated. The engine scenario tests are
 //! held to the same check by every writer store's drop (`test_support`).
 
-use std::path::{Path, PathBuf};
-
 use brokkr_core::envelope::{ChainError, EventEnvelope};
-use serde_json::{json, Value};
 
-use crate::test_support::{lane, plant_envelope, plant_run};
+use crate::test_support::{
+    fixture_journals as fixtures, import_fixtures, lane,
+    plant_older_writer as plant_as_older_writer,
+};
 use crate::{Disagreement, Store, StoreError};
-
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/journals")
-}
-
-/// `events` planted as a writer from before the summary leaves them: the
-/// run and its events, and nothing folded.
-fn plant_as_older_writer(store: &Store, run_id: &str, events: &[EventEnvelope]) {
-    plant_run(&store.conn, run_id, "{}").unwrap();
-    for event in events {
-        plant_envelope(&store.conn, event).unwrap();
-    }
-}
 
 #[test]
 fn every_run_reads_as_its_fold() {
-    let fixtures = fixtures();
-    let mut journals: Vec<_> = std::fs::read_dir(&fixtures)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "ndjson")
-        })
-        .collect();
-    journals.sort();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("forge.db");
     let mut store = Store::open(&path).unwrap();
-    let (mut lanes, mut refused) = (Vec::new(), Vec::new());
-    for journal in &journals {
-        let ndjson = std::fs::read_to_string(journal).unwrap();
-        let sidecar = journal.with_extension("manifest.json");
-        let manifest: Value = std::fs::read_to_string(&sidecar)
-            .map_or_else(|_| json!({}), |text| serde_json::from_str(&text).unwrap());
-        let events: Vec<EventEnvelope> = ndjson
-            .lines()
-            .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
-        let run_id = events[0].run_id.clone();
-        if let Err(error) = store.import_run(&ndjson, &manifest, journal) {
-            refused.push(error.to_string());
-            plant_as_older_writer(&store, &run_id, &events);
-        }
-        lanes.push(run_id);
-    }
+    let (lanes, refused) = import_fixtures(&mut store);
     assert_eq!(
         refused,
         [

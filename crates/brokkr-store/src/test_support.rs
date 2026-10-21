@@ -20,6 +20,10 @@ use crate::import::INSERT_EVENT;
 use crate::summary::Compared;
 use crate::{Disagreement, Store};
 
+mod generated;
+
+pub use generated::{fleet, generate, Generated, Standing, Width};
+
 /// Every run's summary row stands at its head and reads as its fold
 /// (decision 0089 ruling 4): each run folded whole, and its row compared
 /// with the summary of that fold, column for column. Stricter than
@@ -74,6 +78,15 @@ impl Binding {
     /// Record that the store wrote `run_id`.
     pub(crate) fn wrote(&mut self, run_id: &str) {
         self.wrote.insert(run_id.to_string());
+    }
+
+    /// Record that an append of `landed` events to `run_id` committed: a
+    /// write when any landed, and none when a chain landed nothing, which
+    /// leaves its run as it found it.
+    pub(crate) fn appended(&mut self, run_id: &str, landed: usize) {
+        if landed > 0 {
+            self.wrote(run_id);
+        }
     }
 }
 
@@ -176,6 +189,69 @@ pub fn plant_broken_link(
         ..event.clone()
     };
     plant_envelope(conn, &broken)
+}
+
+/// Where the exported fixture journals are, read and never regenerated.
+pub fn fixture_journals() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/journals")
+}
+
+/// `events` planted as a writer from before the summary leaves them: the
+/// run and its events, and nothing folded.
+pub fn plant_older_writer(store: &Store, run_id: &str, events: &[EventEnvelope]) {
+    plant_run(&store.conn, run_id, "{}").expect("a run plants");
+    for event in events {
+        plant_envelope(&store.conn, event).expect("an event plants");
+    }
+}
+
+/// Every exported journal under `fixtures/journals/`, in name order,
+/// imported into `store`, and planted as [`plant_older_writer`] plants it
+/// where the import refuses it: each journal's run id, and the words of
+/// each refusal.
+pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
+    let mut journals: Vec<_> = std::fs::read_dir(fixture_journals())
+        .expect("the fixture journals are listed")
+        .map(|entry| entry.expect("a fixture entry reads").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "ndjson")
+        })
+        .collect();
+    journals.sort();
+    let (mut runs, mut refused) = (Vec::new(), Vec::new());
+    for journal in &journals {
+        let ndjson = std::fs::read_to_string(journal).expect("a fixture journal reads");
+        let sidecar = std::fs::read_to_string(journal.with_extension("manifest.json"));
+        let manifest = sidecar.map_or_else(
+            |_| serde_json::json!({}),
+            |text| serde_json::from_str(&text).expect("a sidecar manifest is JSON"),
+        );
+        let events: Vec<EventEnvelope> = ndjson
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("a fixture event is an envelope"))
+            .collect();
+        let run_id = events[0].run_id.clone();
+        if let Err(error) = store.import_run(&ndjson, &manifest, journal) {
+            refused.push(error.to_string());
+            plant_older_writer(store, &run_id, &events);
+        }
+        runs.push(run_id);
+    }
+    (runs, refused)
+}
+
+/// Leave a journal as a binary from before the summary (decision 0089)
+/// left it: none of the summary's table, index or triggers, and no
+/// backfill recorded. Opening it read-write migrates it again.
+pub fn unmigrate(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "DROP TABLE run_summary;
+         DROP TRIGGER run_summary_of_a_run;
+         DROP TRIGGER run_summary_of_an_event;
+         DROP TRIGGER run_summary_of_an_acknowledgement;
+         DELETE FROM meta WHERE key = 'run_summary_backfill';",
+    )
 }
 
 /// Take the seq guard (#354) off a journal, leaving it as a journal

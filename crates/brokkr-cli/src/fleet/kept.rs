@@ -207,7 +207,7 @@ impl Journal {
     }
 
     /// Whether `now` is still this file, grown or not.
-    fn holds(self, now: Journal) -> bool {
+    pub(super) fn holds(self, now: Journal) -> bool {
         (self.device, self.inode) == (now.device, now.inode) && now.length >= self.length
     }
 }

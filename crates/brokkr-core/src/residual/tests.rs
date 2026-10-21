@@ -207,3 +207,28 @@ fn the_open_severity_is_the_highest_an_unclosed_finding_states() {
     assert_eq!(Claim::SecurityResidual.severity(), None);
     assert_eq!(Claim::HighRiskUncovered.severity(), None);
 }
+
+/// A claim reads back from the input and value it words, and from no
+/// other pair: a flag's value under another flag's input, or a severity
+/// under a flag's, names no claim (decision 0089 ruling 2).
+#[test]
+fn a_claim_reads_back_from_its_own_words_alone() {
+    let claims = [
+        Claim::MaxSeverity(Severity::High),
+        Claim::SecurityResidual,
+        Claim::HighRiskUncovered,
+    ];
+    for claim in claims {
+        assert_eq!(Claim::named(claim.input(), claim.value()), Some(claim));
+    }
+    let unstated = [
+        ("max_residual_severity", "none"),
+        ("high_risk_uncovered", "high"),
+        ("high_risk_uncovered", "yes"),
+        ("has_security_residual", "yes"),
+        ("unknown_flag", "true"),
+    ];
+    for (input, value) in unstated {
+        assert_eq!(Claim::named(input, value), None, "{input}: {value}");
+    }
+}

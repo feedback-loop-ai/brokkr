@@ -25,6 +25,7 @@
 //! The command carries the name; the output does not. Everything printed
 //! and everything recorded here is plain mechanic language (0019 law 4).
 
+mod document;
 mod record;
 
 use std::collections::BTreeMap;
@@ -40,8 +41,13 @@ use brokkr_runtime::{Adapters, Availability, Library};
 use brokkr_store::Store;
 use serde_json::{json, Value};
 
-use crate::realms::{Consumed, Pin, Published};
+use crate::realms::{Consumed, ConsumedView, Pin, Published};
 use crate::render::Safe;
+use document::{
+    Agent, Cite, CrossingCite, CrossingEntry, CrossingFinding, DossierDoc, DossierPin, Fleet,
+    Parked, QuarantinedRow, Queued, QueuedCrossing, QueuedRun, RecordLine, Row, RunRow, SeatRow,
+    Usage,
+};
 
 /// The agent definition this command invokes.
 pub(crate) const AGENT: &str = "muninn";
@@ -232,7 +238,7 @@ pub(crate) fn dossier_of(
     crossings: &[RealmCrossings],
     now: &str,
 ) -> Result<Dossier> {
-    let mut rows: Vec<Value> = Vec::new();
+    let mut rows: Vec<Row> = Vec::new();
     let mut findings: Vec<Value> = Vec::new();
     let mut facts: Vec<(Option<String>, String, u64)> = Vec::new();
     let mut commands: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -272,20 +278,18 @@ pub(crate) fn dossier_of(
                     findings.push(keyed(&realm, serde_json::to_value(&finding)?));
                     commands.entry(run_id.clone()).or_default();
                     *counts.entry("quarantined".to_string()).or_default() += 1;
-                    rows.push(keyed(
-                        &realm,
-                        json!({
-                            "run_id": run_id,
-                            "seq": seq,
-                            "status": "?",
-                            "phase": Value::Null,
-                            "feature": feature,
-                            "created_at": created_at,
-                            "age": brokkr_view::age(&created_at, now),
-                            "fold_error": detail,
-                            "operator_commands": Vec::<String>::new(),
-                        }),
-                    ));
+                    rows.push(Row::Quarantined(QuarantinedRow {
+                        age: brokkr_view::age(&created_at, now),
+                        created_at,
+                        feature,
+                        fold_error: detail,
+                        operator_commands: [],
+                        phase: None,
+                        realm: realm.clone(),
+                        run_id,
+                        seq,
+                        status: "?",
+                    }));
                     continue;
                 }
             };
@@ -317,42 +321,23 @@ pub(crate) fn dossier_of(
                 }
                 findings.push(keyed(&realm, serde_json::to_value(&finding)?));
             }
-            // A panel or sequence seat's row already aggregates its members'
-            // cost, so counting members again would bill the run twice.
-            let seats: Vec<&brokkr_view::Participant> = view
-                .participants
-                .iter()
-                .filter(|part| part.member.is_none())
-                .collect();
-            let costs: Vec<f64> = seats.iter().filter_map(|part| part.cost).collect();
-            let cost = match costs.is_empty() {
-                true => None,
-                false => Some(costs.iter().sum::<f64>()),
-            };
-            rows.push(keyed(
-                &realm,
-                json!({
-                    "run_id": run_id,
-                    "seq": summary.seq,
-                    "status": summary.status,
-                    "phase": summary.phase,
-                    "feature": feature,
-                    "created_at": created_at,
-                    "age": brokkr_view::age(&created_at, now),
-                    "park_reason": summary.park_reason,
-                    "operator_commands": admits,
-                    "consecutive_failures": summary.consecutive_failures,
-                    "last_ruling": serde_json::to_value(&view.ruling)?,
-                    "cost_usd": cost,
-                    "seats": seats.iter().map(|part| json!({
-                        "seat": part.label,
-                        "phase": part.phase,
-                        "status": part.status,
-                        "attempts": part.attempts,
-                        "cost_usd": part.cost,
-                    })).collect::<Vec<Value>>(),
-                }),
-            ));
+            let (seats, cost_usd) = seats_of(&view);
+            rows.push(Row::Read(RunRow {
+                age: brokkr_view::age(&created_at, now),
+                consecutive_failures: summary.consecutive_failures.clone(),
+                cost_usd,
+                created_at,
+                feature,
+                last_ruling: serde_json::to_value(&view.ruling)?,
+                operator_commands: admits,
+                park_reason: summary.park_reason.clone(),
+                phase: summary.phase.clone(),
+                realm: realm.clone(),
+                run_id,
+                seats,
+                seq: summary.seq,
+                status: summary.status.clone(),
+            }));
         }
     }
     // A superseding run's ruling is stated only when this reading
@@ -371,99 +356,106 @@ pub(crate) fn dossier_of(
     facts.sort();
     facts.dedup();
     let count = |status: &str| counts.get(status).copied().unwrap_or(0);
-    // The world's shape, stated only by a world that has one to state: a
-    // one-hearth dossier is the dossier it always was, byte for byte.
-    let realms: Vec<&str> = sources.iter().filter_map(|source| source.realm).collect();
-    let mut fleet = json!({
-            "runs": rows.len(),
-            "running": count("running"),
-            "awaiting_operator": count("awaiting_operator"),
-            "completed": count("completed"),
-            "stopped": count("stopped"),
-            // A run whose journal does not fold has no status to count
-            // as; it is counted as what it is.
-            "quarantined": count("quarantined"),
-            // How many findings the operator has closed by name
-            // (decision 0047 ruling 4). Counted, not hidden: the
-            // summary says how many were left out of the queue.
-            "superseded_findings": count("superseded_findings"),
+    let fleet = Fleet {
+        awaiting_operator: count("awaiting_operator"),
+        completed: count("completed"),
+        quarantined: count("quarantined"),
+        realms: sources.iter().filter_map(|source| source.realm).collect(),
+        running: count("running"),
+        runs: rows.len(),
+        stopped: count("stopped"),
+        superseded_findings: count("superseded_findings"),
+    };
+    let (crossing_entries, cited_crossings) = crossing_section(crossings, &mut findings);
+    let value = json!(DossierDoc {
+        crossings: crossing_entries,
+        dossier_version: DOSSIER_VERSION,
+        fleet,
+        generated_at: now,
+        residual_findings: findings,
+        runs: rows,
     });
-    if !realms.is_empty() {
-        fleet["realms"] = json!(realms);
-    }
-    // Decision 0057 read into the dossier, on the terms decision 0020
-    // ruling 1's amendment (0059) admits: what each mapped realm
-    // publishes and consumes, entry for entry, and — when a consumed pin
-    // no longer matches — a FINDING charged to the CONSUMING realm,
-    // because that is the realm whose next run `World::load` would refuse.
-    // A matching pin is stated in the per-realm entries and is not a
-    // finding; an unchecked pin is stated beside it and is nobody's fault
-    // here (the publisher's line carries it, `ca0c765`). The entries are
-    // the shared readout entries `brokkr realms` prints, so the dossier
-    // and that readout render one derivation.
-    let mut crossing_reports: Vec<Value> = Vec::new();
-    let mut cited_crossings: Vec<CitedCrossing> = Vec::new();
-    for realm_crossings in crossings {
-        if realm_crossings.publishes.is_empty() && realm_crossings.consumes.is_empty() {
-            continue;
-        }
-        crossing_reports.push(json!({
-            "realm": realm_crossings.realm,
-            "publishes": realm_crossings.publishes.iter().map(|published| json!({
-                "name": published.name,
-                "path": published.path,
-            })).collect::<Vec<Value>>(),
-            "consumes": realm_crossings.consumes.iter().map(|consumed| json!({
-                "name": consumed.name,
-                "realm": consumed.publisher,
-                // One word a script branches on, and the prose beside it
-                // only where the word leaves something unsaid.
-                "pin": consumed.pin.word(),
-                "detail": consumed.pin.detail(),
-            })).collect::<Vec<Value>>(),
-        }));
-        for consumed in &realm_crossings.consumes {
-            let Pin::Moved(line) = &consumed.pin else {
-                continue;
-            };
-            cited_crossings.push((realm_crossings.realm.clone(), consumed.name.clone()));
-            findings.push(keyed(
-                &Some(realm_crossings.realm.clone()),
-                json!({
-                    "crossing": consumed.name,
-                    "publisher": consumed.publisher,
-                    // A crossing is not a run: it has no run id and no
-                    // sequence, so the finding says what it is instead of
-                    // borrowing a run's citation. The marker is how a
-                    // reader tells it from a run finding.
-                    "input": "crossing_pins",
-                    "value": "moved",
-                    // The refusal `run` would give, verbatim, so the
-                    // readout and the loader cannot word one contract
-                    // twice.
-                    "line": line,
-                }),
-            ));
-        }
-    }
-    let mut value = json!({
-        "dossier_version": DOSSIER_VERSION,
-        "generated_at": now,
-        "fleet": fleet,
-        "runs": rows,
-        "residual_findings": findings,
-    });
-    // Written only by a world that draws one, so a world that never did
-    // hands the seat the exact dossier it always handed it.
-    if !crossing_reports.is_empty() {
-        value["crossings"] = json!(crossing_reports);
-    }
     Ok(Dossier {
         value,
         facts,
         crossings: cited_crossings,
         commands,
     })
+}
+
+/// A run's seats and what they cost together: `None` where no seat
+/// reported a cost, because no telemetry is no claim, not a zero. A panel
+/// or sequence seat's row already aggregates its members' cost, so
+/// counting members again would bill the run twice.
+fn seats_of(view: &brokkr_view::RunView) -> (Vec<SeatRow>, Option<f64>) {
+    let seats: Vec<&brokkr_view::Participant> = view
+        .participants
+        .iter()
+        .filter(|part| part.member.is_none())
+        .collect();
+    let costs: Vec<f64> = seats.iter().filter_map(|part| part.cost).collect();
+    let cost = match costs.is_empty() {
+        true => None,
+        false => Some(costs.iter().sum::<f64>()),
+    };
+    let rows = seats
+        .iter()
+        .map(|part| SeatRow {
+            attempts: part.attempts,
+            cost_usd: part.cost,
+            phase: part.phase.clone(),
+            seat: part.label.clone(),
+            status: part.status.clone(),
+        })
+        .collect();
+    (rows, cost)
+}
+
+/// Decision 0057 read into the dossier, on the terms decision 0020
+/// ruling 1's amendment (0059) admits: what each mapped realm publishes
+/// and consumes, entry for entry, and — when a consumed pin no longer
+/// matches — a FINDING charged to the CONSUMING realm, because that is
+/// the realm whose next run `World::load` would refuse. A matching pin is
+/// stated in the per-realm entries and is not a finding; an unchecked pin
+/// is stated beside it and is nobody's fault here (the publisher's line
+/// carries it, `ca0c765`). The entries are the shared readout entries
+/// `brokkr realms` prints, through the one [`ConsumedView::of`], so the
+/// dossier and that readout render one derivation.
+fn crossing_section<'a>(
+    crossings: &'a [RealmCrossings],
+    findings: &mut Vec<Value>,
+) -> (Vec<CrossingEntry<'a>>, Vec<CitedCrossing>) {
+    let mut entries = Vec::new();
+    let mut cited = Vec::new();
+    for realm_crossings in crossings {
+        if realm_crossings.publishes.is_empty() && realm_crossings.consumes.is_empty() {
+            continue;
+        }
+        entries.push(CrossingEntry {
+            consumes: realm_crossings
+                .consumes
+                .iter()
+                .map(ConsumedView::of)
+                .collect(),
+            publishes: &realm_crossings.publishes,
+            realm: &realm_crossings.realm,
+        });
+        for consumed in &realm_crossings.consumes {
+            let Pin::Moved(line) = &consumed.pin else {
+                continue;
+            };
+            cited.push((realm_crossings.realm.clone(), consumed.name.clone()));
+            findings.push(json!(CrossingFinding {
+                crossing: &consumed.name,
+                input: "crossing_pins",
+                line,
+                publisher: &consumed.publisher,
+                realm: &realm_crossings.realm,
+                value: "moved",
+            }));
+        }
+    }
+    (entries, cited)
 }
 
 /// A dossier fact, keyed by the realm it was read in — and left exactly
@@ -543,8 +535,8 @@ fn seat_input(seat: &Seat, dossier: &Dossier, scratch: &Path) -> Value {
 /// carries, plus the citations every entry in them stated.
 pub(crate) struct Report {
     pub fleet_summary: String,
-    pub parked_runs: Vec<Value>,
-    pub work_queue: Vec<Value>,
+    pub parked_runs: Vec<Parked>,
+    pub work_queue: Vec<Queued>,
     pub citations: Vec<Cited>,
     /// The `(consuming realm, crossing)` pairs a report cited — the
     /// crossing half of [`Report::citations`], kept apart because a
@@ -626,16 +618,59 @@ fn crossing_citation(
     Ok((realm, crossing))
 }
 
-/// One citation's fields, realm first when there is one. Absent for a
-/// one-hearth world, so its record keeps exactly the shape it had.
-fn cite(realm: &Option<String>, run_id: &str, seq: u64) -> serde_json::Map<String, Value> {
-    let mut fields = serde_json::Map::new();
-    if let Some(realm) = realm {
-        fields.insert("realm".to_string(), json!(realm));
+/// One parked-run proposal: a stated fact, and an operator command the
+/// dossier states that run admits.
+fn parked(dossier: &Dossier, entry: &Value) -> Result<(Cited, Parked), String> {
+    let what = "a parked-run proposal";
+    let (realm, run_id, seq) = citation(what, dossier, entry)?;
+    let command = string_field(what, entry, "command")?;
+    if !dossier.admits(&run_id, &command) {
+        return Err(format!(
+            "{what} suggests '{command}' for {run_id}, which is not an operator \
+             command the dossier states for it"
+        ));
     }
-    fields.insert("run_id".to_string(), json!(run_id));
-    fields.insert("seq".to_string(), json!(seq));
-    fields
+    let reasoning = string_field(what, entry, "reasoning")?;
+    let proposal = Parked {
+        command,
+        realm: realm.clone(),
+        reasoning,
+        run_id: run_id.clone(),
+        seq,
+    };
+    Ok(((realm, run_id, seq), proposal))
+}
+
+/// One work-queue entry about a run fact, cited by run id and sequence.
+fn queued_run(dossier: &Dossier, entry: &Value) -> Result<(Cited, Queued), String> {
+    let what = "a work-queue entry";
+    let (realm, run_id, seq) = citation(what, dossier, entry)?;
+    let finding = string_field(what, entry, "finding")?;
+    let reasoning = string_field(what, entry, "reasoning")?;
+    let queued = QueuedRun {
+        finding,
+        realm: realm.clone(),
+        reasoning,
+        run_id: run_id.clone(),
+        seq,
+    };
+    Ok(((realm, run_id, seq), Queued::Run(queued)))
+}
+
+/// One work-queue entry about a crossing finding, cited by realm and
+/// crossing.
+fn queued_crossing(dossier: &Dossier, entry: &Value) -> Result<(CitedCrossing, Queued), String> {
+    let what = "a work-queue entry";
+    let (realm, crossing) = crossing_citation(what, dossier, entry)?;
+    let finding = string_field(what, entry, "finding")?;
+    let reasoning = string_field(what, entry, "reasoning")?;
+    let queued = QueuedCrossing {
+        crossing: crossing.clone(),
+        finding,
+        realm: realm.clone(),
+        reasoning,
+    };
+    Ok(((realm, crossing), Queued::Crossing(queued)))
 }
 
 /// Read the seat's result into a report, or say exactly what is wrong
@@ -656,52 +691,27 @@ pub(crate) fn validate(dossier: &Dossier, result: &Value) -> Result<Report, Stri
     let mut citations: Vec<Cited> = Vec::new();
     let mut parked_runs = Vec::new();
     for entry in array_field(inputs, "parked_runs")? {
-        let what = "a parked-run proposal";
-        let (realm, run_id, seq) = citation(what, dossier, entry)?;
-        let command = string_field(what, entry, "command")?;
-        if !dossier.admits(&run_id, &command) {
-            return Err(format!(
-                "{what} suggests '{command}' for {run_id}, which is not an operator \
-                 command the dossier states for it"
-            ));
-        }
-        let reasoning = string_field(what, entry, "reasoning")?;
-        let mut fields = cite(&realm, &run_id, seq);
-        fields.insert("command".to_string(), json!(command));
-        fields.insert("reasoning".to_string(), json!(reasoning));
-        citations.push((realm, run_id, seq));
-        parked_runs.push(Value::Object(fields));
+        let (cited, proposal) = parked(dossier, entry)?;
+        citations.push(cited);
+        parked_runs.push(proposal);
     }
     let mut work_queue = Vec::new();
     let mut crossing_citations: Vec<CitedCrossing> = Vec::new();
     for entry in array_field(inputs, "work_queue")? {
-        let what = "a work-queue entry";
         // A crossing finding is cited by realm and crossing; every other
         // entry is a run fact cited by run id and sequence. The presence
         // of `crossing` is the discriminator, so a report that names both
         // a crossing and a run is read as a crossing and never silently
         // as a run.
         if entry.get("crossing").is_some() {
-            let (realm, crossing) = crossing_citation(what, dossier, entry)?;
-            let finding = string_field(what, entry, "finding")?;
-            let reasoning = string_field(what, entry, "reasoning")?;
-            let mut fields = serde_json::Map::new();
-            fields.insert("realm".to_string(), json!(realm));
-            fields.insert("crossing".to_string(), json!(crossing));
-            fields.insert("finding".to_string(), json!(finding));
-            fields.insert("reasoning".to_string(), json!(reasoning));
-            crossing_citations.push((realm, crossing));
-            work_queue.push(Value::Object(fields));
+            let (cited, queued) = queued_crossing(dossier, entry)?;
+            crossing_citations.push(cited);
+            work_queue.push(queued);
             continue;
         }
-        let (realm, run_id, seq) = citation(what, dossier, entry)?;
-        let finding = string_field(what, entry, "finding")?;
-        let reasoning = string_field(what, entry, "reasoning")?;
-        let mut fields = cite(&realm, &run_id, seq);
-        fields.insert("finding".to_string(), json!(finding));
-        fields.insert("reasoning".to_string(), json!(reasoning));
-        citations.push((realm, run_id, seq));
-        work_queue.push(Value::Object(fields));
+        let (cited, queued) = queued_run(dossier, entry)?;
+        citations.push(cited);
+        work_queue.push(queued);
     }
     citations.sort();
     citations.dedup();
@@ -719,21 +729,18 @@ pub(crate) fn validate(dossier: &Dossier, result: &Value) -> Result<Report, Stri
 /// The seat's own cost and usage, read from the session checkpoint its
 /// driver reports. A driver that reports none leaves this null: the
 /// record says nothing rather than claiming zero.
-fn usage(checkpoints: &[Value]) -> Value {
+fn usage(checkpoints: &[Value]) -> Option<Usage<'_>> {
     let session = checkpoints.iter().rev().find(|checkpoint| {
         checkpoint
             .get("step")
             .and_then(Value::as_str)
             .is_some_and(|step| step.ends_with("-session-finished"))
-    });
-    match session {
-        None => Value::Null,
-        Some(session) => json!({
-            "cost_usd": session.get("total_cost_usd"),
-            "turns": session.get("num_turns"),
-            "session_id": session.get("session_id"),
-        }),
-    }
+    })?;
+    Some(Usage {
+        cost_usd: session.get("total_cost_usd"),
+        session_id: session.get("session_id"),
+        turns: session.get("num_turns"),
+    })
 }
 
 /// One line of the record: what was proposed, what it was derived from,
@@ -747,46 +754,39 @@ fn usage(checkpoints: &[Value]) -> Value {
 /// not survive the next `realms.json` edit. The append-only record must
 /// still say, later, what the pin was when the proposal was derived — and
 /// it now does, repository-relative paths and all.
-fn entry(now: &str, seat: &Seat, dossier: &Dossier, report: &Report, usage: Value) -> Value {
-    let mut dossier_pin = json!({
-        "dossier_version": DOSSIER_VERSION,
-        "generated_at": now,
-        "fleet": dossier.value.get("fleet"),
-    });
-    // Written only by a dossier that drew one, so a record over a world
-    // with no crossing keeps exactly the shape it always had.
-    if let Some(crossings) = dossier.value.get("crossings") {
-        dossier_pin["crossings"] = crossings.clone();
-    }
-    let mut entry = json!({
-        "record_version": RECORD_VERSION,
-        "recorded_at": now,
-        "agent": {
-            "name": AGENT,
-            "model": seat.model,
-            "provider": seat.provider,
-            "deadline_seconds": seat.deadline.as_secs(),
+fn entry<'a>(
+    now: &'a str,
+    seat: &'a Seat,
+    dossier: &'a Dossier,
+    report: &'a Report,
+    usage: Option<Usage<'a>>,
+) -> RecordLine<'a> {
+    RecordLine {
+        agent: Agent {
+            deadline_seconds: seat.deadline.as_secs(),
+            model: &seat.model,
+            name: AGENT,
+            provider: &seat.provider,
         },
-        "dossier": dossier_pin,
-        "fleet_summary": report.fleet_summary,
-        "parked_runs": report.parked_runs,
-        "work_queue": report.work_queue,
-        "citations": report.citations.iter()
-            .map(|(realm, run_id, seq)| Value::Object(cite(realm, run_id, *seq)))
-            .collect::<Vec<Value>>(),
-        "usage": usage,
-    });
-    // Written only by a report that cited one, so a run-only record keeps
-    // exactly the shape it always had. A crossing citation carries no run
-    // id and no sequence; its realm is always stated.
-    if !report.crossing_citations.is_empty() {
-        entry["crossing_citations"] = json!(report
+        citations: report.citations.iter().map(Cite::of).collect(),
+        crossing_citations: report
             .crossing_citations
             .iter()
-            .map(|(realm, crossing)| json!({"realm": realm, "crossing": crossing}))
-            .collect::<Vec<Value>>());
+            .map(CrossingCite::of)
+            .collect(),
+        dossier: DossierPin {
+            crossings: dossier.value.get("crossings"),
+            dossier_version: DOSSIER_VERSION,
+            fleet: &dossier.value["fleet"],
+            generated_at: now,
+        },
+        fleet_summary: &report.fleet_summary,
+        parked_runs: &report.parked_runs,
+        record_version: RECORD_VERSION,
+        recorded_at: now,
+        usage,
+        work_queue: &report.work_queue,
     }
-    entry
 }
 
 // ------------------------------------------------------- rendering
@@ -1011,9 +1011,9 @@ pub(crate) fn run(
             return Ok(crate::Exit::Failed.into());
         }
     };
-    let entry = entry(now, &seat, &dossier, &report, usage(&checkpoints));
-    record::append(record_path, &entry)?;
-    print!("{}", render(&entry));
+    let line = entry(now, &seat, &dossier, &report, usage(&checkpoints));
+    record::append(record_path, &line)?;
+    print!("{}", render(&json!(line)));
     eprintln!(
         "recorded in {}; nothing was executed — issue any command yourself",
         record_path.display()

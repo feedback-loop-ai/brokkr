@@ -1021,6 +1021,166 @@ fn the_older_runs_say_how_to_show_them_and_how_to_fold_them() {
     assert!(!frame.contains("needs you     a"), "{frame}");
 }
 
+/// `count` runs of the fixture's parked one, `more-00` onward, in a frame
+/// read for `window` whose first page ends at `ahead`.
+fn more_runs(count: usize, window: Window, ahead: Option<&brokkr_view::Cursor>) -> Views {
+    let mut views = fleet_to_act_on();
+    let held = views.runs.runs.iter().find(|row| row.run_id == HELD);
+    let held = held.unwrap().clone();
+    views.runs.runs = (0..count)
+        .map(|at| RunRow {
+            run_id: format!("more-{at:02}"),
+            ..held.clone()
+        })
+        .collect();
+    (views.window, views.ahead) = (window, ahead.cloned());
+    views
+}
+
+/// Decision 0089 ruling 6: the list reads the page its window starts at
+/// and the one ahead, by keyset. Its window moves onto the page ahead
+/// when the cursor reaches it, once, however many keys land before that
+/// window's frame; back a page when the cursor steps up off its first
+/// row, the cursor kept; and to its top on `g`. `a` reads as it does
+/// without, and a filter reads its own window from its top. The older
+/// runs its pages left unread are counted with the ones it folds; and
+/// the runs behind their summary past those a refresh read are one line
+/// in "needs you", which heads it when no run there is listed.
+#[test]
+fn the_list_scrolls_by_keyset_and_counts_what_its_pages_left_unread() {
+    let ahead: brokkr_view::Cursor = "needs-you:5:more-49".parse().unwrap();
+    let top = more_runs(60, Window::default(), Some(&ahead));
+    let mut tui = Tui::new(None);
+    assert_eq!(asked_window(&tui), Window::default());
+    tui.cursor[0] = Some("more-48".to_string());
+    apply(&mut tui, &top, Key::Down);
+    assert_eq!(asked_window(&tui), Window::default(), "the cursor's page");
+    apply(&mut tui, &top, Key::Down);
+    apply(&mut tui, &top, Key::Down);
+    let scrolled = Window {
+        after: Some(ahead.clone()),
+        filter: String::new(),
+    };
+    assert_eq!(asked_window(&tui), scrolled);
+    assert_eq!(
+        tui.scrolled.past,
+        std::slice::from_ref(&ahead),
+        "moved once"
+    );
+    let below = more_runs(10, scrolled.clone(), None);
+    tui.cursor[0] = Some("more-00".to_string());
+    tui.all = true;
+    assert_eq!(asked_window(&tui), scrolled, "`a` reads its window alike");
+    apply(&mut tui, &below, Key::Up);
+    assert_eq!(asked_window(&tui), Window::default());
+    assert_eq!(tui.cursor[0].as_deref(), Some("more-00"));
+    tui.scrolled.past.push(ahead.clone());
+    apply(&mut tui, &below, Key::Char('g'));
+    assert_eq!(
+        (asked_window(&tui), tui.cursor[0].clone()),
+        (Window::default(), None)
+    );
+    tui.scrolled.past.push(ahead);
+    tui.filter = "more".to_string();
+    let filtered = Window {
+        after: None,
+        filter: "more".to_string(),
+    };
+    assert_eq!(asked_window(&tui), filtered);
+    let mut views = fleet_to_act_on();
+    views.unread = Unread {
+        older: 5,
+        behind: 151,
+    };
+    let frame = frame_of(&Tui::new(None), &views, 160, 30);
+    assert!(frame.contains("│7 older runs: press a to show"), "{frame}");
+    // The count line, just under the heading of "needs you".
+    let headed = |views: &Views| {
+        let behind = "151 more runs behind their summary, unread until a writer catches them up";
+        let frame = frame_of(&Tui::new(None), views, 160, 30);
+        let lines: Vec<&str> = frame.lines().collect();
+        let at = lines.iter().position(|line| line.contains(behind));
+        at.map(|at| lines[at - 1].contains("│needs you"))
+    };
+    assert_eq!(headed(&views), Some(true));
+    let now = views.now.clone();
+    views
+        .runs
+        .runs
+        .retain(|row| brokkr_view::need(row, &now).is_none());
+    assert_eq!(headed(&views), Some(true));
+}
+
+/// Decision 0089 ruling 6: a step up inside a scrolled window moves the
+/// cursor alone, and a wrap down past its last row reads the fleet from
+/// its top; a list scrolled under one filter that reaches the page ahead
+/// under another keeps that one's key alone; and the list seeds its
+/// cursor on the frame of the window it asked for, never of another.
+#[test]
+fn the_list_scrolls_within_its_window_and_under_its_own_filter() {
+    let ahead: brokkr_view::Cursor = "needs-you:5:more-49".parse().unwrap();
+    let scrolled = Window {
+        after: Some(ahead.clone()),
+        filter: String::new(),
+    };
+    let below = more_runs(10, scrolled.clone(), None);
+    let mut tui = Tui::new(None);
+    tui.scrolled.passed(ahead.clone());
+    tui.cursor[0] = Some("more-05".to_string());
+    apply(&mut tui, &below, Key::Up);
+    let at = |tui: &Tui| (asked_window(tui), tui.cursor[0].clone());
+    assert_eq!(at(&tui), (scrolled, Some("more-04".to_string())));
+    tui.cursor[0] = Some("more-09".to_string());
+    apply(&mut tui, &below, Key::Down);
+    assert_eq!(at(&tui), (Window::default(), None), "wrapped to the top");
+    tui.scrolled.passed(ahead);
+    tui.filter = "more".to_string();
+    let next: brokkr_view::Cursor = "needs-you:6:more-49".parse().unwrap();
+    let filtered = Window {
+        after: None,
+        filter: "more".to_string(),
+    };
+    let top = more_runs(60, filtered, Some(&next));
+    tui.cursor[0] = Some("more-49".to_string());
+    apply(&mut tui, &top, Key::Down);
+    let kept = super::state::Scrolled {
+        filter: "more".to_string(),
+        past: vec![next],
+    };
+    assert_eq!(tui.scrolled, kept);
+    let mut fresh = Tui::new(None);
+    seed_cursor(&mut fresh, &below);
+    assert_eq!(fresh.cursor[0], None, "a frame of another window");
+    seed_cursor(&mut fresh, &more_runs(10, Window::default(), None));
+    assert_eq!(fresh.cursor[0].as_deref(), Some("more-00"));
+}
+
+/// Decision 0089 rulings 6 and 9: the list keeps the keys of the last
+/// [`SCROLL_BACK`](super::state::SCROLL_BACK) pages it scrolled past alone, so what it holds does not
+/// grow with how far it scrolls; it steps back a page at a time over
+/// them, and past them to its top.
+#[test]
+fn the_list_keeps_the_keys_of_its_last_pages_alone() {
+    let key =
+        |at: usize| -> brokkr_view::Cursor { format!("needs-you:{at}:more-49").parse().unwrap() };
+    let pages = super::state::SCROLL_BACK + 3;
+    let mut tui = Tui::new(None);
+    for at in 0..pages {
+        let views = more_runs(60, asked_window(&tui), Some(&key(at)));
+        tui.cursor[0] = Some("more-49".to_string());
+        apply(&mut tui, &views, Key::Down);
+    }
+    let kept: Vec<brokkr_view::Cursor> = (3..pages).map(key).collect();
+    assert_eq!(tui.scrolled.past, kept);
+    for at in (3..pages).rev() {
+        assert_eq!(asked_window(&tui).after, Some(key(at)));
+        let views = more_runs(10, asked_window(&tui), None);
+        tui.cursor[0] = Some("more-00".to_string());
+        apply(&mut tui, &views, Key::Up);
+    }
+    assert_eq!(asked_window(&tui), Window::default(), "past them, its top");
+}
+
 /// Every `timeout_seconds` a JSON value states, at any depth.
 fn deadlines(value: &Value, found: &mut Vec<u64>) {
     match value {
@@ -1091,4 +1251,150 @@ fn the_staleness_bound_is_the_longest_shipped_deadline_and_an_hour() {
     assert_eq!(quiet(&at(bound)), None);
     let silent = "3h00m".to_string();
     assert_eq!(quiet(&at(bound + 1)), Some(Need::Stale { silent }));
+}
+
+/// The frames the shell reads of the journal at `db` for the console as
+/// `tui` stands: forced, the fleet due, its open run and its window.
+fn forced_frames(db: &std::path::Path) -> impl FnMut(&Tui) -> Views + '_ {
+    let mut read = super::tests::reading(db);
+    move |tui: &Tui| {
+        let ask = Ask {
+            run: tui.run.as_deref(),
+            subject: None,
+            force: true,
+            fleet: true,
+            tab: 0,
+            window: asked_window(tui),
+        };
+        read(ask).unwrap().expect("a forced read draws a frame")
+    }
+}
+
+/// Decision 0089 rulings 5 and 6: a run opened from the list scrolled a
+/// page down stays open when a writer parks it, though its new place
+/// heads "needs you", before the window the list reads, so the next
+/// frame lists no row of it: the frame opened it, and it has not gone.
+#[test]
+fn a_run_opened_past_the_first_page_stays_open_when_a_writer_moves_it_before_the_window() {
+    use brokkr_store::test_support::{generate, Generated, Standing, Width};
+    use brokkr_store::Store;
+    use time::format_description::well_known::Rfc3339;
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    crate::tests::running_store(&db, "opened");
+    let now = time::OffsetDateTime::parse(NOW, &Rfc3339).unwrap();
+    let held: Vec<Generated> = (0..110)
+        .map(|n| Generated {
+            run_id: format!("held-{n:03}"),
+            standing: Standing::Parked,
+            events: 3,
+            last_at: (now - time::Duration::minutes(n)).format(&Rfc3339).unwrap(),
+            width: Width::Narrow,
+        })
+        .collect();
+    generate(&Store::open(&db).unwrap(), &held).unwrap();
+    let mut frame = forced_frames(&db);
+    // The list scrolled a page down, its window the second page and the
+    // third: the parked runs, then the running one, 111th.
+    let mut tui = Tui::new(None);
+    let ahead = frame(&tui).ahead.expect("the fleet runs past a page");
+    tui.scrolled.passed(ahead);
+    tui.assign_run("opened".to_string());
+    let views = frame(&tui);
+    let listed: Vec<&str> = views
+        .runs
+        .runs
+        .iter()
+        .map(|row| row.run_id.as_str())
+        .collect();
+    assert_eq!(listed.iter().position(|id| *id == "opened"), Some(60));
+    settle(&mut tui, &views);
+    assert_eq!(
+        (tui.run.as_deref(), tui.level),
+        (Some("opened"), Level::Run)
+    );
+    // A current writer parks it, its seat's attempts spent, at the wall
+    // clock, after every park listed: it heads "needs you", before the
+    // window's first row.
+    let effect = json!({"effect_id": "eff", "seat": "work", "phase": "work"});
+    let reason = json!({"reason": "attempts exhausted"});
+    for (event_type, payload) in [
+        (brokkr_core::EventType::EffectRequested, effect),
+        (brokkr_core::EventType::RunParked, reason),
+    ] {
+        let mut store = Store::open(&db).unwrap();
+        let events = store.load("opened").unwrap();
+        store.carry(brokkr_core::summary::Account::whole("opened", &events));
+        store
+            .append_next("opened", event_type, payload, None, None)
+            .unwrap();
+    }
+    let views = frame(&tui);
+    assert!(views.runs.runs.iter().all(|row| row.run_id != "opened"));
+    let parked = views.run.as_ref().and_then(|run| run.summary.as_ref());
+    assert_eq!(
+        parked.map(|summary| summary.status.as_str()),
+        Some("awaiting_operator")
+    );
+    settle(&mut tui, &views);
+    assert_eq!(
+        (tui.run.as_deref(), tui.level),
+        (Some("opened"), Level::Run)
+    );
+    // At the fleet's level, which reads no open run, a window that no
+    // longer lists the run the operator left takes nothing with it: the
+    // cursor they moved stays theirs.
+    let mut fleet = fleet_to_act_on();
+    fleet.run = None;
+    let mut tui = Tui::new(None);
+    tui.run = Some("opened".to_string());
+    tui.cursor[0] = Some(HELD.to_string());
+    settle(&mut tui, &fleet);
+    let held = (tui.run.as_deref(), tui.cursor[0].as_deref());
+    assert_eq!(held, (Some("opened"), Some(HELD)));
+}
+
+/// Decision 0089 rulings 5 and 6: two run ids no writer admits, cut to
+/// one shown id, are two rows the list selects apart by their whole ids,
+/// and opening either reads no run: the frame is drawn, the run stays
+/// open, and the fleet lists it refused in the store's words.
+#[test]
+fn two_refused_ids_cut_alike_are_selected_and_opened_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("forge.db");
+    drop(brokkr_store::Store::open(&db).unwrap());
+    let ids = ["v".repeat(200), format!("{}w", "v".repeat(199))];
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    for run_id in &ids {
+        brokkr_store::test_support::plant_run(&conn, run_id, "{}").unwrap();
+    }
+    let mut frame = forced_frames(&db);
+    let (cut, words) = (
+        format!("{}…", "v".repeat(128)),
+        "its run id is past 128 bytes, which no writer admits",
+    );
+    let mut tui = Tui::new(None);
+    let fleet = frame(&tui);
+    settle(&mut tui, &fleet);
+    let mut opened = Vec::new();
+    for _ in &ids {
+        let row = selected_run(&tui, &fleet).expect("a row is selected");
+        let shown = (row.run_id.as_str(), row.detail.as_deref());
+        assert_eq!(shown, (cut.as_str(), Some(words)));
+        apply(&mut tui, &fleet, Key::Enter);
+        let views = frame(&tui);
+        settle(&mut tui, &views);
+        let run = tui.run.clone().expect("the run stays open");
+        let listed = views.runs.runs.iter().find(|row| key_of(row) == run);
+        let listed = listed.map(|row| (row.run_id.as_str(), row.detail.as_deref()));
+        assert_eq!(
+            (views.run.is_none(), listed),
+            (true, Some((cut.as_str(), Some(words))))
+        );
+        opened.push(run);
+        apply(&mut tui, &views, Key::Escape);
+        apply(&mut tui, &fleet, Key::Down);
+    }
+    opened.sort();
+    assert_eq!(opened, ids);
 }

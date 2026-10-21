@@ -33,6 +33,7 @@ fn asking<'a>(
         force,
         fleet,
         tab,
+        window: Default::default(),
     }
 }
 

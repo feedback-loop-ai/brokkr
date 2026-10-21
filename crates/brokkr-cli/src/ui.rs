@@ -23,11 +23,13 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use brokkr_core::fold::fold;
+use brokkr_core::EventEnvelope;
 use brokkr_protocol::overrides::{self, Override, OverrideError};
-use brokkr_store::Store;
+use brokkr_store::{Store, StoreError};
 use brokkr_view::transcript::{Selection, ValidReference};
 use serde_json::{json, Value};
 
+use crate::fleet::PageRefused;
 use crate::local_transcript::{self, Discovery};
 use limits::{Deadline, Exceeded, Limits, Slots, Unread};
 
@@ -54,6 +56,79 @@ fn server_error(detail: String) -> Response {
         content_type: "application/json",
         body: json!({"error": detail}).to_string(),
     }
+}
+
+fn bad_request(detail: String) -> Response {
+    Response {
+        status: "400 Bad Request",
+        content_type: "application/json",
+        body: json!({"error": detail}).to_string(),
+    }
+}
+
+/// `/api/runs`: every run, the fleet's sections in order and each by last
+/// activity, as `RunsView.runs` — ordering is a derivation rule and not
+/// something each surface reverses for itself. Asked `limit=N` or
+/// `after=CURSOR`, one page as `brokkr runs --json --limit` prints it,
+/// with its `next` (decision 0089 ruling 6).
+///
+/// The same fleet grace the table gives: a run whose journal does not
+/// load or fold is a quarantined row carrying the refusal, never a
+/// missing row. A journal that cannot list its runs at all is refused the
+/// way one that cannot open is, never an empty fleet.
+fn runs(db: &Path, store: &Store, query: Option<&str>) -> Response {
+    let asked = match query.map(page_asked).transpose() {
+        Ok(asked) => asked,
+        Err(refused) => return bad_request(refused.to_string()),
+    };
+    // A refresh reads at most a page and one ahead of the runs behind the
+    // summary and counts the rest, which every run keys and lists at
+    // their places, all of it one read (decision 0089 ruling 6).
+    let now = crate::now_rfc3339();
+    let journal = (crate::fleet::Journal::at(db), now.as_str());
+    let body = crate::fleet::list_hearth(store, journal, asked.is_none(), |lister| match &asked {
+        None => lister.rows().map(|rows| serde_json::to_string(&rows)),
+        Some((after, limit)) => lister
+            .paged(after.as_ref(), *limit)
+            .map(|view| serde_json::to_string(&view)),
+    });
+    match body {
+        Ok(body) => ok("application/json", body.expect("run rows serialize")),
+        Err(error) => server_error(error.to_string()),
+    }
+}
+
+/// The page a query asks for: `limit=N`, at least one, and `after=CURSOR`,
+/// in any order, the last of a repeated one standing, each value
+/// percent-decoded once before it is parsed, or the words of what it is
+/// not.
+fn page_asked(query: &str) -> Result<(Option<brokkr_view::Cursor>, usize), PageRefused> {
+    let mut asked = (None, crate::fleet::PAGE_ROWS);
+    for pair in query.split('&') {
+        match pair.split_once('=') {
+            Some(("limit", limit)) => {
+                let limit = query_value(limit)?;
+                asked.1 = limit
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|limit| *limit > 0)
+                    .ok_or(PageRefused::Limit(limit))?;
+            }
+            Some(("after", after)) => {
+                asked.0 = Some(crate::fleet::cursor(&query_value(after)?)?);
+            }
+            _ => return Err(PageRefused::Query(pair.to_string())),
+        }
+    }
+    Ok(asked)
+}
+
+/// A query value, form-decoded once: `+` is a space, as `URLSearchParams`
+/// writes one, and the rest percent-decodes as a path component does, so
+/// `%2B` stays a plus and the `next` a page states reads back however a
+/// client encodes it.
+fn query_value(value: &str) -> Result<String, PageRefused> {
+    decode_component(&value.replace('+', " ")).ok_or_else(|| PageRefused::Escape(value.to_string()))
 }
 
 fn not_found(what: &str) -> Response {
@@ -97,32 +172,16 @@ pub fn handle(db: &Path, path: &str) -> Response {
     if let Some(rest) = path.strip_prefix("/api/transcript/") {
         return participant_transcript(db, &store, rest);
     }
-    if path == "/api/runs" {
-        // The page receives `RunsView.runs` — already newest first,
-        // because ordering is a derivation rule and not something each
-        // surface reverses for itself.
-        //
-        // The same fleet grace the table gives: a run whose journal does
-        // not load or fold is a quarantined row carrying the refusal,
-        // never a missing row. A journal that cannot list its runs at
-        // all is refused the way one that cannot open is, never an
-        // empty fleet.
-        let listed = match crate::fleet::read_hearth(&store).listed() {
-            Ok(listed) => listed,
-            Err(detail) => return server_error(detail),
-        };
-        let entries: Vec<brokkr_view::RunEntry> =
-            listed.iter().map(crate::fleet::ListedRun::entry).collect();
-        let view = brokkr_view::run_rows(&entries);
-        return ok(
-            "application/json",
-            serde_json::to_string(&view.runs).expect("run rows serialize"),
-        );
+    if let Some(query) = path
+        .strip_prefix("/api/runs")
+        .filter(|rest| rest.is_empty() || rest.starts_with('?'))
+    {
+        return runs(db, &store, query.strip_prefix('?'));
     }
     if let Some(run_id) = path.strip_prefix("/api/view/") {
-        let events = match store.load(run_id) {
+        let events = match opened(&store, run_id) {
             Ok(events) => events,
-            Err(_) => return not_found(run_id),
+            Err(refusal) => return refusal.response(run_id),
         };
         let state = fold(&events).ok();
         let view = brokkr_view::run_view(&events, state.as_ref()).with_scopes();
@@ -251,10 +310,15 @@ fn presentation_payload(participant: &brokkr_view::Participant) -> Value {
     })
 }
 
-/// Why a participant route answers for no participant.
+/// Why a route that opens a run answers for no run or participant.
 enum RouteRefusal {
     /// The route, its run or its participant is not there.
     Missing,
+    /// The run is there, and the store refuses to open it: its chain does
+    /// not verify, or a row of it does not read. Every route that opens a
+    /// run refuses it in the store's words and reads nothing, as each of
+    /// the run's verbs does (decision 0089 ruling 5).
+    Unopened(StoreError),
     /// The run's journal loads and does not fold. That is fatal to the
     /// run's own verbs (`fleet.rs`), so every participant route refuses it
     /// in the fold's words, as `brokkr transcript` does, and reads nothing.
@@ -266,9 +330,19 @@ impl RouteRefusal {
     fn response(self, missing: &str) -> Response {
         match self {
             RouteRefusal::Missing => not_found(missing),
+            RouteRefusal::Unopened(error) => server_error(error.to_string()),
             RouteRefusal::Unfoldable(error) => server_error(error.to_string()),
         }
     }
+}
+
+/// Run `run_id`'s events, its chain read whole and verified: missing when
+/// the journal holds no such run, and the store's refusal otherwise.
+fn opened(store: &Store, run_id: &str) -> Result<Vec<EventEnvelope>, RouteRefusal> {
+    store.load(run_id).map_err(|error| match error {
+        StoreError::RunNotFound(_) => RouteRefusal::Missing,
+        refused => RouteRefusal::Unopened(refused),
+    })
 }
 
 /// The participant a `<run>/<key>` route names, the three participant
@@ -278,7 +352,7 @@ fn route_participant(
     rest: &str,
 ) -> Result<(String, brokkr_view::Participant), RouteRefusal> {
     let (run_id, participant_key) = route_components(rest).ok_or(RouteRefusal::Missing)?;
-    let events = store.load(&run_id).map_err(|_| RouteRefusal::Missing)?;
+    let events = opened(store, &run_id)?;
     let state = fold(&events).map_err(RouteRefusal::Unfoldable)?;
     let view = brokkr_view::run_view(&events, Some(&state));
     let participant = view
@@ -607,6 +681,8 @@ pub(crate) fn serve(db: PathBuf, port: u16, open_browser: bool) -> std::io::Resu
 
 #[cfg(test)]
 mod limit_tests;
+#[cfg(test)]
+mod runs_route_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

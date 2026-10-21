@@ -144,7 +144,7 @@ pub(super) fn enter(tui: &mut Tui, views: &Views) {
                     tui.reading_transcript = false;
                     tui.read_offset = 0;
                 }
-                None => tui.assign_run(row.run_id.clone()),
+                None => tui.assign_run(key_of(row).to_string()),
             }
         }
         Level::Run => {

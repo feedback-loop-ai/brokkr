@@ -201,14 +201,18 @@ fn fleet() -> RunsView {
     brokkr_view::run_rows(&entries)
 }
 
-fn views_with(seat: &str) -> Views {
+/// The fixture fleet at the fixture clock, `run` read beside it.
+fn over_fleet(run: Option<RunView>) -> Views {
     Views {
         now: NOW.to_string(),
         runs: fleet(),
-        run: Some(run_view_for(seat)),
-        transcript: None,
-        note: None,
+        run,
+        ..Views::empty()
     }
+}
+
+fn views_with(seat: &str) -> Views {
+    over_fleet(Some(run_view_for(seat)))
 }
 
 pub(super) fn views() -> Views {
@@ -642,13 +646,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
 
     // And CLEARS ITSELF when the subject vanishes from the unfiltered
     // model — here, a run whose journal holds no such phase.
-    let empty = Views {
-        now: NOW.to_string(),
-        runs: fleet(),
-        run: Some(brokkr_view::run_view(&[], None)),
-        transcript: None,
-        note: None,
-    };
+    let empty = over_fleet(Some(brokkr_view::run_view(&[], None)));
     settle(&mut tui, &empty);
     assert!(tui.scope.is_none(), "the phase went away");
     assert_eq!(selected(&tui, &empty), None);
@@ -683,6 +681,7 @@ fn a_second_selection_replaces_the_first_and_a_vanished_subject_clears_itself() 
         run: None,
         transcript: None,
         note: None,
+        ..Views::empty()
     };
     settle(&mut tui, &others);
     assert_eq!(tui.run, None);
@@ -1510,6 +1509,7 @@ pub(super) fn panel_views() -> Views {
         run: Some(brokkr_view::run_view(&events, Some(&stopped))),
         transcript: None,
         note: None,
+        ..Views::empty()
     }
 }
 
@@ -1735,13 +1735,7 @@ fn graph_views(phases: Vec<Phase>, status: &str) -> Views {
         Some(summary) => summary.status = status.to_string(),
         None => panic!("the fixture folds"),
     }
-    Views {
-        now: NOW.to_string(),
-        runs: fleet(),
-        run: Some(view),
-        transcript: None,
-        note: None,
-    }
+    over_fleet(Some(view))
 }
 
 /// A `Tui` sitting on the graph pane of `run-7`.
@@ -2507,13 +2501,7 @@ fn a_graph_selection_survives_a_refresh_and_a_vanished_node_highlights_nothing()
     );
 
     // A phase that vanished takes the whole graph selection with it.
-    let empty = Views {
-        now: NOW.to_string(),
-        runs: fleet(),
-        run: Some(brokkr_view::run_view(&[], None)),
-        transcript: None,
-        note: None,
-    };
+    let empty = over_fleet(Some(brokkr_view::run_view(&[], None)));
     settle(&mut tui, &empty);
     assert!(selected(&tui, &empty).is_none());
     assert!(lane_keys(&tui, &empty).is_empty());
@@ -3330,13 +3318,7 @@ pub(super) fn adopting_views() -> Views {
         "provenance": [{"member": null, "agent": "intake", "model": "opus",
                         "provider": "claude", "chain_index": 1}],
     });
-    Views {
-        now: NOW.to_string(),
-        runs: fleet(),
-        run: Some(brokkr_view::run_view(&events, Some(&state()))),
-        transcript: None,
-        note: None,
-    }
+    over_fleet(Some(brokkr_view::run_view(&events, Some(&state()))))
 }
 
 /// The run level shows both run-level notices and the per-seat sentence,
@@ -3411,13 +3393,7 @@ fn a_session_held_by_another_harness_never_renders_as_a_claude_command() {
         "locator": "abcd-1234",
         "home": "/home/operator/.codex"
     });
-    let views = Views {
-        now: NOW.to_string(),
-        runs: fleet(),
-        run: Some(brokkr_view::run_view(&events, Some(&state()))),
-        transcript: None,
-        note: None,
-    };
+    let views = over_fleet(Some(brokkr_view::run_view(&events, Some(&state()))));
     let mut tui = at_seats("eff-i");
     apply(&mut tui, &views, Key::Enter);
     apply(&mut tui, &views, Key::Enter);
@@ -3466,13 +3442,7 @@ fn a_pre_0032_journal_keeps_the_provider_guard_on_the_legacy_reference() {
             "session_id": "abcd-1234",
             "total_cost_usd": 0.03125,
         });
-        let views = Views {
-            now: NOW.to_string(),
-            runs: fleet(),
-            run: Some(brokkr_view::run_view(&events, Some(&state()))),
-            transcript: None,
-            note: None,
-        };
+        let views = over_fleet(Some(brokkr_view::run_view(&events, Some(&state()))));
         let part = participant(&views, "eff-i").expect("the seat is present");
         let read = crate::local_transcript::read_local(
             &brokkr_view::Subject::of(0, None, "run-7".to_string(), part),
@@ -4280,13 +4250,7 @@ fn the_lane_cursor_scopes_the_member_and_the_seats_and_trail_filter_to_it() {
 
     // The selection-clears-itself law is untouched: a member that is no
     // longer in the run takes its scope with it.
-    let gone = Views {
-        now: NOW.to_string(),
-        runs: fleet(),
-        run: Some(brokkr_view::run_view(&[], None)),
-        transcript: None,
-        note: None,
-    };
+    let gone = over_fleet(Some(brokkr_view::run_view(&[], None)));
     settle(&mut tui, &gone);
     assert!(
         tui.scope.is_none(),
@@ -5016,13 +4980,7 @@ pub(super) fn boxed_views(word: &str, gate: bool) -> Views {
     events[5].payload["checkpoint"]["boundary"] = json!(word);
     events[6].payload["result"]["model"] = json!("claude-fable-5-1");
     events[6].payload["result"]["boundary"] = json!(word);
-    Views {
-        now: NOW.to_string(),
-        runs: fleet(),
-        run: Some(brokkr_view::run_view(&events, Some(&state()))),
-        transcript: None,
-        note: None,
-    }
+    over_fleet(Some(brokkr_view::run_view(&events, Some(&state()))))
 }
 
 /// The run level: the header line prints the model's rendered text,
@@ -5239,6 +5197,7 @@ fn refresh_subject(
             force,
             fleet: false,
             tab: 0,
+            window: Default::default(),
         },
         head,
         seen,

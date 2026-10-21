@@ -243,9 +243,11 @@ struct RealmView<'a> {
     publishes: &'a [Published],
 }
 
-/// One consumed crossing of [`RealmView`].
+/// One consumed crossing of [`RealmView`], and of the dossier `brokkr
+/// muninn run` hands its seat: both surfaces state a consumption through
+/// [`ConsumedView::of`], so they cannot word a pin two ways.
 #[derive(Serialize)]
-struct ConsumedView<'a> {
+pub(crate) struct ConsumedView<'a> {
     // One word, so a script branches on a value rather than on prose,
     // and the prose that explains it beside — null where the word says
     // everything.
@@ -253,6 +255,19 @@ struct ConsumedView<'a> {
     name: &'a str,
     pin: &'static str,
     realm: &'a str,
+}
+
+impl<'a> ConsumedView<'a> {
+    /// The consumption as it is stated: its name, the realm that
+    /// publishes it, and its pin's word and detail.
+    pub(crate) fn of(consumed: &'a Consumed) -> Self {
+        ConsumedView {
+            detail: consumed.pin.detail(),
+            name: &consumed.name,
+            pin: consumed.pin.word(),
+            realm: &consumed.publisher,
+        }
+    }
 }
 
 /// The same world as a value, for `--json`. Derived from the SAME rows
@@ -267,16 +282,7 @@ pub(crate) fn view<'a>(source: &'a str, journal: &'a str, rows: &'a [Row]) -> Wo
         realms: rows
             .iter()
             .map(|row| RealmView {
-                consumes: row
-                    .consumes
-                    .iter()
-                    .map(|consumed| ConsumedView {
-                        detail: consumed.pin.detail(),
-                        name: &consumed.name,
-                        pin: consumed.pin.word(),
-                        realm: &consumed.publisher,
-                    })
-                    .collect(),
+                consumes: row.consumes.iter().map(ConsumedView::of).collect(),
                 default_branch: &row.branch,
                 head: &row.head,
                 journal: &row.journal,
