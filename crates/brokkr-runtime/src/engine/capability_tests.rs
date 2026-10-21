@@ -1776,15 +1776,12 @@ fn every_dispatch_tells_its_seat_its_own_bound_charter_beside_its_own_holdings()
         .unwrap();
     engine
         .execute_panel(
-            "capability-effect",
-            "capability-attempt",
-            "work",
+            &PanelAt::new("capability-effect", "capability-attempt", "work", false),
             &members,
             Aggregate::UnanimousPass,
             &panel_input,
             std::time::Duration::from_secs(10),
             &Selection::new(),
-            false,
         )
         .unwrap();
     for (name, seat, holdings) in [

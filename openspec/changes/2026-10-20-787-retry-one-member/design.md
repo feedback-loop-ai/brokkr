@@ -1455,6 +1455,18 @@ participant's empty resolution stands); muninn's cost rows,
 take no test of this change (D9); `commands/tests.rs` pins S21's text; the
 `VIEW_VERSION` pin moves.
 
+### D14. The implementation's gate-driven fixture extraction
+
+The direct-call conversion in D1 introduced eight clones measured by
+`bash quality/ratchet.sh clones`: one production refusal-start sequence and
+seven test sequences. Applying decision 0071 rulings 4 and 5, the refusal
+start has one helper, the unanimous terminal and storage scenarios share a
+fixture in `engine/panel_tests.rs`, and the new proof scenarios share their
+setup. The assertions stay intact. The subsequent gate reports
+`ratchet: duplication holds`, and the panel suite passes 37 tests. This
+supersedes only D1's direct-call-only test arrangement, not the carry rule
+or the panel's parameter object. The test module fits engine.rs's baseline.
+
 ## Risks
 
 - **Edits inside an attempt's span, reverted before its end, and edits to

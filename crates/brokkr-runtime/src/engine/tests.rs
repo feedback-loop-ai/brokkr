@@ -2103,19 +2103,14 @@ pub(super) fn panel_input(names: &[&str]) -> Value {
 #[test]
 fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
     let (_dir, mut failed) = engine(single_body(vec!["driver".into()]));
-    failed
-        .execute_panel(
-            "failed-effect",
-            "failed-attempt",
-            "work",
-            &[member("missing", vec!["missing-driver".into()])],
-            Aggregate::UnanimousPass,
-            &panel_input(&["missing"]),
-            std::time::Duration::from_secs(1),
-            &Selection::new(),
-            false,
-        )
-        .unwrap();
+    crate::engine::panel_tests::unanimous(
+        &mut failed,
+        PanelAt::new("failed-effect", "failed-attempt", "work", false),
+        &[member("missing", vec!["missing-driver".into()])],
+        &panel_input(&["missing"]),
+        1,
+    )
+    .unwrap();
     assert!(failed
         .store
         .load(&failed.run_id)
@@ -2137,16 +2132,12 @@ fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
         },
     );
     let (_dir, mut lost) = engine(single_body(vec!["driver".into()]));
-    lost.execute_panel(
-        "lost-effect",
-        "lost-attempt",
-        "work",
+    crate::engine::panel_tests::unanimous(
+        &mut lost,
+        PanelAt::new("lost-effect", "lost-attempt", "work", false),
         &[member("lost", indeterminate_command)],
-        Aggregate::UnanimousPass,
         &panel_input(&["lost"]),
-        std::time::Duration::from_secs(2),
-        &Selection::new(),
-        false,
+        2,
     )
     .unwrap();
     assert!(lost
@@ -2164,19 +2155,14 @@ fn panel_execution_covers_spawn_failure_indeterminate_and_success_joins() {
         },
     );
     let (_dir, mut succeeded) = engine(single_body(vec!["driver".into()]));
-    succeeded
-        .execute_panel(
-            "ok-effect",
-            "ok-attempt",
-            "work",
-            &[member("ok", success_command)],
-            Aggregate::UnanimousPass,
-            &panel_input(&["ok"]),
-            std::time::Duration::from_secs(2),
-            &Selection::new(),
-            false,
-        )
-        .unwrap();
+    crate::engine::panel_tests::unanimous(
+        &mut succeeded,
+        PanelAt::new("ok-effect", "ok-attempt", "work", false),
+        &[member("ok", success_command)],
+        &panel_input(&["ok"]),
+        2,
+    )
+    .unwrap();
     assert!(succeeded
         .store
         .load(&succeeded.run_id)
@@ -3603,19 +3589,14 @@ fn execute_conclusion_and_checkpoint_storage_failures_propagate() {
 #[expect(clippy::too_many_lines, reason = "baseline 2026-09, #288")]
 fn panel_and_sequence_storage_failures_propagate() {
     let (_kept, mut failed_panel) = engine_failing("effect/failed");
-    assert!(failed_panel
-        .execute_panel(
-            "effect",
-            "attempt",
-            "work",
-            &[member("missing", vec!["missing-driver".into()])],
-            Aggregate::UnanimousPass,
-            &panel_input(&["missing"]),
-            std::time::Duration::from_secs(1),
-            &Selection::new(),
-            false,
-        )
-        .is_err());
+    assert!(crate::engine::panel_tests::unanimous(
+        &mut failed_panel,
+        PanelAt::new("effect", "attempt", "work", false),
+        &[member("missing", vec!["missing-driver".into()])],
+        &panel_input(&["missing"]),
+        1
+    )
+    .is_err());
 
     let lost_command = driver_command(
         "effect",
@@ -3625,19 +3606,14 @@ fn panel_and_sequence_storage_failures_propagate() {
         },
     );
     let (_kept, mut lost_panel) = engine_failing("effect/indeterminate");
-    assert!(lost_panel
-        .execute_panel(
-            "effect",
-            "attempt",
-            "work",
-            &[member("lost", lost_command)],
-            Aggregate::UnanimousPass,
-            &panel_input(&["lost"]),
-            std::time::Duration::from_secs(2),
-            &Selection::new(),
-            false,
-        )
-        .is_err());
+    assert!(crate::engine::panel_tests::unanimous(
+        &mut lost_panel,
+        PanelAt::new("effect", "attempt", "work", false),
+        &[member("lost", lost_command)],
+        &panel_input(&["lost"]),
+        2
+    )
+    .is_err());
 
     let success_command = driver_command(
         "effect",
@@ -3647,19 +3623,14 @@ fn panel_and_sequence_storage_failures_propagate() {
         },
     );
     let (_kept, mut ok_panel) = engine_failing("effect/succeeded");
-    assert!(ok_panel
-        .execute_panel(
-            "effect",
-            "attempt",
-            "work",
-            &[member("ok", success_command)],
-            Aggregate::UnanimousPass,
-            &panel_input(&["ok"]),
-            std::time::Duration::from_secs(2),
-            &Selection::new(),
-            false,
-        )
-        .is_err());
+    assert!(crate::engine::panel_tests::unanimous(
+        &mut ok_panel,
+        PanelAt::new("effect", "attempt", "work", false),
+        &[member("ok", success_command)],
+        &panel_input(&["ok"]),
+        2
+    )
+    .is_err());
 
     let (dir, mut live_panel) = engine(single_body(vec!["driver".into()]));
     fail_event(&dir.path().join("forge.db"), "effect/checkpointed");
@@ -6069,19 +6040,14 @@ fn a_panel_members_refused_checkpoint_fails_that_member_alone() {
             result: json!({"result":"pass"}),
         },
     );
-    driven
-        .execute_panel(
-            "effect",
-            "attempt",
-            "work",
-            &[member("refused", refused), member("clean", clean)],
-            Aggregate::UnanimousPass,
-            &panel_input(&["refused", "clean"]),
-            std::time::Duration::from_secs(2),
-            &Selection::new(),
-            false,
-        )
-        .unwrap();
+    crate::engine::panel_tests::unanimous(
+        &mut driven,
+        PanelAt::new("effect", "attempt", "work", false),
+        &[member("refused", refused), member("clean", clean)],
+        &panel_input(&["refused", "clean"]),
+        2,
+    )
+    .unwrap();
     let error = failed_error(&driven);
     assert!(refusal_text(&error), "{error}");
 

@@ -18,12 +18,39 @@ use serde_json::{json, Value};
 
 use super::broker::settlement::witnessed;
 use super::broker::Held;
+use super::carry::{
+    outcome_under,
+    record::{settled_members, PanelRecord, PanelSpan, Tag},
+};
 use super::{
     argv_for, checkpoints, copy_secret_binding_facts, failed_to_start, resume, spawn_site,
     stamp_boundary, start_failure_fields, tag_member, Calls, Checkpoints, Engine, EngineError,
     Indeterminate, Selection, Site, SiteSpawn, Unproven,
 };
 use crate::bundle::{Aggregate, Bundle, PanelMember, ENGINE_VERSION};
+
+pub(super) struct PanelAt<'a> {
+    effect_id: &'a str,
+    attempt_id: &'a str,
+    seat_name: &'a str,
+    gate: bool,
+}
+
+impl<'a> PanelAt<'a> {
+    pub(super) fn new(
+        effect_id: &'a str,
+        attempt_id: &'a str,
+        seat_name: &'a str,
+        gate: bool,
+    ) -> Self {
+        Self {
+            effect_id,
+            attempt_id,
+            seat_name,
+            gate,
+        }
+    }
+}
 
 impl Engine {
     /// Run a parallel panel INSIDE one effect (decision 0002): members
@@ -33,19 +60,22 @@ impl Engine {
     /// the outer machine sees. Any indeterminate member makes the whole
     /// attempt indeterminate (park); otherwise any failed member fails
     /// the attempt (retryable under 0006).
-    #[expect(clippy::too_many_arguments, reason = "baseline 2026-09, #288")]
     pub(super) fn execute_panel(
         &mut self,
-        effect_id: &str,
-        attempt_id: &str,
-        seat_name: &str,
+        at: &PanelAt<'_>,
         members: &[PanelMember],
         aggregate: Aggregate,
         panel_input: &Value,
         deadline: std::time::Duration,
         selection: &Selection,
-        gate: bool,
     ) -> Result<(), EngineError> {
+        let PanelAt {
+            effect_id,
+            attempt_id,
+            seat_name,
+            gate,
+        } = *at;
+        let mut span = PanelSpan::open(&self.repo);
         let runs = self.member_runs(
             attempt_id,
             seat_name,
@@ -59,18 +89,31 @@ impl Engine {
         );
         let reports = self.run_panel(effect_id, attempt_id, &runs, deadline, "")?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, "")?;
+        span.close(&self.repo);
+        let record = PanelRecord {
+            span,
+            settled_members: settled_members(&reports, None),
+        };
         let start_failures = start_failure_sites(&reports, "");
         let unproven = Unproven::panel(&reports);
-        match panel_outcome(aggregate, reports) {
+        match outcome_under(
+            aggregate,
+            selection.carry.as_ref(),
+            reports,
+            &record.span,
+            attempt_id,
+        )? {
             AttemptOutcome::Indeterminate { reason } => {
+                let mut payload = json!(Indeterminate {
+                    effect_id,
+                    attempt_id,
+                    reason,
+                    unproven
+                });
+                record.stamp(&mut payload);
                 self.append(
                     EventType::EffectIndeterminate,
-                    json!(Indeterminate {
-                        effect_id,
-                        attempt_id,
-                        reason,
-                        unproven,
-                    }),
+                    payload,
                     Some(attempt_id.to_string()),
                 )?;
             }
@@ -84,6 +127,7 @@ impl Engine {
                 // start advances its OWN chain index, and a member that
                 // ran does not.
                 start_failure_fields(&mut payload, selection, start_failures);
+                record.stamp(&mut payload);
                 self.append(
                     EventType::EffectFailed,
                     payload,
@@ -129,7 +173,7 @@ impl Engine {
         members
             .iter()
             .map(|member| {
-                let site = Some(format!("{tag_prefix}{}", member.name));
+                let site = Some(Tag::prefixed(tag_prefix, &member.name).0);
                 let label = format!("{driver_seat_prefix}:{}", member.name);
                 let mut input = json!({
                     "feature": seat_input["feature"],
@@ -226,7 +270,7 @@ impl Engine {
                 .iter()
                 .map(|run| {
                     let name = run.name.clone();
-                    let checkpoint_name = format!("{tag_prefix}{}", run.name);
+                    let checkpoint_name = Tag::prefixed(tag_prefix, &run.name).0;
                     let workdir = workdir.clone();
                     let sender = sender.clone();
                     // Live telemetry: hand each checkpoint to the main
@@ -264,7 +308,7 @@ impl Engine {
         Ok(reports
             .into_iter()
             .map(|(name, mut report)| {
-                settled.carry(&format!("{tag_prefix}{name}"), &mut report);
+                settled.carry(&Tag::prefixed(tag_prefix, &name).0, &mut report);
                 (name, report)
             })
             .collect())
@@ -312,7 +356,7 @@ impl Engine {
             let marker = stamp_boundary(
                 json!({
                     "step": "panel-member-finished",
-                    "member": format!("{tag_prefix}{name}"),
+                    "member": Tag::prefixed(tag_prefix, name),
                     "outcome": kind,
                     "model": model,
                     "session_ref": report.session_ref,
@@ -342,7 +386,7 @@ pub(super) fn start_failure_sites(
     reports
         .iter()
         .filter(|(_, report)| failed_to_start(report))
-        .map(|(name, _)| Some(format!("{tag_prefix}{name}")))
+        .map(|(name, _)| Some(Tag::prefixed(tag_prefix, name).0))
         .collect()
 }
 
@@ -427,7 +471,7 @@ fn offer_member_checkpoint(
 ) {
     let at = runs
         .iter()
-        .position(|run| format!("{tag_prefix}{}", run.name) == member);
+        .position(|run| Tag::prefixed(tag_prefix, &run.name).0 == member);
     let owner = at.map(|at| &runs[at]);
     let call = at.map_or(Ok(None), |at| calls[at].consume(&mut checkpoint));
     let boundary = owner.and_then(|run| run.boundary);
@@ -449,11 +493,24 @@ pub(super) fn panel_outcome(
     aggregate: Aggregate,
     reports: Vec<(String, AttemptReport)>,
 ) -> AttemptOutcome {
+    outcome_over(
+        aggregate,
+        reports
+            .into_iter()
+            .map(|(name, report)| (name, report.settled_outcome()))
+            .collect(),
+    )
+}
+
+pub(super) fn outcome_over(
+    aggregate: Aggregate,
+    reports: Vec<(String, AttemptOutcome)>,
+) -> AttemptOutcome {
     let mut indeterminate = Vec::new();
     let mut failures = Vec::new();
     let mut member_results = Vec::new();
     for (name, report) in reports {
-        match report.settled_outcome() {
+        match report {
             AttemptOutcome::Succeeded { result } => member_results.push((name, result)),
             AttemptOutcome::Failed { error } => failures.push(format!("{name}: {error}")),
             AttemptOutcome::Indeterminate { .. } => indeterminate.push(name),

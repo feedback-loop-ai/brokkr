@@ -4,6 +4,9 @@
 //! stack before parsing or walking any bundle. Args delegates the finite
 //! command tree one verb at a time, without increasing the process stack.
 
+mod member_retry;
+pub(crate) use member_retry::MemberRetryArgs;
+
 use std::path::PathBuf;
 
 /// Which journal a verb opens, asked the same way at every verb that
@@ -162,7 +165,7 @@ pub(super) struct CompileArgs {
 
 /// What a delivering verb runs and what its seats are given, asked the
 /// same way by `run`, `resume` and `rerun`.
-#[derive(clap::Args)]
+#[derive(clap::Args, Default)]
 #[group(skip)]
 pub(super) struct DeliveryArgs {
     /// The bundle directory to deliver under; without it or `--recipe`,
@@ -294,6 +297,8 @@ pub(super) struct ConcludeArgs {
 #[derive(clap::Args)]
 #[group(skip)]
 pub(super) struct OperatorArgs {
+    #[command(flatten)]
+    pub(super) member: MemberRetryArgs,
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,

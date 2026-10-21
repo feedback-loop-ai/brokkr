@@ -50,7 +50,8 @@ pub use brokkr_core::policy::RuleSeverity;
 pub use clarify::Clarify;
 use clarify::{clarify, recipe, worktree};
 use commands::{commands, unavailable};
-pub use commands::{operator_commands, operator_refusal};
+pub use commands::{member_retry_refusal, operator_commands, operator_refusal};
+mod started;
 pub use commands::{Admission, Command, CommandRefusal, Disabled, Offered, Unavailable};
 pub use compare::{
     first_divergence, resolution_divergence, resolutions, seat_costs, FirstDivergence, Resolution,
@@ -73,6 +74,8 @@ pub use scope::{
     keeps_participant, keeps_phase, keeps_row, lens_for, Lens, Membership, Scope, ScopeError,
     Scopes,
 };
+pub use started::CarriedFrom;
+use started::{boundary_entries, BoundaryEntry};
 
 use std::collections::BTreeMap;
 
@@ -128,7 +131,7 @@ use serde_json::Value;
 /// Bumped to 22 by #568's console tab: a participant gained its
 /// `tokens`, the total, input, output and cache-hit cells.
 /// Bumped to 23 by #568's Library: the analytics readout gained `recipes`.
-pub const VIEW_VERSION: u32 = 23;
+pub const VIEW_VERSION: u32 = 24;
 
 /// The note every absent boundary cell carries (decision 0046 ruling 3;
 /// design DD13): a journal written before the boundary was named, a
@@ -392,6 +395,7 @@ pub struct RunNotice {
     reason = "the served `working` beside the three aggregation flags, by the operator's 2026-10-07 ruling on #351"
 )]
 pub struct Participant {
+    pub carried_from: Option<CarriedFrom>,
     pub key: String,
     pub label: String,
     pub member: Option<String>,
@@ -902,6 +906,7 @@ struct EffectFacts {
 }
 
 struct Build {
+    carried: Option<started::CarriedEntry>,
     effect_index: usize,
     key: String,
     label: String,
@@ -962,6 +967,7 @@ fn ensure(scan: &mut Scan, slot: usize, effect_id: &str, member: Option<&str>) -
         None => seat.clone(),
     };
     scan.parts.push(Build {
+        carried: None,
         effect_index: slot,
         key: key.clone(),
         label,
@@ -1042,39 +1048,7 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
                         effect.started_at = Some(event.recorded_at.clone());
                     }
                 }
-                // A retry owns fresh evidence, even when it records no word.
-                for part in scan
-                    .parts
-                    .iter_mut()
-                    .filter(|part| part.effect_index == slot)
-                {
-                    part.boundary = None;
-                    part.stamp = None;
-                }
-                // Decision 0016's single derivation point. A site named
-                // here gets a participant even if it never checkpoints:
-                // "which model served this member" is a fact about the
-                // attempt, not about whether the member said anything.
-                let entries = payload
-                    .get("provenance")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                for entry in entries {
-                    let member = entry
-                        .get("member")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    let part = ensure(&mut scan, slot, effect_id, member.as_deref());
-                    scan.parts[part].provenance = Some(entry);
-                }
-                // Decision 0046 ruling 3's entries, keyed by the same
-                // site tags: which boundary stood at every site of this
-                // attempt. Last attempt wins, exactly as provenance does.
-                for entry in boundary_entries(payload) {
-                    let part = ensure(&mut scan, slot, effect_id, entry.member.as_deref());
-                    scan.parts[part].boundary = Some(entry.word);
-                }
+                started::sites(&mut scan, slot, effect_id, payload);
             }
             EventType::EffectSucceeded
             | EventType::EffectFailed
@@ -1177,66 +1151,12 @@ fn scan_participants(events: &[EventEnvelope]) -> Scan {
     }
     for part in &mut scan.parts {
         let effect = &scan.effects[part.effect_index];
-        let mut derived = if effect.open.is_some() {
-            WORKING
-        } else {
-            match effect.terminal {
-                Some(terminal) => terminal,
-                None => WORKING,
-            }
-        };
-        if part.member.is_some() {
-            if let Some(outcome) = part.member_outcome.as_ref().and_then(Value::as_str) {
-                if let Some(pinned) = outcome_status(outcome) {
-                    derived = pinned;
-                }
-            }
-        }
-        part.status = derived.0;
-        part.status_class = derived.1;
+        (part.status, part.status_class) = started::status_of(part, effect);
     }
     scan
 }
 
 // -------------------------------------------------------------- boundary
-
-/// One well-formed `effect/started.boundary` entry (decision 0046 ruling
-/// 3): its site tag, its plain word and whether the site held a gate.
-struct BoundaryEntry {
-    member: Option<String>,
-    word: String,
-    gate: bool,
-}
-
-/// The entries of one `effect/started` this reader accepts. An entry
-/// whose word is outside the six — the five boundaries and decision
-/// 0031's sentinel — or which lacks its `member` key is *not recorded*
-/// for that site, never boxed and never unboxed (design DD14); it is
-/// dropped here, before any surface sees it.
-fn boundary_entries(payload: &Value) -> Vec<BoundaryEntry> {
-    payload
-        .get("boundary")
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| {
-                    entry.get("member")?;
-                    let word = field(entry, "boundary")?;
-                    Boundary::from_recorded(word)?;
-                    Some(BoundaryEntry {
-                        member: entry
-                            .get("member")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                        word: word.to_string(),
-                        gate: entry.get("gate").and_then(Value::as_bool).unwrap_or(false),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
 
 /// The word a seat record carries beside its model (design DD19), read
 /// under the same vocabulary rule as an entry: a word outside the six is
@@ -1897,7 +1817,10 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                     .map(str::to_string)
             });
         let (usage_cell, tokens) = usage_cells(usage.as_ref(), usage_prefix);
+        let carried_from = started::carried_from(events, scan, part);
+        let activity = started::activity(events, scan, part, members.len(), carried_from.as_ref());
         out.push(Participant {
+            carried_from,
             key: part.key.clone(),
             label: part.label.clone(),
             member: part.member.clone(),
@@ -1938,7 +1861,7 @@ fn participants(events: &[EventEnvelope], scan: &Scan) -> Vec<Participant> {
                     .and_then(|provenance| provenance.effort.clone()),
                 Some("no effort pinned by this run's resolution"),
             ),
-            activity: activity_for(events, scan, part, members.len()),
+            activity,
             member_count: members.len(),
             transcript_cell: transcript_cell(transcript.as_ref()),
             transcript,

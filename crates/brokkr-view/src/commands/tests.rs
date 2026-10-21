@@ -105,6 +105,13 @@ fn a_run_parked_before_any_phase_has_no_phase_to_retry() {
 /// are one text.
 #[test]
 fn each_refusal_says_the_words_its_verb_says() {
+    for word in [
+        "after_terminal",
+        "run_not_awaiting_operator",
+        "no_phase_to_retry",
+    ] {
+        assert_eq!(member_retry_refusal(word), format!("refused operator retry --member ({word}): the run is not in a state a retry can apply to; nothing was journaled"));
+    }
     let retry = operator(OperatorCommand::Retry, Refusal::RunNotAwaitingOperator).unwrap();
     assert_eq!(retry.word(), "run_not_awaiting_operator");
     assert_eq!(

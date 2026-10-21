@@ -417,7 +417,12 @@ fn a_panel_member_is_attributed_by_its_own_holding_never_its_siblings() {
     let aggregate = Aggregate::UnanimousPass;
     engine
         .execute_panel(
-            &effect, "attempt", "work", &members, aggregate, &input, DEADLINE, &selection, false,
+            &PanelAt::new(&effect, "attempt", "work", false),
+            &members,
+            aggregate,
+            &input,
+            DEADLINE,
+            &selection,
         )
         .unwrap();
     // Members run side by side, so only each member's own rows are ordered.

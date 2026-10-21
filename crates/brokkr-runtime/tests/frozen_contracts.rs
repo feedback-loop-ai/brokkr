@@ -24,7 +24,11 @@ fn digest(relative: &str) -> String {
 /// Recorded from this tree before the agent library existed, plus the
 /// realms map v1 — pinned when decision 0026 landed `forge.realms/v2`
 /// beside it, so "beside, never inside" is machine-checked.
-const FROZEN: [(&str, &str); 27] = [
+const FROZEN: [(&str, &str); 28] = [
+    (
+        "contracts/panel-carry.v1.schema.json",
+        "fcea11f339351bea684de3f83a4b658ac6ec3cc31b9b3e2bfd1a6fe185098fce",
+    ),
     // #430's capacity slice lands `run-manifest.v13` beside v12, which was
     // the new file when decision 0065 slice two landed and is frozen from
     // here.
@@ -188,6 +192,10 @@ fn titled(relative: &str) -> String {
 )]
 fn the_new_contracts_exist_beside_the_frozen_ones() {
     for (relative, title) in [
+        (
+            "contracts/panel-carry.v1.schema.json",
+            "Forge panel carry v1",
+        ),
         (
             "contracts/run-manifest.v3.schema.json",
             "Forge run manifest v3",

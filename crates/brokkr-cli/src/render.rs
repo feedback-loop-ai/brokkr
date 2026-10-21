@@ -151,7 +151,7 @@ pub(crate) enum Tone {
 /// into one of the four (decision 0001).
 pub(crate) fn tone(status: &str) -> Tone {
     match status {
-        "completed" | "succeeded" => Tone::Good,
+        "completed" | "succeeded" | "carried" => Tone::Good,
         "stopped" | "failed" => Tone::Bad,
         "running" | "working" => Tone::Live,
         _ => Tone::Quiet,

@@ -3481,19 +3481,14 @@ fn a_panels_members_and_a_sequences_steps_carry_their_own_word() {
         },
         "context": {},
     });
-    engine
-        .execute_panel(
-            "effect",
-            "attempt",
-            "work",
-            &members,
-            Aggregate::UnanimousPass,
-            &input,
-            std::time::Duration::from_secs(5),
-            &Selection::new(),
-            true,
-        )
-        .unwrap();
+    crate::engine::panel_tests::unanimous(
+        &mut engine,
+        PanelAt::new("effect", "attempt", "work", true),
+        &members,
+        &input,
+        5,
+    )
+    .unwrap();
     let events = engine.store.load(&engine.run_id).unwrap();
     let word_of = |member: &str, step: &str| -> Value {
         events

@@ -98,7 +98,12 @@ fn a_panel_member_cannot_journal_capability_call_attribution() {
     let (input, selection) = (panel_input(&["ok"]), Selection::new());
     let aggregate = Aggregate::UnanimousPass;
     let panel = engine.execute_panel(
-        "effect", "attempt", "work", &members, aggregate, &input, DEADLINE, &selection, false,
+        &crate::engine::PanelAt::new("effect", "attempt", "work", false),
+        &members,
+        aggregate,
+        &input,
+        DEADLINE,
+        &selection,
     );
     panel.unwrap();
     // The two live rows, then the engine's own marker for the member.

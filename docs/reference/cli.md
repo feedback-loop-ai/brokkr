@@ -497,6 +497,12 @@ Usage: brokkr operator [OPTIONS] --run <RUN> --reason <REASON> <COMMAND>
 
 | Argument | Default | Selector | Description |
 | --- | --- | --- | --- |
+| `--member <MEMBER>...` |  |  | retry only: run this panel member; repeat to run several. Sequence members use &lt;step&gt;:&lt;member&gt; |
+| `--repo <REPO>` |  |  | With --member: the operated repository, defaulting as resume does |
+| `--bundle <BUNDLE>` |  |  | The bundle directory to deliver under; without it or `--recipe`, the discovered .brokkr/ folder. `resume` compiles it to the run's pinned manifest and refuses any drift |
+| `--recipe <RECIPE>` |  |  | Named recipe, resolved to &lt;recipes-dir&gt;/&lt;name&gt; |
+| `--recipes-dir <RECIPES_DIR>` |  |  | The recipe library `--recipe` is resolved in (default the found .brokkr/recipes, else recipes) |
+| `--secrets-file <SECRETS_FILE>` |  |  | Operator-side secrets store for seats with declared bindings (default .brokkr/state/secrets.env, or &lt;workdir&gt;/.forge/secrets.env) |
 | `--run <RUN>` |  | yes | Full run id, a unique run-id prefix, or `latest` |
 | `<COMMAND>` |  |  | "retry" re-runs the current phase; "stop" ends the run; "supersede" records that residual findings on a run that has already finished are closed by another run (decision 0047); "acknowledge" lists a quarantined run under older until its journal moves (#511) |
 | `--reason <REASON>` |  |  | Why the operator issued the command, recorded with it |
