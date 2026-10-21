@@ -922,7 +922,8 @@ recipe on the shelf.
 
 ## Addendum — 2026-10-16, the personal shelf (#697)
 
-Status: proposed; only the operator accepts this addendum.
+Status: accepted — operator ruled 2026-10-17 on slice A (PR #722) and
+2026-10-21 on slice B (#697).
 
 Ruling 7 left #432 a personal overlay of tracked configuration. The
 operator ruled its first slice in chat on 2026-10-15, as #697's rulings
