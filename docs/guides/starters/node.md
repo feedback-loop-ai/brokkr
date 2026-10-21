@@ -171,4 +171,5 @@ Two axes crossed, both read from the root:
 - [cards/node.md](../cards/node.md) — the quickstart's Node delta, and
   the base every other card extends.
 - [adopting-a-node-repo.md](../adopting-a-node-repo.md) — driving a
-  Node repo with the maintained `recipes/node` instead of a scaffold.
+  Node repo with the maintained `recipes/node`, a portable recipe
+  (decision 0087 ruling 5), instead of a scaffold.

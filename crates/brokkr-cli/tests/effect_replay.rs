@@ -27,12 +27,22 @@ fn policy() -> String {
 const LOST: &str =
     "driver exited after accepting, before a result — attempt cannot be established as complete";
 
+/// What the operator reads for an attempt killed at its deadline.
+fn killed() -> String {
+    format!(
+        "attempt exceeded its {}s deadline and was killed; its process tree is gone, and what \
+         it did is unknown",
+        crate::engine::HANG_DEADLINE_SECONDS
+    )
+}
+
 /// The journal of a run, in `dir`, of one implement seat whose driver is
-/// `driver`, allowed two attempts of `timeout` seconds each.
-fn journal(dir: &Path, driver: &[String], timeout: u64, feature: &str) -> Vec<Value> {
+/// `driver`, allowed two attempts of a hang's deadline each.
+fn journal(dir: &Path, driver: &[String], feature: &str) -> Vec<Value> {
     std::fs::create_dir_all(dir.join("bundle/roles")).unwrap();
     std::fs::write(dir.join("bundle/policy.json"), policy()).unwrap();
     std::fs::write(dir.join("bundle/roles/work.md"), "# work\n").unwrap();
+    let timeout = crate::engine::HANG_DEADLINE_SECONDS;
     let limits = json!({"max_attempts": 2, "timeout_seconds": timeout});
     let implement = json!({"results": ["complete", "fail"], "role": "roles/work.md",
                            "driver": {"command": driver}, "limits": limits});
@@ -61,16 +71,20 @@ fn count(events: &[Value], kind: &str) -> usize {
 }
 
 /// The run parked on one attempt, ended indeterminate for `reason`, with
-/// the driver's stderr `tail` the engine journals beside it.
+/// the driver's stderr `tail` the engine journals beside it. A failure
+/// prints each event with its payload, so an attempt that failed says why.
 fn parked_after_one_attempt(events: &[Value], reason: &str, tail: &str) {
-    let kinds: Vec<&str> = events.iter().filter_map(|e| e["type"].as_str()).collect();
-    assert_eq!(count(events, "effect/started"), 1, "{kinds:?}");
-    assert_eq!(count(events, "effect/failed"), 0, "{kinds:?}");
-    assert_eq!(count(events, "run/parked"), 1, "{kinds:?}");
+    let journaled: Vec<String> = (events.iter())
+        .map(|event| format!("{} {}", event["type"], event["payload"]))
+        .collect();
+    let journaled = journaled.join("\n");
+    assert_eq!(count(events, "effect/started"), 1, "{journaled}");
+    assert_eq!(count(events, "effect/failed"), 0, "{journaled}");
+    assert_eq!(count(events, "run/parked"), 1, "{journaled}");
     let ended = events
         .iter()
         .find(|event| event["type"] == "effect/indeterminate")
-        .unwrap_or_else(|| panic!("an indeterminate end: {kinds:?}"));
+        .unwrap_or_else(|| panic!("an indeterminate end: {journaled}"));
     let journaled = format!("{reason}; stderr tail: {tail}");
     assert_eq!(ended["payload"]["reason"], journaled, "{ended}");
 }
@@ -107,13 +121,8 @@ fn a_deadline_kill_with_attempts_left_parks_after_one_attempt() {
         state.to_str().unwrap(),
     ];
     let driver: Vec<String> = driver.map(str::to_string).to_vec();
-    let events = journal(dir.path(), &driver, 1, "replay");
-    parked_after_one_attempt(
-        &events,
-        "attempt exceeded its 1s deadline and was killed; its process tree is gone, and what \
-         it did is unknown",
-        "",
-    );
+    let events = journal(dir.path(), &driver, "replay");
+    parked_after_one_attempt(&events, &killed(), "");
 }
 
 /// The issue's acceptance: an executor commits a marker outside the
@@ -122,8 +131,7 @@ fn a_deadline_kill_with_attempts_left_parks_after_one_attempt() {
 /// run parks after one attempt, and the marker was committed once.
 #[test]
 fn a_marker_committed_then_lost_parks_and_is_never_committed_twice() {
-    let killed = "attempt exceeded its 2s deadline and was killed; its process tree is gone, \
-                  and what it did is unknown";
+    let killed = killed();
     // Past a pipe's 64 KiB and within one argument's 128 KiB.
     let large = "x".repeat(100 * 1024);
     let unwritten = "could not write the prompt: Broken pipe (os error 32); the command was \
@@ -131,7 +139,13 @@ fn a_marker_committed_then_lost_parks_and_is_never_committed_twice() {
     let unread = "seat wrote no result file (the result contract was not met), so no result \
                   is sent\n";
     for (case, then, feature, reason, tail) in [
-        ("killed", "cat >/dev/null; sleep 30", "replay", killed, ""),
+        (
+            "killed",
+            "cat >/dev/null; sleep 300",
+            "replay",
+            killed.as_str(),
+            "",
+        ),
         ("no result file", "cat >/dev/null", "replay", LOST, unread),
         (
             "prompt unread",
@@ -144,7 +158,7 @@ fn a_marker_committed_then_lost_parks_and_is_never_committed_twice() {
         let (dir, outside) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let marker = outside.path().join("commits");
         let script = format!("printf x >> '{}'; {then}", marker.display());
-        let events = journal(dir.path(), &exec(&script), 2, feature);
+        let events = journal(dir.path(), &exec(&script), feature);
         parked_after_one_attempt(&events, reason, tail);
         let commits = std::fs::read(&marker).unwrap();
         assert_eq!(commits, b"x", "{case}: committed once");
@@ -173,16 +187,11 @@ fn a_driver_advertising_replay_on_the_wire_parks() {
         message(&format!(
             r#""type":"checkpoint",{ids},"data":{{"step":"working","replay":"deduplicates","idempotency_key":"k"}}"#
         )),
-        "sleep 30".into(),
+        "sleep 300".into(),
     ]
     .join("\n");
     let dir = tempfile::tempdir().unwrap();
     let driver = ["sh".to_string(), "-c".into(), script];
-    let events = journal(dir.path(), &driver, 2, "replay");
-    parked_after_one_attempt(
-        &events,
-        "attempt exceeded its 2s deadline and was killed; its process tree is gone, and what \
-         it did is unknown",
-        "",
-    );
+    let events = journal(dir.path(), &driver, "replay");
+    parked_after_one_attempt(&events, &killed(), "");
 }

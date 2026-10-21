@@ -60,8 +60,9 @@ preference chain of abstract model names, an abstract tool restriction,
 the capabilities it asks for, its decision-0006 limits and its
 decision-0007 declared inputs. A seat, panel member or sequence step
 says `"agent": "<name>"`.
-Inline seats stay first-class. Dialect validators such as `recipes/triage`'s
-`validate` step are also model-free execs, but their checked argv comes from
+Inline seats stay first-class. Dialect validators such as the `validate`
+step of `recipes/triage`, a Brokkr-only recipe (decision 0087 ruling 5),
+are also model-free execs, but their checked argv comes from
 the realm's pinned dialect rather than from an agent definition.
 
 An office that varies another is an overlay of it, never a copy (the
@@ -87,12 +88,15 @@ and one that changes either without a reason does not load. An overlay
 extends a base office, one level, never another overlay. This is the one
 way to force a crew: an office that must not fall back is an overlay whose
 chain holds exactly the forced models. `fast`'s two offices and the
-`gpt-flash-*` crew are overlays.
+`gpt-flash-*` crew are overlays: `fast`'s are portable, and the
+`gpt-flash-*` crew is Brokkr-only (decision 0087 ruling 5).
 
 The `release-manager` follows a portable release process. The realm's **Release
 configuration** supplies the version sources, documentation targets, checks and
 organization profiles; the [release recipe](../../recipes/release/README.md)
-explains configuration and stack-specific verification.
+explains configuration and stack-specific verification. That recipe is
+Brokkr-only for now (decision 0087 ruling 5), because its release manager
+binds Brokkr's Rust toolchain.
 
 Verifier and shipper are deliberately absent from the agent library.
 They are inline `exec` scripts with no model, boxed under the `namespace`

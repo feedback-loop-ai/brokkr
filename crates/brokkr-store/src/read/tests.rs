@@ -14,6 +14,17 @@ use serde_json::json;
 use crate::test_support;
 use crate::{Store, StoreError};
 
+/// A journal in `dir` holding one run of 105 events, imported from the
+/// fixture corpus, and that run's id.
+fn imported(dir: &Path) -> (Store, String) {
+    let mut store = Store::open(&dir.join("forge.db")).unwrap();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson");
+    let ndjson = std::fs::read_to_string(&path).unwrap();
+    let run = store.import_run(&ndjson, &json!({}), &path).unwrap().run_id;
+    (store, run)
+}
+
 /// A head the journal did not grow from is not continued, even when
 /// nothing follows it: a run the journal lacks is not found, a head that
 /// is not the run's row at its seq with its hash is unknown (a seq no row
@@ -23,11 +34,7 @@ use crate::{Store, StoreError};
 #[test]
 fn a_suffix_is_refused_unless_it_chains_onto_the_callers_head() {
     let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/journals/tui-graph-the-selection-box-gets-80f98deb.ndjson");
-    let ndjson = std::fs::read_to_string(&path).unwrap();
-    let run = store.import_run(&ndjson, &json!({}), &path).unwrap().run_id;
+    let (store, run) = imported(dir.path());
     let events = store.load(&run).unwrap();
     let (first, last) = (&events[0], &events[events.len() - 1]);
     let after_first = store.load_after(&run, 1, &first.event_hash).unwrap();
@@ -68,6 +75,32 @@ fn a_suffix_is_refused_unless_it_chains_onto_the_callers_head() {
             expected: 106
         }
     );
+}
+
+/// The rows each run holds at or below a seq are counted in the order
+/// asked, whatever the order of the runs: none at the empty head or for a
+/// run the journal lacks, every row for a seq past the last, and one fewer
+/// below each seq past a row that is gone.
+#[test]
+fn rows_through_counts_each_run_up_to_its_seq_in_the_order_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let (store, run) = imported(dir.path());
+    let heads = [
+        (run.as_str(), 2),
+        (run.as_str(), 0),
+        ("no-such-run", 2),
+        (run.as_str(), 105),
+        (run.as_str(), u64::MAX),
+    ];
+    assert_eq!(store.rows_through(&heads).unwrap(), [2, 0, 0, 105, 105]);
+    assert_eq!(store.rows_through(&[]).unwrap(), Vec::<u64>::new());
+
+    let conn = rusqlite::Connection::open(dir.path().join("forge.db")).unwrap();
+    conn.execute_batch("DROP TRIGGER events_append_only_delete")
+        .unwrap();
+    let gone = "DELETE FROM events WHERE run_id = ?1 AND seq = 2";
+    assert_eq!(conn.execute(gone, [&run]).unwrap(), 1);
+    assert_eq!(store.rows_through(&heads).unwrap(), [1, 0, 0, 104, 104]);
 }
 
 /// Seal a row straight into the table, past every fence the store keeps:
@@ -124,6 +157,7 @@ fn the_whole_read_refuses_a_row_the_chain_does_not_cover() {
     plant(dir.path(), "copy-at-zero", 0, &first);
     plant(dir.path(), "unparseable", 0, "not an envelope");
     plant(dir.path(), "negative", -5, &second);
+    test_support::lags(&mut store, &["copy-at-zero", "unparseable", "negative"]);
     for (run_id, refusal) in [
         (
             "copy-at-zero",

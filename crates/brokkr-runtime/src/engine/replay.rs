@@ -5,16 +5,22 @@
 //! every turn. The replay keeps what it read: each turn reads only what
 //! landed since — the engine's own appends and any peer's, an operator's
 //! command included — verified against the head it holds
-//! ([`Store::load_after`]), and folds that onto the state it holds
-//! ([`fold_onto`]), which is the state a whole replay reaches.
+//! ([`Store::load_after`]), and carries its account over that
+//! ([`Account::onto`]), whose fold is the state a whole replay reaches.
+//!
+//! The account it reaches is handed to the store each turn
+//! ([`Store::carry`]), so the turn's appends write the run's summary
+//! from the fold the engine decided on (decision 0089 ruling 3). The
+//! engine decides on its own fold, never on a summary row (ruling 1).
 
 use brokkr_core::envelope::EventEnvelope;
-use brokkr_core::fold::{fold, fold_onto, RunState};
+use brokkr_core::fold::{FoldError, RunState};
+use brokkr_core::summary::Account;
 use brokkr_store::Store;
 
 use super::EngineError;
 
-/// The events of one run and the state they fold to, as of the last
+/// The events of one run and the account they come to, as of the last
 /// turn. Empty until the first turn, and again after a turn that failed
 /// to catch up: an empty replay reads its run whole.
 ///
@@ -26,7 +32,7 @@ use super::EngineError;
 #[derive(Default)]
 pub(super) struct Replay {
     pub(super) events: Vec<EventEnvelope>,
-    state: Option<RunState>,
+    account: Option<Account>,
 }
 
 impl Replay {
@@ -34,22 +40,26 @@ impl Replay {
     /// A replay of another run is not continued: it is read whole.
     pub(super) fn caught_up(
         &mut self,
-        store: &Store,
+        store: &mut Store,
         run_id: &str,
     ) -> Result<RunState, EngineError> {
-        let state = match self.state.take().filter(|state| state.run_id == run_id) {
-            Some(state) => {
-                let suffix = store.load_after(run_id, state.seq, &state.last_hash)?;
-                let state = fold_onto(state, &suffix)?;
+        let account = match self.account.take().filter(|kept| kept.run_id() == run_id) {
+            Some(account) => {
+                let (seq, hash) = account.head();
+                let suffix = store.load_after(run_id, seq, hash)?;
+                let account = account.onto(&suffix);
+                account.state().map_err(FoldError::clone)?;
                 self.events.extend(suffix);
-                state
+                account
             }
             None => {
                 self.events = store.load(run_id)?;
-                fold(&self.events)?
+                Account::whole(run_id, &self.events)
             }
         };
-        self.state = Some(state.clone());
+        let state = account.state().map_err(FoldError::clone)?.clone();
+        store.carry(account.clone());
+        self.account = Some(account);
         Ok(state)
     }
 }

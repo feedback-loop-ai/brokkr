@@ -28,7 +28,11 @@ brokkr compare <a> <b>                              # journal-backed A/B
   decision trails with first divergence, per-seat costs, verdict
   deltas. A pure read over two journals; works on live runs.
   Recipes **compose**: `night-shift` extends `triage`, overriding only
-  its attempt limits and dsh implement seat. A derived selector may
+  its attempt limits and dsh implement seat. Of the recipes this tour
+  names, `fast` is portable and `panel-review`, `triage` and
+  `night-shift` are Brokkr-only
+  ([decision 0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)
+  ruling 5). A derived selector may
   override one named case with `override.cases`.
   Named things merge by name; redefining one the base has needs an
   explicit marker, so an accidental collision fails compilation instead
@@ -43,13 +47,15 @@ brokkr compare <a> <b>                              # journal-backed A/B
 - **Self-hosting**: Brokkr forges its own changes (`recipes/self`)
   and verifies every delivered slice with its own adversarial agents
   (`recipes/verify`) — which have hard-stopped their author's work on
-  real security findings, twice. The operator keeps push and merge
-  authority.
+  real security findings, twice. Both recipes are Brokkr-only
+  ([decision 0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)
+  ruling 5). The operator keeps push and merge authority.
 
 - **Foreign delivery, proven**: Brokkr's first delivery to a repository
   that is not its own is merged —
   [looper#346](https://github.com/feedback-loop-ai/looper/pull/346), a
-  CI-gate fix driven end to end through `recipes/node` in the target
+  CI-gate fix driven end to end through `recipes/node`, a portable
+  recipe, in the target
   repo's own worktree, and accepted under that repository's own
   candidate-bound evidence law before landing. The
   [adoption guide](adopting-a-node-repo.md) is the path

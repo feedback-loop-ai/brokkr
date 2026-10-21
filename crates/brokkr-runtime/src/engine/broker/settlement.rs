@@ -39,13 +39,15 @@ use brokkr_store::Store;
 use thiserror::Error;
 
 use super::admission::{
-    amend, release, sealed, settled, Held, Reservation, Unadmitted, Unknown, Witnessed, Writer,
+    amend, release, reserved_at, sealed, settled, Held, Reservation, Unadmitted, Unknown,
+    Witnessed, Writer,
 };
 use super::exclusion::{everywhere, reaches};
 use super::historical::regular;
-use super::inventory::Budget;
+use super::inventory::{Budget, Standing, Writing};
 use super::root::{Commit, Root};
 use super::startup;
+use crate::engine::artifacts::{self, Evidence, Unpublished};
 use crate::engine::{Engine, EngineError};
 
 /// How an attempt's terminal event ended it, as its settlement reads it.
@@ -58,12 +60,78 @@ enum Ending {
     Uncertain,
 }
 
-/// An attempt whose owned processes this engine proved settled, but whose
-/// positive settlement fact or release could not be sealed: its
-/// reservation stands, refusing every later writer it would.
+/// Why an attempt's settlement fails its run (L1 of U8a2c's review): its
+/// lease was never released — its owned processes not proven settled, or
+/// its positive settlement fact or release not sealed — so its reservation
+/// stands, refusing every later writer it would; or its release committed,
+/// but a seal of its reservation, its release's own or an earlier one, was
+/// not proven durable; or the responses its brokers retained were not
+/// published (U8c; CR2), its lease standing or released as it says.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("the attempt settled, but its writer lease stands, for its settlement was not sealed: {0}")]
-pub struct Unreleased(#[from] Unadmitted);
+#[error("{}: {}", said(*.lease, .cause), .cause)]
+pub struct Unreleased {
+    lease: Lease,
+    cause: Cause,
+}
+
+/// Whether a failed settlement left its lease standing or released it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::engine) enum Lease {
+    Standing,
+    Released,
+}
+
+/// Why a settlement failed: a seal refused or not proven, or a retained
+/// response not published.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+enum Cause {
+    #[error(transparent)]
+    Unadmitted(Unadmitted),
+    #[error(transparent)]
+    Unpublished(Unpublished),
+}
+
+/// What the operator is told of a failed settlement's `lease`, and of its
+/// retained responses where its `cause` is that they were not published.
+fn said(lease: Lease, cause: &Cause) -> &'static str {
+    match (cause, lease) {
+        (Cause::Unadmitted(_), Lease::Standing) => {
+            "the attempt's writer lease stands, for its settlement was not sealed"
+        }
+        (Cause::Unadmitted(_), Lease::Released) => {
+            "the attempt's writer lease was released, but a seal of its reservation was not \
+             proven durable"
+        }
+        (Cause::Unpublished(_), Lease::Standing) => {
+            "the attempt's retained responses were not published, and its writer lease stands"
+        }
+        (Cause::Unpublished(_), Lease::Released) => {
+            "the attempt's retained responses were not published, though its writer lease \
+             was released"
+        }
+    }
+}
+
+impl Unreleased {
+    /// A settlement refused by `cause`, its lease left standing.
+    pub(in crate::engine) fn standing(cause: Unadmitted) -> Unreleased {
+        let (lease, cause) = (Lease::Standing, Cause::Unadmitted(cause));
+        Unreleased { lease, cause }
+    }
+
+    /// A settlement whose release committed, a seal not proven by `cause`.
+    pub(in crate::engine) fn released(cause: Unadmitted) -> Unreleased {
+        let (lease, cause) = (Lease::Released, Cause::Unadmitted(cause));
+        Unreleased { lease, cause }
+    }
+
+    /// A settlement whose attempt's retained responses were not published,
+    /// refused by `cause`, its lease as `lease` says.
+    pub(in crate::engine) fn unpublished(lease: Lease, cause: Unpublished) -> Unreleased {
+        let cause = Cause::Unpublished(cause);
+        Unreleased { lease, cause }
+    }
+}
 
 impl Engine {
     /// Release the lease of the attempt `attempt`, which ended in `ran`,
@@ -74,7 +142,18 @@ impl Engine {
     /// [`Unreleased`] where the fence lifted, or the evidence at stake as
     /// the attempt was admitted, asks it. So does a seal of its reservation
     /// committed without its directory proven synced, as it was admitted,
-    /// marked or released (R1 of U8a2a's fourth run).
+    /// marked or released (R1 of U8a2a's fourth run). An attempt proven
+    /// settled has the responses its brokers retained published first,
+    /// under its lease ([`published`]); one refused fails the run by
+    /// [`Unreleased::unpublished`] once the release is done or refused,
+    /// saying which ([`leased`]) (U8c). Unlike a seal's, that refusal fails
+    /// the run whether or not the fence lifted or evidence was at stake: a
+    /// response a verified ledger cites, or evidence of the attempt that
+    /// cannot be read as it was sealed, is refused, never reconciled (CR2).
+    /// An attempt that provisioned no plan has no directory there to read,
+    /// and publishes nothing; but one whose run's directory in the
+    /// coordination root cannot be opened is refused as unbound, staked or
+    /// not, where before U8c such a run's refused seal went unsaid.
     pub(in crate::engine) fn settle(
         &mut self,
         attempt: &str,
@@ -87,21 +166,60 @@ impl Engine {
         };
         let events = self.store.load(&self.run_id)?;
         let deadline = startup(Instant::now(), Duration::MAX);
-        let released = if proven(&held, &events, attempt) {
-            proved(&held, deadline).and_then(|fact| Ok(fact.and(release(&held, deadline)?)))
-        } else {
-            Ok(Commit::Synced)
+        let proven = proven(&held, &events, attempt);
+        // U8c (CR2): the attempt's cited responses are published under its
+        // lease, before its release, and only once every process it owned
+        // is proven settled, so no broker still writes what is read.
+        let published = match proven {
+            true => published(&held),
+            false => Ok(()),
         };
-        let unsynced = (Unknown::Unsynced).into();
-        let settled = released.and_then(|commit| match (commit, held.unsynced) {
-            (Commit::Synced, false) => Ok(()),
-            (Commit::Unsynced, _) | (_, true) => Err(unsynced),
-        });
+        // How the release committed, where one was made.
+        let released = match proven {
+            true => proved(&held, deadline)
+                .and_then(|fact| Ok(Some(fact.and(release(&held, deadline)?)))),
+            false => Ok(None),
+        };
+        let lease = leased(&released);
+        let unsynced = || Unadmitted::from(Unknown::Unsynced);
+        let settled = match (released, held.unsynced) {
+            (Ok(Some(Commit::Synced) | None), false) => Ok(()),
+            (Ok(Some(Commit::Synced)), true) | (Ok(Some(Commit::Unsynced)), _) => {
+                Err(Unreleased::released(unsynced()))
+            }
+            (Ok(None), true) => Err(Unreleased::standing(unsynced())),
+            (Err(refused), _) => Err(Unreleased::standing(refused)),
+        };
         match settled {
-            Err(refused) if everywhere() | held.staked => Err(Unreleased(refused).into()),
-            _ => Ok(()),
+            Err(unreleased) if everywhere() | held.staked => Err(unreleased.into()),
+            _ => Ok(published.map_err(|cause| Unreleased::unpublished(lease, cause))?),
         }
     }
+}
+
+/// Whether the lease of a settlement whose release ended in `released`
+/// stands or was released: released where a release committed, synced or
+/// not.
+fn leased(released: &Result<Option<Commit>, Unadmitted>) -> Lease {
+    match released {
+        Ok(Some(_)) => Lease::Released,
+        Ok(None) | Err(_) => Lease::Standing,
+    }
+}
+
+/// The responses the attempt in flight under the lease `held` retained,
+/// published below its artifact root as admitted (U8c; CR2): its evidence
+/// read in its own directory, below its run's in the coordination root the
+/// lease stands in, from that root's handle, never from HOME again.
+fn published(held: &Held) -> Result<(), Unpublished> {
+    let (run, at) = reserved_at(held).or(Err(Unpublished::Unbound))?;
+    let owner = [held.repo.as_str(), held.run.as_str(), held.attempt.as_str()];
+    let evidence = Evidence {
+        run: &run,
+        at,
+        owner,
+    };
+    artifacts::published(&evidence, held.root.as_ref())
 }
 
 /// The lease `held`'s attempt's positive settlement fact sealed in its
@@ -178,33 +296,39 @@ fn ending(events: &[EventEnvelope], attempt: &str) -> Option<Ending> {
 }
 
 /// Every reservation of `found`, each of its standing attempts its durable
-/// facts prove over ([`certified`]) moved to its settled ones and the
-/// reservation sealed again below `root`, all within `budget` (M7); and
-/// whether every seal it made was synced.
+/// facts prove over ([`certified`]) moved to its settled ones, all within
+/// `budget` (M7): the reservation sealed again below `root` where the
+/// inventory read it whole, and otherwise settled for this admission alone
+/// and never sealed, as another build wrote it (decision 0090); and whether
+/// every seal it made was synced.
 pub(super) fn recovered(
     root: &Root,
-    found: Vec<Reservation>,
+    found: Vec<Standing>,
     incoming: &[Writer],
     budget: &Budget,
-) -> Result<(Vec<Reservation>, Commit), Unknown> {
+) -> Result<(Vec<Standing>, Commit), Unknown> {
     // Every participant's writers, the incoming attempt's and every
     // standing one's: recovery trusts a reservation's journal only where
     // none of them could have forged its unkeyed hash chain (R2).
-    let mut writers: Vec<Writer> = incoming.to_vec();
-    writers.extend(found.iter().flat_map(Reservation::writers).cloned());
-    let writers: Vec<&Writer> = writers.iter().collect();
+    let mut writers: Vec<Writing> = incoming.iter().map(Writing::from).collect();
+    writers.extend(found.iter().flat_map(Standing::writers).cloned());
+    let writers: Vec<&Writing> = writers.iter().collect();
     let (mut standing, mut commit) = (Vec::with_capacity(found.len()), Commit::Synced);
-    for reservation in found {
+    for mut reservation in found {
         let proven = certified(&reservation, &writers, budget);
         budget.check()?;
         if proven.is_empty() {
             standing.push(reservation);
             continue;
         }
+        let Some(whole) = reservation.whole.take() else {
+            standing.push(reservation.released(&proven));
+            continue;
+        };
         let settle = |held, attempt: &String| settled(held, attempt);
-        let recovered = proven.iter().try_fold(reservation, settle)?;
+        let recovered = proven.iter().try_fold(whole, settle)?;
         commit = commit.and(sealed(root, &recovered, budget)?);
-        standing.push(recovered);
+        standing.push(Standing::from(recovered));
     }
     Ok((standing, commit))
 }
@@ -212,18 +336,15 @@ pub(super) fn recovered(
 /// The standing attempts of `reservation` whose engine sealed their
 /// positive settlement fact and whose terminal events its journal, opened
 /// read-only, certifies; none where it cannot be read.
-fn certified(reservation: &Reservation, writers: &[&Writer], budget: &Budget) -> Vec<String> {
+fn certified(reservation: &Standing, writers: &[&Writing], budget: &Budget) -> Vec<String> {
     if reservation.attempts.is_empty() {
         return Vec::new();
     }
     let events =
         journal(&reservation.journal, &reservation.run, writers, budget).unwrap_or_default();
-    let attempts = reservation.attempts.iter();
-    let certified = attempts.filter(|(attempt, reserved)| {
-        let proved = reserved.cleanup == Witnessed::Settled;
-        proved & (ending(&events, attempt) == Some(Ending::Certified))
-    });
-    certified.map(|(attempt, _)| attempt.clone()).collect()
+    let certified = (reservation.proved())
+        .filter(|attempt| ending(&events, attempt) == Some(Ending::Certified));
+    certified.cloned().collect()
 }
 
 /// The run `run`'s events in the journal at `path`, read only, waiting on
@@ -237,7 +358,7 @@ fn certified(reservation: &Reservation, writers: &[&Writer], budget: &Budget) ->
 fn journal(
     path: &Path,
     run: &str,
-    writers: &[&Writer],
+    writers: &[&Writing],
     budget: &Budget,
 ) -> Option<Vec<EventEnvelope>> {
     if reachable(path, writers) {
@@ -261,7 +382,7 @@ fn sibling(path: &Path, suffix: &str) -> PathBuf {
 
 /// Whether `path`, its directory, or its SQLite `-wal`/`-shm` siblings lie
 /// within any participant's writer reach.
-fn reachable(path: &Path, writers: &[&Writer]) -> bool {
+fn reachable(path: &Path, writers: &[&Writing]) -> bool {
     let mut targets = vec![
         path.to_path_buf(),
         sibling(path, "-wal"),

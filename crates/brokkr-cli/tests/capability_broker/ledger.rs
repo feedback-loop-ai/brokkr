@@ -21,7 +21,7 @@ use brokkr_protocol::broker::Owner;
 use brokkr_protocol::secret::{self, BoundSecret};
 use serde_json::{json, Value};
 
-use super::{bindable, binds, past_prepare, refused, set, skip, unservable};
+use super::{admitted, bindable, binds, refused, set, skip, unservable};
 use super::{Refusal, Root, Sealed};
 
 /// The ledger of the plan at `locator`: beside it, named after it.
@@ -968,19 +968,17 @@ fn a_bound_plan_refused_closes_failed_with_its_cause_and_no_call() {
     let refusal = Refusal::StartupInputs;
     let expected = (refused(refusal.clone()), failed_with(refusal));
     assert_eq!(answered(&sealed, &fixed), expected);
-    // Past the box's preparation: its own cause, admitted where a box
-    // stands, with the retained plan's cause.
-    let (answer, proved) = answered(&sealed, &plan);
-    let cause = match unservable() {
-        None => Refusal::RetentionIncomplete,
-        Some(_) => Refusal::Identity,
+    // Past the box's preparation: its own cause; or, admitted where a box
+    // stands, the retained plan served to its harness's end, its ledger
+    // closed Clean with no call (U8b).
+    let answered = answered(&sealed, &plan);
+    let refusal = |cause: Refusal| (refused(cause.clone()), failed_with(cause));
+    let expected = match (unservable(), cfg!(target_os = "linux")) {
+        (_, false) => refusal(Refusal::Unavailable),
+        (Some(_), true) => refusal(Refusal::Identity),
+        (None, true) => (admitted(), (vec![], Some(Disposition::Clean), None)),
     };
-    let cause = match cfg!(target_os = "linux") {
-        true => cause,
-        false => Refusal::Unavailable,
-    };
-    assert_eq!(answer, past_prepare(cause.clone()));
-    assert_eq!(proved, failed_with(cause));
+    assert_eq!(answered, expected);
     // The broker wrote its ledger and no journal, where it ran or under
     // the engine's HOME.
     let journals = [sealed.path(".forge"), sealed.home.join(".forge")];

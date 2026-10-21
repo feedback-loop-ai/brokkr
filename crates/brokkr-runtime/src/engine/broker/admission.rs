@@ -19,9 +19,10 @@
 //! ([`super::settlement::recovered`]), and the incoming attempt's complete
 //! writer reach — every site of its body, each member, step and fallback
 //! by the hands its label holds, whether or not it brokers anything — is
-//! compared with every participant ([`super::exclusion`]). Its reservation
-//! is then sealed (written beside, synced, renamed in, its directory
-//! synced), and an artifact root that protects evidence for the first time
+//! compared with every participant ([`super::exclusion`]) and with every
+//! MCP server source a standing attempt reserved ([`super::sources`]). Its
+//! reservation is then sealed (written beside, synced, renamed in, its
+//! directory synced), and an artifact root that protects evidence for the first time
 //! recorded as historical, all before the lock is released and before
 //! anything spawns, within one startup deadline that provisioning then
 //! shares. The common dispatch door rechecks that it still stands, and
@@ -48,10 +49,11 @@ use thiserror::Error;
 
 use super::exclusion::{compared, everywhere, staked, Comparison};
 use super::historical::recorded;
-use super::inventory::{inventory, Budget};
+use super::inventory::{inventory, Budget, Standing};
 use super::root::{locked, read, Commit, Root};
 use super::settlement::recovered;
-use super::{startup, Observed, PROTECTED_ROOT};
+use super::sources::{unserved, Served, Unroutable};
+use super::{startup, Observed};
 use crate::bundle::ExecutableBody;
 use crate::engine::boxed::{artifact_root, make_root, Unrooted};
 use crate::engine::{
@@ -147,6 +149,14 @@ pub(in crate::engine) enum Unknown {
     Bounds,
     #[error("the protected inventory holds an unknown participant at '{}'", .0.display())]
     Participant(PathBuf),
+    #[error(
+        "the protected inventory holds a reservation at '{}' in format {format}, which this \
+         build does not read: conclude its run with the build that wrote it, or use a build \
+         that reads it",
+        .0.display(),
+        format = .1
+    )]
+    Formatted(PathBuf, u64),
     #[error("the attempt's reservation could not be sealed")]
     Unsealed,
     #[error("the attempt's reservation was committed, but its directory was not proven synced")]
@@ -155,6 +165,24 @@ pub(in crate::engine) enum Unknown {
     Lost,
     #[error("the attempt's reservation holds no proof that its owned processes settled")]
     Unproven,
+    #[error(
+        "site '{site}' of run '{run}' can write '{}', which an MCP server's box is built from",
+        .served.display()
+    )]
+    Serving {
+        site: String,
+        run: String,
+        served: PathBuf,
+    },
+    #[error(
+        "site '{site}' of run '{run}' writes outside a workspace box, its privilege not \
+         confined, beside an MCP server's sources"
+    )]
+    Unconfined { site: String, run: String },
+    #[error("the mount table does not prove where '{}' lies beside a managed writer", .0.display())]
+    Unmounted(PathBuf),
+    #[error("the route of '{}', which an MCP server's box is built from, {}", .0.display(), .1)]
+    Unrouted(PathBuf, Unroutable),
 }
 
 impl From<Conflict> for Unadmitted {
@@ -186,14 +214,17 @@ pub(super) struct Reservation {
 }
 
 /// What one attempt reserved: whether it protects evidence, the reach of
-/// every writer its body may start, and what its engine witnessed of its
-/// drivers' cleanup, sealed as it witnesses it (R2; M1).
+/// every writer its body may start, what its engine witnessed of its
+/// drivers' cleanup, sealed as it witnesses it (R2; M1), and the sources
+/// its MCP servers are built from, none where it brokers nothing (U8a2b).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Reserved {
     pub(super) protects: Protects,
     pub(super) writers: Vec<Writer>,
     pub(super) cleanup: Witnessed,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) serves: Vec<Served>,
 }
 
 /// What the engine has witnessed of an attempt's drivers' cleanup (#403):
@@ -251,20 +282,6 @@ pub(super) enum Reach {
     Unbounded,
 }
 
-impl Reservation {
-    /// Every writer its standing attempts reserved.
-    pub(super) fn writers(&self) -> impl Iterator<Item = &Writer> {
-        self.attempts
-            .values()
-            .flat_map(|reserved| &reserved.writers)
-    }
-
-    /// Whether any of its standing attempts protects evidence.
-    pub(super) fn protects(&self) -> bool {
-        (self.attempts.values()).any(|reserved| reserved.protects == Protects::Evidence)
-    }
-}
-
 /// One attempt's claim on its worktree, which admission compares and
 /// seals, and the authored hands its boxed writers' reach was resolved
 /// from, which the door rebuilds it from.
@@ -280,13 +297,12 @@ pub(super) struct Claim {
     pub(super) authored: Authored,
 }
 
-/// What each boxed writer's reach is rebuilt from at the door (R1): the
-/// HOME a bind's `~/` named, and each boxed writer's authored hands beside
-/// the reach admission sealed from them, which the engine builds every box
-/// of those hands from (U8a2c).
+/// What each boxed writer's reach is rebuilt from at the door (R1): each
+/// boxed writer's authored hands beside the reach admission sealed from
+/// them, the HOME a bind's `~/` named sealed in it, which the engine builds
+/// every box of those hands from (U8a2c).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(in crate::engine) struct Authored {
-    pub(super) home: PathBuf,
     pub(super) boxes: Vec<(HandsSpec, Reach)>,
 }
 
@@ -460,11 +476,9 @@ impl Engine {
                 protects,
                 writers,
                 cleanup,
+                serves: Vec::new(),
             },
-            authored: Authored {
-                home: home.to_path_buf(),
-                boxes,
-            },
+            authored: Authored { boxes },
         })
     }
 
@@ -605,7 +619,12 @@ pub(super) fn admit_with(
 ) -> Result<Held, Unadmitted> {
     let _lock = locked(root.dir(), deadline)?;
     let mut budget = Budget::new(deadline);
-    let found = inventory(root.dir(), root.path(), &mut budget)?;
+    let found = inventory(
+        root.dir(),
+        root.path(),
+        [&claim.repo, &claim.run],
+        &mut budget,
+    )?;
     let (standing, mut commit) = recovered(root, found.standing, &claim.reserved.writers, &budget)?;
     let comparison = Comparison {
         claim,
@@ -614,6 +633,7 @@ pub(super) fn admit_with(
         coordination: root.path(),
     };
     compared(&comparison, &mut budget)?;
+    unserved(claim, &standing, root.mounts(), &budget)?;
     let staked = staked(&comparison);
     between();
     let artifacts = match claim.reserved.protects {
@@ -639,11 +659,13 @@ pub(super) fn admit_with(
 }
 
 /// The run's reservation with `claim`'s attempt standing in it: the one
-/// `standing` holds for that very worktree and run, or a new one.
-fn joined(claim: &Claim, standing: Vec<Reservation>) -> Reservation {
+/// `standing` holds for that very worktree and run, which the inventory
+/// read whole, or a new one.
+fn joined(claim: &Claim, standing: Vec<Standing>) -> Reservation {
     let mine = |held: &Reservation| (held.repo == claim.repo) & (held.run == claim.run);
     let mut reservation = standing
         .into_iter()
+        .filter_map(|held| held.whole)
         .find(mine)
         .unwrap_or_else(|| Reservation {
             repo: claim.repo.clone(),
@@ -704,7 +726,7 @@ fn redirected(held: &Held) -> Option<PathBuf> {
 }
 
 /// The directory `held`'s reservation stands in, and where.
-fn reserved_at(held: &Held) -> Result<(std::os::fd::OwnedFd, PathBuf), Unknown> {
+pub(super) fn reserved_at(held: &Held) -> Result<(std::os::fd::OwnedFd, PathBuf), Unknown> {
     let run = held.coordination.below(&[&held.repo, &held.run])?;
     let at = held.coordination.path().join(&held.repo).join(&held.run);
     Ok((run, at))
@@ -745,13 +767,6 @@ pub(super) fn settled(mut reservation: Reservation, attempt: &str) -> Result<Res
     reservation.attempts.remove(attempt);
     reservation.settled.insert(attempt.to_string());
     Ok(reservation)
-}
-
-/// The protected root's path under `home`.
-pub(super) fn coordination(home: &Path) -> PathBuf {
-    PROTECTED_ROOT
-        .iter()
-        .fold(home.to_path_buf(), |path, name| path.join(name))
 }
 
 /// The directory `path`'s device and inode, where it is a directory of its

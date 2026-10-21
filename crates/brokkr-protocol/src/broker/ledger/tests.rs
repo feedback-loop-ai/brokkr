@@ -4,12 +4,17 @@
 //! file at one record, so the failure is the kernel's own: a full device
 //! refuses the write, and a pipe takes the write but refuses the sync.
 
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::ManuallyDrop;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
 
-use super::{recover, Disposition, Failure, Invalid, Ledger, Outcome, Unrecorded};
+use rustix::io::Errno;
+
+use super::retention::{share, staged, Steps, BUDGET, DURABLE, RESERVATION};
+use super::{recover, Denial, Disposition, Entry, Failure, Invalid, Ledger, Lifecycle, Outcome};
+use super::{Unrecorded, RECORD_MAX};
 use crate::broker::Owner;
 
 /// The plan digest every case opens its ledger for.
@@ -58,14 +63,7 @@ fn session(nth: usize, medium: Medium) -> (Vec<Result<(), Unrecorded>>, String, 
     let mut kept = file.try_clone().unwrap();
     let held = file.as_raw_fd();
     let (taken, refusing): (_, OwnedFd) = match medium {
-        Medium::Full => (
-            None,
-            File::options()
-                .write(true)
-                .open("/dev/full")
-                .unwrap()
-                .into(),
-        ),
+        Medium::Full => (None, full().into()),
         Medium::Pipe => {
             let (reader, writer) = std::io::pipe().unwrap();
             (Some(reader), writer.into())
@@ -222,4 +220,336 @@ fn a_ledger_is_bound_once_and_a_second_binding_never_weakens_its_guard() {
     let (mut ledger, _) = appending();
     assert_eq!(ledger.bind(&unrelated), Ok(()));
     assert_eq!(ledger.close(), Ok(Disposition::Clean));
+}
+
+/// The sha256 of `bytes`, as the broker cites it.
+fn sha256(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(bytes))
+}
+
+/// Each line of `bytes`, as JSON.
+fn records(bytes: &[u8]) -> Vec<serde_json::Value> {
+    let lines = bytes.split_inclusive(|byte| *byte == b'\n');
+    lines
+        .map(|line| serde_json::from_slice(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn a_retaining_ledger_stages_each_answer_beside_it_before_the_terminal_citing_it() {
+    // U8b: the prepared bytes are staged in the attempt directory as
+    // `<plan>.<call>.response`, this user's alone, before the Terminal that
+    // cites their digest and length. A stage whose name is taken already
+    // is not made, its Terminal not written, and the name's bytes kept.
+    let root = tempfile::tempdir().unwrap();
+    let dir = File::open(root.path()).unwrap();
+    let plan = std::ffi::OsStr::new("cap-docs.json");
+    let mut ledger = Ledger::open(&dir, plan, (&owner(), PLAN), &[]).unwrap();
+    ledger.retain(OwnedFd::from(dir.try_clone().unwrap()), plan, 1);
+    let answer = br#"{"result":{"content":[]}}"#;
+    let mut call = ledger.room().unwrap().begin("resolve").unwrap();
+    assert_eq!(ledger.reserve(&mut call), Ok(()));
+    let answered = ledger.answered(call, Outcome::Succeeded, (answer, &sha256(answer)));
+    assert_eq!(answered, Ok(()));
+    let staged = root.path().join("cap-docs.json.1.response");
+    assert_eq!(std::fs::read(&staged).unwrap(), answer);
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(&staged).unwrap().permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+    let taken = root.path().join("cap-docs.json.2.response");
+    std::fs::write(&taken, b"earlier").unwrap();
+    let mut call = ledger.room().unwrap().begin("resolve").unwrap();
+    assert_eq!(ledger.reserve(&mut call), Ok(()));
+    let answered = ledger.answered(call, Outcome::Succeeded, (answer, &sha256(answer)));
+    assert_eq!(answered, Err(Unrecorded::Record));
+    assert_eq!(std::fs::read(&taken).unwrap(), b"earlier");
+    let written = std::fs::read(root.path().join("cap-docs.json.ledger")).unwrap();
+    let cited = serde_json::json!({"sha256": sha256(answer), "bytes": answer.len()});
+    assert_eq!(records(&written)[2]["response"], cited);
+    let (lifecycle, invalid) = recover(&written, &owner(), PLAN);
+    let calls = [
+        ("resolve".to_string(), Some(Outcome::Succeeded)),
+        ("resolve".to_string(), None),
+    ];
+    let recovered = (lifecycle.calls(), invalid);
+    assert_eq!(recovered, (&calls[..], Some(Invalid::Lifecycle)));
+}
+
+/// A full device, which refuses every write.
+fn full() -> File {
+    File::options().write(true).open("/dev/full").unwrap()
+}
+
+/// A pipe's writing end, which cannot be synced.
+fn unsyncable() -> std::io::PipeWriter {
+    std::io::pipe().unwrap().1
+}
+
+#[test]
+fn a_stage_whose_write_or_either_sync_fails_is_never_cited_and_its_ledger_kept_as_it_was() {
+    // CR2, CR3 (U8b): each of the broker's own stage steps in turn meets a
+    // medium that refuses it, put in place of the stage or its directory,
+    // so the failure is the kernel's own. The stage fails with it; through
+    // a retaining ledger, the call is not recorded, no Terminal cites it,
+    // and the ledger keeps the very prefix it had, its call begun for
+    // settlement. The control: nothing refused, staged and cited.
+    let write = Steps {
+        write: |file, bytes| {
+            swap(file.as_raw_fd(), full());
+            (DURABLE.write)(file, bytes)
+        },
+        ..DURABLE
+    };
+    let sync = Steps {
+        sync: |file| {
+            swap(file.as_raw_fd(), unsyncable());
+            (DURABLE.sync)(file)
+        },
+        ..DURABLE
+    };
+    let settle = Steps {
+        settle: |dir| {
+            swap(dir.as_raw_fd(), unsyncable());
+            (DURABLE.settle)(dir)
+        },
+        ..DURABLE
+    };
+    let answer = br#"{"result":{"content":[]}}"#;
+    let plan = OsStr::new("cap-docs.json");
+    for (case, steps, refused) in [
+        ("write", write, Some(Errno::NOSPC)),
+        ("sync", sync, Some(Errno::INVAL)),
+        ("settle", settle, Some(Errno::INVAL)),
+        ("none", DURABLE, None),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let dir = OwnedFd::from(File::open(root.path()).unwrap());
+        let alone = staged(&steps, (&dir, plan), 1, answer).map_err(|error| error.raw_os_error());
+        let failed = refused.map_or(Ok(()), |errno| Err(Some(errno.raw_os_error())));
+        assert_eq!((case, alone), (case, failed));
+        let root = tempfile::tempdir().unwrap();
+        let dir = File::open(root.path()).unwrap();
+        let mut ledger = Ledger::open(&dir, plan, (&owner(), PLAN), &[]).unwrap();
+        let held = OwnedFd::from(dir.try_clone().unwrap());
+        ledger.retain_with(
+            move |call, bytes| staged(&steps, (&held, plan), call, bytes),
+            1,
+        );
+        let mut call = ledger.room().unwrap().begin("resolve").unwrap();
+        ledger.reserve(&mut call).unwrap();
+        let path = root.path().join("cap-docs.json.ledger");
+        let before = std::fs::read(&path).unwrap();
+        let answered = ledger.answered(call, Outcome::Succeeded, (answer, &sha256(answer)));
+        let after = std::fs::read(&path).unwrap();
+        let (lifecycle, _) = recover(&after, &owner(), PLAN);
+        let outcome = refused.is_none().then_some(Outcome::Succeeded);
+        let recorded = refused.map_or(Ok(()), |_| Err(Unrecorded::Record));
+        let found = (answered, after == before, lifecycle.calls());
+        let calls = [("resolve".to_string(), outcome)];
+        assert_eq!(
+            (case, found),
+            (case, (recorded, refused.is_some(), &calls[..]))
+        );
+    }
+}
+
+/// A ledger in memory retaining as one of `retaining` plans, and how many
+/// stages it was asked for.
+fn retaining<'b>(retaining: usize) -> (Ledger<'b>, std::rc::Rc<std::cell::Cell<usize>>) {
+    let (mut ledger, _) = appending();
+    let stages = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = std::rc::Rc::clone(&stages);
+    let stage = move |_, _: &[u8]| {
+        counted.set(counted.get() + 1);
+        Ok(())
+    };
+    ledger.retain_with(stage, retaining);
+    (ledger, stages)
+}
+
+#[test]
+fn a_response_its_call_holds_no_room_for_is_never_staged() {
+    // Unreserved, or past its reservation: nothing staged, and the call
+    // not recorded. The control: at its reservation exactly, staged.
+    let (mut ledger, stages) = retaining(1);
+    let call = ledger.room().unwrap().begin("resolve").unwrap();
+    let answered = ledger.answered(call, Outcome::Succeeded, (b"{}", &sha256(b"{}")));
+    assert_eq!((answered, stages.get()), (Err(Unrecorded::Record), 0));
+    let over = vec![b'x'; RESERVATION as usize + 1];
+    let at = &over[1..];
+    let cases = [(&over[..], Err(Unrecorded::Record), 0), (at, Ok(()), 1)];
+    for (bytes, recorded, staged) in cases {
+        let (mut ledger, stages) = retaining(1);
+        let mut call = ledger.room().unwrap().begin("resolve").unwrap();
+        ledger.reserve(&mut call).unwrap();
+        let answered = ledger.answered(call, Outcome::Succeeded, (bytes, &sha256(bytes)));
+        let found = (bytes.len(), answered, stages.get());
+        assert_eq!(found, (bytes.len(), recorded, staged));
+    }
+}
+
+#[test]
+fn the_budget_is_divided_by_the_retaining_plans_and_each_call_reserves_8_mib() {
+    // Operator ruling 2026-10-15: 256 MiB over the retaining plans the
+    // inventory pins; 32 shares fill it exactly, 33 fall under one
+    // reservation, and none divides nothing.
+    let shares = (share(32), share(33) < RESERVATION, share(0));
+    assert_eq!(shares, (8 << 20, true, 0));
+    assert_eq!(32 * share(32), BUDGET);
+    // One plan's 256 MiB holds 32 reservations, and no 33rd; a call that
+    // ends unstaged, here refused as the lifecycle lets a call begun beside
+    // others end, returns its own.
+    let (mut ledger, _) = retaining(1);
+    let mut held = Vec::new();
+    for _ in 0..32 {
+        let mut call = ledger.room().unwrap().begin("resolve").unwrap();
+        assert_eq!(ledger.reserve(&mut call), Ok(()));
+        held.push(call);
+    }
+    let mut last = ledger.room().unwrap().begin("resolve").unwrap();
+    assert_eq!(ledger.reserve(&mut last), Err(Denial::Budget));
+    let refused = Outcome::Refused(Denial::Active);
+    assert_eq!(ledger.end(held.pop().unwrap(), refused), Ok(()));
+    assert_eq!(ledger.reserve(&mut last), Ok(()));
+    // A plan that retains nothing reserves nothing, and cites no digest.
+    let (mut plain, appended) = appending();
+    let mut call = plain.room().unwrap().begin("resolve").unwrap();
+    assert_eq!(plain.reserve(&mut call), Ok(()));
+    let answered = plain.answered(call, Outcome::Succeeded, (b"{}", &sha256(b"{}")));
+    assert_eq!(answered, Ok(()));
+    assert_eq!(records(&appended.borrow())[2].get("response"), None);
+}
+
+#[test]
+fn a_terminal_cites_a_sound_response_for_an_answered_call_alone() {
+    // CC2: a refusal forwarded nothing, so cites nothing; a digest that is
+    // no lowercase sha256, a length past one reservation, a null, or a
+    // response read by position, is malformed. The control verifies its
+    // call, and is refused only for its missing closure. Only that
+    // verified Terminal's response is cited (U8c).
+    let opened = Lifecycle::new(&owner(), PLAN).opened().line().unwrap();
+    let started = br#"{"record":"started","seq":2,"call":1,"tool":"resolve"}"#;
+    let ledger = |outcome: &str, response: String| {
+        let terminal = format!(
+            r#"{{"record":"terminal","seq":3,"call":1,"tool":"resolve","outcome":{outcome},"response":{response}}}"#
+        );
+        [&opened[..], started, b"\n", terminal.as_bytes(), b"\n"].concat()
+    };
+    let digest = sha256(b"{}");
+    let cited = |digest: &str, bytes: u64| format!(r#"{{"sha256":"{digest}","bytes":{bytes}}}"#);
+    let (refused, failed) = (r#"{"refused":"budget"}"#, r#""failed""#);
+    let cases = [
+        (
+            "refused",
+            ledger(refused, cited(&digest, 2)),
+            Invalid::Lifecycle,
+            0,
+        ),
+        (
+            "upper",
+            ledger(failed, cited(&digest.to_uppercase(), 2)),
+            Invalid::Malformed,
+            0,
+        ),
+        (
+            "short",
+            ledger(failed, cited(&digest[1..], 2)),
+            Invalid::Malformed,
+            0,
+        ),
+        (
+            "long",
+            ledger(failed, cited(&digest, RESERVATION + 1)),
+            Invalid::Malformed,
+            0,
+        ),
+        ("null", ledger(failed, "null".into()), Invalid::Malformed, 0),
+        (
+            "positional",
+            ledger(failed, format!(r#"["{digest}",2]"#)),
+            Invalid::Malformed,
+            0,
+        ),
+        (
+            "sound",
+            ledger(failed, cited(&digest, RESERVATION)),
+            Invalid::Lifecycle,
+            1,
+        ),
+    ];
+    for (case, bytes, invalid, verified) in cases {
+        let (lifecycle, found) = recover(&bytes, &owner(), PLAN);
+        let ended = lifecycle
+            .calls()
+            .iter()
+            .filter(|(_, outcome)| outcome.is_some());
+        let cited = lifecycle.cited().count();
+        assert_eq!(
+            (case, found, ended.count(), cited),
+            (case, Some(invalid), verified, verified)
+        );
+    }
+}
+
+#[test]
+fn the_lifecycle_cites_the_response_of_each_verified_terminal_and_no_other() {
+    // U8c (CR2): a retained answer and a retained child error each cite
+    // their staged bytes; a failure of the broker's own, as a timeout,
+    // cites none, though its outcome is failed too.
+    let (mut ledger, appended) = appending();
+    ledger.retain_with(|_, _: &[u8]| Ok(()), 1);
+    let (answer, error) = (br#"{"result":{}}"#, br#"{"error":{}}"#);
+    for (bytes, outcome) in [(&answer[..], Outcome::Succeeded), (error, Outcome::Failed)] {
+        let mut call = ledger.room().unwrap().begin("resolve").unwrap();
+        ledger.reserve(&mut call).unwrap();
+        let answered = ledger.answered(call, outcome, (bytes, &sha256(bytes)));
+        assert_eq!(answered, Ok(()));
+    }
+    let call = ledger.room().unwrap().begin("resolve").unwrap();
+    assert_eq!(ledger.end(call, Outcome::Failed), Ok(()));
+    assert_eq!(ledger.close(), Ok(Disposition::Clean));
+    let written = appended.borrow().clone();
+    let (lifecycle, invalid) = recover(&written, &owner(), PLAN);
+    let (answered, failed) = (sha256(answer), sha256(error));
+    let cited = vec![(1, answered.as_str(), 13), (2, failed.as_str(), 12)];
+    assert_eq!(
+        (lifecycle.cited().collect::<Vec<_>>(), invalid),
+        (cited, None)
+    );
+    // Call 1's Terminal again, numbered next and citing the error's bytes:
+    // a conflicting duplicate, past the verified prefix, cites nothing.
+    let lines: Vec<&str> = std::str::from_utf8(&written)
+        .unwrap()
+        .split_inclusive('\n')
+        .collect();
+    let again = lines[2]
+        .replace(r#""seq":3"#, r#""seq":4"#)
+        .replace(&answered, &failed);
+    let conflicting = [lines[..3].concat(), again].concat();
+    let (lifecycle, invalid) = recover(conflicting.as_bytes(), &owner(), PLAN);
+    let cited = vec![(1, answered.as_str(), 13)];
+    let found = (lifecycle.cited().collect::<Vec<_>>(), invalid);
+    assert_eq!(found, (cited, Some(Invalid::Conflict)));
+}
+
+#[test]
+fn a_retaining_call_is_accepted_only_where_its_longest_terminal_fits() {
+    // A tool whose Terminal fits the record bound exactly with the longest
+    // outcome is accepted by a plan that retains nothing, and not by one
+    // that retains, whose Terminal may cite the longest response.
+    let plain = Entry::Terminal {
+        seq: u64::MAX,
+        call: u64::MAX,
+        tool: String::new(),
+        outcome: Outcome::LONGEST,
+        response: None,
+    };
+    let tool = "a".repeat(RECORD_MAX - plain.line().unwrap().len());
+    let (mut ledger, _) = appending();
+    assert_eq!(ledger.room().unwrap().begin(&tool).map(drop), Ok(()));
+    let (mut ledger, stages) = retaining(1);
+    let refused = ledger.room().unwrap().begin(&tool).map(drop);
+    assert_eq!((refused, stages.get()), (Err(Unrecorded::Limit), 0));
+    assert_eq!(ledger.close(), Ok(Disposition::Failed(Failure::Limit)));
 }

@@ -6,10 +6,9 @@
 //! is checked in MB3's order before any lookup or start. An admitted plan's
 //! box is made ready, its bindings handed over and its server started
 //! inside it (U6c8), initialized (U6e) and served (U6f1b); the fixture's
-//! plan retains its responses, so it is refused before any message
-//! reaches the harness until U8b builds retention. A bound plan's one
-//! lifetime has its private ledger (U6d). The compile fence still refuses
-//! every MCP grant.
+//! plan retains its responses, which are staged beside its ledger (U8b).
+//! A bound plan's one lifetime has its private ledger (U6d). The compile
+//! fence still refuses every MCP grant.
 
 use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -620,9 +619,8 @@ fn the_compile_fence_still_refuses_an_unused_mcp_grant() {
     assert_eq!(ran.stdout, "");
 }
 
-/// Each refusal's text, pinned once: MB3 and MB4's exact causes and SD3's
-/// temporary retention cause, listed in MB3's precedence, which is their
-/// order.
+/// Each refusal's text, pinned once: MB3 and MB4's exact causes, listed in
+/// MB3's precedence, which is their order.
 #[test]
 fn each_refusal_reads_in_mb3_and_mb4s_words() {
     let texts = [
@@ -679,10 +677,6 @@ fn each_refusal_reads_in_mb3_and_mb4s_words() {
         ),
         (Refusal::Timeout, "MCP server call timed out"),
         (Refusal::Masking, "MCP response cannot be safely masked"),
-        (
-            Refusal::RetentionIncomplete,
-            "broker retained-response support is incomplete",
-        ),
     ];
     let precedence: Vec<&Refusal> = texts.iter().map(|(refusal, _)| refusal).collect();
     assert!(precedence.is_sorted(), "{precedence:?}");
@@ -707,10 +701,14 @@ fn past_prepare(refusal: Refusal) -> (Option<i32>, String) {
 }
 
 /// The answer to the fixture's plan, which retains its responses, once the
-/// broker admits it: refused before any MCP message reaches its server,
-/// so before it initializes, until U8b builds retention.
+/// broker admits it: its server initialized, and its harness, which says
+/// nothing and ends at once, served to that end (U8b). Off Linux no
+/// launcher mounts a checked descriptor, so the box is unavailable (MB3).
 fn admitted() -> (Option<i32>, String) {
-    past_prepare(Refusal::RetentionIncomplete)
+    match cfg!(target_os = "linux") {
+        true => (Some(0), String::new()),
+        false => refused(Refusal::Unavailable),
+    }
 }
 
 /// The exit and stderr of a session that ends with `failure` once its
@@ -1244,8 +1242,13 @@ fn only_the_protected_inventory_binds_a_plan() {
     // An inventory that does not parse closed.
     sealed.write("inventory.json", br#"{"plans": [], "ledgers": []}"#);
     assert_eq!(sealed.serve(&digest), unbound);
-    // Pinned exactly, among others, it binds.
+    // Pinned exactly, among others, it binds where each is another sealed
+    // plan, which a retaining plan's share is counted over (U8b); a pin of
+    // no plan leaves that share unknown, so the plan unbound.
     sealed.pin(&[(&other, DIGEST), (&sealed.locator, &digest)]);
+    assert_eq!(sealed.serve(&digest), unbound);
+    sealed.write("cap-other.json", bytes.as_bytes());
+    sealed.pin(&[(&other, &digest), (&sealed.locator, &digest)]);
     binds("pinned", sealed.serve(&digest));
     // Where it binds, the box that cannot stand is the cause.
     if unservable().is_none() {

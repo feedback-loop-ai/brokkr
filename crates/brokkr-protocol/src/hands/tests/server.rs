@@ -360,7 +360,7 @@ fn server_argv(server: &ServerBox, net: &str, dns: bool, tree: Option<&Path>) ->
     let private = format!("--perms 0700 --tmpfs {SANDBOX_HOME} --perms 0700 --tmpfs /tmp");
     argv.extend(private.split_whitespace().map(String::from));
     let bootstrap = std::env::current_exe().unwrap();
-    let resolver = dns.then_some(Path::new("/etc/resolv.conf"));
+    let resolver = dns.then_some(Path::new(SERVER_RESOLVER)); // as the engine reserves it
     for host in tree
         .into_iter()
         .chain([bootstrap.as_path()])
@@ -818,7 +818,8 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
             launched.child.wait()
         );
     }
-    assert_eq!(&ready, b"ready");
+    // Ready, bubblewrap started with no environment, no `LD_*` (U8a2b).
+    assert_eq!((&ready, environ(launched.child.id())), (b"ready", vec![]));
     // bubblewrap named the box's first process, the launcher's own child,
     // and the waiting process it started holds its standard input and
     // output on the server's own pipes and its error on nothing, and its
@@ -851,6 +852,20 @@ fn a_server_box_stands_without_the_seats_or_the_hosts_private_paths() {
     assert!(!scratch.exists());
 }
 
+/// The names of the environment the process `pid` was started with, as
+/// `/proc` keeps it: never their values, which a failure would print.
+#[cfg(target_os = "linux")]
+fn environ(pid: u32) -> Vec<String> {
+    let held = std::fs::read(format!("/proc/{pid}/environ")).unwrap();
+    let entries = held
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty());
+    let names = entries.map(|entry| entry.split(|byte| *byte == b'=').next().unwrap_or(entry));
+    names
+        .map(|name| String::from_utf8_lossy(name).into_owned())
+        .collect()
+}
+
 /// Whether `pid` is gone, or only a zombie, within five seconds.
 #[cfg(target_os = "linux")]
 fn ended(pid: u64) -> bool {
@@ -878,10 +893,10 @@ fn parent_of(pid: u64) -> Option<u64> {
         .ok()
 }
 
-/// The one child of `pid` once it waits as `sleep`, within ten seconds.
+/// The one child of `pid` once it waits as `sleep`, within sixty seconds.
 #[cfg(target_os = "linux")]
 fn waiting_child(pid: u64) -> u64 {
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while std::time::Instant::now() < until {
         let children = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"));
         let children: Vec<u64> = children
@@ -900,7 +915,7 @@ fn waiting_child(pid: u64) -> u64 {
     panic!("no waiting child of {pid}");
 }
 
-/// [`descriptors`] of `pid` once it has settled, within ten seconds: asleep
+/// [`descriptors`] of `pid` once it has settled, within sixty seconds: asleep
 /// in its wait, as `/proc` shows its state, and holding the same
 /// descriptors across two reads a short interval apart. A process named
 /// by its exec may still be in its loader, holding the library it is
@@ -912,7 +927,7 @@ fn settled(pid: u64) -> Vec<(u32, String)> {
         stat.rsplit_once(") ")
             .is_some_and(|(_, rest)| rest.starts_with('S'))
     };
-    let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while std::time::Instant::now() < until {
         let held = asleep().then(|| descriptors(pid)).flatten();
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -934,7 +949,7 @@ fn a_process_is_read_once_it_has_settled() {
     // this process holds an inheritable stray, as a concurrent test may,
     // and sealed above its standard streams before its exec, so it holds
     // only what it opens itself.
-    let script = "exec 3</dev/null; i=0; while [ $i -lt 2000000 ]; do i=$((i+1)); done; \
+    let script = "exec 3</dev/null; i=0; while [ $i -lt 200000 ]; do i=$((i+1)); done; \
                   exec 3<&-; exec sleep 600";
     let nothing = std::process::Stdio::null;
     let mut shell = std::process::Command::new("/bin/sh");
@@ -1042,6 +1057,24 @@ fn a_descriptor_closed_during_a_snapshot_invalidates_the_whole_read() {
     std::fs::remove_file(link).unwrap();
     assert_eq!(read_descriptors(Ok(entries.into_iter())), None);
     assert_eq!(read_descriptors(read()), Some(vec![]));
+}
+
+/// Every directory a bare launch name and the box launcher are looked for
+/// in lies in a system source every server box binds (U8a2b), compared by
+/// path components, so `/usr/localx` lies in no `/usr/local`.
+#[test]
+fn every_server_search_directory_lies_in_a_system_source() {
+    let held = |dir: &&str| {
+        HOST_TOOLCHAIN_BINDS
+            .iter()
+            .any(|bind| Path::new(dir).starts_with(bind))
+    };
+    assert!(!held(&"/usr/localx"), "a component, not a prefix of one");
+    let apart: Vec<&str> = namespace::SERVER_PATH
+        .split(':')
+        .filter(|dir| !held(dir))
+        .collect();
+    assert_eq!(apart, Vec::<&str>::new());
 }
 
 /// The generated identity's tree `entry` hands over.

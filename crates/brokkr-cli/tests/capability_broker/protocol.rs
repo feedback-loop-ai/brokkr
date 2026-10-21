@@ -2,8 +2,8 @@
 //! U6f1b; MB3, MB4, CR3, SD3), on a real box: once the server has started
 //! in its box it is initialized and its catalog listed within the
 //! startup's absolute deadline, and then the harness is served on the
-//! broker's own stdio, or, for a plan that retains its responses, refused
-//! before any message reaches it. A server off its pinned version, one
+//! broker's own stdio, a retaining plan's responses staged outside the
+//! box as they are (U8b). A server off its pinned version, one
 //! lacking a granted tool, one that speaks no MCP, one that runs but lacks
 //! a dependency inside its box, and one that never answers each end the
 //! session with their own cause, latched in the ledger, after the one
@@ -13,6 +13,7 @@
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, TryRecvError};
 use std::time::{Duration, Instant};
 
@@ -23,7 +24,7 @@ use serde_json::{json, Value};
 use super::ledger::{failed_with, sealed_ledger, Proved};
 use super::observer::within;
 use super::readiness::{boxed, Reads};
-use super::{admitted, ended, killed, refused, set, skip, unservable, Refusal, Sealed, SPEAKS};
+use super::{ended, killed, refused, set, skip, unservable, Refusal, Sealed, SPEAKS};
 use super::{TALK_MAX, TOKEN};
 
 /// What begins each piece of a line the broker relays from its server's
@@ -123,25 +124,91 @@ fn failed(failure: Failure) -> Proved {
 }
 
 #[test]
-fn a_retained_plan_is_refused_before_any_mcp_message_reaches_its_server() {
-    // The plan retains its responses, which U8b builds, so `serve` refuses
-    // with SD3's retention cause and never serves without it: once its
-    // server has started, and before a single MCP message is exchanged
-    // with it, initialize included (U6f1b). The server reports every line
-    // it reads on its standard error, which the broker drains: it reads
-    // none. The harness, whatever it says, hears nothing, and no call is
-    // recorded.
-    let heard = "while read -r line; do printf 'heard %s\\n' \"$line\" >&2; done\n";
-    let Some((sealed, digest)) = speaking(heard) else {
+fn a_retained_response_is_staged_beside_its_ledger_where_its_boxed_server_cannot_reach() {
+    // CR2 (U8b): the bound public command serves the retaining plan. Its
+    // server, once called, probes the plan, its ledger, the stage the
+    // broker is about to write and the attempt directory, by path and by
+    // every descriptor it holds, and tries to write the stage first: it
+    // reaches none of them, and says only that it probed. Then it answers,
+    // and the broker stages the masked response outside the box, before
+    // the Terminal that cites it, and delivers those very bytes. The box
+    // ended, its private HOME and TMPDIR gone, the stage remains for
+    // settlement.
+    if let Some(reason) = unservable() {
+        return skip(&reason);
+    }
+    let sealed = Sealed::new();
+    let stage = sealed.attempt.join("cap-library-docs.json.1.response");
+    let ledger = super::ledger::of(&sealed.locator);
+    let paths = [&sealed.attempt, &sealed.locator, &ledger, &stage];
+    let named = paths.map(|path| format!("'{}'", path.display())).join(" ");
+    let probe = format!(
+        "for p in {named}; do [ -e \"$p\" ] && echo \"reaches $p\" >&2; done\n\
+         (echo forged > '{}') 2>/dev/null && echo 'wrote the stage' >&2\n\
+         ls -l /proc/self/fd/ 2>/dev/null | grep -F '{}' >&2\n\
+         echo probed >&2",
+        stage.display(),
+        sealed.attempt.display(),
+    );
+    let server = sealed.path("opt/docs/bin/docs-mcp");
+    std::fs::write(server, format!("#!/bin/sh\n{}", after(&probe))).unwrap();
+    let digest = sealed.seal_bytes(sealed.plan().to_string().as_bytes());
+    let ran = conversed(&sealed, &digest, &greeting(), 3);
+    assert!(within(|| boxed(&sealed).is_empty()));
+    let object = r#"{"result":{"content":[{"text":"resolved","type":"text"}]}}"#;
+    let delivered = serde_json::from_str::<Value>(&format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":\"c\",{}",
+        &object[1..]
+    ));
+    let (code, frames, rest, said) = ran;
+    let heard = (code, frames.get(2).cloned(), rest, said);
+    assert_eq!(
+        heard,
+        (
+            Some(0),
+            Some(delivered.unwrap()),
+            String::new(),
+            relayed("probed\n")
+        )
+    );
+    assert_eq!(std::fs::read(&stage).unwrap(), object.as_bytes());
+    let digest = brokkr_core::canonical::sha256_bytes(object.as_bytes());
+    let records = std::fs::read_to_string(&ledger).unwrap();
+    let cited = json!({"sha256": digest, "bytes": object.len()});
+    let terminal: Value = serde_json::from_str(records.lines().nth(2).unwrap()).unwrap();
+    assert_eq!(
+        (&terminal["record"], &terminal["response"]),
+        (&json!("terminal"), &cited)
+    );
+    let one = vec![("resolve".to_string(), Some(Outcome::Succeeded))];
+    assert_eq!(
+        sealed_ledger(&sealed),
+        (one, Some(Disposition::Clean), None)
+    );
+}
+
+#[test]
+fn a_harness_that_ends_its_input_during_a_call_leaves_its_ledger_finished_and_failed() {
+    // Operator ruling 2026-10-18, item 6, through the public command: the
+    // harness ends its input while its call is active, its server holding
+    // the call unanswered. The broker fails the call, tells the harness
+    // so, and closes its ledger Failed with the attempt's cancellation
+    // cause: a Terminal and a Closed, which recovery reads finished.
+    let Some((sealed, digest)) = speaking(&format!("{SPEAKS}sleep 30\n")) else {
         return;
     };
-    let reads = Reads::on(sealed.path("store/secrets.env"));
-    let ran = conversed(&sealed, &digest, &greeting(), 0);
+    let ran = talking(&sealed, &digest, &greeting(), 2).ended();
     assert!(within(|| boxed(&sealed).is_empty()));
-    let (code, stderr) = admitted();
-    assert_eq!(ran, (code, vec![], String::new(), stderr));
-    let incomplete = failed_with(Refusal::RetentionIncomplete);
-    assert_eq!((reads.lookups(), sealed_ledger(&sealed)), (1, incomplete));
+    let told = r#"{"jsonrpc":"2.0","id":"c","error":{"code":-32603,"message":"MCP server call timed out"}}"#;
+    let (code, frames, rest, said) = ran;
+    let cause = "error: MCP server call timed out\n";
+    assert_eq!(
+        (code, frames.len(), rest, said),
+        (Some(1), 2, format!("{told}\n"), cause.into())
+    );
+    let failed = vec![("resolve".to_string(), Some(Outcome::Failed))];
+    let finished = (failed, Some(Disposition::Failed(Failure::Timeout)), None);
+    assert_eq!(sealed_ledger(&sealed), finished);
 }
 
 /// What the fixture's server says once it has started as [`SPEAKS`] says:
@@ -656,25 +723,76 @@ fn the_brokers_last_line_is_masked_whole_or_replaced_while_its_bindings_are_held
     }
 }
 
+/// Where a broker acted while `serve` ran, as offsets from its start:
+/// when it first read the store, its lookup just before the server starts,
+/// and when the box then lost its last process; and every read it made.
+#[derive(Debug, Default)]
+struct Acted {
+    looked: Option<Duration>,
+    gone: Option<Duration>,
+    reads: usize,
+}
+
+/// `serve` run from `begun` while a watcher reads where the broker acts:
+/// the store's reads through `reads`, and once one is seen, the box.
+fn acted<T>(
+    sealed: &Sealed,
+    reads: &Reads,
+    begun: Instant,
+    serve: impl FnOnce() -> T,
+) -> (T, Acted) {
+    let done = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let watcher = scope.spawn(|| {
+            let mut acted = Acted::default();
+            loop {
+                let served = done.load(Ordering::Acquire);
+                let seen = reads.seen();
+                acted.reads += seen;
+                if seen > 0 && acted.looked.is_none() {
+                    acted.looked = Some(begun.elapsed());
+                }
+                if acted.looked.is_some() && boxed(sealed).is_empty() {
+                    acted.gone = Some(begun.elapsed());
+                    return acted;
+                }
+                if served {
+                    return acted;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        });
+        let answer = serve();
+        done.store(true, Ordering::Release);
+        (answer, watcher.join().unwrap())
+    })
+}
+
 #[test]
 fn a_server_that_never_answers_ends_at_the_startup_deadline() {
     // It reads every request and answers none, so its box stands until
     // the startup's absolute deadline, which admission and readiness have
-    // already spent from: thirty seconds from `serve`'s start, and no more
-    // than a slice after.
+    // already spent from: thirty seconds from `serve`'s start. Both ends
+    // are read where the broker acts, not around its process, whose spawn
+    // and exit a window of 29 to 32 seconds also counted, and which CI's
+    // coverage run measured at 34.7 in all: the box stood the whole
+    // deadline, and it went within thirty seconds of the store's lookup,
+    // which an initialize given a startup budget of its own outlives.
     let Some((sealed, digest)) = unretained("while read -r line; do :; done\n") else {
         return;
     };
     let reads = Reads::of(&sealed);
     let begun = Instant::now();
-    let answer = sealed.serve(&digest);
-    let taken = begun.elapsed();
+    let (answer, acted) = acted(&sealed, &reads, begun, || sealed.serve(&digest));
     assert_eq!(answer, ended(Failure::Timeout));
-    let bounded = (taken >= Duration::from_secs(29)) & (taken < Duration::from_secs(32));
-    assert!(bounded, "{taken:?}");
+    let (Some(looked), Some(gone)) = (acted.looked, acted.gone) else {
+        panic!("no lookup, or a box that never went: {acted:?}");
+    };
+    let bounded = (gone >= Duration::from_secs(30)) & (gone - looked < Duration::from_secs(30));
+    assert!(bounded, "{acted:?}");
     assert!(within(|| boxed(&sealed).is_empty()));
     assert_eq!(
-        (reads.lookups(), sealed_ledger(&sealed)),
+        (acted.reads + reads.lookups(), sealed_ledger(&sealed)),
         (1, failed(Failure::Timeout))
     );
 }

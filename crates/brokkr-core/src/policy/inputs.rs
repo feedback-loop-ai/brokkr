@@ -9,6 +9,12 @@ use super::{DRIFT_PHASES, REALM_FACTS, REVIEWED_HEADS, STRATEGIES};
 /// and the one counter the table's `_gte` conditions name by itself.
 pub const CONSECUTIVE_FAILURES: &str = "consecutive_failures";
 
+/// What blocked a seat that returns `blocked` (decision 0092): its
+/// environment (a signing key, a tool, a capability its box refused),
+/// which the operator fixes before retrying the seat, or the work (a
+/// framing or specification problem), which routes as it always did.
+pub(crate) const BLOCKERS: [&str; 2] = ["environment", "work"];
+
 /// What an input's value is, which decides the conditions that read it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InputKind {
@@ -58,7 +64,7 @@ const fn input(name: &'static str, kind: InputKind, owner: Owner) -> Input {
 /// 0022) closes over each table's own phases, so it is a prefix, not a
 /// row. A projection keeps table order, which the loader's refusals
 /// print.
-pub(crate) const INPUTS: [Input; 15] = [
+pub(crate) const INPUTS: [Input; 16] = [
     input(CONSECUTIVE_FAILURES, InputKind::Counter, Owner::Engine),
     input("skip_verify", InputKind::Flag, Owner::Seat),
     input("fixes_applied", InputKind::Flag, Owner::Seat),
@@ -91,6 +97,16 @@ pub(crate) const INPUTS: [Input; 15] = [
         InputKind::Choice {
             key: "drift_in",
             vocabulary: &DRIFT_PHASES,
+        },
+        Owner::Seat,
+    ),
+    // Decision 0092: a blocked seat names what blocked it, so a table
+    // may park an environment block for the operator.
+    input(
+        "blocked_by",
+        InputKind::Choice {
+            key: "blocked_by_in",
+            vocabulary: &BLOCKERS,
         },
         Owner::Seat,
     ),
@@ -173,6 +189,17 @@ pub(crate) fn choice_keyed(key: &str) -> Option<(&'static str, &'static [&'stati
         let (written, vocabulary) = input.choice()?;
         (written == key).then_some((input.name, vocabulary))
     })
+}
+
+/// Every choice condition, as the loader's unknown-key refusal lists
+/// them: each condition key over its vocabulary, in table order.
+pub(crate) fn choice_conditions() -> String {
+    let conditions: Vec<String> = INPUTS
+        .iter()
+        .filter_map(Input::choice)
+        .map(|(key, vocabulary)| format!("{key} over {vocabulary:?}"))
+        .collect();
+    conditions.join(", ")
 }
 
 /// The closed vocabulary a choice input's value is drawn from.

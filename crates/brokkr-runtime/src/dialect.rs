@@ -426,16 +426,24 @@ impl Dialect {
         Ok((dialect, value))
     }
 
-    #[expect(
-        clippy::excessive_nesting,
-        clippy::too_many_lines,
-        reason = "baseline 2026-09, #288"
-    )]
+    /// Judge a parsed dialect against its read version's shape and every
+    /// phase rule, one check after another; the first refusal is the one
+    /// reported.
     fn check(&self, path: &str) -> Result<(), DialectError> {
-        let invalid = |problem| DialectError::Invalid {
-            path: path.to_string(),
-            problem,
-        };
+        self.check_versions(path)?;
+        self.check_identity(path)?;
+        let artifact_position = check_artifacts(&self.phases, path)?;
+        self.check_order(path, &artifact_position)?;
+        self.check_taxonomies(path)?;
+        self.check_instruction_paths(path)?;
+        check_command_tokens(self, path)?;
+        Ok(())
+    }
+
+    /// The fields the read version requires or forbids: the tool install,
+    /// and the archive instruction.
+    fn check_versions(&self, path: &str) -> Result<(), DialectError> {
+        let invalid = invalid_at(path);
         // Every read version keeps its own shape: an older file may not
         // borrow a field that landed after it, and a file that claims a
         // version must carry what that version requires. Version-tolerant
@@ -477,6 +485,13 @@ impl Dialect {
                 )));
             }
         }
+        Ok(())
+    }
+
+    /// The dialect's name and its tool's identity: non-empty, and a binary
+    /// named bare.
+    fn check_identity(&self, path: &str) -> Result<(), DialectError> {
+        let invalid = invalid_at(path);
         if self.name.trim().is_empty()
             || self.tool.binary.trim().is_empty()
             || self.tool.version.trim().is_empty()
@@ -498,36 +513,17 @@ impl Dialect {
                 "tool binary '{binary}' must be a bare filename resolved from PATH"
             )));
         }
-        let mut artifact_position = BTreeMap::new();
-        let mut assigned = BTreeSet::new();
-        let mut position = 0usize;
-        for (known, phase) in self.phases.artifacts() {
-            let phase_name = known.as_str();
-            if phase.steps.is_empty() {
-                return Err(invalid(format!("phase '{phase_name}' is unfilled")));
-            }
-            if !phase.steps.iter().any(|step| !step.optional) {
-                return Err(invalid(format!(
-                    "phase '{phase_name}' has no required step"
-                )));
-            }
-            for step in &phase.steps {
-                if step.name.trim().is_empty() || step.artifacts.is_empty() {
-                    return Err(invalid(format!(
-                        "phase '{phase_name}' has an empty step or artifact list"
-                    )));
-                }
-                for artifact in &step.artifacts {
-                    if !assigned.insert(artifact.clone()) {
-                        return Err(invalid(format!(
-                            "artifact '{artifact}' is assigned more than once"
-                        )));
-                    }
-                    artifact_position.insert(artifact.clone(), position);
-                    position += 1;
-                }
-            }
-        }
+        Ok(())
+    }
+
+    /// Every dependency names assigned artifacts, the one it depends on
+    /// mapped first.
+    fn check_order(
+        &self,
+        path: &str,
+        artifact_position: &BTreeMap<String, usize>,
+    ) -> Result<(), DialectError> {
+        let invalid = invalid_at(path);
         for edge in &self.order {
             let before = artifact_position.get(&edge.before).ok_or_else(|| {
                 invalid(format!("order names unassigned artifact '{}'", edge.before))
@@ -542,12 +538,24 @@ impl Dialect {
                 )));
             }
         }
+        Ok(())
+    }
+
+    /// Every loop phase names its taxonomy.
+    fn check_taxonomies(&self, path: &str) -> Result<(), DialectError> {
+        let invalid = invalid_at(path);
         for (phase, loop_phase) in self.phases.loops() {
             if loop_phase.taxonomy.trim().is_empty() {
                 let phase = phase.as_str();
                 return Err(invalid(format!("phase '{phase}' has no taxonomy")));
             }
         }
+        Ok(())
+    }
+
+    /// Every instruction path spelled relative, beside its dialect.
+    fn check_instruction_paths(&self, path: &str) -> Result<(), DialectError> {
+        let invalid = invalid_at(path);
         for instruction in self.instruction_paths() {
             // A dialect is data that travels between machines, so this
             // boundary is judged by the SPELLING, never by the host.
@@ -571,7 +579,6 @@ impl Dialect {
                 )));
             }
         }
-        check_command_tokens(self, path)?;
         Ok(())
     }
 
@@ -677,6 +684,53 @@ impl Dialect {
         self.rendered = rendered;
         Ok(())
     }
+}
+
+/// The refusal every check of the dialect at `path` reports a problem by.
+fn invalid_at(path: &str) -> impl Fn(String) -> DialectError + '_ {
+    move |problem| DialectError::Invalid {
+        path: path.to_string(),
+        problem,
+    }
+}
+
+/// Every artifact phase filled with a required step, and every artifact
+/// assigned once; the artifacts' positions in map order are returned. A
+/// function of the phases, outside `impl Dialect`, so its loops stay within
+/// the nesting ceiling (decision 0071 ruling 4).
+fn check_artifacts(phases: &Phases, path: &str) -> Result<BTreeMap<String, usize>, DialectError> {
+    let invalid = invalid_at(path);
+    let mut artifact_position = BTreeMap::new();
+    let mut assigned = BTreeSet::new();
+    let mut position = 0usize;
+    for (known, phase) in phases.artifacts() {
+        let phase_name = known.as_str();
+        if phase.steps.is_empty() {
+            return Err(invalid(format!("phase '{phase_name}' is unfilled")));
+        }
+        if !phase.steps.iter().any(|step| !step.optional) {
+            return Err(invalid(format!(
+                "phase '{phase_name}' has no required step"
+            )));
+        }
+        for step in &phase.steps {
+            if step.name.trim().is_empty() || step.artifacts.is_empty() {
+                return Err(invalid(format!(
+                    "phase '{phase_name}' has an empty step or artifact list"
+                )));
+            }
+            for artifact in &step.artifacts {
+                if !assigned.insert(artifact.clone()) {
+                    return Err(invalid(format!(
+                        "artifact '{artifact}' is assigned more than once"
+                    )));
+                }
+                artifact_position.insert(artifact.clone(), position);
+                position += 1;
+            }
+        }
+    }
+    Ok(artifact_position)
 }
 
 fn check_command_tokens(dialect: &Dialect, path: &str) -> Result<(), DialectError> {

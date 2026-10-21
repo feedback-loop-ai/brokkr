@@ -51,19 +51,26 @@ wager-harness-dsh	…	6 phases	implement, review, ship, verify	medium	Driver eva
 wager-harness-muse	…	6 phases	implement, review, ship, verify	low	Driver evaluation that swaps only implementation to Muse Spark 1.3 on its contributor terms, through dsh, for a fair wager.	project	recipes/wager-harness-muse
 ```
 
-| Recipe | Reach for it when | The difference it states |
-|---|---|---|
-| [`fast`](../../recipes/fast) | the default delivery: implement → verify → review → ship | the base the composed recipes below extend |
-| [`landing`](../../recipes/landing/README.md) | a branch that already exists — yours, a session's, a ruling's — needs judging and shipping | `extends fast` entered at a classify gate: prose goes to review, code to verify, no first implement; the smith is the remediation seat the returns reach (decision 0051) |
-| [`triage`](../../recipes/triage/README.md) | routing a commission by delivery class | `extends fast`: the triage result selects the later offices, with the five-phase SDD route included for the classes that need it |
-| [`night-shift`](../../recipes/night-shift/README.md) | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying. Its dsh lane pins GLM-5.3 Flash on the `spark-glm` route, so it runs only on a host serving that route |
-| [`standby`](../../recipes/standby/README.md) | delivering while one vendor's account is out of limit | `extends fast`: both model seats pinned inline to codex `sol` (`gpt-6.1-sol`), `fast`'s verify and ship gates unchanged (boxed under a `namespace` boundary, pinned scripts run unboxed under `harness`); a hedge forces its crew, so it takes no fallback |
-| [`wager-harness`](../../recipes/wager-harness/README.md) | weighing a new driver for a trust-tier promotion | `extends fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
-| [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | running the same driver wager through DSH | `extends fast`: only the implement seat moves, so the judging seats stay comparable. Runs only on a host serving the `spark-glm` route, for the same GLM-5.3 Flash lane |
-| [`wager-harness-muse`](../../recipes/wager-harness-muse/README.md) | the same wager on Muse Spark 1.3, contributor terms, through dsh | `extends fast`: only the implement seat moves, to a third vendor at `xhigh` |
-| [`node`](../../recipes/node/README.md) | a Node/TypeScript repository | `fast`'s constitution with JavaScript drivers and charters |
-| [`panel-review`](../../recipes/panel-review) | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
-| [`preflight`](../../recipes/preflight/README.md) | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
+| Recipe | Class | Reach for it when | The difference it states |
+|---|---|---|---|
+| [`fast`](../../recipes/fast) | portable | the default delivery: implement → verify → review → ship | the base the composed recipes below extend |
+| [`landing`](../../recipes/landing/README.md) | Brokkr-only | a branch that already exists — yours, a session's, a ruling's — needs judging and shipping | `extends brokkr-fast` entered at a classify gate: prose goes to review, code to verify, no first implement; the smith is the remediation seat the returns reach (decision 0051) |
+| [`triage`](../../recipes/triage/README.md) | Brokkr-only | routing a commission by delivery class | `extends fast`: the triage result selects the later offices, with the five-phase SDD route included for the classes that need it |
+| [`night-shift`](../../recipes/night-shift/README.md) | Brokkr-only | an unattended overnight queue | `extends triage`: one-attempt limits and a dsh implementation lane, so anything unusual parks for morning instead of retrying. Its dsh lane pins GLM-5.3 Flash on the `spark-glm` route, so it runs only on a host serving that route |
+| [`standby`](../../recipes/standby/README.md) | Brokkr-only | delivering while one vendor's account is out of limit | `extends fast`: both model seats pinned inline to codex `sol` (`gpt-6.1-sol`), `fast`'s verify and ship gates unchanged (boxed under a `namespace` boundary, pinned scripts run unboxed under `harness`); a hedge forces its crew, so it takes no fallback |
+| [`wager-harness`](../../recipes/wager-harness/README.md) | Brokkr-only | weighing a new driver for a trust-tier promotion | `extends brokkr-fast`: one seat's driver swapped to `codex`, plus the parity checklist that makes the comparison mean something |
+| [`wager-harness-dsh`](../../recipes/wager-harness-dsh/README.md) | Brokkr-only | running the same driver wager through DSH | `extends brokkr-fast`: only the implement seat moves, so the judging seats stay comparable. Runs only on a host serving the `spark-glm` route, for the same GLM-5.3 Flash lane |
+| [`wager-harness-muse`](../../recipes/wager-harness-muse/README.md) | Brokkr-only | the same wager on Muse Spark 1.3, contributor terms, through dsh | `extends brokkr-fast`: only the implement seat moves, to a third vendor at `xhigh` |
+| [`node`](../../recipes/node/README.md) | portable | a Node/TypeScript repository | `fast`'s constitution with JavaScript drivers and charters |
+| [`panel-review`](../../recipes/panel-review) | Brokkr-only | a second reviewer's read | `review` is a flat two-member panel joined by an aggregate |
+| [`preflight`](../../recipes/preflight/README.md) | Brokkr-only | verifying and reviewing an existing branch without delivery | a two-seat table that stops after its ruling: no intake, implement, or ship |
+
+The class is decision
+[0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)'s
+ruling 5, which gives each recipe's reason. A portable recipe installs
+onto the shelf of any folder `brokkr init` made, its seats hiring that
+folder's offices; a Brokkr-only one is written for Brokkr's own runs.
+Every recipe the library lists and this table leaves out is Brokkr-only.
 
 Nine entries carry pinned manifest digests in
 `crates/brokkr-runtime/tests/witness_digests.rs`; the rest are covered
@@ -773,7 +780,7 @@ leave a terminal phase.
 | `id` | yes | The rule id journaled in `transition/decided` and printed by every readout. |
 | `from` | yes | The phase this rule rules from. |
 | `result` | yes | The typed result it matches. |
-| `reason` | yes | Why it rules what it rules. Read back verbatim by the operator; for a parking rule, this is the park reason. |
+| `reason` | yes | Why it rules what it rules. Read back verbatim by the operator; for a parking rule, this is the park reason when the parked seat left no notes, and its notes are the reason when it did (decision 0092). |
 | `next` | one of | The phase to advance to. |
 | `park` | one of | `true` — rule a park instead of a transition. Mutually exclusive with `next`. |
 | `severity` | no | `normal` \| `flagged` \| `hard`. The ruling severity of the transition taken; defaults to `normal`. Forbidden on a parking rule. |
@@ -802,6 +809,7 @@ naming the rule and the known set.
 |---|---|---|
 | bare name | a boolean input, by name | `skip_verify`, `fixes_applied`, `spec_defect`, `has_security_residual`, `high_risk_uncovered`, `drift_detected`, `dirty_worktrees`, `fixes_docs_only` |
 | `strategy_in` | whether the engine-owned `strategy` is one of a non-empty array of delivery classes | `chore`, `feature`, `design`, `engine`, `escalate` |
+| `blocked_by_in` | whether a blocked seat's declared `blocked_by` is one of a non-empty array of blockers ([below](#a-blocked-seat-its-environment-or-the-work)) | `environment`, `work` |
 | `<counter>_gte` | numeric threshold | `consecutive_failures` |
 | `visits_<phase>_gte` | how many times the run has entered `<phase>` | any phase **this table** declares |
 | `<axis>_above` | severity strictly above the threshold | `max_residual_severity` |
@@ -918,6 +926,60 @@ and make any arm that proceeds demand positive evidence rather than the
 absence of bad evidence. Because selection is reconstructed from the
 journaled strategy, a returned run keeps the same case provenance across
 resume until triage deliberately rules a new class.
+
+## A blocked seat: its environment or the work
+
+A work seat that cannot go on reports `blocked`. Two causes share that
+word and want opposite endings (decision 0092). An **environment** block
+(a signing key the seat cannot reach, a tool off its `PATH`, a capability
+its box refused) is the operator's to fix in minutes, after which the same
+seat can simply run again. A **work** block (a contradictory framing, a
+specification problem) needs judgment, and routes as it always did. The
+seat says which in its result's `inputs`:
+
+```json
+{"result": "blocked", "inputs": {"blocked_by": "environment"},
+ "notes": "the signing agent is unreachable from the seat's box"}
+```
+
+A recipe declares the distinction in three places:
+
+1. **The input.** `blocked_by` is a seat-owned choice over `environment`
+   and `work`, read by the `blocked_by_in` condition. A seat whose phase's
+   rules read it declares it by default (decision 0007); a seat that lists
+   its `inputs` itself must list `blocked_by`, or compilation refuses it.
+2. **The park, above the stop.** A conditional park on the environment,
+   then the unconditional stop:
+
+   ```json
+   {"id": "IMPL-BLOCKED-ENVIRONMENT", "from": "implement", "result": "blocked",
+    "when": {"blocked_by_in": ["environment"]}, "park": true, "reason": "…"},
+   {"id": "IMPL-BLOCKED", "from": "implement", "result": "blocked",
+    "next": "stop", "severity": "hard", "reason": "…"}
+   ```
+
+   First match wins, so the reverse order deadens the park and is refused
+   at load. A `work` value falls to the stop, and so does a seat that names
+   no blocker, because absence never satisfies a condition: a seat that
+   forgets the fact stops, which is the fail-closed direction.
+   `recipes/fast/policy.json` carries both rules, and every recipe that
+   extends `fast` inherits them.
+3. **The charter.** The seat's charter tells it to set
+   `inputs.blocked_by` when it reports `blocked`, and names both words.
+   Every shipped charter that teaches `blocked` does, and a test holds
+   each one to it.
+
+A rule-driven park carries the parked seat's non-empty notes as its
+reason, so the operator reads the blocker itself:
+`IMPL-BLOCKED-ENVIRONMENT for (implement, blocked): <the seat's notes>`.
+A seat with no notes parks with the rule's reason. Once the environment
+is fixed, `brokkr operator retry --run <id>` and then
+`brokkr resume --run <id>` run that one seat again. The earlier phases'
+results reach it in `context.results` as before, and no earlier phase
+runs again. `blocked` is not a failure word, so the park spends none of
+the seat's attempts and does not count toward `consecutive_failures`.
+The policy sweep (decision 0050) rules both values of `blocked_by` in
+every table that reads it.
 
 ## Compile it
 

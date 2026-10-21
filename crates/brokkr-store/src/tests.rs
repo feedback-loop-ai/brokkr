@@ -3,7 +3,7 @@ use crate::import::RUN_ID_MAX;
 use crate::schema::{
     ensure_wal_by, guards_intact, sidecar_columns_missing, MIGRATION_V1, SIDECAR_COLUMNS,
 };
-use crate::test_support::{drop_seq_guard, plant_envelope, plant_event, plant_run};
+use crate::test_support::{drop_seq_guard, lags, plant_envelope, plant_event, plant_run};
 use serde_json::json;
 
 #[path = "../../../tests/support/env_guard.rs"]
@@ -306,6 +306,7 @@ fn a_journal_that_lost_its_guards_gets_them_back_on_open() {
                 .is_ok(),
             "the trigger really was gone",
         );
+        lags(&mut store, &["r1"]);
     }
 
     let store = Store::open(&db).unwrap();
@@ -435,6 +436,7 @@ pub(crate) fn plant_unfenced(store: &mut Store, run: &str, event_type: EventType
         .previous(previous_hash)
         .sealed();
     plant_envelope(&store.conn, &envelope).unwrap();
+    lags(store, &[run]);
 }
 
 #[test]
@@ -583,6 +585,17 @@ fn the_append_fence_reads_the_engine_its_runs_manifest_names() {
         let judged = (refusal.seq, refusal.contract);
         assert_eq!(judged, (1, SeatRecordVersion::V1.contract()), "{run_id}");
     }
+    // Planted, or appended to by a store carrying another run's account.
+    let lagging = [
+        "new",
+        "new-last",
+        "escaped",
+        "text-last",
+        "malformed",
+        "old-last",
+        "number-last",
+    ];
+    lags(&mut store, &lagging);
 }
 
 #[test]
@@ -1510,6 +1523,7 @@ fn a_seq_that_is_not_a_position_is_refused_at_insert() {
         }
         drop_seq_guard(&store.conn).unwrap();
         insert(&store.conn, Sql::Real(1.5)).unwrap();
+        lags(&mut store, &["r1"]);
     }
     let store = Store::open(&db).unwrap();
     let refused = insert(&store.conn, Sql::Real(2.5)).unwrap_err().to_string();

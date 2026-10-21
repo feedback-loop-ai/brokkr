@@ -19,9 +19,17 @@ use rustix::fs::{
 use rustix::io::Errno;
 use serde::de::DeserializeOwned;
 
-use super::admission::{coordination, Unknown, LOCK, STAGED};
+use super::admission::{Unknown, LOCK, STAGED};
 use super::inventory::Budget;
-use super::{directory, owned, protected, Synced, Unprovisioned, REPLY_BYTES_MAX};
+use super::sources::{observed, Table};
+use super::{directory, owned, protected, Synced, Unprovisioned, PROTECTED_ROOT, REPLY_BYTES_MAX};
+
+/// The protected root's path under `home`.
+pub(super) fn coordination(home: &Path) -> PathBuf {
+    PROTECTED_ROOT
+        .iter()
+        .fold(home.to_path_buf(), |path, name| path.join(name))
+}
 
 /// What a record's predecessor is also named while a seal of it is not
 /// final: `name` with this after it, a second link to the very file that
@@ -55,7 +63,7 @@ pub(super) enum Step {
 /// rule where its caller asks it.
 #[must_use]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Commit {
+pub(in crate::engine) enum Commit {
     Synced,
     Unsynced,
 }
@@ -77,12 +85,20 @@ impl Commit {
 /// R1 of run four's review).
 pub(super) type Hook = fn(Step, &OwnedFd, &str) -> std::io::Result<()>;
 
-/// The coordination root, opened, and the hook its seals run.
+/// How the mount table is observed for a comparison of writers with an MCP
+/// server's sources, the source first named where it proves nothing
+/// ([`observed`] in production; U8a2b): a unit test's own on a root it
+/// opened, to show the aliases a test cannot mount.
+pub(super) type Mounts = fn(&Budget, &Path) -> Result<Table, Unknown>;
+
+/// The coordination root, opened, the hook its seals run, and how the
+/// mount table is observed beside it.
 #[derive(Debug)]
 pub(in crate::engine) struct Root {
     dir: OwnedFd,
     path: PathBuf,
     hook: Hook,
+    mounts: Mounts,
 }
 
 /// Two handles are one root where they were opened at one path.
@@ -101,17 +117,37 @@ impl Root {
     pub(super) fn of(home: &Path) -> Option<Root> {
         let dir = protected(home, &[]).ok()?;
         let path = coordination(home);
-        let hook = unhooked;
-        Some(Root { dir, path, hook })
+        let (hook, mounts) = (unhooked, observed as Mounts);
+        Some(Root {
+            dir,
+            path,
+            hook,
+            mounts,
+        })
     }
 
     /// The root `dir` already opened at `path`, where it is this user's
-    /// alone, its seals handed to `hook`: the handle a unit test stands in,
-    /// on any TMPDIR.
+    /// alone, its seals handed to `hook` and the mount table observed by
+    /// `mounts`: the handle a unit test stands in, on any TMPDIR.
     #[cfg(test)]
-    pub(super) fn opened(dir: OwnedFd, path: PathBuf, hook: Hook) -> Option<Root> {
+    pub(super) fn opened(
+        dir: OwnedFd,
+        path: PathBuf,
+        (hook, mounts): (Hook, Mounts),
+    ) -> Option<Root> {
         let stat = fstat(&dir).ok()?;
-        owned(&stat, user(), true).then_some(Root { dir, path, hook })
+        let root = Root {
+            dir,
+            path,
+            hook,
+            mounts,
+        };
+        owned(&stat, user(), true).then_some(root)
+    }
+
+    /// How the mount table is observed beside an MCP server's sources.
+    pub(super) fn mounts(&self) -> Mounts {
+        self.mounts
     }
 
     /// The opened root.
@@ -219,13 +255,20 @@ pub(super) fn read<T: DeserializeOwned>(
     at: &Path,
 ) -> Result<T, Unknown> {
     let refused = || Unknown::Participant(at.join(name));
+    serde_json::from_slice(&bytes(dir, name, at)?).or(Err(refused()))
+}
+
+/// The bytes of the record `name` in the directory `dir` at `at`, as it
+/// stands ([`standing`]), within MB3's request bound; or an unknown
+/// participant there.
+pub(super) fn bytes(dir: &OwnedFd, name: &str, at: &Path) -> Result<Vec<u8>, Unknown> {
+    let refused = || Unknown::Participant(at.join(name));
     let file = standing(dir, name).ok_or_else(refused)?;
     let mut bytes = Vec::new();
     let file = std::fs::File::from(file);
     let read = file.take(REPLY_BYTES_MAX + 1).read_to_end(&mut bytes);
     let within = read.is_ok_and(|_| bytes.len() as u64 <= REPLY_BYTES_MAX);
-    within.then_some(()).ok_or_else(refused)?;
-    serde_json::from_slice(&bytes).or(Err(refused()))
+    within.then_some(bytes).ok_or_else(refused)
 }
 
 /// The file `name` in `dir` as it stands for every read: the one also

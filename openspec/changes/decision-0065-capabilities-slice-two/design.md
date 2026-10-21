@@ -695,6 +695,15 @@ refuse a source admission; operator migration must quiesce nonparticipants.
 Every box a writer is given is built from the reach sealed in its reservation:
 a source or Git directory that no longer resolves to its sealed identity
 refuses before that box starts (U8a2c, operator ruling 2026-10-18).
+Amendment proposed 2026-10-20 by decision 0090 (#772), pending the operator's
+ruling: another build's reservation is participation this build can establish.
+Admission reads this run's own reservation whole and strictly. It reads every
+other whole where it can, and otherwise through a view of only what it compares
+and recovers by. It refuses only a record even that view cannot read, or a
+format it does not know, and it never seals a record it read only through the
+view.
+
+Operator ruling 2026-10-19 on U8a2b's host inputs (in chat, "A", after U8a2b's fourth run, 0065-slice-two-unit-u8a2b-see-th-a06bf67c, stopped at REVIEW-SECURITY-HOLD): the operating system's own roots, `/bin`, `/sbin`, `/lib`, `/lib32`, `/lib64`, `/libx32`, `/usr`, `/etc`, `/dev`, `/boot`, `/proc` and `/sys`, are trusted host state that no managed writer may reach. Admission refuses, with MB3's identity cause, any managed writer whose writable reach lies at, above or below one of them. Everything resolved beneath them, such as the dynamic loader and its configuration (`/etc/ld.so.preload` among it), system libraries, device nodes and system programs, is therefore excluded from every managed writer without a reservation of its own. Brokkr reserves by route only the server-box inputs that can lie outside those roots: the bootstrap; each program tree; every candidate the launch name's lookup on the server PATH and bubblewrap's discovery can select, dangling candidates included, each through its whole route; and the resolver file's route. The survey, and bubblewrap for a server box, start with the dynamic loader's environment variables (`LD_*`) removed; the harness, and the broker it starts, inherit the operator's own environment, which D5 already trusts. The bootstrap is the operator's installed Brokkr binary, trusted with its sealed bytes (D5). Admission's host reads under its lock (the inventory, the mount table and these routes) are bounded by D5's count limits and checked against the startup deadline between calls, as the inventory's already are. A stalled file system makes other admissions wait and then refuse; it never admits a writer, so no separate cancellable observer is required.
 
 U8a/U8a2 real namespace proofs must include a retaining member plus a zero-grant
 attacker, boxed exec, an already-running writer, historical artifacts, ancestor
@@ -1186,24 +1195,24 @@ At each PR recheck these paths and baseline counts against main.
 
 | File / baseline lines where oversized | Units | Coordination |
 | --- | --- | --- |
-| `crates/brokkr-protocol/src/native_controls.rs` (4539) | U1a, U1g2, U7a | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-protocol/src/native_controls/mcp.rs` | U1a, U1c, U7a, U7d, U8a, U7d2, U8a2c | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-protocol/src/native_controls.rs` (4539) | U1a, U1g2, U7a, U9c1 | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-protocol/src/native_controls/mcp.rs` | U1a, U1c, U7a, U7d, U8a, U7d2, U8a2c, U9c1 | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/agents.rs` (1671) | U1b, U1f, U3b, U7b, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/load.rs` (1334) | U1b, U3b, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b, U1g1 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U1g0, U4c, U4f2, U6a, U7d, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d, U8a, U8a2c | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U1g0, U4c, U4f2, U6a, U7d, U7d3, U9c2 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d, U8a, U8a2c, U9c2 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/composite.rs` (4666) | U1c2 | #226 dsh composite identity; its declared-home seam must keep one owner |
 | `crates/brokkr-protocol/src/transcript.rs` | U1c2 | dsh home resolution; the transcript fold and the persistence check must read the same home |
-| `adapters/claude.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `adapters/codex.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `adapters/lanetally.json` | U1d | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `adapters/dsh.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `adapters/claude.json` | U1d, U1d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `adapters/codex.json` | U1d, U1d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `adapters/lanetally.json` | U1d, U1d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `adapters/dsh.json` | U1e, U1d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/exec.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/bundle.rs` (7815) | U1f, U3a, U3c, U4d, U5a2, U7c | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/bundle/mcp.rs` | U1f, U7b, U9b1, U1g1, U7d2, U7d3 | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
-| `crates/brokkr-cli/src/init/adapters.rs` | U1f2 | Consumed extraction from init.rs; registration included in that parent |
+| `crates/brokkr-cli/src/init/adapters.rs` | U1f2, U1d3 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
 | `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a, U8a2c | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
@@ -1388,7 +1397,11 @@ witness/compose pins accompany only rows that change their inputs.
 | U8f | U8e | Expose retained evidence in the pure view; 43.1–43.2 | `crates/brokkr-view/src/capability_calls.rs`; `crates/brokkr-view/src/lib.rs` |
 | U8g | U8f | Open a cited artifact through inspect; 44.1–44.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/verbs/readouts.rs` |
 | U9a | U8g, U2, U3c, U5a2 | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
-| U9b1 | U9a | Enable the proved namespace path; 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
+| U9c1 | U9a | Admit Codex's isolation options in the final-command grammar; 45.3–45.4 | `crates/brokkr-protocol/src/native_controls/grammar.rs`; `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
+| U9c2 | U9c1 | Launch Codex under its isolation options; 45.5–45.6 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-runtime/src/engine/input.rs` |
+| U0b | U9c2 | Measure every shape a seat can be served as; 1.5–1.6 | None |
+| U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
+| U9b1 | U1d3 | Enable the proved namespace path; 46.1–46.2 | `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs` |
 | U9b2 | U9b1 | Publish implemented scope and contract guidance; 47.1–47.2 | None |
 | U10a | U9b2 | Audit removals and run final candidate gates; 48.1–49.2 | None |
 | U10b | U10a | Fold the change and hand off; 49.3 | None |
@@ -2059,6 +2072,8 @@ Operator ruling 2026-10-18, after U8a2a's third run held (0065-slice-two-unit-u8
 
 Operator ruling 2026-10-18, after U8a2a's fourth run parked (0065-slice-two-unit-u8a2a-see-th-3a0cc19c, REVIEW-REFORGE-EXHAUSTED-MEDIUM, no high finding): the run's three medium residuals are accepted as debt on this unit and carried into U8a2c, which fixes them. R1: a reseal whose last step fails (the directory sync once the record that stood is unlinked) reports failure with only its successor standing, and that step observes no deadline. R2: historical hashing reads up to its cap and hashes the buffer once, after its last deadline observation. R3: the link-failure proof cannot tell a refused link from a refused rename. Each fails closed: release and recovery still require earned settlement. The public API rise of two lines, `EngineError::Unreleased` and its root re-export in quality/public-api/brokkr-runtime.txt, is approved. The unit lands by hand after the controller's host check, with the operator's by-hand label.
 
+Amendment proposed 2026-10-20 by decision 0090 (#772), pending the operator's ruling: a live run of another Brokkr build, whose reservation this build cannot read whole (its `sealed` written as a list before U8a2c), no longer refuses every dispatch as an unknown participant. Every other run's reservation is read through the participation view of decision 0090 ruling 2, and every writer it reserves is still compared. This run's own reservation stays strict, and a record read only through the view is never sealed again. Its proven attempts are released for one admission at a time.
+
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-runtime/tests/capability_ledger.rs`.
 
 ### U8a2c — Build every workspace box from the reach sealed at admission
@@ -2087,6 +2102,8 @@ source aliases and a disjoint-worktree positive control. Assert MB3's exact
 incoming-dispatch refusal, unchanged protected bytes and no lookup/start on
 a refused incoming broker.
 
+Operator ruling 2026-10-19 on U8a2b's host inputs (in chat, "A", after U8a2b's fourth run, 0065-slice-two-unit-u8a2b-see-th-a06bf67c, stopped at REVIEW-SECURITY-HOLD): as D6 records. The proof adds, each with a removal control: a managed writer whose reach lies at, above or below each operating-system root refused before the survey; an earlier dangling candidate on the server PATH, and one on bubblewrap's search path, made live by a writer after admission, refused before anything launches through it; and the survey and a server box's bubblewrap spawned without the loader's `LD_*` environment.
+
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-runtime/tests/capability_ledger.rs`.
 
 ### U8b — Stage retained responses before delivery
@@ -2097,6 +2114,8 @@ The boxed child receives no staging/ledger descriptor or path mount; prove it ca
 
 Closes tasks 39.1 and 39.2; requirements [CR1](specs/capability-response-retention/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR3](specs/capability-response-retention/spec.md), [CC2](specs/capability-call-checkpoints/spec.md).
 Proof: Four retention outcomes, multi-broker/fallback exhaustion and exact-bound controls, no same-digest quota reset, stage/sync/terminal/delivery failures, and no silent metadata downgrade; an unsafe scalar response yields the exact failed call without staged/published bytes or digest.
+
+Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"), item 6: a harness that ends its input while a call is active, whether by a polite close or because it was killed and its exit closed the broker's input, resolves that call failed and closes the session failed with MB5's cancellation cause. The ledger then always ends Terminal and Closed, and recovery reads a finished ledger. Prove it with a harness closing its input mid-call, with a removal control.
 
 Owning tests: `crates/brokkr-cli/tests/capability_broker.rs`.
 
@@ -2163,6 +2182,48 @@ Proof: Grant versus holding and retention facts with static scope, native denial
 
 Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 
+### U9c1 — Admit Codex's isolation options in the final-command grammar
+
+Teach the native-controls grammar the options that keep a Codex seat from inheriting MCP configuration and from reading the secrets store, as the controller measured them on codex-cli 0.162.1: `--ignore-user-config`; `--disable` of exactly `apps` and of exactly `plugins`; and the engine's permission profile, `-c permissions.<name>={filesystem={...}}` beside `-c default_permissions="<name>"`, read as the typed rendering of a sandbox class (read-only, or workspace-write over the workspace roots) that denies the workspace's secrets store. Any other `--enable` or `--disable`, any other `permissions` or `default_permissions` value, a profile without the store's deny, a second profile, a dotted `permissions.` key, or a profile beside `-s`/`--sandbox` or `-c sandbox_mode` refuses with its exact cause: on 0.162.1 `-s` silently overrides the profile, and a model-driven shell then read the denied canary. The Codex hands fragment's transport check accepts the profile where it required `--sandbox`. No launch builder changes here.
+
+Closes tasks 45.3 and 45.4; requirements [SI2](specs/strict-mcp-isolation/spec.md).
+Proof: Exact acceptance of the measured option set and profile on cold, replacement and rejoin final commands; each refused variant above refuses with its exact cause; independent removal of each new check fails its own test.
+
+Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"): Codex is qualified rather than refused, by this unit, U9c2, U0b and U1d3, all before U9b1. The measurement is the controller's record (~/.cache/forge-fires/jev/s2/codex-measure-2026-10-18.md): `--ignore-user-config` excluded the user's configuration (servers and hooks) and the project configuration of a folder the user trusts, since trust is read from the user's configuration; a permission profile denied the store; `-s` overrode it; and `/etc/codex` system and managed MCP servers started whatever was passed.
+
+Owning tests: `crates/brokkr-protocol/src/native_controls/tests.rs`.
+
+### U9c2 — Launch Codex under its isolation options
+
+Codex's cold, replacement and rejoin builders emit `--ignore-user-config`, `--disable apps` and `--disable plugins`, and render the seat's sandbox class as U9c1's profile denying the workspace's secrets store, never as `-s`/`--sandbox` or `-c sandbox_mode`. The store's path reaches every Codex seat, whether or not it binds a secret. The launch check stops treating every Codex shape as unmeasured, so Codex's declared verdicts apply as every other adapter's do. It refuses a Codex seat with an exact cause, before any provider work, on a host where `/etc/codex/config.toml` or `/etc/codex/managed_config.toml` exists, because system and managed configuration load whatever flags are passed. Codex's enterprise cloud configuration layer cannot be observed locally: U1d3 records it as a limitation in Codex's declarations, never as measured.
+
+Closes tasks 45.5 and 45.6; requirements [SI2](specs/strict-mcp-isolation/spec.md).
+Proof: Exact cold, replacement and rejoin argv for both classes, the store's deny in each rendered profile, a seat binding no secret included; refusal with either `/etc/codex` file present, through an injected host observation, and admission without; independent removal of the flags, the deny, the host refusal and the measured-verdict reading each fail their own tests.
+
+Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"): as for U9c1.
+
+Owning tests: `crates/brokkr-protocol/src/adapters/tests.rs`, `crates/brokkr-protocol/src/adapters/mcp/tests.rs`.
+
+### U0b — Measure every shape a seat can be served as
+
+U0 never measured the replacement invocation that every work seat is also served as, and measured dsh only cold without hands. Repeat D2's ambient-sentinel cells and the separate store and process canary cells for: the replacement invocation of every adapter whose work seats can be replaced (Claude, LaneTally, dsh and Codex); dsh under the box's hands, and under the harness's own hands where dsh declares them; and Codex's cold, replacement and rejoin shapes as U9c2 launches them. Each harness run uses the operator's existing login, never copied and never printed. A sentinel at a system location is planted only inside a disposable sandbox. Record adapter evidence only; no code changes.
+
+Closes tasks 1.5 and 1.6; requirements [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md), [SD1](specs/slice-two-delivery/spec.md).
+Proof: Positive controls per cell. A shape U0b does not qualify stays unsupported or unmeasured with its exact observation, and SI2 refuses it once the fence lifts.
+
+Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"): without these shapes, every work seat of every adapter, and every boxed dsh seat, would refuse once U9b1 lifts the fence. Like U0 and U0c, this row adds evidence to U0's two documents and no behavior-mirroring test. The controller runs it on the host and it lands by hand.
+
+### U1d3 — Record U0b's shapes
+
+Record U0b's measurements in the shipped adapters and in the init scaffold's copies, as U1d recorded U0's: each measured shape with its exact evidence scope, and each shape U0b did not qualify as unsupported or unmeasured with its observation. Codex's declarations also record the enterprise cloud configuration layer as a limitation, and Claude's harness authentication gains the cloud credential-chain names (U9b1's operator ruling 5). Re-bless each witness digest the declarations move, and list the moved rows.
+
+Closes tasks 5.3 and 5.4; requirements [SI1](specs/strict-mcp-isolation/spec.md), [SI2](specs/strict-mcp-isolation/spec.md).
+Proof: Each declaration's verdict matches U0b's record, cell by cell; the init scaffold's copies match the shipped adapters (`init_doctor` parity); moved witnesses are listed.
+
+Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"): this row names five files, four of them adapter declarations, above the three-file rule. The operator accepted that as one data row ("yes, the exception is fine"), so U0b's record lands in one place.
+
+Owning tests: `crates/brokkr-cli/tests/init_doctor.rs`, `crates/brokkr-runtime/tests/witness_digests.rs`.
+
 ### U9b1 — Enable the proved namespace path
 
 Lift only the global MCP compile fence after all prior proofs, activating D3's namespace, gate, strictness, carriage, secret-read, box admission/readiness, evidence and D11 rules. Quiesce older same-worktree engines before enabling managed-writer coordination;
@@ -2180,6 +2241,14 @@ count in SD4's measured total startup cost.
 Closes tasks 46.1 and 46.2; requirements [GP1](specs/gate-capability-policy/spec.md), [MB3](specs/mcp-capability-broker/spec.md), [MB2](specs/mcp-capability-broker/spec.md), [MB4](specs/mcp-capability-broker/spec.md), [CR2](specs/capability-response-retention/spec.md), [CR4](specs/capability-response-retention/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Real compile/launch/broker/fold/inspect with fake dialect; exact native/MCP gate reads/writes/explicit-office-egress required/wanted outcomes, same-name MCP holding keeps native power OFF, zero-grant sibling and exec cannot alter evidence, unsafe secret reads refuse, and quota/recovery/cold/fallback/member/step cases bind. Include the success-reporting harness after zero-call version failure, post-call fatal protocol and 4,096-call exhaustion, plus scalar-secret refusal on the real retention/inspect path; pin exact causes, counts and absent unsafe bodies.
 Add the separate HOME/TMPDIR collisions through real compile and selected launch, asserting the startup cause, zero store lookup/child start, and normal DOCS_TOKEN/private-directory control. Independent removal of reserved-name validation must fail.
+
+Operator rulings 2026-10-18 on U9b1's owed items (in chat: "1a, 2a, 3 ok 4 a, 5 add them 6 yes"; then "2 A" after the controller's Codex measurement, and "yes, add U0b"):
+1. The fence lifts where the namespace path is proved, on Linux. On macOS `McpFence` stays Standing: MCP keeps its exact refusal there, U8a2a's coordination refusals stay keyed to evidence at stake, and SI2's strict-isolation refusal stays off, until macOS boxing exists (a later effort). On Linux, after the lift, every writer Brokkr cannot box refuses on every run, including a realm whose boundary leaves a seat unboxed. Prove both: Linux refuses an unboxed writer with nothing at stake; macOS admits as before and still refuses MCP exactly.
+2. Codex is qualified by U9c1 and U9c2, and every shape a seat can be served as is measured by U0b and recorded by U1d3, before this unit. These replace the earlier conditions that macOS shapes be measured and Codex's place in the roster settled.
+3. SD4's fully cold Linux x86_64 sample: the operator runs the root cache drop when this unit reaches it, and the controller takes the sample; until then the evidence records it as pending.
+4. MCP servers refuse to start, with an exact startup cause and before any server starts, on a host where `/proc/sys/dev/tty/legacy_tiocsti` is not "0" or is absent. This closes the ancestor-mediated terminal gap accepted until this unit (U6c8's L6); a seccomp filter is not required.
+5. Claude's harness authentication gains the cloud credential-chain names (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_PROFILE, GOOGLE_APPLICATION_CREDENTIALS, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_CLIENT_CERTIFICATE_PATH, AZURE_CLIENT_CERTIFICATE_PASSWORD, AZURE_USERNAME, AZURE_PASSWORD), so MB4's collision check refuses a binding of those names; U1d3 records them.
+6. A harness that ends its input with a call active is U8b's (its ruling).
 
 Owning tests: `crates/brokkr-runtime/tests/capability_broker_launch.rs`, `crates/brokkr-cli/src/doctor/capability_tests.rs`.
 

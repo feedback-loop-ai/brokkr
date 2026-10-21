@@ -2,6 +2,7 @@
 //! alternative beside role+driver, panel and sequence.
 
 use super::*;
+use crate::argv::tests::ENGINE;
 use serde_json::json;
 
 fn error<T>(result: Result<T, CompileError>) -> String {
@@ -2558,7 +2559,7 @@ fn an_inline_sites_plan_types_its_hands_as_an_agent_backed_sites_plan_does() {
         )
     };
     let hands = json!({"kind": "workspace", "network": false, "binds": []});
-    let expanded = expand_command(&fixture.bundle(), &workspace);
+    let expanded = expand_command(&ENGINE, &fixture.bundle(), &workspace);
     assert_eq!(
         typed(Some(hands)),
         (
@@ -2623,7 +2624,7 @@ fn an_inherited_inline_sites_hands_expand_against_its_owning_layer_as_an_agents_
             .cloned(),
         other => panic!("work composes: {other:?}"),
     };
-    let expanded = expand_command(&base, &workspace);
+    let expanded = expand_command(&ENGINE, &base, &workspace);
     assert_eq!(
         (bundle.sites["review"].inline_hands.clone(), agent),
         (
@@ -2631,7 +2632,10 @@ fn an_inherited_inline_sites_hands_expand_against_its_owning_layer_as_an_agents_
             Some(Segment::new(Origin::Hands, &expanded))
         )
     );
-    assert_ne!(expanded, expand_command(&fixture.bundle(), &workspace));
+    assert_ne!(
+        expanded,
+        expand_command(&ENGINE, &fixture.bundle(), &workspace)
+    );
 }
 
 /// Second review return of rebuild unit 14a4a (C1): a select case the leaf
@@ -2705,8 +2709,8 @@ fn a_mixed_origin_selects_inline_hands_expand_against_each_cases_owning_layer() 
         other => panic!("review:chore composes: {other:?}"),
     };
     let (leaf, inherited) = (
-        expand_command(&fixture.bundle(), &workspace),
-        expand_command(&base, &workspace),
+        expand_command(&ENGINE, &fixture.bundle(), &workspace),
+        expand_command(&ENGINE, &base, &workspace),
     );
     assert_eq!(
         (
@@ -2787,7 +2791,7 @@ fn an_agent_backed_sites_compiled_composition_keeps_each_serving_input_as_declar
     let expected = |serving: ServingInputs, emitted: Vec<String>| {
         (
             format!("{:?}", Box::new(serving)),
-            format!("{:?}", expand_command(&root, &emitted)),
+            format!("{:?}", expand_command(&ENGINE, &root, &emitted)),
         )
     };
     let (claude_pins, codex_pins) = (
@@ -2902,7 +2906,7 @@ fn an_inline_codex_class_carries_its_declared_fragment_beside_its_expanded_emiss
                 "{:?}",
                 Some(Segment::new(
                     Origin::Local,
-                    &expand_command(&fixture.bundle(), declared)
+                    &expand_command(&ENGINE, &fixture.bundle(), declared)
                 ))
             ),
         )
@@ -6664,6 +6668,7 @@ fn a_nested_library_owns_its_charter_and_no_recipe_path_is_reclassified() {
 }
 mod charter_tests;
 mod gate_tests;
+mod hire_order_tests;
 mod mcp_tests;
 mod opened_tests;
 mod sandbox_tests;

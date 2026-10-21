@@ -33,11 +33,17 @@ fn defined(library: &Path) -> PathBuf {
     library.with_file_name("defined")
 }
 
+/// The workspace's root, which holds its `library`.
+fn rooted(library: &Path) -> &Path {
+    library.parent().expect("a library below its root")
+}
+
 /// What [`plan`] makes of a recipe holding `seats` beside `source`.
 fn planned(source: &Path, library: &Path, seats: serde_json::Value) -> Result<Vec<Hire>, Hiring> {
     plan(
         &[&recipe(source, seats)],
         Some(source),
+        rooted(library),
         library,
         &defined(library),
     )
@@ -97,7 +103,8 @@ fn plan_reads_every_site_form_and_copies_what_the_library_lacks() {
     assert_eq!(planned(&source, &library, seats.clone()), Ok(Vec::new()));
     let absent = source.with_file_name("absent");
     assert_eq!(planned(&absent, &library, seats.clone()), Ok(Vec::new()));
-    let unsourced = plan(&[&recipe(&source, seats)], None, &library, &library);
+    let root = rooted(&library);
+    let unsourced = plan(&[&recipe(&source, seats)], None, root, &library, &library);
     assert_eq!(unsourced, Ok(Vec::new()));
 
     let mut again = Vec::new();
@@ -126,7 +133,13 @@ fn plan_refuses_by_variant_what_it_cannot_read_or_would_replace() {
     let bundle = missing.join("bundle.json");
     let absent = "No such file or directory (os error 2)";
     assert_eq!(
-        plan(&[&missing], Some(&source), &library, &library),
+        plan(
+            &[&missing],
+            Some(&source),
+            rooted(&library),
+            &library,
+            &library
+        ),
         Err(unread(&bundle, absent))
     );
     let typed = planned(&source, &library, json!({"a": {"agent": 5}}));
@@ -288,9 +301,49 @@ fn plan_refuses_a_destination_that_is_no_plain_file() {
     assert_eq!(planned.map(|hires| hires.len()), Ok(2));
 }
 
+/// A directory between the workspace's root and a destination that is a
+/// link refuses by name before any byte is compared (#735), the link left
+/// as it stands: the library linked to a directory inside the root, a
+/// charter's directory in it linked outside the root, and the capability
+/// definitions linked inside. A file where the library is due refuses by
+/// name too, left as it stands (#779).
+#[test]
+fn plan_refuses_a_destination_beneath_a_linked_directory() {
+    let (_dir, source, library) = libraries();
+    let root = rooted(&library).to_path_buf();
+    let a = json!({"charter": "charters/a.md", "capabilities": {"web-fetch": "wants"}});
+    write(&source.join("a.json"), &a.to_string());
+    write(&source.join("charters/a.md"), "# a\n");
+    let from = source.with_file_name("capabilities");
+    write(&from.join("web-fetch.json"), "{}\n");
+    let seats = json!({"a": {"agent": "a"}});
+    let (inside, outside) = (root.join("inside"), tempfile::tempdir().unwrap());
+    std::fs::create_dir(&inside).unwrap();
+    let refused = |at: &Path, target: &Path| {
+        std::os::unix::fs::symlink(target, at).unwrap();
+        let linked = Err(Hiring::Linked { path: at.into() });
+        assert_eq!(planned(&source, &library, seats.clone()), linked);
+        assert_eq!(std::fs::read_link(at).unwrap(), target);
+        std::fs::remove_file(at).unwrap();
+    };
+    refused(&library, &inside);
+    std::fs::create_dir(&library).unwrap();
+    refused(&library.join("charters"), outside.path());
+    refused(&defined(&library), &inside);
+    let entries = |dir: &Path| std::fs::read_dir(dir).unwrap().count();
+    assert_eq!((entries(&inside), entries(outside.path())), (0, 0));
+    std::fs::remove_dir(&library).unwrap();
+    write(&library, "a file");
+    let blocked = Err(Hiring::Blocked {
+        path: library.clone(),
+    });
+    assert_eq!(planned(&source, &library, seats), blocked);
+    assert_eq!(std::fs::read_to_string(&library).unwrap(), "a file");
+}
+
 /// An entry on the walk, or a definition, this process cannot read refuses
 /// by name, never taken as absent (fail closed); so does a destination
-/// whose entry cannot be inspected.
+/// whose entry cannot be inspected, or a directory on the way to it.
 #[test]
 fn plan_refuses_what_it_is_denied() {
     use std::os::unix::fs::PermissionsExt;
@@ -320,7 +373,15 @@ fn plan_refuses_what_it_is_denied() {
     mode(&library, 0o000);
     let refused = planned(&source, &library, json!({"a": {"agent": "a"}}));
     mode(&library, 0o700);
-    let (path, cause) = (library.join("a.json"), denied);
+    let (path, cause) = (library.join("a.json"), denied.clone());
+    assert_eq!(refused, Err(Hiring::Unread { path, cause }));
+    let z = json!({"charter": "charters/z.md"}).to_string();
+    write(&source.join("z.json"), &z);
+    write(&source.join("charters/z.md"), "# z\n");
+    mode(&library, 0o000);
+    let refused = planned(&source, &library, json!({"z": {"agent": "z"}}));
+    mode(&library, 0o700);
+    let (path, cause) = (library.join("charters"), denied);
     assert_eq!(refused, Err(Hiring::Unread { path, cause }));
 }
 
@@ -381,6 +442,17 @@ fn each_refusal_says_what_was_not_written() {
             "the workspace's /s/a.json is a link, or not a plain file, where recipes add would \
              copy one; recipes add neither reads through nor replaces it (#703): remove it; \
              nothing was written",
+        ),
+        (
+            Hiring::Linked { path: path.clone() },
+            "the workspace's /s/a.json is a link, where recipes add would copy a file beneath it; \
+             recipes add neither reads through nor replaces it (#735): remove it; nothing was \
+             written",
+        ),
+        (
+            Hiring::Blocked { path: path.clone() },
+            "the workspace's /s/a.json is not a directory, where recipes add would copy a file \
+             beneath it; recipes add does not replace it (#779): remove it; nothing was written",
         ),
         (
             Hiring::Differs {

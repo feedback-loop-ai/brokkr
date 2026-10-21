@@ -15,11 +15,7 @@
  326 crates/brokkr-protocol/src/native_controls.rs:2085 sealed_inputs
  342 crates/brokkr-protocol/src/native_controls.rs:3711 compose_or_exclude
  106 crates/brokkr-protocol/src/native_controls/grammar.rs:690 parse_span
- 122 crates/brokkr-runtime/src/agents.rs:1094 compose
- 173 crates/brokkr-runtime/src/agents/load.rs:767 parse_adapter
- 101 crates/brokkr-runtime/src/agents/load.rs:1008 resume_assessment
  240 crates/brokkr-runtime/src/capabilities.rs:1491 native_plan
- 127 crates/brokkr-runtime/src/dialect.rs:434 check
  115 crates/brokkr-seatbelt-probe/src/main.rs:346 run_payload
  178 crates/brokkr-view/src/lib.rs:1009 scan_participants
  150 crates/brokkr-view/src/lib.rs:1820 participants

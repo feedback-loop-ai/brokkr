@@ -24,7 +24,11 @@ use super::*;
 use crate::bundle::{Invocation, PanelMember};
 use crate::capabilities::McpFence;
 use crate::engine::broker::admission::tests::{driver, hands, last};
-use crate::engine::broker::admission::{Conflict, Unadmitted};
+#[cfg(target_os = "linux")]
+use crate::engine::broker::admission::tests::{leased, standing_writer, unsynced_next};
+use crate::engine::broker::admission::{Conflict, Unadmitted, Unknown};
+#[cfg(target_os = "linux")]
+use crate::engine::broker::settlement::Unreleased;
 use crate::engine::tests::{engine, set_site_hands};
 
 /// The panel seat: the retaining `keeper`, one boxed inline Claude site,
@@ -333,7 +337,11 @@ fn dispatched(claude: &mut Claude, case: &str, (spec, attack): (&HandsSpec, &str
     // Its reach sealed as its admission seals it, under the fixture's HOME.
     let git = brokkr_protocol::hands::git_facts(&work);
     let reach = brokkr_protocol::hands::seal(spec, &claude.fixture.root.join("home"), &work, &git);
-    let boxed = (artifacts.as_path(), Some(&reach));
+    let boxed = (
+        &*crate::argv::tests::ENGINE,
+        artifacts.as_path(),
+        Some(&reach),
+    );
     let argv = crate::engine::boxed::hands_command(exec.to_vec(), Some(spec), &work, boxed, &[]);
     let repo = canonical::sha256_bytes(work.as_os_str().as_encoded_bytes());
     let home = claude
@@ -646,4 +654,878 @@ fn aliased(root: &Path) {
     );
     claude.attacked();
     claude.refused(reaching(&claude, &evidence), (&artifact, b"kept"));
+}
+
+/// The package the fixture's server is installed in: the program tree its
+/// box is built from (U8a2b).
+#[cfg(target_os = "linux")]
+fn package(claude: &Claude) -> PathBuf {
+    claude.fixture.root.join("opt/docs")
+}
+
+impl Claude {
+    /// The attempt failed by MB3's identity cause, `site` of `run` able to
+    /// write the server's package, before anything of it started, naming
+    /// the launch that lies in it, reserved before any survey
+    /// ([`Claude::exposing`]).
+    #[cfg(target_os = "linux")]
+    fn exposed(&self, site: &str, run: &str) {
+        self.exposing(site, run, Path::new(&self.fixture.server()));
+    }
+
+    /// The attempt failed by MB3's identity cause, `site` of `run` able to
+    /// write the server's source `served`, before anything of it started: no
+    /// member's driver spawned, no plan written for a broker to bind, so no
+    /// secret looked up and no server started, and the program unchanged.
+    #[cfg(target_os = "linux")]
+    fn exposing(&self, site: &str, run: &str, served: &Path) {
+        let (event, payload) = last(&self.fixture.engine);
+        assert_eq!(event, EventType::EffectFailed, "{payload}");
+        let served = served.to_path_buf();
+        let (site, run) = (site.to_string(), run.to_string());
+        let refused = Unadmitted::Identity(Unknown::Serving { site, run, served });
+        assert_eq!(payload["error"], refused.to_string());
+        let spawned = self.fixture.root.join("driver.argv").exists();
+        assert!(!spawned, "the keeper never started");
+        let names = std::fs::read_dir(self.fixture.run_dir()).unwrap();
+        let names: Vec<_> = names.map(|entry| entry.unwrap().file_name()).collect();
+        assert_eq!(names, ["reservation.json"], "no plan was written");
+        let program = std::fs::read(self.fixture.server()).unwrap();
+        assert_eq!(program, b"#!/bin/sh\n", "the server's program");
+    }
+}
+
+/// A zero-grant panel sibling whose box could write the package the
+/// retaining keeper's server is built from, through a link toward it, is
+/// refused by MB3's identity cause as the keeper's lease is extended to its
+/// server's sources, before any member starts; a sibling writing only its
+/// own worktree runs beside the keeper. Linux only, as it admits a boxed
+/// writer beside the mount table's judgement (decision 0063).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_zero_grant_sibling_that_can_write_the_servers_package_never_starts() {
+    let mut claude = Claude::retaining();
+    let link = claude.fixture.root.join("docs");
+    std::os::unix::fs::symlink(package(&claude), &link).unwrap();
+    let forge = format!("printf forged > '{}'", claude.fixture.server());
+    armed(&mut claude.fixture.engine, &forge, Some(hands(&[&link])));
+    claude.attacked();
+    let run = claude.fixture.engine.run_id.clone();
+    claude.exposed("work:attacker", &run);
+    armed(&mut claude.fixture.engine, ":", Some(hands(&[])));
+    claude.attacked();
+    let (_, payload) = last(&claude.fixture.engine);
+    let keeper = claude.fixture.root.join("driver.argv").exists();
+    assert!(keeper, "the keeper ran: {payload}");
+}
+
+/// A system server's box is built from the system directories every
+/// server box binds, which lie in the operating system's own roots: with
+/// the keeper's server the system `true`, a zero-grant sibling whose box
+/// could write, through a link, the directory holding that program, or
+/// `/usr/share`, is refused by MB3's identity cause naming `/usr`, the root
+/// it reaches (D6), before any member starts. Linux only, as above.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_zero_grant_sibling_that_can_write_a_system_servers_source_never_starts() {
+    let home = PathBuf::from("/");
+    let program = ServerProgram::resolve("true", &home).unwrap();
+    let program = program.executable().to_path_buf();
+    let bin = std::fs::canonicalize(program.parent().unwrap()).unwrap();
+    let share = std::fs::canonicalize("/usr/share").unwrap();
+    let usr = PathBuf::from("/usr");
+    for (target, served) in [(&bin, &usr), (&share, &usr)] {
+        let mut claude = Claude::retaining();
+        claude.launched(&["true"]);
+        let link = claude.fixture.root.join("system");
+        std::os::unix::fs::symlink(target, &link).unwrap();
+        armed(&mut claude.fixture.engine, ":", Some(hands(&[&link])));
+        claude.attacked();
+        let run = claude.fixture.engine.run_id.clone();
+        claude.exposing("work:attacker", &run, served);
+    }
+}
+
+/// Writer first (H2): another worktree's zero-grant run, already standing,
+/// whose box could write, through a link, the bootstrap's directory or
+/// `/usr/bin`, refuses the retaining keeper's attempt by MB3's identity
+/// cause naming it, or `/usr`, the root it lies in (D6), before any box is
+/// surveyed; so does one that could
+/// write the package, naming the launch that lies in it. Either way
+/// nothing of the attempt starts and no plan is written for a broker to
+/// bind, so none looks a secret up or starts its server. Linux only, as
+/// above.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_standing_writer_of_a_servers_input_refuses_the_broker_before_lookup() {
+    let bin = std::fs::canonicalize("/usr/bin").unwrap();
+    let boot = |claude: &Claude| claude.fixture.root.join("boot/brokkr");
+    // What a fixture's writer links toward, and the input that names.
+    type Named<'n> = &'n dyn Fn(&Claude) -> PathBuf;
+    let cases: [(Named<'_>, Named<'_>, usize); 3] = [
+        (&|claude| boot(claude).parent().unwrap().into(), &boot, 0),
+        (&|_| bin.clone(), &|_| PathBuf::from("/usr"), 0),
+        (&package, &|claude| claude.fixture.server().into(), 0),
+    ];
+    for (target, served, surveys) in cases {
+        let mut claude = Claude::retaining();
+        let boot = boot(&claude);
+        std::fs::create_dir_all(boot.parent().unwrap()).unwrap();
+        std::fs::write(&boot, "brokkr").unwrap();
+        let link = claude.fixture.root.join("aliased");
+        std::os::unix::fs::symlink(target(&claude), &link).unwrap();
+        let other = claude.fixture.root.join("other");
+        std::fs::create_dir(&other).unwrap();
+        let home = claude.fixture.root.join("home");
+        let _standing = standing_writer(&home, &other, &link);
+        armed(&mut claude.fixture.engine, ":", Some(hands(&[])));
+        SURVEYED.set(0);
+        let host = Host {
+            bootstrap: boot,
+            ..claude.fixture.host()
+        };
+        let _lift = McpFence::lift();
+        claude.executed_on(host);
+        claude.exposing("work", "run-b", &served(&claude));
+        assert_eq!(SURVEYED.get(), surveys, "{:?}", served(&claude));
+    }
+}
+
+/// Writer first, by a link on a route (U8a2b, run three): another
+/// worktree's standing zero-grant run confined to `srv/links`, which holds
+/// only a link on the way of a server's input — the bootstrap's or the
+/// keeper's launch, each refused before any box is surveyed (run four) —
+/// refuses the retaining keeper's attempt by MB3's identity
+/// cause naming that link, though neither the input as spelled nor where it
+/// resolves lies in its reach: nothing starts and no plan is written for a
+/// broker to bind, so none looks a secret up or starts its server. One
+/// confined to a directory beside it is kept apart, and the keeper runs.
+/// Linux only, as above.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_standing_writer_of_a_link_on_a_servers_route_refuses_the_broker_before_lookup() {
+    let symlink = |target: &Path, link: &Path| std::os::unix::fs::symlink(target, link).unwrap();
+    for (case, surveys) in [("bootstrap", 0), ("launch", 0), ("apart", 1)] {
+        let mut claude = Claude::retaining();
+        let root = claude.fixture.root.clone();
+        let [links, apart, other] = ["srv/links", "srv/apart", "other"].map(|dir| root.join(dir));
+        for made in [&links, &apart, &other] {
+            std::fs::create_dir_all(made).unwrap();
+        }
+        let boot = root.join("opt/brokkr");
+        std::fs::write(&boot, "brokkr").unwrap();
+        symlink(&boot, &links.join("brokkr"));
+        symlink(&links.join("brokkr"), &root.join("boot"));
+        symlink(Path::new(&claude.fixture.server()), &links.join("server"));
+        symlink(&links.join("server"), &root.join("launch"));
+        claude.launched(&[&root.join("launch").display().to_string(), "--stdio"]);
+        let reach = if case == "apart" { &apart } else { &links };
+        let _standing = standing_writer(&root.join("home"), &other, reach);
+        armed(&mut claude.fixture.engine, ":", Some(hands(&[])));
+        SURVEYED.set(0);
+        let bootstrap = if case == "bootstrap" {
+            root.join("boot")
+        } else {
+            boot
+        };
+        let host = Host {
+            bootstrap,
+            ..claude.fixture.host()
+        };
+        let _lift = McpFence::lift();
+        claude.executed_on(host);
+        match case {
+            "bootstrap" => claude.exposing("work", "run-b", &links.join("brokkr")),
+            "launch" => claude.exposing("work", "run-b", &links.join("server")),
+            _ => {
+                let (_, payload) = last(&claude.fixture.engine);
+                let keeper = root.join("driver.argv").exists();
+                assert!(keeper, "a writer apart: the keeper ran: {payload}");
+            }
+        }
+        assert_eq!(SURVEYED.get(), surveys, "{case}");
+    }
+}
+
+/// A launch swapped while its survey ran (U8a2b, run four): with another
+/// worktree's zero-grant run standing, confined to `srv/links`, the launch
+/// is a link straight toward the server's program, so the extension before
+/// the survey commits; the survey's stand-in then points it through
+/// `srv/links`. The extension after the survey locates the launch again
+/// and refuses the attempt by MB3's identity cause naming the link the
+/// writer could replace, and no plan is written. Left as it was, the
+/// attempt provisions. Linux only: the extension reads the mount table.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_launch_swapped_during_its_survey_refuses_the_extension_after_it() {
+    for swapped in [true, false] {
+        let mut claude = Claude::of(Fixture::inline(), single(), &["work"]);
+        let root = claude.fixture.root.clone();
+        let [links, other] = ["srv/links", "other"].map(|dir| root.join(dir));
+        for made in [&links, &other] {
+            std::fs::create_dir_all(made).unwrap();
+        }
+        let (server, launch) = (PathBuf::from(claude.fixture.server()), root.join("launch"));
+        std::os::unix::fs::symlink(&server, links.join("server")).unwrap();
+        std::os::unix::fs::symlink(&server, &launch).unwrap();
+        let held = admitted("library-docs", &[&launch.display().to_string()], true);
+        claude.fixture.hold("library-docs", held);
+        let home = root.join("home");
+        let _standing = standing_writer(&home, &other, &links);
+        leased(&mut claude.fixture.engine, &home, "attempt-1");
+        let survey = |bootstrap: &Path, request: &Survey, deadline: Instant| {
+            if swapped {
+                std::fs::remove_file(&launch).unwrap();
+                std::os::unix::fs::symlink(links.join("server"), &launch).unwrap();
+            }
+            observing(bootstrap, request, deadline)
+        };
+        let (ids, mut bound) = (["effect", "attempt-1", "work"], Duration::from_secs(60));
+        let (mut selection, host) = (selected(), Ok(claude.fixture.host()));
+        let engine = &mut claude.fixture.engine;
+        let timed = (Instant::now(), &mut bound);
+        let launched = engine.provision_with(ids, &mut selection, timed, host, &survey);
+        assert_eq!(launched.unwrap(), !swapped, "swapped: {swapped}");
+        if swapped {
+            let (_, payload) = last(engine);
+            let (site, run, served) = ("work".into(), "run-b".into(), links.join("server"));
+            let refused = Unadmitted::Identity(Unknown::Serving { site, run, served });
+            assert_eq!(payload["error"], refused.to_string());
+            assert!(
+                !claude.fixture.run_dir().join("attempt-1").exists(),
+                "no plan"
+            );
+        }
+    }
+}
+
+impl Claude {
+    /// The work seat's effect executed as dispatch executes it, on `host`
+    /// stood in.
+    #[cfg(target_os = "linux")]
+    fn executed_on(&mut self, host: Host) {
+        let _host = StoodIn::new(host);
+        let effect = requested(&self.fixture.engine, "effect");
+        execute_work(&mut self.fixture.engine, &[effect]).unwrap();
+    }
+
+    /// The retaining keeper's `library-docs` server launched by `argv`.
+    #[cfg(target_os = "linux")]
+    fn launched(&mut self, argv: &[&str]) {
+        let keeper = self.fixture.engine.bundle.sites.get_mut("work:keeper");
+        let outcome = &mut keeper.unwrap().capabilities.as_mut().unwrap().outcomes[0];
+        let held = admitted("library-docs", argv, true);
+        outcome.held.insert("library-docs".into(), held);
+    }
+}
+
+/// L1: a seal of the lease that committed unsynced is kept on the lease
+/// whatever provisioning refuses after it — a survey that does not answer,
+/// after the extension to the fixed inputs, or an attempt directory that
+/// already stands, after both extensions — so, though the attempt is then
+/// proven settled and released, it fails its run as it settles under the
+/// fence rule. Linux only: the extension reads the mount table (decision
+/// 0063).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_seal_committed_unsynced_is_kept_whatever_provisioning_refuses_after_it() {
+    let silent = |_: &Path, _: &Survey, _: Instant| Err(Unprovisioned::Expired);
+    let cases: [(Surveyor<'_>, Unprovisioned); 2] = [
+        (&silent, Unprovisioned::Expired),
+        (&observing, Unprovisioned::Provisioned),
+    ];
+    for (survey, refused) in cases {
+        let mut claude = Claude::of(Fixture::inline(), single(), &["work"]);
+        let home = claude.fixture.root.join("home");
+        leased(&mut claude.fixture.engine, &home, "attempt-1");
+        let made = claude.fixture.run_dir().join("attempt-1");
+        if refused == Unprovisioned::Provisioned {
+            std::fs::create_dir(&made).unwrap();
+        }
+        unsynced_next();
+        let (ids, mut bound) = (["effect", "attempt-1", "work"], Duration::from_secs(60));
+        let (mut selection, host) = (selected(), Ok(claude.fixture.host()));
+        let timed = (Instant::now(), &mut bound);
+        let engine = &mut claude.fixture.engine;
+        let launched = engine.provision_with(ids, &mut selection, timed, host, survey);
+        assert!(!launched.unwrap(), "{refused}");
+        let (_, payload) = last(engine);
+        assert_eq!(payload["error"], refused.to_string());
+        let _lift = McpFence::lift();
+        let settled = engine.settle("attempt-1", Ok(())).unwrap_err();
+        let EngineError::Unreleased(unreleased) = &settled else {
+            panic!("{refused}: {settled}");
+        };
+        let unsynced = Unreleased::released(Unadmitted::Identity(Unknown::Unsynced));
+        assert_eq!(*unreleased, unsynced, "{refused}: kept on the lease");
+    }
+}
+
+/// With the fence lifted every attempt that brokers is admitted before it
+/// is provisioned, so provisioning one that holds no lease is refused by
+/// MB3's identity cause, naming the reservation it lacks, before any box
+/// is surveyed and before anything is made (`sources::held_extended`).
+/// While the fence stands a test's attempt it never admitted is
+/// provisioned from HOME, as the provisioning suite's are.
+#[test]
+fn a_brokered_attempt_holding_no_lease_is_refused_once_the_fence_lifts() {
+    let claude = Claude::of(Fixture::inline(), single(), &["work"]);
+    let survey = |_: &Path, _: &Survey, _: Instant| panic!("a box was surveyed");
+    let _lift = McpFence::lift();
+    let refused = claude.fixture.provision("attempt-1", &survey);
+    let lost = Unprovisioned::Unadmitted(Unknown::Lost.into());
+    assert_eq!(refused, Err(lost));
+    assert!(!claude.fixture.run_dir().exists(), "nothing was made");
+}
+
+/// Names the directory [`serving_dispatch`] makes its fixture in.
+#[cfg(target_os = "linux")]
+const SERVED: &str = "BROKKR_U8A2B_SERVED";
+
+/// [`serving_dispatch`], as its test runs it.
+#[cfg(target_os = "linux")]
+const SERVER: &str =
+    "engine::capability_tests::provision_tests::brokered_tests::writers_tests::serving_dispatch";
+
+/// Names the directory [`serving_broker`] finds its fixture in.
+#[cfg(target_os = "linux")]
+const BROKER: &str = "BROKKR_U8A2B_BROKER";
+
+/// [`serving_broker`], as the seat's driver runs it.
+#[cfg(target_os = "linux")]
+const BROKER_TEST: &str =
+    "engine::capability_tests::provision_tests::brokered_tests::writers_tests::serving_broker";
+
+/// What outlives the engine [`killed_while`] kills: the seat's driver
+/// alone, or a real server box the seat's broker launched beneath it, its
+/// harness confined by the `setpriv` found ([`setpriv`]).
+#[cfg(target_os = "linux")]
+#[derive(Clone, PartialEq, Eq)]
+enum Payload {
+    Seat,
+    Server(PathBuf),
+}
+
+/// The `setpriv` on this process's `PATH`, which confines a harness under
+/// `no_new_privs`; none where this host has none.
+#[cfg(target_os = "linux")]
+fn setpriv() -> Option<PathBuf> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let found = std::env::split_paths(&path).map(|dir| dir.join("setpriv"));
+    found.into_iter().find(|found| found.is_file())
+}
+
+/// The engine [`killed_while`] kills, in a process of its own: the single
+/// brokered seat's attempt dispatched with the fence lifted on the fixture
+/// it makes in the directory [`SERVED`] names — admitted, its lease
+/// extended to its server's inputs, its server's plan written — and its
+/// driver, the seat whose broker serves that server, writing its pid and
+/// waiting to be killed: as a shell, or, where the directory holds
+/// `payload`, naming the `setpriv` its parent found, as [`serving_broker`],
+/// its server the package's program, which waits. Inert without
+/// [`SERVED`]; production reads no such variable.
+#[cfg(target_os = "linux")]
+#[test]
+fn serving_dispatch() {
+    let Some(dir) = std::env::var_os(SERVED) else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let mut claude = Claude::of(Fixture::inline_in(&dir), single(), &["work"]);
+    let (source, pid) = (dir.join("seat.source"), dir.join("seat.pid"));
+    let shown = pid.display();
+    let waits = format!("echo $$ > '{shown}.new'\nmv '{shown}.new' '{shown}'\nexec sleep 600");
+    // The broker's observer holds its write-exclusion proof against itself,
+    // its parent and theirs (MB3): each confined under `no_new_privs`, as
+    // `setpriv` sets it, here a harness shell, the shell it runs and the
+    // broker that one runs, each a child, not in its parent's place.
+    // Named by its parent, which skips where this host has none ([`setpriv`]).
+    // The seat's own shell stays, holding the stdout its engine reads: a
+    // driver whose stdout closes unaccepted is one the engine ends after its
+    // grace, and a slow host's box can take longer than that to stand.
+    let setpriv = std::fs::read_to_string(dir.join("payload")).ok();
+    let harness = "'\"$0\" \"$@\"; exit $?'";
+    let serves = |setpriv: &str| {
+        format!(
+            "{BROKER}='{0}' RUST_BACKTRACE=1 '{setpriv}' --no-new-privs /bin/sh -c {harness} \
+             /bin/sh -c \
+             {harness} '{1}' --exact {BROKER_TEST} --nocapture --test-threads=1 \
+             > '{0}/broker.out' 2>&1",
+            dir.display(),
+            std::env::current_exe().unwrap().display(),
+        )
+    };
+    if setpriv.is_some() {
+        std::fs::write(claude.fixture.server(), "#!/bin/sh\nexec sleep 600\n").unwrap();
+        // The package as installed: written by no one but its owner,
+        // whatever the umask made its directories, or no box stands.
+        for made in ["opt", "opt/docs", "opt/docs/bin"] {
+            let shut = std::os::unix::fs::PermissionsExt::from_mode(0o755);
+            std::fs::set_permissions(claude.fixture.root.join(made), shut).unwrap();
+        }
+    }
+    let body = setpriv.as_deref().map_or(waits, serves);
+    std::fs::write(&source, format!("#!/bin/sh\n{body}\n")).unwrap();
+    let seat = super::super::survey_tests::installed(&dir, "seat", &source);
+    let engine = &mut claude.fixture.engine;
+    let body = &mut engine.bundle.seats.get_mut("work").unwrap().body;
+    *program(body) = seat.display().to_string();
+    let named = format!("{}\n{}\n", claude.fixture.root.display(), engine.run_id);
+    std::fs::write(dir.join("fixture"), named).unwrap();
+    claude.attacked();
+    // The seat waits to be killed, so a dispatch that returns never stood it:
+    // say why, for the parent to show.
+    let (event, payload) = last(&claude.fixture.engine);
+    panic!("the dispatch returned before its seat stood: {event:?} {payload}");
+}
+
+/// The fixture root and run [`serving_dispatch`] named in `dir`.
+#[cfg(target_os = "linux")]
+fn named(dir: &Path) -> (PathBuf, String) {
+    let named = std::fs::read_to_string(dir.join("fixture")).unwrap();
+    let (root, run) = named.trim().split_once('\n').unwrap();
+    (PathBuf::from(root), run.to_string())
+}
+
+/// The directory of `run`'s lease on the fixture at `root`.
+#[cfg(target_os = "linux")]
+fn lease_dir(root: &Path, run: &str) -> PathBuf {
+    let work = root.join("work");
+    let repo = canonical::sha256_bytes(work.as_os_str().as_encoded_bytes());
+    root.join("home").join(COORDINATION).join(repo).join(run)
+}
+
+/// The one plan the inventory of the one attempt in the run directory
+/// `run` pins, its bytes checked against the pin, as a broker binds it.
+#[cfg(target_os = "linux")]
+fn pinned(run: &Path) -> brokkr_protocol::broker::Plan {
+    let entries = std::fs::read_dir(run).unwrap();
+    let entries = entries.map(|entry| entry.unwrap().path().join("inventory.json"));
+    let inventories: Vec<PathBuf> = entries.filter(|path| path.is_file()).collect();
+    let [inventory] = &inventories[..] else {
+        panic!(
+            "one attempt in {} holds an inventory: {inventories:?}",
+            run.display()
+        );
+    };
+    let inventory = std::fs::read(inventory).unwrap();
+    let inventory: brokkr_protocol::broker::Inventory = serde_json::from_slice(&inventory).unwrap();
+    let [pin] = &inventory.plans[..] else {
+        panic!("one plan is pinned");
+    };
+    let bytes = std::fs::read(&pin.locator).unwrap();
+    assert_eq!(canonical::sha256_bytes(&bytes), pin.digest, "as pinned");
+    serde_json::from_slice(&bytes).unwrap()
+}
+
+/// [`serving_broker`]'s word on its box, `said`, written to `served` in
+/// `dir`, then its own pid as the seat's.
+#[cfg(target_os = "linux")]
+fn standing(dir: &Path, said: &Value) {
+    std::fs::write(dir.join("served"), said.to_string()).unwrap();
+    let pid = dir.join("seat.pid");
+    std::fs::write(dir.join("seat.pid.new"), std::process::id().to_string()).unwrap();
+    std::fs::rename(dir.join("seat.pid.new"), pid).unwrap();
+}
+
+/// The seat's broker of [`serving_dispatch`], in the seat's own process,
+/// inert without [`BROKER`]: the plan the attempt's inventory pins, its
+/// server's box prepared on this host and launched as a broker launches
+/// it ([`served_box`]). Its word: the box's first process, or why no box
+/// stands.
+#[cfg(target_os = "linux")]
+#[test]
+fn serving_broker() {
+    let Some(dir) = std::env::var_os(BROKER).map(PathBuf::from) else {
+        return;
+    };
+    let serving = std::panic::AssertUnwindSafe(|| {
+        let (root, run) = named(&dir);
+        let plan = pinned(&lease_dir(&root, &run));
+        let Err(unserved) = served_box(&dir, &root, &plan);
+        unserved.to_string()
+    });
+    // The child's one diagnostic, whether it refused or panicked: its
+    // parent reads only this text.
+    let said = match std::panic::catch_unwind(serving) {
+        Ok(refused) => json!({ "refused": refused }),
+        Err(panicked) => {
+            let text = panicked.downcast_ref::<String>().cloned();
+            let text =
+                text.or_else(|| panicked.downcast_ref::<&str>().map(|text| text.to_string()));
+            json!({ "panicked": text })
+        }
+    };
+    standing(&dir, &said);
+}
+
+/// Why [`served_box`] stood no box: MB3's refusal, as the protocol made
+/// it, or a box that never readied, with how its first process ended.
+#[cfg(target_os = "linux")]
+#[derive(Debug, thiserror::Error)]
+enum Unserved {
+    #[error(transparent)]
+    Refused(#[from] brokkr_protocol::broker::Refusal),
+    #[error("the box never readied: {0:?}")]
+    Unready(std::io::Result<std::process::ExitStatus>),
+}
+
+/// The server box of `plan`, prepared from the plan's own intent on this
+/// host and launched on its entry, the shell standing for its bootstrap as
+/// in the protocol's own box test, which execs the server once the box
+/// readied: its first process written ([`standing`]), then held until this
+/// process is killed. Why it does not stand, otherwise.
+#[cfg(target_os = "linux")]
+fn served_box(
+    dir: &Path,
+    root: &Path,
+    plan: &brokkr_protocol::broker::Plan,
+) -> Result<std::convert::Infallible, Unserved> {
+    use brokkr_protocol::hands::{ServerBox, ServerProfile, ServerProgram};
+    use std::io::Read;
+    use std::os::fd::AsFd;
+    let home = root.join("home");
+    let program = ServerProgram::resolve(&plan.connection.argv[0], &home)?;
+    let (intent, bootstrap) = (&plan.intent, std::fs::canonicalize("/bin/sh").unwrap());
+    let profile = ServerProfile {
+        reach: &intent.reach,
+        network: &intent.network,
+        bootstrap: &bootstrap,
+        writers: &intent.writers.uids,
+    };
+    let mut server = ServerBox::prepare(&program, &profile)?;
+    let entry = server.entry(std::process::id())?;
+    let handles: Vec<_> = server.handles().map(|(_, fd)| fd.as_fd()).collect();
+    let executable = program.executable().display();
+    let script = format!("printf ready > \"/proc/self/fd/$2\" && exec '{executable}'");
+    let command = |control: i32, ready: i32, status: i32| {
+        let numbers = [control, ready, status].map(|fd| fd.to_string());
+        let args = ["-c", &script, "sh", &numbers[0], &numbers[1], &numbers[2]];
+        args.map(String::from).to_vec()
+    };
+    let never: &(dyn Fn() -> bool + Sync) = &|| false;
+    let startup = (Instant::now() + Duration::from_secs(30), never);
+    let mut launched = ServerBox::launch(&entry, &handles, command, startup)?;
+    let mut ready = [0; 5];
+    if launched.ready.read_exact(&mut ready).is_err() {
+        return Err(Unserved::Unready(launched.child.wait()));
+    }
+    let info: Value = serde_json::from_reader(&mut launched.info).unwrap();
+    standing(dir, &json!({ "served": info["child-pid"] }));
+    std::thread::sleep(Duration::from_secs(600));
+    panic!("the seat was never killed");
+}
+
+/// Whether the server box whose first process is `pid` still serves: that
+/// process holds one child, the package's program waiting as `sleep`,
+/// within ten seconds.
+#[cfg(target_os = "linux")]
+fn serving(pid: u64) -> bool {
+    let comm = |child: &str| std::fs::read_to_string(format!("/proc/{child}/comm"));
+    within(Duration::from_secs(10), || {
+        let children = std::fs::read_to_string(format!("/proc/{pid}/task/{pid}/children"));
+        let children = children.unwrap_or_default();
+        let children: Vec<&str> = children.split_whitespace().collect();
+        matches!(children[..], [child] if comm(child).is_ok_and(|comm| comm == "sleep\n"))
+    })
+}
+
+/// Whether `pid` is gone, or only a zombie, within five seconds.
+#[cfg(target_os = "linux")]
+fn ended(pid: u64) -> bool {
+    within(Duration::from_secs(5), || {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+        let rest = stat.split(") ").nth(1);
+        rest.is_none_or(|rest| rest.starts_with('Z'))
+    })
+}
+
+/// Whether `holds` held at some reading within `bound`, read every 20 ms.
+#[cfg(target_os = "linux")]
+fn within(bound: Duration, holds: impl Fn() -> bool) -> bool {
+    let until = Instant::now() + bound;
+    let mut held = holds();
+    while !held & (Instant::now() < until) {
+        std::thread::sleep(Duration::from_millis(20));
+        held = holds();
+    }
+    held
+}
+
+/// A process killed and reaped as its test unwinds, unless it already was.
+#[cfg(target_os = "linux")]
+struct Killed(std::process::Child);
+
+#[cfg(target_os = "linux")]
+impl Drop for Killed {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// A seat outliving its engine, killed once its test kills it, or as its
+/// test unwinds before then.
+#[cfg(target_os = "linux")]
+struct Seat(Option<rustix::process::Pid>);
+
+#[cfg(target_os = "linux")]
+impl Drop for Seat {
+    fn drop(&mut self) {
+        if let Some(pid) = self.0.take() {
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        }
+    }
+}
+
+/// Another worktree's zero-grant run, its one `work` site boxed to bind
+/// `writable`, dispatched with the fence lifted on a host whose HOME is
+/// `home`: its engine, and the file its driver touches if it starts.
+#[cfg(target_os = "linux")]
+fn incoming(home: &Path, writable: &Path) -> ((tempfile::TempDir, Engine), PathBuf) {
+    let dir = tempfile::tempdir_in(scratch()).unwrap();
+    let ran = std::fs::canonicalize(dir.path()).unwrap().join("ran");
+    let touch = driver(&format!("touch '{}'", ran.display()));
+    let body = crate::engine::tests::single_body(touch);
+    let (dir, mut engine) = crate::engine::capability_tests::canonical_engine_in(dir, body);
+    set_site_hands(&mut engine.bundle, "work", hands(&[writable]));
+    let (home, bootstrap) = (home.to_path_buf(), PathBuf::from(BOOTSTRAP));
+    let writer = brokkr_protocol::hands::ids().0;
+    let _lift = McpFence::lift();
+    let _host = StoodIn::new(Host {
+        home,
+        bootstrap,
+        writer,
+    });
+    let effect = requested(&engine, "effect");
+    execute_work(&mut engine, &[effect]).unwrap();
+    ((dir, engine), ran)
+}
+
+/// A real engine, in a process of its own, dispatching the single brokered
+/// seat with `payload` beneath it ([`serving_dispatch`]) on a fixture it
+/// makes in `dir`, once its seat stands: the engine, the fixture's root and
+/// run, and, where `payload` is a server box, the box's first process.
+#[cfg(target_os = "linux")]
+fn dispatched_engine(dir: &Path, payload: &Payload) -> (Killed, (PathBuf, String), Option<u64>) {
+    let boxed = matches!(payload, Payload::Server(_));
+    if let Payload::Server(setpriv) = payload {
+        std::fs::write(dir.join("payload"), setpriv.as_os_str().as_encoded_bytes()).unwrap();
+    }
+    let mut engine = std::process::Command::new(std::env::current_exe().unwrap());
+    engine.args(["--exact", SERVER, "--nocapture", "--test-threads=1"]);
+    let said = std::fs::File::create(dir.join("engine.err")).unwrap();
+    let engine = engine.env(SERVED, dir).stdout(std::process::Stdio::null());
+    let mut engine = Killed(engine.stderr(said).spawn().unwrap());
+    let (pid, deadline) = (
+        dir.join("seat.pid"),
+        Instant::now() + Duration::from_secs(60),
+    );
+    // What the engine and, where it served one, its broker said, for a
+    // failure to name.
+    let said = || {
+        let read = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap_or_default();
+        format!("{}{}", read("engine.err"), read("broker.out"))
+    };
+    while !pid.exists() {
+        let ended = engine.0.try_wait().unwrap();
+        assert!(ended.is_none(), "the engine ended ({ended:?}): {}", said());
+        let started = Instant::now() < deadline;
+        assert!(started, "the seat never started: {}", said());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let served = boxed.then(|| {
+        let said = std::fs::read(dir.join("served")).unwrap();
+        let said: Value = serde_json::from_slice(&said).unwrap();
+        let first = said["served"].as_u64();
+        first.unwrap_or_else(|| panic!("no server box stands: {said}"))
+    });
+    (engine, named(dir), served)
+}
+
+/// Engine death with its `payload` surviving, for a program source and a
+/// system source: a real engine, in a process of its own, dispatches the
+/// single brokered seat ([`dispatched_engine`]) and is killed while that
+/// seat's driver lives on, and, where `payload` is one, the server box its
+/// broker launched serves on beneath it. The lease it sealed stands byte
+/// for byte; another worktree's dispatch whose box could write, through a
+/// link, the server's package or `/usr/bin` is refused by MB3's identity
+/// cause before its driver starts, the source's bytes unchanged, while the
+/// payload lives and once it ended: a death proves no settlement. One whose
+/// box writes only a directory apart runs beside it. Only the facts an
+/// engine leaves once it proved the attempt settled — its terminal event
+/// journaled and its positive settlement fact sealed, as a crash just
+/// before its release leaves them — release it: the incoming dispatch's own
+/// admission recovers them, and its driver runs.
+#[cfg(target_os = "linux")]
+fn killed_while(payload: &Payload) {
+    let made = tempfile::tempdir_in(scratch()).unwrap();
+    let dir = std::fs::canonicalize(made.path()).unwrap();
+    let (mut engine, (root, run), served) = dispatched_engine(&dir, payload);
+    let (home, work) = (root.join("home"), root.join("work"));
+    let lease = lease_dir(&root, &run).join("reservation.json");
+    let sealed = std::fs::read(&lease).unwrap();
+    engine.0.kill().unwrap();
+    engine.0.wait().unwrap();
+    let pid = std::fs::read_to_string(dir.join("seat.pid")).unwrap();
+    let mut seat = Seat(rustix::process::Pid::from_raw(pid.trim().parse().unwrap()));
+    let alive = rustix::process::test_kill_process(seat.0.unwrap());
+    assert_eq!(alive, Ok(()), "the seat outlived its engine");
+    let serves = |when: &str| {
+        let first = served.map(serving);
+        assert_ne!(first, Some(false), "{when}: the server's box serves");
+    };
+    serves("once its engine died");
+    let package = root.join("opt/docs");
+    let system = std::fs::canonicalize("/usr/bin").unwrap();
+    // Each the bytes kept, what a writer links toward and the input named:
+    // the launch, reserved before the package it lies in (U8a2b, run four).
+    let program = package.join("bin/server");
+    let cases = [
+        (program.clone(), package.clone(), program),
+        // Named by the operating-system root it lies in (D6).
+        (
+            std::fs::canonicalize("/bin/sh").unwrap(),
+            system,
+            PathBuf::from("/usr"),
+        ),
+    ];
+    let refused = |when: &str| {
+        for (index, (bytes, target, served)) in cases.iter().enumerate() {
+            let before = std::fs::read(bytes).unwrap();
+            let link = dir.join(format!("{when}-{index}"));
+            std::os::unix::fs::symlink(target, &link).unwrap();
+            let ((_dir, engine), ran) = incoming(&home, &link);
+            let (event, payload) = last(&engine);
+            assert_eq!(event, EventType::EffectFailed, "{when}: {payload}");
+            let (site, run, served) = ("work".into(), engine.run_id.clone(), served.clone());
+            let refusal = Unadmitted::Identity(Unknown::Serving { site, run, served });
+            assert_eq!(payload["error"], refusal.to_string(), "{when}");
+            assert!(!ran.exists(), "{when}: its driver never started");
+            assert_eq!(std::fs::read(bytes).unwrap(), before, "{when}");
+        }
+        assert_eq!(std::fs::read(&lease).unwrap(), sealed, "{when}: as sealed");
+    };
+    refused("while-it-lives");
+    let apart = dir.join("apart");
+    std::fs::create_dir(&apart).unwrap();
+    let ((_dir, beside), ran) = incoming(&home, &apart);
+    let (event, said) = last(&beside);
+    assert_eq!(
+        event,
+        EventType::EffectSucceeded,
+        "a disjoint worktree: {said}"
+    );
+    assert!(ran.exists(), "a disjoint worktree's driver ran beside it");
+    serves("throughout");
+    let pid = seat.0.take().unwrap();
+    rustix::process::kill_process(pid, rustix::process::Signal::KILL).unwrap();
+    let gone = served.map(ended);
+    assert_ne!(gone, Some(false), "the server's box ended with its seat");
+    refused("once-it-ended");
+    let attempt = crate::engine::broker::admission::tests::proven_settled(&home, &work, &run);
+    let mut journal = brokkr_store::Store::open(&root.join("forge.db")).unwrap();
+    let ended =
+        json!({"effect_id": "effect", "attempt_id": attempt, "result": {"result": "complete"}});
+    let id = Some(attempt.clone());
+    (journal.append_next(&run, EventType::EffectSucceeded, ended, None, id)).unwrap();
+    let link = dir.join("settled");
+    std::os::unix::fs::symlink(&package, &link).unwrap();
+    let ((_dir, engine), ran) = incoming(&home, &link);
+    let (event, payload) = last(&engine);
+    assert_eq!(event, EventType::EffectSucceeded, "{payload}");
+    assert!(ran.exists(), "once settled, its driver ran");
+}
+
+/// Names the payload [`killed_engine`] proves [`killed_while`] for: `seat`,
+/// or the `setpriv` a server box's harness is confined by.
+#[cfg(target_os = "linux")]
+const KILLED: &str = "BROKKR_U8A2B_KILLED";
+
+/// [`killed_engine`], as its parent runs it.
+#[cfg(target_os = "linux")]
+const KILLED_TEST: &str =
+    "engine::capability_tests::provision_tests::brokered_tests::writers_tests::killed_engine";
+
+/// [`killed_while`] for the payload [`KILLED`] names, alone in a test
+/// process of its own ([`in_a_process_of_its_own`]). Inert without
+/// [`KILLED`]; production reads no such variable.
+#[cfg(target_os = "linux")]
+#[test]
+fn killed_engine() {
+    let Some(payload) = std::env::var_os(KILLED) else {
+        return;
+    };
+    let payload = match payload.to_str() {
+        Some("seat") => Payload::Seat,
+        _ => Payload::Server(PathBuf::from(payload)),
+    };
+    let own = rustix::process::getpid();
+    rustix::process::set_child_subreaper(Some(own)).unwrap();
+    killed_while(&payload);
+    reaped(Duration::from_secs(10));
+    println!("killed: its sources kept");
+}
+
+/// Every child this process adopted, reaped within `bound`, so none passes
+/// on its exit to this binary's parent, a subreaper too, whose attempts
+/// could read it as a stray.
+#[cfg(target_os = "linux")]
+fn reaped(bound: Duration) {
+    use rustix::process::{wait, WaitOptions};
+    let until = Instant::now() + bound;
+    while Instant::now() < until {
+        match wait(WaitOptions::NOHANG) {
+            Ok(Some(_)) => {}
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(_) => return,
+        }
+    }
+    panic!("a child of the killed engine outlived it");
+}
+
+/// [`killed_engine`] for `payload`, in a test process of its own, which
+/// adopts the seat its killed engine orphans: an orphan goes to its nearest
+/// subreaper, which a test binary is once any attempt has run in it, and
+/// there an attempt of another test, begun before the seat was born, could
+/// end it as its stray. Every attempt of this process begins after it.
+#[cfg(target_os = "linux")]
+fn in_a_process_of_its_own(payload: &std::ffi::OsStr) {
+    let mut killed = std::process::Command::new(std::env::current_exe().unwrap());
+    killed.args(["--exact", KILLED_TEST, "--nocapture", "--test-threads=1"]);
+    let ran = killed.env(KILLED, payload).output().unwrap();
+    let said = String::from_utf8_lossy(&ran.stdout);
+    let told = String::from_utf8_lossy(&ran.stderr);
+    assert!(ran.status.success(), "{said}{told}");
+    assert!(said.contains("killed: its sources kept"), "{said}{told}");
+}
+
+/// [`killed_while`] its seat's driver lives, a shell that waits. Linux
+/// only, as above.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_dispatched_engine_killed_while_its_seat_lives_keeps_its_servers_sources() {
+    in_a_process_of_its_own("seat".as_ref());
+}
+
+/// [`killed_while`] its server's box lives: the seat's driver is the
+/// seat's broker ([`serving_broker`]), which prepares the box of the plan
+/// the engine pinned on this host and launches it, the package's program
+/// serving inside it, as `brokkr broker serve` would (the shell standing
+/// for the bootstrap). Needs a real box and `setpriv`: skipped, naming
+/// which, where either is missing, as in a seat's own box (host result
+/// pending there).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_dispatched_engine_killed_while_its_server_box_lives_keeps_its_sources() {
+    let test = "a_dispatched_engine_killed_while_its_server_box_lives_keeps_its_sources";
+    if !boxes_here(test) {
+        return;
+    }
+    let Some(setpriv) = setpriv() else {
+        let required = brokkr_protocol::hands::boundary_evidence_required();
+        let reason = format!("{test}: no setpriv to confine the broker's harness here");
+        return brokkr_protocol::hands::skip_boundary_proof(required, &reason);
+    };
+    in_a_process_of_its_own(setpriv.as_os_str());
 }

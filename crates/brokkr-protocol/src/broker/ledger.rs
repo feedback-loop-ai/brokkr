@@ -31,11 +31,23 @@
 //! they are known is given them once, as soon as they are ([`Ledger::bind`]),
 //! its Opened then guarded by them too.
 //!
+//! A plan that retains its responses (U8b; CR1, CR2, CR3) stages each
+//! answered call's prepared bytes beside its ledger before the Terminal
+//! that cites them by their sha256 and length ([`Ledger::retain`]), and
+//! spends its share of the attempt's budget doing so: each call it
+//! forwards reserves 8 MiB first, or is refused for the budget, and once
+//! its bytes are staged their actual length stays charged and only the
+//! rest of the reservation returns, so an identical response later is
+//! charged again. A plan that retains nothing stages nothing, and its
+//! Terminals cite no digest.
+//!
 //! [`Lifecycle`] is the one statement of D7's order: the writer admits
 //! each record through it before writing it, and [`recover`] reads a
-//! settled ledger through it, keeping only the prefix it verifies.
+//! settled ledger through it, keeping only the prefix it verifies; the
+//! responses that prefix's Terminals cite are what the engine publishes
+//! ([`Lifecycle::cited`]; U8c), never a stage none cites.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::os::fd::AsFd;
@@ -47,6 +59,9 @@ use serde_json::Value;
 
 use super::{Object, Owner, Refusal};
 use crate::secret::{self, BoundSecret, Guard};
+use retention::{Response, Retention};
+
+mod retention;
 
 /// The most bytes one record holds, its newline included (CR3).
 const RECORD_MAX: usize = 4 << 10;
@@ -83,6 +98,9 @@ enum Entry {
         call: u64,
         tool: String,
         outcome: Outcome,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(deserialize_with = "retention::response")]
+        response: Option<Response>,
     },
     Closed {
         seq: u64,
@@ -235,9 +253,10 @@ pub enum Invalid {
 /// D7's lifecycle, as far as its records go: the owner and plan digest the
 /// Opened must name, how many records it has admitted, whether the ledger
 /// is opened, each accepted call's tool and outcome in call order, none
-/// while it is unresolved, how many are unresolved, the calls begun while
-/// another was, which only a local refusal may end, and the closure, once
-/// there is one.
+/// while it is unresolved, the response each admitted Terminal cites, by
+/// its call, how many calls are unresolved, the calls begun while another
+/// was, which only a local refusal may end, and the closure, once there is
+/// one.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Lifecycle {
     owner: Owner,
@@ -245,6 +264,7 @@ pub struct Lifecycle {
     records: u64,
     opened: bool,
     calls: Vec<(String, Option<Outcome>)>,
+    cited: BTreeMap<u64, Response>,
     unresolved: usize,
     local: BTreeSet<u64>,
     closed: Option<Disposition>,
@@ -258,6 +278,7 @@ impl Lifecycle {
             records: 0,
             opened: false,
             calls: Vec::new(),
+            cited: BTreeMap::new(),
             unresolved: 0,
             local: BTreeSet::new(),
             closed: None,
@@ -286,6 +307,16 @@ impl Lifecycle {
         self.closed.as_ref()
     }
 
+    /// The response each verified Terminal cites (U8c; CR2), in call
+    /// order: the call's number, and the sha256 and length of the staged
+    /// bytes its Terminal cites. A Terminal that cites none, as a failure
+    /// of the broker's own or a refusal, is not here, whatever its outcome,
+    /// and nor is one past the verified prefix.
+    pub fn cited(&self) -> impl Iterator<Item = (u64, &str, u64)> + '_ {
+        let cited = self.cited.iter();
+        cited.map(|(call, response)| (*call, response.sha256.as_str(), response.bytes))
+    }
+
     /// Admit `entry` as the next record, or say why it is out of order.
     fn admit(&mut self, entry: Entry) -> Result<(), Invalid> {
         ensure(entry.seq() == self.records + 1, Invalid::Gap)?;
@@ -312,10 +343,15 @@ impl Lifecycle {
                 call,
                 tool,
                 outcome,
+                response,
                 ..
             } => {
-                ensure(open, Invalid::Lifecycle)?;
+                // A response is cited only by a call its server answered
+                // (CC2): a refusal forwarded nothing.
+                let answered = !matches!(outcome, Outcome::Refused(_));
+                ensure(open & (answered | response.is_none()), Invalid::Lifecycle)?;
                 self.ended(call, tool, outcome)?;
+                self.cited.extend(response.map(|response| (call, response)));
             }
             Entry::Closed { disposition, .. } => {
                 ensure(open & (self.unresolved == 0), Invalid::Lifecycle)?;
@@ -380,8 +416,9 @@ type Append = Box<dyn FnMut(&[u8]) -> std::io::Result<()>>;
 
 /// The writer of one plan's ledger: its records' lifecycle, how a line is
 /// appended and synced, the first fatal cause, once one is latched, the
-/// final guard of the session's bindings, which every record passes, and
-/// whether those bindings have been given ([`Ledger::bind`]).
+/// final guard of the session's bindings, which every record passes,
+/// whether those bindings have been given ([`Ledger::bind`]), and the
+/// plan's staging, where it retains its responses ([`Ledger::retain`]).
 pub struct Ledger<'b> {
     append: Append,
     lifecycle: Lifecycle,
@@ -389,6 +426,7 @@ pub struct Ledger<'b> {
     broken: bool,
     guard: Guard<'b>,
     bound: bool,
+    retention: Option<Retention>,
 }
 
 /// Room for one more call, which holds the ledger until the call is begun
@@ -396,11 +434,13 @@ pub struct Ledger<'b> {
 /// Terminal and the closure reserved.
 pub struct Room<'l, 'b>(&'l mut Ledger<'b>);
 
-/// An accepted call: its Started durable, its Terminal not yet written.
+/// An accepted call: its Started durable, its Terminal not yet written,
+/// and what it holds of a retaining plan's share ([`Ledger::reserve`]).
 #[derive(Debug)]
 pub struct Call {
     call: u64,
     tool: String,
+    reserved: u64,
 }
 
 impl<'b> Ledger<'b> {
@@ -457,6 +497,7 @@ impl<'b> Ledger<'b> {
             broken: false,
             guard: Guard::new(bindings),
             bound: !bindings.is_empty(),
+            retention: None,
         };
         let opened = ledger.lifecycle.opened();
         ledger.record(|_| opened)?;
@@ -476,16 +517,29 @@ impl<'b> Ledger<'b> {
         }
     }
 
-    /// Record `call`'s Terminal with its `outcome`, before its response is
-    /// delivered: where it is not recorded, nothing is delivered, and the
-    /// call stays begun.
-    pub fn end(&mut self, call: Call, outcome: Outcome) -> Result<(), Unrecorded> {
-        let Call { call, tool } = call;
+    /// Record `call`'s Terminal with its `outcome` and no response, before
+    /// anything is delivered, whatever the call reserved of the share
+    /// returned, since nothing of it was staged: where it is not recorded,
+    /// nothing is delivered, and the call stays begun.
+    pub fn end(&mut self, mut call: Call, outcome: Outcome) -> Result<(), Unrecorded> {
+        self.released(&mut call);
+        self.terminal(call, outcome, None)
+    }
+
+    /// Record `call`'s Terminal with its `outcome` and `response`.
+    fn terminal(
+        &mut self,
+        call: Call,
+        outcome: Outcome,
+        response: Option<Response>,
+    ) -> Result<(), Unrecorded> {
+        let Call { call, tool, .. } = call;
         self.record(|seq| Entry::Terminal {
             seq,
             call,
             tool,
             outcome,
+            response,
         })
     }
 
@@ -597,17 +651,24 @@ fn but_tool(value: &Value) -> Value {
 impl Room<'_, '_> {
     /// Accept a call to `tool`: its Started recorded, so it may be
     /// forwarded or refused locally, and nothing done where it is not. Its
-    /// Terminal is reserved first, with the longest outcome and the tool as
-    /// masking writes it: where it would not fit, the call is not accepted
-    /// and the ledger's limit is latched. A call begun while another is
-    /// unresolved may only be refused.
+    /// Terminal is reserved first, at its longest with the tool as masking
+    /// writes it: the longest outcome, or, where the plan retains, an
+    /// answered one citing the longest response, which is longer. Where it
+    /// would not fit, the call is not accepted and the ledger's limit is
+    /// latched. A call begun while another is unresolved may only be
+    /// refused.
     pub fn begin(self, tool: &str) -> Result<Call, Unrecorded> {
         let ledger = self.0;
+        let (outcome, response) = match ledger.retention {
+            Some(_) => (Outcome::Succeeded, Some(Response::longest())),
+            None => (Outcome::LONGEST, None),
+        };
         let terminal = Entry::Terminal {
             seq: u64::MAX,
             call: u64::MAX,
             tool: secret::mask_text(tool.as_bytes(), ledger.guard.bindings()),
-            outcome: Outcome::LONGEST,
+            outcome,
+            response,
         };
         if terminal.line().is_none() {
             ledger.fail(Failure::Limit);
@@ -623,6 +684,7 @@ impl Room<'_, '_> {
         Ok(Call {
             call,
             tool: tool.to_owned(),
+            reserved: 0,
         })
     }
 }

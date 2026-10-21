@@ -7,7 +7,7 @@ use super::words::{change_text, listed, span_text, stamp};
 use super::*;
 use crate::fleet::tests::ruled;
 use crate::tests::{ev, state};
-use crate::{js, ABSENT};
+use crate::ABSENT;
 use brokkr_core::fold::Status;
 use brokkr_core::EventType;
 use serde_json::{json, Value};
@@ -438,7 +438,7 @@ fn a_realm_keeps_only_its_own_runs_rows_and_refusals() {
 
 /// A run that shipped exactly `ago` before [`NOW`].
 fn shipped_at(ago: i64) -> (Journal, Option<RunState>) {
-    let at = stamp(js::parse_millis(NOW).unwrap() - ago);
+    let at = stamp(brokkr_core::stamp::parse_millis(NOW).unwrap() - ago);
     let journal =
         Journal::started(Some("alpha"), &at).then(EventType::RunCompleted, json!({}), &at);
     (journal, Some(ended(Status::Completed, "done", None, 0)))
@@ -644,7 +644,7 @@ fn a_stamp_reads_january_and_february_as_their_own_months() {
         "2024-02-29T12:00:00Z",
         "2026-12-31T00:00:00Z",
     ] {
-        assert_eq!(stamp(js::parse_millis(text).unwrap()), text);
+        assert_eq!(stamp(brokkr_core::stamp::parse_millis(text).unwrap()), text);
     }
 }
 

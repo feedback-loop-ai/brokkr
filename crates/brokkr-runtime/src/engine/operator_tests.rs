@@ -290,6 +290,48 @@ fn every_delivery_of_one_command_reads_the_refusal_that_landed_first() {
     );
 }
 
+/// An operator's verb writes the run's summary from the fold it decided
+/// on (decision 0089 ruling 3), from a store that carried nothing before
+/// it: the row stands at the head the verb's last write left. Its removal
+/// control is a deciding read that hands the store no account, whose
+/// writes leave the row behind.
+#[test]
+fn an_operator_verb_writes_the_summary_of_the_fold_it_decided_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("verb.db");
+    drop(super::tests::parked_store(&path, "verb"));
+    let mut store = Store::open(&path).unwrap();
+    let stopped = operator_command(&mut store, "verb", Stop, "operator", "enough").unwrap();
+    assert!(matches!(stopped, FencedCommandOutcome::Accepted { .. }));
+    let lane = brokkr_store::test_support::lane(&store, "verb");
+    assert_eq!(
+        lane.as_deref(),
+        Some("running"),
+        "a stop accepted, its run/stopped next"
+    );
+    assert_eq!(
+        brokkr_store::test_support::every_run_reads_as_its_fold(&store),
+        Vec::<String>::new()
+    );
+}
+
+/// The bridge's verb, from a store opened for it as the bridge opens one,
+/// writes the summary of the fold it decided on too: its command and
+/// acceptance leave the row at its head.
+#[test]
+fn a_bridge_command_writes_the_summary_of_the_fold_it_decided_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bridge.db");
+    drop(super::tests::parked_store(&path, "bridge"));
+    let mut store = Store::open(&path).unwrap();
+    let (seq, hash) = store.head_hash("bridge").unwrap();
+    let wire = super::tests::looper("looper-command", "retry", seq, &hash);
+    let retried = apply_fenced_operator_command(&mut store, "bridge", &wire).unwrap();
+    assert!(matches!(retried, FencedCommandOutcome::Accepted { .. }));
+    let lane = brokkr_store::test_support::lane(&store, "bridge");
+    assert_eq!(lane.as_deref(), Some("running"));
+}
+
 /// A bridge refusal whose head moves on every turn is not re-decided
 /// forever: after `FENCE_ATTEMPTS` lost turns it refuses with the drift
 /// named, and nothing of the command is written.

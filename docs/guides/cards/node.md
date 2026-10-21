@@ -38,18 +38,21 @@ folder it goes on the folder's shelf, `.brokkr/recipes/node/`, which
 `run --recipe` reads with no flag:
 
 ```
-brokkr recipes add ~/src/brokkr/recipes/node --name node
-brokkr run --recipe node --feature "…"
+$ brokkr recipes add ~/src/brokkr/recipes/node --name node
+added recipe 'node' (…) at /home/you/my-app/.brokkr/recipes/node
+added recipe 'fast' (…) at /home/you/my-app/.brokkr/recipes/fast
+…
 ```
 
-Not yet, though: the install copies the agents `node` and `fast` seat
-into `.brokkr/agents/`, and their `fast-reviewer` extends Brokkr's
-`reviewer`, which is not the one `init` wrote, so the compile refuses
-and the install is removed whole. The quickstart's
-[Try another recipe](../quickstart.md#try-another-recipe) shows the
-shelf with a recipe that does install, and
-[adopting-a-node-repo.md](../adopting-a-node-repo.md) says what each
-route prints today.
+The elided lines name each agent and charter it copies into
+`.brokkr/agents/`, which
+[adopting-a-node-repo.md](../adopting-a-node-repo.md#the-files-your-repo-needs)
+shows whole. Then `brokkr run --recipe node --feature "…"`. `node` and
+`fast` are Brokkr's two portable recipes (decision
+[0087](../../decisions/0087-the-base-offices-are-the-ones-init-writes.md)
+ruling 5): `node`'s agents extend the `implementer` and `reviewer` that
+step 2 wrote and add only their charters and inputs, so its model seats
+hire what `init` wrote for your agent CLI.
 
 It has four seats rather than five (no intake — the feature text is the
 framing), and its charters name `npm ci` and `npx tsc --noEmit`

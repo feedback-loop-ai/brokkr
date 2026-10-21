@@ -27,6 +27,7 @@ use thiserror::Error;
 use super::marks::{brokered_at, outcome_at};
 use super::{composed, Selection, SiteSpawn};
 use crate::agents::{Candidate, McpAxis, McpInvocation};
+use crate::argv::Executable;
 use crate::bundle::{HandsState, McpIntent, SeatClass, SiteFacts};
 
 impl Selection {
@@ -62,13 +63,13 @@ pub fn serving_inputs(
 /// The serving inputs `spawn` is sealed with at the site `facts` describe
 /// ([`serving_inputs`]), with the brokers the attempt's provisioning sealed
 /// for this site, `provisioned`, and its hands segment expanded beside them
-/// under `workdir`, the run's artifact root and the reach its box was
-/// built from ([`beside`]; U7d2, U8a, U8a2c).
+/// under the engine executable, `workdir`, the run's artifact root and the
+/// reach its box was built from ([`beside`]; U7d2, U8a, U8a2c).
 pub(super) fn served(
     spawn: &mut SiteSpawn,
     (link, facts): (Option<&Candidate>, Option<&SiteFacts>),
     boundary: Boundary,
-    worktree: (&Path, &Path, Option<&Sealed>),
+    worktree: (&Executable, &Path, &Path, Option<&Sealed>),
     provisioned: &[SealedBroker],
 ) -> Result<SealedServing, Unsealed> {
     let serving = serving_with(link, facts, spawn.class, boundary, provisioned)?;
@@ -126,16 +127,15 @@ fn serving_with(
 pub(super) fn beside(
     spawn: &mut SiteSpawn,
     serving: &SealedServing,
-    (workdir, artifacts, sealed): (&Path, &Path, Option<&Sealed>),
+    (engine, workdir, artifacts, sealed): (&Executable, &Path, &Path, Option<&Sealed>),
     brokers: &[SealedBroker],
 ) -> Result<(), Unsealed> {
     if brokers.is_empty() {
         return Ok(());
     }
-    let brokkr = std::env::current_exe().unwrap_or_default();
     let spec = serving.spec.as_ref().ok_or(Unsealed::Unexpanded)?;
     let hands = Transport {
-        brokkr: &brokkr,
+        brokkr: engine.or_empty(),
         workdir,
         artifacts,
         sealed: sealed.ok_or(Unsealed::Unexpanded)?,

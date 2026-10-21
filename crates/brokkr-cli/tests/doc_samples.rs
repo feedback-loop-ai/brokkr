@@ -23,8 +23,10 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::bootstrap_bench::{can_box_the_gates, scaffold_with, Scaffold};
+use crate::brokkr_folder::repository;
 use crate::doc_truth::{readable_docs, Block, Doc};
 use crate::init_stacks::{brokkr_with, repository_of};
+use crate::machine_proof::copy_dir;
 use crate::workspace_root::{read, workspace};
 
 /// What opens a prompt line, after its indent and its blockquote.
@@ -39,8 +41,8 @@ const ELIDED: &str = "…";
 const ALLOWED: [(&str, &str); 6] = [
     (
         "docs/guides/quickstart.md",
-        "its recipe-shelf blocks (recipes list, and Try another recipe's add, list and run) \
-         wait on #722, which changes what recipes list prints, and need a recipe source as \
+        "its recipe-shelf blocks (recipes list, and Try another recipe's variant add, list and \
+         run) wait on #722, which changes what recipes list prints, and need a recipe source as \
          their fixture",
     ),
     (
@@ -49,9 +51,8 @@ const ALLOWED: [(&str, &str); 6] = [
     ),
     (
         "docs/guides/adopting-a-node-repo.md",
-        "flow 3's adds install from a Brokkr checkout, whose agent library its library route \
-         copies whole by hand and its folder route refuses, until #717 builds one portable base \
-         set",
+        "its realms block reads a map the library route has the reader write by hand, and the \
+         realm's head commit",
     ),
     (
         "docs/guides/read-surfaces.md",
@@ -78,6 +79,13 @@ enum Place {
     /// The root of a fresh `git init` copy of the named init-stacks
     /// fixture, with no `.brokkr/` folder yet.
     Fixture(&'static str),
+    /// The [`Place::Fixture`] after `init .`, run as `init_stacks` runs
+    /// it: a fresh folder, as the quickstart's Step 2 leaves one.
+    Folder(&'static str),
+    /// The root of a fresh `git init` repository holding a copy of each
+    /// named file or directory of this checkout at the same path: a
+    /// recipe library assembled by hand, as flow 3's long form builds one.
+    Library(&'static [&'static str]),
     /// The root of the bootstrap bench's [`Scaffold`]: `init`'s folder,
     /// committed, over a `Makefile` whose targets pass, with the `claude`
     /// CLI stubbed through the adapter's own `BROKKR_CLAUDE_BIN`, so the
@@ -107,6 +115,9 @@ enum Exit {
     Success,
     /// Whatever it is. The row says why the exit is not the sample's.
     Any,
+    /// Non-zero: the sample shows a refusal, so a command that succeeds
+    /// is not it.
+    Refused,
 }
 
 /// A sampled block: the doc, the prompt line that opens the block, the
@@ -125,7 +136,23 @@ struct Sample {
 /// How a fixture's root reads in a doc.
 const HOME: &str = "/home/you/my-app";
 
-const SAMPLED: [Sample; 14] = [
+/// How this checkout reads in a prompt: where the guides clone Brokkr.
+const CHECKOUT: &str = "~/src/brokkr";
+
+/// The install the Node guides show, from a checkout at [`CHECKOUT`].
+const ADD_NODE: [&str; 5] = [
+    "recipes",
+    "add",
+    "~/src/brokkr/recipes/node",
+    "--name",
+    "node",
+];
+
+/// The adapter flow 3's library route copies first, and then Brokkr's
+/// agent library, then its capability definitions.
+const ADAPTER: &str = "adapters/claude.json";
+
+const SAMPLED: [Sample; 20] = [
     Sample {
         doc: "docs/guides/agent-library.md",
         prompt: "$ brokkr agents list",
@@ -241,6 +268,64 @@ const SAMPLED: [Sample; 14] = [
         argv: &["seats", "--run", "latest"],
         place: Place::Driven,
         stream: Stream::Stdout,
+        exit: Exit::Success,
+    },
+    // Decision 0087 ruling 8, slice 2 (#717): Brokkr's portable recipes
+    // install onto a fresh folder's shelf.
+    Sample {
+        doc: "docs/guides/quickstart.md",
+        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/fast --name fast",
+        argv: &[
+            "recipes",
+            "add",
+            "~/src/brokkr/recipes/fast",
+            "--name",
+            "fast",
+        ],
+        place: Place::Folder("rust"),
+        stream: Stream::Stderr,
+        exit: Exit::Success,
+    },
+    Sample {
+        doc: "docs/guides/cards/node.md",
+        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+        argv: &ADD_NODE,
+        place: Place::Folder("node-npm"),
+        stream: Stream::Stderr,
+        exit: Exit::Success,
+    },
+    // Flow 3's long form runs the same install four times, in the guide's
+    // order: onto a folder's shelf, then into a library as it is built.
+    Sample {
+        doc: "docs/guides/adopting-a-node-repo.md",
+        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+        argv: &ADD_NODE,
+        place: Place::Folder("node-npm"),
+        stream: Stream::Stderr,
+        exit: Exit::Success,
+    },
+    Sample {
+        doc: "docs/guides/adopting-a-node-repo.md",
+        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+        argv: &ADD_NODE,
+        place: Place::Library(&[ADAPTER]),
+        stream: Stream::Stderr,
+        exit: Exit::Refused,
+    },
+    Sample {
+        doc: "docs/guides/adopting-a-node-repo.md",
+        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+        argv: &ADD_NODE,
+        place: Place::Library(&[ADAPTER, "agents"]),
+        stream: Stream::Stderr,
+        exit: Exit::Refused,
+    },
+    Sample {
+        doc: "docs/guides/adopting-a-node-repo.md",
+        prompt: "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+        argv: &ADD_NODE,
+        place: Place::Library(&[ADAPTER, "agents", "capabilities"]),
+        stream: Stream::Stderr,
         exit: Exit::Success,
     },
 ];
@@ -390,8 +475,10 @@ fn drive(scaffold: &Scaffold, configure: &dyn Fn(&mut Command)) {
 fn printed(sample: &Sample) -> Printed {
     let config = tempfile::tempdir().unwrap();
     let hermetic = |command: &mut Command| hermetic(command, config.path());
+    let argv: Vec<String> = sample.argv.iter().map(|arg| expanded(arg)).collect();
+    let argv: Vec<&str> = argv.iter().map(String::as_str).collect();
     let run = |cwd: &Path, roots: Vec<String>, configure: &dyn Fn(&mut Command)| {
-        let (code, stdout, stderr) = brokkr_with(sample.argv, cwd, configure);
+        let (code, stdout, stderr) = brokkr_with(&argv, cwd, configure);
         Printed {
             code,
             stdout,
@@ -403,6 +490,19 @@ fn printed(sample: &Sample) -> Printed {
         Place::Workspace => run(&workspace(), Vec::new(), &hermetic),
         Place::Fixture(fixture) => {
             let repo = repository_of(fixture);
+            run(repo.path(), roots_of(repo.path()), &hermetic)
+        }
+        Place::Folder(fixture) => {
+            let repo = repository_of(fixture);
+            let (code, _, stderr) = brokkr_with(&["init", "."], repo.path(), hermetic);
+            assert_eq!(code, Some(0), "{fixture}: init refused: {stderr}");
+            run(repo.path(), roots_of(repo.path()), &hermetic)
+        }
+        Place::Library(paths) => {
+            let repo = repository();
+            for path in paths {
+                copied(&workspace().join(path), &repo.path().join(path));
+            }
             run(repo.path(), roots_of(repo.path()), &hermetic)
         }
         Place::Scaffold | Place::Driven => {
@@ -418,6 +518,25 @@ fn printed(sample: &Sample) -> Printed {
             }
             run(&scaffold.root, roots_of(&scaffold.root), &stubbed)
         }
+    }
+}
+
+/// `arg` as a shell passes it: a path under [`CHECKOUT`] read as the same
+/// path under this checkout.
+fn expanded(arg: &str) -> String {
+    match arg.strip_prefix(CHECKOUT) {
+        Some(rest) if rest.starts_with('/') => format!("{}{rest}", workspace().display()),
+        _ => arg.to_string(),
+    }
+}
+
+/// `from`, a file or a directory, copied to `to` with its parents.
+fn copied(from: &Path, to: &Path) {
+    if from.is_dir() {
+        copy_dir(from, to);
+    } else {
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(from, to).unwrap();
     }
 }
 
@@ -451,6 +570,7 @@ fn shown(sample: &Sample, printed: Printed) -> Ran {
     let held = match sample.exit {
         Exit::Success => printed.code == Some(0),
         Exit::Any => true,
+        Exit::Refused => printed.code.is_some_and(|code| code != 0),
     };
     if !held {
         let code = printed
@@ -489,7 +609,7 @@ fn sample_failures(
     run: impl Fn(&Sample) -> Printed,
 ) -> Vec<String> {
     let mut found = Vec::new();
-    for sample in sampled {
+    for (index, sample) in sampled.iter().enumerate() {
         let spelled = spelled(sample.argv);
         if sample.prompt != spelled {
             found.push(format!(
@@ -504,9 +624,14 @@ fn sample_failures(
             .flat_map(|doc| &doc.blocks)
             .filter(|block| block.fenced && block.text.lines().next() == Some(sample.prompt))
             .collect();
-        match blocks[..] {
-            [block] => found.extend(sample_failure(sample, block, &run)),
-            _ => found.push(format!(
+        // Rows naming one doc's same prompt are its blocks that open with
+        // it, in order, one each.
+        let twin = |other: &&Sample| other.doc == sample.doc && other.prompt == sample.prompt;
+        let twins = sampled.iter().filter(twin).count();
+        let nth = sampled[..index].iter().filter(twin).count();
+        match blocks.len() == twins {
+            true => found.extend(sample_failure(sample, blocks[nth], &run)),
+            false => found.push(format!(
                 "{}: {} fenced blocks open with `{}`; a sample is exactly one",
                 sample.doc,
                 blocks.len(),
@@ -666,6 +791,41 @@ fn a_non_zero_exit_is_refused_unless_the_sample_takes_any() {
 }
 
 #[test]
+fn a_refusal_sample_takes_only_a_non_zero_exit() {
+    let refused = Sample {
+        exit: Exit::Refused,
+        ..sample("$ brokkr recipes list", &["recipes", "list"])
+    };
+    let printed = |code| exited(code, "error: refused", "the stderr");
+    assert_eq!(
+        shown(&refused, printed(Some(1))),
+        Ok("error: refused".into())
+    );
+    assert_eq!(
+        shown(&refused, printed(Some(0))),
+        Err("exited 0: the stderr".into())
+    );
+    assert_eq!(
+        shown(&refused, printed(None)),
+        Err("exited by a signal: the stderr".into())
+    );
+}
+
+#[test]
+fn a_prompts_checkout_path_runs_under_this_checkout() {
+    let here = workspace().display().to_string();
+    assert_eq!(
+        expanded("~/src/brokkr/recipes/fast"),
+        format!("{here}/recipes/fast")
+    );
+    assert_eq!(
+        expanded("~/src/brokkr-fork/recipes"),
+        "~/src/brokkr-fork/recipes"
+    );
+    assert_eq!(expanded("--name"), "--name");
+}
+
+#[test]
 fn a_fixture_root_reads_as_home_only_where_it_is_whole() {
     assert_eq!(
         placed("none from /t/r up to /t/r — init /t/r/.brokkr", "/t/r"),
@@ -795,6 +955,43 @@ fn a_sample_is_one_command_and_its_output() {
 }
 
 #[test]
+fn rows_naming_one_prompt_are_its_blocks_in_order() {
+    let docs = [fenced(
+        "docs/a.md",
+        &[
+            (3, "$ brokkr runs\nfirst"),
+            (8, "$ brokkr runs\nsecond"),
+            (13, "$ brokkr seats\none"),
+        ],
+    )];
+    let first = sample("$ brokkr runs", &["runs"]);
+    let second = Sample {
+        place: Place::Library(&[]),
+        ..first
+    };
+    let run = |sample: &Sample| match sample.place {
+        Place::Library(_) => exited(Some(0), "second\n", ""),
+        _ => exited(Some(0), "first\n", ""),
+    };
+    assert_eq!(
+        sample_failures(&docs, &[first, second], run),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        sample_failures(&docs, &[second, first], run),
+        [
+            "docs/a.md:4: `first` is not what `$ brokkr runs` printed:\nsecond\n",
+            "docs/a.md:9: `second` is not what `$ brokkr runs` printed:\nfirst\n",
+        ]
+    );
+    let seats = sample("$ brokkr seats", &["seats"]);
+    assert_eq!(
+        sample_failures(&docs, &[seats, seats], run),
+        ["docs/a.md: 1 fenced blocks open with `$ brokkr seats`; a sample is exactly one"; 2]
+    );
+}
+
+#[test]
 fn a_prompt_quotes_an_argument_that_holds_a_space() {
     assert_eq!(
         spelled(&RUN),
@@ -825,6 +1022,12 @@ fn the_scaffolds_samples_wait_for_a_box() {
             "$ brokkr init .",
             "$ brokkr doctor",
             "$ brokkr realms",
+            "$ brokkr recipes add ~/src/brokkr/recipes/fast --name fast",
+            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
+            "$ brokkr recipes add ~/src/brokkr/recipes/node --name node",
         ]
     );
 }

@@ -14,8 +14,10 @@
 //! final keeps the record it replaced under, is read as the reservation
 //! and stands only beside it. Anything else, or anything that cannot be read,
 //! is a participant nothing can vouch for, and refuses with MB3's identity
-//! cause.
+//! cause. This run's own reservation is read whole; another run's, through
+//! the view every build writes ([`standing`]; decision 0090).
 
+use std::ffi::OsStr;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -23,10 +25,15 @@ use std::time::{Duration, Instant};
 use brokkr_protocol::hands;
 use rustix::fs::{openat, statat, AtFlags, Dir, FileType, Mode};
 
-use super::admission::{Reservation, Unknown, LOCK, RESERVATION, STAGED};
+use super::admission::{Unknown, LOCK, RESERVATION, STAGED};
 use super::historical::{named, Historical};
 use super::root::{read, PRIOR};
 use super::{directory, owned};
+use crate::engine::artifacts::hex;
+use standing::standing;
+pub(super) use standing::{Reaching, Standing, Writing};
+
+mod standing;
 
 /// MB3's entry bound, which the inventory's traversal shares (D5; operator
 /// ruling 2026-10-07: the count limits are its memory bound). Its depth is
@@ -75,13 +82,19 @@ impl Budget {
 /// historical root.
 #[derive(Debug, Default)]
 pub(super) struct Found {
-    pub(super) standing: Vec<Reservation>,
+    pub(super) standing: Vec<Standing>,
     pub(super) historical: Vec<PathBuf>,
 }
 
 /// Everything the protected `root` at `at` holds, read within `budget`:
-/// the lock, and each worktree's directory ([`worktree`]).
-pub(super) fn inventory(root: &OwnedFd, at: &Path, budget: &mut Budget) -> Result<Found, Unknown> {
+/// the lock, and each worktree's directory ([`worktree`]), the run `own`
+/// names by its worktree's key and its id read whole.
+pub(super) fn inventory(
+    root: &OwnedFd,
+    at: &Path,
+    own: [&str; 2],
+    budget: &mut Budget,
+) -> Result<Found, Unknown> {
     let mut found = Found::default();
     for (name, kind) in listed(root, at, budget)? {
         if (name == LOCK) & (kind == FileType::RegularFile) {
@@ -89,23 +102,28 @@ pub(super) fn inventory(root: &OwnedFd, at: &Path, budget: &mut Budget) -> Resul
         }
         let key = hex(&name).then_some(()).ok_or(unknown(at, &name));
         let repo = key.and_then(|()| entered(root, at, &name, kind))?;
-        worktree(&repo, &at.join(&name), budget, &mut found)?;
+        worktree(&repo, &at.join(&name), own, budget, &mut found)?;
     }
     Ok(found)
 }
 
 /// One worktree's directory `repo` at `at`: each historical root's record,
-/// one staged beside it, and each run's directory ([`run`]).
+/// one staged beside it, and each run's directory ([`run`]), the one `own`
+/// names its run's own.
 fn worktree(
     repo: &OwnedFd,
     at: &Path,
+    [key, id]: [&str; 2],
     budget: &mut Budget,
     found: &mut Found,
 ) -> Result<(), Unknown> {
     for (name, kind) in listed(repo, at, budget)? {
         if kind == FileType::Directory {
             let dir = entered(repo, at, &name, kind)?;
-            found.standing.extend(run(&dir, &at.join(&name), budget)?);
+            let own = (at.file_name() == Some(OsStr::new(key))) & (name == id);
+            found
+                .standing
+                .extend(run(&dir, &at.join(&name), own, budget)?);
             continue;
         }
         let staged = name
@@ -130,9 +148,15 @@ fn worktree(
 /// does, which names that very worktree and run, and every attempt's
 /// directory beside it: provisioning makes one only once admission sealed
 /// its attempt in the reservation, so a directory it names neither
-/// standing nor settled is unknown.
-fn run(dir: &OwnedFd, at: &Path, budget: &mut Budget) -> Result<Option<Reservation>, Unknown> {
-    let mut found: Option<Reservation> = None;
+/// standing nor settled is unknown. The reservation is read whole where it
+/// is the run's `own`.
+fn run(
+    dir: &OwnedFd,
+    at: &Path,
+    own: bool,
+    budget: &mut Budget,
+) -> Result<Option<Standing>, Unknown> {
+    let mut found: Option<Standing> = None;
     let mut attempts = Vec::new();
     let (staged, prior) = (
         format!("{RESERVATION}{STAGED}"),
@@ -141,7 +165,7 @@ fn run(dir: &OwnedFd, at: &Path, budget: &mut Budget) -> Result<Option<Reservati
     let mut kept = false;
     for (name, kind) in listed(dir, at, budget)? {
         match kind {
-            FileType::RegularFile if name == RESERVATION => found = Some(read(dir, &name, at)?),
+            FileType::RegularFile if name == RESERVATION => found = Some(standing(dir, at, own)?),
             FileType::RegularFile if name == staged => {}
             FileType::RegularFile if name == prior => kept = true,
             FileType::Directory => attempts.push(name),
@@ -155,13 +179,13 @@ fn run(dir: &OwnedFd, at: &Path, budget: &mut Budget) -> Result<Option<Reservati
     }
     let named = |name: &&String| {
         let names =
-            |held: &Reservation| held.attempts.contains_key(*name) | held.settled.contains(*name);
+            |held: &Standing| held.attempts.contains_key(*name) | held.settled.contains(*name);
         found.as_ref().is_some_and(names)
     };
     if let Some(stray) = attempts.iter().find(|name| !named(name)) {
         return Err(unknown(at, stray));
     }
-    let names = |held: &Reservation| {
+    let names = |held: &Standing| {
         let repo = at.parent().and_then(Path::file_name);
         (repo == Some(held.repo.as_ref())) & (at.file_name() == Some(held.run.as_ref()))
     };
@@ -214,11 +238,4 @@ fn entered(parent: &OwnedFd, at: &Path, name: &str, kind: FileType) -> Result<Ow
 /// The unknown participant `name` in the directory at `at`.
 fn unknown(at: &Path, name: &str) -> Unknown {
     Unknown::Participant(at.join(name))
-}
-
-/// Whether `name` is a sha256's lowercase hex: a worktree's key, or an
-/// artifact's name.
-pub(super) fn hex(name: &str) -> bool {
-    let digit = |byte: &u8| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte);
-    (name.len() == 64) & name.as_bytes().iter().all(digit)
 }

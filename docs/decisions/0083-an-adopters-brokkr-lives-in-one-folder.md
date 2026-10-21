@@ -821,10 +821,20 @@ that refuses, and a source map that cannot be read, refuse by the
 `cannot read` text above, once an agent requests a capability. They
 join the one plan with the agents and charters, by its rules: planned
 before anything is written, walked without following a link, at the
-source and at the workspace's own entry for each file, an agent's and a
-charter's too, which is compared only where it is a plain file, and
-refused by the second text below where it is a link, to anything or
-nothing, or not a plain file; skipped when present and identical,
+source and at the workspace: every directory between the workspace's
+root and each file, `agents/`, `agents/charters/` and `capabilities/`
+among them, is judged as the entry itself and refused by the third text
+below where it is a link, to anything or nothing, inside the root or
+outside it (#735), and by the fourth where it stands and is not a
+directory, before anything is written (#779), while a `.brokkr/` folder
+that is a link is refused
+before any plan by this decision's folder rule, in its own words; the
+workspace's own entry for each file,
+an agent's and a charter's too, is opened once without following a link
+and judged by that handle's own status, so the entry judged is the file
+compared (#735), compared only where it is a plain file, and refused by
+the second text below where it is a link, to anything or nothing, or not
+a plain file, a socket and a FIFO among them (#779); skipped when present and identical,
 refused by the text above when present and different, and removed with
 the recipe when its compile refuses. A name outside the capability
 grammar is never walked; the compile names it. A definition the source
@@ -842,6 +852,8 @@ The new refusals:
 ```text
 <definition> requests capability '<name>', whose definition the source's <capabilities> does not hold, so the copy would bind to whatever this workspace defines there (#703); nothing was written
 the workspace's <path> is a link, or not a plain file, where recipes add would copy one; recipes add neither reads through nor replaces it (#703): remove it; nothing was written
+the workspace's <path> is a link, where recipes add would copy a file beneath it; recipes add neither reads through nor replaces it (#735): remove it; nothing was written
+the workspace's <path> is not a directory, where recipes add would copy a file beneath it; recipes add does not replace it (#779): remove it; nothing was written
 ```
 
 **6. `recipes add` loses `--dir`** (amended 2026-10-15; the first ruling

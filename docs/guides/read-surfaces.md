@@ -208,7 +208,7 @@ your host's places elided.
 
 ```
 $ brokkr runs
-prefix-selectors-for-the-read-su-… completed done seq 51 …s prefix selec…
+prefix-selectors-for-the-read-su-… completed done seq 51 …s prefix…
 ```
 
 In a world of many hearths, the same listing is grouped by realm — each

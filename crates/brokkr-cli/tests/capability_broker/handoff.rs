@@ -774,16 +774,22 @@ fn refused_handoff(handing: Handing) -> Option<i32> {
 #[test]
 fn a_store_read_held_past_the_deadline_is_refused_at_the_deadline() {
     // The sender's read of the store held 40 seconds, past the startup's
-    // absolute deadline: at that deadline, and no more than a slice after,
-    // the broker ends the box's launcher, settles the box and refuses with
-    // the handoff's cause, its own exit not waiting for the read, which is
-    // still held until at least 40 seconds after the start (operator
-    // ruling 2026-10-11). No server started.
-    let Some((handing, pids)) = store_held(Starter::Harness, 40) else {
+    // absolute deadline: at that deadline the broker ends the box's
+    // launcher, settles the box and refuses with the handoff's cause, its
+    // own exit not waiting for the read, which is still held until at
+    // least 40 seconds after the start (operator ruling 2026-10-11). The
+    // hold begins after `begun`, so a broker that waited for the read ends
+    // 40 seconds after it or later; the window of 30 to 32 seconds this
+    // bound replaces also counted the broker's spawn and exit, and CI's
+    // coverage run failed it on a branch that does not touch the broker.
+    // No server started.
+    let held = 40;
+    let Some((handing, pids)) = store_held(Starter::Harness, held) else {
         return;
     };
     let ended = returned(&handing, pids, handing.begun);
-    let bounded = (ended >= Duration::from_secs(30)) & (ended < Duration::from_secs(32));
+    let released = Duration::from_secs(u64::from(held));
+    let bounded = (ended >= Duration::from_secs(30)) & (ended < released);
     assert!(bounded, "{ended:?}");
     assert_eq!(refused_handoff(handing), refused(Refusal::Handoff).0);
 }
@@ -826,10 +832,12 @@ fn a_bootstrap_gone_after_the_sender_completed_certifies_nothing() {
 fn a_status_pipe_open_after_the_whole_frame_is_the_handoffs_cause_at_the_deadline() {
     // Held at its terminal past the deadline, the whole frame and its end
     // received, the bootstrap neither execs nor reports: at the startup's
-    // absolute deadline, and no more than a slice after, the broker ends
-    // the box's launcher and refuses with the handoff's cause; no server
-    // started. The box ends once the tracer lets its bootstrap go.
-    let Some(mut handing) = Handing::at_a_terminal(|_| hold_terminal(40)) else {
+    // absolute deadline the broker ends the box's launcher and refuses with
+    // the handoff's cause; no server started. The box ends once the tracer
+    // lets its bootstrap go. The hold begins after `begun`, so a broker
+    // that waited for it ends the launcher 40 seconds after it or later.
+    let held = 40;
+    let Some(mut handing) = Handing::at_a_terminal(|_| hold_terminal(held)) else {
         return;
     };
     let bootstrap = handing.at(at_its_terminal);
@@ -838,7 +846,8 @@ fn a_status_pipe_open_after_the_whole_frame_is_the_handoffs_cause_at_the_deadlin
     let ended = awaited(launcher) - handing.begun;
     let (answer, reads, settled) = handing.ended();
     assert_eq!(answer, refused(Refusal::Handoff));
-    let bounded = (ended >= Duration::from_secs(30)) & (ended < Duration::from_secs(32));
+    let released = Duration::from_secs(u64::from(held));
+    let bounded = (ended >= Duration::from_secs(30)) & (ended < released);
     assert!(bounded, "{ended:?}");
     assert_eq!(reads, (1, 0));
     assert!(settled);

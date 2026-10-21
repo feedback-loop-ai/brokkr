@@ -80,7 +80,7 @@ use std::collections::BTreeMap;
 use brokkr_core::decision::Decision as Decided;
 use brokkr_core::fold::RunState;
 use brokkr_core::realms::Boundary;
-use brokkr_core::residual::{residuals, Residual, SUPERSEDE};
+use brokkr_core::residual::{closings, residuals, Mark, Residual};
 use brokkr_core::{EventEnvelope, EventType};
 use serde::Serialize;
 use serde_json::Value;
@@ -693,8 +693,8 @@ fn result_token(payload: &Value) -> Option<&str> {
 /// console humanizes it: seconds below a minute, zero-padded seconds
 /// below an hour, and **seconds dropped entirely** at an hour and above.
 pub fn fmt_dur(from_iso: &str, to_iso: &str) -> Option<String> {
-    let to = js::parse_millis(to_iso)?;
-    let from = js::parse_millis(from_iso)?;
+    let to = brokkr_core::stamp::parse_millis(to_iso)?;
+    let from = brokkr_core::stamp::parse_millis(from_iso)?;
     let millis = to - from;
     if millis < 0 {
         return None;
@@ -788,54 +788,27 @@ pub fn cited(by: &SupersededBy) -> String {
     }
 }
 
-/// One supersede annotation, read from an `operator/commanded` event:
-/// the mark itself and the finding sequence numbers it closes. Any
-/// other event, and any annotation whose citation is not there to read,
-/// yields nothing — a half-read citation is repair (decision 0001).
-fn supersede_of(event: &EventEnvelope) -> Option<(Superseded, Vec<u64>)> {
-    let payload = &event.payload;
-    if event.event_type != EventType::OperatorCommanded
-        || field(payload, "command") != Some(SUPERSEDE)
-    {
-        return None;
-    }
-    let by = payload.pointer("/args/by")?;
-    let findings = payload
-        .pointer("/args/findings")
-        .and_then(Value::as_array)?;
-    let mark = Superseded {
-        seq: event.seq,
-        by: SupersededBy {
-            realm: field(by, "realm").map(str::to_string),
-            run_id: field(by, "run_id")?.to_string(),
-            seq: by.get("seq").and_then(Value::as_u64)?,
-        },
-        reason: payload
-            .pointer("/args/reason")
-            .and_then(Value::as_str)
-            .unwrap_or(ABSENT)
-            .to_string(),
-        operator: field(payload, "operator").unwrap_or(ABSENT).to_string(),
-        recorded_at: event.recorded_at.clone(),
-    };
-    Some((mark, findings.iter().filter_map(Value::as_u64).collect()))
-}
-
 /// Every supersede a run's journal carries, by the sequence number of
-/// the ruling each closes. A finding named by more than one annotation
-/// carries the LAST in journal order (decision 0047 ruling 3); the
-/// earlier events stay in the journal for a reader who asks.
+/// the ruling each closes, as core reads them ([`closings`]): a finding
+/// named by more than one annotation carries the LAST in journal order
+/// (decision 0047 ruling 3), and what an annotation does not say reads
+/// as the absence mark.
 fn supersedes(events: &[EventEnvelope]) -> BTreeMap<u64, Superseded> {
-    let mut out = BTreeMap::new();
-    for event in events {
-        let Some((mark, findings)) = supersede_of(event) else {
-            continue;
-        };
-        for finding in findings {
-            out.insert(finding, mark.clone());
-        }
-    }
-    out
+    let marked = |mark: Mark| Superseded {
+        seq: mark.seq,
+        by: SupersededBy {
+            realm: mark.by.realm,
+            run_id: mark.by.run_id,
+            seq: mark.by.seq,
+        },
+        reason: mark.reason.unwrap_or_else(|| ABSENT.to_string()),
+        operator: mark.operator.unwrap_or_else(|| ABSENT.to_string()),
+        recorded_at: mark.recorded_at,
+    };
+    closings(events)
+        .into_iter()
+        .map(|(finding, mark)| (finding, marked(mark)))
+        .collect()
 }
 
 /// One residual finding, with the journal fact it was read from.

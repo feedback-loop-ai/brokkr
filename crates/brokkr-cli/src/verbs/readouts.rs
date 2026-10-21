@@ -249,16 +249,19 @@ pub(crate) fn runs(workspace: &Path, RunsArgs { realms, db, json }: RunsArgs) ->
         .next()
         .expect("a world resolves to at least one hearth")
         .journal;
+    let before = fleet::Journal::at(&db);
     let store = open_journal(&db, Access::Read)?;
     // A fleet listing survives one corrupt journal: that run
     // becomes a quarantined row carrying the refusal's own words,
     // and the rest of the fleet is still listed. The journal is
-    // never touched — the refusal is reported.
-    let listed = fleet::read_hearth(&store)
-        .listed()
-        .map_err(anyhow::Error::msg)?;
-    let entries: Vec<brokkr_view::RunEntry> = listed.iter().map(fleet::ListedRun::entry).collect();
-    let view = brokkr_view::run_rows(&entries);
+    // never touched — the refusal is reported. Read the kept way,
+    // as the console reads it (#744): each run's events are let go
+    // once it is folded, rather than every run's held at once.
+    let mut fleet = fleet::KeptFleet::default();
+    fleet
+        .refresh(&store, before)
+        .map_err(|error| anyhow::Error::msg(error.to_string()))?;
+    let view = brokkr_view::run_rows(&fleet.entries());
     if json {
         println!("{}", serde_json::to_string_pretty(&view)?);
     } else {
@@ -272,21 +275,19 @@ pub(crate) fn runs(workspace: &Path, RunsArgs { realms, db, json }: RunsArgs) ->
 
 /// `brokkr runs` over several hearths: each journal's runs under its realm.
 fn runs_fleet(hearths: &[Hearth], json: bool) -> Result<ExitCode> {
-    let read: Vec<fleet::HearthRead> = hearths
+    let read: Vec<(fleet::KeptFleet, Option<String>)> = hearths
         .iter()
-        .map(|hearth| fleet::read_journal(&hearth.journal))
+        .map(|hearth| fleet::read_kept(&hearth.journal))
         .collect();
-    let entries: Vec<Vec<brokkr_view::RunEntry>> = read
-        .iter()
-        .map(|hearth| hearth.runs.iter().map(fleet::ListedRun::entry).collect())
-        .collect();
+    let entries: Vec<Vec<brokkr_view::RunEntry>> =
+        read.iter().map(|(kept, _)| kept.entries()).collect();
     let (labels, journals) = fleet::names(hearths);
     let grouped: Vec<brokkr_view::HearthEntries> = (0..hearths.len())
         .map(|index| brokkr_view::HearthEntries {
             realm: &labels[index],
             journal: &journals[index],
             entries: &entries[index],
-            detail: read[index].detail.as_deref(),
+            detail: read[index].1.as_deref(),
         })
         .collect();
     let view = brokkr_view::fleet_rows(&grouped);

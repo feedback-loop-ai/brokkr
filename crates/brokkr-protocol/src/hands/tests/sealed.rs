@@ -247,7 +247,8 @@ fn a_source_replaced_as_the_argv_is_made_final_refuses_the_box() {
 /// A writer admitted in real namespaces (MB3's proof): a linked worktree
 /// of `main` beside another repository, its hands binding `vendor/tools`
 /// read-only and `cache`, absent, read-write beneath it, its reach sealed,
-/// and protected evidence and a coordination root outside the worktree.
+/// protected evidence and a coordination root outside the worktree, and
+/// the artifact root its boxes are given.
 #[cfg(target_os = "linux")]
 struct Admitted {
     dir: tempfile::TempDir,
@@ -256,6 +257,7 @@ struct Admitted {
     spec: HandsSpec,
     reach: Sealed,
     session: Session,
+    artifacts: PathBuf,
 }
 
 #[cfg(target_os = "linux")]
@@ -278,6 +280,7 @@ impl Admitted {
         let spec = binding(&[(&deep, "ro"), (&absent, "rw")]);
         let reach = sealed(&spec, &linked, &root.join("home"));
         let session = Session::create_under(dir.path(), "test").unwrap();
+        let artifacts = artifact_root(dir.path());
         Some(Admitted {
             dir,
             root,
@@ -285,17 +288,31 @@ impl Admitted {
             spec,
             reach,
             session,
+            artifacts,
         })
+    }
+
+    /// [`Admitted::new`], its artifact root the run-local one inside its
+    /// worktree, as the engine's is, holding one published artifact; and
+    /// that artifact's path.
+    fn holding_evidence() -> Option<(Admitted, PathBuf)> {
+        let mut writer = Admitted::new()?;
+        writer.artifacts = writer.linked.join(".forge/artifacts");
+        let digests = writer.artifacts.join("sha256");
+        std::fs::create_dir_all(&digests).unwrap();
+        let artifact = digests.join("a".repeat(64));
+        std::fs::write(&artifact, b"retained").unwrap();
+        Some((writer, artifact))
     }
 
     /// The writer's next workspace call, running `command` in its box.
     fn call(&self, command: &str) -> Result<Executed, String> {
-        let (artifacts, long) = (artifact_root(self.dir.path()), Duration::from_secs(30));
+        let long = Duration::from_secs(30);
         let at = self.session.path();
         execute(
             &self.spec,
             &self.linked,
-            &artifacts,
+            &self.artifacts,
             &self.reach,
             at,
             command,
@@ -305,14 +322,14 @@ impl Admitted {
 
     /// The writer's next exec, boxed whole.
     fn exec(&self) -> Result<i32, String> {
-        let (artifacts, bwrap) = (artifact_root(self.dir.path()), require_bwrap().unwrap());
+        let bwrap = require_bwrap().unwrap();
         let (spec, work, reach) = (&self.spec, &self.linked, &self.reach);
         let session = self.dir.path().join("exec");
         run_boxed_in(
             &bwrap,
             spec,
             work,
-            &artifacts,
+            &self.artifacts,
             reach,
             &session,
             &[],
@@ -349,10 +366,11 @@ impl Admitted {
 /// run; then its own box replaces an ancestor of a bind source beneath its
 /// worktree by a link toward protected evidence, puts a link toward the
 /// coordination root where a source stood absent, renames another
-/// directory into that source's place, and hard-links a file of its
-/// worktree there. Each time its next workspace call
+/// directory into that source's place. Each time its next workspace call
 /// and the following exec refuse before spawn with MB3's exact cause, the
-/// protected bytes unchanged, and once undone it runs again.
+/// protected bytes unchanged, and once undone it runs again. A hard link
+/// there is bound alone
+/// ([`a_hard_link_where_a_source_stood_absent_refuses_the_next_box`]).
 #[cfg(target_os = "linux")]
 #[test]
 fn a_writers_own_box_cannot_redirect_a_later_box_through_a_source() {
@@ -397,7 +415,6 @@ fn a_writers_own_box_cannot_redirect_a_later_box_through_a_source() {
             &absent,
             "rmdir cache",
         ),
-        ("ln made cache".to_string(), &absent, "rm cache"),
     ];
     for (attack, path, undo) in attacks {
         writer.attacks(&attack);
@@ -415,6 +432,58 @@ fn a_writers_own_box_cannot_redirect_a_later_box_through_a_source() {
             "{attack}: undone"
         );
     }
+}
+
+/// In real namespaces, bound alone (L3 of U8a2c's review): a writer's own
+/// box hard-links a file of its worktree where a bind source stood absent,
+/// and its next workspace call and the following exec refuse before spawn
+/// with MB3's exact cause, the protected bytes unchanged; once the link is
+/// removed it runs again.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hard_link_where_a_source_stood_absent_refuses_the_next_box() {
+    let Some(writer) = Admitted::new() else {
+        return;
+    };
+    let (before, absent) = (writer.protected(), writer.linked.join("cache"));
+    writer.attacks("echo w > made && ln made cache");
+    writer.refused(&absent, "a hard link");
+    assert_eq!(writer.protected(), before);
+    std::fs::remove_file(&absent).unwrap();
+    assert_eq!(writer.call("true").unwrap().exit_code, 0, "undone");
+}
+
+/// In real namespaces (L3 of U8a2c's review): a writer's own box cannot
+/// hard-link protected evidence, or the coordination root's record, where
+/// a bind source stood absent. The evidence it sees is the read-only mount
+/// of its run-local artifact root, which a link into the worktree's mount
+/// would cross, and the coordination root is not in its box at all: each
+/// link fails inside the box by the kernel's own refusal, the artifact
+/// keeps its one link and its bytes, and the next call runs.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_hard_link_toward_protected_evidence_or_coordination_fails_in_the_box() {
+    use std::os::unix::fs::MetadataExt;
+    let Some((writer, artifact)) = Admitted::holding_evidence() else {
+        return;
+    };
+    let before = writer.protected();
+    let reservation = writer.root.join("coordination/reservation.json");
+    let refusals = [
+        (&artifact, "Invalid cross-device link"),
+        (&reservation, "No such file or directory"),
+    ];
+    for (target, refusal) in refusals {
+        let ran = writer.call(&format!("ln '{}' cache", target.display()));
+        let ran = ran.unwrap();
+        assert_eq!(ran.exit_code, 1, "{}", ran.render());
+        assert!(ran.stderr.contains(refusal), "{}", ran.render());
+        assert!(!writer.linked.join("cache").exists(), "{target:?}: no link");
+        assert_eq!(writer.call("true").unwrap().exit_code, 0, "{target:?}");
+    }
+    assert_eq!(std::fs::metadata(&artifact).unwrap().nlink(), 1);
+    assert_eq!(std::fs::read(&artifact).unwrap(), b"retained");
+    assert_eq!(writer.protected(), before);
 }
 
 /// In real namespaces (MB3's proof): a writer's own box rewrites the

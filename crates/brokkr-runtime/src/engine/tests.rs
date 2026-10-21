@@ -169,13 +169,13 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         dir: dir.to_path_buf(),
         roots: vec![dir.to_path_buf()],
         boundary: Boundary::Namespace,
+        executable: crate::argv::tests::ENGINE.clone(),
         chain: Vec::new(),
         machine: machine(),
         seats,
         manifest: json!({
             "engine":ENGINE_VERSION, "event_schema":1, "database_schema":1,
-            "driver_protocol":1, "bundle_name":"test",
-            "files":{"bundle.json":"a".repeat(64)}
+            "driver_protocol":1, "bundle_name":"test", "files":{"bundle.json":"a".repeat(64)}
         }),
         protected_phase: "review".into(),
         hands: BTreeMap::new(),
@@ -2347,9 +2347,8 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
             && event.payload["inputs"]["dirty_worktrees"] == false
     }));
 
-    // Park is a general table operation. Only the triage/escalate pair
-    // substitutes the seat's reasoning; another triage result keeps the
-    // table's reason.
+    // Every rule-driven park carries the seat's non-empty notes, not only
+    // escalate's; empty notes keep the table's reason (decision 0092).
     engine.bundle.machine = Machine::from_table(&json!({
         "schema":"forge.phase-machine/v2",
         "phases":["triage", "done"],
@@ -2366,14 +2365,13 @@ fn decide_covers_schema_no_rule_review_head_and_ship_drift() {
     let mut triage_seat = engine.bundle.seats["work"].clone();
     triage_seat.results = vec!["chore".into()];
     engine.bundle.seats.insert("triage".into(), triage_seat);
-    engine
-        .decide(
-            &state(Some("triage"), Cursor::RequestEffect),
-            json!({"result":"chore", "notes":"seat reason"}),
-        )
-        .unwrap();
-    let events = engine.store.load(&engine.run_id).unwrap();
-    assert_eq!(events.last().unwrap().payload["problem"], "table reason");
+    for (notes, problem) in [("seat reason", "seat reason"), ("", "table reason")] {
+        let parked = json!({"result":"chore", "notes": notes});
+        let triage = state(Some("triage"), Cursor::RequestEffect);
+        engine.decide(&triage, parked).unwrap();
+        let events = engine.store.load(&engine.run_id).unwrap();
+        assert_eq!(events.last().unwrap().payload["problem"], problem);
+    }
 }
 
 /// A run stopped mid-attempt: the effect is in flight, so the run is
@@ -5690,7 +5688,7 @@ fn a_model_seats_hands_are_expanded_by_the_checks_one_encoder() {
         brokkr: &brokkr,
         workdir,
         artifacts: Path::new("/a"),
-        sealed: boxed(workdir).1.unwrap(),
+        sealed: boxed(workdir).2.unwrap(),
         spec: &spec,
     };
     assert_eq!(Some(argv.clone()), transport.expand(&fragment));

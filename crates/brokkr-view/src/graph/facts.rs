@@ -13,7 +13,7 @@ use super::GraphQuery;
 use crate::analytics::{finished, in_range, is_open, Ending, Window};
 use crate::attempts::{attempts, Attempts};
 use crate::clarify::{pinned_realm, pins, recipe, Pins};
-use crate::{field, js, title, RuleSeverity};
+use crate::{field, title, RuleSeverity};
 
 /// One stay in a state: when the run entered it, and when it entered the
 /// next or reached its terminal event, if it has.
@@ -48,7 +48,7 @@ pub(super) struct GraphRun {
 }
 
 fn at(event: &EventEnvelope) -> Option<i64> {
-    js::parse_millis(&event.recorded_at)
+    brokkr_core::stamp::parse_millis(&event.recorded_at)
 }
 
 /// Every stay, each closed by the next entry or the terminal event.

@@ -3,6 +3,9 @@
 //! a supersede by this derivation and the view renders it, so a readout
 //! change can never move which supersedes the engine accepts (#351).
 
+use std::collections::BTreeMap;
+
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::envelope::{EventEnvelope, EventType};
@@ -136,6 +139,111 @@ pub fn residuals(events: &[EventEnvelope]) -> Vec<Residual<'_>> {
         }
     }
     out
+}
+
+/// Where a supersede says a finding is closed: the fact a run's journal
+/// carries at `seq`, in `realm` when the annotation named one (decision
+/// 0047 ruling 1).
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Citation {
+    pub realm: Option<String>,
+    pub run_id: String,
+    pub seq: u64,
+}
+
+/// The operator's word that a residual finding is closed elsewhere, as
+/// the journal carries it: the annotation's own seq, what it cites, and
+/// who wrote it, when and why, `None` where the annotation says nothing.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct Mark {
+    pub seq: u64,
+    pub by: Citation,
+    pub reason: Option<String>,
+    pub operator: Option<String>,
+    pub recorded_at: String,
+}
+
+fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
+/// One supersede annotation, read from an `operator/commanded` event:
+/// the mark itself and the finding seqs it closes. Any other event, and
+/// any annotation whose citation is not there to read, yields nothing — a
+/// half-read citation is repair (decision 0001).
+pub(crate) fn closing_of(event: &EventEnvelope) -> Option<(Mark, Vec<u64>)> {
+    let payload = &event.payload;
+    if event.event_type != EventType::OperatorCommanded
+        || text(payload, "command") != Some(SUPERSEDE)
+    {
+        return None;
+    }
+    let by = payload.pointer("/args/by")?;
+    let findings = payload
+        .pointer("/args/findings")
+        .and_then(Value::as_array)?;
+    let mark = Mark {
+        seq: event.seq,
+        by: Citation {
+            realm: text(by, "realm").map(str::to_string),
+            run_id: text(by, "run_id")?.to_string(),
+            seq: by.get("seq").and_then(Value::as_u64)?,
+        },
+        reason: payload
+            .pointer("/args/reason")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        operator: text(payload, "operator").map(str::to_string),
+        recorded_at: event.recorded_at.clone(),
+    };
+    Some((mark, findings.iter().filter_map(Value::as_u64).collect()))
+}
+
+/// Note what `event` closes in `marks`, by the seq of each ruling it
+/// closes; a later annotation of the same finding replaces the earlier.
+pub(crate) fn note_closing(marks: &mut BTreeMap<u64, Mark>, event: &EventEnvelope) {
+    if let Some((mark, findings)) = closing_of(event) {
+        for finding in findings {
+            marks.insert(finding, mark.clone());
+        }
+    }
+}
+
+/// Every supersede a run's journal carries, by the seq of the ruling
+/// each closes. A finding named by more than one annotation carries the
+/// LAST in journal order (decision 0047 ruling 3).
+pub fn closings(events: &[EventEnvelope]) -> BTreeMap<u64, Mark> {
+    let mut marks = BTreeMap::new();
+    for event in events {
+        note_closing(&mut marks, event);
+    }
+    marks
+}
+
+/// The highest severity an open finding names, each finding given as the
+/// severity it states and whether a supersede closed it: a closed finding
+/// is open no longer, a flag states no severity, and `none` is no
+/// residual. The one reading of a run's residual cell, which the writer's
+/// summary row and the fleet's verdict both make (decision 0089 ruling 2).
+pub fn open_severity(
+    findings: impl IntoIterator<Item = (Option<Severity>, bool)>,
+) -> Option<Severity> {
+    findings
+        .into_iter()
+        .filter(|(_, closed)| !closed)
+        .filter_map(|(severity, _)| severity)
+        .filter(|severity| *severity > Severity::None)
+        .max()
+}
+
+impl Claim {
+    /// The severity the claim states: a flag states none.
+    pub(crate) fn severity(self) -> Option<Severity> {
+        match self {
+            Claim::MaxSeverity(severity) => Some(severity),
+            Claim::SecurityResidual | Claim::HighRiskUncovered => None,
+        }
+    }
 }
 
 #[cfg(test)]

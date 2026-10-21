@@ -584,9 +584,9 @@ impl NativeCapability {
 /// harness whose grammar and launch a seat on that provider consumes.
 /// [`OPAQUE_HARNESS`] for a command that dispatches no built-in driver.
 pub fn harness_of(driver: &[String]) -> &str {
-    match driver {
-        [_, marker, name, ..] if marker == "driver" => name,
-        _ => OPAQUE_HARNESS,
+    match crate::argv::Dispatch::of(driver) {
+        crate::argv::Dispatch::Driver { kind, .. } => kind,
+        crate::argv::Dispatch::Raw => OPAQUE_HARNESS,
     }
 }
 

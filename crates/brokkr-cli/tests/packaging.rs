@@ -15,7 +15,7 @@
 //!   it the apt test builds a synthetic `.deb` with `dpkg-deb`, which
 //!   exercises the same script against the same file format.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -1092,71 +1092,161 @@ const NOT_PACKAGING: [(&str, &str); 4] = [
     ),
 ];
 
+/// The workflows GitHub runs, under either suffix it reads.
+const WORKFLOWS: [&str; 2] = [".github/workflows/*.yml", ".github/workflows/*.yaml"];
+
+/// The secrets a `workflow`'s `text` reads as `secrets.NAME`, added to
+/// `secrets`, and why it reads one this cannot: by index, spaced or not
+/// (`secrets['KEY']`, `secrets [ 'KEY' ]`), or by a name that is not an
+/// uppercase word (`secrets.myToken`, which GitHub reads in any case).
+fn secrets_read(workflow: &str, text: &str, secrets: &mut BTreeSet<String>) -> Vec<String> {
+    let mut found = Vec::new();
+    let indexed = text
+        .match_indices("secrets")
+        .any(|(at, word)| text[at + word.len()..].trim_start().starts_with('['));
+    if indexed {
+        found.push(format!(
+            "{workflow} reads a secret by index, which this does not read: write secrets.NAME"
+        ));
+    }
+    for rest in text.split("secrets.").skip(1) {
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        if name.is_empty() || name.contains(|c: char| c.is_ascii_lowercase()) {
+            found.push(format!(
+                "{workflow} reads `secrets.{name}`, a name that is not an uppercase word: write secrets.NAME"
+            ));
+        } else {
+            secrets.insert(name);
+        }
+    }
+    found
+}
+
+/// Why the packaging README's text `readme` falls short of the
+/// [`WORKFLOWS`] tracked under `root`: each secret a workflow reads that
+/// [`secrets_read`] cannot read; each secret `not_packaging` names that no
+/// workflow reads any longer; and each other secret a workflow reads, but
+/// the token GitHub issues itself, that the README does not name.
+fn unnamed_secrets(root: &Path, readme: &str, not_packaging: &[(&str, &str)]) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut secrets = BTreeSet::new();
+    for workflow in crate::tracked_files::tracked(root, &WORKFLOWS) {
+        let text = std::fs::read_to_string(root.join(&workflow)).expect("a tracked workflow");
+        found.extend(secrets_read(&workflow, &text, &mut secrets));
+    }
+    secrets.remove("GITHUB_TOKEN");
+    for (secret, read_by) in not_packaging {
+        if !secrets.remove(*secret) {
+            found.push(format!(
+                "{secret} ({read_by}) is read by no workflow any longer"
+            ));
+        }
+    }
+    found.extend(
+        secrets
+            .into_iter()
+            .filter(|secret| !readme.contains(&format!("`{secret}`")))
+            .map(|secret| {
+                format!("packaging/README.md does not name {secret}, which a workflow reads")
+            }),
+    );
+    found
+}
+
 /// The packaging README is where the operator's steps live: every secret
 /// a workflow reads, but the token GitHub issues itself and the ones
 /// [`NOT_PACKAGING`] names, is named there for the operator to provision,
 /// and no key material is. Which channels it calls out of scope is a
 /// reviewer's call since #365: the README is held to the workflows, not to
-/// an inventory of its own words.
+/// an inventory of its own words, nor to one of theirs (#614).
 #[test]
 fn the_packaging_readme_names_every_secret_a_workflow_reads() {
     let readme = read("packaging/README.md");
-    let workflows = crate::tracked_files::tracked(&workspace(), &[".github/workflows/*.yml"]);
+    let workflows = crate::tracked_files::tracked(&workspace(), &WORKFLOWS);
     assert!(
         workflows.contains(&".github/workflows/release.yml".to_string()),
         "the workflows were listed: {workflows:?}"
     );
-    let mut secrets: Vec<String> = workflows
-        .into_iter()
-        .flat_map(|workflow| {
-            let text = read(&workflow);
-            assert!(
-                !text.contains("secrets["),
-                "{workflow} reads a secret by index, which this does not read: write secrets.NAME"
-            );
-            text.split("secrets.")
-                .skip(1)
-                .map(|rest| {
-                    rest.chars()
-                        .take_while(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_')
-                        .collect::<String>()
-                })
-                .collect::<Vec<_>>()
-        })
-        .filter(|secret| secret != "GITHUB_TOKEN")
-        .collect();
-    secrets.sort();
-    secrets.dedup();
-    for (secret, read_by) in NOT_PACKAGING {
-        assert!(
-            secrets.iter().any(|read| read == secret),
-            "{secret} ({read_by}) is read by no workflow any longer"
-        );
-    }
-    secrets.retain(|secret| !NOT_PACKAGING.iter().any(|(other, _)| other == secret));
     assert_eq!(
-        secrets,
-        [
-            "BROKKR_APT_SIGNING_KEY",
-            "BROKKR_APT_SIGNING_KEY_PASSPHRASE",
-            "BROKKR_RELEASE_APP_PRIVATE_KEY",
-            "BROKKR_TAP_TOKEN",
-            "CARGO_REGISTRY_TOKEN",
-        ],
-        "the workflows' secrets were read"
+        unnamed_secrets(&workspace(), &readme, &NOT_PACKAGING),
+        Vec::<String>::new()
     );
-    for secret in &secrets {
-        assert!(
-            readme.contains(&format!("`{secret}`")),
-            "packaging/README.md does not name {secret}, which a workflow reads"
-        );
-    }
     // The bench label survives only in the accuracy law's history.
     assert!(
         readme.matches("wired at the bench").count() == 1,
         "the bench label should remain only in the law's history:\n{readme}"
     );
     assert!(!readme.contains("BEGIN PGP PRIVATE KEY"), "{readme}");
+}
+
+/// A repository tracking each `(file, text)` under `.github/workflows/`.
+fn planted_workflows(files: &[(&str, &str)]) -> tempfile::TempDir {
+    let work = tempfile::tempdir().expect("a temporary directory");
+    let root = work.path();
+    let flows = root.join(".github/workflows");
+    std::fs::create_dir_all(&flows).expect("the workflows directory");
+    for (file, text) in files {
+        std::fs::write(flows.join(file), text).expect("a planted workflow");
+    }
+    run(Command::new("git").current_dir(root).args(["init", "-q"]));
+    run(Command::new("git").current_dir(root).args(["add", "."]));
+    work
+}
+
+#[test]
+fn a_secret_a_yml_or_yaml_workflow_reads_is_held_to_the_readme() {
+    let work = planted_workflows(&[
+        (
+            "release.yml",
+            "token: ${{ secrets.BROKKR_TAP_TOKEN }}\nauth: ${{ secrets.GITHUB_TOKEN }}\n",
+        ),
+        ("publish.yaml", "key: ${{ secrets.NEW_SIGNING_KEY }}\n"),
+        ("indexed.yml", "key: ${{ secrets['HIDDEN_KEY'] }}\n"),
+        ("bot.yml", "id: ${{ secrets.BOT_APP_ID }}\n"),
+        ("notes.txt", "key: ${{ secrets.NOT_A_WORKFLOW }}\n"),
+    ]);
+    let root = work.path();
+    let not_packaging = [("BOT_APP_ID", "bot.yml: a bot"), ("GONE_KEY", "gone.yml")];
+    assert_eq!(
+        unnamed_secrets(root, "Provision `BROKKR_TAP_TOKEN`.", &not_packaging),
+        [
+            ".github/workflows/indexed.yml reads a secret by index, which this does not read: write secrets.NAME",
+            "GONE_KEY (gone.yml) is read by no workflow any longer",
+            "packaging/README.md does not name NEW_SIGNING_KEY, which a workflow reads",
+        ]
+    );
+    assert_eq!(
+        unnamed_secrets(
+            root,
+            "Provision `BROKKR_TAP_TOKEN` and `NEW_SIGNING_KEY`.",
+            &not_packaging[..1]
+        ),
+        [".github/workflows/indexed.yml reads a secret by index, which this does not read: write secrets.NAME"],
+        "a secret the README names passes, and so does the allowance a workflow still reads"
+    );
+}
+
+#[test]
+fn a_secret_read_by_a_spaced_index_or_a_lowercase_name_is_refused() {
+    let work = planted_workflows(&[
+        ("lower.yml", "token: ${{ secrets.myToken }}\n"),
+        ("mixed.yml", "token: ${{ secrets.BROKKR_tap }}\n"),
+        ("spaced.yml", "key: ${{ secrets [ 'KEY' ] }}\n"),
+        ("inner.yml", "key: ${{ secrets[ 'KEY' ] }}\n"),
+        ("read.yml", "key: ${{ secrets.READ_KEY }}\n"),
+    ]);
+    assert_eq!(
+        unnamed_secrets(work.path(), "Provision `READ_KEY`.", &[]),
+        [
+            ".github/workflows/inner.yml reads a secret by index, which this does not read: write secrets.NAME",
+            ".github/workflows/lower.yml reads `secrets.myToken`, a name that is not an uppercase word: write secrets.NAME",
+            ".github/workflows/mixed.yml reads `secrets.BROKKR_tap`, a name that is not an uppercase word: write secrets.NAME",
+            ".github/workflows/spaced.yml reads a secret by index, which this does not read: write secrets.NAME",
+        ]
+    );
 }
 
 /// Real nfpm output, when CI built it: one binary at `/usr/bin/brokkr`,

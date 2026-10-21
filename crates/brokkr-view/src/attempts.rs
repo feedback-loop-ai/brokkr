@@ -11,7 +11,7 @@ use brokkr_core::{EventEnvelope, EventType};
 use serde_json::Value;
 
 use crate::meter::{self, sum_usage, Meter, Metering};
-use crate::{field, js, reported_cost, TokenUsage};
+use crate::{field, reported_cost, TokenUsage};
 
 /// One checkpoint of a site, read once at its edge.
 struct Metered {
@@ -162,7 +162,7 @@ pub(crate) fn attempts(events: &[EventEnvelope]) -> Attempts {
             continue;
         }
         let (Some(at), Some(attempt)) = (
-            js::parse_millis(&event.recorded_at),
+            brokkr_core::stamp::parse_millis(&event.recorded_at),
             field(payload, "attempt_id"),
         ) else {
             continue;

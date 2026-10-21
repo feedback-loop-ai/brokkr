@@ -13,7 +13,7 @@ use super::{
 use crate::analytics::{cost_figure, middle, span, stamp, total, Ending, RuleCount, Window};
 use crate::clarify::{pins_of, Pins};
 use crate::fleet::STOP_PHASE;
-use crate::{js, RuleSeverity, TokenUsage};
+use crate::{RuleSeverity, TokenUsage};
 
 /// The pinned file the table is written in, and the prefix a composed
 /// recipe pins each base layer under — `brokkr_runtime`'s
@@ -463,8 +463,8 @@ fn table_of(query: &GraphQuery) -> Table {
 /// The recipe's graph for `query`: its table's states and rules with the
 /// traffic of the runs the range ending at `now` keeps.
 pub fn graph(query: &GraphQuery) -> Result<GraphView, GraphError> {
-    let now =
-        js::parse_millis(query.now).ok_or_else(|| GraphError::Clock(query.now.to_string()))?;
+    let now = brokkr_core::stamp::parse_millis(query.now)
+        .ok_or_else(|| GraphError::Clock(query.now.to_string()))?;
     let window = Window {
         from: now - query.range.millis(),
         to: now,

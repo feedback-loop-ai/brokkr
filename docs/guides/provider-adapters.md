@@ -148,8 +148,8 @@ journal. A custom route's model entry must also state its own
 `reasoningEfforts`, because dsh resolves an entry without them against
 its installed catalog for the same provider key and ships none for
 `dashscope`: left unstated, the model materialises as non-reasoning and
-any pinned `--effort` is refused at start. `recipes/research-dsh`
-states `low`, `medium` and `xhigh` for `qwen3.8-max`, the levels dsh's
+any pinned `--effort` is refused at start. `recipes/research-dsh`, a
+Brokkr-only recipe (decision 0087 ruling 5), states `low`, `medium` and `xhigh` for `qwen3.8-max`, the levels dsh's
 own Qwen catalog lists, and pins `xhigh` (decision 0035, second
 addendum).
 
@@ -167,7 +167,8 @@ none. Capacity is the shared KV figure, not a default: 700k across
 `maxTokens` 32768, and compaction measures against that cap
 (`thresholdRatio` 0.8, so it fires at 160k — four seats at the
 trigger together hold ~640k — with `retainRatio` 0.16).
-`recipes/night-shift` and `recipes/wager-harness-dsh` pin their dsh
+`recipes/night-shift` and `recipes/wager-harness-dsh`, both Brokkr-only,
+pin their dsh
 implement lanes to this id with no effort (the operator's ruling of
 2026-10-04, [#532](https://github.com/feedback-loop-ai/brokkr/issues/532)),
 so both run only on a host serving the `spark-glm` route.

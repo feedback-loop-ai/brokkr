@@ -321,7 +321,7 @@ fn a_refusal_before_the_session_still_descends_within_its_bound() {
             "read -r hello; printf '%s\\n' 'not a protocol message'",
             true,
         ),
-        ("read -r hello; sleep 30", false),
+        ("read -r hello; sleep 300", false),
     ] {
         let ws = Workspace::new();
         let mut first = ws.fake_adapter("absent", "first");
@@ -331,7 +331,8 @@ fn a_refusal_before_the_session_still_descends_within_its_bound() {
             |result: &str| json!([{"behavior": "succeed", "result": {"result": result}}]);
         let seats = json!({"implement": succeeds("complete"), "review": succeeds("clean")});
         ws.script(json!({ "seats": seats }));
-        let limits = json!({"max_attempts": 2, "timeout_seconds": 1});
+        let timeout = crate::engine::HANG_DEADLINE_SECONDS;
+        let limits = json!({"max_attempts": 2, "timeout_seconds": timeout});
         ws.agent("worker", json!(["first", "second"]), Some(limits));
         let review = ws.inline_review();
         ws.bundle(
@@ -343,14 +344,17 @@ fn a_refusal_before_the_session_still_descends_within_its_bound() {
             .iter()
             .map(|event| &event["payload"]["provenance"][0]["model"])
             .collect();
+        // A chain other than the one pinned prints why each attempt failed.
+        let failed = of_type(&events, "effect/failed");
+        let why: Vec<&Value> = failed.iter().map(|event| &event["payload"]).collect();
         if completes {
-            assert_eq!(models, [&json!("first"), &json!("second"), &Value::Null]);
-            let failed = of_type(&events, "effect/failed");
+            let chain = [&json!("first"), &json!("second"), &Value::Null];
+            assert_eq!(models, chain, "{why:?}");
             assert_eq!(failed.len(), 1);
             assert_eq!(failed[0]["payload"]["start_failure"], json!(true));
             assert_eq!(of_type(&events, "run/completed").len(), 1);
         } else {
-            assert_eq!(models, [&json!("first")]);
+            assert_eq!(models, [&json!("first")], "{why:?}");
             assert_eq!(of_type(&events, "effect/indeterminate").len(), 1);
             assert_eq!(of_type(&events, "run/parked").len(), 1);
         }

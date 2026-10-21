@@ -34,8 +34,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use brokkr_protocol::oneshot::{self, OneShot};
-use brokkr_runtime::bundle::expand_command;
 use brokkr_runtime::realms::{Hearth, World};
+use brokkr_runtime::{argv::Executable, bundle::expand_command};
 use brokkr_runtime::{Adapters, Availability, Library};
 use brokkr_store::Store;
 use serde_json::{json, Value};
@@ -514,7 +514,7 @@ pub(crate) fn seat(agents_dir: &Path, adapters_dir: &Path) -> Result<Seat> {
         .first()
         .expect("resolution yields at least one candidate or refuses");
     Ok(Seat {
-        command: expand_command(agents_dir, &candidate.argv),
+        command: expand_command(&Executable::current(), agents_dir, &candidate.argv),
         charter: resolved.charter,
         deadline: Duration::from_secs(limits.timeout_seconds),
         model: candidate.model.clone(),

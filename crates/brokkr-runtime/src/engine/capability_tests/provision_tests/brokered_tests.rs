@@ -22,14 +22,26 @@ thread_local! {
     /// The host `Engine::provision` reads on this thread, where a test
     /// stood one in ([`StoodIn`]).
     static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
+    /// How many boxes this thread's stood-in provisioning surveyed.
+    static SURVEYED: Cell<usize> = const { Cell::new(0) };
 }
 
 /// The host dispatch's own provisioning reads on this thread, with the
-/// survey's stand-in ([`observing`]), where a test stood one in; none
-/// otherwise, and the real host is read.
+/// survey's stand-in ([`observing`]), each box it surveys counted, where a
+/// test stood one in; none otherwise, and the real host is read.
 pub(in crate::engine) fn stood_in() -> Option<(Host, Surveyor<'static>)> {
     let host = HOST.with_borrow(Clone::clone)?;
-    Some((host, &observing))
+    Some((host, &counted))
+}
+
+/// [`observing`], counted.
+fn counted(
+    bootstrap: &Path,
+    request: &Survey,
+    deadline: Instant,
+) -> Result<Provisioned, Unprovisioned> {
+    SURVEYED.set(SURVEYED.get() + 1);
+    observing(bootstrap, request, deadline)
 }
 
 /// A host stood in for this thread's provisioning until dropped, on return
@@ -640,6 +652,30 @@ fn an_altered_sealed_broker_refuses_at_the_final_boundary() {
     }
 }
 
+/// #349, ask 8: the hands and the broker beside them are run by the engine
+/// executable the bundle carries, which the box's hands were composed with
+/// and the whole set is expanded under again — never a binary read anew.
+#[test]
+fn the_whole_set_is_run_by_the_executable_the_bundle_carries() {
+    let test = "the_whole_set_is_run_by_the_executable_the_bundle_carries";
+    // An unreadable executable keeps the empty spelling where the engine
+    // path stands.
+    for (engine, spelling) in [(Some("/opt/brokkr-test"), "/opt/brokkr-test"), (None, "")] {
+        let Some(mut claude) = Claude::new(test, single(), &["work"]) else {
+            return;
+        };
+        claude.fixture.engine.bundle.executable = crate::argv::Executable(engine.map(Into::into));
+        let (_, spawn, _) = claude.dispatched("attempt-1");
+        let broker = claude.written("attempt-1");
+        let exe = std::env::current_exe().unwrap();
+        let whole = document(&claude.fixture.engine.workdir(), Some(&broker));
+        let whole = whole.replace(exe.to_str().unwrap(), spelling);
+        let config = spawn.argv.iter().position(|part| part == "--mcp-config");
+        let served = config.map(|at| spawn.argv[at + 1].clone());
+        assert_eq!((spawn.refusal, served), (None, Some(whole)));
+    }
+}
+
 /// A seat whose outcome holds no brokered capability seals the hands set
 /// alone, provisions nothing, and keeps every byte of the command composed
 /// for it: the driver serves the hands-only literal.
@@ -824,7 +860,12 @@ fn a_broker_set_that_is_not_the_provisioned_one_refuses_its_spawn() {
         (&sealed, &broker, None),
     ] {
         let mut again = spawn.clone();
-        let worktree = (workdir.as_path(), Path::new("/a"), reach);
+        let worktree = (
+            &*crate::argv::tests::ENGINE,
+            workdir.as_path(),
+            Path::new("/a"),
+            reach,
+        );
         let expanded = beside(&mut again, serving, worktree, std::slice::from_ref(broker));
         assert_eq!(expanded, Err(Unsealed::Unexpanded));
         assert_eq!(again.argv, spawn.argv);

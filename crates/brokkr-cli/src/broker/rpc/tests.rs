@@ -29,6 +29,7 @@ use crate::broker::session::{Ended, Startup};
 
 mod delivery;
 mod masking;
+mod retention;
 
 /// The plan every test serves, `@` its digests: the capability
 /// `library-docs`, its dialect pinned at 1.4.2, granting `lookup` and
@@ -706,7 +707,10 @@ fn no_traffic_extends_the_startup_deadline_and_a_server_that_takes_nothing_ends_
 }
 
 /// The broker's ends of a harness: its input, written without blocking,
-/// and its output, read as frames, within twenty seconds each.
+/// and its output, read as frames, within sixty seconds each: a liveness
+/// bound that only sets how long a genuinely broken session takes to
+/// fail. Twenty seconds was outrun by one eight-mebibyte frame when the
+/// workspace suite ran on a loaded host.
 struct Harness {
     to: Option<PipeWriter>,
     from: PipeReader,
@@ -719,7 +723,7 @@ impl Harness {
     }
 
     fn raw(&mut self, bytes: &[u8]) {
-        let until = Instant::now() + Duration::from_secs(20);
+        let until = Instant::now() + Duration::from_secs(60);
         let to = self.to.as_mut().unwrap();
         assert!(offered(to, bytes, until), "the broker took nothing");
     }
@@ -733,7 +737,7 @@ impl Harness {
     /// The broker's next frame to the harness as its very bytes, its
     /// newline included, or none at its end.
     fn line(&mut self) -> Option<Vec<u8>> {
-        let (until, mut searched) = (Instant::now() + Duration::from_secs(20), 0);
+        let (until, mut searched) = (Instant::now() + Duration::from_secs(60), 0);
         loop {
             let newline = self.held[searched..].iter().position(|byte| *byte == b'\n');
             if let Some(at) = newline {
@@ -767,12 +771,13 @@ struct Ran {
 }
 
 /// What a test session's output edge holds: the plan it serves, the
-/// secrets bound to it, and what its server writes on its standard error
-/// before ending it.
+/// secrets bound to it, what its server writes on its standard error
+/// before ending it, and how its ledger retains responses, if it does.
 struct Beside {
     plan: Plan,
     bindings: Vec<BoundSecret>,
     stderr: Vec<u8>,
+    retain: Option<retention::Retain>,
 }
 
 impl Beside {
@@ -782,6 +787,7 @@ impl Beside {
             plan: plan(),
             bindings: Vec::new(),
             stderr: Vec::new(),
+            retain: None,
         }
     }
 }
@@ -837,6 +843,7 @@ fn edged(
         plan,
         bindings,
         stderr,
+        retain,
     }: Beside,
     conversation: impl FnOnce(&mut Harness) + Send + 'static,
 ) -> Ran {
@@ -863,6 +870,7 @@ fn edged(
     };
     // Opened before the session's bindings are known, as `serve` opens it.
     let mut ledger = Ledger::open_with(append, (&plan.owner, DIGEST), &[]).unwrap();
+    retain.into_iter().for_each(|retain| retain(&mut ledger));
     let ((asked, to), (from, answers)) = (pipe(), pipe());
     rustix::io::ioctl_fionbio(&from, true).unwrap();
     rustix::io::ioctl_fionbio(&to, true).unwrap();
@@ -1479,7 +1487,7 @@ fn large() -> Value {
 }
 
 #[test]
-fn a_server_that_takes_no_call_ends_it_and_an_ended_harness_leaves_it_begun() {
+fn a_server_that_takes_no_call_ends_it() {
     // Its input closed once it has listed: the forwarding fails.
     let ran = conversed(
         listing_then(Then::Close),
@@ -1500,18 +1508,6 @@ fn a_server_that_takes_no_call_ends_it_and_an_ended_harness_leaves_it_begun() {
         conversation,
     );
     lookup_failed("holding", ran, Failure::Timeout);
-    // The harness ends while its call is active: the call stays begun,
-    // which recovery reads as interrupted, and the session unclosed.
-    let ran = conversed(slow(Duration::from_millis(300)), |harness| {
-        harness.send(&call("1", "lookup"))
-    });
-    assert_eq!(ran.ended, Ok(()));
-    let begun = (
-        owned(vec![("lookup", None)]),
-        None,
-        Some(Invalid::Lifecycle),
-    );
-    assert_eq!(ran.proved, begun);
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use super::*;
 use crate::folder::folder_tests::library_journal;
+use crate::tui_read::{tui_source, tui_views, SourceStamp};
 use brokkr_bridge::BridgeError;
 use brokkr_core::canonical::{sha256_hex, ZERO_HASH};
 use brokkr_core::dispatch::{build_run_manifest_v2, DispatchEnvelopeV2};
@@ -2144,7 +2145,7 @@ fn a_vanished_participant_clears_the_same_frames_transcript() {
             run: "r1".to_string(),
             key: "gone-seat".to_string(),
             reference: None,
-            provenance: LegacyProvenance::Absent,
+            provenance: brokkr_view::transcript::LegacyProvenance::Absent,
             legacy_id: None,
             working: false,
         }),
@@ -2203,7 +2204,7 @@ fn the_console_masks_a_bound_value_the_dsh_session_file_holds() {
                 locator: "sessions/one".to_string(),
                 home: home.to_str().unwrap().to_string(),
             }),
-            provenance: LegacyProvenance::Absent,
+            provenance: brokkr_view::transcript::LegacyProvenance::Absent,
             legacy_id: None,
             working: false,
         }),
@@ -2561,13 +2562,11 @@ fn the_tui_refresh_is_head_gated_on_seq_and_hash_and_keeps_an_unfoldable_run() {
     // The production source binds the workspace clock, and reading
     // through it leaves the journal exactly as it was.
     let before = Store::open(&db).unwrap().export_ndjson("r1").unwrap();
-    let mut heads = vec![None];
-    let mut seen = None;
-    let hearths = [Hearth {
+    let hearths = vec![Hearth {
         realms: vec!["solo".to_string()],
         journal: db.clone(),
     }];
-    let mut source = tui_source(&hearths, &mut heads, &mut seen);
+    let mut source = tui_source(hearths);
     let views = source(ask(Some("r1"), true, false)).unwrap().unwrap();
     assert!(views.now.ends_with('Z'));
     assert_eq!(
@@ -3714,8 +3713,8 @@ fn conclude_fixture_store(db: &std::path::Path, name: &str) {
         .unwrap(),
     )
     .unwrap();
-    let mut store = Store::open(db).unwrap();
-    store
+    Store::open(db)
+        .unwrap()
         .create_run(name, "fixture", "self", &manifest)
         .unwrap();
     let connection = rusqlite::Connection::open(db).unwrap();

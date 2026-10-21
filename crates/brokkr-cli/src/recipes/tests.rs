@@ -62,6 +62,7 @@ fn bundle_with_sequence() -> Bundle {
         dir: PathBuf::new(),
         roots: vec![PathBuf::new()],
         boundary: brokkr_core::realms::Boundary::Namespace,
+        executable: brokkr_runtime::argv::Executable::current(),
         chain: Vec::new(),
         machine: Machine {
             phases: vec!["review".into()],

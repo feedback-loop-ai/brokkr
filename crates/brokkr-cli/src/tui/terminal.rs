@@ -146,12 +146,7 @@ fn arrive(
     // from that arm's fresh read (see `classify_refresh`).
     match classify_refresh(displayed, fresh.transcript.as_ref()) {
         Refresh::Absent => {}
-        Refresh::Invalidated => {
-            tui.turn = None;
-            tui.reading = None;
-            tui.reading_transcript = false;
-            tui.read_offset = 0;
-        }
+        Refresh::Invalidated => unread(tui),
         // A notice-only refresh leaves the turns alone but still
         // changes what a door must say: recompose an open
         // transcript door from the fresh shared read so the pane
@@ -170,6 +165,45 @@ fn arrive(
     // nothing to say clears the last sentence.
     tui.status = fresh.note.clone();
     fresh
+}
+
+/// The displayed turns are gone: the cursor over them and an open
+/// overlay go with them, before anything else is shown.
+fn unread(tui: &mut Tui) {
+    tui.turn = None;
+    tui.reading = None;
+    tui.reading_transcript = false;
+    tui.read_offset = 0;
+}
+
+/// What a displayed frame was read for: the hearth, the run and the
+/// participant the shell asked about when it arrived (#744).
+#[derive(Clone, PartialEq, Eq)]
+struct ReadFor {
+    tab: usize,
+    run: Option<String>,
+    key: Option<String>,
+}
+
+/// The displayed frame held to what the shell asks about now, while the
+/// read for it is still out: a frame read for another hearth is the
+/// empty one the first read is drawn over, and one read for another run
+/// or participant keeps none of that run's view or that participant's
+/// prose, as the first load of what is asked has none. What is left then
+/// stands for what is asked.
+fn held_to(tui: &mut Tui, views: &mut Views, shown: &mut ReadFor, asked: ReadFor) {
+    if *shown == asked {
+        return;
+    }
+    if shown.tab != asked.tab {
+        *views = Views::empty();
+    }
+    if shown.run != asked.run {
+        views.run = None;
+    }
+    views.transcript = None;
+    unread(tui);
+    *shown = asked;
 }
 
 /// How a session of the console closed (#508).
@@ -244,13 +278,48 @@ fn pressed(tui: &mut Tui, views: &Views, key: Key) -> Option<Closed> {
     })
 }
 
+/// A read's answer, taken: the frame it brings arrives in place of
+/// `views`, and `failures` counts the unreadable reads in a row. Whether
+/// a frame arrived.
+fn taken(
+    tui: &mut Tui,
+    views: &mut Views,
+    answer: Result<Refreshed>,
+    vanishing_key: Option<&str>,
+    failures: &mut usize,
+) -> Result<bool> {
+    match answer {
+        Ok(Some(fresh)) => {
+            *views = arrive(tui, views.transcript.as_ref(), fresh, vanishing_key);
+            *failures = 0;
+            Ok(true)
+        }
+        Ok(None) => {
+            *failures = 0;
+            Ok(false)
+        }
+        Err(error) => {
+            // A transient store error (SQLITE_BUSY while a `brokkr run`
+            // holds the write lock) is a frame that says so, with keys
+            // still live. A persistent one gives up.
+            *failures += 1;
+            tui.status = Some(format!("the journal is not readable right now: {error}"));
+            anyhow::ensure!(
+                *failures < crate::WATCH_TRANSIENT_FRAMES,
+                "giving up after {failures} unreadable polls: {error}"
+            );
+            Ok(false)
+        }
+    }
+}
+
 /// The bounded shell: draw, poll, apply, repeat. Everything impure it
 /// touches arrives as a parameter, so the whole loop — its quit arm, its
 /// error arm and its transient-busy arms — runs under `TestBackend`.
-pub(super) fn drive<B: Backend>(
+pub(super) fn drive<B: Backend, P: Into<Polled>>(
     terminal: &mut Terminal<B>,
     ops: &TerminalOps,
-    source: &mut dyn FnMut(Ask) -> Result<Refreshed>,
+    source: &mut dyn FnMut(Ask) -> P,
     tui: &mut Tui,
     max_iterations: usize,
 ) -> Result<Closed>
@@ -259,11 +328,25 @@ where
     B::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut views = Views::empty();
+    // What `views` was read for: a frame is never drawn under the tab,
+    // the run or the participant of another (#744). The empty frame holds
+    // nothing of anything, so it stands for what is first asked, and no
+    // participant is asked about over a frame that lists none.
+    let mut shown = ReadFor {
+        tab: tui.tab,
+        run: asked_run(tui, &views),
+        key: None,
+    };
     let mut failures = 0usize;
     for _ in 0..max_iterations {
         let subject = subject_of(tui, &views);
         let vanishing_key = subject.as_ref().map(|subject| subject.key.clone());
         let asked = asked_run(tui, &views);
+        let asking = ReadFor {
+            tab: tui.tab,
+            run: asked.clone(),
+            key: vanishing_key.clone(),
+        };
         let ask = Ask {
             run: asked.as_deref(),
             subject,
@@ -273,29 +356,17 @@ where
             // tab's journal is neither polled nor opened.
             tab: tui.tab,
         };
-        match source(ask) {
-            Ok(Some(fresh)) => {
-                views = arrive(
-                    tui,
-                    views.transcript.as_ref(),
-                    fresh,
-                    vanishing_key.as_deref(),
-                );
-                failures = 0;
-            }
-            Ok(None) => failures = 0,
-            Err(error) => {
-                // A transient store error (SQLITE_BUSY while a `brokkr
-                // run` holds the write lock) is a frame that says so,
-                // with keys still live. A persistent one gives up.
-                failures += 1;
-                tui.status = Some(format!("the journal is not readable right now: {error}"));
-                anyhow::ensure!(
-                    failures < crate::WATCH_TRANSIENT_FRAMES,
-                    "giving up after {failures} unreadable polls: {error}"
-                );
+        // A read still out (`Polled::Pending`) is neither read nor
+        // refused: the give-up bound counts reads.
+        if let Polled::Answered(answer) = source(ask).into() {
+            let key = vanishing_key.as_deref();
+            if taken(tui, &mut views, *answer, key, &mut failures)? {
+                shown = asking.clone();
             }
         }
+        // What the shell has left behind: until what it asks about now
+        // answers, the frame draws none of it.
+        held_to(tui, &mut views, &mut shown, asking);
         settle(tui, &views);
         // Ruled over the frame just read, so the frame that first shows
         // the run settled is drawn, and keyed, as ended. The next frame
@@ -329,7 +400,7 @@ where
 /// One session of the console on a terminal: every environment fact and
 /// every terminal call arrives here as a field, so the whole of [`start`]
 /// executes in tests as well as in production.
-pub(crate) struct Session<'a, B, R> {
+pub(crate) struct Session<'a, B, R, P> {
     /// Whether the journal is on disk: a read never creates one.
     pub db_is_file: bool,
     /// The run `--run` named, opened at its level; `Esc` then walks the
@@ -348,7 +419,8 @@ pub(crate) struct Session<'a, B, R> {
     pub animate: bool,
     pub backend: B,
     pub restore: R,
-    pub source: &'a mut dyn FnMut(Ask) -> Result<Refreshed>,
+    /// The refresh source: one on the loop, or one read off it.
+    pub source: &'a mut dyn FnMut(Ask) -> P,
     pub max_iterations: usize,
     /// What the session watches besides its keys (#508).
     pub watched: Watched,
@@ -360,7 +432,9 @@ pub(crate) struct Session<'a, B, R> {
 /// production. Nothing here exits the process outright — that would run
 /// past the guard's `Drop` and leave a terminal in raw mode — so the TUI
 /// returns how it closed, and its caller what that means.
-pub(crate) fn start<B: Backend, R: Write>(session: Session<'_, B, R>) -> Result<Closed>
+pub(crate) fn start<B: Backend, R: Write, P: Into<Polled>>(
+    session: Session<'_, B, R, P>,
+) -> Result<Closed>
 where
     B::Error: std::error::Error + Send + Sync + 'static,
 {

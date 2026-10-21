@@ -7,7 +7,7 @@ use std::fmt;
 use thiserror::Error;
 
 use super::{
-    BOOLEAN_INPUTS, COUNTER_INPUTS, RULING_SEVERITIES, SEVERITY_INPUTS, SEVERITY_ORDER, STRATEGIES,
+    BOOLEAN_INPUTS, COUNTER_INPUTS, RULING_SEVERITIES, SEVERITY_INPUTS, SEVERITY_ORDER,
     TABLE_SCHEMA_V2, VISIT_PREFIX,
 };
 
@@ -241,8 +241,9 @@ pub enum Malformed {
     },
     #[error(
         "rule {rule}: unknown condition key '{key}'; known: {BOOLEAN_INPUTS:?} plus \
-         strategy_in over {STRATEGIES:?}, *_gte over {COUNTER_INPUTS:?} and \
-         *_above/*_at_most over {SEVERITY_INPUTS:?}"
+         {choices}, *_gte over {COUNTER_INPUTS:?} and \
+         *_above/*_at_most over {SEVERITY_INPUTS:?}",
+        choices = super::inputs::choice_conditions()
     )]
     UnknownCondition { rule: String, key: String },
 }
