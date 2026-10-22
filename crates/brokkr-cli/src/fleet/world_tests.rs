@@ -1,0 +1,273 @@
+//! `brokkr runs` over a many-hearth world: each hearth's runs under its
+//! realm, in the JSON and the table it has always printed, a hearth whose
+//! journal will not open listed with that refusal beside the others.
+
+use std::path::{Path, PathBuf};
+
+use brokkr_runtime::realms::Hearth;
+
+use super::page::tests::{folded, now, plant, stamp, Shape, DAY, HOUR, MINUTE, NOW, STYLE};
+use crate::verbs::readouts::world_runs;
+
+fn hearth(realm: &str, journal: PathBuf) -> Hearth {
+    Hearth {
+        realms: vec![realm.to_string()],
+        journal,
+    }
+}
+
+/// Three hearths under `dir`: alpha, a run in each of four sections, one
+/// of them quarantined; beta, whose journal is not there; and gamma, a
+/// run ruled to hold days ago.
+fn world(dir: &Path) -> Vec<Hearth> {
+    let alpha = dir.join("alpha.db");
+    folded(&alpha, |conn| {
+        let ago = |minutes: i64| stamp(now() - minutes * MINUTE);
+        plant(conn, "done-a", Shape::Finished, &ago(5));
+        plant(conn, "fresh-a", Shape::Running, &ago(10));
+        plant(conn, "refused-a", Shape::Refused, &ago(30));
+        plant(conn, "park-a", Shape::Parked, &ago(HOUR / MINUTE));
+    });
+    let gamma = dir.join("gamma.db");
+    folded(&gamma, |conn| {
+        plant(conn, "held-g", Shape::Held, &stamp(now() - 2 * DAY));
+    });
+    vec![
+        hearth("alpha", alpha),
+        hearth("beta", dir.join("beta.db")),
+        hearth("gamma", gamma),
+    ]
+}
+
+/// What `brokkr runs` prints of `hearths` at [`NOW`], `dir` written as
+/// `<dir>`.
+fn listed(hearths: &[Hearth], json: bool, dir: &Path) -> String {
+    let mut out = Vec::new();
+    world_runs(hearths, json, (NOW, &STYLE), &mut out).unwrap();
+    let out = String::from_utf8(out).unwrap();
+    out.replace(&dir.display().to_string(), "<dir>")
+}
+
+/// The exact bytes `brokkr runs --json` and `brokkr runs` print of a
+/// world of three hearths, one whose journal is not there and one holding
+/// a quarantined run.
+#[test]
+fn a_many_hearth_world_prints_these_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let hearths = world(dir.path());
+    assert_eq!(listed(&hearths, true, dir.path()), WORLD_JSON);
+    assert_eq!(listed(&hearths, false, dir.path()), WORLD_TEXT);
+}
+
+/// A hearth whose journal is not there lists its refusal in the store's
+/// own words, and opens nothing into being; the hearths beside it list
+/// every run.
+#[test]
+fn a_hearth_whose_journal_is_missing_lists_its_refusal_beside_the_others() {
+    let dir = tempfile::tempdir().unwrap();
+    let hearths = world(dir.path());
+    let view: serde_json::Value =
+        serde_json::from_str(&listed(&hearths, true, dir.path())).unwrap();
+    let realms = view["realms"].as_array().unwrap();
+    let counted: Vec<(&str, u64, &serde_json::Value)> = realms
+        .iter()
+        .map(|realm| {
+            let name = realm["realm"].as_str().unwrap();
+            (name, realm["count"].as_u64().unwrap(), &realm["detail"])
+        })
+        .collect();
+    let refusal = serde_json::json!("sqlite: unable to open database file: <dir>/beta.db");
+    let none = serde_json::Value::Null;
+    let expected = [
+        ("alpha", 4, &none),
+        ("beta", 0, &refusal),
+        ("gamma", 1, &none),
+    ];
+    assert_eq!(counted, expected);
+    assert_eq!(view["count"], 5);
+    assert!(!dir.path().join("beta.db").exists());
+}
+
+/// [`world`] as `brokkr runs --json` prints it.
+const WORLD_JSON: &str = r#"{
+  "view_version": 25,
+  "realms": [
+    {
+      "realm": "alpha",
+      "journal": "<dir>/alpha.db",
+      "runs": [
+        {
+          "run_id": "done-a",
+          "status": "completed",
+          "status_known": true,
+          "phase": null,
+          "seq": 2,
+          "created_at": "2026-01-01T00:00:00Z",
+          "last_recorded_at": "2026-10-19T23:55:00Z",
+          "feature": "feat",
+          "detail": null,
+          "quarantine": null,
+          "acknowledgement": null,
+          "residuals": [],
+          "title": "feat",
+          "verdict": {
+            "standing": "shipped",
+            "rule": null,
+            "residual": null,
+            "reason": null,
+            "text": "—"
+          },
+          "hire": null
+        },
+        {
+          "run_id": "fresh-a",
+          "status": "running",
+          "status_known": true,
+          "phase": null,
+          "seq": 1,
+          "created_at": "2026-01-01T00:00:00Z",
+          "last_recorded_at": "2026-10-19T23:50:00Z",
+          "feature": "feat",
+          "detail": null,
+          "quarantine": null,
+          "acknowledgement": null,
+          "residuals": [],
+          "title": "feat",
+          "verdict": {
+            "standing": "running",
+            "rule": null,
+            "residual": null,
+            "reason": null,
+            "text": ""
+          },
+          "hire": null
+        },
+        {
+          "run_id": "refused-a",
+          "status": null,
+          "status_known": false,
+          "phase": null,
+          "seq": null,
+          "created_at": "2026-01-01T00:00:00Z",
+          "last_recorded_at": "2026-10-19T23:30:00Z",
+          "feature": "feat",
+          "detail": "event 2: operator/accepted without a matching command",
+          "quarantine": "does_not_fold",
+          "acknowledgement": null,
+          "residuals": [],
+          "title": "feat",
+          "verdict": {
+            "standing": "quarantined",
+            "rule": null,
+            "residual": null,
+            "reason": null,
+            "text": "does not fold"
+          },
+          "hire": null
+        },
+        {
+          "run_id": "park-a",
+          "status": "awaiting_operator",
+          "status_known": true,
+          "phase": "review",
+          "seq": 7,
+          "created_at": "2026-01-01T00:00:00Z",
+          "last_recorded_at": "2026-10-19T23:00:00Z",
+          "feature": "feat",
+          "detail": null,
+          "quarantine": null,
+          "acknowledgement": null,
+          "residuals": [
+            {
+              "run_id": "park-a",
+              "seq": 6,
+              "phase": "review",
+              "rule_id": "REVIEW-HOLD",
+              "input": "max_residual_severity",
+              "value": "high",
+              "line": "park-a seq 6 · review · REVIEW-HOLD · max_residual_severity: high",
+              "superseded": null
+            }
+          ],
+          "title": "feat",
+          "verdict": {
+            "standing": "parked",
+            "rule": "REVIEW-HOLD",
+            "residual": "high",
+            "reason": "REVIEW-HOLD for (review, hold): held",
+            "text": "HOLD"
+          },
+          "hire": null
+        }
+      ],
+      "count": 4,
+      "detail": null
+    },
+    {
+      "realm": "beta",
+      "journal": "<dir>/beta.db",
+      "runs": [],
+      "count": 0,
+      "detail": "sqlite: unable to open database file: <dir>/beta.db"
+    },
+    {
+      "realm": "gamma",
+      "journal": "<dir>/gamma.db",
+      "runs": [
+        {
+          "run_id": "held-g",
+          "status": "running",
+          "status_known": true,
+          "phase": "review",
+          "seq": 6,
+          "created_at": "2026-01-01T00:00:00Z",
+          "last_recorded_at": "2026-10-18T00:00:00Z",
+          "feature": "feat",
+          "detail": null,
+          "quarantine": null,
+          "acknowledgement": null,
+          "residuals": [
+            {
+              "run_id": "held-g",
+              "seq": 6,
+              "phase": "review",
+              "rule_id": "REVIEW-HOLD",
+              "input": "max_residual_severity",
+              "value": "high",
+              "line": "held-g seq 6 · review · REVIEW-HOLD · max_residual_severity: high",
+              "superseded": null
+            }
+          ],
+          "title": "feat",
+          "verdict": {
+            "standing": "running",
+            "rule": null,
+            "residual": "high",
+            "reason": null,
+            "text": ""
+          },
+          "hire": null
+        }
+      ],
+      "count": 1,
+      "detail": null
+    }
+  ],
+  "count": 5
+}
+"#;
+
+/// [`world`] as `brokkr runs` prints it, 120 columns and no colour.
+const WORLD_TEXT: &str = r#"alpha · 4 runs · <dir>/alpha.db
+done-a    completed         -      seq 2 7008h00m feat
+fresh-a   running           -      seq 1 7008h00m feat
+refused-a ?                 -      seq - 7008h00m feat
+  fold  event 2: operator/accepted without a matching command
+park-a    awaiting_operator review seq 7 7008h00m feat
+
+beta · 0 runs · <dir>/beta.db
+  journal  sqlite: unable to open database file: <dir>/beta.db
+
+gamma · 1 run · <dir>/gamma.db
+held-g running review seq 6 7008h00m feat
+"#;

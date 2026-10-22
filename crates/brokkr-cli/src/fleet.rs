@@ -21,6 +21,8 @@ mod kept;
 pub(crate) mod kept_tests;
 mod listing;
 mod page;
+#[cfg(test)]
+mod world_tests;
 
 pub(crate) use brokkr_view::{AHEAD_ROWS, PAGE_ROWS};
 pub(crate) use kept::{read_kept, Journal, KeptFleet};

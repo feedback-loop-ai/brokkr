@@ -310,6 +310,21 @@ pub(crate) fn hearth_runs(
 
 /// `brokkr runs` over several hearths: each journal's runs under its realm.
 fn runs_fleet(hearths: &[Hearth], json: bool) -> Result<ExitCode> {
+    let style = render::Style::detect();
+    let now = now_rfc3339();
+    world_runs(hearths, json, (&now, &style), &mut std::io::stdout().lock())?;
+    Ok(Exit::Completed.into())
+}
+
+/// `brokkr runs` over the `hearths` of a many-hearth world at `now`,
+/// written to `out`: every run of each, under its realm, as JSON when
+/// asked.
+pub(crate) fn world_runs(
+    hearths: &[Hearth],
+    json: bool,
+    (now, style): (&str, &render::Style),
+    out: &mut impl std::io::Write,
+) -> Result<()> {
     let read: Vec<(fleet::KeptFleet, Option<String>)> = hearths
         .iter()
         .map(|hearth| fleet::read_kept(&hearth.journal))
@@ -327,14 +342,11 @@ fn runs_fleet(hearths: &[Hearth], json: bool) -> Result<ExitCode> {
         .collect();
     let view = brokkr_view::fleet_rows(&grouped);
     if json {
-        println!("{}", serde_json::to_string_pretty(&view)?);
+        writeln!(out, "{}", serde_json::to_string_pretty(&view)?)?;
     } else {
-        print!(
-            "{}",
-            render::fleet(&view, &now_rfc3339(), &render::Style::detect())
-        );
+        write!(out, "{}", render::fleet(&view, now, style))?;
     }
-    Ok(Exit::Completed.into())
+    Ok(())
 }
 
 /// `brokkr realms`: the world, each realm with its path, branch and HEAD.
