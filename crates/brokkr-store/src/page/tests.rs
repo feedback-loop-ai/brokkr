@@ -336,6 +336,51 @@ fn an_id_holding_a_nul_is_keyed_whole_in_every_lane() {
     assert_eq!(rest, (vec![Ok((at, "r".into()))], 0));
 }
 
+/// #820: a writer now refuses an empty id and one holding a control
+/// character, but a journal that already holds one still pages, lists and
+/// loads it as itself.
+#[test]
+fn an_id_no_writer_now_admits_still_reads_as_itself() {
+    let (_dir, store) = store();
+    let ids = ["", "line\nbreak", "r\u{7f}"];
+    let runs: Vec<Generated> = (0..ids.len())
+        .map(|n| Generated {
+            run_id: ids[n].to_string(),
+            standing: Standing::Parked,
+            events: 3,
+            last_at: stamp(now() - HOUR * (n as i64 + 1)),
+            width: Width::Narrow,
+        })
+        .collect();
+    generate(&store, &runs).unwrap();
+    let paged = store.section(&needs_you(), None, 10).unwrap();
+    let read: Vec<&str> = paged
+        .iter()
+        .map(|row| row.as_ref().unwrap().run_id.as_str())
+        .collect();
+    assert_eq!(read, ids);
+    for run_id in ids {
+        let listed = (
+            format!("{run_id} feature\nin detail"),
+            "2026-01-01T00:00:00Z".to_string(),
+        );
+        assert_eq!(store.listing(run_id).unwrap(), listed);
+    }
+    // A chain an older writer sealed under such an id loads whole.
+    let (_dir, mut store) = crate::tests::store();
+    for run_id in ids {
+        crate::test_support::plant_run(&store.conn, run_id, "{}").unwrap();
+        let started = serde_json::json!({"feature": "f", "manifest": {}});
+        let event = brokkr_core::envelope::EventType::RunStarted;
+        store
+            .append_next(run_id, event, started, None, None)
+            .unwrap();
+        let loaded = store.load(run_id).unwrap();
+        let read: Vec<(&str, u64)> = loaded.iter().map(|e| (e.run_id.as_str(), e.seq)).collect();
+        assert_eq!(read, [(run_id, 1)]);
+    }
+}
+
 /// Every standing's generated row is read from the lane it names.
 #[test]
 fn a_generated_run_stands_in_its_standing_s_lane() {

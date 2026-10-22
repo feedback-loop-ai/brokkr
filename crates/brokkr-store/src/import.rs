@@ -114,6 +114,26 @@ fn escaped(run_id: &str) -> String {
         .collect()
 }
 
+/// The writer's whole rule for a run id it records, before anything is
+/// written: at most [`RUN_ID_MAX`] bytes (decision 0089 ruling 2), not
+/// empty, and holding no control character (#820), which no surface —
+/// `--run`, `/api/runs/<id>`, a shell argument — could name back.
+/// `char::is_control` is Unicode Cc: NUL and the rest of C0, DEL and C1.
+/// An empty id is never past the bound, so the bound tested first keeps
+/// the order empty, length, then control. Adoption's gate is stricter, for a name somebody else
+/// authored; an id a journal already holds reads as it always has.
+pub(crate) fn recordable(run_id: &str) -> Result<(), StoreError> {
+    if run_id.len() > RUN_ID_MAX {
+        return Err(StoreError::RunIdTooLong {
+            length: run_id.len(),
+        });
+    }
+    if run_id.is_empty() || run_id.chars().any(char::is_control) {
+        return Err(StoreError::RunIdUnnameable(escaped(run_id)));
+    }
+    Ok(())
+}
+
 /// An event row written verbatim, past the append fence: an adoption's
 /// pre-sealed envelopes, and the rows `test_support` plants.
 pub(crate) const INSERT_EVENT: &str =

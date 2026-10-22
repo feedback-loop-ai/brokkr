@@ -152,6 +152,11 @@ pub enum StoreError {
         "a run id is at most {RUN_ID_MAX} bytes; this one is {length}, and nothing was recorded"
     )]
     RunIdTooLong { length: usize },
+    /// A run id no surface could name back, escaped (#820).
+    #[error(
+        "a run id is not empty and holds no control character; this one is '{0}', and nothing was recorded"
+    )]
+    RunIdUnnameable(String),
     #[error("chain: {0}")]
     Chain(#[from] ChainError),
     #[error(transparent)]
@@ -480,11 +485,7 @@ impl Store {
         manifest: &Value,
         origin: impl FnOnce() -> Option<String>,
     ) -> Result<(), StoreError> {
-        if run_id.len() > RUN_ID_MAX {
-            return Err(StoreError::RunIdTooLong {
-                length: run_id.len(),
-            });
-        }
+        import::recordable(run_id)?;
         let manifest = serde_json::to_string(manifest)?;
         let origin = origin();
         let conn = &mut self.conn;

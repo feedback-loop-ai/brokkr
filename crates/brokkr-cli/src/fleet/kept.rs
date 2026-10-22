@@ -384,6 +384,7 @@ fn lasting(error: &StoreError) -> bool {
         | StoreError::RunNotFound(_)
         | StoreError::RunExists(_)
         | StoreError::RunIdTooLong { .. }
+        | StoreError::RunIdUnnameable(_)
         | StoreError::SeatRecord(_)
         | StoreError::SchemaMismatch { .. }
         | StoreError::AppendConflict { .. }
