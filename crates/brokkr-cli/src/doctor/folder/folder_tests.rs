@@ -252,7 +252,7 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
         dir,
         compiled: Err(held),
         map: Ok(()),
-    } = bundle(None, &defaults, None, None)
+    } = bundle(None, &defaults, None, &Ok(None))
     else {
         panic!("the found folder, its compile refused");
     };
@@ -272,7 +272,8 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
         format!("MISSING  folder: {found}, but its compile refuses (decision 0083): held")
     );
 
-    let Inspected::Given(dir, Err(compiled)) = bundle(Some(&folder), &defaults, None, None) else {
+    let Inspected::Given(dir, Err(compiled)) = bundle(Some(&folder), &defaults, None, &Ok(None))
+    else {
         panic!("the bundle given, its compile refused");
     };
     assert_eq!((dir, format!("{compiled:#}")), (folder, no_bundle));
@@ -288,7 +289,7 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
         let (_dir, root) = root_with(plant);
         std::fs::create_dir_all(root.join("src")).unwrap();
         let defaults = DoctorDefaults::of(root.join("src"), None);
-        let inspected = bundle(None, &defaults, None, None);
+        let inspected = bundle(None, &defaults, None, &Ok(None));
         assert!(matches!(inspected, Inspected::Neither));
     }
 }
@@ -302,13 +303,13 @@ fn the_folder_is_the_reports_bundle_compiled_once() {
 fn a_folder_whose_compile_refuses_is_a_bundle_that_did_not_compile() {
     let (_dir, root) = root_with(|root| std::fs::create_dir(root.join(".brokkr")).unwrap());
     let defaults = DoctorDefaults::of(root.clone(), None);
-    let found = bundle(None, &defaults, None, None);
+    let found = bundle(None, &defaults, None, &Ok(None));
     assert!(matches!(found.seats(None), Seats::BundleDidNotCompile));
     assert_eq!(found.line().map(|(dir, _)| dir.to_path_buf()), None);
     assert!(matches!(found.folder(), Some(Err(_))));
 
     let folder = root.join(".brokkr");
-    let given = bundle(Some(&folder), &defaults, None, None);
+    let given = bundle(Some(&folder), &defaults, None, &Ok(None));
     assert!(matches!(given.seats(None), Seats::BundleDidNotCompile));
     assert_eq!(
         given.line().map(|(dir, _)| dir.to_path_buf()),
@@ -324,7 +325,7 @@ fn a_folder_whose_compile_refuses_is_a_bundle_that_did_not_compile() {
     // folder's compile refusing too is named on its bundle line.
     write(&folder.join("realms.json"), "{}");
     let map = brokkr_runtime::realms::World::discover(&root, None).unwrap_err();
-    let unmapped = bundle(None, &defaults, None, None);
+    let unmapped = bundle(None, &defaults, None, &Ok(None));
     assert!(matches!(unmapped.seats(None), Seats::BundleDidNotCompile));
     let line = unmapped
         .line()

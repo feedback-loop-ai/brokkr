@@ -153,6 +153,15 @@ impl McpAxis {
             }),
         }
     }
+
+    /// SI2's admission of one serving by `provider` over its whole record
+    /// `strict`, each shape with its ambient exclusion: the first shape's
+    /// cause, or `None` where every shape admits. The one reading the
+    /// compile pass refuses by past the fence and `brokkr doctor` reports
+    /// (U1g1; U9a2).
+    pub(crate) fn refusal(strict: &[(McpShape, McpAxis)], provider: &str) -> Option<StrictCause> {
+        (strict.iter()).find_map(|(shape, ambient)| ambient.strict(provider, shape))
+    }
 }
 
 /// One shape's four isolation axes, each its own measurement.

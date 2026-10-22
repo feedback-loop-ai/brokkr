@@ -940,14 +940,15 @@ fn doctor_reads_the_found_folder_as_its_bundle() {
     );
 }
 
-/// R5 where the map a run loads will not load: the folder line names
-/// that refusal, and the rest of the report reads the folder compiled
-/// under the map doctor inspected, as `doctor --bundle .brokkr` does, its
-/// bundle line included. A compile that then refuses too is named on
-/// that bundle line, the one place left to name it, the folder by the
-/// path the folder line names rather than as `--bundle` spelled it.
+/// R5 where the map cannot be read at all: what each realm grants is
+/// unknown (design D8), so the folder is compiled under no map in its
+/// place neither given nor found, and its compile is a run's, refused by
+/// the map. `doctor --bundle .brokkr` names that refusal on its bundle
+/// line; with the folder found, the folder line alone names it, and the
+/// report is otherwise the same. No compile is reached past the map: a
+/// folder that would refuse on its own too reads exactly as before.
 #[test]
-fn a_folder_under_a_map_that_will_not_load_is_read_as_the_bundle_given() {
+fn a_folder_under_a_map_that_cannot_be_read_is_compiled_under_no_map() {
     let repo = Repo::new();
     assert_eq!(repo.brokkr("", &["init", "."]).code, Some(0));
     let dsh = crate::workspace_root::workspace().join("adapters/dsh.json");
@@ -959,20 +960,22 @@ fn a_folder_under_a_map_that_will_not_load_is_read_as_the_bundle_given() {
         let out = doctor.output().unwrap();
         (out.status.code(), String::from_utf8(out.stdout).unwrap())
     };
-    let named = doctor(&["doctor", "--bundle", ".brokkr"]);
-    let bundle = "\nok       bundle: 'starter' compiles, digest ";
-    assert_eq!(named.1.matches(bundle).count(), 1, "{}", named.1);
-    assert_eq!(doctor(&["doctor"]), named);
-
-    std::fs::remove_file(repo.path(".brokkr/policy.json")).unwrap();
     let (code, named) = doctor(&["doctor", "--bundle", ".brokkr"]);
-    let spelled = "\nMISSING  bundle: .brokkr: bundle: ";
-    assert_eq!(named.matches(spelled).count(), 1, "{named}");
-    let found = format!(
-        "\nMISSING  bundle: {}/.brokkr: bundle: ",
+    let spelled = format!(
+        "\nMISSING  bundle: .brokkr: {}/.brokkr/realms.json is not a readable realms map: \
+         missing field `schema`",
         repo.root.display()
     );
-    assert_eq!(doctor(&["doctor"]), (code, named.replace(spelled, &found)));
+    let compiles = "\nok       bundle: 'starter' compiles, digest ";
+    let counts = (
+        named.matches(&spelled).count(),
+        named.matches(compiles).count(),
+    );
+    assert_eq!(counts, (1, 0), "{named}");
+    assert_eq!(doctor(&["doctor"]), (code, named.replace(&spelled, "")));
+
+    std::fs::remove_file(repo.path(".brokkr/policy.json")).unwrap();
+    assert_eq!(doctor(&["doctor", "--bundle", ".brokkr"]), (code, named));
 }
 
 /// Decision 0021, from the operator's side: the scaffold's gate seats

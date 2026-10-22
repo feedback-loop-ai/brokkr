@@ -46,7 +46,7 @@ pub(crate) mod manifest;
 use crate::bundle::SeatClass;
 use binding::Unserved;
 pub(crate) use binding::ABSENT_EGRESS_MINIMUM;
-pub use binding::{Admitted, Holding, Native, Retention, Unbound};
+pub use binding::{admitted, Admitted, Below, Holding, Native, Retention, Unbound};
 pub use dialect::{Connection, DialectKind, McpServer, Sends, ToolDialect};
 use gates::Cause;
 pub(crate) use manifest::Implementation;
@@ -1129,14 +1129,12 @@ fn native_serving<'a>(
 }
 
 impl Authority {
-    /// Validate every grant of the operated realm BEFORE any seat is
+    /// Every grant of the operated realm validated BEFORE any seat is
     /// looked at (design D4 steps 1 and 2): the definition exists, the
     /// dialect loads, serves the capability and agrees on its classes, the
     /// tool subset is a subset, the restriction keys pass the dialect's
-    /// schema. Then the two realm-wide refusals, which hold whether or not
-    /// any seat asks: an `mcp` grant, the compile fence's (`McpFence`), and
-    /// a `hands` grant. None of these can become an optional drop.
-    pub fn load(context: CapabilityContext) -> Result<Authority, String> {
+    /// schema. What [`Authority::load`] refuses realm-wide follows it.
+    fn validated(context: CapabilityContext) -> Result<Authority, String> {
         let realm = &context.realm;
         let definitions = Definitions::load(&context.root)?;
         let mut dialects = BTreeMap::new();
@@ -1200,9 +1198,6 @@ impl Authority {
                 )
             })?;
             dialects.insert(capability.clone(), dialect);
-        }
-        for (capability, dialect) in &dialects {
-            binding::native(realm, capability, dialect).map_err(|unbound| unbound.to_string())?;
         }
         Ok(Authority {
             context,
@@ -1451,15 +1446,7 @@ impl Authority {
         office: &str,
         asks: Requests,
     ) -> Result<Outcome, String> {
-        // A seatless hypothesis has no class to read: judged as work, it
-        // answers no gate's holding (GP1) and authorizes no launch.
-        let site = SiteAsks {
-            label: ADAPTER_SEAT.to_string(),
-            office: office.to_string(),
-            asks,
-            subtracted: Vec::new(),
-            class: SeatClass::Work,
-        };
+        let site = binding::hypothesis(office, asks);
         let outcome = self.resolve(
             &site,
             &Serving {

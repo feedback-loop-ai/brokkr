@@ -6,9 +6,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use brokkr_core::realms::CapabilityGrant;
+use brokkr_core::realms::{Boundary, CapabilityGrant};
 use brokkr_protocol::native_controls::bounded_line;
 use brokkr_runtime::agents::Adapter;
+use brokkr_runtime::bundle::survey;
 use brokkr_runtime::capabilities::{
     restriction_names, Authority, CapabilityContext, Definitions, Disposition, NativeCapability,
     NativeInventory, Outcome, Requests, Strength, ADAPTER_SEAT, UNMAPPED,
@@ -16,19 +17,24 @@ use brokkr_runtime::capabilities::{
 use brokkr_runtime::realms::{World, WorldError};
 use brokkr_runtime::{Adapters, Availability, Presence};
 
+use super::folder::Inspected;
 use super::{safe, Report};
 use crate::render::Safe;
+use mcp::{report_mcp, report_seats, Minimum};
+
+mod mcp;
 
 /// An adapter-level plan, submitted under one realm's whole authority: the
 /// harness, the office of the seat, and what the seat asks for.
 type Plan<'a> = dyn Fn(&Adapter, &str, Requests) -> Result<Outcome, String> + 'a;
 
-/// One realm as its capability lines read it: its name, its grants, and
-/// how a realm that grants nothing is worded.
+/// One realm as its capability lines read it: its name, its grants, how a
+/// realm that grants nothing is worded, and the boundary it runs under.
 struct Realm {
     name: String,
     grants: BTreeMap<String, CapabilityGrant>,
     nothing: &'static str,
+    boundary: Boundary,
 }
 
 /// How a realm's grant of one capability was read, each grant validated
@@ -170,13 +176,24 @@ const ADAPTER_SCOPE: &str = "adapter-level scope: the adapter's own template alo
 /// reports what that plan's resolution and composition admit or refuse,
 /// with the refusal's own cause, and names the scope it was assessed at.
 ///
+/// Slice two's U9a2: the inspected bundle is surveyed as it compiles
+/// ([`survey`]), read past the realm-wide refusals a compile meets first
+/// and never compiled past them. A valid `mcp` grant's line keeps the
+/// compile's realm-wide refusal, which stands until U9b, and is followed
+/// by its facts read past that one refusal ([`Authority::survey`]), its
+/// egress against the surveyed bundle's binding minimum by the compile's
+/// own comparison, its static box eligibility and installation rule, and
+/// what stays unmeasured on this host. Then each seat's whole plan as the
+/// compile's seat pass judges it, its required and wanted causes and
+/// U1g1's verdict included ([`report_seats`]).
+///
 /// [`Authority::assess`]: brokkr_runtime::capabilities::Authority::assess
 pub(super) fn report_capabilities(
     report: &mut Report,
     world: &Result<Option<World>, WorldError>,
     workspace: &Path,
     adapters_root: &Path,
-    availability: &Availability,
+    (availability, inspected): (&Availability, &Inspected),
 ) {
     let adapters = load_adapters(report, adapters_root);
     let installed: Vec<&Adapter> = adapters
@@ -184,10 +201,15 @@ pub(super) fn report_capabilities(
         .flat_map(|adapters| adapters.providers())
         .filter(|adapter| availability.presence(&adapter.provider) == Presence::Available)
         .collect();
-    let Some((root, realms)) = mapped_realms(report, world, workspace) else {
-        report_native_assessments(report, &installed);
-        return;
+    // A map that could not be read is unknown authority (design D8): no
+    // seat is surveyed under a grant set doctor never read.
+    let Ok(mapped) = world else {
+        return report_unknown_authority(report, &installed, inspected);
     };
+    // Surveyed as `folder::bundle` compiles it: for the workspace, under
+    // the map doctor inspected.
+    let surveyed = survey(workspace, inspected.dir(), mapped.as_ref(), workspace);
+    let (root, realms) = mapped_realms(mapped.as_ref(), workspace);
     if let Err(problem) = Definitions::load(&root) {
         report.missing(
             "capabilities definitions",
@@ -197,8 +219,35 @@ pub(super) fn report_capabilities(
             ),
         );
     }
+    let minimum = Minimum::of(inspected.dir().is_some(), &surveyed);
     for realm in realms {
-        report_realm(report, realm, &root, adapters.as_ref(), &installed);
+        let known = (adapters.as_ref(), installed.as_slice());
+        report_realm(report, realm, &root, known, &minimum);
+    }
+    report_seats(report, surveyed.as_ref().ok());
+}
+
+/// The lines of a realms map that could not be read: said once, every
+/// installed harness still assessed, and a bundle given or found left
+/// unsurveyed, since every seat's plan turns on the grants doctor could
+/// not read.
+fn report_unknown_authority(report: &mut Report, installed: &[&Adapter], inspected: &Inspected) {
+    report.warn(
+        "capabilities",
+        "the realms map could not be read, so what each realm grants is UNKNOWN; nothing is \
+         assumed granted and nothing is assumed denied"
+            .into(),
+    );
+    report_native_assessments(report, installed);
+    // Said once for the bundle, given or found: its directory is the
+    // folder or bundle line's, which carries the map's refusal.
+    if inspected.dir().is_some() {
+        report.warn(
+            "capabilities survey",
+            "no seat of the bundle is surveyed: each seat's plan turns on its realm's grants, \
+             which are UNKNOWN while the realms map cannot be read"
+                .into(),
+        );
     }
 }
 
@@ -225,16 +274,12 @@ fn load_adapters(report: &mut Report, adapters_root: &Path) -> Option<Adapters> 
 }
 
 /// The directory the definitions stand in, and every realm the map names
-/// with its grants; `None`, said once, when the map could not be read.
-fn mapped_realms(
-    report: &mut Report,
-    world: &Result<Option<World>, WorldError>,
-    workspace: &Path,
-) -> Option<(PathBuf, Vec<Realm>)> {
+/// with its grants.
+fn mapped_realms(world: Option<&World>, workspace: &Path) -> (PathBuf, Vec<Realm>) {
     match world {
         // The definitions stand beside the map, as the engine reads them:
         // the map is a file, so the directory it stands in is always there.
-        Ok(Some(world)) => Some((
+        Some(world) => (
             workspace
                 .join(&world.source)
                 .parent()
@@ -248,26 +293,19 @@ fn mapped_realms(
                     name: realm.name.clone(),
                     grants: realm.grants.clone(),
                     nothing: "grants nothing",
+                    boundary: realm.boundary(),
                 })
                 .collect(),
-        )),
-        Ok(None) => Some((
+        ),
+        None => (
             workspace.to_path_buf(),
             vec![Realm {
                 name: UNMAPPED.to_string(),
                 grants: BTreeMap::new(),
                 nothing: "no realms map, so no capability grants are declared",
+                boundary: Boundary::Namespace,
             }],
-        )),
-        Err(_) => {
-            report.warn(
-                "capabilities",
-                "the realms map could not be read, so what each realm grants is UNKNOWN; \
-                 nothing is assumed granted and nothing is assumed denied"
-                    .into(),
-            );
-            None
-        }
+        ),
     }
 }
 
@@ -279,10 +317,11 @@ fn report_realm(
         name,
         grants,
         nothing,
+        boundary,
     }: Realm,
     root: &Path,
-    known: Option<&Adapters>,
-    installed: &[&Adapter],
+    (known, installed): (Option<&Adapters>, &[&Adapter]),
+    minimum: &Minimum,
 ) {
     let what = format!("capabilities {name}");
     if grants.is_empty() {
@@ -310,11 +349,12 @@ fn report_realm(
     // that fails is its own line, read `Failed`, and takes no neighbour.
     let mut read = BTreeMap::new();
     for (capability, grant) in &grants {
-        let alone = Authority::load(CapabilityContext {
+        let context = CapabilityContext {
             realm: name.clone(),
             grants: [(capability.clone(), grant.clone())].into(),
             root: root.to_path_buf(),
-        });
+        };
+        let alone = Authority::load(context.clone());
         let binding = match report_grant(report, &what, (capability, grant), &alone, known, &plan) {
             Some((provider, key)) => Binding::Native {
                 grant,
@@ -324,6 +364,15 @@ fn report_realm(
             None => Binding::Failed,
         };
         read.insert(capability.as_str(), binding);
+        let surveyed = Authority::survey(context);
+        let grant = (capability.as_str(), grant);
+        report_mcp(
+            report,
+            &what,
+            grant,
+            surveyed.as_ref().ok(),
+            (minimum, boundary),
+        );
     }
     let under = Under {
         what: &what,
@@ -497,10 +546,7 @@ pub(super) fn report_grant(
         }
     };
     let tools = grant.tools.as_ref().unwrap_or(&dialect.tools);
-    let restrictions = match grant.restrictions.is_empty() {
-        true => "none".to_string(),
-        false => serde_json::Value::Object(grant.restrictions.clone()).to_string(),
-    };
+    let restrictions = restriction_words(grant);
     // A declaration is not a claim of usable authority: what the bound provider's adapter says
     // of itself decides whether any seat can hold the capability through this grant.
     let adapter = adapters.and_then(|adapters| adapters.adapter(provider));
@@ -538,4 +584,12 @@ pub(super) fn report_grant(
     );
     report.ok(&line, Safe::new(&detail).as_str().to_string());
     Some((provider.to_string(), key.to_string()))
+}
+
+/// A grant's restriction object as written, or `none`.
+fn restriction_words(grant: &CapabilityGrant) -> String {
+    match grant.restrictions.is_empty() {
+        true => "none".to_string(),
+        false => serde_json::Value::Object(grant.restrictions.clone()).to_string(),
+    }
 }
