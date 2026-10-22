@@ -5,11 +5,11 @@
 
 use serde_json::Value;
 
-use crate::{add_token, finish_usage, token_usage, TokenUsage};
+use super::{add_token, finish_usage, token_usage, TokenUsage};
 
 /// The sum of `usages`, by the rule above [`add_token`]: each one's
 /// `total_tokens` is not read but made again from the summed parts.
-pub(crate) fn sum_usage(usages: impl Iterator<Item = TokenUsage>) -> Option<TokenUsage> {
+pub fn sum_usage(usages: impl Iterator<Item = TokenUsage>) -> Option<TokenUsage> {
     let mut sum = TokenUsage::default();
     for usage in usages {
         add_token(&mut sum.input_tokens, usage.input_tokens);
@@ -28,7 +28,7 @@ pub(crate) fn sum_usage(usages: impl Iterator<Item = TokenUsage>) -> Option<Toke
 /// it is one of its seat's turns, and whether, as a Claude session record
 /// reporting output, it settles the output its seat's turns streamed.
 #[derive(Clone)]
-pub(crate) struct Meter {
+pub struct Meter {
     turn: bool,
     settles: bool,
     usage: Option<TokenUsage>,
@@ -46,7 +46,7 @@ pub(crate) struct Meter {
 /// seat's output and reasoning are that record's. Batch 2's implement
 /// seat streamed 2k output and its results reported 103,479.
 #[derive(Clone, Copy)]
-pub(crate) enum Metering {
+pub enum Metering {
     Turns,
     Settled,
     Session,
@@ -54,7 +54,7 @@ pub(crate) enum Metering {
 
 impl Metering {
     /// How a seat with `meters` and the session record `session` is read.
-    pub(crate) fn of<'a>(
+    pub fn of<'a>(
         meters: impl IntoIterator<Item = &'a Meter>,
         session: Option<&Meter>,
     ) -> Metering {
@@ -79,7 +79,7 @@ impl Metering {
 /// the tool uses after a message's first, is passed over. Two messages of
 /// one session do not report the same counts, since each reads the
 /// context the one before it grew. `meters` are one seat's, in order.
-pub(crate) fn once<'a>(meters: impl IntoIterator<Item = &'a mut Meter>) {
+pub fn once<'a>(meters: impl IntoIterator<Item = &'a mut Meter>) {
     let mut last = None;
     let metered = meters
         .into_iter()
@@ -94,7 +94,7 @@ pub(crate) fn once<'a>(meters: impl IntoIterator<Item = &'a mut Meter>) {
 }
 
 impl Meter {
-    pub(crate) fn of(checkpoint: &Value) -> Meter {
+    pub fn of(checkpoint: &Value) -> Meter {
         let step = checkpoint.get("step").and_then(Value::as_str);
         let usage = token_usage(std::iter::once(checkpoint));
         // `claude-code-` and `claude-lanetally-session-finished`: the
@@ -113,7 +113,7 @@ impl Meter {
 
     /// The tokens this checkpoint adds to its seat metered `by`;
     /// `session` says whether it is the seat's session record.
-    pub(crate) fn counted(&self, by: Metering, session: bool) -> Option<TokenUsage> {
+    pub fn counted(&self, by: Metering, session: bool) -> Option<TokenUsage> {
         let usage = self.usage.clone();
         match by {
             Metering::Turns => usage.filter(|_| self.turn),

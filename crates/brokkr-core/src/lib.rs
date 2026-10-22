@@ -18,6 +18,7 @@ mod payload;
 pub mod policy;
 pub mod realms;
 pub mod residual;
+pub mod seat;
 pub mod stamp;
 pub mod summary;
 
