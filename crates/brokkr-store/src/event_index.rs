@@ -5,9 +5,9 @@
 //!
 //! What the row states, the event alone states, so SQLite keeps it
 //! (ruling 3): a trigger after each insert into `events` adds the row,
-//! reading the envelope's text through the one text-only guard
-//! ([`text_at`]), so every writer keeps it, an older binary's and an
-//! import's included. No body is held (ruling 10). The time is the
+//! reading each name from the envelope's text only where it is text and
+//! a repeated key by its last copy, as serde reads it ([`projected`]), so
+//! every writer keeps it, an older binary's and an import's included. No body is held (ruling 10). The time is the
 //! envelope's `recorded_at`, which a trigger of its own cuts to the run
 //! summary's bound only past it, whichever insert wrote it. Every reader
 //! parses the journal's schema when it opens it, so the index adds as few
@@ -55,20 +55,38 @@ const COLUMNS: &str = "run_id, seq, type, attempt_id, member, recorded_at";
 /// order, read from its envelope's text as brokkr-core's [`Indexed::of`]
 /// reads the envelope: the type, the payload's attempt, the
 /// checkpoint's member or, where the payload carries no checkpoint, the
-/// result's, and the stamp whole, which the bounding trigger cuts.
+/// result's, and the stamp whole, which the bounding trigger cuts. The
+/// payload is walked by its entries, since serde keeps the last copy of a
+/// key the payload repeats where `json_extract` reads the first, and its
+/// event's hash, taken over the payload as serde parses it, cannot see
+/// the first.
 fn projected(event: &str) -> String {
     let envelope = format!("{event}.envelope");
-    let text = |path: &str| text_at(&envelope, path);
+    let payload = format!(
+        "json_each(CASE WHEN json_valid({envelope}) THEN {envelope} ELSE '{{}}' END, '$.payload')"
+    );
+    let record = format!(
+        "(SELECT value AS record, type AS kind FROM {payload}
+              WHERE key IN ('checkpoint', 'result')
+              ORDER BY key = 'checkpoint' DESC, id DESC LIMIT 1),
+         json_each(CASE WHEN kind = 'object' THEN record ELSE '{{}}' END)"
+    );
     format!(
-        "{event}.run_id, {event}.seq, {kind}, {attempt},
-         CASE WHEN json_valid({envelope})
-                   AND json_type({envelope}, '$.payload.checkpoint') IS NOT NULL
-             THEN {checkpoint} ELSE {result} END, {stamp}",
-        kind = text("$.type"),
-        attempt = text("$.payload.attempt_id"),
-        checkpoint = text("$.payload.checkpoint.member"),
-        result = text("$.payload.result.member"),
+        "{event}.run_id, {event}.seq, {kind}, {attempt}, {member}, {stamp}",
+        kind = text_at(&envelope, "$.type"),
+        attempt = last_text(&payload, "attempt_id"),
+        member = last_text(&record, "member"),
         stamp = stamp_of(&envelope),
+    )
+}
+
+/// The last entry named `key` among `entries`, a `json_each` walk, where
+/// that entry is text, else NULL, as serde reads an object that repeats a
+/// key.
+fn last_text(entries: &str, key: &str) -> String {
+    format!(
+        "(SELECT CASE WHEN type = 'text' THEN value END FROM {entries}
+              WHERE key = '{key}' ORDER BY id DESC LIMIT 1)"
     )
 }
 

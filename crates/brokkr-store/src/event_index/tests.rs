@@ -11,17 +11,21 @@ use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{store, write_lock_on};
 use serde_json::{json, Value as Json};
 
-/// The next event of `run_id`, sealed onto its head and inserted as an
-/// older binary inserts one: past every writer the store keeps, so the
-/// trigger alone indexes it.
-fn planted(store: &Store, run_id: &str, built: EnvelopeBuilder) -> EventEnvelope {
+/// The next event of `run_id`, sealed onto its head.
+fn next(store: &Store, run_id: &str, built: EnvelopeBuilder) -> EventEnvelope {
     let (seq, previous) = store.head_hash(run_id).unwrap();
-    let envelope = built
+    built
         .run(run_id)
         .seq(seq + 1)
         .event_id(format!("{run_id}-{}", seq + 1))
         .previous(previous)
-        .sealed();
+        .sealed()
+}
+
+/// The next event of `run_id`, inserted as an older binary inserts one:
+/// past every writer the store keeps, so the trigger alone indexes it.
+fn planted(store: &Store, run_id: &str, built: EnvelopeBuilder) -> EventEnvelope {
+    let envelope = next(store, run_id, built);
     crate::test_support::plant_envelope(&store.conn, &envelope).unwrap();
     envelope
 }
@@ -116,6 +120,70 @@ fn every_insert_is_indexed_from_its_envelope_as_its_event_projects() {
         ]
     );
     assert_eq!(parted_at(&store, "r"), None);
+}
+
+/// A payload that repeats a key, which its event's hash cannot see since
+/// the chain hashes the event as serde parses it, keeping a key's last
+/// copy, is indexed by each key's last copy, as every reader reads it:
+/// the attempt, the record and the record's member, each only where that
+/// last copy is text.
+#[test]
+fn a_payload_that_repeats_a_key_is_indexed_by_its_last_copy() {
+    let (_dir, store) = store();
+    plant_run(&store.conn, "r", "{}").unwrap();
+    let edited = |built, edits: [(&str, &str); 2]| {
+        let envelope = next(&store, "r", built);
+        let mut text = serde_json::to_string(&envelope).unwrap();
+        for (from, to) in edits {
+            text = text.replacen(from, to, 1);
+        }
+        let seq = envelope.seq as i64;
+        plant_event(&store.conn, "r", &seq, &envelope.event_hash, &text).unwrap();
+    };
+    edited(
+        event(
+            EventType::EffectCheckpointed,
+            json!({"attempt_id": "a", "checkpoint": {"member": "m"}}),
+        ),
+        [
+            (
+                r#""attempt_id":"a""#,
+                r#""attempt_id":"stale","attempt_id":"a""#,
+            ),
+            (
+                r#""checkpoint":{"member":"m"}"#,
+                r#""checkpoint":{"member":"x"},"checkpoint":{"member":"stale","member":"m"}"#,
+            ),
+        ],
+    );
+    edited(
+        event(
+            EventType::EffectSucceeded,
+            json!({"attempt_id": 7, "checkpoint": null, "result": {"member": "r"}}),
+        ),
+        [
+            (
+                r#""attempt_id":7"#,
+                r#""attempt_id":"stale","attempt_id":7"#,
+            ),
+            (
+                r#""checkpoint":null"#,
+                r#""checkpoint":{"member":"stale"},"checkpoint":null"#,
+            ),
+        ],
+    );
+    assert_eq!(
+        rows(&store, "r"),
+        [
+            row(1, "effect/checkpointed", Some("a"), Some("m")),
+            row(2, "effect/succeeded", None, None),
+        ]
+    );
+    assert_eq!(parted_at(&store, "r"), None);
+    assert_eq!(
+        store.index_checkpoints("r", "a", Some("m"), None).unwrap(),
+        [1]
+    );
 }
 
 /// An envelope that is not JSON is indexed with nothing read from it, and
