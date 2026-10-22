@@ -366,9 +366,10 @@
    560 crates/brokkr-runtime/src/engine/agent_tests.rs
    152 crates/brokkr-runtime/src/engine/artifact_gate_tests.rs
    772 crates/brokkr-runtime/src/engine/artifacts/tests.rs
-  4207 crates/brokkr-runtime/src/engine/boundary_tests.rs
+  4188 crates/brokkr-runtime/src/engine/boundary_tests.rs
     35 crates/brokkr-runtime/src/engine/boundary_tests/door_tests.rs
    273 crates/brokkr-runtime/src/engine/boundary_tests/evidence_tests.rs
+   198 crates/brokkr-runtime/src/engine/boundary_tests/rewalk_tests.rs
     76 crates/brokkr-runtime/src/engine/boundary_tests/sealed_tests.rs
    331 crates/brokkr-runtime/src/engine/boundary_tests/smith_tests.rs
   1772 crates/brokkr-runtime/src/engine/broker/admission/tests.rs

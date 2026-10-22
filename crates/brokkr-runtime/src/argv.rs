@@ -43,7 +43,16 @@ impl<'a> Dispatch<'a> {
 
     /// Whether this is the engine's own `exec` driver.
     pub(crate) fn is_exec(self) -> bool {
-        matches!(self, Dispatch::Driver { kind: "exec", .. })
+        self.exec_tail().is_some()
+    }
+
+    /// What the engine's own `exec` driver is handed behind its verb, the
+    /// escape `--` read as optional; `None` for any other dispatch.
+    pub(crate) fn exec_tail(self) -> Option<&'a [String]> {
+        match self {
+            Dispatch::Driver { kind: "exec", tail } => Some(tail),
+            Dispatch::Driver { .. } | Dispatch::Raw => None,
+        }
     }
 }
 
