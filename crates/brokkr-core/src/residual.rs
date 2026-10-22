@@ -187,7 +187,7 @@ pub struct Mark {
     pub recorded_at: String,
 }
 
-fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 

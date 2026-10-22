@@ -6,14 +6,6 @@
 //! is a derivation of journal facts: no new checkpoint, no driver
 //! change, and the count grows live while the seat works.
 
-/// One completed item of the seat's work: the step name decides, and a
-/// checkpoint of any other step is ignored rather than guessed at.
-pub(crate) fn count_item(items: &mut Option<u64>, step: Option<&str>) {
-    if step == Some("item-completed") {
-        *items.get_or_insert(0) += 1;
-    }
-}
-
 /// The turns cell's text, derived once for every surface that paints it:
 /// the turn count — `Σ`-marked when it is an aggregation — with the
 /// seat's completed items beside it (`1 · 47 items`), or the items alone

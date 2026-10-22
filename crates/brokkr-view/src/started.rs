@@ -1,44 +1,6 @@
 //! Participant facts read from an attempt's start, including carried verdicts (0093 ruling 5).
 use super::*;
 
-/// One well-formed `effect/started.boundary` entry (decision 0046 ruling
-/// 3): its site tag, its plain word and whether the site held a gate.
-pub(super) struct BoundaryEntry {
-    pub(super) member: Option<String>,
-    pub(super) word: String,
-    pub(super) gate: bool,
-}
-
-/// The entries of one `effect/started` this reader accepts. An entry
-/// whose word is outside the six — the five boundaries and decision
-/// 0031's sentinel — or which lacks its `member` key is *not recorded*
-/// for that site, never boxed and never unboxed (design DD14); it is
-/// dropped here, before any surface sees it.
-pub(super) fn boundary_entries(payload: &Value) -> Vec<BoundaryEntry> {
-    payload
-        .get("boundary")
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| {
-                    entry.get("member")?;
-                    let word = field(entry, "boundary")?;
-                    Boundary::from_recorded(word)?;
-                    Some(BoundaryEntry {
-                        member: entry
-                            .get("member")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                        word: word.to_string(),
-                        gate: entry.get("gate").and_then(Value::as_bool).unwrap_or(false),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 #[derive(Clone)]
 pub(super) struct CarriedEntry {
     member: String,
