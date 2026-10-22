@@ -1,0 +1,242 @@
+# gate-entry Specification
+
+## Purpose
+Let `brokkr run --enter <phase>` start a run of any recipe at a gate of
+its table over work already on the branch, admitted only where six facts
+of the table and its seats hold, the protected phase entered on the
+operator's word alone, and a return from the entered gate handing its
+finding to a seat the run has not visited (decision 0094).
+
+## Requirements
+
+### Requirement: A run enters at a gate of its table
+
+`brokkr run` SHALL accept `--enter <phase>`, and a run started with it SHALL enter the named phase first, instead of the table's `initial`. The bundle it runs under SHALL be the one the same recipe compiles to without an entry: the table, its `initial`, the manifest, its digest and the witnesses do not move, because an entry is a fact of the run, not of the recipe. A recipe whose own `initial` is a gate SHALL start as it always did when no entry is named, and its `initial` SHALL be an entry like any other phase when it passes admission. The compiled `landing` SHALL list `classify` first, as its own table writes it: its bundle marks `phases` in `override.table`, beside `initial`, so its own list, which names every phase it inherits, replaces the inherited one, as `triage`'s and `panel-review`'s bundles mark theirs, the union composition keeping the base's order and appending a derived recipe's own phase after it (decision 0017; D36, D37); nothing else of the recipe moves, and its seats listed after `classify` then read `classify`'s result in `context.results`, as every seat reads the results of the phases listed before it (`A return hands its finding to a seat the run has not visited`; D38). A Looper-bound run (`--dispatch`) SHALL refuse an entry by name, as it refuses a named map and in the same place, first in the launch, before a recipe is resolved, a bundle compiled, an envelope read or a journal opened, until the v2 manifest lineage carries one. `--enter` and `--continues` SHALL be `brokkr run`'s alone: `brokkr queue add`, which shares the rest of the launch's arguments, SHALL refuse either as an argument it does not know and queue nothing; and `QueuedLaunch::of` SHALL refuse a `NewRun` that carries an entry, naming the entry phase and `queued-launch/v1`, before anything is encoded or written, as it refuses a named map beside a dispatch, so `queued-launch/v1` is not widened.
+
+#### Scenario: A finished branch is verified, judged and shipped without a work seat
+
+- **WHEN** a recipe whose table lists `intake, design, implement, verify, review, ship, done, stop`, intake and design being work phases, and which binds no library charter, is run with `--enter verify` over a repository whose branch holds the work a stopped run of the same recipe committed after entering intake, design and implement, and its verify, review and ship seats report `pass`, `clean`, `ready` and `shipped`
+- **THEN** the run completes by `SHIP-COMPLETE`; its `phase/entered` events name `verify`, `review` and `ship` and never `intake`, `design` or `implement`; no effect is requested of a work seat; and the run manifest equals the manifest a run of the same recipe without an entry pins
+
+#### Scenario: A landing starts where it always did, and its first phase is an entry
+
+- **WHEN** `brokkr run --recipe landing` is started without `--enter`
+- **THEN** the run enters `classify` first and its `run/started` carries no `entry` and records `phases` as `classify, implement, verify, review, ship, done, stop`: the compiled `landing` lists its phases as its own table writes them, `classify` first, not after the phases it inherits, its bundle marking `phases` in `override.table` (D36, D37), and `landing`'s shape test pins that order
+- **AND WHEN** `classify` rules `code` and the run enters `verify` by `CLASSIFY-CODE`
+- **THEN** `verify`'s input holds `classify`'s result in `context.results` and, the run having no entry, no `returned_from` (D38); and the run view, reading the recorded order, calls `CLASSIFY-CODE` forward and draws no road back for it, where the order composition gave the recipe drew one (D36's F3)
+- **AND WHEN** it is started with `--enter classify --continues <a stopped run>`
+- **THEN** the run enters `classify` first and its `run/started.entry` records `classify` and the run named
+- **AND WHEN** `classify` rules `code` in that entered run
+- **THEN** `Direction::of` reads `CLASSIFY-CODE` forward over the compiled order, and `verify`'s first visit carries `context.entry`, `classify`'s result and no `returned_from`, where the order composition gave the recipe, `classify` listed last, would have handed it classify's result as a return (D39)
+
+#### Scenario: A Looper-bound run takes no entry
+
+- **WHEN** `brokkr run` is given both `--dispatch` and `--enter`
+- **THEN** the launch is refused naming both flags before anything is compiled, opened or written
+
+#### Scenario: A queued launch takes no entry
+
+- **WHEN** `brokkr queue add` is given `--enter verify`, or `--continues <run>`, beside the arguments a launch takes
+- **THEN** the command refuses the argument as one it does not know, and the queue holds no new entry
+- **AND WHEN** a `NewRun` carrying an entry at `verify` is handed to `QueuedLaunch::of`
+- **THEN** it refuses, naming `verify` and `queued-launch/v1`, and nothing is encoded or written
+
+### Requirement: Entry is admitted by six facts of the table and its seats
+
+An entry SHALL be admitted when the compiled table and the entry satisfy all six, judged in this order:
+
+1. the phase is one of the table's `phases` and is not a terminal, so it is seated;
+2. its name matches `^[a-z0-9][a-z0-9._-]{0,63}$`, the grammar the contribution gate prints (`run-continuation`), so the compiler never admits an entry the gate refuses; the table loader bounds no phase name, so this fact is the compiler's alone;
+3. every driver-bearing site of that seat is a gate (its class under decision 0021 ruling 1 is `gate`; a single counts by its class; a sequence by its steps, each written `gate`, a dialect step included, since an undeclared site is work; a panel by its members; and a selector by every case and its default). This is the seat's compiled whole-gate fact, `has_gate`, the fact the dispatch door journals as the effect's `gate`, and no derived step class decides it. A dialect step counts by the class it wrote whether or not the realm's dialect supplies it, so a step the dialect does not supply, for which no site is compiled, still fails this fact when it wrote no `gate`;
+4. the protected phase (the bundle's `protected_phase`, `review` unless it names another) is the entry itself or is unavoidable from it, by the walk the compiler already makes from `initial`, started at the entry;
+5. no work phase (a seated phase fact 3 would refuse) is met by the forward walk from the entry: a ruling is forward when its `next` stands after its `from` in the `phases` list, a return when before, a self-loop neither, and a park draws no edge, by the one predicate `brokkr-core` holds, `Direction::of`, which the return rule below and the run view's roads back (`operator-console-read`) read as well, so nothing else decides a direction;
+6. no seat, step or ruling group the walk meets needs a journal fact that only a phase the walk does not enter can set. Four such facts exist, and no others:
+   - `strategy`, read by a seat whose body selects on it with no `default` (`SeatBody::selected`, which has no body for an absent strategy), met without entering the strategy phase, `triage`, whose ruling alone sets it (decision 0041 ruling 6); the entry's own seat is met first;
+   - `strategy`, read by a ruling: a `(phase, result)` of a seat met without entering the strategy phase that holds any ruling with a `strategy_in` condition, whatever its other rulings rule. An absent `strategy` satisfies no `strategy_in`, so in the entered run such a ruling never matches where a run started at `initial` may match it, and the group could decide otherwise than that run would: a hard denial a strategy decides would fall through to an unconditioned allow below it. The admission preserves every ruling the skipped phase could decide; it does not stop at proving the group total (D36, the operator's ruling of 2026-10-22). A reached phase that holds several such groups is witnessed by the first by result in key order, the order `Machine::groups` builds a table's `(phase, result)` groups in and the sweep reports an unruled group in, which the core function answering those groups keeps (D41). A group with no `strategy_in` ruling decides as a run started at `initial` decides it, and an unmatched result parks as unruled there as here. An entry that is itself the strategy phase sets `strategy` by its own ruling before any other phase is met, so no seat or ruling group is met without entering it: both `strategy` facts hold and no walk is taken for them. That entry is admitted exactly as a plain start at `triage` is, and the admission refuses no more and no less: a `triage` ruling outside the strategy vocabulary sets no `strategy`, and `escalate`, which no selector case names, selects none, so a later selector with no `default` has no body, as in a run started at `triage` today, which no compile refusal guards;
+   - the dialect's `{change}`, expanded by a dialect step with no source the walk can supply. A source is an earlier step of the step's own sequence when its seat declares the `change` input (`carry_change`); else a result in `context.results` of a phase that is one of the five names `nearest_change` reads (`tasks`, `design`, `specify`, `triage`, `intake`, one roster held in one place and read by the engine and the admission alike, decision 0071 ruling 5), listed before the step's phase in `phases`, whose seat declares `change`; and the walk supplies that source only when every road from the entry to the step's phase enters such a phase, which is to say the step's phase is unreachable from the entry once those phases are removed, the shape of fact 4's walk. An entry that is itself one of those phases supplies the source, since the run enters its entry first, so the step is covered and no walk is taken for it;
+   - `visits_<phase>`, read by a ruling: a `(phase, result)` group of a seat the walk meets that holds any ruling conditioned on `visits_<phase>_gte` with a threshold above zero, the phase it counts being one no road from the entry reaches, whatever its other rulings rule. The fold counts a phase's visits from its `phase/entered` events alone and no seat may claim one (decision 0022), so only entering the phase moves the count, and the engine supplies zero at a ruling for a phase the run never entered, which meets no threshold above zero; so such a ruling never matches in the entered run where a run started at `initial`, from which every phase is reachable (decision 0050 ruling 3), may match it, and a hard denial the count decides would fall through to an unconditioned allow below it, the second fact's shape with a count for the strategy (D43). A road reaches a phase, for this fact alone, when no ruling on it is conditioned on `visits_<phase>_gte` above zero: such a ruling matches only once the phase it counts has been entered, which no walk may assume, where every other condition can hold in the entered run as in a run started at `initial` (`consecutive_failures` is the ruling's own phase's; a flag, a severity, a `drift_in` and every other seat input are the seat's own result or observed by the engine at the ruling; and a `strategy_in` ruling stands either in a group the second fact refuses or past the strategy phase on every road to it, which sets `strategy` before the ruling is read). So a phase met only through a count-guarded ruling is not reached, even one whose guard reads a count some road moves, or the entry's own count, which the entered run meets at its first visit: the simpler rule refuses a table no shipped recipe writes rather than prove a threshold (D45). The groups judged are those of every phase the walk that follows every ruling meets, a phase met only through a count-guarded ruling included, since it may still be entered once that count moves, and a denial it holds that reads a count no road moves is the same fall-through one phase on; such a group is witnessed by the count-guarded ruling that walk met its phase through (D49). A threshold of zero is met by that zero and loses nothing, so it is not refused. A ruling that reads the visits of a phase some such road from the entry reaches can still match, later by the visits a run started at `initial` makes before it reaches the entry's position; that lag is the accepted residual for every phase, named in the proposal's Left out, and no fact refuses it. `consecutive_failures` is keyed by the ruling's own phase, `reviewed_heads` is set by the protected phase, which the fourth fact puts on every road, and every other engine-owned input is observed at the ruling, so no fifth fact exists.
+
+The walk SHALL be breadth-first from the entry: the entry's own seat first; then, phase by phase in the order first reached, every ruling of that phase in the table's rule order; a park draws no edge, a terminal is reached but not entered, and a phase is visited once. Fact 5 SHALL follow forward rulings alone. Fact 6 SHALL be its four facts judged in their listed order, each over its own walk: the selector fact and the ruling fact, for an entry that is not the strategy phase, over one walk that follows every ruling but never enters the strategy phase, the selector fact judged over the whole of that walk before the ruling fact is judged over it (D17, D55); the `{change}` fact over one walk per dialect step whose sources do not include the entry, the steps taken in the order of the `phases` list and, within a seat, in step order, that follows every ruling but never enters a source phase of that step, so a step whose phase that walk reaches has a road no source lies on; and the visits fact over two runs of the walker, nothing avoided: one that follows every ruling, which meets every group the entered run could read, and one that follows no ruling conditioned on `visits_<phase>_gte` above zero, which reaches every phase whose count the entered run can move, so a phase the second does not meet is one no road reaches for this fact (D43, D45). The witness a refusal names SHALL be the first failing fact's first witness in its own walk's order: for fact 3 the first site whose class is work in the seat's written order, a selector's cases in key order and then its default, a sequence's steps in written step order, a panel's members in key order, a dialect step taken by the class it wrote and a step the dialect does not supply standing in that order and named by its step name and written class as uncompiled, so the witness is never the first compiled work site when an uncompiled step stands before it; for fact 5 the work phase and the ruling that reached it; for fact 6 the seat, the step or the `(phase, result)`, a phase's groups taken by result in key order (D41), the fact it needs, for the visits fact the phase whose visits the group reads and no road reaches, the first in the table's rule order when its rulings read several and, within one ruling, the first in the key order of the condition name, `visits_<phase>_gte`, the order the loader holds a ruling's `when` in, the written order being lost at the edge, and `Machine::visit_phases` lists a phase's read counts in (D43, D46), and the ruling that reached its phase, or none when it is the entry's own seat; for the visits fact that ruling is the one recorded by the run of the walker that follows every ruling, the run that meets the groups judged, so a group of a phase met only through a count-guarded ruling is witnessed by that ruling, while the run that follows no count-guarded ruling decides reach alone and names none (D49). A table that fails two facts of six SHALL name the one listed first, and the next refusal names the next.
+
+Any other entry SHALL be refused when the recipe and the entry are compiled, before a run id is minted or an event is written, by a typed error that names the phase, the first fact it failed with its witness, and the entries the table admits, derived by the same six facts and listed in the order of the `phases` list, or that it admits none. The engine SHALL hold no roster of which phases may be entered: the facts are the table's and its seats'.
+
+#### Scenario: A work phase is refused
+
+- **WHEN** a `fast`-shaped recipe (`implement, verify, review, ship, done, stop`) is run with `--enter implement`
+- **THEN** no run is created, and the refusal names `implement` as a work phase (fact 3) and lists `verify, review` as the entries the table admits, in that order
+
+#### Scenario: A gate that reaches done without the protected phase is refused
+
+- **WHEN** a `fast`-shaped recipe is run with `--enter ship`
+- **THEN** no run is created, and the refusal names `ship` as a gate from which `done` is reached without `review` (fact 4), and lists `verify, review`
+
+#### Scenario: The protected phase itself is an entry
+
+- **WHEN** a `fast`-shaped recipe is run with `--enter review` and review reports `clean`
+- **THEN** the run enters `review` first, ship's drift check reads the head review was entered at, the journal holds no `phase/entered` for `verify`, and `run/started.entry.phase` reads `review`
+
+#### Scenario: A phase the table lacks, a terminal, or a name the gate cannot print is refused
+
+- **WHEN** a `fast`-shaped recipe is run with `--enter intake`, or with `--enter done`, or a fixture table whose gate is named `verify gate`, which the loader accepts, is run with `--enter "verify gate"`
+- **THEN** no run is created, and the refusal names the phase as absent from the table (fact 1), as a terminal with no seat (fact 1), or as a name outside `^[a-z0-9][a-z0-9._-]{0,63}$` (fact 2), and lists the entries the table admits
+
+#### Scenario: A dialect phase whose check step declares no class is a work phase
+
+- **WHEN** a `triage`-shaped recipe is run with `--enter clarify`, or with `--enter analyze`
+- **THEN** no run is created, and the refusal names the phase as a work phase, its `check` step declaring no class (fact 3), and says the table admits no entry
+
+#### Scenario: A dialect step the realm does not supply is named by the class it wrote
+
+- **WHEN** a fixture table listing `clarify, review, done`, `review` protected and written `gate`, is compiled under a realm whose dialect is `speckit`, whose `clarify.check` is `unsupported`, and its `clarify` seat is a sequence of a dialect `check` step declaring no class, for which no site is compiled, and a `judge` step written `gate`, its only compiled site, and the recipe is run with `--enter clarify`
+- **THEN** no run is created, and the refusal names `clarify` as a work phase, its witness the `check` step, uncompiled because `speckit` does not supply a clarify check, by the class it wrote, none, an undeclared site being work (fact 3), not the `judge`; and it lists `review` as the entry the table admits
+- **AND WHEN** the `check` step is written `gate`, the dialect still supplying none
+- **THEN** fact 3 holds, and the entries the fixture admits are pinned as `clarify, review`
+
+#### Scenario: A gate from which a work phase is reached forward is refused
+
+- **WHEN** a `triage`-shaped recipe is run with `--enter triage`, or a fixture table shaped like it whose dialect steps are written `gate` is run with `--enter clarify` or `--enter analyze`
+- **THEN** no run is created, and the refusal names `implement` reached forward by `TRIAGE-CHORE`, triage's first ruling in table order; `design` reached forward by `CLARIFY-CLEAR`, since `CLARIFY-AMBIGUOUS-EXHAUSTED` parks and `CLARIFY-AMBIGUOUS` returns; or `implement` reached forward by `ANALYZE-CONSISTENT`, the three drift rulings returning (fact 5), and says the table admits no entry
+
+#### Scenario: A road that needs a skipped phase's strategy is refused
+
+- **WHEN** a `triage`-shaped recipe is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `implement`, reached by `VERIFY-FAIL` after `VERIFY-FAIL-EXHAUSTED` reached only `stop`, as a seat that selects on `strategy` with no `default` while `triage`, which rules it, is not entered (fact 6), and says the table admits no entry
+- **AND WHEN** it is run with `--enter review`
+- **THEN** no run is created, and the refusal names `review`, the entry's own seat, reached by no ruling, for the same fact
+- **AND WHEN** a table shaped like it whose `implement` is a plain work seat and whose `review` still selects with no `default` (`night-shift`) is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `review`, reached by `VERIFY-PASS`, for the same fact, `implement`, reached first by `VERIFY-FAIL`, having needed nothing
+
+#### Scenario: A judging phase with a work site is a work phase, and a gate ahead of it is refused forward
+
+- **WHEN** a table shaped like `triage` whose `review` cases are each a sequence of a `positions` panel whose members are written `work` and a `chief` written `gate` (`gpt-flash`) is run with `--enter review`
+- **THEN** no run is created, and the refusal names `review` as a work phase, its first work site the `correctness` member of the `positions` step of its `chore` case (fact 3), and says the table admits no entry
+- **AND WHEN** it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `review`, reached forward by `VERIFY-PASS`, as a work phase (fact 5), no fact 6 having been judged, and says the table admits no entry
+
+#### Scenario: A selector with a default admits the entry
+
+- **WHEN** a fixture table shaped like `triage` whose `implement` and `review` selectors carry a `default` case, and none of whose rulings past `triage` carries a `strategy_in` condition, is run with `--enter verify`
+- **THEN** the run is created, enters `verify` first, and review runs its `default` case with `phase/entered.case` reading `default`; and the entries the fixture admits are pinned as `verify, review`, since no ruling group the walk meets reads `strategy`, every phase whose visits a reached ruling reads lies on a road from `verify` that no visit count guards (D45), and every dialect step's source is entered on every road
+
+#### Scenario: A ruling group only a skipped strategy decides is refused
+
+- **WHEN** a fixture table shaped like `triage`, its selectors carrying a `default` case, whose `review` phase rules `clean` by one ruling conditioned on `strategy_in` over the whole strategy vocabulary and no other, which compiles because the sweep over present strategies is total, is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `(review, clean)`, reached by `VERIFY-PASS`, as a ruling group that reads `strategy`, holding a `strategy_in` ruling, while `triage` is not entered (fact 6; D36, D40)
+
+#### Scenario: A hard denial a skipped strategy decides is refused, an unconditioned ruling below it notwithstanding
+
+- **WHEN** a fixture table whose selectors carry a `default` case, and whose `review` rules `clean` first by `DENY-ENGINE` (`strategy_in: [engine]`, severity `hard`, next `stop`) and then by an unconditioned ruling to `ship`, a table a run started at `initial` with strategy `engine` stops on and the sweep finds total, is run with `--enter verify` or `--enter review`
+- **THEN** no run is created, and the refusal names `(review, clean)`, reached by `VERIFY-PASS` from `verify` and by no ruling from `review`, as a ruling group that reads `strategy` while `triage` is not entered (fact 6), and the table admits neither entry
+- **AND WHEN** the same table without `DENY-ENGINE` is run with `--enter verify`
+- **THEN** the run is created
+
+#### Scenario: Two ruling groups of one phase read strategy, and the first by result is named
+
+- **WHEN** the fixture table of `A hard denial a skipped strategy decides is refused, an unconditioned ruling below it notwithstanding`, whose `review` also reports `residual` and rules it first by `DENY-DESIGN-RESIDUAL` (`strategy_in: [design]`, severity `hard`, next `stop`) and then by an unconditioned ruling to `implement`, the two `residual` rulings written ahead of the two `clean` rulings in the table's rule order, is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `(review, clean)`, reached by `VERIFY-PASS`, and not `(review, residual)`, which stands first in rule order and second by result: a reached phase's groups that read `strategy` are named by result in key order, the order `Machine::groups` builds them in and the sweep reports them in (fact 6, D41)
+- **AND WHEN** the two `clean` rulings are written ahead of the two `residual` rulings
+- **THEN** the refusal names `(review, clean)` still
+
+#### Scenario: A hard denial a skipped phase's visits decide is refused, an unconditioned ruling below it notwithstanding
+
+- **WHEN** a fixture table listing `intake, implement, verify, review, ship, done, stop`, `intake` and `implement` its work seats and `intake` reached by no ruling, whose `review` reports `clean` alone and rules it first by `STOP-AFTER-INTAKE` (`visits_intake_gte: 1`, severity `hard`, next `stop`) and then by an unconditioned ruling to `ship`, a table every run started at `initial` stops on and the sweep finds total, is run with `--enter verify` or `--enter review`
+- **THEN** no run is created, and the refusal names `(review, clean)`, reached by `VERIFY-PASS` from `verify` and by no ruling from `review`, as a ruling group that reads the visits of `intake`, which no road from the entry reaches (fact 6; D43), and the table admits neither entry
+- **AND WHEN** `STOP-AFTER-INTAKE` reads `visits_implement_gte: 1` instead
+- **THEN** `verify` is admitted, `implement` being reached from it by `VERIFY-FAIL`, so the count can move and the denial fires one return later than in a run started at `initial`, the lag the proposal's Left out accepts for every phase; and `review` is refused still for the same group, no ruling of the fixture's `review` reaching `implement`
+
+#### Scenario: A road only the skipped phase's own count opens does not reach it
+
+- **WHEN** the fixture table of `A hard denial a skipped phase's visits decide is refused, an unconditioned ruling below it notwithstanding` gains `REDO-INTAKE` (`verify`, `fail`, `visits_intake_gte: 1`, next `intake`) written ahead of `VERIFY-FAIL`, a table the loader accepts, since `(verify, fail)` stays total through the unconditioned `VERIFY-FAIL`, `REDO-INTAKE` wins the valuations where the count is one or more, and a return is not followed by fact 5, and it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `(verify, fail)`, the entry's own group, reached by no ruling, as a ruling group that reads the visits of `intake`, which no road from the entry reaches: the one ruling into `intake` is guarded by `intake`'s own count, which the entered run never moves, so `REDO-INTAKE` never matches, `intake` is never entered, `STOP-AFTER-INTAKE` never matches, and a clean review would ship where a run started at `initial`, which enters `intake` first, stops (fact 6; D45)
+- **AND WHEN** `REDO-INTAKE` reads `visits_implement_gte: 1` instead
+- **THEN** no run is created, and the refusal names `(review, clean)`, reached by `VERIFY-PASS`, for the same fact: `implement` is reached from `verify` by `VERIFY-FAIL`, so `(verify, fail)` reads no count the run cannot move, but a road a visit count guards reaches nothing for this fact whatever count guards it, so `intake` is unreached still
+- **AND WHEN** `REDO-INTAKE` is guarded by `spec_defect: true` instead, a flag of the closed seat vocabulary that the fixture's verify seat declares, so the table loads, `(verify, fail)` ruled by `REDO-INTAKE` where the flag is set and by `VERIFY-FAIL` where it is not, where the same ruling unconditioned would leave `VERIFY-FAIL` unreachable and the loader refuses the table (decision 0050 ruling 2; D48)
+- **THEN** `verify` is admitted, `intake` being reached from it by `REDO-INTAKE`, a road a seat's own flag guards and no visit count does, which the walk that decides reach follows as it follows an unguarded ruling (D45, D48); the entries the table admits are pinned as `verify`, `review` being refused still for `(review, clean)`, no ruling of the fixture's `review` reaching `intake`; and in the entered run `intake`'s count stands at zero until a failing verify that reports `spec_defect` returns the run there, so `STOP-AFTER-INTAKE` fires on the first clean review after that return, where a run started at `initial`, which enters `intake` first, stops on its first clean review: the lag the proposal's Left out accepts
+
+#### Scenario: A denial in a phase met only through a count-guarded ruling is judged, and that ruling is its witness
+
+- **WHEN** the fixture table of `A hard denial a skipped phase's visits decide is refused, an unconditioned ruling below it notwithstanding` rules `(verify, pass)` first by `VERIFY-PASS-WORKED` (`visits_implement_gte: 1`, next `review`) and then by the unconditioned `VERIFY-PASS-UNWORKED` (next `implement`), `VERIFY-FAIL` written ahead of both, so that `review` is met from `verify` through a count-guarded ruling alone, a table the loader accepts, since `(verify, pass)` stays total through `VERIFY-PASS-UNWORKED` and the loader reads a table's edges without their conditions, so every phase is reachable from `initial` and `review` is unavoidable, and it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `(review, clean)`, reached by `VERIFY-PASS-WORKED`, as a ruling group that reads the visits of `intake`, which no road from the entry reaches (fact 6; D45, D49): the run of the walker that follows every ruling meets `implement` by `VERIFY-FAIL` and `review` by `VERIFY-PASS-WORKED` and records both, so `review`'s groups are judged and that ruling is the witness, while the run that follows no count-guarded ruling reaches `verify` and `implement` alone; `(verify, pass)`, the entry's own group, holds, since the count it reads is `implement`'s, which `VERIFY-FAIL` reaches; a single run of the walker that followed no count-guarded ruling would never meet `review`, would judge no group of it and would admit the entry, whose every clean review then ships where a run started at `initial` enters `intake` first and stops on its first; and the table admits no entry, `review` being refused on the same group reached by no ruling
+- **AND WHEN** `STOP-AFTER-INTAKE` reads `visits_implement_gte: 1` instead
+- **THEN** `verify` is admitted: `review`'s groups are judged as any other, the count they read is `implement`'s, which `VERIFY-FAIL` reaches, and being met through a count-guarded ruling refuses nothing of itself; the entries the table admits are pinned as `verify`, `review` being refused still, no ruling of the fixture's `review` reaching `implement`; and the denial fires on the first clean review, as in a run started at `initial`, since the table's own guard admits `review` only after an `implement` visit, so this variant lags nothing
+
+#### Scenario: One ruling reads two unreached counts, and the first by key order is named
+
+- **WHEN** the fixture table of `A hard denial a skipped phase's visits decide is refused, an unconditioned ruling below it notwithstanding` lists `intake, design, implement, verify, review, ship, done, stop`, `design` a work seat reached from `intake` alone, and its `STOP-AFTER-INTAKE` reads `visits_intake_gte: 1` and `visits_design_gte: 1`, written in that order, and it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `(review, clean)`, reached by `VERIFY-PASS`, as a ruling group that reads the visits of `design`, which no road from the entry reaches, and not `intake`, listed and written first: within one ruling the phases it counts are taken in the key order of the condition name, `visits_design_gte` before `visits_intake_gte`, the order the loader holds a ruling's `when` in, the written order being lost at the edge, and `Machine::visit_phases` lists a phase's read counts in (fact 6; D46)
+- **AND WHEN** `STOP-AFTER-INTAKE` reads `visits_intake_gte: 1` alone and a second ruling below it, `STOP-AFTER-DESIGN` (`visits_design_gte: 1`, severity `hard`, next `stop`), reads `design`'s count
+- **THEN** the refusal names `intake`, the first in the table's rule order across the group's rulings (D43)
+
+#### Scenario: A dialect step that needs a change no road carries is refused
+
+- **WHEN** a fixture table listing `intake, implement, verify, analyze, review, ship, done, stop`, whose `intake` seat is work and declares the `change` input and whose `analyze` seat opens with a dialect `check` step expanding `{change}`, both of its steps written `gate`, and declares no `change` input, is run with `--enter analyze`
+- **THEN** no run is created, and the refusal names the `check` step of `analyze` as a dialect step expanding `{change}` whose one source, `intake`, no road from the entry enters (fact 6)
+- **AND WHEN** it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names the same step, reached by `VERIFY-PASS`, for the same fact, since the road from `verify` to `analyze` enters no `intake`
+
+#### Scenario: An entry that is a step's change source covers the step
+
+- **WHEN** a fixture table listing `implement, design, analyze, review, ship, done, stop`, whose one work seat is `implement`, reached from `design` only by a return, whose `design` seat is a gate declaring the `change` input, and whose `analyze` seat opens with a dialect `check` step expanding `{change}`, both of its steps written `gate`, and declares no `change` input, is run with `--enter design`
+- **THEN** the run is created and enters `design` first: the entry is the step's one source, so the step is covered and no walk is taken for it (fact 6)
+
+#### Scenario: An entry at the strategy phase holds both strategy facts
+
+- **WHEN** a fixture table listing `triage, verify, review, ship, done, stop`, whose `triage` seat is a gate ruling forward into `verify` and whose `review` seat selects on `strategy` with no `default`, every case a gate, is run with `--enter triage`
+- **THEN** the run is created and enters `triage` first: its own ruling sets `strategy` before any other phase is met, so both strategy facts hold and no walk is taken for them (fact 6)
+- **AND WHEN** it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `review`, reached by `VERIFY-PASS`, as a seat that selects on `strategy` with no `default` while `triage` is not entered (fact 6)
+
+#### Scenario: The selector fact is judged over the whole walk before the ruling fact
+
+- **WHEN** the fixture table of `A hard denial a skipped strategy decides is refused, an unconditioned ruling below it notwithstanding`, whose `verify` also rules `fail` first by `VERIFY-FAIL-ENGINE` (`strategy_in: [engine]`, next `implement`), ahead of its unconditioned `VERIFY-FAIL`, and whose `review` selects on `strategy` with no `default`, every case a gate, is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `review`, reached by `VERIFY-PASS`, as a seat that selects on `strategy` with no `default` while `triage` is not entered, and not `(verify, fail)`, the entry's own group, which the walk meets first: the selector fact is judged over the whole walk before the ruling fact is judged over it (fact 6; D17, D55)
+- **AND WHEN** the same table's `review` selector carries a `default` case
+- **THEN** no run is created, and the refusal names `(verify, fail)`, reached by no ruling, as a ruling group that reads `strategy` while `triage` is not entered, and not `(review, clean)`, which the walk meets after it
+
+#### Scenario: Two facts of six fail, and the one listed first is named
+
+- **WHEN** the fixture table of the scenario `A dialect step that needs a change no road carries is refused`, with a strategy phase `triage` listed ahead of `intake` that rules forward into it and declares no `change`, and with a `review` seat that selects on `strategy` with no `default`, is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `review`, reached by `ANALYZE-CONSISTENT`, as a seat that selects on `strategy` with no `default` while `triage` is not entered, the first fact of six, and not the `check` step of `analyze`, which the change walk reaches first, by `VERIFY-PASS`
+- **AND WHEN** the fixture's `review` selector gains a `default` case and it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names the `check` step of `analyze`, reached by `VERIFY-PASS`, as a dialect step expanding `{change}` whose one source, `intake`, no road from the entry enters
+- **AND WHEN** the fixture's `review` selector carries a `default` case and its `verify` also rules `fail` first by `VERIFY-FAIL-ENGINE` (`strategy_in: [engine]`, next `implement`), ahead of its unconditioned `VERIFY-FAIL`, and it is run with `--enter verify`
+- **THEN** no run is created, and the refusal names `(verify, fail)`, reached by no ruling, as a ruling group that reads `strategy` while `triage` is not entered, the ruling fact ranking before the step fact, and not the `check` step of `analyze`, reached by `VERIFY-PASS` (D56)
+
+#### Scenario: Every shipped table's entries are pinned
+
+- **WHEN** every recipe under `recipes/` is compiled and each of its phases is tried as an entry
+- **THEN** the admitted set of each is pinned by a test, in `phases` order: `verify, review` in the `fast`-shaped tables (`fast`, `brokkr-fast`, `node`, `release`, `standby`, `review-first`, `wager-harness`, `wager-harness-dsh`, `wager-harness-muse`), in `panel-review` and `self`, and in `preflight` and `verify`; `classify, verify, review` in `landing`; `verify` in `research` and `research-dsh`; and none in `triage`, `gpt-flash` and `night-shift`; and every refused phase is pinned with the first fact it fails and the witness the walk names
+
+### Requirement: An entry at the protected phase is the operator's word
+
+An entry at the protected phase SHALL be admitted wherever the six facts admit it, `landing` included, and the run's own journal then holds no verify: it vouches a head no seat of that journal tested, which is the operator's word, as the chain is (`run-continuation`). The record SHALL say so on every surface: `run/started.entry.phase`, `context.entry`, the run view and the contribution gate's check line all name the gate entered. The engine SHALL read nothing of a continued run's verify. The by-hand road SHALL be unchanged: a landing started without an entry classifies the branch, and a branch with one code path still routes to verify by `CLASSIFY-CODE` (decision 0051 ruling 3).
+
+#### Scenario: A landing entered at review over a code branch
+
+- **WHEN** `brokkr run --recipe landing --enter review` is started over a branch that changes a code path, and review reports `clean`
+- **THEN** the run is created, enters `review` first, holds no `phase/entered` for `classify` or `verify`, records `review` in `run/started.entry.phase`, and ships by `SHIP-COMPLETE`
+- **AND WHEN** the same recipe is started without `--enter` over the same branch
+- **THEN** `classify` rules `code` and the run enters `verify` by `CLASSIFY-CODE`, as it does today
+
+### Requirement: A return hands its finding to a seat the run has not visited
+
+In an entered run, a seat SHALL receive `returned_from`, the ruling's phase and the result that sent the run there, on its first visit when the ruling that sent it is a return, a ruling whose `next` stands before its `from` in the table's `phases` list, the order `context.results` is read in, as `Direction::of` reads it, the one predicate the admission's fact 5 and the run view's roads back read. A forward ruling into a phase this run has not visited SHALL hand nothing new, as a first visit does today; a revisit SHALL hand what it always did; triage SHALL receive nothing on any visit (decision 0041 ruling 6). The rule SHALL read the ruling's direction and never the entry's position. No seat input of a run without an entry SHALL move by the engine change: it carries no `context.entry`, and `returned_from` reaches it as it always did. One recipe's inputs move, by its compiled order and not by the engine: `landing`'s seats listed after `classify`, the remediating `implement`, `verify`, `review` and `ship`, SHALL read `classify`'s result in `context.results`, as every seat reads the results of the phases listed before it in `phases`, which the order composition gave the recipe, `classify` listed last, denied them; each such input differs from what the same journal produced before this change by that one member and by nothing else, and a landing in flight when the marker lands is refused at resume by its moved manifest, as any recipe edit refuses a mid-flight run (D38).
+
+#### Scenario: The entered run's first return carries the finding
+
+- **WHEN** a `fast`-shaped recipe is entered at `verify` and verify reports `fail`
+- **THEN** the implementer's first visit receives `returned_from` with phase `verify` and the verify seat's result, and its `context.results` holds no result of a phase this run never ran
+
+#### Scenario: A forward ruling into an unvisited phase hands nothing new
+
+- **WHEN** a `fast`-shaped recipe is entered at `review`, review returns the run to `implement` by `REVIEW-REFORGE`, and the implementer completes
+- **THEN** the implementer's first visit receives `returned_from` with phase `review`; verify's first visit, reached forward by `IMPL-OK`, receives no `returned_from`; and review's second visit receives `returned_from` with phase `verify`, as it does in any run
+
+#### Scenario: A run without an entry builds the inputs it always built
+
+- **WHEN** a `fast` run returns to `implement` from `verify` for the second time, and a `landing` run returns to `implement` from `review` for the first time
+- **THEN** the fast run's revisit input, and its digest, is byte for byte what the same journal produced before this change, `returned_from` carried as it always was; and the landing's first return still carries no `returned_from`, its input differing from what the same journal produced before this change by `context.results.classify` alone, the result of the phase its compiled order now lists first (D38)
+
+## Provenance
+
+- `2026-10-21-788-enter-at-a-gate` — folded 2026-10-23
