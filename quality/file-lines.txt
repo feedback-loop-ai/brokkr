@@ -1,3 +1,4 @@
+# produced by quality/measure.sh with git ls-files and wc -l
 # production
    747 crates/brokkr-bridge/src/lib.rs
    153 crates/brokkr-cli/src/agents.rs
@@ -77,7 +78,7 @@
     28 crates/brokkr-cli/src/verbs.rs
     91 crates/brokkr-cli/src/verbs/acknowledge.rs
    173 crates/brokkr-cli/src/verbs/analytics.rs
-   262 crates/brokkr-cli/src/verbs/delivery.rs
+   268 crates/brokkr-cli/src/verbs/delivery.rs
    270 crates/brokkr-cli/src/verbs/exchange.rs
    407 crates/brokkr-cli/src/verbs/graph.rs
    199 crates/brokkr-cli/src/verbs/probe.rs
@@ -103,7 +104,7 @@
    630 crates/brokkr-core/src/policy/audit.rs
     21 crates/brokkr-core/src/policy/direction.rs
    274 crates/brokkr-core/src/policy/errors.rs
-   215 crates/brokkr-core/src/policy/inputs.rs
+   218 crates/brokkr-core/src/policy/inputs.rs
     38 crates/brokkr-core/src/policy/words.rs
    751 crates/brokkr-core/src/realms.rs
    250 crates/brokkr-core/src/realms/grants.rs
@@ -423,7 +424,7 @@
   1886 crates/brokkr-cli/tests/contributing.rs
    491 crates/brokkr-cli/tests/contributing/inline_copies.rs
   1948 crates/brokkr-cli/tests/decisions_index.rs
-  1259 crates/brokkr-cli/tests/delivered_by_brokkr.rs
+  1303 crates/brokkr-cli/tests/delivered_by_brokkr.rs
    568 crates/brokkr-cli/tests/diagrams.rs
   1240 crates/brokkr-cli/tests/doc_samples.rs
    349 crates/brokkr-cli/tests/doc_truth.rs
@@ -456,7 +457,7 @@
   1879 crates/brokkr-cli/tests/layering/test_targets/run_commands.rs
   3450 crates/brokkr-cli/tests/machine_proof.rs
     52 crates/brokkr-cli/tests/machine_proof/egress.rs
-   451 crates/brokkr-cli/tests/machine_proof/entered_run.rs
+   477 crates/brokkr-cli/tests/machine_proof/entered_run.rs
    110 crates/brokkr-cli/tests/machine_proof/environment_block.rs
    201 crates/brokkr-cli/tests/machine_proof/output_edge.rs
    127 crates/brokkr-cli/tests/machine_proof/release.rs

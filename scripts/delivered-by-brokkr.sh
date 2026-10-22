@@ -270,7 +270,7 @@ case "$tier" in
     # Two runs, two boundaries: the preflight is read the same way, on
     # its own line, so neither run's word is mistaken for the other's.
     preflight_suffix="$(boundary_suffix "$preflight")"
-    say "run ${run_id} delivered the slice${suffix}"
+    say "run ${run_id} delivered the slice${suffix}$(cat "$work/${run_id}.entry")"
     say "preflight ${preflight} judged ${PR_HEAD}${preflight_suffix}"
     ;;
   code)

@@ -575,13 +575,7 @@ fn the_gate_cuts_the_tier_by_the_delta_since_the_judgment() {
     assert!(log.contains("the tier would have been docs"), "{log}");
 
     // A preflight over the new head satisfies the docs tier (ruling 3).
-    let preflight = deliver(
-        side.path(),
-        &repo,
-        "preflight",
-        PREFLIGHT_POLICY,
-        preflight_script(),
-    );
+    let preflight = deliver_preflight(side.path(), &repo);
     let with_preflight = format!("{body}Brokkr-Preflight: {preflight}\n");
     let (code, log) = gate.judge(&with_preflight, &docs_delta, "");
     assert_eq!(code, 0, "{log}");
@@ -1165,7 +1159,7 @@ fn an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them() {
                 line_starting(&stderr, "entered at"),
                 format!("entered at verify, continuing a[2J[H ({a}), b ({b})")
             );
-            vouched = Some(body);
+            vouched = Some((body, run.clone()));
             format!("entered at verify, continuing {a}, {b}")
         } else {
             "entered at review, continuing no earlier run".into()
@@ -1179,10 +1173,29 @@ fn an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them() {
             format!("delivered by brokkr: run {run} vouches for {head} · {line}")
         );
     }
+    assert_unpublished_predecessors(&repo, a, b);
+    let (body, run) = vouched.unwrap();
+    let changed = commit(
+        &repo,
+        "src/after.rs",
+        "// after judgment\n",
+        "after judgment",
+    );
+    let (code, log) = Gate::local(&repo).judge(&body, &changed, "");
+    assert_eq!(code, 1, "{log}");
+    assert_eq!(
+        line_starting(&log, "delivered by brokkr: tier"),
+        "delivered by brokkr: tier code · delta since the judgment: [\"src/after.rs\"]"
+    );
+    git(&repo, &["checkout", "-q", &format!("{changed}~1")]);
+    assert_entered_docs_delivery(side.path(), &repo, &body, &run, a, b);
+}
+
+fn assert_unpublished_predecessors(repo: &Path, a: &str, b: &str) {
     for predecessor in [a, b] {
         assert_eq!(
             git(
-                &repo,
+                repo,
                 &[
                     "for-each-ref",
                     &format!("refs/heads/brokkr-runs/{predecessor}")
@@ -1191,17 +1204,38 @@ fn an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them() {
             ""
         );
     }
-    let changed = commit(
-        &repo,
-        "src/after.rs",
-        "// after judgment\n",
-        "after judgment",
+}
+
+fn deliver_preflight(side: &Path, repo: &Path) -> String {
+    deliver(
+        side,
+        repo,
+        "preflight",
+        PREFLIGHT_POLICY,
+        preflight_script(),
+    )
+}
+
+fn assert_entered_docs_delivery(side: &Path, repo: &Path, body: &str, run: &str, a: &str, b: &str) {
+    let head = commit(
+        repo,
+        "docs/after.md",
+        "# synthetic page\n",
+        "docs after judgment",
     );
-    let (code, log) = Gate::local(&repo).judge(&vouched.unwrap(), &changed, "");
-    assert_eq!(code, 1, "{log}");
+    let preflight = deliver_preflight(side, repo);
+    let log = Gate::local(repo).accepted(&format!("{body}Brokkr-Preflight: {preflight}\n"), &head);
     assert_eq!(
         line_starting(&log, "delivered by brokkr: tier"),
-        "delivered by brokkr: tier code · delta since the judgment: [\"src/after.rs\"]"
+        "delivered by brokkr: tier docs · delta since the judgment: [\"docs/after.md\"]"
+    );
+    assert_eq!(
+        line_starting(&log, "delivered by brokkr: run"),
+        format!("delivered by brokkr: run {run} delivered the slice · entered at verify, continuing {a}, {b}")
+    );
+    assert_eq!(
+        line_starting(&log, "delivered by brokkr: preflight"),
+        format!("delivered by brokkr: preflight {preflight} judged {head}")
     );
 }
 

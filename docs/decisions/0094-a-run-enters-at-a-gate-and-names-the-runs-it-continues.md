@@ -580,8 +580,9 @@ this decision and the Rust types are their shape.
    console's in `tests/client.test.js`; the start-line pin in
    `machine_proof/entered_run.rs`.
 
-   *Amended, 2026-10-22:* the version is 27, behind #787's 26, since
-   #808 took 25 first.
+   *Amended, 2026-10-22:* the merged main at fe0eedee held version 25, so
+   the one-past-main rule sets this branch to 26. The expected #787 version
+   26 had not landed at that merge point.
 
 9. **`landing` stays a recipe, and a judgment that could not land is
    relit as a landing that names the run it continues.** `landing` adds a

@@ -24,6 +24,9 @@ use crate::{drive_to_end, finish, open_journal, recipes, selector, supersede, Ac
 /// `brokkr run`: start a new run and drive it until it parks or finishes,
 /// beside its run view on a terminal (#508).
 pub(crate) fn run(workspace: &Path, args: RunArgs, viewer: &Viewer) -> Result<ExitCode> {
+    if args.launch.dispatch.is_some() && args.entry.enter.is_some() {
+        return Err(launch::LaunchError::EntryWithDispatch.into());
+    }
     let (request, mut new) = new_run(workspace, args.launch)?;
     if let Some(phase) = args.entry.enter {
         let continues = if args.entry.continues.is_empty() {

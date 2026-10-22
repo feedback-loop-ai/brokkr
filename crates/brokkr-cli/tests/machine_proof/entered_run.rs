@@ -219,6 +219,32 @@ fn work_entry_and_duplicate_resolved_selectors_create_no_run() {
 }
 
 #[test]
+fn dispatch_entry_conflict_precedes_continuation_resolution() {
+    let ws = fixture();
+    let (code, _, stderr) = ws.brokkr(&[
+        "run",
+        "--feature",
+        "synthetic conflict",
+        "--bundle",
+        ws.bundle_dir().to_str().unwrap(),
+        "--db",
+        ws.db().to_str().unwrap(),
+        "--dispatch",
+        "missing-synthetic-dispatch.json",
+        "--enter",
+        "verify",
+        "--continues",
+        "missing-synthetic-run",
+    ]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(
+        stderr.trim(),
+        "error: --dispatch and --enter cannot be combined: a Looper-bound run takes no entry"
+    );
+    assert!(!ws.db().exists());
+}
+
+#[test]
 fn protected_review_is_itself_an_entry() {
     let ws = fixture();
     let before = Command::new("git")

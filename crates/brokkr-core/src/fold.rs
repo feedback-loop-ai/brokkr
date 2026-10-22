@@ -15,7 +15,7 @@ use crate::decision::{Decision, PhaseResult, ReviewedHeads};
 use crate::envelope::{EventEnvelope, EventType};
 use crate::gate_moved_head;
 use crate::payload;
-use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY_PHASE};
+use crate::policy::{CONSECUTIVE_FAILURES, REVIEWED_HEADS, STRATEGIES, STRATEGY, STRATEGY_PHASE};
 
 mod operator;
 use operator::{accept, command};
@@ -718,7 +718,7 @@ pub fn computed_inputs(
         inputs.insert(CONSECUTIVE_FAILURES.to_string(), Value::from(prior + 1));
     }
     if let Some(strategy) = &state.strategy {
-        inputs.insert("strategy".to_string(), Value::from(strategy.clone()));
+        inputs.insert(STRATEGY.to_string(), Value::from(strategy.clone()));
     }
     inputs
 }

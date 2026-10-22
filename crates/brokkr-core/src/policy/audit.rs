@@ -454,7 +454,7 @@ impl Rule {
     fn reads_strategy(&self) -> bool {
         self.when
             .iter()
-            .any(|condition| condition.name() == "strategy")
+            .any(|condition| condition.name() == super::STRATEGY)
     }
 
     /// Decision 0094: positive visit-count guards, in condition key order.

@@ -6,7 +6,7 @@
 //! and invalid or mismatched dispatch envelopes. Envelopes are checked before
 //! opening the journal, so their refusal precedes store contention. Continued
 //! runs use the engine's typed manifest reader to refuse Looper lineage,
-//! including malformed claims to that lineage (decision 0094).
+//! including malformed claims; entry/dispatch conflicts precede journal reads.
 //!
 //! World::load fences crossings when reading a named map; start and rerun
 //! fence again at admission because a queued world's files may have moved.
