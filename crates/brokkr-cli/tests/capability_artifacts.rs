@@ -324,6 +324,46 @@ fn inspect_opens_exactly_the_response_a_call_cites_and_writes_nothing() {
     assert_eq!(fs::read(workspace.digests.join(&sha256)).unwrap(), spelled);
 }
 
+/// U8g: a readout its standard output refuses fails with the write's own
+/// cause on standard error, never as a success that printed nothing:
+/// `/dev/full` refuses every write with ENOSPC, the provenance's first
+/// line's among them. Linux's alone.
+#[cfg(target_os = "linux")]
+#[test]
+fn inspect_fails_a_readout_its_output_refuses_with_the_cause() {
+    let workspace = Workspace::new();
+    let sha256 = canonical::sha256_bytes(RESPONSE);
+    workspace.publish(&sha256, RESPONSE);
+    plant(
+        &workspace.db,
+        "retained",
+        "0.12.0",
+        &[kept("a1:b:1", Some(&sha256))],
+    );
+    let device = fs::File::options().write(true).open("/dev/full").unwrap();
+    let db = workspace.db.to_str().unwrap();
+    let args = [
+        "inspect",
+        "--run",
+        "retained",
+        "--db",
+        db,
+        "--capability-call",
+        "a1:b:1",
+    ];
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_brokkr"))
+        .args(args)
+        .current_dir(&workspace.root)
+        .stdout(device)
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        (err.as_ref(), out.status.code()),
+        ("error: No space left on device (os error 28)\n", Some(1))
+    );
+}
+
 /// U8g (CR5): a call another run records, one no run records and one the
 /// selected run records twice are refused, though the artifact each would
 /// cite stands sound; each run opens a call it records once.
