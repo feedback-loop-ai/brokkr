@@ -310,11 +310,8 @@ pub(crate) fn stage_hands_free_fast(
             seat.remove("hands");
         }
     }
-    std::fs::write(
-        to.join("bundle.json"),
-        serde_json::to_vec(&manifest).unwrap(),
-    )
-    .unwrap();
+    let bytes = serde_json::to_vec(&manifest).unwrap();
+    std::fs::write(to.join("bundle.json"), bytes).unwrap();
     to
 }
 
