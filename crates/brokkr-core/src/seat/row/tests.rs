@@ -42,6 +42,10 @@ fn words(word: &str) -> Option<String> {
     Some(word.to_string())
 }
 
+fn provider(name: &str) -> Option<Provider> {
+    Some(Provider::Named(name.to_string()))
+}
+
 fn tokens(input: u64, output: u64) -> TokenUsage {
     TokenUsage {
         input_tokens: Some(input),
@@ -63,7 +67,7 @@ fn a_retried_seat_sums_its_attempts_and_reads_its_last() {
             model: words("opus-2"),
             effort: words("max"),
             boundary: words("harness"),
-            provider: Some(words("openai")),
+            provider: provider("openai"),
             usage: Some(tokens(150, 30)),
             cost: Some(0.30000000000000004),
             last_attempt_cost: Some(0.2),
@@ -146,8 +150,8 @@ fn a_seat_s_turns_meter_it_over_its_session_record() {
 /// finish pins its outcome only by a word the view lets stand.
 #[test]
 fn a_panel_seat_reports_its_members() {
-    let member = |name: &str, provider: &str| SeatFacts {
-        provider: Some(words(provider)),
+    let member = |name: &str, named_by: &str| SeatFacts {
+        provider: provider(named_by),
         started_at: Some(at(if name == "a" { 4 } else { 5 })),
         ..asked("p1", named(name))
     };
@@ -206,7 +210,7 @@ fn a_seat_retrying_is_at_work() {
         [SeatFacts {
             model: words("opus"),
             effort: words("high"),
-            provider: Some(words("openai")),
+            provider: provider("openai"),
             usage: Some(tokens(100, 40)),
             cost: Some(0.1),
             last_attempt_cost: Some(0.1),
@@ -257,7 +261,7 @@ fn a_provenance_entry_naming_no_provider_replaces_the_last() {
     assert_eq!(
         facts_of(&journals::unprovided()),
         [SeatFacts {
-            provider: Some(None),
+            provider: Some(Provider::Unnamed),
             started_at: Some(at(2)),
             ..asked("v1", Member::Seat)
         }]

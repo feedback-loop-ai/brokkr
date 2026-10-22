@@ -6,7 +6,7 @@
 //! every engine scenario's carried account.
 
 use brokkr_core::envelope::{EventEnvelope, EventType};
-use brokkr_core::seat::row::{Member, Outcome, SeatFacts};
+use brokkr_core::seat::row::{Member, Outcome, Provider, SeatFacts};
 use brokkr_view::{run_view, Cell, Participant};
 
 /// A cell's text, or `None` where the view marks it absent.
@@ -29,8 +29,10 @@ fn turns_cell(facts: &SeatFacts) -> Option<String> {
 /// The provider the view's provenance names from these facts: `?` where
 /// the participant's last provenance entry names none.
 fn provider(facts: &SeatFacts) -> Option<&str> {
-    let provider = facts.provider.as_ref();
-    provider.map(|provider| provider.as_deref().unwrap_or("?"))
+    facts.provider.as_ref().map(|provider| match provider {
+        Provider::Unnamed => "?",
+        Provider::Named(name) => name.as_str(),
+    })
 }
 
 fn status(outcome: Outcome) -> &'static str {

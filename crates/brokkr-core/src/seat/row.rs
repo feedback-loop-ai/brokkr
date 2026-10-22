@@ -42,6 +42,20 @@ impl Member {
     }
 }
 
+/// The provider a provenance entry states for its participant: the one it
+/// names, or none, which replaces a provider an earlier entry named.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Provider {
+    Unnamed,
+    Named(String),
+}
+
+impl Provider {
+    fn of(name: Option<&str>) -> Provider {
+        name.map_or(Provider::Unnamed, |name| Provider::Named(name.to_string()))
+    }
+}
+
 /// Where a participant stands: at work, or how it concluded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -128,8 +142,8 @@ pub struct SeatRow {
     model: Last<String>,
     effort: Last<String>,
     /// The provider its attempt's start recorded for it: each provenance
-    /// entry restates it, `None` where the entry names none.
-    provider: Last<Option<String>>,
+    /// entry restates it, [`Provider::Unnamed`] where the entry names none.
+    provider: Last<Provider>,
     /// The boundary its attempt's start recorded for it.
     boundary: Last<String>,
     /// The boundary a record carried beside its model while the attempt
@@ -371,8 +385,7 @@ impl Seats {
         let provenance = event.payload.get("provenance").and_then(Value::as_array);
         for entry in provenance.into_iter().flatten() {
             let row = self.row(request, attempt, Member::of(field(entry, "member")));
-            let provider = field(entry, "provider").map(str::to_string);
-            row.provider = Some((seq, provider));
+            row.provider = Some((seq, Provider::of(field(entry, "provider"))));
         }
         for entry in boundary_entries(&event.payload) {
             let row = self.row(request, attempt, Member::of(entry.member.as_deref()));
@@ -429,9 +442,9 @@ pub struct SeatFacts {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub boundary: Option<String>,
-    /// The provider its last provenance entry named: `Some(None)` where
-    /// that entry names none, `None` where no entry names the participant.
-    pub provider: Option<Option<String>>,
+    /// The provider its last provenance entry stated, `None` where no
+    /// entry names the participant.
+    pub provider: Option<Provider>,
     pub usage: Option<TokenUsage>,
     pub usage_aggregated: bool,
     /// Every attempt's reported cost, summed in journal order.
