@@ -736,3 +736,37 @@ fn a_reader_tells_a_missing_artifact_from_a_corrupt_or_uncontained_one() {
         assert_eq!((name.clone(), found), (name, expected));
     }
 }
+
+#[test]
+fn a_run_local_directory_opens_only_the_artifact_its_root_holds() {
+    // U8g (CR5): the bytes a digest names below a run-local directory's
+    // artifact root; a name that is no digest refused before anything is
+    // opened; a root or digests never made missing; and a root that is a
+    // link, or digests another may write, uncontained.
+    let fixture = Fixture::new();
+    let (work, answer) = (fixture.base.join("work/.forge"), sha(ANSWER));
+    let digests = fixture.artifacts().join(DIGESTS);
+    private_dir(&digests);
+    made(&digests.join(&answer), ANSWER, 0o400);
+    private_dir(&fixture.base.join("bare/artifacts"));
+    private_dir(&fixture.base.join("linked"));
+    let linked = fixture.base.join("linked/artifacts");
+    std::os::unix::fs::symlink(fixture.artifacts(), linked).unwrap();
+    let open = fixture.base.join("open/artifacts/sha256");
+    private_dir(&open);
+    made(&open.join(&answer), ANSWER, 0o400);
+    fs::set_permissions(&open, fs::Permissions::from_mode(0o770)).unwrap();
+    let cases = [
+        ("work/.forge", answer.as_str(), Ok(ANSWER.to_vec())),
+        ("absent", "../true", Err(Unread::Uncontained)),
+        ("absent", &answer, Err(Unread::Missing)),
+        ("bare", &answer, Err(Unread::Missing)),
+        ("linked", &answer, Err(Unread::Uncontained)),
+        ("open", &answer, Err(Unread::Uncontained)),
+    ];
+    for (run_local, name, expected) in cases {
+        let found = retained(&fixture.base.join(run_local), name);
+        assert_eq!((run_local, name, found), (run_local, name, expected));
+    }
+    assert_eq!(retained(&work, &sha(b"absent")), Err(Unread::Missing));
+}

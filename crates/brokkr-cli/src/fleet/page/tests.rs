@@ -22,18 +22,18 @@ use crate::fleet::listing::{list_hearth_in, Lister};
 use crate::fleet::{list_hearth, read_hearth, Called, ListedRun, AHEAD_ROWS, PAGE_ROWS};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 
-const NOW: &str = "2026-10-20T00:00:00Z";
-const MINUTE: i64 = 60_000;
-const HOUR: i64 = 60 * MINUTE;
-const DAY: i64 = 24 * HOUR;
+pub(crate) const NOW: &str = "2026-10-20T00:00:00Z";
+pub(crate) const MINUTE: i64 = 60_000;
+pub(crate) const HOUR: i64 = 60 * MINUTE;
+pub(crate) const DAY: i64 = 24 * HOUR;
 /// The staleness bound `brokkr_view` holds a running run to.
 const STALE: i64 = 3 * HOUR;
 
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     parse_millis(NOW).unwrap()
 }
 
-fn stamp(ms: i64) -> String {
+pub(crate) fn stamp(ms: i64) -> String {
     OffsetDateTime::from_unix_timestamp_nanos(i128::from(ms) * 1_000_000)
         .unwrap()
         .format(&Rfc3339)
@@ -42,7 +42,7 @@ fn stamp(ms: i64) -> String {
 
 /// How a generated run stands once folded.
 #[derive(Clone, Copy)]
-enum Shape {
+pub(crate) enum Shape {
     Running,
     /// Reviewed and ruled to hold, its park not yet journaled.
     Held,
@@ -120,7 +120,7 @@ fn chained(
 
 /// Plant run `run_id` of `shape`, last active `at`, as a writer from
 /// before the summary leaves it: the next writable open folds it.
-fn plant(journal: &rusqlite::Connection, run_id: &str, shape: Shape, at: &str) {
+pub(crate) fn plant(journal: &rusqlite::Connection, run_id: &str, shape: Shape, at: &str) {
     plant_run(journal, run_id, "{}").unwrap();
     for event in chained(run_id, (0, ZERO_HASH.to_string()), steps(shape), at) {
         plant_envelope(journal, &event).unwrap();
@@ -195,7 +195,7 @@ fn generated(db: &Path) -> Vec<(&'static str, i64)> {
 }
 
 /// The fleet read whole, its rows ordered by ruling 6's key.
-fn whole_rows(db: &Path) -> Vec<RunRow> {
+pub(crate) fn whole_rows(db: &Path) -> Vec<RunRow> {
     let store = Store::open_read_only(db).unwrap();
     let listed = read_hearth(&store).listed().unwrap();
     let entries: Vec<_> = listed.iter().map(ListedRun::entry).collect();
@@ -203,7 +203,7 @@ fn whole_rows(db: &Path) -> Vec<RunRow> {
 }
 
 /// `rows` as the whole read lists them by section at [`NOW`].
-fn arranged(rows: &[RunRow]) -> Vec<RunRow> {
+pub(crate) fn arranged(rows: &[RunRow]) -> Vec<RunRow> {
     let sections = brokkr_view::sections(rows, NOW).into_iter();
     sections
         .flat_map(|(_, rows)| rows.into_iter().cloned())
@@ -226,7 +226,7 @@ fn printed(
 }
 
 /// The table's style here: no colour, 120 columns.
-const STYLE: crate::render::Style = crate::render::Style {
+pub(crate) const STYLE: crate::render::Style = crate::render::Style {
     color: false,
     width: 120,
 };
@@ -340,7 +340,7 @@ fn every_page_is_its_sections() {
 
 /// A fresh journal at `db`, its runs planted by `plant_with` and then
 /// folded by a current writer's open.
-fn folded(db: &Path, plant_with: impl FnOnce(&rusqlite::Connection)) {
+pub(crate) fn folded(db: &Path, plant_with: impl FnOnce(&rusqlite::Connection)) {
     drop(Store::open(db).unwrap());
     plant_with(&rusqlite::Connection::open(db).unwrap());
     drop(Store::open(db).unwrap());
@@ -390,7 +390,7 @@ fn appended_at(db: &Path, run_id: &str, step: (EventType, Value), at: &str) {
 /// finished within the day and finished days ago. A refresh reads the
 /// hundred last by run id; the rest list in every section, among rows
 /// that stand at their heads.
-fn behind_in_every_section(db: &Path) {
+pub(crate) fn behind_in_every_section(db: &Path) {
     drop(Store::open(db).unwrap());
     generated(db);
     folded(db, |conn| {

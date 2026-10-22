@@ -42,7 +42,8 @@ mod verbs;
 #[doc(hidden)]
 pub use crate::budget_frame::{
     fleet_frame_for_budget, fleet_listing_for_budget, fleet_page_for_budget,
-    fleet_window_for_budget, run_frame_for_budget, FleetScroll, FleetWindow,
+    fleet_window_for_budget, fleet_world_listing_for_budget, run_frame_for_budget, FleetScroll,
+    FleetWindow,
 };
 #[doc(hidden)]
 pub use crate::tui::transcript_surfaces_for_test;
@@ -155,7 +156,8 @@ enum Cmd {
     },
     /// Explain a run: header, ruling, seats, decision trail, and the
     /// phase graph as a tree. `--phase` and `--seat` are the scoping
-    /// verbs the console's clicks became; `--json` emits the view model.
+    /// verbs the console's clicks became; `--json` emits the view model,
+    /// or with `--capability-call` the call and its verified response.
     #[command(group(ArgGroup::new("scope").args(["phase", "seat"])))]
     Inspect(InspectArgs),
     /// Read one participant's retained local transcript — Claude, Codex or

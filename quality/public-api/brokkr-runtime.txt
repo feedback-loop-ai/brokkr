@@ -1115,6 +1115,12 @@ pub const brokkr_runtime::dialect::SCHEMA_V2: &str
 pub const brokkr_runtime::dialect::SCHEMA_V3: &str
 pub fn brokkr_runtime::dialect::library_path(&std::path::Path, &str, &std::path::Path) -> std::path::PathBuf
 pub mod brokkr_runtime::engine
+pub mod brokkr_runtime::engine::artifacts
+pub enum brokkr_runtime::engine::artifacts::Unread
+pub brokkr_runtime::engine::artifacts::Unread::Corrupt
+pub brokkr_runtime::engine::artifacts::Unread::Missing
+pub brokkr_runtime::engine::artifacts::Unread::Uncontained
+pub fn brokkr_runtime::engine::artifacts::retained(&std::path::Path, &str) -> core::result::Result<alloc::vec::Vec<u8>, brokkr_runtime::engine::artifacts::Unread>
 pub enum brokkr_runtime::engine::BuiltBoundary
 pub brokkr_runtime::engine::BuiltBoundary::Harness
 pub brokkr_runtime::engine::BuiltBoundary::Namespace

@@ -105,18 +105,8 @@ pub(super) struct AnchorArgs {
     pub(super) check: bool,
 }
 
-#[derive(clap::Args)]
-#[group(skip)]
-pub(super) struct UiArgs {
-    #[command(flatten)]
-    pub(super) journal: JournalArgs,
-    /// The loopback port the surface is served on.
-    #[arg(long, default_value_t = 8383)]
-    pub(super) port: u16,
-    /// Open the system browser after binding.
-    #[arg(long)]
-    pub(super) open: bool,
-}
+mod ui;
+pub(super) use ui::UiArgs;
 
 #[derive(clap::Args)]
 #[group(skip)]
@@ -359,6 +349,14 @@ pub(super) struct InspectArgs {
     /// Scope the readout to one seat, by label or participant key.
     #[arg(long)]
     pub(super) seat: Option<String>,
+    /// Open the retained response the call this id names in the run cites, verified against
+    /// its recorded digest, never a path; with --json, beside the call's provenance.
+    #[arg(long, value_name = "CALL_ID", conflicts_with_all = ["phase", "seat"])]
+    pub(super) capability_call: Option<String>,
+    /// The operated repository whose run-local directory holds the call's retained response, as
+    /// `ledger --repo` resolves it; without it, the workspace's own.
+    #[arg(long, requires = "capability_call")]
+    pub(super) repo: Option<PathBuf>,
 }
 
 #[derive(clap::Args)]
