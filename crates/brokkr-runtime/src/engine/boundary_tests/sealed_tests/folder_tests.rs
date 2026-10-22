@@ -63,6 +63,10 @@ fn a_folder_script_edited_removed_or_added_after_the_compile_refuses_at_spawn() 
     let (_dir, mut engine) = crate::engine::tests::engine(single_body(vec!["unused".into()]));
     engine.bundle = compiled(&folder);
     engine.boundary = Boundary::Harness;
+    // The probe's answer is pinned, so every host composes the engine's own
+    // argv and the untouched spawn fails as the absent engine, never as
+    // `unshare` started where the network prefix works.
+    engine.network_prefix = Some(false);
     let spawn = verify_spawn(&mut engine);
     let scripts = folder.folder().canonicalize().unwrap().join("scripts");
     assert_eq!(spawn.rewalk, Some(scripts.clone()));
