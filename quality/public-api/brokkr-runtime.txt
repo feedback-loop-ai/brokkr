@@ -610,6 +610,10 @@ pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategy::seat: alloc::str
 pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategyRuling
 pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategyRuling::group: (alloc::string::String, alloc::string::String)
 pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsStrategyRuling::reached_by: core::option::Option<alloc::string::String>
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsVisits
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsVisits::group: (alloc::string::String, alloc::string::String)
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsVisits::phase: alloc::string::String
+pub brokkr_runtime::bundle::entry::EntryRefusal::NeedsVisits::reached_by: core::option::Option<alloc::string::String>
 pub brokkr_runtime::bundle::entry::EntryRefusal::Terminal
 pub brokkr_runtime::bundle::entry::EntryRefusal::Unprintable
 pub brokkr_runtime::bundle::entry::EntryRefusal::Work
@@ -1320,6 +1324,9 @@ pub brokkr_runtime::launch::LaunchError::ContinuedMissing::run_id: alloc::string
 pub brokkr_runtime::launch::LaunchError::ContinuedNotConcluded
 pub brokkr_runtime::launch::LaunchError::ContinuedNotConcluded::run_id: alloc::string::String
 pub brokkr_runtime::launch::LaunchError::ContinuedNotConcluded::status: brokkr_core::fold::Status
+pub brokkr_runtime::launch::LaunchError::ContinuedUnreadable
+pub brokkr_runtime::launch::LaunchError::ContinuedUnreadable::run_id: alloc::string::String
+pub brokkr_runtime::launch::LaunchError::ContinuedUnreadable::source: brokkr_core::dispatch::DispatchError
 pub brokkr_runtime::launch::LaunchError::DecodeQueued(serde_json::error::Error)
 pub brokkr_runtime::launch::LaunchError::Dispatch(brokkr_core::dispatch::DispatchError)
 pub brokkr_runtime::launch::LaunchError::EncodeQueued(serde_json::error::Error)

@@ -141,10 +141,28 @@ fn deliver_in(
     boxed_verify: bool,
     realms: Option<&Path>,
 ) -> String {
+    let bundle = delivery_bundle(side, name, policy, script, boxed_verify);
+    let extra = realms
+        .map(|path| vec!["--realms", path.to_str().unwrap()])
+        .unwrap_or_default();
+    let (code, stderr) = drive_delivery(side, repo, &bundle, name, &extra);
+    assert_eq!(code, Some(0), "{name}: {stderr}");
+    let run = started_run(&stderr);
+    publish_anchor(repo, &run);
+    run
+}
+
+fn delivery_bundle(
+    side: &Path,
+    name: &str,
+    table: &str,
+    script: Value,
+    boxed_verify: bool,
+) -> PathBuf {
     let bundle = side.join(name).join("bundle");
     std::fs::create_dir_all(bundle.join("roles")).unwrap();
     std::fs::create_dir_all(side.join(name).join("state")).unwrap();
-    std::fs::write(bundle.join("policy.json"), policy).unwrap();
+    std::fs::write(bundle.join("policy.json"), table).unwrap();
     let script_path = side.join(name).join("script.json");
     std::fs::write(&script_path, serde_json::to_string(&script).unwrap()).unwrap();
     std::fs::write(bundle.join("roles/role.md"), "# role\n").unwrap();
@@ -160,7 +178,7 @@ fn deliver_in(
         })
     };
     let mut seats = serde_json::Map::new();
-    if policy.contains("\"implement\"") {
+    if table.contains("\"implement\"") {
         seats.insert("implement".into(), seat(vec!["complete"]));
         seats.insert("ship".into(), seat(vec!["ready", "shipped"]));
     }
@@ -200,6 +218,16 @@ fn deliver_in(
         .unwrap(),
     )
     .unwrap();
+    bundle
+}
+
+fn drive_delivery(
+    side: &Path,
+    repo: &Path,
+    bundle: &Path,
+    name: &str,
+    extra: &[&str],
+) -> (Option<i32>, String) {
     let mut args = vec![
         "run".to_string(),
         "--bundle".to_string(),
@@ -211,10 +239,7 @@ fn deliver_in(
         "--feature".to_string(),
         name.to_string(),
     ];
-    if let Some(realms) = realms {
-        args.push("--realms".to_string());
-        args.push(realms.to_str().unwrap().to_string());
-    }
+    args.extend(extra.iter().map(|arg| (*arg).to_string()));
     crate::engine::library(side);
     let out = Command::new(brokkr_bin())
         .args(&args)
@@ -222,19 +247,22 @@ fn deliver_in(
         .current_dir(side)
         .output()
         .unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(
+    (
         out.status.code(),
-        Some(0),
-        "{name}: {stderr}\n{}",
-        String::from_utf8_lossy(&out.stdout)
-    );
-    let run_id = stderr
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+fn started_run(stderr: &str) -> String {
+    stderr
         .lines()
         .find_map(|line| line.strip_prefix("run started: "))
         .expect("run id")
         .trim()
-        .to_string();
+        .to_string()
+}
+
+fn publish_anchor(repo: &Path, run_id: &str) {
     // What CONTRIBUTING.md has the contributor push: the anchor ref,
     // published under refs/heads/brokkr-runs/<run>.
     git(
@@ -245,7 +273,6 @@ fn deliver_in(
             &format!("refs/forge/{run_id}"),
         ],
     );
-    run_id
 }
 
 fn delivery_script() -> Value {
@@ -939,7 +966,7 @@ fn a_namespace_judged_run_carries_no_adjective() {
 }
 
 #[test]
-fn an_entry_is_attribution_and_every_malformed_record_refuses_the_vouch() {
+fn every_malformed_entry_record_refuses_the_vouch() {
     let side = tempfile::tempdir().unwrap();
     let repo = init_repo(side.path());
     commit(&repo, "README.md", "synthetic base\n", "base");
@@ -947,21 +974,6 @@ fn an_entry_is_attribution_and_every_malformed_record_refuses_the_vouch() {
     let head = commit(&repo, "src/slice.rs", "// synthetic\n", "slice");
     let (run, gate) = Gate::delivering(side.path(), &repo, "entry-gate");
     let body = format!("Brokkr-Run: {run}\n");
-    republish(&repo, &run, |events| {
-        events[0].payload["entry"] = json!({"phase":"verify","continues":[
-            {"run_id":"earlier-12345678","feature":"synthetic earlier run"}]});
-    });
-    let (code, log) = gate.judge(&body, &head, "");
-    assert_eq!(code, 0, "{log}");
-    assert!(
-        log.contains(&format!("run {run} vouches for {head}")),
-        "{log}"
-    );
-    assert!(
-        log.contains("entered at verify, continuing earlier-12345678"),
-        "{log}"
-    );
-    // No evidence ref for the predecessor exists: its attribution supplies no authority.
     for (_, raw) in crate::entry_records::invalid_records() {
         republish(&repo, &run, |events| {
             events[0].payload["entry"] = raw.clone();
@@ -1049,4 +1061,199 @@ fn the_gate_and_the_typed_reader_accept_the_same_bounded_names() {
             .unwrap();
         assert_eq!(child.wait().unwrap().success(), valid, "{input}");
     }
+}
+
+fn gate_classes(side: &Path, bundle: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let wrapper = side.join("synthetic-judge");
+    std::fs::write(
+        &wrapper,
+        format!(
+            "#!/bin/sh\nshift 4\nexec '{}' fake-driver \"$@\"\n",
+            brokkr_bin()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir_all(side.join("adapters")).unwrap();
+    let mut adapter: Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace().join("adapters/codex.json")).unwrap(),
+    )
+    .unwrap();
+    adapter["provider"] = json!("judge");
+    adapter["driver"] = json!(["{brokkr}", "driver", "judge", "--"]);
+    adapter["binary"] = json!("judge");
+    adapter["mcp"] = json!("unsupported");
+    adapter["efforts"] = json!([]);
+    adapter["effort_flag"] = json!("unsupported");
+    adapter["models"] = json!({"judge":"judge-1"});
+    adapter["judges"] = json!(["judge"]);
+    std::fs::write(side.join("adapters/judge.json"), adapter.to_string()).unwrap();
+    let path = bundle.join("bundle.json");
+    let mut config: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    for phase in ["verify", "review", "ship"] {
+        let old = config["seats"][phase]["driver"]["command"]
+            .as_array()
+            .unwrap();
+        let mut command = vec![
+            json!(wrapper),
+            json!("driver"),
+            json!("judge"),
+            json!("--model"),
+            json!("judge-1"),
+        ];
+        command.extend(old[2..].iter().cloned());
+        config["seats"][phase]["driver"]["command"] = json!(command);
+        config["seats"][phase]["class"] = json!("gate");
+    }
+    std::fs::write(path, config.to_string()).unwrap();
+}
+
+#[test]
+fn an_entered_delivery_continues_two_runs_and_vouches_without_fetching_them() {
+    let side = tempfile::tempdir().unwrap();
+    let repo = init_repo(side.path());
+    commit(&repo, "README.md", "synthetic base\n", "base");
+    git(&repo, &["checkout", "-qb", "slice"]);
+    let predecessors = stopped_predecessors(side.path(), &repo);
+    let mut policy: Value = serde_json::from_str(DELIVERY_POLICY).unwrap();
+    let fail = policy["rules"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|r| r["id"] == "VERIFY-FAIL")
+        .unwrap();
+    fail["next"] = json!("implement");
+    fail["severity"] = json!("flagged");
+    let mut script = delivery_script();
+    script["seats"]["verify"] = json!([
+        {"behavior":"succeed","result":{"result":"fail"}},
+        {"behavior":"succeed","result":{"result":"pass"}}
+    ]);
+
+    let (a, b) = (&predecessors[0], &predecessors[1]);
+    let mut vouched = None;
+    for (name, phase, extra) in [
+        (
+            "c",
+            "verify",
+            vec!["--enter", "verify", "--continues", a, "--continues", b],
+        ),
+        ("review-entry", "review", vec!["--enter", "review"]),
+    ] {
+        let bundle = delivery_bundle(
+            side.path(),
+            name,
+            &policy.to_string(),
+            script.clone(),
+            false,
+        );
+        gate_classes(side.path(), &bundle);
+        let (code, stderr) = drive_delivery(side.path(), &repo, &bundle, name, &extra);
+        assert_eq!(code, Some(0), "{stderr}");
+        let run = started_run(&stderr);
+        publish_anchor(&repo, &run);
+        let events = published_journal(&repo, &run);
+        assert_entered_journal(&events, phase, a, b);
+        let head = git(&repo, &["rev-parse", "HEAD"]);
+        let body = format!("Brokkr-Run: {run}\n");
+        let log = Gate::local(&repo).accepted(&body, &head);
+        let line = if phase == "verify" {
+            assert_eq!(
+                line_starting(&stderr, "entered at"),
+                format!("entered at verify, continuing a ({a}), b ({b})")
+            );
+            vouched = Some(body);
+            format!("entered at verify, continuing {a}, {b}")
+        } else {
+            "entered at review, continuing no earlier run".into()
+        };
+        assert_eq!(
+            line_starting(&log, "delivered by brokkr: tier"),
+            "delivered by brokkr: tier vouched · delta since the judgment: []"
+        );
+        assert_eq!(
+            line_starting(&log, "delivered by brokkr: run"),
+            format!("delivered by brokkr: run {run} vouches for {head} · {line}")
+        );
+    }
+    for predecessor in [a, b] {
+        assert_eq!(
+            git(
+                &repo,
+                &[
+                    "for-each-ref",
+                    &format!("refs/heads/brokkr-runs/{predecessor}")
+                ]
+            ),
+            ""
+        );
+    }
+    let changed = commit(
+        &repo,
+        "src/after.rs",
+        "// after judgment\n",
+        "after judgment",
+    );
+    let (code, log) = Gate::local(&repo).judge(&vouched.unwrap(), &changed, "");
+    assert_eq!(code, 1, "{log}");
+    assert!(log.contains("code"), "{log}");
+}
+
+fn stopped_predecessors(side: &Path, repo: &Path) -> Vec<String> {
+    let mut predecessors = Vec::new();
+    for feature in ["a", "b"] {
+        commit(
+            repo,
+            &format!("src/{feature}.rs"),
+            "// synthetic slice\n",
+            feature,
+        );
+        let mut script = delivery_script();
+        script["seats"]["verify"][0]["result"]["result"] = json!("fail");
+        let bundle = delivery_bundle(side, feature, DELIVERY_POLICY, script, false);
+        let (code, stderr) = drive_delivery(side, repo, &bundle, feature, &[]);
+        assert_eq!(code, Some(3), "{stderr}");
+        let run = started_run(&stderr);
+        assert_eq!(
+            git(
+                repo,
+                &["for-each-ref", &format!("refs/heads/brokkr-runs/{run}")]
+            ),
+            ""
+        );
+        predecessors.push(run);
+    }
+    predecessors
+}
+
+fn assert_entered_journal(events: &[EventEnvelope], phase: &str, a: &str, b: &str) {
+    let continues = if phase == "verify" {
+        json!([{"run_id":a,"feature":"a"},{"run_id":b,"feature":"b"}])
+    } else {
+        json!([])
+    };
+    assert_eq!(
+        events[0].payload["entry"],
+        json!({"phase":phase,"continues":continues})
+    );
+    let phases: Vec<_> = events
+        .iter()
+        .filter(|e| e.event_type == brokkr_core::EventType::PhaseEntered)
+        .map(|e| e.payload["phase"].as_str().unwrap())
+        .collect();
+    let expected = if phase == "verify" {
+        vec![
+            "verify",
+            "implement",
+            "verify",
+            "review",
+            "ship",
+            "ship",
+            "done",
+        ]
+    } else {
+        vec!["review", "ship", "ship", "done"]
+    };
+    assert_eq!(phases, expected);
 }

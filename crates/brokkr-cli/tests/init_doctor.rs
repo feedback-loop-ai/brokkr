@@ -75,6 +75,12 @@ fn init_scaffolds_a_compiling_bundle_and_refuses_overwrite() {
         reviewer.contains("`clean` with `inputs: {\"fixes_applied\": false}`"),
         "{reviewer}"
     );
+    assert!(
+        reviewer.contains("since its merge-base with the default branch"),
+        "{reviewer}"
+    );
+    assert!(reviewer.contains("`context.entry`"), "{reviewer}");
+    assert!(!reviewer.contains("since the run began"), "{reviewer}");
     assert!(!reviewer.contains("commit them"), "{reviewer}");
 
     // Refuses to write over the folder it wrote, naming what it holds.

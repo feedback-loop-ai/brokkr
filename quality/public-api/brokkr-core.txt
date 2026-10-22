@@ -620,9 +620,10 @@ pub brokkr_core::policy::Machine::shippable_from: alloc::vec::Vec<alloc::string:
 pub brokkr_core::policy::Machine::terminal: alloc::vec::Vec<alloc::string::String>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::audit_with(&self, usize, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<brokkr_core::policy::audit::Audit, brokkr_core::policy::audit::AuditError>
+pub fn brokkr_core::policy::Machine::groups_reading_strategy(&self) -> alloc::vec::Vec<(&str, &str)>
+pub fn brokkr_core::policy::Machine::groups_reading_visits(&self) -> alloc::vec::Vec<((&str, &str), alloc::vec::Vec<&str>)>
 pub fn brokkr_core::policy::Machine::reach_avoiding<'a>(&'a self, &'a str, &[&str]) -> alloc::collections::btree::set::BTreeSet<&'a str>
 pub fn brokkr_core::policy::Machine::refuse_unruled(&self) -> core::result::Result<(), brokkr_core::policy::PolicyError>
-pub fn brokkr_core::policy::Machine::unruled_without_strategy(&self) -> alloc::vec::Vec<brokkr_core::policy::audit::Finding>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>
@@ -637,6 +638,8 @@ pub brokkr_core::policy::Rule::reason: alloc::string::String
 pub brokkr_core::policy::Rule::requires_artifacts: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::policy::Rule::result: alloc::string::String
 pub brokkr_core::policy::Rule::severity: alloc::string::String
+impl brokkr_core::policy::Rule
+pub fn brokkr_core::policy::Rule::reads_visits(&self) -> alloc::vec::Vec<&str>
 impl brokkr_core::policy::Rule
 pub fn brokkr_core::policy::Rule::when_words(&self) -> alloc::vec::Vec<alloc::string::String>
 pub const brokkr_core::policy::BOOLEAN_INPUTS: [&str; 8]
@@ -1068,9 +1071,10 @@ pub brokkr_core::Machine::shippable_from: alloc::vec::Vec<alloc::string::String>
 pub brokkr_core::Machine::terminal: alloc::vec::Vec<alloc::string::String>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::audit_with(&self, usize, impl core::ops::function::Fn(&str) -> bool) -> core::result::Result<brokkr_core::policy::audit::Audit, brokkr_core::policy::audit::AuditError>
+pub fn brokkr_core::policy::Machine::groups_reading_strategy(&self) -> alloc::vec::Vec<(&str, &str)>
+pub fn brokkr_core::policy::Machine::groups_reading_visits(&self) -> alloc::vec::Vec<((&str, &str), alloc::vec::Vec<&str>)>
 pub fn brokkr_core::policy::Machine::reach_avoiding<'a>(&'a self, &'a str, &[&str]) -> alloc::collections::btree::set::BTreeSet<&'a str>
 pub fn brokkr_core::policy::Machine::refuse_unruled(&self) -> core::result::Result<(), brokkr_core::policy::PolicyError>
-pub fn brokkr_core::policy::Machine::unruled_without_strategy(&self) -> alloc::vec::Vec<brokkr_core::policy::audit::Finding>
 impl brokkr_core::policy::Machine
 pub fn brokkr_core::policy::Machine::evaluate(&self, &str, &str, &serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> brokkr_core::policy::Outcome
 pub fn brokkr_core::policy::Machine::from_table(&serde_json::value::Value) -> core::result::Result<brokkr_core::policy::Machine, brokkr_core::policy::PolicyError>

@@ -23,13 +23,11 @@ fn fixture() -> Workspace {
     let ws = Workspace::triage(script);
     std::fs::write(ws.bundle_dir().join("policy.json"), policy.to_string()).unwrap();
     let map_path = ws.path().join("realms.json");
-    let mut map: Value =
-        serde_json::from_str(&std::fs::read_to_string(&map_path).unwrap()).unwrap();
+    let mut map: Value = read_fixture_json(&map_path);
     map["realms"][0]["path"] = json!("work");
     std::fs::write(map_path, map.to_string()).unwrap();
     let bundle_path = ws.bundle_dir().join("bundle.json");
-    let mut config: Value =
-        serde_json::from_str(&std::fs::read_to_string(&bundle_path).unwrap()).unwrap();
+    let mut config: Value = read_fixture_json(&bundle_path);
     config["seats"]["intake"] = config["seats"]["design"].clone();
     config["seats"]["intake"]["results"] = json!(["resolved"]);
     config["seats"]["design"]["results"] = json!(["designed"]);
@@ -223,11 +221,31 @@ fn work_entry_and_duplicate_resolved_selectors_create_no_run() {
 #[test]
 fn protected_review_is_itself_an_entry() {
     let ws = fixture();
+    let before = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(ws.workdir())
+        .output()
+        .unwrap();
+    assert!(before.status.success());
+    let head = String::from_utf8(before.stdout).unwrap().trim().to_string();
     let events = completed_entry(&ws, "review");
     assert_eq!(
         events[0]["payload"]["entry"],
         json!({"phase":"review","continues":[]})
     );
+    let first = events
+        .iter()
+        .find(|event| event["type"] == "phase/entered")
+        .unwrap();
+    assert_eq!(first["payload"]["head"], head);
+    let review = events
+        .iter()
+        .find(|event| event["type"] == "transition/decided" && event["payload"]["from"] == "review")
+        .unwrap();
+    let heads = review["payload"]["inputs"]["reviewed_heads"]
+        .as_object()
+        .unwrap();
+    assert_eq!(heads.values().collect::<Vec<_>>(), [&json!(head)]);
     let phases = entered_phases(&events);
     assert_eq!(phases, ["review", "ship", "ship", "done"]);
 }
@@ -244,17 +262,16 @@ fn entered_phases(events: &[Value]) -> Vec<&str> {
 fn the_first_implement_return_receives_the_verify_finding() {
     let ws = fixture();
     let policy_path = ws.bundle_dir().join("policy.json");
-    let mut policy: Value =
-        serde_json::from_str(&std::fs::read_to_string(&policy_path).unwrap()).unwrap();
+    let mut policy: Value = read_fixture_json(&policy_path);
     for rule in policy["rules"].as_array_mut().unwrap() {
         if rule["id"] == "VERIFY-FAIL" {
             rule["next"] = json!("implement");
+            rule["severity"] = json!("flagged");
         }
     }
     std::fs::write(policy_path, policy.to_string()).unwrap();
     let script_path = ws.path().join("script.json");
-    let mut script: Value =
-        serde_json::from_str(&std::fs::read_to_string(&script_path).unwrap()).unwrap();
+    let mut script: Value = read_fixture_json(&script_path);
     script["seats"]["implement"][0]["behavior"] = json!("echo");
     script["seats"]["verify"][0]["result"]["notes"] = json!("synthetic failing gate");
     std::fs::write(script_path, script.to_string()).unwrap();
@@ -299,4 +316,136 @@ fn work_driver(ws: &Workspace, config: &mut Value) {
     let mut work = vec![json!(work_driver)];
     work.extend(old[2..].iter().cloned());
     config["seats"]["implement"]["driver"]["command"] = json!(work);
+}
+
+fn landing_fixture() -> Workspace {
+    let ws = fixture();
+    let policy_path = ws.bundle_dir().join("policy.json");
+    let mut policy: Value = read_fixture_json(&policy_path);
+    policy["phases"] = json!([
+        "classify",
+        "implement",
+        "verify",
+        "review",
+        "ship",
+        "done",
+        "stop"
+    ]);
+    policy["initial"] = json!("classify");
+    let rules = policy["rules"].as_array_mut().unwrap();
+    rules.retain(|rule| rule["from"] != "intake" && rule["from"] != "design");
+    for (id, result, next) in [
+        ("CLASSIFY-CODE", "code", "verify"),
+        ("CLASSIFY-DOCS", "docs", "review"),
+    ] {
+        rules.push(json!({"id":id,"from":"classify","result":result,"next":next,"reason":"synthetic classification"}));
+    }
+    let rework = rules
+        .iter_mut()
+        .find(|rule| rule["id"] == "REVIEW-RESIDUAL-OK")
+        .unwrap();
+    rework["id"] = json!("REVIEW-RESIDUAL-REWORK");
+    rework["next"] = json!("implement");
+    rework["reason"] = json!("synthetic REVIEW-REFORGE road");
+    std::fs::write(policy_path, policy.to_string()).unwrap();
+    let bundle_path = ws.bundle_dir().join("bundle.json");
+    let mut config: Value = read_fixture_json(&bundle_path);
+    config["seats"]["classify"] = config["seats"]["verify"].clone();
+    config["seats"]["classify"]["results"] = json!(["docs", "code"]);
+    for phase in ["intake", "design"] {
+        config["seats"].as_object_mut().unwrap().remove(phase);
+    }
+    std::fs::write(bundle_path, config.to_string()).unwrap();
+    let script_path = ws.path().join("script.json");
+    let mut script: Value = read_fixture_json(&script_path);
+    script["seats"]["classify"] = json!([{"behavior":"succeed","result":{"result":"code"}}]);
+    for report in script["seats"]["verify"].as_array_mut().unwrap() {
+        report["behavior"] = json!("echo");
+    }
+    std::fs::write(script_path, script.to_string()).unwrap();
+    ws
+}
+
+fn asked_seats(events: &[Value]) -> Vec<&str> {
+    events
+        .iter()
+        .filter(|event| event["type"] == "effect/requested")
+        .map(|event| event["payload"]["seat"].as_str().unwrap())
+        .collect()
+}
+
+fn classification_input(events: &[Value]) -> &Value {
+    events
+        .iter()
+        .find_map(|event| {
+            let input = event.pointer("/payload/result/seat_input")?;
+            (input["seat"] == "verify").then_some(&input["context"])
+        })
+        .unwrap()
+}
+
+#[test]
+fn a_landing_starts_at_classify_and_its_entry_continues_a_run() {
+    let ws = landing_fixture();
+    let (code, _, stderr) = ws.run_in_workdir();
+    assert_eq!(code, Some(3), "{stderr}");
+    let first = Workspace::run_id(&stderr);
+    let ordinary = ws.exported_events(&first);
+    assert_eq!(entered_phases(&ordinary), ["classify", "verify", "stop"]);
+    assert_eq!(asked_seats(&ordinary), ["classify", "verify"]);
+    assert_eq!(ordinary[0]["payload"].get("entry"), None);
+    let (code, _, stderr) = entered(&ws, "classify", &[&first]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let events = ws.exported_events(&Workspace::run_id(&stderr));
+    let entry =
+        json!({"phase":"classify","continues":[{"run_id":first,"feature":"proof feature"}]});
+    assert_eq!(events[0]["payload"]["entry"], entry);
+    assert_eq!(
+        entered_phases(&events),
+        ["classify", "verify", "review", "ship", "ship", "done"]
+    );
+    assert_eq!(
+        asked_seats(&events),
+        ["classify", "verify", "review", "ship", "ship"]
+    );
+    let phases = json!([
+        "classify",
+        "implement",
+        "verify",
+        "review",
+        "ship",
+        "done",
+        "stop"
+    ]);
+    for journal in [&ordinary, &events] {
+        assert_eq!(journal[0]["payload"]["phases"], phases);
+        let context = classification_input(journal);
+        assert_eq!(context["results"]["classify"]["result"], "code");
+        assert_eq!(context.get("returned_from"), None);
+    }
+    assert_eq!(classification_input(&ordinary).get("entry"), None);
+    assert_eq!(classification_input(&events)["entry"], entry);
+}
+
+#[test]
+fn a_landing_entered_at_review_requests_neither_classify_nor_verify() {
+    let ws = landing_fixture();
+    let events = completed_entry(&ws, "review");
+    assert_eq!(
+        events[0]["payload"]["entry"],
+        json!({"phase":"review","continues":[]})
+    );
+    assert_eq!(entered_phases(&events), ["review", "ship", "ship", "done"]);
+    assert_eq!(asked_seats(&events), ["review", "ship", "ship"]);
+    assert_eq!(
+        events
+            .iter()
+            .find(|event| event["payload"]["rule_id"] == "SHIP-COMPLETE")
+            .unwrap()["payload"]["next"],
+        "done"
+    );
+}
+
+fn read_fixture_json(path: &std::path::Path) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }

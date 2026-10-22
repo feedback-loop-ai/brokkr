@@ -17,7 +17,7 @@ use thiserror::Error;
 
 use super::{
     conditions_met, is_engine_owned, vocabulary, Condition, Machine, Outcome, PolicyError, Rule,
-    SEVERITY_ORDER, TABLE_SCHEMA_V2,
+    SEVERITY_ORDER, TABLE_SCHEMA_V2, VISIT_PREFIX,
 };
 
 /// The valuations one audit may sweep across a whole table. The largest
@@ -195,34 +195,29 @@ impl Machine {
         }
     }
 
-    /// Decision 0094: totality with the engine's strategy absent. Retain
-    /// each group's axes, but evaluate only its strategy-independent rules.
-    pub fn unruled_without_strategy(&self) -> Vec<Finding> {
-        let rules = self
-            .rules
-            .iter()
-            .filter(|rule| {
-                !rule
-                    .when
-                    .iter()
-                    .any(|condition| condition.name() == "strategy")
-            })
-            .cloned()
-            .collect();
-        let machine = Self {
-            rules,
-            ..self.clone()
-        };
+    /// Decision 0094: groups whose rulings read the engine's strategy,
+    /// in phase/result key order, even when another ruling is unconditional.
+    pub fn groups_reading_strategy(&self) -> Vec<(&str, &str)> {
         self.groups()
             .into_iter()
-            .flat_map(|mut group| {
-                group.rules.retain(|rule| {
-                    !rule
-                        .when
-                        .iter()
-                        .any(|condition| condition.name() == "strategy")
-                });
-                machine.sweep(&group).1
+            .filter(|group| group.rules.iter().any(|rule| rule.reads_strategy()))
+            .map(|group| (group.phase, group.result))
+            .collect()
+    }
+
+    /// Decision 0094: groups reading positive phase counts, with counted
+    /// phases once each in first-read order across the group's rulings.
+    pub fn groups_reading_visits(&self) -> Vec<((&str, &str), Vec<&str>)> {
+        self.groups()
+            .into_iter()
+            .filter_map(|group| {
+                let mut phases = Vec::new();
+                for phase in group.rules.iter().flat_map(|rule| rule.reads_visits()) {
+                    if !phases.contains(&phase) {
+                        phases.push(phase);
+                    }
+                }
+                (!phases.is_empty()).then_some(((group.phase, group.result), phases))
             })
             .collect()
     }
@@ -453,6 +448,31 @@ fn axes<'a>(rules: &[&'a Rule]) -> BTreeMap<&'a str, Vec<Setting>> {
         axes.insert(name, values.into_iter().map(Setting::Count).collect());
     }
     axes
+}
+
+impl Rule {
+    fn reads_strategy(&self) -> bool {
+        self.when
+            .iter()
+            .any(|condition| condition.name() == "strategy")
+    }
+
+    /// Decision 0094: positive visit-count guards, in condition key order.
+    pub fn reads_visits(&self) -> Vec<&str> {
+        self.when
+            .iter()
+            .filter_map(|condition| match condition {
+                Condition::CounterGte { name, threshold } if *threshold > 0.0 => {
+                    name.strip_prefix(VISIT_PREFIX)
+                }
+                Condition::CounterGte { .. }
+                | Condition::SeverityAbove { .. }
+                | Condition::SeverityAtMost { .. }
+                | Condition::Flag { .. }
+                | Condition::EnumIn { .. } => None,
+            })
+            .collect()
+    }
 }
 
 impl Condition {

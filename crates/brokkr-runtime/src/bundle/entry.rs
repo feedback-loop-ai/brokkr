@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use brokkr_core::entry::{is_entry_name, RunEntry};
-use brokkr_core::policy::{audit::Finding, Direction, Machine, Rule};
+use brokkr_core::policy::{Direction, Machine, Rule};
 use thiserror::Error;
 
 use super::{bounded_site, Bundle, GateAssessment, SeatBody, StepBody, WorkSite};
@@ -39,6 +39,11 @@ pub enum EntryRefusal {
     },
     NeedsStrategyRuling {
         group: (String, String),
+        reached_by: Option<String>,
+    },
+    NeedsVisits {
+        group: (String, String),
+        phase: String,
         reached_by: Option<String>,
     },
     NeedsChange {
@@ -81,6 +86,15 @@ impl fmt::Display for EntryRefusal {
             } => write!(
                 f,
                 "ruling group ({phase}, {result}) needs strategy, reached by {}",
+                witness(reached_by)
+            ),
+            Self::NeedsVisits {
+                group: (from, result),
+                phase,
+                reached_by,
+            } => write!(
+                f,
+                "ruling group ({from}, {result}) needs the visits of '{phase}', reached by {}",
                 witness(reached_by)
             ),
             Self::NeedsChange {
@@ -153,6 +167,7 @@ fn refusal(bundle: &Bundle, phase: &str) -> Option<EntryRefusal> {
         .or_else(|| forward_work(bundle, phase))
         .or_else(|| strategy(bundle, phase))
         .or_else(|| change(bundle, phase))
+        .or_else(|| visits(bundle, phase))
 }
 
 fn protected(bundle: &Bundle, phase: &str) -> Option<EntryRefusal> {
@@ -209,16 +224,41 @@ fn strategy(bundle: &Bundle, phase: &str) -> Option<EntryRefusal> {
             });
         }
     }
-    let unruled = bundle.machine.unruled_without_strategy();
+    let groups = bundle.machine.groups_reading_strategy();
     for (seat, rule) in reached {
-        for finding in &unruled {
-            if let Finding::Unruled { phase, result, .. } = finding {
-                if phase == seat {
-                    return Some(EntryRefusal::NeedsStrategyRuling {
-                        group: (phase.clone(), result.clone()),
-                        reached_by: rule.map(str::to_string),
-                    });
-                }
+        if let Some(&(phase, result)) = groups.iter().find(|(phase, _)| *phase == seat) {
+            return Some(EntryRefusal::NeedsStrategyRuling {
+                group: (phase.into(), result.into()),
+                reached_by: rule.map(str::to_string),
+            });
+        }
+    }
+    None
+}
+
+fn visits(bundle: &Bundle, phase: &str) -> Option<EntryRefusal> {
+    let met = walk(&bundle.machine, phase, |_| true, &[]);
+    let reached: BTreeSet<_> = walk(
+        &bundle.machine,
+        phase,
+        |rule| rule.reads_visits().is_empty(),
+        &[],
+    )
+    .into_iter()
+    .map(|(phase, _)| phase)
+    .collect();
+    let groups = bundle.machine.groups_reading_visits();
+    for (seat, rule) in met {
+        for ((from, result), phases) in &groups {
+            if *from != seat {
+                continue;
+            }
+            if let Some(phase) = phases.iter().find(|phase| !reached.contains(**phase)) {
+                return Some(EntryRefusal::NeedsVisits {
+                    group: ((*from).into(), (*result).into()),
+                    phase: (*phase).into(),
+                    reached_by: rule.map(str::to_string),
+                });
             }
         }
     }

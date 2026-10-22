@@ -581,36 +581,193 @@ fn the_0022_era_permissive_arms_are_refused() {
     );
 }
 
+fn work_refusal(path: &[&str], compiled: bool) -> brokkr_runtime::bundle::entry::EntryRefusal {
+    brokkr_runtime::bundle::entry::EntryRefusal::Work {
+        site: brokkr_runtime::bundle::WorkSite {
+            path: path.iter().map(|name| (*name).into()).collect(),
+            compiled,
+        },
+    }
+}
+
+fn terminal_refusals() -> Vec<(&'static str, brokkr_runtime::bundle::entry::EntryRefusal)> {
+    use brokkr_runtime::bundle::entry::EntryRefusal;
+    vec![
+        ("done", EntryRefusal::Terminal),
+        ("stop", EntryRefusal::Terminal),
+    ]
+}
+
+fn delivery_refusals(
+    implement: &[&str],
+) -> Vec<(&'static str, brokkr_runtime::bundle::entry::EntryRefusal)> {
+    use brokkr_runtime::bundle::entry::EntryRefusal;
+    let mut refused = terminal_refusals();
+    refused.extend([
+        ("implement", work_refusal(implement, true)),
+        (
+            "ship",
+            EntryRefusal::AvoidsProtected {
+                protected: "review".into(),
+                terminal: "done".into(),
+            },
+        ),
+    ]);
+    refused
+}
+
+fn triage_refusals(
+    recipe: &str,
+) -> Vec<(&'static str, brokkr_runtime::bundle::entry::EntryRefusal)> {
+    use brokkr_runtime::bundle::entry::EntryRefusal;
+    let implement: &[&str] = if recipe == "night-shift" {
+        &[]
+    } else {
+        &["chore"]
+    };
+    let mut refused = delivery_refusals(implement);
+    refused.extend([
+        (
+            "triage",
+            EntryRefusal::ForwardWork {
+                work: "implement".into(),
+                rule: "TRIAGE-CHORE".into(),
+            },
+        ),
+        ("specify", work_refusal(&["author"], true)),
+        ("clarify", work_refusal(&["check"], true)),
+        ("design", work_refusal(&["positions", "robustness"], true)),
+        ("tasks", work_refusal(&["author"], true)),
+        ("analyze", work_refusal(&["check"], true)),
+    ]);
+    let (verify, review) = if recipe == "gpt-flash" {
+        (
+            EntryRefusal::ForwardWork {
+                work: "review".into(),
+                rule: "VERIFY-PASS".into(),
+            },
+            work_refusal(&["chore", "positions", "correctness"], true),
+        )
+    } else {
+        (
+            EntryRefusal::NeedsStrategy {
+                seat: if recipe == "triage" {
+                    "implement"
+                } else {
+                    "review"
+                }
+                .into(),
+                reached_by: Some(
+                    if recipe == "triage" {
+                        "VERIFY-FAIL"
+                    } else {
+                        "VERIFY-PASS"
+                    }
+                    .into(),
+                ),
+            },
+            EntryRefusal::NeedsStrategy {
+                seat: "review".into(),
+                reached_by: None,
+            },
+        )
+    };
+    refused.extend([("verify", verify), ("review", review)]);
+    refused
+}
+
 #[test]
 fn admitted_gate_entries_are_derived_from_each_shipped_recipe() {
     let root = workspace();
-    for (recipe, expected) in [
-        ("fast", vec!["verify", "review"]),
-        ("panel-review", vec!["verify", "review"]),
-        ("self", vec!["verify", "review"]),
-        ("preflight", vec!["verify", "review"]),
-        ("verify", vec!["verify", "review"]),
-        ("landing", vec!["verify", "review", "classify"]),
-        ("research", vec!["verify"]),
-        ("research-dsh", vec!["verify"]),
-        ("triage", vec![]),
-        ("gpt-flash", vec![]),
-        ("night-shift", vec![]),
-    ] {
-        let bundle = brokkr_runtime::Bundle::compile_with(
-            &root.join("recipes").join(recipe),
-            &root.join("agents"),
-            &root.join("adapters"),
-        )
-        .unwrap();
-        let entries = brokkr_runtime::bundle::entry::admitted(&bundle);
-        assert_eq!(entries, expected, "{recipe}");
-        for phase in &bundle.machine.phases {
+    let mut panel = delivery_refusals(&[]);
+    panel.push(("intake", work_refusal(&[], true)));
+    let mut research = terminal_refusals();
+    research.push(("research", work_refusal(&[], true)));
+    let shapes = [
+        (
+            vec![
+                "fast",
+                "brokkr-fast",
+                "node",
+                "release",
+                "standby",
+                "review-first",
+                "wager-harness",
+                "wager-harness-dsh",
+                "wager-harness-muse",
+            ],
+            vec!["verify", "review"],
+            delivery_refusals(&[]),
+        ),
+        (
+            vec!["panel-review", "self"],
+            vec!["verify", "review"],
+            panel,
+        ),
+        (
+            vec!["preflight", "verify"],
+            vec!["verify", "review"],
+            terminal_refusals(),
+        ),
+        (
+            vec!["landing"],
+            vec!["classify", "verify", "review"],
+            delivery_refusals(&[]),
+        ),
+        (vec!["research", "research-dsh"], vec!["verify"], research),
+        (vec!["triage"], vec![], triage_refusals("triage")),
+        (vec!["night-shift"], vec![], triage_refusals("night-shift")),
+        (vec!["gpt-flash"], vec![], triage_refusals("gpt-flash")),
+    ];
+    let pinned: std::collections::BTreeSet<_> = shapes
+        .iter()
+        .flat_map(|(recipes, _, _)| recipes.iter().copied())
+        .collect();
+    let directories: std::collections::BTreeSet<_> = std::fs::read_dir(root.join("recipes"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.join("bundle.json").is_file())
+        .map(|path| path.file_name().unwrap().to_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        pinned
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect::<std::collections::BTreeSet<_>>(),
+        directories
+    );
+    for (recipes, expected, refused) in shapes {
+        for recipe in recipes {
+            let bundle = brokkr_runtime::Bundle::compile_with(
+                &root.join("recipes").join(recipe),
+                &root.join("agents"),
+                &root.join("adapters"),
+            )
+            .unwrap();
+            let entries = brokkr_runtime::bundle::entry::admitted(&bundle);
+            assert_eq!(entries, expected, "{recipe}");
+            let covered: std::collections::BTreeSet<_> = expected
+                .iter()
+                .copied()
+                .chain(refused.iter().map(|(phase, _)| *phase))
+                .collect();
             assert_eq!(
-                brokkr_runtime::bundle::entry::admit(&bundle, phase).is_ok(),
-                entries.contains(phase),
-                "{recipe}:{phase}"
+                covered,
+                bundle.machine.phases.iter().map(String::as_str).collect(),
+                "{recipe}"
             );
+            for phase in &bundle.machine.phases {
+                let result = brokkr_runtime::bundle::entry::admit(&bundle, phase);
+                match refused.iter().find(|(name, _)| name == phase) {
+                    None => assert_eq!(result, Ok(()), "{recipe}:{phase}"),
+                    Some((_, refusal)) => {
+                        let error = result.unwrap_err();
+                        assert_eq!(*error.refusal, *refusal, "{recipe}:{phase}");
+                        assert_eq!(error.admitted, expected, "{recipe}:{phase}");
+                        assert_eq!(error.phase, *phase);
+                    }
+                }
+            }
         }
     }
 }

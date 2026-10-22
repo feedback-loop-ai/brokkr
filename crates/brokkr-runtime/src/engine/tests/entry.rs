@@ -279,3 +279,90 @@ fn an_ordinary_runs_input_digest_keeps_its_pre_entry_value() {
         "4411e79874d2425d59b198c1c8a7ddfc4a0cabdc6f29cc9aac48b9c66d1198ce"
     );
 }
+
+#[test]
+fn landing_inputs_preserve_classification_without_inventing_a_return() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let compiled = Bundle::compile_with(
+        &root.join("recipes/landing"),
+        &root.join("agents"),
+        &root.join("adapters"),
+    )
+    .unwrap();
+    let written: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("recipes/landing/policy.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(json!(compiled.machine.phases), written["phases"]);
+    let dir = tempfile::tempdir().unwrap();
+    for entered in [false, true] {
+        let mut engine = Engine::start(
+            Store::open(
+                &dir.path()
+                    .join(if entered { "entry.db" } else { "ordinary.db" }),
+            )
+            .unwrap(),
+            gate_bundle(dir.path()),
+            "synthetic landing",
+            Some(dir.path().into()),
+        )
+        .unwrap();
+        engine.bundle = compiled.clone();
+        engine.entry = entered.then(|| entry("classify"));
+        let classification = decided(
+            json!({"rule_id":"CLASSIFY-CODE","from":"classify","result":"code","next":"verify","severity":"normal","inputs":{}}),
+        );
+        let mut current = state(Some("verify"), Cursor::RequestEffect);
+        current.visits.insert("verify".into(), 1);
+        current
+            .phase_results
+            .insert("classify".into(), PhaseResult::of(&classification));
+        current.last_decision = Some(classification);
+        let context =
+            engine.seat_input(&current, "verify", "synthetic").unwrap()["context"].clone();
+        assert_eq!(context["results"]["classify"]["result"], "code");
+        assert_eq!(context.get("returned_from"), None);
+        assert_eq!(
+            context.get("entry"),
+            entered.then(|| json!(entry("classify"))).as_ref()
+        );
+        if !entered {
+            current.phase = Some("implement".into());
+            current.visits.insert("implement".into(), 1);
+            current.last_decision = Some(decided(
+                json!({"rule_id":"REVIEW-REFORGE","from":"review","result":"residual","next":"implement","severity":"flagged","inputs":{}}),
+            ));
+            let context =
+                engine.seat_input(&current, "implement", "return").unwrap()["context"].clone();
+            assert_eq!(context["results"]["classify"]["result"], "code");
+            assert_eq!(context.get("returned_from"), None);
+        }
+        let payload = compiled.run_started(
+            "synthetic",
+            &compiled.manifest,
+            json!([]),
+            engine.entry.as_ref(),
+        );
+        let events = vec![
+            EnvelopeBuilder::new(EventType::RunStarted, payload).build(),
+            EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase":"classify"})).seq(2).build(),
+            EnvelopeBuilder::new(EventType::TransitionDecided, json!({"rule_id":"CLASSIFY-CODE","from":"classify","result":"code","next":"verify"})).seq(3).build(),
+            EnvelopeBuilder::new(EventType::PhaseEntered, json!({"phase":"verify"})).seq(4).build(),
+        ];
+        let view = brokkr_view::run_view(&events, None);
+        assert_eq!(
+            view.phases
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
+            ["classify", "verify"]
+        );
+        assert_eq!(
+            view.phases
+                .iter()
+                .map(|p| p.returns.len())
+                .collect::<Vec<_>>(),
+            [0, 0]
+        );
+    }
+}

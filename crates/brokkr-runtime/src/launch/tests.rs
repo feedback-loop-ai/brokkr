@@ -567,17 +567,10 @@ fn an_entry_beside_a_dispatch_is_refused_before_compile() {
 }
 
 #[test]
-fn continued_runs_are_concluded_native_and_not_looper_bound() {
-    use brokkr_core::{
-        entry::{ContinuedRun, RunEntry},
-        EventType, Status,
-    };
+fn continued_lineage_is_typed_and_refusals_name_the_run() {
+    use brokkr_core::EventType;
     let dir = tempfile::tempdir().unwrap();
     let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
-    let request = |ids: Vec<&str>| EntryRequest {
-        phase: "review".into(),
-        continues: ids.into_iter().map(str::to_string).collect(),
-    };
     let id = "story-120-0a1b2c3d";
     seed_continued(
         &mut store,
@@ -587,14 +580,71 @@ fn continued_runs_are_concluded_native_and_not_looper_bound() {
         json!({"schema":"forge-run-manifest/v2"}),
         Some(EventType::RunStopped),
     );
-    assert!(matches!(continued_entry(&store,&request(vec![id])),
-        Err(LaunchError::ContinuedLooperBound { run_id }) if run_id == id));
+    assert!(matches!(continued_entry(&store,&continuation(vec![id])),
+        Err(LaunchError::ContinuedUnreadable { run_id, source: DispatchError::BadManifest }) if run_id == id));
+    let error = continued_entry(&store, &continuation(vec![id])).unwrap_err();
+    assert_eq!(error.to_string(), format!("continued run '{id}' is unreadable: its pinned manifest claims the run-manifest/v2 lineage and does not read"));
+    assert_eq!(store.load(id).unwrap().len(), 2);
+    let local = bundle_at(dir.path(), false);
+    let mut bundle = Bundle::compile_with(
+        &local,
+        &workspace().join("agents"),
+        &workspace().join("adapters"),
+    )
+    .unwrap();
+    // The frozen dispatch lineage carries only the v2 bundle fields.
+    bundle.manifest.as_object_mut().unwrap().retain(|key, _| {
+        [
+            "engine",
+            "event_schema",
+            "database_schema",
+            "driver_protocol",
+            "bundle_name",
+            "files",
+        ]
+        .contains(&key.as_str())
+    });
+    let manifest = brokkr_core::dispatch::build_run_manifest_v2(
+        &bundle.manifest,
+        crate::engine::tests::dispatch(&bundle),
+    )
+    .unwrap();
+    let mut bound = Store::open(&dir.path().join("bound.db")).unwrap();
+    seed_continued(
+        &mut bound,
+        id,
+        "synthetic",
+        "test",
+        manifest,
+        Some(EventType::RunStopped),
+    );
+    let error = continued_entry(&bound, &continuation(vec![id])).unwrap_err();
+    assert!(matches!(&error, LaunchError::ContinuedLooperBound { run_id } if run_id == id));
+    assert_eq!(error.to_string(), format!("continued run '{id}' is Looper-bound: its start pinned the run-manifest/v2 lineage, which a chain may not name"));
+    assert_eq!(bound.load(id).unwrap().len(), 2);
+}
+
+fn continuation(ids: Vec<&str>) -> EntryRequest {
+    EntryRequest {
+        phase: "review".into(),
+        continues: ids.into_iter().map(str::to_string).collect(),
+    }
+}
+
+#[test]
+fn continued_runs_are_concluded_native_and_queue_free() {
+    use brokkr_core::{
+        entry::{ContinuedRun, RunEntry},
+        EventType, Status,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
     let live = "live-12345678";
     seed_continued(&mut store, live, "live feature", "test", json!({}), None);
-    assert!(matches!(continued_entry(&store,&request(vec![live])),
+    assert!(matches!(continued_entry(&store,&continuation(vec![live])),
         Err(LaunchError::ContinuedNotConcluded { run_id,status:Status::Running }) if run_id == live));
     assert!(
-        matches!(continued_entry(&store,&request(vec!["absent-12345678"])),
+        matches!(continued_entry(&store,&continuation(vec!["absent-12345678"])),
         Err(LaunchError::ContinuedMissing { run_id }) if run_id == "absent-12345678")
     );
     store
@@ -616,7 +666,7 @@ fn continued_runs_are_concluded_native_and_not_looper_bound() {
         Some(EventType::RunStopped),
     );
     assert_eq!(
-        continued_entry(&store, &request(vec![other, live])).unwrap(),
+        continued_entry(&store, &continuation(vec![other, live])).unwrap(),
         RunEntry {
             phase: "review".into(),
             continues: vec![
@@ -641,14 +691,14 @@ fn continued_runs_are_concluded_native_and_not_looper_bound() {
         Some(EventType::RunParked),
     );
     assert!(matches!(
-        continued_entry(&store, &request(vec![parked])),
+        continued_entry(&store, &continuation(vec![parked])),
         Err(LaunchError::ContinuedNotConcluded {
             status: Status::AwaitingOperator,
             ..
         })
     ));
     let queued = NewRun {
-        entry: Some(request(vec![])),
+        entry: Some(continuation(vec![])),
         ..NewRun::default()
     };
     let request = super::tests::request(dir.path(), dir.path(), dir.path(), dir.path());

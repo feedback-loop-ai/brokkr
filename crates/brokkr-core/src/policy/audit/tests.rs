@@ -641,16 +641,87 @@ fn reach_avoiding_removes_a_cut_phase() {
 }
 
 #[test]
-fn absent_strategy_sweep_keeps_the_original_axes() {
-    let machine = Machine::parse(&table(json!([
+fn strategy_groups_preserve_every_conditioned_ruling_in_key_order() {
+    let mut fixture = table(json!([
         {"id":"CLEAN","from":"review","result":"clean","next":"done",
          "when":{"strategy_in":["chore","feature","design","engine","escalate"]},"reason":"r"}
-    ])))
-    .unwrap();
-    let missing = machine.unruled_without_strategy();
-    assert_eq!(missing.len(), 5);
-    assert!(missing.iter().all(|finding| matches!(finding,
-        Finding::Unruled { phase, result, .. } if phase == "review" && result == "clean")));
-    let ordinary = Machine::parse(&self_table()).unwrap();
-    assert_eq!(ordinary.unruled_without_strategy(), vec![]);
+    ]));
+    let machine = Machine::parse(&fixture).unwrap();
+    assert_eq!(machine.groups_reading_strategy(), [("review", "clean")]);
+    fixture["rules"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"FALLBACK","from":"review","result":"clean","next":"done","reason":"r"}));
+    assert_eq!(
+        Machine::parse(&fixture).unwrap().groups_reading_strategy(),
+        [("review", "clean")]
+    );
+    let triage = Machine::parse(&shipped_table("../../recipes/triage/policy.json")).unwrap();
+    assert_eq!(
+        triage.groups_reading_strategy(),
+        [("review", "clean"), ("review", "residual")]
+    );
+    let fast = Machine::parse(&shipped_table("../../recipes/fast/policy.json")).unwrap();
+    assert_eq!(fast.groups_reading_strategy(), []);
+}
+
+fn counted_table(rules: Value) -> Value {
+    let mut fixture = table(rules);
+    fixture["phases"]
+        .as_array_mut()
+        .unwrap()
+        .extend([json!("intake"), json!("design")]);
+    fixture
+}
+
+#[test]
+fn visits_preserve_key_order_rule_order_and_unique_positive_counts() {
+    let make = |when| {
+        Machine::parse(&counted_table(json!([
+            {"id":"COUNT","from":"review","result":"clean","next":"stop","when":when,"reason":"r"},
+            {"id":"CLEAN","from":"review","result":"clean","next":"done","reason":"r"}
+        ])))
+        .unwrap()
+    };
+    let zero = make(json!({"visits_intake_gte":0}));
+    assert_eq!(
+        zero.rules
+            .iter()
+            .find(|r| r.id == "COUNT")
+            .unwrap()
+            .reads_visits(),
+        Vec::<&str>::new()
+    );
+    assert_eq!(zero.groups_reading_visits(), []);
+    let both = make(json!({"visits_intake_gte":1,"visits_design_gte":1}));
+    assert_eq!(
+        both.rules
+            .iter()
+            .find(|r| r.id == "COUNT")
+            .unwrap()
+            .reads_visits(),
+        ["design", "intake"]
+    );
+    assert_eq!(
+        both.groups_reading_visits(),
+        [(("review", "clean"), vec!["design", "intake"])]
+    );
+    let split = counted_table(json!([
+        {"id":"STOP-AFTER-INTAKE","from":"review","result":"clean","next":"stop","when":{"visits_intake_gte":1},"reason":"r"},
+        {"id":"STOP-AFTER-DESIGN","from":"review","result":"clean","next":"stop","when":{"visits_design_gte":1},"reason":"r"},
+        {"id":"CLEAN","from":"review","result":"clean","next":"done","reason":"r"}
+    ]));
+    let split = Machine::parse(&split).unwrap();
+    assert_eq!(
+        split.groups_reading_visits(),
+        [(("review", "clean"), vec!["intake", "design"])]
+    );
+    let fast = Machine::parse(&shipped_table("../../recipes/fast/policy.json")).unwrap();
+    assert_eq!(
+        fast.groups_reading_visits(),
+        [
+            (("review", "residual"), vec!["implement"]),
+            (("verify", "fail"), vec!["implement"])
+        ]
+    );
 }
