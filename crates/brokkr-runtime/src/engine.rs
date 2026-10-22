@@ -2962,8 +2962,8 @@ pub fn compose_site(
 /// (operator ruling (B) of 2026-09-27): an inline site with hands is served
 /// like an agent — its recorded `hands.workspace` fragment follows every
 /// other segment as the engine's own `hands` segment, as `agents::compose`
-/// appends an agent's last, and [`hands_command`] expands its tokens. Every
-/// other site is composed from its supplied segments alone.
+/// appends an agent's last, and [`boxed::hands_command`] expands its tokens.
+/// Every other site is composed from its supplied segments alone.
 #[expect(clippy::too_many_arguments, reason = "decision 0065 slice one, #288")]
 pub fn compose_site_at(
     facts: Option<&SiteFacts>,
