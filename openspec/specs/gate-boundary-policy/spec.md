@@ -255,8 +255,8 @@ amendment for the operator, and no design note may widen a ruling
 addendum, ruling 1).
 
 #### Scenario: The shipped verifier under open is admitted
-- **WHEN** `recipes/self`, whose verify seat, inherited from `recipes/fast`, is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands, compiles under `open`
-- **THEN** it is admitted, because `recipes/fast/scripts/verify-seat.sh` is a file the declaring layer's own manifest walk pins
+- **WHEN** `recipes/self`, whose verify seat, inherited from `recipes/brokkr-fast`, is `["{brokkr}","driver","exec","--","bash","./scripts/verify-seat.sh","{prompt_file}"]` with hands, compiles under `open`
+- **THEN** it is admitted, because `recipes/brokkr-fast/scripts/verify-seat.sh` is a file the declaring layer's own manifest walk pins
 
 #### Scenario: A work-class exec site with hands is judged on the gate's ground
 - **WHEN** an exec site with hands and `class: work` whose command is `["{brokkr}","driver","exec","--","bash","./scripts/lint.sh"]` naming a file the bundle's walk pins compiles under `open`, and a sibling whose command is `["{brokkr}","driver","exec","--","true"]` compiles beside it
@@ -299,8 +299,8 @@ addendum, ruling 1).
 - **THEN** compilation is refused naming the token as a path the manifest walk does not pin
 
 #### Scenario: An inherited seat resolves against the layer that wrote it
-- **WHEN** `recipes/wager-harness`, which inherits its verify seat from `recipes/fast`, compiles under `harness`
-- **THEN** the verify seat is admitted, the file checked being `recipes/fast/scripts/verify-seat.sh`
+- **WHEN** `recipes/wager-harness`, which inherits its verify seat from `recipes/brokkr-fast`, compiles under `harness`
+- **THEN** the verify seat is admitted, the file checked being `recipes/brokkr-fast/scripts/verify-seat.sh`
 
 #### Scenario: The shipped ship gate under harness is admitted
 - **WHEN** the shipped ship seat, `["{brokkr}","driver","exec","--","bash","./scripts/ship-seat.sh","{prompt_file}","{brokkr}"]` with hands, compiles under `harness`
@@ -319,8 +319,8 @@ addendum, ruling 1).
 - **THEN** the re-walk names no key and the dispatch spawns
 
 #### Scenario: An inherited seat's ancestor is re-derived
-- **WHEN** `recipes/wager-harness`'s inherited verify seat reaches its spawn under `harness` after `recipes/fast/scripts/verify-seat.sh` was edited
-- **THEN** the ancestor's compose digest is re-derived and differs, and the dispatch is refused naming `fast` as the layer
+- **WHEN** `recipes/wager-harness`'s inherited verify seat reaches its spawn under `harness` after `recipes/brokkr-fast/scripts/verify-seat.sh` was edited
+- **THEN** the ancestor's compose digest is re-derived and differs, and the dispatch is refused naming `brokkr-fast` as the layer
 
 #### Scenario: A dialect step under harness is refused until a decision admits it
 - **WHEN** a fixture bundle with an artifact phase, its chief seated on a fixture provider that declares both `hands.harness` members as fragments, compiles under `harness` in a realm that declares a dialect
@@ -453,12 +453,12 @@ reaches composition either (decision 0046 rulings 1 and 4; decision
 - **THEN** its manifest `hands` entry still says `network` false, its argv carries no network switch of Brokkr's, and the run is rendered *unboxed*
 
 #### Scenario: The shipped verify seat under harness on Linux with the probe passing
-- **WHEN** `recipes/self`'s verify seat, compiled in this repository so that `{brokkr}` is `<brokkr>` and `./scripts/verify-seat.sh` is `<repo>/recipes/fast/scripts/verify-seat.sh`, is composed under `harness` on Linux with the probe passing and the engine's ids `<uid>` and `<gid>`
-- **THEN** its argv is exactly, token by token: `unshare`, `--map-root-user`, `--net`, `--`, `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid> --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/fast/scripts/verify-seat.sh`, `{prompt_file}` — no `hands` verb, no `/runtime/bundle` path, and the literal `{prompt_file}` left for the exec driver
+- **WHEN** `recipes/self`'s verify seat, compiled in this repository so that `{brokkr}` is `<brokkr>` and `./scripts/verify-seat.sh` is `<repo>/recipes/brokkr-fast/scripts/verify-seat.sh`, is composed under `harness` on Linux with the probe passing and the engine's ids `<uid>` and `<gid>`
+- **THEN** its argv is exactly, token by token: `unshare`, `--map-root-user`, `--net`, `--`, `sh`, `-c`, `ip link set lo up && exec unshare --map-user=<uid> --map-group=<gid> -- "$@"`, `sh`, `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/brokkr-fast/scripts/verify-seat.sh`, `{prompt_file}` — no `hands` verb, no `/runtime/bundle` path, and the literal `{prompt_file}` left for the exec driver
 
 #### Scenario: The same seat with the probe failing, and off Linux
 - **WHEN** the same seat is composed under `harness` on Linux with the probe failing, and again on macOS
-- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/fast/scripts/verify-seat.sh`, `{prompt_file}`, spawned in the fixed environment with the network on — and the same holds under `open`
+- **THEN** its argv is exactly `<brokkr>`, `driver`, `exec`, `--`, `bash`, `<repo>/recipes/brokkr-fast/scripts/verify-seat.sh`, `{prompt_file}`, spawned in the fixed environment with the network on — and the same holds under `open`
 
 #### Scenario: The probe is the prefix around true
 - **WHEN** the probe runs
@@ -516,7 +516,7 @@ from which the table is taken).
 #### Scenario: The shipped verify gate under harness on a rustup machine
 - **GIVEN** an engine environment of `HOME=/home/op`, `PATH=/home/op/.cargo/bin:/usr/bin:/bin`, `GH_TOKEN=secret`, `ANTHROPIC_API_KEY=secret`, `SSH_AUTH_SOCK=/run/agent` and no `CARGO_HOME`
 - **WHEN** `recipes/self`'s verify seat, whose binds declare `~/.cargo` and `~/.rustup`, is composed under `harness`
-- **THEN** the environment holds `PATH` verbatim, `HOME` and `TMPDIR` as the attempt's private directories, `CARGO_HOME=/home/op/.cargo` and `RUSTUP_HOME=/home/op/.rustup` from the declared binds, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `NPM_CONFIG_CACHE` or `BROKKR_HANDS_BOX`; the command is the compiled dispatch `<brokkr> driver exec -- bash <repo>/recipes/fast/scripts/verify-seat.sh {prompt_file}`, behind the network prefix when the probe passes, spawned in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the operator's `~/.rustup`
+- **THEN** the environment holds `PATH` verbatim, `HOME` and `TMPDIR` as the attempt's private directories, `CARGO_HOME=/home/op/.cargo` and `RUSTUP_HOME=/home/op/.rustup` from the declared binds, `LANG` and `LC_ALL` `C.UTF-8`, `CI` `true`, the two switches, the gpgsign triple and the bundle's git identity, and no `GH_TOKEN`, `ANTHROPIC_API_KEY`, `SSH_AUTH_SOCK`, `NPM_CONFIG_CACHE` or `BROKKR_HANDS_BOX`; the command is the compiled dispatch `<brokkr> driver exec -- bash <repo>/recipes/brokkr-fast/scripts/verify-seat.sh {prompt_file}`, behind the network prefix when the probe passes, spawned in the worktree, so rustup's cargo proxy under `~/.cargo/bin` resolves the toolchain through the operator's `~/.rustup`
 
 #### Scenario: A planted secret is not handed over through the environment
 - **GIVEN** an engine `HOME` under which `.ssh/id` and `.cargo/credentials.toml` are planted, and a site whose binds declare `~/.cargo`

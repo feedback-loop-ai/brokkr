@@ -702,9 +702,9 @@ added agent 'fast-implementer' at /home/you/my-app/.brokkr/agents/fast-implement
 added agent 'fast-reviewer' at /home/you/my-app/.brokkr/agents/fast-reviewer.json
 ```
 
-`fast`'s verifier is still Brokkr's own, so in another repository its
-verify fails until decision 0087's slice 3 gives it a portable one
-([`recipes/fast/README.md`](../../recipes/fast/README.md)). The other
+In a folder, `fast`'s verify and ship are the folder's own, the seats
+`brokkr init` wrote (decision 0091,
+[`recipes/fast/README.md`](../../recipes/fast/README.md)). The other
 seventeen recipes in Brokkr's `recipes/` are **Brokkr-only**, written
 for Brokkr's own runs and realm. Decision
 [0087](../decisions/0087-the-base-offices-are-the-ones-init-writes.md)'s

@@ -2718,8 +2718,8 @@ fn an_unboxed_exec_site_with_hands_is_admitted_only_when_it_names_a_pinned_scrip
 /// The shipped exec gates on the pinned-script terms: `recipes/fast`'s
 /// verify and ship seats compile under `harness` and `open` — the
 /// `{brokkr}` among the ship seat's arguments names no command — and
-/// `recipes/wager-harness`, which inherits both from `fast`, is judged
-/// against the layer that wrote them. `recipes/self` inherits the same
+/// `recipes/wager-harness`, which inherits verify from `brokkr-fast`, is
+/// judged against the layer that wrote it. `recipes/self` inherits the same
 /// two seats (#359) but chains claude at its review gate, so under `open`
 /// it refuses there, before either exec seat is reached (seats compile in
 /// name order).
@@ -2769,16 +2769,16 @@ fn the_shipped_exec_gates_compile_unboxed_when_they_name_their_own_pinned_script
         &root.join("adapters"),
         Boundary::Harness,
     )
-    .expect("the inherited verify seat resolves against fast");
-    // The wager extends `brokkr-fast`, which extends `fast` (decision 0087
-    // ruling 4): the verify seat is fast's, two layers down.
-    let fast_dir = root.join("recipes/fast").canonicalize().unwrap();
-    assert_eq!(wager.roots[2], fast_dir);
+    .expect("the inherited verify seat resolves against brokkr-fast");
+    // The wager extends `brokkr-fast` (decision 0087 ruling 4), whose verify
+    // seat is Brokkr's verifier (decision 0091 ruling 3), one layer down.
+    let verifier_dir = root.join("recipes/brokkr-fast").canonicalize().unwrap();
+    assert_eq!(wager.roots[1], verifier_dir);
     let SeatBody::Invocation(Invocation::Single { command, .. }) = &wager.seats["verify"].body
     else {
         panic!("the inherited verify seat is a single exec site")
     };
-    let checked = fast_dir.join("scripts/verify-seat.sh");
+    let checked = verifier_dir.join("scripts/verify-seat.sh");
     assert!(checked.is_file(), "{}", checked.display());
     assert_eq!(command[5], checked.to_string_lossy());
     assert_eq!(wager.manifest["boundary"]["verify"], "harness");

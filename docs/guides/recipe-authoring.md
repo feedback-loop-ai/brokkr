@@ -640,6 +640,11 @@ $ brokkr compile --bundle recipes/night-shift
     },
     {
       "digest": "…",
+      "dir": "…/recipes/brokkr-fast",
+      "recipe": "brokkr-fast"
+    },
+    {
+      "digest": "…",
       "dir": "…/recipes/fast",
       "recipe": "fast"
     }
@@ -653,6 +658,10 @@ $ brokkr compile --bundle recipes/night-shift
     {
       "origin": "project",
       "path": "…/recipes/triage"
+    },
+    {
+      "origin": "project",
+      "path": "…/recipes/brokkr-fast"
     },
     {
       "origin": "project",

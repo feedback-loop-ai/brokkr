@@ -252,7 +252,8 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
         None,
     )
     .expect("self installs over the library's own fast");
-    assert_eq!(installed(holding.path()), ["fast", "own", "panel-review"]);
+    let installed_over = ["brokkr-fast", "fast", "own", "panel-review"];
+    assert_eq!(installed(holding.path()), installed_over);
     assert_eq!(std::fs::read_to_string(&charter).unwrap(), ours);
 
     // A leaf standing apart from its bases installs alone and composes
@@ -270,18 +271,18 @@ fn a_derived_recipe_installs_with_the_bases_its_library_lacks() {
     .expect("a lone leaf composes with the library's base");
     assert_eq!(
         installed(holding.path()),
-        ["fast", "node", "own", "panel-review"]
+        ["brokkr-fast", "fast", "node", "own", "panel-review"]
     );
 }
 
 /// The chain is walked against the target a layer at a time: a source
-/// holding `self` and `panel-review` but not `fast` installs both over the
-/// library's own `fast`, where resolving the source's whole chain first
-/// refused it.
+/// holding `self`, `panel-review` and `brokkr-fast` but not `fast` installs
+/// them over the library's own `fast`, where resolving the source's whole
+/// chain first refused it.
 #[test]
 fn a_partial_chain_installs_over_the_librarys_own_base() {
     let source = tempfile::tempdir().unwrap();
-    for recipe in ["self", "panel-review"] {
+    for recipe in ["self", "panel-review", "brokkr-fast"] {
         let from = workspace().join("recipes").join(recipe);
         copy_dir(&from, &source.path().join(recipe)).unwrap();
     }
@@ -300,7 +301,8 @@ fn a_partial_chain_installs_over_the_librarys_own_base() {
         None,
     )
     .expect("self composes from its source's panel-review and the library's fast");
-    assert_eq!(installed(library.path()), ["fast", "own", "panel-review"]);
+    let installed_over = ["brokkr-fast", "fast", "own", "panel-review"];
+    assert_eq!(installed(library.path()), installed_over);
 }
 
 /// A base that is not one plain name, or that the source's library holds
@@ -403,7 +405,7 @@ fn a_second_add_waits_for_the_library_another_holds() {
             .join()
             .unwrap()
             .expect("the second add installs once the library is released");
-        assert_eq!(installed(&dir), ["fast", "review-first"]);
+        assert_eq!(installed(&dir), ["brokkr-fast", "fast", "review-first"]);
     }
 }
 

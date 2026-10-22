@@ -214,7 +214,7 @@
    212 crates/brokkr-cli/src/recipes/tests.rs
   1230 crates/brokkr-cli/src/render/tests.rs
     95 crates/brokkr-cli/src/selector/tests.rs
-  4551 crates/brokkr-cli/src/tests.rs
+  4549 crates/brokkr-cli/src/tests.rs
    561 crates/brokkr-cli/src/tui/fleet_tests.rs
    423 crates/brokkr-cli/src/tui/snapshot_tests.rs
     55 crates/brokkr-cli/src/tui/source_tests.rs

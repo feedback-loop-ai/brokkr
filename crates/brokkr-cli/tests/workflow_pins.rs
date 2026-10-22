@@ -1737,7 +1737,7 @@ validate .github/renovate-global.json5",
 /// every tool that job installs.
 #[test]
 fn the_landing_verify_seat_runs_the_ci_jobs_commands() {
-    let seat = read("recipes/fast/scripts/verify-seat.sh");
+    let seat = read("recipes/brokkr-fast/scripts/verify-seat.sh");
     let jobs = ci_jobs();
     let rust: Vec<&str> = ci_job(&jobs, "quality")
         .lines()

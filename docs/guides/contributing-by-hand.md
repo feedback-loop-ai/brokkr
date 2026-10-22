@@ -572,7 +572,7 @@ review seat, code goes through the verifier first — `cargo fmt --all
 --workspace --all-targets --all-features --locked -- -D warnings`,
 `cargo test --workspace` and `cargo run -p brokkr-cli -- compile
 --bundle recipes/self`, in that order
-(`recipes/fast/scripts/verify-seat.sh`, #427), in the box with no
+(`recipes/brokkr-fast/scripts/verify-seat.sh`, #427), in the box with no
 network because this repository's realm declares no boundary and so
 reads `namespace`; under `harness` the same script would run unboxed.
 The rest of the twelve
