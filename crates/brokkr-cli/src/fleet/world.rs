@@ -59,10 +59,8 @@ struct Named<'a> {
 
 /// The fleet view, pretty, written a hearth and a page of rows at a time.
 fn world_json(named: &[Named<'_>], read: (&str, usize), out: &mut impl Write) -> Result<()> {
-    write!(
-        out,
-        "{{\n  \"view_version\": {VIEW_VERSION},\n  \"realms\": ["
-    )?;
+    let open = format!("{{\n  \"view_version\": {VIEW_VERSION},\n  \"realms\": [");
+    out.write_all(open.as_bytes())?;
     let mut count = 0;
     for (index, hearth) in named.iter().enumerate() {
         out.write_all(item_break(index))?;
@@ -80,10 +78,10 @@ fn realm_json(hearth: &Named<'_>, read: (&str, usize), out: &mut impl Write) -> 
         serde_json::to_string(hearth.realm)?,
         serde_json::to_string(hearth.journal)?,
     );
-    write!(
-        out,
+    let head = format!(
         "    {{\n      \"realm\": {realm},\n      \"journal\": {journal},\n      \"runs\": ["
-    )?;
+    );
+    out.write_all(head.as_bytes())?;
     let reach = list_journal(&hearth.hearth.journal, read, |lister| match lister {
         Ok(lister) => lister.json_rows(out, "        "),
         Err(refused) => Ok(Reach::refused(refused)),
@@ -91,10 +89,8 @@ fn realm_json(hearth: &Named<'_>, read: (&str, usize), out: &mut impl Write) -> 
     let listed = reach.rows;
     close_array(out, listed, "      ")?;
     let detail = serde_json::to_string(&reach.detail())?;
-    write!(
-        out,
-        ",\n      \"count\": {listed},\n      \"detail\": {detail}\n    }}"
-    )?;
+    let tail = format!(",\n      \"count\": {listed},\n      \"detail\": {detail}\n    }}");
+    out.write_all(tail.as_bytes())?;
     Ok(listed)
 }
 
