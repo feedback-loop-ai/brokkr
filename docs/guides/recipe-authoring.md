@@ -247,7 +247,8 @@ and a `./`-prefixed entry is bundle-relative. For an exec seat with
 hands under `namespace` that entry is expanded to the read-only
 `/runtime/bundle` mount at spawn, so the operated-on repository need not
 carry or copy the strategy's script; under `harness` and `open` the same
-entry is the pinned script the site is admitted for, and the engine
+entry is the pinned script the site is admitted for. Under every boundary
+(`namespace` too, since #832) the engine
 re-walks the script's directory and its descendants at every spawn
 against the declaring layer's pinned file map, refusing the dispatch
 naming the layer and the first key that moved. This keeps helpers beside

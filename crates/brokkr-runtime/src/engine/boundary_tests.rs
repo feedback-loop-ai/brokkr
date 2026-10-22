@@ -3112,8 +3112,8 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
         .as_str()
         .unwrap()
         .contains("layer 'test' moved"));
-    // A `namespace` gate over the same edited layer composes as today:
-    // the box is its admission, and no re-walk is marked.
+    // A `namespace` gate over the same edited layer composes its box as
+    // before, and marks the host's script directory for the re-walk (#832).
     let boxed = compose_site(
         BuiltBoundary::Namespace,
         SeatClass::Gate,
@@ -3126,7 +3126,7 @@ fn an_unboxed_exec_dispatch_is_refused_at_spawn_when_its_layer_moved() {
         "/r/p.json",
         None,
     );
-    assert_eq!(boxed.rewalk, None);
+    assert_eq!(boxed.rewalk, Some(layer.join("scripts")));
     assert_eq!(boxed.argv[1], "hands");
 }
 
