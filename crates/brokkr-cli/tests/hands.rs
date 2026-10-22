@@ -494,7 +494,8 @@ fn verifier_workspace() -> tempfile::TempDir {
     std::fs::create_dir_all(dir.path().join("scripts")).unwrap();
     std::fs::create_dir_all(dir.path().join("recipes/self")).unwrap();
     std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../recipes/fast/scripts/verify-seat.sh"),
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../recipes/brokkr-fast/scripts/verify-seat.sh"),
         dir.path().join("scripts/verify-seat.sh"),
     )
     .unwrap();
@@ -857,9 +858,15 @@ fn machine_proof(tmp: &Path) -> (tempfile::TempDir, std::process::Output) {
     let bundle = strategy.path().join("bundle");
     std::fs::create_dir_all(&bundle).unwrap();
     std::fs::create_dir_all(bundle.join("scripts")).unwrap();
-    for script in ["verify-seat.sh", "ship-seat.sh"] {
+    // Brokkr's verifier is brokkr-fast's (decision 0091 ruling 3); the
+    // shipper is fast's.
+    for (layer, script) in [("brokkr-fast", "verify-seat.sh"), ("fast", "ship-seat.sh")] {
         std::fs::copy(
-            workspace().join("recipes/fast/scripts").join(script),
+            workspace()
+                .join("recipes")
+                .join(layer)
+                .join("scripts")
+                .join(script),
             bundle.join("scripts").join(script),
         )
         .unwrap();

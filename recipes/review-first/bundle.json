@@ -2,7 +2,7 @@
   "name": "review-first",
   "description": "An existing branch judged first: Sol reviews, the suite verifies, Muse remediates findings on return, and the run ships.",
   "forced_crew": "decision 0060: the firing names its models, Muse implements and Sol judges",
-  "extends": "fast",
+  "extends": "brokkr-fast",
   "policy": "policy.json",
   "override": {
     "bundle": ["description"],

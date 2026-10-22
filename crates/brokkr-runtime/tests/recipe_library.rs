@@ -94,8 +94,12 @@ fn no_two_recipes_carry_one_policy_table_written_twice() {
 /// file of this name anywhere in the library is a byte-for-byte copy of it.
 /// Fast's implementer role became the library's intakeless charter when
 /// fast moved onto library offices (#360); the inline smiths still read it.
+/// Brokkr's verifier moved to `brokkr-fast` (decision 0091 ruling 3).
 const CANONICAL: [(&str, &str); 3] = [
-    ("verify-seat.sh", "recipes/fast/scripts/verify-seat.sh"),
+    (
+        "verify-seat.sh",
+        "recipes/brokkr-fast/scripts/verify-seat.sh",
+    ),
     ("ship-seat.sh", "recipes/fast/scripts/ship-seat.sh"),
     (
         "implementer.md",
@@ -105,7 +109,11 @@ const CANONICAL: [(&str, &str); 3] = [
 
 /// Files that share a canonical's name and are a different office, each
 /// with the reason it is its own.
-const OWN_OFFICES: [(&str, &str); 3] = [
+const OWN_OFFICES: [(&str, &str); 4] = [
+    (
+        "recipes/fast/scripts/verify-seat.sh",
+        "fast's verify where no folder stands, which fails closed (decision 0091)",
+    ),
     ("recipes/node/roles/verify-seat.sh", "Node's npm verifier"),
     (
         "recipes/preflight/roles/verify-seat.sh",

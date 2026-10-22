@@ -27,7 +27,9 @@ fn compile(name: &str) -> Bundle {
 #[test]
 fn release_keeps_the_delivery_policy_and_deterministic_gates() {
     let release = compile("release");
-    let fast = compile("fast");
+    // The recipe release extends: fast's table and shipper, and Brokkr's
+    // verifier (decision 0091 ruling 3).
+    let fast = compile("brokkr-fast");
     assert_eq!(release.machine.initial, fast.machine.initial);
     assert_eq!(release.machine.phases, fast.machine.phases);
     assert_eq!(release.machine.terminal, fast.machine.terminal);

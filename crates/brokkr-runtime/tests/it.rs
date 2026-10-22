@@ -25,6 +25,7 @@ mod inline_resume;
 mod landing_shape;
 mod library_data;
 mod node_recipe_gates;
+mod portable_fast;
 mod preflight_shape;
 mod recipe_library;
 mod recovery;

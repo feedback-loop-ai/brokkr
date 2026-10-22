@@ -2,7 +2,7 @@
   "name": "panel-review",
   "description": "General delivery needing independent correctness and security reviewers.",
   "cost": "high",
-  "extends": "fast",
+  "extends": "brokkr-fast",
   "policy": "policy.json",
   "override": {
     "bundle": ["description", "cost"],

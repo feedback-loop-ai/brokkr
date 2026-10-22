@@ -1584,7 +1584,7 @@ const OLD_DATA: [(&str, &str); 7] = [
          # explicitly to stay offline so a cache miss is reported as such.\n\
          set -u\n",
     ),
-    // recipes/fast/scripts/verify-seat.sh's check list (#506)
+    // recipes/brokkr-fast/scripts/verify-seat.sh's check list (#506)
     (
         "verify-seat.sh",
         "export CARGO_NET_OFFLINE=true\n\
@@ -1880,7 +1880,7 @@ fn no_living_doc_says_a_tool_list_bounds_an_unboxed_seat() {
         .filter(|path| !is_record(path))
         .collect();
     for path in [
-        "recipes/fast/scripts/verify-seat.sh",
+        "recipes/brokkr-fast/scripts/verify-seat.sh",
         "recipes/research/policy.json",
     ] {
         assert!(data.iter().any(|p| p == path), "{path} is not scanned");

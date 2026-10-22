@@ -266,7 +266,7 @@ const INLINE_ONLY: [(&str, &str); 8] = [
 /// its `if ! <command> > "$output"` lines run them.
 const SECTION_SCRIPTS: [(&str, &str); 1] = [(
     "the-landing-let-the-machine-finish-what-you-wrote-by-hand",
-    "recipes/fast/scripts/verify-seat.sh",
+    "recipes/brokkr-fast/scripts/verify-seat.sh",
 )];
 
 /// The commands `script` runs as `if ! <command> > "$output"`.

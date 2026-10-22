@@ -20,6 +20,7 @@
       "agent": "fast-implementer"
     },
     "verify": {
+      "from": "folder",
       "results": [
         "pass",
         "fail"
@@ -63,6 +64,7 @@
       "agent": "fast-reviewer"
     },
     "ship": {
+      "from": "folder",
       "results": [
         "ready",
         "shipped"
