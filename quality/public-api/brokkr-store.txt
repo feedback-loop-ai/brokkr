@@ -110,6 +110,7 @@ pub brokkr_store::StoreError::RowBeforeChain::seq: i64
 pub brokkr_store::StoreError::RunExists(alloc::string::String)
 pub brokkr_store::StoreError::RunIdTooLong
 pub brokkr_store::StoreError::RunIdTooLong::length: usize
+pub brokkr_store::StoreError::RunIdUnnameable(alloc::string::String)
 pub brokkr_store::StoreError::RunNotFound(alloc::string::String)
 pub brokkr_store::StoreError::SchemaMismatch
 pub brokkr_store::StoreError::SchemaMismatch::found: u32
