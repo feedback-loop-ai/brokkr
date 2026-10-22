@@ -126,18 +126,3 @@ const ROWS: [[Arm; COLUMNS]; EventType::RunStopped as usize + 1] = {
 pub(super) const fn arm(event: EventType, position: Position) -> Arm {
     ROWS[event as usize][position as usize]
 }
-
-/// The fields an event names its target by. The fold reads them before it
-/// places the event, so an event that is both malformed and out of place
-/// is refused for its payload.
-pub(super) const fn named_first(event: EventType) -> &'static [&'static str] {
-    use EventType::*;
-    match event {
-        PhaseEntered => &["phase"],
-        EffectStarted => &["effect_id", "attempt_id"],
-        EffectSucceeded | EffectFailed | EffectIndeterminate => &["effect_id"],
-        RunStarted | EffectRequested | EffectCheckpointed | TransitionDecided
-        | OperatorCommanded | OperatorAccepted | OperatorRejected | RunParked | RunCompleted
-        | RunStopped => &[],
-    }
-}

@@ -176,6 +176,8 @@ pub brokkr_core::envelope::EventType::RunStopped
 pub brokkr_core::envelope::EventType::TransitionDecided
 impl brokkr_core::envelope::EventType
 pub const fn brokkr_core::envelope::EventType::as_str(self) -> &'static str
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::envelope::EventType
+pub fn brokkr_core::envelope::EventType::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub struct brokkr_core::envelope::EventEnvelope
 pub brokkr_core::envelope::EventEnvelope::attempt_id: core::option::Option<alloc::string::String>
 pub brokkr_core::envelope::EventEnvelope::causation_id: core::option::Option<alloc::string::String>
@@ -952,6 +954,8 @@ pub brokkr_core::EventType::RunStopped
 pub brokkr_core::EventType::TransitionDecided
 impl brokkr_core::envelope::EventType
 pub const fn brokkr_core::envelope::EventType::as_str(self) -> &'static str
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::envelope::EventType
+pub fn brokkr_core::envelope::EventType::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub enum brokkr_core::FoldError
 pub brokkr_core::FoldError::AfterTerminal
 pub brokkr_core::FoldError::AfterTerminal::seq: u64
