@@ -36,6 +36,12 @@
 //! settled ([`ended`]), before the fold reads its ledgers. An engine
 //! restarted with the attempt in flight takes its lease again only where
 //! every driver it recorded is sealed so ([`Engine::readopted`]).
+//!
+//! One exception, which nothing else may use (U8e3; operator ruling
+//! 2026-10-21, "A"): the operator's release of a run's attempts that ended
+//! with no such proof, on the operator's journaled attestation that every
+//! process each owned has ended ([`attested`]). It folds nothing, replays
+//! nothing and leaves each attempt as it ended.
 
 use std::io::ErrorKind::NotFound;
 use std::os::fd::OwnedFd;
@@ -53,17 +59,20 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::admission::{
-    amend, identity, release, reserved_at, sealed, settled, Authored, Held, Protects, Reservation,
-    Reserved, Unadmitted, Unknown, Witnessed, Writer, RESERVATION,
+    amend, beside, identity, release, reserved_at, sealed, settled, Authored, Held, Protects,
+    Reservation, Reserved, Unadmitted, Unknown, Witnessed, Writer, RESERVATION,
 };
 use super::exclusion::{everywhere, reaches};
 use super::fold::Begun;
 use super::historical::regular;
-use super::inventory::{Budget, Standing, Writing};
+use super::inventory::{inventory, Budget, Standing, Writing};
 use super::root::{locked, read, Commit, Root};
 use super::{observed, startup};
 use crate::engine::artifacts::{self, Evidence, Unpublished};
 use crate::engine::{Engine, EngineError};
+
+mod attestation;
+pub(in crate::engine) use attestation::attested;
 
 /// How an attempt's terminal event ended it, as its settlement reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +90,8 @@ enum Ending {
 /// stands, refusing every later writer it would; or its release committed,
 /// but a seal of its reservation, its release's own or an earlier one, was
 /// not proven durable; or the responses its brokers retained were not
-/// published (U8c; CR2), its lease standing or released as it says.
+/// published (U8c; CR2), its lease standing or released as it says; or the
+/// operator's release of it was refused ([`Refused`]; U8e3).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{}: {}", said(*.lease, .cause), .cause)]
 pub struct Unreleased {
@@ -96,20 +106,63 @@ pub(in crate::engine) enum Lease {
     Released,
 }
 
-/// Why a settlement failed: a seal refused or not proven, or a retained
-/// response not published.
+/// Why a settlement failed: a seal refused or not proven, a retained
+/// response not published, or the operator's release refused (U8e3).
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 enum Cause {
     #[error(transparent)]
     Unadmitted(Unadmitted),
     #[error(transparent)]
     Unpublished(Unpublished),
+    #[error(transparent)]
+    Refused(Refused),
+}
+
+/// Why the operator's release of a run's attempts is refused, nothing of
+/// it sealed (U8e3; operator ruling 2026-10-21): no attempt of the run's
+/// stands; one has not ended; one ended a success or a failure, not
+/// indeterminate; one whose every driver is sealed Settled is U8e2's to
+/// recover, in flight or, once ended, no one's; or the journal moved
+/// beneath the release.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub(in crate::engine) enum Refused {
+    #[error("run '{0}' holds no standing reservation, so there is nothing to release")]
+    Unreserved(String),
+    #[error(
+        "attempt '{0}' has not ended; release only an attempt that ended, once every process \
+         it owned has"
+    )]
+    Running(String),
+    #[error(
+        "attempt '{0}' ended a success or a failure, not indeterminate; release only an \
+         attempt that ended indeterminate"
+    )]
+    Certified(String),
+    #[error(
+        "every driver of attempt '{0}' is sealed Settled, so an engine restarted with it in \
+         flight recovers it: resume the run instead"
+    )]
+    Recoverable(String),
+    #[error(
+        "every driver of attempt '{0}' is sealed Settled, so it is not the operator's to \
+         release, and it has ended, so resuming the run does not recover it: its reservation \
+         stands"
+    )]
+    Settled(String),
+    #[error(
+        "the journal moved beneath the release, so something may still be driving the run: look \
+         with `brokkr runs` before releasing"
+    )]
+    Moved,
 }
 
 /// What the operator is told of a failed settlement's `lease`, and of its
 /// retained responses where its `cause` is that they were not published.
 fn said(lease: Lease, cause: &Cause) -> &'static str {
     match (cause, lease) {
+        (Cause::Refused(_), Lease::Standing | Lease::Released) => {
+            "the operator's release was refused, and the run's writer lease stands"
+        }
         (Cause::Unadmitted(_), Lease::Standing) => {
             "the attempt's writer lease stands, for its settlement was not sealed"
         }
@@ -144,6 +197,12 @@ impl Unreleased {
     /// refused by `cause`, its lease as `lease` says.
     pub(in crate::engine) fn unpublished(lease: Lease, cause: Unpublished) -> Unreleased {
         let cause = Cause::Unpublished(cause);
+        Unreleased { lease, cause }
+    }
+
+    /// The operator's release refused by `refused`, the lease standing.
+    pub(in crate::engine) fn refused(refused: Refused) -> Unreleased {
+        let (lease, cause) = (Lease::Standing, Cause::Refused(refused));
         Unreleased { lease, cause }
     }
 }

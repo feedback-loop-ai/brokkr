@@ -21,6 +21,7 @@ use brokkr_runtime::places::{LIBRARY_STATE, RECIPES, SECRETS, STATE};
 use tracked::{listed_paths, tracked, Change, Unwatched};
 
 use crate::recipes::personal::ShelfPath;
+use crate::render::shell_word;
 
 /// Why a verb refused before it opened anything, in the operator's words.
 #[derive(Debug)]
@@ -607,8 +608,8 @@ impl Move {
     /// The lines this move lists, each one shell command or a note.
     fn lines(&self) -> Vec<String> {
         let moved = |verb: &str, member: &str| {
-            let to = word(&format!("{FOLDER}/{STATE}/{member}"));
-            format!("{verb} {} {to}", word(&forged(member)))
+            let to = shell_word(&format!("{FOLDER}/{STATE}/{member}"));
+            format!("{verb} {} {to}", shell_word(&forged(member)))
         };
         match self {
             Move::Mkdir => vec![format!("mkdir -p {FOLDER}/{STATE}")],
@@ -697,16 +698,6 @@ impl Forge {
             Forge::Absent => None,
             Forge::Directory => Some(Move::Rmdir),
         }
-    }
-}
-
-/// `path` as one shell word, so a listed move can be pasted as it reads:
-/// bare where every character is plain, else single-quoted.
-fn word(path: &str) -> String {
-    let plain = |c: char| c.is_ascii_alphanumeric() || "._-/+=:,@%".contains(c);
-    match path.chars().all(plain) {
-        true => path.to_string(),
-        false => format!("'{}'", path.replace('\'', r"'\''")),
     }
 }
 

@@ -2,13 +2,14 @@
 //! layer's declaring document read, named and appended, and the base its
 //! `extends` reaches in the library its origin reads (#697), each refusing
 //! as it did inline. `read_layers` reads as the cycle check, these two and
-//! the depth bound.
+//! the depth bound. The last step of a layer, its seal, is here too.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
 
-use super::{invalid, Layer, Pinned};
+use super::{invalid, Ancestor, Consumed, Layer, Pinned};
 use crate::bundle::CompileError;
 use crate::places::{Origin, Shelves, FOLDER};
 
@@ -122,6 +123,52 @@ pub(super) fn reach_base<'a>(
         )));
     }
     Ok((base, resolved))
+}
+
+/// The pin of the layer at `dir`, `(name, reached_as)`, over `chain`, its
+/// own ancestors sealed so far, from what `read` composed it from: an
+/// ancestor's in [`Resolved::seal`](super::Resolved::seal), and the folder
+/// layer's a seat was taken from, over no chain (decision 0091).
+pub(super) fn sealed(
+    dir: &Path,
+    (name, reached_as): (&str, Option<String>),
+    chain: &[Ancestor],
+    read: &Consumed,
+) -> Result<Ancestor, CompileError> {
+    // An ancestor's digest covers its own files and its own
+    // ancestors — never the leaf's agent resolution or the adapter
+    // declarations that authorised its gates, both of which belong
+    // to the composed bundle rather than to any layer.
+    // An ancestor boxes nothing at this level, so the boundary it is
+    // handed writes no key and moves no digest; `namespace` is the
+    // word a layer meant before decision 0046 named one.
+    let manifest = crate::bundle::manifest_for(
+        dir,
+        name,
+        chain,
+        None,
+        None,
+        &BTreeMap::new(),
+        &Map::new(),
+        brokkr_core::realms::Boundary::Namespace,
+        // Nor does an ancestor hold or grant a capability (decision
+        // 0065): authority belongs to the composed bundle compiled in
+        // a realm, so a layer's digest carries none and does not move.
+        None,
+        &read.digests(),
+    )?;
+    let files = manifest["files"]
+        .as_object()
+        .expect("manifest files")
+        .clone();
+    read.check(&files)?;
+    Ok(Ancestor {
+        name: name.to_string(),
+        reached_as,
+        dir: dir.to_path_buf(),
+        digest: brokkr_core::canonical::sha256_hex(&manifest),
+        files,
+    })
 }
 
 /// `^[a-z0-9][a-z0-9-]*$`, checked BEFORE any path is built so `../x`,

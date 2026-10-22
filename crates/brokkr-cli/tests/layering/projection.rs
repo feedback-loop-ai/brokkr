@@ -1,9 +1,10 @@
 //! Decision 0089 ruling 1: the engine decides on its own fold, never on a
-//! summary row. The read model's readers are every public function of
-//! the store's summary module but the writer's hand-over, read from that
-//! module's source so a reader added later is held here without an edit,
-//! and the table itself by name; no `brokkr-runtime` production source
-//! names one. A test source may, since no decision runs in it.
+//! summary row or an event index row. The read model's readers are every
+//! public function of the store's summary and event index modules but the
+//! writer's hand-over, read from those modules' sources so a reader added
+//! later is held here without an edit, and the tables themselves by name;
+//! no `brokkr-runtime` production source names one. A test source may,
+//! since no decision runs in it.
 
 use std::path::{Path, PathBuf};
 
@@ -68,14 +69,16 @@ fn naming(root: &Path, names: &[String]) -> Vec<String> {
     named
 }
 
-/// The read model's readers: the table, and every public function of the
-/// summary module but the writer's, each as a call.
+/// The read model's readers: the tables, and every public function of the
+/// summary and event index modules but the writer's, each as a call.
 fn readers() -> Vec<String> {
     let summary = read("crates/brokkr-store/src/summary.rs");
-    let mut readers = vec!["run_summary".to_string()];
+    let index = read("crates/brokkr-store/src/event_index.rs");
+    let mut readers = vec!["run_summary".to_string(), "event_index".to_string()];
     readers.extend(
         summary_functions(&summary)
             .into_iter()
+            .chain(summary_functions(&index))
             .filter(|name| name != WRITER)
             .map(|name| format!("{name}(")),
     );
@@ -85,7 +88,18 @@ fn readers() -> Vec<String> {
 #[test]
 fn no_runtime_decision_names_a_projection_s_reader() {
     let readers = readers();
-    assert_eq!(readers, ["run_summary", "summary_disagreements("]);
+    assert_eq!(
+        readers,
+        [
+            "run_summary",
+            "event_index",
+            "summary_disagreements(",
+            "reads_index(",
+            "index_trail(",
+            "index_checkpoints(",
+            "envelopes_at(",
+        ]
+    );
     let named = naming(&workspace().join("crates/brokkr-runtime/src"), &readers);
     assert_eq!(named, Vec::<String>::new());
 }

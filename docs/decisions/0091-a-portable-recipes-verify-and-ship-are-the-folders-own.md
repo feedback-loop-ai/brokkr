@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-20 (PR #793), every choice asked taken as recommended
 Date: 2026-10-20
 
-Built: unbuilt (#717)
+Built: partial (#717) — slice 3b built ruling 1; slices 3c and 3d are unbuilt
 Amends: 0048, 0087
 
 ## Context

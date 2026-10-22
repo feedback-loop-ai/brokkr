@@ -172,6 +172,7 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
         boundary: Boundary::Namespace,
         executable: crate::argv::tests::ENGINE.clone(),
         chain: Vec::new(),
+        folder: None,
         machine: machine(),
         seats,
         manifest: json!({"engine":ENGINE_VERSION, "event_schema":1, "database_schema":1,
@@ -185,9 +186,8 @@ pub(super) fn bundle(dir: &Path, body: SeatBody) -> Bundle {
 }
 
 /// Test-only: register a site's hands in both the canonical family table
-/// and its `hands` projection, the way the compiler does. The engine's
-/// marker composition reads the table, its boundary readers the
-/// projection.
+/// and its `hands` projection, as the compiler does. The engine's marker
+/// composition reads the table, its boundary readers the projection.
 pub(super) fn set_site_hands(
     bundle: &mut Bundle,
     label: &str,
@@ -2459,7 +2459,8 @@ fn an_operator_command_the_run_cannot_take_is_refused_never_accepted() {
             None,
         )
         .unwrap();
-    for command in OperatorCommand::ALL {
+    // `release` moves no run and is refused by its reservation's rules.
+    for command in [Retry, Stop] {
         let refused = operator_command(&mut store, "raced", command, "operator", "too late")
             .unwrap_or_else(|error| panic!("{command:?} errored instead of refusing: {error}"));
         assert!(

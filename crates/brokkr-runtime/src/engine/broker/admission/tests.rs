@@ -391,8 +391,26 @@ pub(in crate::engine) fn evidence_leased(
     engine: &mut Engine,
     attempt: &str,
 ) -> (tempfile::TempDir, PathBuf) {
+    fresh_lease(engine, attempt, Protects::Evidence)
+}
+
+/// [`lease`] on a fresh host protecting nothing, so no evidence is at stake
+/// (U8e3): the host's directory, and the run's directory in its root.
+pub(in crate::engine) fn unstaked_lease(
+    engine: &mut Engine,
+    attempt: &str,
+) -> (tempfile::TempDir, PathBuf) {
+    fresh_lease(engine, attempt, Protects::Nothing)
+}
+
+/// [`lease`] on a fresh host, protecting `protects`.
+fn fresh_lease(
+    engine: &mut Engine,
+    attempt: &str,
+    protects: Protects,
+) -> (tempfile::TempDir, PathBuf) {
     let host = Host::new();
-    let [_, at] = lease(&host, engine, attempt, Protects::Evidence);
+    let [_, at] = lease(&host, engine, attempt, protects);
     (host.dir, at)
 }
 
@@ -1284,6 +1302,21 @@ pub(in crate::engine) fn hands(binds: &[&Path]) -> HandsSpec {
         network: false,
         binds: binds.iter().map(bind).collect(),
     }
+}
+
+/// The engine's run driven to its effect's attempt `attempt` opened, as
+/// dispatch opens it, so the journal shows it in flight: the effect's id.
+pub(in crate::engine) fn in_flight(engine: &mut Engine, attempt: &str) -> String {
+    engine.drive_once().unwrap();
+    engine.drive_once().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let effect = events.last().unwrap().payload["effect_id"].clone();
+    let started = serde_json::json!({"effect_id": effect, "attempt_id": attempt, "driver": "none"});
+    let attempt = Some(attempt.to_string());
+    engine
+        .append(EventType::EffectStarted, started, attempt)
+        .unwrap();
+    effect.as_str().unwrap().to_string()
 }
 
 /// The last event the engine journaled.

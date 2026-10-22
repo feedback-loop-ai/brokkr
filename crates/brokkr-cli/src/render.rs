@@ -788,6 +788,17 @@ pub(crate) fn transcript(
     out
 }
 
+/// `text` as one shell word, so a printed command can be pasted as it
+/// reads: bare where every character is plain, else single-quoted, each
+/// `'` written `'\''` (#820).
+pub(crate) fn shell_word(text: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "._-/+=:,@%".contains(c);
+    match !text.is_empty() && text.chars().all(plain) {
+        true => text.to_string(),
+        false => format!("'{}'", text.replace('\'', r"'\''")),
+    }
+}
+
 #[cfg(test)]
 mod tests;
 

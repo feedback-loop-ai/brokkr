@@ -729,6 +729,40 @@ fn one_broken_chain_is_one_quarantined_row_in_every_runs_listing() {
     assert_eq!(runs[1]["status"], "running");
 }
 
+/// #820 F2, through the shipped binary: a page of `runs` names its next
+/// page's command with the `--db` and `--realms` it was called with, and
+/// that command, run as printed, lists the run the first page did not.
+#[test]
+fn the_next_page_command_runs_as_printed_against_the_journal_it_was_called_with() {
+    let ws = Workspace::new(Some(map_over(".")));
+    let world = ws.path().join("state/world.db");
+    journal_run(&world, "first", false);
+    journal_run(&world, "second", false);
+    let listed = |page: &str| ["first", "second"].map(|run| page.contains(run));
+    for called in [
+        vec!["--realms", "realms.json"],
+        vec!["--db", "state/world.db"],
+        vec!["--db", "state/world.db", "--realms", "realms.json"],
+    ] {
+        let mut args = vec!["runs"];
+        args.extend(&called);
+        args.extend(["--limit", "1"]);
+        let (code, page, stderr) = ws.run(&args);
+        assert_eq!(code, Some(0), "{stderr}");
+        let hint = page.lines().last().unwrap();
+        let typed = format!("next page  brokkr {} --after ", args.join(" "));
+        let next = hint
+            .strip_prefix(&typed)
+            .unwrap_or_else(|| panic!("{page}"));
+        let next_args: Vec<&str> = args.iter().copied().chain(["--after", next]).collect();
+        let (code, next_page, stderr) = ws.run(&next_args);
+        assert_eq!(code, Some(0), "{stderr}");
+        let [first, second] = listed(&page);
+        assert_eq!(listed(&next_page), [!first, !second], "{page}{next_page}");
+        assert_ne!(first, second, "{page}");
+    }
+}
+
 /// Pinned AND embedded: the exported manifest carries the map's content
 /// hash and the map itself, so the world a run believed in survives the
 /// file it was read from.

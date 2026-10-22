@@ -5,13 +5,13 @@
 //! prior event; seq 1 chains to the zero hash. `recorded_at` is evidence
 //! only: nothing in fold or evaluate reads it.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::canonical::{self, ZERO_HASH};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum EventType {
     #[serde(rename = "run/started")]
     RunStarted,
@@ -68,10 +68,59 @@ const WIRE_NAMES: [&str; EventType::RunStopped as usize + 1] = [
 ];
 
 impl EventType {
+    /// Every type, in declaration order: what a wire name is read back to.
+    const ALL: [EventType; EventType::RunStopped as usize + 1] = {
+        use EventType::*;
+        [
+            RunStarted,
+            PhaseEntered,
+            EffectRequested,
+            EffectStarted,
+            EffectCheckpointed,
+            EffectSucceeded,
+            EffectFailed,
+            EffectIndeterminate,
+            TransitionDecided,
+            OperatorCommanded,
+            OperatorAccepted,
+            OperatorRejected,
+            RunParked,
+            RunCompleted,
+            RunStopped,
+        ]
+    };
+
     /// The wire name serde writes for this type, for readers that name an
     /// event without serializing it.
     pub const fn as_str(self) -> &'static str {
         WIRE_NAMES[self as usize]
+    }
+}
+
+/// By hand, not derived: serde's enum derive also reads a variant's
+/// one-key map form (`{"transition/decided": null}`), which would verify
+/// and fold an envelope that does not serialize back to its own bytes
+/// (#657). The word alone reads, as a ruling severity's does.
+impl<'de> Deserialize<'de> for EventType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_str(EventTypeWord)
+    }
+}
+
+struct EventTypeWord;
+
+impl serde::de::Visitor<'_> for EventTypeWord {
+    type Value = EventType;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("an event type string")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, word: &str) -> Result<EventType, E> {
+        EventType::ALL
+            .into_iter()
+            .find(|event_type| event_type.as_str() == word)
+            .ok_or_else(|| E::unknown_variant(word, &WIRE_NAMES))
     }
 }
 

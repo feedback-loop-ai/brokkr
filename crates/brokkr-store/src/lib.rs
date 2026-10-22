@@ -73,6 +73,7 @@ use time::OffsetDateTime;
 
 mod acknowledgement;
 mod chain;
+mod event_index;
 mod import;
 mod origin;
 mod page;
@@ -87,6 +88,7 @@ pub mod test_support;
 
 pub use acknowledgement::Acknowledgement;
 pub use chain::{Chain, Rows};
+pub use event_index::IndexFault;
 pub use import::{verified_events, verify_export, Adoption, Arrival, ImportError, VerifyError};
 pub use page::{keyed, place_of, Keyed, Paged, RowRefusal, Unread};
 pub use queue::{

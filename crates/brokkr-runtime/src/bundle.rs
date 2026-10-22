@@ -118,6 +118,9 @@ pub enum CompileError {
     /// A layer naming what its origin may not compose from (#697).
     #[error("bundle: {0}")]
     Shelf(crate::places::ShelfRefusal),
+    /// A seat that cannot be the folder's own (decision 0091 ruling 1).
+    #[error("bundle: {0}")]
+    Folder(compose::FolderSeatRefusal),
 }
 
 /// How [`CompileError::Capability`] renders.
@@ -627,6 +630,8 @@ pub struct Bundle {
     /// The composition chain, nearest ancestor first (decision 0017).
     /// Empty unless the recipe extends another.
     pub chain: Vec<Ancestor>,
+    /// The folder layer a seat was taken from, last in `roots` (0091).
+    pub folder: Option<Ancestor>,
     pub machine: Machine,
     pub seats: BTreeMap<String, Seat>,
     pub manifest: Value,
@@ -926,7 +931,8 @@ impl Bundle {
         let realm = (realm_name, dialect, law.into());
         Bundle::assemble(&dir, resolved, roots, engine, realm, capabilities)
             // A composed bundle's failure is wrapped ONCE with the chain: a
-            // capability keeps its raw words, a policy refusal its type.
+            // capability keeps its raw words, a policy refusal its type. A
+            // folder seat's refusal rises as the resolver's do, unwrapped.
             .map_err(|error| match (note, error) {
                 (Some(note), CompileError::Capability(reason)) => {
                     CompileError::Capability(format!("bundle: {reason} ({note})"))
@@ -934,8 +940,8 @@ impl Bundle {
                 (Some(note), CompileError::Policy(error)) => {
                     CompileError::ComposedPolicy(Box::new(error), note)
                 }
+                (_, error @ CompileError::Folder(_)) | (None, error) => error,
                 (Some(note), error) => CompileError::Invalid(format!("{error} ({note})")),
-                (None, error) => error,
             })
     }
 
@@ -1001,6 +1007,7 @@ impl Bundle {
         );
         let (seats, verify_agent_hands) =
             assemble::compile_seats(&mut compiler, &machine, &resolved, wrapped_verify)?;
+        assemble::hold_own_drivers(&compiler, &machine, &resolved, wrapped_verify)?;
         let SiteCompiler { agents, sites, .. } = compiler;
         let mut seated = assemble::Seated {
             authority: &authority,
@@ -1026,7 +1033,7 @@ impl Bundle {
         let projections = assemble::projections(&sites);
         let drivers = (!projections.drivers.is_empty()).then_some(&projections.drivers);
         assemble::seal_layers(&agents.reads, &mut resolved, charters)?;
-        let manifest = manifest_for(
+        let mut manifest = manifest_for(
             dir,
             &name,
             &resolved.chain,
@@ -1038,6 +1045,7 @@ impl Bundle {
             Some(capability_record),
             &resolved.leaf_digests(),
         )?;
+        let folder = resolved.pin_folder(&mut manifest);
         resolved.check_leaf(manifest["files"].as_object().expect("manifest files"))?;
         let charters = assemble::charter_pins(&sites);
         Ok(Bundle {
@@ -1054,6 +1062,7 @@ impl Bundle {
             boundary,
             executable: engine.clone(),
             chain: resolved.chain,
+            folder,
             machine,
             seats,
             manifest,
@@ -3967,24 +3976,11 @@ fn fault_kind(fault: &InputFault) -> &'static str {
 /// declaring layer's compiled file map (decision 0046 ruling 4; proposed
 /// 0048 narrows DD9). A realm scaffolded by `init .` also holds mutable
 /// source, results and its journal; those are outside this spawn check.
-/// Ancestor maps are the very maps hashed into their compose digests.
+/// Ancestor and folder maps are the very maps their digests hash (0091).
 /// Paths come from compile's canonical roots and expanded script token;
 /// component comparisons never reinterpret a literal filename byte.
 pub(crate) fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, String)> {
-    let layer = bundle
-        .roots
-        .iter()
-        .filter(|root| directory.starts_with(root))
-        .max_by_key(|root| root.components().count())?;
-    let (name, pinned) = if layer == &bundle.dir {
-        (&bundle.name, bundle.manifest["files"].as_object()?)
-    } else {
-        let ancestor = bundle
-            .chain
-            .iter()
-            .find(|ancestor| &ancestor.dir == layer)?;
-        (&ancestor.name, &ancestor.files)
-    };
+    let (layer, name, pinned) = compose::pinned_layer(bundle, directory)?;
     let current = match walk_files(layer, directory, &BTreeMap::new()) {
         Ok(files) => files,
         Err(error) => return Some((name.clone(), error.to_string())),
@@ -3993,7 +3989,7 @@ pub(crate) fn layer_drift(bundle: &Bundle, directory: &Path) -> Option<(String, 
         .strip_prefix(layer)
         .expect("directory under layer");
     let pinned_files = pinned.iter().filter(|(key, _)| {
-        !key.starts_with(COMPOSE_PREFIX) && Path::new(key).starts_with(relative)
+        compose::reserved_prefix(key).is_none() && Path::new(key).starts_with(relative)
     });
     for (key, digest) in pinned_files {
         match current.get(key) {

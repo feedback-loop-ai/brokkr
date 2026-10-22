@@ -299,6 +299,12 @@ impl Shelves {
         })
     }
 
+    /// The folder's own bundle where the workspace is a folder repository,
+    /// which a seat that says `"from": "folder"` is read from (0091).
+    pub(crate) fn standing_folder(&self) -> Option<&Path> {
+        self.folder.as_deref()
+    }
+
     /// The folder's own bundle, which a personal layer at `dir` names as
     /// `.brokkr`, refused where the workspace has no folder.
     pub(crate) fn folder(&self, dir: &Path) -> Result<PathBuf, CompileError> {

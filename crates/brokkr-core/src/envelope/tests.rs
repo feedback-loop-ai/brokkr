@@ -73,6 +73,34 @@ fn every_event_type_names_itself_as_serde_does() {
     }
 }
 
+/// An event type reads from its word alone (#657): serde's one-key map
+/// form, a value that is not a string, and a word outside the set are
+/// each refused, the unknown word with every name that would have read.
+#[test]
+fn an_event_type_reads_from_its_word_alone() {
+    for (recorded, refusal) in [
+        (
+            json!({"transition/decided": null}),
+            "invalid type: map, expected an event type string",
+        ),
+        (
+            json!(8),
+            "invalid type: integer `8`, expected an event type string",
+        ),
+        (
+            json!("run/paused"),
+            "unknown variant `run/paused`, expected one of `run/started`, `phase/entered`, \
+             `effect/requested`, `effect/started`, `effect/checkpointed`, `effect/succeeded`, \
+             `effect/failed`, `effect/indeterminate`, `transition/decided`, \
+             `operator/commanded`, `operator/accepted`, `operator/rejected`, `run/parked`, \
+             `run/completed`, `run/stopped`",
+        ),
+    ] {
+        let read = serde_json::from_value::<EventType>(recorded.clone());
+        assert_eq!(read.unwrap_err().to_string(), refusal, "{recorded}");
+    }
+}
+
 #[test]
 fn chain_refuses_every_identity_and_sequence_defect() {
     assert_eq!(verify_chain(&[]), Ok(()));

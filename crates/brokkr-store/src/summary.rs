@@ -29,6 +29,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::acknowledgement::standing;
+use crate::event_index::{first_unindexed, runless, IndexFault};
 use crate::schema::all_present;
 use crate::{head_of, patiently, Acknowledgement, Store, StoreError};
 
@@ -62,10 +63,18 @@ const TRIGGERS: [&str; 4] = [
 /// parses never fails its insert. An envelope with two `recorded_at` keys
 /// is one serde refuses, so which of them this reads moves no row a
 /// reader is shown: such a run does not load.
-fn stamp_of(envelope: &str) -> String {
+pub(crate) fn stamp_of(envelope: &str) -> String {
+    text_at(envelope, "$.recorded_at")
+}
+
+/// The value at `path` in an envelope's text, NULL where it holds none as
+/// text, read only from text that is JSON: the one guard every trigger
+/// reads an envelope through, so a non-text value writes NULL, never a
+/// coerced number or JSON.
+pub(crate) fn text_at(envelope: &str, path: &str) -> String {
     format!(
-        "CASE WHEN json_valid({envelope}) AND json_type({envelope}, '$.recorded_at') = 'text'
-           THEN json_extract({envelope}, '$.recorded_at') END"
+        "CASE WHEN json_valid({envelope}) AND json_type({envelope}, '{path}') = 'text'
+           THEN json_extract({envelope}, '{path}') END"
     )
 }
 
@@ -84,7 +93,7 @@ fn moved_to(event: &str) -> String {
 /// `stamp` cut to at most [`STAMP_BYTES`]: past its bound, the cut steps
 /// back past at most three continuation bytes, so it ends at a character
 /// boundary.
-fn cut_stamp(stamp: &str) -> String {
+pub(crate) fn cut_stamp(stamp: &str) -> String {
     let blob = format!("CAST({stamp} AS BLOB)");
     let start = |at: usize| format!("hex(substr({blob}, {at}, 1)) NOT BETWEEN '80' AND 'BF'");
     let n = STAMP_BYTES;
@@ -466,6 +475,14 @@ pub enum Disagreement {
     /// The run does not load, so no fold stands behind its row, whether
     /// the row stands at its head or behind it.
     Unread { run_id: String, error: StoreError },
+    /// The event index is not what the run's events project to, first at
+    /// `seq`: a trigger's row never lags, so wherever the summary row
+    /// stands, this is a bug or an edit.
+    Indexed {
+        run_id: String,
+        seq: u64,
+        fault: IndexFault,
+    },
 }
 
 /// How one run's row stands against its fold: the doctor keeps only what
@@ -492,6 +509,21 @@ impl std::fmt::Display for Disagreement {
             Disagreement::Unread { run_id, error } => {
                 write!(f, "run '{run_id}' does not load: {error}")
             }
+            Disagreement::Indexed { run_id, seq, fault } => match fault {
+                IndexFault::Missing => {
+                    write!(f, "run '{run_id}': its event {seq} has no event index row")
+                }
+                IndexFault::Column(column) => write!(
+                    f,
+                    "run '{run_id}': the event index row of its event {seq} is not the event's \
+                     in its {column}"
+                ),
+                IndexFault::Stray => write!(
+                    f,
+                    "run '{run_id}': the event index holds a row at {seq}, where the run holds \
+                     no event"
+                ),
+            },
         }
     }
 }
@@ -532,11 +564,21 @@ impl Store {
     /// it, writing nothing more, and the next open carries on where it
     /// stopped, since a refolded row is no longer behind. A run that does
     /// not load stays behind, for a reader to read whole and refuse live,
-    /// and for the doctor's sweep to name.
+    /// and for the doctor's sweep to name. The event index's backfill
+    /// follows, on the same terms ([`Store::index_behind_with`]).
     pub(crate) fn catch_up(&mut self) -> Result<(), StoreError> {
+        self.quietly(|store| store.refold_behind_with(|_| {}))?;
+        self.quietly(|store| store.index_behind_with(|_| {}))
+    }
+
+    /// `catch`, spending no patience: a peer's lock ends it, quietly.
+    pub(crate) fn quietly(
+        &mut self,
+        catch: impl FnOnce(&mut Store) -> Result<(), StoreError>,
+    ) -> Result<(), StoreError> {
         let patience = self.patience;
         self.set_patience(std::time::Duration::ZERO)?;
-        let caught = self.refold_behind_with(|_| {});
+        let caught = catch(self);
         self.set_patience(patience)?;
         match caught {
             Err(contended) if contended.is_contention() => Ok(()),
@@ -579,9 +621,11 @@ impl Store {
     }
 
     /// Every run read whole, one run at a time, so the memory is the
-    /// largest run's (ruling 4), whose row disagrees with its fold or
-    /// which does not load: what `brokkr doctor` names as failures. A run
-    /// that loads and whose row is behind its head is a lag, not a
+    /// largest run's (ruling 4), whose row disagrees with its fold, whose
+    /// event index is not what its events project to, or which does not
+    /// load, then every run the index holds rows of and the journal does
+    /// not: what `brokkr doctor` names as failures. A run that loads,
+    /// whose index agrees and whose row is behind its head is a lag, not a
     /// disagreement, and is passed.
     pub fn summary_disagreements(&self) -> Result<Vec<Disagreement>, StoreError> {
         let mut found = Vec::new();
@@ -590,6 +634,7 @@ impl Store {
                 found.push(disagreement);
             }
         })?;
+        found.extend(runless(&self.conn)?);
         Ok(found)
     }
 
@@ -610,7 +655,7 @@ impl Store {
     }
 
     /// The first run id past `after`, or the first of all.
-    fn run_after(&self, after: Option<&str>) -> Result<Option<String>, StoreError> {
+    pub(crate) fn run_after(&self, after: Option<&str>) -> Result<Option<String>, StoreError> {
         let next = match after {
             None => self.conn.query_row(
                 "SELECT run_id FROM runs ORDER BY run_id LIMIT 1",
@@ -655,8 +700,9 @@ impl Store {
     /// peer's append between two of them cannot pass for a disagreement.
     /// The run is read whole before its row's place is judged, so a run
     /// that does not load is named whether its row stands at its head or
-    /// behind it (ruling 7: the doctor's sweep reads every run whole).
-    /// `between` runs after the run is loaded and before its row is
+    /// behind it (ruling 7: the doctor's sweep reads every run whole). The
+    /// same read holds the run's event index to its events, wherever the
+    /// row stands, since a trigger's row never lags. `between` runs after the run is loaded and before its row is
     /// compared: the instant such an append lands, which the tests stage.
     pub(crate) fn compared(
         &self,
@@ -680,6 +726,13 @@ impl Store {
             Ok(events) => events,
             Err(error) => return Ok(Compared::Disagrees(Disagreement::Unread { run_id, error })),
         };
+        if let Some((seq, fault)) = first_unindexed(&self.conn, &run_id, &events)? {
+            return Ok(Compared::Disagrees(Disagreement::Indexed {
+                run_id,
+                seq,
+                fault,
+            }));
+        }
         if folded != Some(head) {
             return Ok(Compared::Behind);
         }

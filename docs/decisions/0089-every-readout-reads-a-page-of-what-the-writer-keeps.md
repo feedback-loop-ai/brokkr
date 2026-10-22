@@ -3,7 +3,7 @@
 Status: accepted — operator ruled 2026-10-19 (PR #769), every choice asked taken as recommended
 Date: 2026-10-18
 
-Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue and the many-hearth `brokkr runs`, which still read the kept way, and the console's last page by the reverse order; slices 2 to 4 are unbuilt
+Built: partial (#753) — slice 1, the fleet, is built but Muninn's queue and the many-hearth `brokkr runs`, which still read the kept way, and the console's last page by the reverse order; of slice 2, `event_index` is built, its trigger, backfill, keyed reads and ruling 4's check, but `seat_summary` and the run and seat views that read them are unbuilt; slices 3 and 4 are unbuilt
 Supersedes in part: 0088
 
 ## Context

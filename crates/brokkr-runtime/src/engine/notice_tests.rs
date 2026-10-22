@@ -1528,9 +1528,9 @@ fn a_recipe_cannot_declare_or_suppress_the_notice_structurally() {
         )
     };
     // Decision 0065 slice one closed each vocabulary over two more keys,
-    // `capabilities` and `tools`, written right after `hands`.
+    // `capabilities` and `tools`, written right after `hands` (0091: `from`).
     let seat_keys = "results, inputs, limits, secrets, class, agent, role, driver, hands, \
-                     capabilities, tools, panel, aggregate, sequence, select";
+                     capabilities, tools, panel, aggregate, sequence, select, from";
     let hands_key =
         "bundle: seat 'work' hands: hands has unknown key 'notice'; known: kind, network, binds \
          (decision 0043)"

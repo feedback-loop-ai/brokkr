@@ -387,7 +387,8 @@ const CROSSING_IS_THE_REALMS: &str = "a crossing is declared by the realm \
     recipe's (decision 0057 ruling 1)";
 
 /// The keys a SEAT may write. Closed, like the class vocabulary itself
-/// and for the same reason — see [`refuse_unknown_keys`].
+/// and for the same reason — see [`refuse_unknown_keys`]. `from` is the
+/// resolver's to read (decision 0091), so a seat alone writes it.
 const SEAT_KEYS: &[&str] = &[
     "results",
     "inputs",
@@ -404,6 +405,7 @@ const SEAT_KEYS: &[&str] = &[
     "aggregate",
     "sequence",
     "select",
+    "from",
 ];
 
 const BODY_KEYS: &[&str] = &[
