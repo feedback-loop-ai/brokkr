@@ -5,9 +5,16 @@
 use std::path::{Path, PathBuf};
 
 use brokkr_runtime::realms::Hearth;
+use brokkr_view::{FleetView, RealmRuns, RunRow, VIEW_VERSION};
 
-use super::page::tests::{folded, now, plant, stamp, Shape, DAY, HOUR, MINUTE, NOW, STYLE};
-use crate::verbs::readouts::world_runs;
+use super::kept_tests::{unlisted, UNLISTED};
+use super::page::tests::{
+    arranged, behind_in_every_section, folded, now, plant, stamp, whole_rows, Shape, DAY, HOUR,
+    MINUTE, NOW, STYLE,
+};
+use super::page::TAIL_KEYS;
+use super::read_journal;
+use super::world::{list_world, list_world_in};
 
 fn hearth(realm: &str, journal: PathBuf) -> Hearth {
     Hearth {
@@ -43,7 +50,7 @@ fn world(dir: &Path) -> Vec<Hearth> {
 /// `<dir>`.
 fn listed(hearths: &[Hearth], json: bool, dir: &Path) -> String {
     let mut out = Vec::new();
-    world_runs(hearths, json, (NOW, &STYLE), &mut out).unwrap();
+    list_world(hearths, json, (NOW, &STYLE), &mut out).unwrap();
     let out = String::from_utf8(out).unwrap();
     out.replace(&dir.display().to_string(), "<dir>")
 }
@@ -77,6 +84,11 @@ fn a_hearth_whose_journal_is_missing_lists_its_refusal_beside_the_others() {
         })
         .collect();
     let refusal = serde_json::json!("sqlite: unable to open database file: <dir>/beta.db");
+    let whole = read_journal(&dir.path().join("beta.db")).detail.unwrap();
+    assert_eq!(
+        whole.replace(&dir.path().display().to_string(), "<dir>"),
+        refusal
+    );
     let none = serde_json::Value::Null;
     let expected = [
         ("alpha", 4, &none),
@@ -88,6 +100,52 @@ fn a_hearth_whose_journal_is_missing_lists_its_refusal_beside_the_others() {
     assert!(!dir.path().join("beta.db").exists());
 }
 
+/// Ruling 6 across hearths: a hearth with more runs behind their summary
+/// than a batch of keys holds lists every run once, each at its place in
+/// the section its fold places it in, as the whole read of that hearth
+/// arranges them, beside a hearth whose runs the store cannot list; in the
+/// JSON and the table alike, and at a batch smaller than any section's
+/// runs behind as at the listing's own.
+#[test]
+fn every_hearth_lists_every_run_once_however_many_are_behind() {
+    let dir = tempfile::tempdir().unwrap();
+    let behind = dir.path().join("behind.db");
+    behind_in_every_section(&behind);
+    let unlisted = unlisted(dir.path());
+    let hearths = [
+        hearth("behind", behind.clone()),
+        hearth("unlisted", unlisted.clone()),
+    ];
+    let runs = arranged(&whole_rows(&behind));
+    let count = runs.len();
+    let realm = |name: &str, journal: &Path, runs: Vec<RunRow>, detail: Option<&str>| RealmRuns {
+        realm: name.to_string(),
+        journal: journal.display().to_string(),
+        count: runs.len(),
+        runs,
+        detail: detail.map(str::to_string),
+    };
+    let view = FleetView {
+        view_version: VIEW_VERSION,
+        realms: vec![
+            realm("behind", &behind, runs, None),
+            realm("unlisted", &unlisted, Vec::new(), Some(UNLISTED)),
+        ],
+        count,
+    };
+    let json = format!("{}\n", serde_json::to_string_pretty(&view).unwrap());
+    let text = crate::render::tests::fleet(&view, NOW, &STYLE);
+    for keys in [3, TAIL_KEYS] {
+        let printed = |json| {
+            let mut out = Vec::new();
+            list_world_in(&hearths, (json, keys), (NOW, &STYLE), &mut out).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        assert_eq!(printed(true), json, "{keys} keys a batch");
+        assert_eq!(printed(false), text, "{keys} keys a batch");
+    }
+}
+
 /// [`world`] as `brokkr runs --json` prints it.
 const WORLD_JSON: &str = r#"{
   "view_version": 25,
@@ -96,52 +154,6 @@ const WORLD_JSON: &str = r#"{
       "realm": "alpha",
       "journal": "<dir>/alpha.db",
       "runs": [
-        {
-          "run_id": "done-a",
-          "status": "completed",
-          "status_known": true,
-          "phase": null,
-          "seq": 2,
-          "created_at": "2026-01-01T00:00:00Z",
-          "last_recorded_at": "2026-10-19T23:55:00Z",
-          "feature": "feat",
-          "detail": null,
-          "quarantine": null,
-          "acknowledgement": null,
-          "residuals": [],
-          "title": "feat",
-          "verdict": {
-            "standing": "shipped",
-            "rule": null,
-            "residual": null,
-            "reason": null,
-            "text": "—"
-          },
-          "hire": null
-        },
-        {
-          "run_id": "fresh-a",
-          "status": "running",
-          "status_known": true,
-          "phase": null,
-          "seq": 1,
-          "created_at": "2026-01-01T00:00:00Z",
-          "last_recorded_at": "2026-10-19T23:50:00Z",
-          "feature": "feat",
-          "detail": null,
-          "quarantine": null,
-          "acknowledgement": null,
-          "residuals": [],
-          "title": "feat",
-          "verdict": {
-            "standing": "running",
-            "rule": null,
-            "residual": null,
-            "reason": null,
-            "text": ""
-          },
-          "hire": null
-        },
         {
           "run_id": "refused-a",
           "status": null,
@@ -196,6 +208,52 @@ const WORLD_JSON: &str = r#"{
             "residual": "high",
             "reason": "REVIEW-HOLD for (review, hold): held",
             "text": "HOLD"
+          },
+          "hire": null
+        },
+        {
+          "run_id": "fresh-a",
+          "status": "running",
+          "status_known": true,
+          "phase": null,
+          "seq": 1,
+          "created_at": "2026-01-01T00:00:00Z",
+          "last_recorded_at": "2026-10-19T23:50:00Z",
+          "feature": "feat",
+          "detail": null,
+          "quarantine": null,
+          "acknowledgement": null,
+          "residuals": [],
+          "title": "feat",
+          "verdict": {
+            "standing": "running",
+            "rule": null,
+            "residual": null,
+            "reason": null,
+            "text": ""
+          },
+          "hire": null
+        },
+        {
+          "run_id": "done-a",
+          "status": "completed",
+          "status_known": true,
+          "phase": null,
+          "seq": 2,
+          "created_at": "2026-01-01T00:00:00Z",
+          "last_recorded_at": "2026-10-19T23:55:00Z",
+          "feature": "feat",
+          "detail": null,
+          "quarantine": null,
+          "acknowledgement": null,
+          "residuals": [],
+          "title": "feat",
+          "verdict": {
+            "standing": "shipped",
+            "rule": null,
+            "residual": null,
+            "reason": null,
+            "text": "—"
           },
           "hire": null
         }
@@ -259,11 +317,11 @@ const WORLD_JSON: &str = r#"{
 
 /// [`world`] as `brokkr runs` prints it, 120 columns and no colour.
 const WORLD_TEXT: &str = r#"alpha · 4 runs · <dir>/alpha.db
-done-a    completed         -      seq 2 7008h00m feat
-fresh-a   running           -      seq 1 7008h00m feat
 refused-a ?                 -      seq - 7008h00m feat
   fold  event 2: operator/accepted without a matching command
 park-a    awaiting_operator review seq 7 7008h00m feat
+fresh-a   running           -      seq 1 7008h00m feat
+done-a    completed         -      seq 2 7008h00m feat
 
 beta · 0 runs · <dir>/beta.db
   journal  sqlite: unable to open database file: <dir>/beta.db

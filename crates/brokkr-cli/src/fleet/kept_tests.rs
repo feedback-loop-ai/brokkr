@@ -11,7 +11,7 @@ use brokkr_store::{Attribution, Store};
 use serde_json::{json, Value};
 
 use super::kept::rules;
-use super::{read_hearth, read_journal, read_kept, Journal, KeptFleet, ListedRun};
+use super::{read_hearth, Journal, KeptFleet, ListedRun};
 use crate::tests::envelope_builder::EnvelopeBuilder;
 use crate::tests::{broken_chain_store, poisoned_store, running_store};
 
@@ -439,8 +439,13 @@ fn a_hearth_the_store_cannot_list_is_refused_alike_by_the_whole_and_the_kept_rea
     let whole = read_hearth(&Store::open_read_only(&db).unwrap());
     assert_eq!(whole.runs.len(), 0);
     assert_eq!(whole.listed().err().as_deref(), Some(UNLISTED));
-    let (kept, refused) = read_kept(&db);
-    assert_eq!(refused.as_deref(), Some(UNLISTED));
+    let mut kept = KeptFleet::default();
+    let store = Store::open_read_only(&db).unwrap();
+    let refused = kept.refresh(&store, Journal::at(&db)).err();
+    assert_eq!(
+        refused.map(|error| error.to_string()).as_deref(),
+        Some(UNLISTED)
+    );
     let stated = [Journal::at(&db), None];
     assert_eq!(stated.map(|now| kept.replaced(now)), [false, false]);
 }
@@ -729,23 +734,6 @@ fn a_whole_read_that_cannot_open_its_connection_refuses_the_refresh() {
         Store::open_read_only(&db).err().unwrap().to_string()
     );
     assert_eq!(kept.entries().len(), 0);
-}
-
-/// `brokkr runs` over many hearths reads each the kept way, and a
-/// journal that is not there is that hearth's refusal in the words the
-/// whole read gave it.
-#[test]
-fn a_hearth_read_kept_says_what_the_whole_read_said_of_a_missing_journal() {
-    let dir = tempfile::tempdir().unwrap();
-    let missing = dir.path().join("absent.db");
-    let (kept, refused) = read_kept(&missing);
-    assert_eq!(kept.entries().len(), 0);
-    assert_eq!(refused, read_journal(&missing).detail);
-    let words = format!(
-        "sqlite: unable to open database file: {}",
-        missing.display()
-    );
-    assert_eq!(refused, Some(words));
 }
 
 /// [`rules`] keeps what [`brokkr_view::residual_findings`] reads: over a

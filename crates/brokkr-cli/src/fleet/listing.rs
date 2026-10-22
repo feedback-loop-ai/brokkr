@@ -90,6 +90,52 @@ pub(crate) fn list_hearth_in<T>(
     })
 }
 
+/// `list`, handed the lister of every run of the hearth whose journal is
+/// at `journal` at `now`, `keys` of the runs behind past a refresh keyed at
+/// a time, in one read; or the store's words where the journal will not
+/// open or its pages will not list: a many-hearth listing survives a
+/// hearth it cannot read, as it survives one corrupt run. Opened
+/// READ-ONLY: a reading surface creates no journal (decision 0026 ruling
+/// 5).
+pub(crate) fn list_journal<T>(
+    journal: &Path,
+    (now, keys): (&str, usize),
+    list: impl FnOnce(Result<&Lister<'_>, String>) -> Result<T>,
+) -> Result<T> {
+    let before = Journal::at(journal);
+    let store = match Store::open_read_only(journal) {
+        Ok(store) => store,
+        Err(error) => return list(Err(error.to_string())),
+    };
+    store.as_one_read(|| match Pages::every(&store, before, keys) {
+        Ok(pages) => list(Ok(&Lister {
+            pages: &pages,
+            store: &store,
+            now,
+        })),
+        Err(error) => list(Err(error.to_string())),
+    })
+}
+
+/// What parts the JSON array item after `written` items from those
+/// before it: a line break, after a comma past the first.
+pub(crate) fn item_break(written: usize) -> &'static [u8] {
+    if written == 0 {
+        b"\n"
+    } else {
+        b",\n"
+    }
+}
+
+/// The `]` that ends a JSON array of `count` items, on a line of its own
+/// `indent`ed where it holds any.
+pub(crate) fn close_array(out: &mut impl Write, count: usize, indent: &str) -> Result<()> {
+    if count > 0 {
+        write!(out, "\n{indent}")?;
+    }
+    Ok(out.write_all(b"]")?)
+}
+
 /// The store's refusal of a listing, in its own words: of its pages, or
 /// of a page it reads.
 fn refused(error: StoreError) -> anyhow::Error {
@@ -165,35 +211,59 @@ impl Lister<'_> {
             out,
             "{{\n  \"view_version\": {VIEW_VERSION},\n  \"runs\": ["
         )?;
+        let count = self.json_rows(out, "    ")?;
+        close_array(out, count, "  ")?;
+        writeln!(out, ",\n  \"count\": {count}\n}}")?;
+        Ok(())
+    }
+
+    /// Every run's row, pretty, each of its lines `indent`ed, as the items
+    /// of an open JSON array, written a page of rows at a time: how many.
+    pub(crate) fn json_rows(&self, out: &mut impl Write, indent: &str) -> Result<usize> {
         let mut count = 0usize;
         self.each_page(|rows| {
             for row in rows {
-                out.write_all(if count == 0 { b"\n" } else { b",\n" })?;
+                out.write_all(item_break(count))?;
                 let text = serde_json::to_string_pretty(&row)?;
                 let indented: Vec<String> =
-                    text.lines().map(|line| format!("    {line}")).collect();
+                    text.lines().map(|line| format!("{indent}{line}")).collect();
                 out.write_all(indented.join("\n").as_bytes())?;
                 count += 1;
             }
             Ok(())
         })?;
-        if count > 0 {
-            out.write_all(b"\n  ")?;
-        }
-        writeln!(out, "],\n  \"count\": {count}\n}}")?;
-        Ok(())
+        Ok(count)
     }
 
     /// Every run as the text table prints it: the columns sized over every
     /// page first, then each page written, so the pages line up as one.
     pub(crate) fn every_text(&self, out: &mut impl Write, style: &Style) -> Result<()> {
-        let mut widths = [0usize; 5];
+        let (widths, _) = self.widths()?;
+        self.text_rows(out, &widths, style)
+    }
+
+    /// The table's columns sized over every page, and how many rows the
+    /// pages hold.
+    pub(crate) fn widths(&self) -> Result<([usize; 5], usize)> {
+        let (mut widths, mut count) = ([0usize; 5], 0);
         self.each_page(|rows| {
             render::widen(&mut widths, &rows, self.now);
+            count += rows.len();
             Ok(())
         })?;
+        Ok((widths, count))
+    }
+
+    /// Every page's rows as the table prints them, each sized column
+    /// `widths` wide.
+    pub(crate) fn text_rows(
+        &self,
+        out: &mut impl Write,
+        widths: &[usize; 5],
+        style: &Style,
+    ) -> Result<()> {
         self.each_page(|rows| {
-            out.write_all(render::lines_within(&rows, &widths, self.now, style).as_bytes())?;
+            out.write_all(render::lines_within(&rows, widths, self.now, style).as_bytes())?;
             Ok(())
         })
     }

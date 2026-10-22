@@ -28,8 +28,8 @@ use std::io::IsTerminal;
 
 use brokkr_view::transcript::TranscriptRead;
 use brokkr_view::{
-    keeps_participant, keeps_phase, keeps_row, FleetView, JournalRow, Lens, ModelAtBoundary,
-    Participant, Phase, RunRow, RunView, RunsView, ScopeError,
+    keeps_participant, keeps_phase, keeps_row, JournalRow, Lens, ModelAtBoundary, Participant,
+    Phase, RunRow, RunView, RunsView, ScopeError,
 };
 
 const RESET: &str = "\x1b[0m";
@@ -213,16 +213,9 @@ pub(crate) fn served_text(served: &ModelAtBoundary) -> ServedText {
 /// feature. Columns are sized to the widest value in the batch; the
 /// feature takes what is left.
 pub(crate) fn runs(view: &RunsView, now: &str, style: &Style) -> String {
-    run_lines(&view.runs, now, style)
-}
-
-/// The lines one batch of rows renders to. Named apart from [`runs`] so
-/// a many-hearth listing is the SAME rendering repeated under a heading
-/// rather than a second implementation of a run line.
-fn run_lines(view_runs: &[RunRow], now: &str, style: &Style) -> String {
     let mut widths = [0usize; 5];
-    widen(&mut widths, view_runs, now);
-    lines_within(view_runs, &widths, now, style)
+    widen(&mut widths, &view.runs, now);
+    lines_within(&view.runs, &widths, now, style)
 }
 
 /// A run's six cells: id, status, phase, seq, age and feature.
@@ -316,35 +309,40 @@ fn under_row(run: &RunRow) -> Vec<String> {
     refusal.into_iter().chain(acknowledged).collect()
 }
 
-/// A many-hearth world's fleet: one section per realm, its runs listed
-/// under its own heading rather than interleaved with another realm's
-/// (decision 0026 ruling 3). A one-hearth world never reaches here —
+/// The heading of the `index`th realm's section of a many-hearth world's
+/// fleet: its runs are listed under it rather than interleaved with
+/// another realm's (decision 0026 ruling 3), a blank line parting it from
+/// the section before. It names the realm, how many runs it holds and the
+/// journal they were read from. A one-hearth world never reaches here —
 /// `brokkr runs` renders it exactly as it always has.
-pub(crate) fn fleet(view: &FleetView, now: &str, style: &Style) -> String {
+pub(crate) fn realm_head(
+    index: usize,
+    (realm, journal): (&str, &str),
+    count: usize,
+    detail: Option<&str>,
+    style: &Style,
+) -> String {
     let mut out = String::new();
-    for (index, realm) in view.realms.iter().enumerate() {
-        if index > 0 {
-            out.push('\n');
-        }
-        let count = match realm.count {
-            1 => "1 run".to_string(),
-            count => format!("{count} runs"),
-        };
-        let head = format!(
-            "{} · {count} · {}",
-            Safe::new(&realm.realm).as_str(),
-            Safe::new(&realm.journal).as_str()
+    if index > 0 {
+        out.push('\n');
+    }
+    let count = match count {
+        1 => "1 run".to_string(),
+        count => format!("{count} runs"),
+    };
+    let head = format!(
+        "{} · {count} · {}",
+        Safe::new(realm).as_str(),
+        Safe::new(journal).as_str()
+    );
+    push_line(&mut out, &tint(&head, BOLD, style));
+    // A hearth whose journal would not open says so where its runs
+    // would have been; the rest of the world is still listed.
+    if let Some(detail) = detail {
+        push_line(
+            &mut out,
+            &format!("  journal  {}", Safe::new(detail).as_str()),
         );
-        push_line(&mut out, &tint(&head, BOLD, style));
-        // A hearth whose journal would not open says so where its runs
-        // would have been; the rest of the world is still listed.
-        if let Some(detail) = &realm.detail {
-            push_line(
-                &mut out,
-                &format!("  journal  {}", Safe::new(detail).as_str()),
-            );
-        }
-        out.push_str(&run_lines(&realm.runs, now, style));
     }
     out
 }
@@ -800,4 +798,4 @@ pub(crate) fn shell_word(text: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
