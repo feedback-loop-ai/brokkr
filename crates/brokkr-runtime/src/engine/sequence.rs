@@ -14,9 +14,13 @@ use brokkr_protocol::{AttemptOutcome, AttemptReport};
 use brokkr_store::StoreError;
 use serde_json::{json, Map, Value};
 
+use super::carry::{
+    outcome_under,
+    record::{settled_members, PanelRecord, PanelSpan},
+};
 use super::{
     argv_for, copy_secret_binding_facts, dialect_attempt_outcome, expand_dialect_argv,
-    failed_to_start, git_head, nearest_change, panel_outcome, stamp_boundary, start_failure_fields,
+    failed_to_start, git_head, nearest_change, stamp_boundary, start_failure_fields,
     start_failure_sites, stderr_tail, DriverRun, Engine, EngineError, Indeterminate, Selection,
     Site, Unproven,
 };
@@ -77,6 +81,7 @@ struct StepAt<'a> {
 /// A step form's outcome, and which of its sites failed to start, should
 /// the step be the one that fails the attempt.
 struct StepRun {
+    record: Option<PanelRecord>,
     outcome: AttemptOutcome,
     start_failures: Vec<Site>,
     /// What the step's terminal event carries when its tree is not
@@ -306,11 +311,13 @@ impl Engine {
         )?;
         Ok(match driven {
             DriverRun::SpawnFailed(error) => StepRun {
+                record: None,
                 outcome: AttemptOutcome::Failed { error },
                 start_failures: vec![site],
                 unproven: Unproven::Proven,
             },
             DriverRun::Ran(report) => StepRun {
+                record: None,
                 start_failures: if failed_to_start(&report) {
                     vec![site]
                 } else {
@@ -331,6 +338,7 @@ impl Engine {
         members: &[PanelMember],
         aggregate: Aggregate,
     ) -> Result<StepRun, EngineError> {
+        let mut span = PanelSpan::open(&self.repo);
         let tag_prefix = format!("{}:", at.step.name);
         let mut step_input = run.input.clone();
         step_input["allowed_results"] = run.allowed_results(at).clone();
@@ -348,10 +356,22 @@ impl Engine {
         let (effect_id, attempt_id) = (run.effect_id, run.attempt_id);
         let reports = self.run_panel(effect_id, attempt_id, &runs, run.deadline, &tag_prefix)?;
         self.journal_panel_members(effect_id, attempt_id, &reports, &runs, &tag_prefix)?;
+        span.close(&self.repo);
+        let record = PanelRecord {
+            span,
+            settled_members: settled_members(&reports, Some(&at.step.name)),
+        };
+        let plan = (at.index == 0)
+            .then_some(run.selection.carry.as_ref())
+            .flatten();
+        let start_failures = start_failure_sites(&reports, &tag_prefix);
+        let unproven = Unproven::panel(&reports);
+        let outcome = outcome_under(aggregate, plan, reports, &record.span, run.attempt_id)?;
         Ok(StepRun {
-            start_failures: start_failure_sites(&reports, &tag_prefix),
-            unproven: Unproven::panel(&reports),
-            outcome: panel_outcome(aggregate, reports),
+            record: Some(record),
+            start_failures,
+            unproven,
+            outcome,
         })
     }
 
@@ -418,6 +438,7 @@ impl Engine {
         )?;
         let mut unproven = Unproven::Proven;
         Ok(StepVerdict::Goes(StepRun {
+            record: None,
             outcome: dialect_attempt_outcome(driven, &mut unproven),
             start_failures: Vec::new(),
             unproven,
@@ -438,15 +459,8 @@ impl Engine {
         // boundary beside it (design DD19); a panel step's aggregate
         // names none and carries none.
         let boundary = self.site_boundary(&at.label);
-        let StepVerdict::Goes(result) = self.step_result(
-            run,
-            at,
-            ran.outcome,
-            ran.unproven,
-            &ran.start_failures,
-            boundary,
-        )?
-        else {
+        let start_failures = ran.start_failures.clone();
+        let StepVerdict::Goes(result) = self.step_result(run, at, ran, boundary)? else {
             return Ok(StepVerdict::Ended);
         };
         if !run.is_last(at) {
@@ -460,8 +474,7 @@ impl Engine {
         // A step's result the fence refuses (decision 0034, ruling
         // 6) fails the attempt at that step, with the same facts a
         // step that failed on its own would carry.
-        let refused =
-            |refusal: String| run.failed_payload(at, &refusal, ran.start_failures.clone());
+        let refused = |refusal: String| run.failed_payload(at, &refusal, start_failures.clone());
         if run.is_last(at) {
             self.finish_sequence(run, at, result, carried, refused)
         } else {
@@ -476,20 +489,36 @@ impl Engine {
         &mut self,
         run: &SequenceRun,
         at: &StepAt,
-        outcome: AttemptOutcome,
-        unproven: Unproven,
-        start_failures: &[Site],
+        ran: StepRun,
         boundary: Option<Boundary>,
     ) -> Result<StepVerdict<Value>, EngineError> {
-        match outcome {
+        match ran.outcome {
             AttemptOutcome::Succeeded { result } => {
                 Ok(StepVerdict::Goes(stamp_boundary(result, boundary)))
             }
             AttemptOutcome::Failed { error } => {
-                self.end_failed(run, run.failed_payload(at, &error, start_failures.to_vec()))
+                let mut payload = run.failed_payload(at, &error, ran.start_failures);
+                if let Some(record) = ran.record {
+                    record.stamp(&mut payload);
+                }
+                self.end_failed(run, payload)
             }
             AttemptOutcome::Indeterminate { reason } => {
-                self.end_indeterminate(run, at, &reason, unproven)
+                let mut payload = json!(Indeterminate {
+                    effect_id: run.effect_id,
+                    attempt_id: run.attempt_id,
+                    reason: format!("sequence step '{}': {reason}", at.step.name),
+                    unproven: ran.unproven
+                });
+                if let Some(record) = ran.record {
+                    record.stamp(&mut payload);
+                }
+                self.append(
+                    EventType::EffectIndeterminate,
+                    payload,
+                    Some(run.attempt_id.to_owned()),
+                )
+                .map(|_| StepVerdict::Ended)
             }
         }
     }

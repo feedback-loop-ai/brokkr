@@ -1063,15 +1063,12 @@ fn a_member_checkpointing_after_a_peers_refusal_parks_the_panel() {
     let deadline = std::time::Duration::from_secs(UNHURRIED_SECONDS);
     engine
         .execute_panel(
-            "effect",
-            "attempt",
-            "work",
+            &PanelAt::new("effect", "attempt", "work", false),
             &members,
             Aggregate::UnanimousPass,
             &input,
             deadline,
             &Selection::new(),
-            false,
         )
         .unwrap();
 

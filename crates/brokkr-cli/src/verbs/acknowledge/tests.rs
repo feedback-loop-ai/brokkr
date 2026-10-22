@@ -20,6 +20,7 @@ const REASON: &str = "history from an engine since changed";
 
 fn acknowledging(run: &str, db: &Path) -> OperatorArgs {
     OperatorArgs {
+        member: crate::cli_args::MemberRetryArgs::default(),
         run: run.to_string(),
         command: "acknowledge".to_string(),
         reason: REASON.to_string(),

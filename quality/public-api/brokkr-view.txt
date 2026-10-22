@@ -314,6 +314,9 @@ pub brokkr_view::AnalyticsHearth::runs: &'a [brokkr_view::AnalyticsRun<'a>]
 pub struct brokkr_view::AnalyticsRun<'a>
 pub brokkr_view::AnalyticsRun::events: &'a [brokkr_core::envelope::EventEnvelope]
 pub brokkr_view::AnalyticsRun::state: core::option::Option<&'a brokkr_core::fold::RunState>
+pub struct brokkr_view::CarriedFrom
+pub brokkr_view::CarriedFrom::attempt_id: alloc::string::String
+pub brokkr_view::CarriedFrom::ordinal: usize
 pub struct brokkr_view::Cell
 pub brokkr_view::Cell::absent: bool
 pub brokkr_view::Cell::note: core::option::Option<alloc::string::String>
@@ -453,6 +456,7 @@ pub brokkr_view::Paged::next: core::option::Option<brokkr_view::Cursor>
 pub struct brokkr_view::Participant
 pub brokkr_view::Participant::activity: brokkr_view::Activity
 pub brokkr_view::Participant::attempts: u64
+pub brokkr_view::Participant::carried_from: core::option::Option<brokkr_view::CarriedFrom>
 pub brokkr_view::Participant::checkpoints: alloc::vec::Vec<brokkr_view::CheckpointRow>
 pub brokkr_view::Participant::cost: core::option::Option<f64>
 pub brokkr_view::Participant::cost_aggregated: bool
@@ -686,6 +690,7 @@ pub fn brokkr_view::keeps_participant(core::option::Option<&brokkr_view::Lens>, 
 pub fn brokkr_view::keeps_phase(core::option::Option<&brokkr_view::Lens>, &brokkr_view::Phase) -> bool
 pub fn brokkr_view::keeps_row(core::option::Option<&brokkr_view::Lens>, &brokkr_view::JournalRow) -> bool
 pub fn brokkr_view::lens_for(&brokkr_view::RunView, core::option::Option<&brokkr_view::Scope>) -> core::result::Result<core::option::Option<brokkr_view::Lens>, brokkr_view::ScopeError>
+pub fn brokkr_view::member_retry_refusal(&str) -> alloc::string::String
 pub fn brokkr_view::need(&brokkr_view::RunRow, &str) -> core::option::Option<brokkr_view::Need>
 pub fn brokkr_view::operator_commands(&brokkr_core::fold::RunState) -> alloc::vec::Vec<alloc::string::String>
 pub fn brokkr_view::operator_refusal(&str, &str, &str) -> alloc::string::String

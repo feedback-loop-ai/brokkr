@@ -19,6 +19,8 @@ use uuid::Uuid;
 
 use super::broker::fold::Begun;
 use super::broker::{admission, observed, settlement, Held, Observed};
+use super::carry::{CarryPlan, CarryRefusal};
+use super::panel::PanelAt;
 use super::{
     argv_for, arms_effect_gate_head, git_head, phase_of, select_candidates, verify_record, Engine,
     EngineError, Selection, SiteSpawn, RESULTS,
@@ -64,7 +66,14 @@ impl Engine {
             input["context"]["journal"] = Value::String(journal.to_string_lossy().into_owned());
         }
 
-        let seat = self.bundle.seats[seat_name].clone();
+        let carry = match self.carry_selection(events, state, effect_id) {
+            Ok(plan) => plan,
+            Err(refusal) => return self.refuse_carry(effect_id, refusal),
+        };
+        let mut seat = self.bundle.seats[seat_name].clone();
+        if let Some(plan) = &carry {
+            plan.narrow(&mut seat.body, state.strategy.as_deref());
+        }
         // `seat_input` above has already refused an unresolved selector
         // against this same folded state.
         let (body, selected_case) = seat
@@ -86,7 +95,7 @@ impl Engine {
                 .body
                 .selected_is_gate(state.strategy.as_deref(), seat.has_gate),
         };
-        let (selection, started) = self.plan_attempt(events, &at, &mut input)?;
+        let (selection, started) = self.plan_attempt(events, &at, &mut input, carry)?;
         // started is durable BEFORE the driver spawns: a crash in between
         // recovers as indeterminate, never as a silent double-execution.
         if arms_effect_gate_head(&body, &seat, state.strategy.as_deref()) {
@@ -139,12 +148,7 @@ impl Engine {
     /// repo move). Never run something other than what was requested:
     /// the attempt starts on no driver and fails, saying why.
     fn refuse_changed_input(&mut self, effect_id: &str) -> Result<(), EngineError> {
-        let attempt_id = Uuid::new_v4().to_string();
-        self.append(
-            EventType::EffectStarted,
-            json!({"effect_id": effect_id, "attempt_id": attempt_id, "driver": "none"}),
-            Some(attempt_id.clone()),
-        )?;
+        let attempt_id = self.start_refusal(effect_id)?;
         self.append(
             EventType::EffectFailed,
             json!({
@@ -155,6 +159,22 @@ impl Engine {
             }),
             Some(attempt_id),
         )?;
+        Ok(())
+    }
+
+    fn start_refusal(&mut self, effect_id: &str) -> Result<String, EngineError> {
+        let attempt_id = Uuid::new_v4().to_string();
+        self.append(
+            EventType::EffectStarted,
+            json!({"effect_id": effect_id, "attempt_id": attempt_id, "driver": "none"}),
+            Some(attempt_id.clone()),
+        )?;
+        Ok(attempt_id)
+    }
+
+    fn refuse_carry(&mut self, effect_id: &str, refusal: CarryRefusal) -> Result<(), EngineError> {
+        let attempt_id = self.start_refusal(effect_id)?;
+        self.append(EventType::EffectIndeterminate, json!({"effect_id": effect_id, "attempt_id": attempt_id, "reason": refusal.to_string()}), Some(attempt_id))?;
         Ok(())
     }
 
@@ -191,6 +211,7 @@ impl Engine {
         events: &[EventEnvelope],
         at: &Dispatch<'_>,
         input: &mut Value,
+        carry: Option<CarryPlan>,
     ) -> Result<(Selection, Value), EngineError> {
         let driver_label = driver_label(at.body);
         // Which link of each agent's chain runs this attempt, decided
@@ -249,6 +270,13 @@ impl Engine {
             &started,
             started_here,
         );
+        if let Some(plan) = &carry {
+            let carried = plan.carried();
+            if !carried.is_empty() {
+                started["carried"] = json!(carried);
+            }
+        }
+        selection.carry = carry;
         Ok((selection, started))
     }
 
@@ -265,15 +293,12 @@ impl Engine {
         match at.body {
             ExecutableBody::Invocation(Invocation::Panel { members, aggregate }) => self
                 .execute_panel(
-                    at.effect_id,
-                    at.attempt_id,
-                    at.site_name,
+                    &PanelAt::new(at.effect_id, at.attempt_id, at.site_name, at.gate),
                     members,
                     *aggregate,
                     &input,
                     deadline,
                     selection,
-                    at.gate,
                 ),
             ExecutableBody::Sequence { steps } => self.execute_sequence(
                 at.effect_id,

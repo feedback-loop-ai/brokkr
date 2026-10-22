@@ -52,6 +52,7 @@ use boxed::{artifact_root, boxed_spawn, make_root};
 #[cfg(test)]
 use boxed::hands_command;
 mod capability_calls;
+mod carry;
 mod checkpoints;
 mod decide;
 mod dispatch;
@@ -67,10 +68,19 @@ mod marks;
 pub use marks::SiteMarks;
 mod operator;
 mod panel;
+#[cfg(test)]
+mod panel_tests;
+mod worktree;
+use worktree::git_dirty;
+pub use worktree::git_head;
 mod replay;
 mod sequence;
 use operator::operator_stop_reason;
-use panel::{panel_outcome, start_failure_sites};
+#[cfg(test)]
+use panel::panel_outcome;
+use panel::start_failure_sites;
+#[cfg(test)]
+use panel::PanelAt;
 // The test modules build a member's run through `use super::*`.
 #[cfg(test)]
 use panel::MemberRun;
@@ -82,9 +92,10 @@ use brokkr_core::fold::{
     OperatorCommand::{self, Retry, Stop},
     Refusal,
 };
+pub use carry::CarryRefusal;
 pub use operator::{
     apply_fenced_operator_command, conclude, operator_command, operator_supersede, CommandWord,
-    ConcludeRefusal, FencedCommand, FencedCommandOutcome, Supersede,
+    ConcludeRefusal, FencedCommand, FencedCommandOutcome, MemberRetryOutcome, Supersede,
 };
 #[cfg(test)]
 use operator::{
@@ -1820,6 +1831,7 @@ fn site_label(site_name: &str, site: &Site) -> String {
 /// no exec row ever carries a confirmed root.
 #[derive(Debug, Default)]
 struct Selection {
+    carry: Option<carry::CarryPlan>,
     candidates: BTreeMap<Site, Candidate>,
     plans: BTreeMap<Site, SitePlan>,
     /// The brokers provisioning sealed, by site label (U7d2).
@@ -3421,30 +3433,6 @@ fn docs_class(repo: &std::path::Path, head: &str) -> Option<Vec<regex::Regex>> {
 /// instead of the guards switching off when the flag is omitted.
 fn operated_repo(repo: Option<PathBuf>) -> PathBuf {
     repo.unwrap_or_else(|| std::env::current_dir().expect("cwd"))
-}
-
-/// The repository's observed HEAD, or nothing when there is no readable
-/// git tree there. Public because `brokkr realms` reads out the same
-/// fact the ship gate compares against — one reader, not two.
-pub fn git_head(repo: &std::path::Path) -> Option<String> {
-    let out = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo)
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
-fn git_dirty(repo: &std::path::Path) -> bool {
-    Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(repo)
-        .output()
-        .map(|out| !out.stdout.is_empty())
-        .unwrap_or(true) // unreadable repo counts as dirty: fail closed
 }
 
 /// Whether the EFFECT's own span carries the gate-head observation

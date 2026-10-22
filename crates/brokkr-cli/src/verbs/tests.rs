@@ -127,6 +127,7 @@ fn conclude_resolves_latest_to_the_run_it_stops_and_refuses_an_empty_run() {
 /// supersede-only argument.
 fn operator(command: &str, journal: JournalArgs) -> OperatorArgs {
     OperatorArgs {
+        member: crate::cli_args::MemberRetryArgs::default(),
         run: "latest".into(),
         command: command.into(),
         reason: "requirements changed".into(),

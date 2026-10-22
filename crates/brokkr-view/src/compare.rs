@@ -361,6 +361,7 @@ pub fn resolutions(events: &[EventEnvelope]) -> BTreeMap<String, Resolution> {
     run_view(events, None)
         .participants
         .into_iter()
+        .filter(|part| part.carried_from.is_none())
         .map(|part| (part.label.clone(), Resolution::of(part)))
         .collect()
 }

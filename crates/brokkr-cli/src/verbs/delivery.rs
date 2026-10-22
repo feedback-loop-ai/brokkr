@@ -177,8 +177,10 @@ pub(crate) fn operator(
         by_seq,
         by_realm,
         journal,
+        member,
     }: OperatorArgs,
 ) -> Result<ExitCode> {
+    member_retry::validate(&command, &member)?;
     // Whether any argument that belongs to `supersede` alone
     // was typed. Asked HERE, before the branch below takes
     // those arguments, because on a `retry` or a `stop` one of
@@ -204,7 +206,8 @@ pub(crate) fn operator(
     anyhow::ensure!(
         !cited,
         "--findings, --by-run, --by-seq and --by-realm belong to \
-         'supersede'; '{command}' takes --run, --reason, --realms and --db"
+         'supersede'; '{command}' takes {}",
+        member_retry::accepted_arguments(&command)
     );
     if command == "acknowledge" {
         return super::acknowledge::acknowledge(workspace, &run, &reason, journal);
@@ -212,6 +215,9 @@ pub(crate) fn operator(
     let Some(verb) = OperatorCommand::parse(&command) else {
         anyhow::bail!("operator command must be 'retry', 'stop', 'supersede' or 'acknowledge'");
     };
+    if !member.member.is_empty() {
+        return member_retry::retry(workspace, &run, &reason, journal, member);
+    }
     // The journal `run` wrote (#374): the map's, unless `--db`
     // outranks it.
     let mut store = open_journal(&journal.journal(workspace)?, Access::Append)?;
@@ -221,7 +227,12 @@ pub(crate) fn operator(
     // engine, so it can come back refused. Saying "recorded"
     // there would tell the operator the opposite of what the
     // journal says.
-    match operator_command(&mut store, &run, verb, &operator, &reason)? {
+    let outcome = operator_command(&mut store, &run, verb, &operator, &reason)?;
+    disposition(outcome, &command, &run)
+}
+
+fn disposition(outcome: FencedCommandOutcome, command: &str, run: &str) -> Result<ExitCode> {
+    match outcome {
         FencedCommandOutcome::Accepted { .. } => {
             eprintln!("recorded operator {command}; continue with: brokkr resume --run {run}");
             Ok(Exit::Completed.into())
@@ -235,7 +246,7 @@ pub(crate) fn operator(
             // the condition and passes the word through rather
             // than paraphrasing it into one story. The view offers the
             // same words before the command is typed (#568).
-            eprintln!("{}", brokkr_view::operator_refusal(&command, &reason, &run));
+            eprintln!("{}", brokkr_view::operator_refusal(command, &reason, run));
             Ok(Exit::Failed.into())
         }
     }
@@ -243,3 +254,5 @@ pub(crate) fn operator(
 
 #[cfg(test)]
 mod tests;
+
+mod member_retry;

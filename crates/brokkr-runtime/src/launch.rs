@@ -299,6 +299,15 @@ pub fn start(
 pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> {
     let state = state_of(&request.workspace)?;
     let store = Store::open(&request.journal)?;
+    resume_with(store, state, request, run)
+}
+
+fn resume_with(
+    store: Store,
+    state: Option<PathBuf>,
+    request: LaunchRequest,
+    run: &str,
+) -> Result<Engine, LaunchError> {
     let manifest = store.manifest(run)?;
     let dir = request.bundle.resolve()?;
     let repo = request.repo.as_deref().unwrap_or(&request.workspace);
@@ -318,6 +327,24 @@ pub fn resume(request: LaunchRequest, run: &str) -> Result<Engine, LaunchError> 
     engine.secrets_file = request.secrets;
     engine.state = state;
     Ok(engine)
+}
+
+/// Retry only the named panel members, admitting under the same pinned bundle as `resume`.
+pub fn operator_retry_members(
+    request: LaunchRequest,
+    run: &str,
+    names: &[String],
+    operator: &str,
+    reason: &str,
+) -> Result<crate::MemberRetryOutcome, LaunchError> {
+    let state = state_of(&request.workspace)?;
+    let mut store = Store::open(&request.journal)?;
+    let read = match Engine::read_member_retry(&mut store, run)? {
+        Ok(read) => read,
+        Err(outcome) => return Ok(outcome),
+    };
+    let mut engine = resume_with(store, state, request, run)?;
+    Ok(engine.retry_members(read, names, operator, reason)?)
 }
 
 /// A past run's feature as a NEW run, in `world` (decision 0046 ruling
@@ -577,4 +604,4 @@ fn shelved(workspace: &Path, shelf: Option<&Path>) -> Result<(Places, Shelves), 
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

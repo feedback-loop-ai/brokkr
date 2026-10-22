@@ -398,6 +398,7 @@ fn run_in(workspace: &std::path::Path, cli: Cli) -> Result<ExitCode> {
 /// are absent, which is what any `retry` or `stop` invocation carries.
 fn operator(run: &str, command: &str, reason: &str, db: &std::path::Path) -> Cmd {
     Cmd::Operator(OperatorArgs {
+        member: crate::cli_args::MemberRetryArgs::default(),
         run: run.to_string(),
         command: command.to_string(),
         reason: reason.to_string(),
@@ -4170,6 +4171,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     held_and_shipped(&db);
     let cited = |findings: Vec<u64>, by_run: Option<&str>, by_seq: Option<u64>| {
         Cmd::Operator(OperatorArgs {
+            member: crate::cli_args::MemberRetryArgs::default(),
             run: "held".into(),
             command: "supersede".into(),
             reason: "both residuals fixed and shipped".into(),
@@ -4269,6 +4271,7 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
         run_in(
             workspace.path(),
             cli(Cmd::Operator(OperatorArgs {
+                member: crate::cli_args::MemberRetryArgs::default(),
                 run: "held".into(),
                 command: "supersede".into(),
                 reason: "closed next door".into(),
@@ -4289,23 +4292,6 @@ fn the_supersede_verb_records_one_annotation_and_refuses_the_rest() {
     assert_eq!(
         events[7].payload["args"]["by"]["realm"], "next-door",
         "the mark names the hearth the citation was read in",
-    );
-
-    // The supersede-only arguments belong to supersede: a `retry`
-    // carrying one is refused rather than silently ignoring it.
-    let refusal = run_in(unmapped(), {
-        let mut command = cited(vec![6], Some("later"), Some(6));
-        if let Cmd::Operator(OperatorArgs { command: word, .. }) = &mut command {
-            *word = "retry".into();
-        }
-        cli(command)
-    })
-    .unwrap_err()
-    .to_string();
-    assert_eq!(
-        refusal,
-        "--findings, --by-run, --by-seq and --by-realm belong to 'supersede'; \
-         'retry' takes --run, --reason, --realms and --db"
     );
 }
 

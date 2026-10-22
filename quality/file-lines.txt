@@ -262,7 +262,7 @@
   1275 crates/brokkr-cli/tests/init_stacks.rs
   1127 crates/brokkr-cli/tests/layering/main.rs
   1440 crates/brokkr-cli/tests/layering/scan.rs
-  3451 crates/brokkr-cli/tests/machine_proof.rs
+  3452 crates/brokkr-cli/tests/machine_proof.rs
     52 crates/brokkr-cli/tests/machine_proof/egress.rs
    201 crates/brokkr-cli/tests/machine_proof/output_edge.rs
    127 crates/brokkr-cli/tests/machine_proof/release.rs
