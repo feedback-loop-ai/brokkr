@@ -89,30 +89,67 @@ fn peak_of_comparing(store: &Store) -> isize {
     peak
 }
 
+/// The most the comparison holds over one run and over `RUNS`, each run
+/// made by `create` in one fresh journal.
+fn peaks_of_one_and_many(create: impl Fn(&mut Store, &str)) -> (isize, isize) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    let run_id = |run: usize| format!("r{run:02}");
+    create(&mut store, &run_id(0));
+    let one = peak_of_comparing(&store);
+    (1..RUNS).for_each(|run| create(&mut store, &run_id(run)));
+    (one, peak_of_comparing(&store))
+}
+
 /// The comparison over `RUNS` runs, each listing a `FEATURE`-byte
 /// feature, peaks within one feature of the comparison over one: one that
 /// collected every run's listing first would hold all `RUNS` at once.
 #[test]
 fn the_comparison_holds_one_run_at_a_time() {
     let _turn = turn();
-    let dir = tempfile::tempdir().unwrap();
-    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
     let feature = "f".repeat(FEATURE);
-    let create = |store: &mut Store, run: usize| {
-        let run_id = format!("r{run:02}");
+    let (one, many) = peaks_of_one_and_many(|store, run_id| {
         store
-            .create_run(&run_id, &feature, "self", &json!({}))
+            .create_run(run_id, &feature, "self", &json!({}))
             .unwrap();
-    };
-    create(&mut store, 0);
-    let one = peak_of_comparing(&store);
-    (1..RUNS).for_each(|run| create(&mut store, run));
-    let many = peak_of_comparing(&store);
+    });
     let bound = one + FEATURE as isize;
     assert!(
         many < bound,
         "comparing {RUNS} runs of a {FEATURE}-byte feature held {many} bytes at its peak, \
          and one run {one}; the bound is {bound}"
+    );
+}
+
+/// Each run's events, and the bytes of each one's payload.
+const EVENTS: usize = 32;
+const PAYLOAD: usize = 32 << 10;
+
+/// The comparison over `RUNS` runs of `EVENTS` events each, every event
+/// indexed and `PAYLOAD` bytes wide, peaks within one run's events of the
+/// comparison over one: the run read whole and its index rows streamed
+/// beside it, one run at a time (decision 0089 ruling 4).
+#[test]
+fn the_comparison_holds_one_run_s_events_and_index_at_a_time() {
+    let _turn = turn();
+    let wide = "w".repeat(PAYLOAD);
+    let (one, many) = peaks_of_one_and_many(|store, run_id| {
+        store
+            .create_run(run_id, "feat", "self", &json!({}))
+            .unwrap();
+        for at in 0..EVENTS {
+            let event = brokkr_core::EventType::PhaseEntered;
+            let payload = json!({"phase": format!("p{at}"), "notes": wide});
+            store
+                .append_next(run_id, event, payload, None, None)
+                .unwrap();
+        }
+    });
+    let bound = one + (EVENTS * PAYLOAD) as isize;
+    assert!(
+        many < bound,
+        "comparing {RUNS} runs of {EVENTS} {PAYLOAD}-byte events held {many} bytes at its \
+         peak, and one run {one}; the bound is {bound}"
     );
 }
 
