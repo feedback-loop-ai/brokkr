@@ -1206,7 +1206,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-protocol/src/native_controls/mcp.rs` | U1a, U1c, U7a, U7d, U8a, U7d2, U8a2c, U9c1 | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/agents.rs` (1671) | U1b, U1f, U3b, U7b, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/agents/load.rs` (1334) | U1b, U3b, U7d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b, U1g1 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
+| `crates/brokkr-runtime/src/agents/mcp.rs` | U1b, U7b, U1g1, U9a2 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters.rs` (7268) | U1c, U1c2, U1g0, U4c, U4f2, U6a, U7d, U7d3, U9c2 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/mcp.rs` | U1c, U1c2, U1g0, U1g2, U7d, U8a, U8a2c, U9c2 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-protocol/src/adapters/composite.rs` (4666) | U1c2 | #226 dsh composite identity; its declared-home seam must keep one owner |
@@ -1216,15 +1216,15 @@ At each PR recheck these paths and baseline counts against main.
 | `adapters/lanetally.json` | U1d, U1d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/dsh.json` | U1e, U1d3 | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `adapters/exec.json` | U1e | #347/#348 harness splits; #467 strictness and #500 probe evidence |
-| `crates/brokkr-runtime/src/bundle.rs` (7815) | U1f, U3a, U3c, U4d, U5a2, U7c | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-runtime/src/bundle/mcp.rs` | U1f, U7b, U9b1, U1g1, U7d2, U7d3 | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-runtime/src/bundle.rs` (7815) | U1f, U3a, U3c, U4d, U5a2, U7c, U9a2 | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-runtime/src/bundle/mcp.rs` | U1f, U7b, U9b1, U1g1, U7d2, U7d3, U9a2 | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-cli/src/init.rs` (1895) | U1f2 | Generated adapters and agents/README; keep copied strictness metadata bound to shipped declarations by parity proof |
 | `crates/brokkr-cli/src/init/adapters.rs` | U1f2, U1d3 | Consumed extraction from init.rs; registration included in that parent |
 | `crates/brokkr-cli/src/verbs/setup.rs` | U1f2 | Printed scaffold instructions and matching guide transcripts |
 | `crates/brokkr-runtime/src/engine.rs` (4862) | U1g2, U4a2, U4e, U4f, U7c, U8a2a, U8a2b, U8c, U8e, U7d2, U8a, U8a2c, U8e2, U8g | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
-| `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
-| `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a, U9b1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
-| `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a, U8a2c | Recheck concurrent main edits and module registration before the row |
+| `crates/brokkr-runtime/src/capabilities.rs` (2369) | U2, U3a, U4d, U5a, U5a2, U5f, U9b1, U1g1, U7c0, U7d3, U9a2 | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-runtime/src/capabilities/binding.rs` | U2, U5a, U5a2, U9a2, U9b1, U7c0, U7d3 | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-cli/src/doctor.rs` (1567) | U2, U9a1, U9a2, U8a2c | Recheck concurrent main edits and module registration before the row |
 | `crates/brokkr-runtime/src/capabilities/gates.rs` | U3a | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-runtime/src/agents/charter_data.rs` | U3b, U3c | #347/#348 harness splits; #467 strictness and #500 probe evidence |
 | `crates/brokkr-runtime/src/bundle/charters.rs` | U3c | Recheck concurrent main edits and module registration before the row |
@@ -1267,7 +1267,7 @@ At each PR recheck these paths and baseline counts against main.
 | `crates/brokkr-cli/src/broker/session/stderr.rs` | U6f1b, U6f3 | The closing bound is a fixed value that nothing extends |
 | `crates/brokkr-runtime/src/engine/artifacts.rs` | U8c, U8g | #403/#415 cleanup and ongoing runtime splits; preserve owner handles |
 | `crates/brokkr-cli/src/verbs/readouts.rs` | U8g | Recheck concurrent main edits and module registration before the row |
-| `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a | 0065 follow-up refactors; identity and gate ordering must survive |
+| `crates/brokkr-cli/src/doctor/capabilities.rs` | U9a1, U9a2 | 0065 follow-up refactors; identity and gate ordering must survive |
 | `crates/brokkr-protocol/src/hands/namespace.rs` | U6c3, U6c4, U6c5a, U6c5b, U6c5c, U6c6b, U7c0b | Count registration and same-unit consumers; recheck size and concurrent main edits |
 | `crates/brokkr-protocol/src/hands/namespace/entry.rs` | U6c6b, U6c8, U6f1b | New consumed child of namespace.rs; the box launched on the bootstrap |
 | `crates/brokkr-protocol/src/hands/namespace/sources/host.rs` | U6c5a, U6c5c, U7c0b | The observer's host facts (mountinfo, writer credentials, ACL and write-exclusion proofs, the reopening of a file through its own handle) and each source's whole-chain resolution (`resolve`, `Walk`, `Hop`, `Resolved`); a consumed child of sources.rs, which keeps the bounds, directory walk, the one per-object observation with its link rules, digest and verdict |
@@ -1311,7 +1311,7 @@ document paths; the fold remains pending until implementation is complete.
 One row is one PR, from main, signed and through the merge queue after the
 operator rules. Follow this order. Dependencies are semantic prerequisites,
 not simply the preceding row; the independence of U1–U4 is explicit in D9.
-No row through U9a lifts the MCP compile fence. U9b is the sole enabling PR.
+No row through U9a2 lifts the MCP compile fence. U9b is the sole enabling PR.
 The lettered splits are required by the checked seams: record schema plus
 embedded copy already consumes two files; multi-server wiring crosses runtime,
 protocol and adapter data; storage/folding/inspect crosses CLI, protocol,
@@ -1405,8 +1405,9 @@ witness/compose pins accompany only rows that change their inputs.
 | U8e3 | U8e2 | Release an attempt the operator confirms settled; 42.4 | `crates/brokkr-core/src/fold.rs`; `crates/brokkr-runtime/src/engine/operator.rs`; `crates/brokkr-runtime/src/engine/broker/admission.rs`; `crates/brokkr-runtime/src/engine/broker/settlement.rs`; `crates/brokkr-cli/src/cli_args.rs` |
 | U8f | U8e | Expose retained evidence in the pure view; 43.1–43.2 | `crates/brokkr-view/src/capability_calls.rs`; `crates/brokkr-view/src/lib.rs` |
 | U8g | U8f | Open a cited artifact through inspect; 44.1–44.2 | `crates/brokkr-cli/src/cli_args.rs`; `crates/brokkr-cli/src/verbs/readouts.rs`; `crates/brokkr-runtime/src/engine/artifacts.rs`; `crates/brokkr-runtime/src/engine.rs` |
-| U9a | U8g, U2, U3c, U5a2 | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs` |
-| U9c1 | U9a | Admit Codex's isolation options in the final-command grammar; 45.3–45.4 | `crates/brokkr-protocol/src/native_controls/grammar.rs`; `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
+| U9a1 | U8g, U2 | Move doctor's capability reporting into its module; 45.7–45.8 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs` |
+| U9a2 | U9a1, U3c, U5a2 | Prepare whole-plan MCP doctor reporting; 45.1–45.2 | `crates/brokkr-cli/src/doctor.rs`; `crates/brokkr-cli/src/doctor/capabilities.rs`; `crates/brokkr-runtime/src/capabilities/binding.rs`; `crates/brokkr-runtime/src/capabilities.rs`; `crates/brokkr-runtime/src/bundle.rs`; `crates/brokkr-runtime/src/bundle/mcp.rs`; `crates/brokkr-runtime/src/agents/mcp.rs` |
+| U9c1 | U9a2 | Admit Codex's isolation options in the final-command grammar; 45.3–45.4 | `crates/brokkr-protocol/src/native_controls/grammar.rs`; `crates/brokkr-protocol/src/native_controls.rs`; `crates/brokkr-protocol/src/native_controls/mcp.rs` |
 | U9c2 | U9c1 | Launch Codex under its isolation options; 45.5–45.6 | `crates/brokkr-protocol/src/adapters.rs`; `crates/brokkr-protocol/src/adapters/mcp.rs`; `crates/brokkr-runtime/src/engine/input.rs` |
 | U0b | U9c2 | Measure every shape a seat can be served as; 1.5–1.6 | None |
 | U1d3 | U0b | Record U0b's shapes; 5.3–5.4 | `adapters/claude.json`; `adapters/codex.json`; `adapters/dsh.json`; `adapters/lanetally.json`; `crates/brokkr-cli/src/init/adapters.rs` |
@@ -2214,11 +2215,24 @@ Operator ruling 2026-10-22 on U8g's run-local location (in chat, "a", "yes to th
 
 Owning tests: `crates/brokkr-view/src/tests.rs`, `crates/brokkr-cli/tests/capability_artifacts.rs`.
 
-### U9a — Prepare whole-plan MCP doctor reporting
+### U9a1 — Move doctor's capability reporting into its module
 
-Extract capability reporting into the named module and use the shared complete planner for native/MCP metadata; preserve pre-U9 public compile refusal until U9b. Doctor also reports each MCP grant's dialect egress against the bundle's binding minimum, as U5a2 judges it at compile (operator ruling, 2026-10-04). It reports each seat U1g1's strict-isolation admission would refuse once switched on.
+Move doctor's capability reporting out of `doctor.rs` into its private child `doctor/capabilities.rs`, declared from `doctor.rs`: the scope and disposition words, the native assessments, `report_capabilities` and the grant reporting it calls, with the imports only they use. Split `report_capabilities`, since a moved function meets the function-length and complexity ceilings as a new entry. Name the three states of the read map's optional binding (no binding read, a grant that failed, a native binding) with a local enum in place of `Some(&None)` and `Some(&Some(..))`, which closes U2's carried LOW. Doctor prints every line it prints today, in the same order and words, and nothing new. No public item changes.
+
+Operator ruling 2026-10-21 splitting U9a (in chat, "A"): U9a is split in two. U9a1 moves doctor's capability reporting into `doctor/capabilities.rs` and changes nothing doctor prints. U9a2 reads each seat's whole capability plan through the planner compile uses, and reports what compile would judge, without compiling past the MCP fence: compile's refusal of every MCP grant stands until U9b. Beside its doctor files and binding.rs, U9a2 may change `crates/brokkr-runtime/src/capabilities.rs`, `crates/brokkr-runtime/src/bundle.rs`, `crates/brokkr-runtime/src/bundle/mcp.rs` and `crates/brokkr-runtime/src/agents/mcp.rs`, to reach that planner, the bundle's declared binding minimum and U1g1's strict-isolation verdict. Its public API rise is approved up to +15 lines across quality/public-api/*.txt together (operator ruling 2026-10-21, "+15 is fine"); a larger rise comes back to the operator.
+
+Closes tasks 45.7 and 45.8; requirements [SC5](specs/slice-two-contracts/spec.md), [SD3](specs/slice-two-delivery/spec.md).
+Proof: Every existing doctor capability test passes unchanged against the moved module; each of the three binding states' lines is pinned exactly; an independent removal of one state's arm fails its own test.
+
+Owning tests: `crates/brokkr-cli/src/doctor/capability_tests.rs`.
+
+### U9a2 — Prepare whole-plan MCP doctor reporting
+
+Through the module U9a1 extracted, use the shared complete planner for native/MCP metadata; preserve pre-U9 public compile refusal until U9b. Doctor also reports each MCP grant's dialect egress against the bundle's binding minimum, as U5a2 judges it at compile (operator ruling, 2026-10-04). It reports each seat U1g1's strict-isolation admission would refuse once switched on.
 
 Reuse U5a2's below-minimum comparison and requires/wants causes. Report static box eligibility and conservative installation requirements separately from unmeasured host source/readiness facts; doctor does not launch a box/server, read secret values or claim readiness. Linux availability and macOS refusal remain honest.
+
+Operator ruling 2026-10-21 splitting U9a (in chat, "A"): U9a is split in two. U9a1 moves doctor's capability reporting into `doctor/capabilities.rs` and changes nothing doctor prints. U9a2 reads each seat's whole capability plan through the planner compile uses, and reports what compile would judge, without compiling past the MCP fence: compile's refusal of every MCP grant stands until U9b. Beside its doctor files and binding.rs, U9a2 may change `crates/brokkr-runtime/src/capabilities.rs`, `crates/brokkr-runtime/src/bundle.rs`, `crates/brokkr-runtime/src/bundle/mcp.rs` and `crates/brokkr-runtime/src/agents/mcp.rs`, to reach that planner, the bundle's declared binding minimum and U1g1's strict-isolation verdict. Its public API rise is approved up to +15 lines across quality/public-api/*.txt together (operator ruling 2026-10-21, "+15 is fine"); a larger rise comes back to the operator.
 
 Closes tasks 45.1 and 45.2; requirements [SC5](specs/slice-two-contracts/spec.md), [SD3](specs/slice-two-delivery/spec.md).
 Proof: Grant versus holding and retention facts with static scope, native denial and exact no-spawn assertions.

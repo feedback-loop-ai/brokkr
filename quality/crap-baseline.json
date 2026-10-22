@@ -396,14 +396,6 @@
     },
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
-      "function": "disposition_words",
-      "line": 756,
-      "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
-    },
-    {
-      "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "doctor",
       "line": 664,
       "cyclomatic": 3.0,
@@ -508,22 +500,6 @@
     },
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
-      "function": "report_capabilities",
-      "line": 868,
-      "cyclomatic": 37.0,
-      "coverage": 100.0,
-      "crap": 37.0
-    },
-    {
-      "file": "./crates/brokkr-cli/src/doctor.rs",
-      "function": "report_native_assessments",
-      "line": 779,
-      "cyclomatic": 5.0,
-      "coverage": 100.0,
-      "crap": 5.0
-    },
-    {
-      "file": "./crates/brokkr-cli/src/doctor.rs",
       "function": "report_realm_crossings",
       "line": 1215,
       "cyclomatic": 6.0,
@@ -577,14 +553,6 @@
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
-    },
-    {
-      "file": "./crates/brokkr-cli/src/doctor.rs",
-      "function": "scope_words",
-      "line": 744,
-      "cyclomatic": 4.0,
-      "coverage": 100.0,
-      "crap": 4.0
     },
     {
       "file": "./crates/brokkr-cli/src/doctor.rs",
