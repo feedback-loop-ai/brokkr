@@ -245,7 +245,7 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
         limit,
         after,
     } = args;
-    let hearths = hearths_of(workspace, realms, db)?;
+    let hearths = hearths_of(workspace, realms.clone(), db.clone())?;
     // A world with several hearths lists each one under its own
     // realm; a world with one is byte-for-byte the listing it
     // always was, down to opening its journal the same way.
@@ -258,6 +258,10 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
         );
         return runs_fleet(&hearths, json);
     }
+    let called = fleet::Called {
+        db: db.as_deref(),
+        realms: realms.as_deref(),
+    };
     let db = hearths
         .into_iter()
         .next()
@@ -265,15 +269,17 @@ pub(crate) fn runs(workspace: &Path, args: RunsArgs) -> Result<ExitCode> {
         .journal;
     let asked = (json, limit, after.as_ref());
     let style = render::Style::detect();
-    hearth_runs(&db, asked, &style, &mut std::io::stdout().lock())?;
+    hearth_runs(&db, asked, called, &style, &mut std::io::stdout().lock())?;
     Ok(Exit::Completed.into())
 }
 
 /// `brokkr runs` over one hearth's journal at `db`, written to `out`: every
-/// run, or the page `limit` and `after` ask for, as JSON when asked.
+/// run, or the page `limit` and `after` ask for, as JSON when asked, its
+/// next page's command `called` as this one was.
 pub(crate) fn hearth_runs(
     db: &Path,
     (json, limit, after): (bool, Option<u32>, Option<&brokkr_view::Cursor>),
+    called: fleet::Called<'_>,
     style: &render::Style,
     out: &mut impl std::io::Write,
 ) -> Result<()> {
@@ -296,7 +302,7 @@ pub(crate) fn hearth_runs(
             (None, None) => listing.every_text(out, style),
             (limit, after) => {
                 let limit = limit.map_or(fleet::PAGE_ROWS, |limit| limit as usize);
-                listing.one(out, (after, limit), json, style)
+                listing.one(out, (after, limit), json, called, style)
             }
         }
     })

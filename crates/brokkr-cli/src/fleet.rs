@@ -24,7 +24,7 @@ mod page;
 
 pub(crate) use brokkr_view::{AHEAD_ROWS, PAGE_ROWS};
 pub(crate) use kept::{read_kept, Journal, KeptFleet};
-pub(crate) use listing::{cursor, list_hearth, PageRefused};
+pub(crate) use listing::{cursor, list_hearth, Called, PageRefused};
 pub(crate) use page::{refused_row, Ask, Pages};
 
 /// Why a listed run carries no state, and where its citation points.
