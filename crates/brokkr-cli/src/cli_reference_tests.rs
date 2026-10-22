@@ -861,7 +861,7 @@ fn fenced_commands(doc: &str) -> Result<Vec<Fenced>, (usize, String)> {
 /// redirect and its target are dropped, and a comment ends the line.
 /// `<placeholder>` is one word. A construct this reader does not know is
 /// refused.
-fn words(line: &str) -> Result<Vec<Vec<String>>, String> {
+pub(crate) fn words(line: &str) -> Result<Vec<Vec<String>>, String> {
     let mut commands = vec![Vec::new()];
     let mut word: Option<String> = None;
     let mut chars = line.chars().peekable();

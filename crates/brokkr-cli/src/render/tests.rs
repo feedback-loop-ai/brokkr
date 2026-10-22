@@ -1278,3 +1278,11 @@ fn a_refused_transcript_omits_the_kind_and_hint_lines() {
     assert!(!text.contains("hint  "), "{text}");
     assert!(text.contains("source -"), "{text}");
 }
+
+/// A shell word is bare where every character is plain, and quoted
+/// otherwise, the empty word included, which bare would drop (#820).
+#[test]
+fn a_shell_word_is_bare_only_where_it_is_plain_and_not_empty() {
+    let words = ["park-new", "", "a b'c$d"].map(shell_word);
+    assert_eq!(words, ["park-new", "''", r"'a b'\''c$d'"]);
+}

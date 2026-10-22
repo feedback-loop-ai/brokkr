@@ -36,9 +36,27 @@ pub(in crate::engine) fn boxed_a() -> (&'static Executable, &'static Path, Optio
     boxed(Path::new("/a"))
 }
 
+/// Whether this test already runs in a box, whose namespace a spawn proof
+/// cannot nest: it is skipped then, and a host that declared it must
+/// produce boundary evidence fails instead of printing `ok` (decision 0054
+/// ruling 9).
+pub(in crate::engine) fn already_boxed() -> bool {
+    let boxed = std::env::var_os(brokkr_protocol::hands::HANDS_BOX_ENV).is_some();
+    if boxed {
+        brokkr_protocol::hands::skip_boundary_proof(
+            brokkr_protocol::hands::boundary_evidence_required(),
+            "this environment is already a box",
+        );
+    }
+    boxed
+}
+
 /// The engine executable every box, harness fragment and dialect step is
 /// composed with (#349, ask 8).
 mod executable_tests;
+
+/// A seat taken from the folder, walked at its spawn (decision 0091).
+mod folder_tests;
 
 /// A seat, member or step without hands is sealed no reach and needs none:
 /// it composes its own argv untouched under every boundary. Moved here

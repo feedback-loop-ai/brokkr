@@ -68,6 +68,21 @@ impl<'a> SiteCompiler<'a> {
         }
     }
 
+    /// A compiler under the same law with nothing opened and no site
+    /// written, whose facts the compile drops.
+    pub(super) fn scratch(&self) -> SiteCompiler<'a> {
+        let law = (self.boundary, self.engine);
+        let agents = self.agents.fresh();
+        SiteCompiler::new(
+            agents,
+            law,
+            self.dialect,
+            self.charters,
+            self.roots,
+            self.case_origin,
+        )
+    }
+
     /// A seat's body, in the form `classify` read: the agent it resolved,
     /// if it names one, and a sequence's whole-gate fact, if it is one. A
     /// seat that declares secret bindings opens the adapters first, which

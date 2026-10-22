@@ -1,8 +1,59 @@
-//! Why `conclude` refused a run, and the words each refusal prints.
+//! Why `conclude` refused a run, and the words each refusal prints; and
+//! the reason an accepted operator stop concludes a run with, moved out of
+//! `operator.rs`, which `release` would take past its 800 lines (decision
+//! 0065 slice two, U8e3; operator ruling of 2026-10-11).
 
-use brokkr_core::fold::{concluded_text, Refusal, Status};
+use brokkr_core::envelope::EventType;
+use brokkr_core::fold::{concluded_text, OperatorCommand, Refusal, Status};
+use brokkr_core::EventEnvelope;
+use serde_json::Value;
 
-use super::EngineError;
+use super::{command_id_of, EngineError, OPERATOR_STOP_RULE};
+
+/// The conclusion an accepted operator stop is journaled with: the rule
+/// id [`OPERATOR_STOP_RULE`], the command it names, and the operator who
+/// gave it with the reason they recorded. `run/stopped`'s v1 payload is
+/// closed at `{reason}` (`contracts/README.md`, additionalProperties
+/// false), so the citation lives INSIDE the reason string — no new field,
+/// no second vocabulary — exactly as `request_or_finish`'s policy-driven
+/// hard stop cites its `rule_id` there. The cause is read back from the
+/// journal that `operator_command` wrote: `fold` spends the pending
+/// command when it accepts it, so the events are the only place it
+/// survives. Only a stop's acceptance is the cause: a `release` accepted
+/// after it (U8e3) is not why the run stopped.
+pub(in crate::engine) fn operator_stop_reason(events: &[EventEnvelope]) -> String {
+    // The acceptance carries only the command's id; the command itself
+    // is on the `operator/commanded` it disposes of.
+    let command_of = |command_id: &str| {
+        events
+            .iter()
+            .find(|event| {
+                event.event_type == EventType::OperatorCommanded
+                    && command_id_of(event) == Some(command_id)
+            })
+            .and_then(|event| event.payload.get("command"))
+            .and_then(Value::as_str)
+            .unwrap_or(OperatorCommand::Stop.as_str())
+    };
+    let accepted = (events.iter().rev())
+        .filter(|event| event.event_type == EventType::OperatorAccepted)
+        .find(|event| {
+            let command_id = command_id_of(event).unwrap_or("unrecorded");
+            command_of(command_id) == OperatorCommand::Stop.as_str()
+        });
+    let accepted_field = |field: &str| {
+        accepted
+            .and_then(|event| event.payload.get(field))
+            .and_then(Value::as_str)
+    };
+    let command_id = accepted_field("command_id").unwrap_or("unrecorded");
+    let command = command_of(command_id);
+    format!(
+        "{OPERATOR_STOP_RULE}: operator '{}' commanded {command} ({command_id}): {}",
+        accepted_field("operator").unwrap_or("unrecorded"),
+        accepted_field("reason").unwrap_or("no reason recorded"),
+    )
+}
 
 /// Why `conclude` refused a run: each is the operator's to act on, and
 /// none wrote a conclusion.

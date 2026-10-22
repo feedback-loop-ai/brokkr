@@ -6,6 +6,7 @@
 use rusqlite::{Connection, OptionalExtension};
 
 use crate::acknowledgement::{acknowledgements_intact, migrate_acknowledgements};
+use crate::event_index::{index_intact, migrate_index};
 use crate::queue::{migrate_queue, queue_intact};
 use crate::summary::{mark_backfilled, migrate_summary, summary_intact};
 use crate::{patiently, Store, StoreError, BUSY_TIMEOUT};
@@ -165,7 +166,7 @@ impl Store {
 /// A journal that records a schema: supported, and whole.
 fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     schema_supported(found)?;
-    // Five additive repairs, each a READ in the steady state — the
+    // Six additive repairs, each a READ in the steady state — the
     // starvation measurement holds — and each taking the immediate
     // transaction only when something is actually missing, so racing
     // openers serialise on the lock instead of colliding on the DDL.
@@ -193,6 +194,12 @@ fn repair(conn: &mut Connection, found: u32) -> Result<(), StoreError> {
     // backfill that follows the open ([`Store::catch_up`]).
     let missing = !summary_intact(conn)?;
     repair_if(conn, missing, migrate_summary)?;
+    // Sixth: a journal from before the event index (decision 0089 slice
+    // 2), or one that lost its table, an index or a trigger, gets them,
+    // and its rows from the backfill that follows the open
+    // ([`Store::index_behind_with`]), which a repair marks unfinished.
+    let missing = !index_intact(conn)?;
+    repair_if(conn, missing, migrate_index)?;
     let missing = !guards_intact(conn)?;
     repair_if(conn, missing, |conn| Ok(conn.execute_batch(MIGRATION_V1)?))
 }
@@ -224,6 +231,10 @@ fn initialize(conn: &mut Connection) -> Result<(), StoreError> {
     migrate_acknowledgements(&tx)?;
     migrate_summary(&tx)?;
     mark_backfilled(&tx)?;
+    // No index backfill is marked here: a journal with no schema recorded
+    // may still carry events, and the open's walk, one read on an empty
+    // journal, records the mark once every event has its row.
+    migrate_index(&tx)?;
     tx.execute(
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('database_schema', ?1)",
         [&DATABASE_SCHEMA.to_string()],

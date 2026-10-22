@@ -196,9 +196,17 @@ fn operator_and_terminal_refusals_are_explicit() {
 /// word the journal records for a command or a refusal is pinned here.
 #[test]
 fn the_acceptance_rule_names_each_condition_and_pins_its_word() {
-    use OperatorCommand::{Retry, Stop};
+    use OperatorCommand::{Release, Retry, Stop};
     let parked = Status::AwaitingOperator;
     for (status, phase, command, expected) in [
+        (
+            Status::Stopped,
+            Some("work"),
+            Release,
+            Some(Refusal::AfterTerminal),
+        ),
+        (parked, None, Release, None),
+        (Status::Running, Some("work"), Release, None),
         (
             Status::Completed,
             Some("work"),
@@ -230,7 +238,7 @@ fn the_acceptance_rule_names_each_condition_and_pins_its_word() {
 
     assert_eq!(
         OperatorCommand::ALL.map(OperatorCommand::as_str),
-        ["retry", "stop"]
+        ["retry", "stop", "release"]
     );
     for command in OperatorCommand::ALL {
         assert_eq!(OperatorCommand::parse(command.as_str()), Some(command));
@@ -800,6 +808,20 @@ fn a_stop_accepted_with_nothing_in_flight_concludes_where_it_stands() {
     // journaled, and the park it answered is spent.
     let parked = stop_accepted(parked());
     assert_eq!(parked.run, Run::Running(Cursor::Stop));
+}
+
+/// U8e3: an accepted `release` disposes of its command and moves nothing
+/// else, wherever a live run stands: a parked run stays parked, and an
+/// attempt in flight stays in flight, its stop not riding.
+#[test]
+fn an_accepted_release_moves_no_run() {
+    for run in [parked(), Run::Running(in_flight(false))] {
+        let mut current = at(run.clone());
+        current.pending_command = Some(("c1".into(), "release".into()));
+        let accepted = event(EventType::OperatorAccepted, json!({"command_id": "c1"}));
+        apply(&mut current, &accepted).unwrap();
+        assert_eq!((current.run, current.pending_command), (run, None));
+    }
 }
 
 /// The stop arm is wide; the rest is as narrow as it was. Only a

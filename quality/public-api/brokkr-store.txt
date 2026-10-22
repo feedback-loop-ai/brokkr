@@ -4,6 +4,10 @@ pub enum brokkr_store::Disagreement
 pub brokkr_store::Disagreement::Column
 pub brokkr_store::Disagreement::Column::column: &'static str
 pub brokkr_store::Disagreement::Column::run_id: alloc::string::String
+pub brokkr_store::Disagreement::Indexed
+pub brokkr_store::Disagreement::Indexed::fault: brokkr_store::IndexFault
+pub brokkr_store::Disagreement::Indexed::run_id: alloc::string::String
+pub brokkr_store::Disagreement::Indexed::seq: u64
 pub brokkr_store::Disagreement::Missing
 pub brokkr_store::Disagreement::Missing::run_id: alloc::string::String
 pub brokkr_store::Disagreement::Unread
@@ -28,6 +32,10 @@ pub brokkr_store::ImportError::UnadoptableRunId(alloc::string::String)
 pub brokkr_store::ImportError::Unattested
 pub brokkr_store::ImportError::Unattested::field: &'static str
 pub brokkr_store::ImportError::Verify(brokkr_store::VerifyError)
+pub enum brokkr_store::IndexFault
+pub brokkr_store::IndexFault::Column(&'static str)
+pub brokkr_store::IndexFault::Missing
+pub brokkr_store::IndexFault::Stray
 pub enum brokkr_store::QueueCommand
 pub brokkr_store::QueueCommand::Drop
 pub brokkr_store::QueueCommand::Hold
@@ -217,6 +225,11 @@ pub fn brokkr_store::Store::whole(&self, &mut brokkr_core::page::Row) -> core::r
 impl brokkr_store::Store
 pub fn brokkr_store::Store::carry(&mut self, brokkr_core::summary::Account)
 pub fn brokkr_store::Store::summary_disagreements(&self) -> core::result::Result<alloc::vec::Vec<brokkr_store::Disagreement>, brokkr_store::StoreError>
+impl brokkr_store::Store
+pub fn brokkr_store::Store::envelopes_at(&self, &str, &[u64]) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::index_checkpoints(&self, &str, &str, core::option::Option<&str>, core::option::Option<u64>) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::index_trail(&self, &str) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>
+pub fn brokkr_store::Store::reads_index(&self) -> core::result::Result<bool, brokkr_store::StoreError>
 impl brokkr_store::Store
 pub fn brokkr_store::Store::load_after(&self, &str, u64, &str) -> core::result::Result<alloc::vec::Vec<brokkr_core::envelope::EventEnvelope>, brokkr_store::StoreError>
 pub fn brokkr_store::Store::rows_through(&self, &[(&str, u64)]) -> core::result::Result<alloc::vec::Vec<u64>, brokkr_store::StoreError>

@@ -10,11 +10,13 @@
 
 use std::cell::{Cell, RefCell};
 use std::os::fd::{AsFd, OwnedFd};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use brokkr_core::canonical;
 use brokkr_core::envelope::EventType;
 use brokkr_protocol::hands::{Bind, BindMode, HandsSpec};
 use brokkr_protocol::process::Unsettled;
@@ -34,7 +36,7 @@ use crate::engine::tests::{
     capturing_driver_command, draft_then_finish, engine, execute_work, member, requested,
     set_site_hands, single_body,
 };
-use crate::engine::{spawn_site, SiteSpawn};
+use crate::engine::{spawn_site, Door, SiteSpawn};
 
 mod coordination;
 mod foreign;
@@ -240,15 +242,15 @@ fn made_in(base: &Path) -> Option<tempfile::TempDir> {
 
 /// A HOME stood in for this thread's admissions until dropped, on return
 /// or unwind.
-struct Coordinated;
+pub(in crate::engine) struct Coordinated;
 
 impl Coordinated {
-    fn at(home: &Path) -> Coordinated {
+    pub(in crate::engine) fn at(home: &Path) -> Coordinated {
         STAND.set(Stand::At(home.to_path_buf()));
         Coordinated
     }
 
-    fn unrooted(home: &Path) -> Coordinated {
+    pub(in crate::engine) fn unrooted(home: &Path) -> Coordinated {
         STAND.set(Stand::Unrooted(home.to_path_buf()));
         Coordinated
     }
@@ -357,7 +359,7 @@ fn taken(lock: &Path) -> std::fs::File {
 }
 
 /// Five seconds from now.
-fn soon() -> Instant {
+pub(in crate::engine) fn soon() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
 
@@ -389,8 +391,26 @@ pub(in crate::engine) fn evidence_leased(
     engine: &mut Engine,
     attempt: &str,
 ) -> (tempfile::TempDir, PathBuf) {
+    fresh_lease(engine, attempt, Protects::Evidence)
+}
+
+/// [`lease`] on a fresh host protecting nothing, so no evidence is at stake
+/// (U8e3): the host's directory, and the run's directory in its root.
+pub(in crate::engine) fn unstaked_lease(
+    engine: &mut Engine,
+    attempt: &str,
+) -> (tempfile::TempDir, PathBuf) {
+    fresh_lease(engine, attempt, Protects::Nothing)
+}
+
+/// [`lease`] on a fresh host, protecting `protects`.
+fn fresh_lease(
+    engine: &mut Engine,
+    attempt: &str,
+    protects: Protects,
+) -> (tempfile::TempDir, PathBuf) {
     let host = Host::new();
-    let [_, at] = lease(&host, engine, attempt, Protects::Evidence);
+    let [_, at] = lease(&host, engine, attempt, protects);
     (host.dir, at)
 }
 
@@ -420,6 +440,7 @@ fn claim(
             writers: writers.to_vec(),
             cleanup: Witnessed::Settling,
             serves: Vec::new(),
+            drivers: Vec::new(),
         },
         authored: Authored::default(),
     }
@@ -1185,7 +1206,7 @@ fn the_door_refuses_a_worktree_whose_git_names_another_repository() {
             &json!({}),
             &linked,
             deadline,
-            Some(&held),
+            Some(at_work(&held)),
         );
         spawned.map(|(process, _)| drop(process))
     };
@@ -1212,19 +1233,34 @@ fn the_dispatch_door_spawns_only_under_a_lease_that_stands() {
     let spawn = SiteSpawn::inherit(vec!["touch".into(), ran.to_string_lossy().into_owned()]);
     let door = |held| {
         let deadline = Duration::from_secs(5);
+        let held = Some(at_work(held));
         let spawned = spawn_site(&engine.bundle, &spawn, &json!({}), &work, deadline, held);
         spawned.map(|(process, _)| drop(process))
     };
     let lost = Err(Unadmitted::Identity(Unknown::Lost).to_string());
     let released = host.admit(&attempt("a0")).unwrap();
     freed(&released);
-    assert_eq!(door(Some(&released)), lost, "released");
+    assert_eq!(door(&released), lost, "released");
     let held = host.admit(&attempt("a1")).unwrap();
     std::fs::remove_file(host.reservation(&work, "run-a")).unwrap();
-    assert_eq!(door(Some(&held)), lost, "the reservation gone");
+    assert_eq!(door(&held), lost, "the reservation gone");
     assert!(!ran.exists(), "nothing spawned");
     let held = host.admit(&attempt("a2")).unwrap();
-    assert_eq!(door(Some(&held)), Ok(()));
+    assert_eq!(door(&held), Ok(()));
+}
+
+/// Another run's attempt on `engine`'s worktree, its one `work` site
+/// outside any box, admitted in the coordination root under `home`: the
+/// lease, or the refusal a reservation standing there makes (U8e2).
+pub(in crate::engine) fn conflicting(home: &Path, engine: &Engine) -> Result<Held, Unadmitted> {
+    let incoming = open(&worktree(engine), ["another-run", "b1"]);
+    admit(&Arc::new(opened(home)), &incoming, soon())
+}
+
+/// The door of the `work` site, under the lease `held`, of a driver whose
+/// site was sealed no broker.
+fn at_work(held: &Held) -> Door<'_> {
+    Door::of(held, "work", None)
 }
 
 /// A run's later attempt joins its reservation beside an earlier one not
@@ -1266,6 +1302,21 @@ pub(in crate::engine) fn hands(binds: &[&Path]) -> HandsSpec {
         network: false,
         binds: binds.iter().map(bind).collect(),
     }
+}
+
+/// The engine's run driven to its effect's attempt `attempt` opened, as
+/// dispatch opens it, so the journal shows it in flight: the effect's id.
+pub(in crate::engine) fn in_flight(engine: &mut Engine, attempt: &str) -> String {
+    engine.drive_once().unwrap();
+    engine.drive_once().unwrap();
+    let events = engine.store.load(&engine.run_id).unwrap();
+    let effect = events.last().unwrap().payload["effect_id"].clone();
+    let started = serde_json::json!({"effect_id": effect, "attempt_id": attempt, "driver": "none"});
+    let attempt = Some(attempt.to_string());
+    engine
+        .append(EventType::EffectStarted, started, attempt)
+        .unwrap();
+    effect.as_str().unwrap().to_string()
 }
 
 /// The last event the engine journaled.

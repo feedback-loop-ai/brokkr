@@ -66,11 +66,12 @@
 //!
 //! A settled broker call's checkpoint never rides the hold (U8d; CR4): it
 //! is the call's evidence, not telemetry, and is appended only once the
-//! seat has stopped, by [`confirmed`], which takes the settlement's
-//! patiences, reads again before every try what the journal committed
-//! since the attempt began, and reports what the store committed. A row
-//! the lock outlasts is stranded as a held one is, and its evidence stays
-//! on disk in its ledger.
+//! seat has stopped, by the fold's confirmed append (`broker::fold`),
+//! which takes the settlement's patiences, reads again before every try
+//! what the journal committed since the attempt began, lands each row only
+//! on the head that read found, and reports what the store committed
+//! ([`Confirmed`]). A row the lock outlasts is stranded as a held one is,
+//! and its evidence stays on disk in its ledger.
 
 use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender};
@@ -206,6 +207,15 @@ pub(super) struct Attempt<'a> {
     pub(super) run_id: &'a str,
     pub(super) effect_id: &'a str,
     pub(super) attempt_id: &'a str,
+}
+
+impl Attempt<'_> {
+    /// `rows`, settled checkpoints the engine derived for this attempt, as
+    /// the events that journal them (U8d; U8e2).
+    pub(super) fn settled(&self, rows: Vec<BrokerCheckpoint>) -> Vec<SettledEvent> {
+        let event = |checkpoint| SettledEvent::new(self.effect_id, self.attempt_id, checkpoint);
+        rows.into_iter().map(event).collect()
+    }
 }
 
 /// One checkpoint waiting for the lock, with the site it came from: a
@@ -549,14 +559,15 @@ impl Settled {
 
 /// Why `stranded` rows were not journaled: the lock outlasted the
 /// settlement.
-fn outlasted(stranded: usize) -> String {
+pub(super) fn outlasted(stranded: usize) -> String {
     format!(
         "{stranded} checkpoint(s) were not journaled: a peer still held the journal's write \
          lock {SETTLING_PATIENCES} patiences after the seat stopped"
     )
 }
 
-/// What [`confirmed`] made of the settled checkpoints it was handed.
+/// What the fold's confirmed append made of the settled checkpoints it
+/// was handed.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Confirmed {
     /// Every one is committed, as derived: appended now, or found already.
@@ -569,68 +580,6 @@ pub(super) enum Confirmed {
     /// A peer's lock outlasted the settlement's patiences: this many were
     /// not appended, and wrote nothing.
     Stranded(usize),
-}
-
-/// Append `rows`, settled checkpoints the engine derived for `attempt`,
-/// which began at the journal's head `begun`, in order and in one
-/// transaction behind `cause`, once the seat has stopped (U8d; CR4):
-/// never through the hold, and within [`SETTLING_PATIENCES`]. `between`
-/// runs before every try, as a sink's does. Before every try what the
-/// journal committed since `begun` is read again, verified onto it
-/// ([`Store::load_after`]), never the run whole: no row of the attempt
-/// lies before its start. So a row a try committed whose acknowledgement
-/// was lost is found, not appended twice; the rows it does not hold are
-/// what is appended ([`capability_calls::unjournaled`]), each written
-/// only at the store's edge. No rows ask nothing of the journal. A
-/// storage failure that is not contention is handed up.
-pub(super) fn confirmed<B: FnMut(&mut Store)>(
-    (store, cause): (&mut Store, &mut Option<String>),
-    (attempt, (seq, hash)): (&Attempt<'_>, &(u64, String)),
-    rows: Vec<BrokerCheckpoint>,
-    mut between: B,
-) -> Result<Confirmed, EngineError> {
-    let (effect, attempt_id) = (attempt.effect_id, attempt.attempt_id);
-    let event = |checkpoint| SettledEvent::new(effect, attempt_id, checkpoint);
-    let rows: Vec<SettledEvent> = rows.into_iter().map(event).collect();
-    let mut left = rows.len();
-    if rows.is_empty() {
-        return Ok(Confirmed::Journaled);
-    }
-    let appended = within_patiences(SETTLING_PATIENCES, || {
-        between(&mut *store);
-        let journal = store.load_after(attempt.run_id, *seq, hash)?;
-        let pending = match capability_calls::unjournaled(&journal, attempt_id, &rows) {
-            Ok(pending) => pending,
-            Err(conflict) => return Ok(Err(conflict)),
-        };
-        left = pending.len();
-        if pending.is_empty() {
-            let (appended, refused) = (Vec::new(), None);
-            return Ok(Ok(Chain { appended, refused }));
-        }
-        let each = |row: &&SettledEvent| row.payload();
-        let pending = Rows {
-            rows: &pending,
-            payload: &each,
-        };
-        let id = Some(attempt.attempt_id.to_string());
-        let event = EventType::EffectCheckpointed;
-        store
-            .append_chain(attempt.run_id, event, pending, cause.clone(), id)
-            .map(Ok)
-    });
-    let chain = match appended {
-        Ok(Ok(chain)) => chain,
-        Ok(Err(_)) => return Ok(Confirmed::Conflict),
-        Err(contended) if contended.is_contention() => return Ok(Confirmed::Stranded(left)),
-        Err(failure) => return Err(failure.into()),
-    };
-    if let Some(last) = chain.appended.last() {
-        *cause = Some(last.event_id.clone());
-    }
-    Ok(chain
-        .refused
-        .map_or(Confirmed::Journaled, Confirmed::Refused))
 }
 
 /// Carry what settling an attempt's broker calls left of `report`'s

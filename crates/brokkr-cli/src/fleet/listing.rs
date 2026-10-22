@@ -8,6 +8,7 @@
 //! states `next`.
 
 use std::io::Write;
+use std::path::Path;
 
 use anyhow::Result;
 use brokkr_store::{Store, StoreError};
@@ -199,12 +200,13 @@ impl Lister<'_> {
 
     /// The page after `after`, or the first, of `limit` rows: the view
     /// model with its `next`, or the table and the command that prints
-    /// the next page.
+    /// the next page, `called` as this one was.
     pub(crate) fn one(
         &self,
         out: &mut impl Write,
         (after, limit): (Option<&Cursor>, usize),
         json: bool,
+        called: Called<'_>,
         style: &Style,
     ) -> Result<()> {
         if json {
@@ -217,8 +219,51 @@ impl Lister<'_> {
             writeln!(out, "{line}")?;
         }
         if let Some(next) = next {
-            writeln!(out, "next page  brokkr runs --limit {limit} --after {next}")?;
+            writeln!(out, "{}", next_page(limit, &next, called))?;
         }
         Ok(())
+    }
+}
+
+/// The command that prints the page after `next`, `called` as this
+/// listing was, or, where a journal flag's path is not UTF-8, the flags
+/// it takes in words: such a path is not printed as a command (#820).
+fn next_page(limit: usize, next: &Cursor, called: Called<'_>) -> String {
+    let after = render::shell_word(&next.to_string());
+    match called.flags() {
+        Some(called) => format!("next page  brokkr runs{called} --limit {limit} --after {after}"),
+        None => format!(
+            "next page  --limit {limit} --after {after}, with this listing's --db and --realms: \
+             a path that is not UTF-8 is not printed as a command"
+        ),
+    }
+}
+
+/// The journal flags `brokkr runs` was called with, as typed: the next
+/// page's command repeats them, so it reads the journal this page did
+/// (#820).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Called<'a> {
+    pub(crate) db: Option<&'a Path>,
+    pub(crate) realms: Option<&'a Path>,
+}
+
+impl Called<'_> {
+    /// ` --db <path>` and ` --realms <path>`, each given one, in that
+    /// order, each path one shell word, joined to its flag by `=` where it
+    /// starts with `-`, the one form clap reads such a value in; `None`
+    /// where a path is not UTF-8, which no printed word would name as
+    /// itself.
+    fn flags(&self) -> Option<String> {
+        let flags = [("--db", self.db), ("--realms", self.realms)];
+        flags
+            .into_iter()
+            .filter_map(|(flag, path)| Some((flag, path?)))
+            .map(|(flag, path)| {
+                let path = path.to_str()?;
+                let joint = if path.starts_with('-') { '=' } else { ' ' };
+                Some(format!(" {flag}{joint}{}", render::shell_word(path)))
+            })
+            .collect()
     }
 }

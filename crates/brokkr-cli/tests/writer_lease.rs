@@ -45,10 +45,10 @@ const POLICY: &str = r#"{"phases": ["work", "review", "done"], "initial": "work"
 const PATIENCE: Duration = Duration::from_secs(120);
 
 /// The HOME every run here shares, owner-only, and the worktrees, bundles
-/// and journals beside it.
-struct Host {
+/// and journals beside it. `machine_proof::release` shares it (U8e3).
+pub(crate) struct Host {
     _dir: tempfile::TempDir,
-    base: PathBuf,
+    pub(crate) base: PathBuf,
 }
 
 impl Host {
@@ -56,7 +56,7 @@ impl Host {
     /// walk judges them: the target's temporary directory, else TMPDIR,
     /// `/tmp` or `/var/tmp`. None where none does, the test then skipped
     /// with its reason: this proof is of production's resolution from HOME.
-    fn new() -> Option<Host> {
+    pub(crate) fn new() -> Option<Host> {
         let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
         let candidates = [
             target,
@@ -85,7 +85,11 @@ impl Host {
 
     /// The worktree `name`, a recipe library, and the artifact its root
     /// publishes holding `evidence` where given.
-    fn worktree(&self, name: &str, evidence: Option<&[u8]>) -> (PathBuf, Option<PathBuf>) {
+    pub(crate) fn worktree(
+        &self,
+        name: &str,
+        evidence: Option<&[u8]>,
+    ) -> (PathBuf, Option<PathBuf>) {
         let work = self.base.join(name);
         std::fs::create_dir_all(&work).unwrap();
         crate::engine::library(&work);
@@ -102,18 +106,32 @@ impl Host {
     /// The bundle `name`: its work and review seats exec seats boxed by
     /// the read-write `binds`, the work seat running `script` first.
     fn bundle(&self, name: &str, binds: &[&Path], script: &str) -> PathBuf {
-        let bundle = self.base.join("bundles").join(name);
-        std::fs::create_dir_all(&bundle).unwrap();
-        std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
-        std::fs::write(bundle.join("role.md"), "# seat\n").unwrap();
         let binds: Vec<Value> = (binds.iter())
             .map(|path| json!({"path": path, "mode": "rw"}))
             .collect();
         let hands = json!({"kind": "workspace", "network": false, "binds": binds});
+        self.seated(name, Some(hands), script)
+    }
+
+    /// [`Host::bundle`], its seats unboxed: they hold no hands.
+    pub(crate) fn unboxed(&self, name: &str, script: &str) -> PathBuf {
+        self.seated(name, None, script)
+    }
+
+    /// The bundle `name`, its seats holding `hands` where given.
+    fn seated(&self, name: &str, hands: Option<Value>, script: &str) -> PathBuf {
+        let bundle = self.base.join("bundles").join(name);
+        std::fs::create_dir_all(&bundle).unwrap();
+        std::fs::write(bundle.join("policy.json"), POLICY).unwrap();
+        std::fs::write(bundle.join("role.md"), "# seat\n").unwrap();
         let seat = |result: &str, before: &str| {
-            json!({"results": [result], "role": "role.md", "hands": hands,
+            let mut seat = json!({"results": [result], "role": "role.md",
                    "driver": {"command": ["{brokkr}", "driver", "exec", "--", "sh", "-c",
-                                          answered(before, result), "seat", "{prompt_file}"]}})
+                                          answered(before, result), "seat", "{prompt_file}"]}});
+            if let Some(hands) = &hands {
+                seat["hands"] = hands.clone();
+            }
+            seat
         };
         let (work, review) = (seat("complete", script), seat("clean", ":"));
         let document = json!({"name": name, "policy": "policy.json",
@@ -128,7 +146,7 @@ impl Host {
 
     /// `brokkr run` of `bundle` on `work`, journaled in its own journal,
     /// started under this HOME, its output to files of its own.
-    fn start(&self, work: &Path, bundle: &Path) -> Running {
+    pub(crate) fn start(&self, work: &Path, bundle: &Path) -> Running {
         let name = bundle.file_name().unwrap().to_str().unwrap();
         let said = self.base.join(format!("{name}.stderr"));
         let child = Command::new(env!("CARGO_BIN_EXE_brokkr"))
@@ -150,20 +168,20 @@ impl Host {
         Running { child, said }
     }
 
-    fn journal(&self, name: &str) -> PathBuf {
+    pub(crate) fn journal(&self, name: &str) -> PathBuf {
         self.base.join(format!("{name}.db"))
     }
 
     /// `bundle` run on `work` to its end: its run, and the events it
     /// journaled.
-    fn ran(&self, work: &Path, bundle: &Path) -> (String, Vec<Value>) {
+    pub(crate) fn ran(&self, work: &Path, bundle: &Path) -> (String, Vec<Value>) {
         let run = self.start(work, bundle).ended();
         let events = self.events(bundle, &run);
         (run, events)
     }
 
     /// Every event `run` of `bundle` journaled, exported.
-    fn events(&self, bundle: &Path, run: &str) -> Vec<Value> {
+    pub(crate) fn events(&self, bundle: &Path, run: &str) -> Vec<Value> {
         let name = bundle.file_name().unwrap().to_str().unwrap();
         let (db, out) = (self.journal(name), self.base.join(format!("{name}.export")));
         let exported = Command::new(env!("CARGO_BIN_EXE_brokkr"))
@@ -191,7 +209,7 @@ impl Host {
     }
 
     /// The attempts `run` of `work` holds standing.
-    fn standing(&self, work: &Path, run: &str) -> usize {
+    pub(crate) fn standing(&self, work: &Path, run: &str) -> usize {
         let bytes = std::fs::read(self.reservation(work, run)).unwrap();
         let held: Value = serde_json::from_slice(&bytes).unwrap();
         held["attempts"].as_object().unwrap().len()
@@ -199,14 +217,14 @@ impl Host {
 }
 
 /// A run's `brokkr`, killed and reaped if its test unwinds first.
-struct Running {
-    child: Child,
+pub(crate) struct Running {
+    pub(crate) child: Child,
     said: PathBuf,
 }
 
 impl Running {
     /// The run it said it started, once it says it.
-    fn run(&self) -> String {
+    pub(crate) fn run(&self) -> String {
         let deadline = Instant::now() + PATIENCE;
         loop {
             let said = std::fs::read_to_string(&self.said).unwrap_or_default();
@@ -253,7 +271,7 @@ fn answered(before: &str, result: &str) -> String {
 }
 
 /// Wait up to the patience for `holds`.
-fn until(what: &str, holds: impl Fn() -> bool) {
+pub(crate) fn until(what: &str, holds: impl Fn() -> bool) {
     let deadline = Instant::now() + PATIENCE;
     while !holds() {
         assert!(Instant::now() < deadline, "{what} never held");
@@ -262,7 +280,7 @@ fn until(what: &str, holds: impl Fn() -> bool) {
 }
 
 /// The error every failed attempt of `events` journaled.
-fn failures(events: &[Value]) -> Vec<String> {
+pub(crate) fn failures(events: &[Value]) -> Vec<String> {
     let failed = events
         .iter()
         .filter(|event| event["type"] == "effect/failed");
@@ -272,14 +290,14 @@ fn failures(events: &[Value]) -> Vec<String> {
 }
 
 /// Whether any attempt of `events` succeeded.
-fn succeeded(events: &[Value]) -> bool {
+pub(crate) fn succeeded(events: &[Value]) -> bool {
     events
         .iter()
         .any(|event| event["type"] == "effect/succeeded")
 }
 
 /// CR2's cause, as dispatch journals it.
-fn cr2(conflict: &str) -> String {
+pub(crate) fn cr2(conflict: &str) -> String {
     format!(
         "dispatch refused: capability evidence root cannot be protected from every managed \
          writer: {conflict}"

@@ -493,6 +493,7 @@ fn a_backfill_cut_short_by_a_peer_s_lock_resumes_at_the_next_open() {
     // Migrated and seeded, every row behind, and the backfill not begun.
     let conn = rusqlite::Connection::open(&path).unwrap();
     migrate_summary(&conn).unwrap();
+    crate::event_index::migrate_index(&conn).unwrap();
     drop(conn);
     let lock = write_lock_on(&path);
     let store = Store::open(&path).unwrap();
@@ -640,6 +641,7 @@ fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
     started(&mut store, "corrupt");
     started(&mut store, "gone");
     started(&mut store, "lagging");
+    started(&mut store, "unindexed");
     planted(
         &store,
         "lagging",
@@ -650,6 +652,7 @@ fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
     raw.execute_batch(
         "UPDATE run_summary SET residual_count = 7 WHERE run_id = 'edited';
          DELETE FROM run_summary WHERE run_id = 'gone';
+         DELETE FROM event_index WHERE run_id = 'unindexed';
          DROP TRIGGER events_append_only_update;
          UPDATE events SET envelope = replace(envelope, '\"a feature\"', '\"spoiled\"')
              WHERE run_id = 'corrupt' AND seq = 1;",
@@ -662,6 +665,7 @@ fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
             Disagreement::Missing { run_id } => format!("{run_id} missing"),
             Disagreement::Column { run_id, column } => format!("{run_id} {column}"),
             Disagreement::Unread { run_id, error } => format!("{run_id} unread: {error}"),
+            Disagreement::Indexed { run_id, seq, fault } => format!("{run_id} {seq} {fault:?}"),
         })
         .collect();
     assert_eq!(
@@ -670,6 +674,7 @@ fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
             "corrupt unread: chain: event 1: event_hash does not match canonical content",
             "edited residual_count",
             "gone missing",
+            "unindexed 1 Missing",
         ]
     );
     assert_eq!(
@@ -679,9 +684,13 @@ fn a_row_that_stands_at_its_head_and_disagrees_is_named_by_its_first_column() {
             "edited: residual_count",
             "gone: no summary row",
             "lagging: behind its head",
+            "unindexed: event 1 indexed Missing",
         ]
     );
-    lags(&mut store, &["corrupt", "edited", "gone", "lagging"]);
+    lags(
+        &mut store,
+        &["corrupt", "edited", "gone", "lagging", "unindexed"],
+    );
 }
 
 #[test]

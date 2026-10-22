@@ -198,6 +198,8 @@ pub brokkr_core::envelope::EventType::RunStopped
 pub brokkr_core::envelope::EventType::TransitionDecided
 impl brokkr_core::envelope::EventType
 pub const fn brokkr_core::envelope::EventType::as_str(self) -> &'static str
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::envelope::EventType
+pub fn brokkr_core::envelope::EventType::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub struct brokkr_core::envelope::EventEnvelope
 pub brokkr_core::envelope::EventEnvelope::attempt_id: core::option::Option<alloc::string::String>
 pub brokkr_core::envelope::EventEnvelope::causation_id: core::option::Option<alloc::string::String>
@@ -217,6 +219,15 @@ pub fn brokkr_core::envelope::EventEnvelope::sealed(self) -> Self
 pub const brokkr_core::envelope::EVENT_SCHEMA_VERSION: u32
 pub fn brokkr_core::envelope::verify_chain(&[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_core::envelope::ChainError>
 pub fn brokkr_core::envelope::verify_chain_after(&str, u64, &str, &[brokkr_core::envelope::EventEnvelope]) -> core::result::Result<(), brokkr_core::envelope::ChainError>
+pub mod brokkr_core::event_index
+pub struct brokkr_core::event_index::Indexed<'a>
+pub brokkr_core::event_index::Indexed::attempt_id: core::option::Option<&'a str>
+pub brokkr_core::event_index::Indexed::event_type: brokkr_core::envelope::EventType
+pub brokkr_core::event_index::Indexed::member: core::option::Option<&'a str>
+pub brokkr_core::event_index::Indexed::recorded_at: &'a str
+pub brokkr_core::event_index::Indexed::seq: u64
+impl<'a> brokkr_core::event_index::Indexed<'a>
+pub fn brokkr_core::event_index::Indexed<'a>::of(&'a brokkr_core::envelope::EventEnvelope) -> brokkr_core::event_index::Indexed<'a>
 pub mod brokkr_core::fold
 pub enum brokkr_core::fold::Cursor
 pub brokkr_core::fold::Cursor::Decide
@@ -267,10 +278,11 @@ pub brokkr_core::fold::FoldError::UnknownCommand::seq: u64
 impl brokkr_core::fold::FoldError
 pub fn brokkr_core::fold::FoldError::seq(&self) -> u64
 pub enum brokkr_core::fold::OperatorCommand
+pub brokkr_core::fold::OperatorCommand::Release
 pub brokkr_core::fold::OperatorCommand::Retry
 pub brokkr_core::fold::OperatorCommand::Stop
 impl brokkr_core::fold::OperatorCommand
-pub const brokkr_core::fold::OperatorCommand::ALL: [brokkr_core::fold::OperatorCommand; 2]
+pub const brokkr_core::fold::OperatorCommand::ALL: [brokkr_core::fold::OperatorCommand; 3]
 pub const fn brokkr_core::fold::OperatorCommand::as_str(self) -> &'static str
 pub fn brokkr_core::fold::OperatorCommand::parse(&str) -> core::option::Option<brokkr_core::fold::OperatorCommand>
 pub enum brokkr_core::fold::ParkReason
@@ -981,6 +993,8 @@ pub brokkr_core::EventType::RunStopped
 pub brokkr_core::EventType::TransitionDecided
 impl brokkr_core::envelope::EventType
 pub const fn brokkr_core::envelope::EventType::as_str(self) -> &'static str
+impl<'de> serde_core::de::Deserialize<'de> for brokkr_core::envelope::EventType
+pub fn brokkr_core::envelope::EventType::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
 pub enum brokkr_core::FoldError
 pub brokkr_core::FoldError::AfterTerminal
 pub brokkr_core::FoldError::AfterTerminal::seq: u64

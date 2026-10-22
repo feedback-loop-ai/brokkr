@@ -3445,6 +3445,6 @@ fn brokkr_tui_is_a_listed_read_verb_that_refuses_a_pipe_and_writes_nothing() {
 mod egress;
 mod environment_block;
 mod output_edge;
-
+mod release;
 #[cfg(unix)]
 mod entered_run;

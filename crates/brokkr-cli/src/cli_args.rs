@@ -296,11 +296,12 @@ pub(super) struct OperatorArgs {
     /// Full run id, a unique run-id prefix, or `latest`.
     #[arg(long)]
     pub(super) run: String,
-    /// "retry" re-runs the current phase; "stop" ends the run;
-    /// "supersede" records that residual findings on a run that has
-    /// already finished are closed by another run (decision 0047);
-    /// "acknowledge" lists a quarantined run under older until its
-    /// journal moves (#511).
+    /// "retry" re-runs the current phase; "stop" ends the run; "release"
+    /// attests that every process the run's ended attempts owned has ended,
+    /// and frees the worktree their writer lease holds; "supersede" records
+    /// that residual findings on a run that has already finished are closed
+    /// by another run (decision 0047); "acknowledge" lists a quarantined
+    /// run under older until its journal moves (#511).
     pub(super) command: String,
     /// Why the operator issued the command, recorded with it.
     #[arg(long)]

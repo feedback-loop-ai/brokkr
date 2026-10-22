@@ -1,10 +1,10 @@
 //! The operator's verbs over a run's journal: `retry` and `stop`
-//! (unfenced and through the Looper bridge), `conclude`, and `supersede`
-//! ([`supersede`]). Free functions over [`Store`] that share no
-//! [`super::Engine`] state. Every write that could land where `fold`
-//! refuses it is fenced on the head the deciding fold read
-//! ([`fenced_append`]), and the rule for whether an acceptance folds at
-//! all is `fold`'s own ([`acceptance_refusal`]).
+//! (unfenced and through the Looper bridge), `release` ([`release`]),
+//! `conclude`, and `supersede` ([`supersede`]). Free functions over
+//! [`Store`] that share no [`super::Engine`] state. Every write that could
+//! land where `fold` refuses it is fenced on the head the deciding fold
+//! read ([`fenced_append`]), and the rule for whether an acceptance folds
+//! at all is `fold`'s own ([`acceptance_refusal`]).
 
 use brokkr_core::envelope::EventType;
 use brokkr_core::fold::{
@@ -20,8 +20,12 @@ use super::{EngineError, OPERATOR_STOP_RULE};
 
 mod conclusion;
 mod receipt;
+mod release;
 mod supersede;
+pub(super) use conclusion::operator_stop_reason;
 pub use conclusion::ConcludeRefusal;
+#[cfg(test)]
+pub(super) use release::released_racing;
 #[cfg(test)]
 pub(super) use supersede::operator_supersede_racing;
 pub use supersede::{operator_supersede, Supersede};
@@ -105,45 +109,6 @@ fn decided(
 /// The command id an operator event carries.
 fn command_id_of(event: &EventEnvelope) -> Option<&str> {
     event.payload.get("command_id").and_then(Value::as_str)
-}
-
-/// The conclusion an accepted operator stop is journaled with: the rule
-/// id [`OPERATOR_STOP_RULE`], the command it names, and the operator who
-/// gave it with the reason they recorded. `run/stopped`'s v1 payload is
-/// closed at `{reason}` (`contracts/README.md`, additionalProperties
-/// false), so the citation lives INSIDE the reason string — no new field,
-/// no second vocabulary — exactly as `request_or_finish`'s policy-driven
-/// hard stop cites its `rule_id` there. The cause is read back from the
-/// journal that `operator_command` wrote: `fold` spends the pending
-/// command when it accepts it, so the events are the only place it
-/// survives.
-pub(super) fn operator_stop_reason(events: &[EventEnvelope]) -> String {
-    let accepted = events
-        .iter()
-        .rev()
-        .find(|event| event.event_type == EventType::OperatorAccepted);
-    let accepted_field = |field: &str| {
-        accepted
-            .and_then(|event| event.payload.get(field))
-            .and_then(Value::as_str)
-    };
-    // The acceptance carries only the command's id; the command itself
-    // is on the `operator/commanded` it disposes of.
-    let command_id = accepted_field("command_id").unwrap_or("unrecorded");
-    let command = events
-        .iter()
-        .find(|event| {
-            event.event_type == EventType::OperatorCommanded
-                && command_id_of(event) == Some(command_id)
-        })
-        .and_then(|event| event.payload.get("command"))
-        .and_then(Value::as_str)
-        .unwrap_or(OperatorCommand::Stop.as_str());
-    format!(
-        "{OPERATOR_STOP_RULE}: operator '{}' commanded {command} ({command_id}): {}",
-        accepted_field("operator").unwrap_or("unrecorded"),
-        accepted_field("reason").unwrap_or("no reason recorded"),
-    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -284,7 +249,8 @@ impl Rejection<'_> {
 /// be one `fold` later refuses.
 ///
 /// A refusal is written unfenced, because `fold` reads
-/// `operator/rejected` back in every state there is.
+/// `operator/rejected` back in every state there is. `release` is the
+/// reservation's, and takes a path of its own.
 pub fn operator_command(
     store: &mut Store,
     run_id: &str,
@@ -292,7 +258,12 @@ pub fn operator_command(
     operator: &str,
     reason: &str,
 ) -> Result<FencedCommandOutcome, EngineError> {
-    operator_command_racing(store, run_id, command, operator, reason, |_| {})
+    match command {
+        OperatorCommand::Release => release::released(store, run_id, operator, reason),
+        OperatorCommand::Retry | OperatorCommand::Stop => {
+            operator_command_racing(store, run_id, command, operator, reason, |_| {})
+        }
+    }
 }
 
 /// An unfenced command's disposition with its refusal still typed: the
@@ -657,9 +628,11 @@ pub fn apply_fenced_operator_command(
 /// the order the bridge has always answered: an unknown word, a stale
 /// cursor, a run that is not parked, and then `fold`'s own rule. A
 /// parked run is non-terminal, so what [`acceptance_refusal`] can still
-/// add is a retry with no phase to return to.
+/// add is a retry with no phase to return to. `release` is the operator's
+/// console's alone (U8e3): the bridge refuses it as a word it does not take.
 fn fenced_refusal(state: &RunState, command: CommandWord, cursor_holds: bool) -> Option<Refusal> {
-    let CommandWord::Known(command) = command else {
+    let CommandWord::Known(command @ (OperatorCommand::Retry | OperatorCommand::Stop)) = command
+    else {
         return Some(Refusal::CommandNotAllowed);
     };
     if !cursor_holds {

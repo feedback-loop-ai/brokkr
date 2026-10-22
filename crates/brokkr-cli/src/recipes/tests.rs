@@ -67,6 +67,7 @@ fn bundle_with_sequence() -> Bundle {
         boundary: brokkr_core::realms::Boundary::Namespace,
         executable: brokkr_runtime::argv::Executable::current(),
         chain: Vec::new(),
+        folder: None,
         machine: Machine {
             phases: vec!["review".into()],
             initial: "review".into(),

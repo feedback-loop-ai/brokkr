@@ -6,7 +6,7 @@
 //! fixtures are read, never regenerated. The engine scenario tests are
 //! held to the same check by every writer store's drop (`test_support`).
 
-use brokkr_core::envelope::{ChainError, EventEnvelope};
+use brokkr_core::envelope::{ChainError, EventEnvelope, EventType};
 
 use crate::test_support::{
     fixture_journals as fixtures, import_fixtures, lane,
@@ -56,6 +56,26 @@ fn every_run_reads_as_its_fold() {
         ["conclude-broken-chain-hand-built: does not load: chain: event 11: event_hash does not \
           match canonical content"]
     );
+}
+
+/// An import's inserts are indexed by the trigger as an append's are: a
+/// fixture's trail is its every event but its checkpoints, read from the
+/// journal's own lines.
+#[test]
+fn an_import_is_indexed_as_its_inserts_land() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("forge.db")).unwrap();
+    import_fixtures(&mut store);
+    let run = "reforging-the-road-back-hand-built";
+    let ndjson = std::fs::read_to_string(fixtures().join(format!("{run}.ndjson"))).unwrap();
+    let trail: Vec<u64> = ndjson
+        .lines()
+        .map(|line| serde_json::from_str::<EventEnvelope>(line).unwrap())
+        .filter(|event| event.event_type != EventType::EffectCheckpointed)
+        .map(|event| event.seq)
+        .collect();
+    assert_eq!(trail.len(), 58);
+    assert_eq!(store.index_trail(run).unwrap(), trail);
 }
 
 const BROKEN: &str = "conclude-broken-chain-hand-built";

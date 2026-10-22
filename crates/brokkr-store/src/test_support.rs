@@ -50,6 +50,9 @@ fn named(run_id: &str, compared: Compared) -> Option<String> {
         Compared::Disagrees(Disagreement::Unread { error, .. }) => {
             format!("does not load: {error}")
         }
+        Compared::Disagrees(Disagreement::Indexed { seq, fault, .. }) => {
+            format!("event {seq} indexed {fault:?}")
+        }
     };
     Some(format!("{run_id}: {words}"))
 }
@@ -205,11 +208,9 @@ pub fn plant_older_writer(store: &Store, run_id: &str, events: &[EventEnvelope])
     }
 }
 
-/// Every exported journal under `fixtures/journals/`, in name order,
-/// imported into `store`, and planted as [`plant_older_writer`] plants it
-/// where the import refuses it: each journal's run id, and the words of
-/// each refusal.
-pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
+/// Every exported journal under `fixtures/journals/`, in name order: its
+/// path, its lines and the events they hold, read whole, chain unjudged.
+pub(crate) fn fixture_events() -> Vec<(std::path::PathBuf, String, Vec<EventEnvelope>)> {
     let mut journals: Vec<_> = std::fs::read_dir(fixture_journals())
         .expect("the fixture journals are listed")
         .map(|entry| entry.expect("a fixture entry reads").path())
@@ -219,20 +220,33 @@ pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
         })
         .collect();
     journals.sort();
+    journals
+        .into_iter()
+        .map(|journal| {
+            let ndjson = std::fs::read_to_string(&journal).expect("a fixture journal reads");
+            let events = ndjson
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("a fixture event is an envelope"))
+                .collect();
+            (journal, ndjson, events)
+        })
+        .collect()
+}
+
+/// Every exported journal under `fixtures/journals/`, in name order,
+/// imported into `store`, and planted as [`plant_older_writer`] plants it
+/// where the import refuses it: each journal's run id, and the words of
+/// each refusal.
+pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
     let (mut runs, mut refused) = (Vec::new(), Vec::new());
-    for journal in &journals {
-        let ndjson = std::fs::read_to_string(journal).expect("a fixture journal reads");
+    for (journal, ndjson, events) in fixture_events() {
         let sidecar = std::fs::read_to_string(journal.with_extension("manifest.json"));
         let manifest = sidecar.map_or_else(
             |_| serde_json::json!({}),
             |text| serde_json::from_str(&text).expect("a sidecar manifest is JSON"),
         );
-        let events: Vec<EventEnvelope> = ndjson
-            .lines()
-            .map(|line| serde_json::from_str(line).expect("a fixture event is an envelope"))
-            .collect();
         let run_id = events[0].run_id.clone();
-        if let Err(error) = store.import_run(&ndjson, &manifest, journal) {
+        if let Err(error) = store.import_run(&ndjson, &manifest, &journal) {
             refused.push(error.to_string());
             plant_older_writer(store, &run_id, &events);
         }
@@ -242,15 +256,29 @@ pub fn import_fixtures(store: &mut Store) -> (Vec<String>, Vec<String>) {
 }
 
 /// Leave a journal as a binary from before the summary (decision 0089)
-/// left it: none of the summary's table, index or triggers, and no
-/// backfill recorded. Opening it read-write migrates it again.
+/// left it: none of the summary's table, index or triggers, none of the
+/// event index's, and neither backfill recorded. Opening it read-write
+/// migrates it again.
 pub fn unmigrate(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
+    let unsummarized = conn.execute_batch(
         "DROP TABLE run_summary;
          DROP TRIGGER run_summary_of_a_run;
          DROP TRIGGER run_summary_of_an_event;
          DROP TRIGGER run_summary_of_an_acknowledgement;
          DELETE FROM meta WHERE key = 'run_summary_backfill';",
+    );
+    unsummarized?;
+    unindex(conn)
+}
+
+/// Leave a journal as a binary from before the event index (decision
+/// 0089 slice 2) left it: no table, indexes or triggers of it, and no
+/// backfill recorded.
+pub fn unindex(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "DROP TABLE event_index;
+         DROP TRIGGER event_index_of_an_event;
+         DELETE FROM meta WHERE key = 'event_index_backfill';",
     )
 }
 

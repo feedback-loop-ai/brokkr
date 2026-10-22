@@ -52,7 +52,7 @@ mod capability_calls;
 mod checkpoints;
 mod decide;
 mod dispatch;
-use dispatch::spawn_site;
+use dispatch::{spawn_site, Door};
 mod fence;
 mod input;
 mod isolation;
@@ -968,24 +968,13 @@ impl Engine {
                     dispatched?
                 }
             }
+            // Fresh process, no live driver: recovered only where every
+            // driver is proven settled, never re-paid (U8e2).
             Cursor::EffectInFlight {
                 effect_id,
                 attempt_id,
                 ..
-            } => {
-                // Fresh process, no live driver: completion cannot be
-                // established. Park rather than guess or re-pay.
-                self.append(
-                    EventType::EffectIndeterminate,
-                    json!({
-                        "effect_id": effect_id,
-                        "attempt_id": attempt_id.clone(),
-                        "reason": "engine restarted while the attempt was in flight; \
-                                   completion cannot be established",
-                    }),
-                    Some(attempt_id),
-                )?;
-            }
+            } => self.restarted(&effect_id, &attempt_id)?,
             Cursor::Decide { result, .. } => self.decide(&state, result)?,
             Cursor::Park { reason } => {
                 let evidence = match reason {
@@ -1682,9 +1671,9 @@ impl Engine {
         }
         let stamp = plan.map(|plan| plan.context.clone());
         // The door returns the very input the driver is sent, its verified charter text in it.
-        let held = self.held.as_ref();
+        let door = (self.held.as_ref()).map(|held| Door::of(held, driver_seat, begun.as_ref()));
         let (process, input) =
-            match spawn_site(&self.bundle, spawn, &input, &workdir, deadline, held) {
+            match spawn_site(&self.bundle, spawn, &input, &workdir, deadline, door) {
                 Err(e) => return Ok(DriverRun::SpawnFailed(format!("driver did not spawn: {e}"))),
                 Ok(started) => started,
             };
@@ -1732,7 +1721,7 @@ impl Engine {
                 sink.offer("", checkpoint, call);
             },
         )?;
-        let report = self.folded([effect_id, attempt_id], spawn, begun, report)?;
+        let report = self.folded([effect_id, attempt_id, driver_seat], spawn, begun, report)?;
         Ok(DriverRun::Ran(report))
     }
 

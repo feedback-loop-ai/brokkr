@@ -7,7 +7,9 @@ use brokkr_core::envelope::{verify_chain, EventEnvelope, EventType};
 use brokkr_core::fold::{computed_inputs, fold, Cursor, FoldError, ParkReason, Run, Status};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use crate::committed_journals::{committed_journals, repository};
 
 #[path = "../../../tests/support/envelope.rs"]
 mod envelope_builder;
@@ -205,6 +207,44 @@ fn requested_but_unstarted_effect_can_close_indeterminate() {
     assert!(matches!(state.run.cursor(), Some(Cursor::Park { .. })));
 }
 
+/// A succeeded event is placed by the effect it names before its result
+/// is read: one naming another effect is out of place whatever its body,
+/// and one naming the open effect is refused for a missing result.
+#[test]
+fn a_succeeded_event_is_placed_before_its_result_is_read() {
+    let mut journal = Journal::new();
+    effect_cycle(&mut journal, "implement", json!({"result": "complete"}));
+    journal.events.pop();
+    let mut foreign = Journal {
+        events: journal.events.clone(),
+    };
+    foreign.append(
+        EventType::EffectSucceeded,
+        json!({"effect_id": "fx-other", "attempt_id": "a1"}),
+    );
+    assert_eq!(
+        fold(&foreign.events).unwrap_err(),
+        FoldError::OutOfPlace {
+            seq: 5,
+            event: "EffectSucceeded".into(),
+            cursor: "EffectInFlight { effect_id: \"fx-implement\", attempt_id: \"a1\", \
+                     seat: \"implement\", failed_attempts: 0 }"
+                .into(),
+        }
+    );
+    journal.append(
+        EventType::EffectSucceeded,
+        json!({"effect_id": "fx-implement", "attempt_id": "a1"}),
+    );
+    assert_eq!(
+        fold(&journal.events).unwrap_err(),
+        FoldError::BadPayload {
+            seq: 5,
+            field: "result".into(),
+        }
+    );
+}
+
 #[test]
 fn protocol_violations_fail_closed() {
     // Second effect while one is open.
@@ -362,42 +402,6 @@ fn every_committed_journal_prefix_reads_as_it_always_did() {
         sha256_bytes(read.as_bytes()),
         "179dc754bcea8c692d1dcee4b47ab762524cbafbea1829d3bb1887724b0c83f1"
     );
-}
-
-/// The repository root, where the committed journals live.
-fn repository() -> PathBuf {
-    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    crates.parent().unwrap().to_path_buf()
-}
-
-/// Every committed journal, the fixtures and the evidence, in path order.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test reads the committed journals"
-)]
-fn committed_journals() -> Vec<(PathBuf, Vec<EventEnvelope>)> {
-    let mut paths: Vec<PathBuf> = ["fixtures/journals", "docs/evidence"]
-        .into_iter()
-        .flat_map(|dir| std::fs::read_dir(repository().join(dir)).unwrap())
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "ndjson")
-        })
-        .collect();
-    paths.sort();
-    paths
-        .into_iter()
-        .map(|path| {
-            let ndjson = std::fs::read_to_string(&path).expect("a committed journal");
-            let events = ndjson
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(|line| serde_json::from_str(line).expect("canonical NDJSON"))
-                .collect();
-            (path, events)
-        })
-        .collect()
 }
 
 /// One committed journal, by its path.

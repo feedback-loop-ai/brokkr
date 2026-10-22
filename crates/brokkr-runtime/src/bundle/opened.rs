@@ -110,6 +110,13 @@ impl<'a> Opened<'a> {
         }
     }
 
+    /// The same roots and law, with nothing opened yet.
+    pub(super) fn fresh(&self) -> Opened<'a> {
+        let roots = (self.library_root, self.adapters_root);
+        let offices = self.provisional_offices.clone();
+        Opened::new(roots, self.definitions, self.egress_minimum, offices)
+    }
+
     /// The adapters, opened strictly: a load that fails, now or at an
     /// earlier optional read, refuses with the loader's words and why.
     pub(super) fn adapters(&mut self) -> Result<&Adapters, CompileError> {

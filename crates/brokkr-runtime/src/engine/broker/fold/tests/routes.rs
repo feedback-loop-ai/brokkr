@@ -20,14 +20,15 @@ use rusqlite::Error::SqliteFailure;
 
 use super::*;
 use crate::engine::broker::admission::recheck;
-use crate::engine::broker::admission::tests::last;
+use crate::engine::broker::admission::tests::{last, Coordinated};
 use crate::engine::broker::settlement::witnessed;
 use crate::engine::checkpoints::{self, Checkpoints};
+use crate::engine::fence::tip_of;
 use crate::engine::panel::MemberRun;
 use crate::engine::tests::{fail_event, state};
 
 /// Why the restarted engine settles an attempt it finds in flight.
-const RESTARTED: &str =
+pub(super) const RESTARTED: &str =
     "engine restarted while the attempt was in flight; completion cannot be established";
 
 /// A cleanup a driver ended with, its tree not proven over.
@@ -263,8 +264,11 @@ fn a_driver_killed_at_its_deadline_settles_its_interrupted_call() {
 
 /// The engine of `site` as a restart finds it, the attempt in flight and
 /// no lease held, since only the durable reservation outlives the engine
-/// that died: it settles the attempt as it finds it.
-fn restarted(site: &mut Site) {
+/// that died, in the coordination root that lease stood in, its fence
+/// armed at the journal's head as its turn's fold arms it: the event it
+/// ends the attempt with.
+pub(super) fn restart(site: &mut Site) -> (EventType, Value) {
+    let _stood = Coordinated::at(&site.home());
     let engine = &mut site.engine;
     engine.held = None;
     let run = engine.run_id.clone();
@@ -276,16 +280,23 @@ fn restarted(site: &mut Site) {
         stop_rides: false,
     };
     let events = engine.store.load(&run).unwrap();
+    (engine.current_cause, engine.fence) = tip_of(&events);
     let current = state(Some("work"), in_flight.clone());
     engine.advance_running(&events, in_flight, current).unwrap();
+    last(engine)
+}
+
+/// [`restart`], which settles the attempt as it finds it: indeterminate,
+/// nothing read.
+fn restarted(site: &mut Site) {
     let settled = json!({"effect_id": EFFECT, "attempt_id": ATTEMPT, "reason": RESTARTED});
-    assert_eq!(last(engine), (EventType::EffectIndeterminate, settled));
+    assert_eq!(restart(site), (EventType::EffectIndeterminate, settled));
 }
 
 /// Whether `ended` is the storage failure the journal's forced refusal of
 /// a checkpoint hands up: SQLite's own trigger abort, with the message
 /// `fail_event`'s trigger raises.
-fn forced<T>(ended: &Result<T, EngineError>) -> bool {
+pub(super) fn forced<T>(ended: &Result<T, EngineError>) -> bool {
     let Err(EngineError::Store(StoreError::Sqlite(SqliteFailure(error, message)))) = ended else {
         return false;
     };

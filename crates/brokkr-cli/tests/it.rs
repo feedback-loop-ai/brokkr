@@ -47,6 +47,7 @@ mod doc_truth;
 mod doctor_dsh_selection;
 mod dsh_sandbox_runner;
 mod effect_replay;
+mod folder_seats;
 mod hands;
 mod harness_probe;
 mod hosts;
