@@ -251,8 +251,10 @@ this decision and the Rust types are their shape.
    not ruled here. Nothing of a continued run's fold is read into this
    run's.
 
-   **Enforcement binding:** `Machine::unruled_without_strategy` in
-   `crates/brokkr-core/src/policy/audit.rs` and its tests;
+   **Enforcement binding:** `Machine::groups_reading_strategy`,
+   `Machine::groups_reading_visits` and `Rule::reads_visits` in
+   `crates/brokkr-core/src/policy/audit.rs` and their tests, the first in
+   place of `Machine::unruled_without_strategy` (D37, D43, D45);
    `CHANGE_SOURCES` in `crates/brokkr-runtime/src/phase_name.rs`, read by
    `nearest_change` (`engine/sequence.rs`) and the admission's sixth fact; the fixtures in
    `bundle/tests/entry.rs` (a selector with a default admitted, a group only a
@@ -423,6 +425,14 @@ this decision and the Rust types are their shape.
    `tests/support/entry_records.rs` refuses, the patterns are the
    compiler's and the core's, and a journal carrying the new fields verifies under the
    current verifier).
+
+   *Amended, 2026-10-22 (the change's D51):* the launch reads a continued
+   run's pinned manifest through `brokkr_core::dispatch::dispatch_from_run`,
+   the engine's own typed lineage reader, which `Engine::resume` tells a
+   Looper-bound run apart by; a manifest that claims the lineage but does
+   not read is refused naming the run as unreadable, never read as local,
+   and the binding's Looper-bound fixture pins a run manifest the engine's
+   own builder made.
 
 6. **The journal records the entry and the table's order, two additive
    fields the fold never reads.** `run/started` carries `entry`, an
